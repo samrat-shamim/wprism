@@ -2670,27 +2670,32 @@ scenario_s4() {
   fi
 
   say "$S — copy the shipped woocommerce manifest into adapters/ and add one authored option"
-  # `woocommerce_store_address_2` is a real WooCommerce store-address setting
-  # (the second address line) that manifests/woocommerce.json does not declare
-  # — checked against the shipped manifest below, so the override is a genuine
-  # widening rather than a restatement. One added rule is enough: §3.3 is about
-  # which COPY answers to the name, and a copy that differed in nothing would
-  # make "the site copy won" unobservable.
+  # `woocommerce_demo_store_notice` is a real WooCommerce setting (the store
+  # notice text, WooCommerce → Settings → General) that manifests/woocommerce.json
+  # neither declares in `options` nor covers with an `option_patterns` rule —
+  # checked against the shipped manifest below, so the override is a genuine
+  # widening rather than a restatement (run 23 asserted store_address_2 and
+  # found the shipped copy declares it). One added rule is enough: §3.3 is
+  # about which COPY answers to the name, and a copy that differed in nothing
+  # would make "the site copy won" unobservable.
   local override="$HOST_R1/adapters/woocommerce.json"
-  local newOption=woocommerce_store_address_2
+  local newOption=woocommerce_demo_store_notice
   run mkdir -p "$HOST_R1/adapters"
   if dry; then
     plan "jq: cp manifests/woocommerce.json -> adapters/woocommerce.json + options.$newOption = authored"
   else
-    jq -e --arg o "$newOption" '.options[$o] == null' "$REPO_ROOT/manifests/woocommerce.json" >/dev/null \
-      || fail "$S: manifests/woocommerce.json already declares $newOption, so adding it proves nothing; pick another undeclared option"
+    jq -e --arg o "$newOption" '
+      .options[$o] == null
+      and ([(.option_patterns // [])[] | . as $p | select($o | test($p.match))] | length == 0)
+    ' "$REPO_ROOT/manifests/woocommerce.json" >/dev/null \
+      || fail "$S: manifests/woocommerce.json already declares or pattern-covers $newOption, so adding it proves nothing; pick another undeclared option"
     # `notes` is free-form in the grammar and the shipped copy carries it as
     # an object (keyed rationale), so the override adds a key rather than
     # assuming a list.
     jq --arg o "$newOption" '
       .options[$o] = {class: "authored", autoload: "preserve"}
       | .notes = ((if (.notes | type) == "object" then .notes else {} end)
-          + {"round-3 T6 S4: site override": "This copy is the shipped manifest plus one authored option the shipped copy does not declare (\($o), the second store-address line WooCommerce writes), so which copy answered to the name is observable rather than asserted."})
+          + {"round-3 T6 S4: site override": "This copy is the shipped manifest plus one authored option the shipped copy neither declares nor pattern-covers (\($o), the store notice text WooCommerce writes), so which copy answered to the name is observable rather than asserted."})
     ' "$REPO_ROOT/manifests/woocommerce.json" > "$override" \
       || fail "$S: could not build the site override manifest"
   fi
