@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "test": "multisite-refusal",
+  "verdict": "pass",
+  "exit_code": 0,
+  "reason": "passed",
+  "assertions": [
+    "wordpress_runtime_reports_multisite",
+    "capture_nonzero",
+    "no_repository_publication",
+    "authored_canary_unchanged"
+  ]
+}

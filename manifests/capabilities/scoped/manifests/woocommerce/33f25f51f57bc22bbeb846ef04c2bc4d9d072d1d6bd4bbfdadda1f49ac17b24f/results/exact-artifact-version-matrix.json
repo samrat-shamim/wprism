@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "test": "exact-artifact-version-matrix",
+  "verdict": "pass",
+  "exit_code": 0,
+  "reason": "passed",
+  "subject": "manifests.woocommerce",
+  "assertions": [
+    "declared_artifacts_digest_verified",
+    "admitted_boundaries_round_trip",
+    "below_range_refused"
+  ]
+}
