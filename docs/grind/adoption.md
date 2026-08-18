@@ -145,3 +145,15 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   refused `unresolved_option_reference_scope`. `manifests/elementor.json` now
   declares `elementor_library` structurally, so init proposes it into scope.
 
+- A6 (rehearse, sandbox tooling): the rehearsal target's `duo apply` failed
+  its required `provider:elementor-css/regenerate_css` action with
+  `file_put_contents(…/uploads/elementor/css/post-1.css): Permission denied`.
+  The reference provider publishes the immutable media snapshot 0555 and
+  host-owned, and `docker cp` carried owner and mode into the target whose
+  runtime is 33:33 — the site could not write inside its own uploads after
+  every restore (Woo/Yoast/CF7 never write there during apply, so A1–A5 never
+  noticed). `tools/reference-env-provider.php` now hands the restored tree
+  back (`chown -R 33:33`, `chmod -R u+rwX,go+rX`) after each restore; the
+  restore stays bound to `media_sha256`, a byte/tree digest. Product code
+  untouched; the redacted JSON `apply_failed` was read in human mode on the
+  kept pair.
