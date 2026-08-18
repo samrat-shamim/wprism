@@ -61,7 +61,8 @@ final class InitCodeInventory {
         }
         unset($list);
 
-        $inventory = self::inventory($roots, $components, $blockers);
+        $advisories = [];
+        $inventory = self::inventory($roots, $components, $blockers, $advisories);
         return [
             'active_plugins' => self::pluginInventory($activePlugins),
             'active_theme' => ['stylesheet' => $stylesheet, 'template' => $template],
@@ -73,6 +74,7 @@ final class InitCodeInventory {
             'roots' => $roots,
             'source_revision' => hash('sha256', Canon::encode($inventory['files'])),
             'blockers' => $blockers,
+            'advisories' => $advisories,
         ];
     }
 
@@ -80,9 +82,12 @@ final class InitCodeInventory {
      * @param array<string,mixed> $roots
      * @param array<string,list<string>> $components
      * @param list<array<string,string>> $blockers
+     * @param ?list<array<string,string>> $advisories the non-blocking findings
+     *        (a JWT inside a code file — see inventoryFile()); null when the
+     *        caller re-walks only to prove the tree unchanged (InitCodeBaseline)
      * @return array{files:list<array{path:string,sha256:string}>,bytes:int}
      */
-    public static function inventory(array $roots, array $components, array &$blockers): array {
+    public static function inventory(array $roots, array $components, array &$blockers, ?array &$advisories = null): array {
         $files = [];
         $bytes = 0;
         foreach ($components as $rootName => $names) {
@@ -98,7 +103,7 @@ final class InitCodeInventory {
                 $source = rtrim($root, '/') . '/' . $name;
                 $prefix = $rootName . '/' . $name;
                 try {
-                    self::inventoryPath($source, $prefix, $files, $bytes, $blockers);
+                    self::inventoryPath($source, $prefix, $files, $bytes, $blockers, $advisories);
                 } catch (\Throwable $error) {
                     $blockers[] = [
                         'code' => 'code_component_unreadable', 'extension' => $prefix, 'kind' => 'code',
@@ -163,12 +168,12 @@ final class InitCodeInventory {
     }
 
     /** @param list<array{path:string,sha256:string}> $files @param list<array<string,string>> $blockers */
-    private static function inventoryPath(string $source, string $prefix, array &$files, int &$bytes, array &$blockers): void {
+    private static function inventoryPath(string $source, string $prefix, array &$files, int &$bytes, array &$blockers, ?array &$advisories = null): void {
         if (is_link($source)) {
             throw new \RuntimeException("symbolic link is not portable: $prefix");
         }
         if (is_file($source)) {
-            self::inventoryFile($source, $prefix, $files, $bytes, $blockers);
+            self::inventoryFile($source, $prefix, $files, $bytes, $blockers, $advisories);
             return;
         }
         if (!is_dir($source) || !is_readable($source)) {
@@ -188,12 +193,12 @@ final class InitCodeInventory {
             if (!$item->isFile()) {
                 throw new \RuntimeException("non-regular code entry is not portable: $relative");
             }
-            self::inventoryFile($path, $relative, $files, $bytes, $blockers);
+            self::inventoryFile($path, $relative, $files, $bytes, $blockers, $advisories);
         }
     }
 
-    /** @param list<array{path:string,sha256:string}> $files @param list<array<string,string>> $blockers */
-    private static function inventoryFile(string $path, string $relative, array &$files, int &$bytes, array &$blockers): void {
+    /** @param list<array{path:string,sha256:string}> $files @param list<array<string,string>> $blockers @param ?list<array<string,string>> $advisories */
+    private static function inventoryFile(string $path, string $relative, array &$files, int &$bytes, array &$blockers, ?array &$advisories = null): void {
         if (!is_readable($path)) {
             throw new \RuntimeException("code file is unreadable: $relative");
         }
@@ -204,7 +209,28 @@ final class InitCodeInventory {
         }
         $base = strtolower(basename($relative));
         $secretLabel = self::secretLabel($path);
-        if ($base === '.env' || str_starts_with($base, '.env.') || $base === 'wp-config.php'
+        if ($secretLabel === 'jwt') {
+            // A complete JWT inside SHIPPED code is, far more often than not, a
+            // public artifact rather than a live credential — Yoast SEO's
+            // OIDC software statement (`issuer-config.php`), id-token fixtures
+            // in test trees — and a hard block here refused `duo init` on
+            // every site running that plugin (T7 grind A4). It is still named,
+            // redacted, on its own advisory line, so an in-house plugin that
+            // really did hard-code a bearer token is not passed over in
+            // silence; the operator decides. Private keys, cloud/API tokens
+            // and environment-owned config files below stay blocking: those
+            // shapes are not published on purpose.
+            if ($advisories !== null) {
+                $advisories[] = [
+                    'code' => 'jwt_in_code_file', 'extension' => $relative, 'kind' => 'code',
+                    'reason' => 'a complete JWT is inside the proposed code payload; the value is redacted. Shipped code '
+                        . 'carries public tokens (an OIDC software statement, an id-token fixture) far more often than '
+                        . 'a live credential, so this is stated, not blocked',
+                    'remediation' => 'if this token is a live credential, remove it from executable code and inject it as '
+                        . 'environment-owned configuration; otherwise nothing to do',
+                ];
+            }
+        } elseif ($base === '.env' || str_starts_with($base, '.env.') || $base === 'wp-config.php'
             || $secretLabel !== null) {
             $blockers[] = [
                 'code' => 'credential_bearing_code_file', 'extension' => $relative, 'kind' => 'code',

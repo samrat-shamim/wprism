@@ -2841,6 +2841,7 @@ final class Cli {
      * [--operation=<operation>] : Capability to evaluate. Defaults to promote.
      * [--surface=<surface>] : Exact registry surface to evaluate.
      * [--revision=<sha>] : Exact evidence-bound platform revision to evaluate.
+     * [--adoption-preview] : On an adoption seed, evaluate against the policy duo init would propose (what duo assess reads); inert on an init-owned repository.
      * [--format=<format>] : Output format. Accepts json.
      */
     public function capabilities($args, $assoc) {
@@ -2914,7 +2915,21 @@ final class Cli {
                         '--repo required unless --all is used'
                     );
                 }
-                $report = Policy::load($repo, null, true)->capability_report($query);
+                if (isset($assoc['adoption-preview'])) {
+                    // `duo assess`'s own capability reads: on an adoption seed
+                    // they must be answered against the policy the inventory
+                    // was projected against (the init proposal), or the
+                    // catalog joins preview surfaces to core-only claims and
+                    // reads `missing_registry_entry` for adapters the library
+                    // certifies (T7 grind A4). An init-owned repository is
+                    // unchanged; a plain `wp duo capabilities --repo` without
+                    // the flag keeps reporting the pinned set as it stands.
+                    require_once __DIR__ . '/../Assess/AssessInventory.php';
+                    [$policy] = AssessInventory::policy_for_assessment($repo);
+                    $report = $policy->capability_report($query);
+                } else {
+                    $report = Policy::load($repo, null, true)->capability_report($query);
+                }
             }
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'capabilities');

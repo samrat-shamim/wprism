@@ -1720,8 +1720,48 @@ if (!is_string($jwtFixture)) fail('could not create JWT scanner fixture');
 file_put_contents($jwtFixture, "\n" . 'eyJ' . str_repeat('A', 9000));
 check(\Duo\InitCodeInventory::secretLabel($jwtFixture) === null, 'bare bundled base64url payload is not mislabeled as a JWT');
 file_put_contents($jwtFixture, "\n" . 'eyJ' . str_repeat('A', 700) . '.eyJ' . str_repeat('B', 24) . '.signature');
-check(\Duo\InitCodeInventory::secretLabel($jwtFixture) === 'jwt', 'complete long JWT remains blocked');
+check(\Duo\InitCodeInventory::secretLabel($jwtFixture) === 'jwt', 'complete long JWT is still labelled jwt by the scanner');
 unlink($jwtFixture);
+// T7 grind A4: Yoast SEO ships (a) a JOSE bundle whose format check carries
+// the bare string `-----BEGIN PRIVATE KEY-----` with no key material, and
+// (b) an OIDC software statement — a complete, public JWT — as a PHP constant.
+// The old scan refused `duo init` on every Yoast site for both. A private key
+// is the marker FOLLOWED BY key material; a JWT inside shipped code is an
+// advisory, named and redacted, never a blocker.
+$scanRoot = sys_get_temp_dir() . '/duo-init-scan-' . bin2hex(random_bytes(4));
+mkdir($scanRoot . '/plugins/acme', 0777, true);
+file_put_contents($scanRoot . '/plugins/acme/bundle.js', 'if(!e.includes("-----BEGIN PRIVATE KEY-----"))throw new TypeError("pkcs8 must be PKCS#8 formatted string");');
+file_put_contents($scanRoot . '/plugins/acme/statement.php', "<?php\nconst SOFTWARE_STATEMENT = '" . 'eyJ' . str_repeat('A', 80) . '.eyJ' . str_repeat('B', 80) . '.' . str_repeat('C', 40) . "';\n");
+$scanBlockers = [];
+$scanAdvisories = [];
+$scanned = \Duo\InitCodeInventory::inventory(['plugins' => $scanRoot . '/plugins'], ['plugins' => ['acme']], $scanBlockers, $scanAdvisories);
+check(count($scanned['files']) === 2 && $scanBlockers === [], 'a bare PEM marker in a JS bundle and a JWT constant in PHP block nothing');
+check(
+    count($scanAdvisories) === 1
+        && $scanAdvisories[0]['code'] === 'jwt_in_code_file'
+        && $scanAdvisories[0]['extension'] === 'plugins/acme/statement.php'
+        && !str_contains(json_encode($scanAdvisories), 'eyJ'),
+    'the JWT is an advisory naming the file, with the value redacted'
+);
+file_put_contents($scanRoot . '/plugins/acme/key.pem', "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7abcdefghijkl\n-----END PRIVATE KEY-----\n");
+$scanBlockers = [];
+$scanAdvisories = [];
+\Duo\InitCodeInventory::inventory(['plugins' => $scanRoot . '/plugins'], ['plugins' => ['acme']], $scanBlockers, $scanAdvisories);
+check(
+    count($scanBlockers) === 1 && $scanBlockers[0]['code'] === 'credential_bearing_code_file'
+        && $scanBlockers[0]['extension'] === 'plugins/acme/key.pem'
+        && str_contains($scanBlockers[0]['reason'], 'private key'),
+    'a PEM marker followed by key material still blocks as a private key'
+);
+$scanBlockers = [];
+\Duo\InitCodeInventory::inventory(['plugins' => $scanRoot . '/plugins'], ['plugins' => ['acme']], $scanBlockers);
+check(count($scanBlockers) === 1, 'the confirm-time re-walk (no advisories channel) sees the same one blocker and never a JWT');
+foreach (['bundle.js', 'statement.php', 'key.pem'] as $scanFile) {
+    @unlink($scanRoot . '/plugins/acme/' . $scanFile);
+}
+@rmdir($scanRoot . '/plugins/acme');
+@rmdir($scanRoot . '/plugins');
+@rmdir($scanRoot);
 $originalWpdb = $GLOBALS['wpdb'] ?? null;
 $fakeWpdb = new InitRiskWpdb();
 $fakeWpdb->oversizedOptions = 2;

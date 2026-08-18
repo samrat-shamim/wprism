@@ -91,7 +91,10 @@ else
   fail "composition order changed; got:"; printf '%s\n' "$ORDER" >&2
 fi
 
+CAP_PREVIEW=$(grep -c 'duo capabilities .*--adoption-preview' "$TMP/calls.txt")
 CAP_CALLS=$(grep -c 'duo capabilities ' "$TMP/calls.txt")
+check "$([ "$CAP_PREVIEW" = "$CAP_CALLS" ] && echo 0 || echo 1)" \
+  'every capabilities read carries --adoption-preview, so a seed is answered against the same policy the inventory was projected against'
 check "$([ "$CAP_CALLS" = 4 ] && echo 0 || echo 1)" \
   "six product operations collapse to four registry operations (got $CAP_CALLS calls)"
 

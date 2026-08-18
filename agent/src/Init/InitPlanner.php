@@ -173,7 +173,8 @@ final class InitPlanner {
         }
         $code = InitCodeInventory::probe($activePlugins, $template, $stylesheet);
         $unsupported = array_merge($unsupported, $code['blockers']);
-        unset($code['blockers']);
+        $advisories = array_merge($advisories, $code['advisories']);
+        unset($code['blockers'], $code['advisories']);
 
         $selected = array_values(array_unique($selected));
         sort($selected, SORT_STRING);

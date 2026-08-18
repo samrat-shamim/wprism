@@ -13348,6 +13348,14 @@
                             "name": "blockers",
                             "type": "array",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": true,
+                            "default": null,
+                            "has_default": true,
+                            "name": "advisories",
+                            "type": "?array",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",

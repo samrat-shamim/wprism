@@ -95,3 +95,18 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   the deletion intent — `manifests/woocommerce.json` keeps product deletion
   fail-closed by design — so the situation authors its catalog change on the
   source instead of preview-then-delete.
+- A4 (first look, host side): `duo assess`'s per-operation `wp duo
+  capabilities` reads answered the seed's core-only pin set while the
+  inventory had been projected against the init proposal, so the catalog
+  joined preview surfaces to missing claims (`missing_registry_entry`). The
+  assess composition now passes `--adoption-preview`, and the agent answers
+  those reads against the same policy.
+- A4 (init): Yoast SEO ships a JOSE bundle whose format check carries the
+  bare string `-----BEGIN PRIVATE KEY-----` and an OIDC software statement
+  (a complete, public JWT) as a PHP constant; init refused
+  `credential_bearing_code_file` twice on every Yoast site. A private key is
+  now the PEM marker followed by key material, and a JWT inside shipped code
+  is an advisory (`jwt_in_code_file`, named and redacted), never a blocker;
+  private keys, cloud/API tokens and environment-owned config files stay
+  blocking.
+
