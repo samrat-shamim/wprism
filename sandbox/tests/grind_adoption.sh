@@ -673,11 +673,599 @@ situation_a5() {
 # ---------------------------------------------------------------------------
 # A6–A10 — round 2 (built after round 1 is green).
 # ---------------------------------------------------------------------------
-situation_a6()  { fail "A6 is not built yet (round 2: Elementor + ACF + block theme)"; }
-situation_a7()  { fail "A7 is not built yet (round 2: WPForms on A4's shop, S1 then S2)"; }
-situation_a8()  { fail "A8 is not built yet (round 2: acme-catalog + a plugin/adapter code release)"; }
-situation_a9()  { fail "A9 is not built yet (round 2: version edges)"; }
-situation_a10() { fail "A10 is not built yet (round 2: edge cases)"; }
+# ---------------------------------------------------------------------------
+# A6 — builder site: Elementor + ACF + block theme. ACF field groups and
+# Elementor pages/templates by decision; a design edit round-trips.
+# manifests/elementor.json's own note: elementor_library is a scope the site
+# must opt into — this situation walks that opt-in as an operator would.
+# ---------------------------------------------------------------------------
+seed_builder() {
+  say "seed — an ACF field group with a value on the landing page, and an Elementor-built page"
+  if dry; then
+    plan "wp1 eval-file (acf_update_field_group + acf_update_field + update_field on the landing page)"
+    plan "wp1 eval-file (Elementor Document::save with a heading widget) + one front-end render"
+    BUILDER_PAGE_PATH='/duo-builder-page/'
+    return 0
+  fi
+  cat > "$HOST_R1/.tmp-seed-acf.php" <<'PHPEOF'
+<?php
+if (!function_exists('acf_update_field_group')) { fwrite(STDERR, "ACF functions not available\n"); exit(1); }
+acf_update_field_group([
+    'key' => 'group_duo_adoption', 'title' => 'Duo Adoption', 'fields' => [],
+    'location' => [[['param' => 'post_type', 'operator' => '==', 'value' => 'page']]],
+    'menu_order' => 0, 'position' => 'normal', 'style' => 'default',
+    'label_placement' => 'top', 'instruction_placement' => 'label', 'active' => true,
+]);
+$g = get_posts(['post_type' => 'acf-field-group', 'name' => 'group_duo_adoption', 'posts_per_page' => 1, 'fields' => 'ids', 'post_status' => 'any']);
+$gid = $g ? (int) $g[0] : 0;
+if (!$gid) { fwrite(STDERR, "field group not created\n"); exit(1); }
+acf_update_field(['key' => 'field_duo_tagline', 'label' => 'Tagline', 'name' => 'duo_tagline', 'type' => 'text', 'parent' => $gid]);
+$landing = get_posts(['post_type' => 'page', 'name' => 'duo-walk-landing', 'posts_per_page' => 1, 'fields' => 'ids', 'post_status' => 'any']);
+if (!$landing) { fwrite(STDERR, "no landing page\n"); exit(1); }
+update_field('field_duo_tagline', 'Built with care, before the release.', (int) $landing[0]);
+echo "acf seed: group=$gid landing=" . $landing[0] . "\n";
+PHPEOF
+  wp1 eval-file /siterepo/.tmp-seed-acf.php >/dev/null || fail "the ACF seed failed"
+  rm -f "$HOST_R1/.tmp-seed-acf.php"
+  local builderPage
+  builderPage="$(wp1 post create --post_type=page --post_status=publish --post_title='Duo builder page' \
+    --post_name=duo-builder-page --post_content='' --porcelain | tr -d '\r')"
+  cat > "$HOST_R1/.tmp-seed-elementor.php" <<PHPEOF
+<?php
+error_reporting(E_ALL & ~E_DEPRECATED);
+\$admins = get_users(['role' => 'administrator', 'number' => 1]);
+if (\$admins) { wp_set_current_user(\$admins[0]->ID); }
+\$page_id = $builderPage;
+update_post_meta(\$page_id, '_elementor_edit_mode', 'builder');
+update_post_meta(\$page_id, '_elementor_template_type', 'wp-page');
+\$elements = [[
+    'id' => 'adsec0001', 'elType' => 'section', 'settings' => [],
+    'elements' => [[
+        'id' => 'adcol0001', 'elType' => 'column', 'settings' => ['_column_size' => 100],
+        'elements' => [[
+            'id' => 'adhead001', 'elType' => 'widget', 'widgetType' => 'heading',
+            'settings' => ['title' => 'Duo builder heading, before the release.'], 'elements' => [],
+        ]],
+    ]],
+]];
+\$doc = \Elementor\Plugin::\$instance->documents->get(\$page_id);
+\$result = \$doc->save(['elements' => \$elements]);
+if (\$result === false) { fwrite(STDERR, "Elementor Document::save() returned false\n"); exit(1); }
+echo "elementor seed: page=\$page_id\n";
+PHPEOF
+  wp1 eval-file /siterepo/.tmp-seed-elementor.php >/dev/null || fail "the Elementor seed failed"
+  rm -f "$HOST_R1/.tmp-seed-elementor.php"
+  local url
+  url="$(wp1 post list --post_type=page --name=duo-builder-page --field=url | tr -d '\r' | head -1)"
+  BUILDER_PAGE_PATH="$(printf '%s' "$url" | sed -E 's#^https?://[^/]+##')"
+  # Elementor materialises its CSS/cache meta on the first front-end render.
+  curl -fs "http://127.0.0.1:${PORT1}${BUILDER_PAGE_PATH}" >/dev/null || fail "the builder page did not render on ${PAIR}1"
+  return 0
+}
+BUILDER_PAGE_PATH=""
+
+situation_a6() {
+  local S=A6
+  run mkdir -p "$EVIDENCE/$S"
+  situation_pair "$S" "$BLOCK_THEME_SLUG@$BLOCK_THEME_VERSION" \
+    "elementor@$ELEMENTOR_VERSION" "advanced-custom-fields@$ACF_VERSION"
+  write_registry
+  seed_pages duo-walk-landing
+  seed_builder
+  doctor_and_first_look "$S" "${PAIR}1"
+  if ! dry; then
+    local libRow
+    libRow="$(jq -r '[.surfaces[] | select(.id | test("elementor_library"))] | map("\(.id)\t\(.state_class)\t\(.handling)\t\(.next_action)") | join(";")' "$ASSESS_JSON")"
+    note "$S — elementor_library as the first look reads it: ${libRow:-(no row)}"
+    jq -e '[.surfaces[] | select(.id | test("post_type:acf-field-group"))] | length == 1' "$ASSESS_JSON" >/dev/null \
+      || fail "$S: no post_type:acf-field-group row on the first look"
+    pass "$S — ACF field groups are a named, adapter-governed surface before init"
+  fi
+  # The opt-in, walked as an operator: init proposes the adapters' authored
+  # types; whatever Elementor registers that holds rows and nothing declares
+  # is either left local by init's own advisory or refused by the scope gate
+  # with the classify decision named. Either way it is a NAMED stop, and the
+  # operator decides elementor_library into scope with `duo classify`.
+  say "$S — duo init ${PAIR}1 --yes"
+  local initOut="$EVIDENCE/$S/init.txt"
+  if dry; then
+    plan "(cd $HOST_R1 && duo init ${PAIR}1 --yes) ; on incomplete_policy_scope: duo classify scope:post_type:elementor_library=authored, rerun"
+  else
+    if ( cd "$HOST_R1" && php "$DUO" "--envs-file=$ENVS_FILE" init "${PAIR}1" --yes ) > "$initOut" 2>&1; then
+      pass "$S — init proceeded (elementor_library: $(grep -c elementor_library "$initOut") mention(s) in the init report)"
+    else
+      local code
+      code="$(walk_refusal_code "$initOut" 2>/dev/null || true)"
+      [ "$code" = incomplete_policy_scope ] \
+        || fail "$S: duo init refused with [${code:-no typed reason code}], not the scope decision this situation expects; see $initOut"
+      grep -Fq 'scope:post_type:elementor_library' "$initOut" \
+        || fail "$S: the scope refusal does not name elementor_library"
+      pass "$S — init stopped on a NAMED scope decision (elementor_library); deciding it"
+      duo_ok "$EVIDENCE/$S/classify.txt" "$HOST_R1" classify "${PAIR}1" --accept-proposals \
+        || true
+      duo_ok "$initOut" "$HOST_R1" init "${PAIR}1" --yes
+    fi
+  fi
+  duo_ok "$EVIDENCE/$S/capture.txt" "$HOST_R1" capture "${PAIR}1"
+  baseline_commit "$S"
+  assess_both "$S" "${PAIR}1" "$HOST_R1" adopted
+  local builderJourney
+  builderJourney="$(jq -nc --arg url "$BUILDER_PAGE_PATH" '{id: "builder-page", url: $url, expect_status: 200,
+    expect_contains: "Duo builder heading", affected_surfaces: ["post_type:page"]}')"
+  CONTRACT_JOURNEYS_JSON="$(journeys_json "$LANDING_PATH")"
+  CONTRACT_LIFECYCLE_REASON="the only external effect this site's installed set has in the lifecycle window is WordPress' own activation/deactivation hooks; reviewed against elementor $ELEMENTOR_VERSION, advanced-custom-fields $ACF_VERSION and $BLOCK_THEME_SLUG $BLOCK_THEME_VERSION, none of which run mail, payment or webhook code on activation"
+  contract_cycle "$S" "${PAIR}1" "$HOST_R1" "$LANDING_ID" "$builderJourney" '.'
+  rehearse_preview "$S"
+  say "$S — a design edit on the preview: the Elementor heading and the ACF tagline"
+  if ! dry; then
+    local previewBuilder previewLanding
+    previewBuilder="$(wp2 post list --post_type=page --name=duo-builder-page --field=ID | tr -d '\r' | head -1)"
+    previewLanding="$(wp2 post list --post_type=page --name=duo-walk-landing --field=ID | tr -d '\r' | head -1)"
+    [ -n "$previewBuilder" ] && [ -n "$previewLanding" ] || fail "$S: the preview lacks the builder page or the landing page"
+    wp2 eval "
+\$admins = get_users(['role' => 'administrator', 'number' => 1]); if (\$admins) { wp_set_current_user(\$admins[0]->ID); }
+\$doc = \Elementor\Plugin::\$instance->documents->get($previewBuilder);
+\$data = \$doc->get_elements_data();
+\$data[0]['elements'][0]['elements'][0]['settings']['title'] = 'Duo builder heading, released through duo release.';
+if (\$doc->save(['elements' => \$data]) === false) { fwrite(STDERR, 'save failed'); exit(1); }
+update_field('field_duo_tagline', 'Built with care, released through duo release.', $previewLanding);
+echo 'edited';
+" >/dev/null || fail "$S: the preview design edit failed"
+  fi
+  preview_page_edit "$S" duo-walk-landing '<p>Duo walk landing page, released through duo release.</p>'
+  capture_twice "$S" preview
+  merge_preview "$S"
+  if ! dry; then
+    local targetBuilder targetLanding
+    targetBuilder="$(wp2 post list --post_type=page --name=duo-builder-page --field=ID | tr -d '\r' | head -1)"
+    targetLanding="$(wp2 post list --post_type=page --name=duo-walk-landing --field=ID | tr -d '\r' | head -1)"
+    wp2 eval "
+\$admins = get_users(['role' => 'administrator', 'number' => 1]); if (\$admins) { wp_set_current_user(\$admins[0]->ID); }
+\$doc = \Elementor\Plugin::\$instance->documents->get($targetBuilder);
+\$data = \$doc->get_elements_data();
+\$data[0]['elements'][0]['elements'][0]['settings']['title'] = 'Duo builder heading, before the release.';
+\$doc->save(['elements' => \$data]);
+update_field('field_duo_tagline', 'Built with care, before the release.', $targetLanding);
+echo 'reverted';
+" >/dev/null || fail "$S: could not put the target's design back"
+  fi
+  revert_target "$S" "$PREVIEW_PAGE_ID" '<p>Duo walk landing page, before the release.</p>'
+  release_cycle "$S" "$MAIN_SHA"
+  if ! dry; then
+    curl -fs "http://127.0.0.1:${PORT2}${BUILDER_PAGE_PATH}" | grep -Fq 'released through duo release' \
+      || fail "$S: the Elementor heading edit did not render on the release target"
+    wp2 eval "echo get_field('field_duo_tagline', $(wp2 post list --post_type=page --name=duo-walk-landing --field=ID | tr -d '\r' | head -1));" | tr -d '\r' | grep -Fq 'released through duo release' \
+      || fail "$S: the ACF tagline edit did not arrive on the release target"
+    pass "$S — the Elementor and ACF edits round-tripped through the release"
+  fi
+  recover_cycle "$S"
+  post_recovery_check "$S"
+  reap_cycle "$S"
+  pass "$S PASSED — a builder site adopted Duo; design edits travelled through the loop"
+}
+
+# ---------------------------------------------------------------------------
+# A7 — an unmanifested published plugin (WPForms Lite) on A4's shop: kept
+# unmanaged first (T6 S1's decision, on a busier site), then adopted with a
+# site adapter AFTER init — the path an operator takes when the adapter comes
+# later than the adoption.
+# ---------------------------------------------------------------------------
+situation_a7() {
+  local S=A7
+  run mkdir -p "$EVIDENCE/$S"
+  situation_pair "$S" "$CLASSIC_THEME_SLUG@$CLASSIC_THEME_VERSION" \
+    "woocommerce@$WOO_VERSION" "wordpress-seo@$YOAST_VERSION" "contact-form-7@$CF7_VERSION" "$WPFORMS_SLUG@$WPFORMS_VERSION"
+  write_registry
+  seed_shop duo-walk-landing
+  seed_seo_and_form
+  if ! dry; then
+    wp1 post create --post_type="$WPFORMS_CPT" --post_status=publish --post_title='Duo adoption contact form' --post_name=duo-adoption-contact \
+      --post_content='{"id":"1","settings":{"form_title":"Duo adoption contact form"},"fields":{"1":{"id":"1","type":"email","label":"Email"}}}' --porcelain >/dev/null
+  fi
+  doctor_and_first_look "$S" "${PAIR}1"
+  if ! dry; then
+    jq -e --arg id "plugin:$WPFORMS_SLUG" '[.surfaces[] | select(.id == $id)] | length == 1' "$ASSESS_JSON" >/dev/null \
+      || fail "$S: the first look does not name plugin:$WPFORMS_SLUG"
+    pass "$S — the unmanifested plugin is a named row beside three certified adapters"
+  fi
+  say "$S — duo init ${PAIR}1 refuses (active_plugin_without_adapter), then proceeds with --allow-unmanaged-plugins"
+  duo_refused "$EVIDENCE/$S/init-refused.txt" active_plugin_without_adapter "$HOST_R1" init "${PAIR}1" --yes
+  init_capture_baseline "$S" "${PAIR}1" --allow-unmanaged-plugins
+  if ! dry; then
+    walk_assert_init_line "$EVIDENCE/$S/init.txt" 'UNMANAGED PLUGIN' "$WPFORMS_BASENAME" active_plugin_without_adapter \
+      || fail "$S: init did not print the UNMANAGED PLUGIN advisory"
+    walk_assert_init_line "$EVIDENCE/$S/init.txt" 'UNMANAGED SCOPE' "post_type:$WPFORMS_CPT" unmanaged_scope_left_local \
+      || fail "$S: init did not leave the plugin's post type local as UNMANAGED SCOPE"
+    pass "$S — the plugin and its type were left local by decision, and printed as such"
+  fi
+  assess_both "$S" "${PAIR}1" "$HOST_R1" unmanaged
+  # Now the operator authors, certifies and pins an adapter AFTER init.
+  say "$S — author the WPForms adapter after adoption: coverage → draft → finish → certify --pin"
+  duo_ok "$SCRATCH/$S-coverage.raw" "$HOST_R1" coverage "${PAIR}1" --format=json
+  local seed="$EVIDENCE/$S/coverage.json" draft="$HOST_R1/adapters/$WPFORMS_CPT.json"
+  run mkdir -p "$HOST_R1/adapters"
+  if ! dry; then
+    walk_agent_json "$SCRATCH/$S-coverage.raw" > "$seed"
+  fi
+  duo_ok "$EVIDENCE/$S/adapter-draft.txt" "$HOST_R1" adapter-draft "$HOST_R1" --name="$WPFORMS_CPT" \
+    --match="^_?$WPFORMS_OPTION_PREFIX" --seed="$seed" --out="$draft"
+  finish_wpforms_draft "$S" "$draft"
+  duo_ok "$EVIDENCE/$S/manifest-validate.txt" "$HOST_R1" manifest-validate "$HOST_R1/adapters" --site="$HOST_R1"
+  keygen_and_certify "$S" "$WPFORMS_CPT"
+  # The repository is init-owned: no second init. The pin set changed, and
+  # the type left local is re-decided into scope with one classify decision;
+  # capture then reads both.
+  say "$S — re-decide the left-local type into scope, capture, assess"
+  duo_ok "$EVIDENCE/$S/scope-export.txt" "$HOST_R1" classify "${PAIR}1" --export-batch="$SCRATCH/$S-batch.json" || true
+  if ! dry; then
+    if [ -s "$SCRATCH/$S-batch.json" ] && jq -e --arg k "post_type:$WPFORMS_CPT" '[.decisions[] | select(.key == $k)] | length == 1' "$SCRATCH/$S-batch.json" >/dev/null 2>&1; then
+      walk_batch_decide "$SCRATCH/$S-batch.json" scope "post_type:$WPFORMS_CPT" authored "$SCRATCH/$S-batch.decided.json"
+      duo_ok "$EVIDENCE/$S/classify.txt" "$HOST_R1" classify "${PAIR}1" --apply-batch="$SCRATCH/$S-batch.decided.json"
+    else
+      # No queue item: the adapter's authored post type entered scope with the
+      # pin change (init-owned repositories re-read the pin set on capture),
+      # or the type still sits in policy.scope as runtime — flip that rule.
+      jq 'if .policy.scope.post_type["'"$WPFORMS_CPT"'"] then del(.policy.scope.post_type["'"$WPFORMS_CPT"'"]) else . end
+          | .policy.post_types = ((.policy.post_types + ["'"$WPFORMS_CPT"'"]) | unique)' "$HOST_R1/site.duo.json" > "$HOST_R1/site.duo.json.next" \
+        && mv "$HOST_R1/site.duo.json.next" "$HOST_R1/site.duo.json"
+      note "$S — no classify queue item; the post type was moved into policy.post_types by hand (an operator's own site.duo.json edit)"
+    fi
+  fi
+  duo_ok "$EVIDENCE/$S/capture-adopted.txt" "$HOST_R1" capture "${PAIR}1"
+  git1 add -A
+  commit1 "grind_adoption $S: WPForms adapter authored, certified and pinned after adoption"
+  git1 push -q origin main
+  assess_both "$S" "${PAIR}1" "$HOST_R1" site-certified
+  if ! dry; then
+    local expect got
+    expect=$'authored\tmanage\tReady\tSite-certified\tprevented\tprovider-state restorable'
+    got="$(walk_assess_projection "$ASSESS_JSON" "post_type:$WPFORMS_CPT" release)"
+    [ "$got" = "$expect" ] || fail "$S: post_type:$WPFORMS_CPT projected '$got' after adoption, expected '$expect'"
+    jq -e --arg id "plugin:$WPFORMS_SLUG" '[.surfaces[] | select(.id == $id)] | length == 0' "$ASSESS_JSON" >/dev/null \
+      || fail "$S: plugin:$WPFORMS_SLUG still reads as a plugin without an adapter after certification"
+    pass "$S — the plugin adopted after init reads Site-certified beside the three shipped adapters"
+  fi
+  CONTRACT_JOURNEYS_JSON="$(shop_journeys)"
+  CONTRACT_LIFECYCLE_REASON="the only external effect this shop's installed set has in the lifecycle window is WordPress' own activation/deactivation hooks; reviewed against woocommerce $WOO_VERSION, wordpress-seo $YOAST_VERSION, contact-form-7 $CF7_VERSION, $WPFORMS_SLUG $WPFORMS_VERSION and $CLASSIC_THEME_SLUG $CLASSIC_THEME_VERSION, none of which run mail, payment or webhook code on activation"
+  contract_cycle "$S" "${PAIR}1" "$HOST_R1" "$LANDING_ID" - '.'
+  rehearse_preview "$S"
+  say "$S — author a new form on the preview, then capture twice"
+  if ! dry; then
+    wp2 post create --post_type="$WPFORMS_CPT" --post_status=publish --post_title='Duo adoption quote form' --post_name=duo-adoption-quote \
+      --post_content='{"id":"3","settings":{"form_title":"Duo adoption quote form"},"fields":{"1":{"id":"1","type":"text","label":"Company"}}}' --porcelain >/dev/null
+  fi
+  preview_page_edit "$S" duo-walk-landing '<p>Duo walk landing page, released through duo release.</p>'
+  capture_twice "$S" preview
+  merge_preview "$S"
+  if ! dry; then
+    local previewFormId
+    previewFormId="$(wp2 post list --post_type="$WPFORMS_CPT" --name=duo-adoption-quote --field=ID | tr -d '\r' | head -1)"
+    [ -n "$previewFormId" ] || fail "$S: the preview did not carry the authored form back"
+    wp2 post delete "$previewFormId" --force
+  fi
+  revert_target "$S" "$PREVIEW_PAGE_ID" '<p>Duo walk landing page, before the release.</p>'
+  release_cycle "$S" "$MAIN_SHA"
+  if ! dry; then
+    wp2 post list --post_type="$WPFORMS_CPT" --field=post_title | tr -d '\r' | grep -Fqx 'Duo adoption quote form' \
+      || fail "$S: the release did not put the authored form on the target"
+  fi
+  recover_cycle "$S"
+  post_recovery_check "$S"
+  reap_cycle "$S"
+  pass "$S PASSED — a plugin kept unmanaged at adoption was adopted later with an operator's own adapter"
+}
+
+# finish_wpforms_draft <label> <draft-path> — the walk's S2 manifest, from the draft.
+finish_wpforms_draft() {
+  local label="$1" draft="$2"
+  if dry; then
+    plan "jq: finish $draft into spec_version 2 / name $WPFORMS_CPT / plugin $WPFORMS_BASENAME / version_range [$WPFORMS_VERSION, 2.1.0) + deletions"
+    return 0
+  fi
+  jq -n --arg name "$WPFORMS_CPT" --arg plugin "$WPFORMS_BASENAME" --arg min "$WPFORMS_VERSION" --arg cpt "$WPFORMS_CPT" \
+        --arg prefix "^$WPFORMS_OPTION_PREFIX" '
+    { name: $name,
+      notes: {"authored (T7 A7)": "Each form is one wpforms post whose post_content is the form definition as JSON (body verbatim); wpforms_settings is the operator-edited settings blob; every other option under the namespace is bookkeeping the plugin owns (runtime); the custom tables are declared runtime; post:wpforms is deletable with the required post cascade set and no guards."},
+      option_autoload: "preserve",
+      option_namespaces: [{match: $prefix}],
+      option_patterns: [{match: $prefix, class: "runtime"}],
+      options: {("\($name)_settings"): {class: "authored"}},
+      plugin: $plugin,
+      post_types: {($cpt): {class: "authored", body: "verbatim"}},
+      deletions: {("post:\($cpt)"): {cascades: ["postmeta", "post_revisions", "term_relationships"], guards: []}},
+      spec_version: 2,
+      tables: { ("\($name)_analytics_forms"): {class: "runtime"}, ("\($name)_analytics_snapshots"): {class: "runtime"},
+                ("\($name)_logs"): {class: "runtime"}, ("\($name)_payment_meta"): {class: "runtime"},
+                ("\($name)_payments"): {class: "runtime"}, ("\($name)_tasks_meta"): {class: "runtime"} },
+      version_range: {min: $min, max: "2.1.0"} }' > "$draft.finished" \
+    || fail "$label: could not finish the draft into a manifest"
+  mv "$draft.finished" "$draft"
+}
+# ---------------------------------------------------------------------------
+# A8 — an in-house plugin (acme-catalog) with a bundled adapter: promoted,
+# certified (T6 S3), then the plugin AND its adapter change in one code
+# release — a new option in 1.1.0, declared in both copies of the adapter,
+# re-certified, released with the state that names it.
+# ---------------------------------------------------------------------------
+situation_a8() {
+  local S=A8
+  run mkdir -p "$EVIDENCE/$S"
+  situation_pair "$S" "$CLASSIC_THEME_SLUG@$CLASSIC_THEME_VERSION" "woocommerce@$WOO_VERSION"
+  write_registry
+  install_acme 1 author
+  install_acme 2 target
+  seed_shop duo-walk-landing
+  if ! dry; then
+    wp1 post create --post_type="$ACME_CPT" --post_status=publish --post_title='Duo walk item' --post_name=duo-walk-item \
+      --post_content='<p>The first catalog item.</p>' --porcelain >/dev/null
+  fi
+  seed_repository "$S"
+  say "$S — promote the bundled adapter to adapters/$ACME_SLUG.json and certify it"
+  run mkdir -p "$HOST_R1/adapters"
+  run cp "$SANDBOX/fixtures/$ACME_SLUG/duo-adapter.json" "$HOST_R1/adapters/$ACME_SLUG.json"
+  duo_ok "$EVIDENCE/$S/manifest-validate.txt" "$HOST_R1" manifest-validate "$HOST_R1/adapters" --site="$HOST_R1"
+  keygen_and_certify "$S" "$ACME_SLUG"
+  init_capture_baseline "$S" "${PAIR}1"
+  assess_both "$S" "${PAIR}1" "$HOST_R1" adopted
+  if ! dry; then
+    [ "$(walk_assess_projection "$ASSESS_JSON" "post_type:$ACME_CPT" release | cut -f3-4)" = $'Ready\tSite-certified' ] \
+      || fail "$S: post_type:$ACME_CPT is not Ready / Site-certified after adoption"
+  fi
+  local extraJourney surfaceFilter
+  extraJourney="$(jq -nc --arg id "$ACME_CPT" '{id: "acme-index", url: "/?post_type=\($id)", expect_status: 200,
+     expect_contains: "Duo walk item", affected_surfaces: ["post_type:\($id)"]}')"
+  surfaceFilter='.contract.declarations.surfaces = [ .contract.declarations.surfaces[] | if .id == "table:acme_catalog_index" then . + {state_class: "runtime", handling: "preserve local", decided_by: "operator", decided_at: "2026-08-18T09:00:00Z"} | del(.next_action) else . end ]'
+  CONTRACT_JOURNEYS_JSON="$(shop_journeys)"
+  CONTRACT_LIFECYCLE_REASON="the only external effect this shop's installed set has in the lifecycle window is WordPress' own activation/deactivation hooks; reviewed against woocommerce $WOO_VERSION, $ACME_SLUG 1.x and $CLASSIC_THEME_SLUG $CLASSIC_THEME_VERSION, none of which run mail, payment or webhook code on activation"
+  contract_cycle "$S" "${PAIR}1" "$HOST_R1" "$LANDING_ID" "$extraJourney" "$surfaceFilter"
+
+  # The code release: 1.1.0 adds an authored option; the bundled adapter and
+  # the promoted site adapter both declare it; the site adapter is
+  # re-certified (its digest moved). All of it in the repository's code half
+  # and adapters/, committed to main; the release deploys the code, activates
+  # it in a fresh process, and applies the state that names the new option.
+  say "$S — acme-catalog 1.1.0: a new authored option, declared in both adapter copies, re-certified"
+  local codePlugin="$HOST_R1/code/wp-content/plugins/$ACME_SLUG"
+  if dry; then
+    plan "sed 1.0.0 -> 1.1.0 in $codePlugin/$ACME_SLUG.php; add acme_catalog_banner; jq options.acme_catalog_banner authored into $codePlugin/duo-adapter.json and adapters/$ACME_SLUG.json"
+  else
+    [ -f "$codePlugin/$ACME_SLUG.php" ] || fail "$S: the code half carries no $codePlugin/$ACME_SLUG.php to change"
+    sed -i.bak -e 's/Version: 1\.0\.0/Version: 1.1.0/' -e "s/define('ACME_CATALOG_VERSION', '1.0.0');/define('ACME_CATALOG_VERSION', '1.1.0');/" "$codePlugin/$ACME_SLUG.php"
+    rm -f "$codePlugin/$ACME_SLUG.php.bak"
+    grep -q "1.1.0" "$codePlugin/$ACME_SLUG.php" || fail "$S: the version bump did not land in the code half"
+    for f in "$codePlugin/duo-adapter.json" "$HOST_R1/adapters/$ACME_SLUG.json"; do
+      jq '.options.acme_catalog_banner = {class: "authored"}
+          | .notes = (.notes + {"1.1.0 (T7 A8)": "acme_catalog_banner is the operator-edited banner text 1.1.0 introduces; authored, no ref."})' "$f" > "$f.next" \
+        && mv "$f.next" "$f"
+    done
+    # The live author side runs the same 1.1.0 (the operator updated it there
+    # first, as they would), and sets the new option.
+    sh_side 1 "sed -i -e 's/Version: 1\\.0\\.0/Version: 1.1.0/' -e \"s/define('ACME_CATALOG_VERSION', '1.0.0');/define('ACME_CATALOG_VERSION', '1.1.0');/\" /var/www/html/wp-content/plugins/$ACME_SLUG/$ACME_SLUG.php \
+      && cp /siterepo/adapters/$ACME_SLUG.json /var/www/html/wp-content/plugins/$ACME_SLUG/duo-adapter.json"
+    wp1 option update acme_catalog_banner 'Now with banners (1.1.0)' >/dev/null
+  fi
+  duo_ok "$EVIDENCE/$S/manifest-validate-1.1.txt" "$HOST_R1" manifest-validate "$HOST_R1/adapters" --site="$HOST_R1"
+  duo_ok "$EVIDENCE/$S/certify-1.1.txt" "$HOST_R1" adapter certify "$HOST_R1" --name="$ACME_SLUG" \
+    --secret-key-file="$KEYDIR/$ACME_SLUG.key" --key-id="$WALK_KEY_ID" --reason="round-3 T7 A8: 1.1.0 adds acme_catalog_banner" --pin
+  duo_ok "$EVIDENCE/$S/capture-1.1.txt" "$HOST_R1" capture "${PAIR}1"
+  git1 add -A
+  commit1 "grind_adoption $S: acme-catalog 1.1.0 — code, both adapter copies, re-certified, and the state that names the new option"
+  git1 push -q origin main
+  MAIN_SHA="$(git -C "$HOST_R1" rev-parse HEAD 2>/dev/null || printf '%s' "$MAIN_SHA")"
+  rehearse_preview "$S"
+  if ! dry; then
+    wp2 plugin get "$ACME_SLUG" --field=version | tr -d '\r' | grep -qx '1.1.0' \
+      || fail "$S: the rehearsal preview does not run acme-catalog 1.1.0"
+    wp2 option get acme_catalog_banner | tr -d '\r' | grep -Fq 'Now with banners' \
+      || fail "$S: the rehearsal preview does not carry the new option"
+    pass "$S — the preview runs 1.1.0 with the new option, from the same revision"
+  fi
+  preview_page_edit "$S" duo-walk-landing '<p>Duo walk landing page, released through duo release.</p>'
+  capture_twice "$S" preview
+  merge_preview "$S"
+  revert_target "$S" "$PREVIEW_PAGE_ID" '<p>Duo walk landing page, before the release.</p>'
+  # The target still runs 1.0.0 with no banner option: put it back to that
+  # state so the release has the code AND the option to deliver.
+  if ! dry; then
+    sh_side 2 "sed -i -e 's/Version: 1\\.1\\.0/Version: 1.0.0/' -e \"s/define('ACME_CATALOG_VERSION', '1.1.0');/define('ACME_CATALOG_VERSION', '1.0.0');/\" /var/www/html/wp-content/plugins/$ACME_SLUG/$ACME_SLUG.php" || true
+    wp2 option delete acme_catalog_banner >/dev/null 2>&1 || true
+  fi
+  release_cycle "$S" "$MAIN_SHA"
+  if ! dry; then
+    wp2 plugin get "$ACME_SLUG" --field=version | tr -d '\r' | grep -qx '1.1.0' \
+      || fail "$S: the release did not deploy acme-catalog 1.1.0 to the target"
+    wp2 option get acme_catalog_banner | tr -d '\r' | grep -Fq 'Now with banners' \
+      || fail "$S: the release did not apply the new authored option"
+    pass "$S — one release carried the plugin's new code and the state its new adapter declares"
+  fi
+  recover_cycle "$S"
+  post_recovery_check "$S"
+  reap_cycle "$S"
+  pass "$S PASSED — a custom plugin and its adapter evolved together through the loop"
+}
+
+# ---------------------------------------------------------------------------
+# A9 — version edges: WooCommerce below the adapter's range at adoption,
+# upgraded mid-way; Yoast old → new. The words an operator meets are the
+# honest ones (a typed refusal or a requalification word), never a silent
+# pass, and the loop completes once the versions are inside the windows.
+# ---------------------------------------------------------------------------
+situation_a9() {
+  local S=A9
+  run mkdir -p "$EVIDENCE/$S"
+  situation_pair "$S" "$CLASSIC_THEME_SLUG@$CLASSIC_THEME_VERSION" \
+    "woocommerce@$WOO_OLD_VERSION" "wordpress-seo@$YOAST_OLD_VERSION"
+  write_registry
+  seed_shop duo-walk-landing
+  say "$S — duo doctor, then duo assess on a shop whose plugins are OUTSIDE the adapters' version windows"
+  duo_ok "$EVIDENCE/$S/doctor.txt" "$HOST_R1" doctor "${PAIR}1"
+  seed_repository "$S"
+  local firstLook="$SCRATCH/$S-assess-first-look.raw"
+  if dry; then
+    plan "(cd $HOST_R1 && duo assess ${PAIR}1 --format=json)  # either a typed refusal naming the version window, or a report whose product/yoast rows read Requalification required / Unsupported"
+  else
+    if ( cd "$HOST_R1" && php "$DUO" "--envs-file=$ENVS_FILE" assess "${PAIR}1" --format=json ) > "$firstLook" 2>&1; then
+      walk_json_tail "$firstLook" > "$EVIDENCE/$S/assess-first-look.json"
+      local wooRow
+      wooRow="$(walk_assess_projection "$EVIDENCE/$S/assess-first-look.json" post_type:product release | cut -f3)"
+      note "$S — post_type:product readiness with woocommerce $WOO_OLD_VERSION: $wooRow"
+      [ "$wooRow" != Ready ] \
+        || fail "$S: WooCommerce $WOO_OLD_VERSION is below manifests/woocommerce.json's window and post_type:product still reads Ready"
+      pass "$S — the out-of-window plugin's surfaces do not read Ready ($wooRow)"
+    else
+      local code
+      code="$(walk_refusal_code "$firstLook" 2>/dev/null || true)"
+      grep -Eq "version|range|window" "$firstLook" \
+        || fail "$S: assess refused with [${code:-no code}] and did not name the version window; see $firstLook"
+      pass "$S — assess refused by name on the version window [${code:-untyped}]"
+    fi
+  fi
+  say "$S — duo init ${PAIR}1 --yes with the plugins outside their windows"
+  local initOut="$SCRATCH/$S-init-old.raw"
+  if dry; then
+    plan "(cd $HOST_R1 && duo init ${PAIR}1 --yes)   # expected: a typed refusal naming the version window"
+  else
+    if ( cd "$HOST_R1" && php "$DUO" "--envs-file=$ENVS_FILE" init "${PAIR}1" --yes ) > "$initOut" 2>&1; then
+      fail "$S: init proceeded with woocommerce $WOO_OLD_VERSION and wordpress-seo $YOAST_OLD_VERSION outside their adapters' windows; see $initOut"
+    fi
+    grep -Eiq "version|range|window" "$initOut" \
+      || fail "$S: init refused without naming the version window; see $initOut"
+    cp "$initOut" "$EVIDENCE/$S/init-out-of-window.txt"
+    pass "$S — init refused by name: the installed versions are outside the certified windows"
+  fi
+  say "$S — upgrade both plugins into their windows on both sides, then adopt"
+  local artifact side
+  for side in 1 2; do
+    if ! dry; then
+      artifact="$(fetch_artifact woocommerce "$WOO_VERSION" "cli$side" plugin)" || fail "no woocommerce $WOO_VERSION artifact"
+      wp_side "$side" plugin install "$artifact" --force
+      artifact="$(fetch_artifact wordpress-seo "$YOAST_VERSION" "cli$side" plugin)" || fail "no wordpress-seo $YOAST_VERSION artifact"
+      wp_side "$side" plugin install "$artifact" --force
+    else
+      plan "wp$side plugin install woocommerce@$WOO_VERSION wordpress-seo@$YOAST_VERSION --force"
+    fi
+  done
+  if ! dry; then
+    wp1 plugin get woocommerce --field=version | tr -d '\r' | grep -qx "$WOO_VERSION" || fail "$S: woocommerce did not upgrade on ${PAIR}1"
+    wp1 plugin get wordpress-seo --field=version | tr -d '\r' | grep -qx "$YOAST_VERSION" || fail "$S: wordpress-seo did not upgrade on ${PAIR}1"
+    # WooCommerce runs its own updater on the next request; wake it.
+    curl -fs "http://127.0.0.1:${PORT1}/" >/dev/null || true
+    wp1 wc update >/dev/null 2>&1 || true
+  fi
+  init_capture_baseline "$S" "${PAIR}1"
+  assess_both "$S" "${PAIR}1" "$HOST_R1" adopted
+  if ! dry; then
+    [ "$(walk_assess_projection "$ASSESS_JSON" post_type:product release | cut -f3-4)" = $'Ready\tPlatform-certified' ] \
+      || fail "$S: after the upgrade post_type:product is not Ready / Platform-certified"
+    pass "$S — inside the windows, the same shop reads Ready / Platform-certified"
+  fi
+  CONTRACT_JOURNEYS_JSON="$(shop_journeys)"
+  CONTRACT_LIFECYCLE_REASON="the only external effect this shop's installed set has in the lifecycle window is WordPress' own activation/deactivation hooks; reviewed against woocommerce $WOO_VERSION, wordpress-seo $YOAST_VERSION and $CLASSIC_THEME_SLUG $CLASSIC_THEME_VERSION, none of which run mail, payment or webhook code on activation"
+  loop_to_recovery "$S"
+  pass "$S PASSED — version edges were refused by name, and the loop completed once the versions were inside their windows"
+}
+
+# ---------------------------------------------------------------------------
+# A10 — edge cases on one site, each a documented stop or a documented pass:
+# an already-adopted repository, a hard-matched secret in an option, a plugin
+# deactivated after adoption, a theme switch after adoption, and an override
+# installed then removed. (Multisite and adopt-over-SSH-less are pair-model
+# refusals exercised by their own suites; not repeated here.)
+# ---------------------------------------------------------------------------
+situation_a10() {
+  local S=A10
+  run mkdir -p "$EVIDENCE/$S"
+  situation_pair "$S" "$CLASSIC_THEME_SLUG@$CLASSIC_THEME_VERSION" "woocommerce@$WOO_VERSION" "contact-form-7@$CF7_VERSION"
+  write_registry
+  seed_shop duo-walk-landing
+  if ! dry; then
+    # Both themes installed so the switch later is a real one.
+    local artifact
+    artifact="$(fetch_artifact "$BLOCK_THEME_SLUG" "$BLOCK_THEME_VERSION" cli1 theme)" || fail "no $BLOCK_THEME_SLUG artifact"
+    wp1 theme install "$artifact" --force
+    artifact="$(fetch_artifact "$BLOCK_THEME_SLUG" "$BLOCK_THEME_VERSION" cli2 theme)" || fail "no $BLOCK_THEME_SLUG artifact"
+    wp2 theme install "$artifact" --force
+    # A secret-shaped option value: what init and capture do with it must be
+    # a stated redaction, never a copy.
+    wp1 option update duo_walk_api_key 'sk_live_4eC39HqLyjWDarjtT1zdp7dc' >/dev/null
+  fi
+  doctor_and_first_look "$S" "${PAIR}1"
+  init_capture_baseline "$S" "${PAIR}1"
+  if ! dry; then
+    grep -Eq "redacted risk surfaces: [1-9][0-9]* secret-shaped option value" "$EVIDENCE/$S/init.txt" \
+      || fail "$S: init did not count the secret-shaped option among its redacted risk surfaces"
+    ! grep -rq 'sk_live_4eC39HqLyjWDarjtT1zdp7dc' "$HOST_R1/state" "$HOST_R1/site.duo.json" 2>/dev/null \
+      || fail "$S: the secret-shaped value reached the repository"
+    pass "$S — the secret-shaped option was counted and never copied"
+  fi
+  # 1. Adopting again over an init-owned repository is a typed stop.
+  say "$S — duo init again over the init-owned repository"
+  duo_refused "$EVIDENCE/$S/init-again.txt" existing_configuration "$HOST_R1" init "${PAIR}1" --yes
+  pass "$S — a second init refuses existing_configuration"
+  # 2. A plugin deactivated after adoption: the next capture and assess say so.
+  say "$S — deactivate contact-form-7 after adoption, capture, assess"
+  if ! dry; then wp1 plugin deactivate contact-form-7 >/dev/null; fi
+  local capOut="$SCRATCH/$S-capture-deactivated.raw"
+  if dry; then
+    plan "(cd $HOST_R1 && duo capture ${PAIR}1)   # either proceeds with the plugin's surfaces reported inactive, or refuses by name"
+  else
+    if ( cd "$HOST_R1" && php "$DUO" "--envs-file=$ENVS_FILE" capture "${PAIR}1" ) > "$capOut" 2>&1; then
+      note "$S — capture proceeded with contact-form-7 deactivated"
+    else
+      local code
+      code="$(walk_refusal_code "$capOut" 2>/dev/null || true)"
+      note "$S — capture refused [${code:-untyped}] with contact-form-7 deactivated (see $capOut)"
+      [ -n "$code" ] || fail "$S: capture refused without a typed reason code after a plugin deactivation; see $capOut"
+    fi
+    cp "$capOut" "$EVIDENCE/$S/capture-deactivated.txt"
+    wp1 plugin activate contact-form-7 >/dev/null
+  fi
+  assess_both "$S" "${PAIR}1" "$HOST_R1" reactivated
+  # 3. A theme switch after adoption.
+  say "$S — switch the theme after adoption ($CLASSIC_THEME_SLUG → $BLOCK_THEME_SLUG), capture, assess"
+  if ! dry; then wp1 theme activate "$BLOCK_THEME_SLUG" >/dev/null; fi
+  duo_ok "$EVIDENCE/$S/capture-theme-switch.txt" "$HOST_R1" capture "${PAIR}1"
+  assess_both "$S" "${PAIR}1" "$HOST_R1" theme-switched
+  if ! dry; then
+    grep -Fq "$BLOCK_THEME_SLUG" "$EVIDENCE/$S/assess-theme-switched.txt" \
+      || note "$S: the assessment does not name the active theme in its human view"
+    wp1 theme activate "$CLASSIC_THEME_SLUG" >/dev/null
+    duo_ok "$EVIDENCE/$S/capture-theme-back.txt" "$HOST_R1" capture "${PAIR}1"
+  fi
+  # 4. An override installed, then removed: shadowed_by_site, then back to
+  # the shipped adapter, with the pin set restored — nothing lingering.
+  say "$S — install a site override of woocommerce, then remove it"
+  local override="$HOST_R1/adapters/woocommerce.json"
+  run mkdir -p "$HOST_R1/adapters"
+  if ! dry; then
+    jq '.options.woocommerce_demo_store_notice = {class: "authored", autoload: "preserve"}' "$REPO_ROOT/manifests/woocommerce.json" > "$override"
+  fi
+  duo_ok "$EVIDENCE/$S/adapter-pin.txt" "$HOST_R1" adapter pin "$HOST_R1" --name=woocommerce --source=site
+  adapter_catalog "$S" override
+  if ! dry; then
+    walk_assert_shadowed_by_site "$CATALOG_JSON" woocommerce || fail "$S: the override is not reported as shadowing"
+    rm -f "$override"
+    jq '.manifests = [.manifests[] | if (type == "object" and .name == "woocommerce" and .source == "site") then "woocommerce" else . end]' \
+      "$HOST_R1/site.duo.json" > "$HOST_R1/site.duo.json.next" && mv "$HOST_R1/site.duo.json.next" "$HOST_R1/site.duo.json"
+  fi
+  duo_ok "$EVIDENCE/$S/manifest-pin-back.txt" "$HOST_R1" adapter pin "$HOST_R1" --name=woocommerce
+  adapter_catalog "$S" restored
+  if ! dry; then
+    [ "$(walk_catalog_row "$CATALOG_JSON" woocommerce | cut -f1)" = shipped ] \
+      || fail "$S: after removing the override, woocommerce does not answer from the shipped library"
+    jq -e '(.not_installed // []) | map(select(.reason_code == "shadowed_by_site")) | length == 0' "$CATALOG_JSON" >/dev/null \
+      || fail "$S: a shadowed_by_site row lingers after the override was removed"
+    pass "$S — the override came and went; the shipped adapter answers again and nothing lingers"
+  fi
+  duo_ok "$EVIDENCE/$S/capture-final.txt" "$HOST_R1" capture "${PAIR}1"
+  git1 add -A
+  commit1 "grind_adoption $S: edge cases walked; repository back on the shipped adapter set"
+  git1 push -q origin main
+  CONTRACT_JOURNEYS_JSON="$(shop_journeys)"
+  CONTRACT_LIFECYCLE_REASON="the only external effect this shop's installed set has in the lifecycle window is WordPress' own activation/deactivation hooks; reviewed against woocommerce $WOO_VERSION, contact-form-7 $CF7_VERSION and $CLASSIC_THEME_SLUG $CLASSIC_THEME_VERSION, none of which run mail, payment or webhook code on activation"
+  loop_to_recovery "$S"
+  pass "$S PASSED — every edge case stopped or proceeded by its documented rule, and the loop still completed"
+}
 
 # ---------------------------------------------------------------------------
 # --self-check: the shared helpers against the walk's recorded fixtures (the
