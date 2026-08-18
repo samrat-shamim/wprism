@@ -28,7 +28,9 @@
             "next_action": "install adapter",
             "operations": {
                 "release": {
+                    "certification_principal": null,
                     "certification_provenance": "Uncertified",
+                    "certification_trust_root": null,
                     "conditions": [],
                     "effect_containment": "unknown",
                     "effect_containment_basis": "unknown — not enforced in this profile",
@@ -36,11 +38,9 @@
                     "gap_action": "install adapter",
                     "handling": "block",
                     "meaning": "an installed but uncertified adapter governs this surface",
-                    "principal": null,
                     "readiness": "Not qualified",
                     "remediation": null,
-                    "state_class": "authored",
-                    "trust_root": null
+                    "state_class": "authored"
                 }
             },
             "state_class": "authored"

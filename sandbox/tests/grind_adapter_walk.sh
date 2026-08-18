@@ -89,8 +89,9 @@
 #   runtime / preserve local                            contract decision, plugin   §3.6
 #   Unsupported                                         that decision's readiness   §3.6
 #   site_signed                                         catalog row certification   §3.2
-#   trust_root                                          catalog row + projection key §3.2
-#   principal                                           catalog row + projection key §3.2
+#   trust_root                                          catalog row key             §3.2
+#   principal                                           catalog row key             §3.2
+#   certification_trust_root / certification_principal  projection keys (assess)    §3.2 (product spelling, beside certification_provenance)
 #   site                                                that trust_root's value     WALK
 #   Site-certified                                      assess certification word   §2 §3.6
 #   certified by <principal> (site trust root); contract attestation unsigned
@@ -308,7 +309,10 @@ walk_assess_next_action() {
 
 # walk_assess_certification <json-file> <surface-id> <operation> — the
 # certification triple §3.2 requires a certified claim to expose:
-# `<provenance>\t<trust_root>\t<principal>`. Read as three fields rather than
+# `<provenance>\t<trust_root>\t<principal>` — the projection spells the last two
+# `certification_trust_root` / `certification_principal`, beside
+# `certification_provenance` (run 20 read the catalog's bare spelling here and
+# got null/null against a correct report). Read as three fields rather than
 # one word because `Site-certified` with no principal names no authority, and
 # a projection that says who signed it is the whole content of §2's ruling.
 walk_assess_certification() {
@@ -316,7 +320,7 @@ walk_assess_certification() {
   jq -er --arg id "$id" --arg op "$operation" '
     (.surfaces[] | select(.id == $id)) as $row
     | ($row.operations[$op] // error("surface \($id) has no \($op) projection")) as $p
-    | [$p.certification_provenance, ($p.trust_root // "null"), ($p.principal // "null")]
+    | [$p.certification_provenance, ($p.certification_trust_root // "null"), ($p.certification_principal // "null")]
     | @tsv
   ' -- "$file"
 }

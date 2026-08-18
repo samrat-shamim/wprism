@@ -28,7 +28,9 @@
             "next_action": "nothing — supported",
             "operations": {
                 "release": {
+                    "certification_principal": null,
                     "certification_provenance": "Platform-certified",
+                    "certification_trust_root": null,
                     "conditions": [],
                     "effect_containment": "prevented",
                     "effect_containment_basis": "no WordPress hooks fire in the apply window",
@@ -36,11 +38,9 @@
                     "gap_action": "nothing — supported",
                     "handling": "manage",
                     "meaning": "authored catalog content Duo manages end to end",
-                    "principal": null,
                     "readiness": "Ready",
                     "remediation": null,
-                    "state_class": "authored",
-                    "trust_root": null
+                    "state_class": "authored"
                 }
             },
             "state_class": "authored"
@@ -55,7 +55,9 @@
             "next_action": "nothing — supported",
             "operations": {
                 "release": {
+                    "certification_principal": null,
                     "certification_provenance": "Platform-certified",
+                    "certification_trust_root": null,
                     "conditions": [],
                     "effect_containment": "prevented",
                     "effect_containment_basis": "no WordPress hooks fire in the apply window",
@@ -63,11 +65,9 @@
                     "gap_action": "nothing — supported",
                     "handling": "preserve local",
                     "meaning": "live operational state is never copied",
-                    "principal": null,
                     "readiness": "Unsupported",
                     "remediation": null,
-                    "state_class": "runtime",
-                    "trust_root": null
+                    "state_class": "runtime"
                 }
             },
             "state_class": "runtime"
@@ -82,7 +82,9 @@
             "next_action": "install adapter",
             "operations": {
                 "release": {
+                    "certification_principal": null,
                     "certification_provenance": "Uncertified",
+                    "certification_trust_root": null,
                     "conditions": [],
                     "effect_containment": "unknown",
                     "effect_containment_basis": "unknown — not enforced in this profile",
@@ -90,11 +92,9 @@
                     "gap_action": "install adapter",
                     "handling": "block",
                     "meaning": "no installed adapter declares this active plugin",
-                    "principal": null,
                     "readiness": "Not qualified",
                     "remediation": null,
-                    "state_class": "unclassified",
-                    "trust_root": null
+                    "state_class": "unclassified"
                 }
             },
             "state_class": "unclassified"
@@ -109,7 +109,9 @@
             "next_action": "install adapter",
             "operations": {
                 "release": {
+                    "certification_principal": null,
                     "certification_provenance": "Uncertified",
+                    "certification_trust_root": null,
                     "conditions": [],
                     "effect_containment": "unknown",
                     "effect_containment_basis": "unknown — not enforced in this profile",
@@ -117,11 +119,9 @@
                     "gap_action": "install adapter",
                     "handling": "block",
                     "meaning": "no installed adapter can see this table",
-                    "principal": null,
                     "readiness": "Not qualified",
                     "remediation": null,
-                    "state_class": "unclassified",
-                    "trust_root": null
+                    "state_class": "unclassified"
                 }
             },
             "state_class": "unclassified"
@@ -136,7 +136,9 @@
             "next_action": "install adapter",
             "operations": {
                 "release": {
+                    "certification_principal": null,
                     "certification_provenance": "Uncertified",
+                    "certification_trust_root": null,
                     "conditions": [],
                     "effect_containment": "unknown",
                     "effect_containment_basis": "unknown — not enforced in this profile",
@@ -144,11 +146,9 @@
                     "gap_action": "install adapter",
                     "handling": "block",
                     "meaning": "no installed adapter can see this table",
-                    "principal": null,
                     "readiness": "Not qualified",
                     "remediation": null,
-                    "state_class": "unclassified",
-                    "trust_root": null
+                    "state_class": "unclassified"
                 }
             },
             "state_class": "unclassified"
@@ -163,7 +163,9 @@
             "next_action": "install adapter",
             "operations": {
                 "release": {
+                    "certification_principal": null,
                     "certification_provenance": "Uncertified",
+                    "certification_trust_root": null,
                     "conditions": [],
                     "effect_containment": "unknown",
                     "effect_containment_basis": "unknown — not enforced in this profile",
@@ -171,11 +173,9 @@
                     "gap_action": "install adapter",
                     "handling": "block",
                     "meaning": "no installed adapter can see this table",
-                    "principal": null,
                     "readiness": "Not qualified",
                     "remediation": null,
-                    "state_class": "unclassified",
-                    "trust_root": null
+                    "state_class": "unclassified"
                 }
             },
             "state_class": "unclassified"

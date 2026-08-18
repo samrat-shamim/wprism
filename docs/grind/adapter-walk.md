@@ -149,9 +149,10 @@ the table cannot drift apart. Its `source` column separates the two kinds:
 - **`WALK`** — the contract names the thing but not the spelling, and this walk
   picked one. There are six: `shadowed_by_site` as the `not_installed[]`
   `reason_code` on the shadowed shipped copy (§3.3 fixes the word, not the
-  field); `trust_root` / `principal` as top-level keys on each catalog row and
-  on each assess operation projection (§3.2 fixes the key names, not their
-  placement); `site` as `trust_root`'s value for a site-signed adapter;
+  field); `trust_root` / `principal` as top-level keys on each catalog row,
+  and `certification_trust_root` / `certification_principal` on each assess
+  operation projection beside `certification_provenance` (§3.2 fixes the
+  facts, not their placement); `site` as `trust_root`'s value for a site-signed adapter;
   `key-id: <id>` as the first field of `duo adapter keygen`'s output;
   `secret_key_inside_repository` as the reason code for keygen refusing a path
   inside the site repository (§3.1 fixes the refusal, not its code); and

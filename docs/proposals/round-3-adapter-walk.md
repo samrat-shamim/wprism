@@ -163,8 +163,10 @@ so exactly as today.
   projects `Unsupported`, prints the meaning line and no next action, and is
   outside every release gate (T5's rule).
 - `Site-certified` is emitted when the governing claim is certified with
-  `certification.source == "site"`; the projection exposes `principal` and
-  `trust_root`; the contract's `attestation.state` remains `unsigned` and the
+  `certification.source == "site"`; the projection exposes
+  `certification_principal` and `certification_trust_root` beside
+  `certification_provenance` (the catalog row's bare `principal` /
+  `trust_root` are the same facts); the contract's `attestation.state` remains `unsigned` and the
   human view says so once (`certified by <principal> (site trust root); contract attestation unsigned`).
 - Gap actions: **new closed-set word `certify adapter`** for readiness
   `Not qualified` caused by `adapter_source_uncertified` or `signed_unpinned`

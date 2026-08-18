@@ -28,7 +28,9 @@
             "next_action": "nothing — supported",
             "operations": {
                 "release": {
+                    "certification_principal": "acme-ops-2026",
                     "certification_provenance": "Site-certified",
+                    "certification_trust_root": "site",
                     "conditions": [],
                     "effect_containment": "prevented",
                     "effect_containment_basis": "no WordPress hooks fire in the apply window",
@@ -36,11 +38,9 @@
                     "gap_action": "nothing — supported",
                     "handling": "manage",
                     "meaning": "form definitions the operator authors and Duo manages end to end",
-                    "principal": "acme-ops-2026",
                     "readiness": "Ready",
                     "remediation": null,
-                    "state_class": "authored",
-                    "trust_root": "site"
+                    "state_class": "authored"
                 }
             },
             "state_class": "authored"
@@ -55,7 +55,9 @@
             "next_action": "nothing — supported",
             "operations": {
                 "release": {
+                    "certification_principal": "acme-ops-2026",
                     "certification_provenance": "Site-certified",
+                    "certification_trust_root": "site",
                     "conditions": [],
                     "effect_containment": "prevented",
                     "effect_containment_basis": "no WordPress hooks fire in the apply window",
@@ -63,11 +65,9 @@
                     "gap_action": "nothing — supported",
                     "handling": "manage",
                     "meaning": "catalog items the operator authors and Duo manages end to end",
-                    "principal": "acme-ops-2026",
                     "readiness": "Ready",
                     "remediation": null,
-                    "state_class": "authored",
-                    "trust_root": "site"
+                    "state_class": "authored"
                 }
             },
             "state_class": "authored"
@@ -82,7 +82,9 @@
             "next_action": "nothing — supported",
             "operations": {
                 "release": {
+                    "certification_principal": "acme-ops-2026",
                     "certification_provenance": "Site-certified",
+                    "certification_trust_root": "site",
                     "conditions": [],
                     "effect_containment": "prevented",
                     "effect_containment_basis": "no WordPress hooks fire in the apply window",
@@ -90,11 +92,9 @@
                     "gap_action": "nothing — supported",
                     "handling": "manage",
                     "meaning": "authored catalog content Duo manages end to end",
-                    "principal": "acme-ops-2026",
                     "readiness": "Ready",
                     "remediation": null,
-                    "state_class": "authored",
-                    "trust_root": "site"
+                    "state_class": "authored"
                 }
             },
             "state_class": "authored"
