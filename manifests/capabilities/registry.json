@@ -3,7 +3,7 @@
     "generated_from": {
         "compatibility_sha256": "8890e74f412c7ed07e1454c1abd2bd24e330a87990d8832cfe89e9860679b2be",
         "dispositions_sha256": "94769c86414dc677b3ead30405a82b2ea8288359191c04d949d371778a12549b",
-        "evidence_sha256": "c75564615692e5f9f068f0ec81e06117f9701a6fb213f3debc76c7dd23098e61"
+        "evidence_sha256": "c746073c5e68137904d415caa36becbc43e88bf292d2ba264ae10283dbce2272"
     },
     "manifests": {
         "acf": {
@@ -231,14 +231,14 @@
                 }
             },
             "evidence": {
-                "bundle_digest": null,
+                "bundle_digest": "3793b06324bbcfc327d7947f9673d5162c02635acaef1e6fed3996140741345c",
                 "bundle_schema": "duo-subject-certification-bundle/v1",
-                "closure_digest": null,
+                "closure_digest": "5e80eaa8a990639e074122ce61d533f6288fa782ccbc71384dc3384231f84a1c",
                 "force_hatches": [],
-                "git_revision": null,
-                "status": "candidate",
+                "git_revision": "8a1a731c0944a8a7b6dd814b0acf0ab5a3e6f85c",
+                "status": "current",
                 "subject": "manifests.core",
-                "subject_digest": null,
+                "subject_digest": "d71f4849eea52b8ec30138cfff4d3bfaca579a3bbdf300ea5d45cc50bed7d4f7",
                 "tests": [
                     "conformance-core",
                     "multisite-refusal"
@@ -1336,14 +1336,14 @@
                 }
             },
             "evidence": {
-                "bundle_digest": null,
+                "bundle_digest": "44ee2de8afab61cd13670a468b12b3116e767dacafa1585447b224abd19fc35e",
                 "bundle_schema": "duo-subject-certification-bundle/v1",
-                "closure_digest": null,
+                "closure_digest": "0284d52b61f904198c74c5b8afa4de8b0aa876ad237d170a29452cb32a4629a0",
                 "force_hatches": [],
-                "git_revision": null,
-                "status": "candidate",
+                "git_revision": "8a1a731c0944a8a7b6dd814b0acf0ab5a3e6f85c",
+                "status": "current",
                 "subject": "manifests.woocommerce",
-                "subject_digest": null,
+                "subject_digest": "44f72ffb2af02bfa6439b3ef17b64f4c534f2178848772c8ec9350d9cd88aaaa",
                 "tests": [
                     "conformance-woocommerce",
                     "exact-artifact-version-matrix"
