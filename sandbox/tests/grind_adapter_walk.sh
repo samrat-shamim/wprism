@@ -2322,7 +2322,7 @@ scenario_s2() {
         name: $name,
         notes: {
           "authored (T6 S2, verified against the installed plugin)":
-            "Each form is one `\($cpt)` post whose post_content is the form definition as JSON, so the post type is authored with body \"verbatim\": spec/repo-format.md byte-preserves post_content for serialized-data bodies, where URL substitution would corrupt the payload. \($name)_settings is the operator-edited settings blob; every other option under the namespace is the plugin's own bookkeeping and is runtime. The custom tables are declared runtime — the grammar's word for declared-and-deliberately-not-captured, the same declaration manifests/woocommerce.json makes for Action Scheduler."
+            "Each form is one `\($cpt)` post whose post_content is the form definition as JSON, so the post type is authored with body \"verbatim\": spec/repo-format.md byte-preserves post_content for serialized-data bodies, where URL substitution would corrupt the payload. \($name)_settings is the operator-edited settings blob; every other option under the namespace is bookkeeping the plugin owns and is runtime. The custom tables are declared runtime — the grammar word for declared-and-deliberately-not-captured, the same declaration manifests/woocommerce.json makes for Action Scheduler."
         },
         option_autoload: "preserve",
         option_namespaces: [{match: $prefix}],
