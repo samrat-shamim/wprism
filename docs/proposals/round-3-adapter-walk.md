@@ -93,6 +93,17 @@ explicit site pin is the override. The shipped copy is reported as
 `shadowed_by_site` on every catalog row and in `duo adapter list`; the site copy
 carries the site's certification words (a signed override is `Site-certified`,
 never `Platform-certified`). `CrossManifestGuards` run over the loaded set only.
+An override **inherits exactly the shipped executable grants**: an
+`interpreter`, `regen_dependency.regenerator` or manifest-sourced `providers[]`
+row is admitted when byte-identical to what `manifests/<name>.json` declares
+and refused when added or edited (`AdapterSources::shipped_executable_grants`);
+the override carries the shipped tier that code implies, and a site key may
+certify `compatibility_shim`. `duo adapter pin --source=site` on a shipped
+name writes the source statement first, loads, then completes the digest — one
+command. A site-root certificate binds the key's identity and the record it
+was signed over, never the record's growing `adapter_names`/`trust_tiers`
+(those, and revocation, are enforced live), so certifying a second adapter
+under the same key keeps the first certificate and its pinned digest intact.
 
 ### 3.4 Init
 

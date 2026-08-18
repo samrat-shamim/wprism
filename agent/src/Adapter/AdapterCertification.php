@@ -151,7 +151,7 @@ final class AdapterCertification {
         $adapterRelative = 'adapters/' . $name . '.json';
         $adapterPath = self::ownedFile($root, $adapterRelative, 'site adapter');
         [$adapterRaw, $adapterTyped, $adapterDecoded] = self::readCanonicalObjectFile($adapterPath, 'site adapter');
-        self::assertSiteManifest($name, $adapterDecoded);
+        self::assertSiteManifest($name, $adapterDecoded, $manifestDir);
         self::assertSameManifest($name, $manifest, $adapterDecoded);
 
         $certRelative = self::CERTIFICATE_DIR . '/' . $name . '.json';
@@ -216,7 +216,7 @@ final class AdapterCertification {
     ): array {
         self::assertSodium();
         $name = self::adapterName($name);
-        self::assertSiteManifest($name, $manifest);
+        self::assertSiteManifest($name, $manifest, $manifestDir);
         self::assertExactKeys($envelope, ['certificate_json', 'certificate_sha256', 'format'], 'frozen certification envelope');
         $certificateDigest = $envelope['certificate_sha256'] ?? null;
         if (($envelope['format'] ?? null) !== self::ENVELOPE_FORMAT
@@ -324,7 +324,7 @@ final class AdapterCertification {
         $root = self::repoRoot($repo, 'site repository');
         $adapterPath = self::ownedFile($root, 'adapters/' . $name . '.json', 'site adapter');
         [$adapterRaw, , $manifest] = self::readCanonicalObjectFile($adapterPath, 'site adapter');
-        self::assertSiteManifest($name, $manifest);
+        self::assertSiteManifest($name, $manifest, $manifestDir);
 
         [$authority, $keyId, $authorityDigest, $trustRoot] = self::authority($manifestDir, $authorityId, $root);
         $tier = AdapterSources::trust_tier($manifest);
@@ -417,7 +417,7 @@ final class AdapterCertification {
         $root = self::repoRoot($repo, 'site repository');
         $adapterPath = self::ownedFile($root, 'adapters/' . $name . '.json', 'site adapter');
         [$adapterRaw, , $manifest] = self::readCanonicalObjectFile($adapterPath, 'site adapter');
-        self::assertSiteManifest($name, $manifest);
+        self::assertSiteManifest($name, $manifest, $manifestDir);
 
         [$authority, $keyId, $authorityDigest, $trustRoot] = self::authority($manifestDir, $authorityId, $root);
         if ($trustRoot !== self::TRUST_ROOT_SITE) {
@@ -875,6 +875,18 @@ final class AdapterCertification {
             $name,
             $tier
         );
+        // The proof (and through it the adapter digest every repository pin
+        // binds) records the authority record the certificate was SIGNED
+        // over. Under the site root that is the embedded record's digest, not
+        // the current file's: the site trust root grows with every certified
+        // adapter, and a proof that followed the current file would move the
+        // pinned digest of every earlier adapter each time — the frozen path
+        // below already re-derives exactly this digest from the embedded
+        // record, so live and frozen now say the same thing. The platform
+        // root binds the whole record, so there the two digests are equal.
+        if ($trustRoot === self::TRUST_ROOT_SITE) {
+            $authorityDigest = (string) $statementAuthority['record_sha256'];
+        }
         $signature = base64_decode((string) $certificate['signature'], true);
         if ($signature === false || strlen($signature) !== SODIUM_CRYPTO_SIGN_BYTES
             || !sodium_crypto_sign_verify_detached(
@@ -1106,7 +1118,7 @@ final class AdapterCertification {
         return self::SIGNATURE_DOMAIN . Canon::encode($statement);
     }
 
-    private static function assertSiteManifest(string $name, array $manifest): void {
+    private static function assertSiteManifest(string $name, array $manifest, string $manifestDir): void {
         if (($manifest['name'] ?? null) !== $name) {
             throw new \RuntimeException(
                 "duo: site adapter '$name' certification requires adapters/$name.json to declare the same name"
@@ -1127,7 +1139,21 @@ final class AdapterCertification {
                 );
             }
         }
-        AdapterSources::assert_out_of_tree_contract($manifest, $name, 'adapters/' . $name . '.json');
+        // A site copy of a SHIPPED name is an override (T6 §3.3): its
+        // interpreter / regenerator / provider declarations are admitted
+        // exactly when they repeat the shipped grant, and refused when they
+        // add one — the same rule the loader applies, so a certificate is
+        // never signed over a manifest the engine would then refuse (the
+        // walk's S4 hit exactly that split: the pre-flight load passed, the
+        // signature step refused `out_of_tree_privilege`).
+        AdapterSources::assert_out_of_tree_contract(
+            $manifest,
+            $name,
+            'adapters/' . $name . '.json',
+            'site adapter',
+            false,
+            AdapterSources::shipped_executable_grants($manifestDir, $name)
+        );
     }
 
     private static function assertSameManifest(string $name, array $provided, array $raw): void {
@@ -1275,10 +1301,16 @@ final class AdapterCertification {
         }
         $tiers = self::stringList($record['trust_tiers'] ?? null, "$label.trust_tiers", false);
         foreach ($tiers as $tier) {
+            // `compatibility_shim` is admitted because an OVERRIDE of a shipped
+            // adapter inherits the shipped interpreter/provider grants and so
+            // carries the shipped tier (T6 §3.3); the site key certifies the
+            // override's declarations, never new code — the loader refuses a
+            // site manifest that adds an executable declaration.
             if (!in_array($tier, [
                 AdapterSources::TIER_DECLARATIVE,
                 AdapterSources::TIER_NATIVE_ACTION,
                 AdapterSources::TIER_PLUGIN_PROVIDER,
+                AdapterSources::TIER_COMPATIBILITY_SHIM,
             ], true)) {
                 throw new \RuntimeException("duo: $label names unsupported site adapter trust tier '$tier'");
             }
@@ -1332,22 +1364,56 @@ final class AdapterCertification {
         string $name,
         string $tier
     ): void {
-        if (($statementAuthority['key_id'] ?? null) !== $keyId
-            || ($statementAuthority['trust_root'] ?? null) !== $trustRoot
-            || ($statementAuthority['fingerprint'] ?? null) !== hash('sha256', self::publicKey($authority))
-            || !self::sha($statementAuthority['record_sha256'] ?? null)
-            || !hash_equals((string) $statementAuthority['record_sha256'], $authorityDigest)
+        $embedded = $statementAuthority['record'] ?? null;
+        $recordDigest = $statementAuthority['record_sha256'] ?? null;
+        if ($trustRoot === self::TRUST_ROOT_SITE) {
+            // The site trust root is a LIVING registry: `duo adapter certify`
+            // appends every newly certified name (and its tier) to the key's
+            // record, so binding the whole record would invalidate every
+            // earlier certificate under that key the moment a second adapter
+            // is certified (seen: certifying an override made the certified
+            // wpforms adapter `certificate_invalid`). The certificate binds
+            // the key's IDENTITY — id, algorithm, public key, scope, status,
+            // fingerprint, trust root — and self-consistently the record it
+            // was signed over; the record's scope lists (adapter_names,
+            // trust_tiers) are enforced LIVE against the current record by
+            // assertAuthorityScope() below, and revocation with them. The
+            // platform root keeps whole-record binding: that file is
+            // reviewed and shipped, and never grows under an operator's hand.
+            $bound = is_array($embedded)
+                && self::sha($recordDigest)
+                && hash_equals((string) $recordDigest, self::canonicalHash($embedded))
+                && hash_equals(
+                    Canon::encode(self::authorityIdentity($authority)),
+                    Canon::encode(self::authorityIdentity($embedded))
+                );
+        } else {
             // The embedded record is compared canonically, not by digest
             // alone: record_sha256 is what the frozen path re-derives FROM the
             // embedded bytes, so a digest-only check would let those two agree
             // with each other while disagreeing with the installed root.
-            || !hash_equals(Canon::encode($authority), Canon::encode($statementAuthority['record']))) {
+            $bound = self::sha($recordDigest)
+                && hash_equals((string) $recordDigest, $authorityDigest)
+                && hash_equals(Canon::encode($authority), Canon::encode($embedded));
+        }
+        if (($statementAuthority['key_id'] ?? null) !== $keyId
+            || ($statementAuthority['trust_root'] ?? null) !== $trustRoot
+            || ($statementAuthority['fingerprint'] ?? null) !== hash('sha256', self::publicKey($authority))
+            || !$bound) {
             throw new \RuntimeException(
                 "duo: site adapter '$name' certification authority/key/fingerprint/trust root does not match the "
                 . "current $trustRoot authority record"
             );
         }
         self::assertAuthorityScope($authority, $keyId, $name, $tier);
+    }
+
+    /** The key-identity half of an authority record: everything but its scope lists. */
+    private static function authorityIdentity(array $record): array {
+        unset($record['adapter_names'], $record['trust_tiers']);
+        ksort($record, SORT_STRING);
+
+        return $record;
     }
 
     /** @return array{0:array,1:string} */

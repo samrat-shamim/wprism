@@ -864,6 +864,18 @@ richer bundle — real tests, real artifacts, a real evidence repository:
      root `site` — the product's *Site-certified*, which is customer-
      organization approval and explicitly **not** a Duo endorsement.
 
+   The site record is a living registry: `duo adapter certify` appends each
+   newly certified name (and its tier) to the key's record. A certificate under
+   the site root binds the key's *identity* — id, algorithm, public key,
+   scope, status, fingerprint, trust root — and the record it was signed over;
+   the record's `adapter_names`/`trust_tiers` and its `revoked` status are
+   enforced live against the current file on every verification. So certifying
+   a second adapter under the same key leaves the first certificate (and the
+   digest its pin binds) intact, while rotating the public key under the same
+   id or revoking the key invalidates every certificate under it at once. The
+   platform record binds whole: that file is reviewed and shipped, and never
+   grows under an operator's hand.
+
    A key id present in both files resolves to the shipped record, always: a
    certificate that claimed the site root for such an id is refused by name.
    `adapters/authorities.json` is reserved inside `adapters/` — it is never an
@@ -956,8 +968,28 @@ That pin selects `adapters/woocommerce.json` for the name. The shipped copy
 leaves the loaded set and is reported on every run as `not_installed` with
 reason code `shadowed_by_site`, naming the site copy that won; exactly one
 definition answers to the name, so the cross-manifest guards see no conflict.
-Then run `wp duo manifest-pin --repo=<site-repo> --name=woocommerce` and commit
-the exact `{name,source:"site",digest}` object it prints.
+
+The host verb does both halves in one command: `duo adapter pin <site-repo>
+--name=woocommerce --source=site` writes the `{name, source:"site"}` statement
+first (printing `override: site.duo.json now names the site copy of shipped
+adapter 'woocommerce'`), loads the repository with the site copy in force, and
+completes the pin with the digest — the same `{name,source:"site",digest}`
+object `wp duo manifest-pin --repo=<site-repo> --name=woocommerce` prints once
+the override statement exists. Commit the object it writes.
+
+**An override inherits exactly the shipped executable grants.** The usual
+out-of-tree rule refuses an `interpreter`, a `regen_dependency.regenerator`
+or a `providers[]` row with `source: "manifest"` in a site adapter, because
+that code lives in the agent's own tree. A copy of a shipped adapter carries
+those declarations already, and they are the shipped grant repeated: an
+override keeps every one that is byte-for-byte what `manifests/<name>.json`
+declares, and may add or edit none. Widening (a second manifest-sourced
+provider, one more capability on the inherited one, another adapter's
+interpreter) is refused with the override's own remediation — repeat the
+shipped declaration verbatim or drop the change. The override therefore
+carries the shipped tier its inherited code implies (a `compatibility_shim`
+adapter stays `compatibility_shim`; it is not laundered into declarative), and
+a site key may certify that tier.
 
 Three things the override deliberately is not:
 

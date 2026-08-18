@@ -732,6 +732,88 @@ check(
     'an explicitly pinned override raises NO refusal — got '
     . implode(',', array_column($overrideSurvey['refusals'], 'code'))
 );
+// T6 §3.3, as the walk's S4 met it: an override is a COPY of the shipped
+// adapter with an edit, and the shipped woocommerce adapter declares
+// executable grants (a manifest-sourced provider). The out-of-tree rule
+// refuses those for an unrelated site adapter (below, "acquires no executable
+// privileges"); for an override they are the shipped grant repeated, and the
+// site copy inherits exactly them — no more.
+$shippedWoo = json_decode((string) file_get_contents(Policy::manifests_dir() . '/woocommerce.json'), true);
+$grants = AdapterSources::shipped_executable_grants(Policy::manifests_dir(), 'woocommerce');
+check(
+    is_array($grants)
+        && array_keys($grants) === ['interpreter', 'regenerators', 'providers']
+        && isset($grants['providers']['woocommerce-cache'])
+        && $grants['providers']['woocommerce-cache'] === $shippedWoo['providers'][0],
+    'shipped_executable_grants() returns the shipped interpreter / regenerators / providers by id, verbatim'
+);
+check(
+    AdapterSources::shipped_executable_grants(Policy::manifests_dir(), 'acme-widget') === null,
+    'and null for a name the library does not ship — an unrelated site adapter inherits nothing'
+);
+$overrideCopy = $shippedWoo;
+$overrideCopy['options']['woocommerce_walk_banner'] = ['class' => 'authored'];
+$inheritedRepo = fresh_site(
+    [['name' => 'core'], ['name' => 'woocommerce', 'source' => 'site']],
+    ['woocommerce' => $overrideCopy]
+);
+$inheritedPolicy = Policy::load($inheritedRepo);
+$inheritedManifest = null;
+foreach ($inheritedPolicy->manifests as $m) {
+    if (($m['name'] ?? null) === 'woocommerce') {
+        $inheritedManifest = $m;
+    }
+}
+check(
+    is_array($inheritedManifest)
+        && ($inheritedManifest['providers'][0]['id'] ?? null) === 'woocommerce-cache'
+        && ($inheritedManifest['providers'][0]['source'] ?? null) === 'manifest'
+        && ($inheritedManifest['options']['woocommerce_walk_banner']['class'] ?? null) === 'authored',
+    'an override that repeats the shipped provider declaration verbatim LOADS with it, plus its own edit'
+);
+check(
+    ($inheritedPolicy->adapter_sources()->diagnostics($inheritedPolicy->manifests)['woocommerce']['trust_tier'] ?? null)
+        === AdapterSources::TIER_COMPATIBILITY_SHIM,
+    'and carries the shipped tier the inherited code implies — the site copy is not laundered into declarative'
+);
+$widenedCopy = $overrideCopy;
+$widenedCopy['providers'][] = [
+    'capabilities' => ['flush'],
+    'id' => 'walk-rogue',
+    'plugin' => 'woocommerce/woocommerce.php',
+    'source' => 'manifest',
+    'version' => '1.0.0',
+];
+expect_throw(
+    fn() => Policy::load(fresh_site(
+        [['name' => 'core'], ['name' => 'woocommerce', 'source' => 'site']],
+        ['woocommerce' => $widenedCopy]
+    )),
+    'source "manifest"',
+    'an override that ADDS a manifest-sourced provider the shipped adapter does not grant is refused — '
+    . 'inheritance is the shipped grant, never a widening of it'
+);
+$editedGrant = $overrideCopy;
+$editedGrant['providers'][0]['capabilities'][] = 'walk-extra';
+expect_throw(
+    fn() => Policy::load(fresh_site(
+        [['name' => 'core'], ['name' => 'woocommerce', 'source' => 'site']],
+        ['woocommerce' => $editedGrant]
+    )),
+    'source "manifest"',
+    'an override that EDITS the inherited provider row (one more capability) is refused: identical or nothing'
+);
+$borrowedInterpreter = $overrideCopy;
+$borrowedInterpreter['interpreter'] = 'acf';
+expect_throw(
+    fn() => Policy::load(fresh_site(
+        [['name' => 'core'], ['name' => 'woocommerce', 'source' => 'site']],
+        ['woocommerce' => $borrowedInterpreter]
+    )),
+    'acquires no executable privileges',
+    'an override cannot borrow ANOTHER shipped adapter\'s interpreter under the shipped name it overrides'
+);
+
 // The three ways an override must NOT be available, each a separate fail-safe.
 expect_throw(
     fn() => Policy::load(fresh_site(

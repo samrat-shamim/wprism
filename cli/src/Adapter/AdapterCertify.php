@@ -237,7 +237,7 @@ final class AdapterCertify {
         $adapterPath = $repo . '/' . AdapterSources::SITE_DIR . '/' . $name . '.json';
         if (!is_file($adapterPath) || is_link($adapterPath)) {
             return self::fail(
-                "no site adapter at " . AdapterSources::SITE_DIR . "/$name.json in $repo — certification signs an "
+                'no site adapter at ' . AdapterSources::SITE_DIR . "/$name.json in $repo — certification signs an "
                 . 'installed site adapter; install it there first (duo adapter-draft <site-repo> --name=' . $name
                 . ' --out=' . AdapterSources::SITE_DIR . "/$name.json)"
             );
@@ -281,6 +281,8 @@ final class AdapterCertify {
         // where `AdapterCertification::authority()` resolves it from, and
         // resolving under the site root is what makes the result `site_signed`
         // rather than an agent-owned certificate.
+        $authoritiesFile = $repo . '/' . self::AUTHORITIES_RELATIVE;
+        $authoritiesBefore = is_file($authoritiesFile) ? (string) file_get_contents($authoritiesFile) : null;
         $registered = self::registerAuthority($repo, $keyId, $public, $name, $tier);
 
         // T6 §3.5, as the agent landed it: the AGENT owns the unexercised
@@ -297,14 +299,28 @@ final class AdapterCertify {
         // trying to avoid, and the producer belongs beside the validator that
         // refuses it.
         $manifestDir = Policy::manifests_dir();
-        $certificate = AdapterCertification::sign_site(
-            $manifestDir,
-            $repo,
-            $name,
-            $keyId,
-            base64_encode($secret),
-            $reason
-        );
+        try {
+            $certificate = AdapterCertification::sign_site(
+                $manifestDir,
+                $repo,
+                $name,
+                $keyId,
+                base64_encode($secret),
+                $reason
+            );
+        } catch (\Throwable $t) {
+            // The pre-flight is a load, the signature step is the certifier's
+            // own reading of the manifest; when they disagree the trust root
+            // must not keep a record this attempt wrote (a stale record can
+            // invalidate every OTHER certificate under the key — seen when an
+            // override's tier landed in the record and the signing refused).
+            if ($authoritiesBefore === null) {
+                @unlink($authoritiesFile);
+            } else {
+                file_put_contents($authoritiesFile, $authoritiesBefore, LOCK_EX);
+            }
+            throw $t;
+        }
         $certificatePath = self::writeCertificate($repo, $name, $certificate);
         // Verify what was just written, through the live verifier, before
         // claiming anything. A producer that trusted its own bytes would put
@@ -387,7 +403,30 @@ final class AdapterCertify {
         self::boot();
         AdapterSources::assert_name($name, 'adapter pin --name');
 
-        $pinObject = self::pinObject($repo, $name, is_string($source) ? $source : null);
+        // The override bootstrap (T6 §3.3, AdapterSources::override_pins()):
+        // a site copy of a SHIPPED name loads only once site.duo.json pins that
+        // name with source "site", and the digest that completes the pin can
+        // only be read by loading it. So `--source=site` for a shipped name
+        // writes the source statement first, loads, then completes the pin
+        // with the digest — the same two-step the guide describes, in one
+        // command. If the load then refuses, the file is put back exactly.
+        $before = null;
+        if ($source === AdapterSources::SITE
+            && is_file(rtrim(Policy::manifests_dir(), '/') . '/' . $name . '.json')
+            && !self::hasSourcePin($repo, $name, AdapterSources::SITE)) {
+            $before = (string) file_get_contents($repo . '/site.duo.json');
+            self::writePin($repo, ['name' => $name, 'source' => AdapterSources::SITE]);
+            echo "override: site.duo.json now names the site copy of shipped adapter '$name' (source \"site\"); "
+                . "the shipped definition is shadowed\n";
+        }
+        try {
+            $pinObject = self::pinObject($repo, $name, is_string($source) ? $source : null);
+        } catch (\Throwable $t) {
+            if ($before !== null) {
+                file_put_contents($repo . '/site.duo.json', $before, LOCK_EX);
+            }
+            throw $t;
+        }
         $changed = self::writePin($repo, $pinObject);
 
         echo ($changed ? 'wrote' : 'confirmed') . " the pin in $repo/site.duo.json:\n";
@@ -404,6 +443,26 @@ final class AdapterCertify {
     // -----------------------------------------------------------------
     // shared mechanism
     // -----------------------------------------------------------------
+
+    /** Whether site.duo.json already pins `$name` with the given source. */
+    private static function hasSourcePin(string $repo, string $name, string $source): bool {
+        $raw = @file_get_contents($repo . '/site.duo.json');
+        if (!is_string($raw)) {
+            return false;
+        }
+        try {
+            $site = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            return false;
+        }
+        foreach ((array) ($site['manifests'] ?? []) as $pin) {
+            if (is_array($pin) && ($pin['name'] ?? null) === $name && ($pin['source'] ?? null) === $source) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     /**
      * The exact `{name, source, digest}` object the engine resolves.

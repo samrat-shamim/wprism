@@ -1007,7 +1007,14 @@ final class AdapterSources {
                 [$relative],
                 "install this adapter into the agent's own manifest library, or declare a plugin-owned provider "
                     . 'instead — an out-of-tree manifest is data and acquires no executable privileges',
-                static fn() => self::assert_out_of_tree_contract($manifest, $name, $relative)
+                static fn() => self::assert_out_of_tree_contract(
+                    $manifest,
+                    $name,
+                    $relative,
+                    'site adapter',
+                    false,
+                    isset($overridePins[$name]) ? self::shipped_executable_grants($manifestDir, $name) : null
+                )
             )) {
                 continue;
             }
@@ -3128,7 +3135,8 @@ final class AdapterSources {
         string $name,
         string $relativePath,
         string $label = 'site adapter',
-        bool $renderPath = false
+        bool $renderPath = false,
+        ?array $inherit = null
     ): void {
         // The path is a message field here, and for the PLUGIN source its
         // middle segment is a third party's directory name, which can hold
@@ -3137,8 +3145,13 @@ final class AdapterSources {
         // those paths are `adapters/<slug>.json` and this project's
         // regressions compare them exactly.
         $shown = $renderPath ? self::render($relativePath) : "'$relativePath'";
-        $remedy = "install the adapter into the agent's own manifest library (where its code ships, digest-binds, and "
-            . 'is reviewed with it), or declare a plugin-owned provider whose code the installed plugin already owns';
+        $remedy = $inherit === null
+            ? "install the adapter into the agent's own manifest library (where its code ships, digest-binds, and "
+                . 'is reviewed with it), or declare a plugin-owned provider whose code the installed plugin already owns'
+            : "an override of shipped adapter '$name' inherits the shipped interpreter / regenerator / provider "
+                . "declarations exactly as manifests/$name.json carries them and may add or edit none — repeat "
+                . 'the shipped declaration verbatim or drop the change; new executable code belongs in the '
+                . "agent's own manifest library";
         foreach ([
             'adapter_certificate', 'authority', 'authority_id', 'certificate', 'certification',
             'certification_authority', 'disposition', 'evidence', 'key_id', 'public_key', 'signature', 'trust_tier',
@@ -3156,7 +3169,21 @@ final class AdapterSources {
         // privilege it cannot have, and the refusal must not depend on the
         // declaration being well-formed enough to recognize. (Type/shape is
         // AdapterContractGrammar::validate_adapter_contract()'s job, for every source.)
-        if (array_key_exists('interpreter', $manifest) && $manifest['interpreter'] !== null) {
+        // A reviewed OVERRIDE of a shipped adapter (an explicit
+        // {name, source:"site"} pin for a shipped name, T6 §3.3) may KEEP the
+        // executable declarations its shipped namesake already carries — that
+        // code ships with the agent, is reviewed with it, and loads from the
+        // agent's own tree exactly as before — and may add none. `$inherit`
+        // is that namesake's grant set (shipped_executable_grants()); a
+        // declaration is kept only when it is byte-for-byte the shipped one.
+        // Without an override there is nothing to inherit and every channel
+        // refuses as it always did.
+        $inheritInterpreter = $inherit['interpreter'] ?? null;
+        $inheritRegenerators = is_array($inherit['regenerators'] ?? null) ? $inherit['regenerators'] : [];
+        $inheritProviders = is_array($inherit['providers'] ?? null) ? $inherit['providers'] : [];
+        $same = static fn ($a, $b): bool => Canon::encode($a) === Canon::encode($b);
+        if (array_key_exists('interpreter', $manifest) && $manifest['interpreter'] !== null
+            && !($inheritInterpreter !== null && $same($manifest['interpreter'], $inheritInterpreter))) {
             throw new \RuntimeException(
                 "duo: $label $shown declares interpreter "
                 . var_export($manifest['interpreter'], true) . ", but interpreter code loads only from the agent's "
@@ -3166,7 +3193,9 @@ final class AdapterSources {
         }
         foreach ((array) ($manifest['post_types'] ?? []) as $postType => $declaration) {
             $regenerator = is_array($declaration) ? ($declaration['regen_dependency']['regenerator'] ?? null) : null;
-            if ($regenerator !== null) {
+            if ($regenerator !== null
+                && !(array_key_exists((string) $postType, $inheritRegenerators)
+                    && $same($inheritRegenerators[(string) $postType], $regenerator))) {
                 throw new \RuntimeException(
                     "duo: $label $shown post_types.$postType declares regenerator "
                     . var_export($regenerator, true) . ", but regenerator code loads only from the agent's manifest "
@@ -3182,7 +3211,9 @@ final class AdapterSources {
                     "$label $shown providers[$i].plugin"
                 );
             }
-            if (is_array($declaration) && ($declaration['source'] ?? null) === 'manifest') {
+            if (is_array($declaration) && ($declaration['source'] ?? null) === 'manifest'
+                && !(isset($inheritProviders[(string) ($declaration['id'] ?? '')])
+                    && $same($inheritProviders[(string) ($declaration['id'] ?? '')], $declaration))) {
                 throw new \RuntimeException(
                     "duo: $label $shown providers[$i] declares source \"manifest\", which resolves to "
                     . "the agent's own manifests/providers/ tree — an out-of-tree manifest cannot supply provider "
@@ -3195,12 +3226,58 @@ final class AdapterSources {
         // future channel that lands here without its own refusal must not be
         // able to report itself as merely declarative.
         $tier = self::trust_tier($manifest);
-        if ($tier === self::TIER_COMPATIBILITY_SHIM) {
+        if ($tier === self::TIER_COMPATIBILITY_SHIM && $inherit === null) {
             throw new \RuntimeException(
                 "duo: $label $shown reaches the $tier trust tier, which an out-of-tree adapter cannot "
                 . "hold. Remediation: $remedy"
             );
         }
+    }
+
+    /**
+     * The executable declarations a shipped adapter carries, keyed so an
+     * override of the same name can be checked declaration-for-declaration:
+     * the interpreter value, `regenerators` by post type, and every
+     * `providers[]` row with source "manifest" by id (the whole row, so an
+     * override cannot keep the id and change what it runs). Null when no
+     * shipped adapter of that name exists — then nothing is inheritable and
+     * assert_out_of_tree_contract() refuses every executable channel as
+     * before.
+     *
+     * @return ?array{interpreter:mixed,regenerators:array<string,mixed>,providers:array<string,array<string,mixed>>}
+     */
+    public static function shipped_executable_grants(string $manifestDir, string $name): ?array {
+        $file = rtrim($manifestDir, '/') . '/' . $name . '.json';
+        if (!is_file($file) || is_link($file)) {
+            return null;
+        }
+        try {
+            $shipped = Canon::decode(Canon::read_file($file));
+        } catch (\Throwable $t) {
+            return null;
+        }
+        if (!is_array($shipped)) {
+            return null;
+        }
+        $regenerators = [];
+        foreach ((array) ($shipped['post_types'] ?? []) as $postType => $declaration) {
+            $regenerator = is_array($declaration) ? ($declaration['regen_dependency']['regenerator'] ?? null) : null;
+            if ($regenerator !== null) {
+                $regenerators[(string) $postType] = $regenerator;
+            }
+        }
+        $providers = [];
+        foreach ((array) ($shipped['providers'] ?? []) as $declaration) {
+            if (is_array($declaration) && ($declaration['source'] ?? null) === 'manifest'
+                && is_string($declaration['id'] ?? null)) {
+                $providers[(string) $declaration['id']] = $declaration;
+            }
+        }
+        return [
+            'interpreter' => $shipped['interpreter'] ?? null,
+            'regenerators' => $regenerators,
+            'providers' => $providers,
+        ];
     }
 
     /**
@@ -3287,7 +3364,12 @@ final class AdapterSources {
             $manifest,
             $name,
             (string) ($this->path($name) ?? $name),
-            self::source_label($source)
+            self::source_label($source),
+            false,
+            // A site adapter that answers to a shipped name is, by
+            // construction, the reviewed override (any other site copy of a
+            // shipped name is refused at scan), so its namesake's grants apply.
+            $source === self::SITE ? self::shipped_executable_grants(Policy::manifests_dir(), $name) : null
         );
     }
 
@@ -3664,7 +3746,14 @@ final class AdapterSources {
             // one), so using it here re-proves nothing and misnames nothing.
             $path = (string) $record['provenance']['path'];
             $origin = $recordSource === self::PLUGIN ? self::PLUGIN : self::SITE;
-            self::assert_out_of_tree_contract($manifest, $name, $path, self::source_label($origin));
+            self::assert_out_of_tree_contract(
+                $manifest,
+                $name,
+                $path,
+                self::source_label($origin),
+                false,
+                $origin === self::SITE ? self::shipped_executable_grants(Policy::manifests_dir(), $name) : null
+            );
             if (($record['trust_tier'] ?? null) !== self::trust_tier($manifest)) {
                 throw new \RuntimeException(
                     "duo: frozen adapter source record for '$name' claims trust tier '{$record['trust_tier']}' but "

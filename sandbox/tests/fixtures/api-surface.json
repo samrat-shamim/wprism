@@ -720,6 +720,14 @@
                             "name": "renderPath",
                             "type": "bool",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "inherit",
+                            "type": "?array",
+                            "variadic": false
                         }
                     ],
                     "return_type": "void",
@@ -1016,6 +1024,31 @@
                         }
                     ],
                     "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "shipped_executable_grants": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifestDir",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "name",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
                     "static": true,
                     "visibility": "public"
                 },
@@ -13963,6 +13996,79 @@
                     "return_type": "array",
                     "static": true,
                     "visibility": "public"
+                },
+                "unmanaged_scope": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "registeredPostTypes",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "registeredTaxonomies",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "proposedPostTypes",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "proposedTaxonomies",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "declaredPostTypes",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "declaredTaxonomies",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "postCounts",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "taxCounts",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
                 }
             },
             "parent": null,
@@ -14637,6 +14743,14 @@
                 },
                 "KIND_TT": {
                     "value_repr": "term_taxonomy"
+                },
+                "OWN_TABLES": {
+                    "value_repr": [
+                        "duo_journal",
+                        "duo_kv",
+                        "duo_map",
+                        "duo_state"
+                    ]
                 },
                 "TABLE_IDENTIFIER_WIDTH": {
                     "value_repr": 64

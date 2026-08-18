@@ -37,7 +37,7 @@ final class InitCommand {
             }
             fwrite(
                 STDERR,
-                "duo: init accepts only --yes and " . Init::ALLOW_UNMANAGED_PLUGINS
+                'duo: init accepts only --yes and ' . Init::ALLOW_UNMANAGED_PLUGINS
                     . "; unsupported argument '$arg'\n"
             );
             return 1;

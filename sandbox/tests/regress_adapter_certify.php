@@ -43,6 +43,7 @@ use Duo\AdapterCertification;
 use Duo\AdapterSources;
 use Duo\Canon;
 use Duo\Policy;
+use Duo\RepositoryCompiler;
 use Duo\Orchestrator\AdapterCertify;
 
 // -------------------------------------------------------------------- harness
@@ -718,6 +719,186 @@ file_put_contents($handRepo . '/adapters/acme-catalog.json', "{ not json");
 $handBad = cert_run_cli(['certify', $handRepo, '--name=acme-catalog', '--secret-key-file=' . $secretPath, '--key-id=' . $signKeyId]);
 duo_check_same(2, $handBad['exit'], 'invalid JSON is still refused');
 duo_check(str_contains($handBad['err'], 'is not valid JSON'), 'and named as such, never rewritten');
+
+// -------------------------------- overriding a shipped adapter (T6 walk S4)
+// The operator copies manifests/woocommerce.json to adapters/woocommerce.json,
+// edits it, and says `duo adapter pin --source=site`. Three things the walk
+// stopped on, each pinned here: (1) the pin verb bootstraps the override in
+// one command — the site copy loads only once site.duo.json names source
+// "site", and the digest that completes the pin can only be read by loading;
+// (2) certify admits the override's inherited `compatibility_shim` tier under
+// a site key; (3) certifying a SECOND adapter under the same key keeps the
+// first certificate valid — the site trust root is a living registry, and a
+// certificate binds the key's identity, not the record's growing scope lists.
+$shippedWoo = json_decode((string) file_get_contents(Policy::manifests_dir() . '/woocommerce.json'), true);
+$overrideCopy = $shippedWoo;
+$overrideCopy['options']['woocommerce_walk_banner'] = ['class' => 'authored'];
+$overRepo = cert_site($root, 'oversite', $overrideCopy, ['core', 'woocommerce']);
+duo_check_throws(
+    static fn() => Policy::load($overRepo),
+    RuntimeException::class,
+    'before the override pin the site copy of a shipped name refuses to load (it shadows)'
+);
+$overPin = cert_run(['pin', $overRepo, '--name=woocommerce', '--source=site']);
+duo_check_same(0, $overPin['exit'], 'pin --source=site on a shipped name succeeds from a name-only pin');
+duo_check(
+    str_contains($overPin['out'], "override: site.duo.json now names the site copy of shipped adapter 'woocommerce'")
+        && str_contains($overPin['out'], 'wrote the pin'),
+    'and says it made the override before writing the digest pin'
+);
+$overPins = json_decode((string) file_get_contents($overRepo . '/site.duo.json'), true)['manifests'] ?? [];
+$overEntries = array_values(array_filter(
+    $overPins,
+    static fn ($m) => (is_string($m) ? $m : ($m['name'] ?? null)) === 'woocommerce'
+));
+duo_check(
+    count($overEntries) === 1
+        && is_array($overEntries[0])
+        && ($overEntries[0]['source'] ?? null) === 'site'
+        && preg_match('/^[0-9a-f]{64}$/', (string) ($overEntries[0]['digest'] ?? '')) === 1
+        && in_array('core', $overPins, true),
+    'the name-only pin is REPLACED by one {name, source:"site", digest} pin; core is untouched'
+);
+$overPolicy = Policy::load($overRepo);
+duo_check_same(
+    AdapterSources::SITE,
+    $overPolicy->adapter_sources()->source('woocommerce'),
+    'the override now loads from the site source'
+);
+$overBytes = (string) file_get_contents($overRepo . '/site.duo.json');
+$overAgain = cert_run(['pin', $overRepo, '--name=woocommerce', '--source=site']);
+duo_check(
+    $overAgain['exit'] === 0
+        && !str_contains($overAgain['out'], 'override:')
+        && str_contains($overAgain['out'], 'confirmed the pin')
+        && hash_equals($overBytes, (string) file_get_contents($overRepo . '/site.duo.json')),
+    'a second pin --source=site is a confirmation: no override line, no byte change'
+);
+
+// (2) certify the override under the site key: its tier is the shipped
+// compatibility_shim, inherited with the provider grant.
+$overCert = cert_run(['certify', $overRepo, '--name=woocommerce', '--secret-key-file=' . $secretPath,
+    '--key-id=' . $signKeyId, '--reason=Acme Ltd reviewed its banner option against the shipped adapter.', '--pin']);
+duo_check_same(0, $overCert['exit'], 'certify --pin succeeds on an override that inherits shipped grants');
+duo_check(
+    str_contains($overCert['out'], 'trust tier: ' . AdapterSources::TIER_COMPATIBILITY_SHIM),
+    'and reports the inherited compatibility_shim tier rather than laundering it'
+);
+$overAuthorities = json_decode((string) file_get_contents($overRepo . '/' . AdapterCertify::AUTHORITIES_RELATIVE), true);
+duo_check_same(
+    [AdapterSources::TIER_COMPATIBILITY_SHIM],
+    $overAuthorities['keys'][$signKeyId]['trust_tiers'] ?? null,
+    'the site trust root records the shim tier for the key — a site key may certify an override\'s declarations'
+);
+$overPolicy = Policy::load($overRepo);
+duo_check_same(
+    'site_signed',
+    $overPolicy->adapter_sources()->diagnostics($overPolicy->manifests)['woocommerce']['certification'] ?? null,
+    'the certified override reads site_signed'
+);
+
+// (3) a second adapter under the SAME key: the record grows (adapter_names,
+// trust_tiers) and the first certificate must stay valid.
+Canon::write_file($overRepo . '/adapters/keeper.json', Canon::encode([
+    'name' => 'keeper',
+    'option_autoload' => 'preserve',
+    'options' => ['keeper_layout' => ['class' => 'authored']],
+    'spec_version' => DUO_SPEC_VERSION,
+]));
+duo_check_same(0, cert_run(['pin', $overRepo, '--name=keeper', '--source=site'])['exit'], 'a second site adapter pins');
+$keeperCert = cert_run(['certify', $overRepo, '--name=keeper', '--secret-key-file=' . $secretPath,
+    '--key-id=' . $signKeyId, '--reason=Acme Ltd reviewed keeper.', '--pin']);
+duo_check_same(0, $keeperCert['exit'], 'the second adapter certifies under the same key');
+$overAuthorities = json_decode((string) file_get_contents($overRepo . '/' . AdapterCertify::AUTHORITIES_RELATIVE), true);
+duo_check_same(
+    ['keeper', 'woocommerce'],
+    $overAuthorities['keys'][$signKeyId]['adapter_names'] ?? null,
+    'the key record now names both adapters (it grew)'
+);
+$overPolicy = Policy::load($overRepo);
+$overWords = $overPolicy->adapter_sources()->diagnostics($overPolicy->manifests);
+duo_check_same(
+    ['keeper' => 'site_signed', 'woocommerce' => 'site_signed'],
+    ['keeper' => $overWords['keeper']['certification'] ?? null, 'woocommerce' => $overWords['woocommerce']['certification'] ?? null],
+    'BOTH certificates verify after the record grew — a growing site trust root does not invalidate earlier certificates'
+);
+$overWooCert = $overRepo . '/adapters/certifications/woocommerce.json';
+$verifiedOver = AdapterCertification::verifyFile(Policy::manifests_dir(), $overRepo, 'woocommerce', $overrideCopy, $overWooCert);
+duo_check_same(
+    'site',
+    $verifiedOver['provenance']['proof']['authority']['trust_root'] ?? null,
+    'the live verifier agrees, under the site trust root'
+);
+$overResolvedBefore = null;
+foreach (RepositoryCompiler::resolved_adapters(Policy::load($overRepo)) as $resolvedRow) {
+    if ($resolvedRow['name'] === 'woocommerce') {
+        $overResolvedBefore = $resolvedRow['digest'];
+    }
+}
+$overPinsNow = json_decode((string) file_get_contents($overRepo . '/site.duo.json'), true)['manifests'];
+$overPinDigest = null;
+foreach ($overPinsNow as $m) {
+    if (is_array($m) && ($m['name'] ?? null) === 'woocommerce') {
+        $overPinDigest = $m['digest'];
+    }
+}
+duo_check_same(
+    $overPinDigest,
+    $overResolvedBefore,
+    'the woocommerce pin written BEFORE keeper was certified still equals the digest the engine resolves after: '
+    . 'a growing trust root moves no earlier adapter digest'
+);
+
+// The identity half IS still bound: a rotated public key under the same id
+// invalidates every certificate, and revocation refuses at scope.
+$rotated = $overAuthorities;
+$rotated['keys'][$signKeyId]['public_key'] = base64_encode(sodium_crypto_sign_publickey(sodium_crypto_sign_keypair()));
+Canon::write_file(
+    $overRepo . '/' . AdapterCertify::AUTHORITIES_RELATIVE,
+    Canon::encode(['format' => $rotated['format'], 'keys' => (object) $rotated['keys']])
+);
+duo_check_throws(
+    static fn() => AdapterCertification::verifyFile(Policy::manifests_dir(), $overRepo, 'woocommerce', $overrideCopy, $overWooCert),
+    RuntimeException::class,
+    'a rotated public key under the same key id invalidates the certificate — identity is bound'
+);
+$revokedRoot = $overAuthorities;
+$revokedRoot['keys'][$signKeyId]['status'] = 'revoked';
+Canon::write_file(
+    $overRepo . '/' . AdapterCertify::AUTHORITIES_RELATIVE,
+    Canon::encode(['format' => $revokedRoot['format'], 'keys' => (object) $revokedRoot['keys']])
+);
+duo_check_throws(
+    static fn() => AdapterCertification::verifyFile(Policy::manifests_dir(), $overRepo, 'woocommerce', $overrideCopy, $overWooCert),
+    RuntimeException::class,
+    'and a revoked key refuses on the next verification — revocation is live, not frozen into the certificate'
+);
+Canon::write_file(
+    $overRepo . '/' . AdapterCertify::AUTHORITIES_RELATIVE,
+    Canon::encode(['format' => $overAuthorities['format'], 'keys' => (object) $overAuthorities['keys']])
+);
+
+// An override that WIDENS the shipped grant never certifies, and never leaves
+// a trust root behind: the pre-flight load refuses before any write.
+$widenRepo = cert_site($root, 'widensite', (static function (array $copy): array {
+    $copy['providers'][] = [
+        'capabilities' => ['flush'], 'id' => 'walk-rogue', 'plugin' => 'woocommerce/woocommerce.php',
+        'source' => 'manifest', 'version' => '1.0.0',
+    ];
+
+    return $copy;
+})($overrideCopy), ['core', ['name' => 'woocommerce', 'source' => 'site']]);
+$widenCert = cert_run_cli(['certify', $widenRepo, '--name=woocommerce', '--secret-key-file=' . $secretPath,
+    '--key-id=' . $signKeyId, '--reason=widened']);
+duo_check_same(2, $widenCert['exit'], 'certifying an override that adds a manifest-sourced provider is refused');
+duo_check(
+    str_contains($widenCert['err'], "an override of shipped adapter 'woocommerce' inherits the shipped interpreter"),
+    'with the override remediation (repeat the shipped declaration verbatim or drop the change)'
+);
+duo_check(
+    !is_file($widenRepo . '/' . AdapterCertify::AUTHORITIES_RELATIVE),
+    'and no trust root was written for the failed attempt'
+);
 
 // ------------------------------------------------------------------ closure
 

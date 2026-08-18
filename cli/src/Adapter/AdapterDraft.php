@@ -347,7 +347,7 @@ final class AdapterDraft {
                 echo "  duo adapter inspect $name --repo=$resolved\n";
                 echo "  duo adapter certify $resolved --name=$name --secret-key-file=<key> --pin\n";
             } else {
-                echo "  duo manifest-validate " . dirname($outPath) . " --site=$resolved --manifest=$name\n";
+                echo '  duo manifest-validate ' . dirname($outPath) . " --site=$resolved --manifest=$name\n";
             }
             return 0;
         }
