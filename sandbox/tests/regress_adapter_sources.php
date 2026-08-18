@@ -814,6 +814,24 @@ expect_throw(
     'an override cannot borrow ANOTHER shipped adapter\'s interpreter under the shipped name it overrides'
 );
 
+// The uncertified override has NO capability claim: it never borrows the
+// registry's entry for the shipped name it displaced (walk S4 read `Ready`
+// beside `Uncertified` on post_type:product from exactly that borrowing).
+check(
+    $overridePolicy->capability_claim('woocommerce') === null,
+    'an uncertified override answers with no capability claim — the shipped claim for the same name is not borrowed'
+);
+$overrideBlockers = array_column(
+    $overridePolicy->capability_report(['operation' => 'promote'])['blockers'] ?? [],
+    'code',
+    'name'
+);
+check(
+    ($overrideBlockers['woocommerce'] ?? null) === 'adapter_source_uncertified',
+    'and the capability report blocks it as adapter_source_uncertified, not as the certified shipped adapter (got '
+    . var_export($overrideBlockers['woocommerce'] ?? null, true) . ')'
+);
+
 // The three ways an override must NOT be available, each a separate fail-safe.
 expect_throw(
     fn() => Policy::load(fresh_site(

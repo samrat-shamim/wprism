@@ -329,7 +329,13 @@ final class CapabilityRegistry {
                     "duo: external capability context for shipped adapter '$name' would replace its registry claim"
                 );
             }
-            $claim = $externalClaim ?? $this->claim($name);
+            // An out-of-tree adapter answers with its own (external, signed)
+            // claim or with none — never with the registry's entry for the same
+            // NAME. That name-keyed fallback is exactly how an uncertified site
+            // copy of a SHIPPED adapter (T6 §3.3's override) read `Ready`
+            // beside `Uncertified` in `duo assess`: the shipped woocommerce
+            // claim was borrowed for a manifest nobody had reviewed.
+            $claim = $externalClaim ?? ($outOfTree ? null : $this->claim($name));
             $reasons = [];
             if ($claim === null) {
                 // An out-of-tree adapter has no registry entry BY CONSTRUCTION,
