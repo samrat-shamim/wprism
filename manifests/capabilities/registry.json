@@ -3,7 +3,7 @@
     "generated_from": {
         "compatibility_sha256": "8890e74f412c7ed07e1454c1abd2bd24e330a87990d8832cfe89e9860679b2be",
         "dispositions_sha256": "94769c86414dc677b3ead30405a82b2ea8288359191c04d949d371778a12549b",
-        "evidence_sha256": "7e4cfb462711496b9a5b2b034e37a9da2b5e1c73481ca6814d04d5bd3b0696a1"
+        "evidence_sha256": "47aa131ce6000d6767ca51ce141df444b3ae85bd36476e5af52abe01ea6d0ec9"
     },
     "manifests": {
         "acf": {
@@ -37,11 +37,11 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "2720ffc6c1194cb09cfdc319f1386d7c35aa49777cf93e7fb9933661ddf78b3c",
+                "bundle_digest": "13a239db93e5f86732a900ecf89a6c43308c894c2e1b58365f0d0a003579eeac",
                 "bundle_schema": "duo-subject-certification-bundle/v1",
                 "closure_digest": "eba8167fea23df6a7771a9d30146166ee80cc9d7561e65ff6b8e962ce135df91",
                 "force_hatches": [],
-                "git_revision": "cf1b6ddaa9a77565852cc432c26477a6af09017f",
+                "git_revision": "ed2c9f5a28cc724faf9342c80c2aa2e2ce1d0605",
                 "status": "current",
                 "subject": "manifests.acf",
                 "subject_digest": "d0b09b58fcdc7ffdf9655eafa3dd9c9090b0d10b69f809f7a10bc6417b6fdccb",
@@ -128,11 +128,11 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "517bd96db4d69928183b90ffa925ed9f9de838e7da2438086f4cc2f63f7c2e7b",
+                "bundle_digest": "820cd4ee96db38fa811f556f1fdf0b78ce5dd324d0cf89f028557ac6d7724f8e",
                 "bundle_schema": "duo-subject-certification-bundle/v1",
                 "closure_digest": "1c21ced51d8bd3fdb940f674257fba6d53b401bd69b9c8a20234238d30224583",
                 "force_hatches": [],
-                "git_revision": "cf1b6ddaa9a77565852cc432c26477a6af09017f",
+                "git_revision": "ed2c9f5a28cc724faf9342c80c2aa2e2ce1d0605",
                 "status": "current",
                 "subject": "manifests.contact-form-7",
                 "subject_digest": "a16cb5d14a08bf4e15fae7599a1a5752c969dc84a3c27bcb23b707b64d6c1ca9",
@@ -231,11 +231,11 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "7986a1fab95401761d2323c7297f09457e0f0e4aff749ec536b7dbacda064abc",
+                "bundle_digest": "4d67b498e687a4c27972bdb358c5cc88f403673c13516b3fdfb7846a8890f0d0",
                 "bundle_schema": "duo-subject-certification-bundle/v1",
                 "closure_digest": "43d9533df6cf887d24f25407189becc2b934a3a06c199641862c9615aa725c08",
                 "force_hatches": [],
-                "git_revision": "cf1b6ddaa9a77565852cc432c26477a6af09017f",
+                "git_revision": "ed2c9f5a28cc724faf9342c80c2aa2e2ce1d0605",
                 "status": "current",
                 "subject": "manifests.core",
                 "subject_digest": "d71f4849eea52b8ec30138cfff4d3bfaca579a3bbdf300ea5d45cc50bed7d4f7",
@@ -757,11 +757,11 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "9c5f55618b8d00966a19d074c921dd6f021869d42763409b08e9de7f33d2c5ed",
+                "bundle_digest": "8e84f75fa7e89e531dfd0e2c74b380974f06a5a78fbdc23cd9c569de80c01c61",
                 "bundle_schema": "duo-subject-certification-bundle/v1",
                 "closure_digest": "57ce8e7e596e84e4a3eda2d14df98e7c842713261d4c98f9cc2c7e17345c633b",
                 "force_hatches": [],
-                "git_revision": "cf1b6ddaa9a77565852cc432c26477a6af09017f",
+                "git_revision": "ed2c9f5a28cc724faf9342c80c2aa2e2ce1d0605",
                 "status": "current",
                 "subject": "manifests.elementor",
                 "subject_digest": "191e30b98171392ce6c65d9b79aaeced4c35f26ffa94b8b0106d3f5b7f046278",
@@ -857,11 +857,11 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "4979e1d907bb7207d70843251429fdbceb15fe52730a21dad890ef73f01046e4",
+                "bundle_digest": "c7cdb76f1f9be981e7da938a92d9a55125d59c2bdc98e4bfba2d76e7ccf0cf4a",
                 "bundle_schema": "duo-subject-certification-bundle/v1",
                 "closure_digest": "c5610412d500f79527d78b29840684b822cebc65061a68d039ff957086d04b87",
                 "force_hatches": [],
-                "git_revision": "cf1b6ddaa9a77565852cc432c26477a6af09017f",
+                "git_revision": "ed2c9f5a28cc724faf9342c80c2aa2e2ce1d0605",
                 "status": "current",
                 "subject": "manifests.ninja-forms",
                 "subject_digest": "7970d27ed3a744bacd34f136fb04ab90dd776eb01a26e314e8eadb6d07cf7f6a",
@@ -1120,14 +1120,14 @@
                 }
             },
             "evidence": {
-                "bundle_digest": null,
+                "bundle_digest": "1def7c367289c5d54359f33459a5596369feb26015bbf4fb2ac151f648f07ea7",
                 "bundle_schema": "duo-subject-certification-bundle/v1",
-                "closure_digest": null,
+                "closure_digest": "7f561ecbbcb9919d10cb7f756dbd84276b44446377ca10a5e4f3a304dab908f8",
                 "force_hatches": [],
-                "git_revision": null,
-                "status": "candidate",
+                "git_revision": "ed2c9f5a28cc724faf9342c80c2aa2e2ce1d0605",
+                "status": "current",
                 "subject": "manifests.polylang",
-                "subject_digest": null,
+                "subject_digest": "ead6431774d4bc4402308709612f6f5c1d26086ffa9c48ccd1ae4c4cd1beb132",
                 "tests": [
                     "conformance-polylang",
                     "exact-artifact-version-matrix"
@@ -1336,11 +1336,11 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "aeea73fcd4068e586b3c13da47862dd6c6800e40db9e41794fe6a1ff78a6eb8f",
+                "bundle_digest": "7b81a4fd608de5410bd59ff2a552a2f42bc8513923f774f3a64e106aa27e604a",
                 "bundle_schema": "duo-subject-certification-bundle/v1",
                 "closure_digest": "9d4b7cef2b286b9cf8e9247b8f382516c7c9a9dbac97ea1ef8088988ef04f151",
                 "force_hatches": [],
-                "git_revision": "cf1b6ddaa9a77565852cc432c26477a6af09017f",
+                "git_revision": "ed2c9f5a28cc724faf9342c80c2aa2e2ce1d0605",
                 "status": "current",
                 "subject": "manifests.woocommerce",
                 "subject_digest": "44f72ffb2af02bfa6439b3ef17b64f4c534f2178848772c8ec9350d9cd88aaaa",
@@ -1604,11 +1604,11 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "b0fb7cabd559cc69162f35dc9c70af81ba2acc6381717351754d86bfbade45dd",
+                "bundle_digest": "4120e5aace82d98814dc852f514a032fd013362ec570fd850b1b625e174a4143",
                 "bundle_schema": "duo-subject-certification-bundle/v1",
                 "closure_digest": "4348c07123c81960e5f2ad107f1d2312b4bb03293518be956b6c2802d87efd6c",
                 "force_hatches": [],
-                "git_revision": "cf1b6ddaa9a77565852cc432c26477a6af09017f",
+                "git_revision": "ed2c9f5a28cc724faf9342c80c2aa2e2ce1d0605",
                 "status": "current",
                 "subject": "manifests.yoast",
                 "subject_digest": "7f956741acc84859acda9db986727b9c6369690b20fcd6f12c0d8a5929c1e5e7",
@@ -1718,11 +1718,11 @@
     "profiles": {
         "fse": {
             "evidence": {
-                "bundle_digest": "1646405df39f548c5330d0116fb513f50cfc640f7643953d6c31da06db526d83",
+                "bundle_digest": "170d60267b4fe9e990574f848a7527eae73296241e51d3cd347b81306c8c10a3",
                 "bundle_schema": "duo-subject-certification-bundle/v1",
                 "closure_digest": "8a9a6c8be1d6401bcf70bb4fac70748be5628bed3da3442abb378c69e6443596",
                 "force_hatches": [],
-                "git_revision": "cf1b6ddaa9a77565852cc432c26477a6af09017f",
+                "git_revision": "ed2c9f5a28cc724faf9342c80c2aa2e2ce1d0605",
                 "status": "current",
                 "subject": "profiles.fse",
                 "subject_digest": "27a2563ccc1f012876c514982a87111ceee8e20c06825f1d2199cfa62f706ab1",
