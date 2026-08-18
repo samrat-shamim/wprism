@@ -455,9 +455,12 @@ situation_a3() {
   git1 add -A
   commit1 "grind_adoption $S: a new product authored on the source"
   git1 push -q origin main
-  # `duo release --from=<sha>` resolves the ref in the TARGET clone; a
-  # revision that arrived on origin from the source is fetched there first.
+  # `duo release --from=<sha>` resolves the ref in the TARGET clone and
+  # requires the target's HEAD to be on it (release_ref_mismatch otherwise), so
+  # the target clone takes the source's revision the same way a deployment
+  # path would: fetch and fast-forward.
   git2 fetch -q origin main
+  git2 merge -q --ff-only FETCH_HEAD
   if ! dry; then
     MAIN_SHA="$(git -C "$ORIGIN" rev-parse main)"
     [ -n "$MAIN_SHA" ] || fail "$S: the origin has no main revision after the source capture"
