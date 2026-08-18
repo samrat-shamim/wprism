@@ -1,0 +1,10 @@
+{
+  "status": "clean",
+  "manifest": "ninja-forms",
+  "diffs": [
+    "in-range-recapture"
+  ],
+  "negative_controls": [
+    "below-range-refused"
+  ]
+}

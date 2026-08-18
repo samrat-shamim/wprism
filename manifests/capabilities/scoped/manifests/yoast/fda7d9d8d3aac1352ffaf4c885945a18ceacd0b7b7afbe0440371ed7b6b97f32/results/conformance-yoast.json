@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "test": "conformance-yoast",
+  "verdict": "pass",
+  "exit_code": 0,
+  "reason": "passed",
+  "assertions": [
+    "lint_json_valid",
+    "capture_twice_identical",
+    "deploy_activation_state",
+    "apply_canary_clean",
+    "cross_environment_recapture_identical",
+    "render_api_checks"
+  ]
+}
