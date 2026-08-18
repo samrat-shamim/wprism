@@ -1,0 +1,9 @@
+{
+  "status": "clean",
+  "manifest": "contact-form-7",
+  "diffs": [
+    "capture-twice",
+    "conf1-vs-conf2-recapture"
+  ],
+  "render_check": "passed"
+}
