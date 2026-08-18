@@ -1,0 +1,11 @@
+{
+  "status": "clean",
+  "outcome": "no_mutation",
+  "checked": [
+    "site.duo.json",
+    "state",
+    "capture-staging",
+    "capture-backup",
+    "wordpress-option-canary"
+  ]
+}
