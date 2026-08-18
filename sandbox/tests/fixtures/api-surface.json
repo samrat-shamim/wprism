@@ -24531,6 +24531,9 @@
                         "deletion_unsupported"
                     ]
                 },
+                "BLOCKER_OPERATION_NOT_CERTIFIED": {
+                    "value_repr": "operation_not_certified"
+                },
                 "CERTIFICATION_PROVENANCE": {
                     "value_repr": [
                         "Platform-certified",
