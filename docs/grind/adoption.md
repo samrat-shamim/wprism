@@ -157,3 +157,30 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   restore stays bound to `media_sha256`, a byte/tree digest. Product code
   untouched; the redacted JSON `apply_failed` was read in human mode on the
   kept pair.
+- A6 (rehearse, product): after the uploads-permission fix, the rehearsal
+  still failed post-apply convergence — `apply_failed` wrapping a
+  `wp_navigation` canonical hash mismatch. A target materialized from the
+  source's snapshot holds the source's LITERAL `home`/uploads URLs in both
+  its database and its restored ledger, so plan read every `{{home}}`-bearing
+  entity as drift ("env ahead, untouched") and the promotion apply, which
+  includes that drift, wrote content that then did not converge under the
+  target's own binding. Root cause: nothing told apply that the restored
+  bytes belong to the source's URL binding, not the target's. Fix: the
+  materializer reads the source's exact `home`+uploads binding while the
+  source is frozen (`EnvironmentLifecycle::readSourceBinding`) and threads it
+  to the target apply as `--rebind-from-home`/`--rebind-from-uploads`; plan
+  observes the target once more AS that binding and converges a foreign-bound
+  entity that equals the repository or the base as an `update` marked
+  `rebind`, never as target authorship (agent `ApplyPlanner::rebind_binding` /
+  `rebind_comparison_hash`, `Tokens` optional binding). After apply the
+  content is target-bound, so apply's own writes and its post-apply verifier
+  are unchanged. This is why A1–A5 never hit it: their sources and targets
+  shared a URL host, or their authored content carried no home-relative URL.
+- A6 (tooling, operator evidence): the two A6 failures above were both
+  JSON-mode `apply_failed` envelopes with the primary sentence redacted
+  (DUO-3404) — the rehearsal runs the target's apply in `--format=json`, so
+  the operator never had a human-mode run to reread. `agent/src/Command/
+  Cli.php` now writes the redacted throwable chain privately under the target
+  repository's `.duo/refusals/` and the host names that place on a redacted
+  transport envelope; that is how the `wp_navigation` cause was read without
+  guesswork.
