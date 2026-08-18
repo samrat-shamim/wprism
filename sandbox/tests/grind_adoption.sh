@@ -492,13 +492,34 @@ seed_seo_and_form() {
   fi
   wp1 post meta update "$LANDING_ID" _yoast_wpseo_title 'Duo walk landing %%sep%% %%sitename%%' >/dev/null
   wp1 post meta update "$LANDING_ID" _yoast_wpseo_metadesc 'The landing page of the Duo adoption shop.' >/dev/null
-  FORM_ID="$(wp1 post create --post_type=wpcf7_contact_form --post_status=publish --post_title='Duo adoption enquiry' \
-    --post_name=duo-adoption-enquiry --porcelain | tr -d '\r')"
-  wp1 post meta update "$FORM_ID" _form '<label> Your name [text* your-name] </label> <label> Your email [email* your-email] </label> [submit "Send"]' >/dev/null
-  wp1 post meta update "$FORM_ID" _mail "$(printf '%s' '{"active":true,"subject":"Duo adoption enquiry","sender":"[your-name] <wordpress@example.test>","recipient":"owner@example.test","body":"From: [your-name] <[your-email]>","additional_headers":"Reply-To: [your-email]","attachments":"","use_html":false,"exclude_blank":false}')" --format=json >/dev/null
+  # The form through CF7's own API (as sandbox/conformance/seeds/contact-form-7.sh
+  # does): CF7's shortcode embeds id="<hash7>", a portable identity, never the
+  # numeric post id — a hand-written [contact-form-7 id="<ID>"] would break on
+  # the target, where the form has another local id.
+  cat > "$HOST_R1/.tmp-cf7-seed.php" <<'PHPEOF'
+<?php
+if (!class_exists('WPCF7_ContactForm')) { fwrite(STDERR, "WPCF7_ContactForm not loaded\n"); exit(1); }
+wp_set_current_user(get_user_by('login', 'admin')->ID);
+$cf = WPCF7_ContactForm::get_template(['title' => 'Duo adoption enquiry']);
+$mail = $cf->prop('mail');
+$mail['recipient'] = 'owner@example.test';
+$mail['subject'] = '[Duo adoption] [your-subject]';
+$cf->set_properties(['mail' => $mail, 'form' => '<label> Your name [text* your-name] </label> <label> Your email [email* your-email] </label> [submit "Send"]']);
+$id = $cf->save();
+if (!$id) { fwrite(STDERR, "CF7 save() failed\n"); exit(1); }
+$cf = WPCF7_ContactForm::get_instance($id);
+echo "cf7_id=" . $id . "\n";
+echo "cf7_shortcode=" . $cf->shortcode() . "\n";
+PHPEOF
+  local cf7Out cf7Shortcode
+  cf7Out="$(wp1 eval-file /siterepo/.tmp-cf7-seed.php | tr -d '\r')" || fail "the CF7 seed failed"
+  rm -f "$HOST_R1/.tmp-cf7-seed.php"
+  FORM_ID="$(printf '%s\n' "$cf7Out" | sed -n 's/^cf7_id=//p')"
+  cf7Shortcode="$(printf '%s\n' "$cf7Out" | sed -n 's/^cf7_shortcode=//p')"
+  [ -n "$FORM_ID" ] && [ -n "$cf7Shortcode" ] || fail "the CF7 seed produced no form/shortcode"
   local formPage
   formPage="$(wp1 post create --post_type=page --post_status=publish --post_title='Contact us' --post_name=contact-us \
-    --post_content="<p>Write to us.</p>[contact-form-7 id=\"$FORM_ID\" title=\"Duo adoption enquiry\"]" --porcelain | tr -d '\r')"
+    --post_content="<p>Write to us.</p>$cf7Shortcode" --porcelain | tr -d '\r')"
   local url
   url="$(wp1 post list --post_type=page --name=contact-us --field=url | tr -d '\r' | head -1)"
   FORM_PAGE_PATH="$(printf '%s' "$url" | sed -E 's#^https?://[^/]+##')"
