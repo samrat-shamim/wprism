@@ -30428,6 +30428,14 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "journal_installed": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "numeric_candidates": {
                     "abstract": false,
                     "final": false,
