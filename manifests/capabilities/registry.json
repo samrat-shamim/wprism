@@ -231,14 +231,14 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "6262dbdff44c507b1efed0d76c4f78f3ee3023c8febf4a79c8b4f194d3c0eaeb",
+                "bundle_digest": null,
                 "bundle_schema": "duo-subject-certification-bundle/v1",
-                "closure_digest": "fb4a2eb5a96c0c007b992beb63f0c7ee2efadd554a0c34a0de6dc07c18859106",
+                "closure_digest": null,
                 "force_hatches": [],
-                "git_revision": "648bc2b64d0a61fc123c8ec768b1de84c93eb25a",
-                "status": "current",
+                "git_revision": null,
+                "status": "candidate",
                 "subject": "manifests.core",
-                "subject_digest": "d71f4849eea52b8ec30138cfff4d3bfaca579a3bbdf300ea5d45cc50bed7d4f7",
+                "subject_digest": null,
                 "tests": [
                     "conformance-core",
                     "multisite-refusal"
@@ -1336,14 +1336,14 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "5f36aa443b8bdf80bfda70be0256d470d9466fd0637c3eb5c2edbec3461eb1fa",
+                "bundle_digest": null,
                 "bundle_schema": "duo-subject-certification-bundle/v1",
-                "closure_digest": "55db9445cbed0fb20cafe95c1a70c616b7c0bb47711b42f4f14e77745e5759bd",
+                "closure_digest": null,
                 "force_hatches": [],
-                "git_revision": "648bc2b64d0a61fc123c8ec768b1de84c93eb25a",
-                "status": "current",
+                "git_revision": null,
+                "status": "candidate",
                 "subject": "manifests.woocommerce",
-                "subject_digest": "44f72ffb2af02bfa6439b3ef17b64f4c534f2178848772c8ec9350d9cd88aaaa",
+                "subject_digest": null,
                 "tests": [
                     "conformance-woocommerce",
                     "exact-artifact-version-matrix"

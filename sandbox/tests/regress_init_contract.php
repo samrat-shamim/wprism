@@ -1893,6 +1893,68 @@ check(
     'a type with no rows is left alone: nothing is decided about a type that holds nothing yet'
 );
 
+// T6 §3.4's order — install, certify (--pin), rerun init — hands init an
+// adoption seed that already carries the operator's explicit out-of-tree
+// pins. Those pins are what init recomputes and republishes exactly, so
+// they do not make the repository init-owned; a hand-added name-only pin or
+// any policy edit still does. (grind_adapter_walk.sh S2 found `certify --pin`
+// then `init` refusing existing_configuration.)
+if (!defined('DUO_SPEC_VERSION')) {
+    // existing_config() spells the seed with the engine's spec version; this
+    // suite runs InitPlanner without duo.php, so the constant is the engine's
+    // current value here (agent/duo.php defines it as 2).
+    define('DUO_SPEC_VERSION', 2);
+}
+$seedRoot = sys_get_temp_dir() . '/duo_init_seed_' . bin2hex(random_bytes(4));
+mkdir($seedRoot, 0777, true);
+$existingConfig = new \ReflectionMethod(\Duo\InitPlanner::class, 'existing_config');
+$seedBody = [
+    'manifests' => ['core'],
+    'policy' => [
+        'options' => new \stdClass(), 'post_meta' => new \stdClass(), 'term_meta' => new \stdClass(),
+        'post_types' => ['post', 'page', 'attachment'],
+        'taxonomies' => ['category', 'post_tag'],
+    ],
+    'spec_version' => DUO_SPEC_VERSION,
+];
+$seedMode = static function (array $manifests, ?callable $edit = null) use ($seedRoot, $seedBody, $existingConfig): string {
+    $body = $seedBody;
+    $body['manifests'] = $manifests;
+    if ($edit !== null) {
+        $body = $edit($body);
+    }
+    \Duo\Canon::write_file($seedRoot . '/site.duo.json', \Duo\Canon::encode($body));
+
+    return (string) $existingConfig->invoke(null, $seedRoot)['mode'];
+};
+$sitePin = ['digest' => str_repeat('a', 64), 'name' => 'wpforms', 'source' => 'site'];
+$pluginPin = ['digest' => str_repeat('b', 64), 'name' => 'acme-catalog', 'source' => 'plugin'];
+check($seedMode(['core']) === 'adoption-seed', 'the bare adoption seed reads adoption-seed');
+check(
+    $seedMode(['core', $sitePin]) === 'adoption-seed',
+    'a seed carrying a certified site adapter pin ({name, source:"site", digest}) is still the adoption seed'
+);
+check(
+    $seedMode(['core', $sitePin, $pluginPin]) === 'adoption-seed',
+    'and so is one carrying an explicit plugin-source pin beside it'
+);
+check(
+    $seedMode(['core', ['name' => 'woocommerce', 'source' => 'site', 'digest' => str_repeat('c', 64)]]) === 'adoption-seed',
+    'an explicit override pin for a shipped name is set aside the same way — init republishes it exactly'
+);
+check($seedMode(['core', 'wpforms']) === 'owned', 'a hand-added NAME-ONLY pin is not a seed: it is an owned configuration');
+check(
+    $seedMode(['core', $sitePin], static function (array $b): array {
+        $b['policy']['post_types'][] = 'product';
+
+        return $b;
+    }) === 'owned',
+    'and any policy edit beside the pins still reads owned'
+);
+check($seedMode([$sitePin]) === 'owned', 'a pin set without core is not the seed either');
+@unlink($seedRoot . '/site.duo.json');
+@rmdir($seedRoot);
+
 check(
     \Duo\InitPlanner::ALLOW_UNMANAGED_PLUGINS === 'allow-unmanaged-plugins'
         && str_contains(

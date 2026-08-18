@@ -122,7 +122,11 @@ under the same key keeps the first certificate and its pinned digest intact.
   remediation now names the flag and `duo adapter certify`.
 - An installed but uncertified adapter still blocks init; the blocker's
   remediation is `certify it with duo adapter certify <site-repo> --name=<n>, or
-  remove it, then rerun duo init`.
+  remove it, then rerun duo init`. That order works because an adoption seed
+  carrying explicit `{name, source:"site"|"plugin", digest}` pins (what
+  `certify --pin` / `adapter pin` write) is still recognised as the seed;
+  init recomputes and republishes those pins exactly. A hand-added name-only
+  pin or a policy edit still reads `existing_configuration`.
 
 ### 3.5 Host verbs (cli, offline unless stated)
 

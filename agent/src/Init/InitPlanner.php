@@ -667,6 +667,26 @@ final class InitPlanner {
         }
         $raw = Canon::read_file($file);
         $data = Canon::decode($raw);
+        // T6 §3.4's own remediation order — install the site adapter, certify
+        // it (`duo adapter certify --pin` writes the {name, source:"site",
+        // digest} pin), THEN run init — means the seed init receives already
+        // carries the operator's explicit out-of-tree pins. Those pins are the
+        // pin set init recomputes and republishes exactly (load_selected_policy()
+        // resolves the same digest for the same bytes), so they do not make
+        // the repository init-owned. Only source-bearing OBJECT pins are set
+        // aside: that is precisely what the host verbs write; a hand-added
+        // name-only pin or any policy edit still reads as an owned repository.
+        // (Found by the walk: certify --pin then init refused
+        // `existing_configuration` on a repository whose non-seed content was
+        // exactly one certified adapter and its pin.)
+        $comparable = $data;
+        if (is_array($comparable) && is_array($comparable['manifests'] ?? null)) {
+            $comparable['manifests'] = array_values(array_filter(
+                $comparable['manifests'],
+                static fn ($pin): bool => !(is_array($pin)
+                    && in_array($pin['source'] ?? null, [AdapterSources::SITE, AdapterSources::PLUGIN], true))
+            ));
+        }
         $seed = [
             'manifests' => ['core'],
             'policy' => [
@@ -677,7 +697,7 @@ final class InitPlanner {
             'spec_version' => DUO_SPEC_VERSION,
         ];
         return [
-            'mode' => Canon::encode($data) === Canon::encode($seed) ? 'adoption-seed' : 'owned',
+            'mode' => Canon::encode($comparable) === Canon::encode($seed) ? 'adoption-seed' : 'owned',
             'identity' => InitOwnedArtifacts::regular_file_identity($file, 'site.duo.json'),
         ];
     }
