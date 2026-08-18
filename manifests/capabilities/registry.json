@@ -1574,7 +1574,7 @@
             ]
         },
         "yoast": {
-            "adapter_digest": "ced2a7c08713513c66cd73bdb61e04905c45a860a331e74b91a898e5c89ae766",
+            "adapter_digest": "7f956741acc84859acda9db986727b9c6369690b20fcd6f12c0d8a5929c1e5e7",
             "authored_state": {
                 "scope": "only the exact registered surfaces and operations below",
                 "status": "certified"
@@ -1604,14 +1604,14 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "18d405f2426bb7a035a00fd378e067c4dcfd4bedda7f8d08bba4a75d0d2e3468",
+                "bundle_digest": null,
                 "bundle_schema": "duo-subject-certification-bundle/v1",
-                "closure_digest": "de2c41a8c5fadd1cb86ad8f63002e090aa036180d1e9553a9390c672aa19086c",
+                "closure_digest": null,
                 "force_hatches": [],
-                "git_revision": "f25338a4c723771a3402ce381102d6dc5306de98",
-                "status": "current",
+                "git_revision": null,
+                "status": "candidate",
                 "subject": "manifests.yoast",
-                "subject_digest": "ced2a7c08713513c66cd73bdb61e04905c45a860a331e74b91a898e5c89ae766",
+                "subject_digest": null,
                 "tests": [
                     "conformance-yoast",
                     "exact-artifact-version-matrix"
@@ -1675,6 +1675,7 @@
                 "post_meta._yoast_wpseo_twitter-image",
                 "post_meta._yoast_wpseo_twitter-title",
                 "tables",
+                "tables.yoast_expiring_store",
                 "tables.yoast_indexable",
                 "tables.yoast_indexable_hierarchy",
                 "tables.yoast_migrations",

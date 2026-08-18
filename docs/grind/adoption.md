@@ -126,4 +126,9 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   confirmation in human mode — the host's JSON-mode init redacts the
   confirmation's primary sentence to `init refused at an unclassified safety
   gate` and writes it nowhere else.
+- A4 (release): Yoast SEO 28.x creates `wp_yoast_expiring_store` (a TTL
+  key/value cache) that `manifests/yoast.json` did not declare; the release
+  refused `release_surface_not_releasable` for the unclassified table.
+  Declared `runtime` (an adapter gap fixed at the root, like WooCommerce's
+  operational post types in T6).
 
