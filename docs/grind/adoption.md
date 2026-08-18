@@ -139,4 +139,9 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   now declares the plugin's own registration object types (verified live:
   language/post_translations on post, page, wp_block; term_language/
   term_translations on term).
+- A6 (init): Elementor's kit lives in the non-public `elementor_library`
+  post type and `elementor_active_kit` is a `ref:post` into it; init left the
+  type local (no adapter declared it) and its own baseline capture then
+  refused `unresolved_option_reference_scope`. `manifests/elementor.json` now
+  declares `elementor_library` structurally, so init proposes it into scope.
 

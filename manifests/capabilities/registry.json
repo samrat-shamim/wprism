@@ -727,7 +727,7 @@
             ]
         },
         "elementor": {
-            "adapter_digest": "191e30b98171392ce6c65d9b79aaeced4c35f26ffa94b8b0106d3f5b7f046278",
+            "adapter_digest": "b61756d49965b5bb0bed948ae5e34ab707758623b37f28951fc62d22c96060b0",
             "authored_state": {
                 "scope": "only the exact registered surfaces and operations below",
                 "status": "certified"
@@ -757,14 +757,14 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "8e84f75fa7e89e531dfd0e2c74b380974f06a5a78fbdc23cd9c569de80c01c61",
+                "bundle_digest": null,
                 "bundle_schema": "duo-subject-certification-bundle/v1",
-                "closure_digest": "57ce8e7e596e84e4a3eda2d14df98e7c842713261d4c98f9cc2c7e17345c633b",
+                "closure_digest": null,
                 "force_hatches": [],
-                "git_revision": "ed2c9f5a28cc724faf9342c80c2aa2e2ce1d0605",
-                "status": "current",
+                "git_revision": null,
+                "status": "candidate",
                 "subject": "manifests.elementor",
-                "subject_digest": "191e30b98171392ce6c65d9b79aaeced4c35f26ffa94b8b0106d3f5b7f046278",
+                "subject_digest": null,
                 "tests": [
                     "conformance-elementor",
                     "exact-artifact-version-matrix"
