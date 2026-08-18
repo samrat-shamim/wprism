@@ -170,12 +170,12 @@ read the presence of the line as the signal. The count is the signal.
 | `install adapter` | Nothing models this surface, and something probably owns it — an active plugin, or a table with a plugin's name on it. Write or install an adapter; [adapter-authoring.md](adapter-authoring.md) is the whole path, and `duo adapter-draft --seed` will propose the surface for you. |
 | `certify adapter` | The adapter **is** installed and is one signature or one pin short: `duo adapter certify <site-repo> --name=<n> --secret-key-file=<key> --pin`. This is also what expired or experimental evidence needs — current certification evidence, which no rehearsal can produce. |
 | `provision env value` | A manifest-declared `class: "env"` option is unset here: `duo env-set <env> --name=<name> --stdin`. |
-| `exclude` | The boundary is stated, not broken. Record the decision in the contract's `unsupported[]` and stop trying to release it. |
+| `exclude` | The boundary is stated, not broken. Record the decision in the contract's `unsupported[]` and stop trying to release it. Also the answer when an installed, certified adapter's certification simply does not cover one operation (`operation_not_certified` alone — typically `delete`): nothing to install or sign; keep that operation off the surface. |
 | `nothing — supported` | Every projected operation agrees. This is last in the ordering so it wins only when nothing else applies. |
 
 A row can read `Ready` in the columns and still carry a next action, because
 the columns show one operation and the action reduces over all six. That is
-why the action names its operations: `install adapter (delete)` is a complete
+why the action names its operations: `exclude (delete)` is a complete
 sentence.
 
 The unknown section gets actions of its own. Pending items and option names

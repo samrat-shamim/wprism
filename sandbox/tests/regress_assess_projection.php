@@ -233,6 +233,22 @@ $cases[] = ['1.3 missing_registry_entry is Not qualified',
 $cases[] = ['1.3 surface_not_registered is Not qualified',
     duo_facts(['registry' => ['blockers' => ['surface_not_registered']]]),
     ['readiness' => 'Not qualified'], 'install adapter'];
+// T6 walk run 20: every Ready, certified WooCommerce and wpforms row printed
+// `install adapter (delete)` — the adapter was installed AND certified; only
+// `delete` was outside its certified operations. Nothing to install or sign:
+// keep the operation off the surface.
+$cases[] = ['1.3 operation_not_certified alone is Not qualified and the action is exclude, not install adapter',
+    duo_facts(['operation' => 'delete', 'registry' => ['blockers' => ['operation_not_certified'], 'verdict_status' => 'blocked']]),
+    ['readiness' => 'Not qualified',
+        'remediation' => 'exclude this surface from the operation: the installed adapter is certified, but its '
+            . 'certification does not cover this operation; only a certification that ratifies it would'],
+    'exclude'];
+$cases[] = ['1.3 operation_not_certified beside a missing surface registration is still install adapter',
+    duo_facts(['registry' => ['blockers' => ['operation_not_certified', 'surface_not_registered'], 'verdict_status' => 'blocked']]),
+    ['readiness' => 'Not qualified'], 'install adapter'];
+$cases[] = ['1.3 operation_not_certified beside an uncertified source is still certify adapter',
+    duo_facts(['registry' => ['blockers' => ['adapter_source_uncertified', 'operation_not_certified'], 'verdict_status' => 'blocked']]),
+    ['readiness' => 'Not qualified'], 'certify adapter'];
 $cases[] = ['1.3 an excluded claim is Unsupported',
     duo_facts(['registry' => ['claim_status' => 'excluded']]),
     ['readiness' => 'Unsupported'], 'exclude'];

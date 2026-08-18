@@ -248,6 +248,20 @@ final class ProjectionVocabulary {
     ];
 
     /**
+     * The registry blocker that means "the adapter is certified and models
+     * this surface, but its certification does not cover THIS operation"
+     * (CapabilityRegistry: `<op> is not certified for '<name>'`). Alone, it
+     * is not a missing adapter and not a missing signature — nothing the
+     * operator installs or signs adds an operation to a certification that
+     * ratified none (a site certification bundle claims no `delete`, by
+     * construction; a shipped adapter's reviewed set is the platform's). The
+     * smallest safe action is to keep that operation off this surface:
+     * `exclude`. The walk read `install adapter (delete)` under every Ready,
+     * certified shop-adapter and site-adapter row before this (walk run 20).
+     */
+    public const BLOCKER_OPERATION_NOT_CERTIFIED = 'operation_not_certified';
+
+    /**
      * Project one surface × operation into the spec's vocabulary.
      *
      * @param array<string,mixed> $facts the exact fact vector documented in
@@ -484,12 +498,17 @@ final class ProjectionVocabulary {
         if ($readiness === 'Not qualified') {
             // The adapter EXISTS and is one signature or one pin short —
             // `duo adapter certify <site-repo> --name=<n> --pin` closes both.
-            // Anything else at `Not qualified` genuinely has no adapter
-            // modelling the surface.
             if (array_intersect($blockers, self::BLOCKERS_CERTIFIABLE) !== []) {
                 return 'certify adapter';
             }
-
+            // The adapter exists and is certified; only this OPERATION is
+            // outside what it certifies. Nothing to install or sign — keep
+            // the operation off the surface.
+            if ($blockers === [self::BLOCKER_OPERATION_NOT_CERTIFIED]) {
+                return 'exclude';
+            }
+            // Anything else at `Not qualified` genuinely has no adapter
+            // modelling the surface.
             return 'install adapter';
         }
         if (in_array(self::ANNOTATION_PROVIDER_NEGOTIATION_UNMET, $annotations, true)) {
@@ -921,6 +940,10 @@ final class ProjectionVocabulary {
             if (array_intersect($blockers, self::BLOCKERS_CERTIFIABLE) !== []) {
                 return 'certify the installed adapter and pin it exactly: '
                     . 'duo adapter certify <site-repo> --name=<adapter> --secret-key-file=<key> --pin';
+            }
+            if ($blockers === [self::BLOCKER_OPERATION_NOT_CERTIFIED]) {
+                return 'exclude this surface from the operation: the installed adapter is certified, but its '
+                    . 'certification does not cover this operation; only a certification that ratifies it would';
             }
 
             return 'install or author an adapter that registers this surface';
