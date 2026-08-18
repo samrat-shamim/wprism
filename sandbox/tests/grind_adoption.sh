@@ -455,17 +455,19 @@ situation_a3() {
   git1 add -A
   commit1 "grind_adoption $S: a new product authored on the source"
   git1 push -q origin main
-  # `duo release --from=<sha>` resolves the ref in the TARGET clone and
-  # requires the target's HEAD to be on it (release_ref_mismatch otherwise), so
-  # the target clone takes the source's revision the same way a deployment
-  # path would: fetch and fast-forward.
-  git2 fetch -q origin main
-  git2 merge -q --ff-only FETCH_HEAD
   if ! dry; then
     MAIN_SHA="$(git -C "$ORIGIN" rev-parse main)"
     [ -n "$MAIN_SHA" ] || fail "$S: the origin has no main revision after the source capture"
   fi
+  # The target's ledger-updating capture runs on its OWN revision first (a
+  # capture on a clone whose state carries the source's new product, absent
+  # live, would mint a deletion intent); only then does the target clone take
+  # the source's revision the way a deployment path would — fetch and
+  # fast-forward — because `duo release --from=<sha>` requires the target's
+  # HEAD to be on the revision it asserts (release_ref_mismatch otherwise).
   revert_target "$S" "$PREVIEW_PAGE_ID" '<p>Duo walk landing page, before the release.</p>'
+  git2 fetch -q origin main
+  git2 merge -q --ff-only FETCH_HEAD
   # The order that arrives on the TARGET after the checkpoint: created between
   # the checkpoint the release takes and the recovery — release_cycle takes
   # the checkpoint inside `duo release --yes`, so the order is placed right
