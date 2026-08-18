@@ -184,3 +184,18 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   repository's `.duo/refusals/` and the host names that place on a redacted
   transport envelope; that is how the `wp_navigation` cause was read without
   guesswork.
+- A6 (release, product — Elementor render cache): once the rebind fix let A6
+  reach the release, the builder page still failed to show the edited heading.
+  Duo's apply writes `_elementor_data` with raw SQL
+  (`ApplyFieldMaterializer::upsert_meta`), so Elementor's own save hooks —
+  which normally invalidate its per-document render caches — never fire, and
+  the `elementor-css` provider's `flush-css --regenerate` re-renders documents
+  (repopulating `_elementor_element_cache`), so the target served its
+  PRE-apply rendered HTML for the full cache TTL (~2 min, measured across two
+  instrumented runs). `manifests/providers/elementor-css.php` now clears
+  `_elementor_element_cache` and `_elementor_page_assets` (both `derived` in
+  the manifest) after regenerating CSS, and the receipt proves the count is
+  zero — the next front-end render rebuilds them from the applied
+  `_elementor_data`. The stale-cache masking, the raw-SQL bypass, and the
+  clear-fixes-it behaviour were each reproduced directly on the kept pair
+  before the change.
