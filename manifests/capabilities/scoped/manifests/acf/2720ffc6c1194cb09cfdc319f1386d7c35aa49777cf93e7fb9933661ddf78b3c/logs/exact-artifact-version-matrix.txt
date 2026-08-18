@@ -1,0 +1,307 @@
+
+[1;36m== boot pair t7f0 (t7f01 :9700 / t7f02 :9701), idempotent ==[0m
+
+[1;36m== candidate source for 'up' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    cf1b6ddaa9a77565852cc432c26477a6af09017f
+  invoked from:   <source-root>/sandbox
+  expected SHA:   cf1b6ddaa9a77565852cc432c26477a6af09017f (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly cf1b6ddaa9a77565852cc432c26477a6af09017f, clean — this run's evidence is bound to that commit[0m
+
+[1;36m== shared infra: MariaDB (duo-db) + duo-shared network ==[0m
+ Container duo-shared-db Running
+[1;32mok: shared db up, healthy, wordpress user granted on wp\_%[0m
+
+[1;36m== pair 't7f0': databases ==[0m
+[1;32mok: wp_t7f01, wp_t7f02 exist[0m
+
+[1;36m== pair 't7f0': site-repo directories ==[0m
+
+[1;36m== pair 't7f0': web containers up ==[0m
+  (bind-mount source: <source-root> -- this pair.sh copy is running from <source-root>/sandbox)
+ Volume duo-t7f0_wp1 Creating
+ Volume duo-t7f0_wp1 Created
+ Volume duo-t7f0_wp2 Creating
+ Volume duo-t7f0_wp2 Created
+ Container duo-t7f0-wp1-1 Creating
+ Container duo-t7f0-wp2-1 Creating
+ Container duo-t7f0-wp1-1 Created
+ Container duo-t7f0-wp2-1 Created
+ Container duo-t7f0-wp2-1 Starting
+ Container duo-t7f0-wp1-1 Starting
+ Container duo-t7f0-wp1-1 Started
+ Container duo-t7f0-wp2-1 Started
+ Container duo-t7f0-cli1-1 Creating
+ Container duo-t7f0-cli2-1 Creating
+ Container duo-t7f0-cli1-1 Created
+ Container duo-t7f0-cli2-1 Created
+ Container duo-t7f0-cli2-1 Starting
+ Container duo-t7f0-cli1-1 Starting
+ Container duo-t7f0-cli1-1 Started
+ Container duo-t7f0-cli2-1 Started
+[1;32mok: web mountpoints established; CLI containers up[0m
+
+[1;36m== pair 't7f0': waiting for DB-level readiness (both sides) ==[0m
+[1;32mok: both sides reach their database[0m
+
+[1;36m== pair 't7f0': generic WordPress bootstrap (idempotent) ==[0m
+ Container duo-t7f0-cli1-run-122024badcc8 Creating
+ Container duo-t7f0-cli1-run-122024badcc8 Created
+Success: WordPress installed successfully.
+ Container duo-t7f0-cli1-run-e6072423580e Creating
+ Container duo-t7f0-cli1-run-e6072423580e Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-t7f0-cli1-run-a3f8cf2f8c63 Creating
+ Container duo-t7f0-cli1-run-a3f8cf2f8c63 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-t7f0-cli1-run-1cd956c23583 Creating
+ Container duo-t7f0-cli1-run-1cd956c23583 Created
+ Container duo-t7f0-cli1-run-3cd78baedc67 Creating
+ Container duo-t7f0-cli1-run-3cd78baedc67 Created
+ Container duo-t7f0-cli1-run-b36660410e97 Creating
+ Container duo-t7f0-cli1-run-b36660410e97 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-t7f0-cli1-run-a750804d08e5 Creating
+ Container duo-t7f0-cli1-run-a750804d08e5 Created
+Success: Rewrite rules flushed.
+  side 1 installed (http://localhost:9700)
+ Container duo-t7f0-cli2-run-c743cf7f0a37 Creating
+ Container duo-t7f0-cli2-run-c743cf7f0a37 Created
+Success: WordPress installed successfully.
+ Container duo-t7f0-cli2-run-db103d9c7591 Creating
+ Container duo-t7f0-cli2-run-db103d9c7591 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-t7f0-cli2-run-1d6ee385015a Creating
+ Container duo-t7f0-cli2-run-1d6ee385015a Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-t7f0-cli2-run-b40376eba67c Creating
+ Container duo-t7f0-cli2-run-b40376eba67c Created
+ Container duo-t7f0-cli2-run-a2069d0b962c Creating
+ Container duo-t7f0-cli2-run-a2069d0b962c Created
+ Container duo-t7f0-cli2-run-54cc2aacf7df Creating
+ Container duo-t7f0-cli2-run-54cc2aacf7df Created
+Success: Updated 'permalink_structure' option.
+ Container duo-t7f0-cli2-run-9cf5dc635ca3 Creating
+ Container duo-t7f0-cli2-run-9cf5dc635ca3 Created
+Success: Rewrite rules flushed.
+  side 2 installed (http://localhost:9701)
+
+[1;36m== pair 't7f0' ready ==[0m
+  wp1: http://localhost:9700 (published on host port 9700)
+  wp2: http://localhost:9701 (published on host port 9701)
+
+  wp-cli invocation pattern for this pair (run from sandbox/):
+    docker compose -p duo-t7f0 -f pair.yml -f pair.artifacts.yml run --rm cli1 wp <command...>
+    docker compose -p duo-t7f0 -f pair.yml -f pair.artifacts.yml run --rm cli2 wp <command...>
+  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=t7f0 must stay exported, or pass -p duo-t7f0 and set WORDPRESS_DB_NAME/etc. yourself)
+[1;32mok: pair up[0m
+
+[1;36m== boundary: acf 6.0.0 ==[0m
+ Container duo-t7f0-cli1-run-1e8c4da7297b Creating
+ Container duo-t7f0-cli1-run-1e8c4da7297b Created
+ Container duo-t7f0-cli1-run-477c94adfe3b Creating
+ Container duo-t7f0-cli1-run-477c94adfe3b Created
+ Container duo-t7f0-cli1-run-ced73da4bb34 Creating
+ Container duo-t7f0-cli1-run-ced73da4bb34 Created
+ Container duo-t7f0-cli1-run-84b90e118070 Creating
+ Container duo-t7f0-cli1-run-84b90e118070 Created
+ Container duo-t7f0-cli1-run-1860b8692fb1 Creating
+ Container duo-t7f0-cli1-run-1860b8692fb1 Created
+ Container duo-t7f0-cli1-run-87c47187cd0e Creating
+ Container duo-t7f0-cli1-run-87c47187cd0e Created
+ Container duo-t7f0-cli2-run-b1f2f1448f2a Creating
+ Container duo-t7f0-cli2-run-b1f2f1448f2a Created
+ Container duo-t7f0-cli2-run-a2587325cb00 Creating
+ Container duo-t7f0-cli2-run-a2587325cb00 Created
+ Container duo-t7f0-cli2-run-ae82eec0bfe3 Creating
+ Container duo-t7f0-cli2-run-ae82eec0bfe3 Created
+ Container duo-t7f0-cli2-run-291ad1ad50d7 Creating
+ Container duo-t7f0-cli2-run-291ad1ad50d7 Created
+ Container duo-t7f0-cli2-run-93b0fc8842b4 Creating
+ Container duo-t7f0-cli2-run-93b0fc8842b4 Created
+ Container duo-t7f0-cli2-run-7ec3ce0bfeb7 Creating
+ Container duo-t7f0-cli2-run-7ec3ce0bfeb7 Created
+
+[1;36m== fetch + verify acf 6.0.0 (never a bare slug install — always a digest-checked artifact) ==[0m
+ Container duo-t7f0-cli1-run-8c82c9268a7d Creating
+ Container duo-t7f0-cli1-run-8c82c9268a7d Created
+artifact-cache: kind=plugin slug=advanced-custom-fields version=6.0.0 sha256=b8732382b05dd4796751343734d8e2e15aef2e93a65b8b6b94b09439e3a40341 source=cache-hit path=/artifacts-cache/plugin-advanced-custom-fields-6.0.0-b8732382b05dd4796751343734d8e2e15aef2e93a65b8b6b94b09439e3a40341.zip
+ Container duo-t7f0-cli2-run-d995d86f9b2d Creating
+ Container duo-t7f0-cli2-run-d995d86f9b2d Created
+artifact-cache: kind=plugin slug=advanced-custom-fields version=6.0.0 sha256=b8732382b05dd4796751343734d8e2e15aef2e93a65b8b6b94b09439e3a40341 source=cache-hit path=/artifacts-cache/plugin-advanced-custom-fields-6.0.0-b8732382b05dd4796751343734d8e2e15aef2e93a65b8b6b94b09439e3a40341.zip
+[1;32mok: verified sha256-pinned artifact resolved for both sides: /artifacts-cache/plugin-advanced-custom-fields-6.0.0-b8732382b05dd4796751343734d8e2e15aef2e93a65b8b6b94b09439e3a40341.zip[0m
+ Container duo-t7f0-cli1-run-699554492b04 Creating
+ Container duo-t7f0-cli1-run-699554492b04 Created
+ Container duo-t7f0-cli1-run-d555b640380a Creating
+ Container duo-t7f0-cli1-run-d555b640380a Created
+[1;32mok: side 1: acf 6.0.0 installed from verified artifact, active[0m
+ Container duo-t7f0-cli1-run-a2463cd85471 Creating
+ Container duo-t7f0-cli1-run-a2463cd85471 Created
+acf seed: {"group":1,"target":3,"content":4}
+ Container duo-t7f0-cli1-run-5d6156f563f0 Creating
+ Container duo-t7f0-cli1-run-5d6156f563f0 Created
+Success: captured 4 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+[1;32mok: captured on side 1 (acf 6.0.0)[0m
+ Container duo-t7f0-cli1-run-bb7e8e6ae504 Creating
+ Container duo-t7f0-cli1-run-bb7e8e6ae504 Created
+Success: no findings — captured state is clean
+[1;32mok: lint: 0 findings[0m
+ Container duo-t7f0-cli2-run-2ac421696f2c Creating
+ Container duo-t7f0-cli2-run-2ac421696f2c Created
+ Container duo-t7f0-cli2-run-bf5848f08d2d Creating
+ Container duo-t7f0-cli2-run-bf5848f08d2d Created
+ Container duo-t7f0-cli2-run-1c241515f243 Creating
+ Container duo-t7f0-cli2-run-1c241515f243 Created
+activated: advanced-custom-fields/acf.php
+Success: 1 activated, 0 deactivated
+ Container duo-t7f0-cli2-run-d95c012adc39 Creating
+ Container duo-t7f0-cli2-run-d95c012adc39 Created
+Warning: adopted env term 1 as 01a01479-6599-705c-9f38-502f75e8326b (terms/category/01a01479-6599-705c-9f38-502f75e8326b--uncategorized.json)
+Success: applied 7 entities (canary clean) — plan was: {"create":4,"update":2,"unchanged":0,"drift":0,"conflict":0,"adopt":1,"collision":0,"delete":0,"delete_conflict":0,"deleted":0,"code_mismatch":0,"code_drift":0,"incomplete_apply":0,"incomplete_lifecycle":0,"missing_user":0,"skipped_user_meta":0,"uploads_inventory":0,"effects_inventory":6,"adapter_dispositions":0,"regen_pending":0,"regen_context":0,"env_missing":1}
+[1;32mok: deploy + apply succeeded on side 2 (acf 6.0.0, canary clean)[0m
+ Container duo-t7f0-cli2-run-339b7b9d8b71 Creating
+ Container duo-t7f0-cli2-run-339b7b9d8b71 Created
+Success: captured 4 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/.tmp-final
+[1;32mok: byte-identical recapture at acf 6.0.0 — the manifest's own declared version_range boundary is proven, not just its currently-installed version[0m
+
+[1;36m== boundary: acf 6.8.7 ==[0m
+ Container duo-t7f0-cli1-run-7f877ff7ba82 Creating
+ Container duo-t7f0-cli1-run-7f877ff7ba82 Created
+ Container duo-t7f0-cli1-run-f9136b55e180 Creating
+ Container duo-t7f0-cli1-run-f9136b55e180 Created
+ Container duo-t7f0-cli1-run-2f240e77026e Creating
+ Container duo-t7f0-cli1-run-2f240e77026e Created
+ Container duo-t7f0-cli1-run-97bf5de3b12e Creating
+ Container duo-t7f0-cli1-run-97bf5de3b12e Created
+ Container duo-t7f0-cli1-run-3f639e548b75 Creating
+ Container duo-t7f0-cli1-run-3f639e548b75 Created
+ Container duo-t7f0-cli1-run-f8442fd7263c Creating
+ Container duo-t7f0-cli1-run-f8442fd7263c Created
+ Container duo-t7f0-cli2-run-80fcaa31ef56 Creating
+ Container duo-t7f0-cli2-run-80fcaa31ef56 Created
+ Container duo-t7f0-cli2-run-161a03d7f9ab Creating
+ Container duo-t7f0-cli2-run-161a03d7f9ab Created
+ Container duo-t7f0-cli2-run-85a9e934f9b1 Creating
+ Container duo-t7f0-cli2-run-85a9e934f9b1 Created
+ Container duo-t7f0-cli2-run-4425c261c679 Creating
+ Container duo-t7f0-cli2-run-4425c261c679 Created
+ Container duo-t7f0-cli2-run-74a1c06dd675 Creating
+ Container duo-t7f0-cli2-run-74a1c06dd675 Created
+ Container duo-t7f0-cli2-run-c68dc3457555 Creating
+ Container duo-t7f0-cli2-run-c68dc3457555 Created
+
+[1;36m== fetch + verify acf 6.8.7 (never a bare slug install — always a digest-checked artifact) ==[0m
+ Container duo-t7f0-cli1-run-6c39671ebd3b Creating
+ Container duo-t7f0-cli1-run-6c39671ebd3b Created
+artifact-cache: kind=plugin slug=advanced-custom-fields version=6.8.7 sha256=f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2 source=cache-hit path=/artifacts-cache/plugin-advanced-custom-fields-6.8.7-f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2.zip
+ Container duo-t7f0-cli2-run-5ab82b6a023a Creating
+ Container duo-t7f0-cli2-run-5ab82b6a023a Created
+artifact-cache: kind=plugin slug=advanced-custom-fields version=6.8.7 sha256=f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2 source=cache-hit path=/artifacts-cache/plugin-advanced-custom-fields-6.8.7-f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2.zip
+[1;32mok: verified sha256-pinned artifact resolved for both sides: /artifacts-cache/plugin-advanced-custom-fields-6.8.7-f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2.zip[0m
+ Container duo-t7f0-cli1-run-0382f05a906c Creating
+ Container duo-t7f0-cli1-run-0382f05a906c Created
+ Container duo-t7f0-cli1-run-7e3370c810fe Creating
+ Container duo-t7f0-cli1-run-7e3370c810fe Created
+[1;32mok: side 1: acf 6.8.7 installed from verified artifact, active[0m
+ Container duo-t7f0-cli1-run-c5b7a351cfca Creating
+ Container duo-t7f0-cli1-run-c5b7a351cfca Created
+acf seed: {"group":1,"target":3,"content":4}
+ Container duo-t7f0-cli1-run-117508c65d1a Creating
+ Container duo-t7f0-cli1-run-117508c65d1a Created
+Success: captured 4 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+[1;32mok: captured on side 1 (acf 6.8.7)[0m
+ Container duo-t7f0-cli1-run-77d960b309dc Creating
+ Container duo-t7f0-cli1-run-77d960b309dc Created
+Success: no findings — captured state is clean
+[1;32mok: lint: 0 findings[0m
+ Container duo-t7f0-cli2-run-25eb508bd50a Creating
+ Container duo-t7f0-cli2-run-25eb508bd50a Created
+ Container duo-t7f0-cli2-run-f61a2ebc4b9a Creating
+ Container duo-t7f0-cli2-run-f61a2ebc4b9a Created
+ Container duo-t7f0-cli2-run-d7a5b7159019 Creating
+ Container duo-t7f0-cli2-run-d7a5b7159019 Created
+activated: advanced-custom-fields/acf.php
+Success: 1 activated, 0 deactivated
+ Container duo-t7f0-cli2-run-2b4c1271a869 Creating
+ Container duo-t7f0-cli2-run-2b4c1271a869 Created
+Warning: adopted env term 1 as 01a0147a-eb8e-7fdb-9220-e8fe4fb6b296 (terms/category/01a0147a-eb8e-7fdb-9220-e8fe4fb6b296--uncategorized.json)
+Success: applied 7 entities (canary clean) — plan was: {"create":4,"update":2,"unchanged":0,"drift":0,"conflict":0,"adopt":1,"collision":0,"delete":0,"delete_conflict":0,"deleted":0,"code_mismatch":0,"code_drift":0,"incomplete_apply":0,"incomplete_lifecycle":0,"missing_user":0,"skipped_user_meta":0,"uploads_inventory":0,"effects_inventory":6,"adapter_dispositions":0,"regen_pending":0,"regen_context":0,"env_missing":0}
+[1;32mok: deploy + apply succeeded on side 2 (acf 6.8.7, canary clean)[0m
+ Container duo-t7f0-cli2-run-3d06d4890f5a Creating
+ Container duo-t7f0-cli2-run-3d06d4890f5a Created
+Success: captured 4 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/.tmp-final
+[1;32mok: byte-identical recapture at acf 6.8.7 — the manifest's own declared version_range boundary is proven, not just its currently-installed version[0m
+
+[1;36m== negative control: acf 5.12.6 (real wp.org release, genuinely below manifests/acf.json's own declared min 6.0.0) must be REFUSED, not silently accepted ==[0m
+ Container duo-t7f0-cli1-run-0d64a83553cc Creating
+ Container duo-t7f0-cli1-run-0d64a83553cc Created
+ Container duo-t7f0-cli1-run-f30dd7591c0f Creating
+ Container duo-t7f0-cli1-run-f30dd7591c0f Created
+ Container duo-t7f0-cli1-run-a92186837e74 Creating
+ Container duo-t7f0-cli1-run-a92186837e74 Created
+ Container duo-t7f0-cli1-run-ed074f2cdcbc Creating
+ Container duo-t7f0-cli1-run-ed074f2cdcbc Created
+ Container duo-t7f0-cli1-run-448059a4b29f Creating
+ Container duo-t7f0-cli1-run-448059a4b29f Created
+ Container duo-t7f0-cli1-run-766022a1f8c3 Creating
+ Container duo-t7f0-cli1-run-766022a1f8c3 Created
+ Container duo-t7f0-cli1-run-b447186751ff Creating
+ Container duo-t7f0-cli1-run-b447186751ff Created
+artifact-cache: kind=plugin slug=advanced-custom-fields version=5.12.6 sha256=66499016b3864e507139be16319ef9c5026a399a4b1e7630c75eee4bfe3122a6 source=cache-hit path=/artifacts-cache/plugin-advanced-custom-fields-5.12.6-66499016b3864e507139be16319ef9c5026a399a4b1e7630c75eee4bfe3122a6.zip
+ Container duo-t7f0-cli1-run-ad793740fb2c Creating
+ Container duo-t7f0-cli1-run-ad793740fb2c Created
+ Container duo-t7f0-cli1-run-550a27ef76af Creating
+ Container duo-t7f0-cli1-run-550a27ef76af Created
+ Container duo-t7f0-cli1-run-88ec2cb540d1 Creating
+ Container duo-t7f0-cli1-run-88ec2cb540d1 Created
+Success: captured 0 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+ Container duo-t7f0-cli1-run-73635dc3245f Creating
+ Container duo-t7f0-cli1-run-73635dc3245f Created
+Error: duo: deploy refused — code_mismatch:
+
+  - advanced-custom-fields/acf.php 5.12.6 is active in this environment, outside the 'acf' manifest's declared version_range (>=6.0.0 <7.0.0, pinned by site.duo.json). Classification guarantees for this plugin are NOT validated against this version — apply may silently misclassify fields. Update the plugin, pin an older manifest, or pass --force-code-mismatch to proceed at your own risk.
+
+Install/vendor whatever is missing (or update code/) in this environment first, or pass --force-code-mismatch to proceed anyway.
+[1;32mok: confirmed: acf 5.12.6 (real, installed, genuinely below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative[0m
+
+[1;36m== cleanup ==[0m
+
+[1;36m== pair 't7f0': destroy ==[0m
+ Container duo-t7f0-cli2-1 Stopping
+ Container duo-t7f0-wp1-1 Stopping
+ Container duo-t7f0-wp2-1 Stopping
+ Container duo-t7f0-cli1-1 Stopping
+ Container duo-t7f0-cli2-1 Stopped
+ Container duo-t7f0-cli2-1 Removing
+ Container duo-t7f0-cli1-1 Stopped
+ Container duo-t7f0-cli1-1 Removing
+ Container duo-t7f0-cli1-1 Removed
+ Container duo-t7f0-cli2-1 Removed
+ Container duo-t7f0-wp2-1 Stopped
+ Container duo-t7f0-wp2-1 Removing
+ Container duo-t7f0-wp2-1 Removed
+ Container duo-t7f0-wp1-1 Stopped
+ Container duo-t7f0-wp1-1 Removing
+ Container duo-t7f0-wp1-1 Removed
+ Volume duo-t7f0_wp1 Removing
+ Volume duo-t7f0_wp2 Removing
+ Volume duo-t7f0_wp2 Removed
+ Volume duo-t7f0_wp1 Removed
+ Container duo-shared-db Running
+[1;32mok: containers + webroot volumes removed; wp_t7f01/wp_t7f02 dropped[0m
+  siterepo/t7f0{1,2} left on disk untouched — remove by hand if you want it gone too.
+[1;32mok: destroyed t7f0 (every assertion above passed)[0m
+
+[1;32m✔ CERTIFY_VERSION_MATRIX PASSED[0m
