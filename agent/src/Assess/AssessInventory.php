@@ -7,6 +7,7 @@ require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Adapter/AdapterSources.php';
 require_once __DIR__ . '/../Adapter/CapabilityRegistry.php';
+require_once __DIR__ . '/../Repository/RepositoryCompiler.php';
 require_once __DIR__ . '/../Review/Coverage.php';
 require_once __DIR__ . '/../Review/Pending.php';
 
@@ -422,15 +423,27 @@ final class AssessInventory {
      */
     private static function manifest_rows(Policy $policy): array {
         $sources = $policy->adapter_sources();
+        // The content digest every repository pin binds, from the one place
+        // that derives it for EVERY source (RepositoryCompiler::resolved_adapters,
+        // via ArtifactPolicyIdentity). The reviewed registry's claim carries
+        // the same value for a shipped adapter, but a site-certified claim is
+        // projected before its final digest exists (AdapterCertification::
+        // derivedDisposition says so), so reading the claim left every
+        // Site-certified adapter without a digest and `duo assess` refusing
+        // `assess_report_unbuildable` on exactly the repositories T6 exists
+        // for (grind_adapter_walk.sh S2).
+        $resolvedDigests = [];
+        foreach (RepositoryCompiler::resolved_adapters($policy) as $row) {
+            $resolvedDigests[(string) ($row['name'] ?? '')] = (string) ($row['digest'] ?? '');
+        }
         $rows = [];
         foreach ($policy->manifests as $manifest) {
             $name = (string) ($manifest['name'] ?? '');
             if ($name === '') {
                 continue;
             }
-            $claim = $policy->capability_claim($name);
             $disposition = $policy->manifest_disposition($name);
-            $digest = is_array($claim) ? ($claim['adapter_digest'] ?? null) : null;
+            $digest = $resolvedDigests[$name] ?? null;
             $status = is_array($disposition) ? ($disposition['status'] ?? null) : null;
             $rows[] = [
                 'name' => $name,
