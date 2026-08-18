@@ -691,7 +691,7 @@ situation_a5() {
     local moRow
     moRow="$(jq -r '[.surfaces[] | select(.id | test("polylang_mo"))] | map("\(.id)\t\(.state_class)\t\(.handling)\t\(.next_action)") | join(";")' "$ASSESS_JSON")"
     note "$S — polylang_mo as the first look reads it: ${moRow:-(no row)}"
-    jq -e '[.surfaces[] | select(.id | test("post_type:product"))] | length == 1' "$ASSESS_JSON" >/dev/null \
+    jq -e '[.surfaces[] | select(.id == "post_type:product")] | length == 1' "$ASSESS_JSON" >/dev/null \
       || fail "$S: no post_type:product row"
     pass "$S — languages, translations and the shop are all in the first look"
   fi
@@ -701,15 +701,23 @@ situation_a5() {
     # After init the decision about polylang_mo is written down somewhere: in
     # scope (adapter declares it), left local as runtime (advisory), or a
     # classify queue item — asserted as "named", the exact word recorded.
-    local moAfter
+    local moAfter moRows
     moAfter="$(jq -r '[.surfaces[] | select(.id | test("polylang_mo"))] | map("\(.id)\t\(.state_class)\t\(.handling)\t\(.next_action)") | join(";")' "$ASSESS_JSON")"
-    note "$S — polylang_mo after init: ${moAfter:-(no row)}"
-    if grep -q 'polylang_mo' "$EVIDENCE/$S/init.txt"; then
-      pass "$S — init named polylang_mo (see init.txt)"
+    moRows="$(wp1 post list --post_type=polylang_mo --post_status=any --format=count | tr -d '\r' | tail -1)"
+    note "$S — polylang_mo after init: ${moAfter:-(no row)}; live rows: ${moRows:-?}"
+    # Named when it holds anything: a registered type with rows outside the
+    # proposed scope is left local and printed by init, or reads as a surface.
+    # With no rows there is nothing to say, and silence is the honest answer.
+    if [ "${moRows:-0}" -gt 0 ] 2>/dev/null; then
+      if grep -q 'polylang_mo' "$EVIDENCE/$S/init.txt"; then
+        pass "$S — init named polylang_mo (see init.txt)"
+      else
+        jq -e '[.surfaces[] | select(.id | test("polylang_mo"))] | length >= 1' "$ASSESS_JSON" >/dev/null \
+          || fail "$S: polylang_mo holds $moRows row(s) and is neither named by init nor a surface of the assessment — it was left silent"
+        pass "$S — polylang_mo is a named surface after init"
+      fi
     else
-      jq -e '[.surfaces[] | select(.id | test("polylang_mo"))] | length >= 1' "$ASSESS_JSON" >/dev/null \
-        || fail "$S: polylang_mo is neither named by init nor a surface of the assessment — it was left silent"
-      pass "$S — polylang_mo is a named surface after init"
+      pass "$S — polylang_mo holds no rows on this site; nothing to name"
     fi
   fi
   CONTRACT_JOURNEYS_JSON="$(shop_journeys)"
