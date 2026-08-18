@@ -5749,7 +5749,7 @@
                         "version": "2.8"
                     }
                 ],
-                "bundle_digest": "e29c47be32c72ef5015f70aee2785d35d9c8f49ca0001a9beee37d0f3b94cdd5",
+                "bundle_digest": "7bd80daef5c41ef33de07baea1eea0919a6c72df35231914858235f8b1e36c7a",
                 "claims": {
                     "manifests.elementor": [
                         "conformance-elementor",
@@ -5757,7 +5757,7 @@
                     ]
                 },
                 "closure": {
-                    "digest": "fe692dd6d9e7cb94ede941d2e18507ae990c9b576cf72b6c52d41177239163fb",
+                    "digest": "88699ed3e699c262ddf93c0fdd8ad114062c0dc8cf4212d6ea839bf3d83e5bc5",
                     "inputs": [
                         {
                             "path": "Makefile",
@@ -7311,8 +7311,8 @@
                         },
                         {
                             "path": "manifests/providers/elementor-css.php",
-                            "sha256": "b14ed9f5a6a8a4c9bd6f87a4f9b168e929f92235c01bede381b64b8abc2331b0",
-                            "size": 10159
+                            "sha256": "da058927cf344784d0c845ecc2a1c50b0b6de1b825e9c4946dca8aa0432445ff",
+                            "size": 13562
                         },
                         {
                             "path": "sandbox/bin/artifact-archive-root.sh",
@@ -7471,10 +7471,10 @@
                         }
                     ]
                 },
-                "created_at": "2026-08-18T14:23:49Z",
+                "created_at": "2026-08-18T15:35:29Z",
                 "force_hatches": [],
                 "format": "duo-subject-certification-bundle/v1",
-                "git_revision": "97a5f6879f3a0b4550525b1b6d1f81a47cb96f1a",
+                "git_revision": "81c7bf654405a21ef7d3d600b192cb309a624242",
                 "platform": {
                     "agent_version": "0.5.0",
                     "branchable_state": "only exact certified registry surfaces and operations",
@@ -7562,7 +7562,7 @@
                     "kind": "manifest",
                     "name": "elementor"
                 },
-                "subject_digest": "b61756d49965b5bb0bed948ae5e34ab707758623b37f28951fc62d22c96060b0",
+                "subject_digest": "34d7be4deff523f46b185cb9a30112ec8c4737fb428b0c50f3a59fb18a621ed7",
                 "tests": [
                     {
                         "diff": {
@@ -7570,13 +7570,13 @@
                             "sha256": "6cd273d1a78881dbf3715a44db53595cbd75065b2b4bbb24bae59cfff7fe2c34",
                             "size": 149
                         },
-                        "evidence_sha256": "049b645a6c92d8afe6ab8cacc3d430caf2b8364ec1f305790fe14fbb57a9fbcb",
+                        "evidence_sha256": "b2f56a75f75ef95035447b341aec78d52ba167fc547dac229a6eeb11e92d9a21",
                         "exit_code": 0,
                         "id": "conformance-elementor",
                         "log": {
                             "path": "logs/conformance-elementor.txt",
-                            "sha256": "62d5bdd7aa3c62ebb9dc094f192fa0fe6e3fea6be59eb9680e7d63c53875a5f1",
-                            "size": 16400
+                            "sha256": "fc11b0a6a11c94c369c5358e4d485ed3cc2b2138c07023d85bde43023d648391",
+                            "size": 16456
                         },
                         "result": {
                             "path": "results/conformance-elementor.json",
@@ -7591,12 +7591,12 @@
                             "sha256": "618d4a35f68d010dc27c630311453133b766ab09721b3cf2b01b73acbc5940d2",
                             "size": 150
                         },
-                        "evidence_sha256": "6179f11872d67fe3877d655e625c7395ce61eb9ca024de6c4eb5c607483d3f9a",
+                        "evidence_sha256": "395e951a0c883c03a6bf41115d8c0053f4dc4e4aaec07cfcf35d3a94696f3b21",
                         "exit_code": 0,
                         "id": "exact-artifact-version-matrix",
                         "log": {
                             "path": "logs/exact-artifact-version-matrix.txt",
-                            "sha256": "4a298d3149be17eb0b8c24af800c7aa62e726425ab597d5290d851a1f8d5aa7e",
+                            "sha256": "d81e620b88042ee2e483680e21d87ad3e4f74a89f435d4ad6eb9717d033a0b53",
                             "size": 20374
                         },
                         "result": {
@@ -7609,7 +7609,7 @@
                 ],
                 "verdict": "pass"
             },
-            "path": "scoped/manifests/elementor/e29c47be32c72ef5015f70aee2785d35d9c8f49ca0001a9beee37d0f3b94cdd5"
+            "path": "scoped/manifests/elementor/7bd80daef5c41ef33de07baea1eea0919a6c72df35231914858235f8b1e36c7a"
         },
         "manifests.ninja-forms": {
             "bundle": {
