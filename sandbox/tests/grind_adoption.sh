@@ -916,9 +916,18 @@ echo 'reverted';
   revert_target "$S" "$PREVIEW_PAGE_ID" '<p>Duo walk landing page, before the release.</p>'
   release_cycle "$S" "$MAIN_SHA"
   if ! dry; then
-    curl -fs "http://127.0.0.1:${PORT2}${BUILDER_PAGE_PATH}" | grep -Fq 'released through duo release' \
+    # Buffer the ~73KB page into a variable before grepping it. Under `set -o
+    # pipefail` (line 43), `curl ... | grep -q` returns curl's EPIPE/SIGPIPE
+    # (rc 141) whenever grep matches and closes the pipe before curl finishes
+    # writing the body — a load-dependent FALSE failure whose match actually
+    # succeeded. sandbox/conformance/checks/elementor.sh, checks/fse.sh and
+    # spike_a_round_trip.sh all document and avoid this same trap.
+    builderHtml="$(curl -fs "http://127.0.0.1:${PORT2}${BUILDER_PAGE_PATH}")" \
+      || fail "$S: the builder page did not respond on the release target"
+    printf '%s' "$builderHtml" | grep -Fq 'released through duo release' \
       || fail "$S: the Elementor heading edit did not render on the release target"
-    wp2 eval "echo get_field('field_duo_tagline', $(wp2 post list --post_type=page --name=duo-walk-landing --field=ID | tr -d '\r' | head -1));" | tr -d '\r' | grep -Fq 'released through duo release' \
+    taglineOut="$(wp2 eval "echo get_field('field_duo_tagline', $(wp2 post list --post_type=page --name=duo-walk-landing --field=ID | tr -d '\r' | head -1));" | tr -d '\r')"
+    printf '%s' "$taglineOut" | grep -Fq 'released through duo release' \
       || fail "$S: the ACF tagline edit did not arrive on the release target"
     pass "$S — the Elementor and ACF edits round-tripped through the release"
   fi

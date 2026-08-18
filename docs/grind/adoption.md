@@ -199,3 +199,20 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   `_elementor_data`. The stale-cache masking, the raw-SQL bypass, and the
   clear-fixes-it behaviour were each reproduced directly on the kept pair
   before the change.
+- A6 (grind assertion — pipefail/EPIPE, corrected diagnosis): after the rebind
+  and Elementor-cache fixes, the builder-page render assertion still failed
+  intermittently. Deep instrumentation (front-end + `_elementor_data` +
+  `_elementor_element_cache` sampled per attempt) proved the target ALWAYS
+  ended a release with the applied heading rendered (`data=released`,
+  `cache=cNEW`, `fe=released`) — the assertion itself was the flake: under
+  `set -o pipefail`, `curl -fs <73KB page> | grep -Fq` returns curl's
+  EPIPE/SIGPIPE (rc 141) whenever grep matches and closes the pipe before curl
+  finishes writing the body, a load-dependent FALSE failure the codebase
+  already documents and avoids (sandbox/conformance/checks/elementor.sh,
+  checks/fse.sh, spike_a_round_trip.sh). The grind now buffers the page (and
+  the ACF read) into a variable before grepping, the same fix those checks
+  use. The Elementor-cache provider change stands on its own merit — Duo's
+  apply writes `_elementor_data` with raw SQL, bypassing Elementor's
+  cache-invalidation hooks, so explicitly invalidating the derived render
+  caches with receipt proof is the honest derived-state contract — it was not
+  what the render assertion was tripping on.
