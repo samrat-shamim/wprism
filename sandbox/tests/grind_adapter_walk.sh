@@ -2316,6 +2316,10 @@ scenario_s2() {
   # which is the manifest grammar's own word for "declared, deliberately not
   # captured" (agent/src/Policy/ManifestGrammar.php TABLE_CLASSES) — the same
   # declaration manifests/woocommerce.json makes for Action Scheduler's tables.
+  # `deletions` declares the form post type deletable (the required post
+  # cascade set, no guards: a Lite form is referenced by nothing Duo manages);
+  # without it the target-side capture after `wp post delete` of the authored
+  # form refuses "deletion intent for post:wpforms is unsupported" (run 21).
   if dry; then
     plan "jq: finish $draft into spec_version 2 / name $WPFORMS_CPT / plugin $WPFORMS_BASENAME / version_range [$WPFORMS_VERSION, 2.1.0)"
   else
@@ -2334,6 +2338,7 @@ scenario_s2() {
         options: {("\($name)_settings"): {class: "authored"}},
         plugin: $plugin,
         post_types: {($cpt): {class: "authored", body: "verbatim"}},
+        deletions: {("post:\($cpt)"): {cascades: ["postmeta", "post_revisions", "term_relationships"], guards: []}},
         spec_version: 2,
         tables: {
           ("\($name)_analytics_forms"): {class: "runtime"},

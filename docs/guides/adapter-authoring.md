@@ -131,6 +131,36 @@ For an interpreter-shaped adapter, where meta semantics live in data rather
 than in a static key list, [`manifests/acf.json`](../../manifests/acf.json) is
 the reference.
 
+### Deleting what you author
+
+Authoring a post type does not make its rows deletable through Duo. A capture
+that finds an authored row gone mints a *deletion intent*, and the engine
+refuses that intent — loudly, at capture — unless a pinned adapter declares the
+destructive effects the kind needs: `duo: deletion intent for post:<type> is
+unsupported — no pinned adapter declares its reverse-reference checks and
+cascade effects`. WordPress's own cascade behaviour is never inferred. Declare
+it:
+
+```json
+"deletions": {
+  "post:wpforms": {
+    "cascades": ["postmeta", "post_revisions", "term_relationships"],
+    "guards": []
+  }
+}
+```
+
+`cascades` is the closed required set per kind (`post`: postmeta,
+post_revisions, term_relationships; `term`: termmeta, term_taxonomy,
+term_relationships; `menu`: those plus menu_items); `guards` lists the
+reverse references that must be empty before a delete is allowed (`{table,
+column, id_kind, reason}` — `manifests/core.json`'s `post:attachment` shows a
+comments guard and a child-posts guard). An empty guard list is a claim that
+nothing references the row: make it only when it is true. The T6 walk's
+WPForms adapter declares exactly the block above, because a WPForms Lite form
+is referenced by nothing Duo manages; without it S2 stopped at the first
+target-side capture after a form was deleted.
+
 ## Precedence, in one sentence each
 
 - **Site policy always wins.** A rule in `site.duo.json`'s `policy` outranks
