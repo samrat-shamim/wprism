@@ -209,9 +209,15 @@ journeys_json() {
 # adoption seed reads the site without writing anything.
 doctor_and_first_look() {
   local label="$1" env="$2"
+  # The adoption seed first: `duo doctor` checks that the repo path holds a
+  # site.duo.json (a [FAIL] row without one — the honest answer, and not the
+  # first look this situation is about), and `duo assess` reads that seed.
+  seed_repository "$label"
   say "$label — duo doctor $env (read-only) and duo assess $env on the adoption seed"
   duo_ok "$EVIDENCE/$label/doctor.txt" "$HOST_R1" doctor "$env"
-  seed_repository "$label"
+  if ! dry; then
+    grep -q '^\[FAIL\]' "$EVIDENCE/$label/doctor.txt" && fail "$label: duo doctor reports a FAIL row on a fresh pair; see $EVIDENCE/$label/doctor.txt"
+  fi
   assess_both "$label" "$env" "$HOST_R1" first-look
   if ! dry; then
     [ -z "$(ls -A "$HOST_R1/state" 2>/dev/null)" ] \
