@@ -69,3 +69,29 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   `Pending::journal_installed()` proves presence with a clean `SHOW TABLES`;
   an absent journal is a known state and the queue is the live gate walk's
   findings (regress_adapter_observation).
+- A1 (release): the lib's verify assertion required two declared journeys
+  (the walk's shop pair); a brochure site declares one — relaxed to at least
+  one.
+- A2 (init): a block theme's site-editor customisations live in core's
+  non-public `_builtin` FSE types, which the scope gate never names; init now
+  proposes the certified core FSE profile's scope for a block theme and says
+  so (`[fse_profile_scope_selected]`), or names the gap
+  (`fse_profile_not_certified`).
+- A6 (anticipated from A2/S1): every plugin-registered rowful type outside
+  the proposed scope that no selected adapter declares is left local (runtime)
+  and printed — for adapter-owned plugins too (Elementor's `elementor_library`
+  is a type the adapter deliberately leaves to the site).
+- A3 (first look): on an adoption seed the seed's pin set is `core` alone, so
+  the first `duo assess` read `plugin:woocommerce — install adapter` and every
+  WooCommerce table as unclassified on a shop the library certifies. The
+  assessment now projects a seed against the policy `duo init` would propose
+  and says so (`adoption:` line; `authority.adoption` in JSON).
+- All grinds: `tools/reference-env-provider.php` (reusable preview slot,
+  merged during T6) requires every configured environment to use pair.sh's
+  canonical logical name — the `preview` alias for side 2 is gone from
+  `grind_mup.sh`, the walk and this grind; side 2 is `<pair>2` for rehearsal
+  and release alike.
+- A3 (loop): a product deleted from the target makes the next capture refuse
+  the deletion intent — `manifests/woocommerce.json` keeps product deletion
+  fail-closed by design — so the situation authors its catalog change on the
+  source instead of preview-then-delete.

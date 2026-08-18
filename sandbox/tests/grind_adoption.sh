@@ -430,19 +430,34 @@ situation_a3() {
   CONTRACT_LIFECYCLE_REASON="the only external effect this shop's installed set has in the lifecycle window is WordPress' own activation/deactivation hooks; reviewed against woocommerce $WOO_VERSION and $CLASSIC_THEME_SLUG $CLASSIC_THEME_VERSION, neither of which runs mail, payment or webhook code on activation"
   contract_cycle "$S" "${PAIR}1" "$HOST_R1" "$LANDING_ID" - '.'
   rehearse_preview "$S"
-  say "$S — a catalog change on the preview: a new product, plus the page edit"
-  if ! dry; then
-    wp2 wc product create --name='Duo walk poster' --type=simple --regular_price=15.00 --sku=DUO-WALK-POSTER \
-      --status=publish --user=admin --porcelain >/dev/null
-  fi
+  say "$S — the page edit on the preview; the catalog change on the SOURCE (a new product)"
   preview_page_edit "$S" duo-walk-landing '<p>Duo walk landing page, released through duo release.</p>'
   capture_twice "$S" "${PAIR}2"
   merge_preview "$S"
+  # The new product is authored on the source and captured there, so it is
+  # genuinely absent from the target until the release creates it. (Authoring
+  # it on the preview and deleting it from the target — the walk's pattern for
+  # its own adapters — is not available here: manifests/woocommerce.json keeps
+  # product deletion fail-closed, so a capture that finds a product gone
+  # refuses the deletion intent by design.)
+  # The source clone first takes main (the preview's page edit), so its own
+  # capture builds on it; the source's live page is edited to the same
+  # released body so main carries the page edit AND the product, and the
+  # release applies both to the reverted target.
+  git1 fetch -q origin main
+  git1 merge -q --ff-only FETCH_HEAD
   if ! dry; then
-    local previewPoster
-    previewPoster="$(wp2 post list --post_type=product --name=duo-walk-poster --field=ID | tr -d '\r' | head -1)"
-    [ -n "$previewPoster" ] || fail "$S: the preview did not carry the authored product back"
-    wp2 post delete "$previewPoster" --force
+    wp1 post update "$LANDING_ID" --post_content='<p>Duo walk landing page, released through duo release.</p>' >/dev/null
+    wp1 wc product create --name='Duo walk poster' --type=simple --regular_price=15.00 --sku=DUO-WALK-POSTER \
+      --status=publish --user=admin --porcelain >/dev/null
+  fi
+  duo_ok "$EVIDENCE/$S/capture-source-product.txt" "$HOST_R1" capture "${PAIR}1"
+  git1 add -A
+  commit1 "grind_adoption $S: a new product authored on the source"
+  git1 push -q origin main
+  if ! dry; then
+    MAIN_SHA="$(git -C "$ORIGIN" rev-parse main)"
+    [ -n "$MAIN_SHA" ] || fail "$S: the origin has no main revision after the source capture"
   fi
   revert_target "$S" "$PREVIEW_PAGE_ID" '<p>Duo walk landing page, before the release.</p>'
   # The order that arrives on the TARGET after the checkpoint: created between
