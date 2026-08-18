@@ -120,12 +120,16 @@ as small as a real adapter gets. Stripped of its notes, it is six keys:
 
 ### The caveat that catches everyone
 
-CF7's own notes carry it: `wpcf7_contact_form` **must** be added to the site's
+CF7's own notes carry it: `wpcf7_contact_form` **must** be in the site's
 `policy.post_types` in `site.duo.json` for any of these rules to take effect.
-**Manifests cannot declare post-type scope.** A manifest classifies keys within
+**A manifest classifies; the site scopes.** A manifest classifies keys within
 entities that are already in scope; the scope list itself is site-local policy.
-Ship a manifest for a plugin with a custom post type and you have shipped half
-the answer — the site still has to opt its entities into management.
+`duo init` proposes that scope for you — every `post_types`/`taxonomies` entry
+of class `authored` in a selected adapter goes into the proposal — so on an
+init-owned repository a manifest with `"post_types": {"wpcf7_contact_form":
+{"class": "authored"}}` does carry its own scope. A hand-authored
+`site.duo.json`, or a scope you narrowed afterwards, still has to name the
+entity, and `duo classify` is how a type left local is re-decided later.
 
 For an interpreter-shaped adapter, where meta semantics live in data rather
 than in a static key list, [`manifests/acf.json`](../../manifests/acf.json) is

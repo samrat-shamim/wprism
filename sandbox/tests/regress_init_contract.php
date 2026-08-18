@@ -1984,6 +1984,24 @@ check(
         === 'certify it with duo adapter certify <site-repo> --name=acme-catalog, or remove it, then rerun duo init',
     'an installed-but-uncertified adapter blocks init with the certify-or-remove instruction, in that order'
 );
+// A PLUGIN-bundled adapter cannot be certified in place (the certificate
+// binds source "site" and adapters/<name>.json), so its row keeps the
+// registry's promotion-path remediation and only appends the rerun (walk S3
+// read "certify it with duo adapter certify" against a bundled copy the verb
+// would refuse).
+$bundled = $blockerRow->invoke(null, [
+    'code' => 'adapter_source_uncertified',
+    'name' => 'acme-catalog',
+    'reason' => "'acme-catalog' is installed from the plugin adapter source (plugins/acme-catalog/duo-adapter.json) and is uncertified by construction",
+    'remediation' => 'install this adapter as a repository package at adapters/acme-catalog.json, obtain a certificate signed by an authority this agent trusts at adapters/certifications/acme-catalog.json, then run `wp duo manifest-pin --repo=... --name=acme-catalog` and commit the emitted {name,source:"site",digest} pin. The site copy wins by precedence and the bundled copy reports as not installed; the plugin stays active throughout',
+    'source' => 'plugin',
+    'trust_tier' => 'declarative_manifest',
+]);
+check(
+    str_starts_with((string) $bundled['remediation'], 'install this adapter as a repository package at adapters/acme-catalog.json')
+        && str_ends_with((string) $bundled['remediation'], ' — then rerun duo init (duo adapter certify <site-repo> --name=acme-catalog --pin signs and pins the promoted copy)'),
+    'a plugin-bundled uncertified adapter keeps the promotion path as its remediation and appends the rerun'
+);
 $otherBlocker = $blockerRow->invoke(null, [
     'code' => 'authored_state_not_certified',
     'name' => 'woocommerce',

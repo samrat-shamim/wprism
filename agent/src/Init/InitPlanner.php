@@ -489,8 +489,19 @@ final class InitPlanner {
             ? (string) $blocker['remediation']
             : 'install a certified compatible adapter/runtime or leave the site unmanaged';
         if ($code === 'adapter_source_uncertified') {
-            $remediation = 'certify it with duo adapter certify <site-repo> --name=' . $name
-                . ', or remove it, then rerun duo init';
+            // A PLUGIN-bundled adapter cannot be certified in place —
+            // certification binds source "site" and the exact adapters/<name>.json
+            // path inside the signed statement — so for that source the
+            // registry's own remediation (the promotion path: install it as
+            // adapters/<name>.json, certify, pin) is the honest instruction and
+            // is kept verbatim; only the site source gets the one-command form.
+            // (grind_adapter_walk.sh S3: this row told the operator to certify a
+            // bundled copy the verb would then refuse.)
+            $remediation = ($blocker['source'] ?? AdapterSources::SHIPPED) === AdapterSources::PLUGIN
+                ? ((string) $remediation . ' — then rerun duo init (duo adapter certify <site-repo> --name=' . $name
+                    . ' --pin signs and pins the promoted copy)')
+                : 'certify it with duo adapter certify <site-repo> --name=' . $name
+                    . ', or remove it, then rerun duo init';
         }
         return [
             'code' => $code,
