@@ -5,7 +5,7 @@
 #
 # Pair "claudemacb3338", ports 8930/8931 (owned by this script; headless — no
 # render checks, pure wp-cli). Code-bound to the sandbox agency fixture plugin
-# the same way certify_version_skew_merge.sh binds duo-loop-demo: the plugin is
+# via pair.sh's --codebind mode (sandbox/pair.codebind.yml): the plugin is
 # authored into the site repo's own code/ tree BEFORE the containers are
 # created, then travels to the second environment through git + `duo deploy`,
 # never a direct `wp plugin install` on the target.

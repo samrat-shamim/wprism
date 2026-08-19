@@ -35,10 +35,6 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 | [acf](#acf) | certified | `advanced-custom-fields/acf.php` | >=6.0.0 <7.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [contact-form-7](#contact-form-7) | certified | `contact-form-7/wp-contact-form-7.php` | >=6.0.0 <7.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [duo-agency-cpt](#duo-agency-cpt) | excluded | none declared | fixture only | test-only |
-| [duo-code-half-ecosystem](#duo-code-half-ecosystem) | excluded | none declared | fixture only | test-only |
-| [duo-code-half-probe](#duo-code-half-probe) | excluded | `duo-code-half-probe/duo-code-half-probe.php` | >=1.0.0 <3.0.0 | test-only |
-| [duo-loop-demo](#duo-loop-demo) | excluded | none declared | fixture only | test-only |
-| [duo-loop-demo-versioned](#duo-loop-demo-versioned) | excluded | `duo-loop-demo/duo-loop-demo.php` | >=9.0.0 <99.0.0 | test-only |
 | [elementor](#elementor) | certified | `elementor/elementor.php` | >=4.0.0 <5.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [ninja-forms](#ninja-forms) | certified | `ninja-forms/ninja-forms.php` | >=3.4.34.2 <4.0.0 | apply, capture, compile, delete, deploy, plan, promote, recapture, render-api |
 | [paid-memberships-pro](#paid-memberships-pro) | experimental | unbound | unbound | apply, capture, compile, delete, plan, recapture |
@@ -115,74 +111,6 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 - **Declared entities:** none
 - **Declared fields:** `options` (2: duo_agency_client_api_key, duo_agency_project_index), `post_meta` (2: _duo_project_internal_notes, _duo_project_views), `term_meta` (0 rules), `user_meta` (0 rules)
 - **Adapter hooks:** 1 provider, 2 structured actions
-- **Deletions supported:** none
-- **Deletions unsupported:** all
-
-**Unsupported, explicitly.**
-
-- `production` / `promote` — Excluded fixture manifests are never production-ready.
-
-## duo-code-half-ecosystem
-
-**Status: excluded.** Duo code-half ecosystem fixture used only by regression harnesses.
-
-- **Plugin:** none declared
-- **Version range:** fixture only
-- **Operations:** test-only
-- **Lifecycle phases:** none declared
-- **Declared entities:** none
-- **Declared fields:** `options` (2: duo_ecosystem_mu_boots, duo_ecosystem_trace)
-- **Deletions supported:** none
-- **Deletions unsupported:** all
-
-**Unsupported, explicitly.**
-
-- `production` / `promote` — Excluded fixture manifests are never production-ready.
-
-## duo-code-half-probe
-
-**Status: excluded.** Synthetic plugin fixture proving code-half and table handoff behavior.
-
-- **Plugin:** `duo-code-half-probe/duo-code-half-probe.php`
-- **Version range:** >=1.0.0 <3.0.0
-- **Operations:** test-only
-- **Lifecycle phases:** none declared
-- **Declared entities:** `tables` (1: duo_code_half_probe_rows)
-- **Declared fields:** `options` (5: duo_code_half_probe_activations, duo_code_half_probe_deactivations, duo_code_half_probe_schema, duo_code_half_probe_settings, duo_code_half_probe_trace)
-- **Deletions supported:** none
-- **Deletions unsupported:** all
-
-**Unsupported, explicitly.**
-
-- `production` / `promote` — Excluded fixture manifests are never production-ready.
-
-## duo-loop-demo
-
-**Status: excluded.** Synthetic core-loop fixture, not a shipped adapter claim.
-
-- **Plugin:** none declared
-- **Version range:** fixture only
-- **Operations:** test-only
-- **Lifecycle phases:** none declared
-- **Declared entities:** none
-- **Declared fields:** `options` (3: duo_loop_api_key, duo_loop_color, duo_loop_hits), `post_meta` (1: _duo_loop_badge), `term_meta` (0 rules)
-- **Deletions supported:** none
-- **Deletions unsupported:** all
-
-**Unsupported, explicitly.**
-
-- `production` / `promote` — Excluded fixture manifests are never production-ready.
-
-## duo-loop-demo-versioned
-
-**Status: excluded.** Synthetic version-range refusal fixture, not a shipped adapter claim.
-
-- **Plugin:** `duo-loop-demo/duo-loop-demo.php`
-- **Version range:** >=9.0.0 <99.0.0
-- **Operations:** test-only
-- **Lifecycle phases:** none declared
-- **Declared entities:** none
-- **Declared fields:** none
 - **Deletions supported:** none
 - **Deletions unsupported:** all
 

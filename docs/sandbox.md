@@ -198,7 +198,7 @@ finite resource to collide over when several pairs run at once.
 
 **`--journal`** layers in `pair.journal.yml`, which adds `DUO_JOURNAL` to
 `WORDPRESS_CONFIG_EXTRA` on all four services (matching the exact define the
-legacy compose file's `spikec`/`spikef`/`r1a`/`r1b`/`r1c` profiles already
+legacy compose file's `spikec`/`r1a`/`r1b`/`r1c` profiles already
 use). **`--codebind <plugin-dir>`** layers in `pair.codebind.yml`, spike G's
 pattern generalized: `wp-content/plugins/<plugin-dir>` is bind-mounted from
 this pair's *own* `siterepo/<name>{1,2}/code/wp-content/plugins/<plugin-dir>`

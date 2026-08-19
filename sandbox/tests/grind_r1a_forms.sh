@@ -64,8 +64,8 @@ install_env() { # install_env <r1a1|r1a2> <port> <title>
 }
 
 # Envs persist across runs, so make re-running this script safe: wipe WP
-# content + the duo ledger tables every time (mirrors spike_f_core_loop.sh's
-# reset_env_state). CF7/Ninja Forms are NOT deactivated/reinstalled per run
+# content + the duo ledger tables every time (the core-loop spike's
+# reset_env_state idiom). CF7/Ninja Forms are NOT deactivated/reinstalled per run
 # (install_env already guards that) — only their data is wiped, via each
 # plugin's own uninstall-equivalent tables/options where feasible.
 reset_env_state() { # reset_env_state <r1a1|r1a2>

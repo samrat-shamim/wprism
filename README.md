@@ -16,7 +16,7 @@
 | woocommerce | certified | `woocommerce/woocommerce.php` | >=11.0.0 <12.0.0 |
 | yoast | certified | `wordpress-seo/wp-seo.php` | >=28.0 <29.0.0 |
 
-Every claim above is declared by the adapter's own manifest, reviewed into `manifests/dispositions.json` with a written reason, and exercised by named conformance suites against a live WordPress pair — a reviewed, tested declaration rather than an attestation sealed to a content-addressed evidence bundle. Outside a declared surface, version range, or operation Duo refuses by default instead of guessing; the exact surfaces, operations, and explicit unsupported boundaries are in [the generated capability document](docs/capabilities.md), and plugins always run unmodified. Five excluded fixture manifests (duo-agency-cpt, duo-code-half-ecosystem, duo-code-half-probe, duo-loop-demo, duo-loop-demo-versioned) ship with the agent for regression use only and carry no product claim.
+Every claim above is declared by the adapter's own manifest, reviewed into `manifests/dispositions.json` with a written reason, and exercised by named conformance suites against a live WordPress pair — a reviewed, tested declaration rather than an attestation sealed to a content-addressed evidence bundle. Outside a declared surface, version range, or operation Duo refuses by default instead of guessing; the exact surfaces, operations, and explicit unsupported boundaries are in [the generated capability document](docs/capabilities.md), and plugins always run unmodified. One excluded fixture manifest (duo-agency-cpt) ships with the agent for regression use only and carries no product claim.
 <!-- END GENERATED CAPABILITY SUMMARY -->
 
 Duo makes the registry-certified authored surfaces of a WordPress site **branchable like code** — branch, edit, merge, promote — without modifying plugin or theme source. Authored content and configuration live canonically in a git repository; runtime data (orders, comments, sessions, caches) stays environment-local and untouched. Anything Duo cannot classify or certify is refused loudly, never guessed — missing registry data is unsupported.
@@ -86,7 +86,6 @@ make spike-b          # merge: divergent edits, real git conflict, drift preserv
 make spike-c          # provenance: admin vs anonymous writes vs manifest ground truth
 make spike-d          # WooCommerce catalog round-trip + fail-closed product deletion
 make spike-e          # ACF interpreter round-trip
-make spike-f          # the core loop: block → pending → classify → capture → manifest export
 make conformance-<m>  # per-manifest clean-room gate (core, woocommerce, acf, yoast, …)
 make cli-smoke        # duo CLI end-to-end over the docker transport
 make cli-triage-smoke # interactive duo classify triage end-to-end

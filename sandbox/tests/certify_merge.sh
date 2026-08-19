@@ -54,9 +54,11 @@
 #     DUO-3208's blocked status. Flagging as unblocked-and-ready for
 #     whoever picks up DUO-3223 (see PR).
 #   - the cross-branch plugin-version-skew workflow is a genuinely separate
-#     scenario (two DIFFERENT plugin versions across branches), so it lives
-#     in tests/certify_version_skew_merge.sh rather than distorting this
-#     fixture. `make certify-merge` runs both scripts as one local gate.
+#     scenario (two DIFFERENT plugin versions across branches) and is
+#     currently UNCOVERED: its fixture was built on the duo-loop-demo demo
+#     manifest and was deleted with it. Rebuilding it on a real manifest is
+#     open work; it is deliberately not folded into this fixture, which
+#     would distort it.
 #   - conflict-marker leakage into POST BODIES: DUO-3208 also shipped
 #     RepositoryCompiler's CONFLICT_RE scan
 #     ('/^(<{7}|={7}|>{7})(?: .*|)$/m'), which runs against every state

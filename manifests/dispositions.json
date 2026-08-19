@@ -61,38 +61,6 @@
       "supported_versions": {"fixture": true},
       "unsupported": [{"operation": "promote", "reason": "Excluded fixture manifests are never production-ready.", "surface": "production"}]
     },
-    "duo-code-half-ecosystem": {
-      "capabilities": {"deletion_semantics": {"supported": [], "unsupported": ["all"]}, "entity_sections": [], "field_sections": ["options"], "lifecycle_phases": [], "operations": ["test-only"]},
-      "default_authored_keyspaces": [],
-      "reason": "Duo code-half ecosystem fixture used only by regression harnesses.",
-      "status": "excluded",
-      "supported_versions": {"fixture": true},
-      "unsupported": [{"operation": "promote", "reason": "Excluded fixture manifests are never production-ready.", "surface": "production"}]
-    },
-    "duo-code-half-probe": {
-      "capabilities": {"deletion_semantics": {"supported": [], "unsupported": ["all"]}, "entity_sections": ["tables"], "field_sections": ["options"], "lifecycle_phases": [], "operations": ["test-only"]},
-      "default_authored_keyspaces": [],
-      "reason": "Synthetic plugin fixture proving code-half and table handoff behavior.",
-      "status": "excluded",
-      "supported_versions": {"fixture": true, "plugin": "duo-code-half-probe/duo-code-half-probe.php", "range": {"max": "3.0.0", "min": "1.0.0"}},
-      "unsupported": [{"operation": "promote", "reason": "Excluded fixture manifests are never production-ready.", "surface": "production"}]
-    },
-    "duo-loop-demo": {
-      "capabilities": {"deletion_semantics": {"supported": [], "unsupported": ["all"]}, "entity_sections": [], "field_sections": ["options", "post_meta", "term_meta"], "lifecycle_phases": [], "operations": ["test-only"]},
-      "default_authored_keyspaces": [],
-      "reason": "Synthetic core-loop fixture, not a shipped adapter claim.",
-      "status": "excluded",
-      "supported_versions": {"fixture": true},
-      "unsupported": [{"operation": "promote", "reason": "Excluded fixture manifests are never production-ready.", "surface": "production"}]
-    },
-    "duo-loop-demo-versioned": {
-      "capabilities": {"deletion_semantics": {"supported": [], "unsupported": ["all"]}, "entity_sections": [], "field_sections": [], "lifecycle_phases": [], "operations": ["test-only"]},
-      "default_authored_keyspaces": [],
-      "reason": "Synthetic version-range refusal fixture, not a shipped adapter claim.",
-      "status": "excluded",
-      "supported_versions": {"fixture": true, "plugin": "duo-loop-demo/duo-loop-demo.php", "range": {"max": "99.0.0", "min": "9.0.0"}},
-      "unsupported": [{"operation": "promote", "reason": "Excluded fixture manifests are never production-ready.", "surface": "production"}]
-    },
     "elementor": {
       "capabilities": {
         "deletion_semantics": {"supported": [], "unsupported": ["plugin-specific deletes"]},

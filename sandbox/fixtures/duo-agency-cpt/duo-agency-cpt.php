@@ -7,10 +7,10 @@
  *   activated via `wp duo deploy` rather than a static sandbox fixture, so
  *   it round-trips exactly the way a real client plugin would. Also
  *   exercises the core loop's own review queue with three plugin-owned
- *   keys shaped like duo-loop-demo's (authored / secret-shaped / runtime),
- *   but the runtime case lives at POST-META grain (a per-project view
- *   counter) rather than duo-loop-demo's option-level counter — new
- *   marginal coverage of the classification surface, not a repeat of it.
+ *   keys, one per classification outcome (authored / secret-shaped /
+ *   runtime), with the runtime case at POST-META grain (a per-project view
+ *   counter) rather than the option grain the earlier core-loop fixtures
+ *   used — marginal coverage of the classification surface, not a repeat.
  * Version: 0.1.0
  *
  * 'project' CPT + 'project_type' taxonomy: what an ACF field group and an

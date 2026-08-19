@@ -28,7 +28,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-delete-guard-evaluator
 .PHONY: regress-scope-discovery regress-user-meta-capture regress-entity-meta-capture regress-menu-capture regress-media-capture regress-options-capture regress-table-graph regress-table-schema regress-snapshot-identity regress-typed-table-capture regress-typed-table-materializer regress-snapshot-pruner
 
-.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b grind-code-half grind-code-half-ecosystem grind-code-half-first-sync grind-ecommerce-developer-live pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones regress-natural-key-rename certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix certify-version-matrix certify-ssh-adoption-roundtrip certify-ssh-rollback regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-adapter-sources regress-fetch-artifact regress-adapter-theme-range regress-discovery-completeness regress-core-semantics regress-attachment-portability regress-repository-compiler regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate regress-acf-meta-interpreter regress-widgets regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-stage-transaction-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-plan-title-render regress-conflict-view regress-template-mismatch regress-code-deploy-unit regress-lifecycle-state-handoff regress-lifecycle-phase-handoff-unit regress-plugin-dependency-order regress-rollback-authority regress-recovery-executor regress-checkpoint-bundle regress-code-release code-half-unit \
+.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b grind-code-half-first-sync grind-ecommerce-developer-live pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones regress-natural-key-rename certify-merge certify-adversarial-matrix certify-deletion-matrix certify-version-matrix certify-ssh-adoption-roundtrip certify-ssh-rollback regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-adapter-sources regress-fetch-artifact regress-adapter-theme-range regress-discovery-completeness regress-core-semantics regress-attachment-portability regress-repository-compiler regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate regress-acf-meta-interpreter regress-widgets regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-stage-transaction-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-plan-title-render regress-conflict-view regress-template-mismatch regress-code-deploy-unit regress-lifecycle-state-handoff regress-lifecycle-phase-handoff-unit regress-plugin-dependency-order regress-rollback-authority regress-recovery-executor regress-checkpoint-bundle regress-code-release code-half-unit \
 	regress-adopt-rollback regress-block-refs regress-composite-ref regress-doctor-env-values regress-dynamic-options-policy regress-taxonomy-object-keyspace \
 	regress-env-options-policy regress-export-manifest-roundtrip regress-manifest-reclassification-policy regress-ecommerce-developer-matrix \
 	regress-menu-field-reclassification-policy regress-regen-dependency-policy regress-shortcode-refs \
@@ -87,13 +87,7 @@ spike-d:
 spike-e:
 	bash sandbox/tests/spike_e_acf.sh
 
-spike-f:
-	bash sandbox/tests/spike_f_core_loop.sh
-
-spike-g:
-	bash sandbox/tests/spike_g_code.sh
-
-spikes: spike-a spike-b spike-c spike-d spike-e spike-f spike-g
+spikes: spike-a spike-b spike-c spike-d spike-e
 
 conformance-%:
 	bash sandbox/conformance/run.sh $*
@@ -208,14 +202,9 @@ regress-natural-key-rename:
 # certify_merge.sh's header for full scope: what's proven here vs.
 # explicitly routed elsewhere (add/add same-slug rejection is unblocked now
 # that DUO-3208 landed, but stays out of this fixture per the issue's own
-# routing to DUO-3223's matrix). A companion fixture certifies DESIGN.md
-# §3.4's code-first -> migrate -> re-capture -> merge-state ordering.
+# routing to DUO-3223's matrix).
 certify-merge:
 	bash sandbox/tests/certify_merge.sh
-	bash sandbox/tests/certify_version_skew_merge.sh
-
-certify-version-skew-merge:
-	bash sandbox/tests/certify_version_skew_merge.sh
 
 # DUO-3223 (adversarial certification matrix): cases that don't belong to
 # any single capability's own certification fixture. PART 1 (add/add
@@ -1092,9 +1081,9 @@ regress-state-handoff-verifier:
 # untouched, exactly as regress_deploy_planner.php's own source-text
 # assertions and regress_plugin_dependency_order.php's ReflectionMethod
 # calls against Deploy::class both require. Deliberately a wiring/shape
-# proof only -- full behavioral coverage already exists across the 14
+# proof only -- full behavioral coverage already exists across the
 # end-to-end suites this class's mutation logic feeds (regress_promotion_
-# lock.sh, spike_g_code.sh, regress_code_drift.sh, certify_version_matrix.sh,
+# lock.sh, regress_code_drift.sh, certify_version_matrix.sh,
 # the grind_r*.sh scripts, etc.), unchanged by this extraction.
 regress-lifecycle-executor:
 	php sandbox/tests/regress_lifecycle_executor.php
@@ -1197,21 +1186,6 @@ regress-plugin-dependency-order:
 
 regress-code-compatibility:
 	bash sandbox/tests/regress_code_compatibility.sh
-
-# Clean-room code-half grind: no code bind mount. Public promotion must
-# materialize, migrate, heal drift, fail atomically, deactivate before prune,
-# preserve unrelated components, and converge both independent revision
-# receipts. See docs/grind/code-half.md.
-grind-code-half:
-	bash sandbox/tests/grind_code_half.sh
-
-# Ecosystem-grade extension: dependency-aware retirement, same-symbol
-# replacement in fresh processes, single-file plugins, user MU code, child
-# themes, controlled hook failure plus exact checkpoint recovery, bounded
-# fatal-MU recovery, and exact return to the original code/state/artifact
-# identities.
-grind-code-half-ecosystem:
-	bash sandbox/tests/grind_code_half_ecosystem.sh
 
 # First-ever sync safety: a hook writes authored state and then throws before
 # plugin membership persists. A durable pre-hook receipt must block a different
