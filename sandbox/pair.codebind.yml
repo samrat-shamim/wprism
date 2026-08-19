@@ -2,10 +2,10 @@
 # Override: bind-mount a plugin directory from THIS pair's own siterepo
 # checkout's code/ tree, instead of a shared static fixture (sandbox/
 # pair.yml's --codebind <plugin-dir> mode; spike G's pattern —
-# sandbox/tests/spike_g_code.sh, docs/proposals/code-half.md §5 — generalized
-# off g1/g2's one-off profile). Layered in via `docker compose -f pair.yml
+# docs/proposals/code-half.md §5 — generalized off that spike's one-off
+# g1/g2 compose profile). Layered in via `docker compose -f pair.yml
 # -f pair.codebind.yml ...` with DUO_CODEBIND_PLUGIN set to the plugin's
-# directory name (e.g. "duo-loop-demo", "duo-agency-cpt").
+# directory name (e.g. "duo-agency-cpt").
 #
 # Compose merges `volumes` list entries by target path across layered
 # files, not by full replacement (confirmed via `docker compose config`
@@ -22,8 +22,7 @@
 # container-create time (rprivate propagation). pair.sh's --codebind wiring
 # authors code/ on the host before ever bringing these containers up, and
 # --force-recreate's the wp side on any later `up` against an existing pair
-# so a fresh checkout is what gets attached, not a prior run's stale mount —
-# see spike_g_code.sh's own extended comment on this for the full story.
+# so a fresh checkout is what gets attached, not a prior run's stale mount.
 # -----------------------------------------------------------------------------
 services:
   wp1:

@@ -127,7 +127,7 @@ function capdoc_manifests(string $dir): array {
         $manifest = capdoc_read_json($file);
         // ManifestDispositions::load() keys coverage by FILE BASENAME while
         // AdapterRegistry keys the loaded library by the manifest's own `name`.
-        // The two are the same string for all 15 shipped manifests; a
+        // The two are the same string for every shipped manifest; a
         // divergence would silently give one manifest two identities, so it is
         // refused here rather than rendered under whichever key won.
         $declared = $manifest['name'] ?? null;
@@ -622,9 +622,15 @@ function capdoc_readme_block(array $manifests, array $dispositions, array $platf
         . 'by default instead of guessing; the exact surfaces, operations, and explicit unsupported boundaries are '
         . 'in [the generated capability document](docs/capabilities.md), and plugins always run unmodified.';
     if ($excluded !== []) {
+        // Both the noun and its verbs inflect. Pluralizing only the noun read
+        // as "One excluded fixture manifest (duo-agency-cpt) ship with the
+        // agent ... and carry no product claim" the moment the excluded set
+        // fell to one, which is what deleting the four demo manifests did.
+        $one = count($excluded) === 1;
         $block .= ' ' . ucfirst(capdoc_count_word(count($excluded))) . ' excluded fixture manifest'
-            . (count($excluded) === 1 ? '' : 's') . ' (' . implode(', ', $excluded)
-            . ') ship with the agent for regression use only and carry no product claim.';
+            . ($one ? '' : 's') . ' (' . implode(', ', $excluded)
+            . ($one ? ') ships' : ') ship') . ' with the agent for regression use only and '
+            . ($one ? 'carries' : 'carry') . ' no product claim.';
     }
     return $block . "\n" . CAPDOC_README_END;
 }

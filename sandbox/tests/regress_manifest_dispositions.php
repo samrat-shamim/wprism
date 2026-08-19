@@ -305,7 +305,11 @@ putenv("DUO_MANIFESTS_DIR=$manifestDir");
 WP_CLI::$lines = [];
 (new Duo\Cli())->capabilities([], ['all' => true, 'format' => 'json']);
 $cliReport = json_decode(WP_CLI::$lines[0] ?? '', true);
-check(count($cliReport['manifests'] ?? []) === 15, 'wp duo capabilities --all reports every shipped disposition');
+// Derived from the same on-disk glob line 110 counts against, not a literal:
+// a literal here silently becomes a weaker assertion every time the shipped
+// library gains or loses a manifest (it was 15 while four demo-manifest
+// fixtures shipped), which is the opposite of "reports EVERY disposition".
+check(count($cliReport['manifests'] ?? []) === count($manifestFiles), 'wp duo capabilities --all reports every shipped disposition');
 check(
     ($cliReport['registry_sha256'] ?? null) === $registry->sha256()
     && ($cliReport['schema_version'] ?? null) === AdapterRegistry::REPORT_FORMAT

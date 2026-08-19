@@ -17,8 +17,8 @@
 #
 # ## Shape
 #
-# Deliberately the proven shape of `sandbox/conformance/run.sh` and
-# `sandbox/tests/grind_code_half.sh`, not a new one: `pair.sh reset` + `up`
+# Deliberately the proven shape of `sandbox/conformance/run.sh` and the
+# code-half grinds, not a new one: `pair.sh reset` + `up`
 # with `--http --artifacts`, pinned plugin/theme artifacts through
 # `sandbox/bin/fetch-artifact.sh`, a bare origin plus two clones under
 # `sandbox/siterepo/`, and an exit trap that destroys exactly this pair and
@@ -319,8 +319,8 @@ mup_assert_claim_literal() {
 }
 
 # mup_assert_phase_order <file> <phase...> — the phases appear, in this order.
-# Lifted from grind_code_half.sh's assert_phase_order, which is the idiom of
-# record for reading `promote phase:` lines; deploy-before-apply is the only
+# Lifted from the code-half grind's assert_phase_order, the idiom of record
+# for reading `promote phase:` lines; deploy-before-apply is the only
 # reason step 9 exists.
 mup_assert_phase_order() {
   local file="$1" last=0 needle line

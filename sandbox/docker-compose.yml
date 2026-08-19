@@ -184,84 +184,6 @@ services:
       WORDPRESS_DB_HOST: db-e2
     volumes: *vol-e2
 
-  db-f1:
-    <<: *db
-    profiles: [spikef]
-    volumes: [dbf1:/var/lib/mysql]
-
-  wp-f1:
-    image: wordpress:php8.3-apache
-    profiles: [spikef]
-    depends_on:
-      db-f1: {condition: service_healthy}
-    ports: ["8808:80"]
-    environment:
-      <<: *wp-env
-      WORDPRESS_DB_HOST: db-f1
-      WORDPRESS_CONFIG_EXTRA: |
-        define('WP_ENVIRONMENT_TYPE', 'local');
-        define('DUO_JOURNAL', true);
-    volumes: &vol-f1
-      - wpf1:/var/www/html
-      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
-      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
-      - ../manifests:/duo-manifests:ro
-      - ./siterepo/f1:/siterepo
-      - ./fixtures/duo-loop-demo:/var/www/html/wp-content/plugins/duo-loop-demo:ro
-
-  cli-f1:
-    image: wordpress:cli-php8.3
-    profiles: [spikef]
-    user: "33:33"
-    depends_on:
-      db-f1: {condition: service_healthy}
-    environment:
-      <<: *wp-env
-      WORDPRESS_DB_HOST: db-f1
-      WORDPRESS_CONFIG_EXTRA: |
-        define('WP_ENVIRONMENT_TYPE', 'local');
-        define('DUO_JOURNAL', true);
-    volumes: *vol-f1
-
-  db-f2:
-    <<: *db
-    profiles: [spikef]
-    volumes: [dbf2:/var/lib/mysql]
-
-  wp-f2:
-    image: wordpress:php8.3-apache
-    profiles: [spikef]
-    depends_on:
-      db-f2: {condition: service_healthy}
-    ports: ["8809:80"]
-    environment:
-      <<: *wp-env
-      WORDPRESS_DB_HOST: db-f2
-      WORDPRESS_CONFIG_EXTRA: |
-        define('WP_ENVIRONMENT_TYPE', 'local');
-        define('DUO_JOURNAL', true);
-    volumes: &vol-f2
-      - wpf2:/var/www/html
-      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
-      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
-      - ../manifests:/duo-manifests:ro
-      - ./siterepo/f2:/siterepo
-      - ./fixtures/duo-loop-demo:/var/www/html/wp-content/plugins/duo-loop-demo:ro
-
-  cli-f2:
-    image: wordpress:cli-php8.3
-    profiles: [spikef]
-    user: "33:33"
-    depends_on:
-      db-f2: {condition: service_healthy}
-    environment:
-      <<: *wp-env
-      WORDPRESS_DB_HOST: db-f2
-      WORDPRESS_CONFIG_EXTRA: |
-        define('WP_ENVIRONMENT_TYPE', 'local');
-        define('DUO_JOURNAL', true);
-    volumes: *vol-f2
-
   db-conf1:
     <<: *db
     profiles: [conf]
@@ -390,88 +312,10 @@ services:
       WORDPRESS_DB_HOST: db-fx2
     volumes: *vol-fx2
 
-  db-g1:
-    <<: *db
-    profiles: [spikeg]
-    volumes: [dbg1:/var/lib/mysql]
-
-  wp-g1:
-    image: wordpress:php8.3-apache
-    profiles: [spikeg]
-    depends_on:
-      db-g1: {condition: service_healthy}
-    ports: ["8812:80"]
-    environment:
-      <<: *wp-env
-      WORDPRESS_DB_HOST: db-g1
-    volumes: &vol-g1
-      - wpg1:/var/www/html
-      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
-      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
-      - ../manifests:/duo-manifests:ro
-      - ./siterepo/g1:/siterepo
-      # NEW, the point of this profile: this plugin directory is NOT a static
-      # sandbox fixture (contrast wp-f1/wp-f2's read-only mount of the shared
-      # ../fixtures/duo-loop-demo). It's a per-env bind of THIS environment's
-      # OWN site-repo checkout's code/ tree — g1 and g2 point at their own
-      # clones (siterepo/g1/code/... vs siterepo/g2/code/...), so the plugin
-      # bytes an environment sees are whatever that environment's own git
-      # checkout currently has on disk. A `git pull` on the host is
-      # immediately visible in the container with no docker rebuild/restart
-      # — "the site repo IS the code source" (code-half.md proposal §5.1),
-      # demonstrated at the single-directory grain instead of full-webroot
-      # composer materialization (out of this spike's scope; see report).
-      - ./siterepo/g1/code/wp-content/plugins/duo-loop-demo:/var/www/html/wp-content/plugins/duo-loop-demo:ro
-
-  cli-g1:
-    image: wordpress:cli-php8.3
-    profiles: [spikeg]
-    user: "33:33"
-    depends_on:
-      db-g1: {condition: service_healthy}
-    environment:
-      <<: *wp-env
-      WORDPRESS_DB_HOST: db-g1
-    volumes: *vol-g1
-
-  db-g2:
-    <<: *db
-    profiles: [spikeg]
-    volumes: [dbg2:/var/lib/mysql]
-
-  wp-g2:
-    image: wordpress:php8.3-apache
-    profiles: [spikeg]
-    depends_on:
-      db-g2: {condition: service_healthy}
-    ports: ["8813:80"]
-    environment:
-      <<: *wp-env
-      WORDPRESS_DB_HOST: db-g2
-    volumes: &vol-g2
-      - wpg2:/var/www/html
-      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
-      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
-      - ../manifests:/duo-manifests:ro
-      - ./siterepo/g2:/siterepo
-      # per-env code source — see wp-g1's comment above (g2's own checkout).
-      - ./siterepo/g2/code/wp-content/plugins/duo-loop-demo:/var/www/html/wp-content/plugins/duo-loop-demo:ro
-
-  cli-g2:
-    image: wordpress:cli-php8.3
-    profiles: [spikeg]
-    user: "33:33"
-    depends_on:
-      db-g2: {condition: service_healthy}
-    environment:
-      <<: *wp-env
-      WORDPRESS_DB_HOST: db-g2
-    volumes: *vol-g2
-
   # Grind round R1-A (task #46): forms-driven business site, CF7 + Ninja
   # Forms on twentytwentyone. Own pair, own site-repo sandbox
-  # (siterepo/{origin-r1a.git,r1a1,r1a2}) — never touches a/b/c/conf/e*/fx*/g*.
-  # Journal ON (DUO_JOURNAL), same pattern as spikef/spikec: the core loop
+  # (siterepo/{origin-r1a.git,r1a1,r1a2}) — never touches a/b/c/conf/e*/fx*.
+  # Journal ON (DUO_JOURNAL), same pattern as spikec: the core loop
   # (loud gate -> pending -> classify) needs journal evidence to propose
   # classifications from.
   db-r1a1:
@@ -554,8 +398,8 @@ services:
   # variable products with GLOBAL attributes (pa_* dynamic taxonomies),
   # shipping zones, tax rates, a grouped product. Own pair, own site-repo
   # sandbox (siterepo/{origin-r1b.git,r1b1,r1b2}) — never touches
-  # a/b/c/conf/e*/fx*/g*/r1a*/r1c*. Journal ON (DUO_JOURNAL), same pattern as
-  # spikef/spikec/r1a: the core loop (loud gate -> pending -> classify) needs
+  # a/b/c/conf/e*/fx*/r1a*/r1c*. Journal ON (DUO_JOURNAL), same pattern as
+  # spikec/r1a: the core loop (loud gate -> pending -> classify) needs
   # journal evidence to propose classifications from.
   db-r1b1:
     <<: *db
@@ -637,8 +481,8 @@ services:
   # Elementor + ACF active together, plus a custom CPT plugin
   # (duo-agency-cpt: a 'project' post type + 'project_type' taxonomy)
   # shipped through the site repo's OWN code/ tree, dogfooding spike G's
-  # pattern rather than a static read-only fixture mount (contrast wp-f1/
-  # wp-f2's ro mount of the shared ../fixtures/duo-loop-demo below). Each
+  # pattern rather than a static read-only mount of a shared ../fixtures/
+  # directory the way the a/b/c/conf/e*/fx* profiles mount theirs. Each
   # env's wp-content/plugins/duo-agency-cpt binds from THAT env's own
   # site-repo checkout's code/wp-content/plugins/duo-agency-cpt — per spike
   # G's bootstrap-order finding (docs/proposals/code-half.md's phase-1
@@ -647,9 +491,9 @@ services:
   # and any rm+recreate of that source needs `--force-recreate` on the
   # container(s) that mount it. Own pair, own site-repo sandbox
   # (siterepo/{origin-r1c.git,r1c1,r1c2}) — never touches
-  # a/b/c/conf/e*/fx*/g*/r1a*/r1b*. Journal ON (DUO_JOURNAL): the core loop
+  # a/b/c/conf/e*/fx*/r1a*/r1b*. Journal ON (DUO_JOURNAL): the core loop
   # (loud gate -> pending -> classify) needs journal evidence to propose
-  # classifications from, same pattern as spikef/spikec/r1a/r1b.
+  # classifications from, same pattern as spikec/r1a/r1b.
   db-r1c1:
     <<: *db
     profiles: [r1c]
@@ -740,12 +584,8 @@ volumes:
   dbconf2: {}
   dbe1: {}
   dbe2: {}
-  dbf1: {}
-  dbf2: {}
   dbfx1: {}
   dbfx2: {}
-  dbg1: {}
-  dbg2: {}
   dbr1a1: {}
   dbr1a2: {}
   dbr1b1: {}
@@ -759,12 +599,8 @@ volumes:
   wpconf2: {}
   wpe1: {}
   wpe2: {}
-  wpf1: {}
-  wpf2: {}
   wpfx1: {}
   wpfx2: {}
-  wpg1: {}
-  wpg2: {}
   wpr1a1: {}
   wpr1a2: {}
   wpr1b1: {}

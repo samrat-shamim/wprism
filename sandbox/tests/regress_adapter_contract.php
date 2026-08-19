@@ -15,11 +15,11 @@
  *
  * What this file does NOT cover (needs a live WordPress + real installed
  * plugin/theme, so it's out of reach offline): Deploy::code_mismatch()'s
- * live version read for plugins (already covered by the existing
- * sandbox/tests/spike_g_code.sh (e), unmodified by this issue) and its new
- * theme counterpart (covered by
- * sandbox/tests/regress_adapter_theme_range.sh instead — own sandbox pair,
- * own conformance sweep, see that script's header). Deploy::in_range()'s
+ * live version read. Its theme leg is covered by
+ * sandbox/tests/regress_adapter_theme_range.sh (own sandbox pair, own
+ * conformance sweep, see that script's header). Its plugin leg has no live
+ * proof right now — the only one was built on the duo-loop-demo-versioned
+ * demo manifest and was deleted with it. Deploy::in_range()'s
  * OWN min-inclusive/max-exclusive arithmetic is exercised here via
  * Reflection (same private-method-testing idiom
  * regress_capture_publish.php already uses for

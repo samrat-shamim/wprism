@@ -7,8 +7,8 @@
 # whole value for this one key — this file must therefore repeat
 # pair.yml's own WP_ENVIRONMENT_TYPE line verbatim alongside the new
 # DUO_JOURNAL define, not just add a second define on its own. Same pattern
-# sandbox/docker-compose.yml already used per profile (spikec/spikef/r1a/
-# r1b/r1c all repeat both lines together) — this is that pattern lifted out
+# sandbox/docker-compose.yml already used per profile (spikec/r1a/r1b/r1c
+# all repeat both lines together) — this is that pattern lifted out
 # to an overlay instead of copy-pasted into every profile.
 # -----------------------------------------------------------------------------
 services:

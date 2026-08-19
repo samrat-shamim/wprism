@@ -15,10 +15,12 @@
 # sandbox/tests/regress_capture_publish.sh (DUO-3213).
 #
 # What this does NOT cover, because it genuinely needs a live WordPress:
-# Deploy::code_mismatch()'s live plugin version read (already covered,
-# unmodified by this issue, by sandbox/tests/spike_g_code.sh's own (e)
-# section) and its new theme counterpart — see
-# sandbox/tests/regress_adapter_theme_range.sh for that live proof.
+# Deploy::code_mismatch()'s live version read. Its THEME leg is proven by
+# sandbox/tests/regress_adapter_theme_range.sh (same function, live pair).
+# Its PLUGIN leg has no live proof right now: the only one was built on the
+# duo-loop-demo-versioned demo manifest and was deleted with it, so a
+# manifest-declared plugin version_range is exercised offline (in_range()
+# via Reflection, below) but not against a real installed plugin.
 set -euo pipefail
 cd "$(dirname "$0")"   # -> sandbox/tests/
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }

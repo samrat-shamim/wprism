@@ -7,30 +7,29 @@
 # environment (see the DUO-3222 design comment's own "Evidence shape"
 # section).
 #
-# Technique mirrors sandbox/tests/spike_g_code.sh (e)'s own proven approach
-# for the PLUGIN side (bump a real version header in place, observe the
-# mismatch) — applied here to a THEME's style.css instead of a plugin file,
+# Technique is the one the code-half spikes proved for the PLUGIN side
+# (bump a real version header in place, observe the mismatch) — applied
+# here to a THEME's style.css instead of a plugin file,
 # and via a direct `wp eval` call to Deploy::code_mismatch() instead of a
 # full plan/apply/site-repo pipeline, since code_mismatch() is a plain
 # static function of (Policy, array $desired) with no site-repo dependency
-# at all — proving the new code path doesn't need spike_g_code.sh's own
-# git/code-half machinery, only a live theme to read.
+# at all — proving the new code path doesn't need any of the code-half
+# git machinery, only a live theme to read.
 #
 # Uses a BUNDLED-by-default WordPress theme (twentytwentyfour — zero network
 # installs). Each case activates the stylesheet it declares so DUO-3216's
 # lifecycle mismatch detection cannot mask the version-range assertion.
 # Policy's own $manifests array is populated directly in the eval snippet
 # (public property, no manifests-dir file I/O needed) — deliberately not a
-# permanent manifests/*.json fixture: unlike duo-loop-demo-versioned.json's
-# plugin (Duotronic's own fixture, fully version-controlled by the test),
-# a bundled theme's version moves whenever the sandbox's base Docker image
-# rolls forward, so a static hardcoded range in a committed file would
-# eventually go stale. This test reads the theme's REAL live version and
-# computes its range relative to that, every run.
+# permanent manifests/*.json fixture: a committed range can only be pinned
+# against an artifact whose version the test itself controls, and a bundled
+# theme's version moves whenever the sandbox's base Docker image rolls
+# forward, so a static hardcoded range in a committed file would eventually
+# go stale. This test reads the theme's REAL live version and computes its
+# range relative to that, every run.
 #
 # Own sandbox/bin/pair.sh pair (asub3222cf, ports from DUO-3222's own
-# range) — never the legacy sandbox/docker-compose.yml spike_g_code.sh
-# itself uses.
+# range) — never the legacy sandbox/docker-compose.yml profiles.
 set -euo pipefail
 cd "$(dirname "$0")/.."   # -> sandbox/
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
@@ -79,7 +78,7 @@ echo "$CONTROL_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); asse
   || fail "control case (in-range) produced findings: $CONTROL_JSON"
 pass "control: theme in declared range produces zero code_mismatch findings"
 
-say "bump twentytwentyfour's style.css Version header to $BUMPED_VERSION (live file edit, mirrors spike_g_code.sh's own plugin-side technique)"
+say "bump twentytwentyfour's style.css Version header to $BUMPED_VERSION (live file edit, the plugin-side technique applied to a theme)"
 docker exec "$CONTAINER" sed -i "s/^Version:.*/Version: $BUMPED_VERSION/" /var/www/html/wp-content/themes/twentytwentyfour/style.css \
   || fail "could not bump twentytwentyfour's style.css Version header"
 BUMPED_READ=$(wp1 theme get twentytwentyfour --field=version)
