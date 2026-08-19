@@ -4,13 +4,42 @@ This guide answers three questions an operator asks constantly: what does Duo
 consider *mine* to manage, what will it refuse and why, and where is the line
 past which it does not claim to work.
 
-The certified matrix itself — which adapters are certified for which plugin
-versions and which operations, and every explicitly unsupported boundary — is
-**generated** and lives in [docs/capabilities.md](../capabilities.md). It is
-produced by `scripts/capability-registry.php` and byte-compared by
-`make release-gate`. Nothing here restates a row of it, deliberately: a
-hand-copied certification claim in a guide is a claim that goes stale silently,
-and the whole disposition/registry split exists to prevent exactly that.
+The matrix itself — which adapters are reviewed for which plugin versions and
+which operations, and every explicitly unsupported boundary — is **generated**
+and lives in [docs/capabilities.md](../capabilities.md). `php
+tools/capability-doc.php generate` writes it from exactly four inputs
+(`manifests/*.json`, `manifests/dispositions.json`,
+`manifests/capabilities/platform.json`, and `agent/duo.php`'s
+`DUO_AGENT_VERSION`/`DUO_SPEC_VERSION` defines), and `make release-gate` —
+`capability-doc.php --check` then `classmap-generate.php --check` — regenerates
+it in memory and byte-compares. Nothing here restates a row of it, deliberately:
+a hand-copied claim in a guide is a claim that goes stale in silence, and the
+generator exists to make that impossible rather than merely discouraged.
+
+**Read the narrowing before you read the matrix.** A status in that document
+means three things and no more: the manifest *declares* the surface, a human
+*reviewed* it into `manifests/dispositions.json` and wrote down why, and the
+named live conformance suites under `sandbox/conformance/` *exercise* it. It
+does not mean a bundle digest seals the claim to a run, an artifact set, or a
+closure. That apparatus is gone; what replaces it is four cross-checks
+`capability-doc.php` refuses on, each mirroring a rule
+`agent/src/Policy/ManifestDispositions.php` enforces at load time — so the
+document cannot describe a library the agent would reject:
+
+- disposition coverage is an **exact** set, not a subset. A manifest reaches
+  the document only through a reviewed entry, and a reviewed entry cannot
+  outlive its manifest (`duo: manifest disposition coverage mismatch;
+  missing=[…], extra=[…]`).
+- a disposition naming a plugin must agree with that manifest's own `plugin`
+  and `version_range` bytes, so the published range is the range the agent
+  will actually admit.
+- declared sections must exist in the manifest, and supported deletion
+  selectors must be exactly the manifest's declared `deletions` keys.
+- `platform.json`'s `agent_version`/`spec_version` must equal `agent/duo.php`'s
+  defines, and its compatibility block must equal
+  `docs/compatibility-baseline.json` — the file `duo doctor` reads at runtime
+  for its blocking PHP and database check. Two copies of the same pins on
+  disk, held equal so they cannot drift into two truths.
 
 To ask the question for *your* repository rather than the shipped library:
 
@@ -18,10 +47,25 @@ To ask the question for *your* repository rather than the shipped library:
 duo capabilities production --operation=promote --format=json
 ```
 
-It resolves your exact manifest pins against the generated registry and
-evaluates them for the requested platform revision, target versions, operation,
-and state surface. It reports plugin execution separately from branchable
-authored state, and gives structured blocker codes rather than a bare no.
+It resolves your exact manifest pins against the reviewed dispositions and
+evaluates them for the requested operation and state surface. The document's
+`schema_version` is `duo-capability-report/v1` — a new string rather than the
+retired `duo-capability-registry/v2`, because no row carries a generated
+adapter digest, a subject certification record or a bound evidence status any
+more, and a consumer pinned to the old version would read those absences as
+data loss. It is projected from three things: the reviewed disposition per
+pinned manifest, the per-adapter provenance the catalog observed (which source
+it came from, which trust tier it reaches, whether a certificate verified),
+and — when there is a live target — `TargetProbe::probe_target()`'s facts. With
+no live target it is the source-and-authorship gate only; against a real target
+it additionally proves the installed plugin sits inside the reviewed window. It
+reports plugin execution separately from branchable authored state, and gives
+structured blocker codes rather than a bare no. The report carries one
+`registry_sha256`, the content address of the reviewed bytes the verdict was
+read from; that number is what an accepted contract pins and re-observes.
+
+`--revision` is gone rather than inert: it selected an evidence-bound platform
+revision, and nothing binds one any more.
 
 ## The five classes
 
@@ -173,15 +217,15 @@ individual keys, which stay governed by their own class. The reasoning is in
 
 The five classes above are a *stored* fact: every value Duo sees carries one.
 The six dimensions on this page are not stored anywhere. They are **projected**
-onto shipped facts — `Policy::CLASSES`, the generated capability registry, the
-provider negotiation result, your reviewed contract's declarations, and the
-selected recovery profile's covered inventory — every time you run
-`duo assess`, `duo contract show`, `duo rehearse` or `duo release`. One
-implementation produces them, in
+onto shipped facts — `Policy::CLASSES`, the target's own
+`duo-capability-report/v1`, the provider negotiation result, your reviewed
+contract's declarations, and the selected recovery profile's covered inventory
+— every time you run `duo assess`, `duo contract show`, `duo rehearse` or
+`duo release`. One implementation produces them, in
 [cli/src/Contract/ProjectionVocabulary.php](../../cli/src/Contract/ProjectionVocabulary.php),
-and a projected word is never written back into a manifest, the registry or
+and a projected word is never written back into a manifest or into
 `dispositions.json`. A declaration cannot certify itself, so readiness is
-recomputed from evidence on every run rather than read from a file.
+recomputed on every run rather than read from a file.
 
 Each dimension is a **closed set**. Anything outside it is a defect, not a new
 case, and three words in these sets can never be printed at all in this
@@ -218,17 +262,50 @@ lands in `unclassified`, and therefore in `block`.
 | `re-synchronize` | `external` **with a declared re-sync action**. Duo ships no generic one, so in practice an `external` surface blocks until a manifest declares otherwise — and the row says so |
 | `block` | `unclassified`, or any surface whose containment is unknown for the operation being projected |
 
-**3. Technical readiness** — computed from one capability-registry evaluation
-for this exact operation × surface × revision × target probe.
+**3. Technical readiness** — computed from one capability-report evaluation
+for this exact operation × surface × target probe.
 
-| Value | Registry evidence behind it |
+| Value | The blocker or claim behind it |
 |---|---|
 | `Ready` | certified, with no condition that is re-checked at the mutation gate |
-| `Ready with conditions` | certified, with at least one condition re-evaluated against the live target at the mutation gate (`plugin_version_mismatch`, `plugin_not_active`, `wordpress_version_mismatch`, `php_version_mismatch`, `database_version_mismatch`, `theme_version_mismatch`, any `env_missing` row) — or a provider negotiation problem, which is an **unmet** condition and therefore blocks, naming its code |
-| `Requalification required` | `evidence_not_current`, `revision_not_certified`, or a recovery profile's own evidence gone stale |
-| `Experimental` | an experimental claim, or candidate evidence |
+| `Ready with conditions` | certified, with at least one condition re-evaluated against the live target at the mutation gate (`plugin_version_mismatch`, `plugin_not_active`, any `env_missing` row) — or a provider negotiation problem, which is an **unmet** condition and therefore blocks, naming its code |
+| `Requalification required` | `evidence_not_current`, and nothing else — see below |
+| `Experimental` | a disposition whose authored `status` is `experimental` |
 | `Not qualified` | `adapter_source_uncertified`, `missing_registry_entry`, `surface_not_registered` |
-| `Unsupported` | an excluded or unsupported claim, `surface_explicitly_unsupported`, `multisite_unsupported`, or a delete on a surface named in the adapter's own unsupported deletion semantics |
+| `Unsupported` | an excluded or unsupported claim, `surface_explicitly_unsupported`, `deletion_unsupported`, or a delete on a surface named in the adapter's own unsupported deletion semantics |
+
+Two shrinkages in that table are worth stating rather than leaving to be
+noticed. The conditions row names **two** live axes, not seven: the WordPress,
+PHP, database and theme axes were re-checked against a measured record that no
+longer exists, and `AdapterRegistry::target_reasons()` now reports none of them
+rather than re-deriving a range nobody measured. What survives is the adapter's
+*own* plugin contract, which is authored in the disposition and pinned to the
+manifest's `version_range`, so it is a reviewed fact and stays enforced at the
+gate. `multisite_unsupported` left the `Unsupported` row for the same reason:
+topology is judged once, by `duo assess` refusing the whole assessment, not
+per surface.
+
+**`Requalification required` has exactly one entrance, and the agent cannot
+produce it.** An accepted application contract pins one number,
+`evidence_pins.registry_sha256` — the content address of the reviewed
+dispositions the verdict was read from. Three commands regenerate the
+projection from current facts — `duo assess`, `duo contract accept` and
+`duo release` (`duo contract show` renders what is on disk and contacts
+nothing) — and when the observed hash differs from the pin, the reviewed
+document this contract was accepted against is not the document answering now.
+`ContractProjection` **synthesizes** the blocker
+`evidence_not_current` into every surface's fact vector so the readiness word
+still comes from the table above rather than being minted somewhere new, and
+`projection.json` records the fact as `evidence_pins.stale_registry`. The flip
+is deliberately blunt — whole-surface, not per-adapter — because the pin
+addresses the whole reviewed document: any authored change to any subject's
+status, boundary or reason moves it. The row prints the gap action
+`certify adapter` and the remediation `re-certify the pinned evidence, then
+re-run assess`, which is literal for a site adapter you sign yourself. For a
+shipped adapter, the move you have to make is the review: read what changed in
+`manifests/dispositions.json`, then `duo contract <env> propose`, review, and
+`duo contract <env> accept` — accept re-runs the assessment and refuses a
+stale proposal (`assess_digest_stale`) rather than re-pinning behind your back.
 
 Readiness is a *technical* answer, never a permission. Four of these six words
 block a release outright before it freezes anything —
@@ -239,7 +316,7 @@ the gate.
 
 | Value | Meaning |
 |---|---|
-| `Platform-certified` | shipped adapter, certified claim, current evidence. The generated matrix in [docs/capabilities.md](../capabilities.md) is the authority |
+| `Platform-certified` | shipped adapter, reviewed into `manifests/dispositions.json` with `status: certified`. The generated matrix in [docs/capabilities.md](../capabilities.md) is the authority, and it means declared + reviewed-with-a-written-reason + exercised by the named conformance suites — not a bundle digest sealing the claim |
 | `Site-certified` | a site adapter whose certificate verified: an Ed25519 signature over that adapter's exact bytes, under a key in a trust root the repository or the agent owns, with an exact `{name,source,digest}` pin. `duo adapter certify` produces one |
 | `Uncertified` | everything else — no certificate, or a certificate whose pin does not bind it (`signed_unpinned`, which the row names) |
 
@@ -390,7 +467,7 @@ from the same list:
 | `regen_pending` | A derived table with a hard per-entity availability dependency failed post-apply verification. | Nothing: the *next* `duo apply` retries it and either clears it or fails loudly. |
 | `env_missing` (required) | A manifest-declared `class: "env"` option is unset here. | `duo env-set <env> --name=<name> --stdin`. |
 | ordinary `drift` | The environment changed outside Duo. | `duo capture` first — this plan's comparison is already stale. |
-| `adapter_dispositions` | A pinned manifest is experimental, unsupported, version-mismatched, or its evidence expired. | Pin a certified manifest and version, or accept the boundary and do not promote. |
+| `adapter_dispositions` | A pinned manifest is experimental, excluded, uncovered by any reviewed entry, installed out-of-tree and uncertified, signed but not exactly pinned, or outside its reviewed plugin version window. Each row carries the capability report's own code and remediation. | Pin a certified manifest and an in-range plugin version, sign and pin the site adapter (`duo adapter certify … --pin`), or accept the boundary and do not promote. |
 
 If an apply fails after you explicitly authorized a conflict override, its
 JSON refusal includes `forced_overrides`: hash-only, versioned evidence of the
@@ -452,7 +529,7 @@ target-local IDs, titles, paths, messages, SQL, and credentials. Its nested
 `catalog` is a bounded projection of the target's
 `duo-adapter-sources/v2` survey, not a claim to preserve the complete
 `duo-adapter-catalog/v2` contract. It never makes AdapterDraft evidence
-authoritative and never changes certification or registry claims.
+authoritative and never changes a certification or a capability claim.
 
 The observer deliberately keeps normal plugin/provider registration and
 capability negotiation enabled, because those facts are part of the live
@@ -497,12 +574,13 @@ declared one — a manifest cannot report less authority than it asks for.
 
 `list` prints the tier next to `tier_basis`, the exact declaration that
 produced it, so a row reading `compatibility_shim` can be checked rather than
-believed. `inspect` adds the reviewed disposition entry, the generated registry
-claim, the providers the manifest requires with the capabilities each must
-advertise, and the verification facts that already exist — `evidence.status`,
-`plugin_execution.status`, and each cited test resolved against the bundle's
-own verdict. There is no verification *score*; the certification separation
-exists precisely so a new word cannot be minted next to reviewed evidence.
+believed. `inspect` adds the reviewed disposition entry, the capability claim
+that disposition projects, the providers the manifest requires with the
+capabilities each must advertise, and the verification facts that already
+exist — the citation's bundle schema, the claim's `plugin_execution.status`,
+and the test ids the citation names. Nothing here runs those tests, so there is
+no per-test verdict and no verification *score*: the reviewer's citation is
+reported verbatim rather than resolved into a status this command decides.
 
 `doctor` adds this repository's readiness blockers and, more importantly, every
 installed file the engine refuses to load — a shadowed adapter, an ambiguous
@@ -538,11 +616,31 @@ explicit `WPMU_PLUGIN_DIR` and no `SUNRISE`; other configurations fail during
 compile, before any checkpoint or target write. Bedrock and custom content
 roots need an explicit layout contract, not path guessing.
 
-**Version-bound.** The certified WordPress, PHP, and database windows are
-evidence-bound and move with each certification run, so they live in the
-generated [docs/capabilities.md](../capabilities.md) rather than here.
-`duo doctor` checks the installed PHP and database versions against
-`docs/compatibility-baseline.json` for you.
+**Version-bound.** The WordPress, PHP, and database windows are one
+project-level statement, not a per-adapter field. They are recorded in
+`manifests/capabilities/platform.json` (`duo-platform-boundary/v1`), rendered
+into the generated [docs/capabilities.md](../capabilities.md), and mirrored
+byte-for-byte in `docs/compatibility-baseline.json` — `make release-gate`
+holds those two copies equal so they cannot drift into two truths.
+
+Be precise about who enforces which half. `duo doctor` compares the live PHP
+and database facts against the baseline and **blocks** on either being outside
+it; a different database engine is reported as genuinely untested rather than
+merely unpinned. WordPress core is reported and never compared, because this
+project's own Docker tags carry no core-version pin and a fabricated range
+would be a guess. The *capability report* enforces none of the three: with the
+measured evidence record gone, `AdapterRegistry::target_reasons()` deliberately
+reports no WordPress, PHP, database or multisite boundary per surface rather
+than re-deriving one from the shipped platform note. The one runtime version
+gate that survives there is the adapter's own plugin window, which a human
+authored into its disposition.
+
+The platform boundary is still load-bearing in one other way:
+`ManifestDispositions::platform_boundary()` refuses at agent load time —
+`duo: … platform version disagrees with the loaded agent` — if
+`platform.json`'s `agent_version`/`spec_version` differ from the running
+`DUO_AGENT_VERSION`/`DUO_SPEC_VERSION`, so a claim can never describe a runtime
+nobody is running.
 
 **Per-adapter.** The generated page's *Explicit unsupported boundaries*
 section enumerates every one of them with its reason — the shapes are worth
@@ -553,8 +651,9 @@ is excluded on purpose, and intent-only table declarations that are marked
 unsupported rather than half-implemented.
 
 That last pattern is doctrine, not accident: capability *reduction* is a
-legitimate certification outcome. Working-but-unprovable behavior gets removed
-and refused rather than shipped under-proven.
+legitimate review outcome. Working-but-unprovable behavior gets removed and
+refused rather than shipped under-proven, and the reviewer writes the reason
+into the disposition so the generated page can print it.
 
 **Per-host environment lifecycle.** `duo env materialize` requires two
 independent truths: a local/Docker/SSH environment driver that can run the

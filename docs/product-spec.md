@@ -28,7 +28,8 @@ Normative convention: **must** marks a condition for claiming the corresponding
 product capability; **should** marks the intended default; **may** marks
 optional behavior. Unless explicitly labeled Current, present-tense product
 behavior describes the target product, not shipped availability. Current
-availability is stated only by the capability registry and roadmap.
+availability is stated only by the generated capability document
+([docs/capabilities.md](capabilities.md)) and the roadmap.
 
 This specification supersedes the two 2026-08-13 agent-era drafts and the RC1
 working draft. It is distilled from those drafts and the founding design. The

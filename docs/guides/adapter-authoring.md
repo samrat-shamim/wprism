@@ -20,29 +20,40 @@ classification rules, reference shapes, deletion capability, derived-state
 repair actions, and a compatibility window.
 
 It is **not** a certification. A manifest cannot certify itself merely by
-existing beside the agent — that separation is deliberate and is enforced in
-code. See [Dispositions](#dispositions-and-the-capability-registry) below.
+existing beside the agent — that separation is deliberate, and the agent says
+so in the exact words it refuses with: `no reviewed disposition entry — a
+manifest cannot certify itself merely by existing beside the agent`. See
+[Dispositions](#dispositions-the-reviewed-claim-source) below.
 
 ## Directory conventions
 
 ```
 manifests/
-  <name>.json                  # the manifest; basename is the pin name
-  dispositions.json            # the reviewed support boundary; NOT a manifest
-  interpreters/<name>.php      # \Duo\Interpreters\<Name>
-  regenerators/<name>.php      # \Duo\Regenerators\<Name>
-  providers/<id>.php           # \Duo\Providers\<Id>
-  capabilities/registry.json   # GENERATED; never hand-edited
+  <name>.json                        # the manifest; basename is the pin name
+  dispositions.json                  # the reviewed support boundary; NOT a manifest
+  interpreters/<name>.php            # \Duo\Interpreters\<Name>
+  regenerators/<name>.php            # \Duo\Regenerators\<Name>
+  providers/<id>.php                 # \Duo\Providers\<Id>
+  capabilities/platform.json         # duo-platform-boundary/v1: the ONE platform
+                                     #   /environment boundary, hand-reviewed
+  capabilities/adapter-authorities.json  # duo-adapter-authorities/v1: the
+                                     #   agent-owned trust root; ships {"keys":{}}
 ```
+
+Both files under `capabilities/` are hand-authored and reviewed, not generated.
+`platform.json` is the object a site-adapter certificate signs as
+`platform_sha256`, so it has exactly one on-disk representation; the agent
+refuses at load time if its `agent_version`/`spec_version` disagree with the
+running `DUO_AGENT_VERSION`/`DUO_SPEC_VERSION`.
 
 Four rules that will bite you if you learn them the hard way:
 
 - **The file basename is the pin name, and it is enforced.** `Policy::load()`
   resolves a pin to `<manifests_dir>/<name>.json`, while the disposition loader
-  keys entries by file basename and the capability generator keys them by the
-  manifest's own `"name"` field. A disagreement would be one adapter under two
-  identities, so it is refused the moment the manifest is read — by name, with
-  both values:
+  keys coverage by file basename and `AdapterRegistry` keys the loaded library
+  by the manifest's own `"name"` field. A disagreement would be one adapter
+  under two identities, so it is refused the moment the manifest is read — by
+  name, with both values:
 
   ```
   duo: shipped adapter '<path>' declares name 'y' but its file name is 'x' — a pin
@@ -54,11 +65,15 @@ Four rules that will bite you if you learn them the hard way:
   The same sentence refuses a site-installed adapter (see below), and
   `duo manifest-validate <dir>` reports it per manifest offline, before any
   target is contacted.
-- **`dispositions.json` is excluded from manifest globbing.** It is registry
+- **`dispositions.json` is excluded from manifest globbing.** It is reviewed
   data *about* manifests, not a manifest.
-- **A `duo-` prefix marks a synthetic fixture.** The capability generator
-  classifies plugin execution for any `duo-*` manifest as `synthetic-fixture`
-  rather than `unmodified`. Use it for test adapters; never for a real plugin.
+- **A regression fixture is marked by its disposition, not by its name.** Give
+  it `"status": "excluded"` and the generated document prints it as shipping
+  "for regression use only" and carrying no product claim; the projected claim
+  reports `authored_state.status: unsupported` and
+  `plugin_execution.status: not-a-product-claim`. `duo-agency-cpt` is the one
+  shipped example. A name prefix decides nothing — that rule is gone with the
+  generator that read it.
 - **Interpreter, regenerator, and provider code ships with the manifest, not
   the engine.** A declared interpreter name resolves to
   `manifests/interpreters/<name>.php` and must define
@@ -80,10 +95,34 @@ with the agent itself, so loading code from it is the same trust decision as
 running the agent at all. Content digests strengthen that: all three files —
 interpreter, manifest-sourced provider, and (since DUO-3360) regenerator — join
 the per-adapter content digest, so editing any of them is a *changed adapter*
-rather than invisible drift behind a stable manifest digest. Editing one
-therefore moves the declaring manifest's digest and expires its certified
-claim, which is the point: two implementations can no longer share one manifest
-revision's identity.
+rather than invisible drift behind a stable manifest digest. Two
+implementations can no longer share one manifest revision's identity.
+
+<a id="editing-a-shipped-manifest-moves-its-identity"></a>
+
+> **Editing a shipped manifest's bytes, or a hook file it names, moves that
+> adapter's identity — and deployed sites refuse until you re-pin.**
+> `ArtifactPolicyIdentity::manifest_rows()` builds one row per manifest
+> carrying the manifest array, its disposition, and `hash_file('sha256', …)`
+> of each named interpreter, provider and regenerator file.
+> `manifest_hash()` is sha256 over the canonical encoding of all those rows;
+> `resolved_adapters()` hashes each row *individually* into that adapter's
+> `digest`. It is the **same row** folded both ways, so a site repo's
+> per-manifest content pin, `adapter_digest`, the digest `duo assess` reports,
+> and the contract that pins it are all this one row hashed. Change a byte and
+> a deployed site with a compiled artifact refuses with
+> `compiled_artifact_manifest_mismatch` — *compiled manifest/interpreter set
+> does not match active pins* — and the `site.duo.json` content pin stops
+> matching too.
+>
+> The remedy is recompile and re-pin: rebuild the artifact and update the
+> reviewed pin, which `wp duo manifest-pin --repo=<site-repo> --name=<name>`
+> emits as a copy-pasteable object. Updating a pin is an explicit review act
+> and is never automatic.
+>
+> What does **not** move identity: renaming a PHP namespace, or moving an
+> `agent/src` class file. `manifest_rows()` folds manifest JSON bytes,
+> disposition bytes, and the sha256 of the named hook files — nothing else.
 
 ## The minimal worked example
 
@@ -712,77 +751,142 @@ Real worked narratives, with the empirical grounding for each decision, are in
 [docs/grind/r1a-forms.md](../grind/r1a-forms.md) and
 [docs/grind/r1c-agency.md](../grind/r1c-agency.md).
 
-## Dispositions and the capability registry
+## Dispositions: the reviewed claim source
 
-`manifests/dispositions.json` is separate from every manifest **so that
-declaration cannot imply certification**. It has exact one-for-one coverage of
-the shipped manifest files — a manifest with no disposition entry, or an entry
-with no manifest, is a loud load failure — and classifies each `certified`,
-`experimental`, or `excluded`, naming supported versions, entity and field
-sections, operations, lifecycle phases, deletion semantics, explicit
-unsupported behavior, and every table whose default keyspace is authored.
+`manifests/dispositions.json` (`duo-manifest-dispositions/v1`) is separate from
+every manifest **so that declaration cannot imply certification**. It is
+hand-authored and reviewed, and it is the *only* authored source of a product
+capability claim: `ManifestDispositions::claim_from_disposition()` projects the
+claim, `AdapterRegistry` evaluates that projection against a live target, and
+`tools/capability-doc.php` renders it into
+[docs/capabilities.md](../capabilities.md). There is no second, generated
+document for it to agree with.
 
-Each certified manifest and profile cites named tests in its own
-`duo-subject-certification-bundle/v1` record. A record can authorize exactly
-one `manifests.<name>` or `profiles.<name>` claim, and its subject digest,
-artifact boundary, and passing tests must match that claim. Missing or stale
-evidence blocks only that subject.
+Coverage is an **exact one-for-one set**, in both directions. A manifest with
+no entry, or an entry with no manifest, is a loud load failure naming both
+sides:
 
-`manifests/capabilities/registry.json` and
-[docs/capabilities.md](../capabilities.md) are the **generated** projection of
-all that, produced by `scripts/capability-registry.php` and byte-compared by
-`make release-gate`. Never hand-edit either, and never restate their contents
-in prose — a hand-copied certification claim is exactly the failure mode the
-separation exists to prevent.
+```
+duo: manifest disposition coverage mismatch; missing=[<manifest with no entry>], extra=[<entry with no manifest>]
+```
 
-Capability *reduction* is a legitimate outcome of this process. Behavior that
+So shipping `manifests/<name>.json` without adding its entry does not produce
+an unreviewed adapter — it produces an agent that refuses to load a policy at
+all, and a red `make release-gate` (`capability-doc.php --check` enforces the
+same rule so the document cannot describe a library the agent would reject).
+
+### What each status means now
+
+| Status | What it says |
+|---|---|
+| `certified` | Declared by the manifest, reviewed by a human who wrote the `reason` down, and exercised by the conformance suites the entry's `evidence.tests` name. It does **not** mean a bundle digest seals the claim to a run or an artifact set. |
+| `experimental` | Reviewed, and deliberately not production-authorizing. The projection reads `Experimental`, which `duo release` refuses on before it freezes anything — including through a conditional path. |
+| `excluded` | Reviewed as carrying no product claim. The generated document prints these as shipping "for regression use only"; the claim reports `authored_state.status: unsupported`. `duo-agency-cpt` is the one shipped example. |
+| `uncovered` | **Runtime-synthesized only.** A disposition may never declare it — `validate_entry()` refuses that — and the agent emits it for a manifest with no reviewed entry, with the reason `no reviewed disposition entry — a manifest cannot certify itself merely by existing beside the agent`. It is a blocker, never a skip. |
+
+An entry names supported versions, entity and field sections, operations,
+lifecycle phases, deletion semantics, explicit unsupported behavior, every
+table whose default keyspace is authored, and its `evidence` citation — the
+suite names a reviewer wrote down. That citation is reported verbatim wherever
+it surfaces; nothing re-derives a status from it, which is exactly why
+`duo adapter inspect` prints the cited test ids and no per-test verdict.
+
+Three cross-checks bind an entry to the manifest it describes, refusing rather
+than papering over: a disposition naming a plugin must agree with that
+manifest's own `plugin`/`version_range` bytes; its declared sections must exist
+in the manifest; and its supported deletion selectors must be exactly the
+manifest's declared `deletions` keys. Otherwise the document would advertise an
+operation no manifest implements, or hide one no reviewer blessed.
+
+Capability *reduction* is a legitimate outcome of this review. Behavior that
 works but cannot be proven is removed and refused rather than shipped
-under-proven.
+under-proven — and the reviewer writes the reason into the entry so the
+generated page can print it.
 
-### Adding a WordPress extension
+### Adding a shipped adapter
 
-An extension is data- and convention-discovered; there is no registry or
-certifier allowlist to update:
+Nothing here is an allowlist edit; every step is data or a convention-named
+file.
 
-1. Add `manifests/<name>.json` and its exact entry in
-   `manifests/dispositions.json`.
-2. Add `sandbox/conformance/entries/<name>.json` plus any matching
-   `seeds/<name>.sh`, `checks/<name>.sh`, or `postdeploy/<name>.sh` hooks.
-   A nonstandard certification test is an executable
-   `sandbox/certification/tests/<test-id>.sh` named by the disposition. An
-   extension-specific exact-artifact driver lives at
-   `sandbox/certification/version-matrix/<name>.sh`; neither convention
-   requires a central dispatcher edit. Put driver-only helpers under the
-   matching extension or test-ID directory so the closure projector binds
-   them automatically.
-3. Add every typed plugin/theme version and SHA-256 used by the conformance
-   entry or exact-version matrix to `sandbox/conformance/artifacts.lock.json`.
-   The projector also binds the standard bootstrap theme automatically.
-4. Generate the candidate projection, exercise the subject, and publish only
-   that subject's verified record:
+1. **Write the manifest** at `manifests/<name>.json`. `php cli/duo
+   manifest-validate manifests --manifest=<name>` runs the engine's real
+   validators over it offline, with no WordPress and no environment.
+2. **Add the reviewed entry** to `manifests/dispositions.json`, with a
+   `reason` a human wrote. Coverage is exact, so this is not optional
+   bookkeeping — see the refusal above.
+3. **Add the conformance checks.** Add
+   `sandbox/conformance/entries/<name>.json` and the mirroring key in
+   `sandbox/conformance/manifests.json` (the entry declares the pin set, the
+   plugin/theme artifacts, and the post types and taxonomies the round trip
+   must preserve), plus any of the three optional hooks the harness invokes if
+   present: `seeds/<name>.sh` before capture, `postdeploy/<name>.sh` between
+   deploy and apply, `checks/<name>.sh` after apply. Pin every plugin/theme
+   version and its SHA-256 in `sandbox/conformance/artifacts.lock.json`. Run
+   it with:
 
    ```sh
-   php scripts/capability-registry.php generate
-   make certify-subject-bundle SUBJECT=manifests.<name>
-   php scripts/capability-registry.php import-subject-bundle <bundle-dir>
-   php scripts/capability-registry.php generate
-   php scripts/capability-registry.php check
+   bash sandbox/conformance/run.sh <name>
    ```
 
-Profiles use the same flow with `SUBJECT=profiles.<name>`. The import path is
-derived from `{kind,name,digest}`, so an extension never edits an evidence
-pointer for another subject.
+   A `certified` entry whose manifest declares a `plugin` must cite
+   `conformance-<name>` in its `evidence.tests`, and that citation is only
+   discoverable if `sandbox/conformance/entries/<name>.json` exists —
+   `sandbox/tests/regress_manifest_dispositions.php` proves both offline.
+4. **Regenerate the public prose** and check it in:
 
-For several independent new or changed extensions, run
-`make certify-subjects-parallel` (optionally `JOBS=<n>` or
-`SUBJECTS="manifests.one manifests.two"`). It allocates collision-free pairs,
-ports, logs, and bundle roots from the currently available host capacity under
-host-wide name/port leases; interruption kills each lane's full process group
-before its owned pair is destroyed. Leases also exclude stopped Compose port
-bindings and ordinary lifecycle commands; a two-phase launcher handshake keeps
-the certifier blocked until its process group is registered. The
-batch `index.json` is the import manifest; import its bundle paths only after
-the whole batch completes so every lane observes the same clean source commit.
+   ```sh
+   php tools/capability-doc.php generate   # rewrites docs/capabilities.md + the README block
+   make release-gate                       # capability-doc.php --check, then classmap-generate.php --check
+   ```
+
+   Never hand-edit `docs/capabilities.md` or the README's generated block, and
+   never restate their rows in prose — a hand-copied claim is exactly the
+   failure mode the generator exists to prevent.
+
+A profile (`fse` is the shipped one) follows the same shape under
+`dispositions.json`'s `profiles` key, with its own conformance entry.
+
+**A shipped manifest is a shipped byte sequence.** Before you edit an existing
+one, read [the identity warning above](#editing-a-shipped-manifest-moves-its-identity):
+the edit moves `manifest_hash`/`adapter_digest`, and deployed sites refuse with
+`compiled_artifact_manifest_mismatch` until the artifact is recompiled and the
+pin re-issued.
+
+### Authoring a SITE adapter instead
+
+If the adapter is for your own site rather than the shipped library, none of
+the above applies: an out-of-tree adapter has no reviewed disposition **by
+construction** and never acquires one. It is data-only, it lives at
+`adapters/<name>.json` in your site repository, and you certify it under your
+own key:
+
+```sh
+duo adapter keygen --out=<secret-key-file> [--key-id=<id>]
+duo adapter certify <site-repo> --name=<n> --secret-key-file=<f> [--key-id=<id>] [--reason=<text>] [--pin]
+duo adapter pin <site-repo> --name=<n> [--source=site|plugin]
+```
+
+`certify` binds the signed statement to `manifests/capabilities/platform.json`
+— the shipped platform boundary, folded in as `platform_sha256` over its exact
+bytes. That pin is re-checked on every load, so a certificate cut against an
+older boundary refuses by name once the shipped file moves: `duo: site adapter
+'<name>' certification platform boundary disagrees with the current agent-owned
+platform`. Re-sign with `duo adapter certify … --pin`.
+
+**Be exact about what a site certificate attests.** It says two things, and the
+bundle records that rather than leaving it to be assumed: *this organization's
+key approves these exact adapter bytes*, and *the engine's own validators
+accept the manifest's grammar*. It does not attest that the adapter was
+exercised against a live site, that its deletion semantics were reviewed, or
+that Duo endorses it. That is why the bundle carries a single named test,
+`manifest-grammar`, whose result records `exercised: false` beside the grammar
+verdict and your stated reason — `evidence.tests: ["something"]` is otherwise
+indistinguishable downstream from a reviewed conformance run, and
+`exercised: false` exists to stop exactly that collapse. `duo adapter list`
+reads `site_signed`; the projection reads `Site-certified`, never
+`Platform-certified`. The full mechanics are in
+[Site-installed adapters and external certification](#site-installed-adapters-and-external-certification)
+below.
 
 ## Site-installed adapters and external certification
 
@@ -850,7 +954,8 @@ it" — and it declares deletion semantics **unsupported**, because a validator
 run reviews none. Assess reads `Site-certified` for the surfaces it governs,
 prints `certified by <key-id> (site trust root); contract attestation unsigned`
 once, and `duo release`/`duo promote` admit the adapter through their existing
-"certified and evidence current" gate.
+certified-and-exactly-pinned gate: a valid signature without the exact
+`{name, source: "site", digest}` pin stays `signed_unpinned` and blocked.
 
 **The certificate binds bytes, so an edit breaks it.** Any change to
 `adapters/<name>.json` moves the digest; the pin then refuses and the claim
@@ -1100,7 +1205,7 @@ create-only. The embedded adapter-source rows are a bounded projection of
 `duo-adapter-sources/v2`, not a claim to preserve the full
 `duo-adapter-catalog/v2` catalog. This is proposal evidence, not authoritative
 `adapter-draft --evidence` input, and it does not certify an adapter or alter
-registry claims.
+a capability claim.
 
 Normal plugin/provider registration and capability negotiation remain enabled
 so the target can report installed runtime facts. Third-party callbacks may

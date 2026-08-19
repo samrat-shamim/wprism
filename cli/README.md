@@ -121,7 +121,7 @@ are rejected when the registry is loaded.
   The nested `catalog` is a deliberately lossy projection of the target's
   `duo-adapter-sources/v2` survey, not a claim to preserve the full
   `duo-adapter-catalog/v2` contract. This evidence is never authoritative
-  AdapterDraft input and does not alter certification or registry claims.
+  AdapterDraft input and alters no certification and no capability claim.
   Normal plugin/provider registration and capability negotiation remain
   enabled so installed adapters are observable; third-party callbacks may have
   side effects before or during collection. Duo invokes no provider action and
@@ -429,13 +429,13 @@ are rejected when the registry is loaded.
 - **`duo assess <env> [--operation=<ops>] [--limit=<1..200>] [--format=json]`**
   — the decision-first, READ-ONLY assessment. One run composes `Doctor`, the
   adoption and initialization probes, `wp duo assess-inventory`, `wp duo
-  capabilities` once per distinct registry operation, and the host adapter
+  capabilities` once per distinct capability-report operation, and the host adapter
   catalog, and emits one row per WordPress-language surface carrying its state
   class, handling, technical readiness, certification provenance, effect
   containment and effect recovery semantics, plus the unknown/unclassified
   queue counted and named and the smallest safe next action per gap from a
   closed set. Surface rows are derived from the target's policy surface groups,
-  the registry claim's own surfaces and the contract's `surface_labels` map —
+  the capability claim's own surfaces and the contract's `surface_labels` map —
   never from a plugin name. Containment reads `unknown — not enforced in this
   profile` wherever it is not structurally prevented, and nothing here is a
   capability claim. It writes nothing to the target; locally it writes
@@ -560,14 +560,30 @@ are rejected when the registry is loaded.
   `[--format=json]`** — resolves the repository's exact manifest pins against
   [the reviewed dispositions](../manifests/dispositions.json). It evaluates the
   adapter's authored status, the operation, the exact state surface, and the
-  installed plugin version against the reviewed window. Output separates
-  unmodified plugin execution from branchable authored-state scope and gives
-  structured blocker codes for uncertified sources, unpinned certifications,
-  unsupported surfaces, and plugin version/activation cases. `--revision` is
-  gone rather than inert: it selected an evidence-bound platform revision, and
-  no record binds one. The agent-level `wp duo capabilities --all` reports the
-  complete shipped library. `duo status`, host deploy/promote, and
-  `make release-gate` consume the same reviewed claims.
+  installed plugin version against the reviewed window. The document's
+  `schema_version` is `duo-capability-report/v1` — the retired
+  `duo-capability-registry/v2` string was not reused, because no row carries a
+  generated adapter digest, a subject certification record or a bound evidence
+  status any more, and a consumer pinned to the old version would read those
+  absences as data loss. It is projected from three inputs: the reviewed
+  disposition per pinned manifest, the per-adapter provenance the catalog
+  observed (source, trust tier, certification state), and — over a live target —
+  `TargetProbe::probe_target()`. With no target it is the source/authorship gate
+  only. The report carries one `registry_sha256`, the content address of the
+  reviewed bytes the verdict was read from, which is the number an accepted
+  contract pins and re-observes. Output separates unmodified plugin execution
+  from branchable authored-state scope and gives structured blocker codes for
+  uncertified sources, unpinned certifications, unsupported surfaces, and
+  plugin version/activation cases; the WordPress, PHP, database and theme axes
+  are deliberately not reported per surface, because the measured record that
+  bounded them is gone and re-deriving them from the shipped platform note
+  would be a guess. `--revision` is gone rather than inert: it selected an
+  evidence-bound platform revision, and no record binds one. The agent-level
+  `wp duo capabilities --all` reports the complete shipped library. `duo status`
+  and host deploy/promote consume the same reviewed claims; `make release-gate`
+  (`tools/capability-doc.php --check`, then `tools/classmap-generate.php
+  --check`) proves the public prose in `docs/capabilities.md` still regenerates
+  byte-for-byte from those same manifests and dispositions.
 
 - **`duo plan|explain|apply <env> [flags...]`** — streams the corresponding
   `wp duo plan|explain|apply --repo=<repo_path> [flags...]` command for that

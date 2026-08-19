@@ -5,9 +5,13 @@ The machine-readable map is [`tools/modules.json`](../../tools/modules.json); th
 Each module has a one-page charter next to this file.
 
 **Namespaces do not change in this move.** `agent/src` stays `namespace Duo;` and `cli/src` stays
-`namespace Duo\Orchestrator;`. Manifest interpreters and providers name `\Duo\Policy`, `\Duo\ProviderSdk`,
-`\Duo\Providers` and `\Duo\Canon` by FQCN and those manifest bytes are digest-bound, so a namespace
-change is a certification round of its own. The additive classmap (`agent/duo-classmap.php`,
+`namespace Duo\Orchestrator;`. Manifest interpreters, providers and regenerators name `\Duo\Policy`,
+`\Duo\ProviderSdk`, `\Duo\Providers` and `\Duo\Canon` by FQCN, and `ArtifactPolicyIdentity::manifest_rows()`
+folds `hash_file('sha256', …)` of each of those hook files into the adapter's identity row
+(`agent/src/Policy/ArtifactPolicyIdentity.php:74`, `:92`, `:115`), so a namespace change rewrites hook bytes
+and moves every `adapter_digest` with them. Moving or renaming an `agent/src` class file costs nothing by
+itself: the row folds manifest JSON bytes, disposition bytes and those hook hashes, and nothing else.
+The additive classmap (`agent/duo-classmap.php`,
 `cli/duo-classmap.php`) maps FQCN to path, which is what makes directory != namespace legal.
 Sub-namespaces migrate later, per module, Kernel first.
 
@@ -29,7 +33,7 @@ Sub-namespaces migrate later, per module, Kernel first.
 | [agent:Delete](agent-Delete.md) | `agent/src/Delete/` | engine | 7 | `Deletion`, `DeleteExecutor`, `DeleteGuardLockCoordinator`, `DeleteGuardReferenceScanner`, +2 | `Delete`, `Kernel`, `Policy`, `Repository` | Deletion authority, deletion guards and the executor that removes owned entities and records tombstones. |
 | [agent:Init](agent-Init.md) | `agent/src/Init/` | engine | 13 | `Init`, `InitProtocol` | `Code`, `Init`, `Kernel`, `Policy`, `Repository` | First-contact onboarding of a site: probing, planning, confirming, journalling and recovering the initial owned baseline. |
 | [agent:Review](agent-Review.md) | `agent/src/Review/` | engine | 17 | `Canary`, `ConvergenceVerifier`, `Journal`, `Lint`, +7 | `Code`, `Grammar`, `Kernel`, `Policy`, `Repository`, `Review` | Read-only projections over plans and state — lint and its reference scanners, coverage, pending, journal, orphans, canary, convergence verification and refresh export. |
-| [agent:Adapter](agent-Adapter.md) | `agent/src/Adapter/` | adapter | 11 | `AdapterSources`, `Providers`, `ProviderActionBatchBuilder`, `CapabilityRegistry`, +4 | `Adapter`, `Kernel`, `Policy`, `Promotion`, `Rebuild`, `Repository`, `Review` | The plugin-facing boundary: manifest sources, adapter registry, observation, certification bundles, capability registry and the provider SDK the engine calls through. |
+| [agent:Adapter](agent-Adapter.md) | `agent/src/Adapter/` | adapter | 10 | `AdapterSources`, `Providers`, `ProviderActionBatchBuilder`, `AdapterRegistry`, +3 | `Adapter`, `Kernel`, `Policy`, `Promotion`, `Rebuild`, `Repository`, `Review` | The plugin-facing boundary: manifest sources, adapter registry, observation, site adapter certification and the provider SDK the engine calls through. |
 | [agent:Command](agent-Command.md) | `agent/src/Command/` | surface | 1 | `Cli` | `Adapter`, `Apply`, `Capture`, `Code`, `Command`, `Init`, `Kernel`, `Policy`, `Promotion`, `Publication`, `Repository`, `Review`, `Scope` | The `wp duo …` WP-CLI surface: verb dispatch, argument parsing, refusal envelopes and operator output. |
 | [agent:Assess](agent-Assess.md) | `agent/src/Assess/` | surface | 1 | `AssessInventory` | `Adapter`, `Assess`, `Code`, `Grammar`, `Kernel`, `Policy`, `Repository`, `Review` | Read-only inventory and projection commands answering 'what is here, and what can Duo do with it' before any write. |
 | [cli:Transport](cli-Transport.md) | `cli/src/Transport/` | kernel | 6 | `EnvironmentDriver`, `Transport`, `CodeDeploy`, `SshTransport`, +1 | `Transport` | Carries bytes and commands to a target environment: the transport implementations, the environment driver handle and code deployment. |
@@ -57,8 +61,8 @@ Not a module: `cli/duo` stays at `cli/duo` (the extensionless executable), and `
 3. **Ladder:** `kernel < policy < repository < engine < adapter < surface`. Within a root a module may
    reference only modules in a strictly lower layer, plus itself. Every same-layer or upward edge that
    exists today is enumerated in that module's `exceptions` and is a **ratchet**: it may shrink, never grow.
-   The 15 upward module edges carry exactly 40 file-level edges, and that set is equal (verified
-   programmatically) to the 40 entries already ratified in `tools/layers-exceptions.json` — the module map
+   The 15 upward module edges carry exactly 38 file-level edges, and that set is equal (verified
+   programmatically) to the 38 entries already ratified in `tools/layers-exceptions.json` — the module map
    adds no new layer debt. The remaining 143 file-level edges recorded under `exceptions` are *intra-layer*:
    legal under `layers.json`'s "own or lower layer" rule, and listed because they are what makes the agent
    root one SCC.
@@ -94,7 +98,7 @@ of which 764 cross a module boundary.
   Grammar, Init, Kernel, Policy, Promotion, Publication, Rebuild, Repository, Review, Scope. Only
   `Command` (and the reserved `Assess`) sit outside it. This is the module-level shadow of the known
   160-file reference SCC.
-- Removing the 40 ratified upward file edges leaves three smaller cycles, which is the honest work list:
+- Removing the 38 ratified upward file edges leaves three smaller cycles, which is the honest work list:
   - `Policy <-> Grammar` (30 edges down, 7 back)
   - `Code <-> Repository` (6 down, 4 back)
   - `Apply <-> Capture <-> Delete <-> Init <-> Promotion <-> Rebuild <-> Review <-> Scope` (the engine SCC)
@@ -136,14 +140,17 @@ Counts below are that tool's own plan at `a6b0b9c` — quote `--plan`, not this 
    - `tools/layers.json` keys become `src/<Module>/X.php` (the codemod rewrites both it and the sorted
      `tools/layers-exceptions.json`); decide separately whether to retire the file-level map in favour of the
      directory lint (rule 2), which is a follow-up, not part of the move.
-5. **Pay one certification round.** `agent/**`, `cli/**` and `sandbox/bin/**` are walked whole, so every moved
-   file changes the closure: all nine subjects expire and `manifests/capabilities/evidence.json` plus the 18
-   scoped `bundle.json` files must be regenerated. The codemod deliberately leaves `manifests/**` untouched
-   and reports it (23 files, 7,352 mentions): those are recorded closure paths, re-earned by re-certifying,
-   never rewritten. Run `php tools/cert-impact.php` in the candidate state first.
-6. Prose costs nothing *in this train*: because the round is already paid, the codemod freely rewrites the
-   `agent/src/X.php` mentions in `Makefile`, `.gitignore`, `sandbox/conformance/run.sh`, `tools/doctor.sh`,
-   `docs/**` and `spec/**`. The only mentions that must stay stale are the ones inside `manifests/*.json`
-   note strings — those bytes are digest-bound, and rewriting them changes adapter digests for no functional
-   gain. (Bare `agent/src` directory mentions — `phpstan.neon.dist`'s `paths:`, `.gitignore` prose — must
-   *not* grow a module segment and are left alone by design.)
+5. **Leave `manifests/**` alone.** The move itself is free — nothing hashes an `agent/src` path. What is not
+   free is chasing the moved paths into `manifests/`: `ArtifactPolicyIdentity::manifest_rows()` folds each
+   named interpreter/provider/regenerator file's `hash_file('sha256', …)` into that adapter's row, so
+   rewriting one hook file moves its `adapter_digest`, and a deployed site with a compiled artifact then
+   refuses with `compiled_artifact_manifest_mismatch`, "compiled manifest/interpreter set does not match
+   active pins" (`agent/src/Repository/CompiledArtifactReader.php:39-42`), until the artifact is recompiled
+   and the reviewed pin updated (`wp duo manifest-pin` emits the copy-pasteable object). The codemod
+   deliberately leaves `manifests/**` untouched and reports it (23 files, 7,352 mentions).
+6. Prose costs nothing: the codemod freely rewrites the `agent/src/X.php` mentions in `Makefile`,
+   `.gitignore`, `sandbox/conformance/run.sh`, `tools/doctor.sh`, `docs/**` and `spec/**`. The only mentions
+   that must stay stale are the ones inside `manifests/*.json` note strings and the hook files beside them —
+   those bytes are folded into the identity row per step 5, and rewriting them changes adapter digests for no
+   functional gain. (Bare `agent/src` directory mentions — `phpstan.neon.dist`'s `paths:`, `.gitignore`
+   prose — must *not* grow a module segment and are left alone by design.)

@@ -41,11 +41,14 @@ These guides describe only what exists at the commit that publishes them.
   present tense and never demonstrated in a runnable code block. The checker
   enforces the other half of that rule: a command that does not exist is a hard
   failure *unless* the line carrying it also carries that literal label.
-- **Generated documents are linked, never copied.** The certified capability
-  matrix lives in [../capabilities.md](../capabilities.md), which
-  `scripts/capability-registry.php` regenerates and `make release-gate`
-  byte-compares. No guide restates a row of it; a stale hand-copy of a
-  certification claim is worse than no claim.
+- **Generated documents are linked, never copied.** The capability matrix
+  lives in [../capabilities.md](../capabilities.md), which
+  `php tools/capability-doc.php generate` writes from the manifests and
+  `manifests/dispositions.json`. `make release-gate` is exactly
+  `capability-doc.php --check` then `classmap-generate.php --check`, so a
+  hand-edit of either generated document fails the gate. No guide restates a
+  row of the matrix; a stale hand-copy of a capability claim is worse than no
+  claim.
 - **A boundary is documentation too.** Where Duo cannot do something, these
   guides say so plainly rather than routing around it. "No command does this
   today" is a supported answer, and it appears in these pages several times.

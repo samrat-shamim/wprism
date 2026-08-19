@@ -153,7 +153,7 @@ cli/duo assess production
 
 Adoption made the agent reachable; assessment is what tells you whether
 initializing is a good idea. One read-only run composes doctor, the adoption
-and initialization probes, the target's own inventory, the capability registry
+and initialization probes, the target's own inventory, the capability report
 per operation, coverage, the review queue and the adapter catalog into one row
 per WordPress surface, each carrying its state class, handling, technical
 readiness, certification provenance, effect containment and effect recovery

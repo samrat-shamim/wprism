@@ -21,23 +21,32 @@ capture, compile-gated publication, truthful promotion (deploy-before-apply,
 promotion/capture locks), deletion tombstones with guards, secret scanning,
 version-pinned adapter contracts, and an evidence culture (conformance sweeps,
 grind scenarios, certification matrices) that has repeatedly caught silent-loss
-classes before they shipped. Above it now sits a certification layer: reviewed
-dispositions, content-addressed evidence bundles, and a generated capability
-registry that is the only source of current platform-certified product claims
-(README, docs, CLI, readiness all consume it; `make release-gate` fails on
-drift). No site-certified product claim exists yet; that path is gated by H3.
+classes before they shipped. Above it sits the claim model: a manifest declares
+what it covers, a human reviews that into `manifests/dispositions.json` with the
+reason written down, and the named conformance suites exercise it against a live
+pair. The generated capability document (`docs/capabilities.md`, plus the README
+block) is the single projection of that model — `make release-gate` byte-compares
+it against its four sources and fails on drift, so no product claim can be
+hand-written anywhere. What a status does NOT mean is that a digest binds it to
+an artifact set or a particular run.
 
-The honest boundary has moved again. Proofs now include a real SSH-host
-adoption run (DUO-3257 phase 1), a signed production-form SSH crash-rollback
-certification (DUO-3299 — harness-signed Ed25519 evidence, not third-party
-attestation), automatic verified-rollback promotion — `duo promote` selects the
-certified profile whenever the target proves every rollback capability, and
-falls back to operator-directed with an explicit warning otherwise (DUO-3310) —
-and certified claims bound to named conformance evidence with per-manifest
-scoped certification bundles (DUO-3306, DUO-3450). What remains unclaimed: no
-third-party production site has adopted, no field evidence yet shows a real
-target qualifying for the automatic verified profile, and the registry is not
-yet public.
+The honest boundary has moved again — and in one direction it moved back.
+Proofs now include a real SSH-host adoption run (DUO-3257 phase 1), a signed
+production-form SSH crash-rollback certification (DUO-3299 — harness-signed
+Ed25519 evidence, not third-party attestation), automatic verified-rollback
+promotion — `duo promote` selects the certified profile whenever the target
+proves every rollback capability, and falls back to operator-directed with an
+explicit warning otherwise (DUO-3310) — and an operator's own Ed25519 authority
+over adapters it authored, which is the one thing that reads `Site-certified`
+(T6). The retraction: the evidence seal is gone. Per-manifest scoped
+certification bundles (DUO-3306, DUO-3450) sealed a claim to a content-addressed
+record, that apparatus was torn out, and nothing replaced it. A claim now rests
+on a human's reviewed disposition and on conformance suites that are re-run
+rather than sealed — weaker in kind than a bound record, and honest about it.
+What remains unclaimed: no third-party production site has adopted, no field
+evidence yet shows a real target qualifying for the automatic verified profile,
+the site-level certification gate is still deferred (every application contract
+writes `attestation.state: unsigned`), and there is no public registry.
 
 ## Horizons
 
@@ -67,10 +76,15 @@ evidence about real targets and verified recovery.
 **H3 — Agent-native product and ecosystem.** The ratified
 [product specification](product-spec.md) keeps branchable WordPress as the
 market wedge, makes agencies the initial customer, and makes agent-driven
-qualification the evidence-bound route through the ecosystem long tail. The
-evidence-bound platform registry (DUO-3227), named per-adapter conformance
-evidence (DUO-3306; scoped bundles DUO-3450), and inert human-ratified
-`duo adapter-draft` candidates are shipped foundations. The sequence is:
+qualification the route through the ecosystem long tail. The shipped
+foundations are narrower than this section once claimed: reviewed manifest
+dispositions no manifest can reach (DUO-3227), per-adapter conformance suites
+that are run rather than sealed, an operator's own signing authority over
+adapters it authored, and inert human-ratified `duo adapter-draft` candidates.
+The evidence-bound part is what is missing — a claim is backed by review plus a
+re-runnable live suite, not by a record that binds it — so building the
+qualification route back up to "evidence-bound" is work in this horizon, not a
+foundation under it. The sequence is:
 
 1. **Field grounding and adoptability** — H2's calibration and validation
    cohorts; close internal-ID, undocumented-command, raw-recovery, and
@@ -103,10 +117,11 @@ launch gate passes.
   through duo, never through operator SQL (DUO-3251 ruling).
 - Sandbox pairs and test fixtures are disposable by design; scripts touching a
   namespace must prove it dead first (linear-loop.md field notes).
-- Current platform-certified status derives only from the generated registry
-  bound to executable evidence; product prose never hand-claims support.
-  Dispositions are reviewed inputs kept separate so a manifest cannot certify
-  itself (DUO-3227; release-gate enforces byte-level agreement). Future
+- Current platform-certified status derives only from the generated capability
+  document (`docs/capabilities.md` and the README block); product prose never
+  hand-claims support. Dispositions are reviewed inputs kept separate so a
+  manifest cannot certify itself (DUO-3227; release-gate enforces byte-level
+  agreement between the generated prose and those inputs). Future
   site-certified status is separate and exists only in a generated per-site
   projection backed by reviewed declarations, current evidence, a registered
   certification attestation, and environment bindings.

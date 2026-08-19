@@ -262,9 +262,25 @@ branch or edit files before this passes.
   The maximal sequence is: implement → offline-all → targeted live suites →
   targeted sweeps → review/fixes → rebase once → final review of `C` over `B`
   → merge promptly.
-- **Cost yardstick (2026-08-09, this host):** offline-all ~5 min; one
-  live-pair suite 6–15 min (pair boot ~2–3 min of that); one conformance
-  sweep ~2–3 min.
+- **A manifest / provider / interpreter / regenerator byte change moves adapter
+  identity — recompile and re-pin, do not work around it.** Those file bytes
+  are folded into the per-manifest row that `manifest_hash()` and each
+  adapter's `digest` are hashes of
+  (`agent/src/Policy/ArtifactPolicyIdentity.php:60-147`). A target still
+  holding the previously compiled artifact refuses with
+  `compiled_artifact_manifest_mismatch` — "compiled manifest/interpreter set
+  does not match active pins"
+  (`agent/src/Repository/CompiledArtifactReader.php:39-42`) — and a site repo
+  pinned by content stops matching until the reviewed pin is updated
+  (`wp duo manifest-pin` prints the object). Expect this before a live run
+  against a pair whose repo was compiled earlier; it is the mechanism working,
+  not a defect to route around.
+- **Cost yardstick (2026-08-19, this host):** `php tools/offline.php -j8`
+  108.65 s wall over 251 suites (499.68 s of suite time); one live-pair suite
+  6–15 min (pair boot ~2–3 min of that); one conformance sweep ~2–3 min. The
+  offline number is a third of the pre-teardown ~5 min: `Policy::load()` no
+  longer re-verifies nine certification closures per process, which used to
+  dominate the corpus (see docs/dev-setup.md §Measured wall times).
 
 ## Close gate (strict order)
 

@@ -140,9 +140,14 @@ says so rather than hiding it.
 
 **readiness** — what the evidence supports right now: `Ready`, `Ready with
 conditions`, `Requalification required`, `Experimental`, `Not qualified`,
-`Unsupported`. It is recomputed from the generated capability registry and a
-live probe on every run. A condition under a `Ready with conditions` row is
-re-checked at the mutation gate, so it is a live promise, not a footnote.
+`Unsupported`. It is recomputed on every run from the capability report the
+target projects out of the reviewed dispositions, plus a live probe — never
+read from a file. A condition under a `Ready with conditions` row is re-checked
+at the mutation gate, so it is a live promise, not a footnote.
+`Requalification required` has exactly one entrance, and it is not one the
+agent can produce: the CLI raises it when an *accepted contract*'s pinned
+`registry_sha256` no longer matches the dispositions the target answers from
+(see [capabilities-and-limits.md](capabilities-and-limits.md#the-six-projected-dimensions)).
 
 **certification** — where the claim comes from: `Platform-certified`,
 `Site-certified`, or `Uncertified`. `Site-certified` means a certificate
@@ -187,7 +192,7 @@ read the presence of the line as the signal. The count is the signal.
 | `declare in contract` | Duo can see the effect but cannot bound it. Add the declaration to `.duo/contract/proposed.json` and accept it — see below, and the containment rule in [release.md](release.md#when-release-refuses-before-it-freezes-anything). |
 | `qualify in rehearsal` | **Never printed by this profile.** It stays in the closed set so a projection written by an older build still validates, but nothing emits it: rehearsal says in its own output that it cannot qualify anything, so naming it as your next step was sending you to prove that. |
 | `install adapter` | Nothing models this surface, and something probably owns it — an active plugin, or a table with a plugin's name on it. Write or install an adapter; [adapter-authoring.md](adapter-authoring.md) is the whole path, and `duo adapter-draft --seed` will propose the surface for you. |
-| `certify adapter` | The adapter **is** installed and is one signature or one pin short: `duo adapter certify <site-repo> --name=<n> --secret-key-file=<key> --pin`. This is also what expired or experimental evidence needs — current certification evidence, which no rehearsal can produce. |
+| `certify adapter` | The adapter **is** installed and is one signature or one pin short: `duo adapter certify <site-repo> --name=<n> --secret-key-file=<key> --pin`. It is also the word for the other two rows that need a reviewed, current claim rather than a repeat run — a contract whose pinned dispositions moved (`Requalification required`) and an authored `experimental` status — neither of which a rehearsal can produce. |
 | `provision env value` | A manifest-declared `class: "env"` option is unset here: `duo env-set <env> --name=<name> --stdin`. |
 | `exclude` | The boundary is stated, not broken. Record the decision in the contract's `unsupported[]` and stop trying to release it. Also the answer when an installed, certified adapter's certification simply does not cover one operation (`operation_not_certified` alone — typically `delete`): nothing to install or sign; keep that operation off the surface. |
 | `nothing — supported` | Every projected operation agrees. This is last in the ordering so it wins only when nothing else applies. |

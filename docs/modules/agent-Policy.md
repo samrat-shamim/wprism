@@ -10,8 +10,8 @@
 
 **Ratified exceptions** (same-layer or upward edges that exist today; ratchet — may shrink, never grow):
 
-- `Adapter` (upward, 11 edges)
-  `ArtifactPolicyIdentity.php -> AdapterSources.php`; `ArtifactPolicyIdentity.php -> CapabilityRegistry.php`; `ManifestValidator.php -> ActionProviderGrammar.php`; `ManifestValidator.php -> AdapterContractGrammar.php`; `PinResolver.php -> AdapterSources.php`; `Policy.php -> ActionProviderGrammar.php`; …
+- `Adapter` (upward, 9 edges)
+  `ArtifactPolicyIdentity.php -> AdapterSources.php`; `ManifestValidator.php -> ActionProviderGrammar.php`; `ManifestValidator.php -> AdapterContractGrammar.php`; `PinResolver.php -> AdapterSources.php`; `Policy.php -> ActionProviderGrammar.php`; `Policy.php -> AdapterRegistry.php`; …
 - `Code` (upward, 1 edge)
   `CodeConfigGrammar.php -> Code.php`
 - `Delete` (upward, 1 edge)
@@ -26,6 +26,6 @@
 **Known debts.**
 
 - Policy god object: fan-in 96 across agent/src, 34 outbound references, 30 of them into Grammar. Splitting the load path from the query path is the prerequisite for breaking the Policy<->Grammar cycle.
-- 20 of the 40 ratified upward edges in the repo start in this module (11 into Adapter alone).
+- 18 of the 38 ratified upward edges in the repo start in this module (9 into Adapter alone).
 
-**Sub-namespace plan.** Target `Duo\Policy\`. Not in this round: the move keeps `namespace Duo;` flat so that manifest interpreters/providers can keep naming `\Duo\Policy`, `\Duo\ProviderSdk`, `\Duo\Providers` and `\Duo\Canon` by FQCN — those manifest bytes are digest-bound and renaming them is a certification round of its own. Kernel migrates first (no inbound FQCN from manifests); Policy, Adapter and Canon migrate last, behind a manifest-bytes change.
+**Sub-namespace plan.** Target `Duo\Policy\`. Not in this round: the move keeps `namespace Duo;` flat so that manifest interpreters/providers can keep naming `\Duo\Policy`, `\Duo\ProviderSdk`, `\Duo\Providers` and `\Duo\Canon` by FQCN — those hook files are `hash_file`'d into every adapter's identity row (`ArtifactPolicyIdentity::manifest_rows()`), so renaming the namespace moves each `adapter_digest` and forces a recompile plus a reviewed re-pin on every deployed site. Kernel migrates first (no inbound FQCN from manifests); Policy, Adapter and Canon migrate last, behind a hook-file change.
