@@ -15,7 +15,7 @@ about CI belongs in a PR, an issue, or this file.
 | `cli/` | the `duo` orchestrator (`cli/duo` is an extensionless `#!/usr/bin/env php` executable) over 76 `cli/src` files | yes |
 | `recovery/` | the recovery runtime (canonical JSON, atomic store, Ed25519 rollback control) | yes |
 | `manifests/` | core + 9 plugin manifests + `duo-agency-cpt` (the one `excluded` regression fixture, no product claim); `providers/`, `interpreters/`, `regenerators/` hook code; `dispositions.json`, the hand-authored reviewed claim source; `capabilities/platform.json` (the platform boundary certificates sign against) and `capabilities/adapter-authorities.json` | yes |
-| `sandbox/` | the test estate: `bin/pair.sh`, `tests/` (211 `regress_*.php` + 114 `regress_*.sh`), `conformance/`, `fixtures/`, `lib/`, `siterepo/`, `tmp/` (gitignored scratch) | no |
+| `sandbox/` | the test estate: `bin/pair.sh`, `tests/` (212 `regress_*.php` + 114 `regress_*.sh`, counted recursively — `tests/offline/guards/` is the first suite directory), `conformance/`, `fixtures/`, `lib/`, `siterepo/`, `tmp/` (gitignored scratch) | no |
 | `tools/` | dev entry points: `doctor.sh`, `offline.php`, `affected.php`, `capability-doc.php`, `classmap-generate.php`, `api-surface.php`; data: `layers.json` (+ `layers-exceptions.json` ratchet), `modules.json` | no |
 | `tests/` | PHPUnit 11 self-tests for `tools/` (`Duo\Tests\…`, PSR-4) | no |
 | `scripts/` | `adapter-certification.php` (reviewer-facing adapter certificate sign/verify), `agent-bootstrap.sh`, `close-gate-check.sh` | mixed |
@@ -99,7 +99,7 @@ make release-gate                 # capability-doc --check + classmap --check: t
                                   # capability document and the classmaps match their sources
 ```
 
-the offline leaf targets (251 today; the Makefile's own `N offline suites green` line is the count of record). `tools/offline.php` runs the same work as
+the offline leaf targets (252 today; the Makefile's own `N offline suites green` line is the count of record). `tools/offline.php` runs the same work as
 `make regress-offline-all` with per-suite logs and the guard's exact
 diagnostic regex applied per suite, so a failure is named rather than merely
 detected — but the PR quotes the canonical gate, not the fast path. Stock macOS

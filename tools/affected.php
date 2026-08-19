@@ -369,28 +369,87 @@ function af_code_lines(string $text): string
 const AF_GENERIC_INVOCATION_RX = '/\b(?:php|bash)\s+(?:\S*\/)?(regress_[a-z0-9_]+\.(?:sh|php))\b/';
 
 /**
- * target -> primary suite basename, using the exact naming/exclusion rule
+ * Every `regress_*.{php,sh}` file under sandbox/tests, at ANY depth, keyed by
+ * basename.
+ *
+ * Recursive, not a `scandir()` of the top level, because the suite estate is
+ * being moved into sandbox/tests/{offline/<domain>,live,grind,certify,spike}/.
+ * A non-recursive enumeration here fails OPEN, which is the whole reason this
+ * had to change before any file moved: a nested suite simply has no primary
+ * file, so af_build_index() drops its target with a NOTICE and that target
+ * then selects for nothing -- a silent hole in `--changed`, not a failure.
+ *
+ * Basename-keyed because that is the target-naming rule this tool shares with
+ * sandbox/tests/regress_bundle_coverage.sh (`regress_foo_bar.sh` <->
+ * `regress-foo-bar`), and a directory prefix contributes nothing to a target
+ * name. Two files with the same basename therefore claim ONE target between
+ * them: only the first (sorted) can ever be reached, so the second is
+ * reported rather than silently dropped. regress-suite-wiring and
+ * regress_bundle_coverage.sh both fail hard on that condition; this notice
+ * exists because this tool's stated contract is to always exit 0.
+ *
+ * @return array<string,string> basename => repo-relative path
+ */
+function af_suite_files(string $root): array
+{
+    $testsDir = $root . '/sandbox/tests';
+    if (!is_dir($testsDir)) {
+        return [];
+    }
+    $paths = [];
+    $walk = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($testsDir, FilesystemIterator::SKIP_DOTS)
+    );
+    foreach ($walk as $entry) {
+        if (!($entry instanceof SplFileInfo) || !$entry->isFile()) {
+            continue;
+        }
+        if (!preg_match('/^regress_.*\.(?:php|sh)$/', $entry->getFilename())) {
+            continue;
+        }
+        $paths[] = 'sandbox/tests/'
+            . str_replace('\\', '/', substr($entry->getPathname(), strlen($testsDir) + 1));
+    }
+    sort($paths, SORT_STRING);
+
+    $byBasename = [];
+    foreach ($paths as $relative) {
+        $base = basename($relative);
+        if (isset($byBasename[$base])) {
+            fwrite(STDERR, "affected: NOTICE suite basename '$base' exists twice ("
+                . $byBasename[$base] . ' and ' . $relative . ') -- the target-naming rule is'
+                . ' basename-keyed, so only the first can name a target and the second is'
+                . " invisible to this index\n");
+            continue;
+        }
+        $byBasename[$base] = $relative;
+    }
+
+    return $byBasename;
+}
+
+/**
+ * target -> primary suite path, using the exact naming/exclusion rule
  * regress_bundle_coverage.sh proves against the whole tree: a
  * regress_*.{sh,php} file names its own target (`regress_foo_bar.sh` <->
  * `regress-foo-bar`) unless some OTHER such file's code actually invokes it,
  * in which case it is a helper of that other file's target instead.
  *
- * @return array<string,string> target => basename
+ * The value is the repo-relative PATH, not the basename: with suites at
+ * arbitrary depth there is no longer any way to reconstruct one from the
+ * other, and af_build_index()'s old `'sandbox/tests/' . $basename` would have
+ * produced a path that does not exist for every nested suite.
+ *
+ * @return array<string,string> target => repo-relative path
  */
 function af_primary_targets(string $root): array
 {
-    $testsDir = $root . '/sandbox/tests';
-    $basenames = [];
-    foreach (scandir($testsDir) ?: [] as $entry) {
-        if (preg_match('/^regress_.*\.(?:php|sh)$/', $entry)) {
-            $basenames[] = $entry;
-        }
-    }
-    sort($basenames, SORT_STRING);
+    $byBasename = af_suite_files($root);
+    $basenames = array_keys($byBasename);
 
     $contents = [];
     foreach ($basenames as $b) {
-        $contents[$b] = af_code_lines((string) file_get_contents($testsDir . '/' . $b));
+        $contents[$b] = af_code_lines((string) file_get_contents($root . '/' . $byBasename[$b]));
     }
 
     $invokedBy = [];
@@ -417,41 +476,66 @@ function af_primary_targets(string $root): array
         }
         $stem = (string) preg_replace('/\.(?:sh|php)$/', '', $b);
         $target = strtr($stem, '_', '-');
-        $primary[$target] = $b;
+        $primary[$target] = $byBasename[$b];
     }
     return $primary;
 }
 
 // ------------------------------------------------ suite composition (BFS)
 
-/** basename -> repo-relative path, for sandbox/tests (incl. one level of
- * fixtures/support) and sandbox/lib, used to resolve `php x.php` /
- * `bash x.sh` / `source x.sh` / `. x.sh` invocations regardless of how the
- * invoking line spells the leading path (bare, `$ROOT/...`-prefixed, or
- * fully rooted). */
+/**
+ * basename -> every repo-relative path with that basename, over the WHOLE of
+ * sandbox/tests and sandbox/lib. Used to resolve `php x.php` / `bash x.sh` /
+ * `source x.sh` / `. x.sh` invocations regardless of how the invoking line
+ * spells the leading path (bare, `$ROOT/...`-prefixed, `$FIX/`-prefixed via a
+ * shell variable, or fully rooted).
+ *
+ * RECURSIVE, replacing a hand-written allowlist of `fixtures`, `support` and
+ * `lib` probed exactly one level below sandbox/tests. That shape has two
+ * costs. The one that forced this change: a suite under
+ * sandbox/tests/offline/<domain>/ is in no allowlist entry, so nothing it
+ * invokes -- and nothing that invokes it -- resolves, and the involved-file
+ * BFS silently stops at the suite itself. The one it also fixes: the 91 files
+ * under sandbox/tests/fixtures/<subject>/ were already two levels down and
+ * therefore already unresolvable, so a grind fixture edit selected nothing.
+ *
+ * MULTI-VALUED because a basename is not unique in a nested tree: 20 pairs
+ * collide today (fixtures/mup vs fixtures/adapter-walk, fixtures/assess vs
+ * fixtures/rehearse), and the invoking line usually cannot disambiguate them
+ * -- regress_rehearse_provider.sh:316 spells `php "$FIX/make-fixture.php"`,
+ * where $FIX is a shell variable this text scan does not evaluate. Picking one
+ * winner would link that suite to the assess fixture and NOT to the rehearse
+ * fixture it actually runs, i.e. manufacture a false negative, the one
+ * direction this tool's policy forbids (see the header). Linking every
+ * candidate costs at most one extra suite per collision and cannot miss one.
+ *
+ * @return array<string,list<string>> basename => repo-relative paths, sorted
+ */
 function af_basename_index(string $root): array
 {
     $index = [];
-    $add = static function (string $dir, string $relPrefix) use (&$index, $root): void {
-        foreach (scandir($root . '/' . $dir) ?: [] as $entry) {
-            if ($entry === '.' || $entry === '..') {
+    $add = static function (string $dir) use (&$index, $root): void {
+        $base = $root . '/' . $dir;
+        if (!is_dir($base)) {
+            return;
+        }
+        $walk = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($base, FilesystemIterator::SKIP_DOTS)
+        );
+        foreach ($walk as $entry) {
+            if (!($entry instanceof SplFileInfo) || !$entry->isFile()) {
                 continue;
             }
-            $full = $dir . '/' . $entry;
-            if (is_dir($root . '/' . $full)) {
-                continue;
-            }
-            $index[$entry] ??= $relPrefix . $entry;
+            $relative = $dir . '/'
+                . str_replace('\\', '/', substr($entry->getPathname(), strlen($base) + 1));
+            $index[$entry->getFilename()][] = $relative;
         }
     };
-    $add('sandbox/tests', 'sandbox/tests/');
-    foreach (['fixtures', 'support', 'lib'] as $sub) {
-        if (is_dir($root . '/sandbox/tests/' . $sub)) {
-            $add('sandbox/tests/' . $sub, 'sandbox/tests/' . $sub . '/');
-        }
-    }
-    if (is_dir($root . '/sandbox/lib')) {
-        $add('sandbox/lib', 'sandbox/lib/');
+    $add('sandbox/tests');
+    $add('sandbox/lib');
+    foreach ($index as $basename => $paths) {
+        sort($paths, SORT_STRING);
+        $index[$basename] = array_values(array_unique($paths));
     }
     return $index;
 }
@@ -460,6 +544,7 @@ const AF_INVOKE_RUN_RX = '/\b(?:php|bash)\s+"?([^\s"]+\.(?:php|sh))"?/';
 const AF_INVOKE_SOURCE_RX = '/^[ \t]*(?:source|\.)\s+"?([^\s"]+\.sh)"?/m';
 
 /**
+ * @param array<string,list<string>> $basenameIndex
  * @return list<string> repo-relative paths, primary file first
  */
 function af_gather_involved(string $root, string $primaryRelative, array $basenameIndex): array
@@ -490,13 +575,17 @@ function af_gather_involved(string $root, string $primaryRelative, array $basena
             array_push($found, ...$m[1]);
         }
         foreach ($found as $ref) {
-            $base = basename($ref);
-            $resolved = $basenameIndex[$base] ?? null;
-            if ($resolved === null || isset($involved[$resolved])) {
-                continue;
+            // EVERY same-named candidate, not the best one: see
+            // af_basename_index(). A `$FIX/make-fixture.php` invocation names
+            // two real fixtures and the text scan cannot say which, so both
+            // are followed rather than one guessed.
+            foreach ($basenameIndex[basename($ref)] ?? [] as $resolved) {
+                if (isset($involved[$resolved])) {
+                    continue;
+                }
+                $involved[$resolved] = true;
+                $queue[] = $resolved;
             }
-            $involved[$resolved] = true;
-            $queue[] = $resolved;
         }
     }
 
@@ -607,8 +696,9 @@ function af_dir_base_levels(string $base, string $up): int
  * make a token as incidental as `cd "$ROOT/sandbox/tests"` mean "every test
  * file in the repo is my dependency", collapsing the tool to `--all` for the
  * commonest edit there is. sandbox/tmp is scratch (gitignored) and never a
- * real input. A candidate is rejected when it is any of these OR an ancestor
- * of one, which is what drops the bare `agent`, `cli` and `sandbox` roots.
+ * real input. A candidate is rejected when it is any of these, an ancestor of
+ * one (which is what drops the bare `agent`, `cli` and `sandbox` roots), or a
+ * DESCENDANT of one -- see af_dir_signal_excluded().
  */
 const AF_DIR_SIGNAL_EXCLUDED = [
     'agent/src',
@@ -693,6 +783,19 @@ function af_dir_signal_excluded(string $dir): bool
         // agent/src and cli/src have module subdirectories now, and
         // `agent/src/Kernel` must be excluded for the same reason its parent
         // is — its contents are already resolved file-by-file.
+        //
+        // (This line is matched verbatim by tools/codemod/move-modules.php's
+        // mm_scanner_fixes(), which uses a replacement's first line to decide
+        // the rewrite is already applied; MoveModulesTest's real-repo no-op
+        // case fails if it is reworded.)
+        //
+        // It carries the sandbox/tests restructure unchanged and is
+        // load-bearing there for the same reason: once suites live under
+        // sandbox/tests/offline/<domain>, a bare
+        // `cd "$ROOT/sandbox/tests/offline/repository"` in one suite would
+        // otherwise register that whole domain as a directory dependency and
+        // select every suite in it on any edit — the `--all` collapse this
+        // exclusion list exists to prevent, just one level down.
         if ($dir === $precise
             || str_starts_with($precise . '/', $dir . '/')
             || str_starts_with($dir . '/', $precise . '/')) {
@@ -924,13 +1027,16 @@ function af_build_index(string $root): array
 
     $targets = [];
     foreach ($leaves as $target) {
-        $basename = $primaryByTarget[$target] ?? null;
-        if ($basename === null) {
+        // af_primary_targets() already carries the repo-relative path: a
+        // nested suite's path cannot be rebuilt from its basename, and the
+        // `'sandbox/tests/' . $basename` this replaced would have named a
+        // non-existent file for every suite below the top level.
+        $primaryRelative = $primaryByTarget[$target] ?? null;
+        if ($primaryRelative === null) {
             fwrite(STDERR, "affected: NOTICE offline leaf '$target' has no sandbox/tests/regress_*"
                 . " file under the naming rule -- it will select for nothing\n");
             continue;
         }
-        $primaryRelative = 'sandbox/tests/' . $basename;
         $involved = af_gather_involved($root, $primaryRelative, $basenameIndex);
 
         /** @var array<string,string> $refs path => reason */
