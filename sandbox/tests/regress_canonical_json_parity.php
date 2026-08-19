@@ -141,28 +141,24 @@
  *  - agent/src/Adapter/AdapterCertification.php:527 — bundlePretty()'s sibling
  *    four-space pretty asset writer is reached only through a signed bundle
  *    import; bundlePretty() itself IS pinned and is the byte authority.
- *  - The 20 open-coded relative-path checks that \Duo\PathSafety should
+ *  - The open-coded relative-path checks that \Duo\PathSafety should
  *    eventually own. They are not callable uniformly (most are inline `if`
  *    guards inside larger validators), so this suite pins PathSafety's own
- *    vectors and its one verbatim copy, and records the migration target:
+ *    vectors and its one verbatim copy, and records the migration target as a
+ *    command rather than a transcribed list of file:line coordinates:
  *
  *      grep -rn "'\.\.'" agent/src cli/src recovery | grep -v PathSafety.php
  *
- *    agent/src/Repository/RepositoryMediaCatalog.php:65      agent/src/Publication/PublicationJournal.php:2553
- *    agent/src/Code/CodeCompatibility.php:812          agent/src/Review/RefreshExport.php:429
- *    agent/src/Adapter/AdapterSources.php:1284            agent/src/Init/InitCodeBaseline.php:300
- *    agent/src/Adapter/AdapterSources.php:2686            agent/src/Init/InitCodeInventory.php:141
- *    agent/src/Adapter/ScopedCertificationBundle.php:171  agent/src/Adapter/AdapterCertification.php:439
- *    agent/src/Adapter/ScopedCertificationBundle.php:717  agent/src/Adapter/AdapterContractGrammar.php:62
- *    agent/src/Adapter/ScopedCertificationBundle.php:826  agent/src/Code/CodeDescriptorCompiler.php:115
- *    agent/src/Adapter/ActionProviderGrammar.php:670      cli/src/Refresh/RefreshPlan.php:1082
- *    agent/src/Publication/PublicationJournal.php:1124        recovery/UploadBundle.php:620
- *    agent/src/Publication/PublicationJournal.php:1163        recovery/EffectBundle.php:561
+ *    A pasted inventory was here and went stale twice over — three of its ten
+ *    left-column entries named agent/src/Adapter/ScopedCertificationBundle.php,
+ *    which no longer exists, and the count had drifted from the grep's. A
+ *    coordinate list nobody re-runs is worse than the command that produces it.
  *
- *    Two of them are known-narrower on purpose and must NOT be migrated
- *    blindly: cli/src/Refresh/RefreshPlan.php:1082 accepts "\\" and C0 bytes that
- *    PathSafety::safe_relative() refuses, and agent/src/Adapter/AdapterSources.php:2686
- *    additionally bounds depth and requires a ".php" tail.
+ *    Two call sites are known-narrower on purpose and must NOT be migrated
+ *    blindly: cli/src/Refresh/RefreshPlan.php's repository-relative check accepts
+ *    "\\" and C0 bytes that PathSafety::safe_relative() refuses, and
+ *    AdapterSources' bundled-adapter check additionally bounds depth and
+ *    requires a ".php" tail.
  *
  * REGENERATING THE GOLDENS
  * ------------------------

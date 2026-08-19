@@ -294,7 +294,6 @@ function fresh_site_repo(array $manifests, array $policy = []): string {
 function load_frozen(array $manifests): Policy {
     return Policy::from_snapshot([
         'adapter_sources' => ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []],
-        'capabilities' => null,
         'dispositions' => null,
         'format' => 'duo-policy-snapshot/v4',
         'manifests' => $manifests,

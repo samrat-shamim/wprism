@@ -50,7 +50,7 @@ use Duo\CommandRefusalException;
  *               "operations":{"<op>":<ProjectionVocabulary::project() result>},
  *               "next_action":..,"decided_by":..,"meaning":..}],
  *  "unknown":{"pending_count":<int>,"invisible_names_count":<int>,"names_sample":[..]},
- *  "evidence":{"registry_sha256":..,"generated_from":{..},"bundles":[..]},
+ *  "evidence":{"registry_sha256":..,"generated_from":{"dispositions_sha256":..}},
  *  "assess_digest":"sha256:.."}
  * ```
  *
@@ -483,11 +483,18 @@ final class ContractProposal {
         return $items;
     }
 
-    /** @param array<string,mixed> $evidence */
+    /**
+     * The same two pins `ApplicationContract::validateEvidencePins()` accepts —
+     * this block is copied verbatim into the contract below, so a shape this
+     * validator admitted and that one refused would fail at the generator's own
+     * self-check with the contract's key path, one module away from the cause.
+     *
+     * @param array<string,mixed> $evidence
+     */
     private static function validateEvidence(array $evidence): void {
         self::closedKeys(
             $evidence,
-            ['registry_sha256', 'generated_from', 'bundles'],
+            ['registry_sha256', 'generated_from'],
             [],
             'assess_report.evidence'
         );
@@ -496,9 +503,6 @@ final class ContractProposal {
         }
         if (!is_array($evidence['generated_from']) || array_is_list($evidence['generated_from'])) {
             throw self::refuse('assess_report_invalid', 'assess_report.evidence.generated_from must be an object');
-        }
-        if (!is_array($evidence['bundles']) || !array_is_list($evidence['bundles'])) {
-            throw self::refuse('assess_report_invalid', 'assess_report.evidence.bundles must be a list');
         }
     }
 

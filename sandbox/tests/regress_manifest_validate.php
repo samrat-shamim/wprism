@@ -281,12 +281,24 @@ check(
         ),
     'contact-form-7 disposition registers the declared post_types surface'
 );
-$registry = json_decode((string) file_get_contents($repo . '/manifests/capabilities/registry.json'), true);
+// The third link of the chain: the declared type reaches the CAPABILITY CLAIM,
+// not merely the manifest and the disposition. That claim used to be read out
+// of a generated `capabilities/registry.json`; it is now projected from the
+// reviewed disposition on demand, so the assertion runs the projection rather
+// than reading a file. Same property, one document closer to the source — and
+// it is `ManifestDispositions::claim_from_disposition()` that expands
+// `post_types` into `post_types.<key>` from the manifest's own keys, which is
+// exactly the step a whole-type declaration could silently lose.
+$cf7Claim = \Duo\ManifestDispositions::claim_from_disposition(
+    $cf7Manifest,
+    $dispositions['manifests']['contact-form-7'],
+    $dispositions['manifests']['contact-form-7']['evidence'] ?? [],
+    ['compatibility' => []]
+);
 check(
-    is_array($registry)
-        && in_array('post_types', $registry['manifests']['contact-form-7']['surfaces'] ?? [], true)
-        && in_array('post_types.wpcf7_contact_form', $registry['manifests']['contact-form-7']['surfaces'] ?? [], true),
-    'generated capability registry carries the Contact Form 7 post_types surface'
+    in_array('post_types', $cf7Claim['surfaces'] ?? [], true)
+        && in_array('post_types.wpcf7_contact_form', $cf7Claim['surfaces'] ?? [], true),
+    'the projected capability claim carries the Contact Form 7 post_types surface, expanded to the declared type'
 );
 check(
     !in_array('dispositions', $shippedNames, true),

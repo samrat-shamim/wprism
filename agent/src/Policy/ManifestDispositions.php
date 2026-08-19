@@ -7,11 +7,26 @@ namespace Duo;
  * A manifest cannot certify itself merely by existing beside the agent. The
  * separate dispositions document records the reviewed support boundary and
  * its evidence, while this loader makes omissions and malformed claims loud.
- * Custom/test manifest directories without the shipped registry keep their
- * historical policy behavior, but expose no certified capability claim.
+ * Custom/test manifest directories without a dispositions document keep their
+ * historical policy behavior, but expose no reviewed capability claim.
+ *
+ * These reviewed bytes are the ONLY authored source of a product capability
+ * claim: `claim_from_disposition()` below projects one, and AdapterRegistry
+ * evaluates that projection against a live target. There is no second,
+ * generated document to agree with.
  */
 final class ManifestDispositions {
     public const FORMAT = 'duo-manifest-dispositions/v1';
+
+    /**
+     * The agent's own platform/runtime boundary, shipped beside the manifest
+     * library at `capabilities/platform.json` rather than derived here: the
+     * bytes of this object are what a signed site-adapter certificate binds as
+     * `platform_sha256` (AdapterCertification::currentPlatform()), so it has
+     * exactly one on-disk representation and both readers name this constant.
+     */
+    public const PLATFORM_FORMAT = 'duo-platform-boundary/v1';
+    private const PLATFORM_RELATIVE = 'capabilities/platform.json';
 
     /**
      * The synthesized blocker status for a manifest with NO reviewed
@@ -89,6 +104,158 @@ final class ManifestDispositions {
 
     public function profiles(): array {
         return $this->data['profiles'];
+    }
+
+    /**
+     * The content address of these exact reviewed bytes. It is the number a
+     * host contract pins as `registry_sha256` and re-observes later, so it has
+     * one definition rather than one per report producer.
+     */
+    public function sha256(): string {
+        return hash('sha256', Canon::encode($this->data));
+    }
+
+    /**
+     * The agent platform boundary this library ships, validated against the
+     * loaded agent.
+     *
+     * The version agreement is not decoration: a platform object naming a
+     * different agent/spec version than the code reading it would let a claim
+     * describe a runtime nobody is running. Loud, and before any claim is
+     * projected from it.
+     *
+     * @return array<string,mixed>
+     */
+    public static function platform_boundary(?string $dir = null): array {
+        $file = rtrim($dir ?? self::manifests_dir(), '/') . '/' . self::PLATFORM_RELATIVE;
+        $label = "agent platform boundary '$file'";
+        if (!is_file($file)) {
+            throw new \RuntimeException("duo: $label is absent; this manifest library declares no platform boundary");
+        }
+        $data = Canon::decode(Canon::read_file($file));
+        $keys = array_keys($data);
+        sort($keys, SORT_STRING);
+        if ($keys !== ['format', 'platform']
+            || ($data['format'] ?? null) !== self::PLATFORM_FORMAT
+            || !is_array($data['platform'] ?? null) || array_is_list($data['platform'])
+            || !is_array($data['platform']['compatibility'] ?? null)) {
+            throw new \RuntimeException("duo: $label has an unsupported or malformed root");
+        }
+        $platform = $data['platform'];
+        if (($platform['agent_version'] ?? null) !== (defined('DUO_AGENT_VERSION') ? DUO_AGENT_VERSION : '0.5.0')
+            || ($platform['spec_version'] ?? null) !== (defined('DUO_SPEC_VERSION') ? DUO_SPEC_VERSION : 2)) {
+            throw new \RuntimeException("duo: $label platform version disagrees with the loaded agent");
+        }
+        return $platform;
+    }
+
+    /**
+     * Resolve the manifest library without requiring Policy to be loaded: this
+     * file is reachable from partially-loaded offline contexts that never
+     * include Policy.php, and a hard `Policy::` call there would fatal.
+     */
+    private static function manifests_dir(): string {
+        if (class_exists(Policy::class)) {
+            return Policy::manifests_dir();
+        }
+        $env = getenv('DUO_MANIFESTS_DIR');
+        if ($env && is_dir($env)) {
+            return $env;
+        }
+        return dirname(__DIR__, 3) . '/manifests';
+    }
+
+    /**
+     * Project one reviewed disposition into the generic capability-row shape
+     * without assigning an adapter digest or consulting another subject's
+     * evidence.  Shipped capability reporting and separately authenticated
+     * site adapters can therefore share operations/surface/environment
+     * semantics; callers bind their own source-specific evidence and may add
+     * the final digest only after the disposition source is settled.
+     *
+     * @return array<string,mixed>
+     */
+    public static function claim_from_disposition(
+        array $manifest,
+        array $disposition,
+        array $evidence,
+        array $platform,
+        ?array $pluginExecution = null
+    ): array {
+        $name = (string) ($manifest['name'] ?? '');
+        if ($name === '' || !is_array($disposition['capabilities'] ?? null)
+            || !is_array($platform['compatibility'] ?? null)) {
+            throw new \RuntimeException('duo: cannot project a malformed manifest disposition capability claim');
+        }
+        $status = (string) ($disposition['status'] ?? 'unsupported');
+        $execution = $pluginExecution ?? [
+            'mode' => 'unmodified',
+            'status' => $status === 'certified'
+                ? 'verified'
+                : ($status === 'excluded' ? 'not-a-product-claim' : 'unverified'),
+        ];
+        $capabilities = $disposition['capabilities'];
+        $surfaces = [];
+        foreach (array_merge(
+            (array) ($capabilities['entity_sections'] ?? []),
+            (array) ($capabilities['field_sections'] ?? [])
+        ) as $section) {
+            if (!is_string($section) || $section === '') {
+                throw new \RuntimeException("duo: manifest disposition '$name' has a malformed capability section");
+            }
+            $surfaces[] = $section;
+            $value = $manifest[$section] ?? null;
+            if (is_array($value) && !array_is_list($value)) {
+                foreach (array_keys($value) as $key) {
+                    $surfaces[] = $section . '.' . $key;
+                }
+            }
+        }
+        foreach ((array) (($capabilities['deletion_semantics']['supported'] ?? [])) as $selector) {
+            if (!is_string($selector) || $selector === '') {
+                throw new \RuntimeException("duo: manifest disposition '$name' has a malformed deletion selector");
+            }
+            $surfaces[] = 'deletions.' . $selector;
+        }
+        $surfaces = array_values(array_unique($surfaces, SORT_STRING));
+        sort($surfaces, SORT_STRING);
+
+        $operations = array_values((array) ($capabilities['operations'] ?? []));
+        if (in_array('deploy', $operations, true) && in_array('apply', $operations, true)) {
+            $operations[] = 'promote';
+        }
+        foreach ($operations as $operation) {
+            if (!is_string($operation) || $operation === '') {
+                throw new \RuntimeException("duo: manifest disposition '$name' has a malformed operation");
+            }
+        }
+        $operations = array_values(array_unique($operations, SORT_STRING));
+        sort($operations, SORT_STRING);
+
+        return [
+            'name' => $name,
+            'status' => $status,
+            'reason' => (string) ($disposition['reason'] ?? ''),
+            'plugin_execution' => $execution,
+            'authored_state' => [
+                'status' => $status === 'excluded' ? 'unsupported' : $status,
+                'scope' => 'only the exact registered surfaces and operations below',
+            ],
+            'supported_versions' => $disposition['supported_versions'] ?? new \stdClass(),
+            'environment_assumptions' => [
+                'site_mode' => $platform['site_mode'] ?? null,
+                'php' => $platform['compatibility']['php'] ?? new \stdClass(),
+                'database' => $platform['compatibility']['database'] ?? new \stdClass(),
+                'wordpress' => $platform['compatibility']['wordpress'] ?? new \stdClass(),
+            ],
+            'operations' => $operations,
+            'surfaces' => $surfaces,
+            'lifecycle_phases' => $capabilities['lifecycle_phases'] ?? [],
+            'deletion_semantics' => $capabilities['deletion_semantics'] ?? new \stdClass(),
+            'unsupported' => $disposition['unsupported'] ?? [],
+            'evidence' => $evidence,
+            'platform' => $platform,
+        ];
     }
 
     /**
@@ -181,7 +348,7 @@ final class ManifestDispositions {
         }
         return [
             'schema_version' => self::FORMAT,
-            'registry_sha256' => hash('sha256', Canon::encode($this->data)),
+            'registry_sha256' => $this->sha256(),
             'ready' => $this->blockers($manifests) === [],
             'blockers' => $this->blockers($manifests),
             'manifests' => $rows,

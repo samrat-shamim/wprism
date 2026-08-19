@@ -10,16 +10,17 @@ require __DIR__ . '/../../agent/src/Kernel/Canon.php';
 require __DIR__ . '/../../agent/src/Kernel/OptionState.php';
 require __DIR__ . '/../../agent/src/Kernel/Db.php';
 require __DIR__ . '/../../agent/src/Policy/ManifestDispositions.php';
-require __DIR__ . '/../../agent/src/Adapter/CapabilityRegistry.php';
+require __DIR__ . '/../../agent/src/Adapter/AdapterRegistry.php';
 require __DIR__ . '/../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/../../agent/src/Policy/ArtifactPolicyIdentity.php';
 require __DIR__ . '/../../agent/src/Repository/Ledger.php';
 require __DIR__ . '/../../agent/src/Repository/RepositoryCompiler.php';
 require __DIR__ . '/../../cli/src/Plan/PlanSummary.php';
 require __DIR__ . '/../../cli/src/Transport/CodeDeploy.php';
 
+use Duo\AdapterRegistry;
 use Duo\Canon;
 use Duo\ManifestDispositions;
-use Duo\CapabilityRegistry;
 use Duo\Policy;
 use Duo\RepositoryCompiler;
 use Duo\Orchestrator\CodeDeploy;
@@ -78,7 +79,32 @@ $manifestsByName = [];
 foreach ($manifests as $manifest) {
     $manifestsByName[(string) ($manifest['name'] ?? '')] = $manifest;
 }
-$capabilityRegistry = CapabilityRegistry::load($manifestDir, $registry, $manifests);
+
+echo "\n== the reviewed dispositions are the WHOLE authored claim source ==\n";
+// This group replaces the suite's former premise. Until the evidence chain was
+// retired, `Policy::load()` REFUSED a library that had dispositions and no
+// generated capability registry beside them ("missing registry data is
+// unsupported"), so "dispositions present" always implied a second, derived
+// document that had to agree. There is no second document: these bytes are the
+// only authored source of a product capability claim, and a library carrying
+// them is complete. Asserted rather than assumed, because the whole refactor
+// turns on it.
+check(
+    $registry instanceof ManifestDispositions
+    && !is_file($manifestDir . '/capabilities/registry.json')
+    && !is_file($manifestDir . '/capabilities/evidence.json')
+    && !is_dir($manifestDir . '/capabilities/scoped'),
+    'the shipped library loads its dispositions with no generated registry, attestation, or bundle tree present'
+);
+check(
+    count(Policy::load(null, ['core'])->manifests) === 1,
+    'and Policy::load() accepts that library — dispositions ALONE are a complete, valid state'
+);
+check(
+    hash_equals($registry->sha256(), hash('sha256', Canon::encode($data))),
+    'registry_sha256 is the content address of these exact reviewed bytes, with one definition rather than one per '
+    . 'report producer'
+);
 
 echo "\n== complete external matrix and honest classifications ==\n";
 check(count($data['manifests']) === count($manifestFiles), 'every shipped manifest has exactly one external disposition');
@@ -154,11 +180,55 @@ expect_throw(
 );
 $corePolicy = Policy::load(null, ['core']);
 $coreBlockers = $corePolicy->adapter_readiness_blockers();
-if (($capabilityRegistry->data()['manifests']['core']['evidence']['status'] ?? null) === 'current') {
-    check($coreBlockers === [], 'a certified core pin with current evidence contributes no capability blocker');
-} else {
-    check(($coreBlockers[0]['code'] ?? null) === 'evidence_not_current', 'candidate evidence remains a structured readiness blocker');
+// Unconditional now, and that is the repair. This assertion used to BRANCH on
+// whether the generated attestation happened to read `current` on this branch,
+// so it passed either way and pinned nothing: on a bundle-owing checkout it
+// asserted `evidence_not_current` instead. A reviewed certified claim is
+// current by construction — a reviewer wrote it — so there is one answer.
+check($coreBlockers === [], 'a certified core pin contributes no capability blocker, on any checkout');
+$coreRow = null;
+foreach ($corePolicy->capability_report()['manifests'] as $row) {
+    if (($row['name'] ?? null) === 'core') {
+        $coreRow = $row;
+    }
 }
+check(
+    ($coreRow['verdict']['status'] ?? null) === 'certified'
+    && ($coreRow['evidence_scope'] ?? null) === 'authored_disposition'
+    && ($coreRow['evidence'] ?? null) === ($data['manifests']['core']['evidence'] ?? null)
+    && !array_key_exists('adapter_digest', $coreRow),
+    "the certified row cites the reviewer's own words verbatim and carries no generated adapter digest — a "
+    . 'synthesized currency status here would be the agent vouching for itself'
+);
+$deadCodes = [
+    'evidence_not_current', 'revision_not_certified', 'profile_evidence_not_current',
+    'wordpress_version_mismatch', 'php_version_mismatch', 'database_version_mismatch',
+    'multisite_unsupported', 'theme_version_mismatch', 'theme_not_active',
+    'missing_capability_registry',
+];
+$agentSource = '';
+foreach (['Adapter/AdapterRegistry', 'Policy/ManifestDispositions', 'Policy/Policy'] as $file) {
+    $agentSource .= (string) file_get_contents("$repo/agent/src/$file.php");
+}
+$liveDeadCodes = array_values(array_filter(
+    $deadCodes,
+    static fn(string $code): bool => str_contains($agentSource, "'$code'")
+));
+check(
+    $liveDeadCodes === [],
+    'every blocker code that reported on a GENERATED evidence or platform record is gone from the engine rather '
+    . 'than left emitting on data nothing produces (still present: ' . implode(', ', $liveDeadCodes) . ')'
+);
+check(
+    str_contains($agentSource, "'missing_registry_entry'")
+    && str_contains($agentSource, "'authored_state_not_certified'")
+    && str_contains($agentSource, "'operation_not_certified'")
+    && str_contains($agentSource, "'surface_not_registered'")
+    && str_contains($agentSource, "'plugin_version_mismatch'")
+    && str_contains($agentSource, "'plugin_not_active'"),
+    'while every code that reports a REVIEWED or live-target fact survives — the deletions above are the evidence '
+    . 'apparatus, not a relaxation of the gate'
+);
 $pmproPolicy = Policy::load(null, ['paid-memberships-pro']);
 $pmproBlockers = $pmproPolicy->adapter_readiness_blockers();
 $pmproAuthoredBlocker = array_values(array_filter(
@@ -194,33 +264,39 @@ mkdir($fixture, 0777, true);
 mkdir($fixture . '/capabilities', 0777, true);
 register_shutdown_function(fn() => remove_fixture_tree($fixture));
 copy($manifestDir . '/core.json', $fixture . '/core.json');
+// The shipped platform boundary verbatim; a claim cannot be projected without
+// one, and re-authoring it here would describe a runtime nobody is running.
+copy($manifestDir . '/capabilities/platform.json', $fixture . '/capabilities/platform.json');
 $coreRegistry = $data;
 $coreRegistry['manifests'] = ['core' => $data['manifests']['core']];
 $coreRegistry['profiles'] = [];
 Canon::write_file($fixture . '/dispositions.json', Canon::encode($coreRegistry));
-$coreCapabilities = $capabilityRegistry->data();
-$coreCapabilities['manifests'] = ['core' => $coreCapabilities['manifests']['core']];
-$coreCapabilities['profiles'] = [];
-$coreCapabilities['manifests']['core']['evidence']['bundle_digest'] = null;
-$coreCapabilities['manifests']['core']['evidence']['closure_digest'] = null;
-$coreCapabilities['manifests']['core']['evidence']['git_revision'] = null;
-$coreCapabilities['manifests']['core']['evidence']['status'] = 'candidate';
-$coreCapabilities['manifests']['core']['evidence']['subject_digest'] = null;
-$coreCapabilities['generated_from']['dispositions_sha256'] = hash_file('sha256', $fixture . '/dispositions.json');
-Canon::write_file($fixture . '/capabilities/registry.json', Canon::encode($coreCapabilities));
 putenv("DUO_MANIFESTS_DIR=$fixture");
 $before = RepositoryCompiler::resolved_adapters(Policy::load(null, ['core']))[0]['digest'];
+$beforeSha = ManifestDispositions::load($fixture)->sha256();
+// One document to edit now. The former version of this check had to rewrite
+// the generated registry's `dispositions_sha256` and re-derive its
+// `adapter_digest` alongside the edit, or the load refused before the digest
+// could be compared — that bookkeeping was the mirror this refactor removed.
 $coreRegistry['manifests']['core']['reason'] .= ' Reviewed wording change.';
 Canon::write_file($fixture . '/dispositions.json', Canon::encode($coreRegistry));
-$coreCapabilities['generated_from']['dispositions_sha256'] = hash_file('sha256', $fixture . '/dispositions.json');
-$coreCapabilities['manifests']['core']['adapter_digest'] = CapabilityRegistry::adapter_digest(
-    Canon::decode(Canon::read_file($fixture . '/core.json')),
-    $coreRegistry['manifests']['core'],
-    $fixture
-);
-Canon::write_file($fixture . '/capabilities/registry.json', Canon::encode($coreCapabilities));
 $after = RepositoryCompiler::resolved_adapters(Policy::load(null, ['core']))[0]['digest'];
 check($before !== $after, 'changing only disposition bytes moves the per-adapter digest');
+check(
+    $beforeSha !== ManifestDispositions::load($fixture)->sha256(),
+    'and moves the content address a host contract pins, so the change is visible to a consumer that never opens '
+    . 'the file'
+);
+// The one thing the frozen path may not lose: manifest_hash() is what an
+// artifact binds, and the v6 snapshot round trip drops the `capabilities`
+// record — so the hash must survive it unchanged.
+$roundTripped = Policy::from_snapshot(Policy::load(null, ['core'])->export_snapshot());
+check(
+    \Duo\ArtifactPolicyIdentity::manifest_hash($roundTripped)
+        === \Duo\ArtifactPolicyIdentity::manifest_hash(Policy::load(null, ['core'])),
+    'manifest_hash survives the v6 snapshot round trip byte for byte — dropping the frozen generated registry moved '
+    . 'no artifact identity'
+);
 
 echo "\n== omissions fail loud; CLI/status/promotion consume the same result ==\n";
 Canon::write_file($fixture . '/dispositions.json', Canon::encode($data));
@@ -230,7 +306,13 @@ WP_CLI::$lines = [];
 (new Duo\Cli())->capabilities([], ['all' => true, 'format' => 'json']);
 $cliReport = json_decode(WP_CLI::$lines[0] ?? '', true);
 check(count($cliReport['manifests'] ?? []) === 15, 'wp duo capabilities --all reports every shipped disposition');
-check(($cliReport['registry_sha256'] ?? null) === $capabilityRegistry->report($manifests)['registry_sha256'], 'CLI capability output resolves the exact checked-in generated registry bytes');
+check(
+    ($cliReport['registry_sha256'] ?? null) === $registry->sha256()
+    && ($cliReport['schema_version'] ?? null) === AdapterRegistry::REPORT_FORMAT
+    && !array_key_exists('revision', $cliReport['query'] ?? []),
+    'CLI capability output addresses the exact checked-in reviewed bytes, under the report wire version that '
+    . 'announces it carries no generated digest, subject record, or bound evidence status'
+);
 $summary = PlanSummary::render(['adapter_dispositions' => $pmproBlockers]);
 check($summary['ok'] === false && str_contains(implode("\n", $summary['lines']), 'CAPABILITY_REGISTRY'), 'host status is non-green and explains the experimental adapter');
 $hostBlockers = CodeDeploy::dispositionBlockers(['resolved_adapters' => RepositoryCompiler::resolved_adapters($pmproPolicy)]);

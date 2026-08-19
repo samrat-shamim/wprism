@@ -141,7 +141,6 @@ $check(
 
 $snapshot = [
     'adapter_sources' => ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []],
-    'capabilities' => null,
     'dispositions' => null,
     'format' => 'duo-policy-snapshot/v4',
     'manifests' => [manifest_a()],

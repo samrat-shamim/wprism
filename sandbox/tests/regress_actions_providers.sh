@@ -49,7 +49,8 @@ php -l ../../agent/src/Adapter/ProviderSdk.php >/dev/null || fail "agent/src/Ada
 php -l ../../agent/src/Adapter/Providers.php >/dev/null || fail "agent/src/Adapter/Providers.php has a syntax error"
 php -l ../../agent/src/Apply/Apply.php >/dev/null || fail "agent/src/Apply/Apply.php has a syntax error"
 php -l ../../agent/src/Repository/RepositoryCompiler.php >/dev/null || fail "agent/src/Repository/RepositoryCompiler.php has a syntax error"
-php -l ../../agent/src/Adapter/CapabilityRegistry.php >/dev/null || fail "agent/src/Adapter/CapabilityRegistry.php has a syntax error"
+php -l ../../agent/src/Adapter/AdapterRegistry.php >/dev/null || fail "agent/src/Adapter/AdapterRegistry.php has a syntax error"
+php -l ../../agent/src/Adapter/TargetProbe.php >/dev/null || fail "agent/src/Adapter/TargetProbe.php has a syntax error"
 php -l ../../agent/src/Promotion/Deploy.php >/dev/null || fail "agent/src/Promotion/Deploy.php has a syntax error"
 for provider in ../../manifests/providers/*.php; do
   php -l "$provider" >/dev/null || fail "$provider has a syntax error"

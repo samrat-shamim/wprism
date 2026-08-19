@@ -1,5 +1,5 @@
 {
-    "assess_digest": "sha256:c2344dae412e8fc6cbc48d70ef2c8f89399e16b5c61ad068a42f8eb3b25c574e",
+    "assess_digest": "sha256:859ceda1f7293236d21bd0eef09d98d1a61802df8a2feaa24cefe017bae86169",
     "authority": {
         "read_only": true,
         "repo": "/siterepo",
@@ -7,11 +7,8 @@
     },
     "env": "mup1",
     "evidence": {
-        "bundles": [],
         "generated_from": {
-            "compatibility_sha256": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
-            "dispositions_sha256": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
-            "evidence_sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+            "dispositions_sha256": "sha256:9999999999999999999999999999999999999999999999999999999999999999"
         },
         "registry_sha256": "sha256:8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f"
     },

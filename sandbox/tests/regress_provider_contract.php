@@ -88,7 +88,7 @@ class WP_Error {
     public function __construct(public string $message = '') {}
 }
 // DUO-3317: the WordPress version read a provider `requires.wordpress_version`
-// negotiation makes — CapabilityRegistry::probe_target() reads
+// negotiation makes — TargetProbe::probe_target() reads
 // get_bloginfo('version') the same way. Controlled by a global so the requires
 // cases below can place the site's version inside or outside a declared
 // window. Every other check leaves the requirement path untouched (a
@@ -230,7 +230,6 @@ function delete_transient($transient): bool {
 require $root . '/agent/src/Kernel/Canon.php';
 require $root . '/agent/src/Kernel/OptionState.php';
 require $root . '/agent/src/Policy/ManifestDispositions.php';
-require $root . '/agent/src/Adapter/CapabilityRegistry.php';
 require $root . '/agent/src/Policy/Policy.php';
 require $root . '/agent/src/Code/CodeCompatibility.php';
 require $root . '/agent/src/Promotion/Deploy.php';
@@ -436,7 +435,6 @@ $policyFor = static function (array $manifest): \Duo\Policy {
     return \Duo\Policy::from_snapshot([
         'format' => 'duo-policy-snapshot/v4',
         'adapter_sources' => ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []],
-        'capabilities' => null,
         'dispositions' => null,
         'site' => [
             'manifests' => [$manifest['name']],
@@ -953,11 +951,13 @@ $check(\Duo\Providers::problems($policy) === [], 'a healthy environment reports 
 
 echo "\n== missing manifest provider: reporting stays visible while apply stays fail-closed ==\n";
 
-// Policy promotes narrowed provider findings only when the loaded library has
-// the reviewed disposition + generated capability surfaces that real plan /
-// status consumers carry. Build the smallest valid experimental pair here so
-// this exercises Policy::provider_readiness_blockers(), not only the wider
-// Providers::problems() helper above.
+// Policy promotes narrowed provider findings only when the loaded library
+// carries the reviewed dispositions that real plan / status consumers do.
+// Since the evidence apparatus was retired those dispositions are the WHOLE
+// authored claim source — there is no second generated registry to freeze
+// beside them — so the smallest valid experimental entry is the entire
+// fixture, and it exercises Policy::provider_readiness_blockers() rather than
+// only the wider Providers::problems() helper above.
 $disposition = [
     'status' => 'experimental',
     'reason' => 'provider readiness fixture',
@@ -984,42 +984,18 @@ $dispositionSnapshot = [
     'manifests' => ['probe' => $disposition],
     'profiles' => [],
 ];
-$candidateEvidence = [
-    'bundle_digest' => null,
-    'bundle_schema' => \Duo\ManifestDispositions::EVIDENCE_SCHEMA,
-    'closure_digest' => null,
-    'force_hatches' => [],
-    'git_revision' => null,
-    'status' => 'candidate',
-    'subject' => 'manifests.probe',
-    'subject_digest' => null,
-    'tests' => [],
-];
-$capabilitySnapshot = [
-    'format' => \Duo\CapabilityRegistry::FORMAT,
-    'generated_from' => ['fixture' => 'provider-readiness'],
-    'platform' => ['agent_version' => '0.5.0', 'spec_version' => DUO_SPEC_VERSION],
-    'manifests' => ['probe' => [
-        'name' => 'probe',
-        'status' => 'experimental',
-        'adapter_digest' => \Duo\CapabilityRegistry::adapter_digest($manifest, $disposition, $dir),
-        'operations' => ['apply'],
-        'surfaces' => [],
-        'plugin_execution' => ['mode' => 'test', 'status' => 'unverified'],
-        'authored_state' => ['status' => 'experimental'],
-        'evidence' => $candidateEvidence,
-    ]],
-    'profiles' => [],
-];
 file_put_contents($dir . '/probe.json', \Duo\Canon::encode($manifest));
 $reviewedPolicy = \Duo\Policy::from_snapshot([
-    'format' => 'duo-policy-snapshot/v5',
+    // v6 is the generation that carries dispositions and NO `capabilities`
+    // record. The key set is closed, so a snapshot still carrying the retired
+    // generated registry is refused rather than read with the record ignored —
+    // pinned directly below.
+    'format' => 'duo-policy-snapshot/v6',
     'adapter_sources' => [
         'format' => 'duo-adapter-sources/v2',
         'certificates' => [],
         'out_of_tree' => [],
     ],
-    'capabilities' => $capabilitySnapshot,
     'dispositions' => $dispositionSnapshot,
     'site' => [
         'manifests' => ['probe'],
@@ -1028,6 +1004,25 @@ $reviewedPolicy = \Duo\Policy::from_snapshot([
     ],
     'manifests' => [$manifest],
 ]);
+$v6Snapshot = $reviewedPolicy->export_snapshot();
+$check(!array_key_exists('capabilities', $v6Snapshot)
+    && ($v6Snapshot['format'] ?? null) === 'duo-policy-snapshot/v6',
+    'a v6 snapshot round trip emits dispositions and no `capabilities` record at all');
+// The retired generation is a REFUSAL, not an ignored key. A v5 snapshot froze
+// a generated registry this agent no longer validates against anything, so
+// reading it would verify a record nobody checked; the closed key set is what
+// makes that loud.
+$v5Snapshot = $v6Snapshot;
+$v5Snapshot['format'] = 'duo-policy-snapshot/v5';
+$v5Snapshot['capabilities'] = ['format' => 'duo-capability-registry/v2', 'manifests' => []];
+$v5Refusal = '';
+try {
+    \Duo\Policy::from_snapshot($v5Snapshot);
+} catch (\Throwable $t) {
+    $v5Refusal = $t->getMessage();
+}
+$check(str_contains($v5Refusal, 'frozen policy snapshot has an unsupported or malformed shape'),
+    'a v5 snapshot carrying the retired generated registry is refused by name, not silently accepted');
 $reset();
 $providerFile = $dir . '/providers/probe-cache.php';
 rename($providerFile, $providerFile . '.hidden');
@@ -1136,7 +1131,6 @@ $manifest = json_decode(getenv('DUO_PROBE_MANIFEST'), true);
 $policy = Duo\Policy::from_snapshot([
     'format' => 'duo-policy-snapshot/v4',
     'adapter_sources' => ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []],
-    'capabilities' => null,
     'dispositions' => null,
     'site' => [
         'manifests' => [$manifest['name']],

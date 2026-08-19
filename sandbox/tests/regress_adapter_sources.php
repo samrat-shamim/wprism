@@ -48,7 +48,6 @@ require __DIR__ . '/../../agent/src/Kernel/Canon.php';
 require __DIR__ . '/../../agent/src/Kernel/OptionState.php';
 require __DIR__ . '/../../agent/src/Kernel/Db.php';
 require __DIR__ . '/../../agent/src/Policy/ManifestDispositions.php';
-require __DIR__ . '/../../agent/src/Adapter/CapabilityRegistry.php';
 require __DIR__ . '/../../agent/src/Policy/Policy.php';
 require __DIR__ . '/../../agent/src/Repository/Ledger.php';
 require __DIR__ . '/../../agent/src/Repository/RepositoryCompiler.php';
@@ -56,14 +55,14 @@ require_once __DIR__ . '/../../agent/src/Repository/SidebarState.php';
 require __DIR__ . '/../../agent/src/Repository/RepositoryAuthorization.php';
 require __DIR__ . '/../../agent/src/Promotion/Deploy.php';
 require __DIR__ . '/../../cli/src/Plan/PlanSummary.php';
-// The shared certification fixture (DUO-3379's re-seal, extracted by DUO-3421
-// so sandbox/tests/regress_duo_init.sh can mount the identical library into a
-// live pair). certified_library() below is this suite's scratch-root wrapper.
+require_once __DIR__ . '/../../agent/src/Policy/ArtifactPolicyIdentity.php';
+// The shared hermetic-library fixture (extracted by DUO-3421 so
+// sandbox/tests/regress_duo_init.sh can mount the identical library into a
+// live pair). shipped_library() below is this suite's scratch-root wrapper.
 require __DIR__ . '/certification_fixture.php';
 
 use Duo\AdapterSources;
 use Duo\Canon;
-use Duo\CapabilityRegistry;
 use Duo\Policy;
 use Duo\RepositoryCompiler;
 
@@ -194,64 +193,43 @@ function copy_tree(string $from, string $to): void {
 }
 
 /**
- * The re-seal hash basis of a certification bundle — see
- * certification_fixture.php's duo_cert_bundle_digest(), which the bundle
- * builder, the importer, and both re-sealing fixtures now share. The first
- * check of the fixture group below pins that agreement by reproducing the
- * SHIPPED bundle's own recorded digest through it.
- */
-function bundle_digest(array $bundle): string {
-    return duo_cert_bundle_digest($bundle);
-}
-
-/**
  * The REAL shipped manifest library — every manifest, disposition,
- * interpreter, provider, and regenerator byte for byte — under a scratch
- * directory whose certification evidence has been RE-SEALED against the
- * working tree this suite is running on. Returns the manifest directory.
+ * interpreter, provider, regenerator, the platform boundary and the shipped
+ * trust root, byte for byte — under a scratch directory this suite owns.
+ * Returns the manifest directory.
  *
- * Why this exists (DUO-3379). The checked-in evidence attestation binds the
- * exact bytes of every certification-bound repository input, so a branch that
- * legitimately edits one — engine source, the Makefile, a shipped manifest —
- * carries EXPIRED evidence until that subject is certified and imported, and
- * the regenerated registry reads `candidate` until then. The
- * runtime then attaches the evidence_not_current blocker to every claim,
- * certified ones included. Assertions here about a certified shipped adapter
- * would therefore pass or fail on where in the certification cycle the branch
- * happens to sit rather than on the overlay behavior under test, which is the
- * coupling this fixture removes.
+ * Why a copy at all, now that there is nothing to re-derive. DUO-3379 built
+ * this to re-seal certification evidence, because the checked-in attestation
+ * bound the exact bytes of every certification-bound repository input and was
+ * therefore EXPIRED on any branch that edited one — which put
+ * `evidence_not_current` on every certified claim and made this suite's
+ * verdict depend on where the branch sat in the certification cycle rather
+ * than on the overlay behaviour under test. That apparatus is gone: the
+ * reviewed dispositions are the whole authored claim source and no branch
+ * state can expire them.
  *
- * It removes the coupling without inventing a synthetic library, because a
- * synthetic one cannot demonstrate the claim at all (see the header): the
- * reviewed facts stay the real generated ones — dispositions, statuses,
- * adapter digests, operations, surfaces, profiles — and ONLY the attestation
- * is re-derived, exactly as re-certifying this tree would derive it. The
- * fixture group below proves both halves of that: that the re-seal really is
- * current for these bytes, and that expired, stale, or malformed evidence
- * still refuses to certify anything.
- *
- * The re-seal itself moved to sandbox/tests/certification_fixture.php in
- * DUO-3421, unchanged, because the live init suite needs the identical library
- * mounted into a Docker pair and a second implementation of the bundle-identity
- * basis is a third notion of bundle identity waiting to drift. This function
- * keeps the scratch-root ownership (and therefore this suite's shutdown
- * cleanup) and the memoization; the fixture group below is still where the
- * re-seal's currency is PROVED, for both callers.
+ * What survives is the other half of the reason: the variant groups below
+ * MUTATE a manifest library — deleting its dispositions, breaking its platform
+ * boundary — and the shipped one is not theirs to break. So this is a hermetic
+ * copy, asserted byte-identical and loadable by the shared fixture before any
+ * group reads it, and every mutation happens in a throwaway copy of it. The
+ * copy lives in sandbox/tests/certification_fixture.php because the live init
+ * suite mounts the identical library into a Docker pair; this function keeps
+ * the scratch-root ownership (and therefore this suite's shutdown cleanup) and
+ * the memoization.
  */
-function certified_library(): string {
+function shipped_library(): string {
     static $manifestDir = null;
     if ($manifestDir !== null) {
         return $manifestDir;
     }
-    return $manifestDir = duo_cert_seal_library(dirname(__DIR__, 2), scratch('certified-library'));
+    return $manifestDir = duo_cert_hermetic_library(dirname(__DIR__, 2), scratch('shipped-library'));
 }
 
-/** A throwaway copy of the certification fixture, mutated by $mutate. */
+/** A throwaway copy of the shipped library, mutated by $mutate. */
 function library_variant(callable $mutate): string {
-    $fixture = certified_library();
     $root = scratch('library-variant');
-    copy_tree($fixture, "$root/manifests");
-    copy_tree(dirname($fixture) . '/docs', "$root/docs");
+    copy_tree(shipped_library(), "$root/manifests");
     $mutate("$root/manifests");
     return "$root/manifests";
 }
@@ -262,86 +240,51 @@ function edit_json(string $file, callable $edit): void {
 }
 
 $realManifests = dirname(__DIR__, 2) . '/manifests';
-$shippedDir = certified_library();
+$shippedDir = shipped_library();
 // Every group below resolves the shipped library through this, including the
 // ones that install their own directory and restore it afterwards.
 putenv("DUO_MANIFESTS_DIR=$shippedDir");
 
 // ======================================================================
-echo "\n== the certification fixture is the shipped library, re-sealed against this tree ==\n";
+echo "\n== the fixture library IS the shipped library, whole ==\n";
 // ======================================================================
-$fixtureEvidence = Canon::decode(Canon::read_file("$shippedDir/capabilities/evidence.json"));
-$shippedBundle = $fixtureEvidence['records']['manifests.acf']['bundle'] ?? null;
+// The comparison covers capabilities/ too. While the generated attestation
+// existed the fixture was entitled to differ there — it re-derived those bytes
+// — and the check had to exclude the one directory it could not vouch for.
+// Nothing is derived any more, so the strongest available statement is also
+// the true one: not a byte differs anywhere.
+$fixtureBytes = duo_cert_library_bytes($shippedDir);
 check(
-    is_array($shippedBundle)
-        && hash_equals((string) $shippedBundle['bundle_digest'], bundle_digest($shippedBundle)),
-    "the harness re-seals subject records on the production hash basis — recomputing one record's identity reproduces its digest"
+    $fixtureBytes === duo_cert_library_bytes($realManifests) && $fixtureBytes !== [],
+    'every manifest, disposition, interpreter, provider, regenerator, the platform boundary and the shipped trust '
+    . 'root under test is the shipped file byte for byte (' . count($fixtureBytes) . ' files)'
 );
-// Everything the library is, except the capabilities/ attestation the fixture
-// exists to re-seal: manifests, the reviewed dispositions, and every file the
-// adapter digest reaches for.
-$libraryBytes = function (string $dir): array {
-    $out = [];
-    foreach (glob("$dir/*.json") ?: [] as $file) {
-        $out[basename($file)] = hash_file('sha256', $file);
-    }
-    foreach (['interpreters', 'providers', 'regenerators'] as $sub) {
-        foreach (glob("$dir/$sub/*") ?: [] as $file) {
-            $out["$sub/" . basename($file)] = hash_file('sha256', $file);
-        }
-    }
-    ksort($out, SORT_STRING);
-    return $out;
-};
-$fixtureBytes = $libraryBytes($shippedDir);
 check(
-    $fixtureBytes === $libraryBytes($realManifests) && $fixtureBytes !== [],
-    'every manifest, disposition, interpreter, provider, and regenerator under test is the shipped file byte for byte ('
-    . count($fixtureBytes) . ' files)'
+    array_key_exists('capabilities/platform.json', $fixtureBytes)
+    && array_key_exists('capabilities/adapter-authorities.json', $fixtureBytes)
+    && array_key_exists('dispositions.json', $fixtureBytes)
+    && $fixtureBytes === array_filter(
+        $fixtureBytes,
+        fn(string $relative): bool => !str_starts_with($relative, 'capabilities/scoped/')
+            && $relative !== 'capabilities/registry.json'
+            && $relative !== 'capabilities/evidence.json',
+        ARRAY_FILTER_USE_KEY
+    ),
+    'the shipped capabilities/ directory is the platform boundary and the trust root and nothing else — no '
+    . 'generated registry, no evidence attestation, no per-subject bundle tree'
 );
-$reviewedColumns = fn(array $registry): array => array_map(
-    fn(array $claim): array => [
-        'status' => $claim['status'],
-        'adapter_digest' => $claim['adapter_digest'],
-        'operations' => $claim['operations'],
-        'surfaces' => $claim['surfaces'],
-        'unsupported' => $claim['unsupported'],
-    ],
-    $registry['manifests']
-);
-$fixtureRegistry = Canon::decode(Canon::read_file("$shippedDir/capabilities/registry.json"));
-$realRegistry = Canon::decode(Canon::read_file("$realManifests/capabilities/registry.json"));
+// The reviewed bytes ARE the claim source now, so their content address is the
+// number a host contract pins. Both readings of one file must agree; a second
+// definition of "which review decided this" is the whole failure the retired
+// generated registry was.
+$fixtureDispositions = \Duo\ManifestDispositions::load($shippedDir);
 check(
-    $reviewedColumns($fixtureRegistry) === $reviewedColumns($realRegistry)
-    && $fixtureRegistry['generated_from']['dispositions_sha256']
-        === $realRegistry['generated_from']['dispositions_sha256'],
-    'the re-seal touches only the attestation: every reviewed status, adapter digest, operation, surface, and unsupported boundary is the shipped generated one'
-);
-// The whole point of re-sealing rather than flipping a flag: run the release
-// gate's own expiry predicate over the fixture attestation and require it to
-// find nothing. If a future edit reduced this fixture to "declare it current",
-// this check is what fails.
-$fixtureRecords = Canon::decode(Canon::read_file("$shippedDir/capabilities/evidence.json"))['records'] ?? [];
-$fixtureBound = [];
-foreach ($fixtureRecords as $record) {
-    foreach (($record['bundle']['closure']['inputs'] ?? []) as $input) {
-        $fixtureBound[(string) ($input['path'] ?? '')] = $input;
-    }
-}
-$expiredInputs = [];
-foreach ($fixtureBound as $input) {
-    $file = dirname(__DIR__, 2) . '/' . (string) $input['path'];
-    if (!is_file($file)
-        || !hash_equals((string) $input['sha256'], (string) hash_file('sha256', $file))
-        || (int) $input['size'] !== filesize($file)) {
-        $expiredInputs[] = (string) $input['path'];
-    }
-}
-check(
-    $expiredInputs === [] && count($fixtureBound) > 1,
-    'the fixture subject records bind ' . count($fixtureBound)
-    . ' unique repository inputs and every one matches this working tree byte for byte'
-    . ($expiredInputs === [] ? '' : ' (expired: ' . implode(', ', $expiredInputs) . ')')
+    $fixtureDispositions !== null
+    && hash_equals(
+        $fixtureDispositions->sha256(),
+        hash('sha256', Canon::encode(Canon::decode(Canon::read_file("$realManifests/dispositions.json"))))
+    ),
+    'registry_sha256 addresses exactly the shipped dispositions.json bytes, read through the real loader'
 );
 
 // ======================================================================
@@ -391,13 +334,25 @@ check(
     $soloCore['digest'] === $overlayCore['digest'],
     "the shipped core adapter's digest is byte-identical with and without a site adapter installed"
 );
+// There is one derivation of adapter identity now: the manifest_rows() row,
+// hashed. CapabilityRegistry::adapter_digest() used to mirror that row so it
+// could hash a manifest without loading a compiler, and the mirror is what
+// could drift; this asserts the surviving single definition still produces the
+// digest the compiler binds, and that a shipped row's disposition slot really
+// does carry the reviewed entry rather than a provenance record.
+$coreIdentityRow = null;
+foreach (\Duo\ArtifactPolicyIdentity::manifest_rows($overlay) as $identityRow) {
+    if ($identityRow['name'] === 'core') {
+        $coreIdentityRow = $identityRow;
+    }
+}
 check(
-    $soloCore['digest'] === CapabilityRegistry::adapter_digest(
-        $overlay->manifests[0],
-        $overlay->manifest_disposition('core'),
-        $shippedDir
-    ),
-    'the shipped digest still hashes exactly the reviewed disposition — no provenance key was added to shipped rows'
+    is_array($coreIdentityRow)
+    && $soloCore['digest'] === hash('sha256', Canon::encode($coreIdentityRow))
+    && $coreIdentityRow['disposition'] === $overlay->manifest_disposition('core')
+    && ($coreIdentityRow['disposition']['status'] ?? null) === 'certified',
+    'the shipped digest is exactly its identity row hashed, and that row still binds the reviewed disposition — no '
+    . 'provenance key was added to shipped rows'
 );
 
 $overlayReport = $overlay->capability_report(['operation' => 'promote']);
@@ -424,15 +379,18 @@ check(
     ($overlayReport['evidence_scope'] ?? null) === 'per_subject'
     && $overlayReport['evidence'] === null
     && $overlayReport['platform'] === null
-    && ($overlayReport['query']['revision'] ?? null) === null,
-    'a mixed-source report exposes no misleading aggregate evidence/platform/revision authority'
+    && !array_key_exists('revision', $overlayReport['query'] ?? []),
+    'a mixed-source report exposes no misleading aggregate evidence/platform authority, and no longer offers a '
+    . 'revision selector at all — an evidence-bound platform revision is a thing nothing records now'
 );
 check(
-    ($coreRow['evidence_scope'] ?? null) === 'subject_record'
+    ($coreRow['evidence_scope'] ?? null) === 'authored_disposition'
     && ($siteRow['evidence_scope'] ?? null) === 'none'
-    && is_array($coreRow['evidence'] ?? null)
+    && ($coreRow['evidence'] ?? null)
+        === (Canon::decode(Canon::read_file("$shippedDir/dispositions.json"))['manifests']['core']['evidence'] ?? null)
     && ($siteRow['evidence'] ?? null) === [],
-    'mixed-source rows identify their own evidence authority; an unsigned site row inherits no shipped evidence'
+    'a shipped row cites the reviewed disposition VERBATIM — the authored bundle schema and named tests, with no '
+    . 'status this code decided — and an unsigned site row inherits none of it'
 );
 
 // ======================================================================
@@ -524,95 +482,113 @@ check(
 );
 
 // ======================================================================
-echo "\n== the certified verdict above is earned: expired, stale, or malformed evidence still refuses ==\n";
+echo "\n== the certified verdict above is earned: a broken review still refuses ==\n";
 // ======================================================================
-// The counterweight to the fixture. Everything above reads a library whose
-// certification evidence the harness re-sealed, so this group takes that same
-// library and breaks its evidence in each way it can genuinely break —
-// proving the fixture removed a coupling, not a gate. Each variant is a
-// throwaway copy; the shipped library is never touched.
+// The counterweight to the fixture. Everything above reads the shipped
+// library, so this group takes that same library and breaks the ONE document
+// that now decides a claim, in each way it can genuinely break. Each variant
+// is a throwaway copy; the shipped library is never touched.
+//
+// The list is shorter than it was, and the deletions are the point rather than
+// a relaxation: `evidence_not_current`, `revision_not_certified`, and the
+// stale-attestation/stale-adapter-digest refusals all guarded a GENERATED
+// registry's agreement with a GENERATED attestation. Neither document exists,
+// so every one of those refusals now has nothing to refuse — asserting them
+// would be asserting a mechanism, not a boundary. What is left is what was
+// always the actual gate: the reviewed bytes, and the platform they describe.
 
-$expiredLibrary = library_variant(function (string $dir): void {
-    edit_json("$dir/capabilities/registry.json", function (array $registry): array {
-        foreach (['manifests', 'profiles'] as $section) {
-            foreach ($registry[$section] as $name => $claim) {
-                $claim['evidence']['bundle_digest'] = null;
-                $claim['evidence']['closure_digest'] = null;
-                $claim['evidence']['git_revision'] = null;
-                $claim['evidence']['status'] = 'candidate';
-                $claim['evidence']['subject_digest'] = null;
-                $registry[$section][$name] = $claim;
-            }
-        }
-        return $registry;
+putenv('DUO_MANIFESTS_DIR=' . library_variant(function (string $dir): void {
+    edit_json("$dir/dispositions.json", function (array $dispositions): array {
+        unset($dispositions['manifests']['core']['evidence']);
+        return $dispositions;
     });
+}));
+expect_throw(
+    fn() => Policy::load(fresh_site(['core'])),
+    "certified manifest disposition 'core' lacks current bundle evidence",
+    'a certified claim with no named evidence is refused — the citation is the whole difference between a review '
+    . 'and an assertion, and nothing else vouches for it now'
+);
+putenv('DUO_MANIFESTS_DIR=' . library_variant(function (string $dir): void {
+    edit_json("$dir/dispositions.json", function (array $dispositions): array {
+        $dispositions['manifests']['core']['evidence']['tests'] = [];
+        return $dispositions;
+    });
+}));
+expect_throw(
+    fn() => Policy::load(fresh_site(['core'])),
+    "certified manifest disposition 'core' lacks current bundle evidence",
+    'and an empty test list is the same refusal — a citation naming nothing cites nothing'
+);
+putenv('DUO_MANIFESTS_DIR=' . library_variant(function (string $dir): void {
+    edit_json("$dir/dispositions.json", function (array $dispositions): array {
+        $dispositions['manifests']['core']['status'] = 'ratified';
+        return $dispositions;
+    });
+}));
+expect_throw(
+    fn() => Policy::load(fresh_site(['core'])),
+    "manifest disposition 'core' has a malformed required field",
+    'a reviewed status outside certified/experimental/excluded is refused, not read as a fourth kind of support'
+);
+// The synthesized runtime status is not a status a review may DECLARE: reading
+// it back would let a library launder "nobody reviewed this" into a reviewed
+// answer about itself.
+putenv('DUO_MANIFESTS_DIR=' . library_variant(function (string $dir): void {
+    edit_json("$dir/dispositions.json", function (array $dispositions): array {
+        $dispositions['manifests']['core']['status'] = \Duo\ManifestDispositions::STATUS_UNCOVERED;
+        return $dispositions;
+    });
+}));
+expect_throw(
+    fn() => Policy::load(fresh_site(['core'])),
+    "manifest disposition 'core' has a malformed required field",
+    "'uncovered' is a synthesized runtime status only; a disposition that declares it is refused"
+);
+
+// The platform boundary is the second reviewed document, and the one a signed
+// site certificate binds. An absent or disagreeing one must stop the claim
+// being projected rather than be filled in from the running agent.
+$noPlatform = library_variant(function (string $dir): void {
+    unlink("$dir/capabilities/platform.json");
 });
-putenv("DUO_MANIFESTS_DIR=$expiredLibrary");
-$expiredPolicy = Policy::load(fresh_site(['core', 'acme-widget'], ['acme-widget' => site_adapter('acme-widget')]));
-$expiredReport = $expiredPolicy->capability_report(['operation' => 'promote']);
-$expiredCore = null;
-foreach ($expiredReport['manifests'] as $row) {
-    if ($row['name'] === 'core') {
-        $expiredCore = $row;
-    }
-}
-check(
-    is_array($expiredCore) && ($expiredCore['verdict']['status'] ?? null) === 'blocked'
-    && in_array('evidence_not_current', array_column($expiredCore['verdict']['reasons'] ?? [], 'code'), true),
-    'with expired certification evidence the shipped core adapter is NOT certified — the same reviewed disposition, the same digest, and a blocked verdict'
-);
-check(
-    $expiredReport['ready'] === false
-    && array_filter($expiredPolicy->adapter_readiness_blockers(), fn(array $r) => $r['name'] === 'core') !== [],
-    'expired evidence makes the shipped library itself a readiness blocker, however certified its dispositions read'
-);
-putenv("DUO_MANIFESTS_DIR=$shippedDir");
-
-putenv('DUO_MANIFESTS_DIR=' . library_variant(function (string $dir): void {
-    file_put_contents("$dir/capabilities/evidence.json", "\n", FILE_APPEND);
-}));
+putenv("DUO_MANIFESTS_DIR=$noPlatform");
 expect_throw(
-    fn() => Policy::load(fresh_site(['core'])),
-    'stale against its certification evidence attestation',
-    'a registry generated against a different attestation than the one on disk is refused — a re-sealed attestation cannot be dropped beside an unregenerated registry'
+    fn() => Policy::load(fresh_site(['core']))->capability_report(['operation' => 'promote']),
+    'this manifest library declares no platform boundary',
+    'a library with no platform boundary projects no capability claim at all — the environment half of every claim '
+    . 'would otherwise be invented by the code reading it'
 );
 putenv('DUO_MANIFESTS_DIR=' . library_variant(function (string $dir): void {
-    file_put_contents("$dir/dispositions.json", "\n", FILE_APPEND);
-}));
-expect_throw(
-    fn() => Policy::load(fresh_site(['core'])),
-    'stale against dispositions.json',
-    'a registry generated against different reviewed dispositions than the ones on disk is refused'
-);
-putenv('DUO_MANIFESTS_DIR=' . library_variant(function (string $dir): void {
-    unlink("$dir/capabilities/registry.json");
-}));
-expect_throw(
-    fn() => Policy::load(fresh_site(['core'])),
-    'no generated capability registry',
-    'a reviewed library with no generated registry at all refuses rather than falling back to an uncertified reading'
-);
-putenv('DUO_MANIFESTS_DIR=' . library_variant(function (string $dir): void {
-    edit_json("$dir/capabilities/registry.json", function (array $registry): array {
-        $registry['manifests']['core']['evidence']['status'] = 'ratified';
-        return $registry;
+    edit_json("$dir/capabilities/platform.json", function (array $platform): array {
+        $platform['platform']['agent_version'] = '0.0.1-not-this-agent';
+        return $platform;
     });
 }));
 expect_throw(
-    fn() => Policy::load(fresh_site(['core'])),
-    "evidence binding for 'core' is malformed",
-    'a subject evidence status outside current/candidate is refused, not read as a third kind of currency'
+    fn() => Policy::load(fresh_site(['core']))->capability_report(['operation' => 'promote']),
+    'platform version disagrees with the loaded agent',
+    'a platform boundary describing a different agent than the one running is refused — a claim about a runtime '
+    . 'nobody is running is worse than no claim'
 );
-putenv('DUO_MANIFESTS_DIR=' . library_variant(function (string $dir): void {
+
+// The coupling DUO-3379 built the re-seal to remove, asserted from the other
+// side now that it is gone: editing a shipped manifest no longer refuses
+// anything, because no generated document was pinned to its bytes. The edit is
+// still not invisible — it moves the adapter digest, which is what a content
+// pin binds.
+$editedLibrary = library_variant(function (string $dir): void {
     edit_json("$dir/core.json", function (array $manifest): array {
         $manifest['options']['duo_regress_bound_input_marker'] = ['class' => 'authored'];
         return $manifest;
     });
-}));
-expect_throw(
-    fn() => Policy::load(fresh_site(['core'])),
-    "adapter digest for 'core' is stale",
-    'editing a certification-bound shipped manifest refuses until the registry is regenerated — the harness re-seals the attestation, never a reviewed claim'
+});
+putenv("DUO_MANIFESTS_DIR=$editedLibrary");
+$editedCore = RepositoryCompiler::resolved_adapters(Policy::load(fresh_site(['core'])))[0];
+check(
+    $editedCore['digest'] !== $soloCore['digest'],
+    'editing a shipped manifest loads without refusing — no attestation binds its bytes any more — but moves its '
+    . 'adapter digest, so a repository pin still catches the change'
 );
 putenv("DUO_MANIFESTS_DIR=$shippedDir");
 
@@ -1162,8 +1138,17 @@ check(
     $provenanceAdapter['source'] === 'site' && $provenanceAdapter['trust_tier'] === 'declarative_manifest',
     'the compiled resolved_adapters row records the source and trust tier of every pinned adapter'
 );
+// The identity row for the same manifest bytes with an EMPTY disposition slot:
+// exactly what a shipped adapter carrying no reviewed entry would hash. The
+// out-of-tree row fills that slot with its provenance record instead, which is
+// the mechanism under test — so the two digests must differ.
+$provenanceRow = \Duo\ArtifactPolicyIdentity::manifest_rows($provenancePolicy)[0];
+$withoutProvenance = $provenanceRow;
+$withoutProvenance['disposition'] = null;
 check(
-    $provenanceAdapter['digest'] !== CapabilityRegistry::adapter_digest($provenancePolicy->manifests[0], null),
+    $provenanceAdapter['digest'] === hash('sha256', Canon::encode($provenanceRow))
+    && $provenanceAdapter['digest'] !== hash('sha256', Canon::encode($withoutProvenance))
+    && is_array($provenanceRow['disposition'] ?? null),
     "an out-of-tree adapter's digest binds its provenance — the same manifest bytes with no recorded origin hash differently"
 );
 $before = $provenanceAdapter['digest'];
@@ -1308,7 +1293,6 @@ expect_throw(
     'dropping a legacy v1 out-of-tree record from a registry-bound snapshot is still refused by its reviewed shipped coverage'
 );
 $legacyCustom = $legacyLaundered;
-$legacyCustom['capabilities'] = null;
 $legacyCustom['dispositions'] = null;
 $legacyCustomPolicy = Policy::from_snapshot($legacyCustom);
 check(
@@ -1634,14 +1618,17 @@ foreach ($plainReport['manifests'] ?? [] as $row) {
         $plainRows[$row['name']] = $row;
     }
 }
+$shippedDispositions = Canon::decode(Canon::read_file("$shippedDir/dispositions.json"))['manifests'];
 check(
     ($plainReport['evidence_scope'] ?? null) === 'per_subject'
     && ($plainReport['evidence'] ?? null) === null
     && is_array($plainReport['platform'] ?? null)
-    && ($plainRows['core']['evidence_scope'] ?? null) === 'subject_record'
-    && ($plainRows['woocommerce']['evidence_scope'] ?? null) === 'subject_record'
-    && (($plainRows['woocommerce']['evidence']['status'] ?? null) === 'current'),
-    'a shipped-only report exposes each claim authority when its Woo evidence is scoped'
+    && ($plainRows['core']['evidence_scope'] ?? null) === 'authored_disposition'
+    && ($plainRows['woocommerce']['evidence_scope'] ?? null) === 'authored_disposition'
+    && ($plainRows['woocommerce']['evidence'] ?? null) === ($shippedDispositions['woocommerce']['evidence'] ?? null)
+    && !array_key_exists('status', $plainRows['woocommerce']['evidence'] ?? []),
+    'each shipped row names its own claim authority — the authored disposition, cited verbatim, with no synthesized '
+    . 'currency status: a `current` here would be the agent vouching for itself'
 );
 
 // ======================================================================
@@ -1677,37 +1664,44 @@ check(
 );
 
 // ======================================================================
-echo "\n== the registry-absent blocker row carries what its renderers print (DUO-3339) ==\n";
+echo "\n== a library with no reviewed dispositions at all reports itself unreviewed ==\n";
 // ======================================================================
-// This branch of adapter_readiness_blockers() is a FAIL-CLOSED BACKSTOP with
-// no reachable product caller: both Policy::load() and Policy::from_snapshot()
-// refuse a library that has dispositions and no generated registry, so the row
-// can only be produced by constructing that state directly. It is asserted all
-// the same, because the two blocker renderers print `source` and `trust_tier`
-// for every row and used to INVENT them for this one from a `??` default.
-$backstop = new \ReflectionClass(Policy::class);
-$backstopPolicy = $backstop->newInstanceWithoutConstructor();
-$dispositionsProperty = $backstop->getProperty('manifestDispositions');
-$dispositionsProperty->setValue($backstopPolicy, \Duo\ManifestDispositions::load($shippedDir));
-$backstopRows = $backstopPolicy->adapter_readiness_blockers();
+// This replaced a backstop for "dispositions present, generated registry
+// absent", which Policy::load() used to refuse outright and which cannot
+// happen now — dispositions ALONE are a complete, valid state, so there is no
+// second document whose absence could be a fault. The state that remains is
+// the honest one a custom or test manifest directory really reaches: no
+// reviewed document at all. It makes no product claim (spec/repo-format.md
+// says so in as many words), and the report has to SAY that rather than read
+// the absence as nothing to block on.
+$unreviewedDir = library_variant(function (string $dir): void {
+    unlink("$dir/dispositions.json");
+});
+putenv("DUO_MANIFESTS_DIR=$unreviewedDir");
+$unreviewedPolicy = Policy::load(fresh_site(['core']));
+$unreviewedReport = $unreviewedPolicy->capability_report(['operation' => 'promote']);
 check(
-    count($backstopRows) === 1 && $backstopRows[0]['code'] === 'missing_capability_registry',
-    'dispositions with no generated registry produce the one backstop blocker row'
+    ($unreviewedReport['ready'] ?? null) === false
+    && count($unreviewedReport['blockers'] ?? []) === 1
+    && ($unreviewedReport['blockers'][0]['name'] ?? null) === 'registry'
+    && ($unreviewedReport['blockers'][0]['status'] ?? null) === 'unreviewed'
+    && array_key_exists('registry_sha256', $unreviewedReport)
+    && $unreviewedReport['registry_sha256'] === null
+    && ($unreviewedReport['manifests'] ?? null) === [],
+    'a library with no dispositions document loads, and answers with the one unreviewed blocker, a null content '
+    . 'address, and no rows — it defers its certification to nothing, and says so instead of reading green'
 );
+$unreviewedSurvey = [];
+foreach (AdapterSources::survey(null)['adapters'] as $surveyed) {
+    $unreviewedSurvey[(string) $surveyed['name']] = $surveyed;
+}
 check(
-    ($backstopRows[0]['source'] ?? null) === 'shipped'
-    && ($backstopRows[0]['trust_tier'] ?? null) === 'unknown'
-    && trim((string) ($backstopRows[0]['remediation'] ?? '')) !== '',
-    'and it now STATES its source, states that it has no trust tier to report, and carries a remediation — the '
-    . 'renderers no longer fill those in for it'
+    array_key_exists('core', $unreviewedSurvey)
+    && $unreviewedSurvey['core']['certification'] === null
+    && $unreviewedSurvey['core']['disposition_status'] === null,
+    'and the surveyed shipped row reports a NULL certification state rather than naming a review nobody wrote'
 );
-$backstopStatus = \Duo\Orchestrator\PlanSummary::render(['adapter_dispositions' => $backstopRows]);
-$backstopText = implode("\n", $backstopStatus['lines']);
-check(
-    str_contains($backstopText, 'source=shipped') && str_contains($backstopText, 'tier=unknown')
-    && str_contains($backstopText, '    remediation: '),
-    'duo status renders the row\'s own words rather than its own defaults'
-);
+putenv("DUO_MANIFESTS_DIR=$shippedDir");
 
 echo $failures === 0 ? "\nALL PASSED\n" : "\nFAIL: $failures check(s) failed\n";
 exit($failures === 0 ? 0 : 1);

@@ -72,14 +72,13 @@ list of what reaches a managed site.
 ## The loop
 
 ```bash
-bash tools/doctor.sh              # environment diagnosis; --fix applies the 3 safe remedies
+bash tools/doctor.sh              # environment diagnosis; --fix applies the 2 safe remedies
 composer check                    # php -l + phpstan + php-cs-fixer(changed) + phpunit
 php tools/offline.php -j8         # whole offline corpus in parallel, one log per suite
 php tools/offline.php --changed   # only affected suites — iteration only, never the gate
 php tools/affected.php --explain  # why each suite was selected
-php tools/cert-impact.php         # which certifications this diff expires
 make regress-offline-all          # THE merge gate (DUO-3285) — unconditional, quote it in the PR
-make release-gate                 # evidence + generated registry + product prose agree
+make release-gate                 # generated capability prose and classmap match their source
 ```
 
 the offline leaf targets (239 today; the Makefile's own `N offline suites green` line is the count of record). `tools/offline.php` runs the same work as

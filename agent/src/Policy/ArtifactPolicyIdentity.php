@@ -15,9 +15,6 @@ if (!$canonWasPreloaded && !class_exists(AdapterSources::class, false)) {
 if (!$canonWasPreloaded && !class_exists(ManifestDispositions::class, false)) {
     require_once __DIR__ . '/ManifestDispositions.php';
 }
-if (!$canonWasPreloaded && !class_exists(CapabilityRegistry::class, false)) {
-    require_once __DIR__ . '/../Adapter/CapabilityRegistry.php';
-}
 if (!class_exists(Policy::class, false)) {
     require_once __DIR__ . '/Policy.php';
 }
@@ -54,8 +51,9 @@ final class ArtifactPolicyIdentity {
 
     /**
      * The per-manifest content row manifest_hash()/resolved_adapters() both
-     * bind. CapabilityRegistry::adapter_digest() deliberately mirrors this
-     * row because it must hash a manifest without loading a compiler.
+     * bind, and the sole definition of adapter identity: a repository pin's
+     * `adapter_digest`, `duo assess`'s reported digest, and the contract that
+     * pins it are all this one row hashed.
      *
      * @return list<array{name:string, manifest:array, disposition:?array, interpreter?:array{name:string,sha256:?string}, providers?:list<array{id:string,sha256:?string}>, regenerators?:list<array{name:string,sha256:?string}>}>
      */
@@ -142,9 +140,11 @@ final class ArtifactPolicyIdentity {
                 'name' => $row['name'],
                 'source' => $sources->source((string) $row['name']),
                 'trust_tier' => AdapterSources::trust_tier($manifest),
-                'digest' => class_exists(CapabilityRegistry::class)
-                    ? CapabilityRegistry::adapter_digest($manifest, $row['disposition'])
-                    : hash('sha256', Canon::encode($row)),
+                // manifest_rows() above already folded the interpreter,
+                // provider, and regenerator bytes into $row in the exact shape
+                // and order the digest binds, so hashing the row IS the
+                // adapter digest — there is no second derivation to agree with.
+                'digest' => hash('sha256', Canon::encode($row)),
                 'spec_version' => isset($manifest['spec_version']) ? (int) $manifest['spec_version'] : null,
                 'plugin' => isset($manifest['plugin']) ? (string) $manifest['plugin'] : null,
                 'version_range' => is_array($manifest['version_range'] ?? null) ? $manifest['version_range'] : null,

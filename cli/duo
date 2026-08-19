@@ -124,11 +124,12 @@ require_once dirname(__DIR__) . '/agent/src/Policy/ScopeContract.php';
  * Duo\* types under agent/src, of which this bootstrap declares only ten —
  * the seven agent/src files required directly above plus what they pull in.
  * The remaining 228 arrive later and by hand: RefreshPlan::loadCompiler()
- * require_once's 39 agent/src files (cli/src/Refresh/RefreshPlan.php:1028), and
+ * require_once's 38 agent/src files (cli/src/Refresh/RefreshPlan.php:1028), and
  * AdapterCatalog/AdapterDraft/ManifestValidate each have their own boot()
- * that requires the Canon/OptionState/ManifestDispositions/CapabilityRegistry/
- * Policy set. Those hand-written lists stay exactly as they are — this only
- * removes the "Class not found" cliff between them.
+ * that requires the Canon/OptionState/ManifestDispositions/Policy set (plus,
+ * in AdapterCatalog's case, the AdapterRegistry it names statically). Those
+ * hand-written lists stay exactly as they are — this only removes the
+ * "Class not found" cliff between them.
  *
  * The two maps have disjoint key spaces (Duo\Orchestrator\* vs single-segment
  * Duo\*), so registration order carries no meaning. Manifest-shipped code
@@ -257,7 +258,7 @@ Usage:
   duo verify  <env> [--plan=<digest>] [--limit=<1..200>] [--format=json]
   duo recover <env> [--list] [--restore=<checkpoint>] [--writers-excluded]
                     [--operator-directed] [--limit=<1..200>] [--format=json]
-  duo capabilities <env> [--operation=<op>] [--surface=<surface>] [--revision=<sha>] [--format=json]
+  duo capabilities <env> [--operation=<op>] [--surface=<surface>] [--format=json]
   duo capture <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
   duo lint    <env> [extra wp-cli flags...]
   duo plan    <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
@@ -380,14 +381,18 @@ Verbs:
                           scanned or not scanned, so an empty result is never
                           mistaken for "nothing is installed".
   adapter inspect <name>  One adapter in full: the list row plus its reviewed
-    [--repo=<site-repo>]  disposition entry, its generated registry claim
-    [--format=json]       (digest, supported versions, operations, surfaces,
-                          explicit unsupported boundaries, evidence bundle), the
-                          providers it requires with the capabilities each must
-                          advertise, and its verification facts — evidence
-                          status, plugin_execution status, and each cited test
-                          resolved against the bundle's own verdict. Facts only;
-                          there is no verification score.
+    [--repo=<site-repo>]  disposition entry, the capability claim that
+    [--format=json]       disposition projects (supported versions, operations,
+                          surfaces, explicit unsupported boundaries, the
+                          evidence citation), the providers it requires with the
+                          capabilities each must advertise, and its verification
+                          facts — the cited bundle schema, plugin_execution
+                          status, and the test ids the citation names. Facts
+                          only; there is no verification score, and no test
+                          verdict is invented for a test this process did not
+                          run. The pin digest is not here: it belongs to a
+                          loaded site policy — `adapter certify --pin` prints
+                          and writes the exact object.
   adapter doctor          list, plus every readiness blocker for this
     [--repo=<site-repo>]  repository's pins (with --repo) and every installed
     [--format=json]       file the engine refuses to load — a shadowed adapter,
@@ -576,11 +581,11 @@ Verbs:
                           The attestation this profile writes is always
                           `unsigned`, so every site-scoped claim projects
                           Uncertified.
-  capabilities <env>      Evaluate the evidence-bound generated registry for
-                          this exact target/revision/operation/surface. Reports
-                          plugin execution separately from branchable authored
-                          state and explains every blocker. --format=json
-                          returns the agent's canonical verdict.
+  capabilities <env>      Evaluate the reviewed dispositions for this exact
+                          target/operation/surface. Reports plugin execution
+                          separately from branchable authored state and explains
+                          every blocker. --format=json returns the agent's
+                          canonical verdict.
   capture <env> [...]     `wp duo capture --repo=<repo_path> [...]`. A local
     --scope-contract=<p>  canonical duo-scope-contract/v1 file is validated
                           by the real engine parser, then transported as its

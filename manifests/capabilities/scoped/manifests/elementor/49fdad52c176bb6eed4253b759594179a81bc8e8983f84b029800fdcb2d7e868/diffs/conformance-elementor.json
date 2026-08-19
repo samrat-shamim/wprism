@@ -1,9 +1,0 @@
-{
-  "status": "clean",
-  "manifest": "elementor",
-  "diffs": [
-    "capture-twice",
-    "conf1-vs-conf2-recapture"
-  ],
-  "render_check": "passed"
-}

@@ -55,7 +55,6 @@ function duo_facts(array $overrides = []): array {
         'unsupported_reason' => null,
         'registry' => [
             'claim_status' => 'certified',
-            'evidence_status' => 'current',
             'verdict_status' => 'certified',
             'blockers' => [],
             'conditions' => [],
@@ -86,7 +85,7 @@ function duo_facts(array $overrides = []): array {
     return $base;
 }
 
-$noRegistry = ['claim_status' => null, 'evidence_status' => null, 'verdict_status' => null,
+$noRegistry = ['claim_status' => null, 'verdict_status' => null,
     'blockers' => ['missing_registry_entry'], 'source' => null];
 
 /**
@@ -191,25 +190,27 @@ $cases[] = ['1.3 certified with a re-checked condition is Ready with conditions'
     ['readiness' => 'Ready with conditions',
         'conditions' => ['plugin_version_mismatch rechecked at the mutation gate']],
     'nothing — supported'];
-// T6 §3.6: every one of these five is closed by current certification
-// evidence, and rehearsal states it cannot produce any. `certify adapter`
-// is the word that names a command the operator can actually run.
+// The Requalification tier has exactly one entrance, and it is not one the
+// agent can report: `ContractProjection::withStaleEvidence()` synthesizes
+// `evidence_not_current` when a contract's pinned dispositions hash no longer
+// matches what the target answers from. `revision_not_certified` and
+// `profile_evidence_not_current` used to sit beside it; both were raised by a
+// generated capability registry against a generated evidence record, and
+// neither document exists, so a case for them would assert a tier this build
+// cannot reach. The table below is asserted against
+// `BLOCKERS_REQUALIFICATION` itself after the loop, so the two cannot creep
+// back in without a case to match.
 $cases[] = ['1.3 evidence_not_current requires requalification',
     duo_facts(['registry' => ['blockers' => ['evidence_not_current']]]),
     ['readiness' => 'Requalification required', 'remediation' => 're-certify the pinned evidence, then re-run assess'],
     'certify adapter'];
-$cases[] = ['1.3 revision_not_certified requires requalification',
-    duo_facts(['registry' => ['blockers' => ['revision_not_certified']]]),
-    ['readiness' => 'Requalification required'], 'certify adapter'];
-$cases[] = ['1.3 profile_evidence_not_current requires requalification',
-    duo_facts(['registry' => ['blockers' => ['profile_evidence_not_current']]]),
-    ['readiness' => 'Requalification required'], 'certify adapter'];
+// `Experimental` is the AUTHORED status alone. The second route in — evidence
+// the generator had marked `candidate` — died with the record that carried the
+// word: a claim's evidence is now the citation its reviewed disposition
+// carries verbatim, and a citation has no status to be candidate.
 $cases[] = ['1.3 an experimental claim is Experimental',
     duo_facts(['registry' => ['claim_status' => 'experimental']]),
     ['readiness' => 'Experimental', 'certification_provenance' => 'Uncertified'], 'certify adapter'];
-$cases[] = ['1.3 candidate evidence is Experimental',
-    duo_facts(['registry' => ['evidence_status' => 'candidate']]),
-    ['readiness' => 'Experimental'], 'certify adapter'];
 // T6 §3.6: the adapter IS installed. `install adapter` told this operator
 // to redo the thing they had just done; `duo adapter certify` is the fix.
 $cases[] = ['1.3 adapter_source_uncertified is Not qualified and certifiable',
@@ -277,8 +278,14 @@ foreach (['capture', 'merge', 'release', 'delete'] as $op) {
 $cases[] = ['1.3 surface_explicitly_unsupported is Unsupported',
     duo_facts(['registry' => ['blockers' => ['surface_explicitly_unsupported']]]),
     ['readiness' => 'Unsupported'], 'exclude'];
-$cases[] = ['1.3 multisite_unsupported is Unsupported',
-    duo_facts(['registry' => ['blockers' => ['multisite_unsupported']]]),
+// `deletion_unsupported` is the other half of BLOCKERS_UNSUPPORTED, and the
+// only other one left: `multisite_unsupported` was reported per surface by a
+// registry reading a generated evidence record that measured the topology.
+// Nothing raises it now — `AssessCommand::assess()` refuses the whole
+// assessment once, out loud, with `assess_topology_unsupported` instead — so a
+// case for it would pin a route no input can take.
+$cases[] = ['1.3 deletion_unsupported is Unsupported',
+    duo_facts(['operation' => 'delete', 'registry' => ['blockers' => ['deletion_unsupported']]]),
     ['readiness' => 'Unsupported'], 'exclude'];
 $cases[] = ['1.3 a delete named in deletion_semantics.unsupported is Unsupported',
     duo_facts([
@@ -307,11 +314,11 @@ $cases[] = ['1.3 several negotiation codes are all named',
     'install adapter'];
 $cases[] = ['1.3 no certified verdict and no stated boundary is Not qualified',
     duo_facts(['registry' => ['verdict_status' => null, 'claim_status' => 'uncertified',
-        'evidence_status' => null, 'source' => 'site']]),
+        'source' => 'site']]),
     ['readiness' => 'Not qualified', 'certification_provenance' => 'Uncertified'], 'install adapter'];
 
 // -------------------------------------------------------------- §1.4 provenance
-$cases[] = ['1.4 shipped + certified + current evidence is Platform-certified', duo_facts(),
+$cases[] = ['1.4 shipped + a certified reviewed claim is Platform-certified', duo_facts(),
     ['certification_provenance' => 'Platform-certified'], 'nothing — supported'];
 $cases[] = ['1.4 a site adapter is Uncertified',
     duo_facts(['registry' => ['source' => 'site']]),
@@ -579,6 +586,45 @@ duo_check(
 );
 foreach (array_diff(V::GAP_ACTIONS, ['qualify in rehearsal']) as $action) {
     duo_check(isset($gapActionsSeen[$action]), "table covers gap action = $action");
+}
+
+// The three blocker/condition tables, asserted as literals.
+//
+// Coverage alone cannot hold this line: a resurrected code would simply have
+// no case above and the loop would stay green while the vocabulary claimed a
+// tier the build cannot reach. Every name dropped below was raised against one
+// of two generated documents — a capability registry and its evidence record —
+// and both are gone, so re-adding one would make `duo assess` report a
+// condition or a blocker that no input can produce. Each list is short enough
+// to write out, which is the point: a diff on this line is a decision.
+duo_check_same(
+    ['evidence_not_current'],
+    V::BLOCKERS_REQUALIFICATION,
+    'requalification has one entrance, and the CLI synthesizes it from pin drift'
+);
+duo_check_same(
+    ['surface_explicitly_unsupported', 'deletion_unsupported'],
+    V::BLOCKERS_UNSUPPORTED,
+    'the Unsupported blockers are the two authored boundaries; multisite is refused whole, not per surface'
+);
+duo_check_same(
+    ['plugin_version_mismatch', 'plugin_not_active'],
+    SurfaceCatalog::CONDITION_CODES,
+    'the re-checked conditions are the adapter\'s own plugin contract; the measured platform axes are gone'
+);
+foreach ([
+    'revision_not_certified', 'profile_evidence_not_current', 'multisite_unsupported',
+    'wordpress_version_mismatch', 'php_version_mismatch', 'database_version_mismatch',
+    'theme_version_mismatch', 'theme_not_active',
+] as $retired) {
+    duo_check(
+        !in_array($retired, V::BLOCKERS_REQUALIFICATION, true)
+            && !in_array($retired, V::BLOCKERS_UNSUPPORTED, true)
+            && !in_array($retired, V::BLOCKERS_NOT_QUALIFIED, true)
+            && !in_array($retired, V::BLOCKERS_CERTIFIABLE, true)
+            && !in_array($retired, SurfaceCatalog::CONDITION_CODES, true),
+        "the retired code $retired classifies nothing: no reachable input produces it"
+    );
 }
 
 // A malformed fact vector is a caller bug, and it must be loud rather than

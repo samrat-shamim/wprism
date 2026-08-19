@@ -627,8 +627,6 @@ final class OfflineRunnerCli
                 count($selected)
             );
         }
-        $this->preflightCertificationClosureWarning();
-
         /** @var list<array{target: string, argv: list<string>, serial: bool}> $tasks */
         $tasks = [];
         $durations = $this->loadDurations();
@@ -1444,35 +1442,6 @@ TXT;
     }
 
     // ----------------------------------------------------------------- misc
-
-    /**
-     * Non-fatal, and deliberately loud.
-     *
-     * The certification closure walks the FILESYSTEM under agent/, cli/ and
-     * sandbox/bin/, not the git index, so an untracked scratch file there
-     * expires all 9 certifications and makes deployed agents refuse to run --
-     * a failure mode with no local symptom until something very expensive
-     * breaks. `--ignored` is passed because an ignored file is exactly as fatal
-     * as an untracked one and is precisely what a plain `git status` hides.
-     */
-    private function preflightCertificationClosureWarning(): void
-    {
-        $result = $this->captureCommand(
-            ['git', 'status', '--porcelain', '--ignored', '--', 'agent', 'cli', 'sandbox/bin']
-        );
-        $lines = preg_split('/\R/', trim($result['output']), -1, PREG_SPLIT_NO_EMPTY) ?: [];
-        if ($result['exit'] !== 0 || $lines === []) {
-            return;
-        }
-        fwrite(STDERR, "\nWARNING: the certification closure walks the filesystem under agent/, cli/ and\n"
-            . "WARNING: sandbox/bin/. Any file there that is not part of the certified tree --\n"
-            . "WARNING: including untracked AND gitignored scratch files -- expires all\n"
-            . "WARNING: certifications and makes deployed agents refuse. Found:\n");
-        foreach ($lines as $line) {
-            fwrite(STDERR, 'WARNING:   ' . $line . "\n");
-        }
-        fwrite(STDERR, "\n");
-    }
 
     private function prepareStateDirs(int $jobs): void
     {

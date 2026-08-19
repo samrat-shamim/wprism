@@ -8,7 +8,7 @@ require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Init/InitPlanner.php';
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Adapter/AdapterSources.php';
-require_once __DIR__ . '/../Adapter/CapabilityRegistry.php';
+require_once __DIR__ . '/../Adapter/TargetProbe.php';
 require_once __DIR__ . '/../Repository/RepositoryCompiler.php';
 require_once __DIR__ . '/../Review/Coverage.php';
 require_once __DIR__ . '/../Review/Pending.php';
@@ -20,7 +20,7 @@ require_once __DIR__ . '/../Review/Pending.php';
  * it" in a single document, so the host does not have to compose five agent
  * commands and reconcile five wire formats. It introduces no planner, no gate
  * and no new evidence: every field is either a live probe the agent already
- * performs (`CapabilityRegistry::probe_target()`), an existing projection
+ * performs (`TargetProbe::probe_target()`), an existing projection
  * quoted verbatim (`Coverage::report()`, `Pending::scan_read_only()`,
  * `AdapterSources::survey()`), or a derivation over declarations `Policy`
  * already exposes.
@@ -115,7 +115,7 @@ final class AssessInventory {
         }
 
         return self::from_facts($policy, [
-            'probe' => CapabilityRegistry::probe_target(),
+            'probe' => TargetProbe::probe_target(),
             'coverage' => Coverage::report($repo),
             'pending' => Pending::scan_read_only($repo, $policy),
             'adapter_survey' => $survey,
@@ -241,7 +241,7 @@ final class AssessInventory {
                     'message' => 'the WordPress/PHP/database stack probe returned no facts',
                     'remediation' => 'run assess-inventory through wp-cli on the target environment',
                 ]],
-                'duo: assess-inventory refused because CapabilityRegistry::probe_target() reported no target'
+                'duo: assess-inventory refused because TargetProbe::probe_target() reported no target'
             );
         }
         $coverage = is_array($facts['coverage'] ?? null) ? $facts['coverage'] : [];

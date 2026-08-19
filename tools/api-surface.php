@@ -7,7 +7,7 @@ declare(strict_types=1);
  *
  * WHAT THIS IS FOR
  * -----------------
- * Regenerate-and-gate, exactly like scripts/capability-registry.php's
+ * Regenerate-and-gate, exactly like tools/classmap-generate.php's
  * check/generate pair: a reflected characterization of every loaded Duo\*
  * class/interface/trait/enum's PUBLIC and PROTECTED surface (kind,
  * final/abstract/readonly, parent, implemented interfaces, own-declared

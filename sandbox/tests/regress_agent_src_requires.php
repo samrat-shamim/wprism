@@ -420,7 +420,12 @@ foreach ($files as $file) {
 // actionable defects rather than being hidden by this guard.
 $knownGapsByFile = [
     'AdapterObservation' => ['AdapterSources', 'Canon', 'CommandRefusalException', 'Journal', 'Pending', 'Policy'],
-    'AdapterRegistry' => ['AdapterSources', 'ManifestDispositions', 'Policy'],
+    // Only Policy remains a gap: the class hard-requires Canon,
+    // ManifestDispositions, AdapterSources and TargetProbe at file scope, and
+    // every Policy reference here is a constructor type hint or an instance
+    // call on the $policy it was handed — never a `Policy::` static — so no
+    // standalone load can reach a class-not-found through it.
+    'AdapterRegistry' => ['Policy'],
     'AdapterSources' => ['Canon', 'ManifestDispositions', 'Policy'],
     'ApplyRequestCoordinator' => ['Canary', 'Canon', 'Capture', 'CompiledRepository', 'Ledger', 'LedgerScopedApplySessionStorage', 'Policy', 'PromotionLock', 'RepositoryCompiler', 'ScopeContract', 'ScopedApply', 'ScopedApplySession', 'ScopedPromotionAuthority', 'ScopedStateOverlay', 'Snapshot', 'Tokens'],
     'ApplyFieldMaterializer' => ['Db', 'StructuredValue'],
@@ -428,8 +433,7 @@ $knownGapsByFile = [
     'Blocks' => ['Policy', 'Shortcodes', 'Tokens'],
     'Canon' => ['OrderPreserved', 'Policy'],
     'CanonicalSurfaces' => ['OptionState', 'Policy', 'SidebarState'],
-    'CapabilityRegistry' => ['Canon', 'ManifestDispositions', 'Policy'],
-    'Cli' => ['AdapterObservation', 'AdapterSources', 'Apply', 'Canon', 'CapabilityRegistry', 'Capture', 'Code', 'CodeCompilationException', 'Coverage', 'Db', 'Deploy', 'IdentityBackup', 'Init', 'InitialStateBoundaryException', 'Journal', 'Ledger', 'Lint', 'ManifestDispositions', 'Orphans', 'Pending', 'Policy', 'PromotionLock', 'RefreshExport', 'RepositoryAuthorizationException', 'RepositoryCompilationException', 'RepositoryCompiler', 'ScopeClosure', 'ScopeContract', 'ScopedPromotionAuthority', 'ScopedStateOverlay', 'Secrets'],
+    'Cli' => ['AdapterObservation', 'AdapterRegistry', 'AdapterSources', 'Apply', 'Canon', 'Capture', 'Code', 'CodeCompilationException', 'Coverage', 'Db', 'Deploy', 'IdentityBackup', 'Init', 'InitialStateBoundaryException', 'Journal', 'Ledger', 'Lint', 'ManifestDispositions', 'Orphans', 'Pending', 'Policy', 'PromotionLock', 'RefreshExport', 'RepositoryAuthorizationException', 'RepositoryCompilationException', 'RepositoryCompiler', 'ScopeClosure', 'ScopeContract', 'ScopedPromotionAuthority', 'ScopedStateOverlay', 'Secrets'],
     // The reader deliberately tests this bridge at runtime rather than
     // requiring it: an unavailable bridge is a stable artifact diagnostic.
     'CompiledArtifactReader' => ['CodeStateContract'],
@@ -451,7 +455,12 @@ $knownGapsByFile = [
     'LifecycleExecutor' => ['PromotionLock'],
     'LifecyclePlanner' => ['Code', 'CompiledRepository', 'Ledger', 'Policy'],
     'Lint' => ['Canon', 'OptionState', 'Pending', 'Policy', 'ReferenceRules'],
-    'ManifestDispositions' => ['Canon'],
+    // `Policy` arrives with the guarded manifests_dir() relocated here from the
+    // deleted CapabilityRegistry: the call is behind `class_exists(Policy::class)`
+    // precisely so a partially-loaded offline context that never includes
+    // Policy.php falls through to DUO_MANIFESTS_DIR instead of fatalling, so it
+    // is allowlisted exactly as CapabilityRegistry's identical guard was.
+    'ManifestDispositions' => ['Canon', 'Policy'],
     'MenuMaterializer' => ['Db', 'Ledger', 'PlainData', 'Policy', 'Tokens'],
     'OptionState' => ['Canon'],
     'OptionsMaterializer' => ['Db'],
@@ -459,7 +468,7 @@ $knownGapsByFile = [
     'Pending' => ['Capture', 'CommandRefusalException', 'Journal', 'Ledger', 'Policy', 'Secrets', 'Snapshot'],
     'PinResolver' => ['Policy', 'RepositoryCompiler'],
     'PlanExplanation' => ['CommandRefusalException', 'CompiledRepository', 'Deletion', 'OptionState', 'Policy', 'ReferenceGraph', 'SidebarState'],
-    'Policy' => ['Canon', 'CapabilityRegistry', 'ManifestDispositions', 'OptionState'],
+    'Policy' => ['Canon', 'ManifestDispositions', 'OptionState'],
     'PostMaterializer' => ['Db', 'Ledger'],
     'PromotionLease' => ['Db', 'Ledger'],
     'PromotionSessionJournal' => ['Ledger'],

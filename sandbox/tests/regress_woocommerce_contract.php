@@ -22,7 +22,6 @@ $root = dirname(__DIR__, 2);
 $manifest = json_decode((string) file_get_contents($root . '/manifests/woocommerce.json'), true, flags: JSON_THROW_ON_ERROR);
 $dispositions = json_decode((string) file_get_contents($root . '/manifests/dispositions.json'), true, flags: JSON_THROW_ON_ERROR);
 $policy = Policy::from_snapshot([
-    'capabilities' => null,
     'dispositions' => null,
     'format' => 'duo-policy-snapshot/v4',
     'adapter_sources' => ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []],

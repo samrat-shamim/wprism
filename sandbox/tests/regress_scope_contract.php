@@ -22,7 +22,7 @@ foreach ($duoAgentClassmap as $duoAgentPath) {
 }
 foreach ([
     'Uuid', 'OrderPreserved', 'Canon', 'OptionState', 'UserMetaState', 'Db', 'Secrets',
-    'PersonalData', 'ManifestDispositions', 'AdapterSources', 'CapabilityRegistry',
+    'PersonalData', 'ManifestDispositions', 'AdapterSources', 'TargetProbe', 'AdapterRegistry',
     'NativeActions', 'ReferenceRules', 'Policy', 'Providers', 'Ledger', 'Deletion',
     'JsonRefs', 'PlainData', 'StructuredValue', 'SidebarState', 'Snapshot',
     'RepositoryAuthorization', 'CodeCompatibility', 'Code', 'CodeStateContract',

@@ -1,5 +1,5 @@
 {
-    "assess_digest": "sha256:c98d5666690ace0077053b2259400c2f471b3715eaae60b70e0a702cb3efc24a",
+    "assess_digest": "sha256:f54703e27c47cf324a8aa6cf924b7809904c31c8d0853ca6ece09a98609a76e8",
     "authority": {
         "read_only": true,
         "repo": "/siterepo",
@@ -7,11 +7,8 @@
     },
     "env": "awalk1",
     "evidence": {
-        "bundles": [],
         "generated_from": {
-            "compatibility_sha256": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
-            "dispositions_sha256": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
-            "evidence_sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+            "dispositions_sha256": "sha256:9999999999999999999999999999999999999999999999999999999999999999"
         },
         "registry_sha256": "sha256:8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f"
     },

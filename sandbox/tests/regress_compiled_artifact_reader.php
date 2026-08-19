@@ -121,7 +121,6 @@ $classes = [
     Duo\CompiledArtifactReader::class,
     Duo\AdapterSources::class,
     Duo\ManifestDispositions::class,
-    Duo\CapabilityRegistry::class,
 ];
 foreach ($classes as $class) {
     if (!class_exists($class, false)) {

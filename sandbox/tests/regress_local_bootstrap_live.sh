@@ -107,16 +107,22 @@ cleanup_on_exit() {
 }
 trap cleanup_on_exit EXIT
 
-say "manufacture current certification evidence before Docker mutation"
+say "build the hermetic manifest library before Docker mutation"
+# Built rather than mounted from the checkout so nothing this pair does can
+# reach the shipped bytes. It no longer re-derives anything — the generated
+# attestation it used to seal is gone — so the assertion is that the copy is
+# loadable and reviewed, which is what the mounted library has to be.
 HERMETIC_MANIFESTS="$(php sandbox/tests/certification_fixture.php "$HERMETIC_ROOT")" \
-  || fail "could not manufacture the hermetic manifest library"
+  || fail "could not build the hermetic manifest library"
 [ "$HERMETIC_MANIFESTS" = "$HERMETIC_ROOT/manifests" ] \
   || fail "hermetic manifest library landed outside the owned scratch root"
-jq -e '([.manifests[] | select(.status == "certified") | .evidence.status] | all(. == "current"))
-  and ([.profiles[] | select(.status == "certified") | .evidence.status] | all(. == "current"))' \
-  "$HERMETIC_MANIFESTS/capabilities/registry.json" >/dev/null \
-  || fail "hermetic manifest capability evidence is not current"
-pass "candidate-bound manifest fixture is ready"
+jq -e '[.manifests[] | select(.status == "certified") | .evidence.tests | length] | all(. > 0)' \
+  "$HERMETIC_MANIFESTS/dispositions.json" >/dev/null \
+  || fail "a certified disposition in the hermetic library cites no evidence"
+jq -e '.format == "duo-platform-boundary/v1"' \
+  "$HERMETIC_MANIFESTS/capabilities/platform.json" >/dev/null \
+  || fail "the hermetic library has no platform boundary"
+pass "hermetic manifest library is ready"
 
 say "build a Git-capable controller and create one headless disposable pair"
 docker build -q -f sandbox/init-cli.Dockerfile -t "$IMAGE" sandbox >/dev/null

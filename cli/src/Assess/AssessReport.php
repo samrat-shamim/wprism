@@ -194,110 +194,50 @@ final class AssessReport {
      * `evidence_pins`, §3.4's refresh rule).
      *
      * `registry_sha256` is the TARGET's number, read out of the capability
-     * report the target produced. `generated_from` is the host's own
-     * `manifests/capabilities/registry.json` provenance triple — the
-     * generator inputs, which only exist beside the generator. The two are
-     * from different machines on purpose: the pin that must flip when the
-     * site changes is the target's hash, and it is the one
-     * `ContractProjection` compares.
+     * report the target produced — the content address of the reviewed
+     * dispositions its verdict was read from. `generated_from` is the host's
+     * own copy of that same document, addressed by its raw bytes. The two are
+     * from different machines on purpose: the pin that must flip when the site
+     * changes is the target's hash, and it is the one `ContractProjection`
+     * compares.
      *
-     * A subject whose evidence carries no bundle digest is **not a pin** and
-     * is left out: pinning a null would create a pin nothing can ever
-     * invalidate. Nothing is hidden by the omission — every surface
-     * belonging to that subject already carries the registry's own
-     * `evidence_not_current` blocker and therefore projects
-     * `Requalification required`, and the human renderer states the count.
+     * There are no per-subject bundle pins any more. A claim's `evidence` is
+     * the authored citation its disposition carries verbatim — a bundle schema
+     * and named tests, with no digest and no status to expire — so a pin per
+     * subject would have been a pin over a constant. Drift is detected at the
+     * one place a change can actually happen: the reviewed document itself.
      *
      * @param array<string,array<string,mixed>> $registryReports
-     * @param array<string,mixed> $generatedFrom the host registry's own
-     *        `generated_from` block
-     * @return array{registry_sha256:string,generated_from:array<string,mixed>,bundles:list<array<string,mixed>>}
+     * @param array{registry_sha256?:mixed,generated_from?:mixed} $provenance
+     *        `AssessCommand::registryProvenance()`
+     * @return array{registry_sha256:string,generated_from:array{dispositions_sha256:string}}
      */
-    public static function evidence(array $registryReports, array $generatedFrom): array {
+    public static function evidence(array $registryReports, array $provenance): array {
         $registrySha = null;
-        $bundles = [];
         foreach ($registryReports as $report) {
-            if ($registrySha === null && is_string($report['registry_sha256'] ?? null)) {
+            if (is_string($report['registry_sha256'] ?? null)) {
                 $registrySha = $report['registry_sha256'];
-            }
-            foreach (($report['manifests'] ?? []) as $manifest) {
-                if (!is_array($manifest)) {
-                    continue;
-                }
-                $row = self::bundleRow($manifest);
-                if ($row !== null) {
-                    $bundles[$row['subject']] = $row;
-                }
+                break;
             }
         }
         if ($registrySha === null || $registrySha === '') {
             throw self::refuse('the target capability report carries no registry hash');
         }
-        foreach (['dispositions_sha256', 'evidence_sha256', 'compatibility_sha256'] as $key) {
-            if (!is_string($generatedFrom[$key] ?? null) || $generatedFrom[$key] === '') {
-                throw self::refuse("the shipped capability registry has no $key provenance");
-            }
+        if (!is_string($provenance['registry_sha256'] ?? null) || $provenance['registry_sha256'] === '') {
+            throw self::refuse('the reviewed dispositions in this checkout have no content address');
         }
-        ksort($bundles, SORT_STRING);
+        $generatedFrom = is_array($provenance['generated_from'] ?? null) ? $provenance['generated_from'] : [];
+        if (!is_string($generatedFrom['dispositions_sha256'] ?? null)
+            || $generatedFrom['dispositions_sha256'] === '') {
+            throw self::refuse('the reviewed dispositions in this checkout have no dispositions_sha256 provenance');
+        }
 
         return [
             'registry_sha256' => $registrySha,
             'generated_from' => [
                 'dispositions_sha256' => (string) $generatedFrom['dispositions_sha256'],
-                'evidence_sha256' => (string) $generatedFrom['evidence_sha256'],
-                'compatibility_sha256' => (string) $generatedFrom['compatibility_sha256'],
             ],
-            'bundles' => array_values($bundles),
         ];
-    }
-
-    /**
-     * Every certification subject the reports named, digested or not — the
-     * *observed* set `ContractProjection` compares a contract's pins
-     * against. A pinned subject missing from this list, or present with a
-     * moved digest or a non-current status, is what flips its surfaces to
-     * `Requalification required`.
-     *
-     * @param array<string,array<string,mixed>> $registryReports
-     * @return list<array{subject:string,bundle_digest:string,status:string}>
-     */
-    public static function observedBundles(array $registryReports): array {
-        $observed = [];
-        foreach ($registryReports as $report) {
-            foreach (($report['manifests'] ?? []) as $manifest) {
-                if (!is_array($manifest) || !is_string($manifest['evidence']['subject'] ?? null)) {
-                    continue;
-                }
-                $evidence = $manifest['evidence'];
-                $observed[(string) $evidence['subject']] = [
-                    'subject' => (string) $evidence['subject'],
-                    'bundle_digest' => is_string($evidence['bundle_digest'] ?? null)
-                        ? $evidence['bundle_digest']
-                        : '',
-                    'status' => is_string($evidence['status'] ?? null) ? $evidence['status'] : 'unknown',
-                ];
-            }
-        }
-        ksort($observed, SORT_STRING);
-
-        return array_values($observed);
-    }
-
-    /**
-     * How many certification subjects this assessment saw with no bundle
-     * digest to pin. Reported, never silently dropped.
-     *
-     * @param array<string,array<string,mixed>> $registryReports
-     */
-    public static function unpinnedSubjects(array $registryReports): int {
-        $count = 0;
-        foreach (self::observedBundles($registryReports) as $bundle) {
-            if ($bundle['bundle_digest'] === '') {
-                $count++;
-            }
-        }
-
-        return $count;
     }
 
     /**
@@ -370,61 +310,11 @@ final class AssessReport {
         ];
     }
 
-    /**
-     * @param array<string,mixed> $manifest
-     * @return array<string,mixed>|null
-     */
-    private static function bundleRow(array $manifest): ?array {
-        $evidence = $manifest['evidence'] ?? null;
-        if (!is_array($evidence)) {
-            return null;
-        }
-        foreach (['subject', 'bundle_digest', 'bundle_schema', 'status', 'git_revision'] as $key) {
-            if (!is_string($evidence[$key] ?? null) || $evidence[$key] === '') {
-                return null;
-            }
-        }
-
-        return [
-            'subject' => (string) $evidence['subject'],
-            'bundle_digest' => (string) $evidence['bundle_digest'],
-            'bundle_schema' => (string) $evidence['bundle_schema'],
-            'status' => (string) $evidence['status'],
-            'git_revision' => (string) $evidence['git_revision'],
-            'expires_with' => self::expiresWith($manifest),
-        ];
-    }
-
-    /**
-     * What re-expires this subject's evidence: the platform axes every
-     * claim is bound to, plus the plugin or theme this one carries a
-     * version window for. Read from the claim, so a widened window moves
-     * this list without an edit here.
-     *
-     * @param array<string,mixed> $manifest
-     * @return list<string>
-     */
-    private static function expiresWith(array $manifest): array {
-        $axes = [];
-        $supported = is_array($manifest['supported_versions'] ?? null) ? $manifest['supported_versions'] : [];
-        foreach (['plugin', 'theme'] as $key) {
-            $value = $supported[$key] ?? null;
-            if (is_string($value) && $value !== '' && $value !== 'unbound') {
-                $axes[] = $value;
-            }
-        }
-        foreach (['wordpress', 'php', 'database'] as $axis) {
-            $axes[] = $axis;
-        }
-
-        return array_values(array_unique($axes));
-    }
-
     private static function refuse(string $message): CommandRefusalException {
         return new CommandRefusalException(
             'assess_report_unbuildable',
             $message,
-            'rerun assess after repairing the target inventory or regenerating the capability registry'
+            'rerun assess after repairing the target inventory or restoring manifests/dispositions.json'
         );
     }
 }

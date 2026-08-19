@@ -424,13 +424,13 @@ final class AffectedTest extends TestCase
     public function testManifestChangesSelectTheSuitesThatGlobTheManifestTree(): void
     {
         // No suite spells an individual manifest: they all load the tree with
-        // glob()/CapabilityRegistry::load(), so only the directory signal can
-        // connect them. Both a top-level manifest and a provider under a
-        // subdirectory must reach it.
+        // glob()/scandir(), so only the directory signal can connect them.
+        // Both a top-level manifest and a provider under a subdirectory must
+        // reach it.
         $core = self::targets(['--paths=manifests/core.json']);
         self::assertGreaterThanOrEqual(20, count($core));
-        self::assertContains('regress-capability-registry', $core);
         self::assertContains('regress-manifest-dispositions', $core);
+        self::assertContains('regress-adapter-sources', $core);
 
         $provider = self::targets(['--paths=manifests/providers/woocommerce-cache.php']);
         self::assertGreaterThanOrEqual(20, count($provider));

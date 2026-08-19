@@ -1,0 +1,27 @@
+{
+    "format": "duo-platform-boundary/v1",
+    "platform": {
+        "agent_version": "0.5.0",
+        "branchable_state": "only manifest-declared, disposition-reviewed surfaces and operations",
+        "compatibility": {
+            "database": {
+                "engine": "MariaDB",
+                "max": "12.0.0",
+                "min": "11.0.0",
+                "note": "Pinned by the sandbox harness's own Docker tag (mariadb:11 -- see sandbox/db.yml, sandbox/docker-compose.yml). Verified live: 11.8.8-MariaDB as of this writing. MySQL is not claimed or tested against; a site running MySQL instead of MariaDB is genuinely untested, not merely unpinned."
+            },
+            "php": {
+                "max": "8.4.0",
+                "min": "8.3.0",
+                "note": "Pinned by the sandbox harness's own Docker tags (wordpress:7.0.3-php8.3-apache / wordpress:cli-php8.3 -- see sandbox/pair.yml, sandbox/db.yml, sandbox/docker-compose.yml). Verified live: PHP 8.3.33 as of this writing."
+            },
+            "wordpress": {
+                "last_verified": "7.0.3",
+                "note": "Pinned by the sandbox harness's own Docker tag (wordpress:7.0.3-php8.3-apache -- see sandbox/pair.yml, sandbox/db.yml, sandbox/docker-compose.yml): the core version the live conformance estate last ran against. The sandbox image is not core-version pinned, so this is a single last-verified version, not a claimed range; other core versions are genuinely untested and no runtime gate enforces this boundary -- a wider claim requires a real multi-version core matrix."
+            }
+        },
+        "plugin_execution": "unmodified",
+        "site_mode": "single-site",
+        "spec_version": 2
+    }
+}

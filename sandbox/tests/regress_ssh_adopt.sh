@@ -27,8 +27,6 @@ IMAGE="${PREFIX}-ssh-image"
 PORT=""
 TMP=""
 DIAG_DIR=""
-HERMETIC_ROOT=""
-HERMETIC_MANIFESTS=""
 DUO="$ROOT/cli/duo"
 SUITE_LABEL="regress-ssh-adopt"
 RUN_ID=""
@@ -201,21 +199,15 @@ RUN_ID="${PREFIX}-${SOURCE_SHA:0:12}-$$-${RANDOM}${RANDOM}"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/${PREFIX}-ssh-adopt.XXXXXX")"
 trap cleanup EXIT
 
-# The shipped capability records are intentionally candidate/expired on a
-# tree that has not yet imported current subject evidence. The product must keep
-# refusing such a target; this live fixture manufactures the same byte-for-byte
-# manifest library with an independently current record for each certified
-# subject, sealed against this exact clean checkout just as the init fixture
-# does. Manufacture happens
-# before Docker so a broken premise cannot be reported as a target failure.
-HERMETIC_ROOT="$TMP/hermetic-certification"
-HERMETIC_MANIFESTS="$(php sandbox/tests/certification_fixture.php "$HERMETIC_ROOT")" \
-  || fail "could not manufacture the hermetic current-evidence manifest library"
-[ "$HERMETIC_MANIFESTS" = "$HERMETIC_ROOT/manifests" ] \
-  || fail "hermetic certification fixture returned an unexpected manifests path"
-HERMETIC_CAPABILITIES_ARCHIVE="$TMP/hermetic-capabilities.tar"
-tar -C "$HERMETIC_MANIFESTS" -cf "$HERMETIC_CAPABILITIES_ARCHIVE" capabilities \
-  || fail "could not archive the hermetic independent subject evidence"
+# The scoped-promotion leg below used to begin by manufacturing a hermetic
+# manifest library and pushing its capabilities/ directory onto the target: the
+# generated attestation was candidate/expired on any tree that had not imported
+# current subject evidence, so every certified claim carried
+# `evidence_not_current` and promotion refused before it could exercise
+# anything. That attestation no longer exists, and the manifest library `duo
+# adopt` installs — this checkout's own, tarred whole — is already the reviewed
+# one. Nothing is manufactured, staged, or pushed for it; the product gate is
+# unchanged and is exercised where it lives.
 
 DIAG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/${PREFIX}-ssh-adopt-diagnostics.XXXXXX")"
 chmod 0700 "$DIAG_DIR"
@@ -521,15 +513,16 @@ grep -q 'refusing symlink destination: /var/www/html/wp-content/mu-plugins/manif
 ssh_fixture 'cd /var/www/html/wp-content/mu-plugins && rm manifests && mv manifests-real manifests'
 pass "unsafe destination is a loud failure with agent and site policy unchanged"
 
-say "install hermetic independently current subject evidence for scoped promotion"
-REMOTE_CAPABILITIES_ARCHIVE="/tmp/${PREFIX}-hermetic-capabilities-${RUN_ID}.tar"
-scp -F "$TMP/ssh_config" "$HERMETIC_CAPABILITIES_ARCHIVE" \
-  "duo-adopt-fixture:${REMOTE_CAPABILITIES_ARCHIVE}" >/dev/null
-ssh_fixture "rm -rf /var/www/html/wp-content/mu-plugins/manifests/capabilities && mkdir -p /var/www/html/wp-content/mu-plugins/manifests && tar -C /var/www/html/wp-content/mu-plugins/manifests -xf '$REMOTE_CAPABILITIES_ARCHIVE' && rm -f '$REMOTE_CAPABILITIES_ARCHIVE'"
-if ! ssh_fixture 'php -r '\''$p="/var/www/html/wp-content/mu-plugins/manifests/capabilities/registry.json"; $r=json_decode(file_get_contents($p),true,512,JSON_THROW_ON_ERROR); foreach(["manifests","profiles"] as $s){foreach(($r[$s]??[]) as $v){if(($v["status"]??null)==="certified"&&($v["evidence"]["status"]??null)!=="current")exit(1);}} exit(0);'\'''; then
-  fail "target did not install independently current evidence for every certified subject"
+say "the adopted target carries the reviewed manifest library it will be gated on"
+# A premise check, not a fixture: `duo adopt` above installed this checkout's
+# manifests/ whole, so the reviewed dispositions and the platform boundary are
+# already there. Asserted before the scoped promotion so a library that failed
+# to land is diagnosed here rather than as an unexplained capability refusal
+# eight commands later. Nothing is written; the product gate is untouched.
+if ! ssh_fixture 'php -r '\''$m="/var/www/html/wp-content/mu-plugins/manifests"; $p=json_decode(file_get_contents("$m/capabilities/platform.json"),true,512,JSON_THROW_ON_ERROR); if(($p["format"]??null)!=="duo-platform-boundary/v1")exit(1); $d=json_decode(file_get_contents("$m/dispositions.json"),true,512,JSON_THROW_ON_ERROR); foreach(($d["manifests"]??[]) as $v){if(($v["status"]??null)==="certified"&&count($v["evidence"]["tests"]??[])<1)exit(1);} exit(0);'\'''; then
+  fail "the adopted target has no reviewed manifest library: platform boundary or disposition evidence citation is missing"
 fi
-pass "target capability evidence is current without weakening the product certification gate"
+pass "target carries the shipped platform boundary and a cited disposition for every certified claim"
 
 say "exercise a real checkpointed SSH scoped promotion and its recovery boundary"
 ssh_fixture 'php -r '\''$p="/home/duo/site/site.duo.json"; $d=json_decode(file_get_contents($p),true,512,JSON_THROW_ON_ERROR); $d["policy"]["options"]["duo3344_scoped_option"]=["autoload"=>"preserve","class"=>"authored"]; file_put_contents($p,json_encode($d,JSON_UNESCAPED_SLASHES)."\n");'\'''

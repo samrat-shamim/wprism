@@ -63,13 +63,13 @@ use Duo\CommandRefusalException;
  *
  * ## The two derivations that are judgement, not transcription
  *
- * **Blocker vs condition.** `CapabilityRegistry::report()` returns one flat
- * `verdict.reasons` list. MUP §1.3 splits it: six codes are *re-evaluated
- * at the mutation gate* against the live target and therefore project
+ * **Blocker vs condition.** `AdapterRegistry::report()` returns one flat
+ * `verdict.reasons` list. MUP §1.3 splits it: the codes that are
+ * *re-evaluated at the mutation gate* against the live target project
  * `Ready with conditions`, while everything else is a blocker that forces
  * a readiness word. `CONDITION_CODES` is that split, and `verdict_status`
  * is derived from the blockers alone — so a certified adapter running one
- * minor version outside its evidence-bound range reads `Ready with
+ * minor version outside its reviewed plugin window reads `Ready with
  * conditions`, naming the code, rather than `Not qualified`.
  *
  * **Registration.** A claim declares a bare section name (`tables`) when it
@@ -103,8 +103,8 @@ use Duo\CommandRefusalException;
  */
 final class SurfaceCatalog {
     /**
-     * The product operations MUP speaks, mapped to the operation word the
-     * capability registry certifies.
+     * The product operations MUP speaks, mapped to the operation word a
+     * reviewed disposition certifies.
      *
      * The registry's vocabulary is the engine's (`apply`, `capture`,
      * `plan`, `promote`, `delete`, …); MUP's is the operator's. Without
@@ -125,14 +125,17 @@ final class SurfaceCatalog {
      * Registry reason codes MUP §1.3 classifies as conditions re-evaluated
      * at the mutation gate rather than as blockers.
      *
-     * `theme_not_active` joins the six §1.3 names for the same reason
-     * `plugin_not_active` is there: it is a fact about the live target that
-     * the mutation gate re-reads, not a fact about the evidence.
+     * Two of §1.3's seven names, not seven. The WordPress, PHP, database and
+     * theme axes were reported against a generated evidence record that
+     * measured them; with that record gone `AdapterRegistry::target_reasons()`
+     * deliberately reports none of them rather than re-deriving a range nobody
+     * measured, so listing their codes here would classify reasons that cannot
+     * arrive. What survives is the adapter's OWN plugin contract, which is
+     * authored in the disposition and pinned to the manifest's `version_range`
+     * — a reviewed fact, and still re-read at the gate.
      */
     public const CONDITION_CODES = [
-        'plugin_version_mismatch', 'plugin_not_active', 'wordpress_version_mismatch',
-        'php_version_mismatch', 'database_version_mismatch', 'theme_version_mismatch',
-        'theme_not_active',
+        'plugin_version_mismatch', 'plugin_not_active',
     ];
 
     /**
@@ -140,7 +143,7 @@ final class SurfaceCatalog {
      * operations, so a boundary declared about the inner one is a boundary
      * about the outer one too.
      *
-     * `CapabilityRegistry::claim_from_disposition()` mints `promote` from
+     * `ManifestDispositions::claim_from_disposition()` mints `promote` from
      * `deploy` + `apply` itself, which is why this is a restatement of the
      * registry's own composition rather than a new claim: a surface whose
      * `apply` is explicitly unsupported is not supported inside a promote
@@ -208,7 +211,7 @@ final class SurfaceCatalog {
      *
      * @param array<string,mixed> $inventory a `duo-assess-inventory/v1` document
      * @param array<string,array<string,mixed>> $registryReports one
-     *        `CapabilityRegistry::report()` document per REGISTRY_OPERATION
+     *        `AdapterRegistry::report()` document per REGISTRY_OPERATION
      *        value, keyed by that value
      * @param array<string,mixed>|null $contract the accepted contract, or null
      * @param array<string,mixed> $options `operations` (a list of MUP
@@ -264,14 +267,14 @@ final class SurfaceCatalog {
      *
      * @param array{rows: list<array<string,mixed>>, facts: array<string,array<string,mixed>>} $catalog
      * @param list<string> $operations
-     * @param list<array<string,mixed>> $bundles observed evidence rows
+     * @param string $registrySha256 the content address of the reviewed
+     *        dispositions the target answered from, observed now
      * @return array<string,mixed>
      */
     public static function projectionFacts(
         array $catalog,
         array $operations,
-        string $registrySha256,
-        array $bundles
+        string $registrySha256
     ): array {
         $surfaces = [];
         foreach ($catalog['rows'] as $row) {
@@ -287,16 +290,12 @@ final class SurfaceCatalog {
                     'expiry_and_dependencies' => $vectors[$operation]['expiry_and_dependencies'],
                 ];
             }
-            $surfaces[$id] = [
-                'evidence_subjects' => $vectors['__evidence_subjects'] ?? [],
-                'operations' => $entries,
-            ];
+            $surfaces[$id] = ['operations' => $entries];
         }
 
         return [
             'operations' => array_values($operations),
             'registry_sha256' => $registrySha256,
-            'bundles' => array_values($bundles),
             'surfaces' => $surfaces,
         ];
     }
@@ -508,7 +507,6 @@ final class SurfaceCatalog {
 
         $projections = [];
         $vectors = [];
-        $evidenceSubjects = [];
         $stateClasses = [];
         $handlings = [];
 
@@ -540,9 +538,6 @@ final class SurfaceCatalog {
             $unsupportedReason = $matched ?? ($policyClass === 'derived' ? $repair : null);
 
             $registry = self::registryFacts($manifest, $selector, $matched !== null);
-            if ($manifest !== null && is_string($manifest['evidence']['subject'] ?? null)) {
-                $evidenceSubjects[$manifest['evidence']['subject']] = true;
-            }
 
             $vector = [
                 'operation' => $operation,
@@ -607,8 +602,6 @@ final class SurfaceCatalog {
         // half; the per-operation truth stays in `operations`.
         $handling = count($handlings) === 1 ? (string) array_key_first($handlings) : 'block';
 
-        $vectors['__evidence_subjects'] = array_keys($evidenceSubjects);
-
         $row = [
             'id' => $id,
             'label' => (string) $identity['label'],
@@ -653,7 +646,6 @@ final class SurfaceCatalog {
         if ($manifest === null) {
             return [
                 'claim_status' => null,
-                'evidence_status' => null,
                 'verdict_status' => null,
                 // No claim at all is the registry's own `missing_registry_entry`
                 // situation, and routing it through that code keeps the
@@ -686,12 +678,10 @@ final class SurfaceCatalog {
         }
         $blockers = array_values(array_unique($blockers));
 
-        $evidenceStatus = $manifest['evidence']['status'] ?? null;
         $certification = (string) ($manifest['source']['certification'] ?? 'registry');
 
         return [
             'claim_status' => is_string($manifest['status'] ?? null) ? $manifest['status'] : null,
-            'evidence_status' => is_string($evidenceStatus) ? $evidenceStatus : null,
             // §1.3 reads `Ready`/`Ready with conditions` off a certified
             // verdict. The registry's own verdict word already counts the
             // re-checkable conditions as blocking, so it is recomputed here

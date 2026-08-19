@@ -313,7 +313,6 @@ echo "\n== DUO-3375: the frozen-snapshot entry point reaches the SAME verdict (l
 function frozen_snapshot(array $manifests): array {
     return [
         'adapter_sources' => ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []],
-        'capabilities' => null,
         'dispositions' => null,
         'format' => 'duo-policy-snapshot/v4',
         'manifests' => $manifests,

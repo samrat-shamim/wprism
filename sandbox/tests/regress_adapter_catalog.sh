@@ -44,7 +44,7 @@ php -l ../../cli/src/Plan/PlanSummary.php >/dev/null || fail "cli/src/Plan/PlanS
 php -l ../../agent/src/Adapter/AdapterSources.php >/dev/null || fail "agent/src/Adapter/AdapterSources.php has a syntax error"
 php -l ../../agent/src/Policy/Policy.php >/dev/null || fail "agent/src/Policy/Policy.php has a syntax error"
 php -l ../../agent/src/Adapter/Providers.php >/dev/null || fail "agent/src/Adapter/Providers.php has a syntax error"
-php -l ../../agent/src/Adapter/CapabilityRegistry.php >/dev/null || fail "agent/src/Adapter/CapabilityRegistry.php has a syntax error"
+php -l ../../agent/src/Adapter/AdapterRegistry.php >/dev/null || fail "agent/src/Adapter/AdapterRegistry.php has a syntax error"
 php -l ../../agent/src/Policy/ManifestDispositions.php >/dev/null || fail "agent/src/Policy/ManifestDispositions.php has a syntax error"
 pass "no syntax errors"
 
@@ -55,12 +55,22 @@ say "the handler itself must be WordPress-free, and its load set must be one alr
 #
 #   1. the handler: no unguarded WordPress reach at all, no allowlist.
 #   2. the engine half: rather than repeat regress_manifest_validate.sh's
-#      enumerate-and-scan (which closes over the engine files' own
-#      `require_once __DIR__` lines, so it already covers AdapterSources.php
-#      and CapabilityRegistry.php), assert that this command's boot() loads
-#      EXACTLY the same set that suite scans. Then its result covers this
+#      enumerate-and-scan, assert that every class this command's boot() loads
+#      lands inside the CLOSURE that suite scans. Then its result covers this
 #      command too, provably, instead of by assumption — and a require added
-#      here and not there fails this check rather than escaping both.
+#      here and reachable from nowhere there fails this check rather than
+#      escaping both.
+#
+#      The check was `catalog_set = validate_set` until the two lists genuinely
+#      diverged: AdapterCatalog::boot() names AdapterRegistry (it reads claims
+#      through AdapterRegistry::report()) and ManifestValidate::boot() does not.
+#      Equality was only ever a cheap proxy for "already scanned", and it is the
+#      WRONG proxy here — AdapterRegistry.php IS in ManifestValidate's scanned
+#      closure, pulled in transitively through Policy.php's own require chain,
+#      so the file is covered while the lists differ. Subset-of-closure is the
+#      property that was always meant, stated directly: it still fails on a
+#      class scanned nowhere, and it no longer fails on two commands that
+#      legitimately load different top-level sets.
 scan_wp() {
   awk '
     FNR == 1 { base = FILENAME; sub(/.*\//, "", base); fn = "(top level)"; prev = "" }
@@ -102,12 +112,51 @@ boot_set() {
   ' "$1"
 }
 catalog_set="$(boot_set ../../cli/src/Adapter/AdapterCatalog.php)" || fail "could not enumerate AdapterCatalog::boot()"
-validate_set="$(boot_set ../../cli/src/Adapter/ManifestValidate.php)" || fail "could not enumerate ManifestValidate::boot()"
 [ -n "$catalog_set" ] || fail "AdapterCatalog::boot() enumerated an empty require list"
-if [ "$catalog_set" != "$validate_set" ]; then
-  fail "AdapterCatalog::boot() loads [$catalog_set] but ManifestValidate::boot() loads [$validate_set] — regress_manifest_validate.sh's engine-side WordPress scan no longer covers this command's load set, so either align them or scan this one independently"
+
+# ManifestValidate::boot()'s transitive closure, walked exactly the way
+# regress_manifest_validate.sh walks it before scanning: its own class list out
+# of agent/duo-classmap.php, then each file's `require_once __DIR__` lines. The
+# two walks must agree, so this is that walk and not a summary of it.
+uncovered="$(php -r '
+    $repo = dirname(getcwd(), 2);
+    $src = (string) file_get_contents($repo . "/cli/src/Adapter/ManifestValidate.php");
+    $classFiles = [];
+    foreach ((array) (require $repo . "/agent/duo-classmap.php") as $mappedPath) {
+        $classFiles[basename((string) $mappedPath, ".php")] = (string) $mappedPath;
+    }
+    $queue = [];
+    if (preg_match("/foreach \(\[([^\]]*)\] as \\\$class\)/", $src, $m) === 1) {
+        foreach (explode(",", $m[1]) as $class) {
+            $name = trim($class, " \t\n\r\"\x27");
+            if (isset($classFiles[$name])) { $queue[] = $repo . "/agent/" . $classFiles[$name]; }
+        }
+    }
+    $seen = [];
+    while ($queue !== []) {
+        $file = array_shift($queue);
+        if (isset($seen[$file]) || !is_file($file)) { continue; }
+        $seen[$file] = true;
+        if (preg_match_all("/require_once __DIR__ \. \x27\/((?:\.\.\/\w+\/)?\w+)\.php\x27/", (string) file_get_contents($file), $r) > 0) {
+            foreach ($r[1] as $rel) {
+                $resolved = realpath(dirname($file) . "/" . $rel . ".php");
+                $queue[] = is_string($resolved) ? $resolved : dirname($file) . "/" . $rel . ".php";
+            }
+        }
+    }
+    $scanned = [];
+    foreach (array_keys($seen) as $file) { $scanned[basename($file, ".php")] = true; }
+    $missing = [];
+    foreach (explode(",", trim($argv[1])) as $class) {
+        if ($class !== "" && !isset($scanned[$class])) { $missing[] = $class; }
+    }
+    echo implode(",", $missing), "\n";
+' "$catalog_set")" || fail "could not enumerate ManifestValidate::boot()'s scanned closure"
+uncovered="$(printf '%s' "$uncovered" | tr -d '[:space:]')"
+if [ -n "$uncovered" ]; then
+  fail "AdapterCatalog::boot() loads [$uncovered], which regress_manifest_validate.sh's engine-side WordPress scan never reaches — that command's closure is what covers this one, so either make it reachable there or scan this command independently"
 fi
-pass "handler is WordPress-free, and its engine load set [$catalog_set] is the one regress_manifest_validate.sh scans"
+pass "handler is WordPress-free, and its engine load set [$catalog_set] is inside the closure regress_manifest_validate.sh scans"
 
 say "the shipped manifest library must be untouched by this suite"
 tree_hash() { (cd ../.. && find manifests -type f -print0 | sort -z | xargs -0 shasum -a 256 | shasum -a 256); }

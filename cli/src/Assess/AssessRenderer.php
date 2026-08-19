@@ -95,9 +95,9 @@ final class AssessRenderer {
      *
      * @param array<string,mixed> $report a `duo-assess-report/v1` document
      * @param array<string,mixed> $context `proposal_path` (the path written,
-     *        relative to the site repository), `contract_present` (bool),
-     *        `unpinned_subjects` (int) and `operation` (the operation whose
-     *        projection the table's columns show)
+     *        relative to the site repository), `contract_present` (bool) and
+     *        `operation` (the operation whose projection the table's columns
+     *        show)
      * @return list<string>
      */
     public static function render(array $report, int $limit, array $context = []): array {
@@ -117,7 +117,7 @@ final class AssessRenderer {
         foreach (self::gapSection($report) as $line) {
             $lines[] = $line;
         }
-        foreach (self::evidenceSection($report, $context) as $line) {
+        foreach (self::evidenceSection($report) as $line) {
             $lines[] = $line;
         }
         foreach (self::proposalSection($report, $context) as $line) {
@@ -423,18 +423,23 @@ final class AssessRenderer {
     }
 
     /**
+     * What backs these claims, in one block.
+     *
+     * There is one pin to state, not a count of certification subjects: a
+     * claim's evidence is the citation its reviewed disposition carries
+     * verbatim, so what a contract pins — and what `duo assess` re-observes —
+     * is the content address of the reviewed document itself. The hash is
+     * printed short because its only operator use is comparing it with the one
+     * in `contract.json`, and the full 64 characters are in the JSON view.
+     *
      * @param array<string,mixed> $report
-     * @param array<string,mixed> $context
      * @return list<string>
      */
-    private static function evidenceSection(array $report, array $context): array {
-        $bundles = is_array($report['evidence']['bundles'] ?? null) ? $report['evidence']['bundles'] : [];
-        $unpinned = (int) ($context['unpinned_subjects'] ?? 0);
-        $lines = ['evidence: ' . count($bundles) . ' certification subject(s) pinned'];
-        if ($unpinned > 0) {
-            $lines[] = '          ' . $unpinned . ' subject(s) carry no bundle digest and cannot be pinned; '
-                . 'their surfaces read Requalification required';
-        }
+    private static function evidenceSection(array $report): array {
+        $sha = is_string($report['evidence']['registry_sha256'] ?? null)
+            ? (string) $report['evidence']['registry_sha256']
+            : '';
+        $lines = ['evidence: reviewed dispositions ' . ($sha === '' ? '(none reported)' : substr($sha, 0, 12))];
         foreach (self::siteCertifiedPrincipals($report) as $line) {
             $lines[] = '          ' . $line;
         }

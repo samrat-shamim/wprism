@@ -32,8 +32,8 @@ foreach ($duoAgentClassmap as $duoAgentPath) {
 foreach ([
     'Canon', 'Uuid', 'OrderPreserved', 'OptionState', 'UserMetaState', 'Db',
     'TransientDbException', 'PlainData', 'StructuredValue', 'Secrets',
-    'PersonalData', 'AdapterSources', 'ManifestDispositions',
-    'CapabilityRegistry', 'NativeActions', 'ReferenceRules', 'Policy',
+    'PersonalData', 'AdapterSources', 'ManifestDispositions', 'TargetProbe',
+    'AdapterRegistry', 'NativeActions', 'ReferenceRules', 'Policy',
     'ReferenceGraph', 'CodeCompatibility', 'RepositoryCompiler',
     'ScopeClosure', 'CanonicalSurfaces', 'Deletion', 'SidebarState', 'Snapshot',
     'RepositoryAuthorization', 'Tokens', 'ScopeContract',

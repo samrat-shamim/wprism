@@ -69,7 +69,6 @@ function is_multisite(): bool {
 require $engineRoot . '/agent/src/Kernel/Canon.php';
 require $engineRoot . '/agent/src/Kernel/OptionState.php';
 require $engineRoot . '/agent/src/Policy/ManifestDispositions.php';
-require $engineRoot . '/agent/src/Adapter/CapabilityRegistry.php';
 require $engineRoot . '/agent/src/Policy/Policy.php';
 require $engineRoot . '/agent/src/Repository/Ledger.php';
 require $engineRoot . '/agent/src/Repository/RepositoryCompiler.php';
@@ -240,7 +239,6 @@ final class WP_CLI {
 require __ENGINE_ROOT__ . '/agent/src/Kernel/Canon.php';
 require __ENGINE_ROOT__ . '/agent/src/Kernel/OptionState.php';
 require __ENGINE_ROOT__ . '/agent/src/Policy/ManifestDispositions.php';
-require __ENGINE_ROOT__ . '/agent/src/Adapter/CapabilityRegistry.php';
 require __ENGINE_ROOT__ . '/agent/src/Policy/Policy.php';
 require __ENGINE_ROOT__ . '/agent/src/Repository/Ledger.php';
 require __ENGINE_ROOT__ . '/agent/src/Repository/RepositoryCompiler.php';
@@ -533,7 +531,7 @@ check(
     'its remediation is the PROMOTION PATH rather than "get it signed", which is impossible where it lives'
 );
 // The readiness posture, end to end, through the machinery that already
-// existed: CapabilityRegistry::report() keys on `source !== shipped` and
+// existed: AdapterRegistry::report() keys on `source !== shipped` and
 // interpolates whatever source/path/remediation the diagnostics row carries,
 // so the third source needed NO change there — asserted rather than assumed,
 // because "needs no change" is the kind of claim that is true right up until
@@ -2018,9 +2016,11 @@ check(
     && ($snapshot['adapter_sources']['out_of_tree']['acme-widget']['provenance']['path'] ?? null)
         === 'plugins/acme/duo-adapter.json'
     && ($snapshot['adapter_sources']['format'] ?? null) === AdapterSources::FORMAT
-    && ($snapshot['format'] ?? null) === 'duo-policy-snapshot/v5',
-    'the exported snapshot freezes the bundled provenance in the EXISTING wire generations — the path is a '
-    . 'function of the manifest\'s own `plugin` claim, so no new key and no format bump were needed'
+    && ($snapshot['format'] ?? null) === 'duo-policy-snapshot/v6'
+    && !array_key_exists('capabilities', $snapshot),
+    'the exported snapshot freezes the bundled provenance inside the adapter-sources record it always used — the '
+    . 'path is a function of the manifest\'s own `plugin` claim, so bundled provenance still needs no key of its '
+    . 'own; v6 is the generation that dropped the retired generated capability registry, not one this feature bought'
 );
 // This process has never defined WP_PLUGIN_DIR and never will: reconstructing
 // here is the proof that the frozen path re-derives the bundled provenance

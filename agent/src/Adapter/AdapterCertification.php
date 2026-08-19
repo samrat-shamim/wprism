@@ -4,7 +4,6 @@ namespace Duo;
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/AdapterSources.php';
 require_once __DIR__ . '/../Policy/ManifestDispositions.php';
-require_once __DIR__ . '/CapabilityRegistry.php';
 
 /**
  * External, signed certification for a data-only site adapter.
@@ -68,7 +67,7 @@ final class AdapterCertification {
      * reach a shipped manifest or another repository's adapter.
      */
     private const SITE_AUTHORITIES_RELATIVE = AdapterSources::SITE_DIR . '/' . AdapterSources::SITE_AUTHORITIES_FILE;
-    private const PLATFORM_RELATIVE = 'capabilities/registry.json';
+    private const PLATFORM_RELATIVE = 'capabilities/platform.json';
     private const CERTIFICATE_DIR = 'adapters/certifications';
 
     /** Reviewed by this project and shipped with the agent. */
@@ -85,7 +84,7 @@ final class AdapterCertification {
      * in none of them makes sign_site() refuse by name. Silently dropping an
      * unrecognised section would mint a certificate that covers less than the
      * adapter declares — the capability claim's `surfaces` list is built from
-     * exactly these sections (CapabilityRegistry::claim_from_disposition()),
+     * exactly these sections (ManifestDispositions::claim_from_disposition()),
      * so the uncovered surface would simply be blocked later with nothing
      * saying why. A new section kind must stop the signer, not narrow the
      * certificate.
@@ -1439,14 +1438,20 @@ final class AdapterCertification {
         $file = rtrim($manifestDir, '/') . '/' . self::PLATFORM_RELATIVE;
         if (!is_file($file)) {
             throw new \RuntimeException(
-                'duo: current agent platform boundary is absent at capabilities/registry.json'
+                'duo: current agent platform boundary is absent at capabilities/platform.json'
             );
         }
-        [, $typed, $data] = self::readCanonicalObjectFile($file, 'agent capability registry');
-        if (($data['format'] ?? null) !== CapabilityRegistry::FORMAT
+        // Read here rather than through ManifestDispositions::platform_boundary()
+        // because this path needs the TYPED object: canonicalHash($typed->platform)
+        // is the `platform_sha256` inside every signed statement, so the bytes
+        // hashed must be the decoded object itself and not a re-encoding of an
+        // array projection. Both readers bind the same file and the same
+        // format constant; only the shape they hand back differs.
+        [, $typed, $data] = self::readCanonicalObjectFile($file, 'agent platform boundary');
+        if (($data['format'] ?? null) !== ManifestDispositions::PLATFORM_FORMAT
             || !isset($typed->platform) || !is_object($typed->platform)
             || !is_array($data['platform'] ?? null) || array_is_list($data['platform'])) {
-            throw new \RuntimeException('duo: agent capability registry has no valid platform boundary');
+            throw new \RuntimeException('duo: agent platform boundary document has no valid platform object');
         }
         $platform = $data['platform'];
         self::assertExactKeys($platform, [
@@ -2192,7 +2197,7 @@ final class AdapterCertification {
             'statement_sha256' => $proof['statement_sha256'],
             'tests' => $proof['bundle']['tests'],
         ];
-        $claim = CapabilityRegistry::claim_from_disposition(
+        $claim = ManifestDispositions::claim_from_disposition(
             $manifest,
             $disposition,
             $evidence,

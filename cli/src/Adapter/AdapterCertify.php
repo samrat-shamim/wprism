@@ -991,8 +991,11 @@ final class AdapterCertify {
         foreach ($classmap as $path) {
             $files[basename((string) $path, '.php')] = (string) $path;
         }
+        // ManifestDispositions is the surviving dependency of the pair: it owns
+        // the claim projection and the platform boundary AdapterCertification
+        // binds. There is no CapabilityRegistry.php to require any more.
         foreach ([
-            'Canon', 'OptionState', 'ManifestDispositions', 'CapabilityRegistry',
+            'Canon', 'OptionState', 'ManifestDispositions',
             'Policy', 'AdapterCertification', 'RepositoryCompiler',
         ] as $class) {
             $file = $files[$class] ?? null;

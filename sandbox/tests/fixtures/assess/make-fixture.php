@@ -225,7 +225,17 @@ $seed['adoption'] = [
 file_put_contents("$dir/fixtures/inventory-adoption-seed.json", json_encode($seed, JSON_UNESCAPED_SLASHES));
 
 /**
- * One `CapabilityRegistry::report()['manifests'][]` row.
+ * One `AdapterRegistry::report()['manifests'][]` row.
+ *
+ * Faithful to what the agent emits, key for key. That matters more here than
+ * convenience: this fixture is the only capability report the assess suites
+ * ever see, so a row shaped like the OLD generated registry would let them pass
+ * against a document no agent produces. `evidence` is the authored citation
+ * verbatim — a bundle schema and named tests, with no digest, no git revision
+ * and no status word — and `evidence_scope` is `authored_disposition` because
+ * the claim is projected from `manifests/dispositions.json` rather than read
+ * out of a generated record. There is no `adapter_digest` on a row for the same
+ * reason: nothing generates one.
  *
  * @param list<string> $claimSurfaces
  * @param list<array<string,mixed>> $unsupported
@@ -255,11 +265,7 @@ $claim = static function (
         'deletion_semantics' => new stdClass(),
         'unsupported' => $unsupported,
         'evidence' => [
-            'subject' => 'manifests.' . $name,
             'bundle_schema' => 'duo-subject-certification-bundle/v1',
-            'bundle_digest' => str_repeat('c', 64),
-            'git_revision' => str_repeat('d', 40),
-            'status' => 'current',
             'tests' => ['conformance-' . $name],
         ],
         'platform' => ['compatibility' => [
@@ -267,7 +273,7 @@ $claim = static function (
             'php' => ['min' => '8.3.0', 'max' => '8.4.0'],
             'database' => ['engine' => 'MariaDB', 'min' => '11.0.0', 'max' => '12.0.0'],
         ]],
-        'evidence_scope' => 'subject_record',
+        'evidence_scope' => 'authored_disposition',
         'source' => [
             'source' => 'shipped', 'certification' => 'registry',
             'trust_tier' => 'declarative_manifest', 'path' => null, 'remediation' => '',
@@ -303,11 +309,13 @@ $report = static function (string $operation) use ($claim, $coreSurfaces, $adapt
     }
 
     return [
-        'schema_version' => 'duo-capability-report/v2',
+        'schema_version' => 'duo-capability-report/v1',
         'registry_sha256' => str_repeat('e', 64),
         'platform' => new stdClass(),
         'evidence' => null,
-        'query' => ['operation' => $operation, 'surface' => null, 'revision' => null],
+        // No `revision`: the query used to select a git revision to evaluate a
+        // generated evidence record against, and there is no such record.
+        'query' => ['operation' => $operation, 'surface' => null],
         'target' => ['wordpress' => '7.0.3', 'php' => '8.3.33'],
         'ready' => true,
         'blockers' => [],

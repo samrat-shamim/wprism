@@ -186,10 +186,10 @@ final class ManifestValidate {
                     . 'runtime',
             ],
             [
-                'surface' => 'dispositions.json / capabilities/registry.json',
-                'check' => 'CapabilityRegistry::report()',
-                'why' => 'certification is evidence evaluated against one target revision and its installed '
-                    . 'plugin/theme versions. Nothing here says whether a capability is certified, exercised, '
+                'surface' => 'dispositions.json',
+                'check' => 'AdapterRegistry::report()',
+                'why' => 'certification is a reviewed claim evaluated against one target and the plugin version '
+                    . 'installed on it. Nothing here says whether a capability is certified, exercised, '
                     . 'uncertified, or incompatible for your site — run `duo capabilities <env>` for that',
             ],
             [
@@ -382,7 +382,7 @@ final class ManifestValidate {
                 Policy::load($site, []);
             } catch (\Throwable $t) {
                 // The empty-pin load still walks the manifests directory
-                // (sources, dispositions, capability registry), so a defect
+                // (sources, dispositions, platform boundary), so a defect
                 // THERE also surfaces here. Blame --site only when the engine
                 // names the site file; anything else is the input dir's own
                 // problem and gets the message unprefixed.
@@ -783,10 +783,10 @@ final class ManifestValidate {
             define('DUO_SPEC_VERSION', (int) $m[1]);
         }
 
-        // Policy.php requires NativeActions.php itself. The other three are
-        // what Policy::load() reaches: canonical decoding, the autoload
-        // vocabulary, and the external review/evidence pair it consults when
-        // the directory carries one.
+        // Policy.php requires NativeActions.php — and AdapterRegistry.php —
+        // itself. The other three are what Policy::load() reaches: canonical
+        // decoding, the autoload vocabulary, and the external review document
+        // it consults when the directory carries one.
         $duoAgentClassmap = require $repo . '/agent/duo-classmap.php';
         if (!is_array($duoAgentClassmap)) {
             throw new \RuntimeException('manifest-validate: agent/duo-classmap.php did not return a map');
@@ -795,7 +795,7 @@ final class ManifestValidate {
         foreach ($duoAgentClassmap as $duoAgentPath) {
             $duoAgentFiles[basename((string) $duoAgentPath, '.php')] = (string) $duoAgentPath;
         }
-        foreach (['Canon', 'OptionState', 'ManifestDispositions', 'CapabilityRegistry', 'Policy'] as $class) {
+        foreach (['Canon', 'OptionState', 'ManifestDispositions', 'Policy'] as $class) {
             $duoAgentFile = $duoAgentFiles[$class] ?? null;
             if (!is_string($duoAgentFile)) {
                 throw new \RuntimeException('manifest-validate: agent source ' . $class . '.php is absent from agent/duo-classmap.php');

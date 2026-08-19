@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline characterization for the `duo-application-contract/v1` document
+ * Offline characterization for the `duo-application-contract/v2` document
  * and the `.duo/contract/` store (round-3 MUP §3.1-§3.2, §2.6).
  *
  * The contract is the only place a human's reviewed declarations about a
@@ -122,7 +122,7 @@ duo_check_same(
 );
 duo_check(str_ends_with($encoded, "\n"), 'the canonical document ends in exactly one LF');
 duo_check(!str_contains($encoded, "\r"), 'the canonical document contains no CR');
-duo_check(str_contains($encoded, '"format": "duo-application-contract/v1"'), 'the canonical document is pretty-printed');
+duo_check(str_contains($encoded, '"format": "duo-application-contract/v2"'), 'the canonical document is pretty-printed');
 duo_check(
     strpos($encoded, '"attestation"') < strpos($encoded, '"contract_digest"'),
     'keys are sorted at the top level'
@@ -177,11 +177,77 @@ duo_check_refuses(
     'contract_shape_invalid',
     'a missing required declarations key refuses'
 );
-$wrongFormat = ApplicationContract::withDigest(array_merge($contract, ['format' => 'duo-application-contract/v2']));
+$wrongFormat = ApplicationContract::withDigest(array_merge($contract, ['format' => 'duo-application-contract/v3']));
 duo_check_refuses(
     static fn () => ApplicationContract::validate($wrongFormat),
     'contract_format_invalid',
     'a future format version refuses rather than being read optimistically'
+);
+// The superseded generation refuses too, but not with the same sentence: an
+// operator holding an accepted v1 has to be told WHY a document that parsed
+// yesterday does not parse now, or they diff two schemas to find out. The
+// message is asserted here — not just the code — because the remediation is
+// carried in the prose and nowhere else.
+$priorFormat = ApplicationContract::withDigest(
+    array_merge($contract, ['format' => ApplicationContract::PRIOR_FORMAT])
+);
+duo_check_refuses(
+    static fn () => ApplicationContract::validate($priorFormat),
+    'contract_format_invalid',
+    'the superseded v1 generation refuses'
+);
+duo_check_throws(
+    static fn () => ApplicationContract::validate($priorFormat),
+    \Duo\CommandRefusalException::class,
+    'the v1 refusal names re-proposal as v2 rather than reporting a generic format mismatch',
+    're-proposed and re-accepted as duo-application-contract/v2'
+);
+
+// ------------------------------------------------------- the narrowed pins
+// v2 pins two numbers and no third. Each of the four v1 keys is re-added
+// individually below, because the closed-key check is what turns "this build
+// ignores a pin it no longer understands" into a refusal: a document carrying
+// `bundles[]` would otherwise parse, and an operator would read a per-subject
+// pin list as reviewed when nothing re-checks it.
+duo_check_same(
+    ['registry_sha256', 'generated_from'],
+    array_keys($contract['evidence_pins']),
+    'a v2 contract pins the reviewed dispositions hash and its host-side provenance, and nothing else'
+);
+duo_check_same(
+    ['dispositions_sha256'],
+    array_keys($contract['evidence_pins']['generated_from']),
+    'generated_from names the one document that still exists'
+);
+$withBundles = $contract;
+$withBundles['evidence_pins']['bundles'] = [[
+    'subject' => 'manifests.storefront-commerce',
+    'bundle_digest' => 'sha256:' . str_repeat('7', 64),
+    'bundle_schema' => 'duo-subject-certification-bundle/v1',
+    'status' => 'current',
+    'git_revision' => str_repeat('c', 40),
+    'expires_with' => ['storefront-commerce'],
+]];
+duo_check_refuses(
+    static fn () => ApplicationContract::validate(ApplicationContract::withDigest($withBundles)),
+    'contract_shape_invalid',
+    'a per-subject bundle pin list refuses as an unrecognised key rather than sitting inert'
+);
+foreach (['evidence_sha256', 'compatibility_sha256'] as $retiredInput) {
+    $withInput = $contract;
+    $withInput['evidence_pins']['generated_from'][$retiredInput] = 'sha256:' . str_repeat('9', 64);
+    duo_check_refuses(
+        static fn () => ApplicationContract::validate(ApplicationContract::withDigest($withInput)),
+        'contract_shape_invalid',
+        "a retired generator-input hash ($retiredInput) refuses as an unrecognised key"
+    );
+}
+$missingPin = $contract;
+unset($missingPin['evidence_pins']['generated_from']['dispositions_sha256']);
+duo_check_refuses(
+    static fn () => ApplicationContract::validate(ApplicationContract::withDigest($missingPin)),
+    'contract_shape_invalid',
+    'the surviving provenance hash stays required, so narrowing did not make it optional'
 );
 
 // ---------------------------------------------------------------- vocabulary

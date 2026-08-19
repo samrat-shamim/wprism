@@ -20,7 +20,6 @@ require_once __DIR__ . '/../../agent/src/Kernel/OptionState.php';
 require_once __DIR__ . '/../../agent/src/Kernel/Db.php';
 require_once __DIR__ . '/../../agent/src/Adapter/AdapterSources.php';
 require_once __DIR__ . '/../../agent/src/Policy/ManifestDispositions.php';
-require_once __DIR__ . '/../../agent/src/Adapter/CapabilityRegistry.php';
 require_once __DIR__ . '/../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/../../agent/src/Repository/RepositoryCompiler.php';
 require_once __DIR__ . '/../../agent/src/Init/InitPlanner.php';
@@ -79,8 +78,8 @@ require_once __DIR__ . '/../../agent/src/Command/Cli.php';
 use Duo\AdapterCertification;
 use Duo\AdapterSources;
 use Duo\Canon;
-use Duo\CapabilityRegistry;
 use Duo\InitPlanner;
+use Duo\ManifestDispositions;
 use Duo\Policy;
 use Duo\Providers;
 use Duo\RepositoryCompiler;
@@ -378,8 +377,8 @@ try {
     cert_check(false, 'the fixture adapter is a valid Policy spec-v2 manifest independent of certification (' . $e->getMessage() . ')');
 }
 putenv('DUO_MANIFESTS_DIR');
-cert_write_canon($agent . '/capabilities/registry.json', [
-    'format' => CapabilityRegistry::FORMAT,
+cert_write_canon($agent . '/capabilities/platform.json', [
+    'format' => ManifestDispositions::PLATFORM_FORMAT,
     'platform' => $platform,
 ]);
 
@@ -592,8 +591,8 @@ $providerAuthorities = [
     'format' => 'duo-adapter-authorities/v1',
     'keys' => $providerKeys,
 ];
-cert_write_canon($providerAgent . '/capabilities/registry.json', [
-    'format' => CapabilityRegistry::FORMAT,
+cert_write_canon($providerAgent . '/capabilities/platform.json', [
+    'format' => ManifestDispositions::PLATFORM_FORMAT,
     'platform' => $platform,
 ]);
 cert_write_canon($providerAgent . '/capabilities/adapter-authorities.json', $providerAuthorities);
@@ -877,7 +876,6 @@ try {
     $policy = \Duo\Policy::from_snapshot([
         'format' => 'duo-policy-snapshot/v4',
         'adapter_sources' => ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []],
-        'capabilities' => null,
         'dispositions' => null,
         'site' => [
             'manifests' => ['lazy-provider'],
@@ -968,8 +966,8 @@ cert_check(
 
 $providerPolicyManifests = $root . '/provider-policy-manifests';
 cert_write_canon($providerPolicyManifests . '/capabilities/adapter-authorities.json', $authorities);
-cert_write_canon($providerPolicyManifests . '/capabilities/registry.json', [
-    'format' => CapabilityRegistry::FORMAT,
+cert_write_canon($providerPolicyManifests . '/capabilities/platform.json', [
+    'format' => ManifestDispositions::PLATFORM_FORMAT,
     'platform' => $platform,
 ]);
 cert_write_canon($site . '/site.duo.json', [
@@ -998,32 +996,18 @@ cert_write_canon($agent . '/capabilities/adapter-authorities.json', $authorities
 echo "\n== Policy, digest pin, reporting, and host-promotion integration ==\n";
 $integrationManifests = $root . '/integration-manifests';
 cert_copy_tree(dirname(__DIR__, 2) . '/manifests', $integrationManifests);
-$integrationRegistry = json_decode(
-    (string) file_get_contents($integrationManifests . '/capabilities/registry.json'),
-    true,
-    512,
-    JSON_THROW_ON_ERROR
-);
-$integrationRegistry['platform'] = $platform;
-// Exercise mixed per-row evidence isolation. Only shipped subject rows should
-// inherit this synthetic blocker; the independently signed site row must not.
-foreach ($integrationRegistry['manifests'] as &$integrationManifestClaim) {
-    $integrationManifestClaim['evidence']['bundle_digest'] = null;
-    $integrationManifestClaim['evidence']['closure_digest'] = null;
-    $integrationManifestClaim['evidence']['git_revision'] = null;
-    $integrationManifestClaim['evidence']['subject_digest'] = null;
-    $integrationManifestClaim['evidence']['status'] = 'candidate';
-}
-unset($integrationManifestClaim);
-foreach ($integrationRegistry['profiles'] as &$integrationProfileClaim) {
-    $integrationProfileClaim['evidence']['bundle_digest'] = null;
-    $integrationProfileClaim['evidence']['closure_digest'] = null;
-    $integrationProfileClaim['evidence']['git_revision'] = null;
-    $integrationProfileClaim['evidence']['subject_digest'] = null;
-    $integrationProfileClaim['evidence']['status'] = 'candidate';
-}
-unset($integrationProfileClaim);
-cert_write_canon($integrationManifests . '/capabilities/registry.json', $integrationRegistry);
+// The copied library keeps its shipped dispositions and gets this fixture's
+// platform boundary, so every signature below binds one known platform.
+//
+// It used to additionally neutralise the copied registry's evidence bindings —
+// a copy that still named current scoped evidence made the runtime re-verify
+// closure inputs against this scratch library's parent, which is no deployed
+// layout, and refuse. No document binds a repository input any more, so there
+// is nothing to neutralise and the copy is usable as it stands.
+cert_write_canon($integrationManifests . '/capabilities/platform.json', [
+    'format' => ManifestDispositions::PLATFORM_FORMAT,
+    'platform' => $platform,
+]);
 $integrationKeys = new stdClass();
 $integrationKeys->{'review-key'} = $keys->{'review-key'};
 $integrationKeys->{'provider-key'} = $providerKeys->{'provider-key'};
@@ -1509,8 +1493,8 @@ try {
     // ==================================================================
     echo "\n== DUO-3339: a signed adapter's VERSION story is reportable (the #168 gap) ==\n";
     // ==================================================================
-    // CapabilityRegistry::load() is handed the SHIPPED subset only, so
-    // `$registry->claim($name)` answers null for every out-of-tree row and
+    // The reviewed dispositions name the SHIPPED subset only, so a name-keyed
+    // claim lookup answers null for every out-of-tree row, and
     // `duo adapter inspect` printed "registry claim: (none)" for an adapter
     // carrying a complete, verified signed envelope. survey() now carries that
     // envelope's own facts on the row instead. Everything asserted here is
@@ -1601,7 +1585,7 @@ try {
         && str_contains($inspectRun['stdout'], 'site-conformance')
         && str_contains(
             $inspectRun['stdout'],
-            'registry claim:    (none — a non-shipped adapter never has a generated registry claim; its own '
+            'registry claim:    (none — a non-shipped adapter never has a shipped reviewed claim; its own '
             . 'signed certification evidence is reported below)'
         ),
         '`duo adapter inspect` renders that evidence block for the signed site adapter, and the absent shipped '
@@ -1613,7 +1597,7 @@ try {
     $frozenPolicy = Policy::from_snapshot($policySnapshot);
     cert_check(
         RepositoryCompiler::resolved_adapters($frozenPolicy) === $pinnedResolved,
-        'Policy snapshot v5 re-verifies the certificate and reconstructs the exact source/digest/capability row'
+        'a frozen policy snapshot re-verifies the certificate and reconstructs the exact source/digest/capability row'
     );
     $missingFrozenCertificate = $policySnapshot;
     unset($missingFrozenCertificate['adapter_sources']['certificates']['site-demo']);
@@ -1714,7 +1698,6 @@ putenv('DUO_MANIFESTS_DIR=' . __MANIFESTS__);
 require __ENGINE_ROOT__ . '/agent/src/Kernel/Canon.php';
 require __ENGINE_ROOT__ . '/agent/src/Kernel/OptionState.php';
 require __ENGINE_ROOT__ . '/agent/src/Policy/ManifestDispositions.php';
-require __ENGINE_ROOT__ . '/agent/src/Adapter/CapabilityRegistry.php';
 require __ENGINE_ROOT__ . '/agent/src/Policy/Policy.php';
 require __ENGINE_ROOT__ . '/agent/src/Repository/Ledger.php';
 require __ENGINE_ROOT__ . '/agent/src/Repository/RepositoryCompiler.php';
@@ -1780,14 +1763,35 @@ PHP
     foreach ($mixedReport['manifests'] as $row) {
         $mixedRows[$row['name']] = $row;
     }
+    // Each row's evidence comes from its own authority and from no other. The
+    // fixture used to prove this by BLOCKING the shipped rows — the copied
+    // registry's evidence was neutralised to `candidate` and only the site row
+    // survived. There is no generated evidence to neutralise now, so the
+    // isolation is asserted the direct way: two rows, two different scopes,
+    // two different documents, and neither one's citation appearing on the
+    // other. Both are certified, which is the harder case — a contaminating
+    // read would go unnoticed if one of them were failing anyway.
+    $shippedCoreCitation = Canon::decode(
+        Canon::read_file($integrationManifests . '/dispositions.json')
+    )['manifests']['core']['evidence'] ?? null;
     cert_check(
         ($mixedReport['evidence_scope'] ?? null) === 'per_subject'
         && $mixedReport['evidence'] === null
         && ($mixedRows['site-demo']['evidence_scope'] ?? null) === 'site_certificate'
         && ($mixedRows['site-demo']['verdict']['status'] ?? null) === 'certified'
-        && ($mixedRows['core']['evidence_scope'] ?? null) === 'subject_record'
-        && ($mixedRows['core']['verdict']['status'] ?? null) === 'blocked',
-        'mixed reporting evaluates the signed site row against its own current evidence while shipped candidate evidence blocks only the shipped row'
+        && ($mixedRows['core']['evidence_scope'] ?? null) === 'authored_disposition'
+        && ($mixedRows['core']['verdict']['status'] ?? null) === 'certified'
+        && is_array($shippedCoreCitation)
+        && ($mixedRows['core']['evidence'] ?? null) === $shippedCoreCitation
+        && ($mixedRows['site-demo']['evidence'] ?? null) !== $shippedCoreCitation
+        && ($mixedRows['site-demo']['evidence']['bundle_schema'] ?? null)
+            === AdapterCertification::BUNDLE_FORMAT,
+        'mixed reporting gives the signed site row its own certificate evidence and the shipped row its own '
+        . 'authored citation — different scopes, different bundle schemas, and neither borrows the other'
+    );
+    cert_check(
+        array_key_exists('platform', $mixedReport) && $mixedReport['platform'] === null,
+        'and the report publishes no aggregate platform authority once a row answers from a source of its own'
     );
     $shippedOnly = Policy::load(null, ['core']);
     $shippedOnlyResolved = RepositoryCompiler::resolved_adapters($shippedOnly);
@@ -1904,8 +1908,8 @@ cert_write_canon($agent . '/capabilities/adapter-authorities.json', $authorities
 
 $changedPlatform = $platform;
 $changedPlatform['branchable_state'] = 'a different current platform boundary';
-cert_write_canon($agent . '/capabilities/registry.json', [
-    'format' => CapabilityRegistry::FORMAT,
+cert_write_canon($agent . '/capabilities/platform.json', [
+    'format' => ManifestDispositions::PLATFORM_FORMAT,
     'platform' => $changedPlatform,
 ]);
 cert_expect_throw(
@@ -1913,8 +1917,8 @@ cert_expect_throw(
     'platform boundary',
     'a current platform mutation invalidates frozen certification'
 );
-cert_write_canon($agent . '/capabilities/registry.json', [
-    'format' => CapabilityRegistry::FORMAT,
+cert_write_canon($agent . '/capabilities/platform.json', [
+    'format' => ManifestDispositions::PLATFORM_FORMAT,
     'platform' => $platform,
 ]);
 
@@ -2136,30 +2140,10 @@ cert_write_canon($orgSite . '/adapters/acme-catalog.json', $orgManifest);
 // with no disposition registry cannot demonstrate that — the capability
 // report degrades to `unreviewed` before any of this is reached.
 cert_copy_tree(dirname(__DIR__, 2) . '/manifests', $orgAgent);
-$orgRegistry = json_decode(
-    (string) file_get_contents($orgAgent . '/capabilities/registry.json'),
-    true,
-    512,
-    JSON_THROW_ON_ERROR
-);
-$orgRegistry['platform'] = $platform;
-foreach ($orgRegistry['manifests'] as &$orgShippedClaim) {
-    $orgShippedClaim['evidence']['bundle_digest'] = null;
-    $orgShippedClaim['evidence']['closure_digest'] = null;
-    $orgShippedClaim['evidence']['git_revision'] = null;
-    $orgShippedClaim['evidence']['subject_digest'] = null;
-    $orgShippedClaim['evidence']['status'] = 'candidate';
-}
-unset($orgShippedClaim);
-foreach ($orgRegistry['profiles'] as &$orgProfileClaim) {
-    $orgProfileClaim['evidence']['bundle_digest'] = null;
-    $orgProfileClaim['evidence']['closure_digest'] = null;
-    $orgProfileClaim['evidence']['git_revision'] = null;
-    $orgProfileClaim['evidence']['subject_digest'] = null;
-    $orgProfileClaim['evidence']['status'] = 'candidate';
-}
-unset($orgProfileClaim);
-cert_write_canon($orgAgent . '/capabilities/registry.json', $orgRegistry);
+cert_write_canon($orgAgent . '/capabilities/platform.json', [
+    'format' => ManifestDispositions::PLATFORM_FORMAT,
+    'platform' => $platform,
+]);
 cert_write_canon($orgAgent . '/capabilities/adapter-authorities.json', [
     'format' => 'duo-adapter-authorities/v1',
     'keys' => new stdClass(),
@@ -2523,35 +2507,10 @@ $autoManifest = [
 ];
 cert_write_canon($autoSite . '/adapters/acme-shop.json', $autoManifest);
 cert_copy_tree(dirname(__DIR__, 2) . '/manifests', $autoAgent);
-$autoRegistry = json_decode(
-    (string) file_get_contents($autoAgent . '/capabilities/registry.json'),
-    true,
-    512,
-    JSON_THROW_ON_ERROR
-);
-$autoRegistry['platform'] = $platform;
-// Same neutralisation as the integration and org copies above: a copied
-// registry that still names current scoped evidence would have the runtime
-// re-verify closure inputs against this scratch library's parent (which is
-// no deployed layout), and refuse — seen the moment the real registry became
-// fully current (T6 round 2).
-foreach ($autoRegistry['manifests'] as &$autoShippedClaim) {
-    $autoShippedClaim['evidence']['bundle_digest'] = null;
-    $autoShippedClaim['evidence']['closure_digest'] = null;
-    $autoShippedClaim['evidence']['git_revision'] = null;
-    $autoShippedClaim['evidence']['subject_digest'] = null;
-    $autoShippedClaim['evidence']['status'] = 'candidate';
-}
-unset($autoShippedClaim);
-foreach ($autoRegistry['profiles'] as &$autoProfileClaim) {
-    $autoProfileClaim['evidence']['bundle_digest'] = null;
-    $autoProfileClaim['evidence']['closure_digest'] = null;
-    $autoProfileClaim['evidence']['git_revision'] = null;
-    $autoProfileClaim['evidence']['subject_digest'] = null;
-    $autoProfileClaim['evidence']['status'] = 'candidate';
-}
-unset($autoProfileClaim);
-cert_write_canon($autoAgent . '/capabilities/registry.json', $autoRegistry);
+cert_write_canon($autoAgent . '/capabilities/platform.json', [
+    'format' => ManifestDispositions::PLATFORM_FORMAT,
+    'platform' => $platform,
+]);
 cert_write_canon($autoAgent . '/capabilities/adapter-authorities.json', [
     'format' => 'duo-adapter-authorities/v1',
     'keys' => new stdClass(),

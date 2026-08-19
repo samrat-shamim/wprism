@@ -24,8 +24,7 @@ require_once __DIR__ . '/src/Kernel/CommandRefusal.php';
 require_once __DIR__ . '/src/Kernel/PersonalData.php';
 require_once __DIR__ . '/src/Policy/ManifestDispositions.php';
 require_once __DIR__ . '/src/Adapter/AdapterSources.php';
-require_once __DIR__ . '/src/Adapter/CapabilityRegistry.php';
-require_once __DIR__ . '/src/Adapter/ScopedCertificationBundle.php';
+require_once __DIR__ . '/src/Adapter/TargetProbe.php';
 require_once __DIR__ . '/src/Rebuild/NativeActions.php';
 require_once __DIR__ . '/src/Kernel/ReferenceRules.php';
 require_once __DIR__ . '/src/Policy/ManifestGrammar.php';
@@ -109,10 +108,11 @@ require_once __DIR__ . '/src/Assess/AssessInventory.php';
  * Additive classmap fallback (DUO-3481, owner rulings D3/D4).
  *
  * Every require_once above is retained and still does all the loading: after
- * this bootstrap runs, 238 of the 239 names in duo-classmap.php are already
- * declared, and the single exception (Duo\AdapterCertification) is
- * require_once'd at both of its use sites in AdapterSources.php before it is
- * ever named. An spl_autoload_register() callback is only consulted for a
+ * this bootstrap runs, 237 of the 239 names in duo-classmap.php are already
+ * declared, and the two exceptions (Duo\AdapterCertification and the
+ * Duo\SupersededSiteAdapterCertificate declared in the same file) are
+ * require_once'd at each of that file's three use sites in AdapterSources.php
+ * before either is ever named. An spl_autoload_register() callback is only consulted for a
  * class that is *still undeclared* at the moment it is referenced, so on the
  * production path this registration resolves nothing and changes nothing. It
  * exists for the partially-loaded contexts the drop-in also runs in — an
@@ -123,10 +123,9 @@ require_once __DIR__ . '/src/Assess/AssessInventory.php';
  * Why this is not an autoloader in the sense AGENTS.md forbids: duo-classmap.php
  * is a generated first-party source file that lives in agent/ and ships with
  * it (cli/src/Onboarding/Adopt.php tars `agent manifests recovery` and cp -R's the whole
- * agent tree, and the map is inside the certification closure, so
- * ScopedCertificationBundle::assertRuntimeInputsCurrent() re-verifies its bytes
- * on every Policy::load()). Nothing is vendored, nothing is fetched, and no
- * composer artifact is involved.
+ * agent tree), regenerated from the tree itself by tools/classmap-generate.php
+ * and checked by its own --check mode. Nothing is vendored, nothing is
+ * fetched, and no composer artifact is involved.
  *
  * Three properties keep it behaviour-neutral, and each is load-bearing:
  *  - It is appended, never prepended, and it throws nothing. A name it does

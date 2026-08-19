@@ -37,5 +37,5 @@ next actions:
       0  provision env value
       4  install adapter
       2  nothing — supported
-evidence: 0 certification subject(s) pinned
+evidence: reviewed dispositions sha256:8f8f8
 proposed contract written: .duo/contract/proposed.json (accept with duo contract awalk1 accept)

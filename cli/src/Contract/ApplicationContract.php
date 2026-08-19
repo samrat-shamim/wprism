@@ -11,8 +11,17 @@ use Duo\Canon;
 use Duo\CommandRefusalException;
 
 /**
- * Parse, validate and digest the `duo-application-contract/v1` document
+ * Parse, validate and digest the `duo-application-contract/v2` document
  * (round-3 MUP §3.2).
+ *
+ * v2 narrows `evidence_pins` to the two facts that still exist: the content
+ * address of the reviewed dispositions a verdict was read from, and this
+ * checkout's own copy of that document. v1 additionally pinned a per-subject
+ * `bundles[]` and two generator-input hashes belonging to a generated
+ * capability registry and its evidence record; both documents are gone, so a
+ * v1 contract pins numbers nothing can observe or invalidate. Re-issuing every
+ * accepted contract is the deliberate cost — validate() below names it — and
+ * is preferable to accepting a document whose pins cannot be re-checked.
  *
  * The contract is the one place a human's reviewed declarations about a site
  * live. Everything downstream cites it: `duo release` puts `contract_digest`
@@ -44,7 +53,15 @@ use Duo\CommandRefusalException;
  * inputs, identical bytes" testable at all.
  */
 final class ApplicationContract {
-    public const FORMAT = 'duo-application-contract/v1';
+    public const FORMAT = 'duo-application-contract/v2';
+
+    /**
+     * The generation this build supersedes. Named so the refusal can say WHY a
+     * document that parsed yesterday does not parse now, rather than making an
+     * operator diff two schemas to find out.
+     */
+    public const PRIOR_FORMAT = 'duo-application-contract/v1';
+
     public const ATTESTATION_FORMAT = 'duo-contract-attestation/v1';
 
     /** MUP §3.2: closed enum; this profile only ever writes `unsigned`. */
@@ -108,7 +125,11 @@ final class ApplicationContract {
     /** Validate shape, closed key sets, vocabulary and digest. */
     public static function validate(array $document, bool $requireReviewedExternalEffects = true): void {
         if (($document['format'] ?? null) !== self::FORMAT) {
-            throw self::refuseFormat('the document is not a ' . self::FORMAT . ' contract');
+            throw self::refuseFormat(($document['format'] ?? null) === self::PRIOR_FORMAT
+                ? 'this is a ' . self::PRIOR_FORMAT . ' contract: its evidence_pins bind a generated capability '
+                    . 'registry and per-subject certification bundles that no longer exist, so it must be '
+                    . 're-proposed and re-accepted as ' . self::FORMAT
+                : 'the document is not a ' . self::FORMAT . ' contract');
         }
         self::closedKeys($document, self::TOP_LEVEL_REQUIRED, [], 'contract');
 
@@ -346,38 +367,26 @@ final class ApplicationContract {
         self::nonEmptyString($value, $path);
     }
 
-    /** @param array<string,mixed> $pins */
+    /**
+     * v2's two pins, and no third.
+     *
+     * `registry_sha256` addresses the reviewed dispositions the target read its
+     * verdict from; `generated_from.dispositions_sha256` addresses the raw file
+     * the proposing host held. Both are re-observable, which is what makes
+     * pinning them mean something — the v1 `bundles[]` rows and the
+     * `evidence_sha256`/`compatibility_sha256` inputs addressed generated
+     * documents this tree no longer produces.
+     *
+     * @param array<string,mixed> $pins
+     */
     private static function validateEvidencePins(array $pins): void {
         $path = 'contract.evidence_pins';
-        self::closedKeys($pins, ['registry_sha256', 'generated_from', 'bundles'], [], $path);
+        self::closedKeys($pins, ['registry_sha256', 'generated_from'], [], $path);
         self::nonEmptyString($pins['registry_sha256'], "$path.registry_sha256");
 
         $from = self::object($pins, 'generated_from', $path);
-        self::closedKeys(
-            $from,
-            ['dispositions_sha256', 'evidence_sha256', 'compatibility_sha256'],
-            [],
-            "$path.generated_from"
-        );
-        foreach (['dispositions_sha256', 'evidence_sha256', 'compatibility_sha256'] as $key) {
-            self::nonEmptyString($from[$key], "$path.generated_from.$key");
-        }
-
-        foreach (self::rows($pins, 'bundles', $path) as $index => $bundle) {
-            $bundlePath = "$path.bundles[$index]";
-            self::closedKeys(
-                $bundle,
-                ['subject', 'bundle_digest', 'bundle_schema', 'status', 'git_revision', 'expires_with'],
-                [],
-                $bundlePath
-            );
-            foreach (['subject', 'bundle_digest', 'bundle_schema', 'status', 'git_revision'] as $key) {
-                self::nonEmptyString($bundle[$key], "$bundlePath.$key");
-            }
-            if (!is_array($bundle['expires_with']) || !array_is_list($bundle['expires_with'])) {
-                throw self::refuseShape("$bundlePath.expires_with must be a list");
-            }
-        }
+        self::closedKeys($from, ['dispositions_sha256'], [], "$path.generated_from");
+        self::nonEmptyString($from['dispositions_sha256'], "$path.generated_from.dispositions_sha256");
     }
 
     /** @param array<string,mixed> $attestation */

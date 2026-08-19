@@ -114,9 +114,7 @@ Sandbox discipline (see `docs/sandbox.md`):
   `DUO_PAIR_BUDGET_OVERRIDE=1` as the named report-not-hide escape hatch —
   never set it unless the dispatch prompt explicitly says so. Check
   `pair.sh list` before every `up`; a pair with no suite actively running
-  against it does not qualify — stop it (Release when idle, below). One
-  exemption exists for certification: each subject run owns an ordinary
-  disposable pair and releases it after its declared tests.
+  against it does not qualify — stop it (Release when idle, below).
 - **Release when idle:** whenever you are not actively executing against
   your pair — polling Linear, waiting on a human/review, blocked, writing
   code or docs for more than ~15 minutes — `pair.sh stop <name>` (frees all
@@ -167,13 +165,10 @@ branch or edit files before this passes.
    freshly-fetched `origin/main`, never a stale local `main`; never work in
    the clone's own checkout. Re-entering an interrupted issue whose worktree
    or branch already exists: reuse the existing branch's worktree
-   (`git worktree add <path> <branch>` if only the branch survives). If no
-   candidate freeze `C+B` is recorded, rebase the interrupted branch onto
-   `origin/main` — never reset it to `origin/main`, which would discard the
-   earlier work; after that rebase, pushes need `--force-with-lease`. If a
-   freeze is recorded, resume and review/certify the exact frozen `C` instead;
-   a required bound-input update must use the explicit break-and-repeat rule
-   in the ordering section above, not an automatic rebase on re-entry.
+   (`git worktree add <path> <branch>` if only the branch survives). Rebase the
+   interrupted branch onto `origin/main` — never reset it to `origin/main`,
+   which would discard the earlier work; after that rebase, pushes need
+   `--force-with-lease`.
 2. Fix the **root cause** within the pinned architecture — no quick fixes,
    silent fallbacks, or compat shims. Match the codebase's comment style
    (rationale-dense docblocks stating constraints and evidence).
@@ -229,32 +224,13 @@ branch or edit files before this passes.
     3) of the ONE relevant manifest — not the matrix.
   - **A live-pair `regress-*` suite** runs only when the diff touches the
     mechanism its own header names — not by habit.
-  - **Subject certification is independent.** When a certified manifest or
-    profile's digest-bound bytes change, run only its declared tests with
-    `make certify-subject-bundle SUBJECT=manifests.<name>` or
-    `SUBJECT=profiles.<name>`, then import that one record with
-    `php scripts/capability-registry.php import-subject-bundle <bundle-dir>`.
-    Unaffected subjects remain current. `php scripts/capability-registry.php check` is the release
-    gate and requires a current record for every certified subject. A new WP
-    extension joins by adding its manifest, disposition, conformance entry (or
-    `sandbox/certification/tests/<test-id>.sh` or
-    `sandbox/certification/version-matrix/<name>.sh`), and artifacts; no central
-    certification allowlist or dispatch switch is edited. The shared
-    artifact file is projected to the exact bootstrap theme, conformance-entry
-    plugins/themes, and matrix boundaries used by that subject, including each
-    selected archive root, so unrelated
-    new-extension rows do not stale existing evidence while changed exercised
-    artifacts do. When several
-    subjects need renewal, `make certify-subjects-parallel` schedules their
-    independent lanes on host-wide leased pairs/ports up to the locked free host
-    capacity and emits an `index.json`. Import none of those bundles until all
-    lanes finish, or the shared exact-source checkout becomes dirty underneath
-    the remaining runs.
+  - **A new WP extension joins by adding its manifest, disposition and
+    conformance entry** — no central allowlist or dispatch switch is edited.
+    Its own sweep is the evidence, per the manifest-edit case above.
   - **Safety floor:** an engine change you genuinely cannot bound to specific
     surfaces gets a small representative SUBSET — `core` plus the richest
-    affected adapter surface(s) — never a silent skip, and never the
-    unrelated certification-as-guess. Unknown → conservative subset, and say
-    so in the PR.
+    affected adapter surface(s) — never a silent skip, and never an unrelated
+    sweep as a guess. Unknown → conservative subset, and say so in the PR.
 - **Reproduce the mechanism offline first — the highest-leverage habit, and
   what keeps "one sweep" reasonably safe.** Where the mechanism admits one, a
   deterministic, mutation-proven offline reproduction of the exact failure
@@ -281,29 +257,14 @@ branch or edit files before this passes.
   checkout to make a test pass.
   `stop`/`destroy`/`list` are deliberately ungated — cleanup must never be
   blocked by a variable left exported in your shell.
-- **Ordering: freeze the reviewed candidate before subject certification.**
-  Work in the issue worktree, land every review finding, record candidate `C`
-  and base `B`, then certify only the affected subjects from a clean checkout
-  of exact `C`. Import each verified record and regenerate the registry as the
-  only post-certification source change. A later change to one subject's bound
-  inputs expires only that subject; repeat that subject's run and never relabel
-  old evidence current. The maximal sequence is: implement → offline-all →
-  targeted live suites → targeted sweeps → review/fixes → rebase once → final
-  review of `C` over `B` → subject runs at `C` → deterministic record imports
-  and registry generation → merge promptly.
-- **Registry regenerate after ANY manifest/provider/regenerator byte change**
-  (`php scripts/capability-registry.php generate`, candidate state) before
-  running anything live — interpreter, manifest-sourced provider, and (since
-  DUO-3360) regenerator file bytes are all digest-bound into adapter identity,
-  so a stale registry refuses every `duo` command (observed live, twice, on
-  DUO-3338).
-- **Keep the standalone sweeps for changed manifests even though subject
-  certification re-runs them**: sweeps are fast discovery; the subject run is
-  durable evidence generation.
+- **Ordering: review the candidate against its base once, late.** Work in the
+  issue worktree, land every review finding, record candidate `C` and base `B`.
+  The maximal sequence is: implement → offline-all → targeted live suites →
+  targeted sweeps → review/fixes → rebase once → final review of `C` over `B`
+  → merge promptly.
 - **Cost yardstick (2026-08-09, this host):** offline-all ~5 min; one
   live-pair suite 6–15 min (pair boot ~2–3 min of that); one conformance
-  sweep ~2–3 min. A subject run pays only for the tests declared by that
-  manifest or profile; there is no repository-wide certification suite.
+  sweep ~2–3 min.
 
 ## Close gate (strict order)
 
