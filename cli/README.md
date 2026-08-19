@@ -625,7 +625,13 @@ are rejected when the registry is loaded.
   typed refusal or an established typed compiler diagnostic. The
   human-facing `duo: ` prefix is never machine-publication authority: every
   unclassified Throwable contributes none of its message, cause, path,
-  login, or trace and instead sets `details_redacted: true` (DUO-3404). Known
+  login, or trace and instead sets `details_redacted: true` (DUO-3404). The
+  redacted sentence is not lost: the agent writes it — reason code, throwable
+  class, message, cause chain, origin file:line — as a private, gitignored
+  record under the site repository's `.duo/refusals/` (one
+  `duo-private-refusal-evidence/v1` JSON file per redacted refusal, next to
+  the promotion checkpoints), and the host prints one stderr line naming that
+  place whenever a captured transport returns such an envelope. Known
   uncertain-commit and ambiguous-publication refusals explicitly say not to
   retry or discard retained recovery evidence.
   The host uses the same envelope if environment or driver preflight refuses

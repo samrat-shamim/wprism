@@ -226,6 +226,7 @@ return [
     'Duo\\StructuredReferenceScanner' => 'src/Review/StructuredReferenceScanner.php',
     'Duo\\StructuredValue' => 'src/Kernel/StructuredValue.php',
     'Duo\\SubKeyGrammar' => 'src/Grammar/SubKeyGrammar.php',
+    'Duo\\SupersededSiteAdapterCertificate' => 'src/Adapter/AdapterCertification.php',
     'Duo\\TableDeclarationResolver' => 'src/Grammar/TableDeclarationResolver.php',
     'Duo\\TableGraph' => 'src/Kernel/TableGraph.php',
     'Duo\\TableSchema' => 'src/Kernel/TableSchema.php',

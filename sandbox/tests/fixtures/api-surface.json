@@ -2509,6 +2509,72 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "rebind_binding": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "opts",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "rebind_comparison_hash": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repositoryHash",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "environmentHash",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "baseHash",
+                            "type": "?string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "comparisonEnvironmentHash",
+                            "type": "?string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "foreignHash",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?string",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "rebuild_work": {
                     "abstract": false,
                     "final": false,
@@ -3863,6 +3929,23 @@
                             "has_default": false,
                             "name": "facts",
                             "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "policy_for_assessment": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repo",
+                            "type": "string",
                             "variadic": false
                         }
                     ],
@@ -5717,6 +5800,14 @@
                             "name": "planObservations",
                             "type": "?array",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "binding",
+                            "type": "?array",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
@@ -5835,6 +5926,14 @@
                             "has_default": false,
                             "name": "policy",
                             "type": "Duo\\Policy",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "binding",
+                            "type": "?array",
                             "variadic": false
                         }
                     ],
@@ -6780,6 +6879,14 @@
                             "default": null,
                             "has_default": true,
                             "name": "planObservations",
+                            "type": "?array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "binding",
                             "type": "?array",
                             "variadic": false
                         }
@@ -13299,11 +13406,34 @@
         },
         "Duo\\InitCodeInventory": {
             "abstract": false,
-            "constants": [],
+            "constants": {
+                "ADVISORY_SECRET_LABELS": {
+                    "value_repr": [
+                        "jwt"
+                    ]
+                }
+            },
             "final": true,
             "interfaces": [],
             "kind": "class",
             "methods": {
+                "blockingSecretLabel": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "path",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?string",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "inventory": {
                     "abstract": false,
                     "final": false,
@@ -13330,6 +13460,14 @@
                             "has_default": false,
                             "name": "blockers",
                             "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": true,
+                            "default": null,
+                            "has_default": true,
+                            "name": "advisories",
+                            "type": "?array",
                             "variadic": false
                         }
                     ],
@@ -13890,6 +14028,31 @@
             "interfaces": [],
             "kind": "class",
             "methods": {
+                "adapter_scope": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "selected",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifests",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "assert_confirmed_proposal": {
                     "abstract": false,
                     "final": false,
@@ -13912,6 +14075,48 @@
                         }
                     ],
                     "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "fse_profile_scope": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "blockTheme",
+                            "type": "?bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "profiles",
+                            "type": "?array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "is_adoption_seed": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repo",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
                     "static": true,
                     "visibility": "public"
                 },
@@ -20488,6 +20693,23 @@
                         }
                     ],
                     "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "redactedRefusalEvidenceHint": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "result",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?string",
                     "static": true,
                     "visibility": "public"
                 },
@@ -30425,6 +30647,14 @@
                         }
                     ],
                     "return_type": null,
+                    "static": true,
+                    "visibility": "public"
+                },
+                "journal_installed": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
                     "static": true,
                     "visibility": "public"
                 },
@@ -51045,7 +51275,24 @@
                 "__construct": {
                     "abstract": false,
                     "final": false,
-                    "parameters": [],
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "home",
+                            "type": "?string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "uploadsUrl",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
                     "return_type": null,
                     "static": false,
                     "visibility": "public"

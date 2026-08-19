@@ -1258,7 +1258,11 @@ contribute public machine evidence. The human-facing `duo: ` prefix is never
 authority to publish an arbitrary caught Throwable: every unclassified
 Throwable contributes none of its message, cause, path, or trace and sets
 `details_redacted:true` (DUO-3404). Human output keeps the original operator
-message. Known scope
+message, and the redacted sentence is recorded privately: the agent writes a
+`duo-private-refusal-evidence/v1` JSON record (reason code, throwable class,
+message, cause chain, origin file:line; no trace) under the site repository's
+gitignored `.duo/refusals/`, mode 0600, whenever a `--repo` is known — the
+envelope itself never names or carries it. Known scope
 and recovery gates use finite source-owned codes and remedies; an uncertain
 commit or ambiguous publication boundary explicitly instructs callers not to
 retry or discard retained evidence.

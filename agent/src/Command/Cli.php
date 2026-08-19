@@ -144,8 +144,85 @@ final class Cli {
                 . '","error":"refusal_serialization_failed","reason_code":"refusal_serialization_failed",'
                 . '"message":"structured refusal serialization failed","remediation":"inspect private operator evidence before another attempt","details_redacted":true}';
         }
+        if (($payload['details_redacted'] ?? false) === true) {
+            self::record_private_refusal_evidence($t, $assoc, $command, (string) $payload['error']);
+        }
         WP_CLI::line($encoded);
         WP_CLI::halt(1);
+    }
+
+    /**
+     * Where "inspect private operator evidence" points.
+     *
+     * A redacted envelope is the whole machine answer, and the doctrine
+     * (DUO-3404) is that the operator reruns in human mode to read the
+     * sentence — but the orchestrator itself is a machine caller: a
+     * rehearsal's promotion runs the target's apply in --format=json, so an
+     * unclassified Throwable there reached nobody. grind_adoption A6
+     * (docs/grind/adoption.md) lost a rehearsal to `apply_failed` twice
+     * before the sentence could be read on a kept pair. So the redacted
+     * chain (class, message, file:line, causes) is written under the
+     * repository's private, gitignored `.duo/` — next to the promotion
+     * checkpoints — as `.duo/refusals/<utc>-<command>-<pid>.json`. The
+     * envelope stays byte-identical; the record is best-effort (no repo, no
+     * writable directory → nothing written, never a second failure), carries
+     * no trace, and is 0600 like every other private artifact there.
+     */
+    private static function record_private_refusal_evidence(
+        \Throwable $t,
+        array $assoc,
+        string $command,
+        string $reasonCode
+    ): void {
+        $repo = $assoc['repo'] ?? null;
+        if (!is_string($repo) || $repo === '' || !is_dir($repo)) {
+            return;
+        }
+        $dir = rtrim($repo, '/') . '/.duo/refusals';
+        if (!is_dir($dir) && !@mkdir($dir, 0700, true) && !is_dir($dir)) {
+            return;
+        }
+        $chain = [];
+        for ($cause = $t, $depth = 0; $cause !== null && $depth < 8; $cause = $cause->getPrevious(), $depth++) {
+            $chain[] = [
+                'class' => get_class($cause),
+                'message' => $cause->getMessage(),
+                'file' => $cause->getFile(),
+                'line' => $cause->getLine(),
+            ];
+        }
+        $record = json_encode([
+            'format' => 'duo-private-refusal-evidence/v1',
+            'recorded_at' => gmdate('Y-m-d\TH:i:s\Z'),
+            'command' => $command,
+            'reason_code' => $reasonCode,
+            'throwable' => $chain,
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+        if ($record === false) {
+            return;
+        }
+        $path = $dir . '/' . gmdate('Ymd-His') . '-' . preg_replace('/[^a-z0-9_-]+/', '-', $command)
+            . '-' . getmypid() . '.json';
+        if (@file_put_contents($path, $record . "\n", LOCK_EX) !== false) {
+            @chmod($path, 0600);
+        }
+    }
+
+    /**
+     * `--rebind-from-home` / `--rebind-from-uploads` as plan/apply opts, only
+     * when given (an absent flag must not become an empty string, which
+     * ApplyPlanner::rebind_binding() would refuse as malformed).
+     *
+     * @return array{rebind_from_home?:string,rebind_from_uploads?:string}
+     */
+    private static function rebind_from_options(array $assoc): array {
+        $out = [];
+        foreach (['rebind-from-home' => 'rebind_from_home', 'rebind-from-uploads' => 'rebind_from_uploads'] as $flag => $opt) {
+            if (array_key_exists($flag, $assoc)) {
+                $out[$opt] = is_string($assoc[$flag]) ? $assoc[$flag] : '';
+            }
+        }
+        return $out;
     }
 
     /**
@@ -940,6 +1017,10 @@ final class Cli {
      * [--compiled=<path>] : Consume a previously emitted compiler artifact; active policy/manifest hashes must match.
      * [--promotion-owner=<token>] : Internal orchestrator lease token shared with deploy.
      * [--artifact-hash=<sha256>] : Internal host-observed artifact hash; required with orchestrated promotion-owner.
+     * [--rebind-from-home=<url>] : Internal materializer flag: this target's database (ledger included) was
+     *   restored from a snapshot bound to <url>; an entity that observes as repository or base content under
+     *   that binding is an update marked `rebind`, not drift. Requires --rebind-from-uploads.
+     * [--rebind-from-uploads=<url>] : The restored snapshot's uploads base URL; requires --rebind-from-home.
      * [--category=<ids>] : Comma-separated closed plan-view categories; requests a bounded display view.
      * [--action=<buckets>] : Comma-separated closed plan-view action buckets; requests a bounded display view.
      * [--entity=<kinds>] : Comma-separated closed plan-view entity kinds; requests a bounded display view.
@@ -956,7 +1037,7 @@ final class Cli {
                 'compiled' => $assoc['compiled'] ?? '',
                 'promotion_owner' => $assoc['promotion-owner'] ?? '',
                 'scoped_promotion' => isset($assoc['scoped-promotion']),
-            ];
+            ] + self::rebind_from_options($assoc);
             if ($viewRequest !== null) {
                 $options['plan_view'] = $viewRequest;
             }
@@ -1540,6 +1621,9 @@ final class Cli {
      * [--compiled=<path>] : Consume a previously emitted compiler artifact; active policy/manifest hashes must match.
      * [--promotion-owner=<token>] : Internal orchestrator lease token shared with deploy.
      * [--scoped-promotion-receipt=<sha256>] : Internal external-checkpoint receipt payload hash supplied only by the SSH scoped-promotion orchestrator.
+     * [--rebind-from-home=<url>] : Internal materializer flag (see `duo plan`): the restored snapshot's home URL;
+     *   foreign-bound entities are converged as updates marked `rebind` instead of being left as drift.
+     * [--rebind-from-uploads=<url>] : The restored snapshot's uploads base URL; requires --rebind-from-home.
      * [--json]           : JSON output (wp-cli rewrites this to --format=json).
      * [--format=<format>] : Output format. Accepts json.
      */
@@ -1559,7 +1643,7 @@ final class Cli {
                 'promotion_owner' => $assoc['promotion-owner'] ?? '',
                 'artifact_hash' => $assoc['artifact-hash'] ?? '',
                 'scoped_promotion_receipt' => $assoc['scoped-promotion-receipt'] ?? '',
-            ];
+            ] + self::rebind_from_options($assoc);
             if ((string) ($assoc['scoped-promotion-receipt'] ?? '') !== ''
                 && !array_key_exists('scope-request-b64', $assoc)) {
                 throw CommandRefusalException::applyRefused(
@@ -2841,6 +2925,7 @@ final class Cli {
      * [--operation=<operation>] : Capability to evaluate. Defaults to promote.
      * [--surface=<surface>] : Exact registry surface to evaluate.
      * [--revision=<sha>] : Exact evidence-bound platform revision to evaluate.
+     * [--adoption-preview] : On an adoption seed, evaluate against the policy duo init would propose (what duo assess reads); inert on an init-owned repository.
      * [--format=<format>] : Output format. Accepts json.
      */
     public function capabilities($args, $assoc) {
@@ -2914,7 +2999,21 @@ final class Cli {
                         '--repo required unless --all is used'
                     );
                 }
-                $report = Policy::load($repo, null, true)->capability_report($query);
+                if (isset($assoc['adoption-preview'])) {
+                    // `duo assess`'s own capability reads: on an adoption seed
+                    // they must be answered against the policy the inventory
+                    // was projected against (the init proposal), or the
+                    // catalog joins preview surfaces to core-only claims and
+                    // reads `missing_registry_entry` for adapters the library
+                    // certifies (T7 grind A4). An init-owned repository is
+                    // unchanged; a plain `wp duo capabilities --repo` without
+                    // the flag keeps reporting the pinned set as it stands.
+                    require_once __DIR__ . '/../Assess/AssessInventory.php';
+                    [$policy] = AssessInventory::policy_for_assessment($repo);
+                    $report = $policy->capability_report($query);
+                } else {
+                    $report = Policy::load($repo, null, true)->capability_report($query);
+                }
             }
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'capabilities');
@@ -3039,9 +3138,23 @@ final class Cli {
             // `adapter-observe` already take: an assessment must be able to
             // REPORT an unsupported topology (it emits site_mode), not refuse
             // before it can describe it.
+            //
+            // On an ADOPTION SEED (a site.duo.json init has not yet owned —
+            // T7 grind A3), the seed's own pin set is `core` alone, so an
+            // assessment against it read every active plugin as `plugin:<slug>
+            // install adapter` and every WooCommerce table as unclassified on
+            // a shop the library ships a certified adapter for. The honest
+            // first look is the site as `duo init` would propose it: the same
+            // read-only proposal `duo assess` already probes for readiness
+            // (with the unmanaged-plugins allowance, so an unowned plugin
+            // reads as its advisory rather than aborting the preview), loaded
+            // as the policy the surfaces are projected against, and named as
+            // such in the document (`adoption`) so the reader knows this is a
+            // preview of adoption, not a repository in force.
+            [$policy, $adoption] = AssessInventory::policy_for_assessment((string) $repo);
             $document = AssessInventory::report(
-                Policy::load((string) $repo, null, true),
-                ['repo' => (string) $repo]
+                $policy,
+                ['repo' => (string) $repo, 'adoption' => $adoption]
             );
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'assess-inventory');

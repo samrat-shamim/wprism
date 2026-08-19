@@ -1198,7 +1198,7 @@ $check(
         && preg_match('/public static function classify_deletion\(/', $plannerSource) === 1,
     'deletion comparison: Apply delegates tombstone classification while planner owns all three-way branches'
 );
-$comparisonSectionStart = strpos($builderSource, "            if (\$envE !== null) {\n                \$comparison =");
+$comparisonSectionStart = strpos($builderSource, "            if (\$envE !== null) {\n                \$rebind = ApplyPlanner::rebind_comparison_hash(");
 $comparisonSectionEnd = strpos($builderSource, '            $coll = $this->apply_planner()->find_collision(', $comparisonSectionStart);
 $comparisonSection = substr($builderSource, $comparisonSectionStart, $comparisonSectionEnd - $comparisonSectionStart);
 $check(
@@ -1230,6 +1230,47 @@ $check(
         && preg_match('/public function project_sidebar_deletes\(/', $plannerSource) === 1,
     'sidebar projection: Apply delegates widget-delete planning while the planner owns identity evidence and target-only classification'
 );
+
+// --------------------------------------------------- rebind_binding / rebind_comparison_hash
+// grind_adoption A6: a target materialized from another environment's
+// snapshot holds that environment's literal home/uploads URLs (DB + ledger).
+// Plan then reads every {{home}}-bearing entity as "target changed since
+// base" (drift), and the rehearsal's promotion apply failed post-apply
+// convergence on exactly one wp_navigation post. rebind_from lets plan
+// observe AS the restored binding and converge those as updates, never
+// excusing genuine target authorship.
+$rep = str_repeat('a', 64);   // repository hash
+$env = str_repeat('b', 64);   // observed under THIS environment's binding
+$base = str_repeat('a', 64);  // ledger base (== repository: source's binding)
+$foreign = str_repeat('a', 64); // observed under the SOURCE binding (tokenizes back)
+
+$check(ApplyPlanner::rebind_binding([]) === null, 'rebind_binding: absent flags → no binding');
+$binding = ApplyPlanner::rebind_binding(['rebind_from_home' => 'http://localhost:9600/', 'rebind_from_uploads' => 'http://localhost:9600/wp-content/uploads/']);
+$check($binding === ['home' => 'http://localhost:9600', 'uploads' => 'http://localhost:9600/wp-content/uploads'], 'rebind_binding: both URLs, trailing slash trimmed');
+$lone = null;
+try { ApplyPlanner::rebind_binding(['rebind_from_home' => 'http://localhost:9600']); }
+catch (\Duo\CommandRefusalException $e) { $lone = $e->reasonCode; }
+$check($lone === 'invalid_arguments', 'rebind_binding: a lone home URL refuses (a binding needs both)');
+$bad = null;
+try { ApplyPlanner::rebind_binding(['rebind_from_home' => 'localhost:9600', 'rebind_from_uploads' => 'http://localhost:9600/u']); }
+catch (\Duo\CommandRefusalException $e) { $bad = $e->reasonCode; }
+$check($bad === 'invalid_arguments', 'rebind_binding: a non-URL home refuses');
+
+// The foreign-bound observation equals the repository → the entity is the
+// source's content: compare as if unchanged since base (returns base hash),
+// which classify_observed() then buckets as `update`.
+$check(ApplyPlanner::rebind_comparison_hash($rep, $env, $base, $env, $foreign) === $base, 'rebind_comparison_hash: foreign==repository → converge as update (returns base)');
+$check(ApplyPlanner::classify_observed(['uuid' => 'u'], $rep, ['hash' => $env], $base, ApplyPlanner::rebind_comparison_hash($rep, $env, $base, $env, $foreign))['bucket'] === 'update', 'rebind then classify_observed → update, not drift');
+// Foreign-bound observation equals base (source content, edited only in repo): still an update.
+$check(ApplyPlanner::rebind_comparison_hash(str_repeat('c', 64), $env, $base, $env, $base) === $base, 'rebind_comparison_hash: foreign==base → converge as update');
+// No foreign observation → ordinary comparison (drift/conflict) is untouched.
+$check(ApplyPlanner::rebind_comparison_hash($rep, $env, $base, $env, null) === null, 'rebind_comparison_hash: no foreign observation → no override');
+// The entity already reads as the repository under this environment → nothing to excuse.
+$check(ApplyPlanner::rebind_comparison_hash($rep, $rep, $base, $rep, $foreign) === null, 'rebind_comparison_hash: already target-equal → no override');
+// Genuine target authorship: foreign-bound matches neither repository nor base → stays drift/conflict.
+$check(ApplyPlanner::rebind_comparison_hash($rep, $env, $base, $env, str_repeat('e', 64)) === null, 'rebind_comparison_hash: foreign matches neither → genuine authorship left as drift/conflict');
+// First sync (no base) is already an update; nothing to excuse.
+$check(ApplyPlanner::rebind_comparison_hash($rep, $env, null, $env, $foreign) === null, 'rebind_comparison_hash: first sync → no override');
 
 if ($failures) {
     echo "\n" . count($failures) . " failure(s):\n";

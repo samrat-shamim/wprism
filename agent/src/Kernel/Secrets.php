@@ -46,7 +46,16 @@ final class Secrets {
         '\bgithub_pat_[A-Za-z0-9_]{20,4096}\b' => 'github token',
         '\bxox[baprs]-[A-Za-z0-9-]{4097}' => 'slack token',
         '\bxox[baprs]-[A-Za-z0-9-]{10,4096}\b' => 'slack token',
-        '-----BEGIN [A-Z0-9 ]{0,64}PRIVATE KEY-----' => 'private key',
+        // A private key is the PEM marker FOLLOWED BY key material — at least
+        // one base64 line. The bare marker string is what a JOSE/crypto
+        // library carries in its format check (`if (!pem.includes("-----BEGIN
+        // PRIVATE KEY-----")) throw …`) and it sits inside bundled JavaScript
+        // shipped by published plugins (Yoast SEO's aiFrontend.js); matching
+        // the marker alone refused `duo init` on every such site (T7 grind A4)
+        // without a single key byte present.
+        // Key material may follow a real newline, an escaped `\n` (a PEM
+        // inside a JSON/JS string), or nothing at all.
+        '-----BEGIN [A-Z0-9 ]{0,64}PRIVATE KEY-----(?:\\\\[rn]|[\r\n \t])*[A-Za-z0-9+\/=]{40,}' => 'private key',
         // A JWT is the complete three-segment compact form. A bare overlong
         // base64url blob beginning `eyJ` is common in bundled JavaScript and
         // is not a credential fact; blocking it would reject certified plugin

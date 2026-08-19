@@ -197,14 +197,16 @@ final class Capture {
         bool $forceUnresolvedRefs = false,
         ?CompiledRepository $compiled = null,
         ?Policy $policy = null,
-        ?array &$planObservations = null
+        ?array &$planObservations = null,
+        ?array $binding = null
     ): array {
         return CaptureSnapshotService::snapshot(
             $repo,
             $forceUnresolvedRefs,
             $compiled,
             $policy,
-            $planObservations
+            $planObservations,
+            $binding
         );
     }
 

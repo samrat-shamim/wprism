@@ -165,6 +165,32 @@ final class AssessRenderer {
             . ($failed === [] ? '' : ' · failed: ' . implode(', ', array_map(self::safe(...), $failed)))
             . ($advisory === [] ? '' : ' · advisory: ' . implode(', ', array_map(self::safe(...), $advisory)));
 
+        // An adoption seed is assessed as `duo init` would propose it, and the
+        // human view says so on its own line — before any surface row, so
+        // "Ready / Platform-certified" under it reads as a preview of adoption
+        // rather than a repository in force. The adapters and the types left
+        // local are named; the proposal's own advisories and unsupported rows
+        // are counted (they are what `duo init` will print in full).
+        $adoption = is_array($authority['adoption'] ?? null) ? $authority['adoption'] : null;
+        if ($adoption !== null) {
+            $adapters = is_array($adoption['adapters'] ?? null) ? $adoption['adapters'] : [];
+            $scope = is_array($adoption['scope'] ?? null) ? $adoption['scope'] : [];
+            $leftLocal = is_array($scope['left_local'] ?? null) ? $scope['left_local'] : [];
+            $advisories = is_array($adoption['advisories'] ?? null) ? $adoption['advisories'] : [];
+            $unsupported = is_array($adoption['unsupported'] ?? null) ? $adoption['unsupported'] : [];
+            if (($adoption['preview'] ?? null) === 'init-proposal') {
+                $lines[] = 'adoption: this repository is an adoption seed — assessed as duo init would propose it: '
+                    . 'adapters ' . ($adapters === [] ? '(none)' : implode(', ', array_map(self::safe(...), $adapters)))
+                    . ($leftLocal === [] ? '' : ' · left local: ' . implode(', ', array_map(self::safe(...), $leftLocal)))
+                    . ' · init advisories: ' . count($advisories)
+                    . ' · init would refuse: ' . count($unsupported)
+                    . (($adoption['ready'] ?? false) === true ? ' · init is ready' : '');
+            } else {
+                $lines[] = 'adoption: this repository is an adoption seed, assessed against the seed itself — '
+                    . 'the init proposal was unavailable (' . self::safe($adoption['reason'] ?? 'no reason') . ')';
+            }
+        }
+
         $operation = (string) ($context['operation'] ?? 'release');
         $lines[] = 'showing the ' . self::safe($operation)
             . ' projection; every operation is in --format=json';

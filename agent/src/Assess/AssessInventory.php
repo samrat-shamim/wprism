@@ -3,7 +3,9 @@ declare(strict_types=1);
 
 namespace Duo;
 
+require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
+require_once __DIR__ . '/../Init/InitPlanner.php';
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Adapter/AdapterSources.php';
 require_once __DIR__ . '/../Adapter/CapabilityRegistry.php';
@@ -118,7 +120,97 @@ final class AssessInventory {
             'pending' => Pending::scan_read_only($repo, $policy),
             'adapter_survey' => $survey,
             'adapter_survey_reason' => $surveyReason,
+            'adoption' => is_array($options['adoption'] ?? null) ? $options['adoption'] : null,
         ]);
+    }
+
+    /**
+     * The policy an assessment projects against, and the adoption block that
+     * says which one it was.
+     *
+     * An init-owned repository is assessed as it stands: its own site.duo.json
+     * (`adoption` null). An ADOPTION SEED is assessed as `duo init` would
+     * propose it: the proposal's config — the adapters init selects for the
+     * active plugins and theme, the scope it proposes, the types it leaves
+     * local — is written under a private temporary directory and loaded as
+     * the policy, with the repository itself still supplying the site adapter
+     * source and every state read. The `adoption` block names the mode, the
+     * selected adapters, the proposed scope and the proposal's own advisories
+     * and unsupported rows, so a reader can tell a preview from a repository
+     * in force. If the proposal cannot be computed the seed policy stands and
+     * the block says why (`preview: unavailable`).
+     *
+     * @return array{0:Policy,1:?array<string,mixed>}
+     */
+    public static function policy_for_assessment(string $repo): array {
+        $seedPolicy = Policy::load($repo, null, true);
+        if (!InitPlanner::is_adoption_seed($repo)) {
+            return [$seedPolicy, null];
+        }
+        try {
+            $proposal = InitPlanner::proposal($repo, true);
+        } catch (\Throwable $t) {
+            return [$seedPolicy, [
+                'mode' => 'seed',
+                'preview' => 'unavailable',
+                'reason' => 'the init proposal could not be computed: ' . $t->getMessage(),
+                'adapters' => [],
+                'scope' => ['post_types' => [], 'taxonomies' => [], 'left_local' => []],
+                'advisories' => [],
+                'unsupported' => [],
+                'ready' => false,
+            ]];
+        }
+        $config = is_array($proposal['state']['config'] ?? null) ? $proposal['state']['config'] : null;
+        if ($config === null) {
+            return [$seedPolicy, [
+                'mode' => 'seed',
+                'preview' => 'unavailable',
+                'reason' => 'the init proposal carries no config',
+                'adapters' => [],
+                'scope' => ['post_types' => [], 'taxonomies' => [], 'left_local' => []],
+                'advisories' => (array) ($proposal['advisories'] ?? []),
+                'unsupported' => (array) ($proposal['unsupported'] ?? []),
+                'ready' => ($proposal['ready'] ?? false) === true,
+            ]];
+        }
+        $dir = rtrim(sys_get_temp_dir(), '/') . '/duo-assess-preview-' . bin2hex(random_bytes(6));
+        if (!@mkdir($dir, 0700, true) && !is_dir($dir)) {
+            throw new \RuntimeException("duo: assess could not create the adoption preview directory $dir");
+        }
+        register_shutdown_function(static function () use ($dir): void {
+            @unlink($dir . '/site.duo.json');
+            @rmdir($dir);
+        });
+        Canon::write_file($dir . '/site.duo.json', Canon::encode($config));
+        $policy = Policy::load($dir, null, true, $repo);
+        $leftLocal = [];
+        foreach ((array) ($config['policy']['scope'] ?? []) as $kind => $rules) {
+            foreach ((array) $rules as $name => $rule) {
+                $leftLocal[] = "$kind:$name";
+            }
+        }
+        sort($leftLocal, SORT_STRING);
+        $adapters = [];
+        foreach ((array) ($config['manifests'] ?? []) as $pin) {
+            $adapters[] = is_array($pin) ? (string) ($pin['name'] ?? '') : (string) $pin;
+        }
+        sort($adapters, SORT_STRING);
+
+        return [$policy, [
+            'mode' => 'seed',
+            'preview' => 'init-proposal',
+            'reason' => 'the repository is an adoption seed; surfaces are projected against the policy duo init would propose',
+            'adapters' => $adapters,
+            'scope' => [
+                'post_types' => array_values(array_map('strval', (array) ($config['policy']['post_types'] ?? []))),
+                'taxonomies' => array_values(array_map('strval', (array) ($config['policy']['taxonomies'] ?? []))),
+                'left_local' => $leftLocal,
+            ],
+            'advisories' => array_values((array) ($proposal['advisories'] ?? [])),
+            'unsupported' => array_values((array) ($proposal['unsupported'] ?? [])),
+            'ready' => ($proposal['ready'] ?? false) === true,
+        ]];
     }
 
     /**
@@ -202,6 +294,13 @@ final class AssessInventory {
             $document['adapter_survey_reason'] = is_string($facts['adapter_survey_reason'] ?? null)
                 ? (string) $facts['adapter_survey_reason']
                 : 'adapter_survey_unavailable';
+        }
+        if (is_array($facts['adoption'] ?? null)) {
+            // Present only for an adoption seed (policy_for_assessment()): a
+            // reader who sees it knows the surfaces below were projected
+            // against the init proposal, not a repository in force. An
+            // init-owned repository's document keeps the contract's key set.
+            $document['adoption'] = $facts['adoption'];
         }
         return $document;
     }

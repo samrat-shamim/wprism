@@ -539,8 +539,8 @@ check(
     ),
     'generic target init has no plugin-name branch'
 );
-check(str_contains($plannerSource, "(\$rule['class'] ?? null) === 'authored'"), 'post-type scope expands only from authored manifest rulings');
-check(substr_count($plannerSource, "(\$rule['class'] ?? null) === 'authored'") >= 2, 'post-type and taxonomy scope expand only from explicit authored manifest rulings');
+check(str_contains($plannerSource, "(\$rule['class'] ?? 'authored') === 'authored'"), 'post-type scope expands only from authored manifest rulings — explicit, or structural (classless, which the policy reads as authored)');
+check(substr_count($plannerSource, "(\$rule['class'] ?? 'authored') === 'authored'") >= 2, 'post-type and taxonomy scope expand from authored manifest rulings — explicit or structural — and from nothing else');
 $lockedRecheck = strrpos($confirmationSource, 'InitPlanner::assert_confirmed_proposal($proposal, $expectedDigest);');
 $siteWrite = $lockedRecheck === false ? false : strpos($confirmationSource, '$sitePublication = InitOwnedArtifacts::publish_owned_file(', $lockedRecheck);
 check($lockedRecheck !== false && $siteWrite !== false && $lockedRecheck < $siteWrite, 'under-lock digest recheck precedes the site-config write');
@@ -1541,7 +1541,17 @@ check(
             $presentFile,
             ['previous' => "prior\n", 'published' => 'x']
         ) === false,
-    'a present owned file is never skipped, whatever its record says'
+    'a present owned file whose bytes are neither the publication nor the prior version is never skipped'
+);
+// T7 grind A4: an adoption seed HAS a prior version, and the confirm-time
+// catch restores it before the proof pass; the restored bytes must read as
+// already compensated, or every failed init on a seed retains its journal.
+check(
+    \Duo\InitOwnedArtifacts::owned_file_already_compensated(
+        $presentFile,
+        ['previous' => "published\n", 'published' => 'x']
+    ) === true,
+    'a present owned file holding exactly the prior version reads as already compensated (the seed was put back)'
 );
 check(
     substr_count($recoverySource, 'InitOwnedArtifacts::owned_file_already_compensated(') === 2
@@ -1720,8 +1730,53 @@ if (!is_string($jwtFixture)) fail('could not create JWT scanner fixture');
 file_put_contents($jwtFixture, "\n" . 'eyJ' . str_repeat('A', 9000));
 check(\Duo\InitCodeInventory::secretLabel($jwtFixture) === null, 'bare bundled base64url payload is not mislabeled as a JWT');
 file_put_contents($jwtFixture, "\n" . 'eyJ' . str_repeat('A', 700) . '.eyJ' . str_repeat('B', 24) . '.signature');
-check(\Duo\InitCodeInventory::secretLabel($jwtFixture) === 'jwt', 'complete long JWT remains blocked');
+check(\Duo\InitCodeInventory::secretLabel($jwtFixture) === 'jwt', 'complete long JWT is still labelled jwt by the scanner');
 unlink($jwtFixture);
+// T7 grind A4: Yoast SEO ships (a) a JOSE bundle whose format check carries
+// the bare string `-----BEGIN PRIVATE KEY-----` with no key material, and
+// (b) an OIDC software statement — a complete, public JWT — as a PHP constant.
+// The old scan refused `duo init` on every Yoast site for both. A private key
+// is the marker FOLLOWED BY key material; a JWT inside shipped code is an
+// advisory, named and redacted, never a blocker.
+$scanRoot = sys_get_temp_dir() . '/duo-init-scan-' . bin2hex(random_bytes(4));
+mkdir($scanRoot . '/plugins/acme', 0777, true);
+file_put_contents($scanRoot . '/plugins/acme/bundle.js', 'if(!e.includes("-----BEGIN PRIVATE KEY-----"))throw new TypeError("pkcs8 must be PKCS#8 formatted string");');
+file_put_contents($scanRoot . '/plugins/acme/statement.php', "<?php\nconst SOFTWARE_STATEMENT = '" . 'eyJ' . str_repeat('A', 80) . '.eyJ' . str_repeat('B', 80) . '.' . str_repeat('C', 40) . "';\n");
+$scanBlockers = [];
+$scanAdvisories = [];
+$scanned = \Duo\InitCodeInventory::inventory(['plugins' => $scanRoot . '/plugins'], ['plugins' => ['acme']], $scanBlockers, $scanAdvisories);
+check(count($scanned['files']) === 2 && $scanBlockers === [], 'a bare PEM marker in a JS bundle and a JWT constant in PHP block nothing');
+check(
+    count($scanAdvisories) === 1
+        && $scanAdvisories[0]['code'] === 'jwt_in_code_file'
+        && $scanAdvisories[0]['extension'] === 'plugins/acme/statement.php'
+        && !str_contains(json_encode($scanAdvisories), 'eyJ'),
+    'the JWT is an advisory naming the file, with the value redacted'
+);
+file_put_contents($scanRoot . '/plugins/acme/key.pem', "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7abcdefghijkl\n-----END PRIVATE KEY-----\n");
+$scanBlockers = [];
+$scanAdvisories = [];
+\Duo\InitCodeInventory::inventory(['plugins' => $scanRoot . '/plugins'], ['plugins' => ['acme']], $scanBlockers, $scanAdvisories);
+check(
+    count($scanBlockers) === 1 && $scanBlockers[0]['code'] === 'credential_bearing_code_file'
+        && $scanBlockers[0]['extension'] === 'plugins/acme/key.pem'
+        && str_contains($scanBlockers[0]['reason'], 'private key'),
+    'a PEM marker followed by key material still blocks as a private key'
+);
+$scanBlockers = [];
+\Duo\InitCodeInventory::inventory(['plugins' => $scanRoot . '/plugins'], ['plugins' => ['acme']], $scanBlockers);
+check(count($scanBlockers) === 1, 'the confirm-time re-walk (no advisories channel) sees the same one blocker and never a JWT');
+check(
+    \Duo\InitCodeInventory::blockingSecretLabel($scanRoot . '/plugins/acme/statement.php') === null
+        && \Duo\InitCodeInventory::blockingSecretLabel($scanRoot . '/plugins/acme/key.pem') === 'private key',
+    'blockingSecretLabel() — the staged-code gate\'s reading — draws the same line: a JWT is advisory, a private key blocks'
+);
+foreach (['bundle.js', 'statement.php', 'key.pem'] as $scanFile) {
+    @unlink($scanRoot . '/plugins/acme/' . $scanFile);
+}
+@rmdir($scanRoot . '/plugins/acme');
+@rmdir($scanRoot . '/plugins');
+@rmdir($scanRoot);
 $originalWpdb = $GLOBALS['wpdb'] ?? null;
 $fakeWpdb = new InitRiskWpdb();
 $fakeWpdb->oversizedOptions = 2;
@@ -1954,6 +2009,63 @@ check(
 check($seedMode([$sitePin]) === 'owned', 'a pin set without core is not the seed either');
 @unlink($seedRoot . '/site.duo.json');
 @rmdir($seedRoot);
+
+// T7 grind A2: a block theme's site-editor customisations live in core's
+// non-public, _builtin FSE types, which the scope gate never names. Init
+// proposes the certified core FSE profile's scope for a block theme and says
+// so; a classic theme proposes nothing; an uncertified/absent profile is
+// named as such and proposes nothing.
+$fseProfiles = ['fse' => ['status' => 'certified', 'scope' => [
+    'post_types' => ['wp_block', 'wp_navigation', 'wp_template', 'wp_template_part'],
+    'taxonomies' => ['wp_pattern_category', 'wp_template_part_area', 'wp_theme'],
+]]];
+check(\Duo\InitPlanner::fse_profile_scope(false, $fseProfiles) === null, 'a classic theme proposes no FSE scope and says nothing');
+$fseSelected = \Duo\InitPlanner::fse_profile_scope(true, $fseProfiles);
+check(
+    is_array($fseSelected)
+        && $fseSelected['scope'] === $fseProfiles['fse']['scope']
+        && $fseSelected['advisory']['code'] === 'fse_profile_scope_selected'
+        && $fseSelected['advisory']['extension'] === 'profile:fse'
+        && str_contains($fseSelected['advisory']['reason'], 'wp_template_part'),
+    'a block theme proposes the certified FSE profile scope and prints which types it selected'
+);
+$fseMissing = \Duo\InitPlanner::fse_profile_scope(true, []);
+check(
+    is_array($fseMissing) && $fseMissing['scope'] === null
+        && $fseMissing['advisory']['code'] === 'fse_profile_not_certified',
+    'a block theme with no certified FSE profile proposes nothing and names the gap'
+);
+$fseUncertified = \Duo\InitPlanner::fse_profile_scope(true, ['fse' => ['status' => 'candidate', 'scope' => $fseProfiles['fse']['scope']]]);
+check(
+    is_array($fseUncertified) && $fseUncertified['scope'] === null
+        && $fseUncertified['advisory']['code'] === 'fse_profile_not_certified',
+    'an uncertified FSE profile is not proposed either'
+);
+
+// T7 grind A4: a STRUCTURAL declaration (no class) is authored data the
+// adapter understands — Contact Form 7's `wpcf7_contact_form: {}`, Polylang's
+// four taxonomies — and init proposes it into scope exactly like an explicit
+// authored one; runtime/derived/env declarations stay out; a shipped adapter
+// not selected contributes nothing.
+$adapterScope = \Duo\InitPlanner::adapter_scope(['core', 'contact-form-7', 'polylang', 'wpforms'], [
+    'core' => ['name' => 'core'],
+    'contact-form-7' => ['name' => 'contact-form-7', 'post_types' => ['wpcf7_contact_form' => []]],
+    'polylang' => ['name' => 'polylang', 'taxonomies' => [
+        'language' => [], 'post_translations' => [], 'term_language' => ['class' => 'authored'],
+        'pll_runtime' => ['class' => 'runtime'],
+    ]],
+    'wpforms' => ['name' => 'wpforms', 'post_types' => [
+        'wpforms' => ['class' => 'authored', 'body' => 'verbatim'], 'wpforms-template' => ['class' => 'runtime'],
+    ]],
+    'woocommerce' => ['name' => 'woocommerce', 'post_types' => ['product' => ['class' => 'authored']]],
+]);
+check(
+    $adapterScope === [
+        'post_types' => ['wpcf7_contact_form', 'wpforms'],
+        'taxonomies' => ['language', 'post_translations', 'term_language'],
+    ],
+    'adapter_scope() proposes explicit AND structural (classless) authored declarations of the selected adapters, sorted, and nothing else (got ' . json_encode($adapterScope) . ')'
+);
 
 check(
     \Duo\InitPlanner::ALLOW_UNMANAGED_PLUGINS === 'allow-unmanaged-plugins'

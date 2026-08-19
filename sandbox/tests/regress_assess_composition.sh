@@ -91,7 +91,10 @@ else
   fail "composition order changed; got:"; printf '%s\n' "$ORDER" >&2
 fi
 
+CAP_PREVIEW=$(grep -c 'duo capabilities .*--adoption-preview' "$TMP/calls.txt")
 CAP_CALLS=$(grep -c 'duo capabilities ' "$TMP/calls.txt")
+check "$([ "$CAP_PREVIEW" = "$CAP_CALLS" ] && echo 0 || echo 1)" \
+  'every capabilities read carries --adoption-preview, so a seed is answered against the same policy the inventory was projected against'
 check "$([ "$CAP_CALLS" = 4 ] && echo 0 || echo 1)" \
   "six product operations collapse to four registry operations (got $CAP_CALLS calls)"
 
@@ -337,6 +340,40 @@ STATUS=$?
 check "$([ "$STATUS" = 1 ] && echo 0 || echo 1)" "an unsupported topology is a refusal, exit 1 (got $STATUS)"
 assert_contains "$TMP/out3.json" '"reason_code":"assess_topology_unsupported"' \
   'multisite refuses by name instead of producing a page of identical blockers'
+
+# ------------------------------------------------------ the adoption preview
+# T7 grind A3: on an adoption seed the agent projects the inventory against
+# the init proposal and says so in an `adoption` block. The host carries it
+# on `authority.adoption` (the block assess owns, deliberately not
+# key-closed) and the human view says so on its own line, before any surface
+# row — a reader must be able to tell a preview of adoption from a
+# repository in force.
+say 'the adoption preview travels through the report and the human view'
+( cd "$TMP/site/repo" && DUO_ADOPTION_SEED=1 run_assess "$TMP/calls5.txt" "$TMP/out5.json" "$TMP/err5.txt" \
+    assess fixture --format=json )
+STATUS=$?
+check "$([ "$STATUS" = 0 ] && echo 0 || echo 1)" "an adoption-seed assessment succeeds (got $STATUS)"
+php -r '
+$d = json_decode(file_get_contents($argv[1]), true);
+$a = $d["authority"]["adoption"] ?? null;
+if (!is_array($a)) { fwrite(STDERR, "authority.adoption is absent\n"); exit(1); }
+if (($a["preview"] ?? null) !== "init-proposal" || ($a["adapters"] ?? null) !== ["core", "fixture-shop"]) { fwrite(STDERR, "authority.adoption does not carry the agent block verbatim\n"); exit(1); }
+if (($a["scope"]["left_local"] ?? null) !== ["post_type:fixture_log"]) { fwrite(STDERR, "left_local not carried\n"); exit(1); }
+' "$TMP/out5.json"
+check $? 'authority.adoption carries the agent block verbatim (preview, adapters, left-local types)'
+( cd "$TMP/site/repo" && run_assess "$TMP/calls5b.txt" "$TMP/out5b.json" "$TMP/err5b.txt" assess fixture --format=json )
+php -r '$d = json_decode(file_get_contents($argv[1]), true); exit(array_key_exists("adoption", $d["authority"] ?? []) && $d["authority"]["adoption"] === null ? 0 : 1);' "$TMP/out5b.json"
+check $? 'an init-owned repository reports authority.adoption null'
+( cd "$TMP/site/repo" && DUO_ADOPTION_SEED=1 run_assess "$TMP/calls6.txt" "$TMP/out6.txt" "$TMP/err6.txt" \
+    assess fixture )
+assert_contains "$TMP/out6.txt" 'adoption: this repository is an adoption seed — assessed as duo init would propose it: adapters core, fixture-shop · left local: post_type:fixture_log · init advisories: 1 · init would refuse: 0 · init is ready' \
+  'the human view names the preview, the adapters, the left-local types and the counts on one line'
+LINE_ADOPTION=$(grep -n '^adoption:' "$TMP/out6.txt" | head -1 | cut -d: -f1)
+LINE_FIRST_SURFACE=$(grep -nE '^(surface|[a-z_]+:[a-z_]+ )' "$TMP/out6.txt" | head -1 | cut -d: -f1)
+check "$([ -n "$LINE_ADOPTION" ] && [ -n "$LINE_FIRST_SURFACE" ] && [ "$LINE_ADOPTION" -lt "$LINE_FIRST_SURFACE" ] && echo 0 || echo 1)" \
+  'the adoption line comes before the first surface row'
+( cd "$TMP/site/repo" && run_assess "$TMP/calls6b.txt" "$TMP/out6b.txt" "$TMP/err6b.txt" assess fixture )
+if grep -q '^adoption:' "$TMP/out6b.txt"; then fail 'an init-owned repository prints an adoption line'; else pass 'an init-owned repository prints no adoption line'; fi
 
 # A host-side preflight failure must also produce the envelope, or the first
 # unresolvable environment becomes an unparseable line in a pipeline.

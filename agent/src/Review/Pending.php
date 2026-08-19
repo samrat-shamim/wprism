@@ -67,12 +67,27 @@ final class Pending {
         // the observer's no-repair/no-write boundary.
         $gate = Capture::gate_scan_read_only($repo, $policy, $observationReadCheckpoint);
         self::assert_read_only_database($strictRead);
-        $journalOptions = self::journal_unclassified($policy, 'options', $observationReadCheckpoint);
-        self::assert_read_only_database($strictRead);
-        $journalPostMeta = self::journal_unclassified($policy, 'postmeta', $observationReadCheckpoint);
-        self::assert_read_only_database($strictRead);
-        $journalTermMeta = self::journal_unclassified($policy, 'termmeta', $observationReadCheckpoint);
-        self::assert_read_only_database($strictRead);
+        // The journal-derived half of the queue exists only once the agent's
+        // durable journal does. On a target Duo has never written to (the
+        // first look `duo assess` takes on an adoption seed, before any init
+        // or capture) the table is provably absent — a clean SHOW TABLES says
+        // so — and that is a known state, not a failed read: the queue is
+        // then exactly what the live gate walk found. Reading the journal
+        // regardless made the observer refuse `adapter_observation_pending_
+        // unreadable` on every fresh site (T7 grind A1), which told the
+        // operator to repair a database nothing had touched.
+        if ($strictRead && !self::journal_installed()) {
+            $journalOptions = [];
+            $journalPostMeta = [];
+            $journalTermMeta = [];
+        } else {
+            $journalOptions = self::journal_unclassified($policy, 'options', $observationReadCheckpoint);
+            self::assert_read_only_database($strictRead);
+            $journalPostMeta = self::journal_unclassified($policy, 'postmeta', $observationReadCheckpoint);
+            self::assert_read_only_database($strictRead);
+            $journalTermMeta = self::journal_unclassified($policy, 'termmeta', $observationReadCheckpoint);
+            self::assert_read_only_database($strictRead);
+        }
 
         $items = [];
         foreach ($gate['scope'] as $key => $ev) {
@@ -115,6 +130,35 @@ final class Pending {
         usort($items, fn($a, $b) => [$a['section'], $a['key']] <=> [$b['section'], $b['key']]);
         self::assert_read_only_database($strictRead);
         return $items;
+    }
+
+    /**
+     * Whether the agent's durable journal table exists on this target, proved
+     * by a SHOW TABLES whose own read succeeded. A failed probe is refused as
+     * unreadable (never reported as absent), exactly as
+     * AdapterObservation::assert_journal_prerequisite() treats it.
+     */
+    public static function journal_installed(): bool {
+        global $wpdb;
+        $table = $wpdb->prefix . 'duo_journal';
+        $found = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
+        $readError = $wpdb->last_error ?? '';
+        if (!is_string($readError) || $readError !== '' || $found === false) {
+            self::assert_read_only_database();
+            throw new CommandRefusalException(
+                'adapter_observation_pending_unreadable',
+                'adapter observation could not read the existing pending-review evidence',
+                'inspect and repair the target database through the existing controlled workflow before collecting proposal evidence',
+                [[
+                    'code' => 'adapter_observation_pending_unreadable',
+                    'message' => 'the observer could not prove whether the provenance journal exists',
+                    'remediation' => 'restore readable target evidence before collecting adapter observation evidence',
+                ]],
+                'duo: adapter observation refused because the journal existence probe failed'
+            );
+        }
+
+        return is_string($found) && $found === $table;
     }
 
     /**

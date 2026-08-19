@@ -876,9 +876,31 @@ function ref_copy_media_from_container(string $container, string $destination): 
     ref_chmod_tree($destination, 0700);
 }
 
+/**
+ * The immutable snapshot is published read-only (ref_chmod_tree 0555) and
+ * owned by the host user; `docker cp` carries both into the container, and
+ * ref_media_clear_command's `mkdir -p` runs as root. The web and cli
+ * containers run as 33:33 (sandbox/pair.yml `user: "33:33"`), so without
+ * this hand-back the restored site cannot write inside its own uploads:
+ * grind_adoption A6 saw `duo apply` on the rehearsal target fail its required
+ * `provider:elementor-css/regenerate_css` action with "file_put_contents(
+ * …/uploads/elementor/css/post-1.css): Failed to open stream: Permission
+ * denied". Owner and mode are provider-side plumbing, not media bytes: the
+ * restore stays bound to media_sha256 (a byte/tree digest) either way.
+ *
+ * @return list<string>
+ */
+function ref_media_handback_command(string $container): array {
+    return [
+        'docker', 'exec', $container, 'sh', '-c',
+        'chown -R 33:33 /var/www/html/wp-content/uploads && chmod -R u+rwX,go+rX /var/www/html/wp-content/uploads',
+    ];
+}
+
 function ref_restore_media_to_container(string $source, string $container): void {
     ref_checked(ref_media_clear_command($container));
     ref_checked(['docker', 'cp', rtrim($source, '/') . '/.', $container . ':/var/www/html/wp-content/uploads']);
+    ref_checked(ref_media_handback_command($container));
 }
 
 // --------------------------------------------------------------------------
@@ -1989,6 +2011,8 @@ function ref_plan(array $request, array $config, ?array $state = null): array {
             $commands[] = ['argv' => ['docker', 'exec', '-i', (string) $config['db_container'], 'mariadb', '-uroot', '-proot'], 'stdin' => 'drop-create'];
             $commands[] = ['argv' => ['docker', 'exec', '-i', (string) $config['db_container'], 'mariadb', '-uroot', '-proot', (string) $environment['database']], 'stdin' => 'immutable-dump'];
             $commands[] = ['argv' => ref_media_clear_command((string) $environment['container'])];
+            $commands[] = ['argv' => ['docker', 'cp', '<immutable-media>/.', (string) $environment['container'] . ':/var/www/html/wp-content/uploads']];
+            $commands[] = ['argv' => ref_media_handback_command((string) $environment['container'])];
             break;
         case 'repository-materialize':
             $commit = $input['branch_commit'] ?? null;

@@ -50,6 +50,25 @@ The human view is a projection of the same document `--format=json` emits.
 Read the JSON when you want every operation at once; read the table when you
 want a decision.
 
+**Before `duo init`, the assessment is a preview of adoption.** On an adoption
+seed (a `site.duo.json` init has not yet owned) the seed's own pin set is
+`core` alone, and an assessment against it would read every active plugin as
+`plugin:<slug> — install adapter` and every WooCommerce table as unclassified
+on a shop the library ships a certified adapter for. So the agent projects the
+surfaces against the policy `duo init` would propose — the adapters it selects
+for the active plugins and theme, the scope it proposes, the types it leaves
+local — and says so on its own line, before any surface row:
+
+```text
+adoption: this repository is an adoption seed — assessed as duo init would propose it: adapters core, woocommerce · left local: post_type:elementor_library · init advisories: 1 · init would refuse: 0 · init is ready
+```
+
+`--format=json` carries the same facts under `authority.adoption` (`preview`,
+`adapters`, `scope.post_types/taxonomies/left_local`, the proposal's
+`advisories` and `unsupported` rows, `ready`); an init-owned repository
+carries `authority.adoption: null` and no such line. Nothing is written: the
+proposal is the same read-only one the initialization probe already runs.
+
 ```text
 stack: WordPress 7.0.3 · PHP 8.3.33 · MariaDB 11.8.8 · single-site
 authority: ssh · read-only for this command · repo /srv/site

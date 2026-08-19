@@ -135,6 +135,8 @@ $expectedApi = [
         $parameter('compiled', '?Duo\\CompiledRepository', false),
         $parameter('policy', '?Duo\\Policy', false),
         $parameter('planObservations', '?array', false, null, true),
+        // Observe AS a named environment binding — the rehearsal target rebind off its restored source snapshot (grind_adoption A6).
+        $parameter('binding', '?array', false),
     ]],
     'snapshot_read_only' => ['array', [
         $parameter('repo', 'string'),

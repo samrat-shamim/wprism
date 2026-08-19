@@ -1,0 +1,359 @@
+
+[1;36m== boot pair t7f4 (t7f41 :9708 / t7f42 :9709), idempotent ==[0m
+
+[1;36m== candidate source for 'up' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    4a9c7a02eba42279ee53318e9bc0ab8f799998e6
+  invoked from:   <source-root>/sandbox
+  expected SHA:   4a9c7a02eba42279ee53318e9bc0ab8f799998e6 (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly 4a9c7a02eba42279ee53318e9bc0ab8f799998e6, clean — this run's evidence is bound to that commit[0m
+
+[1;36m== shared infra: MariaDB (duo-db) + duo-shared network ==[0m
+ Container duo-shared-db Running
+[1;32mok: shared db up, healthy, wordpress user granted on wp\_%[0m
+
+[1;36m== pair 't7f4': databases ==[0m
+[1;32mok: wp_t7f41, wp_t7f42 exist[0m
+
+[1;36m== pair 't7f4': site-repo directories ==[0m
+
+[1;36m== pair 't7f4': web containers up ==[0m
+  (bind-mount source: <source-root> -- this pair.sh copy is running from <source-root>/sandbox)
+ Volume duo-t7f4_wp1 Creating
+ Volume duo-t7f4_wp1 Created
+ Volume duo-t7f4_wp2 Creating
+ Volume duo-t7f4_wp2 Created
+ Container duo-t7f4-wp2-1 Creating
+ Container duo-t7f4-wp1-1 Creating
+ Container duo-t7f4-wp1-1 Created
+ Container duo-t7f4-wp2-1 Created
+ Container duo-t7f4-wp1-1 Starting
+ Container duo-t7f4-wp2-1 Starting
+ Container duo-t7f4-wp2-1 Started
+ Container duo-t7f4-wp1-1 Started
+ Container duo-t7f4-cli1-1 Creating
+ Container duo-t7f4-cli2-1 Creating
+ Container duo-t7f4-cli2-1 Created
+ Container duo-t7f4-cli1-1 Created
+ Container duo-t7f4-cli1-1 Starting
+ Container duo-t7f4-cli2-1 Starting
+ Container duo-t7f4-cli1-1 Started
+ Container duo-t7f4-cli2-1 Started
+[1;32mok: web mountpoints established; CLI containers up[0m
+
+[1;36m== pair 't7f4': waiting for DB-level readiness (both sides) ==[0m
+[1;32mok: both sides reach their database[0m
+
+[1;36m== pair 't7f4': generic WordPress bootstrap (idempotent) ==[0m
+ Container duo-t7f4-cli1-run-c12d199af40b Creating
+ Container duo-t7f4-cli1-run-c12d199af40b Created
+Success: WordPress installed successfully.
+ Container duo-t7f4-cli1-run-9cbadcbc3ef7 Creating
+ Container duo-t7f4-cli1-run-9cbadcbc3ef7 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-t7f4-cli1-run-e6e5138d20a0 Creating
+ Container duo-t7f4-cli1-run-e6e5138d20a0 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-t7f4-cli1-run-cb46d43025a4 Creating
+ Container duo-t7f4-cli1-run-cb46d43025a4 Created
+ Container duo-t7f4-cli1-run-a05a241eb06c Creating
+ Container duo-t7f4-cli1-run-a05a241eb06c Created
+ Container duo-t7f4-cli1-run-ee8c770c0882 Creating
+ Container duo-t7f4-cli1-run-ee8c770c0882 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-t7f4-cli1-run-d796b35b8cb8 Creating
+ Container duo-t7f4-cli1-run-d796b35b8cb8 Created
+Success: Rewrite rules flushed.
+  side 1 installed (http://localhost:9708)
+ Container duo-t7f4-cli2-run-f9efba76a7bb Creating
+ Container duo-t7f4-cli2-run-f9efba76a7bb Created
+Success: WordPress installed successfully.
+ Container duo-t7f4-cli2-run-0de2793c5cf2 Creating
+ Container duo-t7f4-cli2-run-0de2793c5cf2 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-t7f4-cli2-run-0e7cb9401cd1 Creating
+ Container duo-t7f4-cli2-run-0e7cb9401cd1 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-t7f4-cli2-run-75a1d8e9fc59 Creating
+ Container duo-t7f4-cli2-run-75a1d8e9fc59 Created
+ Container duo-t7f4-cli2-run-51e8a82192b0 Creating
+ Container duo-t7f4-cli2-run-51e8a82192b0 Created
+ Container duo-t7f4-cli2-run-30302876fccc Creating
+ Container duo-t7f4-cli2-run-30302876fccc Created
+Success: Updated 'permalink_structure' option.
+ Container duo-t7f4-cli2-run-7c8be09ec6a4 Creating
+ Container duo-t7f4-cli2-run-7c8be09ec6a4 Created
+Success: Rewrite rules flushed.
+  side 2 installed (http://localhost:9709)
+
+[1;36m== pair 't7f4' ready ==[0m
+  wp1: http://localhost:9708 (published on host port 9708)
+  wp2: http://localhost:9709 (published on host port 9709)
+
+  wp-cli invocation pattern for this pair (run from sandbox/):
+    docker compose -p duo-t7f4 -f pair.yml -f pair.artifacts.yml run --rm cli1 wp <command...>
+    docker compose -p duo-t7f4 -f pair.yml -f pair.artifacts.yml run --rm cli2 wp <command...>
+  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=t7f4 must stay exported, or pass -p duo-t7f4 and set WORDPRESS_DB_NAME/etc. yourself)
+[1;32mok: pair up[0m
+
+[1;36m== boundary: ninja-forms 3.4.34.2 ==[0m
+ Container duo-t7f4-cli1-run-1a9fddcefe66 Creating
+ Container duo-t7f4-cli1-run-1a9fddcefe66 Created
+ Container duo-t7f4-cli1-run-d55adb57b7ad Creating
+ Container duo-t7f4-cli1-run-d55adb57b7ad Created
+ Container duo-t7f4-cli1-run-3548193cd8eb Creating
+ Container duo-t7f4-cli1-run-3548193cd8eb Created
+ Container duo-t7f4-cli1-run-ffb29a797668 Creating
+ Container duo-t7f4-cli1-run-ffb29a797668 Created
+ Container duo-t7f4-cli1-run-36bd4d9d78aa Creating
+ Container duo-t7f4-cli1-run-36bd4d9d78aa Created
+ Container duo-t7f4-cli1-run-344807e5a294 Creating
+ Container duo-t7f4-cli1-run-344807e5a294 Created
+ Container duo-t7f4-cli2-run-2a78034e7d89 Creating
+ Container duo-t7f4-cli2-run-2a78034e7d89 Created
+ Container duo-t7f4-cli2-run-670be06acfcc Creating
+ Container duo-t7f4-cli2-run-670be06acfcc Created
+ Container duo-t7f4-cli2-run-f10bce94aa42 Creating
+ Container duo-t7f4-cli2-run-f10bce94aa42 Created
+ Container duo-t7f4-cli2-run-7645c100abf6 Creating
+ Container duo-t7f4-cli2-run-7645c100abf6 Created
+ Container duo-t7f4-cli2-run-0c93044272c8 Creating
+ Container duo-t7f4-cli2-run-0c93044272c8 Created
+ Container duo-t7f4-cli2-run-7307a2b1030d Creating
+ Container duo-t7f4-cli2-run-7307a2b1030d Created
+
+[1;36m== fetch + verify ninja-forms 3.4.34.2 (never a bare slug install — always a digest-checked artifact) ==[0m
+ Container duo-t7f4-cli1-run-321003ff646f Creating
+ Container duo-t7f4-cli1-run-321003ff646f Created
+artifact-cache: kind=plugin slug=ninja-forms version=3.4.34.2 sha256=a22b05b058de53586c20e543fc2efa9d8863486da097f1152ec06f68ee28e687 source=cache-hit path=/artifacts-cache/plugin-ninja-forms-3.4.34.2-a22b05b058de53586c20e543fc2efa9d8863486da097f1152ec06f68ee28e687.zip
+ Container duo-t7f4-cli2-run-99971fb25c77 Creating
+ Container duo-t7f4-cli2-run-99971fb25c77 Created
+artifact-cache: kind=plugin slug=ninja-forms version=3.4.34.2 sha256=a22b05b058de53586c20e543fc2efa9d8863486da097f1152ec06f68ee28e687 source=cache-hit path=/artifacts-cache/plugin-ninja-forms-3.4.34.2-a22b05b058de53586c20e543fc2efa9d8863486da097f1152ec06f68ee28e687.zip
+[1;32mok: verified sha256-pinned artifact resolved for both sides: /artifacts-cache/plugin-ninja-forms-3.4.34.2-a22b05b058de53586c20e543fc2efa9d8863486da097f1152ec06f68ee28e687.zip[0m
+ Container duo-t7f4-cli1-run-44395ac1921b Creating
+ Container duo-t7f4-cli1-run-44395ac1921b Created
+ Container duo-t7f4-cli1-run-13a42acf5457 Creating
+ Container duo-t7f4-cli1-run-13a42acf5457 Created
+[1;32mok: side 1: ninja-forms 3.4.34.2 installed from verified artifact, active[0m
+ Container duo-t7f4-cli1-run-f8ba3546af8a Creating
+ Container duo-t7f4-cli1-run-f8ba3546af8a Created
+removed this environment's own activation-created 'Contact Me' form (id=1)
+contact_me_remaining=0
+ Container duo-t7f4-cli1-run-c9183ef81e6a Creating
+ Container duo-t7f4-cli1-run-c9183ef81e6a Created
+ninja-forms seed: page=1 form_id=2 (23 fields, 3 actions)
+ Container duo-t7f4-cli1-run-4085551dafed Creating
+ Container duo-t7f4-cli1-run-4085551dafed Created
+Success: captured 1 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+[1;32mok: captured on side 1 (ninja-forms 3.4.34.2)[0m
+ Container duo-t7f4-cli1-run-cbd95bdb1560 Creating
+ Container duo-t7f4-cli1-run-cbd95bdb1560 Created
+Success: no findings — captured state is clean
+[1;32mok: lint: 0 findings[0m
+ Container duo-t7f4-cli2-run-d02f7d65a622 Creating
+ Container duo-t7f4-cli2-run-d02f7d65a622 Created
+ Container duo-t7f4-cli2-run-fb3b830262db Creating
+ Container duo-t7f4-cli2-run-fb3b830262db Created
+ Container duo-t7f4-cli2-run-c3acbeb82784 Creating
+ Container duo-t7f4-cli2-run-c3acbeb82784 Created
+Warning: deploy-window observation: http request attempted: http://localhost:9709/wp-admin/admin-ajax.php?action=wp_nf_update_fields&nonce=599146264a
+Warning: deploy-window observation: http request attempted: http://api.ninjaforms.com/feeds/?fetch=addons
+activated: ninja-forms/ninja-forms.php
+Success: 1 activated, 0 deactivated
+ Container duo-t7f4-cli2-run-867d886cd537 Creating
+ Container duo-t7f4-cli2-run-867d886cd537 Created
+removed this environment's own activation-created 'Contact Me' form (id=1)
+contact_me_remaining=0
+ Container duo-t7f4-cli2-run-24d658a914ab Creating
+ Container duo-t7f4-cli2-run-24d658a914ab Created
+Warning: adopted env term 1 as 01a014c3-e480-73b5-8b0e-3a11296ad86a (terms/category/01a014c3-e480-73b5-8b0e-3a11296ad86a--uncategorized.json)
+Warning: provider capability fired: ninja-forms-form-cache@1.0.0 rebuild_form_caches (0.039s, verified)
+Success: applied 31 entities (canary clean) — plan was: {"create":28,"update":2,"unchanged":0,"drift":0,"conflict":0,"adopt":1,"collision":0,"delete":0,"delete_conflict":0,"deleted":0,"code_mismatch":0,"code_drift":0,"incomplete_apply":0,"incomplete_lifecycle":0,"missing_user":0,"skipped_user_meta":0,"uploads_inventory":0,"effects_inventory":7,"adapter_dispositions":0,"regen_pending":0,"regen_context":0,"env_missing":0}
+[1;32mok: deploy + apply succeeded on side 2 (ninja-forms 3.4.34.2, canary clean)[0m
+ Container duo-t7f4-cli2-run-d7c7f7681371 Creating
+ Container duo-t7f4-cli2-run-d7c7f7681371 Created
+ Container duo-t7f4-cli2-run-b4e6a201773a Creating
+ Container duo-t7f4-cli2-run-b4e6a201773a Created
+[1;32mok: side 2 renders the real Job Application and Ninja Forms' model API resolves 23 fields and 3 actions[0m
+ Container duo-t7f4-cli2-run-63b32e37b1fe Creating
+ Container duo-t7f4-cli2-run-63b32e37b1fe Created
+Success: captured 1 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/.tmp-final
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+[1;32mok: byte-identical recapture at ninja-forms 3.4.34.2 — the manifest's own declared version_range boundary is proven, not just its currently-installed version[0m
+
+[1;36m== boundary: ninja-forms 3.14.11 ==[0m
+ Container duo-t7f4-cli1-run-1192696e5ac6 Creating
+ Container duo-t7f4-cli1-run-1192696e5ac6 Created
+ Container duo-t7f4-cli1-run-af72ebb08122 Creating
+ Container duo-t7f4-cli1-run-af72ebb08122 Created
+ Container duo-t7f4-cli1-run-d623b4ebea35 Creating
+ Container duo-t7f4-cli1-run-d623b4ebea35 Created
+ Container duo-t7f4-cli1-run-e1debc28af26 Creating
+ Container duo-t7f4-cli1-run-e1debc28af26 Created
+ Container duo-t7f4-cli1-run-7f31fa9afa5c Creating
+ Container duo-t7f4-cli1-run-7f31fa9afa5c Created
+ Container duo-t7f4-cli1-run-375c3ac504ae Creating
+ Container duo-t7f4-cli1-run-375c3ac504ae Created
+ Container duo-t7f4-cli2-run-5f85403bdfe2 Creating
+ Container duo-t7f4-cli2-run-5f85403bdfe2 Created
+ Container duo-t7f4-cli2-run-2f620ac973a9 Creating
+ Container duo-t7f4-cli2-run-2f620ac973a9 Created
+ Container duo-t7f4-cli2-run-15569f6ced31 Creating
+ Container duo-t7f4-cli2-run-15569f6ced31 Created
+ Container duo-t7f4-cli2-run-5cdd62f493dd Creating
+ Container duo-t7f4-cli2-run-5cdd62f493dd Created
+ Container duo-t7f4-cli2-run-53e02c3909d7 Creating
+ Container duo-t7f4-cli2-run-53e02c3909d7 Created
+ Container duo-t7f4-cli2-run-e12e2eb2a6fc Creating
+ Container duo-t7f4-cli2-run-e12e2eb2a6fc Created
+
+[1;36m== fetch + verify ninja-forms 3.14.11 (never a bare slug install — always a digest-checked artifact) ==[0m
+ Container duo-t7f4-cli1-run-cfa0b32d810a Creating
+ Container duo-t7f4-cli1-run-cfa0b32d810a Created
+artifact-cache: kind=plugin slug=ninja-forms version=3.14.11 sha256=82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73 source=cache-hit path=/artifacts-cache/plugin-ninja-forms-3.14.11-82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73.zip
+ Container duo-t7f4-cli2-run-58f31e80adbf Creating
+ Container duo-t7f4-cli2-run-58f31e80adbf Created
+artifact-cache: kind=plugin slug=ninja-forms version=3.14.11 sha256=82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73 source=cache-hit path=/artifacts-cache/plugin-ninja-forms-3.14.11-82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73.zip
+[1;32mok: verified sha256-pinned artifact resolved for both sides: /artifacts-cache/plugin-ninja-forms-3.14.11-82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73.zip[0m
+ Container duo-t7f4-cli1-run-bc0567fb5c73 Creating
+ Container duo-t7f4-cli1-run-bc0567fb5c73 Created
+ Container duo-t7f4-cli1-run-0e5a7d246031 Creating
+ Container duo-t7f4-cli1-run-0e5a7d246031 Created
+[1;32mok: side 1: ninja-forms 3.14.11 installed from verified artifact, active[0m
+ Container duo-t7f4-cli1-run-35e26c3c3fe3 Creating
+ Container duo-t7f4-cli1-run-35e26c3c3fe3 Created
+removed this environment's own activation-created 'Contact Me' form (id=1)
+contact_me_remaining=0
+ Container duo-t7f4-cli1-run-9e65eb64870d Creating
+ Container duo-t7f4-cli1-run-9e65eb64870d Created
+ninja-forms seed: page=1 form_id=2 (23 fields, 3 actions)
+ Container duo-t7f4-cli1-run-d956ace73d44 Creating
+ Container duo-t7f4-cli1-run-d956ace73d44 Created
+Success: captured 1 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+[1;32mok: captured on side 1 (ninja-forms 3.14.11)[0m
+ Container duo-t7f4-cli1-run-56bf93cf029e Creating
+ Container duo-t7f4-cli1-run-56bf93cf029e Created
+Success: no findings — captured state is clean
+[1;32mok: lint: 0 findings[0m
+ Container duo-t7f4-cli2-run-684e9a730957 Creating
+ Container duo-t7f4-cli2-run-684e9a730957 Created
+ Container duo-t7f4-cli2-run-345ce313fabc Creating
+ Container duo-t7f4-cli2-run-345ce313fabc Created
+ Container duo-t7f4-cli2-run-bdde5aeffa0b Creating
+ Container duo-t7f4-cli2-run-bdde5aeffa0b Created
+Warning: deploy-window observation: http request attempted: http://localhost:9709/wp-admin/admin-ajax.php?action=wp_nf_update_fields&nonce=599146264a
+Warning: deploy-window observation: http request attempted: http://api.ninjaforms.com/feeds/?fetch=addons
+activated: ninja-forms/ninja-forms.php
+Success: 1 activated, 0 deactivated
+ Container duo-t7f4-cli2-run-6744ad0dc6a8 Creating
+ Container duo-t7f4-cli2-run-6744ad0dc6a8 Created
+removed this environment's own activation-created 'Contact Me' form (id=1)
+contact_me_remaining=0
+ Container duo-t7f4-cli2-run-32d42e92574c Creating
+ Container duo-t7f4-cli2-run-32d42e92574c Created
+Warning: adopted env term 1 as 01a014c5-c3a8-77e7-8eda-2f51b8e83a6e (terms/category/01a014c5-c3a8-77e7-8eda-2f51b8e83a6e--uncategorized.json)
+Warning: provider capability fired: ninja-forms-form-cache@1.0.0 rebuild_form_caches (0.023s, verified)
+Success: applied 31 entities (canary clean) — plan was: {"create":28,"update":2,"unchanged":0,"drift":0,"conflict":0,"adopt":1,"collision":0,"delete":0,"delete_conflict":0,"deleted":0,"code_mismatch":0,"code_drift":0,"incomplete_apply":0,"incomplete_lifecycle":0,"missing_user":0,"skipped_user_meta":0,"uploads_inventory":0,"effects_inventory":7,"adapter_dispositions":0,"regen_pending":0,"regen_context":0,"env_missing":0}
+[1;32mok: deploy + apply succeeded on side 2 (ninja-forms 3.14.11, canary clean)[0m
+ Container duo-t7f4-cli2-run-d95f48c3728c Creating
+ Container duo-t7f4-cli2-run-d95f48c3728c Created
+ Container duo-t7f4-cli2-run-367b05e4b825 Creating
+ Container duo-t7f4-cli2-run-367b05e4b825 Created
+[1;32mok: side 2 renders the real Job Application and Ninja Forms' model API resolves 23 fields and 3 actions[0m
+ Container duo-t7f4-cli2-run-6124f6fa6f72 Creating
+ Container duo-t7f4-cli2-run-6124f6fa6f72 Created
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+Success: captured 1 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/.tmp-final
+[1;32mok: byte-identical recapture at ninja-forms 3.14.11 — the manifest's own declared version_range boundary is proven, not just its currently-installed version[0m
+
+[1;36m== negative control: ninja-forms 3.3.21.4 (real wp.org release, genuinely below manifests/ninja-forms.json's corrected min 3.4.34.2) must be REFUSED, not silently accepted ==[0m
+ Container duo-t7f4-cli1-run-b094821977d7 Creating
+ Container duo-t7f4-cli1-run-b094821977d7 Created
+ Container duo-t7f4-cli1-run-f0738178d946 Creating
+ Container duo-t7f4-cli1-run-f0738178d946 Created
+ Container duo-t7f4-cli1-run-1179d9de14c8 Creating
+ Container duo-t7f4-cli1-run-1179d9de14c8 Created
+ Container duo-t7f4-cli1-run-66b338ffeb93 Creating
+ Container duo-t7f4-cli1-run-66b338ffeb93 Created
+ Container duo-t7f4-cli1-run-8eec59817824 Creating
+ Container duo-t7f4-cli1-run-8eec59817824 Created
+ Container duo-t7f4-cli1-run-626340077afa Creating
+ Container duo-t7f4-cli1-run-626340077afa Created
+ Container duo-t7f4-cli1-run-19d3491ff2a9 Creating
+ Container duo-t7f4-cli1-run-19d3491ff2a9 Created
+artifact-cache: kind=plugin slug=ninja-forms version=3.14.11 sha256=82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73 source=cache-hit path=/artifacts-cache/plugin-ninja-forms-3.14.11-82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73.zip
+ Container duo-t7f4-cli1-run-091f84890a97 Creating
+ Container duo-t7f4-cli1-run-091f84890a97 Created
+ Container duo-t7f4-cli1-run-c93c5b8d40b2 Creating
+ Container duo-t7f4-cli1-run-c93c5b8d40b2 Created
+ Container duo-t7f4-cli1-run-d0746c6ec4ce Creating
+ Container duo-t7f4-cli1-run-d0746c6ec4ce Created
+removed this environment's own activation-created 'Contact Me' form (id=1)
+contact_me_remaining=0
+ Container duo-t7f4-cli1-run-f8bd169a996a Creating
+ Container duo-t7f4-cli1-run-f8bd169a996a Created
+ninja-forms seed: page=1 form_id=2 (23 fields, 3 actions)
+ Container duo-t7f4-cli1-run-f38d68436f95 Creating
+ Container duo-t7f4-cli1-run-f38d68436f95 Created
+Success: captured 1 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+ Container duo-t7f4-cli1-run-0127e158781b Creating
+ Container duo-t7f4-cli1-run-0127e158781b Created
+ Container duo-t7f4-cli1-run-6cc822b137d4 Creating
+ Container duo-t7f4-cli1-run-6cc822b137d4 Created
+ Container duo-t7f4-cli1-run-a99e3a4350b8 Creating
+ Container duo-t7f4-cli1-run-a99e3a4350b8 Created
+artifact-cache: kind=plugin slug=ninja-forms version=3.3.21.4 sha256=54fc48a030a85d4929fe4c3dc364affdd996e1add175f42a5d1f90c08a43682f source=cache-hit path=/artifacts-cache/plugin-ninja-forms-3.3.21.4-54fc48a030a85d4929fe4c3dc364affdd996e1add175f42a5d1f90c08a43682f.zip
+ Container duo-t7f4-cli1-run-05489fb94a18 Creating
+ Container duo-t7f4-cli1-run-05489fb94a18 Created
+ Container duo-t7f4-cli1-run-5277b50988ac Creating
+ Container duo-t7f4-cli1-run-5277b50988ac Created
+ Container duo-t7f4-cli1-run-52c4e7fef2d2 Creating
+ Container duo-t7f4-cli1-run-52c4e7fef2d2 Created
+Error: duo: deploy refused — code_mismatch:
+
+  - ninja-forms/ninja-forms.php 3.3.21.4 is active in this environment, outside the 'ninja-forms' manifest's declared version_range (>=3.4.34.2 <4.0.0, pinned by site.duo.json). Classification guarantees for this plugin are NOT validated against this version — apply may silently misclassify fields. Update the plugin, pin an older manifest, or pass --force-code-mismatch to proceed at your own risk.
+
+Install/vendor whatever is missing (or update code/) in this environment first, or pass --force-code-mismatch to proceed anyway.
+[1;32mok: confirmed: ninja-forms 3.3.21.4 (real, installed, genuinely below the corrected min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative[0m
+
+[1;36m== cleanup ==[0m
+
+[1;36m== pair 't7f4': destroy ==[0m
+ Container duo-t7f4-cli2-1 Stopping
+ Container duo-t7f4-wp1-1 Stopping
+ Container duo-t7f4-wp2-1 Stopping
+ Container duo-t7f4-cli1-1 Stopping
+ Container duo-t7f4-cli2-1 Stopped
+ Container duo-t7f4-cli2-1 Removing
+ Container duo-t7f4-cli1-1 Stopped
+ Container duo-t7f4-cli1-1 Removing
+ Container duo-t7f4-cli2-1 Removed
+ Container duo-t7f4-cli1-1 Removed
+ Container duo-t7f4-wp2-1 Stopped
+ Container duo-t7f4-wp2-1 Removing
+ Container duo-t7f4-wp2-1 Removed
+ Container duo-t7f4-wp1-1 Stopped
+ Container duo-t7f4-wp1-1 Removing
+ Container duo-t7f4-wp1-1 Removed
+ Volume duo-t7f4_wp2 Removing
+ Volume duo-t7f4_wp1 Removing
+ Volume duo-t7f4_wp2 Removed
+ Volume duo-t7f4_wp1 Removed
+ Container duo-shared-db Running
+[1;32mok: containers + webroot volumes removed; wp_t7f41/wp_t7f42 dropped[0m
+  siterepo/t7f4{1,2} left on disk untouched — remove by hand if you want it gone too.
+[1;32mok: destroyed t7f4 (every assertion above passed)[0m
+
+[1;32m✔ CERTIFY_VERSION_MATRIX PASSED[0m

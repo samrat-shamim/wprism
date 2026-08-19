@@ -201,6 +201,15 @@ if ($sub === 'compile') {
     echo file_get_contents((string) getenv('DUO_SSH_PROOF_SUMMARY')); exit(0);
 }
 if ($sub === 'plan') { echo file_get_contents((string) getenv('DUO_SSH_PROOF_PLAN')); exit(0); }
+if ($duo === false && in_array('eval', $args, true)) {
+    foreach ($args as $arg) {
+        if (str_contains((string) $arg, 'get_option')) {
+            // Source URL binding read: home then uploads, one per line (the
+            // materializer rebinds a rehearsal target off its restored snapshot).
+            echo "http://source.example:9600\nhttp://source.example:9600/wp-content/uploads\n"; exit(0);
+        }
+    }
+}
 if (($sub === 'db' && $duo !== false && (($args[$duo + 2] ?? '') === 'export'))
     || ($duo === false && (($args[0] ?? '') === 'db') && (($args[1] ?? '') === 'export'))) {
     $path = (string) ($duo === false ? ($args[2] ?? '') : ($args[$duo + 3] ?? ''));

@@ -314,10 +314,17 @@ final class ManifestValidate {
         $available = [];
         foreach (glob(rtrim($resolved, '/') . '/*.json') ?: [] as $file) {
             $base = basename($file, '.json');
-            // The disposition registry lives beside the manifests and is not
-            // one: it is external review state, loaded by every Policy::load()
-            // below as part of the directory, never pinned by name.
-            if ($base === 'dispositions') {
+            // The disposition registry and the site trust root live beside the
+            // manifests and are not ones: dispositions.json is external review
+            // state and adapters/authorities.json is the site's Ed25519 trust
+            // root — both loaded by every Policy::load() below as part of the
+            // directory, never validated or pinned as a manifest. The real
+            // loader excludes authorities.json the same way (AdapterSources::
+            // scan(), which reserves the name); without this a `manifest-
+            // validate adapters --site=<repo>` run after ANY certification
+            // reported `[error] authorities … not found` (grind_adoption A8).
+            if ($base === 'dispositions'
+                || basename($file) === AdapterSources::SITE_AUTHORITIES_FILE) {
                 continue;
             }
             $available[$base] = $file;

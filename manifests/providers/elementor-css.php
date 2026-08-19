@@ -25,6 +25,23 @@ final class ElementorCss {
 
     private const COMMAND = 'elementor flush-css --regenerate';
 
+    /**
+     * Elementor's per-document RENDER caches: `_elementor_element_cache` is
+     * the cached rendered widget HTML, `_elementor_page_assets` the derived
+     * asset list. Both are `derived` in manifests/elementor.json and are
+     * regenerated lazily on the next front-end render — but only if they are
+     * ABSENT. Duo's apply writes `_elementor_data` with raw SQL (see
+     * ApplyFieldMaterializer::upsert_meta), so Elementor's own updated_post_
+     * meta/save_post hooks — which normally invalidate these on an edit —
+     * never fire, and `flush-css --regenerate` re-renders documents to rebuild
+     * CSS and can leave the element HTML cache repopulated. grind_adoption A6
+     * caught the result: after a release the builder page served its PRE-apply
+     * heading for the full cache TTL (~2 min) even though `_elementor_data`
+     * already carried the new one. Clearing these keys after regeneration
+     * forces the front-end to re-render from the applied data immediately.
+     */
+    private const RENDER_CACHE_META_KEYS = ['_elementor_element_cache', '_elementor_page_assets'];
+
     public function __construct(Policy $policy) {
         $this->policy = $policy;
     }
@@ -102,6 +119,7 @@ final class ElementorCss {
         return [
             'builder_documents' => $this->builder_document_count(),
             'css_files' => $this->css_inventory(),
+            'render_caches' => $this->render_cache_count(),
         ];
     }
 
@@ -137,6 +155,7 @@ final class ElementorCss {
         $before = [
             'builder_documents' => $this->builder_document_count(),
             'css_files' => $this->css_inventory(),
+            'render_caches' => $this->render_cache_count(),
         ];
 
         $result = \WP_CLI::runcommand(self::COMMAND, [
@@ -159,9 +178,17 @@ final class ElementorCss {
             );
         }
 
+        // Invalidate the render caches AFTER flush-css: `--regenerate`
+        // re-renders each document to rebuild CSS and can leave the element
+        // HTML cache repopulated (grind_adoption A6). Deleting the keys here
+        // is the convergence boundary — the next front-end render rebuilds
+        // them from the just-applied `_elementor_data`.
+        $this->clear_render_caches();
+
         $after = [
             'builder_documents' => $this->builder_document_count(),
             'css_files' => $this->css_inventory(),
+            'render_caches' => $this->render_cache_count(),
         ];
         if ($before['css_files'] !== [] && $before['css_files'] === $after['css_files']) {
             throw new \RuntimeException(
@@ -170,11 +197,50 @@ final class ElementorCss {
                 . 'the generated stylesheets still carry pre-apply state'
             );
         }
+        if ($after['render_caches'] !== 0) {
+            throw new \RuntimeException(
+                'duo: Elementor render-cache invalidation left ' . $after['render_caches']
+                . ' cached rendered-HTML/page-asset row(s); the front-end would serve pre-apply markup'
+            );
+        }
         $after['outcome'] = $after['css_files'] === [] && $before['css_files'] === []
             ? 'no-op (no generated CSS cached on this target yet)'
             : 'regenerated';
 
         return ['before' => $before, 'after' => $after, 'verified' => true];
+    }
+
+    /**
+     * Count Elementor's per-document render caches (a checked read, like
+     * builder_document_count()). Recorded before/after regeneration so the
+     * receipt proves the rendered-HTML cache no longer predates the applied
+     * `_elementor_data`.
+     */
+    private function render_cache_count(): int {
+        global $wpdb;
+        $wpdb->last_error = '';
+        $in = "'" . implode("','", array_map('esc_sql', self::RENDER_CACHE_META_KEYS)) . "'";
+        $count = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE meta_key IN ($in)");
+        if ($count === null || (string) ($wpdb->last_error ?? '') !== '') {
+            throw new \RuntimeException('duo: Elementor render-cache count query failed');
+        }
+        return (int) $count;
+    }
+
+    /**
+     * Delete Elementor's per-document render caches so the next front-end
+     * render rebuilds them from the applied `_elementor_data`. Uses the WP
+     * API (which also drops the object-cache copy), not raw SQL.
+     */
+    private function clear_render_caches(): void {
+        if (!function_exists('delete_post_meta_by_key')) {
+            throw new \RuntimeException(
+                'duo: Elementor render-cache invalidation requires delete_post_meta_by_key()'
+            );
+        }
+        foreach (self::RENDER_CACHE_META_KEYS as $key) {
+            delete_post_meta_by_key($key);
+        }
     }
 
     /**

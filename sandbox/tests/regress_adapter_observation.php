@@ -599,6 +599,49 @@ namespace {
         'read-only pending path fails closed when wpdb reports a read error'
     );
 
+    // T7 grind A1: on a target Duo has never written to (the first `duo assess`
+    // on an adoption seed) the journal table is provably absent. That is a
+    // known state, not a failed read: the strict scan proceeds with the live
+    // gate walk alone and the journal-derived half of the queue is empty. A
+    // probe that cannot even prove presence still refuses.
+    $noJournalDb = new ObservationFakeWpdb();
+    $noJournalDb->journalPresent = false;
+    $GLOBALS['wpdb'] = $noJournalDb;
+    check(Pending::journal_installed() === false, 'journal_installed() reads a clean absent probe as false');
+    $noJournalError = null;
+    $noJournalItems = null;
+    try {
+        $noJournalItems = Pending::scan_read_only($site, new Policy());
+    } catch (CommandRefusalException $e) {
+        $noJournalError = $e->reasonCode;
+    }
+    check(
+        $noJournalError === null && is_array($noJournalItems),
+        'the strict pending scan proceeds on a target whose journal was never installed (got ' . var_export($noJournalError, true) . ')'
+    );
+    check(
+        is_array($noJournalItems) && !in_array(true, array_map(
+            static fn ($item): bool => str_contains(json_encode($item), 'JOURNAL_VALUE'),
+            $noJournalItems
+        ), true),
+        'and the journal-derived half of the queue is empty rather than read from a table that does not exist'
+    );
+    $journalProbeFailDb = new ObservationFakeWpdb();
+    $journalProbeFailDb->journalPrerequisiteQueryFails = true;
+    $GLOBALS['wpdb'] = $journalProbeFailDb;
+    $probeError = null;
+    try {
+        Pending::scan_read_only($site, new Policy());
+    } catch (CommandRefusalException $e) {
+        $probeError = $e->reasonCode;
+    }
+    check(
+        $probeError === 'adapter_observation_pending_unreadable',
+        'a journal probe that fails is refused as unreadable, never read as absent'
+    );
+    $GLOBALS['wpdb'] = new ObservationFakeWpdb();
+    check(Pending::journal_installed() === true, 'journal_installed() reads a present journal as true');
+
     echo "\n== strict intermediate pending reads ==\n";
     $gateIntermediateDb = new ObservationFakeWpdb();
     $GLOBALS['wpdb'] = $gateIntermediateDb;

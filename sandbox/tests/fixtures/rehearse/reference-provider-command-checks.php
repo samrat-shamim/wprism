@@ -140,7 +140,13 @@ rpc_run(['git', 'clone', '--bare', $site, $origin]);
 
 $planPath = $scratch . '/plan.json';
 file_put_contents($planPath, json_encode(rpc_plan(), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
-$wp = "#!/bin/sh\ncat " . escapeshellarg($planPath) . "\n";
+// Answer the materializer's source URL-binding read (`eval echo home …
+// uploads …`) with two URLs; every other invocation is `duo plan` (cat).
+$wp = "#!/bin/sh\n"
+    . 'for a in "$@"; do case "$a" in *get_option*home*) printf '
+    . "'http://source.example:9600\\nhttp://source.example:9600/wp-content/uploads\\n'"
+    . '; exit 0;; esac; done' . "\n"
+    . "cat " . escapeshellarg($planPath) . "\n";
 file_put_contents($bin . '/wp', $wp);
 chmod($bin . '/wp', 0700);
 
@@ -288,6 +294,24 @@ $actions = array_map(
 );
 duo_check_same(2, count(array_filter($actions, static fn (string $action): bool => $action === 'create')), 'the product path acquires exactly two generations');
 duo_check_same(2, count(array_filter($actions, static fn (string $action): bool => $action === 'destroy')), 'the product path physically reaps each generation exactly once');
+
+// The immutable media snapshot is published 0555 and host-owned; `docker cp`
+// carries that into the target, whose runtime is 33:33 (sandbox/pair.yml).
+// grind_adoption A6: without a hand-back the rehearsal target's `duo apply`
+// failed provider:elementor-css/regenerate_css with "Permission denied" under
+// uploads/elementor/css. Every restore must therefore be followed by the
+// ownership/mode hand-back, in that order.
+$physical = file($physicalLog, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+$restores = array_keys(array_filter($physical, static fn (string $line): bool =>
+    str_starts_with($line, 'docker <cp> <') && str_ends_with($line, '> <duo-mup-wp2-1:/var/www/html/wp-content/uploads>')));
+duo_check_same(2, count($restores), 'each materialization restores the immutable media snapshot into the target once');
+foreach ($restores as $index) {
+    duo_check_same(
+        'docker <exec> <duo-mup-wp2-1> <sh> <-c> <chown -R 33:33 /var/www/html/wp-content/uploads && chmod -R u+rwX,go+rX /var/www/html/wp-content/uploads>',
+        $physical[$index + 1] ?? null,
+        'a media restore is followed by handing the uploads tree back to the 33:33 site runtime, writable'
+    );
+}
 
 chdir($previous ?: '/');
 duo_check_summary('reference provider through EnvironmentCommand');

@@ -11,6 +11,7 @@ require_once __DIR__ . '/InitProtocol.php';
 require_once __DIR__ . '/InitRecovery.php';
 require_once __DIR__ . '/InitRepositoryBoundary.php';
 require_once __DIR__ . '/InitSiteProbe.php';
+require_once __DIR__ . '/../Policy/ManifestDispositions.php';
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Repository/RepositoryCompiler.php';
 
@@ -115,7 +116,6 @@ final class InitPlanner {
         $selected = array_merge($selected, $plugins['selected']);
         $unsupported = array_merge($unsupported, $plugins['unsupported']);
         $advisories = array_merge($advisories, $plugins['advisories']);
-        $unmanagedPluginsPresent = $plugins['advisories'] !== [];
 
         $template = (string) get_option('template', '');
         $stylesheet = (string) get_option('stylesheet', '');
@@ -173,7 +173,8 @@ final class InitPlanner {
         }
         $code = InitCodeInventory::probe($activePlugins, $template, $stylesheet);
         $unsupported = array_merge($unsupported, $code['blockers']);
-        unset($code['blockers']);
+        $advisories = array_merge($advisories, $code['advisories']);
+        unset($code['blockers'], $code['advisories']);
 
         $selected = array_values(array_unique($selected));
         sort($selected, SORT_STRING);
@@ -193,23 +194,27 @@ final class InitPlanner {
             $unsupported[] = self::capability_blocker_row(is_array($blocker) ? $blocker : []);
         }
 
-        $postTypes = ['attachment', 'page', 'post'];
-        $taxonomies = ['category', 'post_tag'];
-        foreach ($selected as $name) {
-            $manifest = $manifests[$name] ?? null;
-            if (!is_array($manifest)) {
-                continue;
+        $adapterScope = self::adapter_scope($selected, $manifests);
+        $postTypes = array_merge(['attachment', 'page', 'post'], $adapterScope['post_types']);
+        $taxonomies = array_merge(['category', 'post_tag'], $adapterScope['taxonomies']);
+        // A block theme keeps its site-editor customisations in core's FSE
+        // post types (wp_template, wp_template_part, wp_navigation, wp_block)
+        // and taxonomies (wp_theme, wp_template_part_area, wp_pattern_category).
+        // They are core-registered, non-public and _builtin, so the scope
+        // gate never names them — a proposal that left them out would let a
+        // customised footer stay behind SILENTLY, which T7 grind A2 exists to
+        // catch. The certified core FSE profile (manifests/dispositions.json
+        // profiles.fse) declares exactly that scope: propose it whenever the
+        // active theme is a block theme, and say so; when the profile is not
+        // certified or the registry is unreadable, say that instead and leave
+        // the types to `duo classify`.
+        $fse = self::fse_profile_scope();
+        if ($fse !== null) {
+            if ($fse['scope'] !== null) {
+                $postTypes = array_merge($postTypes, $fse['scope']['post_types']);
+                $taxonomies = array_merge($taxonomies, $fse['scope']['taxonomies']);
             }
-            foreach (($manifest['post_types'] ?? []) as $postType => $rule) {
-                if (is_array($rule) && ($rule['class'] ?? null) === 'authored') {
-                    $postTypes[] = (string) $postType;
-                }
-            }
-            foreach (($manifest['taxonomies'] ?? []) as $taxonomy => $rule) {
-                if (is_array($rule) && ($rule['class'] ?? null) === 'authored') {
-                    $taxonomies[] = (string) $taxonomy;
-                }
-            }
+            $advisories[] = $fse['advisory'];
         }
         $postTypes = array_values(array_unique($postTypes));
         $taxonomies = array_values(array_unique($taxonomies));
@@ -227,8 +232,16 @@ final class InitPlanner {
         // `duo classify` would write — and is printed as an advisory so the
         // operator sees what was left local; `duo classify` re-decides it in
         // one line when an adapter arrives.
+        // T7 grind A6 widened this from "when unmanaged plugins are present"
+        // to always: an ADAPTER-owned plugin can register a rowful type its
+        // adapter deliberately leaves to the site (Elementor's
+        // elementor_library — manifests/elementor.json says the site opts
+        // it in), and init refusing incomplete_policy_scope at confirmation
+        // gave the operator no way to adopt at all. Left local and printed,
+        // the decision is one `duo classify` line, exactly as for a type an
+        // unmanaged plugin registers.
         $scope = ['post_type' => [], 'taxonomy' => []];
-        if ($unmanagedPluginsPresent) {
+        {
             $declaredPostTypes = [];
             $declaredTaxonomies = [];
             foreach ($selected as $name) {
@@ -629,12 +642,109 @@ final class InitPlanner {
                     'extension' => "$kind:$name",
                     'kind' => 'scope',
                     'reason' => 'registered by no selected adapter and holding ' . (int) $counts[$name] . " $unit; "
-                        . 'left local (class runtime) by the unmanaged-plugins decision',
+                        . 'left local (class runtime) until an adapter declares it or duo classify decides it',
                     'remediation' => "to manage it later, run duo classify and decide scope:$kind:$name, or install an adapter that declares it",
                 ];
             }
         }
         return ['advisories' => $advisories, 'scope' => $scope];
+    }
+
+    /**
+     * The post types and taxonomies the selected adapters put into the
+     * proposed scope: every declaration of class `authored`, and every
+     * STRUCTURAL declaration — one with no class at all, which the policy
+     * reads as authored (Policy::post_type_rule_details() /
+     * taxonomy_rule_details(): "portable data the adapter understands; the
+     * site opts it in"). Contact Form 7 declares `wpcf7_contact_form: {}` and
+     * Polylang its four taxonomies that way; leaving them out proposed a scope
+     * whose own baseline capture then refused incomplete_policy_scope for
+     * exactly those types (T7 grind A4), because a DECLARED type is not left
+     * local either. Init is the site's opt-in.
+     *
+     * @param list<string> $selected
+     * @param array<string,array<string,mixed>> $manifests
+     * @return array{post_types:list<string>,taxonomies:list<string>}
+     */
+    public static function adapter_scope(array $selected, array $manifests): array {
+        $postTypes = [];
+        $taxonomies = [];
+        foreach ($selected as $name) {
+            $manifest = $manifests[$name] ?? null;
+            if (!is_array($manifest)) {
+                continue;
+            }
+            foreach (($manifest['post_types'] ?? []) as $postType => $rule) {
+                if (is_array($rule) && ($rule['class'] ?? 'authored') === 'authored') {
+                    $postTypes[] = (string) $postType;
+                }
+            }
+            foreach (($manifest['taxonomies'] ?? []) as $taxonomy => $rule) {
+                if (is_array($rule) && ($rule['class'] ?? 'authored') === 'authored') {
+                    $taxonomies[] = (string) $taxonomy;
+                }
+            }
+        }
+        $postTypes = array_values(array_unique($postTypes));
+        $taxonomies = array_values(array_unique($taxonomies));
+        sort($postTypes, SORT_STRING);
+        sort($taxonomies, SORT_STRING);
+
+        return ['post_types' => $postTypes, 'taxonomies' => $taxonomies];
+    }
+
+    /**
+     * The certified core FSE profile's scope for a block theme, or null when
+     * the active theme is classic (nothing to propose, nothing to say).
+     *
+     * @return ?array{scope:?array{post_types:list<string>,taxonomies:list<string>},advisory:array<string,string>}
+     */
+    public static function fse_profile_scope(?bool $blockTheme = null, ?array $profiles = null): ?array {
+        $blockTheme ??= function_exists('wp_is_block_theme') && wp_is_block_theme();
+        if (!$blockTheme) {
+            return null;
+        }
+        $stylesheet = function_exists('get_option') ? (string) get_option('stylesheet', '') : '';
+        if ($profiles === null) {
+            try {
+                $dispositions = ManifestDispositions::load(Policy::manifests_dir());
+                $profiles = $dispositions === null ? [] : $dispositions->profiles();
+            } catch (\Throwable $t) {
+                $profiles = [];
+            }
+        }
+        $fse = is_array($profiles['fse'] ?? null) ? $profiles['fse'] : null;
+        $scope = is_array($fse['scope'] ?? null) ? $fse['scope'] : null;
+        if ($fse === null || ($fse['status'] ?? null) !== 'certified' || $scope === null) {
+            return [
+                'scope' => null,
+                'advisory' => [
+                    'code' => 'fse_profile_not_certified',
+                    'extension' => 'profile:fse',
+                    'kind' => 'profile',
+                    'reason' => "the active theme '$stylesheet' is a block theme, but this library carries no certified "
+                        . 'core FSE profile; site-editor customisations (templates, template parts, navigation, '
+                        . 'patterns) are left out of the proposed scope',
+                    'remediation' => 'install a library whose dispositions certify profiles.fse, or decide those types '
+                        . 'with duo classify after init',
+                ],
+            ];
+        }
+        $postTypes = array_values(array_map('strval', (array) ($scope['post_types'] ?? [])));
+        $taxonomies = array_values(array_map('strval', (array) ($scope['taxonomies'] ?? [])));
+
+        return [
+            'scope' => ['post_types' => $postTypes, 'taxonomies' => $taxonomies],
+            'advisory' => [
+                'code' => 'fse_profile_scope_selected',
+                'extension' => 'profile:fse',
+                'kind' => 'profile',
+                'reason' => "the active theme '$stylesheet' is a block theme; the certified core FSE profile's scope "
+                    . '(' . implode(', ', $postTypes) . '; ' . implode(', ', $taxonomies) . ') is proposed so '
+                    . 'site-editor customisations are managed rather than left behind silently',
+                'remediation' => 'to leave any of these types local, run duo classify after init and decide it',
+            ],
+        ];
     }
 
     /**
@@ -665,6 +775,20 @@ final class InitPlanner {
         }
         ksort($out, SORT_STRING);
         return $out;
+    }
+
+    /**
+     * Whether the repository's site.duo.json is exactly the adoption seed
+     * (possibly carrying explicit out-of-tree pins) — the state in which
+     * `duo assess` previews the init proposal instead of the seed's own
+     * `core`-only pin set (T7 grind A3).
+     */
+    public static function is_adoption_seed(string $repo): bool {
+        try {
+            return self::existing_config($repo)['mode'] === 'adoption-seed';
+        } catch (\Throwable $t) {
+            return false;
+        }
     }
 
     /** @return array{mode:string,identity:string} */

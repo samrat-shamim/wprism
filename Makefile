@@ -2,7 +2,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 
 .PHONY: regress-recovery-protocol
 .PHONY: regress-canonical-json-parity
-.PHONY: regress-mup-leak-audit grind-mup regress-adapter-certify grind-adapter-walk
+.PHONY: regress-mup-leak-audit grind-mup regress-adapter-certify grind-adapter-walk grind-adoption
 .PHONY: regress-authorization-plan regress-release-containment-gate regress-recover-claim regress-verify-oracles regress-rehearse-provider regress-release-next-action regress-release-ref-binding regress-recover-ordering
 .PHONY: regress-assess-projection regress-assess-inventory regress-contract-shape regress-contract-projection regress-assess-composition regress-assess-bounds regress-contract-accept
 .PHONY: regress-offline-all regress-offline-corpus regress-offline-diagnostics
@@ -1271,6 +1271,18 @@ grind-adapter-walk:
 	WALK_THEME_SLUG="$(WALK_THEME_SLUG)" WALK_THEME_VERSION="$(WALK_THEME_VERSION)" \
 	bash sandbox/tests/grind_adapter_walk.sh
 
+# ROUND 3 T7 (docs/proposals/round-3-adoption-situations.md; narrative in
+# docs/grind/adoption.md): ten progressive-adoption situations on a dedicated
+# docker pair — brochure, FSE, shop with orders, shop+SEO+forms, multilingual
+# shop, builder site, late adapter adoption, plugin+adapter code release,
+# version edges, edge cases — each from doctor/first-look through the loop.
+# Same substrate as the walk (sandbox/tests/lib/grind_lib.sh). Live-only
+# (docker); NOT auto-bundled (regress-live-list).
+# Usage: make grind-adoption [ADOPT_PAIR=adopt ADOPT_PORT1=9600 ADOPT_PORT2=9601 ADOPT_SITUATIONS=A1,…,A10]
+grind-adoption:
+	ADOPT_PAIR="$(ADOPT_PAIR)" ADOPT_PORT1="$(ADOPT_PORT1)" ADOPT_PORT2="$(ADOPT_PORT2)" ADOPT_SITUATIONS="$(ADOPT_SITUATIONS)" \
+	bash sandbox/tests/grind_adoption.sh
+
 # DUO-3216: live activation/deactivation/order gate, deploy-window mail/HTTP
 # observations, and the composed host promote path with a retained DB dump.
 regress-promotion:
@@ -2062,6 +2074,7 @@ regress-live-list:
 	@echo "  grind-ecommerce-developer-live            explicit ECOMMERCE_PAIR/PORT1/PORT2; run only with owner authorization"
 	@echo "  grind-mup                                 pair mup 9400/9401 (MUP_PAIR/PORT1/PORT2; MUP_STEP11=required|record-gap) -- the MUP end-to-end loop, docs/grind/mup.md"
 	@echo "  grind-adapter-walk                        pair awalk 9500/9501 (WALK_PAIR/PORT1/PORT2; WALK_SCENARIOS=S1,S2,S3,S4) -- the operator-authored-adapter walk, docs/grind/adapter-walk.md"
+	@echo "  grind-adoption                            pair adopt 9600/9601 (ADOPT_PAIR/PORT1/PORT2; ADOPT_SITUATIONS=A1..A10) -- ten progressive-adoption situations, docs/grind/adoption.md"
 	@echo ""
 	@echo "Other grind-*/certify-* targets are a separate, already-governed category (see this target's comment)."
 

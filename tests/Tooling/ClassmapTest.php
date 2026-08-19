@@ -315,8 +315,9 @@ PHP;
      * every file it loaded before, with the autoloader as a net underneath
      * rather than a replacement. 222 of the 224 agent/src files load eagerly
      * here (Cli.php is WP_CLI-gated, AdapterCertification.php is deliberately
-     * lazy — see agent/src/Adapter/AdapterSources.php:898), and only one mapped name
-     * is left for the fallback to answer.
+     * lazy — see agent/src/Adapter/AdapterSources.php:898), and the two names that
+     * lazy file declares (AdapterCertification and its companion
+     * SupersededSiteAdapterCertificate exception) are left for the fallback.
      */
     public function testDuoPhpStillLoadsEagerlyWithExactlyOneExtraAutoloader(): void
     {
@@ -343,7 +344,7 @@ PHP;
         self::assertSame(
             "AUTOLOADERS=1/1\n"
             . "VERSION=0.5.0/2\n"
-            . "UNDECLARED=Duo\\AdapterCertification\n",
+            . "UNDECLARED=Duo\\AdapterCertification,Duo\\SupersededSiteAdapterCertificate\n",
             $result['stdout']
         );
     }

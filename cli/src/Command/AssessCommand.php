@@ -229,8 +229,12 @@ final class AssessCommand {
             $registryReports[$registryOperation] = self::agentJson(
                 $driver,
                 [
+                    // --adoption-preview: on an adoption seed the agent answers
+                    // against the init proposal — the same policy the inventory
+                    // above was projected against — so surfaces and claims join
+                    // (T7 grind A4); on an init-owned repository it is inert.
                     'duo', 'capabilities', '--repo=' . $driver->repoPath(),
-                    '--operation=' . $registryOperation, '--format=json',
+                    '--operation=' . $registryOperation, '--adoption-preview', '--format=json',
                 ],
                 'assess_registry_unavailable',
                 'the target could not evaluate its capability registry for this operation'

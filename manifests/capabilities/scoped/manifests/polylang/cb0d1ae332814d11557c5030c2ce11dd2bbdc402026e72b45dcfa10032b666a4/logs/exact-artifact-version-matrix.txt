@@ -1,0 +1,579 @@
+
+[1;36m== boot pair t7f5 (t7f51 :9710 / t7f52 :9711), idempotent ==[0m
+
+[1;36m== candidate source for 'up' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    9b3fd9a5895bd83c0449887e49d243f9c00dc39a
+  invoked from:   <source-root>/sandbox
+  expected SHA:   9b3fd9a5895bd83c0449887e49d243f9c00dc39a (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly 9b3fd9a5895bd83c0449887e49d243f9c00dc39a, clean — this run's evidence is bound to that commit[0m
+
+[1;36m== shared infra: MariaDB (duo-db) + duo-shared network ==[0m
+ Container duo-shared-db Running
+[1;32mok: shared db up, healthy, wordpress user granted on wp\_%[0m
+
+[1;36m== pair 't7f5': databases ==[0m
+[1;32mok: wp_t7f51, wp_t7f52 exist[0m
+
+[1;36m== pair 't7f5': site-repo directories ==[0m
+
+[1;36m== pair 't7f5': web containers up ==[0m
+  (bind-mount source: <source-root> -- this pair.sh copy is running from <source-root>/sandbox)
+ Volume duo-t7f5_wp2 Creating
+ Volume duo-t7f5_wp2 Created
+ Volume duo-t7f5_wp1 Creating
+ Volume duo-t7f5_wp1 Created
+ Container duo-t7f5-wp1-1 Creating
+ Container duo-t7f5-wp2-1 Creating
+ Container duo-t7f5-wp2-1 Created
+ Container duo-t7f5-wp1-1 Created
+ Container duo-t7f5-wp1-1 Starting
+ Container duo-t7f5-wp2-1 Starting
+ Container duo-t7f5-wp2-1 Started
+ Container duo-t7f5-wp1-1 Started
+ Container duo-t7f5-cli1-1 Creating
+ Container duo-t7f5-cli2-1 Creating
+ Container duo-t7f5-cli2-1 Created
+ Container duo-t7f5-cli1-1 Created
+ Container duo-t7f5-cli2-1 Starting
+ Container duo-t7f5-cli1-1 Starting
+ Container duo-t7f5-cli1-1 Started
+ Container duo-t7f5-cli2-1 Started
+[1;32mok: web mountpoints established; CLI containers up[0m
+
+[1;36m== pair 't7f5': waiting for DB-level readiness (both sides) ==[0m
+[1;32mok: both sides reach their database[0m
+
+[1;36m== pair 't7f5': generic WordPress bootstrap (idempotent) ==[0m
+ Container duo-t7f5-cli1-run-c723d04632f7 Creating
+ Container duo-t7f5-cli1-run-c723d04632f7 Created
+Success: WordPress installed successfully.
+ Container duo-t7f5-cli1-run-0ddcbb21df75 Creating
+ Container duo-t7f5-cli1-run-0ddcbb21df75 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-t7f5-cli1-run-3e7b2aae8e98 Creating
+ Container duo-t7f5-cli1-run-3e7b2aae8e98 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-t7f5-cli1-run-e65a8ecebc8f Creating
+ Container duo-t7f5-cli1-run-e65a8ecebc8f Created
+ Container duo-t7f5-cli1-run-000cf1909df1 Creating
+ Container duo-t7f5-cli1-run-000cf1909df1 Created
+ Container duo-t7f5-cli1-run-47aced38d701 Creating
+ Container duo-t7f5-cli1-run-47aced38d701 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-t7f5-cli1-run-55239eaf8140 Creating
+ Container duo-t7f5-cli1-run-55239eaf8140 Created
+Success: Rewrite rules flushed.
+  side 1 installed (http://localhost:9710)
+ Container duo-t7f5-cli2-run-501417ba7e5a Creating
+ Container duo-t7f5-cli2-run-501417ba7e5a Created
+Success: WordPress installed successfully.
+ Container duo-t7f5-cli2-run-ccbeb366d42d Creating
+ Container duo-t7f5-cli2-run-ccbeb366d42d Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-t7f5-cli2-run-c80658464c8f Creating
+ Container duo-t7f5-cli2-run-c80658464c8f Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-t7f5-cli2-run-24129ea3a28d Creating
+ Container duo-t7f5-cli2-run-24129ea3a28d Created
+ Container duo-t7f5-cli2-run-f3ba105e9262 Creating
+ Container duo-t7f5-cli2-run-f3ba105e9262 Created
+ Container duo-t7f5-cli2-run-0d26841dad90 Creating
+ Container duo-t7f5-cli2-run-0d26841dad90 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-t7f5-cli2-run-c3fdce0e63d2 Creating
+ Container duo-t7f5-cli2-run-c3fdce0e63d2 Created
+Success: Rewrite rules flushed.
+  side 2 installed (http://localhost:9711)
+
+[1;36m== pair 't7f5' ready ==[0m
+  wp1: http://localhost:9710 (published on host port 9710)
+  wp2: http://localhost:9711 (published on host port 9711)
+
+  wp-cli invocation pattern for this pair (run from sandbox/):
+    docker compose -p duo-t7f5 -f pair.yml -f pair.artifacts.yml run --rm cli1 wp <command...>
+    docker compose -p duo-t7f5 -f pair.yml -f pair.artifacts.yml run --rm cli2 wp <command...>
+  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=t7f5 must stay exported, or pass -p duo-t7f5 and set WORDPRESS_DB_NAME/etc. yourself)
+[1;32mok: pair up[0m
+
+[1;36m== boundary: polylang 3.5 ==[0m
+ Container duo-t7f5-cli1-run-4874fb88c056 Creating
+ Container duo-t7f5-cli1-run-4874fb88c056 Created
+ Container duo-t7f5-cli1-run-afad98d62f89 Creating
+ Container duo-t7f5-cli1-run-afad98d62f89 Created
+ Container duo-t7f5-cli1-run-df52778dcf06 Creating
+ Container duo-t7f5-cli1-run-df52778dcf06 Created
+ Container duo-t7f5-cli1-run-3601f1d25c2c Creating
+ Container duo-t7f5-cli1-run-3601f1d25c2c Created
+ Container duo-t7f5-cli1-run-c963df06e4f5 Creating
+ Container duo-t7f5-cli1-run-c963df06e4f5 Created
+ Container duo-t7f5-cli1-run-603f1f47dff9 Creating
+ Container duo-t7f5-cli1-run-603f1f47dff9 Created
+ Container duo-t7f5-cli2-run-0c56118e9471 Creating
+ Container duo-t7f5-cli2-run-0c56118e9471 Created
+ Container duo-t7f5-cli2-run-7647d7a60299 Creating
+ Container duo-t7f5-cli2-run-7647d7a60299 Created
+ Container duo-t7f5-cli2-run-4b1b11d952b8 Creating
+ Container duo-t7f5-cli2-run-4b1b11d952b8 Created
+ Container duo-t7f5-cli2-run-a6c070e06f20 Creating
+ Container duo-t7f5-cli2-run-a6c070e06f20 Created
+ Container duo-t7f5-cli2-run-37aab4247472 Creating
+ Container duo-t7f5-cli2-run-37aab4247472 Created
+ Container duo-t7f5-cli2-run-8fc8968983e2 Creating
+ Container duo-t7f5-cli2-run-8fc8968983e2 Created
+
+[1;36m== fetch + verify polylang 3.5 (never a bare slug install — always a digest-checked artifact) ==[0m
+ Container duo-t7f5-cli1-run-12f32a98fe90 Creating
+ Container duo-t7f5-cli1-run-12f32a98fe90 Created
+artifact-cache: kind=plugin slug=polylang version=3.5 sha256=3d8c84a67de48f97fba01a81cffb5bb68644832a12a622724b2ba039ea5adae1 source=cache-hit path=/artifacts-cache/plugin-polylang-3.5-3d8c84a67de48f97fba01a81cffb5bb68644832a12a622724b2ba039ea5adae1.zip
+ Container duo-t7f5-cli2-run-392778256323 Creating
+ Container duo-t7f5-cli2-run-392778256323 Created
+artifact-cache: kind=plugin slug=polylang version=3.5 sha256=3d8c84a67de48f97fba01a81cffb5bb68644832a12a622724b2ba039ea5adae1 source=cache-hit path=/artifacts-cache/plugin-polylang-3.5-3d8c84a67de48f97fba01a81cffb5bb68644832a12a622724b2ba039ea5adae1.zip
+[1;32mok: verified sha256-pinned artifact resolved for both sides: /artifacts-cache/plugin-polylang-3.5-3d8c84a67de48f97fba01a81cffb5bb68644832a12a622724b2ba039ea5adae1.zip[0m
+ Container duo-t7f5-cli1-run-e498a211c377 Creating
+ Container duo-t7f5-cli1-run-e498a211c377 Created
+ Container duo-t7f5-cli1-run-1f3565ae15ab Creating
+ Container duo-t7f5-cli1-run-1f3565ae15ab Created
+[1;32mok: side 1: polylang 3.5 installed from verified artifact, active[0m
+seeding two languages
+ Container duo-t7f5-cli1-run-b8405d4a6e00 Creating
+ Container duo-t7f5-cli1-run-b8405d4a6e00 Created
+languages added
+anti-coincidence fillers: consume auto-increment ids on conf1 that conf2 will never replay
+ Container duo-t7f5-cli1-run-d8ca36098f58 Creating
+ Container duo-t7f5-cli1-run-d8ca36098f58 Created
+ Container duo-t7f5-cli1-run-e3eaa29996f6 Creating
+ Container duo-t7f5-cli1-run-e3eaa29996f6 Created
+ Container duo-t7f5-cli1-run-ddbb983be2da Creating
+ Container duo-t7f5-cli1-run-ddbb983be2da Created
+ Container duo-t7f5-cli1-run-84fd6e6543d8 Creating
+ Container duo-t7f5-cli1-run-84fd6e6543d8 Created
+ Container duo-t7f5-cli1-run-edf1b16db341 Creating
+ Container duo-t7f5-cli1-run-edf1b16db341 Created
+ Container duo-t7f5-cli1-run-804593492cb7 Creating
+ Container duo-t7f5-cli1-run-804593492cb7 Created
+ Container duo-t7f5-cli1-run-3007fa2da99a Creating
+ Container duo-t7f5-cli1-run-3007fa2da99a Created
+ Container duo-t7f5-cli1-run-494ecd14a91a Creating
+ Container duo-t7f5-cli1-run-494ecd14a91a Created
+ Container duo-t7f5-cli1-run-88aa316adb31 Creating
+ Container duo-t7f5-cli1-run-88aa316adb31 Created
+ Container duo-t7f5-cli1-run-578ef896dea3 Creating
+ Container duo-t7f5-cli1-run-578ef896dea3 Created
+ Container duo-t7f5-cli1-run-01efa330067f Creating
+ Container duo-t7f5-cli1-run-01efa330067f Created
+ Container duo-t7f5-cli1-run-87ab4d06402e Creating
+ Container duo-t7f5-cli1-run-87ab4d06402e Created
+ Container duo-t7f5-cli1-run-eb19f554676c Creating
+ Container duo-t7f5-cli1-run-eb19f554676c Created
+ Container duo-t7f5-cli1-run-0ae3a034f7f8 Creating
+ Container duo-t7f5-cli1-run-0ae3a034f7f8 Created
+ Container duo-t7f5-cli1-run-c575056eb04f Creating
+ Container duo-t7f5-cli1-run-c575056eb04f Created
+ Container duo-t7f5-cli1-run-4662f46c0c78 Creating
+ Container duo-t7f5-cli1-run-4662f46c0c78 Created
+5 filler posts + 3 filler categories created and hard-deleted on conf1 only
+translated category pair (term-object relationships: term_language + term_translations)
+ Container duo-t7f5-cli1-run-43ac187ed9aa Creating
+ Container duo-t7f5-cli1-run-43ac187ed9aa Created
+conf1 categories: news=15 actualites=17
+translated post pair (post-object relationships: language + post_translations, already-working machinery)
+ Container duo-t7f5-cli1-run-aa9f0230dc9c Creating
+ Container duo-t7f5-cli1-run-aa9f0230dc9c Created
+ Container duo-t7f5-cli1-run-7a7b72ba88db Creating
+ Container duo-t7f5-cli1-run-7a7b72ba88db Created
+ Container duo-t7f5-cli1-run-9ccd7965b22a Creating
+ Container duo-t7f5-cli1-run-9ccd7965b22a Created
+tagged Container duo-t7f5-cli1-run-badf31a72fac Creating
+ Container duo-t7f5-cli1-run-badf31a72fac Created
+ Container duo-t7f5-cli1-run-aa5ff1f07f87 Creating
+ Container duo-t7f5-cli1-run-aa5ff1f07f87 Created
+polylang seed: news=15 actualites=17 post_en=6 post_fr=7
+ Container duo-t7f5-cli1-run-d6e7ebebd3ab Creating
+ Container duo-t7f5-cli1-run-d6e7ebebd3ab Created
+Success: captured 2 posts, 12 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+[1;32mok: captured on side 1 (polylang 3.5)[0m
+ Container duo-t7f5-cli1-run-09d6acabf1dd Creating
+ Container duo-t7f5-cli1-run-09d6acabf1dd Created
+Success: no findings — captured state is clean
+[1;32mok: lint: 0 findings[0m
+ Container duo-t7f5-cli2-run-ec965321d693 Creating
+ Container duo-t7f5-cli2-run-ec965321d693 Created
+ Container duo-t7f5-cli2-run-f0fdb9e0d793 Creating
+ Container duo-t7f5-cli2-run-f0fdb9e0d793 Created
+ Container duo-t7f5-cli2-run-c25af737354d Creating
+ Container duo-t7f5-cli2-run-c25af737354d Created
+activated: polylang/polylang.php
+Success: 1 activated, 0 deactivated
+ Container duo-t7f5-cli2-run-3b96f72dae02 Creating
+ Container duo-t7f5-cli2-run-3b96f72dae02 Created
+Warning: reclassified: option 'default_category' is core-classified 'authored' but 'polylang' (pinned) reclassifies it 'derived' on this site — the plugin's declaration governs
+Warning: reclassified: menu field 'locations' is core-classified 'authored' but 'polylang' (pinned) reclassifies it 'derived' on this site — the plugin's declaration governs
+Warning: reclassified: option 'default_category' is core-classified 'authored' but 'polylang' (pinned) reclassifies it 'derived' on this site — the plugin's declaration governs
+Warning: reclassified: menu field 'locations' is core-classified 'authored' but 'polylang' (pinned) reclassifies it 'derived' on this site — the plugin's declaration governs
+Warning: adopted env term 1 as 01a0142d-4ff5-7d2e-aaf6-744fffe1afb1 (terms/category/01a0142d-4ff5-7d2e-aaf6-744fffe1afb1--uncategorized.json)
+Warning: provider capability fired: polylang-nav-menus@1.0.0 sync_nav_menu_locations (0s, verified)
+Success: applied 16 entities (canary clean) — plan was: {"create":13,"update":2,"unchanged":0,"drift":0,"conflict":0,"adopt":1,"collision":0,"delete":0,"delete_conflict":0,"deleted":0,"code_mismatch":0,"code_drift":0,"incomplete_apply":0,"incomplete_lifecycle":0,"missing_user":0,"skipped_user_meta":0,"uploads_inventory":0,"effects_inventory":7,"adapter_dispositions":2,"regen_pending":0,"regen_context":0,"env_missing":0}
+[1;32mok: deploy + apply succeeded on side 2 (polylang 3.5, canary clean)[0m
+ Container duo-t7f5-cli2-run-74c862939440 Creating
+ Container duo-t7f5-cli2-run-74c862939440 Created
+[18-Aug-2026 09:22:02 UTC] PHP Warning:  Undefined array key "default_lang" in /var/www/html/wp-content/plugins/polylang/include/links-directory.php on line 69
+Warning: Undefined array key "default_lang" in /var/www/html/wp-content/plugins/polylang/include/links-directory.php on line 69
+ Container duo-t7f5-cli2-run-3ff203d73a84 Creating
+ Container duo-t7f5-cli2-run-3ff203d73a84 Created
+[18-Aug-2026 09:22:03 UTC] PHP Warning:  Undefined array key "default_lang" in /var/www/html/wp-content/plugins/polylang/include/links-directory.php on line 69
+Warning: Undefined array key "default_lang" in /var/www/html/wp-content/plugins/polylang/include/links-directory.php on line 69
+ Container duo-t7f5-cli2-run-5eb3efdf292b Creating
+ Container duo-t7f5-cli2-run-5eb3efdf292b Created
+ Container duo-t7f5-cli2-run-ec17db668919 Creating
+ Container duo-t7f5-cli2-run-ec17db668919 Created
+conf2 local ids: post_en=1 post_fr=2 news=7 actualites=10
+ Container duo-t7f5-cli1-run-c4f08fc0af57 Creating
+ Container duo-t7f5-cli1-run-c4f08fc0af57 Created
+conf1 local id: post_en=6 (vs conf2's 1)
+ok: post_en's conf1 id (6) and conf2 id (1) genuinely differ — the fillers broke the lucky-coincidence conf1/conf2 would otherwise share
+ Container duo-t7f5-cli2-run-f51844287154 Creating
+ Container duo-t7f5-cli2-run-f51844287154 Created
+pll_get_post_translations(1) = {"en":1,"fr":2}
+ok: pll_get_post_translations() returns the correct pair using conf2-local ids
+ Container duo-t7f5-cli2-run-df525cfe0732 Creating
+ Container duo-t7f5-cli2-run-df525cfe0732 Created
+pll_get_term_translations(7) = {"en":7,"fr":10}
+ok: pll_get_term_translations() returns the correct pair using conf2-local ids (capability 1 + 2 proof)
+ Container duo-t7f5-cli2-run-6bffc436fda4 Creating
+ Container duo-t7f5-cli2-run-6bffc436fda4 Created
+ Container duo-t7f5-cli2-run-d2f825ec10b8 Creating
+ Container duo-t7f5-cli2-run-d2f825ec10b8 Created
+ Container duo-t7f5-cli2-run-acaaa010b609 Creating
+ Container duo-t7f5-cli2-run-acaaa010b609 Created
+ok: term_language relationships (capability 1) correct in both directions
+ Container duo-t7f5-cli2-run-7ce4b59e870d Creating
+ Container duo-t7f5-cli2-run-7ce4b59e870d Created
+ok: post_en/post_fr's captured relationships never include a term-object taxonomy (no fabrication, despite Uncategorized/Uncategorized-fr coincidentally sharing their numeric ids)
+ Container duo-t7f5-cli2-run-2b513f29fcd5 Creating
+ Container duo-t7f5-cli2-run-2b513f29fcd5 Created
+ Container duo-t7f5-cli2-run-feb0152f0dd7 Creating
+ Container duo-t7f5-cli2-run-feb0152f0dd7 Created
+ Container duo-t7f5-cli2-run-e86c29f730d2 Creating
+ Container duo-t7f5-cli2-run-e86c29f730d2 Created
+ Container duo-t7f5-cli2-run-bac47392fe40 Creating
+ Container duo-t7f5-cli2-run-bac47392fe40 Created
+post_translations group description: a:2:{s:2:"en";i:1;s:2:"fr";i:2;}
+term_translations group description: a:2:{s:2:"en";i:7;s:2:"fr";i:10;}
+ok: re-serialized descriptions are byte-exact PHP serialize() output with genuine int-typed ids
+ok: conf2 renders post_en's own content, no conf1 host-leak
+polylang conformance checks passed
+ Container duo-t7f5-cli2-run-b23ca073fd13 Creating
+ Container duo-t7f5-cli2-run-b23ca073fd13 Created
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+Success: captured 2 posts, 12 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/.tmp-final
+[1;32mok: byte-identical recapture at polylang 3.5 — the manifest's own declared version_range boundary is proven, not just its currently-installed version[0m
+
+[1;36m== boundary: polylang 3.8.6 ==[0m
+ Container duo-t7f5-cli1-run-84a8738f4eba Creating
+ Container duo-t7f5-cli1-run-84a8738f4eba Created
+ Container duo-t7f5-cli1-run-75e696318187 Creating
+ Container duo-t7f5-cli1-run-75e696318187 Created
+ Container duo-t7f5-cli1-run-c120736b5328 Creating
+ Container duo-t7f5-cli1-run-c120736b5328 Created
+ Container duo-t7f5-cli1-run-e443ac9e2460 Creating
+ Container duo-t7f5-cli1-run-e443ac9e2460 Created
+ Container duo-t7f5-cli1-run-ae015873fcf4 Creating
+ Container duo-t7f5-cli1-run-ae015873fcf4 Created
+ Container duo-t7f5-cli1-run-31b438289f72 Creating
+ Container duo-t7f5-cli1-run-31b438289f72 Created
+ Container duo-t7f5-cli2-run-44c4a2fd3524 Creating
+ Container duo-t7f5-cli2-run-44c4a2fd3524 Created
+ Container duo-t7f5-cli2-run-b75f66a1a5d0 Creating
+ Container duo-t7f5-cli2-run-b75f66a1a5d0 Created
+ Container duo-t7f5-cli2-run-175a45608092 Creating
+ Container duo-t7f5-cli2-run-175a45608092 Created
+ Container duo-t7f5-cli2-run-63c14d22c8af Creating
+ Container duo-t7f5-cli2-run-63c14d22c8af Created
+ Container duo-t7f5-cli2-run-8244ea996290 Creating
+ Container duo-t7f5-cli2-run-8244ea996290 Created
+ Container duo-t7f5-cli2-run-a7ec8da9e6d2 Creating
+ Container duo-t7f5-cli2-run-a7ec8da9e6d2 Created
+
+[1;36m== fetch + verify polylang 3.8.6 (never a bare slug install — always a digest-checked artifact) ==[0m
+ Container duo-t7f5-cli1-run-d68085015027 Creating
+ Container duo-t7f5-cli1-run-d68085015027 Created
+artifact-cache: kind=plugin slug=polylang version=3.8.6 sha256=dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa source=cache-hit path=/artifacts-cache/plugin-polylang-3.8.6-dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa.zip
+ Container duo-t7f5-cli2-run-f3c36a63aae4 Creating
+ Container duo-t7f5-cli2-run-f3c36a63aae4 Created
+artifact-cache: kind=plugin slug=polylang version=3.8.6 sha256=dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa source=cache-hit path=/artifacts-cache/plugin-polylang-3.8.6-dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa.zip
+[1;32mok: verified sha256-pinned artifact resolved for both sides: /artifacts-cache/plugin-polylang-3.8.6-dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa.zip[0m
+ Container duo-t7f5-cli1-run-5e70f88263e0 Creating
+ Container duo-t7f5-cli1-run-5e70f88263e0 Created
+ Container duo-t7f5-cli1-run-c79975e657fa Creating
+ Container duo-t7f5-cli1-run-c79975e657fa Created
+[1;32mok: side 1: polylang 3.8.6 installed from verified artifact, active[0m
+seeding two languages
+ Container duo-t7f5-cli1-run-a792ac035696 Creating
+ Container duo-t7f5-cli1-run-a792ac035696 Created
+languages added
+anti-coincidence fillers: consume auto-increment ids on conf1 that conf2 will never replay
+ Container duo-t7f5-cli1-run-299160bed58e Creating
+ Container duo-t7f5-cli1-run-299160bed58e Created
+ Container duo-t7f5-cli1-run-613f833f0748 Creating
+ Container duo-t7f5-cli1-run-613f833f0748 Created
+ Container duo-t7f5-cli1-run-3d7a56d64d54 Creating
+ Container duo-t7f5-cli1-run-3d7a56d64d54 Created
+ Container duo-t7f5-cli1-run-ae31443e8e84 Creating
+ Container duo-t7f5-cli1-run-ae31443e8e84 Created
+ Container duo-t7f5-cli1-run-489b19eac74d Creating
+ Container duo-t7f5-cli1-run-489b19eac74d Created
+ Container duo-t7f5-cli1-run-329f57c1efd0 Creating
+ Container duo-t7f5-cli1-run-329f57c1efd0 Created
+ Container duo-t7f5-cli1-run-aff8688a871c Creating
+ Container duo-t7f5-cli1-run-aff8688a871c Created
+ Container duo-t7f5-cli1-run-1666dcf6dc7f Creating
+ Container duo-t7f5-cli1-run-1666dcf6dc7f Created
+ Container duo-t7f5-cli1-run-30aaac05550b Creating
+ Container duo-t7f5-cli1-run-30aaac05550b Created
+ Container duo-t7f5-cli1-run-42df502e83b8 Creating
+ Container duo-t7f5-cli1-run-42df502e83b8 Created
+ Container duo-t7f5-cli1-run-13ee3ba93c8a Creating
+ Container duo-t7f5-cli1-run-13ee3ba93c8a Created
+ Container duo-t7f5-cli1-run-d209bdba4004 Creating
+ Container duo-t7f5-cli1-run-d209bdba4004 Created
+ Container duo-t7f5-cli1-run-1b002bebc69e Creating
+ Container duo-t7f5-cli1-run-1b002bebc69e Created
+ Container duo-t7f5-cli1-run-e74b20eb4223 Creating
+ Container duo-t7f5-cli1-run-e74b20eb4223 Created
+ Container duo-t7f5-cli1-run-60d5e0c7b18d Creating
+ Container duo-t7f5-cli1-run-60d5e0c7b18d Created
+ Container duo-t7f5-cli1-run-514314bdd34d Creating
+ Container duo-t7f5-cli1-run-514314bdd34d Created
+5 filler posts + 3 filler categories created and hard-deleted on conf1 only
+translated category pair (term-object relationships: term_language + term_translations)
+ Container duo-t7f5-cli1-run-8dd32dec7360 Creating
+ Container duo-t7f5-cli1-run-8dd32dec7360 Created
+conf1 categories: news=15 actualites=17
+translated post pair (post-object relationships: language + post_translations, already-working machinery)
+ Container duo-t7f5-cli1-run-c3f1d9114070 Creating
+ Container duo-t7f5-cli1-run-c3f1d9114070 Created
+ Container duo-t7f5-cli1-run-0e43c3f5ccf4 Creating
+ Container duo-t7f5-cli1-run-0e43c3f5ccf4 Created
+ Container duo-t7f5-cli1-run-bea4b32b3244 Creating
+ Container duo-t7f5-cli1-run-bea4b32b3244 Created
+tagged Container duo-t7f5-cli1-run-c9defe0e8a82 Creating
+ Container duo-t7f5-cli1-run-c9defe0e8a82 Created
+ Container duo-t7f5-cli1-run-b222c5f67d30 Creating
+ Container duo-t7f5-cli1-run-b222c5f67d30 Created
+polylang seed: news=15 actualites=17 post_en=6 post_fr=7
+ Container duo-t7f5-cli1-run-e8cb430b81e7 Creating
+ Container duo-t7f5-cli1-run-e8cb430b81e7 Created
+Success: captured 2 posts, 12 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+[1;32mok: captured on side 1 (polylang 3.8.6)[0m
+ Container duo-t7f5-cli1-run-e7276a614e94 Creating
+ Container duo-t7f5-cli1-run-e7276a614e94 Created
+Success: no findings — captured state is clean
+[1;32mok: lint: 0 findings[0m
+ Container duo-t7f5-cli2-run-43b084b64d0c Creating
+ Container duo-t7f5-cli2-run-43b084b64d0c Created
+ Container duo-t7f5-cli2-run-4fd74c9881fb Creating
+ Container duo-t7f5-cli2-run-4fd74c9881fb Created
+ Container duo-t7f5-cli2-run-3c6fcb3a47d1 Creating
+ Container duo-t7f5-cli2-run-3c6fcb3a47d1 Created
+activated: polylang/polylang.php
+Success: 1 activated, 0 deactivated
+ Container duo-t7f5-cli2-run-23acaf569994 Creating
+ Container duo-t7f5-cli2-run-23acaf569994 Created
+Warning: reclassified: option 'default_category' is core-classified 'authored' but 'polylang' (pinned) reclassifies it 'derived' on this site — the plugin's declaration governs
+Warning: reclassified: menu field 'locations' is core-classified 'authored' but 'polylang' (pinned) reclassifies it 'derived' on this site — the plugin's declaration governs
+Warning: reclassified: option 'default_category' is core-classified 'authored' but 'polylang' (pinned) reclassifies it 'derived' on this site — the plugin's declaration governs
+Warning: reclassified: menu field 'locations' is core-classified 'authored' but 'polylang' (pinned) reclassifies it 'derived' on this site — the plugin's declaration governs
+Warning: adopted env term 1 as 01a0142f-6c4f-707c-9dcd-0cf11968c509 (terms/category/01a0142f-6c4f-707c-9dcd-0cf11968c509--uncategorized.json)
+Warning: provider capability fired: polylang-nav-menus@1.0.0 sync_nav_menu_locations (0s, verified)
+Success: applied 15 entities (canary clean) — plan was: {"create":13,"update":1,"unchanged":1,"drift":0,"conflict":0,"adopt":1,"collision":0,"delete":0,"delete_conflict":0,"deleted":0,"code_mismatch":0,"code_drift":0,"incomplete_apply":0,"incomplete_lifecycle":0,"missing_user":0,"skipped_user_meta":0,"uploads_inventory":0,"effects_inventory":7,"adapter_dispositions":2,"regen_pending":0,"regen_context":0,"env_missing":0}
+[1;32mok: deploy + apply succeeded on side 2 (polylang 3.8.6, canary clean)[0m
+ Container duo-t7f5-cli2-run-ccb7b1ca42bf Creating
+ Container duo-t7f5-cli2-run-ccb7b1ca42bf Created
+ Container duo-t7f5-cli2-run-d9c8bd11b259 Creating
+ Container duo-t7f5-cli2-run-d9c8bd11b259 Created
+ Container duo-t7f5-cli2-run-8a174133b26a Creating
+ Container duo-t7f5-cli2-run-8a174133b26a Created
+ Container duo-t7f5-cli2-run-18831949953c Creating
+ Container duo-t7f5-cli2-run-18831949953c Created
+conf2 local ids: post_en=1 post_fr=2 news=9 actualites=10
+ Container duo-t7f5-cli1-run-67a8b3b0c465 Creating
+ Container duo-t7f5-cli1-run-67a8b3b0c465 Created
+conf1 local id: post_en=6 (vs conf2's 1)
+ok: post_en's conf1 id (6) and conf2 id (1) genuinely differ — the fillers broke the lucky-coincidence conf1/conf2 would otherwise share
+ Container duo-t7f5-cli2-run-ad35276f0160 Creating
+ Container duo-t7f5-cli2-run-ad35276f0160 Created
+pll_get_post_translations(1) = {"en":1,"fr":2}
+ok: pll_get_post_translations() returns the correct pair using conf2-local ids
+ Container duo-t7f5-cli2-run-054e4684e95c Creating
+ Container duo-t7f5-cli2-run-054e4684e95c Created
+pll_get_term_translations(9) = {"en":9,"fr":10}
+ok: pll_get_term_translations() returns the correct pair using conf2-local ids (capability 1 + 2 proof)
+ Container duo-t7f5-cli2-run-3a8f9095d8b6 Creating
+ Container duo-t7f5-cli2-run-3a8f9095d8b6 Created
+ Container duo-t7f5-cli2-run-2fea7af83f33 Creating
+ Container duo-t7f5-cli2-run-2fea7af83f33 Created
+ Container duo-t7f5-cli2-run-6e711153ed4a Creating
+ Container duo-t7f5-cli2-run-6e711153ed4a Created
+ok: term_language relationships (capability 1) correct in both directions
+ Container duo-t7f5-cli2-run-5e4473ea1fc5 Creating
+ Container duo-t7f5-cli2-run-5e4473ea1fc5 Created
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+ok: post_en/post_fr's captured relationships never include a term-object taxonomy (no fabrication, despite Uncategorized/Uncategorized-fr coincidentally sharing their numeric ids)
+ Container duo-t7f5-cli2-run-a74781e4a938 Creating
+ Container duo-t7f5-cli2-run-a74781e4a938 Created
+ Container duo-t7f5-cli2-run-ca124d7979f2 Creating
+ Container duo-t7f5-cli2-run-ca124d7979f2 Created
+ Container duo-t7f5-cli2-run-6ef2fa19a480 Creating
+ Container duo-t7f5-cli2-run-6ef2fa19a480 Created
+ Container duo-t7f5-cli2-run-fe1e3070e539 Creating
+ Container duo-t7f5-cli2-run-fe1e3070e539 Created
+post_translations group description: a:2:{s:2:"en";i:1;s:2:"fr";i:2;}
+term_translations group description: a:2:{s:2:"en";i:9;s:2:"fr";i:10;}
+ok: re-serialized descriptions are byte-exact PHP serialize() output with genuine int-typed ids
+ok: conf2 renders post_en's own content, no conf1 host-leak
+polylang conformance checks passed
+ Container duo-t7f5-cli2-run-abcc4c14316e Creating
+ Container duo-t7f5-cli2-run-abcc4c14316e Created
+Success: captured 2 posts, 12 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/.tmp-final
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+[1;32mok: byte-identical recapture at polylang 3.8.6 — the manifest's own declared version_range boundary is proven, not just its currently-installed version[0m
+
+[1;36m== negative control: polylang 3.4.5 (real wp.org release, genuinely below manifests/polylang.json's corrected min 3.5) must be REFUSED, not silently accepted ==[0m
+ Container duo-t7f5-cli1-run-c02998f223cb Creating
+ Container duo-t7f5-cli1-run-c02998f223cb Created
+ Container duo-t7f5-cli1-run-6a72dc5fe856 Creating
+ Container duo-t7f5-cli1-run-6a72dc5fe856 Created
+ Container duo-t7f5-cli1-run-07b007fafce4 Creating
+ Container duo-t7f5-cli1-run-07b007fafce4 Created
+ Container duo-t7f5-cli1-run-f495e6410e33 Creating
+ Container duo-t7f5-cli1-run-f495e6410e33 Created
+ Container duo-t7f5-cli1-run-d88c626815a5 Creating
+ Container duo-t7f5-cli1-run-d88c626815a5 Created
+ Container duo-t7f5-cli1-run-bddf9042df10 Creating
+ Container duo-t7f5-cli1-run-bddf9042df10 Created
+ Container duo-t7f5-cli1-run-346ff4c7429e Creating
+ Container duo-t7f5-cli1-run-346ff4c7429e Created
+artifact-cache: kind=plugin slug=polylang version=3.8.6 sha256=dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa source=cache-hit path=/artifacts-cache/plugin-polylang-3.8.6-dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa.zip
+ Container duo-t7f5-cli1-run-c5fa228f0c05 Creating
+ Container duo-t7f5-cli1-run-c5fa228f0c05 Created
+ Container duo-t7f5-cli1-run-c0ee8369ee25 Creating
+ Container duo-t7f5-cli1-run-c0ee8369ee25 Created
+seeding two languages
+ Container duo-t7f5-cli1-run-4d95e1e86f96 Creating
+ Container duo-t7f5-cli1-run-4d95e1e86f96 Created
+languages added
+anti-coincidence fillers: consume auto-increment ids on conf1 that conf2 will never replay
+ Container duo-t7f5-cli1-run-3ecea2074618 Creating
+ Container duo-t7f5-cli1-run-3ecea2074618 Created
+ Container duo-t7f5-cli1-run-d8e8deb75ae8 Creating
+ Container duo-t7f5-cli1-run-d8e8deb75ae8 Created
+ Container duo-t7f5-cli1-run-92de174ac093 Creating
+ Container duo-t7f5-cli1-run-92de174ac093 Created
+ Container duo-t7f5-cli1-run-bf8abe4f75c4 Creating
+ Container duo-t7f5-cli1-run-bf8abe4f75c4 Created
+ Container duo-t7f5-cli1-run-f4b8b360dbca Creating
+ Container duo-t7f5-cli1-run-f4b8b360dbca Created
+ Container duo-t7f5-cli1-run-857012c64a3e Creating
+ Container duo-t7f5-cli1-run-857012c64a3e Created
+ Container duo-t7f5-cli1-run-b2a0c45174bf Creating
+ Container duo-t7f5-cli1-run-b2a0c45174bf Created
+ Container duo-t7f5-cli1-run-afa65c4ca561 Creating
+ Container duo-t7f5-cli1-run-afa65c4ca561 Created
+ Container duo-t7f5-cli1-run-372ae8256313 Creating
+ Container duo-t7f5-cli1-run-372ae8256313 Created
+ Container duo-t7f5-cli1-run-fa1f9f0a0f03 Creating
+ Container duo-t7f5-cli1-run-fa1f9f0a0f03 Created
+ Container duo-t7f5-cli1-run-e614e4934b1f Creating
+ Container duo-t7f5-cli1-run-e614e4934b1f Created
+ Container duo-t7f5-cli1-run-5e59b87bd8a5 Creating
+ Container duo-t7f5-cli1-run-5e59b87bd8a5 Created
+ Container duo-t7f5-cli1-run-8da93e00add8 Creating
+ Container duo-t7f5-cli1-run-8da93e00add8 Created
+ Container duo-t7f5-cli1-run-38fbb8348610 Creating
+ Container duo-t7f5-cli1-run-38fbb8348610 Created
+ Container duo-t7f5-cli1-run-0de9e2d94b1f Creating
+ Container duo-t7f5-cli1-run-0de9e2d94b1f Created
+ Container duo-t7f5-cli1-run-10466637f3a4 Creating
+ Container duo-t7f5-cli1-run-10466637f3a4 Created
+5 filler posts + 3 filler categories created and hard-deleted on conf1 only
+translated category pair (term-object relationships: term_language + term_translations)
+ Container duo-t7f5-cli1-run-e7a0713b8629 Creating
+ Container duo-t7f5-cli1-run-e7a0713b8629 Created
+conf1 categories: news=15 actualites=17
+translated post pair (post-object relationships: language + post_translations, already-working machinery)
+ Container duo-t7f5-cli1-run-43a267b60362 Creating
+ Container duo-t7f5-cli1-run-43a267b60362 Created
+ Container duo-t7f5-cli1-run-80615c0b2dd8 Creating
+ Container duo-t7f5-cli1-run-80615c0b2dd8 Created
+ Container duo-t7f5-cli1-run-a43b4187d72a Creating
+ Container duo-t7f5-cli1-run-a43b4187d72a Created
+tagged Container duo-t7f5-cli1-run-ba445a374806 Creating
+ Container duo-t7f5-cli1-run-ba445a374806 Created
+ Container duo-t7f5-cli1-run-41fbac495406 Creating
+ Container duo-t7f5-cli1-run-41fbac495406 Created
+polylang seed: news=15 actualites=17 post_en=6 post_fr=7
+ Container duo-t7f5-cli1-run-f6968a672589 Creating
+ Container duo-t7f5-cli1-run-f6968a672589 Created
+Success: captured 2 posts, 12 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+ Container duo-t7f5-cli1-run-23dd56730bf4 Creating
+ Container duo-t7f5-cli1-run-23dd56730bf4 Created
+ Container duo-t7f5-cli1-run-d618ae411710 Creating
+ Container duo-t7f5-cli1-run-d618ae411710 Created
+ Container duo-t7f5-cli1-run-bd0317410d57 Creating
+ Container duo-t7f5-cli1-run-bd0317410d57 Created
+artifact-cache: kind=plugin slug=polylang version=3.4.5 sha256=adf4ac84fe0f10a326a7e6cad9453075bfe02eb99286f9c8f57259787914c9ab source=cache-hit path=/artifacts-cache/plugin-polylang-3.4.5-adf4ac84fe0f10a326a7e6cad9453075bfe02eb99286f9c8f57259787914c9ab.zip
+ Container duo-t7f5-cli1-run-2fe00731934b Creating
+ Container duo-t7f5-cli1-run-2fe00731934b Created
+ Container duo-t7f5-cli1-run-baedb59d8dde Creating
+ Container duo-t7f5-cli1-run-baedb59d8dde Created
+ Container duo-t7f5-cli1-run-7f9810ee7a88 Creating
+ Container duo-t7f5-cli1-run-7f9810ee7a88 Created
+Error: duo: deploy refused — code_mismatch:
+
+  - polylang/polylang.php 3.4.5 is active in this environment, outside the 'polylang' manifest's declared version_range (>=3.5 <4.0.0, pinned by site.duo.json). Classification guarantees for this plugin are NOT validated against this version — apply may silently misclassify fields. Update the plugin, pin an older manifest, or pass --force-code-mismatch to proceed at your own risk.
+
+Install/vendor whatever is missing (or update code/) in this environment first, or pass --force-code-mismatch to proceed anyway.
+[1;32mok: confirmed: polylang 3.4.5 (real, installed, genuinely below the corrected 3.5 min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative[0m
+
+[1;36m== cleanup ==[0m
+
+[1;36m== pair 't7f5': destroy ==[0m
+ Container duo-t7f5-cli2-1 Stopping
+ Container duo-t7f5-cli1-1 Stopping
+ Container duo-t7f5-wp1-1 Stopping
+ Container duo-t7f5-wp2-1 Stopping
+ Container duo-t7f5-cli2-1 Stopped
+ Container duo-t7f5-cli2-1 Removing
+ Container duo-t7f5-cli1-1 Stopped
+ Container duo-t7f5-cli1-1 Removing
+ Container duo-t7f5-cli1-1 Removed
+ Container duo-t7f5-cli2-1 Removed
+ Container duo-t7f5-wp1-1 Stopped
+ Container duo-t7f5-wp1-1 Removing
+ Container duo-t7f5-wp1-1 Removed
+ Container duo-t7f5-wp2-1 Stopped
+ Container duo-t7f5-wp2-1 Removing
+ Container duo-t7f5-wp2-1 Removed
+ Volume duo-t7f5_wp1 Removing
+ Volume duo-t7f5_wp2 Removing
+ Volume duo-t7f5_wp1 Removed
+ Volume duo-t7f5_wp2 Removed
+ Container duo-shared-db Running
+[1;32mok: containers + webroot volumes removed; wp_t7f51/wp_t7f52 dropped[0m
+  siterepo/t7f5{1,2} left on disk untouched — remove by hand if you want it gone too.
+[1;32mok: destroyed t7f5 (every assertion above passed)[0m
+
+[1;32m✔ CERTIFY_VERSION_MATRIX PASSED[0m

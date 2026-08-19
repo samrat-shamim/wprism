@@ -109,11 +109,32 @@ final class InitOwnedArtifacts {
         }
     }
 
-    /** @param array<string,mixed> $publication */
+    /**
+     * Whether a publication's compensation has already happened: with no
+     * prior version, the file is gone; with a prior version (an adoption
+     * seed's site.duo.json), the file is back to exactly those bytes. Both
+     * shapes are what Init::confirm()'s own catch leaves behind before it
+     * re-enters recovery to PROVE the rollback from the sealed journal (see
+     * InitRecovery) — the second shape refused as "preserved a replacement
+     * site.duo.json instead of deleting external bytes" until T7 grind A4,
+     * turning every failed init on an adoption seed into a retained journal.
+     * Anything else — absent with a prior version to put back, present with
+     * bytes that are neither the publication nor the prior version — is
+     * still a compensation to perform (or refuse) exactly as before.
+     *
+     * @param array<string,mixed> $publication
+     */
     public static function owned_file_already_compensated(string $path, array $publication): bool {
-        return ($publication['previous'] ?? null) === null
-            && !file_exists($path)
-            && !is_link($path);
+        $previous = $publication['previous'] ?? null;
+        if ($previous === null) {
+            return !file_exists($path) && !is_link($path);
+        }
+        clearstatcache(true, $path);
+        if (is_link($path) || !is_file($path)) {
+            return false;
+        }
+
+        return hash_equals((string) $previous, Canon::read_file($path));
     }
 
     /** @param array{previous:?string,published:string} $publication */
