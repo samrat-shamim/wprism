@@ -27,9 +27,8 @@ declare(strict_types=1);
  *  - Deterministic bytes: FQCN-sorted with strcmp(), LF endings, single
  *    quotes, no timestamp, no absolute path, no host detail. Two runs on two
  *    machines must produce identical files or the byte-compare above is
- *    worthless and every regeneration would expire nine certifications for
- *    nothing (agent/ and cli/ are walked whole — see
- *    \Duo\ScopedCertificationBundle::subjectInputPaths()).
+ *    worthless: a map that differs per host turns `make release-gate` into a
+ *    coin flip and puts a spurious diff in every unrelated PR.
  *  - Recursive scan of agent/src and cli/src. Both are flat today; the walk
  *    is recursive so a future sub-namespaced subdirectory is picked up
  *    without touching this generator.

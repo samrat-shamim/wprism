@@ -110,7 +110,7 @@ echo implode("\n", $files), "\n";
 PHP
 )
 [ -n "$engine_files" ] || fail "could not enumerate boot()'s require list from cli/src/Adapter/ManifestValidate.php"
-for required in Policy.php NativeActions.php CapabilityRegistry.php Canon.php; do
+for required in Policy.php NativeActions.php AdapterRegistry.php Canon.php; do
   grep -q "/$required\$" <<<"$engine_files" \
     || fail "boot() enumeration missed $required — the scan below would be checking the wrong files"
 done
@@ -154,8 +154,8 @@ printf 'boot() loads: %s\n' "$(tr '\n' ' ' <<<"$engine_files" | sed 's#[^ ]*/##g
 # own entry unchanged -- it still calls get_option('stylesheet'/'template')
 # directly, earlier in the method, to compute $stylesheetMismatch/
 # $templateMismatch before the moved call.
-wp_allow='CapabilityRegistry.php:probe_target,Policy.php:taxonomies,NativeActions.php:delete_transient_action,NativeActions.php:transient_state,NativeActions.php:option_row_present,LifecyclePlanner.php:code_mismatch,LifecyclePlanner.php:code_drift,LifecyclePlanner.php:record_code_versions,LifecyclePlanner.php:check_theme_range,LifecycleExecutor.php:execute,Deploy.php:run,Deploy.php:current_active_plugins,Deploy.php:plugin_runtime_state,Providers.php:plugin_supplied_providers'
-wp_allow_via='CapabilityRegistry::report() Policy::taxonomies() NativeActions::execute() Deploy::code_mismatch() Deploy::code_drift() Providers::negotiate()'
+wp_allow='TargetProbe.php:probe_target,Policy.php:taxonomies,NativeActions.php:delete_transient_action,NativeActions.php:transient_state,NativeActions.php:option_row_present,LifecyclePlanner.php:code_mismatch,LifecyclePlanner.php:code_drift,LifecyclePlanner.php:record_code_versions,LifecyclePlanner.php:check_theme_range,LifecycleExecutor.php:execute,Deploy.php:run,Deploy.php:current_active_plugins,Deploy.php:plugin_runtime_state,Providers.php:plugin_supplied_providers'
+wp_allow_via='AdapterRegistry::report() Policy::taxonomies() NativeActions::execute() Deploy::code_mismatch() Deploy::code_drift() Providers::negotiate()'
 
 scan_wp() {
   # $1 = allowlist (may be empty), remaining args = files

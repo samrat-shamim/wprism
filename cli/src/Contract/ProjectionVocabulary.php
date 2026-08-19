@@ -10,7 +10,7 @@ namespace Duo\Orchestrator;
  * technical readiness, certification provenance, effect containment, effect
  * recovery semantics (docs/product-spec.md, "The versionability contract") —
  * do not exist as stored facts anywhere in this tree. They are *projected*
- * from facts that do: `Policy::CLASSES`, `CapabilityRegistry::report()`,
+ * from facts that do: `Policy::CLASSES`, `AdapterRegistry::report()`,
  * `Providers::diagnose()`, the reviewed contract's declarations, and the
  * selected recovery profile's covered inventory. MUP §1 is the complete
  * mapping and this class is the only place it is written down: Assess,
@@ -29,8 +29,8 @@ namespace Duo\Orchestrator;
  *
  * `Site-certified` was the third of those properties for the whole of MUP,
  * and round-3 T6 §3.2 is what earned it. It is emitted now, and ONLY on the
- * exact fact that makes it true: the governing claim is `certified` with
- * `current` evidence AND its certification came from a site certificate
+ * exact fact that makes it true: the governing claim is `certified` AND its
+ * certification came from a site certificate
  * (`certification.source == "site"`). That certificate is an Ed25519
  * signature over the adapter's exact bytes under a key in a trust root the
  * site or the agent owns — a fact, verified by
@@ -208,7 +208,7 @@ final class ProjectionVocabulary {
      * The registry condition code that means "an environment value is not
      * provisioned on this target" (MUP §1.3, "any `env_missing` plan row").
      * Matched as a substring of a caller-supplied condition sentence because
-     * `CapabilityRegistry::report()` renders conditions as prose that always
+     * `AdapterRegistry::report()` renders conditions as prose that always
      * names its code.
      */
     public const CONDITION_ENV_MISSING_MARKER = 'env_missing';
@@ -216,20 +216,32 @@ final class ProjectionVocabulary {
     /**
      * Registry blockers by the readiness word they force (MUP §1.3).
      *
-     * `profile_evidence_not_current` is grouped with the two blockers §1.3
-     * names for `Requalification required` because it is the same fact about
-     * a recovery profile's evidence rather than a claim's
-     * (agent/src/Adapter/CapabilityRegistry.php:480), and the operator remedy
-     * — re-certify, then re-run assess — is identical.
+     * `multisite_unsupported` is gone from the `Unsupported` row: it was raised
+     * against a generated evidence record's measured platform axes, and with
+     * that record removed the agent reports no topology boundary per surface at
+     * all (`AdapterRegistry::target_reasons()` says so in its own docblock).
+     * Topology is judged once, by `AssessCommand::assess()`, which refuses the
+     * whole assessment — a code this table kept would have implied a per-surface
+     * answer nothing produces.
+     *
+     * `BLOCKERS_REQUALIFICATION` holds exactly one code, and it is not one the
+     * agent produces: `evidence_not_current` is synthesized by
+     * `ContractProjection::withStaleEvidence()` when a contract's pinned
+     * dispositions hash no longer matches what the target reports. The two
+     * codes that used to sit beside it (`revision_not_certified`,
+     * `profile_evidence_not_current`) were raised by the generated capability
+     * registry against a generated evidence record; neither document exists, so
+     * nothing can raise them and keeping them would describe a tier this build
+     * cannot reach.
      */
     public const BLOCKERS_UNSUPPORTED = [
-        'surface_explicitly_unsupported', 'multisite_unsupported', 'deletion_unsupported',
+        'surface_explicitly_unsupported', 'deletion_unsupported',
     ];
     public const BLOCKERS_NOT_QUALIFIED = [
         'adapter_source_uncertified', 'missing_registry_entry', 'surface_not_registered',
     ];
     public const BLOCKERS_REQUALIFICATION = [
-        'evidence_not_current', 'revision_not_certified', 'profile_evidence_not_current',
+        'evidence_not_current',
     ];
 
     /**
@@ -240,7 +252,7 @@ final class ProjectionVocabulary {
      * `adapter_certification_unpinned` is its word for the `signed_unpinned`
      * catalog state — a valid certificate whose repository pin does not bind
      * both source and the certificate-derived digest
-     * (agent/src/Adapter/CapabilityRegistry.php:366). Both are one
+     * (agent/src/Adapter/AdapterRegistry.php:396). Both are one
      * `duo adapter certify … --pin` away; neither is a missing adapter.
      */
     public const BLOCKERS_CERTIFIABLE = [
@@ -250,7 +262,7 @@ final class ProjectionVocabulary {
     /**
      * The registry blocker that means "the adapter is certified and models
      * this surface, but its certification does not cover THIS operation"
-     * (CapabilityRegistry: `<op> is not certified for '<name>'`). Alone, it
+     * (AdapterRegistry: `<op> is not certified for '<name>'`). Alone, it
      * is not a missing adapter and not a missing signature — nothing the
      * operator installs or signs adds an operation to a certification that
      * ratified none (a site certification bundle claims no `delete`, by
@@ -430,10 +442,10 @@ final class ProjectionVocabulary {
      * or signed but not exactly pinned (`signed_unpinned`) is one signature
      * or one pin from Ready, and `duo adapter certify` is the command.
      * `certify adapter` is that row's word. The same word answers
-     * `Requalification required` and `Experimental`, whose registry causes
-     * (`evidence_not_current`, `revision_not_certified`,
-     * `profile_evidence_not_current`, a candidate/experimental claim) all
-     * resolve the same way: get current certification evidence.
+     * `Requalification required` and `Experimental`, whose two remaining
+     * causes — a contract pinned to reviewed dispositions that have since
+     * moved (`evidence_not_current`), and an authored `experimental` claim —
+     * resolve the same way: get a reviewed, current certification.
      *
      * @param array<string,mixed> $projection a project() result
      */
@@ -490,9 +502,9 @@ final class ProjectionVocabulary {
             return 'declare in contract';
         }
         if ($readiness === 'Requalification required' || $readiness === 'Experimental') {
-            // Evidence that expired, a revision outside what was certified,
-            // or a candidate claim. One remedy: current certification
-            // evidence. Rehearsal cannot produce it and never could.
+            // Dispositions that moved under an accepted contract, or a claim
+            // authored `experimental`. One remedy: a reviewed, current
+            // certification. Rehearsal cannot produce it and never could.
             return 'certify adapter';
         }
         if ($readiness === 'Not qualified') {
@@ -685,7 +697,6 @@ final class ProjectionVocabulary {
         ?string $unsupportedReason
     ): string {
         $claimStatus = $registry['claim_status'] === null ? null : (string) $registry['claim_status'];
-        $evidenceStatus = $registry['evidence_status'] === null ? null : (string) $registry['evidence_status'];
         $verdictStatus = $registry['verdict_status'] === null ? null : (string) $registry['verdict_status'];
         /** @var list<string> $blockers */
         $blockers = array_values($registry['blockers']);
@@ -706,7 +717,12 @@ final class ProjectionVocabulary {
         if (array_intersect($blockers, self::BLOCKERS_REQUALIFICATION) !== []) {
             return 'Requalification required';
         }
-        if ($claimStatus === 'experimental' || $evidenceStatus === 'candidate') {
+        // `Experimental` is now the authored status alone. The second route in
+        // — a `candidate` evidence record — described a generated evidence
+        // document that had been written but not authorized; there is no such
+        // document, and a claim's `evidence` is the authored citation its
+        // disposition carries verbatim, which has no status to be candidate.
+        if ($claimStatus === 'experimental') {
             return 'Experimental';
         }
         if ($negotiation !== []) {
@@ -770,8 +786,12 @@ final class ProjectionVocabulary {
      * @param list<string> $annotations
      */
     private static function projectProvenance(array $registry, array &$annotations): string {
-        $certified = (string) ($registry['claim_status'] ?? '') === 'certified'
-            && (string) ($registry['evidence_status'] ?? '') === 'current';
+        // The claim's own status is the whole test. It used to be conjoined
+        // with `evidence_status === 'current'`, which addressed a generated
+        // evidence record: a shipped claim now carries the authored citation
+        // with no status at all, so that conjunct would report every
+        // platform-reviewed adapter as `Uncertified`.
+        $certified = (string) ($registry['claim_status'] ?? '') === 'certified';
         /** @var array<string,mixed>|null $certification */
         $certification = is_array($registry['certification'] ?? null) ? $registry['certification'] : null;
 
@@ -1034,7 +1054,7 @@ final class ProjectionVocabulary {
         }
 
         self::assertKeys($facts['registry'], [
-            'claim_status', 'evidence_status', 'verdict_status', 'blockers',
+            'claim_status', 'verdict_status', 'blockers',
             'conditions', 'source', 'site_certified', 'certification',
         ], 'registry', self::OPTIONAL_REGISTRY_FACTS);
         self::assertKeys($facts['containment'], [

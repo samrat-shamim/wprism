@@ -523,12 +523,6 @@ parameters:
 			path: agent/src/Scope/ScopedApplySession.php
 
 		-
-			message: '#^Anonymous function has an unused use \$paths\.$#'
-			identifier: closure.unusedUse
-			count: 1
-			path: agent/src/Adapter/ScopedCertificationBundle.php
-
-		-
 			message: '#^PHPDoc tag @param references unknown parameter\: \$localByCol$#'
 			identifier: parameter.notFound
 			count: 1

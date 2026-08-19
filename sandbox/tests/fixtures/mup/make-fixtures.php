@@ -39,6 +39,16 @@ declare(strict_types=1);
  * WooCommerce grind; the engine-adapter boundary forbids a plugin slug in
  * `cli/src/Assess`, `cli/src/Contract` and `agent/src/Assess`, not in the
  * evidence a grind records.
+ *
+ * ## Read this before you re-run it
+ *
+ * This script does not currently complete: `RecoveryClaim::build()` refuses the
+ * facts assembled below with "recovery claim facts carry unknown key(s):
+ * checkpoint_at". The builder moved and this caller did not, so a re-run
+ * regenerates nothing and dies partway. Until that is reconciled, apply a
+ * targeted delta to the fixture bytes and re-run `grind_mup.sh --self-check`,
+ * which is what the evidence-chain teardown did: it narrowed the `evidence`
+ * block and rebound the digest over it, and left every other byte alone.
  */
 
 $root = dirname(__DIR__, 4);
@@ -212,11 +222,8 @@ $assess = AssessReport::build(
     $surfaces,
     ['invisible_names_count' => 41, 'names_sample' => ['acme_widget_cache'], 'pending_count' => 3],
     [
-        'bundles' => [],
         'generated_from' => [
-            'compatibility_sha256' => 'sha256:' . str_repeat('8', 64),
             'dispositions_sha256' => 'sha256:' . str_repeat('9', 64),
-            'evidence_sha256' => 'sha256:' . str_repeat('2', 64),
         ],
         'registry_sha256' => 'sha256:' . str_repeat('8f', 32),
     ]

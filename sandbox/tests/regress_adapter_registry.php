@@ -16,14 +16,14 @@
  * real AdapterRegistry instance (not leftover inline logic — the source-text
  * checks near the bottom are the load-bearing proof of that, along with the
  * byte-identical-body diff done at review time), and that requiring
- * AdapterRegistry.php transitively supplies CapabilityRegistry.php on its
- * own (the class-loading gap DUO-3440/DUO-3441/DUO-3442 each fixed one file
- * at a time — mutation-tested at review time by deleting that require and
- * confirming this suite's first check below catches it).
+ * AdapterRegistry.php transitively supplies every class it names statically
+ * on its own (the class-loading gap DUO-3440/DUO-3441/DUO-3442 each fixed one
+ * file at a time — mutation-tested at review time by deleting one of those
+ * requires and confirming this suite's first check below catches it).
  *
- * This bare fixture has no dispositions.json/capabilities registry, so every
- * value these 6 methods return on it is null/empty (the "unreviewed" path
- * every one of those richer suites also has to pass through first). The
+ * This bare fixture has no dispositions.json, so every value these 6 methods
+ * return on it is null/empty (the "unreviewed" path every one of those richer
+ * suites also has to pass through first). The
  * manifest_disposition()/capability_claim() comparisons below therefore
  * reduce to null === null on THIS fixture and don't independently prove a
  * non-trivial value flows through — they check that the facade's answer is
@@ -52,9 +52,9 @@ putenv("DUO_MANIFESTS_DIR=$fixtureDir");
 
 // Same minimal require set as regress_env_options_policy.php's idiom: Canon
 // (manifest JSON decode) + OptionState (Policy's with_option_autoload()) +
-// Policy.php itself. Deliberately NOT requiring CapabilityRegistry.php here
-// — the whole point of one check below is proving Policy.php's own require
-// chain (through the new AdapterRegistry.php) supplies it without help.
+// Policy.php itself. Deliberately NOT requiring AdapterRegistry's own
+// dependencies here — the whole point of one check below is proving Policy.php's
+// require chain (through AdapterRegistry.php) supplies them without help.
 require __DIR__ . '/../../agent/src/Kernel/Canon.php';
 require __DIR__ . '/../../agent/src/Kernel/OptionState.php';
 require __DIR__ . '/../../agent/src/Policy/Policy.php';
@@ -74,11 +74,34 @@ $check = static function (bool $ok, string $message) use (&$failures): void {
     }
 };
 
+// TargetProbe is the newest of the four and the one a partial require chain
+// would silently miss: it is reached only from certification_readiness_
+// blockers()/report()/target_reasons(), so a missing require would fatal on a
+// live capability query rather than at load. AdapterSources and
+// ManifestDispositions are named statically in the same file for the same
+// reason and are checked beside it.
+foreach ([\Duo\AdapterSources::class, \Duo\ManifestDispositions::class, \Duo\TargetProbe::class] as $dependency) {
+    $check(
+        class_exists($dependency),
+        "requiring only Canon/OptionState/Policy.php (never $dependency's own file, nor the full agent/duo.php "
+            . "bootstrap) still defines $dependency — proves Policy.php -> AdapterRegistry.php carries its own "
+            . 'transitive require rather than relying on some OTHER file having loaded it first'
+    );
+}
+$registryConstructor = new ReflectionMethod(AdapterRegistry::class, '__construct');
 $check(
-    class_exists(\Duo\CapabilityRegistry::class),
-    'requiring only Canon/OptionState/Policy.php (never CapabilityRegistry.php or the full agent/duo.php bootstrap) '
-        . 'still defines Duo\CapabilityRegistry — proves Policy.php -> AdapterRegistry.php -> CapabilityRegistry.php '
-        . 'carries its own transitive require rather than relying on some OTHER file having loaded it first'
+    $registryConstructor->getNumberOfParameters() === 2
+        && $registryConstructor->getParameters()[0]->getName() === 'policy'
+        && $registryConstructor->getParameters()[1]->getName() === 'manifestDispositions',
+    'AdapterRegistry takes exactly the owning Policy and its reviewed dispositions — the third parameter was the '
+        . 'generated capability registry, and a constructor that still accepted one would be a slot for a document '
+        . 'nothing produces'
+);
+$check(
+    (new ReflectionMethod(AdapterRegistry::class, 'report'))->isStatic()
+        && (new ReflectionMethod(AdapterRegistry::class, 'report'))->isPublic(),
+    'report() is public static, so `wp duo capabilities --all` can project the whole shipped library with no site '
+        . 'repository to load'
 );
 
 file_put_contents("$fixtureDir/m.json", json_encode([
@@ -101,7 +124,7 @@ $check($policy->manifest_disposition('nonexistent-xyz') === null, 'manifest_disp
 
 $check(
     $policy->capability_claim('m') === $policy->adapter_sources()->claim('m'),
-    'capability_claim(): delegates exactly to adapter_sources()->claim() when no CapabilityRegistry is loaded'
+    'capability_claim(): delegates exactly to adapter_sources()->claim() when no ManifestDispositions is loaded'
 );
 $check($policy->capability_claim('nonexistent-xyz') === null, 'capability_claim(): unknown name is null');
 
@@ -125,8 +148,14 @@ $check(
 );
 
 $report = $policy->capability_report();
-$check($report['schema_version'] === \Duo\CapabilityRegistry::FORMAT, 'capability_report(): schema_version is CapabilityRegistry::FORMAT');
-$check($report['registry_sha256'] === null, 'capability_report(): registry_sha256 is null with no registry loaded');
+$check(
+    $report['schema_version'] === AdapterRegistry::REPORT_FORMAT
+        && AdapterRegistry::REPORT_FORMAT === 'duo-capability-report/v1',
+    'capability_report(): schema_version is the report wire version, not the retired duo-capability-registry/v2 — a '
+        . 'consumer pinned to the old string would read the absent digest/subject-record/evidence-status as data '
+        . 'loss in a document it believed was the same shape'
+);
+$check($report['registry_sha256'] === null, 'capability_report(): registry_sha256 is null with no reviewed bytes to address');
 $check($report['ready'] === false, 'capability_report(): not ready with no external disposition registry');
 $check(count($report['blockers']) === 1, 'capability_report(): exactly one blocker names the missing registry');
 $check(($report['blockers'][0]['name'] ?? null) === 'registry', 'capability_report(): the blocker names "registry"');
@@ -153,8 +182,14 @@ $check(
 
 $policySource = file_get_contents(__DIR__ . '/../../agent/src/Policy/Policy.php');
 $check(
-    !str_contains($policySource, '$this->capabilityRegistry->blockers('),
-    'Policy.php no longer inlines certification_readiness_blockers()\'s body (moved to AdapterRegistry.php)'
+    !str_contains($policySource, '$this->capabilityRegistry'),
+    'Policy.php holds no capabilityRegistry field at all — the generated registry was a second document to keep in '
+        . 'step with the reviewed one, and a leftover null field is where it would grow back'
+);
+$check(
+    str_contains($policySource, "private const SNAPSHOT_FORMAT = 'duo-policy-snapshot/v6';")
+        && !str_contains($policySource, "'capabilities' => \$this->capabilityRegistry?->data()"),
+    'and export_snapshot() emits no `capabilities` record under the v6 wire generation'
 );
 $check(
     !str_contains($policySource, 'Providers::packaging_problems($this,'),

@@ -336,7 +336,6 @@ function woo_effect_policy_for_manifest(array $manifest): Policy {
     return Policy::from_snapshot([
         'format' => 'duo-policy-snapshot/v4',
         'adapter_sources' => ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []],
-        'capabilities' => null,
         'dispositions' => null,
         'site' => [
             'manifests' => [(string) ($manifest['name'] ?? 'woocommerce')],

@@ -16,8 +16,9 @@
 # Bundle-free by construction — this proves the requirement contract WITHOUT a
 # certification bundle. The shipped manifests/duo-agency-cpt.json declares the
 # `duo-agency-index` provider but NO `requires`; a `requires` edit to a shipped
-# manifest is a certified-identity change (the manifest bytes fold into
-# CapabilityRegistry::adapter_digest()), so this suite supplies the requirement
+# manifest is a certified-identity change (the manifest bytes fold into the
+# adapter digest ArtifactPolicyIdentity::manifest_rows() hashes), so this suite
+# supplies the requirement
 # through a test-manifests overlay (DUO_MANIFESTS_DIR, the
 # regress_parent_scoped_natural_key.sh pattern) and asserts the shipped file is
 # byte-identical before it starts and after it builds the overlay. The overlay

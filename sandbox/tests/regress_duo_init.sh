@@ -240,52 +240,47 @@ assert_init_plan() {
   INIT_PLAN_DIGEST="$digest"
 }
 
-# DUO-3421: every `duo init` proposal below is evidence-gated. Init refuses to
-# advertise confirmation while any selected adapter reports an unsupported
-# capability row, and CapabilityRegistry attaches evidence_not_current to EVERY
-# certified claim the moment the registry's bound attestation is not current.
-# The checked-in attestation binds the exact bytes of every certification-bound
-# input, so it is EXPIRED by construction on every branch that owes a reference
-# bundle — including the branch whose bundle runs this very suite (legs 13-14).
-# The suite therefore self-blocked on the evidence it exists to mint: the paused
-# swap-link/swap-directory confirmations refused instantly with the redacted
-# not-ready envelope, never took the init lease, and the TOCTOU cases failed
-# with a lease timeout that named none of that.
+# DUO-3421: every `duo init` proposal below is capability-gated — init refuses
+# to advertise confirmation while any selected adapter reports an unsupported
+# row — so this pair must mount a manifest library whose reviewed claims are
+# the shipped ones.
 #
-# So the pair mounts a hermetic library instead: the shipped manifests byte for
-# byte, with independent subject records re-sealed against this working tree,
-# exactly as subject certification would derive them
-# (sandbox/tests/certification_fixture.php,
-# shared with regress_adapter_sources.php's DUO-3379 fixture). Every proposal
-# then sees current evidence regardless of where the live tree sits in its
-# certification cycle, and the product's own expired-evidence refusal is left
-# entirely intact — it is asserted, unmounted, by the offline capability suites.
+# It used to mount a RE-SEALED library, because the generated attestation bound
+# the exact bytes of every certification-bound input and was expired by
+# construction on any branch owing a reference bundle: `evidence_not_current`
+# then rode on every certified claim, the paused swap-link/swap-directory
+# confirmations refused instantly with the redacted not-ready envelope, never
+# took the init lease, and the TOCTOU cases failed with a lease timeout that
+# named none of that. The suite blocked on the evidence it existed to mint.
+#
+# That attestation is gone. The reviewed dispositions are the whole authored
+# claim source and no branch state can expire them, so the mounted library is a
+# straight hermetic COPY (sandbox/tests/certification_fixture.php, shared with
+# regress_adapter_sources.php). What is kept from that episode is the mount
+# discipline: this pair still never mounts the primary checkout's own manifest
+# directory, so nothing a case does can reach the shipped bytes.
 #
 # Manufactured and asserted BEFORE the first Docker mutation, and never on the
 # shipped library: a fixture whose manufacture silently failed would report the
 # ENGINE as broken (DUO-3381's premise-before-behavior family).
-say "manufacture the hermetic certification fixture this pair will mount"
-set +e
-LIVE_ATTESTATION=$(php scripts/capability-registry.php check 2>&1)
-LIVE_ATTESTATION_CODE=$?
-set -e
-printf 'live tree attestation (php scripts/capability-registry.php check, exit %s):\n%s\n' \
-  "$LIVE_ATTESTATION_CODE" "$LIVE_ATTESTATION"
+say "manufacture the hermetic manifest library this pair will mount"
 SHIPPED_LIBRARY_BEFORE=$(library_digest "$REPO_ROOT/manifests")
 rm -rf "$HERMETIC_ROOT"
 HERMETIC_MANIFESTS=$(php sandbox/tests/certification_fixture.php "$HERMETIC_ROOT") \
-  || fail "fixture manufacture failed: could not seal a hermetic certification library under $HERMETIC_ROOT"
+  || fail "fixture manufacture failed: could not build a hermetic manifest library under $HERMETIC_ROOT"
 [ "$HERMETIC_MANIFESTS" = "$HERMETIC_ROOT/manifests" ] \
-  || fail "fixture manufacture failed: sealed library landed at $HERMETIC_MANIFESTS, not under this run's owned scratch"
-jq -e '([.manifests[] | select(.status == "certified") | .evidence.status] | all(. == "current"))
-  and ([.profiles[] | select(.status == "certified") | .evidence.status] | all(. == "current"))' \
-  "$HERMETIC_MANIFESTS/capabilities/registry.json" >/dev/null \
-  || fail "fixture manufacture failed: the sealed registry does not read current evidence"
-diff -r -x capabilities "$REPO_ROOT/manifests" "$HERMETIC_MANIFESTS" >/dev/null \
-  || fail "fixture manufacture failed: the sealed library is not the shipped library outside capabilities/"
+  || fail "fixture manufacture failed: hermetic library landed at $HERMETIC_MANIFESTS, not under this run's owned scratch"
+jq -e '[.manifests[] | select(.status == "certified") | .evidence.tests | length] | all(. > 0)' \
+  "$HERMETIC_MANIFESTS/dispositions.json" >/dev/null \
+  || fail "fixture manufacture failed: a certified disposition cites no evidence"
+jq -e '.format == "duo-platform-boundary/v1"' \
+  "$HERMETIC_MANIFESTS/capabilities/platform.json" >/dev/null \
+  || fail "fixture manufacture failed: the hermetic library has no platform boundary"
+diff -r "$REPO_ROOT/manifests" "$HERMETIC_MANIFESTS" >/dev/null \
+  || fail "fixture manufacture failed: the hermetic library is not the shipped library byte for byte"
 [ "$SHIPPED_LIBRARY_BEFORE" = "$(library_digest "$REPO_ROOT/manifests")" ] \
-  || fail "fixture manufacture failed: sealing the fixture modified the shipped manifest library"
-pass "hermetic certified library sealed at $HERMETIC_MANIFESTS (shipped bytes unchanged)"
+  || fail "fixture manufacture failed: building the fixture modified the shipped manifest library"
+pass "hermetic manifest library built at $HERMETIC_MANIFESTS (shipped bytes unchanged)"
 
 # pair.sh deliberately binds durable pairs to the primary checkout, and
 # pair_compose_configure() re-resolves DUO_AGENT_SRC/DUO_MANIFESTS_SRC from the canonical
@@ -659,9 +654,10 @@ wp1 plugin activate duo-init-site >/dev/null
 # init answered with the redacted unclassified envelope (exit 1) instead of the
 # uncertified-source blocker this case exists to assert (exit 2). Nothing ever
 # saw it, because the evidence-coupled lease timeout above aborted every run
-# before this line. Verified live both ways: with the range repaired the
-# proposal reports adapter_source_uncertified for duo-init-site (and, on an
-# unsealed library, evidence_not_current beside it).
+# before this line. Verified live: with the range repaired the proposal reports
+# adapter_source_uncertified for duo-init-site. (It used to report
+# evidence_not_current beside it on an unsealed library; that code is gone with
+# the generated attestation, so the source blocker now stands alone.)
 cat > "$HOST_REPO/adapters/duo-init-site.json" <<'JSON'
 {"name":"duo-init-site","option_autoload":"preserve","options":{"duo_init_site_option":{"class":"authored"}},"plugin":"duo-init-site/duo-init-site.php","spec_version":2,"version_range":{"min":"1.0.0","max":"2.0.0"}}
 JSON

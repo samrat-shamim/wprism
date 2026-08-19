@@ -126,7 +126,7 @@ declare(strict_types=1);
  *  - Always exits 0 (tools/offline.php merges this process's stdout+stderr
  *    when it shells out, so a non-zero exit would be read as a hard
  *    failure of `--changed`); malformed CLI usage is the sole exception
- *    (exit 2), matching tools/cert-impact.php's convention.
+ *    (exit 2), matching tools/doctor.sh's convention.
  *
  * Usage:
  *   php tools/affected.php [--base=REF] [--paths=a,b] [--all]
@@ -626,8 +626,7 @@ const AF_DIR_SIGNAL_EXCLUDED = [
  *
  * Several offline leaves load a tree wholesale rather than naming its
  * members -- `$dir = $repo . '/manifests'; glob($dir . '/*.json')`,
- * `glob($root . '/manifests/providers/*.php')`,
- * `CapabilityRegistry::load($dir, ...)`, `scandir(...)` loops. No individual
+ * `glob($root . '/manifests/providers/*.php')`, `scandir(...)` loops. No individual
  * manifest is ever spelled, so no ref key can exist for it, and every one of
  * the ~87 files under manifests/ selected zero suites -- the highest-traffic
  * false negative there was, since manifests are product data edited
@@ -647,8 +646,8 @@ const AF_DIR_SIGNAL_EXCLUDED = [
  *   3. it must not be an already-precisely-covered tree (see above).
  *
  * Gate 1 is deliberately loose for a single-segment token: it must accept
- * `$repo . '/manifests'` (regress_capability_registry.php's shape, and the
- * whole reason this signal exists), which is lexically indistinguishable
+ * `$repo . '/manifests'` (regress_manifest_dispositions.php:68's shape, and
+ * the whole reason this signal exists), which is lexically indistinguishable
  * from a same-shaped literal meant for somewhere else -- e.g.
  * regress_adapter_sources.php's `copy_tree(dirname($fixture) . '/docs', ...)`
  * registers a dependency on the repo's docs/ tree it does not really have.

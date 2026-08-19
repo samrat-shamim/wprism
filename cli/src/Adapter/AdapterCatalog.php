@@ -3,9 +3,9 @@ declare(strict_types=1);
 
 namespace Duo\Orchestrator;
 
+use Duo\AdapterRegistry;
 use Duo\AdapterSources;
 use Duo\Canon;
-use Duo\CapabilityRegistry;
 use Duo\ManifestDispositions;
 use Duo\Policy;
 
@@ -37,8 +37,8 @@ use Duo\Policy;
  * WordPress-free by construction, the same way `duo manifest-validate` is: no
  * environment, no transport, no registry service, no database. Everything it
  * reads is on this machine — the agent's own manifest library, the reviewed
- * dispositions beside it, the generated capability registry, and (with
- * `--repo`) one site repository's `adapters/` source and its pins.
+ * dispositions beside it, the capability claim those dispositions project, and
+ * (with `--repo`) one site repository's `adapters/` source and its pins.
  *
  * That is also the exact reason this command cannot be the whole answer. The
  * engine has THREE adapter sources since DUO-3339, and the third —
@@ -157,12 +157,12 @@ final class AdapterCatalog {
                     . 'are the negotiated answer',
             ],
             [
-                'surface' => 'dispositions.json / capabilities/registry.json against a target',
-                'check' => 'CapabilityRegistry::report()',
-                'why' => 'certification is evidence evaluated against one target revision and its installed '
-                    . 'plugin/theme versions, WordPress, PHP, and database. The reviewed status and the '
-                    . 'evidence binding are read here; whether a claim holds FOR YOUR SITE is not — run '
-                    . '`duo capabilities <env>` for that',
+                'surface' => 'dispositions.json against a target',
+                'check' => 'AdapterRegistry::report()',
+                'why' => 'certification is a reviewed claim evaluated against one target: whether the plugin the '
+                    . 'claim is authored for is installed, active, and inside the reviewed version window. The '
+                    . 'reviewed status and its authored evidence citation are read here; whether the claim holds '
+                    . 'FOR YOUR SITE is not — run `duo capabilities <env>` for that',
             ],
             [
                 'surface' => 'the ' . AdapterSources::PLUGIN . ' adapter source ('
@@ -476,17 +476,20 @@ final class AdapterCatalog {
 
     /**
      * The survey row plus everything else this machine already knows about
-     * one adapter: its reviewed disposition entry, its generated registry
-     * claim, and — with `--repo` — the verdict that claim gets for this
-     * repository's pins.
+     * one adapter: its reviewed disposition entry, the capability claim that
+     * disposition projects, and — with `--repo` — the verdict that claim gets
+     * for this repository's pins.
      *
      * "Verification strength" is reported as the facts that exist, never as a
-     * new scale. There are exactly three of them and they are all somebody
-     * else's: `evidence.status` (`current` or `candidate`), the claim's own
-     * `plugin_execution.status` (`verified`, `unverified`, or
-     * `not-a-product-claim`), and the named test citations resolved against
-     * the bundle's own verdicts. Minting a word like "strongly verified" here
-     * would put a fourth vocabulary next to dispositions.json — the exact
+     * new scale, and there is one fewer such fact than there used to be. What
+     * remains is somebody else's: the claim's own `plugin_execution.status`
+     * (`verified`, `unverified`, or `not-a-product-claim`), the bundle schema
+     * its disposition cites, and the test ids named in that citation. The
+     * `evidence.status` word is gone with the generated evidence record that
+     * decided it — a citation is what a reviewer wrote down, not a verdict
+     * this process can resolve, and printing `current` beside it would be the
+     * agent vouching for itself. Minting a word like "strongly verified" here
+     * would put another vocabulary next to dispositions.json — the exact
      * refusal AdapterSources.php's header documents for the `uncertified`
      * status, and for the same reason: a word invented next to reviewed
      * evidence reads as reviewed evidence.
@@ -500,7 +503,7 @@ final class AdapterCatalog {
         $out['disposition'] = null;
         $out['claim'] = null;
         $out['verification'] = [
-            'evidence_status' => null,
+            'bundle_schema' => null,
             'plugin_execution_status' => null,
             'tests' => [],
         ];
@@ -549,22 +552,57 @@ final class AdapterCatalog {
                     continue;
                 }
             }
+            // The claim is the reviewed disposition PROJECTED — there is no
+            // second, generated document to read it out of — so it comes from
+            // the same `AdapterRegistry::report()` every other consumer reads.
+            // `$sources` is passed because report() attributes each row's
+            // source and certification word from it; with no target (this
+            // process has no WordPress) the report is the source/authorship
+            // gate only, which is exactly what the deferred list above says.
+            $sources = [];
             try {
-                $registry = CapabilityRegistry::load($manifestDir, $dispositions, $manifests);
+                $sources = AdapterSources::discover($manifestDir, $repo)->diagnostics($manifests);
             } catch (\Throwable $t) {
-                $registry = null;
+                // discover() refuses WHOLE-DIRECTORY, so an unrelated file in
+                // this source makes it throw — already reported as its own
+                // refusal row. Every manifest in $manifests is shipped, and
+                // report()'s own default for an unattributed row is exactly
+                // `shipped` / `registry`, so the claim is unaffected.
+                $sources = [];
             }
-            if ($registry !== null) {
-                $out['claim'] = $registry->claim($name);
-                $out['verification'] = self::verification($out['claim']);
+            try {
+                $report = AdapterRegistry::report(
+                    $dispositions,
+                    $manifests,
+                    ['operation' => 'promote'],
+                    null,
+                    $sources
+                );
+            } catch (\Throwable $t) {
+                $report = null;
+            }
+            foreach (($report['manifests'] ?? []) as $reported) {
+                if (($reported['name'] ?? null) !== $name) {
+                    continue;
+                }
+                // Strip the report FRAME, keep the claim. `verdict` here would
+                // be the verdict for this call's targetless, pin-less query,
+                // and the row below already carries the verdict for this
+                // repository's actual pins; two verdicts under one row meaning
+                // different things is the confusion this command exists to
+                // end. `source` and `evidence_scope` are the survey's answer
+                // and are already on the row.
+                unset($reported['verdict'], $reported['source'], $reported['evidence_scope']);
+                $out['claim'] = $reported;
+                $out['verification'] = self::verification($reported);
             }
         }
 
-        // A site adapter's version story does not live in the shipped registry
-        // and never can: `CapabilityRegistry::load()` is handed the SHIPPED
-        // subset only (Policy::load() does the same, for the reason its own
-        // comment gives), so `$registry->claim($name)` answers null for every
-        // out-of-tree row — and this command printed "registry claim: (none)"
+        // A site adapter's version story does not live in the shipped reviewed
+        // library and never can: `AdapterRegistry::report()` is handed the
+        // SHIPPED subset only here (Policy::load() does the same, for the
+        // reason its own comment gives), so no row answers for an out-of-tree
+        // name — and this command printed "registry claim: (none)"
         // for an adapter carrying a complete, verified signed envelope. Its
         // evidence comes from the survey row instead, unmodified: the
         // authority that signed, the certificate/statement/platform digests
@@ -597,25 +635,29 @@ final class AdapterCatalog {
     }
 
     /**
-     * The evidence facts behind one claim. A current subject record has already
-     * had every cited test's passing result and durable assets revalidated by
-     * CapabilityRegistry; a candidate record has no authorizing verdict.
+     * The evidence facts behind one claim, which are now exactly the authored
+     * citation: the bundle schema a reviewer named and the test ids they cited.
+     *
+     * The citation is reported, never resolved. Nothing on this machine runs
+     * those tests, and the record that used to hold their verdicts is gone, so
+     * a per-test `pass`/`absent` word here would be this command inventing a
+     * result for a test it did not run. A site adapter's evidence carries more
+     * (a signed bundle digest, a git revision, artifacts) and that whole
+     * envelope is printed separately as `certification_evidence` — reported
+     * beside the claim, never merged into it.
      *
      * @return array<string,mixed>
      */
     private static function verification(?array $claim): array {
-        $evidenceStatus = isset($claim['evidence']['status'])
-            ? (string) $claim['evidence']['status']
-            : null;
+        $evidence = is_array($claim['evidence'] ?? null) ? $claim['evidence'] : [];
         $tests = [];
-        foreach ($claim['evidence']['tests'] ?? [] as $cited) {
-            $tests[] = [
-                'id' => (string) $cited,
-                'verdict' => $evidenceStatus === 'current' ? 'pass' : 'absent',
-            ];
+        foreach ((array) ($evidence['tests'] ?? []) as $cited) {
+            $tests[] = (string) $cited;
         }
         return [
-            'evidence_status' => $evidenceStatus,
+            'bundle_schema' => isset($evidence['bundle_schema'])
+                ? (string) $evidence['bundle_schema']
+                : null,
             'plugin_execution_status' => isset($claim['plugin_execution']['status'])
                 ? (string) $claim['plugin_execution']['status']
                 : null,
@@ -625,7 +667,7 @@ final class AdapterCatalog {
 
     /**
      * The pinned set's readiness blockers, from the same
-     * `CapabilityRegistry::report()` the plan's `adapter_dispositions` rows
+     * `AdapterRegistry::report()` the plan's `adapter_dispositions` rows
      * and host promotion consume — never a second evaluation.
      *
      * `probe_target()` returns null outside WordPress, so the target half of
@@ -938,22 +980,31 @@ final class AdapterCatalog {
 
         $claim = $row['claim'];
         if (!is_array($claim)) {
-            // A site adapter has no SHIPPED-registry claim by construction —
-            // `CapabilityRegistry::load()` is handed the shipped subset only.
-            // Saying just "(none)" beside a complete signed envelope read as
-            // "nothing is known about this adapter", which was the whole
-            // complaint: the operator has to be told the claim is absent for a
-            // structural reason and that the real evidence is a few lines
-            // down, not left to infer it.
+            // A site adapter has no SHIPPED reviewed claim by construction —
+            // the report above is handed the shipped subset only. Saying just
+            // "(none)" beside a complete signed envelope read as "nothing is
+            // known about this adapter", which was the whole complaint: the
+            // operator has to be told the claim is absent for a structural
+            // reason and that the real evidence is a few lines down, not left
+            // to infer it.
             echo '  registry claim:    (none — ' . (($row['certification_evidence'] ?? null) !== null
-                ? 'a non-shipped adapter never has a generated registry claim; its own signed certification '
+                ? 'a non-shipped adapter never has a shipped reviewed claim; its own signed certification '
                     . 'evidence is reported below'
-                : 'this adapter has no generated capability claim') . ")\n";
+                : 'no reviewed disposition projects a capability claim for this adapter') . ")\n";
         } else {
+            // No `adapter_digest` line: a claim no longer carries one, and
+            // deriving one here would print a number that is not the pin.
+            // Adapter identity is ArtifactPolicyIdentity::manifest_rows()
+            // hashed against a LOADED policy — the site's own pin set, its
+            // interpreter and provider bytes — which is what
+            // `AdapterCertify::pinObject()` resolves for `duo adapter certify
+            // <repo> --name=<n> --pin`. This command loads the shipped library
+            // with no site policy, so its row would differ from the one a pin
+            // must carry. The manifest's own content hash is on `sha256:`
+            // above; it is a different fact and is labelled as one.
             echo "  registry claim:\n";
             echo '    status:              ' . ($claim['status'] ?? '?') . "\n";
             echo '    reason:              ' . ($claim['reason'] ?? '') . "\n";
-            echo '    adapter_digest:      ' . ($claim['adapter_digest'] ?? 'none') . "\n";
             echo '    supported_versions:  ' . self::inline($claim['supported_versions'] ?? []) . "\n";
             echo '    plugin_execution:    ' . self::inline($claim['plugin_execution'] ?? []) . "\n";
             echo '    authored_state:      ' . self::inline($claim['authored_state'] ?? []) . "\n";
@@ -964,7 +1015,7 @@ final class AdapterCatalog {
                 echo '    unsupported:         ' . ($unsupported['surface'] ?? '?') . ' / '
                     . ($unsupported['operation'] ?? '?') . ' — ' . ($unsupported['reason'] ?? '') . "\n";
             }
-            echo '    evidence bundle:     ' . ($claim['evidence']['bundle_digest'] ?? 'none') . "\n";
+            echo '    evidence citation:   ' . ($claim['evidence']['bundle_schema'] ?? 'none') . "\n";
         }
 
         $evidence = $row['certification_evidence'] ?? null;
@@ -1000,13 +1051,15 @@ final class AdapterCatalog {
 
         $verification = $row['verification'];
         echo "  verification (the facts that exist, not a scale):\n";
-        echo '    evidence.status:            ' . ($verification['evidence_status'] ?? '(no registry)') . "\n";
+        echo '    evidence.bundle_schema:     ' . ($verification['bundle_schema'] ?? '(no claim)') . "\n";
         echo '    plugin_execution.status:    ' . ($verification['plugin_execution_status'] ?? '(no claim)') . "\n";
         if ($verification['tests'] === []) {
             echo "    cited tests:                (none)\n";
         }
+        // The id and nothing else: see verification() — a verdict word here
+        // would be a result this process did not produce.
         foreach ($verification['tests'] as $test) {
-            echo '    cited test:                 ' . $test['id'] . ' — ' . $test['verdict'] . "\n";
+            echo '    cited test:                 ' . $test . "\n";
         }
 
         if (array_key_exists('verdict', $row)) {
@@ -1085,7 +1138,7 @@ final class AdapterCatalog {
         foreach ($duoAgentClassmap as $duoAgentPath) {
             $duoAgentFiles[basename((string) $duoAgentPath, '.php')] = (string) $duoAgentPath;
         }
-        foreach (['Canon', 'OptionState', 'ManifestDispositions', 'CapabilityRegistry', 'Policy'] as $class) {
+        foreach (['Canon', 'OptionState', 'ManifestDispositions', 'AdapterRegistry', 'Policy'] as $class) {
             $duoAgentFile = $duoAgentFiles[$class] ?? null;
             if (!is_string($duoAgentFile)) {
                 throw new \RuntimeException('adapter: agent source ' . $class . '.php is absent from agent/duo-classmap.php');

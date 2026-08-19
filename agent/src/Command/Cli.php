@@ -2902,7 +2902,7 @@ final class Cli {
             ],
             [
                 'surface' => 'provider negotiation and certification against this environment',
-                'check' => 'Providers::negotiate() / CapabilityRegistry::report()',
+                'check' => 'Providers::negotiate() / AdapterRegistry::report()',
                 'why' => 'whether a declared provider answers, whether its owning plugin is inside its version '
                     . 'window, and whether a capability claim holds for this WordPress/PHP/database are '
                     . 'negotiated and evaluated facts, not declared ones — run `wp duo capabilities --repo=<path>` '
@@ -2924,7 +2924,6 @@ final class Cli {
      * [--all] : Report every shipped manifest instead of a site repository.
      * [--operation=<operation>] : Capability to evaluate. Defaults to promote.
      * [--surface=<surface>] : Exact registry surface to evaluate.
-     * [--revision=<sha>] : Exact evidence-bound platform revision to evaluate.
      * [--adoption-preview] : On an adoption seed, evaluate against the policy duo init would propose (what duo assess reads); inert on an init-owned repository.
      * [--format=<format>] : Output format. Accepts json.
      */
@@ -2949,10 +2948,13 @@ final class Cli {
             $query = [
                 'operation' => isset($assoc['operation']) ? (string) $assoc['operation'] : 'promote',
             ];
-            foreach (['surface', 'revision'] as $key) {
-                if (isset($assoc[$key])) {
-                    $query[$key] = (string) $assoc[$key];
-                }
+            // `--revision` is gone rather than inert. It selected an exact
+            // evidence-bound platform revision, and no evidence record binds
+            // one any more; accepting it and evaluating nothing would answer
+            // "is this revision certified" with a green report that never
+            // looked. WP-CLI refuses the unknown parameter by name instead.
+            if (isset($assoc['surface'])) {
+                $query['surface'] = (string) $assoc['surface'];
             }
             if ($all) {
                 $dir = Policy::manifests_dir();
@@ -2972,10 +2974,6 @@ final class Cli {
                         $manifests[] = $manifest;
                     }
                 }
-                $registry = CapabilityRegistry::load($dir, $dispositions, $manifests);
-                if ($registry === null) {
-                    throw new \RuntimeException("duo: $dir has no generated capability registry");
-                }
                 // DUO-3339: real provenance, not the absent-sources default.
                 // Every row here IS shipped, so the source word does not
                 // change — but the tier and the file each row came from are
@@ -2983,7 +2981,13 @@ final class Cli {
                 // reconstructed by report()'s fallback, so a shipped shim
                 // prints its tier and its path in the library view too. Two
                 // code paths agreeing today is not the same as one path.
-                $report = $registry->report(
+                //
+                // No target is probed here on purpose: `--all` reports the
+                // library, not this machine, so a row must not be blocked by
+                // whether the plugin it describes happens to be installed
+                // beside the agent running the command.
+                $report = AdapterRegistry::report(
+                    $dispositions,
                     $manifests,
                     $query,
                     null,

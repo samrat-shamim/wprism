@@ -13,9 +13,9 @@ declare(strict_types=1);
  *
  * What analysis genuinely cannot recover on its own is the pair of constants
  * agent/duo.php defines at runtime via define(). They are parsed out of the
- * source with the exact same two regexes scripts/capability-registry.php
- * (lines 20-36) uses, so a rename that breaks the release gate breaks the
- * analyser identically instead of silently degrading to "constant not found".
+ * source with the exact same two regexes tools/capability-doc.php:108 uses, so
+ * a rename that breaks the release gate breaks the analyser identically
+ * instead of silently degrading to "constant not found".
  * Failing loudly here is the point: a silent fallback would let the version
  * boundary drift between the gate and the analyser.
  */

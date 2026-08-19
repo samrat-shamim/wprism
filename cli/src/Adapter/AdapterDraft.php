@@ -23,8 +23,8 @@ use Duo\Secrets;
  * author can ratify by hand. It writes nothing live and promotes nothing automatically.
  *
  * Like `duo manifest-validate` this is a HOST verb, not a `wp duo` subcommand: it
- * boots the pure engine (Canon/OptionState/ManifestDispositions/CapabilityRegistry/
- * Policy, plus Secrets for the value screen) WordPress-free, with no DB and no
+ * boots the pure engine (Canon/OptionState/ManifestDispositions/Policy, plus
+ * Secrets for the value screen) WordPress-free, with no DB and no
  * docker, which is exactly why the whole thing is offline-buildable. Every fact that
  * genuinely needs a live target (a column's SQL type, its real PRIMARY KEY, whether
  * an integer resolves to a live entity, natural-key uniqueness across the keyspace)
@@ -413,7 +413,7 @@ final class AdapterDraft {
         foreach ($duoAgentClassmap as $duoAgentPath) {
             $duoAgentFiles[basename((string) $duoAgentPath, '.php')] = (string) $duoAgentPath;
         }
-        foreach (['Canon', 'OptionState', 'ManifestDispositions', 'CapabilityRegistry', 'Policy', 'Deletion', 'Secrets'] as $class) {
+        foreach (['Canon', 'OptionState', 'ManifestDispositions', 'Policy', 'Deletion', 'Secrets'] as $class) {
             $duoAgentFile = $duoAgentFiles[$class] ?? null;
             if (!is_string($duoAgentFile)) {
                 throw new \RuntimeException('adapter-draft: agent source ' . $class . '.php is absent from agent/duo-classmap.php');

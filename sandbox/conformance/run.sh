@@ -41,8 +41,6 @@
 # provisioning (this file's first ~60 lines) moved.
 #
 # Usage: bash sandbox/conformance/run.sh <manifest-name>
-# Set CONFORMANCE_EVIDENCE_DIR to export conformance-<manifest>.{result,diff,
-# fragment}.json for import by a certification-bundle assembler.
 # Set CONF_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD) to bind the sweep to an
 # exact agent/manifests commit (DUO-3377's gate — see below, before reset).
 #
@@ -119,62 +117,6 @@ jq -e '
 mapfile -t PLUGINS < <(echo "$ENTRY" | jq -c '.plugins[]')
 mapfile -t THEMES < <(echo "$ENTRY" | jq -c '.themes[]?')
 SETUP=$(echo "$ENTRY" | jq -r '.setup // ""')
-
-# A caller that is assembling certification evidence can ask every manifest
-# run to export the same named/importable bundle fragment. The full stdout /
-# stderr log remains the caller's responsibility (the subject-certification runner
-# captures it without hiding it from operators); this harness owns the
-# machine verdict and clean-diff records because only it knows whether the
-# complete deploy/apply/recapture path reached its final acceptance point.
-EVIDENCE_DIR="${CONFORMANCE_EVIDENCE_DIR:-}"
-EVIDENCE_COMPLETE=0
-emit_conformance_evidence() {
-  local original_rc=$? rc verdict reason status render result diff fragment tmp
-  trap - EXIT
-  [ -n "$EVIDENCE_DIR" ] || exit "$original_rc"
-
-  set +e
-  rc="$original_rc"
-  verdict=fail
-  reason=command_failed
-  status=unknown
-  if [ "$rc" -eq 0 ] && [ "$EVIDENCE_COMPLETE" -eq 1 ]; then
-    verdict=pass
-    reason=passed
-    status=clean
-  elif [ "$rc" -eq 0 ]; then
-    rc=70
-    reason=invalid_checker_output
-  fi
-  if [ -f "conformance/checks/$MANIFEST.sh" ]; then
-    render=passed
-  else
-    render=not-declared
-  fi
-
-  mkdir -p -- "$EVIDENCE_DIR" || exit 70
-  result="$EVIDENCE_DIR/conformance-$MANIFEST.result.json"
-  diff="$EVIDENCE_DIR/conformance-$MANIFEST.diff.json"
-  fragment="$EVIDENCE_DIR/conformance-$MANIFEST.fragment.json"
-  tmp="${result}.tmp.$$"
-  jq -n \
-    --arg test "conformance-$MANIFEST" --arg verdict "$verdict" --arg reason "$reason" \
-    --argjson exit_code "$rc" \
-    '{schema_version:1,test:$test,verdict:$verdict,exit_code:$exit_code,reason:$reason,
-      assertions:["lint_json_valid","capture_twice_identical","deploy_activation_state","apply_canary_clean","cross_environment_recapture_identical","render_api_checks"]}' \
-    > "$tmp" && mv -- "$tmp" "$result" || exit 70
-  tmp="${diff}.tmp.$$"
-  jq -n --arg status "$status" --arg manifest "$MANIFEST" --arg render_check "$render" \
-    '{status:$status,manifest:$manifest,diffs:["capture-twice","conf1-vs-conf2-recapture"],render_check:$render_check}' \
-    > "$tmp" && mv -- "$tmp" "$diff" || exit 70
-  tmp="${fragment}.tmp.$$"
-  jq -n --arg id "conformance-$MANIFEST" --arg manifest "$MANIFEST" \
-    --arg result "$result" --arg diff "$diff" \
-    '{id:$id,manifest:$manifest,result:$result,diff:$diff}' \
-    > "$tmp" && mv -- "$tmp" "$fragment" || exit 70
-  exit "$rc"
-}
-trap emit_conformance_evidence EXIT
 
 # Prefer the legacy docker-compose.yml conf1/conf2 ports (8806/8807) so
 # conformance/checks/*.sh and seeds/elementor.sh — which read CONF1_PORT/
@@ -529,5 +471,4 @@ if [ -f "$CHECK" ]; then
   bash "$CHECK"
 fi
 
-EVIDENCE_COMPLETE=1
 printf '\n\033[1;32m✔ CONFORMANCE PASSED (%s)\033[0m\n' "$MANIFEST"

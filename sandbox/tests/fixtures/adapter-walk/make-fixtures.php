@@ -56,6 +56,26 @@ declare(strict_types=1);
  * subject is WPForms Lite and a walk-owned fixture plugin; the
  * engine-adapter boundary forbids a plugin slug in `cli/src/Assess`,
  * `cli/src/Contract` and `agent/src/Assess`, not in a grind's fixtures.
+ *
+ * ## Read this before you re-run it
+ *
+ * This script and the fixtures beside it have DIVERGED, and a wholesale re-run
+ * fails `grind_adapter_walk.sh --self-check` (4 checks) rather than refreshing
+ * it. Three drifts, none of them about what a fixture records:
+ *
+ *   - the `$projection` closure emits `principal` / `trust_root`; the committed
+ *     fixtures and the grind's own readers use `certification_principal` /
+ *     `certification_trust_root`;
+ *   - `AssessRenderer` has since grown its own undeclared-table line, so the
+ *     hand-insertion below now emits a second one and `assess-human.clean.txt`
+ *     ends up with two;
+ *   - `Init::render()` reshaped the advisory block, so `init-allow-unmanaged.txt`
+ *     comes back in a layout the §3.4 reader does not recognise.
+ *
+ * Until those are reconciled, apply a targeted delta to the fixture bytes and
+ * re-run `--self-check`, which is what the evidence-chain teardown did: it
+ * touched the `evidence` block, the digests binding it, and the deferred
+ * `AdapterRegistry::report()` row, and left every other byte alone.
  */
 
 $root = dirname(__DIR__, 4);
@@ -344,11 +364,8 @@ $target = [
 ];
 $authority = ['transport' => 'docker', 'read_only' => true, 'repo' => '/siterepo'];
 $evidence = [
-    'bundles' => [],
     'generated_from' => [
-        'compatibility_sha256' => 'sha256:' . str_repeat('8', 64),
         'dispositions_sha256' => 'sha256:' . str_repeat('9', 64),
-        'evidence_sha256' => 'sha256:' . str_repeat('2', 64),
     ],
     'registry_sha256' => 'sha256:' . str_repeat('8f', 32),
 ];
@@ -597,10 +614,11 @@ walk_json("$out/coverage.fail-no-logical-name.json", $coverageToday);
 // produced by a live survey (AdapterSources::survey()), which needs a target,
 // so no host-side builder can mint one here.
 $catalogDeferred = [[
-    'check' => 'CapabilityRegistry::report()',
+    'check' => 'AdapterRegistry::report()',
     'status' => 'deferred',
-    'surface' => 'dispositions.json / capabilities/registry.json against a target',
-    'why' => 'certification is evidence evaluated against one target revision and its installed versions',
+    'surface' => 'dispositions.json against a target',
+    'why' => 'certification is a reviewed claim evaluated against one target: whether the plugin the claim is '
+        . 'authored for is installed, active, and inside the reviewed version window',
 ]];
 $catalogSources = [
     [
@@ -1004,7 +1022,6 @@ $humanLines = AssessRenderer::render($s1, 50, [
     'contract_present' => false,
     'operation' => 'release',
     'proposal_path' => '.duo/contract/proposed.json',
-    'unpinned_subjects' => 0,
 ]);
 $humanToday = implode("\n", $humanLines) . "\n";
 

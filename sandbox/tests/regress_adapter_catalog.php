@@ -64,7 +64,7 @@ function is_multisite(): bool {
 require $repo . '/agent/src/Kernel/Canon.php';
 require $repo . '/agent/src/Kernel/OptionState.php';
 require $repo . '/agent/src/Policy/ManifestDispositions.php';
-require $repo . '/agent/src/Adapter/CapabilityRegistry.php';
+require $repo . '/agent/src/Adapter/AdapterRegistry.php';
 require $repo . '/agent/src/Policy/Policy.php';
 // The catalog class itself, for the two pure renderers asserted directly at
 // the end of this suite. Everything else here drives `php cli/duo` as a
@@ -437,20 +437,43 @@ check(
 );
 check(
     is_array($adapter) && is_array($adapter['claim'] ?? null)
-    && preg_match('/^[0-9a-f]{64}$/D', (string) ($adapter['claim']['adapter_digest'] ?? '')) === 1
     && ($adapter['claim']['status'] ?? null) === 'certified',
-    'MERGED FROM capabilities/registry.json: the generated claim with its exact adapter digest'
+    'MERGED FROM dispositions.json: the capability claim the reviewed entry projects'
+);
+// No `adapter_digest` on a claim, and none derivable here. Adapter identity is
+// ArtifactPolicyIdentity::manifest_rows() hashed against a LOADED policy — the
+// site's own pin set — and this command loads the shipped library with no site
+// policy, so any digest it printed would not be the pin `duo adapter certify
+// --pin` resolves. The assertion is that the key is absent rather than
+// present-and-wrong: a plausible 64-hex string beside a claim reads as the pin.
+check(
+    is_array($adapter) && is_array($adapter['claim'] ?? null)
+    && !array_key_exists('adapter_digest', $adapter['claim']),
+    'and the claim carries NO adapter_digest: a digest here would not be the pin, so none is printed'
+);
+// The report FRAME is stripped: `verdict` for this targetless query would sit
+// beside the row's own verdict for this repository's pins and mean something
+// different.
+check(
+    is_array($adapter) && is_array($adapter['claim'] ?? null)
+    && !array_key_exists('verdict', $adapter['claim'])
+    && !array_key_exists('evidence_scope', $adapter['claim']),
+    'and the report frame is stripped from the claim, so one row never carries two verdicts'
 );
 check(
     is_array($adapter) && ($adapter['claim']['surfaces'] ?? []) !== []
     && ($adapter['claim']['operations'] ?? []) !== [],
     'and the operations and surfaces the claim registers'
 );
+// VERIFICATION STRENGTH is the authored citation, reported and never resolved.
+// The `evidence.status` word went with the generated evidence record that
+// decided it: nothing on this machine runs a cited test, so a status here would
+// be the command vouching for itself.
 check(
     is_array($adapter)
-    && in_array($adapter['verification']['evidence_status'] ?? null, ['current', 'candidate'], true),
-    'VERIFICATION STRENGTH is the existing evidence.status word, not a minted scale (found: '
-    . (is_array($adapter) ? var_export($adapter['verification']['evidence_status'] ?? null, true) : '?') . ')'
+    && $adapter['verification']['bundle_schema'] === 'duo-subject-certification-bundle/v1',
+    'VERIFICATION STRENGTH is the cited bundle schema, not a minted scale (found: '
+    . (is_array($adapter) ? var_export($adapter['verification']['bundle_schema'] ?? null, true) : '?') . ')'
 );
 check(
     is_array($adapter) && in_array(
@@ -460,12 +483,11 @@ check(
     ),
     "and the claim's own plugin_execution.status word, from the same closed set the registry validates"
 );
-$citedVerdicts = array_values(array_unique(array_column($adapter['verification']['tests'] ?? [], 'verdict')));
+$citedTests = $adapter['verification']['tests'] ?? [];
 check(
-    ($adapter['verification']['tests'] ?? []) !== []
-        && $citedVerdicts === [(($adapter['verification']['evidence_status'] ?? null) === 'current' ? 'pass' : 'absent')],
-    'and each named citation reflects whether its own subject record is current (verdicts: '
-    . implode(', ', $citedVerdicts) . ')'
+    $citedTests !== [] && $citedTests === array_filter($citedTests, 'is_string'),
+    'and each citation is a bare test id with no verdict word beside it: this process ran none of them (cited: '
+    . implode(', ', array_map('strval', $citedTests)) . ')'
 );
 check(
     is_array($adapter) && isset($wooProviders['woocommerce-cache'])
@@ -734,18 +756,16 @@ check(
     'and its blocker row carries source, trust tier, and remediation — the same row `duo status` renders'
 );
 // The property is NON-CONTAGION: an uncertified site adapter must not make the
-// certified shipped adapter beside it look blocked. `evidence_not_current` is
-// carved out because it is a fact about this WORKING TREE rather than about
-// `core` — a branch that changed manifest or provider bytes regenerates the
-// registry into `candidate` status until its certification bundle runs, and
-// every shipped adapter carries that one row meanwhile. Carving it out keeps
-// the check meaningful on both sides of the bundle instead of green only on a
-// tree whose evidence happens to be current; any OTHER core blocker still
-// fails, which is the contagion this was written to catch.
+// certified shipped adapter beside it look blocked. The `evidence_not_current`
+// carve-out this filter used to carry is gone with its premise — it existed
+// because a branch that changed manifest or provider bytes regenerated the
+// capability registry into `candidate` status until its certification bundle
+// ran, so every shipped adapter carried that one row meanwhile. Nothing
+// regenerates and nothing expires now, so `core` is held to contributing NO
+// blocker at all, on any working tree.
 $coreBlockers = array_values(array_filter(
     $blockedReport['blockers'] ?? [],
     static fn(array $r): bool => ($r['name'] ?? '') === 'core'
-        && ($r['code'] ?? '') !== 'evidence_not_current'
 ));
 check(
     $coreBlockers === [],
@@ -758,37 +778,15 @@ check(
 // loading provider PHP or pretending to know plugin liveness. Copy the real
 // reviewed library into scratch, remove only the provider file, and exercise
 // the actual CLI doctor subprocess against a real pinned manifest.
+// Copy, remove one provider file, run doctor. The claim-rewriting this fixture
+// used to need is gone: it existed only to force every copied capability claim
+// to `candidate` so unrelated scoped evidence records would not try to verify
+// target-installed agent files the scratch tree never copied. With no generated
+// registry and no evidence record there is nothing to neutralize, so the Woo
+// row reaches the missing-provider blocker on the untouched copy.
 $missingProviderLibrary = scratch('missing-provider-library');
 copy_tree($manifestDir, $missingProviderLibrary);
 unlink($missingProviderLibrary . '/providers/woocommerce-cache.php');
-$missingManifest = Canon::decode(Canon::read_file($missingProviderLibrary . '/woocommerce.json'));
-$missingDispositions = Canon::decode(Canon::read_file($missingProviderLibrary . '/dispositions.json'));
-$missingRegistry = Canon::decode(Canon::read_file($missingProviderLibrary . '/capabilities/registry.json'));
-$missingAdapterDigest = \Duo\CapabilityRegistry::adapter_digest(
-    $missingManifest,
-    $missingDispositions['manifests']['woocommerce'],
-    $missingProviderLibrary
-);
-$missingRegistry['manifests']['woocommerce']['adapter_digest'] = $missingAdapterDigest;
-// This scratch directory is an intentionally incomplete shipped-library
-// fixture, not either supported full-source or deployed-agent layout. Keep
-// every copied claim candidate so unrelated current scoped records do not try
-// to verify target-installed agent files that this fixture never copied. The
-// Woo row is then free to exercise only the missing-provider blocker below.
-foreach (['manifests', 'profiles'] as $section) {
-    foreach ($missingRegistry[$section] as &$missingClaim) {
-        $missingClaim['evidence']['bundle_digest'] = null;
-        $missingClaim['evidence']['closure_digest'] = null;
-        $missingClaim['evidence']['git_revision'] = null;
-        $missingClaim['evidence']['status'] = 'candidate';
-        $missingClaim['evidence']['subject_digest'] = null;
-    }
-    unset($missingClaim);
-}
-Canon::write_file(
-    $missingProviderLibrary . '/capabilities/registry.json',
-    Canon::encode($missingRegistry)
-);
 $missingProviderRepo = site_repo(['woocommerce']);
 $missingProviderDoctor = duo(
     ['doctor', '--repo=' . $missingProviderRepo, '--format=json'],
@@ -869,7 +867,7 @@ $deferredSurfaces = implode("\n", array_map(
     $healthyReport['deferred'] ?? []
 ));
 check(
-    str_contains($deferredSurfaces, 'CapabilityRegistry::report()')
+    str_contains($deferredSurfaces, 'AdapterRegistry::report()')
     && str_contains($deferredSurfaces, 'duo capabilities <env>'),
     'doctor is offline-honest about certification: it names the live evaluation it did NOT perform, and where to get it'
 );

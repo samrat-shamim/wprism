@@ -1,5 +1,5 @@
 {
-  "_comment": "DUO-3222/DUO-3227: the ONE project-level WordPress/PHP/database compatibility statement. PHP and database use min-inclusive/max-exclusive ranges. WordPress remains a single last-verified version because no multi-version core matrix exists; the generated capability registry treats any other target version as unproven and blocks a certified verdict. Doctor reports this baseline and the release/registry evaluator is the authoritative product gate -- never independently-maintained numbers.",
+  "_comment": "DUO-3222/DUO-3227: the ONE project-level WordPress/PHP/database compatibility statement. PHP and database use min-inclusive/max-exclusive ranges; WordPress remains a single last-verified version because no multi-version core matrix exists. duo doctor blocks on the PHP and database ranges, and tools/capability-doc.php cross-checks this file against manifests/capabilities/platform.json so the two copies cannot drift -- never independently-maintained numbers.",
   "php": {
     "min": "8.3.0",
     "max": "8.4.0",
@@ -13,6 +13,6 @@
   },
   "wordpress": {
     "last_verified": "7.0.3",
-    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by each capability's current subject evidence is certified. Any other target version receives wordpress_version_mismatch until fresh subject evidence updates this value; a wider range requires a real multi-version core matrix."
+    "note": "Pinned by the sandbox harness's own Docker tag (wordpress:7.0.3-php8.3-apache -- see sandbox/pair.yml, sandbox/db.yml, sandbox/docker-compose.yml): the core version the live conformance estate last ran against. The sandbox image is not core-version pinned, so this is a single last-verified version, not a claimed range; other core versions are genuinely untested and no runtime gate enforces this boundary -- a wider claim requires a real multi-version core matrix."
   }
 }

@@ -61,23 +61,35 @@ $check(
     'the retained diagnostic directory is explicitly mode 0700'
 );
 
-$hermeticAt = strpos($harness, '# The shipped capability records are intentionally candidate/expired');
-$hermeticArchive = 'tar -C "$HERMETIC_MANIFESTS" -cf "$HERMETIC_CAPABILITIES_ARCHIVE" capabilities';
-$scopedSay = 'say "install hermetic independently current subject evidence for scoped promotion"';
-$hermeticInstall = 'tar -C /var/www/html/wp-content/mu-plugins/manifests -xf \'$REMOTE_CAPABILITIES_ARCHIVE\'';
+// The scoped-promotion leg used to STAGE its own capability evidence: a
+// hermetic library was manufactured under $TMP, its capabilities/ directory
+// tarred, scp'd to the target, and unpacked over the adopted one, because the
+// generated attestation was expired on any tree that had not imported current
+// subject records and promotion refused before it could exercise anything.
+// There is no attestation to re-seal, so the staging is gone — and its absence
+// is asserted, not merely unmentioned: a harness that still pushed a
+// capabilities/ directory onto the target would be replacing the very library
+// the gate reads, which is exactly the bypass this check has always existed to
+// forbid. What remains is a read-only premise check on the library `duo adopt`
+// itself installed.
+$scopedSay = 'say "the adopted target carries the reviewed manifest library it will be gated on"';
 $scopedAt = strpos($harness, $scopedSay);
+$promoteLegAt = strpos($harness, 'say "exercise a real checkpointed SSH scoped promotion and its recovery boundary"');
 $check(
-    is_int($hermeticAt) && is_int($scopedAt) && $hermeticAt < $scopedAt
-        && str_contains($harness, 'HERMETIC_ROOT="$TMP/hermetic-certification"')
-        && str_contains($harness, 'certification_fixture.php "$HERMETIC_ROOT"')
-        && str_contains($harness, $hermeticArchive)
-        && str_contains($harness, 'scp -F "$TMP/ssh_config" "$HERMETIC_CAPABILITIES_ARCHIVE"')
-        && str_contains($harness, $hermeticInstall)
-        && str_contains($harness, 'foreach(["manifests","profiles"] as $s)')
-        && str_contains($harness, '($v["status"]??null)==="certified"&&($v["evidence"]["status"]??null)!=="current"')
-        && !str_contains(substr($harness, $scopedAt), 'capability-registry.php import-')
-        && !str_contains(substr($harness, $scopedAt), 'DUO_MANIFESTS_DIR=') ,
-    'scoped SSH promotion manufactures and installs independent current records for every certified subject before promotion, without importing or bypassing the product gate'
+    is_int($scopedAt) && is_int($promoteLegAt) && $scopedAt < $promoteLegAt
+        && str_contains($harness, '($p["format"]??null)!=="duo-platform-boundary/v1"')
+        && str_contains($harness, 'count($v["evidence"]["tests"]??[])<1')
+        && !str_contains($harness, 'HERMETIC_')
+        && !str_contains($harness, 'certification_fixture.php')
+        && !str_contains($harness, 'capability-registry.php')
+        && !str_contains(substr($harness, $scopedAt), 'DUO_MANIFESTS_DIR='),
+    'scoped SSH promotion verifies the reviewed library the target was ADOPTED with, and stages, imports, or '
+    . 'redirects nothing to get there'
+);
+$check(
+    !preg_match('/(scp|tar)[^\n]*capabilities/', $harness),
+    'no capabilities/ directory is ever archived or copied onto the target — the library under the gate is the one '
+    . 'adopt installed'
 );
 
 $diagnosticAssignments = [

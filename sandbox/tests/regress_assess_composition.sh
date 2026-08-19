@@ -223,10 +223,23 @@ foreach ($d["surfaces"] as $row) {
         }
     }
 }
-// The evidence pins, and the digest binding the whole document.
-if (count($d["evidence"]["bundles"]) !== 2) { $fail("both certification subjects should be pinned"); }
-foreach (["dispositions_sha256","evidence_sha256","compatibility_sha256"] as $k) {
-    if (!is_string($d["evidence"]["generated_from"][$k] ?? null)) { $fail("evidence provenance $k is missing"); }
+// The evidence pins, and the digest binding the whole document. Two facts and
+// no third: the target reports the content address of the reviewed
+// dispositions its verdict came from, and the host records its own copy of
+// that file. There is no per-subject bundle list, so a count of pinned
+// certification subjects would be a count of nothing.
+$pinKeys = array_keys($d["evidence"]); sort($pinKeys);
+if ($pinKeys !== ["generated_from","registry_sha256"]) {
+    $fail("evidence pins " . implode(",", $pinKeys) . ", expected registry_sha256 and generated_from");
+}
+if (!is_string($d["evidence"]["registry_sha256"] ?? null) || $d["evidence"]["registry_sha256"] === "") {
+    $fail("the target reported no reviewed-dispositions hash");
+}
+if (array_keys($d["evidence"]["generated_from"]) !== ["dispositions_sha256"]) {
+    $fail("evidence provenance names " . implode(",", array_keys($d["evidence"]["generated_from"])) . ", expected dispositions_sha256 alone");
+}
+if (!is_string($d["evidence"]["generated_from"]["dispositions_sha256"] ?? null)) {
+    $fail("evidence provenance dispositions_sha256 is missing");
 }
 $stated = $d["assess_digest"]; unset($d["assess_digest"]);
 require $argv[2] . "/agent/src/Kernel/Canon.php";

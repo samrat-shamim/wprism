@@ -33,34 +33,44 @@ use Duo\CommandRefusalException;
  * not a clock read; surfaces are emitted in `id` order and operations in the
  * spec's own operation order; everything else is Canon's key sort.
  *
- * **The evidence-pin flip.** The contract pins `registry_sha256` and a
- * per-subject bundle digest+status. When the observed registry hash differs
- * from the pin, every surface flips to `Requalification required`; when one
- * bundle is stale, only the surfaces that named it as an evidence subject
- * flip. MUP §8 records the bluntness of the whole-surface flip as a
- * deliberate deferral (bounded requalification is Phase C) — the flip is
- * implemented by injecting the registry's own `evidence_not_current`
- * blocker into the fact vector, so the readiness word still comes from
- * ProjectionVocabulary's §1.3 table and nothing here mints a status word.
+ * **The evidence-pin flip.** The contract pins one number, `registry_sha256`
+ * — the content address of the reviewed dispositions the verdict was read
+ * from. When the observed hash differs from the pin, the reviewed document
+ * this contract was accepted against is not the document answering now, and
+ * every surface flips to `Requalification required`. MUP §8 records the
+ * bluntness of the whole-surface flip as a deliberate deferral (bounded
+ * requalification is Phase C); the per-subject bundle pins that used to make a
+ * narrower flip possible addressed a generated evidence record this tree no
+ * longer produces. The flip is implemented by injecting
+ * `evidence_not_current` into the fact vector, so the readiness word still
+ * comes from ProjectionVocabulary's §1.3 table and nothing here mints a status
+ * word.
  */
 final class ContractProjection {
     public const FORMAT = 'duo-site-capability-projection/v1';
 
-    /** The blocker CapabilityRegistry itself raises for expired evidence. */
+    /**
+     * The blocker this class SYNTHESIZES for pin drift.
+     *
+     * It is not read from any capability report — the agent stopped emitting
+     * `evidence_not_current` when the generated evidence record was removed —
+     * and it is not a claim about a subject's evidence. It is this projection
+     * saying "the reviewed dispositions moved since this contract was
+     * accepted", routed through the one blocker vocabulary so the readiness
+     * word is still §1.3's and the Requalification tier stays reachable.
+     */
     public const STALE_EVIDENCE_BLOCKER = 'evidence_not_current';
 
     /**
      * Generate the projection document.
      *
-     * @param array<string,mixed> $contract a validated `duo-application-contract/v1`
+     * @param array<string,mixed> $contract a validated `duo-application-contract/v2`
      * @param array<string,mixed> $facts registry + probe facts:
      *        {
      *          'operations': list<operation>,       // the operations this projection covers
      *          'registry_sha256': string,           // observed now
-     *          'bundles': list<{subject, bundle_digest, status}>,   // observed now
      *          'surfaces': {
      *            '<surface id>': {
-     *               'evidence_subjects': list<string>,
      *               'operations': {'<op>': {'facts': <ProjectionVocabulary fact vector>,
      *                                       'expiry_and_dependencies': list<string>}}
      *            }
@@ -90,7 +100,7 @@ final class ContractProjection {
 
         /** @var list<string> $operations */
         $operations = array_values($facts['operations']);
-        $stale = self::staleEvidence($contract, $facts);
+        $stale = self::staleRegistry($contract, $facts);
 
         $rows = [];
         foreach (self::surfaceIdentities($contract, $inventory) as $id => $identity) {
@@ -105,9 +115,8 @@ final class ContractProjection {
             'generated_at' => $generatedAt,
             'target_probe' => $targetProbe,
             'evidence_pins' => [
-                'current' => !$stale['registry'] && $stale['bundles'] === [],
-                'stale_registry' => $stale['registry'],
-                'stale_bundles' => $stale['bundles'],
+                'current' => !$stale,
+                'stale_registry' => $stale,
             ],
             'surfaces' => $rows,
         ];
@@ -119,43 +128,24 @@ final class ContractProjection {
     }
 
     /**
-     * Which pinned evidence no longer matches what the target reports.
+     * Whether the reviewed dispositions moved since this contract was accepted.
      *
-     * A bundle counts as stale when it is absent from the observed set, when
-     * its digest moved, or when its status is anything other than `current`
-     * — the three ways `manifests/capabilities/evidence.json` can stop
-     * covering the revision the contract was reviewed against.
+     * One comparison, not a set: the pin addresses the whole reviewed document
+     * (`ManifestDispositions::sha256()`), so any authored change to any
+     * subject's status, boundary or citation moves it. The per-subject bundle
+     * comparison this method also used to make read a generated evidence
+     * record that no longer exists, and a claim's `evidence` is now the
+     * authored citation verbatim — no digest, no status, nothing that can go
+     * stale independently of the document carrying it.
      *
      * @param array<string,mixed> $contract
      * @param array<string,mixed> $facts
-     * @return array{registry: bool, bundles: list<string>}
      */
-    private static function staleEvidence(array $contract, array $facts): array {
-        $pinnedRegistry = (string) $contract['evidence_pins']['registry_sha256'];
-        $observedRegistry = (string) $facts['registry_sha256'];
-
-        $observed = [];
-        foreach ($facts['bundles'] as $bundle) {
-            $observed[(string) $bundle['subject']] = $bundle;
-        }
-
-        $staleBundles = [];
-        foreach ($contract['evidence_pins']['bundles'] as $pinned) {
-            $subject = (string) $pinned['subject'];
-            $seen = $observed[$subject] ?? null;
-            if ($seen === null
-                || (string) ($seen['status'] ?? '') !== 'current'
-                || !hash_equals((string) $pinned['bundle_digest'], (string) ($seen['bundle_digest'] ?? ''))
-            ) {
-                $staleBundles[] = $subject;
-            }
-        }
-        sort($staleBundles, SORT_STRING);
-
-        return [
-            'registry' => !hash_equals($pinnedRegistry, $observedRegistry),
-            'bundles' => $staleBundles,
-        ];
+    private static function staleRegistry(array $contract, array $facts): bool {
+        return !hash_equals(
+            (string) $contract['evidence_pins']['registry_sha256'],
+            (string) $facts['registry_sha256']
+        );
     }
 
     /**
@@ -211,7 +201,7 @@ final class ContractProjection {
      * @param array<string,mixed> $identity
      * @param array<string,mixed> $facts
      * @param list<string> $operations
-     * @param array{registry: bool, bundles: list<string>} $stale
+     * @param bool $stale the pinned dispositions hash no longer matches
      * @return array<string,mixed>
      */
     private static function projectSurface(
@@ -219,13 +209,10 @@ final class ContractProjection {
         array $identity,
         array $facts,
         array $operations,
-        array $stale
+        bool $stale
     ): array {
         /** @var array<string,mixed> $surfaceFacts */
         $surfaceFacts = $facts['surfaces'][$id] ?? [];
-        $subjects = $surfaceFacts['evidence_subjects'] ?? [];
-        $affected = $stale['registry']
-            || (is_array($subjects) && array_intersect($subjects, $stale['bundles']) !== []);
 
         $projected = [];
         $stateClasses = [];
@@ -239,7 +226,7 @@ final class ContractProjection {
                 ? $entry['facts']
                 : self::defaultFacts($operation, (string) $identity['declared_state_class']);
             $vector = self::withOperatorDecision($vector, $identity);
-            if ($affected) {
+            if ($stale) {
                 $vector = self::withStaleEvidence($vector);
             }
             $projection = ProjectionVocabulary::project($vector);
@@ -370,7 +357,6 @@ final class ContractProjection {
             'unsupported_reason' => null,
             'registry' => [
                 'claim_status' => null,
-                'evidence_status' => null,
                 'verdict_status' => null,
                 'blockers' => ['missing_registry_entry'],
                 'conditions' => [],
@@ -411,13 +397,13 @@ final class ContractProjection {
 
     /** @param array<string,mixed> $facts */
     private static function validateFacts(array $facts): void {
-        foreach (['operations', 'registry_sha256', 'bundles', 'surfaces'] as $key) {
+        foreach (['operations', 'registry_sha256', 'surfaces'] as $key) {
             if (!array_key_exists($key, $facts)) {
                 throw self::refuse('projection_invalid', "projection facts are missing '$key'");
             }
         }
         foreach (array_keys($facts) as $key) {
-            if (!in_array((string) $key, ['operations', 'registry_sha256', 'bundles', 'surfaces'], true)) {
+            if (!in_array((string) $key, ['operations', 'registry_sha256', 'surfaces'], true)) {
                 throw self::refuse('projection_invalid', "projection facts carry the unknown key '" . (string) $key . "'");
             }
         }
@@ -431,9 +417,6 @@ final class ContractProjection {
         }
         if (!is_string($facts['registry_sha256']) || $facts['registry_sha256'] === '') {
             throw self::refuse('projection_invalid', 'projection facts.registry_sha256 must be a non-empty string');
-        }
-        if (!is_array($facts['bundles']) || !array_is_list($facts['bundles'])) {
-            throw self::refuse('projection_invalid', 'projection facts.bundles must be a list');
         }
         if (!is_array($facts['surfaces']) || array_is_list($facts['surfaces'])) {
             throw self::refuse('projection_invalid', 'projection facts.surfaces must be an id -> facts object');

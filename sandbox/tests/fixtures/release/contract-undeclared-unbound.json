@@ -1,5 +1,5 @@
 {
-  "format": "duo-application-contract/v1",
+  "format": "duo-application-contract/v2",
   "site": {
     "name": "example-shop",
     "spec_version": 2
@@ -98,25 +98,8 @@
   "evidence_pins": {
     "registry_sha256": "sha256:8fa100000000000000000000000000000000000000000000000000000000ffff",
     "generated_from": {
-      "dispositions_sha256": "sha256:947600000000000000000000000000000000000000000000000000000000ffff",
-      "evidence_sha256": "sha256:27bd00000000000000000000000000000000000000000000000000000000ffff",
-      "compatibility_sha256": "sha256:889000000000000000000000000000000000000000000000000000000000ffff"
-    },
-    "bundles": [
-      {
-        "subject": "manifests.storefront-commerce",
-        "bundle_digest": "sha256:734500000000000000000000000000000000000000000000000000000000ffff",
-        "bundle_schema": "duo-subject-certification-bundle/v1",
-        "status": "current",
-        "git_revision": "ca94e365000000000000000000000000000000000",
-        "expires_with": [
-          "storefront-commerce",
-          "wordpress",
-          "php",
-          "database"
-        ]
-      }
-    ]
+      "dispositions_sha256": "sha256:947600000000000000000000000000000000000000000000000000000000ffff"
+    }
   },
   "attestation": {
     "format": "duo-contract-attestation/v1",

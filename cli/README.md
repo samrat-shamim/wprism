@@ -150,14 +150,16 @@ are rejected when the registry is loaded.
   produced it, reviewed disposition status (or `uncertified` for an
   out-of-tree adapter), and an isolated grammar verdict from the engine's real
   loader.
-  `inspect <name>` adds the reviewed disposition entry, the generated registry
-  claim (adapter digest, supported versions, operations, surfaces, explicit
-  unsupported boundaries, evidence bundle), the providers the manifest
-  requires with the capabilities each must advertise, and the verification
-  facts that already exist — `evidence.status`, the claim's
-  `plugin_execution.status`, and each cited test resolved against the bundle's
-  own verdict. There is no verification score, and inventing one next to
-  reviewed evidence is exactly what the certification separation refuses.
+  `inspect <name>` adds the reviewed disposition entry, the capability claim
+  that disposition projects (supported versions, operations, surfaces, explicit
+  unsupported boundaries, the authored evidence citation), the providers the
+  manifest requires with the capabilities each must advertise, and the
+  verification facts that already exist — the cited bundle schema, the claim's
+  `plugin_execution.status`, and the test ids the citation names. There is no
+  verification score, no per-test verdict (nothing here runs those tests), and
+  no pin digest: adapter identity is resolved against a loaded site policy, so
+  `duo adapter certify <repo> --name=<n> --pin` is what prints and writes the
+  exact `{name,source,digest}` object.
   `doctor` adds this repository's readiness blockers (with `--repo`) and every
   installed file the engine refuses to load — a shadowed adapter, an ambiguous
   identity, a case-confusable name, a symlink, a nested or near-miss `.json`,
@@ -555,16 +557,17 @@ are rejected when the registry is loaded.
   whole-plan findings.
 
 - **`duo capabilities <env> [--operation=<op>] [--surface=<surface>]`
-  `[--revision=<sha>] [--format=json]`** — resolves the repository's exact
-  manifest pins against [the generated capability registry](../manifests/capabilities/registry.json).
-  It evaluates the requested platform revision, target WordPress/PHP/database
-  and plugin/theme versions, operation, and exact state surface against one
-  current content-addressed evidence bundle. Output separates unmodified
-  plugin execution from branchable authored-state scope and gives structured
-  blocker codes for unsupported, experimental, expired-evidence,
-  version-mismatch, and multisite cases. The agent-level `wp duo capabilities
-  --all` reports the complete shipped library. `duo status`, host
-  deploy/promote, and `make release-gate` consume the same generated claims.
+  `[--format=json]`** — resolves the repository's exact manifest pins against
+  [the reviewed dispositions](../manifests/dispositions.json). It evaluates the
+  adapter's authored status, the operation, the exact state surface, and the
+  installed plugin version against the reviewed window. Output separates
+  unmodified plugin execution from branchable authored-state scope and gives
+  structured blocker codes for uncertified sources, unpinned certifications,
+  unsupported surfaces, and plugin version/activation cases. `--revision` is
+  gone rather than inert: it selected an evidence-bound platform revision, and
+  no record binds one. The agent-level `wp duo capabilities --all` reports the
+  complete shipped library. `duo status`, host deploy/promote, and
+  `make release-gate` consume the same reviewed claims.
 
 - **`duo plan|explain|apply <env> [flags...]`** — streams the corresponding
   `wp duo plan|explain|apply --repo=<repo_path> [flags...]` command for that

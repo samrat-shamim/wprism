@@ -15,12 +15,12 @@ use PHPUnit\Framework\TestCase;
  * doctor.sh is a diagnosis tool, so the only thing worth pinning mechanically
  * is that it agrees with reality on a checkout that IS healthy: a doctor that
  * cries wolf gets ignored, and a doctor that reports green while
- * `make release-gate` is red is worse than no doctor. Four checks are the ones
+ * `make release-gate` is red is worse than no doctor. Three checks are the ones
  * whose green answer is load-bearing for every other tool in tools/ --
- * full clone, certification commits present, release-gate green, a usable PHP
- * -- so those four are asserted by name. The rest of the output (docker, gh,
- * pair budget) is environment-dependent by design and is deliberately NOT
- * asserted: it is WARN-only in the script for the same reason.
+ * full clone, release-gate green, a usable PHP -- so those three are asserted
+ * by name. The rest of the output (docker, gh, pair budget) is
+ * environment-dependent by design and is deliberately NOT asserted: it is
+ * WARN-only in the script for the same reason.
  *
  * The script is run out of process (proc_open) because it is a CLI entry point
  * that `cd`s to its own repo root and exits with a status; there is nothing to
@@ -29,8 +29,8 @@ use PHPUnit\Framework\TestCase;
  * `--no-color` so assertions match literal text rather than ANSI runs.
  *
  * A red result here is a real finding about the checkout, not a flaky test:
- * the usual cause is an untracked file left under agent/, cli/ or sandbox/bin/
- * (which expires all nine certifications) or a stale capability registry.
+ * the usual cause is generated output (docs/capabilities.md, the classmap) that
+ * has drifted from the source `make release-gate` regenerates it from.
  */
 final class DoctorTest extends TestCase
 {
@@ -120,8 +120,13 @@ final class DoctorTest extends TestCase
     }
 
     /**
-     * The four load-bearing checks, each asserted as an `ok` line so that a
+     * The three load-bearing checks, each asserted as an `ok` line so that a
      * downgrade to WARN (which would keep the exit status at 0) still fails.
+     *
+     * The release-gate needle spans doctor.sh's own label and the first words of
+     * `tools/capability-doc.php --check`'s output, so a gate silently rewired to
+     * a different tool fails here. It stops before that line's remainder, which
+     * states the specific agreement reached and is that tool's to reword.
      *
      * @return array<string,array{0:string}>
      */
@@ -129,8 +134,7 @@ final class DoctorTest extends TestCase
     {
         return [
             'full clone' => ['full clone (git rev-parse --is-shallow-repository = false)'],
-            'certification commits' => ['every certification commit resolves'],
-            'release gate' => ['make release-gate: capability registry check:'],
+            'release gate' => ['make release-gate: capability doc check:'],
             'php extension sodium' => ['php extension: sodium'],
         ];
     }
@@ -189,141 +193,9 @@ final class DoctorTest extends TestCase
         // The whole point of the cheat sheet is that the fast tools never read
         // as a substitute for the gate, so both must appear together.
         self::assertStringContainsString('php tools/offline.php -j8', $stdout);
-        self::assertStringContainsString('php tools/cert-impact.php', $stdout);
         self::assertStringContainsString('make regress-offline-all', $stdout);
         self::assertStringContainsString('canonical merge gate', $stdout);
         self::assertStringContainsString('docs/dev-setup.md', $stdout);
-    }
-
-    /**
-     * Pin the closure-hygiene split against a synthetic repo: a TRACKED,
-     * unstaged modification inside agent/ must WARN ("a certification round
-     * is due"), never FAIL (which reads as "delete your own in-progress
-     * edit" — the bug this test guards against), while a genuinely
-     * UNTRACKED file inside agent/ must still FAIL, because that really is
-     * the filesystem-walk hazard the check exists to catch.
-     *
-     * This copies the real, unmodified tools/doctor.sh into the synthetic
-     * repo and runs it there (doctor.sh derives REPO_ROOT from its own
-     * script location via BASH_SOURCE, so cwd alone cannot repoint it at a
-     * different tree) rather than duplicating its grep pattern here, so a
-     * regression in the shipped filter is what this test actually observes.
-     * Everything outside the closure-hygiene section is expected to be red
-     * (no evidence.json, no vendor/, …) in a bare synthetic repo and is
-     * deliberately not asserted.
-     */
-    public function testClosureHygieneWarnsOnTrackedModificationButFailsOnUntracked(): void
-    {
-        $root = self::makeSyntheticRepoWithDoctor();
-
-        try {
-            $result = self::bash([$root . '/tools/doctor.sh', '--no-color', '--no-pairs']);
-            $section = self::extractSection($result['stdout'], 'certification closure hygiene');
-            self::assertNotNull($section, 'doctor.sh printed no closure-hygiene section: ' . $result['stdout']);
-
-            $failLine = self::lineContaining($section, 'untracked/ignored files inside the certification closure');
-            $warnLine = self::lineContaining($section, 'modified closure files');
-            self::assertNotNull($failLine, "no FAIL line for the untracked file:\n$section");
-            self::assertNotNull($warnLine, "no WARN line for the tracked modification:\n$section");
-            self::assertStringStartsWith('FAIL', $failLine);
-            self::assertStringStartsWith('WARN', $warnLine);
-
-            // The untracked file is named under the FAIL block ...
-            $failIndex = strpos($section, $failLine);
-            $warnIndex = strpos($section, $warnLine);
-            self::assertNotFalse($failIndex);
-            self::assertNotFalse($warnIndex);
-            $failBlock = substr($section, $failIndex, $warnIndex - $failIndex);
-            self::assertStringContainsString('agent/src/Stray.php', $failBlock);
-            // ... and the tracked modification is never folded into it: that
-            // was exactly the false FAIL this fix removes.
-            self::assertStringNotContainsString('A.php', $failBlock);
-
-            $warnBlock = substr($section, $warnIndex);
-            self::assertStringContainsString('agent/src/A.php', $warnBlock);
-        } finally {
-            self::rrmdir($root);
-        }
-    }
-
-    private static function makeSyntheticRepoWithDoctor(): string
-    {
-        $root = (string) tempnam(sys_get_temp_dir(), 'duo-doctor-test-');
-        unlink($root);
-        mkdir($root . '/agent/src', 0o777, true);
-        mkdir($root . '/cli/src', 0o777, true);
-        mkdir($root . '/sandbox/bin', 0o777, true);
-        mkdir($root . '/tools', 0o777, true);
-
-        file_put_contents($root . '/agent/src/A.php', "<?php\n// baseline\n");
-        self::assertTrue(copy(self::repoRoot() . '/tools/doctor.sh', $root . '/tools/doctor.sh'));
-
-        self::git($root, ['init', '--quiet']);
-        self::git($root, ['add', '-A']);
-        self::git($root, ['-c', 'user.email=doctor-test@example.invalid', '-c', 'user.name=doctor-test',
-            'commit', '--quiet', '-m', 'baseline']);
-
-        // A tracked modification, left unstaged: the case the FAIL/WARN
-        // split exists for.
-        file_put_contents($root . '/agent/src/A.php', "<?php\n// baseline\n// modified\n");
-        // A file git has never seen: the case the FAIL branch must still
-        // catch — this test would be worthless if the fix had simply
-        // silenced the FAIL branch outright.
-        file_put_contents($root . '/agent/src/Stray.php', "<?php\n// never committed\n");
-
-        return $root;
-    }
-
-    /** @param list<string> $args */
-    private static function git(string $root, array $args): void
-    {
-        $cmd = 'git -C ' . escapeshellarg($root);
-        foreach ($args as $arg) {
-            $cmd .= ' ' . escapeshellarg($arg);
-        }
-        $pipes = [];
-        $process = proc_open(
-            $cmd,
-            [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
-            $pipes,
-            null,
-            ['PATH' => getenv('PATH') ?: '/usr/bin:/bin', 'HOME' => getenv('HOME') ?: '/tmp']
-        );
-        self::assertIsResource($process, 'could not launch git');
-        fclose($pipes[1]);
-        $stderr = (string) stream_get_contents($pipes[2]);
-        fclose($pipes[2]);
-        $status = proc_close($process);
-        self::assertSame(0, $status, 'git ' . implode(' ', $args) . " failed: $stderr");
-    }
-
-    private static function rrmdir(string $path): void
-    {
-        if (!is_dir($path) || is_link($path)) {
-            if (file_exists($path)) {
-                unlink($path);
-            }
-            return;
-        }
-        foreach (scandir($path) ?: [] as $entry) {
-            if ($entry === '.' || $entry === '..') {
-                continue;
-            }
-            self::rrmdir($path . '/' . $entry);
-        }
-        rmdir($path);
-    }
-
-    private static function extractSection(string $stdout, string $heading): ?string
-    {
-        $marker = '== ' . $heading . ' ==';
-        $start = strpos($stdout, $marker);
-        if ($start === false) {
-            return null;
-        }
-        $next = strpos($stdout, "\n== ", $start + strlen($marker));
-
-        return $next === false ? substr($stdout, $start) : substr($stdout, $start, $next - $start);
     }
 
     public function testHelpIsFreeAndAnUnknownOptionIsRejected(): void

@@ -37,7 +37,7 @@ pass "no syntax errors"
 
 say "the verb is WordPress-free by construction — assert no WordPress reach in the handler or the files it adds to boot()'s load set"
 # AdapterDraft::boot() loads the same engine set manifest-validate already proves
-# WordPress-free (Canon/OptionState/ManifestDispositions/CapabilityRegistry/Policy),
+# WordPress-free (Canon/OptionState/ManifestDispositions/Policy),
 # plus Secrets (which pulls CommandRefusal). Those two are the only additions, so the
 # scan below covers the handler itself and exactly those additions. A WordPress
 # function on an unguarded line in a process where it does not exist is a fatal error;

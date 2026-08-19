@@ -177,11 +177,22 @@ PHP;
     }
 
     /**
-     * Return pinned adapters whose generated, evidence-bound capability is
-     * not certified. Null claims preserve legacy/custom test libraries which
-     * publish no product claim; canonical shipped entries always carry both
-     * a disposition and a capability and are checked before a target lease
-     * or checkpoint.
+     * Return pinned adapters whose reviewed capability claim is not certified.
+     *
+     * The null-claim row is NOT dead with the generated registry: a shipped
+     * adapter's claim is now projected from its own reviewed disposition
+     * (AdapterRegistry::capability_claim()), so it exists wherever a
+     * disposition does — but an out-of-tree adapter carries a synthesized
+     * provenance record as its `disposition` while AdapterSources::claim()
+     * answers null until a certificate verifies. That row is a signed-nothing
+     * site adapter reaching a promotion lease, which must refuse.
+     *
+     * Evidence currency is deliberately no longer a second axis. A shipped
+     * claim carries the authored citation verbatim and has no `evidence.status`
+     * at all; a site claim exists only after AdapterCertification verified the
+     * signature that produced it (AdapterCertification::projectClaim()). The
+     * old `evidence.status === 'current'` conjunct would now refuse every
+     * certified shipped adapter.
      */
     public static function dispositionBlockers(array $summary): array {
         $out = [];
@@ -194,25 +205,21 @@ PHP;
                 $out[] = [
                     'name' => (string) ($adapter['name'] ?? '?'),
                     'status' => 'unsupported',
-                    'reason' => 'no generated capability claim is bound to this compiled adapter',
+                    'reason' => 'no reviewed capability claim is bound to this compiled adapter',
                 ];
                 continue;
             }
-            if (($capability['status'] ?? null) === 'certified'
-                && ($capability['evidence']['status'] ?? null) === 'current') {
+            if (($capability['status'] ?? null) === 'certified') {
                 continue;
             }
-            $reason = ($capability['evidence']['status'] ?? null) !== 'current'
-                ? 'the generated capability claim is not backed by current evidence'
-                : (string) (
-                    $capability['reason']
-                    ?? $adapter['disposition']['reason']
-                    ?? 'capability is not certified with current evidence'
-                );
             $out[] = [
                 'name' => (string) ($adapter['name'] ?? '?'),
                 'status' => (string) ($capability['status'] ?? 'unsupported'),
-                'reason' => $reason,
+                'reason' => (string) (
+                    $capability['reason']
+                    ?? $adapter['disposition']['reason']
+                    ?? 'capability is not certified'
+                ),
             ];
         }
         return $out;

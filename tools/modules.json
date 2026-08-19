@@ -129,17 +129,15 @@
           {
             "module": "Adapter",
             "kind": "upward",
-            "count": 11,
+            "count": 9,
             "edges": [
               "ArtifactPolicyIdentity.php -> AdapterSources.php",
-              "ArtifactPolicyIdentity.php -> CapabilityRegistry.php",
               "ManifestValidator.php -> ActionProviderGrammar.php",
               "ManifestValidator.php -> AdapterContractGrammar.php",
               "PinResolver.php -> AdapterSources.php",
               "Policy.php -> ActionProviderGrammar.php",
               "Policy.php -> AdapterRegistry.php",
               "Policy.php -> AdapterSources.php",
-              "Policy.php -> CapabilityRegistry.php",
               "PolicyLoadFinalizer.php -> ActionProviderGrammar.php",
               "PolicyLoadFinalizer.php -> AdapterContractGrammar.php"
             ]
@@ -1088,13 +1086,12 @@
       },
       "Adapter": {
         "layer": "adapter",
-        "purpose": "The plugin-facing boundary: manifest sources, adapter registry, observation, certification bundles, capability registry and the provider SDK the engine calls through.",
+        "purpose": "The plugin-facing boundary: manifest sources, adapter registry, observation, site adapter certification and the provider SDK the engine calls through.",
         "status": "populated",
         "entry_points": [
           "AdapterSources",
           "Providers",
           "ProviderActionBatchBuilder",
-          "CapabilityRegistry",
           "ActionProviderGrammar",
           "AdapterContractGrammar",
           "AdapterObservation",
@@ -1110,7 +1107,7 @@
           "Review"
         ],
         "exceptions": [],
-        "file_count": 11,
+        "file_count": 10,
         "files": [
           "ActionProviderGrammar.php",
           "AdapterCertification.php",
@@ -1118,11 +1115,10 @@
           "AdapterObservation.php",
           "AdapterRegistry.php",
           "AdapterSources.php",
-          "CapabilityRegistry.php",
           "ProviderActionBatchBuilder.php",
           "ProviderSdk.php",
           "Providers.php",
-          "ScopedCertificationBundle.php"
+          "TargetProbe.php"
         ]
       },
       "Command": {

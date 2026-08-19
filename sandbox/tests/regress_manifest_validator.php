@@ -92,7 +92,6 @@ $check(
 $frozenSnapshot = static function (array $manifests): array {
     return [
         'adapter_sources' => ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []],
-        'capabilities' => null,
         'dispositions' => null,
         'format' => 'duo-policy-snapshot/v4',
         'manifests' => $manifests,

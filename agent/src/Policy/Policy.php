@@ -145,7 +145,7 @@ final class Policy {
      * bounds something by an exact, certifiable window: min and max are both
      * non-empty version strings and min is strictly less than max (min
      * inclusive, max exclusive — the same version_compare() arithmetic
-     * CapabilityRegistry::in_range() applies at negotiation). Wildcards,
+     * AdapterRegistry::inside_range() applies at negotiation). Wildcards,
      * empty, and unbounded forms are not certifiable and are refused. $where
      * names the coordinate so one message serves every caller: this
      * project's own discovery-contract keyspace versioning, the plugin/theme
@@ -175,7 +175,12 @@ final class Policy {
     // path, which is exactly the provenance guarantee this record exists for.
     // v5 carries signed site-adapter certification envelopes. from_snapshot()
     // retains v4 reads only for the prior uncertified adapter-sources/v1 form.
-    private const SNAPSHOT_FORMAT = 'duo-policy-snapshot/v5';
+    // v6 drops the frozen `capabilities` record: the reviewed dispositions are
+    // now the whole authored claim source, and a v5 snapshot's generated
+    // registry has no reader left to validate it against. It is a rejected
+    // format rather than an ignored key — a snapshot carrying a record this
+    // agent no longer checks must not verify as if it had been checked.
+    private const SNAPSHOT_FORMAT = 'duo-policy-snapshot/v6';
     private const LEGACY_SNAPSHOT_FORMAT = 'duo-policy-snapshot/v4';
     /**
      * The exact canonical-surface literal grammar. Apply derives these keys
@@ -194,8 +199,6 @@ final class Policy {
     private ?ManifestDispositions $manifestDispositions = null;
     /** Which source installed each pinned adapter, and what that origin may do (DUO-3314). */
     private ?AdapterSources $adapterSources = null;
-    /** Generated evidence/platform projection of the reviewed dispositions. */
-    private ?CapabilityRegistry $capabilityRegistry = null;
     /** @var array<string, object>|null lazily-built interpreter instances */
     private ?array $interpreterInstances = null;
     /** @var array<string, object>|null lazily-built regenerator instances (DUO-3234) */
@@ -374,24 +377,6 @@ final class Policy {
             $p->manifests[] = $manifest;
         }
         PolicyLoadFinalizer::finalize($p, $pins);
-        if ($p->manifestDispositions !== null && class_exists(CapabilityRegistry::class)) {
-            // Only the shipped subset is a registry claim. Handing an
-            // out-of-tree manifest to registry validation would demand a claim
-            // that cannot exist, so one site-installed adapter would refuse
-            // every unrelated shipped adapter along with itself — the exact
-            // failure DUO-3314 exists to remove.
-            $p->capabilityRegistry = CapabilityRegistry::load(
-                $dir,
-                $p->manifestDispositions,
-                $p->adapterSources->shipped_manifests($p->manifests)
-            );
-            if ($p->capabilityRegistry === null) {
-                throw new \RuntimeException(
-                    "duo: $dir has manifest dispositions but no generated capability registry; "
-                    . 'missing registry data is unsupported'
-                );
-            }
-        }
         return $p;
     }
 
@@ -411,7 +396,6 @@ final class Policy {
             'manifests' => $this->manifests,
             'adapter_sources' => $adapterSources,
             'dispositions' => $this->manifestDispositions?->data(),
-            'capabilities' => $this->capabilityRegistry?->data(),
         ];
     }
 
@@ -421,7 +405,7 @@ final class Policy {
         $keys = array_keys($snapshot);
         sort($keys, SORT_STRING);
         $snapshotFormat = $snapshot['format'] ?? null;
-        if ($keys !== ['adapter_sources', 'capabilities', 'dispositions', 'format', 'manifests', 'site']
+        if ($keys !== ['adapter_sources', 'dispositions', 'format', 'manifests', 'site']
             || !in_array($snapshotFormat, [self::LEGACY_SNAPSHOT_FORMAT, self::SNAPSHOT_FORMAT], true)
             || !is_array($snapshot['adapter_sources'] ?? null)
             || !is_array($snapshot['site'] ?? null)
@@ -469,8 +453,12 @@ final class Policy {
             );
             $p->manifests[] = $manifest;
         }
-        // Provenance is reconstructed before the reviewed registries so both of
-        // them see the same shipped subset load() gave them (DUO-3314).
+        // Provenance is reconstructed before the reviewed dispositions so both
+        // see the same shipped subset load() gave them (DUO-3314). Only the
+        // shipped subset is a reviewed claim: handing an out-of-tree manifest
+        // to disposition validation would demand an entry that cannot exist,
+        // so one site-installed adapter would refuse every unrelated shipped
+        // adapter along with itself — the exact failure DUO-3314 removes.
         $p->adapterSources = AdapterSources::from_snapshot($snapshot['adapter_sources'], $p->manifests);
         PinResolver::validate_manifest_sources($pins, $p->adapterSources);
         $shipped = $p->adapterSources->shipped_manifests($p->manifests);
@@ -480,20 +468,6 @@ final class Policy {
                 throw new \RuntimeException('duo: frozen policy snapshot disposition registry is unavailable or malformed');
             }
             $p->manifestDispositions = ManifestDispositions::from_snapshot($dispositions, $shipped);
-        }
-        $capabilities = $snapshot['capabilities'] ?? null;
-        if ($capabilities !== null) {
-            if (!is_array($capabilities) || $p->manifestDispositions === null
-                || !class_exists(CapabilityRegistry::class)) {
-                throw new \RuntimeException('duo: frozen policy snapshot capability registry is unavailable or malformed');
-            }
-            $p->capabilityRegistry = CapabilityRegistry::from_snapshot(
-                $capabilities,
-                $p->manifestDispositions,
-                $shipped
-            );
-        } elseif ($p->manifestDispositions !== null) {
-            throw new \RuntimeException('duo: frozen policy snapshot has dispositions but no capability registry');
         }
         PolicyLoadFinalizer::finalize($p, $pins);
         return $p;
@@ -526,7 +500,7 @@ final class Policy {
     }
 
     /**
-     * The generated evidence-bound claim for one pinned adapter.
+     * The reviewed capability claim for one pinned adapter.
      *
      * DUO-3348 slice 4: the implementation now lives in
      * AdapterRegistry::capability_claim(); thin facade, as above.
@@ -609,7 +583,7 @@ final class Policy {
      * from here, never mutated), so constructing on demand needs no cache.
      */
     private function adapter_registry(): AdapterRegistry {
-        return new AdapterRegistry($this, $this->manifestDispositions, $this->capabilityRegistry);
+        return new AdapterRegistry($this, $this->manifestDispositions);
     }
 
     /** @return ?array{format:int,layout:string,source:string} */

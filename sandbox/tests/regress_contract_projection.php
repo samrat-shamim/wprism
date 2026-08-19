@@ -13,11 +13,16 @@
  * inputs whose every associative level is reversed, and compares bytes.
  *
  * **The evidence-pin flip.** MUP §3.4: "a mismatch against pinned evidence
- * flips affected surfaces to `Requalification required`". The blunt version
- * — the whole surface, not the exact expired capability — is MUP §8's
- * declared deferral, so the test pins the bluntness too: a moved registry
- * hash flips every surface, a single stale bundle flips only the surfaces
- * that named it as an evidence subject.
+ * flips affected surfaces to `Requalification required`". There is exactly one
+ * pin left to mismatch — `registry_sha256`, the content address of the
+ * reviewed dispositions the verdict was read from — so the flip is total by
+ * construction: every surface, whatever it declares and whatever it used to
+ * cite. That bluntness is MUP §8's declared deferral and the suite pins it,
+ * including the case that used to be the narrow one (a managed surface that
+ * named no subject flips too). The per-subject `bundles[]` half is now pinned
+ * from the other side: the key is REFUSED in the fact object, so a caller that
+ * still supplies observed bundle rows is told, rather than having them
+ * silently ignored while `evidence_pins` reports `current`.
  *
  * The third assertion is structural: a surface the caller supplies no facts
  * for must project `Not qualified`, never the contract's own declaration.
@@ -37,9 +42,7 @@ use Duo\Orchestrator\ApplicationContract;
 use Duo\Orchestrator\ContractProjection;
 use Duo\Orchestrator\ProjectionVocabulary as V;
 
-const DUO_SUBJECT = 'manifests.storefront-commerce';
 const DUO_REGISTRY_SHA = 'sha256:8fa100000000000000000000000000000000000000000000000000000000ffff';
-const DUO_BUNDLE_SHA = 'sha256:734500000000000000000000000000000000000000000000000000000000ffff';
 const DUO_GENERATED_AT = '2026-08-17T09:14:02Z';
 
 /**
@@ -58,7 +61,6 @@ function duo_vector(string $operation, array $overrides = []): array {
         'unsupported_reason' => null,
         'registry' => [
             'claim_status' => 'certified',
-            'evidence_status' => 'current',
             'verdict_status' => 'certified',
             'blockers' => [],
             'conditions' => [],
@@ -94,12 +96,8 @@ function duo_projection_facts(): array {
     return [
         'operations' => ['capture', 'release'],
         'registry_sha256' => DUO_REGISTRY_SHA,
-        'bundles' => [
-            ['subject' => DUO_SUBJECT, 'bundle_digest' => DUO_BUNDLE_SHA, 'status' => 'current'],
-        ],
         'surfaces' => [
             'products' => [
-                'evidence_subjects' => [DUO_SUBJECT],
                 'operations' => [
                     'capture' => [
                         'facts' => duo_vector('capture'),
@@ -111,10 +109,7 @@ function duo_projection_facts(): array {
                     ],
                 ],
             ],
-            // No evidence subject: this surface's readiness does not depend
-            // on the per-subject bundle, only on the registry as a whole.
             'orders' => [
-                'evidence_subjects' => [],
                 'operations' => [
                     'capture' => ['facts' => duo_vector('capture', ['policy_class' => 'runtime'])],
                     'release' => ['facts' => duo_vector('release', ['policy_class' => 'runtime'])],
@@ -281,10 +276,9 @@ $decidedContract = ApplicationContract::withDigest($decidedContract);
 // the table); the decision must win over THOSE, not only fill a fact vacuum.
 $unclassifiedFacts = duo_projection_facts();
 $unclassifiedFacts['surfaces']['acme_catalog'] = [
-    'evidence_subjects' => [],
     'operations' => [
-        'capture' => ['facts' => duo_vector('capture', ['policy_class' => null, 'unclassified' => true, 'registry' => ['claim_status' => null, 'evidence_status' => null, 'verdict_status' => null, 'blockers' => ['missing_registry_entry'], 'source' => null]])],
-        'release' => ['facts' => duo_vector('release', ['policy_class' => null, 'unclassified' => true, 'registry' => ['claim_status' => null, 'evidence_status' => null, 'verdict_status' => null, 'blockers' => ['missing_registry_entry'], 'source' => null]])],
+        'capture' => ['facts' => duo_vector('capture', ['policy_class' => null, 'unclassified' => true, 'registry' => ['claim_status' => null, 'verdict_status' => null, 'blockers' => ['missing_registry_entry'], 'source' => null]])],
+        'release' => ['facts' => duo_vector('release', ['policy_class' => null, 'unclassified' => true, 'registry' => ['claim_status' => null, 'verdict_status' => null, 'blockers' => ['missing_registry_entry'], 'source' => null]])],
     ],
 ];
 $decided = ContractProjection::generate($decidedContract, $unclassifiedFacts, $probe, duo_inventory(), DUO_GENERATED_AT);
@@ -366,20 +360,28 @@ foreach (['capture', 'release'] as $operation) {
         "a preserve-local surface carries no next action for $operation, stale evidence or not"
     );
 }
-// The registry-wide flip reaches a surface with no evidence subject as
-// well: the same no-subject surface, projected as a managed one, flips.
+// The flip is total, and this is the case that proves it rather than merely
+// illustrating it: `orders` cited no subject in the old shape, so under the
+// per-subject pins it was the surface a narrow flip would have SPARED. There
+// is no narrow flip any more — one pin covers the whole reviewed document —
+// so projected as a managed surface it flips like every other.
 $managedNoSubject = $movedRegistry;
 $managedNoSubject['surfaces']['orders']['operations'] = [
     'capture' => ['facts' => duo_vector('capture')],
     'release' => ['facts' => duo_vector('release')],
 ];
-$managedRows = duo_rows_by_id(
-    ContractProjection::generate($contract, $managedNoSubject, $probe, duo_inventory(), DUO_GENERATED_AT)
+$managedFlipped = ContractProjection::generate(
+    $contract,
+    $managedNoSubject,
+    $probe,
+    duo_inventory(),
+    DUO_GENERATED_AT
 );
+$managedRows = duo_rows_by_id($managedFlipped);
 duo_check_same(
     'Requalification required',
     $managedRows['orders']['operations']['release']['readiness'],
-    'a moved registry hash flips a managed surface that pinned no bundle subject: the registry is everyone\'s pin'
+    'a moved registry hash flips every managed surface: the reviewed document is everyone\'s pin'
 );
 duo_check_same(
     're-certify the pinned evidence, then re-run assess',
@@ -387,57 +389,55 @@ duo_check_same(
     'the flipped row states how to get back'
 );
 
-$staleBundle = duo_projection_facts();
-$staleBundle['bundles'][0]['status'] = 'expired';
-$partial = ContractProjection::generate($contract, $staleBundle, $probe, duo_inventory(), DUO_GENERATED_AT);
-duo_check_same(false, $partial['evidence_pins']['current'], 'a stale bundle is reported as stale');
-duo_check_same(false, $partial['evidence_pins']['stale_registry'], 'the registry itself is still current');
-duo_check_same([DUO_SUBJECT], $partial['evidence_pins']['stale_bundles'], 'the stale bundle subject is named');
-$partialRows = duo_rows_by_id($partial);
+// `evidence_pins` reports the one comparison and no residue of the other. A
+// leftover `stale_bundles: []` would read as "no bundle is stale" — a standing
+// all-clear about a check nothing performs — which is the dishonesty the
+// narrowing exists to remove.
 duo_check_same(
-    'Requalification required',
-    $partialRows['products']['operations']['release']['readiness'],
-    'the surface that pinned the stale bundle flips'
+    ['current', 'stale_registry'],
+    array_keys($document['evidence_pins']),
+    'the projection reports exactly the two pin facts it can still observe'
 );
 duo_check_same(
-    'Unsupported',
-    $partialRows['orders']['operations']['release']['readiness'],
-    'a preserve-local surface stays Unsupported under a stale bundle: nothing about it was ever pinned or copied'
-);
-$partialManaged = $staleBundle;
-$partialManaged['surfaces']['orders']['operations'] = [
-    'capture' => ['facts' => duo_vector('capture')],
-    'release' => ['facts' => duo_vector('release')],
-];
-$partialManagedRows = duo_rows_by_id(
-    ContractProjection::generate($contract, $partialManaged, $probe, duo_inventory(), DUO_GENERATED_AT)
-);
-duo_check_same(
-    'Ready',
-    $partialManagedRows['orders']['operations']['release']['readiness'],
-    'a managed surface that never pinned that bundle does not flip'
+    ['current' => false, 'stale_registry' => true],
+    $flipped['evidence_pins'],
+    'a drifted pin says so in both fields and invents no third'
 );
 
-$movedDigest = duo_projection_facts();
-$movedDigest['bundles'][0]['bundle_digest'] = 'sha256:' . str_repeat('b', 64);
-$digestRows = duo_rows_by_id(
-    ContractProjection::generate($contract, $movedDigest, $probe, duo_inventory(), DUO_GENERATED_AT)
+// The other half of the narrowing: observed bundle rows are refused, not
+// ignored. A caller still supplying them under a matching registry hash would
+// otherwise be told `current` while its per-subject facts were dropped on the
+// floor — a silent downgrade of exactly the evidence it thought it passed.
+$withBundles = duo_projection_facts();
+$withBundles['bundles'] = [[
+    'subject' => 'manifests.storefront-commerce',
+    'bundle_digest' => 'sha256:' . str_repeat('b', 64),
+    'status' => 'expired',
+]];
+duo_check_refuses(
+    static fn () => ContractProjection::generate(
+        $contract,
+        $withBundles,
+        $probe,
+        duo_inventory(),
+        DUO_GENERATED_AT
+    ),
+    'projection_invalid',
+    'observed per-subject bundle rows refuse as an unknown fact key rather than being silently dropped'
 );
+// A per-surface `evidence_subjects` list is a weaker case: `validateFacts()`
+// closes the TOP level of the fact object only, so a leftover surface key is
+// carried past validation and read by nothing. What matters is that it can no
+// longer change an answer — under the per-subject pins this list decided which
+// surfaces flipped, and the assertion below is that it now decides nothing.
+$withSubjects = duo_projection_facts();
+$withSubjects['surfaces']['products']['evidence_subjects'] = ['manifests.storefront-commerce'];
 duo_check_same(
-    'Requalification required',
-    $digestRows['products']['operations']['release']['readiness'],
-    'a bundle whose digest moved flips its surfaces too'
-);
-
-$missingBundle = duo_projection_facts();
-$missingBundle['bundles'] = [];
-$missingRows = duo_rows_by_id(
-    ContractProjection::generate($contract, $missingBundle, $probe, duo_inventory(), DUO_GENERATED_AT)
-);
-duo_check_same(
-    'Requalification required',
-    $missingRows['products']['operations']['release']['readiness'],
-    'a pinned bundle that is no longer reported flips its surfaces'
+    Canon::encode($document),
+    Canon::encode(
+        ContractProjection::generate($contract, $withSubjects, $probe, duo_inventory(), DUO_GENERATED_AT)
+    ),
+    'a leftover per-surface evidence_subjects list changes no byte of the projection'
 );
 
 // ------------------------------------------- surface-level handling reduction
@@ -511,7 +511,7 @@ duo_check_same(
 );
 
 // ------------------------------------------------- the three forbidden words
-$sweep = [$document, $flipped, $partial, $withoutInventory];
+$sweep = [$document, $flipped, $managedFlipped, $withoutInventory];
 foreach ($sweep as $index => $candidate) {
     $encoded = Canon::encode($candidate);
     foreach (V::NEVER_EMITTED as $forbidden) {

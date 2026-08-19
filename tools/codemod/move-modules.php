@@ -137,12 +137,11 @@ const MM_SCAN_EXCLUDE = [
 const MM_MAX_SCAN_BYTES = 4194304;
 
 /**
- * Certification-closure members, for the `CLOSURE (apply in train)` label in
- * --plan. Deliberately a *labelling* approximation of
- * `\Duo\ScopedCertificationBundle::subjectInputPaths()` — ask
- * `php tools/cert-impact.php` for the authoritative answer. It exists so a
- * reader of the plan can see at a glance which rewrites are the ones that buy
- * the certification round this train is paying for.
+ * Shipped-surface members, for the `SHIPPED SURFACE` label in --plan. These are
+ * the trees and files a rewrite reaches a managed site through — `agent/`,
+ * `manifests/` and `recovery/` are what cli/src/Onboarding/Adopt.php tars — plus
+ * the harness files that pin their bytes. It exists so a reader of the plan can
+ * see at a glance which rewrites leave the dev tree.
  */
 const MM_CLOSURE_PREFIXES = ['agent/', 'cli/', 'sandbox/bin/', 'manifests/'];
 
@@ -153,10 +152,8 @@ const MM_CLOSURE_FILES = [
     'sandbox/conformance/run.sh',
     'sandbox/db.yml',
     'sandbox/init-cli.Dockerfile',
-    'sandbox/tests/certify_subject_bundle.sh',
     'sandbox/tests/certify_version_matrix.sh',
     'sandbox/tests/regress_multisite_refusal.sh',
-    'scripts/capability-registry.php',
 ];
 
 // ------------------------------------------------------------ path helpers
@@ -796,10 +793,13 @@ function mm_rewrite_loader(string $text, string $treeRoot, array $treeIndex): ar
  * program uses when the tree root arrives as an argument rather than as
  * `__DIR__`:
  *
- *     // sandbox/tests/regress_scoped_certification_bundle.php:158, inside a
- *     // nowdoc program run as `php runner.php <agentDir> <manifestDir>`
+ *     // inside a nowdoc program run as `php runner.php <agentDir> <manifestDir>`
  *     $agentDir = $argv[1];
  *     require $agentDir . '/src/Canon.php';
+ *
+ * No suite in the tree writes this shape today (the one that did was the
+ * scoped-certification bundle suite, removed with the rest of that apparatus),
+ * so this rule is currently load-bearing for future callers only.
  *
  * No `agent/src/…` literal appears, and the base is bound in a different
  * process, so neither the literal rewriter nor the tree-root-variable rule can
@@ -2109,11 +2109,10 @@ function mm_print_plan(array $plan, array $map): void
         mm_print_file_changes($out, $relative, $info);
     }
 
-    fwrite($out, "\n=== CLOSURE (apply in train) ===\n");
-    fwrite($out, "These rewrites land inside the certification closure. --apply performs\n");
-    fwrite($out, "them, because the orchestrator runs --apply inside the certification\n");
-    fwrite($out, "train that is already paying for the round. Ask `php tools/cert-impact.php`\n");
-    fwrite($out, "for the authoritative membership.\n\n");
+    fwrite($out, "\n=== SHIPPED SURFACE ===\n");
+    fwrite($out, "These rewrites land in the trees that reach a managed site (agent/,\n");
+    fwrite($out, "manifests/, recovery/ per cli/src/Onboarding/Adopt.php) or in the harness\n");
+    fwrite($out, "files that pin their bytes. --apply performs them; review them first.\n\n");
     foreach ($closureFiles as $relative => $info) {
         mm_print_file_changes($out, $relative, $info);
     }

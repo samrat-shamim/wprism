@@ -20,7 +20,9 @@ require_once __DIR__ . '/../Contract/ContractProposal.php';
 require_once __DIR__ . '/../Contract/ContractStore.php';
 require_once __DIR__ . '/../Contract/ProjectionVocabulary.php';
 require_once __DIR__ . '/CommandOutput.php';
+require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 
+use Duo\Canon;
 use Duo\CommandRefusalException;
 
 /**
@@ -123,7 +125,6 @@ final class AssessCommand {
         $lines = AssessRenderer::render($result['report'], $limit, [
             'proposal_path' => self::PROPOSAL_PATH,
             'contract_present' => $result['contract'] !== null,
-            'unpinned_subjects' => $result['unpinned_subjects'],
             'operation' => $viewOperation,
         ]);
         foreach ($lines as $line) {
@@ -148,7 +149,7 @@ final class AssessCommand {
      *         registry_reports:array<string,array<string,mixed>>,inventory:array<string,mixed>,
      *         seed:array<string,mixed>,site_repo:string,store:ContractStore,
      *         contract:array<string,mixed>|null,operations:list<string>,
-     *         unpinned_subjects:int,composition:list<string>}
+     *         composition:list<string>}
      */
     public static function assess(EnvironmentDriver $driver, array $options): array {
         $composition = [];
@@ -213,9 +214,12 @@ final class AssessCommand {
         $target = StackInventory::stack($inventory);
         if ($target['site_mode'] !== 'single-site') {
             // MUP §2.1's own list of assessment refusals: missing access,
-            // unsupported topology, multisite. The registry is single-site
-            // only, so every row would carry `multisite_unsupported` and the
-            // report would be a page-long restatement of one fact.
+            // unsupported topology, multisite. The reviewed dispositions are
+            // authored against single-site installations only, and nothing
+            // downstream re-states that per surface — the agent stopped
+            // reporting a multisite boundary per row when the generated
+            // evidence record that measured one was removed — so this is the
+            // one place the topology is judged, once, out loud.
             throw new CommandRefusalException(
                 'assess_topology_unsupported',
                 'this profile assesses single-site installations only',
@@ -237,7 +241,7 @@ final class AssessCommand {
                     '--operation=' . $registryOperation, '--adoption-preview', '--format=json',
                 ],
                 'assess_registry_unavailable',
-                'the target could not evaluate its capability registry for this operation'
+                'the target could not evaluate its reviewed capability claims for this operation'
             );
         }
 
@@ -285,7 +289,6 @@ final class AssessCommand {
             'store' => $store,
             'contract' => $contract,
             'operations' => $operations,
-            'unpinned_subjects' => AssessReport::unpinnedSubjects($registryReports),
             'composition' => $composition,
         ];
     }
@@ -348,8 +351,7 @@ final class AssessCommand {
             SurfaceCatalog::projectionFacts(
                 $catalog,
                 $result['operations'],
-                (string) $report['evidence']['registry_sha256'],
-                AssessReport::observedBundles($result['registry_reports'])
+                (string) $report['evidence']['registry_sha256']
             ),
             ['wordpress' => (string) $report['target']['wordpress'], 'php' => (string) $report['target']['php']],
             $result['inventory'],
@@ -602,8 +604,8 @@ final class AssessCommand {
      * The agent answers a refusal with `duo-command-refusal/v1` on stdout,
      * so it is decoded first and re-raised with its own reason code: an
      * assessment that reported `assess_inventory_unavailable` when the
-     * target actually said `multisite_unsupported` would send the operator
-     * to the wrong problem.
+     * target actually said `invalid_arguments` would send the operator to
+     * the wrong problem.
      *
      * @param list<string> $args
      * @return array<string,mixed>
@@ -654,31 +656,43 @@ final class AssessCommand {
     }
 
     /**
-     * The generator provenance of the shipped capability registry.
+     * The provenance of the reviewed dispositions this checkout ships.
      *
-     * Read host-side because that is the only place it exists: the triple
-     * names the *inputs* the registry was generated from, and those inputs
-     * live beside the generator, never on a target. The pin that must flip
-     * when a site changes is `registry_sha256`, which is read from the
-     * target's own report.
+     * Read host-side because that is the only place these bytes exist as a
+     * file: `manifests/dispositions.json` is the sole authored source of a
+     * capability claim (ManifestDispositions' own header), so the document
+     * whose provenance a contract records is that one. There is no second,
+     * generated registry to name inputs for any more, and the code that read
+     * one refused `capability_registry_unreadable` for a file that is now
+     * deleted — hence the reason code moved with the premise.
+     *
+     * `registry_sha256` is computed exactly as `ManifestDispositions::sha256()`
+     * computes it — sha256 over `Canon::encode()` of the DECODED document, not
+     * over the file bytes — because that number is compared for equality with
+     * the one a target reports, and whitespace in a checkout must not read as
+     * drift. `generated_from.dispositions_sha256` is the raw file hash, which
+     * addresses this host's exact copy.
      *
      * @param array<string,mixed> $options
-     * @return array<string,mixed>
+     * @return array{registry_sha256:string,generated_from:array{dispositions_sha256:string}}
      */
     private static function registryProvenance(array $options): array {
         $path = (string) ($options['manifests_dir'] ?? dirname(__DIR__, 3) . '/manifests')
-            . '/capabilities/registry.json';
+            . '/dispositions.json';
         $raw = is_file($path) ? @file_get_contents($path) : false;
         $decoded = is_string($raw) ? json_decode($raw, true) : null;
-        if (!is_array($decoded) || !is_array($decoded['generated_from'] ?? null)) {
+        if (!is_array($decoded) || !is_array($decoded['manifests'] ?? null)) {
             throw new CommandRefusalException(
-                'capability_registry_unreadable',
-                'the shipped capability registry could not be read for its generator provenance',
-                'restore manifests/capabilities/registry.json in this checkout, then rerun assess'
+                'dispositions_unreadable',
+                'the reviewed manifest dispositions could not be read for their provenance',
+                'restore manifests/dispositions.json in this checkout, then rerun assess'
             );
         }
 
-        return $decoded['generated_from'];
+        return [
+            'registry_sha256' => hash('sha256', Canon::encode($decoded)),
+            'generated_from' => ['dispositions_sha256' => hash('sha256', (string) $raw)],
+        ];
     }
 
     /**

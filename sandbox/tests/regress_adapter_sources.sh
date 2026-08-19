@@ -18,12 +18,17 @@
 # against the REAL shipped manifest bytes rather than a synthetic manifest
 # directory — see the harness header for why (the claim under test is that
 # real certified adapters stay certified, which a synthetic manifest directory
-# cannot demonstrate). It serves those bytes from a scratch copy whose
-# certification evidence is re-sealed against the working tree (DUO-3379), so
-# the suite's verdict does not depend on where the branch sits in the
-# certification cycle. It writes only to scratch directories. The re-seal lives
-# in sandbox/tests/certification_fixture.php since DUO-3421, shared with the
-# live init suite, which mounts the identical library into its Docker pair.
+# cannot demonstrate). It serves those bytes from a hermetic scratch COPY,
+# because several of its groups mutate a manifest library — deleting its
+# dispositions, breaking its platform boundary — and the shipped one is not
+# theirs to break. It writes only to scratch directories. The copy lives in
+# sandbox/tests/certification_fixture.php since DUO-3421, shared with the live
+# init suite, which mounts the identical library into its Docker pair.
+#
+# That fixture used to re-seal certification evidence against the working tree
+# (DUO-3379), because the checked-in attestation was expired on any branch that
+# edited a bound input. There is no attestation now, so there is nothing to
+# re-seal and no branch state the verdict can depend on.
 set -euo pipefail
 cd "$(dirname "$0")"   # -> sandbox/tests/
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
@@ -37,8 +42,9 @@ php -l regress_adapter_sources.php >/dev/null || fail "regress_adapter_sources.p
 php -l certification_fixture.php >/dev/null || fail "certification_fixture.php has a syntax error"
 php -l ../../agent/src/Adapter/AdapterSources.php >/dev/null || fail "agent/src/Adapter/AdapterSources.php has a syntax error"
 php -l ../../agent/src/Policy/Policy.php >/dev/null || fail "agent/src/Policy/Policy.php has a syntax error"
-php -l ../../agent/src/Adapter/CapabilityRegistry.php >/dev/null || fail "agent/src/Adapter/CapabilityRegistry.php has a syntax error"
+php -l ../../agent/src/Adapter/AdapterRegistry.php >/dev/null || fail "agent/src/Adapter/AdapterRegistry.php has a syntax error"
 php -l ../../agent/src/Policy/ManifestDispositions.php >/dev/null || fail "agent/src/Policy/ManifestDispositions.php has a syntax error"
+php -l ../../agent/src/Policy/ArtifactPolicyIdentity.php >/dev/null || fail "agent/src/Policy/ArtifactPolicyIdentity.php has a syntax error"
 php -l ../../agent/src/Repository/RepositoryCompiler.php >/dev/null || fail "agent/src/Repository/RepositoryCompiler.php has a syntax error"
 php -l ../../agent/src/Command/Cli.php >/dev/null || fail "agent/src/Command/Cli.php has a syntax error"
 php -l ../../cli/src/Plan/PlanSummary.php >/dev/null || fail "cli/src/Plan/PlanSummary.php has a syntax error"

@@ -1,5 +1,5 @@
 {
-    "class_count": 338,
+    "class_count": 337,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -319,7 +319,11 @@
         },
         "Duo\\AdapterRegistry": {
             "abstract": false,
-            "constants": [],
+            "constants": {
+                "REPORT_FORMAT": {
+                    "value_repr": "duo-capability-report/v1"
+                }
+            },
             "final": true,
             "interfaces": [],
             "kind": "class",
@@ -342,14 +346,6 @@
                             "has_default": false,
                             "name": "manifestDispositions",
                             "type": "?Duo\\ManifestDispositions",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "capabilityRegistry",
-                            "type": "?Duo\\CapabilityRegistry",
                             "variadic": false
                         }
                     ],
@@ -439,6 +435,63 @@
                     ],
                     "return_type": "array",
                     "static": false,
+                    "visibility": "public"
+                },
+                "report": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "dispositions",
+                            "type": "Duo\\ManifestDispositions",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifests",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "query",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "target",
+                            "type": "?array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "sources",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "externalContexts",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
                     "visibility": "public"
                 }
             },
@@ -5074,361 +5127,6 @@
                         }
                     ],
                     "return_type": "array",
-                    "static": true,
-                    "visibility": "public"
-                }
-            },
-            "parent": null,
-            "properties": [],
-            "readonly": false
-        },
-        "Duo\\CapabilityRegistry": {
-            "abstract": false,
-            "constants": {
-                "EVIDENCE_FORMAT": {
-                    "value_repr": "duo-capability-evidence/v2"
-                },
-                "FORMAT": {
-                    "value_repr": "duo-capability-registry/v2"
-                }
-            },
-            "final": true,
-            "interfaces": [],
-            "kind": "class",
-            "methods": {
-                "adapter_digest": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "manifest",
-                            "type": "array",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "disposition",
-                            "type": "?array",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": true,
-                            "name": "manifestDir",
-                            "type": "?string",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "string",
-                    "static": true,
-                    "visibility": "public"
-                },
-                "blockers": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "manifests",
-                            "type": "array",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": [],
-                            "has_default": true,
-                            "name": "query",
-                            "type": "array",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": true,
-                            "name": "target",
-                            "type": "?array",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": [],
-                            "has_default": true,
-                            "name": "sources",
-                            "type": "array",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": [],
-                            "has_default": true,
-                            "name": "externalContexts",
-                            "type": "array",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "array",
-                    "static": false,
-                    "visibility": "public"
-                },
-                "claim": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "name",
-                            "type": "string",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "?array",
-                    "static": false,
-                    "visibility": "public"
-                },
-                "claim_from_disposition": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "manifest",
-                            "type": "array",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "disposition",
-                            "type": "array",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "evidence",
-                            "type": "array",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "platform",
-                            "type": "array",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": true,
-                            "name": "pluginExecution",
-                            "type": "?array",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "array",
-                    "static": true,
-                    "visibility": "public"
-                },
-                "data": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [],
-                    "return_type": "array",
-                    "static": false,
-                    "visibility": "public"
-                },
-                "from_snapshot": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "data",
-                            "type": "array",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "dispositions",
-                            "type": "Duo\\ManifestDispositions",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "manifests",
-                            "type": "array",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "Duo\\CapabilityRegistry",
-                    "static": true,
-                    "visibility": "public"
-                },
-                "load": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "manifestDir",
-                            "type": "string",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "dispositions",
-                            "type": "Duo\\ManifestDispositions",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "manifests",
-                            "type": "array",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "?Duo\\CapabilityRegistry",
-                    "static": true,
-                    "visibility": "public"
-                },
-                "probe_target": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [],
-                    "return_type": "?array",
-                    "static": true,
-                    "visibility": "public"
-                },
-                "profiles": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [],
-                    "return_type": "array",
-                    "static": false,
-                    "visibility": "public"
-                },
-                "report": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "manifests",
-                            "type": "array",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": [],
-                            "has_default": true,
-                            "name": "query",
-                            "type": "array",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": true,
-                            "name": "target",
-                            "type": "?array",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": [],
-                            "has_default": true,
-                            "name": "sources",
-                            "type": "array",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": [],
-                            "has_default": true,
-                            "name": "externalContexts",
-                            "type": "array",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "array",
-                    "static": false,
-                    "visibility": "public"
-                },
-                "subject_digest": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "kind",
-                            "type": "string",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "name",
-                            "type": "string",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "manifest",
-                            "type": "array",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "claim",
-                            "type": "array",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": true,
-                            "name": "manifestDir",
-                            "type": "?string",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "string",
                     "static": true,
                     "visibility": "public"
                 }
@@ -16236,6 +15934,9 @@
                 "FORMAT": {
                     "value_repr": "duo-manifest-dispositions/v1"
                 },
+                "PLATFORM_FORMAT": {
+                    "value_repr": "duo-platform-boundary/v1"
+                },
                 "STATUS_UNCOVERED": {
                     "value_repr": "uncovered"
                 },
@@ -16262,6 +15963,55 @@
                     ],
                     "return_type": "array",
                     "static": false,
+                    "visibility": "public"
+                },
+                "claim_from_disposition": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifest",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "disposition",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "evidence",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "platform",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "pluginExecution",
+                            "type": "?array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
                     "visibility": "public"
                 },
                 "data": {
@@ -16331,6 +16081,23 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "platform_boundary": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "dir",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "profiles": {
                     "abstract": false,
                     "final": false,
@@ -16353,6 +16120,14 @@
                         }
                     ],
                     "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "sha256": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "string",
                     "static": false,
                     "visibility": "public"
                 },
@@ -18446,7 +18221,7 @@
                     ]
                 },
                 "FORMAT": {
-                    "value_repr": "duo-application-contract/v1"
+                    "value_repr": "duo-application-contract/v2"
                 },
                 "MANIFEST_SOURCES": {
                     "value_repr": [
@@ -18454,6 +18229,9 @@
                         "site",
                         "plugin"
                     ]
+                },
+                "PRIOR_FORMAT": {
+                    "value_repr": "duo-application-contract/v1"
                 },
                 "SITE_MODES": {
                     "value_repr": [
@@ -19030,24 +18808,7 @@
                             "by_ref": false,
                             "default": null,
                             "has_default": false,
-                            "name": "generatedFrom",
-                            "type": "array",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "array",
-                    "static": true,
-                    "visibility": "public"
-                },
-                "observedBundles": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "registryReports",
+                            "name": "provenance",
                             "type": "array",
                             "variadic": false
                         }
@@ -19120,23 +18881,6 @@
                         }
                     ],
                     "return_type": "array",
-                    "static": true,
-                    "visibility": "public"
-                },
-                "unpinnedSubjects": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "registryReports",
-                            "type": "array",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "int",
                     "static": true,
                     "visibility": "public"
                 }
@@ -24741,15 +24485,12 @@
                 },
                 "BLOCKERS_REQUALIFICATION": {
                     "value_repr": [
-                        "evidence_not_current",
-                        "revision_not_certified",
-                        "profile_evidence_not_current"
+                        "evidence_not_current"
                     ]
                 },
                 "BLOCKERS_UNSUPPORTED": {
                     "value_repr": [
                         "surface_explicitly_unsupported",
-                        "multisite_unsupported",
                         "deletion_unsupported"
                     ]
                 },
@@ -29394,12 +29135,7 @@
                 "CONDITION_CODES": {
                     "value_repr": [
                         "plugin_version_mismatch",
-                        "plugin_not_active",
-                        "wordpress_version_mismatch",
-                        "php_version_mismatch",
-                        "database_version_mismatch",
-                        "theme_version_mismatch",
-                        "theme_not_active"
+                        "plugin_not_active"
                     ]
                 },
                 "DECLARED_POLICY_CLASS": {
@@ -29514,14 +29250,6 @@
                             "has_default": false,
                             "name": "registrySha256",
                             "type": "string",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "bundles",
-                            "type": "array",
                             "variadic": false
                         }
                     ],
@@ -46014,438 +45742,6 @@
             "properties": [],
             "readonly": false
         },
-        "Duo\\ScopedCertificationBundle": {
-            "abstract": false,
-            "constants": {
-                "FORMAT": {
-                    "value_repr": "duo-subject-certification-bundle/v1"
-                },
-                "PAIR_BUDGET_OVERRIDE_HATCH": {
-                    "value_repr": "DUO_PAIR_BUDGET_OVERRIDE"
-                }
-            },
-            "final": true,
-            "interfaces": [],
-            "kind": "class",
-            "methods": {
-                "assertCurrent": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "bundle",
-                            "type": "array",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "kind",
-                            "type": "string",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "name",
-                            "type": "string",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "subjectDigest",
-                            "type": "string",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "platform",
-                            "type": "array",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "boundInputs",
-                            "type": "array",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "requiredTests",
-                            "type": "array",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "ratification",
-                            "type": "array",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "artifacts",
-                            "type": "array",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "array",
-                    "static": true,
-                    "visibility": "public"
-                },
-                "assertEvidenceAssets": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "bundle",
-                            "type": "array",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "bundleDir",
-                            "type": "string",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "void",
-                    "static": true,
-                    "visibility": "public"
-                },
-                "assertGitRevisionInputs": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "root",
-                            "type": "string",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "bundle",
-                            "type": "array",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "void",
-                    "static": true,
-                    "visibility": "public"
-                },
-                "assertRuntimeInputsCurrent": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "agentDir",
-                            "type": "string",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "manifestDir",
-                            "type": "string",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "recorded",
-                            "type": "array",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "void",
-                    "static": true,
-                    "visibility": "public"
-                },
-                "closureDigest": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "inputs",
-                            "type": "array",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "string",
-                    "static": true,
-                    "visibility": "public"
-                },
-                "currentInputs": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "root",
-                            "type": "string",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "recorded",
-                            "type": "array",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "array",
-                    "static": true,
-                    "visibility": "public"
-                },
-                "currentInputsForPaths": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "root",
-                            "type": "string",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "paths",
-                            "type": "array",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "array",
-                    "static": true,
-                    "visibility": "public"
-                },
-                "digest": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "bundle",
-                            "type": "array",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "string",
-                    "static": true,
-                    "visibility": "public"
-                },
-                "evidenceDigest": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "assets",
-                            "type": "array",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "string",
-                    "static": true,
-                    "visibility": "public"
-                },
-                "subjectArtifacts": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "root",
-                            "type": "string",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "kind",
-                            "type": "string",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "name",
-                            "type": "string",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "manifest",
-                            "type": "array",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "requiredTests",
-                            "type": "array",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "array",
-                    "static": true,
-                    "visibility": "public"
-                },
-                "subjectInputPaths": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "root",
-                            "type": "string",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "kind",
-                            "type": "string",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "name",
-                            "type": "string",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "manifest",
-                            "type": "array",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "requiredTests",
-                            "type": "array",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "array",
-                    "static": true,
-                    "visibility": "public"
-                },
-                "subjectKey": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "kind",
-                            "type": "string",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "name",
-                            "type": "string",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "string",
-                    "static": true,
-                    "visibility": "public"
-                },
-                "validate": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "bundle",
-                            "type": "array",
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": "scoped certification bundle",
-                            "has_default": true,
-                            "name": "label",
-                            "type": "string",
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": "array",
-                    "static": true,
-                    "visibility": "public"
-                }
-            },
-            "parent": null,
-            "properties": [],
-            "readonly": false
-        },
         "Duo\\ScopedOptionMutationUnsupported": {
             "abstract": false,
             "constants": [],
@@ -50597,6 +49893,43 @@
                         }
                     ],
                     "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\TargetProbe": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "installed_plugin_version": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "plugin",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "probe_target": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?array",
                     "static": true,
                     "visibility": "public"
                 }

@@ -24,7 +24,7 @@
  * `agent/src/Assess/` — asserted against the real manifest library, so a new
  * adapter automatically joins the forbidden set.
  *
- * SEAM. `AssessInventory::report()` calls `CapabilityRegistry::probe_target()`,
+ * SEAM. `AssessInventory::report()` calls `TargetProbe::probe_target()`,
  * whose `SELECT VERSION()` the offline `$wpdb` deliberately refuses to model,
  * and `Pending::scan_read_only()`, whose gate walk needs a live WordPress. So
  * the suite drives `from_facts()`, which is the same document builder with
@@ -374,12 +374,18 @@ duo_check_same(
 duo_check_same('shipped', $manifestRow['source'], 'the shipped library reports the shipped source');
 duo_check(
     preg_match('/^[0-9a-f]{64}$/D', (string) $manifestRow['adapter_digest']) === 1,
-    'adapter_digest is the registry claim\'s bare hex digest, never a decorated string'
+    'adapter_digest is a bare hex digest, never a decorated string'
 );
+// This used to be compared against the `adapter_digest` a generated registry
+// recorded for the shipped adapter — two derivations that had to agree. There
+// is one derivation now: the resolved identity row, hashed. Compared against
+// the compiler's own answer rather than a re-walk of the fold rules here,
+// which would re-create exactly the second implementation the deletion removed.
 duo_check_same(
-    (string) (json_decode((string) file_get_contents($repoRoot . '/manifests/capabilities/registry.json'), true)['manifests']['core']['adapter_digest'] ?? ''),
+    (string) (\Duo\RepositoryCompiler::resolved_adapters($policy)[0]['digest'] ?? ''),
     $manifestRow['adapter_digest'],
-    'the digest agrees with the generated registry: the resolved content digest IS what the registry binds for a shipped adapter'
+    'the reported digest IS the resolved content digest for a shipped adapter, from the one derivation of adapter '
+    . 'identity'
 );
 // A SITE adapter has no registry claim to read a digest from, and a
 // site-certified claim is projected before its final digest exists — so the

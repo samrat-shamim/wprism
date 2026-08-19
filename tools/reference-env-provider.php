@@ -1,7 +1,7 @@
 <?php
 // Reference branch-environment provider for the sandbox pair (round-3 MUP
-// §2.2, last bullet). DEV-ONLY, free zone: tools/ never ships, and this file
-// is not in the certification closure.
+// §2.2, last bullet). DEV-ONLY: tools/ never ships — cli/src/Onboarding/Adopt.php
+// tars only agent/, manifests/ and recovery/.
 //
 // WHAT THIS IS
 // ------------

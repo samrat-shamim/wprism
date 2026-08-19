@@ -41,7 +41,7 @@ use Duo\CommandRefusalException;
  * | `transport_transient` | `retry` | the only class that earns a retry — and only after receipt reconciliation proves replay safe (`RETRY_PRECONDITION`). |
  * | `plan_changed` | `retry` | a clean pre-mutation refusal (MUP §2.3 step 3): nothing was written, so rebuilding the plan and re-authorizing is safe. |
  * | `capability_expired` | `requalify` | a condition re-checked at the mutation gate no longer holds; the fix is evidence, not repetition. |
- * | `evidence_not_current` | `requalify` | the pinned certification evidence went stale between freeze and gate. |
+ * | `evidence_not_current` | `requalify` | the reviewed dispositions the contract pinned moved between freeze and gate, so the certification this release was authorized against is not the one in force. |
  * | `frozen_promotion` | `resume` | a durable frozen promotion exists and the existing state machine can carry it forward from its own receipt. |
  * | `lease_held` | `resume` | another generation holds the promotion lease; resuming that generation is the safe move, not starting a new one. |
  * | `checkpoint_unavailable` | `escalate` | the selected recovery profile's checkpoint is absent or unverifiable, so no automated action is safe. |

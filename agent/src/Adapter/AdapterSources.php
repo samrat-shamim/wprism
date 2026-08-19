@@ -1153,7 +1153,7 @@ final class AdapterSources {
      *      collides with one is reported as `not_installed`, never refused.
      *
      * ACTIVE is the gate because activation is the operator's consent: it is
-     * the same gate CapabilityRegistry's `plugin_not_active` blocker and
+     * the same gate AdapterRegistry's `plugin_not_active` blocker and
      * Providers' negotiation already use for a plugin's code. survey() (collect
      * mode) additionally lists installed-but-inactive bundles, so the adapter
      * waiting behind an activation is visible rather than absent.
@@ -2104,13 +2104,12 @@ final class AdapterSources {
         $bound = new self($scan['origins'], $scan['provenance'], $scan['certificates'], $scan['claims']);
         $bound->bind_explicit_pins(self::surveyed_pins($repo));
         // Whether this library HAS a reviewed certification story at all. A
-        // custom or test manifest directory carrying neither file makes no
-        // product claim (spec/repo-format.md says so in as many words), so a
-        // shipped row there defers its certification to nothing — and `null`
-        // is what says that. Answering `registry` would name a registry the
-        // consumer would then go looking for.
-        $hasRegistry = $dispositions !== null
-            && is_file(rtrim($manifestDir, '/') . '/capabilities/registry.json');
+        // custom or test manifest directory carrying no dispositions document
+        // makes no product claim (spec/repo-format.md says so in as many
+        // words), so a shipped row there defers its certification to nothing —
+        // and `null` is what says that. Answering `registry` would name a
+        // review the consumer would then go looking for.
+        $hasRegistry = $dispositions !== null;
 
         // A refused SITE certification source means certification_files()
         // returned nothing, so not one companion certificate was paired or
@@ -3021,7 +3020,7 @@ final class AdapterSources {
      * line saying `compatibility_shim` invites "says who?", and the honest
      * answer is a coordinate inside the manifest the reader can go open. It is
      * derived beside the tier rather than by a second reader for the reason
-     * CapabilityRegistry::adapter_digest() gives for its own pairing — two
+     * ArtifactPolicyIdentity::manifest_rows() gives for its own pairing — two
      * walks of one rule are two rules the moment either moves, and the one
      * that moved silently would be the one printed next to the word "shim".
      *

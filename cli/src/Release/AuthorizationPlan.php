@@ -159,7 +159,7 @@ final class AuthorizationPlan {
      *   - `plan` (array) the complete `wp duo plan --format=json` envelope —
      *     validated through `PlanContract::requireComplete()`, because every
      *     count below is only trustworthy if the bucket exists;
-     *   - `contract` (?array) a validated `duo-application-contract/v1`, or
+     *   - `contract` (?array) a validated `duo-application-contract/v2`, or
      *     null when the site has none;
      *   - `projection` (list<array>) the `projection.json` surface rows for
      *     the surfaces in scope, each `{id, label?, operations: {release: …}}`;

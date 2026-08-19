@@ -1038,7 +1038,7 @@ final class RefreshPlan {
         foreach ($duoAgentClassmap as $duoAgentPath) {
             $duoAgentFiles[basename((string) $duoAgentPath, '.php')] = (string) $duoAgentPath;
         }
-        foreach (['Uuid','OrderPreserved','Canon','OptionState','UserMetaState','Db','Secrets','PersonalData','ManifestDispositions','CapabilityRegistry','Policy','Ledger','PromotionLock','Identity','IdentityBackup','Deletion','JsonRefs','Tokens','Blocks','PlainData','SidebarState','Shortcodes','Canary','IdentityNotes','Snapshot','Orphans','TransientDbException','Publish','Capture','RepositoryAuthorization','CodeCompatibility','Code','ReferenceGraph','RepositoryCompiler','ScopeClosure','CanonicalSurfaces','ScopeContract','ScopedStateOverlay','CodeStateContract'] as $file) {
+        foreach (['Uuid','OrderPreserved','Canon','OptionState','UserMetaState','Db','Secrets','PersonalData','ManifestDispositions','Policy','Ledger','PromotionLock','Identity','IdentityBackup','Deletion','JsonRefs','Tokens','Blocks','PlainData','SidebarState','Shortcodes','Canary','IdentityNotes','Snapshot','Orphans','TransientDbException','Publish','Capture','RepositoryAuthorization','CodeCompatibility','Code','ReferenceGraph','RepositoryCompiler','ScopeClosure','CanonicalSurfaces','ScopeContract','ScopedStateOverlay','CodeStateContract'] as $file) {
             $duoAgentFile = $duoAgentFiles[$file] ?? null;
             if (!is_string($duoAgentFile)) {
                 throw new \RuntimeException('refresh: agent source ' . $file . '.php is absent from agent/duo-classmap.php');

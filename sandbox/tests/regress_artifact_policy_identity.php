@@ -39,18 +39,21 @@ $check(
         && class_exists(\Duo\Canon::class, false)
         && class_exists(\Duo\AdapterSources::class, false)
         && class_exists(\Duo\ManifestDispositions::class, false)
-        && class_exists(\Duo\CapabilityRegistry::class, false)
         && !class_exists(\Duo\RepositoryCompiler::class, false),
     'ArtifactPolicyIdentity directly loads its policy identity stack without pulling in the repository-tree compiler'
 );
 
 require_once __DIR__ . '/../../agent/src/Repository/RepositoryCompiler.php';
 
-use Duo\CapabilityRegistry;
 use Duo\RepositoryCompiler;
 
+// Pinned explicitly rather than taking the default single-manifest load: the
+// digest folds below are only exercised by adapters that declare them — acf
+// carries an interpreter, woocommerce manifest-sourced providers, and
+// the-events-calendar post_type regenerators — so a `core`-only policy would
+// hash three absent keys and prove nothing about the walk.
 try {
-    $policy = Policy::load(null);
+    $policy = Policy::load(null, ['core', 'acf', 'woocommerce', 'the-events-calendar']);
     $check(true, 'the shipped manifest policy loads through the standalone identity collaborator');
 } catch (Throwable $e) {
     $check(false, 'the shipped manifest policy loads through the standalone identity collaborator (' . $e->getMessage() . ')');
@@ -83,14 +86,63 @@ if (isset($policy)) {
         $policy->manifest_disposition('core') !== null,
         'direct identity loading includes reviewed manifest dispositions rather than hashing an incomplete policy projection'
     );
-    $first = $rows[0] ?? null;
-    if (is_array($first)) {
-        $manifest = $first['manifest'] ?? null;
-        $disposition = $first['disposition'] ?? null;
+    // THE definition of adapter identity, and now the only one. It used to be
+    // mirrored by CapabilityRegistry::adapter_digest(), which re-walked the
+    // same interpreter/provider/regenerator folds so it could hash a manifest
+    // without loading a compiler; this assertion compared the two walks. With
+    // the mirror deleted the row IS the digest, so what has to be pinned
+    // instead is that every consumer reads that one derivation — asserted
+    // against the compiled row rather than against a second local copy of the
+    // rule, which would just re-create the drift the deletion removed.
+    $resolved = ArtifactPolicyIdentity::resolved_adapters($policy);
+    $resolvedByName = [];
+    foreach ($resolved as $resolvedRow) {
+        $resolvedByName[(string) $resolvedRow['name']] = $resolvedRow;
+    }
+    $digestMismatch = [];
+    foreach ($rows as $identityRow) {
+        $name = (string) $identityRow['name'];
+        if (($resolvedByName[$name]['digest'] ?? null) !== hash('sha256', Canon::encode($identityRow))) {
+            $digestMismatch[] = $name;
+        }
+    }
+    $check(
+        $digestMismatch === [] && $rows !== [],
+        'manifest_rows(): every reported adapter digest is exactly its own identity row hashed, across all '
+            . count($rows) . ' shipped adapters (mismatched: ' . implode(', ', $digestMismatch) . ')'
+    );
+    // The folds are the part a second walk got wrong: an interpreter name and
+    // its file bytes, manifest-sourced provider bytes, and the de-duplicated,
+    // name-sorted regenerator bytes. At least one shipped adapter must exercise
+    // each, or the assertion above is hashing three absent keys.
+    $foldsSeen = [];
+    foreach ($rows as $identityRow) {
+        foreach (['interpreter', 'providers', 'regenerators'] as $fold) {
+            if (isset($identityRow[$fold])) {
+                $foldsSeen[$fold] = true;
+            }
+        }
+    }
+    $check(
+        isset($foldsSeen['interpreter'], $foldsSeen['providers'], $foldsSeen['regenerators']),
+        'and the shipped set really does exercise all three executable folds, so the digest is not being proved over '
+            . 'rows that carry none of them'
+    );
+    $regeneratorRow = null;
+    foreach ($rows as $identityRow) {
+        if (isset($identityRow['regenerators']) && count($identityRow['regenerators']) > 1) {
+            $regeneratorRow = $identityRow;
+        }
+    }
+    if (is_array($regeneratorRow)) {
+        $regeneratorNames = array_column($regeneratorRow['regenerators'], 'name');
+        $sortedNames = $regeneratorNames;
+        sort($sortedNames, SORT_STRING);
         $check(
-            is_array($manifest)
-                && hash('sha256', Canon::encode($first)) === CapabilityRegistry::adapter_digest($manifest, is_array($disposition) ? $disposition : null),
-            'manifest_rows(): row bytes remain identical to the independent capability-registry digest contract'
+            $regeneratorNames === $sortedNames
+                && count(array_unique($regeneratorNames)) === count($regeneratorNames),
+            'the regenerator fold stays de-duplicated and name-sorted — post_types{} is a map whose key order Canon '
+                . 'normalizes away, so discovery order in this list would make the digest depend on nothing'
         );
     }
 }
