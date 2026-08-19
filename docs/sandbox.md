@@ -325,9 +325,9 @@ capacity or creating pair state. The
 kernel releases the descriptor after a crash/signal; the lock file itself is
 never removed, so a later owner cannot delete another process's reservation.
 `list` uses the same serialized strict query and surfaces the budget warning.
-Variable presence is only permission, never proof of use: a wrapper
-initializes a private ledger through `sandbox/lib/pair_force_hatch.sh`, and
-`pair.sh` appends to it (`pair_force_hatch_record`, `pair.sh:524`) only when
+Variable presence is only permission, never proof of use: `pair.sh`
+initializes a private ledger through `sandbox/lib/pair_force_hatch.sh` and
+appends to it (`pair_force_hatch_record`, `pair.sh:524`) only when
 the unreserved over-budget branch actually consumes the override. An in-budget
 admission with the variable present therefore remains unforced. If actual use
 cannot be recorded, pair admission refuses before its first post-budget

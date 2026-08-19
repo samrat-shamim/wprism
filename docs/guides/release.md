@@ -343,7 +343,7 @@ produces.
 | `reconcile` | ambiguous commitment, uncertain receipt, drift after freeze, `--from` ref mismatch | The controller cannot prove what the target did, or the target moved. Establish the truth and merge it. **Never retry an ambiguous commitment** — replaying an unprovable commitment is how a release applies twice. |
 | `retry` | transient transport failure, or `plan_changed` | The only two classes that earn a repeat, and a transport retry only after durable receipt reconciliation proves replay safe. Retry reuses the same operation identity. |
 | `recover` | `incomplete_lifecycle` or `incomplete_apply` | The target is between two worlds and only the recovery profile can converge it. [recovery.md](recovery.md) is the whole procedure. |
-| `requalify` | a gate-time condition no longer holds, or pinned evidence went stale | The fix is evidence, not repetition: re-certify or re-pin, then re-run `duo assess`. |
+| `requalify` | a gate-time condition no longer holds, or the reviewed dispositions moved since the contract was accepted | The fix is the reviewed input, not repetition: re-propose and re-accept the contract (or re-pin), then re-run `duo assess`. |
 | `escalate` | checkpoint unavailable, authority required, nothing safe | The explicit terminal case. Duo refuses and names the human authority required rather than guessing. |
 
 Each printed action comes with the one sentence explaining *why* it is that
