@@ -22,6 +22,24 @@ require_once __DIR__ . '/CapabilityRegistry.php';
  * agent-owned authority roots and re-binds the current authority-record and
  * platform digests.
  */
+
+/**
+ * A well-formed companion certificate that binds DIFFERENT bytes than
+ * `adapters/<name>.json` carries now — i.e. the adapter was edited after it
+ * was certified. This is not an authority anomaly: docs/guides/adapter-
+ * authoring.md states an edit "moves the digest and the claim drops back to
+ * uncertified". AdapterSources::scan() catches this specific signal and
+ * resolves the adapter as uncertified support (the same state a companion-
+ * absent site adapter reaches), so `duo assess`/`duo release` see a clean
+ * uncertified row instead of an unclassified hard failure, and `duo adapter
+ * certify --pin` can re-sign over the new bytes. Every genuine anomaly
+ * (malformed/misplaced companion, wrong authority, bad signature) stays a
+ * hard \RuntimeException — a superseded adapter never keeps its certified
+ * grants, so routing only this case to uncertified changes no trust outcome.
+ */
+final class SupersededSiteAdapterCertificate extends \RuntimeException {
+}
+
 final class AdapterCertification {
     public const FORMAT = 'duo-adapter-certification/v1';
     // Frozen policy snapshots carry the exact certificate format too; there
@@ -1479,23 +1497,36 @@ final class AdapterCertification {
             'canonical_sha256', 'name', 'path', 'raw_sha256', 'raw_size', 'source', 'trust_tier',
         ], 'site adapter certification adapter binding');
         $expectedPath = 'adapters/' . $name . '.json';
+        // Structural/format anomalies FIRST: a malformed, misplaced, wrong-
+        // source or wrong-tier companion, or a mis-shaped digest. These are
+        // authority anomalies and stay hard failures. Deliberately excludes
+        // the canonical/raw VALUE comparison so a plain content edit is not
+        // conflated with a corrupt companion.
         if (($adapter['name'] ?? null) !== $name
             || ($adapter['path'] ?? null) !== $expectedPath
             || ($adapter['source'] ?? null) !== AdapterSources::SITE
             || ($adapter['trust_tier'] ?? null) !== $derivedTier
             || !self::sha($adapter['canonical_sha256'] ?? null)
             || !self::sha($adapter['raw_sha256'] ?? null)
-            || !is_int($adapter['raw_size'] ?? null) || $adapter['raw_size'] < 1
-            || !hash_equals((string) $adapter['canonical_sha256'], self::canonicalHash($manifest))) {
+            || !is_int($adapter['raw_size'] ?? null) || $adapter['raw_size'] < 1) {
             throw new \RuntimeException(
                 "duo: site adapter '$name' certification does not bind the exact source/path/canonical manifest/trust tier"
+            );
+        }
+        // Content supersession: the well-formed companion binds different
+        // canonical (or raw) bytes than the adapter carries now — the adapter
+        // was edited after certification. Signalled distinctly so scan() can
+        // route it to uncertified support (see SupersededSiteAdapterCertificate).
+        if (!hash_equals((string) $adapter['canonical_sha256'], self::canonicalHash($manifest))) {
+            throw new SupersededSiteAdapterCertificate(
+                "duo: site adapter '$name' certification binds a superseded manifest; the adapter changed since it was certified"
             );
         }
         if ($rawAdapter !== null
             && (!hash_equals((string) $adapter['raw_sha256'], hash('sha256', (string) $rawAdapter['raw']))
                 || $adapter['raw_size'] !== (int) $rawAdapter['size'])) {
-            throw new \RuntimeException(
-                "duo: site adapter '$name' certification does not bind the current raw adapters/$name.json input"
+            throw new SupersededSiteAdapterCertificate(
+                "duo: site adapter '$name' certification binds superseded raw bytes; the adapter changed since it was certified"
             );
         }
     }

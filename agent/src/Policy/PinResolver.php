@@ -167,12 +167,31 @@ final class PinResolver {
                 continue;
             }
             $actual = (string) ($resolved[$i]['digest'] ?? '');
-            if (!hash_equals($pin['digest'], $actual)) {
-                throw new \RuntimeException(
-                    "duo: manifest '{$pin['name']}' digest mismatch: expected {$pin['digest']}, actual $actual — "
-                    . 'review the manifest change, then update its site.duo.json pin'
-                );
+            if (hash_equals($pin['digest'], $actual)) {
+                continue;
             }
+            // A `source:"site"` pin whose digest no longer matches, on an
+            // adapter that is NOT currently certified, is the documented
+            // edit-then-uncertified path (docs/guides/adapter-authoring.md):
+            // the operator edited adapters/<name>.json after signing, so the
+            // companion is superseded (AdapterSources routes it to uncertified)
+            // and this pin is moot — the adapter already resolves as
+            // uncertified support. Failing the whole load here would strand
+            // `duo assess` on an unclassified gate and block `duo adapter
+            // certify --pin` from re-establishing it. A site pin on a STILL-
+            // certified adapter (valid companion, operator-mistyped digest)
+            // and every non-site pin still refuse: a shipped/plugin manifest
+            // that changed under a digest pin is a real integrity failure the
+            // operator must re-pin, and bind_explicit_pins() gates elevation on
+            // is_certified() so this concession can never read as certified.
+            if (($pin['source'] ?? null) === AdapterSources::SITE
+                && !$policy->adapter_sources()->is_certified((string) $pin['name'])) {
+                continue;
+            }
+            throw new \RuntimeException(
+                "duo: manifest '{$pin['name']}' digest mismatch: expected {$pin['digest']}, actual $actual — "
+                . 'review the manifest change, then update its site.duo.json pin'
+            );
         }
     }
 }

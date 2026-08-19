@@ -1942,12 +1942,31 @@ cert_write($certPath, $certificateRaw);
 $changedManifest = $manifest;
 $changedManifest['post_types'] = ['page' => []];
 cert_write_canon($site . '/adapters/site-demo.json', $changedManifest);
+// An edit moves the digest: the well-formed companion now binds superseded
+// bytes. verifyFile signals that distinctly (SupersededSiteAdapterCertificate,
+// message "binds a superseded manifest"), separate from the generic "does not
+// bind" that a malformed/misplaced/wrong-tier companion throws — so only a
+// content edit, never a corrupt or forged companion, is treated as benign.
 cert_expect_throw(
     static fn() => AdapterCertification::verifyFile($agent, $site, 'site-demo', $changedManifest, $certPath),
-    'does not bind',
-    'live verification rejects a changed canonical/raw source adapter'
+    'superseded',
+    'live verification signals a changed canonical/raw source adapter as superseded, not a generic binding failure'
+);
+// docs/guides/adapter-authoring.md: an edit "moves the digest and the claim
+// drops back to uncertified" — the whole source scan must NOT hard-fail over a
+// superseded companion; it resolves the adapter as uncertified support (the
+// same state a companion-absent site adapter reaches), which `duo adapter
+// certify --pin` re-establishes. grind_adoption A8 exercises exactly this.
+$editedSources = \Duo\AdapterSources::discover($agent, $site);
+cert_check(
+    !$editedSources->is_certified('site-demo'),
+    'an edited (superseded) site adapter resolves as uncertified through the whole source scan, never a hard refusal'
 );
 cert_write_canon($site . '/adapters/site-demo.json', $manifest);
+cert_check(
+    \Duo\AdapterSources::discover($agent, $site)->is_certified('site-demo'),
+    'restoring the exact certified bytes restores the certified claim (the untouched companion binds them again)'
+);
 
 $tamperedBundle = $root . '/tampered-bundle';
 cert_write_bundle($tamperedBundle, $site, $ratification);

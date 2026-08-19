@@ -1037,6 +1037,7 @@ final class AdapterSources {
             // make otherwise independent offline entry points order-sensitive.
             require_once __DIR__ . '/AdapterCertification.php';
             $verified = null;
+            $superseded = false;
             if (!self::guarded(
                 $collect,
                 $refusals,
@@ -1045,14 +1046,26 @@ final class AdapterSources {
                 [self::SITE_DIR . '/' . self::CERTIFICATION_DIR . "/$name.json", $relative],
                 'obtain a certificate signed by an authority this agent trusts, or remove the companion and keep '
                     . 'the adapter as uncertified support',
-                static function () use ($manifestDir, $repo, $name, $manifest, $certificateFile, &$verified): void {
-                    $verified = AdapterCertification::verifyFile(
-                        $manifestDir,
-                        $repo,
-                        $name,
-                        $manifest,
-                        $certificateFile
-                    );
+                static function () use ($manifestDir, $repo, $name, $manifest, $certificateFile, &$verified, &$superseded): void {
+                    try {
+                        $verified = AdapterCertification::verifyFile(
+                            $manifestDir,
+                            $repo,
+                            $name,
+                            $manifest,
+                            $certificateFile
+                        );
+                    } catch (SupersededSiteAdapterCertificate $edited) {
+                        // The adapter file was edited after this companion was
+                        // signed: the certificate binds superseded bytes. Per
+                        // docs/guides/adapter-authoring.md an edit "moves the
+                        // digest and the claim drops back to uncertified" — the
+                        // same uncertified state a companion-absent site adapter
+                        // resolves to below, which `duo adapter certify --pin`
+                        // then re-establishes. Not a refusal: the adapter simply
+                        // loses its certified grants until it is re-signed.
+                        $superseded = true;
+                    }
                 }
             )) {
                 // A certificate that does not verify is an authority claim the
@@ -1062,6 +1075,14 @@ final class AdapterSources {
                 // a row saying it is refused would be two answers to one
                 // question. The refusal row carries the verifier's own message.
                 unset($origins[$name], $manifests[$name]);
+                continue;
+            }
+            if ($superseded) {
+                // Superseded companion (adapter edited after signing) → the
+                // same uncertified record a companion-absent site adapter
+                // gets; no $certificates/$claims entry, so is_certified() is
+                // false and every certified-only gate treats it as unsigned.
+                $provenance[$name] = self::provenance_record($name, $relative, $manifest);
                 continue;
             }
             $provenance[$name] = $verified['disposition'];

@@ -1137,9 +1137,15 @@ situation_a8() {
       && cp /siterepo/adapters/$ACME_SLUG.json /var/www/html/wp-content/plugins/$ACME_SLUG/duo-adapter.json"
     wp1 option update acme_catalog_banner 'Now with banners (1.1.0)' >/dev/null
   fi
-  duo_ok "$EVIDENCE/$S/manifest-validate-1.1.txt" "$HOST_R1" manifest-validate "$HOST_R1/adapters" --site="$HOST_R1"
+  # Re-certify BEFORE validating: editing a certified adapter (here via jq,
+  # which also drops it out of Duo's canonical byte form) supersedes its
+  # companion and stales its pin, so it reads uncertified — `duo adapter
+  # certify --pin` is what canonicalizes the bytes, re-signs over them, and
+  # re-pins the new digest (docs/guides/adapter-authoring.md: "re-run … after
+  # every edit"). manifest-validate then confirms the finalized certified set.
   duo_ok "$EVIDENCE/$S/certify-1.1.txt" "$HOST_R1" adapter certify "$HOST_R1" --name="$ACME_SLUG" \
     --secret-key-file="$KEYDIR/$ACME_SLUG.key" --key-id="$WALK_KEY_ID" --reason="round-3 T7 A8: 1.1.0 adds acme_catalog_banner" --pin
+  duo_ok "$EVIDENCE/$S/manifest-validate-1.1.txt" "$HOST_R1" manifest-validate "$HOST_R1/adapters" --site="$HOST_R1"
   duo_ok "$EVIDENCE/$S/capture-1.1.txt" "$HOST_R1" capture "${PAIR}1"
   git1 add -A
   commit1 "grind_adoption $S: acme-catalog 1.1.0 — code, both adapter copies, re-certified, and the state that names the new option"

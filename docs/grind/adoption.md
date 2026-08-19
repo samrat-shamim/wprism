@@ -216,3 +216,28 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   cache-invalidation hooks, so explicitly invalidating the derived render
   caches with receipt proof is the honest derived-state contract — it was not
   what the render assertion was tripping on.
+- A8 (re-certify an evolved adapter — product, high blast radius): editing an
+  already-certified+pinned site adapter (acme-catalog 1.0.0 → 1.1.0) made the
+  WHOLE site unusable — `duo assess` failed with an opaque "unclassified safety
+  gate", `manifest-validate` refused `certificate_invalid`, and `duo adapter
+  certify --pin` could not even run its pre-flight. Three distinct hard-fails
+  on an edited adapter, all contradicting docs/guides/adapter-authoring.md
+  ("an edit moves the digest and the claim drops back to uncertified; re-run
+  `duo adapter certify … --pin`"): (1) the companion certificate binds
+  superseded bytes and `AdapterCertification::assertAdapterBinding` hard-threw
+  during `Policy::load`; (2) the `site.duo.json` pin's digest no longer matched
+  and `PinResolver::validate_manifest_pins` hard-threw; (3) `manifest-validate`
+  scanned `adapters/authorities.json` (the site trust root) as if it were an
+  adapter manifest. Fixes: a valid-but-superseded companion now throws a typed
+  `SupersededSiteAdapterCertificate` that `AdapterSources::scan` routes to the
+  same uncertified state a companion-absent adapter reaches (genuine anomalies
+  — bad signature, wrong authority, malformed/misplaced companion — still hard-
+  throw); a `source:site` pin whose digest no longer matches on an *uncertified*
+  adapter skips the throw (a still-certified adapter with a mistyped pin and
+  every non-site pin still refuse); and `manifest-validate` excludes
+  `authorities.json` like the real loader already does. The fix is safe — an
+  edited/tampered adapter loses its certified grants and release/promote still
+  refuse uncertified adapters — and `certify --pin` now canonicalizes,
+  re-signs, and re-pins an edited adapter in one step (verified end-to-end:
+  edit → assess reads Uncertified → certify --pin → Site-certified). The grind
+  re-certifies before validating, modelling the documented edit→certify flow.
