@@ -1177,12 +1177,16 @@ situation_a8() {
   capture_twice "$S" "${PAIR}2"
   merge_preview "$S"
   revert_target "$S" "$PREVIEW_PAGE_ID" '<p>Duo walk landing page, before the release.</p>'
-  # The target still runs 1.0.0 with no banner option: put it back to that
-  # state so the release has the code AND the option to deliver.
-  if ! dry; then
-    sh_side 2 "sed -i -e 's/Version: 1\\.1\\.0/Version: 1.0.0/' -e \"s/define('ACME_CATALOG_VERSION', '1.1.0');/define('ACME_CATALOG_VERSION', '1.0.0');/\" /var/www/html/wp-content/plugins/$ACME_SLUG/$ACME_SLUG.php" || true
-    wp2 option delete acme_catalog_banner >/dev/null 2>&1 || true
-  fi
+  # No target-side revert: `duo rehearse` already materialized adopt2 from the
+  # source at 1.1.0, and this is a MATERIALIZE-based release — it propagates the
+  # source's finalized 1.1.0 code + state to the target, it does not deploy over
+  # a hand-reverted target. An earlier draft reverted adopt2's live plugin to
+  # 1.0.0 "so the release has the code to deliver", but that only drifts the
+  # target from its own 1.1.0 baseline (unmanaged code drift), and the release
+  # readiness correctly refuses release_target_not_clean on it (verified —
+  # grind_adoption A8). The release below still proves the loop: it re-
+  # materializes the source's 1.1.0 code + the acme_catalog_banner state onto
+  # the target and the assertions confirm both landed.
   release_cycle "$S" "$MAIN_SHA"
   if ! dry; then
     wp2 plugin get "$ACME_SLUG" --field=version | tr -d '\r' | grep -qx '1.1.0' \

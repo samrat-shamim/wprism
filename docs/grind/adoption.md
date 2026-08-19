@@ -263,3 +263,17 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   — runtime is unaffected (the class loads via the explicit require in
   AdapterSources), but `make release-gate`'s classmap-currency gate flags a
   missing entry.
+- A8 (release to a materialize-based target — grind flow): after the code
+  deploy worked, `duo release --plan-only` refused `release_target_not_clean`.
+  The grind had reverted adopt2's live acme-catalog to 1.0.0 "so the release
+  has the code to deliver", but `duo rehearse` had already materialized adopt2
+  from the source at 1.1.0 — so the revert drifted the target's live code from
+  its own 1.1.0 baseline (code_drift + code_revision_stale), which the release
+  readiness correctly refuses. A materialize-based release propagates the
+  SOURCE's finalized state to the target; it does not deploy over a hand-
+  reverted target. Fix (grind): drop the target-side revert — the release
+  re-materializes the source's 1.1.0 code and the acme_catalog_banner state
+  onto adopt2, and the assertions confirm both landed (verified end-to-end on
+  the kept pair: release --yes applied cleanly, adopt2 = 1.1.0 + banner). This
+  and the two A8 grind-flow fixes above (deploy to production, capture before
+  deploy) are free-zone; the product path was refusing correctly each time.
