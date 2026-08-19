@@ -1131,10 +1131,10 @@ situation_a8() {
           | .notes = (.notes + {"1.1.0 (T7 A8)": "acme_catalog_banner is the operator-edited banner text 1.1.0 introduces; authored, no ref."})' "$f" > "$f.next" \
         && mv "$f.next" "$f"
     done
-    # The live author side runs the same 1.1.0 (the operator updated it there
-    # first, as they would), and sets the new option.
-    sh_side 1 "sed -i -e 's/Version: 1\\.0\\.0/Version: 1.1.0/' -e \"s/define('ACME_CATALOG_VERSION', '1.0.0');/define('ACME_CATALOG_VERSION', '1.1.0');/\" /var/www/html/wp-content/plugins/$ACME_SLUG/$ACME_SLUG.php \
-      && cp /siterepo/adapters/$ACME_SLUG.json /var/www/html/wp-content/plugins/$ACME_SLUG/duo-adapter.json"
+    # The operator sets the new 1.1.0 option live now; the 1.1.0 CODE itself is
+    # deployed to production through `duo deploy` below, which records the
+    # completed code descriptor refresh-export requires — a raw plugin-file
+    # edit would update WordPress but not Duo's finalized-code ledger.
     wp1 option update acme_catalog_banner 'Now with banners (1.1.0)' >/dev/null
   fi
   # Re-certify BEFORE validating: editing a certified adapter (here via jq,
@@ -1146,6 +1146,12 @@ situation_a8() {
   duo_ok "$EVIDENCE/$S/certify-1.1.txt" "$HOST_R1" adapter certify "$HOST_R1" --name="$ACME_SLUG" \
     --secret-key-file="$KEYDIR/$ACME_SLUG.key" --key-id="$WALK_KEY_ID" --reason="round-3 T7 A8: 1.1.0 adds acme_catalog_banner" --pin
   duo_ok "$EVIDENCE/$S/manifest-validate-1.1.txt" "$HOST_R1" manifest-validate "$HOST_R1/adapters" --site="$HOST_R1"
+  # Deploy the 1.1.0 code to PRODUCTION so its completed code descriptor matches
+  # the repository artifact: `duo rehearse`'s refresh-export reads production's
+  # finalized-code ledger and refuses when it differs from the repo (verified —
+  # grind_adoption A8). Deploy runs AFTER certify because compile requires the
+  # site adapter in canonical bytes, which `certify --pin` restores.
+  duo_ok "$EVIDENCE/$S/deploy-1.1.txt" "$HOST_R1" deploy "${PAIR}1"
   duo_ok "$EVIDENCE/$S/capture-1.1.txt" "$HOST_R1" capture "${PAIR}1"
   git1 add -A
   commit1 "grind_adoption $S: acme-catalog 1.1.0 — code, both adapter copies, re-certified, and the state that names the new option"

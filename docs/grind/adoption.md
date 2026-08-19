@@ -241,3 +241,25 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   re-signs, and re-pins an edited adapter in one step (verified end-to-end:
   edit → assess reads Uncertified → certify --pin → Site-certified). The grind
   re-certifies before validating, modelling the documented edit→certify flow.
+- A8 (code release to production — grind flow): once re-certification worked,
+  A8's code half (acme-catalog 1.1.0) was exercised end-to-end for the first
+  time and `duo rehearse`'s refresh-export refused: "completed code
+  descriptor/revision does not match the requested repository artifact". The
+  grind had updated adopt1's LIVE plugin with a raw `sed` (as an operator
+  might touch a file) but never recorded the new completed code on Duo's
+  finalized-code ledger, so production still reported 1.0.0 while the repo
+  requested 1.1.0 — refresh-export correctly refuses to observe a production
+  whose completed code differs from the artifact it would rehearse. Fix
+  (grind): edit the repository's code half, then `duo deploy adopt1`, which
+  stages, activates, and finalizes the 1.1.0 code on production (updating the
+  ledger descriptor refresh-export reads). Deploy runs AFTER `certify --pin`
+  because `duo compile` requires the site adapter in canonical bytes, which
+  certify restores (verified: deploy on a jq-edited, non-canonical adapter
+  refuses `compile_failed / must use Duo canonical JSON bytes`). Product path
+  unchanged — the refusal was correct; the grind was modelling a code change
+  that never reached Duo's ledger.
+- A8 (classmap currency): the new `SupersededSiteAdapterCertificate` class
+  needed `agent/duo-classmap.php` regenerated (`php tools/classmap-generate.php`)
+  — runtime is unaffected (the class loads via the explicit require in
+  AdapterSources), but `make release-gate`'s classmap-currency gate flags a
+  missing entry.
