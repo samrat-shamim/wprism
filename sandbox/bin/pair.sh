@@ -79,7 +79,7 @@ source "lib/pair_identity.sh"
 # shellcheck source=../lib/pair_budget_lock.sh
 source "lib/pair_budget_lock.sh"
 
-[ -r "lib/pair_force_hatch.sh" ] || fail "pair force-hatch library is missing: lib/pair_force_hatch.sh (the launcher cannot truthfully record forced certification admission)"
+[ -r "lib/pair_force_hatch.sh" ] || fail "pair force-hatch library is missing: lib/pair_force_hatch.sh (the launcher cannot truthfully record forced over-budget pair admission)"
 # shellcheck source=../lib/pair_force_hatch.sh
 source "lib/pair_force_hatch.sh"
 
@@ -519,11 +519,14 @@ reserve_pair_budget() { # reserve_pair_budget <candidate>; leaves lock held
       if [ "${DUO_PAIR_BUDGET_OVERRIDE:-0}" = "1" ]; then
         # Presence is permission, not evidence of use.  Record only here,
         # after both the in-budget and held-reservation paths have failed to
-        # admit the candidate.  A configured certification ledger that cannot
-        # be written is a fail-closed evidence error, before pair mutation.
+        # admit the candidate.  A ledger the operator configured and that then
+        # cannot be written fails closed before pair mutation: a run that
+        # forced its way past the budget has to stay distinguishable from one
+        # that did not, and that is the ledger's whole remaining job now that
+        # nothing projects it anywhere (lib/pair_force_hatch.sh header).
         if ! pair_force_hatch_record DUO_PAIR_BUDGET_OVERRIDE; then
           budget_lock_release
-          fail "could not record actual DUO_PAIR_BUDGET_OVERRIDE use in the certification force-hatch ledger; refusing before pair mutation"
+          fail "could not record actual DUO_PAIR_BUDGET_OVERRIDE use in the force-hatch ledger; refusing before pair mutation"
         fi
         warn "!! DUO_PAIR_BUDGET_OVERRIDE=1 set — bringing up '$candidate' ANYWAY, ${total}/${budget} over budget"
       else

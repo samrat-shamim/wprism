@@ -316,7 +316,14 @@ final class Cli {
             'coverage' => 'inspect the repository policy and this environment\'s database access, then correct that blocker before reporting coverage again',
             'classify' => 'inspect the rejected --set spec and the repository policy file, then correct its section, key, class, or secret override before writing rules again',
             'lint' => 'inspect the repository policy and the captured state tree, then capture or correct the policy before linting again',
-            'capabilities' => 'inspect the manifest disposition registry, the generated capability registry, and this repository\'s manifest pins, then correct that evidence before reporting capabilities again',
+            // The generated capability registry this arm used to name no longer
+            // exists, and neither does the evidence it told the operator to
+            // correct. What `capabilities()` actually reads is the disposition
+            // registry (`:2963` refuses by that same name), the platform
+            // boundary `ManifestDispositions::platform_boundary()` loads beside
+            // it, and the repository's manifest pins — so those are the three
+            // things an operator can inspect and fix.
+            'capabilities' => 'inspect the manifest disposition registry, the platform boundary, and this repository\'s manifest pins, then correct that input before reporting capabilities again',
             'adapter-observe' => 'inspect private target evidence and restore the existing provenance-journal prerequisite or policy inputs before collecting a new adapter observation',
             'adapter-survey' => 'inspect the agent manifest library and, if --repo was given, that repository\'s site.duo.json and adapters/ source, then correct the unreadable or malformed input before surveying again',
             default => "correct the named $command blocker, then retry the command",

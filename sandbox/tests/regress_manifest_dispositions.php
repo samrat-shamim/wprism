@@ -132,7 +132,16 @@ function subject_test_is_discoverable(string $repo, string $test, string $name):
     if ($test === 'exact-artifact-version-matrix' || ($test === 'multisite-refusal' && $name === 'core')) {
         return true;
     }
-    return is_executable("$repo/sandbox/certification/tests/$test.sh");
+    // A third arm used to fall back to sandbox/certification/tests/$test.sh.
+    // That whole directory went with the certification-evidence apparatus, so
+    // the fallback could only ever return false — it read as a real lookup
+    // while being an unconditional refusal, which is the trap this deletes.
+    // The two arms above answer every id dispositions.json cites today (10
+    // `conformance-*`, 7 `exact-artifact-version-matrix`, core's
+    // `multisite-refusal`). A new KIND of id is undiscoverable until this
+    // function learns where that kind lives, and the callers below say so by
+    // name rather than the suite quietly passing on a path nobody maintains.
+    return false;
 }
 foreach ($data['manifests'] as $name => $entry) {
     if ($entry['status'] !== 'certified') { continue; }

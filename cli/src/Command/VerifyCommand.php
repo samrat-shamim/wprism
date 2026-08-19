@@ -31,7 +31,9 @@ use Duo\CommandRefusalException;
  * come from — two `tempnam()` files that the MUTATING apply process writes
  * from its own in-memory `CompiledRepository` and frozen `Policy`, and
  * deletes in a `finally`. No shipped `wp duo` subcommand exports a
- * `duo-policy-snapshot/v5`, so a host cannot supply that input, and MUP §2.4
+ * `duo-policy-snapshot/v6` (`agent/src/Policy/Policy.php:183`; the v5
+ * generation this line used to name froze a generated capability registry and
+ * is now refused outright), so a host cannot supply that input, and MUP §2.4
  * forbids adding an agent command to make one ("Host-side only; no new agent
  * code").
  *

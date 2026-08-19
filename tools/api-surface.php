@@ -18,7 +18,7 @@ declare(strict_types=1);
  * (docs/proposals/engine-adapter-boundary.md; DUO-3335 byte-compatibility
  * posture) that silently drops, narrows, or renames a method some OTHER file
  * still calls fails a fast, offline PHPUnit assertion instead of surfacing
- * three call-sites deep in the 238-suite offline corpus -- or not surfacing
+ * three call-sites deep in the offline corpus -- or not surfacing
  * at all, if nothing offline happens to exercise that exact path today.
  * Regenerate deliberately with `--write` in the SAME commit that intends the
  * change; an unexplained fixture diff in review is exactly the signal this
@@ -27,8 +27,8 @@ declare(strict_types=1);
  * WHAT THIS IS NOT
  * -----------------
  * Not a behavior test. A method whose SIGNATURE is unchanged but whose body
- * now does something different is invisible here -- that is what the 238
- * offline suites and PHPUnit product tests are for. Not a completeness check
+ * now does something different is invisible here -- that is what the
+ * offline corpus and PHPUnit product tests are for. Not a completeness check
  * on PRIVATE members: only public/protected are captured, because a private
  * method is not callable from any OTHER file, so it is not part of the
  * "surface" a decomposition PR could accidentally break externally. Not a
@@ -41,7 +41,7 @@ declare(strict_types=1);
  * HOW IT WORKS
  * ------------
  * Reflection cannot happen in THIS process: the drop-in has no autoloader
- * (agent/duo.php require_once's 92 files, which in turn require_once the
+ * (agent/duo.php require_once's 91 files, which in turn require_once the
  * remaining agent/src siblings; cli/duo does the same for cli/src) and
  * composer's autoload-dev maps only Duo\Tests\ (tests/bootstrap.php), so
  * every Duo\* symbol exists only after that whole require chain has run --
