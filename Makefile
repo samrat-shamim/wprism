@@ -244,7 +244,7 @@ certify-version-matrix:
 # by live sandbox evidence (the InnoDB engine check + real transaction
 # retry need a live MySQL and aren't repeated in this offline target).
 regress-capture-publish:
-	bash sandbox/tests/regress_capture_publish.sh
+	php sandbox/tests/regress_capture_publish.php
 
 # DUO-3231: code_drift detection (Deploy::code_drift(), a narrower question
 # than code_mismatch — did an installed plugin/theme version change since
@@ -295,7 +295,7 @@ regress-fatal-mutations:
 # header for exactly what is/isn't covered here vs. the live theme-range
 # leg below.
 regress-adapter-contract:
-	bash sandbox/tests/regress_adapter_contract.sh
+	php sandbox/tests/regress_adapter_contract.php
 
 # DUO-3223/recertification: pinned artifact downloads retry transient curl
 # failures at most three times, while digest mismatches and exhausted
@@ -304,13 +304,13 @@ regress-fetch-artifact:
 	bash sandbox/tests/regress_fetch_artifact.sh
 
 regress-manifest-dispositions:
-	bash sandbox/tests/regress_manifest_dispositions.sh
+	php sandbox/tests/regress_manifest_dispositions.php
 
 regress-adapter-sources:
 	bash sandbox/tests/regress_adapter_sources.sh
 
 regress-site-adapter-certification:
-	bash sandbox/tests/regress_site_adapter_certification.sh
+	php sandbox/tests/regress_site_adapter_certification.php
 
 # Product release gate: every generated artifact must still agree with the
 # source it was generated from -- the public capability prose with the
@@ -325,7 +325,7 @@ regress-multisite-refusal:
 # DUO-3262: optional term/user interpreter hooks plus static-policy fallback;
 # pure PHP fixture manifests/interpreters, no WordPress or docker.
 regress-interpreter-policy:
-	bash sandbox/tests/regress_interpreter_policy.sh
+	php sandbox/tests/regress_interpreter_policy.php
 
 # DUO-3263: real Acf interpreter term_meta_rule()/option_rule() classification
 # (term-attached fields reuse post_meta_rule()'s shadow-key machinery
@@ -334,7 +334,7 @@ regress-interpreter-policy:
 # end-to-end pass through the real manifests/acf.json + Policy dispatch/
 # ownership wiring. Pure PHP, no WordPress or docker.
 regress-acf-meta-interpreter:
-	bash sandbox/tests/regress_acf_meta_interpreter.sh
+	php sandbox/tests/regress_acf_meta_interpreter.php
 
 # DUO-3222's one genuinely live leg: Deploy::code_mismatch()'s new THEME
 # version_range check, called directly against a real bundled WordPress
@@ -393,7 +393,7 @@ regress-repository-compiler:
 # refusal, load-time refusal matrices, frozen-policy parity, and compiler
 # raw-id portability gates.
 regress-duo3316-contract:
-	bash sandbox/tests/regress_duo3316_contract.sh
+	php sandbox/tests/regress_duo3316_contract.php
 
 regress-coverage-offline:
 	php sandbox/tests/regress_coverage_offline.php
@@ -491,7 +491,7 @@ regress-provider-requirements-live:
 # is a well-formed manifest reaching into another manifest's entities or
 # minting a value the engine owns.
 regress-vocabulary-ownership:
-	bash sandbox/tests/regress_vocabulary_ownership.sh
+	php sandbox/tests/regress_vocabulary_ownership.php
 
 # DUO-3374: the close gate's squash-parent count, header-scoped — proven
 # against scratch commits including the message-body shape that false-failed
@@ -1302,7 +1302,7 @@ regress-option-name-refs-wiring:
 # sandbox evidence (the real WooCommerce variation title converging
 # byte-for-byte, not just as a same-words anagram).
 regress-order-preserving:
-	bash sandbox/tests/regress_order_preserving.sh
+	php sandbox/tests/regress_order_preserving.php
 
 # DUO-3481 (dev-loop round 2): duplication conformance vectors. The three
 # deployables (agent/, cli/, recovery/) keep deliberately separate copies of
@@ -1445,7 +1445,7 @@ regress-local-bootstrap-live:
 	bash sandbox/tests/regress_local_bootstrap_live.sh
 
 regress-block-refs:
-	bash sandbox/tests/regress_block_refs.sh
+	php sandbox/tests/regress_block_refs.php
 
 regress-identity-token-codec:
 	php sandbox/tests/regress_identity_token_codec.php
@@ -1475,7 +1475,7 @@ regress-shortcode-reference-scanner:
 	php sandbox/tests/regress_shortcode_reference_scanner.php
 
 regress-composite-ref:
-	bash sandbox/tests/regress_composite_ref.sh
+	php sandbox/tests/regress_composite_ref.php
 
 regress-doctor-env-values:
 	php sandbox/tests/regress_doctor_env_values.php
@@ -1523,7 +1523,7 @@ regress-plan-contract-trust:
 	php sandbox/tests/regress_plan_contract_trust.php
 
 regress-dynamic-options-policy:
-	bash sandbox/tests/regress_dynamic_options_policy.sh
+	php sandbox/tests/regress_dynamic_options_policy.php
 
 regress-option-name-reference-resolver:
 	php sandbox/tests/regress_option_name_reference_resolver.php
@@ -1562,13 +1562,13 @@ regress-content-attribute-rule-resolver:
 	php sandbox/tests/regress_content_attribute_rule_resolver.php
 
 regress-taxonomy-object-keyspace:
-	bash sandbox/tests/regress_taxonomy_object_keyspace.sh
+	php sandbox/tests/regress_taxonomy_object_keyspace.php
 
 regress-env-options-policy:
-	bash sandbox/tests/regress_env_options_policy.sh
+	php sandbox/tests/regress_env_options_policy.php
 
 regress-export-manifest-roundtrip:
-	bash sandbox/tests/regress_export_manifest_roundtrip.sh
+	php sandbox/tests/regress_export_manifest_roundtrip.php
 
 # DUO-3348 slice 27: the pure PolicyWriter projection and its stable
 # Policy::export_manifest() facade, including the export/load round trip.
@@ -1635,13 +1635,13 @@ regress-post-type-relation-resolver:
 	php sandbox/tests/regress_post_type_relation_resolver.php
 
 regress-manifest-reclassification-policy:
-	bash sandbox/tests/regress_manifest_reclassification_policy.sh
+	php sandbox/tests/regress_manifest_reclassification_policy.php
 
 regress-menu-field-reclassification-policy:
-	bash sandbox/tests/regress_menu_field_reclassification_policy.sh
+	php sandbox/tests/regress_menu_field_reclassification_policy.php
 
 regress-regen-dependency-policy:
-	bash sandbox/tests/regress_regen_dependency_policy.sh
+	php sandbox/tests/regress_regen_dependency_policy.php
 
 regress-woocommerce-product-lookups:
 	php sandbox/tests/regress_woocommerce_product_lookups.php
@@ -1785,7 +1785,7 @@ regress-scope-gate:
 # term locators reporting "terms.c"). Read-only: nothing here captures,
 # promotes, or deletes.
 regress-scope-closure:
-	bash sandbox/tests/regress_scope_closure.sh
+	php sandbox/tests/regress_scope_closure.php
 
 # DUO-3344: immutable, self-verifying scope evidence. This is distinct from
 # the legacy closure preview suite: it covers normalized tombstone selectors,

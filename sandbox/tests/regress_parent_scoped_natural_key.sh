@@ -2,7 +2,7 @@
 # Live regression — DUO-3318: the parent-scoped multi-column natural key,
 # end to end across two real environments with genuinely different local ids.
 #
-# The offline half (sandbox/tests/regress_vocabulary_ownership.sh) proves the
+# The offline half (sandbox/tests/regress_vocabulary_ownership.php) proves the
 # declaration grammar and the derivation arithmetic. It structurally cannot
 # prove the thing the mode exists for: that capture on one environment and
 # apply+recapture on ANOTHER, whose auto-increment ids do not line up, produce

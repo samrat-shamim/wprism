@@ -23,7 +23,7 @@
 #
 # What this does NOT cover, deliberately: the certification promotion path with
 # the bundling plugin active (that needs the signing apparatus, so it lives
-# beside it in regress_site_adapter_certification.sh), the frozen-record tamper
+# beside it in regress_site_adapter_certification.php), the frozen-record tamper
 # matrix (regress_adapter_sources.sh), and anything about a live target — a
 # bundled adapter's providers, its plugin's version window, or a capability
 # claim evaluated against one WordPress. Those have their own suites; a

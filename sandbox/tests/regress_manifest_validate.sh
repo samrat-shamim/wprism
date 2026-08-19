@@ -7,8 +7,8 @@
 # subprocess against REAL manifest fixture files under a scratch directory, and
 # reads the real exit codes and the real stdout/stderr. No docker, no sandbox
 # pair, no WordPress bootstrap, no $wpdb stub, nothing mocked. Same idiom as
-# sandbox/tests/regress_adapter_contract.sh (DUO-3222/DUO-3243) and
-# sandbox/tests/regress_vocabulary_ownership.sh (DUO-3318), whose two-adapter
+# sandbox/tests/regress_adapter_contract.php (DUO-3222/DUO-3243) and
+# sandbox/tests/regress_vocabulary_ownership.php (DUO-3318), whose two-adapter
 # fixtures this suite imports rather than copies
 # (sandbox/tests/manifest_fixtures.php).
 #

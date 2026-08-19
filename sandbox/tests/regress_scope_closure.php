@@ -2,9 +2,8 @@
 /**
  * Offline harness for DUO-3344 — scope resolution over declared edges.
  *
- * Invoked by regress_scope_closure.sh, which lints every engine file this
- * touches first. Runs on real fixture repositories under sys_get_temp_dir()
- * with a scratch DUO_MANIFESTS_DIR, driving the REAL, unmodified
+ * Runs on real fixture repositories under sys_get_temp_dir() with a scratch
+ * DUO_MANIFESTS_DIR, driving the REAL, unmodified
  * agent/src/{Policy,ReferenceGraph,RepositoryCompiler,ScopeClosure}.php. No
  * docker, no sandbox pair, no WordPress bootstrap — the compiler's own
  * docblock is explicit that the IR exists before Tokens, Ledger, or Capture
@@ -14,7 +13,7 @@
  * proving this is genuinely offline rather than merely "before writes".
  */
 
-$root = $argv[1];
+$root = $argv[1] ?? dirname(__DIR__, 2);
 define('DUO_SPEC_VERSION', 2);
 $duoAgentClassmap = require $root . '/agent/duo-classmap.php';
 if (!is_array($duoAgentClassmap)) {

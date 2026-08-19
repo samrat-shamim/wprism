@@ -22,7 +22,7 @@
 #
 # Both are pure PHP against real engine files under a scratch
 # DUO_MANIFESTS_DIR — no docker, no sandbox pair, no WordPress bootstrap. Same
-# idiom as sandbox/tests/regress_adapter_contract.sh (DUO-3222/DUO-3243).
+# idiom as sandbox/tests/regress_adapter_contract.php (DUO-3222/DUO-3243).
 #
 # What this does NOT cover, because it genuinely needs a live target: Apply's
 # placement of the negotiation gate ahead of the first mutation and the
