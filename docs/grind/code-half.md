@@ -1,6 +1,15 @@
 # Code-half clean-room grind
 
-Driver: [`sandbox/tests/grind_code_half.sh`](../../sandbox/tests/grind_code_half.sh).
+> **Archival.** The driver named below (`sandbox/tests/grind_code_half.sh`), its
+> `make grind-code-half` target, and the `duo-code-half-probe` manifest it pinned
+> were removed by the teardown train — #477 (remove the certification-evidence
+> apparatus), #478 (remove the four demo manifests) and this prose pass. Nothing
+> here is runnable today; the report stands as the record of what the grind
+> proved and which product-path gaps it closed, not as instructions. The
+> first-sync proof it hands off to is still live
+> (`make grind-code-half-first-sync`).
+
+Driver: `sandbox/tests/grind_code_half.sh` (removed — see the archival note above).
 
 Run it from the repository root:
 

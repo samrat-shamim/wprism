@@ -11,62 +11,79 @@ about CI belongs in a PR, an issue, or this file.
 
 | path | what it is | ships? |
 | --- | --- | --- |
-| `agent/` | the WordPress drop-in. `duo.php` `require_once`s 92 files; `agent/src` is 224 flat `namespace Duo;` files that require their own dependencies. No autoloader. | yes |
-| `cli/` | the `duo` orchestrator (`cli/duo` is an extensionless `#!/usr/bin/env php` executable) | yes |
+| `agent/` | the WordPress drop-in. `duo.php` `require_once`s 91 files at load; `agent/src` is 224 `namespace Duo;` files across 17 directories, each requiring its own dependencies. The only autoload is the generated additive fallback `agent/duo-classmap.php` (rule 1). | yes |
+| `cli/` | the `duo` orchestrator (`cli/duo` is an extensionless `#!/usr/bin/env php` executable) over 76 `cli/src` files | yes |
 | `recovery/` | the recovery runtime (canonical JSON, atomic store, Ed25519 rollback control) | yes |
-| `manifests/` | adapter manifests + `providers/`, `interpreters/`, `regenerators/` hooks + `capabilities/` evidence & generated registry | yes |
-| `sandbox/` | the test estate: `bin/pair.sh`, `tests/` (204 `regress_*.php` + 111 `regress_*.sh`), `conformance/`, `certification/`, `lib/`, `tmp/` (gitignored scratch) | no |
-| `tools/` | dev entry points: `doctor.sh`, `offline.php`, `affected.php`, `cert-impact.php`, `classmap-generate.php`, `api-surface.php`; data: `layers.json` (+ `layers-exceptions.json` ratchet) | no |
+| `manifests/` | core + 9 plugin manifests + `duo-agency-cpt` (the one `excluded` regression fixture, no product claim); `providers/`, `interpreters/`, `regenerators/` hook code; `dispositions.json`, the hand-authored reviewed claim source; `capabilities/platform.json` (the platform boundary certificates sign against) and `capabilities/adapter-authorities.json` | yes |
+| `sandbox/` | the test estate: `bin/pair.sh`, `tests/` (211 `regress_*.php` + 114 `regress_*.sh`), `conformance/`, `fixtures/`, `lib/`, `siterepo/`, `tmp/` (gitignored scratch) | no |
+| `tools/` | dev entry points: `doctor.sh`, `offline.php`, `affected.php`, `capability-doc.php`, `classmap-generate.php`, `api-surface.php`; data: `layers.json` (+ `layers-exceptions.json` ratchet), `modules.json` | no |
 | `tests/` | PHPUnit 11 self-tests for `tools/` (`Duo\Tests\…`, PSR-4) | no |
-| `scripts/` | `capability-registry.php` (the release gate), `agent-bootstrap.sh`, `close-gate-check.sh` | mixed |
+| `scripts/` | `adapter-certification.php` (reviewer-facing adapter certificate sign/verify), `agent-bootstrap.sh`, `close-gate-check.sh` | mixed |
 
 `cli/src/Onboarding/Adopt.php` tars exactly `agent manifests recovery` — that is the whole
 list of what reaches a managed site.
 
 ## Non-negotiables
 
-1. **The drop-in is dependency-free.** No composer, no vendored packages, no
-   autoloader inside `agent/`, `cli/`, `recovery/`. A new file in `agent/src`
-   requires its own dependencies, exactly like its 224 siblings. `vendor/` is
-   dev-only and structurally unreachable from a site.
-2. **Never edit a certification-closure file casually.** The closure is
-   `agent/`, `cli/`, `sandbox/bin/` walked *whole on the filesystem* (untracked
-   and ignored files included), plus `Makefile`,
-   `docs/compatibility-baseline.json`, `sandbox/conformance/{asserts,run}.sh`,
-   `sandbox/db.yml`, `sandbox/init-cli.Dockerfile`,
-   `sandbox/tests/certify_subject_bundle.sh`, `scripts/capability-registry.php`,
-   `sandbox/lib/pair_*.sh`, `sandbox/pair*.yml`, and each subject's own
-   manifest / conformance / certification-test files. One byte expires up to
-   nine certifications and makes deployed agents refuse commands. The authority
-   is `\Duo\ScopedCertificationBundle::subjectInputPaths()`; ask
-   `php tools/cert-impact.php` rather than reasoning about it.
-3. **Never leave scratch under `agent/`, `cli/`, `sandbox/bin/`** — the closure
-   walk has no gitignore awareness. Scratch goes in `sandbox/tmp/` or a
-   `mktemp -d`.
-4. **Never add a `Makefile` target for tooling.** `Makefile` is a closure
-   member; a convenience alias costs a full certification round. New tooling is
-   a new entry point under `tools/`.
-5. **A new offline product suite goes in `sandbox/tests/` and MUST be wired
-   into `regress-offline-corpus`** — an unwired suite is caught by
-   `regress_bundle_coverage.sh`. That wiring is a `Makefile` edit, therefore a
-   certification-train change: batch such PRs and pay for one round.
-   Tooling self-tests go in `tests/` instead and cost nothing.
-6. **New suites use `sandbox/tests/lib/`** (`check.php`, `wp_stubs.php`,
+1. **The drop-in is dependency-free.** No composer, no vendored packages,
+   nothing fetched at runtime inside `agent/`, `cli/`, `recovery/`. A new file
+   in `agent/src` requires its own dependencies, exactly like its 224 siblings.
+   `agent/duo-classmap.php` does not change that contract: it is a *generated
+   additive fallback* that only ever fires for a class still undeclared at the
+   moment it is referenced, so it resolves nothing on the production path and
+   exists for partially-loaded contexts (`agent/duo.php:106-138` states the
+   three properties that keep it behaviour-neutral). Regenerate it with
+   `php tools/classmap-generate.php`; `make release-gate` byte-checks it.
+   `vendor/` is dev-only and structurally unreachable from a site.
+2. **Shipped manifest and hook bytes are adapter identity.**
+   `ArtifactPolicyIdentity::manifest_rows()` folds each manifest's JSON, its
+   disposition, and `hash_file('sha256', …)` of every interpreter, provider and
+   regenerator file that manifest names
+   (`agent/src/Policy/ArtifactPolicyIdentity.php:60-115`); `manifest_hash()`
+   and each adapter's `digest` are that one row hashed (`:127`, `:147`). So a
+   one-byte edit under `manifests/` is a fleet-visible change: a deployed site
+   holding a compiled artifact refuses with
+   `compiled_artifact_manifest_mismatch` — "compiled manifest/interpreter set
+   does not match active pins"
+   (`agent/src/Repository/CompiledArtifactReader.php:39-42`) — and every
+   `site.duo.json` content pin stops matching. The remedy is recompile and
+   re-pin (`wp duo manifest-pin` emits the copy-pasteable object), never a
+   fallback. Nothing under `agent/src` or `cli/src` has this property: a
+   namespace or class-file move there moves no digest and costs nothing.
+3. **Never leave scratch under `agent/` or `manifests/`.** `sandbox/bin/pair.sh`
+   gates on `git status --porcelain=v1 --untracked-files=all -- agent manifests`
+   (`:355`) and refuses before any pair mutation — "candidate source is DIRTY"
+   (`:369`) — because those two directories are exactly what it bind-mounts.
+   An untracked file counts. Scratch goes in `sandbox/tmp/` or a `mktemp -d`.
+4. **A new offline product suite goes in `sandbox/tests/`, MUST be wired into
+   `regress-offline-corpus`, and MUST bump the count line.**
+   `regress_bundle_coverage.sh` expands the prerequisite graph and compares it
+   against the `Makefile`'s own `regress-offline-all: N offline suites green`
+   line (`:168`), so an unwired suite and a stale count each fail the gate —
+   both refusals have their own self-test in that suite. Tooling self-tests go
+   in `tests/` instead. Adding a `Makefile` target is otherwise ordinary work.
+5. **New suites use `sandbox/tests/lib/`** (`check.php`, `wp_stubs.php`,
    `FakeWpdb.php`) — see `sandbox/tests/lib/README.md` for the skeleton. Don't
    write an eleventh bespoke `$wpdb` fake.
-7. **No mass reformat.** `php-cs-fixer` runs on changed files only, by design.
-   A whole-tree fix would rewrite closure files and expire everything.
-8. **`declare(strict_types=1)` in new files only.** Adding it to an existing
+6. **No mass reformat.** `php-cs-fixer` runs on changed files only, by design.
+   A whole-tree fix buries the reviewable change in thousands of lines nobody
+   read, and under `manifests/` it would move every `adapter_digest` (rule 2).
+7. **`declare(strict_types=1)` in new files only.** Adding it to an existing
    file changes that file's bytes and its coercion behaviour.
-9. **Keep byte-identical unless the issue is explicitly about changing them:**
+8. **Keep byte-identical unless the issue is explicitly about changing them:**
    canonical JSON output, refusal envelopes and their messages, WP-CLI output,
-   lock acquisition order, `manifests/*.json` bytes, and the
-   `define('DUO_AGENT_VERSION', …)` / `define('DUO_SPEC_VERSION', …)` lines in
-   `agent/duo.php` (the registry and every bundle bind them).
-10. **Fix the root cause** within the pinned architecture — no silent
-    fallbacks, no compat shims. Every fix ships with regression coverage that
-    fails against the prior defect, through the product path.
-11. **Comment style is rationale-dense**: state the constraint and the evidence
+   lock acquisition order, `manifests/*.json` bytes (rule 2 — they *are*
+   adapter identity), and the `define('DUO_AGENT_VERSION', …)` /
+   `define('DUO_SPEC_VERSION', …)` lines in `agent/duo.php`.
+   `manifests/capabilities/platform.json` restates both defines, and
+   `ManifestDispositions::platform_boundary()` throws "platform version
+   disagrees with the loaded agent" the moment they diverge
+   (`agent/src/Policy/ManifestDispositions.php:145-146`); `make release-gate`
+   checks the same equality, so those two files move together or not at all.
+9. **Fix the root cause** within the pinned architecture — no silent
+   fallbacks, no compat shims. Every fix ships with regression coverage that
+   fails against the prior defect, through the product path.
+10. **Comment style is rationale-dense**: state the constraint and the evidence
     (file:line, measured number, error string), not the mechanics.
 
 ## The loop
@@ -78,10 +95,11 @@ php tools/offline.php -j8         # whole offline corpus in parallel, one log pe
 php tools/offline.php --changed   # only affected suites — iteration only, never the gate
 php tools/affected.php --explain  # why each suite was selected
 make regress-offline-all          # THE merge gate (DUO-3285) — unconditional, quote it in the PR
-make release-gate                 # generated capability prose and classmap match their source
+make release-gate                 # capability-doc --check + classmap --check: the generated
+                                  # capability document and the classmaps match their sources
 ```
 
-the offline leaf targets (239 today; the Makefile's own `N offline suites green` line is the count of record). `tools/offline.php` runs the same work as
+the offline leaf targets (251 today; the Makefile's own `N offline suites green` line is the count of record). `tools/offline.php` runs the same work as
 `make regress-offline-all` with per-suite logs and the guard's exact
 diagnostic regex applied per suite, so a failure is named rather than merely
 detected — but the PR quotes the canonical gate, not the fast path. Stock macOS
@@ -90,6 +108,25 @@ ships GNU Make 3.81 (no `--output-sync`); use `tools/offline.php` there.
 Mechanically, every change: `php -l` each touched PHP file, `bash -n` each
 touched script, then `make regress-offline-all` green. Warnings are not green —
 human output, machine output and exit status must agree.
+
+## What stands behind a capability claim
+
+There is no sealed evidence record and no generated registry. A status in
+[docs/capabilities.md](docs/capabilities.md) means exactly three things:
+**declared** by the adapter's own manifest, **reviewed** into
+`manifests/dispositions.json` by a human who wrote down why, and **exercised**
+by the named live conformance suites in `sandbox/conformance/`. It does not
+mean a digest binds that claim to an artifact set or a specific run.
+
+`tools/capability-doc.php` projects the document and the README summary from
+exactly four files — `manifests/*.json`, `manifests/dispositions.json`,
+`manifests/capabilities/platform.json`, `agent/duo.php` — and `make
+release-gate` byte-compares its output, so the prose cannot drift from the
+library. Its four cross-checks each mirror a rule `ManifestDispositions`
+enforces at agent load time, which is what keeps the document from describing a
+library the agent would reject; the header comment at
+`tools/capability-doc.php:12-58` is the authority and the first thing to read
+before touching a claim.
 
 ## Live evidence
 
@@ -104,8 +141,7 @@ document and in [docs/sandbox.md](docs/sandbox.md); the pair model itself is
 
 ## Where things live
 
-- Setup, gotchas, closure rules, certification trains, measured wall times →
-  [docs/dev-setup.md](docs/dev-setup.md)
+- Setup, gotchas, measured wall times → [docs/dev-setup.md](docs/dev-setup.md)
 - Dispatch loop, claim/close gates, evidence scoping, ordering →
   [docs/agents/linear-loop.md](docs/agents/linear-loop.md)
 - Architecture posture (loud, blocking, scoped; honest refusal over hollow

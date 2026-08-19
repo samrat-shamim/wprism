@@ -20,162 +20,71 @@ make regress-offline-all                              # THE gate: the whole offl
 If `tools/doctor.sh` exits 0 with only docker/`gh`/PHP-version warnings, the
 checkout is ready. Every FAIL line it prints carries the exact remedy command.
 
-## Two gotchas that cost hours if you meet them cold
-
-### 1. A shallow clone
+## The one gotcha that costs hours if you meet it cold: a shallow clone
 
 `git clone --depth 1` produces a working tree that is byte-identical to a full
-clone. Nothing looks wrong until:
-
-```
-$ make release-gate
-duo: certification Git revision is not a commit: c30c1976342e7bf9e5aea0b7711986beb0108410
-```
-
-The message names a certification revision, so it reads like an evidence
-problem. It is not — the commit object is simply absent from the local object
-database. Measured on a `--depth 1` clone of this repo, `make release-gate`,
-`make regress-capability-registry` and `make regress-manifest-dispositions` all
-die with that exact string; every path that replays a certification bundle
-does.
+clone, so nothing looks wrong until something asks git a question about
+history. `scripts/close-gate-check.sh:43` runs `git merge-base --is-ancestor`
+against `origin/main`; without the ancestry in the local object database it
+reports a merged head as un-merged, and `regress-close-gate-parent-count` reads
+the same history. The message you get names branch state; the cause is the
+missing objects.
 
 ```bash
 git fetch --unshallow
 ```
 
-`tools/doctor.sh` reports this as a FAIL but does **not** auto-fix it: an
-unshallow can transfer the entire history and that is a decision, not a repair.
+`tools/doctor.sh` reports this as a FAIL (`tools/doctor.sh:162-172`, which
+states the same cause) but does **not** auto-fix it: an unshallow can transfer
+the entire history and that is a decision, not a repair. `--fix` applies
+exactly two remedies, `composer install` and `mkdir -p sandbox/tmp`, and
+nothing else, ever.
 
-### 2. Missing certification commits (even in a full clone)
+## Shipped bytes — the one rule that bites everybody
 
-Each record in `manifests/capabilities/evidence.json` carries a
-`bundle.git_revision`. `ScopedCertificationBundle::assertGitRevisionInputs()`
-proves the recorded closure bytes existed at that commit by running
-`git cat-file -t <sha>` and `git ls-tree -r <sha>` **locally**
-(`agent/src/Adapter/ScopedCertificationBundle.php:419`).
+`cli/src/Onboarding/Adopt.php` tars exactly `agent manifests recovery`. That is
+the whole list of what reaches a managed site, and it is the only place in this
+repo where an edit has consequences beyond review.
 
-Those revisions are PR heads, and this project merges with `gh pr merge
---squash`, which discards them: no branch or tag points at them, so a plain
-`git fetch` — which negotiates by ref — never brings them down, not even into a
-full clone. GitHub still serves them by SHA:
+Inside that list, `manifests/` is special: its bytes **are** adapter identity.
+`ArtifactPolicyIdentity::manifest_rows()` folds each manifest's JSON, its
+disposition entry, and `hash_file('sha256', …)` of every interpreter, provider
+and regenerator file that manifest names
+(`agent/src/Policy/ArtifactPolicyIdentity.php:60-115`). `manifest_hash()`
+(`:127`) and each adapter's own `digest` (`:147`) are that same row hashed, and
+the class comment at `:53-56` spells out the consequence: a site repo's
+per-manifest content pin, `adapter_digest`, `duo assess`'s reported digest and
+the contract that pins it are all one row hashed.
 
-```bash
-git fetch origin <sha> && git update-ref refs/duo-cert/<sha> <sha>
-```
+So a one-byte edit under `manifests/` is a fleet-visible change. A deployed
+site holding a compiled artifact refuses with
+`compiled_artifact_manifest_mismatch` — "compiled manifest/interpreter set does
+not match active pins" (`agent/src/Repository/CompiledArtifactReader.php:39-42`)
+— and every `site.duo.json` content pin stops matching. The remedy is to
+recompile and re-pin (`wp duo manifest-pin` prints the copy-pasteable object),
+never a fallback.
 
-The local ref keeps the object from being garbage-collected. `bash
-tools/doctor.sh --fix` does exactly this for every revision in `evidence.json`
-that does not resolve.
+`agent/src`, `cli/src` and `recovery/` ship but carry no such identity: a
+namespace rename or a class-file move there moves no digest. Everything else —
+`docs/`, `spec/`, `sandbox/`, `scripts/`, `Makefile`, `tools/`, `tests/`,
+`vendor/`, `composer.*`, `phpstan*`, `phpunit.xml.dist`,
+`.php-cs-fixer.dist.php` — never reaches a site at all.
 
-## The certification closure — the one rule that bites everybody
+There is no source closure and no certification round any more: no set of files
+whose bytes expire a sealed claim, and no `Makefile`-target tax. What a
+capability claim rests on now is [dispositions and live
+conformance](guides/capabilities-and-limits.md), and the only mechanical gate
+over it is `make release-gate`.
 
-Nine subjects (eight certified manifests plus the `fse` profile) are sealed
-against a **source closure**. Change one byte of any closure member and every
-subject that binds it expires: `make release-gate` goes red, and a *deployed*
-agent refuses every command out of `assertRuntimeInputsCurrent()` during
-`Policy::load()`.
+### Tooling stays outside the shipped tree — deliberately
 
-Membership is defined in exactly one place —
-`\Duo\ScopedCertificationBundle::subjectInputPaths()`
-(`agent/src/Adapter/ScopedCertificationBundle.php:144`). Never re-derive it by hand;
-run `php tools/cert-impact.php`, which calls that function. For orientation:
-
-**Walked whole, as directory trees, with no gitignore awareness:**
-
-| tree | note |
-| --- | --- |
-| `agent/` | every file |
-| `cli/` | every file |
-| `sandbox/bin/` | every file |
-
-Because the walk enumerates real directory entries, an **untracked or ignored**
-file inside those trees is a closure input. A `.DS_Store`, an editor swap file,
-or a scratch script under `sandbox/bin/` expires all nine certifications.
-`tools/doctor.sh` checks `git status --porcelain --ignored -- agent cli
-sandbox/bin` for exactly this reason. Put scratch in `sandbox/tmp/`
-(gitignored) or a `mktemp -d`.
-
-**Named files, always bound:**
-
-`Makefile`, `docs/compatibility-baseline.json`, `sandbox/conformance/asserts.sh`,
-`sandbox/conformance/run.sh`, `sandbox/db.yml`, `sandbox/init-cli.Dockerfile`,
-`sandbox/tests/certify_subject_bundle.sh`, `scripts/capability-registry.php`,
-plus the globs `sandbox/lib/pair_*.sh` and `sandbox/pair*.yml`.
-
-**Bound per subject:**
-
-- `manifests/<manifest>.json`
-- `sandbox/conformance/entries/<name>.json`, and
-  `sandbox/conformance/{seeds,postdeploy,checks}/<name>.sh` when present
-- the manifest's own `interpreter` → `manifests/interpreters/<id>.php`, its
-  `source: manifest` providers → `manifests/providers/<id>.php`, and each
-  `post_types[].regen_dependency.regenerator` → `manifests/regenerators/<id>.php`
-- per declared test: `sandbox/certification/tests/<test-id>.sh` (plus an
-  optional same-named directory); `exact-artifact-version-matrix` binds
-  `sandbox/certification/version-matrix/<name>.sh` and its directory when that
-  driver exists, otherwise `sandbox/tests/certify_version_matrix.sh`;
-  `multisite-refusal` on `core` binds `sandbox/tests/regress_multisite_refusal.sh`.
-
-**Outside the closure** (edit freely, no certification cost): `docs/`,
-`sandbox/tests/` other than the three named files above
-(`certify_subject_bundle.sh`, `certify_version_matrix.sh`,
-`regress_multisite_refusal.sh`), `sandbox/conformance/` fixtures not named
-above, `scripts/` other than `capability-registry.php`,
-`recovery/`, `spec/`, and everything the dev toolchain owns —
-`tools/`, `tests/`, `vendor/`, `composer.*`, `phpstan*`, `phpunit.xml.dist`,
-`.php-cs-fixer.dist.php`.
-
-### Tooling lives outside the closure — deliberately
-
-`tools/` and `tests/` are dev-only entry points, and `cli/src/Onboarding/Adopt.php` tars
-exactly `agent manifests recovery`, so nothing at the repo root can reach a
-managed site. That is what makes it safe for the toolchain to depend on
-composer while the drop-in itself stays dependency-free (asserted by
-`sandbox/tests/regress_scoped_certification_bundle.php` and
-`tests/Tooling/PhpstanBaselineRatchetTest.php`).
-
-The practical consequence: **new tooling goes in `tools/` as a script, never as
-a new `Makefile` target.** The `Makefile` is a closure member, so adding a
-target to it — even a one-line convenience alias — expires all nine
-certifications and costs a full certification round.
-
-## Certification trains
-
-A change that *does* touch the closure needs a certification round. A round is
-not cheap, so **batch closure-touching PRs into a train** and pay for one round
-instead of N. One round is:
-
-```bash
-make certify-subjects-parallel            # independent lanes on leased pairs; emits index.json
-php scripts/capability-registry.php import-subject-bundle <bundle-dir>   # once per subject
-make capability-registry-generate
-make release-gate                         # must go green
-```
-
-Rules learned the hard way:
-
-- **Import nothing until every lane finishes.** The lanes share one exact-source
-  checkout; importing mid-run makes it dirty underneath the remaining lanes.
-- **The driver host needs a full clone with the certification commits present**
-  (`bash tools/doctor.sh` green on checks 1 and 2), because each lane replays
-  `assertGitRevisionInputs()`.
-- **Freeze the reviewed candidate first.** Land every review finding, record
-  candidate `C` and base `B`, then certify from a clean checkout of exactly
-  `C`. A later change to a subject's bound inputs expires only that subject —
-  repeat that subject's run; never relabel old evidence current. Full ordering:
-  [docs/agents/linear-loop.md](agents/linear-loop.md) §Ordering.
-- **A suite-count echo line is a train too.** `php tools/cert-impact.php
-  --range=A..B` classifies commit `dd57e88` — whose entire diff is
-  `-"regress-offline-all: 208 offline suites green"` /
-  `+… 209 …` — as `suite-declaration-only`, all nine subjects expired. Wiring a
-  new offline suite into `regress-offline-corpus` costs a round; batch it.
-
-Before you push, ask the tool rather than guessing:
-
-```bash
-php tools/cert-impact.php               # working tree
-php tools/cert-impact.php --range=origin/main...HEAD --json
-```
+`tools/` and `tests/` are dev-only entry points and cannot be reached from a
+managed site, which is what makes it safe for the toolchain to depend on
+composer while the drop-in itself stays dependency-free
+(`tests/Tooling/PhpstanBaselineRatchetTest.php` holds the ratchet). Prefer a
+script under `tools/` to a `Makefile` target for anything that is not a suite —
+not because a target costs anything now, but because `tools/` entry points take
+flags, print diagnostics and have self-tests, and `Makefile` recipes do not.
 
 ## The daily loop
 
@@ -186,9 +95,8 @@ php tools/cert-impact.php --range=origin/main...HEAD --json
 | `php tools/offline.php -j8` | the whole offline corpus in parallel, one log per suite |
 | `php tools/offline.php --changed` | only the suites your diff can affect — **iteration only** |
 | `php tools/affected.php --explain` | why each suite was selected |
-| `php tools/cert-impact.php` | which of the nine certifications your diff expires |
 | `make regress-offline-all` | **the canonical merge gate** (DUO-3285), unconditional |
-| `make release-gate` | evidence, generated registry and product prose agree |
+| `make release-gate` | `capability-doc.php --check` + `classmap-generate.php --check`: the generated capability document, the README summary block and both classmaps still match their sources |
 
 `tools/offline.php` is strictly stronger than a raw `make -j`: it gives every
 suite its own log, applies `offline_diagnostics_guard.sh`'s exact diagnostic
@@ -203,35 +111,29 @@ one unreadable stream. Use `tools/offline.php`.
 
 ### Measured wall times
 
-Two hosts, both real, and the difference matters when you plan a session —
-but they are not directly comparable, and neither is claimed to be:
+Measured 2026-08-19 on a full clone (macOS 26.0.1, 10 cores, PHP 8.5.6),
+251/251 offline suites green, zero parallel flakes:
 
-| run | host A (shallow-clone baseline) | host B (this macOS clone, full clone) |
-| --- | --- | --- |
-| serial `make regress-offline-corpus` | 509 s | — |
-| `make -k -j8 regress-offline-corpus` | 97 s | — |
-| `php tools/offline.php -j8` | — | 296.05 s wall, 966.68 s of suite time |
+| run | wall | suite-seconds | effective parallelism |
+| --- | --- | --- | --- |
+| `php tools/offline.php -j8` | 108.65 s | 499.68 s | 4.6x on 8 workers |
 
-Host A's 509 s / 97 s figures were measured on a **shallow clone**, where
-`regress-plugin-adapter-source` fails fast instead of running to completion —
-so that column is not a full 238/238 run and is not makespan-comparable to
-host B; it is kept only because a serial-vs-`-j8` speedup is still visible on
-it and no fuller measurement from that host exists in-repo.
+The schedule is bounded below by its single longest suite, so the makespan
+tracks that suite rather than the workers' theoretical 8x. Today's top tier is
+`regress-pair-bootstrap-unit` 75.17 s, `regress-adopt-rollback` 55.91 s,
+`regress-scoped-promote-unit` 34.19 s — all three genuinely serial work
+(container bootstrap, rollback ordering), not accidental cost.
 
-Host B is a full clone, 238/238 offline suites green. `php tools/offline.php
--j8` (8 workers) finished in 296.05 s wall against 966.68 s of total
-suite-seconds — about 3.3x effective parallelism, not the workers' full 8x,
-because the schedule is bounded below by its single longest suite:
-`regress-plugin-adapter-source` at 296.05 s, which is why wall time tracks it
-closely rather than the theoretical 8-way speedup. That suite spawns 53
-sequential PHP children, each performing a full `Policy::load()` that
-re-verifies all nine certification closures (~5 s apiece) — a per-child cost,
-not a macOS-specific artifact, so treat it as inherent rather than as
-something a faster scheduler could hide. Next tier: `regress-adapter-catalog`
-126.7 s, `regress-pair-bootstrap-unit` 87.3 s. `regress_bundle_coverage`
-itself — a member of this same 238-suite gate — dropped from ~37 s to ~0.8 s
-after the single-pass rewrite above. 238 leaf targets at that measurement (239 since DUO-3481 added the parity suite); zero
-parallel flakes on either host.
+The certification teardown is visible in this table and worth knowing about if
+you are comparing against an older run. The previous measurement on this same
+host was 296.05 s wall against 966.68 s of suite time, bounded by
+`regress-plugin-adapter-source` at 296.05 s: that suite spawns 53 sequential
+PHP children, and each child's `Policy::load()` re-verified all nine
+certification closures at roughly 5 s apiece. With the closures gone that suite
+runs in **9.75 s** and `regress-adapter-catalog` in **7.09 s**, down from
+126.7 s. Roughly two thirds of the old offline corpus's wall time was closure
+re-verification, so any pre-teardown timing you find in an old PR is not
+comparable to a run today.
 
 ## Writing a new offline suite
 
@@ -239,11 +141,17 @@ Use the shared harness — `sandbox/tests/lib/{check.php,wp_stubs.php,FakeWpdb.p
 — and read [sandbox/tests/lib/README.md](../sandbox/tests/lib/README.md) for the
 complete skeleton. Three files, no composer, no WordPress: every offline
 `regress_*.php` runs as plain `php sandbox/tests/X.php`, so the harness must
-too. Wiring the new leaf into `regress-offline-corpus` is a `Makefile` edit and
-therefore a certification-train change (above).
+too.
+
+Two `Makefile` edits go with it, and `regress_bundle_coverage.sh` fails the
+gate if either is missing: wire the new leaf into `regress-offline-corpus`, and
+bump the `regress-offline-all: N offline suites green` line. That suite expands
+the whole prerequisite graph and compares its size against the declared number
+(`:168`), so an unwired suite and a stale count are separate refusals — each
+with its own self-test inside the suite, so neither can rot unnoticed.
 
 Tooling self-tests are different: they go in `tests/` as PHPUnit 11
-(`Duo\Tests\…`, PSR-4) and cost nothing — `tests/` is outside the closure.
+(`Duo\Tests\…`, PSR-4) and need no Makefile wiring at all.
 
 ## Live evidence
 
@@ -277,16 +185,18 @@ declared under `agent/src` / `cli/src` to its path, and `agent/duo.php` and
 
 This does not make the drop-in "an autoloader project" in the sense AGENTS.md
 non-negotiable 1 forbids: nothing is vendored or fetched, the map is a
-first-party source file inside the certification closure, and **every existing
+first-party source file that ships inside `agent/`, and **every existing
 `require_once` stays** (owner ruling D4). The fallback is additive — an
 autoloader is only consulted for a class that is *still undeclared* when it is
 referenced — so on the production path it resolves nothing at all. Measured:
-after `agent/duo.php` finishes, 237 of the map's 238 names are already
-declared; the single exception, `Duo\AdapterCertification`, is `require_once`d
-at both of its use sites before it is ever named. What the map buys is the
-partially-loaded case — an offline suite that includes three `agent/src` files
-by hand, or a new file whose hand-written require chain missed a dependency —
-where the alternative is a fatal `Class not found`.
+after `agent/duo.php` finishes, 237 of the map's 239 names are already
+declared, and the two exceptions (`Duo\AdapterCertification` and the
+`Duo\SupersededSiteAdapterCertificate` declared in the same file) are
+`require_once`d at each of that file's three use sites in `AdapterSources.php`
+before either is ever named. What the map buys is the partially-loaded case —
+an offline suite that includes three `agent/src` files by hand, or a new file
+whose hand-written require chain missed a dependency — where the alternative is
+a fatal `Class not found`.
 
 Two properties are load-bearing and must survive any edit:
 
@@ -306,13 +216,14 @@ top-level side effect that must stay behind `duo.php`'s WP-CLI require) and
 `Duo\InitialStateBoundaryException` (declared three times behind
 `class_exists(…, false)` guards, so no single file is its home).
 
-The maps are certification-closure members — `agent/` and `cli/` are walked
-whole — so regenerating one costs a certification round. That is affordable
-only because the output is deterministic: FQCN-sorted with `strcmp()`, LF, no
-timestamp, no host path. `tests/Tooling/ClassmapTest.php` regenerates both in
-memory and byte-compares, so a stale map fails `composer check` rather than
-silently going wrong; `php tools/classmap-generate.php --check` is the same
-question from the command line.
+The output is deterministic by construction — FQCN-sorted with `strcmp()`, LF,
+no timestamp, no host path — because both gates over it are byte-compares, and
+a map that differed per host would turn each of them into a coin flip and put a
+spurious diff in every unrelated PR. `tests/Tooling/ClassmapTest.php`
+regenerates both in memory and byte-compares, so a stale map fails `composer
+check` rather than silently going wrong; `php tools/classmap-generate.php
+--check`, which `make release-gate` runs, is the same question from the command
+line.
 
 Adding a class to `agent/src` or `cli/src` therefore has one extra step: run
 `php tools/classmap-generate.php` and commit the regenerated map alongside it.
@@ -349,10 +260,13 @@ Three things about it are easy to get wrong when reading the output:
   `duo-command-refusal/v1` envelope under `--format=json`.
 - **`containment: unknown — not enforced in this profile` is the honest value,
   not a bug.** MUP ships no egress control, so only apply's hook-free window is
-  structurally provable. `sandboxed` and `compensatable` are never emitted, and
-  neither is `Site-certified`: the certification gate is deferred, so the
-  contract carries an `unsigned` attestation and every site-scoped claim reads
-  `Uncertified`.
+  structurally provable. `sandboxed` and `compensatable` are never emitted. The
+  contract itself still carries an `unsigned` attestation — contract signing is
+  deferred — but adapter claims are not stuck at `Uncertified`: since round-3 T6
+  an operator-signed adapter reads `Site-certified` and a shipped reviewed one
+  reads `Platform-certified` (`cli/src/Contract/ProjectionVocabulary.php:805`,
+  `:824`). A site-signed adapter that is not exactly pinned still reads
+  `Uncertified`, with the reason stated.
 - **The human view is bounded** (50 rows per section, `--limit=1..200`,
   `N more (use --format=json)`), and a malformed `--limit` refuses rather than
   falling back to the default. The counts printed beside a truncated list are
@@ -402,7 +316,7 @@ document of their own. Four things about them are easy to get wrong:
   against a recorded `git` shim, not against the source.
 - **`duo verify`'s convergence half is a read-only plan re-read, and says so.**
   `wp duo verify-canonical` needs a `--compiled` artifact and a
-  `duo-policy-snapshot/v5` that only a mutating apply produces
+  `duo-policy-snapshot/v6` that only a mutating apply produces
   (`agent/src/Review/ConvergenceVerifier.php:87-110`), and MUP §2.4 forbids
   adding an agent command to export one. So the report carries
   `verifier: "plan-reconciliation/v1"` plus a disclosure naming where the

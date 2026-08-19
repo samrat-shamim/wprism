@@ -216,6 +216,152 @@ release descriptor that gives standalone doctor such an expectation remains
 a named future distribution concern; presence is not presented as a
 standalone freshness guarantee.
 
+## Upgrading a managed site across the certification-evidence teardown
+
+Two releases changed what an installed manifest library contains and what the
+platform boundary says: #477 removed the certification-evidence apparatus (the
+generated `manifests/capabilities/registry.json`, its evidence record, and the
+per-subject certification bundles adoption used to ship), and #478 removed four
+demo manifests. `DUO_AGENT_VERSION` is unchanged, so the upgrade itself is the
+ordinary SSH re-adoption above. The work either side of it, in order:
+
+**1. Drain in-flight work before you re-adopt.** A promotion caught between
+phases, or a rollback generation that has not reached a terminal state, rides on
+receipts the upgrade does not migrate. Check both, per environment:
+
+```sh
+cli/duo status production
+cli/duo recover production --list
+ls .duo/releases
+```
+
+`duo status` ends with the externally verified rollback-authority line. A
+drained SSH target reads `[PASS] rollback authority: ready (no active
+generation)`, or `[PASS] rollback authority: generation <n> <state>
+receipt=<id>` when the last generation is terminal. A non-terminal one reads
+`[FAIL] … (recovery required)`, and the same check fences `duo deploy` and
+`duo promote` with `rollback generation <n> is still <state>; recovery must
+reach committed or rolled_back first`. Carry it to `committed` or
+`rolled_back` — `cli/duo recover production --restore=<checkpoint>
+--writers-excluded` — before upgrading under it. On a non-SSH transport
+`duo recover` refuses with `recovery_authority_unavailable`; that refusal is
+the answer, not an obstacle, because such a target holds no rollback authority
+to drain.
+
+Frozen authorization plans are local, not target-side: `duo release` writes
+`.duo/releases/<plan_digest>.json` in the site repository before any target
+mutation, and each plan cites the `contract_digest` it was authorized against.
+Step 3 replaces that digest, so afterwards `cli/duo verify production
+--plan=<digest>` refuses with `verify_contract_moved` — "the accepted
+application contract has changed since this release was authorized, so its
+declared journeys are not the journeys that release was verified against".
+Verify or abandon every outstanding plan first; re-issuing the contract does not
+make a stale plan valid again.
+
+**2. Upgrade paired environments together.** `duo refresh` and `duo rebase`
+compare the live production target against the artifact compiled locally from
+`--production-ref`, and `RefreshPlan::assertProductionCodeMatches()`
+(`cli/src/Refresh/RefreshPlan.php:284`) requires four things to be equal: the
+policy's `site_hash`, its `manifest_hash`, the canonical encoding of its
+`resolved_adapters`, and the completed code's revision and descriptor.
+
+`resolved_adapters` is the one this teardown moves. Every row carries that
+adapter's reviewed capability claim, and the claim embeds the platform boundary
+verbatim (`ManifestDispositions::claim_from_disposition()` returns `platform`
+and derives `environment_assumptions` from it) — and the boundary's bytes
+changed deliberately, because the old text promised a WordPress-version gate
+that no longer exists. A controller upgraded past the teardown, talking to a
+target that is not, therefore gets
+
+```text
+production adapter contract does not match --production-ref
+```
+
+which is a refusal, not a mystery. There is no flag for it: re-adopt every
+environment in the pair from the same checkout, in the same window. Its sibling
+refusals from the same function are `production site_hash does not match
+--production-ref`, `production manifest_hash does not match --production-ref`,
+and `completed production code does not match --production-ref`.
+
+**3. Re-issue every accepted application contract.** The format is now
+`duo-application-contract/v2` (`cli/src/Contract/ApplicationContract.php:56`).
+A `duo-application-contract/v1` document is refused, not migrated, and the
+refusal names why rather than making an operator diff two schemas:
+
+```text
+[contract_format_invalid] this is a duo-application-contract/v1 contract: its
+evidence_pins bind a generated capability registry and per-subject certification
+bundles that no longer exist, so it must be re-proposed and re-accepted as
+duo-application-contract/v2
+remedy: regenerate the contract with duo contract propose, then review and accept it
+```
+
+v2 narrows `evidence_pins` to the two facts that still exist: the content
+address of the reviewed dispositions the verdict was read from, and this
+checkout's own copy of that document.
+
+```sh
+cli/duo contract production propose   # writes .duo/contract/proposed.json
+# review and edit the proposal, then:
+cli/duo contract production accept    # writes contract.json + projection.json
+cli/duo contract production show
+```
+
+The edit between those two commands is enforced, not advisory: the generated
+`external_effects[]` entry arrives `decided_by: "unresolved"` and
+`ApplicationContract::validate()` refuses to accept it that way
+(`external_effect_unreviewed`). `accept` stages both documents and never
+commits — the commit is the human's signature on the review.
+
+**4. Re-sign any site-adapter certificates you hold.** A site certificate signs
+`platform_sha256` over the bytes of the platform boundary, now
+`manifests/capabilities/platform.json` and previously the `platform` block
+inside the deleted `registry.json`. Those bytes changed, so verification
+refuses:
+
+```text
+duo: site adapter '<name>' certification platform boundary disagrees with the
+current agent-owned platform
+```
+
+Re-sign each adapter under `adapters/certifications/` with the same key and
+rewrite its pin in the same step:
+
+```sh
+cli/duo adapter certify <site-repo> --name=<adapter> \
+  --secret-key-file=<your-key-file> --pin
+```
+
+`duo adapter list` is the check — an adapter that read `site_signed` before the
+upgrade and does not now needs re-signing, and `duo adapter doctor` reports that
+state instead of dying on it. This is only about adapters *you* signed: the
+shipped `manifests/capabilities/adapter-authorities.json` carries `"keys": {}`,
+so no platform-signed certificate exists to re-issue.
+
+**5. Nothing else needs recompiling or re-pinning.** For the manifests that
+survived, `manifest_hash`, each `adapter_digest`, `site_hash` and
+`revision_hash` are byte-identical across the teardown — #477 verified them
+against a resurrected copy of the deleted implementation. Do not recompile
+artifacts, re-run `duo capture`, or rewrite `site.duo.json` pins as upgrade
+hygiene; only `artifact_hash` moves, and it moves on the next natural compile.
+
+The rule that *does* require a recompile is unchanged by the teardown and worth
+restating, because the advice it replaces used to end in "regenerate the
+registry": editing a shipped manifest's bytes, or the bytes of a
+`manifests/providers/`, `manifests/interpreters/` or `manifests/regenerators/`
+file it names, moves that adapter's identity.
+`ArtifactPolicyIdentity::manifest_rows()` folds the manifest array, its
+disposition, and `hash_file('sha256', …)` of each named hook file into one row;
+`manifest_hash()` is that row set hashed and `resolved_adapters()` is each row
+hashed individually into its `adapter_digest`. A deployed site holding a
+compiled artifact then refuses it with `compiled_artifact_manifest_mismatch` —
+"compiled manifest/interpreter set does not match active pins" — and the site
+repository's per-manifest content pin stops matching too. The remedy is to
+recompile the artifact and update the reviewed pin; `wp duo manifest-pin` emits
+the copy-pasteable object. Renaming a PHP namespace or moving an `agent/src`
+class file does not move identity: only manifest bytes, disposition bytes, and
+those named hook files are folded.
+
 ## First-capture runbook
 
 Before capture, record checksums for state that must remain local to the

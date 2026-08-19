@@ -232,16 +232,22 @@ are outside this file.
 Everything below is reachable only on a live pair. Each is stated so the first
 live run knows what to look at rather than rediscovering it.
 
-1. **Readiness may not be `Ready`.** Step 3 asserts the §6.1 words literally. If
-   the generated capability registry in the checkout is stale relative to the
-   installed WooCommerce/WordPress/PHP/MariaDB, the products row projects
-   `Requalification required` or `Ready with conditions` instead, and step 3
-   fails for a registry reason rather than a product one. Check
-   `manifests/capabilities/registry.json` and `make release-gate` first.
-2. **`duo init` is evidence-gated.** `MUP_BOOTSTRAP=init` runs the product path;
-   its proposal refuses when the target has no Git, or when the registry it
-   reads is not current (DUO-3421). `MUP_BOOTSTRAP=manual` is the escape hatch
-   and reproduces `conformance/run.sh`'s hand-written `site.duo.json` + capture.
+1. **Readiness may not be `Ready`.** Step 3 asserts the §6.1 words literally.
+   The WordPress/PHP/MariaDB route into a non-`Ready` row is gone with the
+   generated capability registry — no runtime gate reads those versions any
+   more. What survives is the *plugin* window: `plugin_version_mismatch` and
+   `plugin_not_active` are condition codes, not blockers
+   (`cli/src/Assess/SurfaceCatalog.php:137-139`), so a WooCommerce outside
+   `manifests/woocommerce.json`'s `version_range` (`11.0.0` ≤ v < `12.0.0`)
+   projects `Ready with conditions` and step 3 fails for an adapter-window
+   reason rather than a product one. Check `MUP_WOO_VERSION` against that range,
+   and that `manifests/dispositions.json`'s `woocommerce` entry still reads
+   `certified`, first.
+2. **`duo init` is preflight-gated.** `MUP_BOOTSTRAP=init` runs the product path;
+   its proposal refuses when the target has no Git, and an installed but
+   uncertified adapter blocks it too (`cli/duo:509-510`). `MUP_BOOTSTRAP=manual`
+   is the escape hatch and reproduces `conformance/run.sh`'s hand-written
+   `site.duo.json` + capture.
 3. **The provider's `attach` re-runs `pair.sh up` without `--artifacts`.**
    `ref_pair_up_command()` builds `pair.sh up <pair> <p1> <p2>` and no flags, so
    a re-converge during step 5 may bring the pair up without the artifact-cache
@@ -263,9 +269,10 @@ live run knows what to look at rather than rediscovering it.
    read as a pass; it is unverified.
 6. **File ownership across the bind mount.** Capture publishes as uid 33 inside
    the container while the host runs `git add`. The cleanup trap chmods both
-   site repos before removing them (the idiom `grind_code_half.sh` established),
-   but whether host-side `git commit` succeeds after a container-side capture is
-   platform-dependent and unverified here.
+   site repos before removing them (the idiom the since-removed
+   `grind_code_half.sh` established), but whether host-side `git commit`
+   succeeds after a container-side capture is platform-dependent and unverified
+   here.
 7. **The `preview` and `mup2` registry entries name the same physical side.**
    *(retired by construction: since the reusable preview slot,
    `tools/reference-env-provider.php` requires every configured environment to

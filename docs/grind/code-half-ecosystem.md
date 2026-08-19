@@ -1,6 +1,15 @@
 # Code-half ecosystem grind
 
-Driver: [`sandbox/tests/grind_code_half_ecosystem.sh`](../../sandbox/tests/grind_code_half_ecosystem.sh).
+> **Archival.** The driver named below
+> (`sandbox/tests/grind_code_half_ecosystem.sh`), its
+> `make grind-code-half-ecosystem` target, and the `duo-code-half-ecosystem`
+> manifest its fixtures pinned were removed by the teardown train — #477 (remove
+> the certification-evidence apparatus), #478 (remove the four demo manifests)
+> and this prose pass. Nothing here is runnable today; the matrix and the closed
+> gaps below stand as history, not as instructions. The narrow first-sync case
+> item 8 points at is still live (`make grind-code-half-first-sync`).
+
+Driver: `sandbox/tests/grind_code_half_ecosystem.sh` (removed — see the archival note above).
 
 Run it from the repository root:
 

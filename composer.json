@@ -43,7 +43,7 @@
         "check": "lint + phpstan + php-cs-fixer (changed files) + phpunit — the whole dev gate.",
         "lint": "php -l over every first-party PHP file, 8-way parallel.",
         "stan": "phpstan analyse over the whole tree at the committed baseline (see phpstan-baseline.neon and the ceiling ratchet test).",
-        "cs": "php-cs-fixer --dry-run over changed PHP files only (never the whole tree: agent/, cli/, recovery/, scripts/ are certification-closure members — see .php-cs-fixer.dist.php's own header).",
+        "cs": "php-cs-fixer --dry-run over changed PHP files only (never the whole tree: a mass reformat buries the change under review, and agent/, cli/ and recovery/ are bytes that reach a managed site — see .php-cs-fixer.dist.php's own header).",
         "cs:fix": "Same changed-files selection as 'cs', but rewrites those files in place instead of reporting a diff.",
         "test:unit": "phpunit over tests/ (fast, no docker, no WordPress bootstrap).",
         "test:offline": "Offline diagnostics driver (tools/offline.php)."

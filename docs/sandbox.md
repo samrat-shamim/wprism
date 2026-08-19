@@ -25,11 +25,16 @@ directly except pair.sh itself (it sets several env vars — `DUO_PAIR`,
 `DUO_PORT1/2`, `DUO_CODEBIND_PLUGIN` — that the compose files need to
 resolve correctly).
 
-The generic pair's WordPress core image is pinned to the exact
-evidence-bound version, so a floating registry tag cannot silently invalidate
-the capability baseline during a candidate proof. `DUO_WP_IMAGE` is an
-explicit override for exploratory local work; candidate-bound evidence leaves
-it unset and therefore uses `wordpress:7.0.3-php8.3-apache`.
+The generic pair's WordPress core image is pinned to the exact version
+`docs/compatibility-baseline.json` records as last verified, so a floating
+registry tag cannot silently move the platform boundary a proof runs against.
+That file is the one project-level compatibility statement:
+`cli/src/Onboarding/Doctor.php` blocks on its PHP and database ranges at
+runtime, and `tools/capability-doc.php` cross-checks it against
+`manifests/capabilities/platform.json` so the two copies cannot drift.
+`DUO_WP_IMAGE` is an explicit override for exploratory local work; a
+candidate-bound run leaves it unset and therefore uses
+`wordpress:7.0.3-php8.3-apache`.
 
 Why one server instead of one-per-pair: a clean-room reset becomes `DROP
 DATABASE` + `CREATE DATABASE` against a server that's already initialized
@@ -143,9 +148,11 @@ resolves today, since `compose start` reuses whatever a container was created
 with. Unset, nothing refuses and behavior is unchanged — persistent-pair
 workflows are deliberately not candidate-bound. `stop`, `destroy`, and `list`
 are never gated: they are teardown and inspection, and cleanup must not be
-blocked by a variable left exported in a shell. The refusal names the remedy
-this repo already uses for certification bundles — a standalone clone of the
-candidate at that exact commit, run from there.
+blocked by a variable left exported in a shell. The refusal names its own
+remedy — commit or stash, or "produce this evidence from a clean standalone
+clone at the expected commit" (`sandbox/bin/pair.sh:372`), because uncommitted
+mount bytes make a live result unreproducible and nothing records what they
+were.
 
 ### `up` — idempotent bring-up
 
@@ -224,7 +231,7 @@ concurrent cold callers perform one download, and every cache hit re-hashes
 the bytes before use. **`--wordpress-offline`** additionally maps the
 WordPress.org catalog/download hostnames to loopback and requires
 `--artifacts`; it also makes any artifact cache miss refuse before `curl`.
-This overlay is the warm-cache proof mode for subject certification, not a
+This overlay is the warm-cache proof mode for a live conformance run, not a
 claim that ordinary WordPress itself is generally network-hermetic.
 
 Compose's multi-file merge for `volumes:` is by target path, not whole-list
@@ -318,14 +325,14 @@ capacity or creating pair state. The
 kernel releases the descriptor after a crash/signal; the lock file itself is
 never removed, so a later owner cannot delete another process's reservation.
 `list` uses the same serialized strict query and surfaces the budget warning.
-For certification, variable presence is only permission: the subject wrapper
-initializes a private ledger through
-`sandbox/lib/pair_force_hatch.sh`, and `pair.sh` appends to it only when the
-unreserved over-budget branch actually consumes the override. An in-budget
+Variable presence is only permission, never proof of use: a wrapper
+initializes a private ledger through `sandbox/lib/pair_force_hatch.sh`, and
+`pair.sh` appends to it (`pair_force_hatch_record`, `pair.sh:524`) only when
+the unreserved over-budget branch actually consumes the override. An in-budget
 admission with the variable present therefore remains unforced. If actual use
 cannot be recorded, pair admission refuses before its first post-budget
-mutation. Evidence that records actual override use remains verifiable but
-cannot be imported as a current capability claim.
+mutation — a run that forced its way past the budget has to stay
+distinguishable from one that did not.
 
 ## The destroy-when-green convention
 
@@ -408,83 +415,31 @@ actually reach the container's `HostConfig`, not just parsed and ignored).
 The legacy `docker-compose.yml` pairs (`a`, `b`, `conf1/2`, `r1a*/r1b*/r1c*`)
 were confirmed still running, untouched, throughout.
 
-## Subject certification evidence
+## Live conformance evidence
 
-`make certify-subject-bundle SUBJECT=manifests.<name>` certifies one manifest;
-`SUBJECT=profiles.<name>` certifies one profile. The runner reads that subject's
-required test IDs from `manifests/dispositions.json`. By convention,
-`conformance-<name>` uses the matching conformance entry,
-`exact-artifact-version-matrix` uses an executable
-`sandbox/certification/version-matrix/<name>.sh` when present (the currently
-shipped adapters retain their established built-in matrix fixtures), and
-`multisite-refusal` belongs to core. Any other canonical ID is discovered as
-an executable `sandbox/certification/tests/<id>.sh`. This convention is the
-extension point: adding a WP extension does not require editing a central
-subject list or switch. The standalone matrix command is also subject-only:
-`make certify-version-matrix MANIFEST=<name>`; there is no all-manifests mode.
+The subject-certification apparatus this section used to describe — the
+`duo-subject-certification-bundle/v1` records, `sandbox/certification/`, the
+`certify-subject-bundle` / `certify-subjects-parallel` runners, and the
+registry import that published them — is retired. No content-addressed bundle
+stands behind a product claim any more, and no byte change expires anything.
 
-Custom and per-extension matrix drivers receive these environment variables:
-`DUO_CERT_TEST_ID`, `DUO_CERT_SUBJECT`, `DUO_CERT_MANIFEST`, `DUO_CERT_SOURCE_SHA`,
-`DUO_CERT_PAIR`, `DUO_CERT_PORT1`, `DUO_CERT_PORT2`, `DUO_CERT_RESULT`, and
-`DUO_CERT_DIFF`. Standard output/error becomes the non-empty evidence log. On
-success the driver must exit zero, write `DUO_CERT_RESULT` as JSON containing
-the exact test ID, `"verdict":"pass"`, and `"exit_code":0`, and write
-`DUO_CERT_DIFF` as JSON containing `"status":"clean"`. Helpers belong under
-`sandbox/certification/tests/<id>/` or
-`sandbox/certification/version-matrix/<name>/`; every file there joins that
-subject's canonical closure.
+What stands behind a claim now is a reviewed entry in
+`manifests/dispositions.json` plus live conformance that is run continuously
+rather than sealed into a record. `make conformance-<name>` runs one entry
+(`sandbox/conformance/run.sh <name>`; the entries are
+`sandbox/conformance/entries/*.json`), and `CONF_EXPECTED_SOURCE_SHA` is how a
+sweep binds itself to a commit — `run.sh` exports it as the
+`DUO_EXPECTED_SOURCE_SHA` the gate above enforces.
 
-Each run owns one disposable pair, destroys it after every attempted test, and
-publishes a content-addressed `duo-subject-certification-bundle/v1` directory
-under `CERT_SUBJECT_OUT` (default
-`/tmp/duo-subject-certification-bundles`). The record contains the exact
-`{kind,name}` subject, subject digest, ratification hash, artifact boundaries,
-force-hatch ledger, named results/diffs/logs, Git revision, and the conservative
-source closure for that lane. A changed bound input expires that record without
-affecting another subject. Artifact-lock currentness is compared through the
-exact shared bootstrap theme, entry-declared plugin/theme rows, and matrix
-boundaries used by the subject, so adding an unrelated extension does not
-expire existing subjects while changing an exercised artifact does. Each
-selected row signs its artifact kind, safe artifact slug, version, role, URL,
-digest, and normalized archive root (including an explicit null when the ZIP
-already expands under the slug).
+The narrower live fixtures keep their own targets, each with its rationale in
+the `Makefile` beside it: `certify-merge`, `certify-adversarial-matrix`,
+`certify-deletion-matrix`, `certify-version-matrix`
+(`VMATRIX_MANIFEST=<name>` names the manifest whose `version_range` edges get
+installed — `sandbox/tests/certify_version_matrix.sh:52`),
+`certify-ssh-adoption-roundtrip` and `certify-ssh-rollback`. They keep the
+`certify-` prefix for their history; each is a live proof of one mechanism,
+and none of them publishes a record.
 
-The builder/verifier emits one JSON verdict and can be invoked directly:
-
-```sh
-php sandbox/bin/subject-certification-bundle.php verify \
-  /tmp/duo-subject-certification-bundles/<sha256> /path/to/duo-wp
-```
-
-Publish only verified, unforced evidence:
-
-```sh
-php scripts/capability-registry.php import-subject-bundle <bundle-dir>
-php scripts/capability-registry.php generate
-php scripts/capability-registry.php check
-```
-
-Import writes the durable record under
-`manifests/capabilities/scoped/<kind>s/<name>/<digest>/` and updates only that
-entry in `manifests/capabilities/evidence.json`. The release check requires all
-certified manifest and profile records to be current; experimental and excluded
-subjects remain non-promoting without forcing unrelated test work.
-
-Independent subjects can be certified concurrently with
-`make certify-subjects-parallel`. The batch runner discovers every certified
-manifest/profile from dispositions, reads `pair.sh capacity` under the shared
-admission lock, atomically leases collision-free pair names and host ports, and
-assigns each lane its own process group, log, and bundle directory. A stopped
-pair or its persisted port binding, retained site root, another batch lease, or
-listening port refuses before reset can drop data. Ordinary pair lifecycle
-commands consult the same leases. Each launcher completes `setsid`, reports its
-process-group identity, and waits for parent registration before the certifier
-can execute; interrupt cleanup then terminates the complete group before
-destroying only its leased pairs. Legs within one subject remain
-serial, and worker slots are reused by later waves. `JOBS=<n>`,
-`PORT_BASE=<even-port>`, `PAIR_PREFIX=<lowercase-name>`, `OUT=<directory>`, and
-`SUBJECTS="manifests.acf profiles.fse"` narrow or place a run. Requested
-parallelism above current free capacity refuses rather than forcing an
-override. Its `index.json` lists each bundle; import them only after every live
-lane finishes, because importing sooner dirties the exact-source checkout
-shared by the remaining lanes.
+Everything above about the pair budget, the exact-source gate, the artifact
+cache and destroy-when-green applies to those runs unchanged: those are
+properties of the pair, not of the retired apparatus.

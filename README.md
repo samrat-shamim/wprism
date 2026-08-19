@@ -19,7 +19,7 @@
 Every claim above is declared by the adapter's own manifest, reviewed into `manifests/dispositions.json` with a written reason, and exercised by named conformance suites against a live WordPress pair — a reviewed, tested declaration rather than an attestation sealed to a content-addressed evidence bundle. Outside a declared surface, version range, or operation Duo refuses by default instead of guessing; the exact surfaces, operations, and explicit unsupported boundaries are in [the generated capability document](docs/capabilities.md), and plugins always run unmodified. One excluded fixture manifest (duo-agency-cpt) ships with the agent for regression use only and carries no product claim.
 <!-- END GENERATED CAPABILITY SUMMARY -->
 
-Duo makes the registry-certified authored surfaces of a WordPress site **branchable like code** — branch, edit, merge, promote — without modifying plugin or theme source. Authored content and configuration live canonically in a git repository; runtime data (orders, comments, sessions, caches) stays environment-local and untouched. Anything Duo cannot classify or certify is refused loudly, never guessed — missing registry data is unsupported.
+Duo makes the reviewed, certified authored surfaces of a WordPress site **branchable like code** — branch, edit, merge, promote — without modifying plugin or theme source. Authored content and configuration live canonically in a git repository; runtime data (orders, comments, sessions, caches) stays environment-local and untouched. Anything Duo cannot classify or certify is refused loudly, never guessed — a surface no manifest declares and no reviewer dispositioned is unsupported.
 
 **Status:** the correctness core is complete (H1 exit, 2026-08-08 — no known path by which authored data silently fails to propagate), and the running horizon is adoption on real hosts: a real SSH adoption run, certified crash-rollback machinery, and automatic verified-rollback promotion are in; a first third-party production site is next. Direction and the honest boundary live in [docs/roadmap.md](docs/roadmap.md).
 
@@ -41,15 +41,17 @@ Host-agnostic, dependency-free PHP orchestration ([cli/](cli/); full reference i
 - **Environment-bound:** `adopt`, `init`, `assess`, `contract`, `status`, `doctor`, `capture`, `plan`, `apply`, `deploy`, `rehearse`, `release`, `verify`, `recover`, `promote`, `pending`, `classify`, `capabilities`, `explain`, `coverage`, `scope`, `env-set`, `refresh`, `rebase`, `adapter-observe`, `driver-capabilities`.
 - **Repo-local (no environment):** `envs`, `env materialize|reap`, `manifest-validate`, `adapter-draft`, `adapter`.
 
-`duo capabilities` reports the same external disposition, exact scope, unsupported surfaces, and evidence consumed by readiness and promotion. `duo promote` composes deploy-before-apply under promotion locks and, when the target proves every rollback capability, automatically selects the **verified-rollback profile** (DUO-3310); otherwise it remains operator-directed with an explicit warning.
+`duo capabilities` reports the same reviewed disposition, exact scope, and explicit unsupported surfaces that readiness and promotion consume, evaluated against the live target (`duo-capability-report/v1`). `duo promote` composes deploy-before-apply under promotion locks and, when the target proves every rollback capability, automatically selects the **verified-rollback profile** (DUO-3310); otherwise it remains operator-directed with an explicit warning.
 
 The composed customer loop sits on top of those: `duo assess` is a read-only, decision-first projection of every WordPress surface into the product's own vocabulary, and `duo contract` records the reviewed result as a per-site application contract. `duo rehearse` materializes a disposable preview and states plainly that it is a preview and not a sandbox. `duo release` freezes and prints an authorization plan — scope, conditions, what may change, the literal recovery claim, effects, remaining authority — before any mutation, then composes `duo promote` unchanged and runs `duo verify` (convergence plus contract-declared journey oracles) behind it. `duo recover` is the operator verb over the recovery runtime, printing the same restores/does-not-restore claim the plan carried and enforcing writer exclusion and code-first ordering.
 
 The core loop for unclassified writes: loud block → `duo pending <env>` (journal-evidenced proposals, ref hints, secret flags) → `duo classify <env>` triage (interactive or `--accept-proposals`; secrets can never be authored silently) → clean capture → `wp duo policy-to-manifest` export. `duo adapter-draft` turns captured state into inert `_draft` manifest candidates for human ratification.
 
-## Evidence, not assertions
+## Reviewed and tested, not asserted
 
-Certified capability claims are generated, never written by hand. Reviewed dispositions ([manifests/dispositions.json](manifests/dispositions.json)) are kept separate from the manifests so no manifest can certify itself; clean-room conformance runs ([sandbox/conformance/](sandbox/conformance/)) emit content-addressed evidence; the generated [capability registry](manifests/capabilities/registry.json) binds the two to exact adapter digests and is the single source behind the summary at the top of this file, [docs/capabilities.md](docs/capabilities.md), `duo capabilities`, readiness, and promotion gates. `make release-gate` byte-compares all of it and fails on drift. Certification can also *reduce* capability: working but unprovable behavior is removed and refused, not shipped under-proven.
+Certified capability claims are generated, never written by hand. A claim passes three gates in order: the adapter's own manifest **declares** the surface; [manifests/dispositions.json](manifests/dispositions.json) — kept separate from the manifests, with exact one-for-one coverage, so no manifest can certify itself — records a human's **reviewed** status and the reason for it; and clean-room conformance runs ([sandbox/conformance/](sandbox/conformance/)) **exercise** it against a live WordPress pair. `tools/capability-doc.php` projects that one source into the summary at the top of this file and into [docs/capabilities.md](docs/capabilities.md), and `make release-gate` byte-compares the result so the prose cannot drift from the library. `duo capabilities` answers the same question against a live target. Review can also *reduce* capability: working but unreviewable behavior is removed and refused, not shipped under-proven.
+
+What this deliberately is not: a claim is not sealed to a content-addressed evidence bundle, and no digest binds it to a particular run. The honest reading of a `certified` row is *declared, reviewed by a named human, and exercised by the named live suites* — nothing stronger.
 
 ## Layout
 
@@ -62,9 +64,9 @@ Certified capability claims are generated, never written by hand. Reviewed dispo
 | [docs/roadmap.md](docs/roadmap.md) | Owner roadmap: thesis, horizons, standing decisions |
 | [agent/](agent/) | The Duo agent — drop-in mu-plugin + `wp duo …` engine commands |
 | [cli/](cli/) | The `duo` orchestrator CLI + transports |
-| [manifests/](manifests/) | Classification manifests, reviewed dispositions, and the generated evidence-bound capability registry |
+| [manifests/](manifests/) | Classification manifests, their provider/interpreter/regenerator hooks, the reviewed dispositions, and the platform boundary |
 | [recovery/](recovery/) | WordPress-independent rollback runtime: checkpoints, code releases, upload and effect bundles |
-| [sandbox/](sandbox/) | Dockerized disposable environment pairs + acceptance, conformance, and certification suites |
+| [sandbox/](sandbox/) | Dockerized disposable environment pairs + the acceptance, conformance, and regression suites |
 
 ## Development & verification
 
@@ -89,11 +91,11 @@ make spike-e          # ACF interpreter round-trip
 make conformance-<m>  # per-manifest clean-room gate (core, woocommerce, acf, yoast, …)
 make cli-smoke        # duo CLI end-to-end over the docker transport
 make cli-triage-smoke # interactive duo classify triage end-to-end
-make release-gate     # regenerate-and-compare: evidence, registry, and product prose must agree
+make release-gate     # regenerate-and-compare: the capability document and the classmaps must match their sources
 make down             # stop; `make clean` also deletes volumes
 ```
 
-Beyond these, the Makefile carries the full certification and regression surface — `certify-*` (including `certify-ssh-rollback` and `certify-ssh-adoption-roundtrip`), `regress-*`, and the grind rounds (`grind-r1a` … `grind-r3b`): realistic multi-plugin stacks round-tripped end-to-end, with narrative reports in [docs/grind/](docs/grind/).
+Beyond these, the Makefile carries the full live and offline regression surface — the six `certify-*` matrices (including `certify-ssh-rollback` and `certify-ssh-adoption-roundtrip`), `regress-*`, and the grind rounds (`grind-r1a` … `grind-r3b`): realistic multi-plugin stacks round-tripped end-to-end, with narrative reports in [docs/grind/](docs/grind/).
 
 ## Working an issue (agents)
 
