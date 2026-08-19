@@ -2,7 +2,7 @@
 # Regression — DUO-3232: env-bound value provisioning. Live, docker-based
 # (matches every other Apply.php-touching regression in this repo — none
 # of which get a FakeWpdb offline harness; see sandbox/tests/
-# regress_env_options_policy.sh for the offline complement, Policy.php's
+# regress_env_options_policy.php for the offline complement, Policy.php's
 # own validate_env_options()/env_options() wiring in isolation).
 #
 # Proves, end to end, against the SHIPPED manifests/core.json (not a

@@ -18,7 +18,7 @@
  * Runs the REAL, unmodified agent/src/{Canon,Policy,Uuid,Ledger,Tokens,
  * Snapshot,IdentityNotes}.php against manifest fixture files this test writes
  * into a scratch DUO_MANIFESTS_DIR — the same idiom as
- * sandbox/tests/regress_adapter_contract.sh (DUO-3222/DUO-3243).
+ * sandbox/tests/regress_adapter_contract.php (DUO-3222/DUO-3243).
  *
  * Most of the file needs no database at all, which is itself the DUO-3318
  * grammar-split claim being demonstrated: a declaration is refusable with no

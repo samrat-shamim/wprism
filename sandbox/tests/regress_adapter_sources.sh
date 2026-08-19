@@ -12,7 +12,7 @@
 # by design (RepositoryCompiler's own docblock: the tree becomes a validated
 # IR "before Tokens, Ledger, Capture, or a target query can be constructed").
 # No docker, no sandbox pair, no WordPress bootstrap. Same idiom as
-# sandbox/tests/regress_adapter_contract.sh (DUO-3222/DUO-3243).
+# sandbox/tests/regress_adapter_contract.php (DUO-3222/DUO-3243).
 #
 # Note for future readers: unlike most manifest suites here, this one runs
 # against the REAL shipped manifest bytes rather than a synthetic manifest

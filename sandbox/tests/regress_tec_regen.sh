@@ -7,7 +7,7 @@
 # the same reason: Apply::regen_dependencies() is entangled with Canary,
 # the RepositoryCompiler, and a real transaction, none of which are
 # meaningfully fakeable without reproducing most of Apply.php itself).
-# sandbox/tests/regress_regen_dependency_policy.sh is the offline
+# sandbox/tests/regress_regen_dependency_policy.php is the offline
 # complement (Policy.php's own regen_dependency()/regenerators() wiring,
 # in isolation, no docker).
 #
