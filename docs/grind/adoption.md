@@ -309,3 +309,14 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   half), not existing_configuration as the grind assumed. Assert instead that
   existing_configuration is NAMED among them — init recognising the existing
   adoption is the fact this edge is about. Product path unchanged.
+- A10 (theme switch outside the adopted code baseline — documented stop): init's
+  code baseline is the ACTIVE code at adoption — active plugins + the active
+  theme (verified: code/wp-content carries contact-form-7, woocommerce,
+  twentytwentyone, not the inactive-at-init block theme). Switching the live
+  theme to one init never captured makes the state name a template
+  code/wp-content/themes does not carry, and `duo capture` refuses
+  code_state_mismatch — correctly: a release would deploy only the managed theme
+  onto a target whose state says the unmanaged one is active. The edge now
+  documents the stop (and that switching back to the adopted theme captures
+  cleanly); managing a newly-activated theme is `duo deploy`'s job. Product path
+  unchanged — the earlier grind expectation (capture succeeds) was wrong.

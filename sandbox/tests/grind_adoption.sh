@@ -1355,15 +1355,22 @@ situation_a10() {
   fi
   assess_both "$S" "${PAIR}1" "$HOST_R1" reactivated
   # 3. A theme switch after adoption.
-  say "$S — switch the theme after adoption ($CLASSIC_THEME_SLUG → $BLOCK_THEME_SLUG), capture, assess"
+  say "$S — a theme switch outside the adopted code baseline is a typed stop ($CLASSIC_THEME_SLUG → $BLOCK_THEME_SLUG)"
   if ! dry; then wp1 theme activate "$BLOCK_THEME_SLUG" >/dev/null; fi
-  duo_ok "$EVIDENCE/$S/capture-theme-switch.txt" "$HOST_R1" capture "${PAIR}1"
-  assess_both "$S" "${PAIR}1" "$HOST_R1" theme-switched
+  # init's code baseline is the ACTIVE code at adoption (active plugins + the
+  # active theme — verified: code/wp-content carries contact-form-7, woocommerce
+  # and twentytwentyone, not the inactive block theme). Switching to a theme
+  # init never captured makes the state name a template code/wp-content/themes
+  # does not carry, and capture refuses code_state_mismatch: a release would
+  # deploy only the managed theme onto a target whose state says the unmanaged
+  # one is active. Managing the new theme is `duo deploy`'s job; this edge
+  # documents the stop, then switches back to the adopted theme.
+  duo_refused "$EVIDENCE/$S/capture-theme-switch.txt" code_state_mismatch "$HOST_R1" capture "${PAIR}1"
+  pass "$S — switching to a theme outside the adopted code baseline is a typed stop (code_state_mismatch)"
   if ! dry; then
-    grep -Fq "$BLOCK_THEME_SLUG" "$EVIDENCE/$S/assess-theme-switched.txt" \
-      || note "$S: the assessment does not name the active theme in its human view"
     wp1 theme activate "$CLASSIC_THEME_SLUG" >/dev/null
     duo_ok "$EVIDENCE/$S/capture-theme-back.txt" "$HOST_R1" capture "${PAIR}1"
+    pass "$S — switching back to the adopted theme captures cleanly"
   fi
   # 4. An override installed, then removed: shadowed_by_site, then back to
   # the shipped adapter, with the pin set restored — nothing lingering.
