@@ -3,7 +3,7 @@
     "generated_from": {
         "compatibility_sha256": "8890e74f412c7ed07e1454c1abd2bd24e330a87990d8832cfe89e9860679b2be",
         "dispositions_sha256": "94769c86414dc677b3ead30405a82b2ea8288359191c04d949d371778a12549b",
-        "evidence_sha256": "1456079296046733e0ca94655abfc7d309ca1944089fa098e29cc0fc028af0c8"
+        "evidence_sha256": "bf2be0bb299becfcd01820279c4de66ade790f42da45b9833cda13b0777209e6"
     },
     "manifests": {
         "acf": {
@@ -1336,14 +1336,14 @@
                 }
             },
             "evidence": {
-                "bundle_digest": null,
+                "bundle_digest": "be8769e353d985dcfbae3d09d1d7aee456944fef3c427366cd2c3b75aece6949",
                 "bundle_schema": "duo-subject-certification-bundle/v1",
-                "closure_digest": null,
+                "closure_digest": "bbe3461d7c29737eb2aaee8eafde384ac774e3e59cc81e0a12e534c5b7cfc67e",
                 "force_hatches": [],
-                "git_revision": null,
-                "status": "candidate",
+                "git_revision": "045fde3a80b4ef40d633e0fd9da582ef4efdcdca",
+                "status": "current",
                 "subject": "manifests.woocommerce",
-                "subject_digest": null,
+                "subject_digest": "f23db3ba8a974229b790cb53fd18942d35c281e22b941395a899dcfdc0e86ff7",
                 "tests": [
                     "conformance-woocommerce",
                     "exact-artifact-version-matrix"

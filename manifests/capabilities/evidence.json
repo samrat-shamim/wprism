@@ -11480,7 +11480,7 @@
                         "version": "2.8"
                     }
                 ],
-                "bundle_digest": "8cc7dd48228ca69930082a9c3c5b3b35ec31c334ff4f8ba6bfe7083b0392e363",
+                "bundle_digest": "be8769e353d985dcfbae3d09d1d7aee456944fef3c427366cd2c3b75aece6949",
                 "claims": {
                     "manifests.woocommerce": [
                         "conformance-woocommerce",
@@ -11488,7 +11488,7 @@
                     ]
                 },
                 "closure": {
-                    "digest": "d7e2c867cec2f0d4ac73a7b0d81edb5d2be963d713574d02b371533f085b2961",
+                    "digest": "bbe3461d7c29737eb2aaee8eafde384ac774e3e59cc81e0a12e534c5b7cfc67e",
                     "inputs": [
                         {
                             "path": "Makefile",
@@ -13047,8 +13047,8 @@
                         },
                         {
                             "path": "manifests/woocommerce.json",
-                            "sha256": "044538876c8087aebc22e685175ebe2ee9540680409ba83b0b6299e5703d5631",
-                            "size": 113593
+                            "sha256": "ed18a60e818c5ad8fd8b10474c70c39362f97afcff9cf375d5458e72d3ce8c1a",
+                            "size": 113734
                         },
                         {
                             "path": "sandbox/bin/artifact-archive-root.sh",
@@ -13212,10 +13212,10 @@
                         }
                     ]
                 },
-                "created_at": "2026-08-19T02:56:36Z",
+                "created_at": "2026-08-19T04:01:29Z",
                 "force_hatches": [],
                 "format": "duo-subject-certification-bundle/v1",
-                "git_revision": "d5fd84fbecee271d0f9ddb3296adb64d36123f47",
+                "git_revision": "045fde3a80b4ef40d633e0fd9da582ef4efdcdca",
                 "platform": {
                     "agent_version": "0.5.0",
                     "branchable_state": "only exact certified registry surfaces and operations",
@@ -13349,7 +13349,7 @@
                     "kind": "manifest",
                     "name": "woocommerce"
                 },
-                "subject_digest": "44f72ffb2af02bfa6439b3ef17b64f4c534f2178848772c8ec9350d9cd88aaaa",
+                "subject_digest": "f23db3ba8a974229b790cb53fd18942d35c281e22b941395a899dcfdc0e86ff7",
                 "tests": [
                     {
                         "diff": {
@@ -13357,13 +13357,13 @@
                             "sha256": "7d6d73ec8d2572c84ef732ae011b831e52a1beff1c0863755bba42129844da8b",
                             "size": 151
                         },
-                        "evidence_sha256": "6a3664ca4a63e3dcf4cd578ab921aaf844c4f09a2684eaa4348d14566d7890b1",
+                        "evidence_sha256": "5246a7af93b479976aecc67fb27fa7ca176ee44c4e3e6881dd565356170387b7",
                         "exit_code": 0,
                         "id": "conformance-woocommerce",
                         "log": {
                             "path": "logs/conformance-woocommerce.txt",
-                            "sha256": "914f36eb7cabdf73d5b988c05a7501bf62fd84453dd1ed0bd332723c078cbf7e",
-                            "size": 24555
+                            "sha256": "d02845936eb2e46b651fdd87abd0d00ac126e55b4fec54849a221be3329257b3",
+                            "size": 24556
                         },
                         "result": {
                             "path": "results/conformance-woocommerce.json",
@@ -13378,13 +13378,13 @@
                             "sha256": "62bcd846fdab049f65fd512ec6e790a17a84fe3cc34f38c91ab28f3a3852acce",
                             "size": 152
                         },
-                        "evidence_sha256": "9bc93ac241aa51da7564c2d032cafb098f0237b7cb97e76f69fefad681f2a5fc",
+                        "evidence_sha256": "cd97ba6e171ca7a301aa5451f9285d992e0617742956ec28d63a448e88886e7a",
                         "exit_code": 0,
                         "id": "exact-artifact-version-matrix",
                         "log": {
                             "path": "logs/exact-artifact-version-matrix.txt",
-                            "sha256": "eb83f74e73c14370b07d57be9df64ebdc4e9efdb5c2f26f4f7bd801b3839c51b",
-                            "size": 26015
+                            "sha256": "f4afb0295cc49c47ceee60f208bba4faada572fd2f0dd8ad853760c159e3ad9a",
+                            "size": 26014
                         },
                         "result": {
                             "path": "results/exact-artifact-version-matrix.json",
@@ -13396,7 +13396,7 @@
                 ],
                 "verdict": "pass"
             },
-            "path": "scoped/manifests/woocommerce/8cc7dd48228ca69930082a9c3c5b3b35ec31c334ff4f8ba6bfe7083b0392e363"
+            "path": "scoped/manifests/woocommerce/be8769e353d985dcfbae3d09d1d7aee456944fef3c427366cd2c3b75aece6949"
         },
         "manifests.yoast": {
             "bundle": {
