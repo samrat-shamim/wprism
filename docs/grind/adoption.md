@@ -282,3 +282,17 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   seed_repository created it. Reordered to seed the adoption repository first
   (the order doctor_and_first_look already uses); only the plugin VERSIONS are
   out of range in A9, which is what its assess surfaces.
+- A9 (WooCommerce attribute-lookup regeneration options — manifest gap):
+  after upgrading WooCommerce 10.9.4 → 11.0.0 and running `wp wc update`,
+  WooCommerce kicked off its product attribute-lookup table regeneration,
+  which writes three transient bookkeeping options
+  (woocommerce_attribute_lookup_last_product_id_to_process / _processed_count /
+  _regeneration_in_progress). The manifest's attribute_lookup pattern only
+  covered the config members (_direct_updates/_enabled/_optimized_updates), so
+  those three were unclassified and `duo init` refused incomplete_state_
+  discovery. A4/A5's fresh installs never triggered a regeneration, so they
+  never surfaced them. `manifests/woocommerce.json` now classes the three as
+  runtime (transient regeneration progress the plugin clears when done). The
+  init's jwt_in_code_file line was an ADVISORY (the Yoast OIDC software
+  statement, correctly non-blocking); the grind's error extraction mislabeled
+  the refusal.

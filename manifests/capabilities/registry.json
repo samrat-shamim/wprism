@@ -1299,7 +1299,7 @@
             ]
         },
         "woocommerce": {
-            "adapter_digest": "44f72ffb2af02bfa6439b3ef17b64f4c534f2178848772c8ec9350d9cd88aaaa",
+            "adapter_digest": "f23db3ba8a974229b790cb53fd18942d35c281e22b941395a899dcfdc0e86ff7",
             "authored_state": {
                 "scope": "only the exact registered surfaces and operations below",
                 "status": "certified"
@@ -1336,14 +1336,14 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "8cc7dd48228ca69930082a9c3c5b3b35ec31c334ff4f8ba6bfe7083b0392e363",
+                "bundle_digest": null,
                 "bundle_schema": "duo-subject-certification-bundle/v1",
-                "closure_digest": "d7e2c867cec2f0d4ac73a7b0d81edb5d2be963d713574d02b371533f085b2961",
+                "closure_digest": null,
                 "force_hatches": [],
-                "git_revision": "d5fd84fbecee271d0f9ddb3296adb64d36123f47",
-                "status": "current",
+                "git_revision": null,
+                "status": "candidate",
                 "subject": "manifests.woocommerce",
-                "subject_digest": "44f72ffb2af02bfa6439b3ef17b64f4c534f2178848772c8ec9350d9cd88aaaa",
+                "subject_digest": null,
                 "tests": [
                     "conformance-woocommerce",
                     "exact-artifact-version-matrix"
