@@ -1214,9 +1214,14 @@ situation_a9() {
     "woocommerce@$WOO_OLD_VERSION" "wordpress-seo@$YOAST_OLD_VERSION"
   write_registry
   seed_shop duo-walk-landing
+  # Seed the adoption repository FIRST: `duo doctor` fails "repo path has
+  # site.duo.json" against a path that carries none, so the site repository
+  # has to exist before the health check (the same order doctor_and_first_look
+  # uses). Only the plugin VERSIONS are out of range here, which is what the
+  # assess below is meant to surface — not a missing repo.
+  seed_repository "$S"
   say "$S — duo doctor, then duo assess on a shop whose plugins are OUTSIDE the adapters' version windows"
   duo_ok "$EVIDENCE/$S/doctor.txt" "$HOST_R1" doctor "${PAIR}1"
-  seed_repository "$S"
   local firstLook="$SCRATCH/$S-assess-first-look.raw"
   if dry; then
     plan "(cd $HOST_R1 && duo assess ${PAIR}1 --format=json)  # either a typed refusal naming the version window, or a report whose product/yoast rows read Requalification required / Unsupported"

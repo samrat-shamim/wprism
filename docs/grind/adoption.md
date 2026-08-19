@@ -277,3 +277,8 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   the kept pair: release --yes applied cleanly, adopt2 = 1.1.0 + banner). This
   and the two A8 grind-flow fixes above (deploy to production, capture before
   deploy) are free-zone; the product path was refusing correctly each time.
+- A9 (doctor before seed — grind flow): `duo doctor` fails "repo path has
+  site.duo.json" when the path carries none, and A9 ran doctor before
+  seed_repository created it. Reordered to seed the adoption repository first
+  (the order doctor_and_first_look already uses); only the plugin VERSIONS are
+  out of range in A9, which is what its assess surfaces.
