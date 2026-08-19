@@ -101,7 +101,14 @@ final class NextAction {
         'capability_expired' => 'a condition re-checked at the mutation gate no longer holds',
         'checkpoint_unavailable' => "the selected recovery profile's checkpoint is absent or did not verify",
         'drift_detected' => 'the target changed outside Duo after the plan was frozen',
-        'evidence_not_current' => 'the certification evidence this release depends on went stale',
+        // Not a claim about any subject's evidence: no agent emits this code.
+        // `ContractProjection::STALE_EVIDENCE_BLOCKER` (:53-62) is synthesized
+        // by the cli alone when the observed `registry_sha256` differs from the
+        // one the contract pinned, and its docblock states the meaning in these
+        // words — "the reviewed dispositions moved since this contract was
+        // accepted". The printed reason says the same thing, so the operator is
+        // not sent looking for evidence this build no longer produces.
+        'evidence_not_current' => 'the reviewed dispositions moved since this contract was accepted',
         'frozen_promotion' => 'a durable frozen promotion for this artifact already exists',
         'incomplete_apply' => 'the authored-state transaction did not reach its terminal receipt',
         'incomplete_lifecycle' => 'the code lifecycle window was interrupted between phases',

@@ -1264,9 +1264,14 @@ namespace {
     // reordered, and the reviewed arm is only the contractual answer on the
     // REDACTED branch — so assert the redaction witness in the same breath,
     // which is what makes this a check of the arm and not of a leftover.
+    // `capabilities` pins `platform boundary` deliberately: the arm it replaced
+    // ALSO said "registry" (it named the retired generated capability registry
+    // beside the disposition one), so a fragment those two strings share would
+    // have gone on passing while the arm sent operators after a document the
+    // teardown deleted. The pin has to be a phrase only the current arm holds.
     foreach ([
         'lint' => ['lint', 'captured state tree'],
-        'capabilities' => ['capabilities', 'capability registry'],
+        'capabilities' => ['capabilities', 'platform boundary'],
     ] as $method => [$command, $armFragment]) {
         \Duo\Policy::$failure = new RuntimeException("duo: $command refused at /Users/private-customer/site");
         $armRecord = invoke_json(static fn() => $cli->$method([], ['repo' => '/fixture', 'format' => 'json']));

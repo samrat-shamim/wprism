@@ -23411,7 +23411,7 @@
                         "capability_expired": "a condition re-checked at the mutation gate no longer holds",
                         "checkpoint_unavailable": "the selected recovery profile's checkpoint is absent or did not verify",
                         "drift_detected": "the target changed outside Duo after the plan was frozen",
-                        "evidence_not_current": "the certification evidence this release depends on went stale",
+                        "evidence_not_current": "the reviewed dispositions moved since this contract was accepted",
                         "frozen_promotion": "a durable frozen promotion for this artifact already exists",
                         "incomplete_apply": "the authored-state transaction did not reach its terminal receipt",
                         "incomplete_lifecycle": "the code lifecycle window was interrupted between phases",
