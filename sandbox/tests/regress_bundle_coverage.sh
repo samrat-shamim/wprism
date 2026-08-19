@@ -32,9 +32,40 @@ import re, glob, os, sys
 
 tests_dir, makefile = sys.argv[1], sys.argv[2]
 
-files = sorted(glob.glob(os.path.join(tests_dir, "regress_*.sh")) +
-                glob.glob(os.path.join(tests_dir, "regress_*.php")))
-basenames = [os.path.basename(f) for f in files]
+# RECURSIVE. The suite estate is moving into
+# sandbox/tests/{offline/<domain>,live,grind,certify,spike}/, and a
+# non-recursive glob fails OPEN on every file below the top level: a nested
+# suite is simply not enumerated, so it is not compared against the Makefile
+# and this check stays green while the suite runs nowhere. That is the exact
+# failure this file exists to make impossible, one directory deeper, so the
+# recursion landed before any file moved rather than with them. `**/` matches
+# zero or more directories, so top-level files are still included.
+files = sorted(glob.glob(os.path.join(tests_dir, "**", "regress_*.sh"), recursive=True) +
+                glob.glob(os.path.join(tests_dir, "**", "regress_*.php"), recursive=True))
+
+# Basename-keyed, because a target name is derived from the basename alone
+# (`regress_foo_bar.sh` <-> `regress-foo-bar`) and a directory prefix
+# contributes nothing to it. Two files sharing a basename therefore claim ONE
+# target between them, and whichever loses the tie is unrunnable while looking
+# wired -- a gap this check would otherwise report as covered. Nesting is what
+# makes the collision possible at all (a directory cannot hold the same name
+# twice), so it is refused here rather than resolved by a tie-break rule.
+paths = {}   # basename -> path relative to tests_dir
+collisions = []
+for f in files:
+    basename = os.path.basename(f)
+    relative = os.path.relpath(f, tests_dir)
+    if basename in paths:
+        collisions.append((paths[basename], relative))
+        continue
+    paths[basename] = relative
+if collisions:
+    for first, second in collisions:
+        print(f"  {os.path.join(tests_dir, first)} and {os.path.join(tests_dir, second)} share the "
+              f"basename '{os.path.basename(first)}' -- target names come from the basename alone, "
+              f"so only one of them can ever be wired and the other is unrunnable", file=sys.stderr)
+    sys.exit(1)
+basenames = list(paths)
 
 def code_lines(path):
     # Strip full-line comments so a doc-comment mention ("see regress_x.sh's
@@ -45,7 +76,7 @@ def code_lines(path):
     with open(path, encoding='utf-8', errors='replace') as fh:
         return ''.join(l for l in fh if not re.match(r'^\s*#', l))
 
-contents = {b: code_lines(f) for b, f in zip(basenames, files)}
+contents = {b: code_lines(os.path.join(tests_dir, rel)) for b, rel in paths.items()}
 
 # A file is a helper (not its own primary suite) if some OTHER file's CODE
 # actually runs it: `php <name>` or `bash <name>`, optionally with a path
@@ -102,13 +133,16 @@ for owner, text in contents.items():
 def invoked_elsewhere(basename):
     return any(inv != basename for inv in invoked_by.get(basename, ()))
 
-primary = {}  # target name -> source file, for every file that is its own suite
+# target name -> source file RELATIVE TO tests_dir, for every file that is its
+# own suite. The relative path (not the basename) is what the gap report
+# prints, so a nested suite is named where it actually lives.
+primary = {}
 for b in basenames:
     if invoked_elsewhere(b):
         continue
     stem = re.sub(r'\.(sh|php)$', '', b)
     target = stem.replace('regress_', 'regress-').replace('_', '-')
-    primary[target] = b
+    primary[target] = paths[b]
 
 mk_lines = open(makefile, encoding='utf-8').read().split("\n")
 
@@ -204,7 +238,26 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 cp Makefile "$TMP/Makefile"
 mkdir -p "$TMP/tests"
-cp sandbox/tests/regress_*.sh sandbox/tests/regress_*.php "$TMP/tests/" 2>/dev/null || true
+# RECURSIVE copy, preserving each file's directory. A flat `cp
+# sandbox/tests/regress_*.{sh,php}` would build a synthetic tree that is flat
+# no matter what the real one looks like, so every self-test below would keep
+# passing against a check that had silently lost its recursion -- the harness
+# would stop exercising what the real check does. `find -print0` + a read loop
+# rather than cpio/rsync: both of those have BSD/GNU flag differences, and this
+# runs on stock macOS as well as Linux.
+while IFS= read -r -d '' file; do
+  relative="${file#sandbox/tests/}"
+  mkdir -p "$TMP/tests/$(dirname "$relative")"
+  cp "$file" "$TMP/tests/$relative"
+done < <(find sandbox/tests \( -name 'regress_*.sh' -o -name 'regress_*.php' \) -type f -print0)
+# The copy is a premise of every self-test below, and a silently incomplete one
+# would make them all pass against a tree that is not the tree. This is what
+# fails if the loop above is ever flattened back: a flat copy drops every
+# nested suite and the counts diverge by exactly those files.
+REAL_SUITE_COUNT=$(find sandbox/tests \( -name 'regress_*.sh' -o -name 'regress_*.php' \) -type f | wc -l | tr -d ' ')
+COPIED_SUITE_COUNT=$(find "$TMP/tests" \( -name 'regress_*.sh' -o -name 'regress_*.php' \) -type f | wc -l | tr -d ' ')
+[ "$REAL_SUITE_COUNT" = "$COPIED_SUITE_COUNT" ] \
+  || fail "self-test setup failed: the synthetic tree holds $COPIED_SUITE_COUNT suite files but sandbox/tests holds $REAL_SUITE_COUNT -- the copy is not reproducing the real tree's shape, so nothing below is testing what the real check does"
 cat > "$TMP/tests/regress_synthetic_unwired_probe.sh" <<'EOF'
 #!/usr/bin/env bash
 # Synthetic fixture for regress_bundle_coverage.sh's own self-test only --
@@ -247,6 +300,74 @@ if ! check_coverage "$TMP/tests" "$TMP/Makefile" 2>"$TMP/coverage-selftest-clean
   fail "self-test failed: the unmodified regress-suite tree (minus the synthetic probe) reported a gap that shouldn't exist -- see $TMP/coverage-selftest-clean.log. This means either a REAL gap exists in the current repo (in which case the real check below will also correctly fail, which is fine) or this check's own logic has a false-positive bug (needs investigation either way, but don't blame the self-test)."
 fi
 pass "self-test: an unmodified suite tree with a copied Makefile reports no gaps via this check's own logic"
+
+# ---------------------------------------------------------------- nesting
+# The three self-tests below are the reason the recursion landed as its own
+# change, ahead of any file moving. Before it, a suite in a subdirectory was
+# not enumerated at all, so an unwired one produced NO gap and NO failure --
+# the check reported "every suite is wired" about a tree it had not read. A
+# silent fail-open cannot be caught by the thing that is failing open, so it
+# is caught here, against a synthetic tree that is nested by construction.
+say "self-test: a WIRED suite in a subdirectory must be accepted"
+NESTED_MAKEFILE="$TMP/Makefile.nested"
+python3 - "$TMP/Makefile" "$NESTED_MAKEFILE" regress-synthetic-nested-wired-probe <<'PYEOF'
+import re, sys
+
+source, destination, target = sys.argv[1], sys.argv[2], sys.argv[3]
+text = open(source, encoding='utf-8').read()
+# The synthetic target joins regress-offline-corpus's prerequisites AND the
+# declared count moves with it. They have to move together: the count check
+# runs before the gap report, so a mismatched count would abort with a
+# different refusal and this self-test would pass for the wrong reason.
+text, replaced = re.subn(r'(?m)^(regress-offline-corpus:)', r'\1 ' + target, text, count=1)
+if replaced != 1:
+    raise SystemExit('could not locate the regress-offline-corpus prerequisite line')
+match = re.search(r'(regress-offline-all:\s+)(\d+)(\s+offline suites green)', text)
+if not match:
+    raise SystemExit('could not locate the Makefile offline-suite status line')
+text = text[:match.start(2)] + str(int(match.group(2)) + 1) + text[match.end(2):]
+open(destination, 'w', encoding='utf-8').write(text)
+PYEOF
+mkdir -p "$TMP/tests/offline/guards"
+cat > "$TMP/tests/offline/guards/regress_synthetic_nested_wired_probe.sh" <<'EOF'
+#!/usr/bin/env bash
+# Synthetic fixture for regress_bundle_coverage.sh's own self-test only --
+# a suite in a subdirectory that IS wired into the offline corpus.
+EOF
+if ! check_coverage "$TMP/tests" "$NESTED_MAKEFILE" 2>"$TMP/coverage-selftest-nested-wired.log"; then
+  cat "$TMP/coverage-selftest-nested-wired.log" >&2
+  fail "self-test failed: a suite in a subdirectory WITH a regress-offline-corpus entry was reported as a gap -- the enumeration finds nested files but the target-name derivation does not agree with them"
+fi
+pass "self-test: a wired suite in a subdirectory is correctly accepted"
+
+say "self-test: an UNWIRED suite in a subdirectory must be flagged as a gap"
+cat > "$TMP/tests/offline/guards/regress_synthetic_nested_unwired_probe.sh" <<'EOF'
+#!/usr/bin/env bash
+# Synthetic fixture for regress_bundle_coverage.sh's own self-test only --
+# a suite in a subdirectory, deliberately never wired anywhere.
+EOF
+if check_coverage "$TMP/tests" "$NESTED_MAKEFILE" 2>"$TMP/coverage-selftest-nested-unwired.log"; then
+  fail "self-test failed: a suite in a SUBDIRECTORY with no bundle/live-list entry was NOT flagged. This is the exact fail-open this recursion exists to close: the file enumeration is no longer reaching below sandbox/tests, so every nested suite is invisible to this check and the real-repo result below means nothing"
+fi
+grep -q "offline/guards/regress_synthetic_nested_unwired_probe.sh" "$TMP/coverage-selftest-nested-unwired.log" \
+  || fail "self-test failed: the nested gap was detected but not reported at its real path -- a gap report naming only a basename cannot be acted on once suites live in subdirectories"
+rm -f "$TMP/tests/offline/guards/regress_synthetic_nested_unwired_probe.sh"
+pass "self-test: nested unwired suite correctly flagged as a gap, named at its nested path"
+
+say "self-test: two suite files sharing a basename must be refused"
+# The half-finished-move shape: the same suite present at both its old and its
+# new path. Target names come from the basename alone, so the two claim one
+# target and only one of them can ever run.
+cp "$TMP/tests/offline/guards/regress_synthetic_nested_wired_probe.sh" \
+   "$TMP/tests/regress_synthetic_nested_wired_probe.sh"
+if check_coverage "$TMP/tests" "$NESTED_MAKEFILE" 2>"$TMP/coverage-selftest-duplicate.log"; then
+  fail "self-test failed: the same basename at two paths was accepted -- one of the two is unrunnable while this check calls it covered"
+fi
+grep -q "share the basename 'regress_synthetic_nested_wired_probe.sh'" "$TMP/coverage-selftest-duplicate.log" \
+  || fail "self-test failed: the duplicate-basename refusal did not name the colliding basename"
+rm -f "$TMP/tests/regress_synthetic_nested_wired_probe.sh" \
+      "$TMP/tests/offline/guards/regress_synthetic_nested_wired_probe.sh"
+pass "self-test: a basename claimed by two files is correctly refused"
 
 say "real check: every sandbox/tests/regress_*.{sh,php} file vs. Makefile's regress-offline-all / regress-live-list"
 if check_coverage sandbox/tests Makefile 2>/tmp/coverage_real.log; then

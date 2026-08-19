@@ -319,6 +319,50 @@ final class OfflineRunnerTest extends TestCase
         );
     }
 
+    public function testScriptsInRecipeReadsSuitePathsInSubdirectories(): void
+    {
+        // The suite estate is moving into sandbox/tests/<class>/<domain>/.
+        // scriptsInRecipe() feeds needsSerialGroup(), which decides whether a
+        // suite may run concurrently, so a nested path it fails to extract is
+        // not a cosmetic miss: the suite reports zero scripts, zero files are
+        // scanned for fixed scratch paths, and it joins the parallel pool
+        // whether or not that is safe.
+        $db = OfflineRunner::parseMakeDatabase(implode("\n", [
+            '# Files',
+            '',
+            'nested-leaf:',
+            "\tphp sandbox/tests/offline/guards/regress_suite_wiring.php",
+            '',
+            'nested-with-env:',
+            "\tPAIR=\"\$(PAIR)\" bash sandbox/tests/live/domain/regress_deep_leaf.sh",
+            '',
+        ]));
+
+        self::assertSame(
+            ['sandbox/tests/offline/guards/regress_suite_wiring.php'],
+            OfflineRunner::scriptsInRecipe($db['recipes']['nested-leaf'])
+        );
+        self::assertSame(
+            ['sandbox/tests/live/domain/regress_deep_leaf.sh'],
+            OfflineRunner::scriptsInRecipe($db['recipes']['nested-with-env'])
+        );
+    }
+
+    public function testTheRealCorpusContainsANestedLeafWhoseScriptResolves(): void
+    {
+        // The end-to-end version of the case above, against the real Makefile
+        // rather than a fixture: regress-suite-wiring is the first offline
+        // leaf below the top level, and tools/offline.php has to find its
+        // script to run it at all.
+        $result = self::invoke(['--list', '--explain', '--filter=regress-suite-wiring']);
+
+        self::assertSame(0, $result['status'], $result['stderr']);
+        self::assertMatchesRegularExpression(
+            '#^regress-suite-wiring\s+\S+\s+sandbox/tests/offline/guards/regress_suite_wiring\.php$#m',
+            $result['stdout']
+        );
+    }
+
     // -------------------------------------------------------- serial grouping
 
     public function testSerialGroupDetectsHardCodedTmpPathsIncludingPhpCompanion(): void
@@ -341,6 +385,40 @@ final class OfflineRunnerTest extends TestCase
             self::assertFalse(
                 OfflineRunner::needsSerialGroup($root, ['sandbox/tests/regress_clean.sh'])
             );
+        } finally {
+            self::removeScratchRoot($root);
+        }
+    }
+
+    public function testSerialGroupKeysOnNestedSuitePathsAndTheirCompanions(): void
+    {
+        // serialGroupEvidence() derives the `.php` companion by string surgery
+        // on the `.sh` path, so it has to hold up for a path with directories
+        // in it: a nested wrapper whose companion carries the fixed scratch
+        // path must still be found, and the evidence must name the companion
+        // at its real nested path.
+        $root = self::scratchRoot();
+        $wrapper = 'sandbox/tests/offline/domain/regress_nested_wrapped.sh';
+        file_put_contents($root . '/' . $wrapper, "php regress_nested_wrapped.php\n");
+        file_put_contents(
+            $root . '/sandbox/tests/offline/domain/regress_nested_wrapped.php',
+            "<?php \$p = '/tmp/duo-fixed-name';\n"
+        );
+        file_put_contents(
+            $root . '/sandbox/tests/offline/domain/regress_nested_clean.php',
+            "<?php \$d = sys_get_temp_dir();\n"
+        );
+
+        try {
+            self::assertSame(
+                ['sandbox/tests/offline/domain/regress_nested_wrapped.php'],
+                OfflineRunner::serialGroupEvidence($root, [$wrapper])
+            );
+            self::assertTrue(OfflineRunner::needsSerialGroup($root, [$wrapper]));
+            self::assertFalse(OfflineRunner::needsSerialGroup(
+                $root,
+                ['sandbox/tests/offline/domain/regress_nested_clean.php']
+            ));
         } finally {
             self::removeScratchRoot($root);
         }
@@ -573,19 +651,27 @@ final class OfflineRunnerTest extends TestCase
     {
         $root = (string) tempnam(sys_get_temp_dir(), 'duo-offline-test-');
         unlink($root);
-        mkdir($root . '/sandbox/tests', 0o777, true);
+        mkdir($root . '/sandbox/tests/offline/domain', 0o777, true);
 
         return $root;
     }
 
-    private static function removeScratchRoot(string $root): void
+    /** Recursive since scratchRoot() grew a nested suite directory. */
+    private static function removeScratchRoot(string $path): void
     {
-        foreach (glob($root . '/sandbox/tests/*') ?: [] as $file) {
-            unlink($file);
+        if (is_dir($path) && !is_link($path)) {
+            foreach (scandir($path) ?: [] as $entry) {
+                if ($entry !== '.' && $entry !== '..') {
+                    self::removeScratchRoot($path . '/' . $entry);
+                }
+            }
+            rmdir($path);
+
+            return;
         }
-        rmdir($root . '/sandbox/tests');
-        rmdir($root . '/sandbox');
-        rmdir($root);
+        if (file_exists($path)) {
+            unlink($path);
+        }
     }
 
     public function testAFilterThatMatchesNothingIsStillAnError(): void

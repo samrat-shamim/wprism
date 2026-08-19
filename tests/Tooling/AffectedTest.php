@@ -203,6 +203,109 @@ final class AffectedTest extends TestCase
         self::assertSame(['regress-command-output'], $targets);
     }
 
+    public function testNestedSuiteFileSelectsItsOwnTarget(): void
+    {
+        // sandbox/tests/offline/guards/regress_suite_wiring.php is the first
+        // suite below the top level, and it is here deliberately: the whole
+        // target->file mapping used to be a non-recursive scandir(), under
+        // which this target has no primary file, prints a NOTICE, and selects
+        // for nothing. Reverting the recursion in af_suite_files() turns this
+        // assertion red.
+        self::assertSame(
+            ['regress-suite-wiring'],
+            self::targets(['--paths=sandbox/tests/offline/guards/regress_suite_wiring.php'])
+        );
+    }
+
+    public function testPrimaryTargetMapCarriesRepoRelativePathsNotBasenames(): void
+    {
+        self::loadTool();
+        $primary = af_primary_targets(self::repoRoot());
+
+        // The map's VALUE is the path. af_build_index() used to rebuild one as
+        // 'sandbox/tests/' . $basename, which names a file that does not exist
+        // for every suite in a subdirectory.
+        self::assertSame(
+            'sandbox/tests/offline/guards/regress_suite_wiring.php',
+            $primary['regress-suite-wiring'] ?? null
+        );
+        self::assertSame(
+            'sandbox/tests/regress_command_output.php',
+            $primary['regress-command-output'] ?? null
+        );
+        foreach ($primary as $target => $path) {
+            self::assertFileExists(self::repoRoot() . '/' . $path, "primary file for $target");
+        }
+    }
+
+    public function testSuiteEnumerationIsRecursiveOverASyntheticTree(): void
+    {
+        // Hermetic counterpart to the two cases above: they pin the real
+        // corpus, which W1-W3 will rearrange, while this states the rule
+        // itself against a tree this test owns.
+        self::loadTool();
+        $root = self::syntheticTestsTree([
+            'sandbox/tests/regress_flat.php',
+            'sandbox/tests/offline/domain/regress_nested.php',
+            'sandbox/tests/live/regress_deeply/nested.php',
+            'sandbox/tests/offline/domain/not_a_suite.php',
+        ]);
+        try {
+            // Keyed by basename, in sorted-path order. `regress_deeply/` is a
+            // directory whose NAME matches the suite pattern and whose file's
+            // does not: the pattern applies to the filename, never the path.
+            self::assertSame(
+                [
+                    'regress_nested.php' => 'sandbox/tests/offline/domain/regress_nested.php',
+                    'regress_flat.php' => 'sandbox/tests/regress_flat.php',
+                ],
+                af_suite_files($root)
+            );
+        } finally {
+            self::removeTree($root);
+        }
+    }
+
+    public function testBasenameIndexIsRecursiveAndKeepsEverySameNamedCandidate(): void
+    {
+        self::loadTool();
+        $index = af_basename_index(self::repoRoot());
+
+        // Recursive: a file two levels below sandbox/tests resolves at all.
+        self::assertSame(
+            ['sandbox/tests/offline/guards/regress_suite_wiring.php'],
+            $index['regress_suite_wiring.php'] ?? null
+        );
+        // Multi-valued: regress_rehearse_provider.sh runs `php
+        // "$FIX/make-fixture.php"`, where $FIX is a shell variable this scan
+        // does not evaluate. Two real files answer to that basename, so both
+        // are kept -- picking one would link the suite to the fixture it does
+        // NOT run and drop the one it does.
+        self::assertSame(
+            [
+                'sandbox/tests/fixtures/assess/make-fixture.php',
+                'sandbox/tests/fixtures/rehearse/make-fixture.php',
+            ],
+            $index['make-fixture.php'] ?? null
+        );
+        self::assertSame(['sandbox/tests/lib/check.php'], $index['check.php'] ?? null);
+    }
+
+    public function testEitherSameNamedFixtureSelectsTheSuiteThatRunsIt(): void
+    {
+        // The consequence of the multi-valued index, at CLI level: before the
+        // recursion neither of these two-levels-down fixtures selected
+        // anything at all.
+        self::assertContains(
+            'regress-rehearse-provider',
+            self::targets(['--paths=sandbox/tests/fixtures/rehearse/make-fixture.php'])
+        );
+        self::assertContains(
+            'regress-assess-bounds',
+            self::targets(['--paths=sandbox/tests/fixtures/assess/make-fixture.php'])
+        );
+    }
+
     public function testDifferentlyNamedShWrapperSelectsItsWrapperTarget(): void
     {
         // regress_fatal_mutations_unit.sh wraps the differently-named helper
@@ -266,6 +369,45 @@ final class AffectedTest extends TestCase
     {
         if (!function_exists('af_extract_paths')) {
             require_once self::repoRoot() . '/tools/affected.php';
+        }
+    }
+
+    /**
+     * A scratch repo root holding exactly $relativePaths, directories created
+     * as needed. Used by the cases that state a walk's RULE rather than pin
+     * the real corpus, so they survive W1-W3 moving files around.
+     *
+     * @param list<string> $relativePaths
+     */
+    private static function syntheticTestsTree(array $relativePaths): string
+    {
+        $root = (string) tempnam(sys_get_temp_dir(), 'duo-affected-test-');
+        unlink($root);
+        foreach ($relativePaths as $relative) {
+            $full = $root . '/' . $relative;
+            if (!is_dir(dirname($full))) {
+                mkdir(dirname($full), 0o777, true);
+            }
+            file_put_contents($full, "<?php // synthetic\n");
+        }
+
+        return $root;
+    }
+
+    private static function removeTree(string $path): void
+    {
+        if (is_dir($path) && !is_link($path)) {
+            foreach (scandir($path) ?: [] as $entry) {
+                if ($entry !== '.' && $entry !== '..') {
+                    self::removeTree($path . '/' . $entry);
+                }
+            }
+            rmdir($path);
+
+            return;
+        }
+        if (file_exists($path)) {
+            unlink($path);
         }
     }
 
@@ -419,6 +561,25 @@ final class AffectedTest extends TestCase
         self::assertNotContains('sandbox', $dirs);
         // A bare prose word is not a path and must register nothing.
         self::assertSame([], af_extract_dirs(self::repoRoot(), 'See the docs and the spec for details.'));
+    }
+
+    public function testDirectorySignalAlsoRejectsSubdirectoriesOfAnIndexedTree(): void
+    {
+        // The same collapse, one level down: once suites live under
+        // sandbox/tests/<class>/<domain>, a bare `cd` to one of those
+        // directories must not make the whole domain a dependency of the suite
+        // that wrote it. af_dir_signal_excluded()'s descendant arm is what
+        // stops it; these directories exist on disk, so they reach that arm
+        // rather than being dropped by the is_dir() gate before it.
+        self::loadTool();
+        foreach (['sandbox/tests/offline', 'sandbox/tests/offline/guards'] as $dir) {
+            self::assertDirectoryExists(self::repoRoot() . '/' . $dir);
+            self::assertSame(
+                [],
+                af_extract_dirs(self::repoRoot(), 'cd "$ROOT/' . $dir . '" || exit 1'),
+                "$dir must never become a whole-directory dependency"
+            );
+        }
     }
 
     public function testManifestChangesSelectTheSuitesThatGlobTheManifestTree(): void
