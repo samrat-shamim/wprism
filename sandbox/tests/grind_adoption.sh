@@ -1322,8 +1322,19 @@ situation_a10() {
   fi
   # 1. Adopting again over an init-owned repository is a typed stop.
   say "$S — duo init again over the init-owned repository"
-  duo_refused "$EVIDENCE/$S/init-again.txt" existing_configuration "$HOST_R1" init "${PAIR}1" --yes
-  pass "$S — a second init refuses existing_configuration"
+  # A second init over a fully init-owned repository is a typed stop that names
+  # EVERY payload init would have to own — code, media, state, AND the
+  # configuration itself. Which one is the PRIMARY reason code is just whichever
+  # sorts first (existing_code_payload here: this shop's published stack gives
+  # the repository a code/ half), so assert instead that existing_configuration
+  # is named among them — that is the fact this edge is about, init recognising
+  # the existing adoption rather than clobbering it.
+  if ( cd "$HOST_R1" && php "$DUO" "--envs-file=$ENVS_FILE" init "${PAIR}1" --yes ) > "$EVIDENCE/$S/init-again.txt" 2>&1; then
+    fail "$S: a second duo init over an init-owned repository was expected to refuse, but it succeeded; see $EVIDENCE/$S/init-again.txt"
+  fi
+  grep -Fq '[existing_configuration]' "$EVIDENCE/$S/init-again.txt" \
+    || fail "$S: the second-init refusal does not name existing_configuration; see $EVIDENCE/$S/init-again.txt"
+  pass "$S — a second init refuses over the init-owned repository, naming existing_configuration among the payloads it will not own"
   # 2. A plugin deactivated after adoption: the next capture and assess say so.
   say "$S — deactivate contact-form-7 after adoption, capture, assess"
   if ! dry; then wp1 plugin deactivate contact-form-7 >/dev/null; fi

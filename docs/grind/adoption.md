@@ -296,3 +296,16 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   init's jwt_in_code_file line was an ADVISORY (the Yoast OIDC software
   statement, correctly non-blocking); the grind's error extraction mislabeled
   the refusal.
+- A9 (WooCommerce 11.0.0 feature flags — manifest gap): the same `wp wc update`
+  migration also set two 11.0.0 feature toggles the manifest's explicit env
+  feature list did not name (woocommerce_feature_point_of_sale_enabled,
+  _site_visibility_badge_enabled); added both env (a feature toggle is
+  per-environment config). Kept the explicit list rather than a catch-all
+  because one feature flag (wc_visual_attribute) is exact-classed authored.
+- A10 (second init over an init-owned repo — grind expectation): a re-init is a
+  typed stop that names EVERY payload init would have to own — code, media,
+  state, and site.duo.json. The primary reason code is whichever sorts first
+  (existing_code_payload, since A10's published stack gives the repo a code/
+  half), not existing_configuration as the grind assumed. Assert instead that
+  existing_configuration is NAMED among them — init recognising the existing
+  adoption is the fact this edge is about. Product path unchanged.
