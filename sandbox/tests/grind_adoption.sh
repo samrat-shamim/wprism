@@ -1146,13 +1146,21 @@ situation_a8() {
   duo_ok "$EVIDENCE/$S/certify-1.1.txt" "$HOST_R1" adapter certify "$HOST_R1" --name="$ACME_SLUG" \
     --secret-key-file="$KEYDIR/$ACME_SLUG.key" --key-id="$WALK_KEY_ID" --reason="round-3 T7 A8: 1.1.0 adds acme_catalog_banner" --pin
   duo_ok "$EVIDENCE/$S/manifest-validate-1.1.txt" "$HOST_R1" manifest-validate "$HOST_R1/adapters" --site="$HOST_R1"
-  # Deploy the 1.1.0 code to PRODUCTION so its completed code descriptor matches
-  # the repository artifact: `duo rehearse`'s refresh-export reads production's
-  # finalized-code ledger and refuses when it differs from the repo (verified —
-  # grind_adoption A8). Deploy runs AFTER certify because compile requires the
-  # site adapter in canonical bytes, which `certify --pin` restores.
-  duo_ok "$EVIDENCE/$S/deploy-1.1.txt" "$HOST_R1" deploy "${PAIR}1"
+  # Capture BEFORE deploy: the re-certified adapter now declares the new
+  # authored option acme_catalog_banner, so the repository's options/core.json
+  # must carry an explicit record for it or compile refuses schema_content_
+  # mismatch ("authored exact option needs an explicit … record"). Capture
+  # reads the live value the operator set and writes that record; only then is
+  # the repository self-consistent to compile. Capture runs AFTER certify
+  # because compile requires the adapter in canonical bytes, which certify
+  # restores.
   duo_ok "$EVIDENCE/$S/capture-1.1.txt" "$HOST_R1" capture "${PAIR}1"
+  # Then deploy the 1.1.0 code to PRODUCTION so its completed code descriptor
+  # matches the repository artifact: `duo rehearse`'s refresh-export reads
+  # production's finalized-code ledger and refuses when it differs from the
+  # repo (verified — grind_adoption A8). A raw plugin-file edit updates
+  # WordPress but not that ledger.
+  duo_ok "$EVIDENCE/$S/deploy-1.1.txt" "$HOST_R1" deploy "${PAIR}1"
   git1 add -A
   commit1 "grind_adoption $S: acme-catalog 1.1.0 — code, both adapter copies, re-certified, and the state that names the new option"
   git1 push -q origin main
