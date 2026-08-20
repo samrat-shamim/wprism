@@ -12,7 +12,7 @@ use Duo\PlainData;
  * reads the same pointer and looks up the field definition it names.
  *
  * Storage shapes below are as observed against ACF (free) 6.x via the
- * spike-e seed (sandbox/tests/spike_e_acf.sh — an image field and a
+ * spike-e seed (sandbox/tests/spike/spike_e_acf.sh — an image field and a
  * relationship field) and the acf conformance seed (sandbox/conformance/
  * seeds/acf.sh — taxonomy checkbox/radio + user fields, task #16's
  * end-to-end exercise; see that seed and its conformance run for the trace):
@@ -54,7 +54,7 @@ final class Acf {
     private const FIELD_KEY_PATTERN = '/^field_[A-Za-z0-9_]+$/';
     /**
      * DUO-3263: options-page field storage prefix, empirically confirmed
-     * (fresh ACF 6.8.7, free plugin — sandbox/tests/spike_e_acf.sh's sibling
+     * (fresh ACF 6.8.7, free plugin — sandbox/tests/spike/spike_e_acf.sh's sibling
      * probe, see the DUO-3263 PR body for the exact session). ACF's
      * "acf_add_options_page()" admin-UI registration function does NOT
      * exist in the free plugin (grepped the installed plugin source: no
