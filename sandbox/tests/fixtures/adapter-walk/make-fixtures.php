@@ -369,6 +369,17 @@ $evidence = [
     ],
     'registry_sha256' => 'sha256:' . str_repeat('8f', 32),
 ];
+// DUO-3484's host/target comparison, pinned AGREEING: this walk is about
+// adapter certification words, and a skewed reviewed library would withhold
+// the proposal and change what every step after it reads. The mismatch case
+// has its own fixtures in regress_assess_composition.sh and
+// regress_contract_accept.sh.
+$dispositions = [
+    'agree' => true,
+    'host_registry_sha256' => $evidence['registry_sha256'],
+    'meaning' => AssessReport::DISPOSITIONS_AGREE_MEANING,
+    'target_registry_sha256' => $evidence['registry_sha256'],
+];
 $s1Unknown = [
     'invisible_names_count' => 37,
     // Exactly what the coverage document below reports: one invisible option
@@ -384,7 +395,7 @@ $s1Unknown = [
     'pending_count' => 0,
 ];
 
-$s1 = AssessReport::build('awalk1', $now, $target, $authority, $s1Surfaces, $s1Unknown, $evidence);
+$s1 = AssessReport::build('awalk1', $now, $target, $authority, $s1Surfaces, $s1Unknown, $evidence, $dispositions);
 walk_json("$out/assess-report.s1.json", $s1);
 
 // One edit: the unmanaged plugin row loses its gap action. §4's S1 row requires
@@ -494,7 +505,8 @@ $siteCertified = AssessReport::build(
     $authority,
     $siteCertifiedSurfaces,
     ['invisible_names_count' => 0, 'names_sample' => [], 'pending_count' => 0],
-    $evidence
+    $evidence,
+    $dispositions
 );
 walk_json("$out/assess-report.site-certified.json", $siteCertified);
 

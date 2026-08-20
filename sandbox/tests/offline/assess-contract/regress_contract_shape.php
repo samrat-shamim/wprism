@@ -29,9 +29,11 @@ require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../cli/src/Contract/ApplicationContract.php';
 require_once __DIR__ . '/../../../../cli/src/Contract/ContractStore.php';
 require_once __DIR__ . '/../../../../cli/src/Contract/ContractProposal.php';
+require_once __DIR__ . '/../../../../cli/src/Assess/AssessReport.php';
 
 use Duo\Canon;
 use Duo\Orchestrator\ApplicationContract;
+use Duo\Orchestrator\AssessReport;
 use Duo\Orchestrator\ContractProposal;
 use Duo\Orchestrator\ContractStore;
 
@@ -497,6 +499,147 @@ duo_check_refuses(
     static fn () => ContractProposal::validateAssessReport($unknownKey),
     'assess_report_invalid',
     'an unrecognised assess-report key refuses'
+);
+
+// --------------------------------------------- the reviewed-library comparison
+// DUO-3484. The report gained a `dispositions` block stating both content
+// addresses — this checkout's copy of the reviewed dispositions and the one
+// the target answered from — because `evidence()` held both numbers and never
+// compared them.
+//
+// The block is a TOP-LEVEL sibling of `evidence` rather than a key inside it,
+// and that placement is the wire-shape decision: `fromAssessReport()` copies
+// `evidence` verbatim into `contract.evidence_pins`, whose key set
+// `ApplicationContract::validateEvidencePins()` closes, so a key added inside
+// `evidence` would have been a contract change. The pins assertion below is
+// what holds that: adding the block moves no contract byte.
+$noBlock = $report;
+duo_check(
+    !array_key_exists('dispositions', $noBlock),
+    'the committed fixture report predates the comparison, so it is the older-document case'
+);
+duo_check(
+    AssessReport::dispositionsAgree($noBlock),
+    'a report with no comparison carries none that failed, so it does not gate'
+);
+AssessReport::requireDispositionsAgree($noBlock);
+duo_check(true, 'and the gate passes it rather than refusing a document an older build wrote');
+
+$agreeing = $report;
+$agreeing['dispositions'] = [
+    'agree' => true,
+    'host_registry_sha256' => $report['evidence']['registry_sha256'],
+    'meaning' => ContractProposal::DISPOSITIONS_AGREE_MEANING,
+    'target_registry_sha256' => $report['evidence']['registry_sha256'],
+];
+$agreeing['assess_digest'] = ContractProposal::assessDigest($agreeing);
+ContractProposal::validateAssessReport($agreeing);
+duo_check(true, 'a report whose two reviewed libraries agree validates');
+duo_check_json_equal(
+    ContractProposal::fromAssessReport($noBlock, $seed)['contract']['evidence_pins'],
+    ContractProposal::fromAssessReport($agreeing, $seed)['contract']['evidence_pins'],
+    'the block moves no contract byte: evidence_pins are identical with and without it'
+);
+
+$mismatched = $report;
+$mismatched['dispositions'] = [
+    'agree' => false,
+    'host_registry_sha256' => str_repeat('7', 64),
+    'meaning' => ContractProposal::DISPOSITIONS_MISMATCH_MEANING,
+    'target_registry_sha256' => $report['evidence']['registry_sha256'],
+];
+$mismatched['assess_digest'] = ContractProposal::assessDigest($mismatched);
+// It VALIDATES: assess must be able to emit and digest a mismatched
+// assessment, because the mid-upgrade window is legitimate and diagnosis is
+// not the unsafe act. What refuses is the attempt to pin it.
+ContractProposal::validateAssessReport($mismatched);
+duo_check(true, 'a mismatched assessment is a legal document — the refusal is not at the schema');
+duo_check(
+    !AssessReport::dispositionsAgree($mismatched),
+    'and the report reads as disagreeing'
+);
+duo_check_refuses(
+    static fn () => AssessReport::requireDispositionsAgree($mismatched),
+    'dispositions_mismatch',
+    'pinning a mismatched assessment into a contract refuses by name'
+);
+try {
+    AssessReport::requireDispositionsAgree($mismatched);
+    duo_check(false, 'the gate refused');
+} catch (\Duo\CommandRefusalException $refusal) {
+    duo_check(
+        str_contains($refusal->publicMessage, substr((string) $mismatched['dispositions']['host_registry_sha256'], 0, 12))
+        && str_contains($refusal->publicMessage, substr((string) $mismatched['dispositions']['target_registry_sha256'], 0, 12)),
+        'the refusal names BOTH twelve-hex prefixes, so the operator can tell which side is which'
+    );
+    duo_check(
+        preg_match('/[0-9a-f]{32,}/D', $refusal->publicMessage . ' ' . $refusal->remediation) !== 1,
+        'and neither prints in full: a refusal is a human surface (MUP §5.2)'
+    );
+    duo_check(
+        str_contains($refusal->remediation, 're-adopt') && str_contains($refusal->remediation, 'check out the revision'),
+        'the remedy names both directions, because a sha256 gives no way to tell which side is ahead'
+    );
+}
+
+// The three derivations the block publishes are re-derived by the validator,
+// so the gate above is reading a fact rather than a claim. Each of these is a
+// hand-edited document that would otherwise gate the wrong way.
+$lying = $agreeing;
+$lying['dispositions']['host_registry_sha256'] = str_repeat('6', 64);
+$lying['assess_digest'] = ContractProposal::assessDigest($lying);
+duo_check_refuses(
+    static fn () => ContractProposal::validateAssessReport($lying),
+    'assess_report_invalid',
+    'agree: true beside two different hashes refuses instead of gating open'
+);
+$wrongSentence = $mismatched;
+$wrongSentence['dispositions']['meaning'] = ContractProposal::DISPOSITIONS_AGREE_MEANING;
+$wrongSentence['assess_digest'] = ContractProposal::assessDigest($wrongSentence);
+duo_check_refuses(
+    static fn () => ContractProposal::validateAssessReport($wrongSentence),
+    'assess_report_invalid',
+    'a reassuring sentence over disagreeing hashes refuses'
+);
+$wrongTarget = $agreeing;
+$wrongTarget['dispositions']['host_registry_sha256'] = str_repeat('5', 64);
+$wrongTarget['dispositions']['target_registry_sha256'] = str_repeat('5', 64);
+$wrongTarget['assess_digest'] = ContractProposal::assessDigest($wrongTarget);
+duo_check_refuses(
+    static fn () => ContractProposal::validateAssessReport($wrongTarget),
+    'assess_report_invalid',
+    'a block that agrees about a library the evidence pins do not name refuses'
+);
+$extraKey = $agreeing;
+$extraKey['dispositions']['direction'] = 'ahead';
+$extraKey['assess_digest'] = ContractProposal::assessDigest($extraKey);
+duo_check_refuses(
+    static fn () => ContractProposal::validateAssessReport($extraKey),
+    'assess_report_invalid',
+    'the block is a closed key set like every other block in this document'
+);
+
+// The producer, from the two documents assess actually holds.
+$capabilityReports = ['plan' => ['registry_sha256' => str_repeat('a', 64)]];
+duo_check_json_equal(
+    [
+        'agree' => true,
+        'host_registry_sha256' => str_repeat('a', 64),
+        'meaning' => ContractProposal::DISPOSITIONS_AGREE_MEANING,
+        'target_registry_sha256' => str_repeat('a', 64),
+    ],
+    AssessReport::dispositions($capabilityReports, ['registry_sha256' => str_repeat('a', 64)]),
+    'the producer compares the target capability report against this checkout own provenance'
+);
+duo_check_same(
+    false,
+    AssessReport::dispositions($capabilityReports, ['registry_sha256' => str_repeat('b', 64)])['agree'],
+    'and a host holding different reviewed bytes is a mismatch'
+);
+duo_check_refuses(
+    static fn () => AssessReport::dispositions(['plan' => ['registry_sha256' => null]], ['registry_sha256' => str_repeat('a', 64)]),
+    'assess_report_unbuildable',
+    'a target reporting no reviewed-library hash is unbuildable, never silently agreeing'
 );
 
 $store->writeProposal($proposal);

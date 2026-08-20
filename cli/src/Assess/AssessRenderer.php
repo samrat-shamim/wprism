@@ -440,11 +440,53 @@ final class AssessRenderer {
             ? (string) $report['evidence']['registry_sha256']
             : '';
         $lines = ['evidence: reviewed dispositions ' . ($sha === '' ? '(none reported)' : substr($sha, 0, 12))];
+        foreach (self::mismatchLines($report) as $line) {
+            $lines[] = '          ' . $line;
+        }
         foreach (self::siteCertifiedPrincipals($report) as $line) {
             $lines[] = '          ' . $line;
         }
 
         return $lines;
+    }
+
+    /**
+     * DUO-3484's mismatch surface, printed where "what backs these claims" is
+     * already answered.
+     *
+     * Nothing is printed when the two agree — the existing one-line evidence
+     * block is the whole answer then, and a line saying two numbers matched
+     * would be noise on every assessment forever. When they disagree the
+     * operator gets both twelve-hex prefixes on one line, because the first
+     * question they ask is "which one is my checkout"; the sentence under it
+     * is the document's own `meaning`, not a second wording of it, so the
+     * human view and `--format=json` cannot drift.
+     *
+     * Twelve hex, like the line above it: MUP §5.2 forbids a 32-or-more-hex
+     * identifier in a human view, and nothing consumes these numbers from a
+     * terminal — the full ones are in `--format=json`.
+     *
+     * @param array<string,mixed> $report
+     * @return list<string>
+     */
+    private static function mismatchLines(array $report): array {
+        $block = is_array($report['dispositions'] ?? null) ? $report['dispositions'] : null;
+        if ($block === null || ($block['agree'] ?? true) === true) {
+            return [];
+        }
+
+        return [
+            'MISMATCH: this checkout ships ' . self::shortSha($block['host_registry_sha256'] ?? '')
+                . '; the target answered from ' . self::shortSha($block['target_registry_sha256'] ?? ''),
+            self::safe($block['meaning'] ?? ''),
+        ];
+    }
+
+    /** @param mixed $sha */
+    private static function shortSha($sha): string {
+        $value = self::safe($sha);
+
+        return strlen($value) > 12 ? substr($value, 0, 12) : $value;
     }
 
     /**
@@ -506,8 +548,21 @@ final class AssessRenderer {
             return [];
         }
         $environment = self::safe($report['env'] ?? '?');
-        $lines = ['proposed contract written: ' . self::safe($path)
-            . ' (accept with duo contract ' . $environment . ' accept)'];
+        // Whether the file was written is read out of the DOCUMENT, not
+        // passed in as context: `AssessCommand::writeLocalArtifacts()` decides
+        // it from the same `dispositions` block, and a renderer told the
+        // answer separately is a renderer that can print a line the run did
+        // not do. This is the same discipline as every other word here — the
+        // human view is a projection of the report, never a second
+        // computation (DUO-3484).
+        $mismatch = self::mismatchLines($report) !== [];
+        $lines = [$mismatch
+            ? 'no proposed contract written: ' . self::safe($path)
+                . ' would pin this checkout\'s provenance to another library\'s verdicts'
+                . ' — re-adopt ' . $environment . ' from this checkout,'
+                . ' or check out the revision it was adopted from'
+            : 'proposed contract written: ' . self::safe($path)
+                . ' (accept with duo contract ' . $environment . ' accept)'];
         if (($context['contract_present'] ?? false) === true) {
             $lines[] = 'projection regenerated from the accepted contract';
         }

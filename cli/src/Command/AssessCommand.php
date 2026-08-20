@@ -258,6 +258,13 @@ final class AssessCommand {
             'provider_negotiation' => [],
         ]);
 
+        // Read once and handed to both blocks: `evidence` records this
+        // checkout's copy as contract provenance, `dispositions` compares it
+        // with the target's. Two reads could not disagree here, but one read
+        // makes it structurally impossible for the block that gates and the
+        // block that gets pinned to describe different bytes.
+        $provenance = self::registryProvenance($options);
+
         $report = AssessReport::build(
             $driver->name(),
             $generatedAt,
@@ -276,7 +283,8 @@ final class AssessCommand {
             ]),
             $catalog['rows'],
             AssessReport::unknown($inventory),
-            AssessReport::evidence($registryReports, self::registryProvenance($options))
+            AssessReport::evidence($registryReports, $provenance),
+            AssessReport::dispositions($registryReports, $provenance)
         );
 
         return [
@@ -296,19 +304,34 @@ final class AssessCommand {
     /**
      * Write the two local artifacts an assessment owns.
      *
-     * The proposal is always written — it is the output of the assessment,
-     * never authoritative (MUP §3.1). The projection is regenerated only
-     * when a contract has already been accepted, which is MUP §3.4's
-     * "refresh" row: an assess that leaves a stale projection beside a
-     * fresh assessment would let a reviewer read expired readiness out of a
-     * committed file.
+     * The proposal is written whenever it can honestly be written — it is the
+     * output of the assessment, never authoritative (MUP §3.1). The one thing
+     * that stops it is DUO-3484's mismatch: this is the ONLY
+     * `writeProposal()` call in the tree, so withholding here is what makes
+     * "no proposal is minted while the two reviewed libraries disagree" a
+     * property of the code rather than of a verb. `AssessReport::
+     * requireDispositionsAgree()` carries the full rationale.
+     *
+     * The two callers report the same withholding differently, and that is
+     * the whole difference between them: `duo assess` states it and exits 0,
+     * because diagnosis is what it was asked for; `duo contract propose`
+     * refuses first, because minting the file IS what it was asked for.
+     *
+     * The projection is regenerated either way, and only when a contract has
+     * already been accepted — MUP §3.4's "refresh" row. It is unaffected by
+     * the mismatch: both sides of its comparison are the target's own number
+     * (`ContractProjection::staleRegistry()`), so it stays honest under skew,
+     * and an assess that left a stale projection beside a fresh assessment
+     * would let a reviewer read expired readiness out of a committed file.
      *
      * @param array<string,mixed> $result an `assess()` result
      */
     public static function writeLocalArtifacts(array $result): void {
         /** @var ContractStore $store */
         $store = $result['store'];
-        $store->writeProposal(ContractProposal::fromAssessReport($result['report'], $result['seed']));
+        if (AssessReport::dispositionsAgree($result['report'])) {
+            $store->writeProposal(ContractProposal::fromAssessReport($result['report'], $result['seed']));
+        }
         if ($result['contract'] === null) {
             return;
         }

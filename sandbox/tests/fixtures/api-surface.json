@@ -18688,6 +18688,12 @@
         "Duo\\Orchestrator\\AssessReport": {
             "abstract": false,
             "constants": {
+                "DISPOSITIONS_AGREE_MEANING": {
+                    "value_repr": "the target answered from the reviewed library this checkout ships"
+                },
+                "DISPOSITIONS_MISMATCH_MEANING": {
+                    "value_repr": "the target answered from a different reviewed library than this checkout ships; the assessment is honest, but no contract may pin it until the two agree"
+                },
                 "FORMAT": {
                     "value_repr": "duo-assess-report/v1"
                 },
@@ -18758,9 +18764,59 @@
                             "name": "evidence",
                             "type": "array",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "dispositions",
+                            "type": "array",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "dispositions": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "registryReports",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "provenance",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "dispositionsAgree": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "report",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
                     "static": true,
                     "visibility": "public"
                 },
@@ -18853,6 +18909,23 @@
                         }
                     ],
                     "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "requireDispositionsAgree": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "report",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
                     "static": true,
                     "visibility": "public"
                 },
@@ -20704,6 +20777,12 @@
                 },
                 "ATTESTATION_REASON": {
                     "value_repr": "the certification gate is deferred for the minimum usable platform"
+                },
+                "DISPOSITIONS_AGREE_MEANING": {
+                    "value_repr": "the target answered from the reviewed library this checkout ships"
+                },
+                "DISPOSITIONS_MISMATCH_MEANING": {
+                    "value_repr": "the target answered from a different reviewed library than this checkout ships; the assessment is honest, but no contract may pin it until the two agree"
                 },
                 "FORMAT": {
                     "value_repr": "duo-application-contract-proposal/v1"

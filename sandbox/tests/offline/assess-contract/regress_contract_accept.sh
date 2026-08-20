@@ -261,6 +261,62 @@ STATUS=$?
 [ "$STATUS" = 0 ] && pass 'the same proposal accepts once the site matches again — time alone is not drift' \
   || { fail "re-accept exited $STATUS"; cat "$TMP/reaccept.txt.err" >&2; }
 
+# ------------------------------------------------ a library that moved (3484)
+# The other half of DUO-3484. `duo assess` stays answerable while a checkout
+# is ahead of a site it has not re-adopted yet (regress_assess_composition.sh
+# holds that case); these two verbs are where the skew would be baked into a
+# committed review artifact, so these two refuse.
+#
+# The reason it must be THESE verbs: fromAssessReport() copies the report's
+# `evidence` block verbatim into contract.evidence_pins, and that block is
+# assembled from both machines — the target's registry_sha256 beside the raw
+# file hash of the HOST's dispositions. Under skew the accepted contract would
+# record this checkout's provenance next to declarations every one of which
+# came out of the target's capability reports.
+say 'proposing or accepting across two reviewed libraries refuses'
+PROPOSAL_BEFORE=$(cat "$CONTRACT_DIR/proposed.json")
+CONTRACT_BEFORE=$(cat "$CONTRACT_DIR/contract.json")
+
+DUO_LIBRARY_SKEW=1 duo "$TMP/propose-skew.txt" contract fixture propose
+STATUS=$?
+[ "$STATUS" = 1 ] && pass 'propose refuses when the target answers from another reviewed library (exit 1)' \
+  || fail "propose under a library mismatch exited $STATUS"
+grep -Fq 'dispositions_mismatch' "$TMP/propose-skew.txt.err" \
+  && pass 'the refusal names dispositions_mismatch' \
+  || { fail 'the propose refusal did not name dispositions_mismatch'; cat "$TMP/propose-skew.txt.err" >&2; }
+grep -Fq 're-adopt this environment from this checkout, or check out the revision the site was adopted from' \
+  "$TMP/propose-skew.txt.err" \
+  && pass 'and names BOTH remedies — a sha256 carries no ordering, so which side is ahead is not derivable' \
+  || fail 'the refusal named no remedy, or only one direction of the skew'
+[ "$PROPOSAL_BEFORE" = "$(cat "$CONTRACT_DIR/proposed.json")" ] \
+  && pass 'the refused propose left the existing proposal untouched' \
+  || fail 'a refused propose still rewrote proposed.json'
+
+DUO_LIBRARY_SKEW=1 duo "$TMP/accept-skew.txt" contract fixture accept
+STATUS=$?
+[ "$STATUS" = 1 ] && pass 'accept refuses the same way (exit 1)' \
+  || fail "accept under a library mismatch exited $STATUS"
+grep -Fq 'dispositions_mismatch' "$TMP/accept-skew.txt.err" \
+  && pass 'accept names the cause' \
+  || { fail 'the accept refusal did not name dispositions_mismatch'; cat "$TMP/accept-skew.txt.err" >&2; }
+# The ordering assertion, and the reason the gate sits before the staleness
+# bind: the dispositions block is inside the digest, so a moved checkout ALSO
+# makes the stored proposal stale. Reporting that would tell the operator the
+# site returned something different — about a site that did not move at all.
+grep -Fq 'contract_proposal_stale' "$TMP/accept-skew.txt.err" \
+  && fail 'accept blamed the site for a checkout that moved' \
+  || pass 'accept reports the cause, not the staleness it also produces'
+[ "$CONTRACT_BEFORE" = "$(cat "$CONTRACT_DIR/contract.json")" ] \
+  && pass 'the refused accept left the accepted contract exactly as it was' \
+  || fail 'a refused accept still rewrote contract.json'
+
+# And the same proposal still accepts once the two libraries agree again —
+# the gate is about the skew, and it closes when the skew does.
+duo "$TMP/accept-agreed.txt" contract fixture accept
+STATUS=$?
+[ "$STATUS" = 0 ] && pass 'the same proposal accepts once the site answers from this checkout library again' \
+  || { fail "re-accept after the skew closed exited $STATUS"; cat "$TMP/accept-agreed.txt.err" >&2; }
+
 # ------------------------------------------------- a contract that moved
 say 'a contract that moved under the review refuses'
 duo "$TMP/propose3.txt" contract fixture propose
