@@ -574,7 +574,7 @@ final class ApplyPlanner {
     }
 
     /**
-     * DUO-3206's retry widening, and DUO-3489's carve-out from it.
+     * DUO-3206's retry widening, and DUO-3489's / DUO-3491's carve-outs.
      *
      * A prior apply that committed authored rows but failed a required
      * rebuild deliberately left `apply_in_progress`. The live canonical hash
@@ -599,6 +599,27 @@ final class ApplyPlanner {
      * keeps its non-zero `drift` count, and the documented remedy
      * (`duo capture` first) remains the only thing that folds it in.
      *
+     * DUO-3491 is the same shape one bucket over. Draining `conflict` into
+     * `update` means the retry writes rows that a first apply refuses outright
+     * — "duo: conflicts (env and repo both changed since last sync) — capture
+     * first or --force-theirs" (ApplyPreparationCoordinator.php:58) — so the
+     * marker silently converted an operator decision into an automatic
+     * override. That is right only where DUO-3206's premise holds: the failed
+     * run wrote the row, its `duo_state` base is stale, and the "repo side
+     * changed too" half of the three-way answer is our own write. It does not
+     * hold for an identity that run never wrote — a preserved-drift row whose
+     * repository side moved when the operator recompiled between the two runs
+     * is a genuine env-and-repo divergence, and so is a row that drifted after
+     * the marker was written. Those stay in `conflict` and keep demanding the
+     * same explicit `--force-theirs` (or capture-first) as a first apply.
+     *
+     * The evidence is the marker's own record, and each wire is read for the
+     * claim it makes and no more: v2's `write_set` decides directly, v1
+     * (DUO-3489's wire, still live on any target interrupted under 9b440c3)
+     * can only prove the preserved-drift identities were not written and
+     * leaves the rest on DUO-3206's widening, and a record-less marker keeps
+     * DUO-3206's behaviour byte for byte.
+     *
      * @param array<string,mixed> $plan
      * @param string|null $marker the raw `apply_in_progress` ledger value
      * @return array<string,mixed>
@@ -608,6 +629,7 @@ final class ApplyPlanner {
             return $plan;
         }
         $preserved = IncompleteApplyMarker::preserved_drift($marker);
+        $writeSet = IncompleteApplyMarker::write_set($marker);
         $retained = [];
         $widened = [];
         foreach ((array) ($plan['drift'] ?? []) as $row) {
@@ -616,6 +638,29 @@ final class ApplyPlanner {
                 continue;
             }
             $widened[] = $row;
+        }
+        $retainedConflict = [];
+        $widenedConflict = [];
+        foreach ((array) ($plan['conflict'] ?? []) as $row) {
+            $uuid = (string) ($row['uuid'] ?? '');
+            if ($writeSet !== null) {
+                // v2: membership is the whole answer, in both directions.
+                if (isset($writeSet[$uuid])) {
+                    $widenedConflict[] = $row;
+                } else {
+                    $retainedConflict[] = $row;
+                }
+                continue;
+            }
+            // v1 carries no write set. The one thing it does prove is that a
+            // recorded preserved-drift identity was NOT written, so a conflict
+            // on one of those is a genuine divergence; everything else has no
+            // evidence either way and keeps DUO-3206's widening.
+            if ($preserved !== null && isset($preserved[$uuid])) {
+                $retainedConflict[] = $row;
+                continue;
+            }
+            $widenedConflict[] = $row;
         }
         $reason = 'previous apply did not complete required rebuilds or convergence metadata';
         $incomplete = ['reason' => $reason];
@@ -633,12 +678,26 @@ final class ApplyPlanner {
                 ),
             ];
         }
+        if ($retainedConflict !== []) {
+            $incomplete['reason'] = (string) $incomplete['reason'] . '; ' . count($retainedConflict)
+                . (count($retainedConflict) === 1 ? ' entity conflicts' : ' entities conflict')
+                . ' three ways on identities the interrupted apply never wrote, so this retry will not override them — resolve the repository side or run `duo capture` first, or re-run with --force-theirs exactly as a first apply demands';
+            $incomplete['retained_conflict'] = array_map(
+                static fn(array $row): array => [
+                    'path' => (string) ($row['path'] ?? ''),
+                    'type' => (string) ($row['type'] ?? ''),
+                    'uuid' => (string) ($row['uuid'] ?? ''),
+                ],
+                $retainedConflict
+            );
+        }
         $plan['incomplete_apply'][] = $incomplete;
         // The three buckets are consumed in their original DUO-3206 order:
         // rebuild_work() re-sorts `update` only by phase2_rank, and PHP's
         // stable sort therefore carries this sequence into apply's actual
-        // write order. `drift` keeps only what stays preserved.
+        // write order. `drift` and `conflict` keep only what stays carved out.
         $plan['drift'] = $widened;
+        $plan['conflict'] = $widenedConflict;
         foreach (['unchanged', 'drift', 'conflict'] as $retryKind) {
             foreach ($plan[$retryKind] as $row) {
                 $plan['update'][] = $row + ['retry' => true];
@@ -646,6 +705,7 @@ final class ApplyPlanner {
             $plan[$retryKind] = [];
         }
         $plan['drift'] = $retained;
+        $plan['conflict'] = $retainedConflict;
         return $plan;
     }
 

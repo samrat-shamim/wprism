@@ -1292,8 +1292,12 @@ final class ApplyRequestCoordinator {
         // excludes `drift` outside a scoped promotion). A bare marker cannot
         // tell a row this run wrote from a row it deliberately preserved, and
         // the next plan's retry widening clobbered the second kind silently.
+        // DUO-3491: $work is that same locked plan's authored write set — the
+        // exact create/adopt/update/conflict rows this run is authorized to
+        // touch — and it is the only thing that can tell the next retry's
+        // three-way conflicts apart from a stale-base artifact of this one.
         if (!$scoped) {
-            Ledger::kv_set('apply_in_progress', IncompleteApplyMarker::encode($plan['drift']));
+            Ledger::kv_set('apply_in_progress', IncompleteApplyMarker::encode($plan['drift'], $work));
         }
         $authored = $this->services->authored_transaction_executor()->execute(
             new AuthoredTransactionRequest(

@@ -29,7 +29,18 @@
  *     the marker was the constant '1' and could not tell "a row we wrote,
  *     whose duo_state is stale" from "a row we deliberately did not write".
  *
- * Coverage is the real product code in both cases: the shipped
+ * (3) DUO-3491, the same shape one bucket over. The widening also drains
+ *     `conflict`, and ApplyPreparationCoordinator.php:58 then sees an empty
+ *     bucket — so a retry under the marker silently overrode three-way
+ *     conflicts that a first apply refuses without --force-theirs. It is right
+ *     only where DUO-3206's premise holds (the failed run wrote the row, so
+ *     its stale `duo_state` base is the whole reason it reads three ways);
+ *     for an identity that run never wrote — a preserved row whose repository
+ *     side moved on a recompile, or a row that diverged after the marker was
+ *     written — the conflict is genuine and stays in `conflict`. The evidence
+ *     is the marker's own `write_set`, added in wire v2.
+ *
+ * Coverage is the real product code in all three cases: the shipped
  * ConvergenceVerifier driven through a WP_CLI stub reproducing the exact live
  * subprocess shape, the shipped Cli::verify_canonical() handler, and the
  * shipped pure planner projection that ApplyPlanBuilder now delegates to.
@@ -307,7 +318,17 @@ duo_check_same([$convergenceProse], WP_CLI::$errors, 'human-mode verify-canonica
 // ---------------------------------------------------------------- head 3
 
 // ---- 6. The marker carries what one bit could not.
-$encoded = IncompleteApplyMarker::encode($driftRows);
+//
+// DUO-3491: the write set is the second half of that record. `both-changed`
+// below is DUO-3206's own case — the interrupted run wrote it, so the retry's
+// three-way reading of it is that run's stale `duo_state` base, not a real
+// divergence. `written-after-commit` is the row the failed run wrote that
+// re-reads as `unchanged`.
+$writeSet = [
+    ['uuid' => 'written-after-commit', 'type' => 'post', 'path' => 'state/posts/page/written.md'],
+    ['uuid' => 'both-changed', 'type' => 'post', 'path' => 'state/posts/page/both.md'],
+];
+$encoded = IncompleteApplyMarker::encode($driftRows, $writeSet);
 $decoded = IncompleteApplyMarker::preserved_drift($encoded);
 duo_check_same(
     ['8f14e45f-ceea-467a-9a3e-1b2c3d4e5f60', 'options/core'],
@@ -319,15 +340,58 @@ duo_check_same(
     $decoded['8f14e45f-ceea-467a-9a3e-1b2c3d4e5f60']['path'] ?? null,
     'each recorded identity keeps the path plan and apply report it by'
 );
-duo_check_same($encoded, IncompleteApplyMarker::encode(array_reverse($driftRows)), 'the marker value is order-independent');
+duo_check_same(
+    $encoded,
+    IncompleteApplyMarker::encode(array_reverse($driftRows), array_reverse($writeSet)),
+    'the marker value is order-independent'
+);
 duo_check_same(null, IncompleteApplyMarker::preserved_drift('1'), "DUO-3206's bare '1' marker records nothing");
 duo_check_same(null, IncompleteApplyMarker::preserved_drift('{not json'), 'an unreadable marker records nothing and does not throw');
 duo_check_same(null, IncompleteApplyMarker::preserved_drift(null), 'no marker records nothing');
 duo_check_same(
     [],
-    IncompleteApplyMarker::preserved_drift(IncompleteApplyMarker::encode([])),
+    IncompleteApplyMarker::preserved_drift(IncompleteApplyMarker::encode([], [])),
     'an apply that preserved no drift still writes a marker, with an empty record'
 );
+
+// ---- 6b. DUO-3491: the write set, and what each wire version claims.
+duo_check_same('duo-apply-in-progress/v2', IncompleteApplyMarker::FORMAT, 'the write-set record is a new wire version, not a field smuggled into v1');
+duo_check_same('duo-apply-in-progress/v1', IncompleteApplyMarker::FORMAT_V1, "DUO-3489's wire name is still spelled out, because targets interrupted under 9b440c3 still hold it");
+duo_check_same(
+    ['both-changed', 'written-after-commit'],
+    array_keys(IncompleteApplyMarker::write_set($encoded) ?? []),
+    'the marker records every identity the run was authorized to write, in a stable order'
+);
+duo_check_same(
+    $encoded,
+    IncompleteApplyMarker::encode($driftRows, array_merge($writeSet, [$writeSet[0]])),
+    'a uuid the work set carries twice is recorded once — `options/core` can reach it by more than one plan path'
+);
+duo_check_same(
+    [],
+    IncompleteApplyMarker::write_set(IncompleteApplyMarker::encode($driftRows, [])),
+    'an apply with an empty authored work set says so, and that is not the same as saying nothing'
+);
+duo_check_same(null, IncompleteApplyMarker::write_set('1'), "DUO-3206's bare '1' marker makes no write-set claim");
+duo_check_same(null, IncompleteApplyMarker::write_set('{not json'), 'an unreadable marker makes no write-set claim and does not throw');
+duo_check_same(null, IncompleteApplyMarker::write_set(null), 'no marker makes no write-set claim');
+
+// The exact wire a target interrupted under 9b440c3 still holds: a v1 record
+// makes a preserved-drift claim and no write-set claim at all. Each is read
+// for what it says — absence is never read as "wrote nothing".
+$v1Marker = Canon::encode([
+    'format' => IncompleteApplyMarker::FORMAT_V1,
+    'preserved_drift' => [
+        ['path' => $driftRows[1]['path'], 'type' => 'post', 'uuid' => $driftRows[1]['uuid']],
+        ['path' => $driftRows[0]['path'], 'type' => 'option', 'uuid' => $driftRows[0]['uuid']],
+    ],
+]);
+duo_check_same(
+    ['8f14e45f-ceea-467a-9a3e-1b2c3d4e5f60', 'options/core'],
+    array_keys(IncompleteApplyMarker::preserved_drift($v1Marker) ?? []),
+    "a v1 marker is still read for DUO-3489's preserved-drift record"
+);
+duo_check_same(null, IncompleteApplyMarker::write_set($v1Marker), 'a v1 marker makes no write-set claim, and none is invented for it');
 
 // ---- 7. The retry projection. The plan below is the live repro's shape:
 // two preserved-drift rows, one row the failed run wrote (now `unchanged`),
@@ -411,6 +475,123 @@ duo_check_same(
     'with nothing retained the reason returns to its exact prior bytes'
 );
 
+// ---------------------------------------------------------------- head 4
+
+// ---- 7b. DUO-3491: the same shape one bucket over. Draining `conflict` into
+// `update` makes a retry write rows a first apply refuses outright — "duo:
+// conflicts (env and repo both changed since last sync) — capture first or
+// --force-theirs" (ApplyPreparationCoordinator.php:58) — so the marker turned
+// an operator decision into an automatic override.
+//
+// The plan below is the retry after the operator recompiled between the two
+// runs, which is what moves the repository side of a preserved row:
+//   - `both-changed`      the interrupted run wrote it, so the three-way
+//                         reading is its own stale base — DUO-3206's case;
+//   - `8f14e45f…`         run 1 recorded it as preserved drift and did not
+//                         write it; the recompile moved the repo side too;
+//   - `late-divergence`   `unchanged` when the marker was written, then both
+//                         sides moved — it leaves no trace in ANY drift
+//                         record, which is exactly why the write set, and not
+//                         `preserved_drift`, is the evidence that decides.
+$conflictPlan = $basePlan;
+$conflictPlan['drift'] = [$driftRows[0]];
+$conflictPlan['conflict'] = [
+    ['uuid' => 'both-changed', 'type' => 'post', 'path' => 'state/posts/page/both.md'],
+    ['uuid' => $driftRows[1]['uuid'], 'type' => 'post', 'path' => $driftRows[1]['path']],
+    ['uuid' => 'late-divergence', 'type' => 'term', 'path' => 'state/terms/category/late--divergence.json'],
+];
+$conflictRetry = \Duo\ApplyPlanner::project_incomplete_apply_retry($conflictPlan, $encoded);
+duo_check_same(
+    ['8f14e45f-ceea-467a-9a3e-1b2c3d4e5f60', 'late-divergence'],
+    array_column($conflictRetry['conflict'], 'uuid'),
+    'a retry keeps every three-way conflict on an identity the interrupted apply never wrote in `conflict`, in plan order — so ApplyPreparationCoordinator.php:58 still demands --force-theirs for it'
+);
+duo_check_same(
+    ['written-after-commit', 'both-changed'],
+    array_column($conflictRetry['update'], 'uuid'),
+    "DUO-3206's own case is untouched: a conflict on a row the interrupted run wrote still widens into update, in the original bucket order"
+);
+duo_check(
+    array_reduce($conflictRetry['update'], static fn(bool $all, array $r): bool => $all && ($r['retry'] ?? false) === true, true),
+    'the rows that do widen still carry retry:true'
+);
+duo_check(
+    array_reduce($conflictRetry['conflict'], static fn(bool $none, array $r): bool => $none && !array_key_exists('retry', $r), true),
+    'a retained conflict is the same row a first apply would refuse — no retry marking is attached to it'
+);
+duo_check_same(1, count($conflictRetry['incomplete_apply']), 'the retry still reports exactly one incomplete_apply condition');
+duo_check(
+    str_contains((string) $conflictRetry['incomplete_apply'][0]['reason'], '2 entities conflict three ways')
+        && str_contains((string) $conflictRetry['incomplete_apply'][0]['reason'], '--force-theirs'),
+    'the incomplete_apply reason names what the retry will NOT override and the remedy that would'
+);
+duo_check(
+    str_contains((string) $conflictRetry['incomplete_apply'][0]['reason'], 'environment-drifted entities')
+        && str_contains((string) $conflictRetry['incomplete_apply'][0]['reason'], 'duo capture'),
+    "the conflict clause is additive: DUO-3489's preserved-drift clause is still in the same reason string"
+);
+duo_check_same(
+    ['state/posts/page/8f14e45f--team.md', 'state/terms/category/late--divergence.json'],
+    array_column($conflictRetry['incomplete_apply'][0]['retained_conflict'] ?? [], 'path'),
+    'the machine row lists the retained conflicts beside the human reason'
+);
+duo_check_same(
+    [$driftRows[0]['uuid']],
+    array_column($conflictRetry['drift'], 'uuid'),
+    "both carve-outs run over the same marker: DUO-3489's recorded identity that is still drift stays in `drift` while the conflicts are decided by the write set"
+);
+
+// Exactly one retained conflict: the reason is operator-facing prose, so its
+// grammar must agree with its own count ("1 entity conflicts", never
+// "1 entities conflict").
+$singleConflictPlan = $basePlan;
+$singleConflictPlan['conflict'] = [
+    ['uuid' => 'late-divergence', 'type' => 'term', 'path' => 'state/terms/category/late--divergence.json'],
+];
+$singleConflictRetry = \Duo\ApplyPlanner::project_incomplete_apply_retry($singleConflictPlan, $encoded);
+duo_check(
+    str_contains((string) $singleConflictRetry['incomplete_apply'][0]['reason'], '1 entity conflicts three ways'),
+    'a single retained conflict reads "1 entity conflicts three ways", agreeing in number with its own count'
+);
+
+// A v1 marker proves only that its own recorded identities were not written.
+// The rest keep DUO-3206's widening rather than a claim v1 never made.
+$v1Retry = \Duo\ApplyPlanner::project_incomplete_apply_retry($conflictPlan, $v1Marker);
+duo_check_same(
+    ['8f14e45f-ceea-467a-9a3e-1b2c3d4e5f60'],
+    array_column($v1Retry['conflict'], 'uuid'),
+    'under a v1 marker a conflict on a recorded preserved-drift identity still stays in `conflict` — that identity is provably not-written'
+);
+duo_check_same(
+    ['written-after-commit', 'both-changed', 'late-divergence'],
+    array_column($v1Retry['update'], 'uuid'),
+    'under a v1 marker every other conflict keeps DUO-3206 widening: v1 carries no write set, and absence is not evidence'
+);
+
+// A record-less marker is the whole prior behaviour, byte for byte.
+$legacyConflict = \Duo\ApplyPlanner::project_incomplete_apply_retry($conflictPlan, '1');
+duo_check_same([], $legacyConflict['conflict'], "a bare '1' marker still widens the whole conflict bucket");
+duo_check_same(
+    ['written-after-commit', 'options/core', 'both-changed', '8f14e45f-ceea-467a-9a3e-1b2c3d4e5f60', 'late-divergence'],
+    array_column($legacyConflict['update'], 'uuid'),
+    "a bare '1' marker reproduces DUO-3206's exact prior bucket order across all three buckets"
+);
+duo_check_same(
+    'previous apply did not complete required rebuilds or convergence metadata',
+    $legacyConflict['incomplete_apply'][0]['reason'] ?? null,
+    'without a record the incomplete_apply reason keeps its exact prior bytes even with conflicts in the plan'
+);
+duo_check(
+    !array_key_exists('retained_conflict', $legacyConflict['incomplete_apply'][0] ?? []),
+    'no record means no retained_conflict key — the row never claims evidence it lacks'
+);
+
+// A retry whose plan has no conflicts at all reads exactly as it did before.
+duo_check(
+    !array_key_exists('retained_conflict', $retried['incomplete_apply'][0] ?? []),
+    'a retry with nothing retained in `conflict` carries no retained_conflict key'
+);
+
 // ---- 8. The shipped wiring: the builder delegates, the coordinator records
 // the drift it is about to preserve, and the gate is told about it.
 $builderSource = (string) file_get_contents(__DIR__ . '/../../../../agent/src/Apply/ApplyPlanBuilder.php');
@@ -421,8 +602,8 @@ duo_check(
     'ApplyPlanBuilder delegates the widening rather than keeping a second copy of it'
 );
 duo_check(
-    str_contains($coordinatorSource, "Ledger::kv_set('apply_in_progress', IncompleteApplyMarker::encode(\$plan['drift']))"),
-    'the marker written before the first mutation records this run\'s preserved drift'
+    str_contains($coordinatorSource, "Ledger::kv_set('apply_in_progress', IncompleteApplyMarker::encode(\$plan['drift'], \$work))"),
+    'the marker written before the first mutation records this run\'s preserved drift AND its authored write set'
 );
 duo_check(
     str_contains($coordinatorSource, "))->verify(\$opts, \$compiled, \$plan['drift']);"),
