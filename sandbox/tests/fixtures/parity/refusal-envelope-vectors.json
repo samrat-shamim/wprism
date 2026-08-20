@@ -1,6 +1,6 @@
 {
     "format": "duo-parity-refusal-envelope/v1",
-    "consumed_by": "sandbox/tests/regress_canonical_json_parity.php",
+    "consumed_by": "sandbox/tests/offline/guards/regress_canonical_json_parity.php",
     "fields": {
         "agent": "exactly the one line \\Duo\\Cli::halt_json_failure() hands WP_CLI::line() for this tuple under --format=json",
         "host": "exactly what \\Duo\\Orchestrator\\CommandOutput::renderRefusalJson() echoes, trailing newline stripped",

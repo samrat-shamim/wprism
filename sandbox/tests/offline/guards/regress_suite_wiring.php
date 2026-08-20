@@ -6,7 +6,7 @@
  *
  * WHY THIS EXISTS
  * ---------------
- * sandbox/tests/regress_bundle_coverage.sh answers one direction: does every
+ * sandbox/tests/offline/guards/regress_bundle_coverage.sh answers one direction: does every
  * suite FILE have a Makefile entry. Nothing answered the other direction, and
  * three consumers depend on it:
  *

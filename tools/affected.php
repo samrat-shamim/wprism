@@ -34,7 +34,7 @@ declare(strict_types=1);
  * TARGET -> SUITE FILE, AND WHY inv_elsewhere EXISTS
  * ----------------------------------------------------
  * A target's own suite file is found with the exact algorithm
- * sandbox/tests/regress_bundle_coverage.sh already uses and self-tests:
+ * sandbox/tests/offline/guards/regress_bundle_coverage.sh already uses and self-tests:
  * `regress-foo-bar` <-> `regress_foo_bar.(php|sh)`, EXCEPT a file that some
  * OTHER regress_*.{sh,php} file's code actually runs (`php x.php` /
  * `bash x.sh`) is a helper, not its own primary suite -- e.g.
@@ -95,7 +95,7 @@ declare(strict_types=1);
  * `php`/`bash`/`source`/`.` inside sandbox/tests or sandbox/lib (matched by
  * trailing basename so a `$ROOT/`-prefixed or bare invocation both resolve).
  * Every involved file is also, trivially, a "self" reference of its target,
- * which is how `--paths=sandbox/tests/regress_command_output.php` selects
+ * which is how `--paths=sandbox/tests/offline/cli/regress_command_output.php` selects
  * `regress-command-output` and a change to a shared sandbox/lib/*.sh or
  * sandbox/tests/fixtures|support file reaches every suite that pulls it in.
  *
@@ -354,7 +354,7 @@ function af_offline_leaves(string $root): array
 
 /** Strip full-line `#` comments so a doc-comment mention of another suite's
  * filename is never mistaken for that suite actually invoking it -- the
- * same precaution sandbox/tests/regress_bundle_coverage.sh takes. */
+ * same precaution sandbox/tests/offline/guards/regress_bundle_coverage.sh takes. */
 function af_code_lines(string $text): string
 {
     $kept = [];
@@ -380,7 +380,7 @@ const AF_GENERIC_INVOCATION_RX = '/\b(?:php|bash)\s+(?:\S*\/)?(regress_[a-z0-9_]
  * then selects for nothing -- a silent hole in `--changed`, not a failure.
  *
  * Basename-keyed because that is the target-naming rule this tool shares with
- * sandbox/tests/regress_bundle_coverage.sh (`regress_foo_bar.sh` <->
+ * sandbox/tests/offline/guards/regress_bundle_coverage.sh (`regress_foo_bar.sh` <->
  * `regress-foo-bar`), and a directory prefix contributes nothing to a target
  * name. Two files with the same basename therefore claim ONE target between
  * them: only the first (sorted) can ever be reached, so the second is

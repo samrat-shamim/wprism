@@ -43,7 +43,7 @@ final class AffectedTest extends TestCase
     /**
      * The expected offline leaf count comes from the Makefile's own
      * `regress-offline-all: N offline suites green` line (kept truthful by
-     * sandbox/tests/regress_bundle_coverage.sh) so a bundle change is never
+     * sandbox/tests/offline/guards/regress_bundle_coverage.sh) so a bundle change is never
      * mirrored by hand here.
      */
     private static function expectedOfflineLeafCount(): int
@@ -199,7 +199,7 @@ final class AffectedTest extends TestCase
 
     public function testSuiteFileChangeSelectsItself(): void
     {
-        $targets = self::targets(['--paths=sandbox/tests/regress_command_output.php']);
+        $targets = self::targets(['--paths=sandbox/tests/offline/cli/regress_command_output.php']);
         self::assertSame(['regress-command-output'], $targets);
     }
 
@@ -230,7 +230,7 @@ final class AffectedTest extends TestCase
             $primary['regress-suite-wiring'] ?? null
         );
         self::assertSame(
-            'sandbox/tests/regress_command_output.php',
+            'sandbox/tests/offline/cli/regress_command_output.php',
             $primary['regress-command-output'] ?? null
         );
         foreach ($primary as $target => $path) {
@@ -312,7 +312,7 @@ final class AffectedTest extends TestCase
         // regress_fatal_mutations.php; a change to the helper must still
         // select the .sh wrapper's target, not a (non-existent) target
         // derived from the helper's own filename.
-        $targets = self::targets(['--paths=sandbox/tests/regress_fatal_mutations.php']);
+        $targets = self::targets(['--paths=sandbox/tests/offline/apply/regress_fatal_mutations.php']);
         self::assertContains('regress-fatal-mutations-unit', $targets);
     }
 

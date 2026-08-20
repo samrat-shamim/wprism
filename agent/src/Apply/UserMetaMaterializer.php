@@ -5,7 +5,7 @@ require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Grammar/Tokens.php';
 require_once __DIR__ . '/ApplyFieldMaterializer.php';
 require_once __DIR__ . '/../Kernel/StructuredValue.php';
-// Deliberately NOT require_once('Db.php') here: sandbox/tests/regress_scoped_promotion_target.php
+// Deliberately NOT require_once('Db.php') here: sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php
 // and regress_adapter_observation.php both stub a fake Duo\Db and reach this
 // file transitively through Apply.php without ever loading the real Db.php;
 // requiring it here fatals both suites with "Cannot redeclare class Duo\Db"

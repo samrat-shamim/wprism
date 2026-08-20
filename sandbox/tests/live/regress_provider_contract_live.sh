@@ -12,7 +12,7 @@
 #
 # The whole point of this file is the half no offline harness can reach. The
 # grammar, negotiation refusals, receipts, and timeout budget are covered by
-# sandbox/tests/regress_actions_providers.sh against fake providers; here the
+# sandbox/tests/offline/adapter/regress_actions_providers.sh against fake providers; here the
 # provider is real plugin code, the data is real target data, and the ids are
 # environment-local — which is what makes the index assertion meaningful.
 #

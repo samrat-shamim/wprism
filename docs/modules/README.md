@@ -90,7 +90,7 @@ Not a module: `cli/duo` stays at `cli/duo` (the extensionless executable), and `
 ## The module graph
 
 Computed from the real reference graph (the `declarations()`/`references()` token scanner from
-`sandbox/tests/regress_agent_src_requires.php`, run over all 272 files): 1,065 file→file edges,
+`sandbox/tests/offline/guards/regress_agent_src_requires.php`, run over all 272 files): 1,065 file→file edges,
 of which 764 cross a module boundary.
 
 - **`cli` is a clean DAG.** All eight populated cli modules are acyclic and have zero exceptions.
@@ -129,9 +129,9 @@ Counts below are that tool's own plan at `a6b0b9c` — quote `--plan`, not this 
    behaviour-preservation gate), and `phpstan-baseline.neon` (100 `path:` lines; the codemod rewrites the
    literals, regenerate if the ratchet test disagrees).
 4. Four things the codemod cannot do, which are hand steps in the same PR:
-   - `sandbox/tests/regress_manifest_validate.php:966` — `glob($repo.'/agent/src/*.php')` must become a
+   - `sandbox/tests/offline/policy/regress_manifest_validate.php:966` — `glob($repo.'/agent/src/*.php')` must become a
      recursive walk or `$engine` silently becomes the empty string and its symbol checks pass vacuously.
-   - `sandbox/tests/regress_woocommerce_contract.php:140` — `scandir($root.'/agent/src')` must become
+   - `sandbox/tests/offline/ecommerce/regress_woocommerce_contract.php:140` — `scandir($root.'/agent/src')` must become
      recursive, and its `!is_file(agent/src/WooCommerceContract.php)` assertion must become a
      "no `Woo*`-named file anywhere under `agent/src`" scan, or the DUO-3341 guarantee weakens to a
      directory listing of module names.

@@ -7,7 +7,7 @@
  * serialize_blocks()/serialize_block(), and their WP_Block_Parser* support
  * classes) — extracted from wp-includes/{blocks.php,class-wp-block-parser*.php}
  * of the `wordpress:7.0.3-php8.3-apache` image so
- * sandbox/tests/regress_block_refs.php can exercise the real engine code
+ * sandbox/tests/offline/reference-scope/regress_block_refs.php can exercise the real engine code
  * with the real WP block grammar without booting a WordPress process or
  * docker at all.
  *

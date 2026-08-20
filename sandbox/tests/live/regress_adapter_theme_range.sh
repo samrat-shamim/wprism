@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Regression — DUO-3222: Deploy::code_mismatch()'s new THEME version_range
-# check, live. Everything in sandbox/tests/regress_adapter_contract.php is
+# check, live. Everything in sandbox/tests/offline/adapter/regress_adapter_contract.php is
 # provably offline; this one piece genuinely cannot be (it calls
 # wp_get_theme()->get('Version'), a real WordPress/filesystem read) — the
 # one live leg this issue's design explicitly called out as needing a real

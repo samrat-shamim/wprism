@@ -7,7 +7,7 @@ require_once __DIR__ . '/ApplyFieldMaterializer.php';
 require_once __DIR__ . '/../Kernel/OptionState.php';
 require_once __DIR__ . '/../Kernel/StructuredValue.php';
 require_once __DIR__ . '/../Kernel/PlainData.php';
-// Deliberately NOT require_once('Db.php') here: sandbox/tests/regress_scoped_promotion_target.php
+// Deliberately NOT require_once('Db.php') here: sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php
 // stubs a fake Duo\Db and reaches this file transitively through Apply.php
 // (a direct require of "$root/agent/src/Apply/Apply.php") without ever loading the
 // real Db.php; requiring it here fatals that suite with "Cannot redeclare

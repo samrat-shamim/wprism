@@ -26,7 +26,7 @@ require_once __DIR__ . '/Deploy.php';
  * dependency_ordered_deactivations() and their private helpers) stays on
  * Deploy rather than moving here too: it is a stateless, WordPress-header-
  * reading concern with no lifecycle-mutation logic of its own, and
- * sandbox/tests/regress_deploy_planner.php's own source-text assertions
+ * sandbox/tests/offline/code-half/regress_deploy_planner.php's own source-text assertions
  * require two of those helpers (order_deactivations()/order_activations())
  * to remain private facades on Deploy.php calling DeployPlanner:: directly.
  * dependency_ordered_activations()/dependency_ordered_deactivations() widen

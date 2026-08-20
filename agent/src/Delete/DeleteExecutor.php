@@ -6,7 +6,7 @@ require_once __DIR__ . '/../Repository/Snapshot.php';
 require_once __DIR__ . '/../Apply/RelationshipMaterializer.php';
 require_once __DIR__ . '/../Apply/MenuMaterializer.php';
 // Deliberately NOT require_once('Ledger.php') or require_once('Db.php') here:
-// sandbox/tests/regress_code_revision_enforcement.php and
+// sandbox/tests/offline/code-half/regress_code_revision_enforcement.php and
 // regress_scoped_promotion_target.php both reach this file transitively
 // through Apply.php (direct requires, verified) and both stub a fake
 // Duo\Ledger; regress_scoped_promotion_target.php additionally stubs a fake

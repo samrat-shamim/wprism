@@ -112,7 +112,7 @@ say "build the hermetic manifest library before Docker mutation"
 # reach the shipped bytes. It no longer re-derives anything — the generated
 # attestation it used to seal is gone — so the assertion is that the copy is
 # loadable and reviewed, which is what the mounted library has to be.
-HERMETIC_MANIFESTS="$(php sandbox/tests/certification_fixture.php "$HERMETIC_ROOT")" \
+HERMETIC_MANIFESTS="$(php sandbox/tests/offline/adapter/certification_fixture.php "$HERMETIC_ROOT")" \
   || fail "could not build the hermetic manifest library"
 [ "$HERMETIC_MANIFESTS" = "$HERMETIC_ROOT/manifests" ] \
   || fail "hermetic manifest library landed outside the owned scratch root"

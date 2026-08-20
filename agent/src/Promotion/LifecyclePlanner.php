@@ -58,7 +58,7 @@ require_once __DIR__ . '/Deploy.php';
  * check_theme_range() moves here instead -- its only caller anywhere in the
  * repo is code_mismatch() itself.
  *
- * sandbox/tests/regress_manifest_validate.sh's static WordPress-reach
+ * sandbox/tests/offline/policy/regress_manifest_validate.sh's static WordPress-reach
  * scanner keys its allowlist on exact "file.php:function_name" pairs; its
  * four entries for the methods moved here were updated from "Deploy.php:..."
  * to "LifecyclePlanner.php:..." in the same commit as this move -- a stale

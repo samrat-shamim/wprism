@@ -2,7 +2,7 @@
 # DUO-3409: concurrency-safe allocation of the host `duo explain` envs registry
 # used by conformance/checks/core.sh. Extracted into a sourceable helper (the
 # same convention as _retry_helper.sh) so the allocation idiom is provable
-# offline — sandbox/tests/regress_explain_registry.sh — on BOTH GNU and
+# offline — sandbox/tests/offline/guards/regress_explain_registry.sh — on BOTH GNU and
 # BSD/macOS mktemp, with no docker and no pair.
 #
 # The prior inline form

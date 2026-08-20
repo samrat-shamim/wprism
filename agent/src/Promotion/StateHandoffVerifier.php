@@ -29,7 +29,7 @@ namespace Duo;
  * directly at its own established call sites, and for
  * bind_lifecycle_missing_options(), which run() never called directly (only
  * options_snapshot()'s own internal call did, and that call moves here
- * with it) but which sandbox/tests/regress_lifecycle_state_handoff.php
+ * with it) but which sandbox/tests/offline/code-half/regress_lifecycle_state_handoff.php
  * reaches via ReflectionMethod(Deploy::class, 'bind_lifecycle_missing_options')
  * for a genuine behavioral test -- a hidden reflection-based caller, not a
  * bare method-name mention, caught by grepping for it specifically before
@@ -42,7 +42,7 @@ namespace Duo;
  * baseline gap on Deploy.php itself -- Deploy never required any of them
  * directly either, and this move simply inherits that unchanged rather
  * than introducing a real require whose own transitive chain could cascade
- * into sandbox/tests/regress_manifest_validate.sh's static WordPress-reach
+ * into sandbox/tests/offline/policy/regress_manifest_validate.sh's static WordPress-reach
  * scanner the way slice 6's Code.php attempt did.
  */
 final class StateHandoffVerifier {

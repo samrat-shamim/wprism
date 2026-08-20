@@ -31,7 +31,7 @@ final class Deploy {
      * Thin compatibility facade over LifecyclePlanner::code_mismatch()
      * (DUO-3350 slice 6) — kept so this method's existing internal call site
      * (run(), unchanged) and the external callers (Apply::build_plan(),
-     * sandbox/tests/regress_template_mismatch.php,
+     * sandbox/tests/offline/code-half/regress_template_mismatch.php,
      * sandbox/tests/live/regress_adapter_theme_range.sh) need no edit while this
      * decomposition proceeds.
      */
@@ -622,7 +622,7 @@ final class Deploy {
      * Thin compatibility facade over
      * StateHandoffVerifier::bind_lifecycle_missing_options() (DUO-3350
      * slice 7) -- kept solely because
-     * sandbox/tests/regress_lifecycle_state_handoff.php invokes it via
+     * sandbox/tests/offline/code-half/regress_lifecycle_state_handoff.php invokes it via
      * ReflectionMethod(Deploy::class, 'bind_lifecycle_missing_options') for
      * a genuine behavioral test; options_snapshot() was this method's only
      * production caller and that call moved with it, so this facade has no
@@ -640,8 +640,8 @@ final class Deploy {
      * StateHandoffVerifier::unexpected_lifecycle_state_changes() (DUO-3350
      * slice 7) -- kept so this method's existing internal call site (run(),
      * unchanged) and the two reflection-based test callers
-     * (sandbox/tests/regress_lifecycle_options_snapshot.php,
-     * sandbox/tests/regress_lifecycle_state_handoff.php) need no edit while
+     * (sandbox/tests/offline/code-half/regress_lifecycle_options_snapshot.php,
+     * sandbox/tests/offline/code-half/regress_lifecycle_state_handoff.php) need no edit while
      * this decomposition proceeds.
      *
      * @return list<string>
@@ -666,10 +666,10 @@ final class Deploy {
      * order_deactivations()/order_activations(), below) deliberately stays
      * on Deploy, unmoved: they are stateless graph/header-reading primitives
      * with no lifecycle-mutation concern of their own, and
-     * sandbox/tests/regress_deploy_planner.php's own source-text assertions
+     * sandbox/tests/offline/code-half/regress_deploy_planner.php's own source-text assertions
      * require order_deactivations()/order_activations() to remain private
      * facades calling DeployPlanner:: directly from Deploy.php specifically.
-     * sandbox/tests/regress_plugin_dependency_order.php reaches all four via
+     * sandbox/tests/offline/code-half/regress_plugin_dependency_order.php reaches all four via
      * ReflectionMethod(Deploy::class, ...), unaffected by this widening.
      *
      * @param list<string> $plugins active plugin basenames being activated

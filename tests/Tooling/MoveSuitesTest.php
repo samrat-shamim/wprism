@@ -976,14 +976,25 @@ PHP);
         $affected = self::read(self::repoRoot() . '/tools/affected.php');
         self::assertStringContainsString($sentinel, $affected);
 
-        // Against a full, realistic placement — every flat suite moving into a
-        // domain directory — the sentinel line still comes back unchanged.
+        // Against a full, realistic placement the sentinel line still comes
+        // back unchanged. The placement re-homes every path the corpus holds
+        // TODAY — the shipped map's values, not its keys. Two earlier spellings
+        // of this fixture each went quietly vacuous: globbing the corpus root
+        // stopped being realistic once the last wave emptied it, and a
+        // placement keyed on the map's pre-move paths matches nothing in a file
+        // that has already been rewritten to the new ones. Both still passed.
+        $shipped = json_decode(
+            self::read(self::repoRoot() . '/tools/suite-layout.json'),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+        self::assertIsArray($shipped);
         $placement = [];
-        foreach ((array) glob(self::repoRoot() . '/sandbox/tests/*.{php,sh}', GLOB_BRACE) as $path) {
-            $name = basename((string) $path);
-            $placement['sandbox/tests/' . $name] = 'sandbox/tests/offline/domain/' . $name;
+        foreach ($shipped as $current) {
+            $placement[$current] = 'sandbox/tests/offline/domain/' . basename((string) $current);
         }
-        self::assertNotEmpty($placement);
+        self::assertGreaterThan(300, count($placement), 'the shipped map is the realism this test depends on');
 
         $result = ms_rewrite_literals($affected, $placement, 'tools/affected.php');
         self::assertStringContainsString($sentinel, $result['text']);
@@ -1089,6 +1100,9 @@ PHP);
         self::assertSame(1, ms_literal_hits('bash sandbox/tests/regress_x.sh', 'sandbox/tests/regress_x.sh'));
         self::assertSame(0, ms_literal_hits('mysandbox/tests/regress_x.sh', 'sandbox/tests/regress_x.sh'));
         self::assertSame(0, ms_literal_hits('sandbox/tests/regress_x.sh.bak', 'sandbox/tests/regress_x.sh'));
+        // A path that ends a prose sentence is a hit: the full stop is not the
+        // head of a longer name (regress_mup_leak_audit.sh:50 in W2).
+        self::assertSame(1, ms_literal_hits('audited by sandbox/tests/regress_x.sh.', 'sandbox/tests/regress_x.sh'));
     }
 
     public function testNegativeExistenceAssertionsAreRecognised(): void

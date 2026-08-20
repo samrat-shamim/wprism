@@ -41,7 +41,7 @@ final class OfflineRunnerTest extends TestCase
     /**
      * The expected offline leaf count comes from the Makefile's own
      * `regress-offline-all: N offline suites green` line (kept truthful by
-     * sandbox/tests/regress_bundle_coverage.sh) so a bundle change is never
+     * sandbox/tests/offline/guards/regress_bundle_coverage.sh) so a bundle change is never
      * mirrored by hand here.
      */
     private static function expectedOfflineLeafCount(): int

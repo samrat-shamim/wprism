@@ -134,7 +134,7 @@ does not turn WooCommerce's public lifecycle or dynamic caches into a claim
 of automatic reversibility.
 
 The exact inventory is pinned by
-`sandbox/tests/regress_woocommerce_effect_contract.php`: both product types
+`sandbox/tests/offline/ecommerce/regress_woocommerce_effect_contract.php`: both product types
 name `posts`, `postmeta`, both lookup tables, every fixed transient value and
 timeout row, both product-version rows, and the attribute-taxonomy transient
 value/timeout rows as checkpoint-restorable. The

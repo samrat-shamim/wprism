@@ -173,8 +173,9 @@ branch or edit files before this passes.
    silent fallbacks, or compat shims. Match the codebase's comment style
    (rationale-dense docblocks stating constraints and evidence).
 3. Every fix ships with regression coverage that fails against the prior
-   defect (a `sandbox/tests/regress_*.sh` or a conformance fixture — read an
-   existing one for the idiom). Tests use the product path, not shortcuts.
+   defect (a `sandbox/tests/offline/<domain>/regress_*.{php,sh}` or a
+   conformance fixture — read an existing one for the idiom). Tests use the
+   product path, not shortcuts.
 4. Verify per the issue's Evidence section, plus mechanically: `php -l` every
    touched PHP file, `bash -n` every touched script, and — first and densest,
    because there is NO CI and local evidence is the whole merge gate — `make
@@ -198,9 +199,12 @@ branch or edit files before this passes.
   before the PR; it is a requirement, not a suggestion:
   - **Every changed code path executes offline** (`docs/`, `Makefile`, offline
     suites and their fixtures) → **no sweep**; the offline corpus is the gate.
-    The DIRECTORY is not the test: `sandbox/tests/` also holds LIVE-only
-    scripts (grinds, certify, live `regress_*`), and an edit to one of those
-    executes nowhere offline — prove its edited logic offline instead (a
+    Read the directory, then check it: `sandbox/tests/` is split by execution
+    class — `offline/<domain>/` is what the merge gate runs, while `live/`,
+    `grind/`, `certify/` and `spike/` are LIVE-only, and an edit to one of
+    those executes nowhere offline. The split names the class but does not
+    prove it, so confirm against the `Makefile` recipe that runs the file
+    rather than trusting the path — prove its edited logic offline instead (a
     static pin or a simulated input driving the same jq/shell logic, the
     DUO-3362/DUO-3406 pattern) or run the edited script's own path once.
   - **`agent/src`/`Policy.php` engine internals** → **one sweep of the
@@ -423,7 +427,7 @@ DUO refs where given.
   them to its child hooks, and `certify_version_matrix.sh` — a helper added
   to only one harness kills the other when it reaches that test with `command not
   found`, DUO-3408); the wiring is enforced by
-  `sandbox/tests/regress_conformance_asserts.sh`.
+  `sandbox/tests/offline/guards/regress_conformance_asserts.sh`.
 - **CLOSED (DUO-3277):** `pair.sh up` defaults to the canonical checkout but
   accepts an exact related worktree through `DUO_SOURCE_ROOT`; the source must
   share the Git common directory and satisfy `DUO_EXPECTED_SOURCE_SHA` before

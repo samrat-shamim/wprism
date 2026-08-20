@@ -189,7 +189,7 @@ regress-shipping-zones:
 	bash sandbox/tests/live/regress_shipping_zones.sh
 
 regress-natural-key-rename:
-	php sandbox/tests/regress_natural_key_rename.php
+	php sandbox/tests/offline/repository/regress_natural_key_rename.php
 
 # Certify merge (DUO-3228): permanentizes spike_b_merge.sh's divergent-edit
 # + conflict + resolve + converge flow as a re-runnable LOCAL regression
@@ -244,7 +244,7 @@ certify-version-matrix:
 # by live sandbox evidence (the InnoDB engine check + real transaction
 # retry need a live MySQL and aren't repeated in this offline target).
 regress-capture-publish:
-	php sandbox/tests/regress_capture_publish.php
+	php sandbox/tests/offline/capture/regress_capture_publish.php
 
 # DUO-3231: code_drift detection (Deploy::code_drift(), a narrower question
 # than code_mismatch — did an installed plugin/theme version change since
@@ -283,7 +283,7 @@ regress-attachment-portability:
 # DUO-3206: offline wpdb return semantics plus a live, isolated failure-
 # injection matrix for insert/update/delete/transactions/rebuild-actions/ledger.
 regress-fatal-mutations-unit:
-	bash sandbox/tests/regress_fatal_mutations_unit.sh
+	bash sandbox/tests/offline/apply/regress_fatal_mutations_unit.sh
 
 regress-fatal-mutations-live:
 	bash sandbox/tests/live/regress_fatal_mutations_live.sh
@@ -295,22 +295,22 @@ regress-fatal-mutations-live:
 # header for exactly what is/isn't covered here vs. the live theme-range
 # leg below.
 regress-adapter-contract:
-	php sandbox/tests/regress_adapter_contract.php
+	php sandbox/tests/offline/adapter/regress_adapter_contract.php
 
 # DUO-3223/recertification: pinned artifact downloads retry transient curl
 # failures at most three times, while digest mismatches and exhausted
 # failures remain fail-closed with only the partial temp file removed.
 regress-fetch-artifact:
-	bash sandbox/tests/regress_fetch_artifact.sh
+	bash sandbox/tests/offline/guards/regress_fetch_artifact.sh
 
 regress-manifest-dispositions:
-	php sandbox/tests/regress_manifest_dispositions.php
+	php sandbox/tests/offline/policy/regress_manifest_dispositions.php
 
 regress-adapter-sources:
-	bash sandbox/tests/regress_adapter_sources.sh
+	bash sandbox/tests/offline/adapter/regress_adapter_sources.sh
 
 regress-site-adapter-certification:
-	php sandbox/tests/regress_site_adapter_certification.php
+	php sandbox/tests/offline/adapter/regress_site_adapter_certification.php
 
 # Product release gate: every generated artifact must still agree with the
 # source it was generated from -- the public capability prose with the
@@ -325,7 +325,7 @@ regress-multisite-refusal:
 # DUO-3262: optional term/user interpreter hooks plus static-policy fallback;
 # pure PHP fixture manifests/interpreters, no WordPress or docker.
 regress-interpreter-policy:
-	php sandbox/tests/regress_interpreter_policy.php
+	php sandbox/tests/offline/policy/regress_interpreter_policy.php
 
 # DUO-3263: real Acf interpreter term_meta_rule()/option_rule() classification
 # (term-attached fields reuse post_meta_rule()'s shadow-key machinery
@@ -334,7 +334,7 @@ regress-interpreter-policy:
 # end-to-end pass through the real manifests/acf.json + Policy dispatch/
 # ownership wiring. Pure PHP, no WordPress or docker.
 regress-acf-meta-interpreter:
-	php sandbox/tests/regress_acf_meta_interpreter.php
+	php sandbox/tests/offline/policy/regress_acf_meta_interpreter.php
 
 # DUO-3222's one genuinely live leg: Deploy::code_mismatch()'s new THEME
 # version_range check, called directly against a real bundled WordPress
@@ -364,19 +364,19 @@ regress-widgets:
 # artifact, pre-checkpoint lease, retire -> activate -> apply ordering, stop-on-first-
 # failure, exact cleanup, and serialized transport-shaped restore instructions.
 regress-promotion-unit:
-	bash sandbox/tests/regress_promotion_unit.sh
+	bash sandbox/tests/offline/recovery/regress_promotion_unit.sh
 
 # Clean-install lifecycle snapshot boundary: captures options/core without
 # entering plugin-owned typed-table validation before activation has created
 # those tables. Kept in code-half-unit because this is the host lifecycle
 # bridge, not a WooCommerce lookup/ecommerce harness.
 regress-lifecycle-options-snapshot:
-	php sandbox/tests/regress_lifecycle_options_snapshot.php
+	php sandbox/tests/offline/code-half/regress_lifecycle_options_snapshot.php
 
 # Fatal-safe control-plane bootstrap: DUO_JOURNAL must not call WordPress
 # option/filter APIs before after_wp_config_load has loaded the normal runtime.
 regress-journal-bootstrap:
-	php sandbox/tests/regress_journal_bootstrap.php
+	php sandbox/tests/offline/recovery/regress_journal_bootstrap.php
 
 # First functional code-half's fast, offline boundary suite: descriptor
 # revision enforcement, truthful status rendering, template reconciliation
@@ -386,17 +386,17 @@ regress-journal-bootstrap:
 code-half-unit: regress-repository-compiler regress-code-revision-enforcement regress-code-descriptor-compiler regress-code-descriptor-unit regress-code-materializer-unit regress-code-ownership-pruner regress-code-completed-unit regress-code-stage-lock-unit regress-code-stage-transaction-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-template-mismatch regress-code-deploy-unit regress-deploy-command regress-promote-command regress-promotion-unit regress-lifecycle-state-handoff regress-lifecycle-phase-handoff-unit regress-plugin-dependency-order regress-lifecycle-options-snapshot regress-journal-bootstrap regress-code-compatibility
 
 regress-repository-compiler:
-	bash sandbox/tests/regress_repository_compiler.sh
+	bash sandbox/tests/offline/repository/regress_repository_compiler.sh
 
 # DUO-3316: generalized taxonomy object keyspaces, full description
 # json_refs/key_refs, attached structured-meta sidecar variants/two-sidecar
 # refusal, load-time refusal matrices, frozen-policy parity, and compiler
 # raw-id portability gates.
 regress-duo3316-contract:
-	php sandbox/tests/regress_duo3316_contract.php
+	php sandbox/tests/offline/grammar/regress_duo3316_contract.php
 
 regress-coverage-offline:
-	php sandbox/tests/regress_coverage_offline.php
+	php sandbox/tests/offline/assess-contract/regress_coverage_offline.php
 
 # Live: needs an already-up pair with WooCommerce active, e.g.
 #   DUO_PAIR=mypair make regress-coverage
@@ -404,28 +404,28 @@ regress-coverage:
 	bash sandbox/tests/live/regress_coverage.sh
 
 regress-post-field-classification:
-	php sandbox/tests/regress_post_field_classification.php
+	php sandbox/tests/offline/grammar/regress_post_field_classification.php
 
 regress-ecommerce-developer-static:
-	bash sandbox/tests/regress_ecommerce_developer_static.sh
+	bash sandbox/tests/offline/guards/regress_ecommerce_developer_static.sh
 
 regress-ecommerce-developer-matrix:
-	bash sandbox/tests/regress_ecommerce_developer_matrix.sh
+	bash sandbox/tests/offline/guards/regress_ecommerce_developer_matrix.sh
 
 regress-ecommerce-extension-migration:
-	php sandbox/tests/regress_ecommerce_extension_migration.php
+	php sandbox/tests/offline/ecommerce/regress_ecommerce_extension_migration.php
 
 regress-capture-atomicity:
-	php sandbox/tests/regress_capture_atomicity.php
+	php sandbox/tests/offline/capture/regress_capture_atomicity.php
 
 regress-capture-record-readback:
-	php sandbox/tests/regress_capture_record_readback.php
+	php sandbox/tests/offline/capture/regress_capture_record_readback.php
 
 regress-action-scope:
-	php sandbox/tests/regress_action_scope.php
+	php sandbox/tests/offline/adapter/regress_action_scope.php
 
 regress-provider-contract:
-	php sandbox/tests/regress_provider_contract.php
+	php sandbox/tests/offline/adapter/regress_provider_contract.php
 
 # DUO-3338: the structured native-action vocabulary and the plugin-owned
 # provider contract. One target, two harnesses (see the wrapper's header):
@@ -434,7 +434,7 @@ regress-provider-contract:
 # above stays addressable on its own for iterating on that half alone; the
 # bundle entry is this wrapper, so neither harness runs twice.
 regress-actions-providers:
-	bash sandbox/tests/regress_actions_providers.sh
+	bash sandbox/tests/offline/adapter/regress_actions_providers.sh
 
 # DUO-3338 live counterpart: a custom sandbox plugin advertising its OWN
 # provider through the `duo_providers` filter, negotiated and invoked against a
@@ -456,12 +456,12 @@ adapter-authoring-exercise: regress-adapter-authoring-live
 # grammar out of Policy.php), OFFLINE (no WordPress, DB, providers, or docker)
 # — belongs in regress-offline-all and its count.
 regress-manifest-grammar:
-	php sandbox/tests/regress_manifest_grammar.php
+	php sandbox/tests/offline/policy/regress_manifest_grammar.php
 
 # DUO-3345 (#189): value-free plan category summaries, OFFLINE (no WordPress,
 # DB, providers, or docker) — belongs in regress-offline-all and its count.
 regress-plan-category-summary:
-	php sandbox/tests/regress_plan_category_summary.php
+	php sandbox/tests/offline/cli/regress_plan_category_summary.php
 
 # DUO-3345 (#189): the LIVE counterpart. Its own pair +
 # PLAN_CATEGORY_SUMMARY_PAIR/PORT1/PORT2 — belongs in regress-live-list, NEVER
@@ -474,7 +474,7 @@ regress-plan-category-summary-live:
 # UUID ordering/cap, value-free references, full safety/readiness evidence,
 # host validation/legacy refusal, and control-byte-safe new itemization.
 regress-plan-view:
-	php sandbox/tests/regress_plan_view.php
+	php sandbox/tests/offline/cli/regress_plan_view.php
 
 # DUO-3317 live counterpart: a provider whose declared `requires` names an
 # environment this target does not have refuses before the first mutation, then
@@ -491,13 +491,13 @@ regress-provider-requirements-live:
 # is a well-formed manifest reaching into another manifest's entities or
 # minting a value the engine owns.
 regress-vocabulary-ownership:
-	php sandbox/tests/regress_vocabulary_ownership.php
+	php sandbox/tests/offline/policy/regress_vocabulary_ownership.php
 
 # DUO-3374: the close gate's squash-parent count, header-scoped — proven
 # against scratch commits including the message-body shape that false-failed
 # a live close (see the suite's own header).
 regress-close-gate-parent-count:
-	bash sandbox/tests/regress_close_gate_parent_count.sh
+	bash sandbox/tests/offline/guards/regress_close_gate_parent_count.sh
 
 # DUO-3327: `duo manifest-validate`, the adapter author's offline grammar check,
 # and the machine-readable grammar document it emits from the engine's own
@@ -507,7 +507,7 @@ regress-close-gate-parent-count:
 # ways), and against the shipped manifests/ directory with and without --site.
 # Authoring aid, not a gate on anything.
 regress-manifest-validate:
-	bash sandbox/tests/regress_manifest_validate.sh
+	bash sandbox/tests/offline/policy/regress_manifest_validate.sh
 
 # DUO-3325: `duo adapter-draft`, the safe adapter-DRAFT generator (offline slice).
 # Reuses policy-to-manifest's facts core (Policy::export_manifest) and adds OFFLINE
@@ -518,26 +518,26 @@ regress-manifest-validate:
 # same fragment with one trigger key un-renamed FAILS the closed-vocabulary refusal).
 # Offline: pure PHP/file-I/O, no docker, no WordPress.
 regress-adapter-draft:
-	bash sandbox/tests/regress_adapter_draft.sh
+	bash sandbox/tests/offline/adapter/regress_adapter_draft.sh
 
 # DUO-3408: the shared conformance assertion fragment -- every require_*
 # helper the seeds/postdeploy hooks call must be defined in ONE fragment both
 # sourcing harnesses load, or bundle leg 12 dies at `command not found`.
 # Offline: pure grep over the harness sources.
 regress-conformance-asserts:
-	bash sandbox/tests/regress_conformance_asserts.sh
+	bash sandbox/tests/offline/guards/regress_conformance_asserts.sh
 
 # DUO-3409: the core sweep's `duo explain` envs registry allocates a per-run
 # private directory (portable across GNU/BSD mktemp); prove it is collision-safe
 # offline. Pure shell/file-I/O, no docker -- belongs in regress-offline-all.
 regress-explain-registry:
-	bash sandbox/tests/regress_explain_registry.sh
+	bash sandbox/tests/offline/guards/regress_explain_registry.sh
 
 # DUO-3413: the core sweep's strict-explain post-conditions must name
 # infrastructure, not the engine, on an empty-at-exit-0 db export; prove the
 # premise guard and the evidence-pasting offline. Pure shell, no docker.
 regress-explain-export-premise:
-	bash sandbox/tests/regress_explain_export_premise.sh
+	bash sandbox/tests/offline/guards/regress_explain_export_premise.sh
 
 # DUO-3401: the core sweep's non-duo wp-cli OBSERVATION reads (post get/list,
 # comment get, db query on target state) must name infrastructure, not the
@@ -545,7 +545,7 @@ regress-explain-export-premise:
 # domain behavior and that each guarded call site captures+guards before
 # comparing (reverting a guard fails the pins). Pure shell, no docker.
 regress-observation-guards:
-	bash sandbox/tests/regress_observation_guards.sh
+	bash sandbox/tests/offline/guards/regress_observation_guards.sh
 
 # DUO-3400: the three older live regressions do not source the shared
 # conformance assertion fragment, so their compose-death boundary is a small
@@ -553,7 +553,7 @@ regress-observation-guards:
 # complete transport output, and print both when the transport misroutes.
 # Offline: static plus mutation-proven shell source checks; no Docker.
 regress-live-exit-code-contract:
-	bash sandbox/tests/regress_live_exit_code_contract.sh
+	bash sandbox/tests/offline/guards/regress_live_exit_code_contract.sh
 
 # DUO-3423: family-wide inventory of live target reads used by conformance
 # post-conditions. Every non-empty observation is premise-guarded before its
@@ -561,31 +561,31 @@ regress-live-exit-code-contract:
 # explicitly inventoried instead of being misclassified as fixture failures.
 # Pure source/static contract, no docker.
 regress-target-observation-premises:
-	bash sandbox/tests/regress_target_observation_premises.sh
+	bash sandbox/tests/offline/guards/regress_target_observation_premises.sh
 
 # DUO-3394: the polylang conformance seed + checks must route failures through
 # the exported `fail` helper (the FAIL: line the sweep keys on), not a bare
 # echo+exit. Static, offline.
 regress-polylang-fail-helper:
-	bash sandbox/tests/regress_polylang_fail_helper.sh
+	bash sandbox/tests/offline/guards/regress_polylang_fail_helper.sh
 
 # DUO-3393: checks/elementor.sh's seeded-page id read must be guarded by
 # require_fixture_ids, not a dead `$(wp post list) || fail` (empty-at-exit-0
 # never fires). Static, offline.
 regress-elementor-dead-guard:
-	bash sandbox/tests/regress_elementor_dead_guard.sh
+	bash sandbox/tests/offline/guards/regress_elementor_dead_guard.sh
 
 # DUO-3366: certify_version_matrix.sh must delete Elementor's active-kit
 # reference before site empty removes its post, and must fail on the exact
 # null-post warning paths at the 4.2.2 boundary. Static, offline.
 regress-elementor-matrix-reset:
-	bash sandbox/tests/regress_elementor_matrix_reset.sh
+	bash sandbox/tests/offline/guards/regress_elementor_matrix_reset.sh
 
 # DUO-3362: grind_r1c_agency.sh must not regenerate the committed
 # manifests/duo-agency-cpt.json wholesale (that would delete its hand-authored
 # providers/actions); it exports to a scratch path and verifies instead. Static.
 regress-grind-r1c-manifest-preserve:
-	bash sandbox/tests/regress_grind_r1c_manifest_preserve.sh
+	bash sandbox/tests/offline/guards/regress_grind_r1c_manifest_preserve.sh
 
 # DUO-3339: the installed-adapter catalog -- `duo adapter list|inspect|doctor`
 # over both adapter sources the engine has, plus AdapterSources::survey(), the
@@ -598,17 +598,17 @@ regress-grind-r1c-manifest-preserve:
 # dropped in a #151 Makefile conflict resolution (DUO-3417); the suite is
 # offline and belongs in regress-offline-all.
 regress-plugin-adapter-source:
-	bash sandbox/tests/regress_plugin_adapter_source.sh
+	bash sandbox/tests/offline/adapter/regress_plugin_adapter_source.sh
 
 regress-adapter-catalog:
-	bash sandbox/tests/regress_adapter_catalog.sh
+	bash sandbox/tests/offline/adapter/regress_adapter_catalog.sh
 
 # DUO-3340: one target-owned, value-redacted AdapterSources/pending/journal
 # observation plus strict host transport/hash/create-only validation. Offline:
 # fake wpdb/WP hooks only; this intentionally does not claim the separate
 # two-environment live exercise harness.
 regress-adapter-observation:
-	bash sandbox/tests/regress_adapter_observation.sh
+	bash sandbox/tests/offline/adapter/regress_adapter_observation.sh
 
 # DUO-3318 live counterpart: the parent-scoped natural key through capture,
 # deploy, apply, rename, and independent recapture across two environments
@@ -618,26 +618,26 @@ regress-parent-scoped-natural-key:
 	bash sandbox/tests/live/regress_parent_scoped_natural_key.sh
 
 regress-code-revision-enforcement:
-	php sandbox/tests/regress_code_revision_enforcement.php
+	php sandbox/tests/offline/code-half/regress_code_revision_enforcement.php
 
 regress-code-descriptor-compiler:
-	php sandbox/tests/regress_code_descriptor_compiler.php
+	php sandbox/tests/offline/code-half/regress_code_descriptor_compiler.php
 
 # DUO-3348 slice 25: the optional site.duo.json code envelope grammar moved
 # out of Policy.php into CodeConfigGrammar.php. Code's descriptor compiler and
 # materialization paths remain the runtime owners; this direct suite proves
 # the exact wrapper diagnostics and both Policy loader entry points.
 regress-code-config-grammar:
-	php sandbox/tests/regress_code_config_grammar.php
+	php sandbox/tests/offline/policy/regress_code_config_grammar.php
 
 regress-agent-src-requires:
-	php sandbox/tests/regress_agent_src_requires.php
+	php sandbox/tests/offline/guards/regress_agent_src_requires.php
 
 regress-code-descriptor-unit:
-	bash sandbox/tests/regress_code_descriptor_unit.sh
+	bash sandbox/tests/offline/code-half/regress_code_descriptor_unit.sh
 
 regress-code-materializer-unit:
-	bash sandbox/tests/regress_code_materializer_unit.sh
+	bash sandbox/tests/offline/code-half/regress_code_materializer_unit.sh
 
 # DUO-3350 slice 5: removal authority (remove_old_owned_files/
 # assert_removal_safe/owned_extra_files and their eight internal-only
@@ -650,22 +650,22 @@ regress-code-materializer-unit:
 # already exists in regress-code-materializer-unit/regress-code-stage-lock-unit
 # (both reflect into Code's kept facade, unchanged by this extraction).
 regress-code-ownership-pruner:
-	php sandbox/tests/regress_code_ownership_pruner.php
+	php sandbox/tests/offline/code-half/regress_code_ownership_pruner.php
 
 regress-code-completed-unit:
-	bash sandbox/tests/regress_code_completed_unit.sh
+	bash sandbox/tests/offline/code-half/regress_code_completed_unit.sh
 
 regress-code-stage-lock-unit:
-	bash sandbox/tests/regress_code_stage_lock_unit.sh
+	bash sandbox/tests/offline/code-half/regress_code_stage_lock_unit.sh
 
 regress-code-stage-transaction-unit:
-	bash sandbox/tests/regress_code_stage_transaction_unit.sh
+	bash sandbox/tests/offline/code-half/regress_code_stage_transaction_unit.sh
 
 regress-code-ledger-transaction-unit:
-	bash sandbox/tests/regress_code_ledger_transaction_unit.sh
+	bash sandbox/tests/offline/code-half/regress_code_ledger_transaction_unit.sh
 
 regress-plan-summary-code-drift:
-	php sandbox/tests/regress_plan_summary_code_drift.php
+	php sandbox/tests/offline/cli/regress_plan_summary_code_drift.php
 
 # DUO-3345 (plan naming slice): offline, no docker — plan rows carrying an
 # authored WordPress name (post title, term/menu name) render it beside the
@@ -673,7 +673,7 @@ regress-plan-summary-code-drift:
 # The agent-side twin renderer is proven live by the core conformance
 # check's plan-naming scenario.
 regress-plan-title-render:
-	php sandbox/tests/regress_plan_title_render.php
+	php sandbox/tests/offline/cli/regress_plan_title_render.php
 
 # DUO-3345 (three-way conflict slice): the stable JSON evidence and host
 # summary distinguish target last-synced base, repository intent, target
@@ -681,12 +681,12 @@ regress-plan-title-render:
 # The agent-side renderer and real Apply plan rows are proven by core
 # conformance's branch-vs-target and deletion-conflict scenarios.
 regress-conflict-view:
-	php sandbox/tests/regress_conflict_view.php
+	php sandbox/tests/offline/apply/regress_conflict_view.php
 
 # DUO-3347 slice 1: ConvergenceVerifier was extracted from Apply's post-apply
 # convergence gate; retain its offline characterization in the release bundle.
 regress-convergence-verifier:
-	php sandbox/tests/regress_convergence_verifier.php
+	php sandbox/tests/offline/apply/regress_convergence_verifier.php
 
 # DUO-3347 slice 2: ApplyPlanner was extracted from Apply's plan/conflict
 # production (conflict_view, forced/incomplete override evidence, display
@@ -695,43 +695,43 @@ regress-convergence-verifier:
 # regress_lifecycle_state_handoff.php's/regress_plan_category_summary.php's
 # existing reflection-based coverage of the same methods through Apply.
 regress-apply-planner:
-	php sandbox/tests/regress_apply_planner.php
+	php sandbox/tests/offline/apply/regress_apply_planner.php
 
 regress-table-graph:
-	php sandbox/tests/regress_table_graph.php
+	php sandbox/tests/offline/repository/regress_table_graph.php
 
 regress-table-schema:
-	php sandbox/tests/regress_table_schema.php
+	php sandbox/tests/offline/repository/regress_table_schema.php
 
 # DUO-3349: direct certification for Capture's extracted read-only live-scope
 # boundary: gaps, post/term rosters, taxonomy ownership, and observation checks.
 regress-scope-discovery:
-	php sandbox/tests/regress_scope_discovery.php
+	php sandbox/tests/offline/reference-scope/regress_scope_discovery.php
 
 # DUO-3349: direct certification for Snapshot's extracted mapped, natural,
 # and composite typed-row identity state machine plus its compatibility facade.
 regress-snapshot-identity:
-	php sandbox/tests/regress_snapshot_identity.php
+	php sandbox/tests/offline/repository/regress_snapshot_identity.php
 
 # DUO-3349: direct certification for the extracted typed-table read pipeline:
 # ordinary/composite rows, attached meta, secret refusal, and canonical bytes.
 regress-typed-table-capture:
-	php sandbox/tests/regress_typed_table_capture.php
+	php sandbox/tests/offline/capture/regress_typed_table_capture.php
 
 # DUO-3349: direct certification for the extracted typed-table write pipeline:
 # phase ordering, refs/meta, invalidation, reparenting, deletes, and composite upsert.
 regress-typed-table-materializer:
-	php sandbox/tests/regress_typed_table_materializer.php
+	php sandbox/tests/offline/apply/regress_typed_table_materializer.php
 
 regress-snapshot-pruner:
-	php sandbox/tests/regress_snapshot_pruner.php
+	php sandbox/tests/offline/repository/regress_snapshot_pruner.php
 
 # DUO-3347 slice 3: the shared policy-owned authored-field materializer
 # delegates post/term reconciliation and checked meta/option writes while
 # retaining Apply's compatibility facades. Existing termmeta coverage drives
 # the policy-aware path; this direct suite pins the moved low-level behavior.
 regress-apply-field-materializer:
-	php sandbox/tests/regress_apply_field_materializer.php
+	php sandbox/tests/offline/apply/regress_apply_field_materializer.php
 
 # DUO-3347 slice 4: MenuMaterializer was extracted from Apply's menu entity
 # reconciliation (finalize_menu/assign_locations), on top of slice 3's shared
@@ -739,7 +739,7 @@ regress-apply-field-materializer:
 # behavioral coverage stays in regress_lifecycle_options_snapshot.php (still
 # green unchanged through Apply's facade) and live conformance.
 regress-menu-materializer:
-	php sandbox/tests/regress_menu_materializer.php
+	php sandbox/tests/offline/apply/regress_menu_materializer.php
 
 # DUO-3347 slice 5: UserMetaMaterializer was extracted from Apply's user
 # entity reconciliation (finalize_user_meta, plus its exact-login resolver),
@@ -748,7 +748,7 @@ regress-menu-materializer:
 # across divergent numeric ids, authored/runtime classification, ref
 # decoding) stays in regress_user_meta.sh's live conformance run.
 regress-user-meta-materializer:
-	php sandbox/tests/regress_user_meta_materializer.php
+	php sandbox/tests/offline/apply/regress_user_meta_materializer.php
 
 # DUO-3347 slice 6: TermMaterializer was extracted from Apply's term entity
 # reconciliation (finalize_term, encode_description, reconcile_term_
@@ -762,7 +762,7 @@ regress-user-meta-materializer:
 # scenario, so there is no single dedicated live test file to point to the
 # way menu/user-meta each have.
 regress-term-materializer:
-	php sandbox/tests/regress_term_materializer.php
+	php sandbox/tests/offline/apply/regress_term_materializer.php
 
 # DUO-3347 slice 7: apply_options()/option_apply_target()/
 # dynamic_option_rule_for_name()/dynamic_option_resolver_values()/
@@ -776,7 +776,7 @@ regress-term-materializer:
 # exists in regress_lifecycle_options_snapshot.php and every live
 # conformance manifest sweep, unchanged by this extraction.
 regress-options-materializer:
-	php sandbox/tests/regress_options_materializer.php
+	php sandbox/tests/offline/apply/regress_options_materializer.php
 
 # DUO-3347 slice 8: reconcile_relationships()/delete_post_relationships()/
 # delete_term_relationships() moved from Apply.php into a new
@@ -791,7 +791,7 @@ regress-options-materializer:
 # full behavioral coverage already exists in every live conformance
 # manifest sweep, unchanged by this extraction.
 regress-relationship-materializer:
-	php sandbox/tests/regress_relationship_materializer.php
+	php sandbox/tests/offline/apply/regress_relationship_materializer.php
 
 # DUO-3347 slice 9: place_attachment() moved from Apply.php into a new
 # AttachmentMaterializer.php (the "attachments" entity materializer target
@@ -805,7 +805,7 @@ regress-relationship-materializer:
 # wiring/shape proof only -- full behavioral coverage already exists in
 # every live conformance manifest sweep, unchanged by this extraction.
 regress-attachment-materializer:
-	php sandbox/tests/regress_attachment_materializer.php
+	php sandbox/tests/offline/apply/regress_attachment_materializer.php
 
 # DUO-3347 slice 10: ensure_post_row() moved from Apply.php into a new
 # PostMaterializer.php (the "posts" entity materializer target seam),
@@ -823,7 +823,7 @@ regress-attachment-materializer:
 # regress_post_field_classification.php and every live conformance
 # manifest sweep, unchanged by this extraction.
 regress-post-materializer:
-	php sandbox/tests/regress_post_materializer.php
+	php sandbox/tests/offline/apply/regress_post_materializer.php
 
 # DUO-3347 slice 12: delete_entity()/assert_zero() moved from Apply.php into
 # a new DeleteExecutor.php (the executor half of the "DeleteGuardEvaluator/
@@ -850,13 +850,13 @@ regress-post-materializer:
 # regress_lifecycle_options_snapshot.php and every live conformance
 # manifest sweep's own entity-delete paths, unchanged by this extraction.
 regress-delete-executor:
-	php sandbox/tests/regress_delete_executor.php
+	php sandbox/tests/offline/apply/regress_delete_executor.php
 
 # DUO-3347 slice 18: DeleteGuardValueCodec owns the fail-closed decoding of
 # target-controlled metadata and canonical repair tokens. The broader
 # manifest/lock/witness product path remains in regress-woocommerce-deletion-authority.
 regress-delete-guard-value-codec:
-	php sandbox/tests/regress_delete_guard_value_codec.php
+	php sandbox/tests/offline/apply/regress_delete_guard_value_codec.php
 
 # DUO-3347 guard seams: DeleteGuardEvaluator owns the index-prefix proof that
 # makes a guard's locking read a real gap boundary, the generic per-guard
@@ -866,7 +866,7 @@ regress-delete-guard-value-codec:
 # retains transaction lifecycle, target-fact callbacks, warning formatting,
 # and mutation authority.
 regress-delete-guard-evaluator:
-	php sandbox/tests/regress_delete_guard_evaluator.php
+	php sandbox/tests/offline/apply/regress_delete_guard_evaluator.php
 
 # DUO-3348 slice 2: CompiledRepository/RepositoryCompilationException moved
 # out of RepositoryCompiler.php into their own CompiledArtifact.php (the
@@ -875,14 +875,14 @@ regress-delete-guard-evaluator:
 # regress_plan_explain.php's/etc. existing in-depth coverage through the
 # real compiler.
 regress-compiled-artifact:
-	php sandbox/tests/regress_compiled_artifact.php
+	php sandbox/tests/offline/repository/regress_compiled_artifact.php
 
 # DUO-3350 slice 1: PathSafety was extracted from Code's path-traversal/
 # symlink-crossing guards. Proves real filesystem symlink detection (not
 # just string shape) survived the move and that Code's ten kept facades
 # delegate rather than duplicate the logic.
 regress-path-safety:
-	php sandbox/tests/regress_path_safety.php
+	php sandbox/tests/offline/code-half/regress_path_safety.php
 
 # DUO-3348 slice 4: adapter provenance / capability-readiness resolution
 # (manifest_disposition, capability_claim, certification_readiness_blockers,
@@ -894,7 +894,7 @@ regress-path-safety:
 # (regress_actions_providers.php, regress_manifest_dispositions.php, etc.)
 # already cover the underlying business logic in depth through real fixtures.
 regress-adapter-registry:
-	php sandbox/tests/regress_adapter_registry.php
+	php sandbox/tests/offline/adapter/regress_adapter_registry.php
 
 # DUO-3348 slice 5: manifest-pin normalization/validation (normalize_manifest_
 # pins, validate_manifest_sources, validate_manifest_pins) moved out of
@@ -906,7 +906,7 @@ regress-adapter-registry:
 # already cover the same logic in depth through the real pin flow, including
 # the digest-mismatch branch this file deliberately leaves untouched.
 regress-pin-resolver:
-	php sandbox/tests/regress_pin_resolver.php
+	php sandbox/tests/offline/policy/regress_pin_resolver.php
 
 # DUO-3348 slice 6: the action/provider/effect declaration grammar
 # (validate_actions, validate_providers, validate_no_conflicting_provider_ids,
@@ -924,7 +924,7 @@ regress-pin-resolver:
 # is new direct-API characterization plus an exact byte-for-byte check that
 # closed_vocabularies()/grammar_patterns() publish unchanged values.
 regress-action-provider-grammar:
-	php sandbox/tests/regress_action_provider_grammar.php
+	php sandbox/tests/offline/adapter/regress_action_provider_grammar.php
 
 # DUO-3348 slice 7: the cross-manifest "one owner, no contradiction" guard
 # family (validate_no_conflicting_taxonomy_object_keyspaces,
@@ -945,7 +945,7 @@ regress-action-provider-grammar:
 # regress_taxonomy_object_keyspace.php); this suite is the first genuine
 # behavioral proof for the other four, not just wiring confirmation.
 regress-cross-manifest-guards:
-	php sandbox/tests/regress_cross_manifest_guards.php
+	php sandbox/tests/offline/policy/regress_cross_manifest_guards.php
 
 # DUO-3348 slice 8: the "named sub-key of an otherwise-atomic manifest
 # value" declaration grammar (validate_sub_keys() for options.*.sub_keys,
@@ -963,7 +963,7 @@ regress-cross-manifest-guards:
 # matched its exact refusal text anywhere in the repo before this file) plus
 # structural/no-facade confirmation.
 regress-sub-key-grammar:
-	php sandbox/tests/regress_sub_key_grammar.php
+	php sandbox/tests/offline/grammar/regress_sub_key_grammar.php
 
 # DUO-3348 slice 9: exact and taxonomy-pattern object_keyspace declaration
 # grammar moved out of Policy.php into TaxonomyGrammar.php. The live
@@ -973,7 +973,7 @@ regress-sub-key-grammar:
 # extraction directly. regress_taxonomy_object_keyspace.php continues to cover
 # the complete Policy::load()/from_snapshot() and runtime product paths.
 regress-taxonomy-grammar:
-	php sandbox/tests/regress_taxonomy_grammar.php
+	php sandbox/tests/offline/grammar/regress_taxonomy_grammar.php
 
 # DUO-3348 slice 11: option-name reference declaration grammar and the
 # cross-manifest identical-pattern guard moved out of Policy.php into
@@ -981,21 +981,21 @@ regress-taxonomy-grammar:
 # on Policy/Capture/OptionsMaterializer; this direct suite proves the pure
 # grammar plus both Policy loader entry points and the no-facade extraction.
 regress-option-reference-grammar:
-	php sandbox/tests/regress_option_reference_grammar.php
+	php sandbox/tests/offline/grammar/regress_option_reference_grammar.php
 
 # DUO-3348 slice 12: the closed post-type body/phase declaration grammar
 # moved out of Policy.php into PostTypeGrammar.php. The runtime lookup stays
 # on Policy as the compatibility facade; this direct suite proves the
 # collaborator's refusal text, defaults, vocabulary publication, and wiring.
 regress-post-type-grammar:
-	php sandbox/tests/regress_post_type_grammar.php
+	php sandbox/tests/offline/grammar/regress_post_type_grammar.php
 
 # DUO-3348 slice 13: the pure option-namespace and authored-meta keyspace
 # discovery grammar moved out of Policy.php into DiscoveryGrammar.php. Live
 # discovery remains on Capture; this direct suite proves the manifest-only
 # validator and both Policy loader entry points.
 regress-discovery-grammar:
-	php sandbox/tests/regress_discovery_grammar.php
+	php sandbox/tests/offline/policy/regress_discovery_grammar.php
 
 # DUO-3348 slice 23: cross-source reference-keyspace closure and attached-meta
 # ownership grammar moved out of Policy.php into ReferenceKeyspaceGrammar.php.
@@ -1004,20 +1004,20 @@ regress-discovery-grammar:
 # proves every source enumeration, recursive sub-key path, sidecar ambiguity,
 # and both Policy loader entry points.
 regress-reference-keyspace-grammar:
-	php sandbox/tests/regress_reference_keyspace_grammar.php
+	php sandbox/tests/offline/grammar/regress_reference_keyspace_grammar.php
 
 # DUO-3348 slice 24: ref/token/ledger kind vocabulary grammar moved out of
 # Policy.php into ReferenceKindGrammar.php. Runtime reference resolution stays
 # on Policy and its consumers; this direct suite proves the shared declared
 # id_kind extension path, all claim surfaces, and both Policy loader paths.
 regress-reference-kind-grammar:
-	php sandbox/tests/regress_reference_kind_grammar.php
+	php sandbox/tests/offline/grammar/regress_reference_kind_grammar.php
 
 # DUO-3350 slice 2: the lifecycle dependency graph planner is independent of
 # WordPress side effects; Deploy retains compatibility facades for its reads
 # and execution path.
 regress-deploy-planner:
-	php sandbox/tests/regress_deploy_planner.php
+	php sandbox/tests/offline/code-half/regress_deploy_planner.php
 
 # DUO-3350 slice 6: code_mismatch()/code_revision_mismatch()/code_drift()/
 # record_code_versions() and their two internal-only helpers
@@ -1039,7 +1039,7 @@ regress-deploy-planner:
 # regress_adapter_theme_range.sh/regress_code_drift.sh, unchanged by this
 # extraction, exercised through Deploy's own kept facades.
 regress-lifecycle-planner:
-	php sandbox/tests/regress_lifecycle_planner.php
+	php sandbox/tests/offline/code-half/regress_lifecycle_planner.php
 
 # DUO-3350 slice 7: options_snapshot()/bind_lifecycle_missing_options()/
 # unexpected_lifecycle_state_changes() moved from Deploy.php into a new
@@ -1061,7 +1061,7 @@ regress-lifecycle-planner:
 # regress_lifecycle_options_snapshot.php (both reflection-based against
 # Deploy::class), unchanged by this extraction.
 regress-state-handoff-verifier:
-	php sandbox/tests/regress_state_handoff_verifier.php
+	php sandbox/tests/offline/code-half/regress_state_handoff_verifier.php
 
 # DUO-3350 slice 8: the WP-mutation body of Deploy::run() -- deactivate,
 # dependency-ordered activate, active_plugins order correction, and
@@ -1086,106 +1086,106 @@ regress-state-handoff-verifier:
 # lock.sh, regress_code_drift.sh, certify_version_matrix.sh,
 # the grind_r*.sh scripts, etc.), unchanged by this extraction.
 regress-lifecycle-executor:
-	php sandbox/tests/regress_lifecycle_executor.php
+	php sandbox/tests/offline/code-half/regress_lifecycle_executor.php
 
 # DUO-3345 (structured-refusal slice): the real agent command handlers emit
 # one versioned, actionable, credential-redacted JSON refusal for every
 # primary compile/capture/plan/apply/deploy failure while human mode and the
 # existing typed compiler diagnostics remain compatible.
 regress-cli-json-refusals:
-	php sandbox/tests/regress_cli_json_refusals.php
+	php sandbox/tests/offline/cli/regress_cli_json_refusals.php
 
 # DUO-3351 slice 1: host command output owns the shared JSON refusal and
 # argument-format contract; cli/duo retains only compatibility facades.
 regress-command-output:
-	php sandbox/tests/regress_command_output.php
+	php sandbox/tests/offline/cli/regress_command_output.php
 
 regress-environment-command-preflight:
-	php sandbox/tests/regress_environment_command_preflight.php
+	php sandbox/tests/offline/environment/regress_environment_command_preflight.php
 
 # DUO-3351 slice 4: target-free typed option grammar for `duo env`.
 regress-environment-command-options:
-	php sandbox/tests/regress_environment_command_options.php
+	php sandbox/tests/offline/environment/regress_environment_command_options.php
 
 regress-driver-capabilities-command:
-	php sandbox/tests/regress_driver_capabilities_command.php
+	php sandbox/tests/offline/environment/regress_driver_capabilities_command.php
 
 regress-environment-list-command:
-	php sandbox/tests/regress_environment_list_command.php
+	php sandbox/tests/offline/environment/regress_environment_list_command.php
 
 regress-doctor-command:
-	php sandbox/tests/regress_doctor_command.php
+	php sandbox/tests/offline/cli/regress_doctor_command.php
 
 regress-adopt-command:
-	php sandbox/tests/regress_adopt_command.php
+	php sandbox/tests/offline/cli/regress_adopt_command.php
 
 regress-init-command:
-	php sandbox/tests/regress_init_command.php
+	php sandbox/tests/offline/cli/regress_init_command.php
 
 regress-pending-command:
-	php sandbox/tests/regress_pending_command.php
+	php sandbox/tests/offline/cli/regress_pending_command.php
 
 regress-classify-command:
-	php sandbox/tests/regress_classify_command.php
+	php sandbox/tests/offline/cli/regress_classify_command.php
 
 regress-capture-command:
-	php sandbox/tests/regress_capture_command.php
+	php sandbox/tests/offline/cli/regress_capture_command.php
 
 regress-status-command:
-	php sandbox/tests/regress_status_command.php
+	php sandbox/tests/offline/cli/regress_status_command.php
 
 # DUO-3351 slice 10: the scope host handler owns only protected control-plane
 # forwarding and transport exit propagation; scope semantics remain in agent.
 regress-scope-command:
-	php sandbox/tests/regress_scope_command.php
+	php sandbox/tests/offline/cli/regress_scope_command.php
 
 # DUO-3351 slice 11: refresh owns host parsing/refusal/output while Refresh
 # retains the semantic planning and target workflow.
 regress-refresh-command:
-	php sandbox/tests/regress_refresh_command.php
+	php sandbox/tests/offline/refresh/regress_refresh_command.php
 
 # DUO-3351 slice 12: rebase owns parser/refusal/output semantics while
 # Refresh retains the semantic candidate/ref workflow and durable abort.
 regress-rebase-command:
-	php sandbox/tests/regress_rebase_command.php
+	php sandbox/tests/offline/refresh/regress_rebase_command.php
 
 # DUO-3351 slice 3: ordinary and scoped agent forwarding share one typed,
 # target-free host boundary; malformed scope wire input refuses before contact.
 regress-passthrough-command:
-	php sandbox/tests/regress_passthrough_command.php
+	php sandbox/tests/offline/cli/regress_passthrough_command.php
 
 # DUO-3345 (explain slice): one freshly-observed entity row projects a
 # deterministic, value-free source -> policy -> reference -> structured
 # action -> verification chain. No WordPress, target mutation, or provider
 # code is used by this pure contract fixture.
 regress-plan-explain:
-	php sandbox/tests/regress_plan_explain.php
+	php sandbox/tests/offline/cli/regress_plan_explain.php
 
 regress-template-mismatch:
-	php sandbox/tests/regress_template_mismatch.php
+	php sandbox/tests/offline/code-half/regress_template_mismatch.php
 
 regress-code-deploy-unit:
-	bash sandbox/tests/regress_code_deploy_unit.sh
+	bash sandbox/tests/offline/code-half/regress_code_deploy_unit.sh
 
 regress-deploy-command:
-	php sandbox/tests/regress_deploy_command.php
+	php sandbox/tests/offline/cli/regress_deploy_command.php
 
 # DUO-3351 slice 19: the public promotion router owns only scoped-versus-
 # ordinary selection; the target promotion state machines remain unchanged.
 regress-promote-command:
-	php sandbox/tests/regress_promote_command.php
+	php sandbox/tests/offline/cli/regress_promote_command.php
 
 regress-lifecycle-state-handoff:
-	php sandbox/tests/regress_lifecycle_state_handoff.php
+	php sandbox/tests/offline/code-half/regress_lifecycle_state_handoff.php
 
 regress-lifecycle-phase-handoff-unit:
-	php sandbox/tests/regress_lifecycle_phase_handoff_unit.php
+	php sandbox/tests/offline/code-half/regress_lifecycle_phase_handoff_unit.php
 
 regress-plugin-dependency-order:
-	php sandbox/tests/regress_plugin_dependency_order.php
+	php sandbox/tests/offline/code-half/regress_plugin_dependency_order.php
 
 regress-code-compatibility:
-	bash sandbox/tests/regress_code_compatibility.sh
+	bash sandbox/tests/offline/code-half/regress_code_compatibility.sh
 
 # First-ever sync safety: a hook writes authored state and then throws before
 # plugin membership persists. A durable pre-hook receipt must block a different
@@ -1245,40 +1245,40 @@ regress-promotion:
 # here (the widened method, via Reflection) vs. by live sandbox evidence
 # (the real call-site wiring through Capture::build()).
 regress-capture-secret-scan:
-	bash sandbox/tests/regress_capture_secret_scan.sh
+	bash sandbox/tests/offline/capture/regress_capture_secret_scan.sh
 
 # DUO-3349: direct login-keyed user-meta entity capture boundary. Pure PHP
 # with a fake wpdb/policy/token fixture; no Docker or WordPress bootstrap.
 regress-user-meta-capture:
-	php sandbox/tests/regress_user_meta_capture.php
+	php sandbox/tests/offline/capture/regress_user_meta_capture.php
 
 # DUO-3349: direct post/term metadata discovery + classification boundary.
 # Pure PHP with fake wpdb/policy/token fixtures; no Docker or WordPress.
 regress-entity-meta-capture:
-	php sandbox/tests/regress_entity_meta_capture.php
+	php sandbox/tests/offline/capture/regress_entity_meta_capture.php
 
 regress-menu-capture:
-	php sandbox/tests/regress_menu_capture.php
+	php sandbox/tests/offline/capture/regress_menu_capture.php
 
 regress-media-capture:
-	php sandbox/tests/regress_media_capture.php
+	php sandbox/tests/offline/capture/regress_media_capture.php
 
 # DUO-3349: direct option discovery, encoding, side-channel, and lifecycle
 # boundary. Pure PHP with fake wpdb/policy/token fixtures; no Docker.
 regress-options-capture:
-	php sandbox/tests/regress_options_capture.php
+	php sandbox/tests/offline/capture/regress_options_capture.php
 
 regress-reference-scope-classifier:
-	php sandbox/tests/regress_reference_scope_classifier.php
+	php sandbox/tests/offline/reference-scope/regress_reference_scope_classifier.php
 
 regress-capture-safety-gates:
-	php sandbox/tests/regress_capture_safety_gates.php
+	php sandbox/tests/offline/capture/regress_capture_safety_gates.php
 
 regress-capture-gate-scanner:
-	php sandbox/tests/regress_capture_gate_scanner.php
+	php sandbox/tests/offline/capture/regress_capture_gate_scanner.php
 
 regress-capture-refactor-boundaries:
-	php sandbox/tests/regress_capture_refactor_boundaries.php
+	php sandbox/tests/offline/capture/regress_capture_refactor_boundaries.php
 
 # DUO-3285: closes a real aliveness gap this issue's own bundle uncovered.
 # OptionsCapture's option_name_refs (task #93) consumer loop
@@ -1291,7 +1291,7 @@ regress-capture-refactor-boundaries:
 # the real-file result is trusted, same discipline regress_capture_secret_
 # scan.sh already established).
 regress-option-name-refs-wiring:
-	bash sandbox/tests/regress_option_name_refs_wiring.sh
+	bash sandbox/tests/offline/capture/regress_option_name_refs_wiring.sh
 
 # DUO-3214(b) / task #123: offline, no docker -- Canon::normalize()'s new
 # OrderPreserved-aware branch, which stops alphabetically resorting a meta
@@ -1302,7 +1302,7 @@ regress-option-name-refs-wiring:
 # sandbox evidence (the real WooCommerce variation title converging
 # byte-for-byte, not just as a same-words anagram).
 regress-order-preserving:
-	php sandbox/tests/regress_order_preserving.php
+	php sandbox/tests/offline/grammar/regress_order_preserving.php
 
 # DUO-3481 (dev-loop round 2): duplication conformance vectors. The three
 # deployables (agent/, cli/, recovery/) keep deliberately separate copies of
@@ -1314,79 +1314,79 @@ regress-order-preserving:
 # and fails on the first differing byte, per family; intentional divergences
 # are pinned as differences, not hidden. Pure PHP, offline, no docker.
 regress-canonical-json-parity:
-	php sandbox/tests/regress_canonical_json_parity.php
+	php sandbox/tests/offline/guards/regress_canonical_json_parity.php
 
 # ROUND 3 T2 (docs/proposals/round-3-minimum-usable-platform.md §6.2): the
 # assess + contract product surface. Pure PHP / bash offline suites over the
 # fixture site repos and a fake `wp`; no docker.
 # the §1 vocabulary projection, table-driven: every cell of state class × handling × readiness × certification provenance × containment × recovery semantics, plus the no-plugin-slug gate over the Assess/Contract modules
 regress-assess-projection:
-	php sandbox/tests/regress_assess_projection.php
+	php sandbox/tests/offline/assess-contract/regress_assess_projection.php
 
 # wp duo assess-inventory: the duo-assess-inventory/v1 document over a fake site — names and counts only, byte-stable, no option value ever leaks
 regress-assess-inventory:
-	php sandbox/tests/regress_assess_inventory.php
+	php sandbox/tests/offline/assess-contract/regress_assess_inventory.php
 
 # duo-application-contract/v1: canonical bytes, closed keys, digest stability, attestation enum, compare-and-swap store
 regress-contract-shape:
-	php sandbox/tests/regress_contract_shape.php
+	php sandbox/tests/offline/assess-contract/regress_contract_shape.php
 
 # projection.json regenerates identically from identical inputs; an evidence-pin mismatch flips affected surfaces to Requalification required
 regress-contract-projection:
-	php sandbox/tests/regress_contract_projection.php
+	php sandbox/tests/offline/assess-contract/regress_contract_projection.php
 
 # duo assess composes doctor → probes → inventory → capabilities → catalog in order and refuses (never partially succeeds) on missing access; proposed.json written locally
 regress-assess-composition:
-	bash sandbox/tests/regress_assess_composition.sh
+	bash sandbox/tests/offline/assess-contract/regress_assess_composition.sh
 
 # bounded human output: 50-row default, --limit=1..200 grammar, the "N more (use --format=json)" tail
 regress-assess-bounds:
-	bash sandbox/tests/regress_assess_bounds.sh
+	bash sandbox/tests/offline/assess-contract/regress_assess_bounds.sh
 
 # duo contract propose → accept → files written canonical and staged; stale proposal refused; newer-digest overwrite refused
 regress-contract-accept:
-	bash sandbox/tests/regress_contract_accept.sh
+	bash sandbox/tests/offline/assess-contract/regress_contract_accept.sh
 
 # ROUND 3 T3 (docs/proposals/round-3-minimum-usable-platform.md §6.2): release,
 # verify, recover and rehearse. Offline over fixture site repos, fake drivers
 # and a fake `wp`/`ssh`; no docker.
 # duo-authorization-plan/v1: durable freeze before any mutation, digest stability, plan_changed invalidation on any fact drift, --plan-only mutates nothing, weaker --profile needs the explicit flag
 regress-authorization-plan:
-	php sandbox/tests/regress_authorization_plan.php
+	php sandbox/tests/offline/assess-contract/regress_authorization_plan.php
 
 # the §1.6 consequence as a gate: an undeclared live lifecycle window refuses with "declare in contract"; a declared entry yields the declared_live_effect authority row; Experimental / Not qualified / Unsupported / Requalification required in scope refuse pre-freeze with a gap action, never a release next action
 regress-release-containment-gate:
-	php sandbox/tests/regress_release_containment_gate.php
+	php sandbox/tests/offline/assess-contract/regress_release_containment_gate.php
 
 # duo-recovery-claim/v1 is literal: byte-identical between the frozen plan and recovery; does_not_restore non-empty for every profile including verified-automatic
 regress-recover-claim:
-	php sandbox/tests/regress_recover_claim.php
+	php sandbox/tests/offline/assess-contract/regress_recover_claim.php
 
 # ROUND 3 T6 (docs/proposals/round-3-adapter-walk.md §3.5): `duo adapter keygen|certify|pin` — the
 # operator's own trust root under adapters/authorities.json, the unexercised site bundle, the
 # exact {name,source,digest} pin, and the shipped-name override; offline against a scratch site repo
 regress-adapter-certify:
-	php sandbox/tests/regress_adapter_certify.php
+	php sandbox/tests/offline/adapter/regress_adapter_certify.php
 
 # journey grammar, undeclared-journey disclosure, convergence + journeys both required for a pass
 regress-verify-oracles:
-	php sandbox/tests/regress_verify_oracles.php
+	php sandbox/tests/offline/assess-contract/regress_verify_oracles.php
 
 # provider capability negotiation (missing capability → refusal naming it, never emulation), --reap idempotence, the containment disclosure banner
 regress-rehearse-provider:
-	bash sandbox/tests/regress_rehearse_provider.sh
+	bash sandbox/tests/offline/assess-contract/regress_rehearse_provider.sh
 
 # every documented failure class maps to exactly one of resume|reconcile|retry|recover|requalify|escalate; incomplete lifecycle → recover; ambiguous commitment → reconcile, never retry; the release drives the real promote sequence
 regress-release-next-action:
-	bash sandbox/tests/regress_release_next_action.sh
+	bash sandbox/tests/offline/assess-contract/regress_release_next_action.sh
 
 # --from <ref> is a binding assertion against the target HEAD (mismatch → reconcile) and invents no git transport
 regress-release-ref-binding:
-	bash sandbox/tests/regress_release_ref_binding.sh
+	bash sandbox/tests/offline/assess-contract/regress_release_ref_binding.sh
 
 # code-first refusal, the mandatory final abort even on import failure, --writers-excluded required
 regress-recover-ordering:
-	bash sandbox/tests/regress_recover_ordering.sh
+	bash sandbox/tests/offline/assess-contract/regress_recover_ordering.sh
 
 # ROUND 3 T4 (docs/proposals/round-3-minimum-usable-platform.md §5.2, §6.2): the
 # MUP leak audit — no internal identifier in the human view of assess / release
@@ -1395,7 +1395,7 @@ regress-recover-ordering:
 # docs/guides/internals.md; the retired four-command raw-recovery recipe cites
 # nowhere but internals.md. Offline over the T2/T3 fixture sites.
 regress-mup-leak-audit:
-	bash sandbox/tests/regress_mup_leak_audit.sh
+	bash sandbox/tests/offline/assess-contract/regress_mup_leak_audit.sh
 
 
 
@@ -1407,12 +1407,12 @@ regress-promotion-lock:
 # capture and promotion suites remain the behavioral characterization of the
 # compatibility facades.
 regress-control-plane-seams:
-	php sandbox/tests/regress_control_plane_seams.php
+	php sandbox/tests/offline/recovery/regress_control_plane_seams.php
 
 # DUO-3352: shared canonical JSON, durable publication, exclusive locking,
 # and bounded provider transport used by the rollback/resource bundles.
 regress-recovery-protocol:
-	php sandbox/tests/regress_recovery_protocol.php
+	php sandbox/tests/offline/recovery/regress_recovery_protocol.php
 
 # DUO-3223 (concurrency-scenario arm): a real `wp duo capture` lock holder
 # plus simultaneous contenders racing for that destination -- the SAME release-gate idiom
@@ -1433,10 +1433,10 @@ regress-capture-concurrency:
 
 # --- offline (no docker/pair.sh -- pure PHP/file-I/O), now in regress-offline-all ---
 regress-adopt-rollback:
-	php sandbox/tests/regress_adopt_rollback.php
+	php sandbox/tests/offline/cli/regress_adopt_rollback.php
 
 regress-local-bootstrap:
-	php sandbox/tests/regress_local_bootstrap.php
+	php sandbox/tests/offline/cli/regress_local_bootstrap.php
 
 # DUO-3365: one disposable pair supplies a real installed WordPress volume,
 # then an out-of-band controller container proves local adopt -> init from a
@@ -1445,65 +1445,65 @@ regress-local-bootstrap-live:
 	bash sandbox/tests/live/regress_local_bootstrap_live.sh
 
 regress-block-refs:
-	php sandbox/tests/regress_block_refs.php
+	php sandbox/tests/offline/reference-scope/regress_block_refs.php
 
 regress-identity-token-codec:
-	php sandbox/tests/regress_identity_token_codec.php
+	php sandbox/tests/offline/grammar/regress_identity_token_codec.php
 
 regress-text-tokenizer:
-	php sandbox/tests/regress_text_tokenizer.php
+	php sandbox/tests/offline/grammar/regress_text_tokenizer.php
 
 regress-structured-reference-codec:
-	php sandbox/tests/regress_structured_reference_codec.php
+	php sandbox/tests/offline/grammar/regress_structured_reference_codec.php
 
 regress-url-query-reference-codec:
-	php sandbox/tests/regress_url_query_reference_codec.php
+	php sandbox/tests/offline/grammar/regress_url_query_reference_codec.php
 
 regress-lint-primitives:
-	php sandbox/tests/regress_lint_primitives.php
+	php sandbox/tests/offline/reference-scope/regress_lint_primitives.php
 
 regress-block-reference-scanner:
-	php sandbox/tests/regress_block_reference_scanner.php
+	php sandbox/tests/offline/reference-scope/regress_block_reference_scanner.php
 
 regress-menu-reference-scanner:
-	php sandbox/tests/regress_menu_reference_scanner.php
+	php sandbox/tests/offline/reference-scope/regress_menu_reference_scanner.php
 
 regress-serialized-term-description-scanner:
-	php sandbox/tests/regress_serialized_term_description_scanner.php
+	php sandbox/tests/offline/reference-scope/regress_serialized_term_description_scanner.php
 
 regress-shortcode-reference-scanner:
-	php sandbox/tests/regress_shortcode_reference_scanner.php
+	php sandbox/tests/offline/reference-scope/regress_shortcode_reference_scanner.php
 
 regress-composite-ref:
-	php sandbox/tests/regress_composite_ref.php
+	php sandbox/tests/offline/repository/regress_composite_ref.php
 
 regress-doctor-env-values:
-	php sandbox/tests/regress_doctor_env_values.php
+	php sandbox/tests/offline/cli/regress_doctor_env_values.php
 
 regress-environment-driver:
-	php sandbox/tests/regress_environment_driver.php
+	php sandbox/tests/offline/environment/regress_environment_driver.php
 
 regress-environment-lifecycle:
-	php sandbox/tests/regress_environment_lifecycle.php
+	php sandbox/tests/offline/environment/regress_environment_lifecycle.php
 
 regress-environment-command:
-	php sandbox/tests/regress_environment_command.php
+	php sandbox/tests/offline/environment/regress_environment_command.php
 
 regress-environment-materializer:
-	php sandbox/tests/regress_environment_materializer.php
+	php sandbox/tests/offline/environment/regress_environment_materializer.php
 
 # DUO-3324: public attach/materialize over the real SSH driver with an
 # offline SSH wrapper and generic machine-local provider; no provisioning is
 # claimed and reap is verified as exact detach.
 regress-environment-materializer-ssh:
-	php sandbox/tests/regress_environment_materializer_ssh.php
+	php sandbox/tests/offline/environment/regress_environment_materializer_ssh.php
 
 # DUO-3324: phase-exact recovery under provider response loss. This is
 # deliberately offline: its command provider persists each fixture mutation
 # before withholding the response, then proves the public journal resumes
 # only with the exact operation owner and idempotency tuple.
 regress-environment-materializer-recovery:
-	php sandbox/tests/regress_environment_materializer_recovery.php
+	php sandbox/tests/offline/environment/regress_environment_materializer_recovery.php
 
 # DUO-3324: full public-CLI proof against one isolated pair.  This is live
 # deliberately: it owns source/target DB/media/repository resources and its
@@ -1512,7 +1512,7 @@ regress-environment-materializer-live:
 	bash sandbox/tests/live/regress_environment_materializer_live.sh
 
 regress-frozen-materialization-promotion:
-	php sandbox/tests/regress_frozen_materialization_promotion.php
+	php sandbox/tests/offline/environment/regress_frozen_materialization_promotion.php
 
 # DUO-3384: PlanSummary::render() tolerates partial fixtures by design, so a
 # valid `{}` renders clean. This drives an empty, a missing-bucket, and a
@@ -1520,197 +1520,197 @@ regress-frozen-materialization-promotion:
 # validator's required buckets to what agent/src/Apply/Apply.php actually emits.
 # Offline: the ssh/wp pair it needs are fixture scripts on PATH.
 regress-plan-contract-trust:
-	php sandbox/tests/regress_plan_contract_trust.php
+	php sandbox/tests/offline/cli/regress_plan_contract_trust.php
 
 regress-dynamic-options-policy:
-	php sandbox/tests/regress_dynamic_options_policy.php
+	php sandbox/tests/offline/policy/regress_dynamic_options_policy.php
 
 regress-option-name-reference-resolver:
-	php sandbox/tests/regress_option_name_reference_resolver.php
+	php sandbox/tests/offline/grammar/regress_option_name_reference_resolver.php
 
 regress-deletion-capability-resolver:
-	php sandbox/tests/regress_deletion_capability_resolver.php
+	php sandbox/tests/offline/policy/regress_deletion_capability_resolver.php
 
 regress-taxonomy-pattern-resolver:
-	php sandbox/tests/regress_taxonomy_pattern_resolver.php
+	php sandbox/tests/offline/grammar/regress_taxonomy_pattern_resolver.php
 
 regress-taxonomy-keyspace-resolver:
-	php sandbox/tests/regress_taxonomy_keyspace_resolver.php
+	php sandbox/tests/offline/grammar/regress_taxonomy_keyspace_resolver.php
 
 regress-taxonomy-description-reference-resolver:
-	php sandbox/tests/regress_taxonomy_description_reference_resolver.php
+	php sandbox/tests/offline/grammar/regress_taxonomy_description_reference_resolver.php
 
 regress-taxonomy-object-type-option-resolver:
-	php sandbox/tests/regress_taxonomy_object_type_option_resolver.php
+	php sandbox/tests/offline/grammar/regress_taxonomy_object_type_option_resolver.php
 
 regress-widget-type-resolver:
-	php sandbox/tests/regress_widget_type_resolver.php
+	php sandbox/tests/offline/grammar/regress_widget_type_resolver.php
 
 regress-table-declaration-resolver:
-	php sandbox/tests/regress_table_declaration_resolver.php
+	php sandbox/tests/offline/grammar/regress_table_declaration_resolver.php
 
 regress-policy-rule-resolver:
-	php sandbox/tests/regress_policy_rule_resolver.php
+	php sandbox/tests/offline/policy/regress_policy_rule_resolver.php
 
 regress-exact-option-resolver:
-	php sandbox/tests/regress_exact_option_resolver.php
+	php sandbox/tests/offline/grammar/regress_exact_option_resolver.php
 
 regress-option-namespace-resolver:
-	php sandbox/tests/regress_option_namespace_resolver.php
+	php sandbox/tests/offline/grammar/regress_option_namespace_resolver.php
 
 regress-content-attribute-rule-resolver:
-	php sandbox/tests/regress_content_attribute_rule_resolver.php
+	php sandbox/tests/offline/grammar/regress_content_attribute_rule_resolver.php
 
 regress-taxonomy-object-keyspace:
-	php sandbox/tests/regress_taxonomy_object_keyspace.php
+	php sandbox/tests/offline/grammar/regress_taxonomy_object_keyspace.php
 
 regress-env-options-policy:
-	php sandbox/tests/regress_env_options_policy.php
+	php sandbox/tests/offline/policy/regress_env_options_policy.php
 
 regress-export-manifest-roundtrip:
-	php sandbox/tests/regress_export_manifest_roundtrip.php
+	php sandbox/tests/offline/policy/regress_export_manifest_roundtrip.php
 
 # DUO-3348 slice 27: the pure PolicyWriter projection and its stable
 # Policy::export_manifest() facade, including the export/load round trip.
 regress-policy-writer:
-	php sandbox/tests/regress_policy_writer.php
+	php sandbox/tests/offline/policy/regress_policy_writer.php
 
 # DUO-3348 slice 28: the shared pure per-manifest grammar pipeline used by
 # live Policy::load() and frozen Policy::from_snapshot() validation.
 regress-manifest-validator:
-	php sandbox/tests/regress_manifest_validator.php
+	php sandbox/tests/offline/policy/regress_manifest_validator.php
 
 # DUO-3348 slice 29: the shared pure site.duo.json policy validation
 # sequence used by live Policy::load() and frozen Policy::from_snapshot().
 regress-site-policy-validator:
-	php sandbox/tests/regress_site_policy_validator.php
+	php sandbox/tests/offline/policy/regress_site_policy_validator.php
 
 # DUO-3348 slice 36: final cross-manifest closure/pin binding shared by live
 # and frozen Policy loading.
 regress-policy-load-finalizer:
-	php sandbox/tests/regress_policy_load_finalizer.php
+	php sandbox/tests/offline/policy/regress_policy_load_finalizer.php
 
 # DUO-3348 slice 30: the pure policy/manifest identity projection moved out of
 # RepositoryCompiler into ArtifactPolicyIdentity; checks direct loading, its
 # historical compiler facades, and the independent registry-row digest proof.
 regress-artifact-policy-identity:
-	php sandbox/tests/regress_artifact_policy_identity.php
+	php sandbox/tests/offline/policy/regress_artifact_policy_identity.php
 
 # DUO-3348 slice 35: persisted compiled-artifact validation is independent of
 # repository tree building while RepositoryCompiler retains its public facade.
 regress-compiled-artifact-reader:
-	php sandbox/tests/regress_compiled_artifact_reader.php
+	php sandbox/tests/offline/repository/regress_compiled_artifact_reader.php
 
 # DUO-3348 slice 31: pure attachment/media partition validation moved out of
 # RepositoryCompiler while the compiler retains tree orchestration and its
 # aggregate diagnostic refusal.
 regress-repository-media-catalog:
-	php sandbox/tests/regress_repository_media_catalog.php
+	php sandbox/tests/offline/repository/regress_repository_media_catalog.php
 
 regress-repository-schema-validator:
-	php sandbox/tests/regress_repository_schema_validator.php
+	php sandbox/tests/offline/repository/regress_repository_schema_validator.php
 
 regress-repository-deletion-parser:
-	php sandbox/tests/regress_repository_deletion_parser.php
+	php sandbox/tests/offline/repository/regress_repository_deletion_parser.php
 
 regress-repository-entity-parser:
-	php sandbox/tests/regress_repository_entity_parser.php
+	php sandbox/tests/offline/repository/regress_repository_entity_parser.php
 
 regress-repository-identity-registry:
-	php sandbox/tests/regress_repository_identity_registry.php
+	php sandbox/tests/offline/repository/regress_repository_identity_registry.php
 
 regress-repository-reference-graph-validator:
-	php sandbox/tests/regress_repository_reference_graph_validator.php
+	php sandbox/tests/offline/repository/regress_repository_reference_graph_validator.php
 
 regress-repository-portable-shape-validator:
-	php sandbox/tests/regress_repository_portable_shape_validator.php
+	php sandbox/tests/offline/repository/regress_repository_portable_shape_validator.php
 
 regress-repository-menu-location-validator:
-	php sandbox/tests/regress_repository_menu_location_validator.php
+	php sandbox/tests/offline/repository/regress_repository_menu_location_validator.php
 
 regress-repository-state-file-catalog:
-	php sandbox/tests/regress_repository_state_file_catalog.php
+	php sandbox/tests/offline/repository/regress_repository_state_file_catalog.php
 
 regress-post-type-relation-resolver:
-	php sandbox/tests/regress_post_type_relation_resolver.php
+	php sandbox/tests/offline/grammar/regress_post_type_relation_resolver.php
 
 regress-manifest-reclassification-policy:
-	php sandbox/tests/regress_manifest_reclassification_policy.php
+	php sandbox/tests/offline/policy/regress_manifest_reclassification_policy.php
 
 regress-menu-field-reclassification-policy:
-	php sandbox/tests/regress_menu_field_reclassification_policy.php
+	php sandbox/tests/offline/policy/regress_menu_field_reclassification_policy.php
 
 regress-regen-dependency-policy:
-	php sandbox/tests/regress_regen_dependency_policy.php
+	php sandbox/tests/offline/policy/regress_regen_dependency_policy.php
 
 regress-woocommerce-product-lookups:
-	php sandbox/tests/regress_woocommerce_product_lookups.php
+	php sandbox/tests/offline/ecommerce/regress_woocommerce_product_lookups.php
 
 regress-woocommerce-product-lookups-fake:
-	php sandbox/tests/regress_woocommerce_product_lookups_fake.php
+	php sandbox/tests/offline/ecommerce/regress_woocommerce_product_lookups_fake.php
 
 regress-woocommerce-deletion-authority:
-	php sandbox/tests/regress_woocommerce_deletion_authority.php
+	php sandbox/tests/offline/ecommerce/regress_woocommerce_deletion_authority.php
 
 regress-woocommerce-regen-engine:
-	php sandbox/tests/regress_woocommerce_regen_engine.php
+	php sandbox/tests/offline/ecommerce/regress_woocommerce_regen_engine.php
 
 regress-shortcode-refs:
-	bash sandbox/tests/regress_shortcode_refs.sh
+	bash sandbox/tests/offline/reference-scope/regress_shortcode_refs.sh
 
 regress-term-meta:
-	php sandbox/tests/regress_term_meta.php
+	php sandbox/tests/offline/capture/regress_term_meta.php
 
 regress-url-query-refs:
-	bash sandbox/tests/regress_url_query_refs.sh
+	bash sandbox/tests/offline/reference-scope/regress_url_query_refs.sh
 
 regress-classification-batch:
-	php sandbox/tests/regress_classification_batch.php
+	php sandbox/tests/offline/cli/regress_classification_batch.php
 
 regress-refresh-orchestration:
-	php sandbox/tests/regress_refresh_orchestration.php
+	php sandbox/tests/offline/refresh/regress_refresh_orchestration.php
 
 regress-refresh-compile-refs:
-	php sandbox/tests/regress_refresh_compile_refs.php
+	php sandbox/tests/offline/refresh/regress_refresh_compile_refs.php
 
 regress-refresh-rebase:
-	php sandbox/tests/regress_refresh_rebase.php
+	php sandbox/tests/offline/refresh/regress_refresh_rebase.php
 
 regress-refresh-field-diff:
-	php sandbox/tests/regress_refresh_field_diff.php
+	php sandbox/tests/offline/refresh/regress_refresh_field_diff.php
 
 regress-rollback-authority:
-	php sandbox/tests/regress_rollback_authority.php
+	php sandbox/tests/offline/recovery/regress_rollback_authority.php
 
 regress-recovery-executor:
-	php sandbox/tests/regress_recovery_executor.php
+	php sandbox/tests/offline/recovery/regress_recovery_executor.php
 
 regress-checkpoint-bundle:
-	php sandbox/tests/regress_checkpoint_bundle.php
+	php sandbox/tests/offline/recovery/regress_checkpoint_bundle.php
 
 regress-code-release:
-	php sandbox/tests/regress_code_release.php
+	php sandbox/tests/offline/recovery/regress_code_release.php
 
 regress-upload-bundle:
-	php sandbox/tests/regress_upload_bundle.php
+	php sandbox/tests/offline/recovery/regress_upload_bundle.php
 
 regress-effect-bundle:
-	php sandbox/tests/regress_effect_bundle.php
+	php sandbox/tests/offline/recovery/regress_effect_bundle.php
 
 regress-woocommerce-effect-contract:
-	php sandbox/tests/regress_woocommerce_effect_contract.php
+	php sandbox/tests/offline/ecommerce/regress_woocommerce_effect_contract.php
 
 regress-ssh-rollback-certification:
-	php sandbox/tests/regress_ssh_rollback_certification.php
+	php sandbox/tests/offline/recovery/regress_ssh_rollback_certification.php
 
 regress-pair-bootstrap-unit:
-	bash sandbox/tests/regress_pair_bootstrap_unit.sh
+	bash sandbox/tests/offline/guards/regress_pair_bootstrap_unit.sh
 
 # DUO-3355: direct offline characterization of the extracted pair-budget
 # resource lock. The lifecycle/bootstrap suite remains the broader facade
 # proof; this target keeps the crash-safe lock boundary independently loaded.
 regress-pair-budget-lock:
-	bash sandbox/tests/regress_pair_budget_lock.sh
+	bash sandbox/tests/offline/guards/regress_pair_budget_lock.sh
 
 # DUO-3355: direct offline characterization of the extracted pair-compose
 # discovery filter (the `docker compose ls` jq query deciding which rows are
@@ -1724,30 +1724,30 @@ regress-pair-budget-lock:
 # output refusing rather than reporting zero pairs, and the Status/
 # ConfigFiles/Name guards).
 regress-pair-compose-unit:
-	bash sandbox/tests/regress_pair_compose_unit.sh
+	bash sandbox/tests/offline/guards/regress_pair_compose_unit.sh
 
 # DUO-3355: offline contract for the narrow shared primitives used by the
 # legacy R1 proof harnesses. A fake docker captures the public compose/wp
 # commands and rewrite-file bytes; it does not need Docker or WordPress.
 regress-proof-legacy-pair:
-	bash sandbox/tests/regress_proof_legacy_pair.sh
+	bash sandbox/tests/offline/guards/regress_proof_legacy_pair.sh
 
 # DUO-3377: the exact-source gate. Offline like its bootstrap sibling above --
 # a real scratch canonical checkout plus a real linked worktree (the trap's
 # own shape) and a fake docker; genuine git is the mechanism under test, so it
 # is deliberately NOT faked here.
 regress-pair-candidate-source:
-	bash sandbox/tests/regress_pair_candidate_source.sh
+	bash sandbox/tests/offline/guards/regress_pair_candidate_source.sh
 
 regress-woocommerce-contract:
-	php sandbox/tests/regress_woocommerce_contract.php
+	php sandbox/tests/offline/ecommerce/regress_woocommerce_contract.php
 
 # DUO-3343: a production refresh is an observation boundary, not a capture
 # variant. This focused no-WordPress harness proves the exporter's
 # SELECT-only ledger validation, mutation prohibition, and semantic-record
 # envelope without needing a sandbox database.
 regress-refresh-export-unit:
-	php sandbox/tests/regress_refresh_export_unit.php
+	php sandbox/tests/offline/refresh/regress_refresh_export_unit.php
 
 # --- live (docker/pair.sh-dependent), now in regress-live-list ---
 regress-acf-term-options-fields:
@@ -1785,56 +1785,56 @@ regress-scope-gate:
 # term locators reporting "terms.c"). Read-only: nothing here captures,
 # promotes, or deletes.
 regress-scope-closure:
-	php sandbox/tests/regress_scope_closure.php
+	php sandbox/tests/offline/reference-scope/regress_scope_closure.php
 
 # DUO-3344: immutable, self-verifying scope evidence. This is distinct from
 # the legacy closure preview suite: it covers normalized tombstone selectors,
 # artifact/policy association, scoped upload/media/action/provider/effect
 # filtering, and the no-target-contact contract.
 regress-scope-contract:
-	bash sandbox/tests/regress_scope_contract.sh
+	bash sandbox/tests/offline/reference-scope/regress_scope_contract.sh
 
 # DUO-3344 slice 4: target-bound scoped apply authority/session protocol.
 # Pure PHP with an injected byte-CAS store; no WordPress or target contact.
 regress-scoped-apply-session:
-	php sandbox/tests/regress_scoped_apply_session.php
+	php sandbox/tests/offline/reference-scope/regress_scoped_apply_session.php
 
 # DUO-3344: offline source contract for the scoped live harness itself. It
 # proves a failed pair teardown retains its exact evidence rather than
 # deleting roots and printing a pre-cleanup green verdict.
 regress-scoped-apply-live-cleanup:
-	php sandbox/tests/regress_scoped_apply_live_cleanup.php
+	php sandbox/tests/offline/guards/regress_scoped_apply_live_cleanup.php
 
 # DUO-3344: offline scoped authored-boundary and response-loss recovery matrix.
 # The harness drives the public scoped session/observation/effect seams with
 # injected CAS and target stubs; no Docker or WordPress target is required.
 regress-scoped-apply-recovery:
-	php sandbox/tests/regress_scoped_apply_recovery.php
+	php sandbox/tests/offline/reference-scope/regress_scoped_apply_recovery.php
 
 # DUO-3344/DUO-3338: offline operation-bound provider/native effect recovery.
 regress-scoped-effect-reconciliation:
-	php sandbox/tests/regress_scoped_effect_reconciliation.php
+	php sandbox/tests/offline/reference-scope/regress_scoped_effect_reconciliation.php
 
 # DUO-3344 slice 5: target session/profile/receipt binding and the bounded
 # checkpoint-only selection gate. Pure fake-ledger/DB PHP; no target contact.
 regress-scoped-promotion-target:
-	php sandbox/tests/regress_scoped_promotion_target.php
+	php sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php
 
 # DUO-3344 slice 5: public SSH host sequencing against fake SSH/SCP/WP plus a
 # real isolated rollback-control root. No Docker, pair, or live target.
 regress-scoped-promote-unit:
-	bash sandbox/tests/regress_scoped_promote_unit.sh
+	bash sandbox/tests/offline/reference-scope/regress_scoped_promote_unit.sh
 
 # DUO-3344: the SSH live harness keeps its exact controlled-promotion failure
 # evidence in a private non-secret directory, while unconditionally erasing
 # the SSH/config/credential scratch tree. Source-only: no Docker or SSH host.
 regress-ssh-adopt-evidence-retention:
-	php sandbox/tests/regress_ssh_adopt_evidence_retention.php
+	php sandbox/tests/offline/guards/regress_ssh_adopt_evidence_retention.php
 
 # DUO-3344: host/agent scope transport boundary — canonical compact request
 # forwarding, refusal before target contact, and ordinary unscoped passthrough.
 regress-scope-wire:
-	php sandbox/tests/regress_scope_wire.php
+	php sandbox/tests/offline/reference-scope/regress_scope_wire.php
 
 # DUO-3344 slice 4 live proof: public host CLI -> DockerTransport -> scoped
 # target plan/apply/verification.  It requires an explicitly allocated,
@@ -1959,7 +1959,7 @@ regress-offline-corpus: code-half-unit \
 	@echo "regress-offline-corpus: 252 offline suites green"
 
 regress-offline-diagnostics:
-	bash sandbox/tests/regress_offline_diagnostics.sh
+	bash sandbox/tests/offline/guards/regress_offline_diagnostics.sh
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
@@ -2027,7 +2027,7 @@ regress-live-list:
 # offline-all/regress-live-list in the first place, every time this runs --
 # see the suite's own header for why the one-off fix wasn't enough.
 regress-bundle-coverage:
-	bash sandbox/tests/regress_bundle_coverage.sh
+	bash sandbox/tests/offline/guards/regress_bundle_coverage.sh
 
 # The other direction of the same drift class. regress-bundle-coverage asks
 # whether every suite FILE has a Makefile entry; this asks whether every
@@ -2040,10 +2040,10 @@ regress-suite-wiring:
 	php sandbox/tests/offline/guards/regress_suite_wiring.php
 
 regress-init-contract:
-	php sandbox/tests/regress_init_contract.php
+	php sandbox/tests/offline/cli/regress_init_contract.php
 
 regress-bound-helper:
-	php sandbox/tests/regress_bound_helper.php
+	php sandbox/tests/offline/capture/regress_bound_helper.php
 
 regress-duo-init:
 	bash sandbox/tests/live/regress_duo_init.sh
