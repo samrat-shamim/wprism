@@ -117,6 +117,15 @@ declare(strict_types=1);
  *     `HARNESS_REVISION` shasum list at `sandbox/tests/certify_ssh_rollback.sh
  *     :269`. A bare `sandbox/tests` with no file tail (43 mentions) is NOT
  *     touched — it still names the directory, which still exists.
+ *  6b. repo-literal, sandbox-relative — the same map's paths under the OTHER
+ *     legitimate spelling. A file under `sandbox/` whose cwd is `sandbox/`
+ *     writes `G=tests/grind/grind_r1c_agency.sh`, not `sandbox/tests/…`; 97
+ *     such tokens over 12 files today. The rule, the collision measurement
+ *     behind its disambiguation, and the reason it is stated once as prose
+ *     rather than factored into a shared library are all in the block above
+ *     `ms_sandbox_relative_tail()`. DUO-3482 is what W2 and W3 paid for its
+ *     absence: a green --plan and --prove over seven suites nobody had looked
+ *     at, then 90 sites repaired by hand.
  *  7. move-modules-key — `tools/codemod/move-modules.php`'s `mm_scanner_fixes()`
  *     is keyed by six flat suite paths and consulted with `isset()`, so a key
  *     that no longer names a file makes that tool silently vacuous rather than
@@ -1316,14 +1325,26 @@ function ms_rewrite_shell(string $root, string $source, string $oldRel, string $
  * must exist after the move, a mapping KEY must NOT survive anywhere, and
  * between them those two claims are the whole of what this pass can get wrong.
  *
+ * Class 6b is the same pass under the sandbox-relative spelling of the same map
+ * (see the rule block above ms_sandbox_relative_tail()): in a file under
+ * `sandbox/`, a mapped `sandbox/tests/X` is ALSO matched as the bare `tests/X`
+ * a cwd-`sandbox/` script writes, and rewritten to the mapped destination's
+ * bare spelling. The needles stay map-derived for exactly the reason class 6's
+ * do — a wider net cried wolf 36 times — so nothing said above about false
+ * positives changes. What DOES change is a genuine collision with the repo-root
+ * `tests/` PHPUnit tree: that site is left alone and reported for REVIEW, never
+ * guessed.
+ *
  * @param array<string,string> $placement oldRel => newRel
  * @return array{text:string, changes:list<array{line:int, from:string, to:string, kind:string}>,
- *               targets:list<array{line:int, target:string, expr:string}>}
+ *               targets:list<array{line:int, target:string, expr:string}>,
+ *               review:list<array{line:int, text:string, why:string}>}
  */
-function ms_rewrite_literals(string $text, array $placement, string $relative): array
+function ms_rewrite_literals(string $root, string $text, array $placement, string $relative): array
 {
     $changes = [];
     $targets = [];
+    $review = [];
     $kind = $relative === 'Makefile' ? 'makefile-recipe' : 'repo-literal';
 
     $values = [];
@@ -1331,9 +1352,25 @@ function ms_rewrite_literals(string $text, array $placement, string $relative): 
         $values[$newRel] = true;
     }
 
+    // Class 6b applies to corpus files only; everywhere else `tests/…` means
+    // the repo-root PHPUnit tree.
+    $sandboxRule = ms_governed_by_sandbox_rule($relative);
+    /** @var array<string,string> $tails oldTail => newTail, both sandbox-relative */
+    $tails = [];
+    if ($sandboxRule) {
+        foreach ($placement as $oldRel => $newRel) {
+            $oldTail = ms_sandbox_relative_tail($oldRel);
+            $newTail = ms_sandbox_relative_tail($newRel);
+            if ($oldTail !== null && $newTail !== null) {
+                $tails[$oldTail] = $newTail;
+            }
+        }
+    }
+
     $lines = explode("\n", $text);
     foreach ($lines as $n => $lineText) {
-        if (!str_contains($lineText, MS_TESTS_ROOT . '/')) {
+        // MS_TESTS_ROOT ends in this, so one test covers both spellings.
+        if (!str_contains($lineText, 'tests/')) {
             continue;
         }
 
@@ -1348,24 +1385,71 @@ function ms_rewrite_literals(string $text, array $placement, string $relative): 
                 $replaced = $next;
             }
         }
+        // Class 6b, AFTER class 6: a line that spelled the path repo-relatively
+        // has already been rewritten, and the sandbox-relative needle cannot
+        // match inside the result (its lookbehind excludes `/`), so the two
+        // passes cannot both fire on one token.
+        foreach ($tails as $oldTail => $newTail) {
+            // str_contains() first, exactly as class 6 does above: the needle
+            // set is the whole map (333 entries), and running a regex per entry
+            // per line is the difference between a plan that takes seconds and
+            // one that takes minutes.
+            if (!str_contains($replaced, $oldTail) || ms_sandbox_relative_hits($replaced, $oldTail) < 1) {
+                continue;
+            }
+            if (ms_sandbox_relative_ambiguous($root, $oldTail)) {
+                $review[] = [
+                    'line' => $n + 1,
+                    'text' => trim($lineText),
+                    'why' => "'$oldTail' is ambiguous: it resolves against sandbox/ to a mapped corpus file AND "
+                        . 'names a real file at the repo root, so this tool cannot tell which one the line '
+                        . 'means — decide by hand (see the sandbox-relative rule block in this file)',
+                ];
+                continue;
+            }
+            $pattern = '#(?<![A-Za-z0-9_./-])' . preg_quote($oldTail, '#') . '(?![A-Za-z0-9_./-])#';
+            $next = preg_replace($pattern, str_replace('$', '\\$', $newTail), $replaced);
+            if (is_string($next)) {
+                $replaced = $next;
+            }
+        }
         if ($replaced !== $lineText) {
             $changes[] = ['line' => $n + 1, 'from' => trim($lineText), 'to' => trim($replaced), 'kind' => $kind];
             $lines[$n] = $replaced;
         }
 
+        $negated = ms_line_negates_existence($lines[$n]);
         foreach (array_keys($values) as $newRel) {
             if (ms_literal_hits($lines[$n], $newRel) > 0) {
                 $targets[] = [
                     'line' => $n + 1,
                     'target' => $newRel,
                     'expr' => $newRel,
-                    'negated' => ms_line_negates_existence($lines[$n]),
+                    'negated' => $negated,
+                ];
+            }
+        }
+        foreach ($tails as $newTail) {
+            if (!str_contains($lines[$n], $newTail)) {
+                continue;
+            }
+            if (ms_sandbox_relative_hits($lines[$n], $newTail) > 0) {
+                $targets[] = [
+                    'line' => $n + 1,
+                    'target' => MS_SANDBOX_ROOT . '/' . $newTail,
+                    'expr' => $newTail . ' (sandbox-relative)',
+                    'negated' => $negated,
                 ];
             }
         }
     }
 
-    return ['text' => implode("\n", $lines), 'changes' => $changes, 'targets' => $targets];
+    return [
+        'text' => implode("\n", $lines),
+        'changes' => $changes,
+        'targets' => $targets,
+        'review' => $review,
+    ];
 }
 
 /**
@@ -1387,14 +1471,21 @@ function ms_rewrite_literals(string $text, array $placement, string $relative): 
  * Both reduce to one claim, every corpus path a file names exists, and that
  * claim holds before, during and after any subset of the map.
  *
+ * Under the sandbox-relative rule (see the block above ms_sandbox_relative_tail())
+ * the same two claims are made about the same map's bare `tests/…` spelling in
+ * a file under `sandbox/`. That symmetry is the point: a class 6b rewrite this
+ * tool MISSED leaves a pre-move `tests/<old>` naming nothing, which is exactly
+ * the seven-suite hole W2 (#483) shipped with a green --prove.
+ *
  * @param array<string,string> $placement oldRel => newRel
  * @return list<array{line:int, target:string, expr:string, negated:bool}>
  */
-function ms_literal_targets(string $root, string $text, array $placement): array
+function ms_literal_targets(string $root, string $text, array $placement, string $relative): array
 {
+    $sandboxRule = ms_governed_by_sandbox_rule($relative);
     $out = [];
     foreach (explode("\n", $text) as $n => $lineText) {
-        if (!str_contains($lineText, MS_TESTS_ROOT . '/')) {
+        if (!str_contains($lineText, 'tests/')) {
             continue;
         }
         $negated = ms_line_negates_existence($lineText);
@@ -1407,6 +1498,34 @@ function ms_literal_targets(string $root, string $text, array $placement): array
                     'line' => $n + 1,
                     'target' => $oldRel,
                     'expr' => "the pre-move path (now at $newRel)",
+                    'negated' => $negated,
+                ];
+            }
+            if (!$sandboxRule) {
+                continue;
+            }
+            $oldTail = ms_sandbox_relative_tail($oldRel);
+            $newTail = ms_sandbox_relative_tail($newRel);
+            if ($oldTail === null || $newTail === null) {
+                continue;
+            }
+            // str_contains() gates both, as above: this runs per map entry per
+            // line over the whole scan set.
+            if (str_contains($lineText, $newTail) && ms_sandbox_relative_hits($lineText, $newTail) > 0) {
+                $out[] = [
+                    'line' => $n + 1,
+                    'target' => $newRel,
+                    'expr' => $newTail . ' (sandbox-relative)',
+                    'negated' => $negated,
+                ];
+            }
+            if (str_contains($lineText, $oldTail)
+                && ms_sandbox_relative_hits($lineText, $oldTail) > 0
+                && !file_exists($root . '/' . $oldRel)) {
+                $out[] = [
+                    'line' => $n + 1,
+                    'target' => $oldRel,
+                    'expr' => "the pre-move sandbox-relative path $oldTail (now at $newTail)",
                     'negated' => $negated,
                 ];
             }
@@ -1437,6 +1556,127 @@ function ms_literal_hits(string $line, string $path): int
     $pattern = '#(?<![A-Za-z0-9_.-])' . preg_quote($path, '#') . '(?!\.[A-Za-z0-9_-])(?![A-Za-z0-9_/-])#';
     $n = preg_match_all($pattern, $line);
     return is_int($n) ? $n : 0;
+}
+
+/*
+ * ===================================================================
+ * THE SANDBOX-RELATIVE SUITE-REFERENCE RULE — stated once, HERE (DUO-3482)
+ * ===================================================================
+ *
+ * A corpus file has TWO legitimate spellings for the same suite, and every
+ * path-aware tool in tools/ used to know only one of them.
+ *
+ * The dominant shell idiom in the estate anchors the script and then cds to
+ * `sandbox/`: `cd "$(dirname "$0")/../../.."   # -> sandbox/`
+ * (regress_grind_r1c_manifest_preserve.sh:12). Every path such a script writes
+ * afterwards is SANDBOX-relative, so the suite it guards is spelled
+ * `G=tests/grind/grind_r1c_agency.sh` (:17) — not `sandbox/tests/…`. Both
+ * spellings name the same file; only the cwd tells them apart.
+ *
+ * THE RULE. In a file under `sandbox/`, a token matching
+ *
+ *     (?<![A-Za-z0-9_./-])tests/[A-Za-z0-9_./-]+\.(?:sh|php)
+ *
+ * is a CANDIDATE sandbox-relative suite reference, resolved against `sandbox/`.
+ * It counts only when the resolution lands on something real: an existing
+ * `sandbox/<token>` for a reader (tools/affected.php), a mapped key or value
+ * for this codemod. The lookbehind excludes `/` — that is what keeps a plain
+ * `sandbox/tests/x.sh` from ALSO reading as a candidate resolving to the
+ * non-existent `sandbox/sandbox/tests/x.sh`. Note this is the OPPOSITE of
+ * ms_literal_hits()'s lookbehind, which deliberately admits `/` so that
+ * `$root . '/sandbox/tests/…'` is a hit; the two needles are not
+ * interchangeable and must not be merged.
+ *
+ * THE AMBIGUITY, and why it is decided by resolution rather than by assumption.
+ * The repo root has a `tests/` directory of its own — the PHPUnit self-tests for
+ * tools/ (12 files: `tests/Tooling/*.php` plus the two bootstraps). A literal
+ * `tests/Tooling/AffectedTest.php` inside a sandbox file would mean THAT tree,
+ * not the corpus. Measured on this tree (2026-08-20): 97 sandbox-relative
+ * tokens over 12 sandbox files, 20 distinct spellings; every one of the 20
+ * resolves under `sandbox/` and NOT ONE of them exists at the repo root, and no
+ * sandbox file mentions `tests/Tooling/`, `tests/bootstrap.php` or
+ * `tests/phpstan-bootstrap.php` at all. So the collision set is empty today and
+ * the rule is not guessing. It still has to say what happens if it stops being
+ * empty: where BOTH `sandbox/<token>` and `<token>` exist, the site is
+ * AMBIGUOUS — it goes to REVIEW with file:line and is left byte-identical,
+ * because a rewrite that picked the wrong one would silently re-point a
+ * reference at a file that also exists, which is precisely the failure class
+ * `--prove` cannot see (see "what --prove cannot catch" in the header).
+ *
+ * WHY THE RULE IS PROSE HERE AND CODE IN EACH CONSUMER. The three tools are
+ * standalone, dependency-free entry points with no shared library and no
+ * autoloader, and each needs a DIFFERENT answer from the same rule: this
+ * codemod rewrites and must refuse an ambiguity; tools/affected.php only ever
+ * ADDS an index edge, where over-selection is the documented safe direction, so
+ * it resolves and links without a review bucket; tools/offline.php cannot
+ * encounter the spelling at all and therefore carries no code (the assessment
+ * is at tools/offline.php:OfflineRunner::scriptsInRecipe()). A shared helper
+ * for three regexes would have to grow three policy flags to serve them, and
+ * the thing that actually rots is the STATEMENT, not the regex. So: one
+ * statement, here; per-tool implementations, each carrying a pointer back to
+ * this block; and tests in each consumer that fail when its half is reverted.
+ *
+ * THE COST ALREADY PAID, so nobody re-litigates the priority. Both restructure
+ * waves ran with all three tools blind to this spelling. W2 (#483) shipped on a
+ * green `--plan` and a green `--prove` that had never looked at seven suites,
+ * and 90 reference sites were repaired by hand afterwards; W3 (#484) swept
+ * 3,940 files by hand for the same reason.
+ */
+
+/** The one directory a sandbox-relative spelling is ever resolved against. */
+const MS_SANDBOX_ROOT = 'sandbox';
+
+/**
+ * The sandbox-relative spelling of a repo-relative corpus path, or null when
+ * the path is not under `sandbox/` and therefore has no second spelling.
+ */
+function ms_sandbox_relative_tail(string $repoRelative): ?string
+{
+    $prefix = MS_SANDBOX_ROOT . '/';
+    if (!str_starts_with($repoRelative, $prefix)) {
+        return null;
+    }
+    return substr($repoRelative, strlen($prefix));
+}
+
+/**
+ * Occurrences of a sandbox-relative `$tail` in `$line` as a whole path token.
+ *
+ * The trailing lookahead is ms_literal_hits()'s, for the same reason (a corpus
+ * path ends prose sentences: `… names tests/grind/grind_r1c_agency.sh.`). The
+ * LEADING one is not: it excludes `/`, so the `tests/…` inside a repo-relative
+ * `sandbox/tests/…` is not a second, bogus hit. See the rule block above.
+ */
+function ms_sandbox_relative_hits(string $line, string $tail): int
+{
+    $pattern = '#(?<![A-Za-z0-9_./-])' . preg_quote($tail, '#') . '(?!\.[A-Za-z0-9_-])(?![A-Za-z0-9_/-])#';
+    $n = preg_match_all($pattern, $line);
+    return is_int($n) ? $n : 0;
+}
+
+/**
+ * Does this sandbox-relative spelling ALSO name a real file at the repo root?
+ *
+ * Empty on this tree — the whole disambiguation design rests on that measured
+ * fact, restated in the rule block — so this returning true means the estate
+ * grew a genuine collision and the site needs a human, not a rewrite.
+ */
+function ms_sandbox_relative_ambiguous(string $root, string $tail): bool
+{
+    return file_exists($root . '/' . $tail);
+}
+
+/**
+ * Is this file governed by the rule at all?
+ *
+ * Only files under `sandbox/`. A `tests/Tooling/MoveSuitesTest.php` in
+ * tools/, docs/ or a repo-root file means the PHPUnit tree and nothing else,
+ * and reading it as a corpus reference would be the false positive the rule
+ * block measures against.
+ */
+function ms_governed_by_sandbox_rule(string $relative): bool
+{
+    return str_starts_with($relative, MS_SANDBOX_ROOT . '/');
 }
 
 // -------------------------------------------------------------- scanning
@@ -1610,10 +1850,18 @@ function ms_compute(string $root, array $map): array
         // prover will actually resolve. They are text-level and the lookbehind
         // in ms_literal_hits() never matches a `__DIR__`-relative literal (it
         // is always preceded by `/`), so they cannot disturb the token passes.
-        $lit = ms_rewrite_literals($text, $placement, $relative);
+        $lit = ms_rewrite_literals($root, $text, $placement, $relative);
         $text = $lit['text'];
         $changes = array_merge($changes, $lit['changes']);
         $targets = array_merge($targets, $lit['targets']);
+        // NOT gated on $moved, unlike the two token passes below. Class 6b's
+        // review items are a claim about a REFERENCE this map would rewrite,
+        // and class 6/6b rewrite references in files that stay put (see the
+        // comment on the __DIR__ pass below) — so a file nobody moves can still
+        // hold the one ambiguous token that must not be guessed at.
+        foreach ($lit['review'] as $v) {
+            $review[] = ['file' => $newRel] + $v;
+        }
 
         // NOT gated on $moved. A file that stays put still needs re-pointing
         // when the file it NAMES moved, and a subset map makes that the common
@@ -1830,7 +2078,7 @@ function ms_prove(string $root, array $map): array
         if ($isValue && ms_is_shell_path($relative)) {
             $targets = array_merge($targets, ms_rewrite_shell($root, $bytes, $relative, $relative, [])['targets']);
         }
-        $targets = array_merge($targets, ms_literal_targets($root, $bytes, $placement));
+        $targets = array_merge($targets, ms_literal_targets($root, $bytes, $placement, $relative));
         if ($targets === []) {
             continue;
         }

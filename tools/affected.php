@@ -870,6 +870,58 @@ function af_extract_dir_relative_paths(string $root, string $fileRelative, strin
     return array_values(array_unique($out));
 }
 
+/**
+ * The candidate needle of the sandbox-relative suite-reference rule. The
+ * leading lookbehind excludes `/` on purpose: without it every repo-relative
+ * `sandbox/tests/x.sh` would also yield a candidate resolving to the
+ * non-existent `sandbox/sandbox/tests/x.sh`. Byte-for-byte the regex quoted in
+ * the rule block in tools/codemod/move-suites.php.
+ */
+const AF_SANDBOX_RELATIVE_RX = '#(?<![A-Za-z0-9_./-])tests/[A-Za-z0-9_./-]+\.(?:sh|php)#';
+
+/**
+ * The SANDBOX-RELATIVE spelling of a corpus path, in a file under sandbox/.
+ *
+ * THE RULE IS NOT STATED HERE. It is stated once, as prose, in the block above
+ * `ms_sandbox_relative_tail()` in tools/codemod/move-suites.php — what the two
+ * spellings are, why resolution rather than assumption decides between them,
+ * the collision measurement the disambiguation rests on, and why three
+ * standalone tools carry three implementations instead of one shared library.
+ * Read that block before changing this function. (DUO-3482.)
+ *
+ * This is the READER's half of it, and the policy difference is the whole
+ * reason it is not shared code: this tool only ever ADDS an index edge, where
+ * over-selection is the documented safe direction (see the header), so an
+ * unresolvable token costs nothing and there is no review bucket to route an
+ * ambiguity into. Both readings are therefore kept rather than one guessed —
+ * and the repo-root reading is not even expressible as a ref key, because
+ * `tests` is not in AF_ROOT_DIRS.
+ *
+ * The edge this closes was proven, not hypothetical: nothing referenced
+ * sandbox/tests/grind/grind_r1c_agency.sh, because the only suite that guards
+ * it — regress_grind_r1c_manifest_preserve.sh — cds to `sandbox/` (:12) and
+ * therefore spells it `G=tests/grind/grind_r1c_agency.sh` (:17). Editing that
+ * grind selected nothing at all.
+ *
+ * @return list<string> existing repo-relative paths
+ */
+function af_extract_sandbox_relative_paths(string $root, string $fileRelative, string $text): array
+{
+    if (!str_starts_with($fileRelative, 'sandbox/')) {
+        return [];
+    }
+    $out = [];
+    if (preg_match_all(AF_SANDBOX_RELATIVE_RX, $text, $m)) {
+        foreach ($m[0] as $token) {
+            $resolved = af_normalize_path('sandbox/' . $token);
+            if ($resolved !== '' && is_file($root . '/' . $resolved)) {
+                $out[] = $resolved;
+            }
+        }
+    }
+    return array_values(array_unique($out));
+}
+
 /** class name -> declaring file(s), scanned once across agent/src, cli/src,
  * recovery. Multiple files can share a class name across namespaces (e.g.
  * Init in both agent/src and cli/src); over-selecting both is the safe
@@ -1068,6 +1120,19 @@ function af_build_index(string $root): array
                 $setReason($ref, 'require');
             }
             foreach (af_extract_dir_relative_paths($root, $file, $text) as $ref) {
+                $setReason($ref, 'path');
+            }
+            // The same suite named under the OTHER legitimate spelling. A
+            // corpus file whose cwd is sandbox/ writes `tests/grind/x.sh`, and
+            // neither the rooted regex nor the __DIR__ resolver above can see
+            // that token: it carries no root-directory prefix and no __DIR__
+            // base. 97 such tokens over 12 corpus files today; resolving them
+            // adds 15 index edges across 6 offline targets, every one of which
+            // did not exist before DUO-3482. (Most of the 97 repeat one path --
+            // regress_target_observation_premises.sh alone names the six
+            // certify matrices 78 times -- and the tokens in live/ suites add
+            // no edge, because a live suite is no offline leaf's primary file.)
+            foreach (af_extract_sandbox_relative_paths($root, $file, $text) as $ref) {
                 $setReason($ref, 'path');
             }
             foreach (af_extract_class_files($text, $classMap) as $file2) {

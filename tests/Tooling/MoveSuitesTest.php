@@ -244,6 +244,21 @@ repo="$(php -r 'echo dirname(getcwd(), 2);')"
 echo "$repo"
 SH);
 
+        // A cwd-`sandbox/` script that names a suite SANDBOX-relatively, the
+        // spelling DUO-3482 taught the literal pass. Modelled on
+        // regress_grind_r1c_manifest_preserve.sh:12,17. It stays at the corpus
+        // root deliberately: class 6b is not gated on the referring file
+        // having moved, and a stayer is the case W2 shipped broken.
+        self::write($root . '/sandbox/tests/regress_cwd_sandbox.sh', <<<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."   # -> sandbox/
+
+G=tests/grind_walk.sh
+[ -f "$G" ] || { echo "$G is missing"; exit 1; }
+grep -q walk "$G"
+SH);
+
         // The shell suite whose cwd class 3 PRESERVES: its tokens must not move.
         self::write($root . '/sandbox/tests/regress_preserved.sh', <<<'SH'
 #!/usr/bin/env bash
@@ -660,6 +675,161 @@ MAKE);
         self::assertStringContainsString('php sandbox/tests/regress_thing.php', $makefile);
     }
 
+    // ------------------------------------- class 6b: sandbox-relative paths
+
+    /**
+     * The defect DUO-3482 names, at product level.
+     *
+     * regress_cwd_sandbox.sh cds to `sandbox/` and therefore spells the suite
+     * it guards `tests/grind_walk.sh` — a real corpus reference carrying no
+     * `sandbox/` prefix for class 6's needles to match. Before class 6b the map
+     * moved grind_walk.sh into `grind/` and left this line naming nothing,
+     * while `--plan` reported zero review items and `--prove` reported zero
+     * dangling references. That is not a hypothetical: it is what W2 (#483)
+     * shipped over seven suites and repaired by hand afterwards.
+     */
+    public function testACwdSandboxScriptFollowsAMovedSuiteUnderItsSandboxRelativeSpelling(): void
+    {
+        $root = $this->makeSyntheticRepo();
+        $map = $this->writeMap($root, $this->syntheticMap());
+        [$status, $output] = $this->runTool($root, '--apply', '--map=' . $map);
+        self::assertSame(0, $status, $output);
+
+        // The referring script does not move; only the file it names does.
+        $script = $root . '/sandbox/tests/regress_cwd_sandbox.sh';
+        self::assertFileExists($script);
+        $text = self::read($script);
+        self::assertStringContainsString('G=tests/grind/grind_walk.sh', $text);
+        self::assertStringNotContainsString('G=tests/grind_walk.sh', $text);
+        // The rewrite must not have reached for the repo-relative spelling:
+        // this script's cwd is sandbox/, so `sandbox/tests/...` would break it.
+        self::assertStringNotContainsString('sandbox/tests/grind/grind_walk.sh', $text);
+
+        // …and it still does what it was written to do, from its own cwd.
+        $run = [];
+        exec('bash ' . escapeshellarg($script) . ' 2>&1', $run, $runStatus);
+        self::assertSame(0, $runStatus, implode("\n", $run));
+
+        [$clean, $proveOutput] = $this->runTool($root, '--prove', '--map=' . $map);
+        self::assertSame(0, $clean, $proveOutput);
+    }
+
+    /**
+     * The prover's half of the same rule: a class 6b rewrite that did NOT
+     * happen must be caught, or the tool is back to reporting green over
+     * references nobody looked at.
+     */
+    public function testProveCatchesASurvivingPreMoveSandboxRelativePath(): void
+    {
+        $root = $this->makeSyntheticRepo();
+        $map = $this->writeMap($root, $this->syntheticMap());
+        [$status] = $this->runTool($root, '--apply', '--map=' . $map);
+        self::assertSame(0, $status);
+
+        $script = $root . '/sandbox/tests/regress_cwd_sandbox.sh';
+        file_put_contents($script, str_replace(
+            'G=tests/grind/grind_walk.sh',
+            'G=tests/grind_walk.sh',
+            self::read($script)
+        ));
+
+        [$dangling, $output] = $this->runTool($root, '--prove', '--map=' . $map);
+        self::assertSame(1, $dangling, $output);
+        self::assertStringContainsString('sandbox/tests/regress_cwd_sandbox.sh', $output);
+        self::assertStringContainsString('the pre-move sandbox-relative path tests/grind_walk.sh', $output);
+    }
+
+    /**
+     * The disambiguation, exercised on the collision the tree does not have.
+     *
+     * The repo root has a `tests/` directory of its own — the PHPUnit
+     * self-tests for tools/ — so `tests/regress_thing.php` inside a corpus file
+     * could mean either tree. Measured on the real tree the collision set is
+     * empty (all 20 distinct sandbox-relative spellings resolve under sandbox/
+     * and none exists at the repo root), which is why the rule is allowed to
+     * resolve rather than guess. This fixture manufactures the collision and
+     * asserts the tool refuses instead of picking: the site goes to REVIEW,
+     * `--plan` exits 1, and the line is left byte-identical.
+     */
+    public function testAnAmbiguousSandboxRelativeTokenGoesToReviewInsteadOfBeingGuessed(): void
+    {
+        $root = $this->makeSyntheticRepo();
+        // A genuine repo-root PHPUnit file whose path collides with the
+        // sandbox-relative spelling of a MAPPED corpus suite.
+        self::write($root . '/tests/regress_thing.php', "<?php\n// the PHPUnit tree's own file\n");
+        self::write($root . '/sandbox/tests/regress_ambiguous.sh', <<<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."   # -> sandbox/
+php tests/regress_thing.php
+SH);
+
+        $map = $this->writeMap($root, $this->syntheticMap());
+        [$status, $output] = $this->runTool($root, '--plan', '--map=' . $map);
+        self::assertSame(1, $status, $output);
+        self::assertStringContainsString('sandbox/tests/regress_ambiguous.sh', $output);
+        self::assertStringContainsString("'tests/regress_thing.php' is ambiguous", $output);
+        self::assertStringNotContainsString('0 review item(s)', $output);
+
+        // --apply refuses for the same reason, so the ambiguous line survives.
+        [$applyStatus] = $this->runTool($root, '--apply', '--map=' . $map);
+        self::assertSame(1, $applyStatus);
+        self::assertStringContainsString(
+            'php tests/regress_thing.php',
+            self::read($root . '/sandbox/tests/regress_ambiguous.sh')
+        );
+    }
+
+    /**
+     * The rule is stated ONCE. Three standalone tools implement it three ways
+     * on purpose (the codemod refuses an ambiguity, affected.php over-selects
+     * through it, offline.php cannot reach it at all), so the thing that rots
+     * is the STATEMENT, not any one regex — and a second copy of the statement
+     * is how the three drift apart silently. This asserts one authority and two
+     * pointers to it, which is the whole of what "stated once" can be checked
+     * to mean.
+     */
+    public function testTheSandboxRelativeRuleIsStatedInExactlyOnePlace(): void
+    {
+        $repo = self::repoRoot();
+        $authority = self::read($repo . '/tools/codemod/move-suites.php');
+        self::assertStringContainsString(
+            'THE SANDBOX-RELATIVE SUITE-REFERENCE RULE — stated once, HERE',
+            $authority,
+            'the codemod owns the statement'
+        );
+
+        foreach (['tools/affected.php', 'tools/offline.php'] as $consumer) {
+            $text = self::read($repo . '/' . $consumer);
+            self::assertStringContainsString(
+                'ms_sandbox_relative_tail()',
+                $text,
+                "$consumer must point at the rule rather than restate it"
+            );
+            self::assertStringNotContainsString(
+                'THE SANDBOX-RELATIVE SUITE-REFERENCE RULE',
+                $text,
+                "$consumer must not carry a second copy of the statement"
+            );
+        }
+
+        // The candidate needle itself is quoted in the statement and compiled
+        // in affected.php; if the two ever disagree, the prose is wrong about
+        // what the reader does. affected.php is a pure-function file whose main
+        // guard never fires under phpunit (see AffectedTest's header).
+        if (!defined('AF_SANDBOX_RELATIVE_RX')) {
+            require_once $repo . '/tools/affected.php';
+        }
+        self::assertStringContainsString(
+            '(?<![A-Za-z0-9_./-])tests/[A-Za-z0-9_./-]+\.(?:sh|php)',
+            $authority
+        );
+        self::assertSame(
+            '#(?<![A-Za-z0-9_./-])tests/[A-Za-z0-9_./-]+\.(?:sh|php)#',
+            AF_SANDBOX_RELATIVE_RX
+        );
+    }
+
     // -------------------------------------------------------------- prove
 
     public function testProveCatchesADeliberatelyDangledReference(): void
@@ -930,6 +1100,46 @@ PHP);
 
     // ----------------------------------------------------- the real repository
 
+    /**
+     * The SHIPPED map must stay executable against the tree it describes.
+     *
+     * The empty-map cases below prove the scan roots and the review contract
+     * stay quiet; neither of them reads `tools/suite-layout.json`, and that gap
+     * is what let the map rot unnoticed. `ms_load_map()` is_file()-checks every
+     * row and refuses the WHOLE map when one names nothing at either path
+     * ("exists at neither its old nor its new path"), which takes `--plan`,
+     * `--apply` and `--prove` down together. So a suite deleted after its move
+     * strands a row and silently disarms `--prove` — the only pre-merge check
+     * that reaches the live/, grind/, certify/ and spike/ files, none of which
+     * `make regress-offline-all` runs.
+     *
+     * That is not hypothetical. #486 deleted the two `offline/reference-scope`
+     * wrappers after W3 moved them, left their rows behind (the map is in
+     * MS_SCAN_EXCLUDE, so the codemod never rewrites its own input), and the
+     * prover stayed refused from that merge until DUO-3482 found it by hand.
+     * This case runs inside `composer check`, so the next such deletion fails
+     * the loop the moment it lands.
+     */
+    public function testTheShippedLayoutMapStillPlansCleanAgainstTheRealTree(): void
+    {
+        $repo = self::repoRoot();
+        $map = $repo . '/tools/suite-layout.json';
+        self::assertFileExists($map);
+
+        [$status, $output] = $this->runTool($repo, '--plan', '--map=' . $map);
+
+        // Named explicitly: this refusal precedes every rewrite class, so it
+        // reports as a map error rather than as anything about the corpus, and
+        // the fix is to delete the stranded row (recording why in
+        // tools/suite-layout.review.md), never to restore a deleted suite.
+        self::assertStringNotContainsString('exists at neither its old nor its new path', $output);
+        self::assertSame(0, $status, $output);
+
+        // The whole map is applied, so a clean plan is also an empty one.
+        self::assertStringContainsString('0 move(s) pending', $output);
+        self::assertStringContainsString('0 review item(s)', $output);
+    }
+
     public function testEmptyMapAgainstTheRealRepositoryIsAQuietNoOp(): void
     {
         $repo = self::repoRoot();
@@ -996,7 +1206,7 @@ PHP);
         }
         self::assertGreaterThan(300, count($placement), 'the shipped map is the realism this test depends on');
 
-        $result = ms_rewrite_literals($affected, $placement, 'tools/affected.php');
+        $result = ms_rewrite_literals(self::repoRoot(), $affected, $placement, 'tools/affected.php');
         self::assertStringContainsString($sentinel, $result['text']);
         foreach ($result['changes'] as $change) {
             self::assertStringNotContainsString('ROUND 3 TRAIN 1', $change['from']);

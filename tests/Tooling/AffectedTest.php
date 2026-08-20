@@ -306,6 +306,77 @@ final class AffectedTest extends TestCase
         );
     }
 
+    public function testSandboxRelativeSuiteReferenceSelectsTheSuiteThatNamesIt(): void
+    {
+        // The proven coverage edge of DUO-3482, at CLI level. Nothing in the
+        // index referenced this grind: the only offline suite that guards it,
+        // regress_grind_r1c_manifest_preserve.sh, cds to sandbox/ (:12) and so
+        // spells it `G=tests/grind/grind_r1c_agency.sh` (:17) -- a token with
+        // no root-directory prefix and no __DIR__ base, invisible to every
+        // extractor this tool had. Editing the grind selected NOTHING at all.
+        $targets = self::targets(['--paths=sandbox/tests/grind/grind_r1c_agency.sh']);
+        self::assertContains('regress-grind-r1c-manifest-preserve', $targets);
+        // regress_proof_legacy_pair.sh:116 names all three r1 grinds the same
+        // way on one line, which is the multi-token case on the same rule.
+        self::assertContains('regress-proof-legacy-pair', $targets);
+
+        // The other class of consumer in the inventory: the certify matrices,
+        // named only sandbox-relatively by the premise inventory (78 tokens in
+        // regress_target_observation_premises.sh alone).
+        self::assertContains(
+            'regress-target-observation-premises',
+            self::targets(['--paths=sandbox/tests/certify/certify_deletion_matrix.sh'])
+        );
+    }
+
+    public function testSandboxRelativeExtractorResolvesOnlyInsideSandboxAndOnlyWhenItLands(): void
+    {
+        // The rule itself, stated against a tree this test owns, so it survives
+        // the corpus being rearranged again. The authority for the rule is the
+        // prose block above ms_sandbox_relative_tail() in
+        // tools/codemod/move-suites.php; this pins the reader's half of it.
+        self::loadTool();
+        $root = self::syntheticTestsTree([
+            'sandbox/tests/grind/grind_x.sh',
+            'sandbox/tests/offline/guards/regress_x.sh',
+            'tests/Tooling/SomeToolTest.php',
+        ]);
+        try {
+            $suite = 'sandbox/tests/offline/guards/regress_x.sh';
+
+            // Resolves: the token lands on a real corpus file.
+            self::assertSame(
+                ['sandbox/tests/grind/grind_x.sh'],
+                af_extract_sandbox_relative_paths($root, $suite, 'G=tests/grind/grind_x.sh')
+            );
+
+            // Does NOT resolve: sandbox/tests/Tooling/SomeToolTest.php does not
+            // exist, so the repo-root PHPUnit file this names is not a corpus
+            // reference and contributes no edge.
+            self::assertSame(
+                [],
+                af_extract_sandbox_relative_paths($root, $suite, 'see tests/Tooling/SomeToolTest.php')
+            );
+
+            // Not governed: the same token in a file OUTSIDE sandbox/ means the
+            // repo-root tree, never the corpus.
+            self::assertSame(
+                [],
+                af_extract_sandbox_relative_paths($root, 'tools/affected.php', 'G=tests/grind/grind_x.sh')
+            );
+
+            // The lookbehind's job: a repo-relative mention must not ALSO read
+            // as a sandbox-relative candidate resolving to
+            // sandbox/sandbox/tests/... The rooted regex already indexes it.
+            self::assertSame(
+                [],
+                af_extract_sandbox_relative_paths($root, $suite, 'bash sandbox/tests/grind/grind_x.sh')
+            );
+        } finally {
+            self::removeTree($root);
+        }
+    }
+
     public function testDifferentlyNamedShWrapperSelectsItsWrapperTarget(): void
     {
         // regress_fatal_mutations_unit.sh wraps the differently-named helper

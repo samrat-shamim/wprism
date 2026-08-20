@@ -378,3 +378,39 @@ What each non-obvious check does:
 The codemod moves files and rewrites path expressions. It does **not** rename
 `Makefile` targets. W2 owes exactly one:
 `regress-fatal-mutations` → `regress-fatal-mutations-live`.
+
+## Amendments after ratification
+
+The map and this record answer two different questions, and they diverge the
+moment a mapped file stops existing. `tools/suite-layout.json` is **executable**
+— `ms_load_map()` calls `is_file()` on every row and refuses the whole map if
+one names nothing (`"exists at neither its old nor its new path"`), which takes
+`--plan`, `--apply` and `--prove` down together — so it must describe the tree
+as it is. This document is the **decision record at decision time**, so a
+placement that was correctly reviewed stays written down here even after the
+file it placed is gone. Rows leave the map; they do not leave this record.
+
+### 2026-08-20 — the two `reference-scope` wrappers (DUO-3482)
+
+`#486` deleted `regress_shortcode_refs.sh` and `regress_url_query_refs.sh` after
+W3 had already moved them: the two wrappers carried no logic beyond a `php -l`
+pass and a re-run of siblings that are independently wired offline leaves, so
+their recipes now run the `.php` directly under unchanged target names. Their
+rows were left behind in the executable map, and because `.gitignore`-style
+exclusion keeps the codemod from ever rewriting its own input
+(`MS_SCAN_EXCLUDE`), nothing swept them. The effect was not cosmetic: from `#486`
+until this note, `--prove` — the only pre-merge check that reaches the `live/`,
+`grind/`, `certify/` and `spike/` files — refused before doing any work.
+
+Both rows are now deleted from `tools/suite-layout.json` (335 → 333 entries).
+The bare-name invoker table above still lists both wrappers at :255-256, and the
+cross-check paragraph below it still says all five `reference-scope` files
+co-locate: **both statements remain true of the moves they describe**, which is
+what this record is for. The two `.php` files they name are still mapped and
+still live in `offline/reference-scope/`.
+
+The absent guard was the real defect, and the two stale rows were only its first
+symptom, so `MoveSuitesTest::testTheShippedLayoutMapStillPlansCleanAgainstTheRealTree`
+now runs `--plan --map=tools/suite-layout.json` against this checkout inside
+`composer check`. The next suite deletion that strands a row fails the loop
+immediately instead of silently disarming the prover for days.
