@@ -333,6 +333,21 @@ final class AdapterSources {
     /** @var array<string, bool> whether the repository explicitly pins source + final digest */
     private array $explicitPins = [];
     /**
+     * The manifest library this instance's SHIPPED origins were resolved
+     * against. Kept because diagnostics() has to answer whether that library
+     * has a reviewed certification story at all, and re-asking
+     * Policy::manifests_dir() there would answer for whichever directory is
+     * current rather than the one this scan actually read — `--manifests`,
+     * DUO_MANIFESTS_DIR and discover()'s own argument each move it.
+     */
+    private string $manifestDir;
+    /**
+     * Memoized has_reviewed_registry(). A property of a directory this instance
+     * already scanned, asked up to three times per policy (AdapterRegistry's
+     * readiness, provider and capability paths each call diagnostics()).
+     */
+    private ?bool $hasReviewedRegistry = null;
+    /**
      * What this LIVE scan saw beyond the adapters it installed: which sources
      * were reachable at all, which plugin-bundled adapters were refused, which
      * installed adapters lost to a higher-precedence definition, and the
@@ -352,12 +367,14 @@ final class AdapterSources {
     ];
 
     private function __construct(
+        string $manifestDir,
         array $origins,
         array $provenance,
         array $certificates = [],
         array $claims = [],
         array $scanReport = []
     ) {
+        $this->manifestDir = $manifestDir;
         $this->origins = $origins;
         $this->provenance = $provenance;
         $this->certificates = $certificates;
@@ -388,6 +405,7 @@ final class AdapterSources {
         $refusals = [];
         $scan = self::scan($manifestDir, $repo, false, $refusals);
         return new self(
+            $manifestDir,
             $scan['origins'],
             $scan['provenance'],
             $scan['certificates'],
@@ -2101,7 +2119,13 @@ final class AdapterSources {
         // distinction for `wp duo capabilities`, and a catalog that flattened
         // the two would report an adapter as certified before the repository
         // had reviewed the evidence — the elevation the pin exists to gate.
-        $bound = new self($scan['origins'], $scan['provenance'], $scan['certificates'], $scan['claims']);
+        $bound = new self(
+            $manifestDir,
+            $scan['origins'],
+            $scan['provenance'],
+            $scan['certificates'],
+            $scan['claims']
+        );
         $bound->bind_explicit_pins(self::surveyed_pins($repo));
         // Whether this library HAS a reviewed certification story at all. A
         // custom or test manifest directory carrying no dispositions document
@@ -2109,6 +2133,13 @@ final class AdapterSources {
         // words), so a shipped row there defers its certification to nothing —
         // and `null` is what says that. Answering `registry` would name a
         // review the consumer would then go looking for.
+        //
+        // This is the rule for BOTH projections of the fact, not for the
+        // catalog alone: has_reviewed_registry() asks the same question, from
+        // the same load, so `wp duo adapter list` and `wp duo capabilities`
+        // cannot describe one shipped row two ways. Derived from the load above
+        // rather than through that method because this one already holds the
+        // registry it would reopen.
         $hasRegistry = $dispositions !== null;
 
         // A refused SITE certification source means certification_files()
@@ -3539,15 +3570,44 @@ final class AdapterSources {
     }
 
     /**
+     * Whether the library this instance scanned HAS a reviewed certification
+     * story at all — survey()'s question, asked once here for diagnostics().
+     *
+     * The predicate is ManifestDispositions::load(), not a stat on the file,
+     * because that is what survey() asks: the two methods must not part company
+     * over a dispositions document that exists and does not load, which is the
+     * disagreement DUO-3486 removed. The class_exists() guard is survey()'s
+     * too — nothing in this file requires that class, so a caller that loaded
+     * AdapterSources alone gets the same answer from both methods rather than a
+     * fatal from one.
+     */
+    private function has_reviewed_registry(): bool {
+        if ($this->hasReviewedRegistry !== null) {
+            return $this->hasReviewedRegistry;
+        }
+        $dispositions = null;
+        if (class_exists(ManifestDispositions::class)) {
+            try {
+                $dispositions = ManifestDispositions::load($this->manifestDir);
+            } catch (\Throwable $t) {
+                $dispositions = null;
+            }
+        }
+        return $this->hasReviewedRegistry = $dispositions !== null;
+    }
+
+    /**
      * Per-adapter diagnostic facts: source, trust tier, certification state, and
      * the remediation an operator would act on. Shipped rows carry no
      * remediation here — their certification state comes from the reviewed
-     * registry, which supplies its own per-reason remediation.
+     * registry, which supplies its own per-reason remediation, and where there
+     * is no such registry there is no state to remediate either.
      *
      * @param list<array> $manifests loaded manifests, in pin order
-     * @return array<string, array{source:string, path:?string, trust_tier:string, certification:string, remediation:string}>
+     * @return array<string, array{source:string, path:?string, trust_tier:string, certification:?string, remediation:string}>
      */
     public function diagnostics(array $manifests): array {
+        $hasRegistry = $this->has_reviewed_registry();
         $rows = [];
         foreach ($manifests as $manifest) {
             $name = (string) ($manifest['name'] ?? '?');
@@ -3557,8 +3617,15 @@ final class AdapterSources {
             $source = $this->source($name);
             $trustRoot = $this->trust_root($name);
             $rows[$name] = [
+                // A shipped row defers its certification to the reviewed
+                // registry — but only where one exists. In a custom or test
+                // manifest directory carrying no dispositions document there is
+                // nothing to defer to, so the word is `null`, exactly as
+                // survey() answers for the same row: naming `registry` there
+                // would name a review the consumer would then go looking for.
+                // The two projections of one fact disagreeing was DUO-3486.
                 'certification' => $record === null
-                    ? 'registry'
+                    ? ($hasRegistry ? 'registry' : null)
                     : ($signed
                         ? ($explicit
                             ? ($trustRoot === self::TRUST_ROOT_SITE
@@ -3784,7 +3851,11 @@ final class AdapterSources {
         ksort($provenance, SORT_STRING);
         ksort($certificates, SORT_STRING);
         ksort($claims, SORT_STRING);
-        return new self($origins, $provenance, $certificates, $claims);
+        // The same trusted library this reconstruction just proved every
+        // shipped row's bytes against (above, and in verifyFrozen()) — a frozen
+        // instance reopens no MUTABLE source, and the agent's own manifest
+        // directory is neither mutable from a site nor optional here.
+        return new self(Policy::manifests_dir(), $origins, $provenance, $certificates, $claims);
     }
 
     /**
