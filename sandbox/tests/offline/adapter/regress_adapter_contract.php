@@ -15,15 +15,19 @@
  *
  * What this file does NOT cover (needs a live WordPress + real installed
  * plugin/theme, so it's out of reach offline): Deploy::code_mismatch()'s
- * live version read. Its theme leg is covered by
- * sandbox/tests/live/regress_adapter_theme_range.sh (own sandbox pair, own
- * conformance sweep, see that script's header). Its plugin leg has no live
- * proof right now — the only one was built on the duo-loop-demo-versioned
- * demo manifest and was deleted with it. Deploy::in_range()'s
+ * live version read. Both legs have their own live suite, each with its own
+ * sandbox pair — the theme leg is
+ * sandbox/tests/live/regress_adapter_theme_range.sh (DUO-3222) and the
+ * plugin leg is sandbox/tests/live/regress_adapter_plugin_range.sh
+ * (DUO-3487, rebuilding the proof #478 deleted along with the
+ * duo-loop-demo-versioned demo manifest it had been built on). See each
+ * script's header for what it asserts. Deploy::in_range()'s
  * OWN min-inclusive/max-exclusive arithmetic is exercised here via
  * Reflection (same private-method-testing idiom
  * regress_capture_publish.php already uses for
- * Capture::check_transient_db_error()) — that piece IS pure.
+ * Capture::check_transient_db_error()) — that piece IS pure, and proving it
+ * says nothing about where the installed version came from, which is
+ * precisely what the two live legs are for.
  *
  * Exit 0 and "ALL PASSED" on success; any failed check prints "FAIL: ..."
  * and the script exits 1.

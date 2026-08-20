@@ -464,7 +464,9 @@ sweep binds itself to a commit — `run.sh` exports it as the
 `DUO_EXPECTED_SOURCE_SHA` the gate above enforces.
 
 The narrower live fixtures keep their own targets, each with its rationale in
-the `Makefile` beside it: `certify-merge`, `certify-adversarial-matrix`,
+the `Makefile` beside it: `certify-merge`, `certify-version-skew-merge` (the
+cross-branch plugin-version-skew scenario `certify-merge` routes away from
+itself), `certify-adversarial-matrix`,
 `certify-deletion-matrix`, `certify-version-matrix`
 (`VMATRIX_MANIFEST=<name>` names the manifest whose `version_range` edges get
 installed — `sandbox/tests/certify/certify_version_matrix.sh:52`),
