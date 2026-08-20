@@ -86,7 +86,7 @@ function duo_facts(array $overrides = []): array {
 }
 
 $noRegistry = ['claim_status' => null, 'verdict_status' => null,
-    'blockers' => ['missing_registry_entry'], 'source' => null];
+    'blockers' => ['missing_disposition_entry'], 'source' => null];
 
 /**
  * The table. Each row is [label, facts, expected-subset, expected gap action].
@@ -228,8 +228,8 @@ $cases[] = ['1.3 adapter_certification_unpinned is Not qualified and certifiable
         'blockers' => ['adapter_certification_unpinned'], 'verdict_status' => 'blocked',
     ]]),
     ['readiness' => 'Not qualified'], 'certify adapter'];
-$cases[] = ['1.3 missing_registry_entry is Not qualified',
-    duo_facts(['registry' => ['blockers' => ['missing_registry_entry']]]),
+$cases[] = ['1.3 missing_disposition_entry is Not qualified',
+    duo_facts(['registry' => ['blockers' => ['missing_disposition_entry']]]),
     ['readiness' => 'Not qualified'], 'install adapter'];
 $cases[] = ['1.3 surface_not_registered is Not qualified',
     duo_facts(['registry' => ['blockers' => ['surface_not_registered']]]),

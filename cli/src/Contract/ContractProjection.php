@@ -332,7 +332,7 @@ final class ContractProjection {
     /**
      * The fact vector for a surface the caller supplied no evidence for.
      *
-     * `missing_registry_entry` is the registry's own blocker for exactly
+     * `missing_disposition_entry` is the registry's own blocker for exactly
      * this situation and projects `Not qualified` through the §1.3 table, so
      * even the absence of input travels through the one vocabulary.
      *
@@ -358,7 +358,7 @@ final class ContractProjection {
             'registry' => [
                 'claim_status' => null,
                 'verdict_status' => null,
-                'blockers' => ['missing_registry_entry'],
+                'blockers' => ['missing_disposition_entry'],
                 'conditions' => [],
                 'source' => null,
                 'site_certified' => false,

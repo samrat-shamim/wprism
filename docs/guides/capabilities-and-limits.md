@@ -271,7 +271,7 @@ for this exact operation × surface × target probe.
 | `Ready with conditions` | certified, with at least one condition re-evaluated against the live target at the mutation gate (`plugin_version_mismatch`, `plugin_not_active`, any `env_missing` row) — or a provider negotiation problem, which is an **unmet** condition and therefore blocks, naming its code |
 | `Requalification required` | `evidence_not_current`, and nothing else — see below |
 | `Experimental` | a disposition whose authored `status` is `experimental` |
-| `Not qualified` | `adapter_source_uncertified`, `missing_registry_entry`, `surface_not_registered` |
+| `Not qualified` | `adapter_source_uncertified`, `missing_disposition_entry`, `surface_not_registered` |
 | `Unsupported` | an excluded or unsupported claim, `surface_explicitly_unsupported`, `deletion_unsupported`, or a delete on a surface named in the adapter's own unsupported deletion semantics |
 
 Two shrinkages in that table are worth stating rather than leaving to be

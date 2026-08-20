@@ -24468,7 +24468,7 @@
                 "BLOCKERS_NOT_QUALIFIED": {
                     "value_repr": [
                         "adapter_source_uncertified",
-                        "missing_registry_entry",
+                        "missing_disposition_entry",
                         "surface_not_registered"
                     ]
                 },

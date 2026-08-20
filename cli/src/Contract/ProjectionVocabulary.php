@@ -238,7 +238,7 @@ final class ProjectionVocabulary {
         'surface_explicitly_unsupported', 'deletion_unsupported',
     ];
     public const BLOCKERS_NOT_QUALIFIED = [
-        'adapter_source_uncertified', 'missing_registry_entry', 'surface_not_registered',
+        'adapter_source_uncertified', 'missing_disposition_entry', 'surface_not_registered',
     ];
     public const BLOCKERS_REQUALIFICATION = [
         'evidence_not_current',

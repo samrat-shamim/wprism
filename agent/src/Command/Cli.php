@@ -1350,7 +1350,7 @@ final class Cli {
                 . 'redeliver them to their declared consumer');
         }
         if (!empty($plan['adapter_dispositions'])) {
-            WP_CLI::warning('capability registry blocker(s) selected — readiness is not green and host promotion will refuse');
+            WP_CLI::warning('adapter disposition blocker(s) selected — readiness is not green and host promotion will refuse');
         }
         if (!empty($plan['provider_problems'])) {
             WP_CLI::warning(
@@ -3015,7 +3015,7 @@ final class Cli {
                     // they must be answered against the policy the inventory
                     // was projected against (the init proposal), or the
                     // catalog joins preview surfaces to core-only claims and
-                    // reads `missing_registry_entry` for adapters the library
+                    // reads `missing_disposition_entry` for adapters the library
                     // certifies (T7 grind A4). An init-owned repository is
                     // unchanged; a plain `wp duo capabilities --repo` without
                     // the flag keeps reporting the pinned set as it stands.

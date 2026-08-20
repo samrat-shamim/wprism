@@ -394,7 +394,7 @@ final class PlanSummary {
         }
 
         if ($adapterDispositions) {
-            $lines[] = 'CAPABILITY_REGISTRY (a pinned manifest/revision/target is not certified for promotion):';
+            $lines[] = 'ADAPTER_DISPOSITIONS (a pinned manifest or target is not certified for promotion):';
             foreach ($adapterDispositions as $r) {
                 // Keep lockstep with agent/src/Command/Cli.php's plan renderer: an
                 // out-of-tree adapter must not read like a shipped adapter that
@@ -408,7 +408,17 @@ final class PlanSummary {
                     $lines[] = '    remediation: ' . $r['remediation'];
                 }
             }
-            $lines[] = 'experimental, uncertified out-of-tree, unsupported, version-mismatched, or expired-evidence claims cannot make readiness green';
+            // DUO-3485: "expired-evidence" left this list with the registry
+            // teardown — DESIGN.md:45 says *expired evidence* no longer exists
+            // as a state, and no code AdapterRegistry can put on one of these
+            // rows means it. `evidence_not_current` survives only host-side in
+            // ProjectionVocabulary::BLOCKERS_REQUALIFICATION, synthesized by
+            // ContractProjection::withStaleEvidence() for a stale pinned
+            // dispositions hash, so it cannot reach a row the agent built. The
+            // other four are live: `authored_state_not_certified` over an
+            // experimental disposition, `adapter_source_uncertified`,
+            // `surface_explicitly_unsupported`, `plugin_version_mismatch`.
+            $lines[] = 'experimental, uncertified out-of-tree, unsupported, or version-mismatched claims cannot make readiness green';
         }
 
         if ($providerProblems) {

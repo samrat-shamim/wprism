@@ -647,10 +647,10 @@ final class SurfaceCatalog {
             return [
                 'claim_status' => null,
                 'verdict_status' => null,
-                // No claim at all is the registry's own `missing_registry_entry`
+                // No claim at all is the registry's own `missing_disposition_entry`
                 // situation, and routing it through that code keeps the
                 // readiness word coming from §1.3 rather than being minted here.
-                'blockers' => ['missing_registry_entry'],
+                'blockers' => ['missing_disposition_entry'],
                 'conditions' => [],
                 'source' => null,
                 'site_certified' => false,
