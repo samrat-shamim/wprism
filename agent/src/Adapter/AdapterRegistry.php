@@ -334,6 +334,18 @@ final class AdapterRegistry {
 
         foreach ($manifests as $manifest) {
             $name = (string) ($manifest['name'] ?? '?');
+            // `registry` stays right here where AdapterSources::diagnostics()
+            // now answers `null` for a shipped row in a library with no
+            // dispositions document (DUO-3486): this method cannot be reached
+            // by such a library at all. Every caller holds a non-null
+            // ManifestDispositions before it calls — certification_readiness_
+            // blockers() and capability_report() return early without one, `wp
+            // duo capabilities --all` refuses, and AdapterCatalog only enters
+            // its block when one loaded. So the library HAS a reviewed
+            // registry, this default describes a row whose diagnostics entry is
+            // merely ABSENT (an empty $sources, or a manifest the scan did not
+            // attribute), and `registry` is exactly what diagnostics() would
+            // have said for it.
             $source = $sources[$name] ?? [
                 'certification' => 'registry',
                 'path' => null,

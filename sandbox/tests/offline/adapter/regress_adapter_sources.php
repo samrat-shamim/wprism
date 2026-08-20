@@ -1720,6 +1720,57 @@ check(
     && $unreviewedSurvey['core']['disposition_status'] === null,
     'and the surveyed shipped row reports a NULL certification state rather than naming a review nobody wrote'
 );
+// DUO-3486: the OTHER projection of that same fact. diagnostics() answers
+// `wp duo capabilities` where survey() answers `wp duo adapter list`, and it
+// used to hardcode `registry` for every shipped row — so one library described
+// one adapter two ways, and the word that named a review nobody wrote was the
+// one an operator chasing a promotion refusal would read.
+$unreviewedDiagnostics = $unreviewedPolicy->adapter_sources()->diagnostics($unreviewedPolicy->manifests);
+// Rendered through array_key_exists rather than `?? '(absent)'`, which would
+// report the very null under test as a missing key.
+$unreviewedWord = array_key_exists('certification', $unreviewedDiagnostics['core'] ?? [])
+    ? var_export($unreviewedDiagnostics['core']['certification'], true)
+    : '(absent)';
+check(
+    array_key_exists('core', $unreviewedDiagnostics)
+    && array_key_exists('certification', $unreviewedDiagnostics['core'])
+    && $unreviewedDiagnostics['core']['certification'] === null
+    && $unreviewedDiagnostics['core']['certification'] === $unreviewedSurvey['core']['certification']
+    && $unreviewedDiagnostics['core']['source'] === AdapterSources::SHIPPED
+    && $unreviewedDiagnostics['core']['remediation'] === '',
+    'the diagnostics projection answers the SAME null for that shipped row — the two surfaces cannot describe '
+    . 'one adapter two ways (diagnostics: ' . $unreviewedWord . ', survey: '
+    . var_export($unreviewedSurvey['core']['certification'], true) . ')'
+);
+// And the null has to TRAVEL. capability_report() emits no manifest rows for
+// this library at all (checked above), so the one surface that can still print
+// a diagnostics certification word here is the provider blocker — the row
+// AdapterRegistry builds without any registry, from packaging facts alone. It
+// is reached with a manifest whose shipped provider code is missing, which is
+// also the honest shape of the situation: a hand-assembled library, incomplete
+// in more than one way.
+$brokenProviderDir = library_variant(function (string $dir): void {
+    unlink("$dir/dispositions.json");
+    unlink("$dir/providers/woocommerce-cache.php");
+});
+putenv("DUO_MANIFESTS_DIR=$brokenProviderDir");
+$brokenPolicy = Policy::load(fresh_site(['core', 'woocommerce']));
+$brokenBlockers = $brokenPolicy->adapter_readiness_blockers();
+$brokenLines = \Duo\Orchestrator\PlanSummary::render(
+    ['adapter_dispositions' => $brokenBlockers]
+)['lines'];
+$brokenWords = array_values(array_unique(array_column($brokenBlockers, 'certification')));
+check(
+    $brokenBlockers !== []
+    && array_column($brokenBlockers, 'code') === ['provider_code_unavailable']
+    && $brokenWords === ['unknown']
+    && str_contains(implode("\n", $brokenLines), 'certification=unknown')
+    && !str_contains(implode("\n", $brokenLines), 'certification=registry'),
+    'the provider blocker a registry-less library CAN still raise renders `unknown` rather than minting '
+    . '`registry` back out of the absence — the null reaches a renderer and stays honest (words: '
+    . implode(', ', array_map(static fn($w): string => var_export($w, true), $brokenWords))
+    . '; codes: ' . implode(', ', array_column($brokenBlockers, 'code')) . ')'
+);
 putenv("DUO_MANIFESTS_DIR=$shippedDir");
 
 echo $failures === 0 ? "\nALL PASSED\n" : "\nFAIL: $failures check(s) failed\n";
