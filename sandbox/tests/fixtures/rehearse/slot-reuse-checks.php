@@ -754,8 +754,13 @@ $pairUpsBeforeRace = slot_pair_up_count($actionLog);
 $mediaBeforeRace = slot_media_clear_count($actionLog);
 $databaseBeforeRace = slot_database_command_count($actionLog);
 $raceA = slot_raw_start($providerScript, $configPath, slot_request('mup2', 'create', $raceOperationA, ['mode' => 'create']));
-$raceDeadline = microtime(true) + 2.0;
-while (!is_file($pairEntered) && microtime(true) < $raceDeadline) usleep(20000);
+// The barrier is the observable event or the child's death, never a wall
+// clock. DUO-3492: the 2.0s budget this replaced expired under load — 16
+// concurrent copies of this suite on a 10-core host, 1 in 16 — and the suite
+// then asserted against a slot the provider had not reached yet. The child
+// touches $pairEntered before it blocks in the injected seam, so it either
+// arrives or exits and this loop always ends.
+while (!is_file($pairEntered) && (proc_get_status($raceA['process'])['running'] ?? false)) usleep(20000);
 duo_check(is_file($pairEntered), 'one concurrent acquisition reaches physical allocation while holding the provider state lock');
 $beforeBlockedContender = slot_physical_log($actionLog);
 $raceB = slot_raw_start($providerScript, $configPath, slot_request('mup2', 'create', $raceOperationB, ['mode' => 'create']));
@@ -816,8 +821,12 @@ $orphanReap = slot_raw_start(
     $configPath,
     slot_request('mup2', 'destroy', $orphanReapOperation, $orphanDestroyInput)
 );
-$orphanDeadline = microtime(true) + 2.0;
-while (!is_file($clearEntered) && microtime(true) < $orphanDeadline) usleep(20000);
+// Same barrier discipline as the acquisition race above: wait for the seam the
+// fake docker announces, or for the provider parent to exit. DUO-3492 saw the
+// 2.0s budget this replaced expire under load, after which the SIGKILL landed
+// before the destructive child existed and the orphan the next two assertions
+// are about was never created.
+while (!is_file($clearEntered) && (proc_get_status($orphanReap['process'])['running'] ?? false)) usleep(20000);
 duo_check(is_file($clearEntered), 'destructive child reaches the injected timeout seam after durable reap intent');
 duo_check(proc_terminate($orphanReap['process'], 9), 'the regression forcibly terminates the provider parent at the client-timeout seam');
 usleep(100000);

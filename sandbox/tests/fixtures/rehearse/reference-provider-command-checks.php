@@ -121,6 +121,7 @@ $targetRepo = $compose . '/siterepo/mup2';
 $origin = $scratch . '/origin.git';
 $started = $scratch . '/pair-started';
 $physicalLog = $scratch . '/physical.log';
+$fixtureDump = $scratch . '/fixture-dump.sql';
 register_shutdown_function(static function () use ($state): void {
     rpc_make_removable($state);
 });
@@ -163,7 +164,7 @@ if [ "${1:-}" = port ]; then
   esac
 fi
 case " $* " in
-  *" mariadb-dump "*) printf '%s\n' '-- deterministic empty fixture dump' ;;
+  *" mariadb-dump "*) cat "$RPC_FIXTURE_DUMP" ;;
 esac
 exit 0
 SH;
@@ -181,10 +182,28 @@ chmod($bin . '/docker', 0700);
 chmod($compose . '/bin/pair.sh', 0700);
 file_put_contents($compose . '/pair.yml', "services: {}\n");
 file_put_contents($compose . '/pair.http.yml', "services: {}\n");
+// DUO-3492: the dump this fake `mariadb-dump` publishes is what the restore
+// then hands to `docker exec -i … mariadb` on stdin, and this fake docker —
+// like a real one that rejects the first statement and exits — never reads it.
+// Past one pipe buffer (65536 bytes at most on either supported host) the
+// restore cannot deliver it in a single write, so the child's exit always beats
+// the remainder and the EPIPE is a fact of this fixture rather than a race the
+// scheduler decides. A real WordPress dump is megabytes; the old 36-byte
+// placeholder fit in the buffer and hid the boundary entirely.
+$fixtureDumpBytes = str_repeat(
+    "INSERT INTO `wp_options` VALUES (1,'siteurl','http://source.example:9600','on');\n",
+    4096
+);
+file_put_contents($fixtureDump, $fixtureDumpBytes);
+duo_check(
+    strlen($fixtureDumpBytes) > 65536,
+    'the fixture source dump is larger than one pipe buffer, so the restore crosses the provider\'s stdin boundary for real'
+);
 touch($started);
 putenv('PATH=' . $bin . PATH_SEPARATOR . (string) getenv('PATH'));
 putenv('RPC_PAIR_STARTED=' . $started);
 putenv('RPC_PHYSICAL_LOG=' . $physicalLog);
+putenv('RPC_FIXTURE_DUMP=' . $fixtureDump);
 
 $providerConfig = $scratch . '/provider.json';
 file_put_contents($providerConfig, json_encode([
