@@ -198,8 +198,30 @@ function ref_run(array $argv, ?string $stdin = null, ?string $cwd = null): array
             $selected = stream_select($read, $write, $except, 1);
             if ($selected === false) throw new RuntimeException('could not multiplex reference provider command pipes');
             foreach ($write as $pipe) {
-                $written = fwrite($pipe, substr($input, $inputOffset, 65536));
-                if ($written === false) throw new RuntimeException('could not send reference provider command input');
+                // A child that stops reading closes the read end, and the next
+                // write(2) fails with EPIPE (errno=32) — `docker exec -i …
+                // mariadb` that rejects the first statement and exits, or any
+                // child that never reads its stdin at all. Whether that beats
+                // this parent's write is pure scheduling: DUO-3492 saw
+                // `create` refuse with "could not send reference provider
+                // command input" on a loaded host while the same call had
+                // succeeded on an idle one, 3 failures in 32 concurrent runs.
+                // The child's own exit status and stderr are the verdict —
+                // that is what ref_checked() reports (:259-263) and what the
+                // readback compare in ref_restore_database() (:869-873) binds
+                // the restore's effect to — so stop feeding a reader that is
+                // gone and let the child answer. `@` suppresses only PHP's
+                // "Write of N bytes failed with errno=32" notice — output
+                // hygiene, not gate evasion: the false return already carries
+                // the fact this branch handles, and the offline guard polices
+                // warnings and fatals, not notices
+                // (sandbox/tests/offline_diagnostics_guard.sh:28-29).
+                $written = @fwrite($pipe, substr($input, $inputOffset, 65536));
+                if ($written === false) {
+                    fclose($pipes[0]);
+                    $open[0] = false;
+                    break;
+                }
                 $inputOffset += $written;
                 if ($inputOffset === strlen($input)) {
                     fclose($pipes[0]);

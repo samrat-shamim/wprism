@@ -32,6 +32,9 @@
 #   4. REUSABLE-SLOT SAFETY. The real provider entry point reuses one physical
 #      target through generation-bound leases. Lost responses are retryable,
 #      while stale prior-generation cleanup cannot clear the new occupant.
+#      Its external-command boundary answers with the CHILD's exit status and
+#      stderr, so a `docker exec -i` that refuses the dump on stdin is diagnosed
+#      by what docker said, never by this provider's own broken pipe (DUO-3492).
 #
 #   5. THE CONTAINMENT BANNER. `RehearsalDisclosure` prints MUP §2.2's literal
 #      disclosure, once, at the top of the preview, with the consequence that
@@ -41,6 +44,7 @@
 # Offline: no docker, no WordPress, no network, no target.
 # Dependencies: sandbox/tests/fixtures/rehearse/make-provider-config.php
 # Dependencies: sandbox/tests/fixtures/rehearse/provider-negotiation-checks.php
+# sandbox/tests/fixtures/rehearse/provider-stdin-checks.php
 # sandbox/tests/fixtures/rehearse/reference-provider-command-checks.php
 # sandbox/tests/fixtures/rehearse/slot-reuse-checks.php
 set -uo pipefail
@@ -287,6 +291,18 @@ echo "ok\n";
 ' "$PROVIDER" > /dev/null 2> "$TMP/witness.err" \
   && pass 'the freeze witness ignores the doing_cron lock timestamp and still refuses a real write' \
   || { fail "the freeze witness semantics are wrong: $(cat "$TMP/witness.err")"; }
+
+# The provider's external-command boundary on the write side. A child that
+# stops reading its stdin is diagnosed by its own exit status, not by the EPIPE
+# this provider sees — DUO-3492 read that pipe as the provider's own failure and
+# turned every `docker exec -i … mariadb` call into a scheduling coin flip.
+if php "$FIX/provider-stdin-checks.php" > "$TMP/stdin.out" 2> "$TMP/stdin.err"; then
+  pass 'the provider command boundary answers with the child, not with its own pipe'
+else
+  fail 'the provider command-boundary stdin checks failed'
+  cat "$TMP/stdin.err" >&2
+fi
+sed -n 's/^ok: /ok: /p' "$TMP/stdin.out"
 
 # ------------------------------------------ 4: one reusable physical preview slot
 say 'reusable preview-slot generation and stale-reap safety'
