@@ -51,6 +51,8 @@ use Duo\CommandRefusalException;
  *               "next_action":..,"decided_by":..,"meaning":..}],
  *  "unknown":{"pending_count":<int>,"invisible_names_count":<int>,"names_sample":[..]},
  *  "evidence":{"registry_sha256":..,"generated_from":{"dispositions_sha256":..}},
+ *  "dispositions":{"host_registry_sha256":..,"target_registry_sha256":..,
+ *                  "agree":<bool>,"meaning":".."},   // optional, see below
  *  "assess_digest":"sha256:.."}
  * ```
  *
@@ -84,6 +86,23 @@ final class ContractProposal {
 
     public const ATTESTATION_REASON =
         'the certification gate is deferred for the minimum usable platform';
+
+    /**
+     * The two sentences the report's `dispositions` block may carry, and no
+     * third: `validateDispositions()` re-derives which one belongs beside a
+     * given pair of hashes and refuses the other, so a hand-edited report
+     * cannot carry the reassuring sentence over disagreeing numbers.
+     *
+     * Both are under `AssessRenderer::safe()`'s 160-byte bound, because the
+     * human view prints them verbatim and a truncated explanation of a gate
+     * is worse than none.
+     */
+    public const DISPOSITIONS_AGREE_MEANING =
+        'the target answered from the reviewed library this checkout ships';
+
+    public const DISPOSITIONS_MISMATCH_MEANING =
+        'the target answered from a different reviewed library than this checkout ships; '
+        . 'the assessment is honest, but no contract may pin it until the two agree';
 
     private const REPORT_KEYS = [
         'format', 'generated_at', 'env', 'target', 'authority',
@@ -211,7 +230,14 @@ final class ContractProposal {
                 'the document is not a ' . self::ASSESS_REPORT_FORMAT . ' report'
             );
         }
-        self::closedKeys($report, self::REPORT_KEYS, [], 'assess_report');
+        // `dispositions` is OPTIONAL for the same reason
+        // `unknown.undeclared_tables_count` is (see below): `duo contract
+        // accept` compares a stored proposal against a fresh report, and a
+        // proposal written before DUO-3484 must refuse with the staleness
+        // message the operator can act on, not with a schema error about a
+        // key its build had no way to emit. Every report THIS build produces
+        // carries it — `AssessReport::build()` takes it as an argument.
+        self::closedKeys($report, self::REPORT_KEYS, ['dispositions'], 'assess_report');
         foreach (['generated_at', 'env', 'assess_digest'] as $key) {
             if (!is_string($report[$key]) || $report[$key] === '') {
                 throw self::refuse('assess_report_invalid', "assess_report.$key must be a non-empty string");
@@ -264,6 +290,7 @@ final class ContractProposal {
         }
 
         self::validateEvidence(self::object($report, 'evidence', 'assess_report'));
+        self::validateDispositions($report);
         self::validateReportSurfaces($report);
 
         $stated = (string) $report['assess_digest'];
@@ -503,6 +530,59 @@ final class ContractProposal {
         }
         if (!is_array($evidence['generated_from']) || array_is_list($evidence['generated_from'])) {
             throw self::refuse('assess_report_invalid', 'assess_report.evidence.generated_from must be an object');
+        }
+    }
+
+    /**
+     * The host/target reviewed-library comparison, checked against itself.
+     *
+     * The block publishes three derived things beside one new fact, and each
+     * derivation is re-run here rather than trusted, because the document is
+     * digest-bound and hand-edited proposals are the normal path (§3.4's
+     * review step): `agree` must be what `hash_equals()` says about the two
+     * hashes, `meaning` must be the sentence that belongs beside that
+     * verdict, and `target_registry_sha256` must be the same number
+     * `evidence.registry_sha256` pins — the block restates it so a reader
+     * sees the comparison without joining two blocks, and a restatement that
+     * could drift from its source would be worse than no restatement.
+     *
+     * `AssessReport::requireDispositionsAgree()` reads `agree` and refuses on
+     * it, so these three checks are what keep that gate reading a fact.
+     *
+     * @param array<string,mixed> $report
+     */
+    private static function validateDispositions(array $report): void {
+        if (!array_key_exists('dispositions', $report)) {
+            return;
+        }
+        $block = self::object($report, 'dispositions', 'assess_report');
+        $path = 'assess_report.dispositions';
+        self::closedKeys(
+            $block,
+            ['host_registry_sha256', 'target_registry_sha256', 'agree', 'meaning'],
+            [],
+            $path
+        );
+        foreach (['host_registry_sha256', 'target_registry_sha256', 'meaning'] as $key) {
+            if (!is_string($block[$key]) || $block[$key] === '') {
+                throw self::refuse('assess_report_invalid', "$path.$key must be a non-empty string");
+            }
+        }
+        if (!is_bool($block['agree'])) {
+            throw self::refuse('assess_report_invalid', "$path.agree must be a boolean");
+        }
+        $agree = hash_equals((string) $block['host_registry_sha256'], (string) $block['target_registry_sha256']);
+        if ($block['agree'] !== $agree) {
+            throw self::refuse('assess_report_invalid', "$path.agree contradicts its own two hashes");
+        }
+        if ($block['meaning'] !== ($agree ? self::DISPOSITIONS_AGREE_MEANING : self::DISPOSITIONS_MISMATCH_MEANING)) {
+            throw self::refuse('assess_report_invalid', "$path.meaning is not the sentence this verdict carries");
+        }
+        if (!hash_equals((string) ($report['evidence']['registry_sha256'] ?? ''), (string) $block['target_registry_sha256'])) {
+            throw self::refuse(
+                'assess_report_invalid',
+                "$path.target_registry_sha256 is not the hash assess_report.evidence pins"
+            );
         }
     }
 

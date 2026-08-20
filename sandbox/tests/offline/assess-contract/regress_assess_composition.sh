@@ -112,7 +112,7 @@ $d = json_decode(file_get_contents($argv[1]), true);
 $fail = static function (string $m): void { fwrite(STDERR, "FAIL: $m\n"); exit(1); };
 if (!is_array($d)) { $fail("assess --format=json did not emit a JSON object"); }
 $keys = array_keys($d); sort($keys);
-$want = ["assess_digest","authority","env","evidence","format","generated_at","surfaces","target","unknown"];
+$want = ["assess_digest","authority","dispositions","env","evidence","format","generated_at","surfaces","target","unknown"];
 if ($keys !== $want) { $fail("top-level key set moved: " . implode(",", $keys)); }
 if ($d["format"] !== "duo-assess-report/v1") { $fail("wrong format key"); }
 if ($d["env"] !== "fixture") { $fail("the report does not name its environment"); }
@@ -241,8 +241,33 @@ if (array_keys($d["evidence"]["generated_from"]) !== ["dispositions_sha256"]) {
 if (!is_string($d["evidence"]["generated_from"]["dispositions_sha256"] ?? null)) {
     $fail("evidence provenance dispositions_sha256 is missing");
 }
+// DUO-3484: the two numbers assess holds from two machines, compared. The
+// evidence pins keep exactly two keys above -- the block is copied verbatim
+// into contract.evidence_pins, so the comparison had to live somewhere that
+// is not a contract wire change.
+$disp = $d["dispositions"] ?? null;
+if (!is_array($disp)) { $fail("the report publishes no host/target dispositions comparison"); }
+$dispKeys = array_keys($disp); sort($dispKeys);
+if ($dispKeys !== ["agree","host_registry_sha256","meaning","target_registry_sha256"]) {
+    $fail("the dispositions block carries " . implode(",", $dispKeys));
+}
+if ($disp["target_registry_sha256"] !== $d["evidence"]["registry_sha256"]) {
+    $fail("the block restates a target hash the evidence pins do not");
+}
+// The fixture computes the target hash from THIS checkout manifests/dispositions.json,
+// exactly as ManifestDispositions::sha256() would on an adopted site, so the
+// agreeing case is the real number and not a fixture convention.
+if ($disp["agree"] !== true) { $fail("an unskewed fixture must report the two libraries agreeing"); }
+if ($disp["host_registry_sha256"] !== $disp["target_registry_sha256"]) {
+    $fail("agree is true beside two different hashes");
+}
+require_once $argv[2] . "/agent/src/Kernel/Canon.php";
+$onDisk = hash("sha256", \Duo\Canon::encode(json_decode((string) file_get_contents($argv[2] . "/manifests/dispositions.json"), true)));
+if ($disp["host_registry_sha256"] !== $onDisk) {
+    $fail("the host half is not the content address of this checkout reviewed dispositions");
+}
 $stated = $d["assess_digest"]; unset($d["assess_digest"]);
-require $argv[2] . "/agent/src/Kernel/Canon.php";
+require_once $argv[2] . "/agent/src/Kernel/Canon.php";
 if ($stated !== "sha256:" . hash("sha256", \Duo\Canon::encode($d))) { $fail("assess_digest does not bind its own document"); }
 echo "ok: the report document validates, and every §1 projection matches\n";
 ' "$TMP/out.json" "$ROOT" || fail 'the assess report document is wrong'
@@ -332,6 +357,70 @@ assert_contains "$TMP/outh.txt" 'next action: install adapter (capture, merge, r
 # about a principal. The positive case is regress_adapter_certify.php's.
 assert_absent "$TMP/outh.txt" 'contract attestation unsigned' \
   'the site-certified line is absent when no certificate is installed'
+
+# ------------------------------------------------ the mid-upgrade skew window
+# DUO-3484. An operator who has pulled a revision that edited
+# manifests/dispositions.json is ahead of every site they have not re-adopted
+# yet — docs/adoption.md's upgrade runbook runs for as long as that takes, and
+# `duo assess` is how they see the site during it. So the mismatch is LOUD and
+# assess still completes; what it withholds is the one artifact that would
+# bake the skew in. Minting is gated in AssessCommand::writeLocalArtifacts(),
+# which is the only writeProposal() call in the tree.
+say 'a host/target library mismatch is loud, and assess still answers'
+PROPOSAL_BEFORE=$(cat "$TMP/site/repo/.duo/contract/proposed.json")
+( cd "$TMP/site/repo" && DUO_LIBRARY_SKEW=1 run_assess "$TMP/calls-skew.txt" "$TMP/skew.json" "$TMP/skew.err" \
+    assess fixture --format=json )
+STATUS=$?
+check "$([ "$STATUS" = 0 ] && echo 0 || echo 1)" \
+  "assessment under a library mismatch is still a bounded assessment, exit 0 (got $STATUS)"
+[ -s "$TMP/skew.err" ] && { fail 'a mismatched assessment wrote to stderr'; cat "$TMP/skew.err" >&2; } \
+  || pass 'the mismatch is a report section, not an error stream'
+php -r '
+$d = json_decode(file_get_contents($argv[1]), true);
+$fail = static function (string $m): void { fwrite(STDERR, "FAIL: $m\n"); exit(1); };
+$disp = $d["dispositions"] ?? null;
+if (!is_array($disp)) { $fail("no dispositions block under skew"); }
+if ($disp["agree"] !== false) { $fail("two different libraries reported as agreeing"); }
+if ($disp["host_registry_sha256"] === $disp["target_registry_sha256"]) { $fail("the skew fixture did not skew"); }
+if ($disp["target_registry_sha256"] !== $d["evidence"]["registry_sha256"]) {
+    $fail("the block and the evidence pins name different target libraries");
+}
+if (strpos($disp["meaning"], "different reviewed library") === false) {
+    $fail("the machine document does not say what the mismatch means");
+}
+// Both hashes are FULL in the machine view. The human bound is a rule about
+// terminals, and a truncated hash in JSON would make the document unusable
+// for the one thing it is for: comparing two libraries.
+foreach (["host_registry_sha256", "target_registry_sha256"] as $k) {
+    if (preg_match("/^[a-f0-9]{64}$/D", (string) $disp[$k]) !== 1) { $fail("$k is not a full sha256 in the machine view"); }
+}
+echo "ok: the machine document states both hashes, the verdict and its meaning\n";
+' "$TMP/skew.json" || fail 'the mismatch is not a first-class block in the machine document'
+
+if [ "$PROPOSAL_BEFORE" = "$(cat "$TMP/site/repo/.duo/contract/proposed.json")" ]; then
+  pass 'assess minted no proposal from the mismatched assessment — the earlier one is untouched, not overwritten'
+else
+  fail 'a mismatched assessment rewrote .duo/contract/proposed.json'
+fi
+
+( cd "$TMP/site/repo" && DUO_LIBRARY_SKEW=1 run_assess "$TMP/calls-skewh.txt" "$TMP/skew.txt" "$TMP/skewh.err" \
+    assess fixture )
+assert_contains "$TMP/skew.txt" 'MISMATCH: this checkout ships ' \
+  'the human view names the mismatch in the evidence block'
+assert_contains "$TMP/skew.txt" 'the target answered from a different reviewed library than this checkout ships' \
+  'and prints the document own meaning sentence rather than a second wording of it'
+assert_contains "$TMP/skew.txt" 'no proposed contract written' \
+  'the human view says the proposal was withheld, where it would have claimed one was written'
+assert_absent "$TMP/skew.txt" 'proposed contract written: .duo/contract/proposed.json (accept' \
+  'and never claims a proposal an operator could accept'
+# MUP §5.2 again: the mismatch lines are the newest place a 64-hex digest
+# could reach a terminal, and they print twelve.
+if grep -qE '[0-9a-f]{32,}' "$TMP/skew.txt"; then
+  fail 'the mismatch lines leak a full hash into the human view'
+  grep -oE '[0-9a-f]{32,}' "$TMP/skew.txt" | head -3 >&2
+else
+  pass 'both hashes print as twelve-hex prefixes; the full ones stay in --format=json'
+fi
 
 # ------------------------------------------------------------------- refusals
 say 'structured refusals'

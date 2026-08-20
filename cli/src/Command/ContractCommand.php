@@ -132,6 +132,12 @@ final class ContractCommand {
         bool $json
     ): array {
         $result = self::freshAssessment($driver, $sourceRoot, $hostCatalog, $clock);
+        // A proposal binds this checkout's provenance to the target's
+        // verdicts, so proposing across two different reviewed libraries is
+        // the unsafe act DUO-3484 gates (AssessReport::
+        // requireDispositionsAgree()). `duo assess` still answers under the
+        // same skew — it withholds the file and says so.
+        AssessReport::requireDispositionsAgree($result['report']);
         AssessCommand::writeLocalArtifacts($result);
         $proposal = $result['store']->readProposal() ?? [];
         if ($json) {
@@ -194,6 +200,12 @@ final class ContractCommand {
         $expectedDigest = $store->currentDigest();
 
         $result = self::freshAssessment($driver, $sourceRoot, $hostCatalog, $clock);
+        // Before the staleness bind below, not after: the `dispositions` block
+        // is inside the digest, so a checkout that moved makes the proposal
+        // stale as well — and `contract_proposal_stale` says "the site returns
+        // something different now" about a site that did not move. The
+        // operator gets the cause, not the consequence (DUO-3484).
+        AssessReport::requireDispositionsAgree($result['report']);
         $rebound = AssessReport::rebind($result['report'], (string) $proposal['generated_at']);
         $freshDigest = ContractProposal::assessDigest($rebound);
 

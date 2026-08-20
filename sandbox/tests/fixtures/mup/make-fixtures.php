@@ -226,6 +226,16 @@ $assess = AssessReport::build(
             'dispositions_sha256' => 'sha256:' . str_repeat('9', 64),
         ],
         'registry_sha256' => 'sha256:' . str_repeat('8f', 32),
+    ],
+    // DUO-3484's host/target comparison, pinned AGREEING: this walk is about
+    // the §6.1 words, and a skewed library would withhold the proposal and
+    // change what every step after it reads. The mismatch case has its own
+    // fixtures in regress_assess_composition.sh and regress_contract_accept.sh.
+    [
+        'agree' => true,
+        'host_registry_sha256' => 'sha256:' . str_repeat('8f', 32),
+        'meaning' => AssessReport::DISPOSITIONS_AGREE_MEANING,
+        'target_registry_sha256' => 'sha256:' . str_repeat('8f', 32),
     ]
 );
 mup_json("$out/assess-report.pass.json", $assess);

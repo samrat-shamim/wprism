@@ -307,6 +307,14 @@ cli/duo contract production accept    # writes contract.json + projection.json
 cli/duo contract production show
 ```
 
+Run these **after** step 2, not before it. Between pulling this release and
+re-adopting an environment, your checkout ships reviewed dispositions the site
+has never seen, and both commands refuse with `dispositions_mismatch` naming
+the two hashes — a contract would otherwise record this checkout's provenance
+beside declarations the older library produced. `duo assess` keeps working
+throughout that window and prints the mismatch in its evidence block; it just
+writes no proposal.
+
 The edit between those two commands is enforced, not advisory: the generated
 `external_effects[]` entry arrives `decided_by: "unresolved"` and
 `ApplicationContract::validate()` refuses to accept it that way

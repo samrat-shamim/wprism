@@ -30,6 +30,12 @@ declare(strict_types=1);
  *
  *   DUO_DOCTOR_FAIL=1        `core is-installed` fails -> assess must refuse
  *   DUO_MULTISITE=1          the inventory reports multisite
+ *   DUO_LIBRARY_SKEW=1       the target answers from a DIFFERENT reviewed
+ *                            library than this checkout ships — the
+ *                            mid-upgrade window of docs/adoption.md, where an
+ *                            operator has pulled a revision that edited
+ *                            manifests/dispositions.json and has not
+ *                            re-adopted the site yet (DUO-3484)
  *   DUO_MUTATE_CONTRACT=<f>  copy <f> over the site's contract.json during
  *                            the capabilities call — a concurrent reviewer
  *                            landing a contract inside accept's own
@@ -296,7 +302,40 @@ $adapterUnsupported = [
         'reason' => 'the open extension graph is not enumerable; deletion refuses before repository mutation'],
 ];
 
-$report = static function (string $operation) use ($claim, $coreSurfaces, $adapterSurfaces, $adapterUnsupported): array {
+/**
+ * The content address of the reviewed dispositions THIS CHECKOUT ships,
+ * computed exactly as both producers compute it — sha256 over
+ * `Canon::encode()` of the decoded document, which is
+ * `ManifestDispositions::sha256()` on the target and
+ * `AssessCommand::registryProvenance()` on the host.
+ *
+ * A real target reports the hash of the library it was adopted with, so an
+ * agreeing fixture has to carry the real number rather than a memorable one:
+ * `duo assess` reads the host half from the live `manifests/dispositions.json`
+ * and there is no flag that redirects it. Before DUO-3484 this fixture
+ * reported a hand-written `eeee…` and the suites still passed, which is the
+ * defect: nothing compared the two numbers.
+ */
+$root = dirname(__DIR__, 4);
+require_once $root . '/agent/src/Kernel/Canon.php';
+$dispositions = json_decode((string) file_get_contents($root . '/manifests/dispositions.json'), true);
+if (!is_array($dispositions)) {
+    fwrite(STDERR, "make-fixture: manifests/dispositions.json is unreadable\n");
+    exit(2);
+}
+$hostRegistrySha = hash('sha256', \Duo\Canon::encode($dispositions));
+// The skewed library: a different content address, and nothing else. What
+// makes the mid-upgrade window legitimate is precisely that the target is
+// answering correctly — from an older reviewed library — so its verdicts stay
+// identical here and the hash is the only thing that moves.
+$skewRegistrySha = hash('sha256', 'duo-3484 an older reviewed library');
+
+$report = static function (string $operation, string $registrySha) use (
+    $claim,
+    $coreSurfaces,
+    $adapterSurfaces,
+    $adapterUnsupported
+): array {
     $adapterReasons = [[
         'code' => 'plugin_version_mismatch',
         'message' => 'sample-adapter 10.4.2 is outside the certified range',
@@ -310,7 +349,7 @@ $report = static function (string $operation) use ($claim, $coreSurfaces, $adapt
 
     return [
         'schema_version' => 'duo-capability-report/v1',
-        'registry_sha256' => str_repeat('e', 64),
+        'registry_sha256' => $registrySha,
         'platform' => new stdClass(),
         'evidence' => null,
         // No `revision`: the query used to select a git revision to evaluate a
@@ -332,7 +371,14 @@ $report = static function (string $operation) use ($claim, $coreSurfaces, $adapt
     ];
 };
 foreach (['capture', 'plan', 'promote', 'delete'] as $operation) {
-    file_put_contents("$dir/fixtures/caps-$operation.json", json_encode($report($operation), JSON_UNESCAPED_SLASHES));
+    file_put_contents(
+        "$dir/fixtures/caps-$operation.json",
+        json_encode($report($operation, $hostRegistrySha), JSON_UNESCAPED_SLASHES)
+    );
+    file_put_contents(
+        "$dir/fixtures/caps-$operation.skew.json",
+        json_encode($report($operation, $skewRegistrySha), JSON_UNESCAPED_SLASHES)
+    );
 }
 
 $fakeWp = <<<'SH'
@@ -373,7 +419,12 @@ case " $* " in
         cp "$DUO_MUTATE_CONTRACT" "$DUO_SITE_REPO/.duo/contract/contract.json"
         rm -f "$DUO_MUTATE_CONTRACT"
       fi
-      cat "$DUO_FIXTURES/caps-$op.json"; exit 0 ;;
+      if [ "${DUO_LIBRARY_SKEW:-0}" = 1 ]; then
+        cat "$DUO_FIXTURES/caps-$op.skew.json"
+      else
+        cat "$DUO_FIXTURES/caps-$op.json"
+      fi
+      exit 0 ;;
   *" duo init "*)
       printf '%s\n' '{"format":"duo-command-refusal/v1","ok":false,"command":"init","error":"repository_owned","reason_code":"repository_owned","message":"the repository is already owned by duo","remediation":"nothing to do"}'
       exit 1 ;;

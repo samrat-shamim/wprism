@@ -307,6 +307,22 @@ shipped adapter, the move you have to make is the review: read what changed in
 `duo contract <env> accept` — accept re-runs the assessment and refuses a
 stale proposal (`assess_digest_stale`) rather than re-pinning behind your back.
 
+**A different mismatch: your checkout versus the site.** That flip compares
+one number against itself over time, both halves the *target's*. `duo assess`
+also holds a second pair — the reviewed dispositions your checkout ships and
+the ones the target answered from, which differ for as long as you have pulled
+a revision that edited `manifests/dispositions.json` and not re-adopted the
+site yet. That window is legitimate, so assess completes: it prints
+`MISMATCH: this checkout ships <hash>; the target answered from <hash>` in the
+evidence block, publishes both full hashes as `dispositions` in
+`--format=json`, and writes no proposal. What refuses is pinning it —
+`duo contract <env> propose` and `accept` both stop with
+`dispositions_mismatch`, because a contract records your checkout's provenance
+beside declarations that all came from the target's answers, and those must be
+one library. The remedy is either direction, since a hash gives no way to tell
+which side is ahead: re-adopt the environment from this checkout, or check out
+the revision it was adopted from.
+
 Readiness is a *technical* answer, never a permission. Four of these six words
 block a release outright before it freezes anything —
 [release.md](release.md#when-release-refuses-before-it-freezes-anything) has
