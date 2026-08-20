@@ -550,14 +550,35 @@ fwrite(STDOUT, 'ok: every agent/src engine class reference is self-required or d
 // DUO-3481 (WP-11): directional layer lint.
 //
 // Everything above answers "does this file load what it names".  It says
-// nothing about direction.  agent/src is 224 flat files with no autoloader and
-// no package boundary, and the reference graph above puts most of them in one
-// strongly connected component, so the boundary doctrine in
-// docs/proposals/engine-adapter-boundary.md ("engine core ships generic
-// mechanisms"; adapters sit outside it) is today a claim nobody can check by
-// reading.  This section makes it mechanical: tools/layers.json puts every
-// agent/src file on exactly one rung of an ordered ladder, and a reference
-// from a lower rung to a higher one is a violation.
+// nothing about direction.  agent/src is 225 files across 17 module
+// directories with no autoloader and no package boundary, and the reference
+// graph above puts most of them in one strongly connected component, so the
+// boundary doctrine in docs/proposals/engine-adapter-boundary.md ("engine
+// core ships generic mechanisms"; adapters sit outside it) is today a claim
+// nobody can check by reading.  This section makes it mechanical: every
+// agent/src file sits on exactly one rung of an ordered ladder, and a
+// reference from a lower rung to a higher one is a violation.
+//
+// DUO-3493: the rung comes straight from tools/modules.json, not a second,
+// separately hand-maintained tools/layers.json.  ROUND 3 TRAIN 1 already made
+// directory equal module (Canon.php now lives under agent/src/Kernel/, not
+// directly under agent/src), so a file's layer was never information independent
+// of tools/modules.json -- it is its module's `layer` field, expanded over
+// that module's `files` list.  Measured against every one of the 225
+// agent/src files at the time this was consolidated, the old tools/layers.json
+// path=>layer map matched that expansion exactly (zero mismatches), which is
+// what docs/modules/README.md rule 2 predicted ("a directory-level dependency
+// lint replace the file-level map") and named as a deferred follow-up.
+// Keeping both was the friction DUO-3493 tracked: one new agent/src file
+// needed a hand entry in each of two registries, checked by two independent
+// gates that could silently disagree -- and one already had: the Apply
+// module's own file_count sat at 26 against a 27-entry files list until the
+// check below was added to catch exactly that. There is now one
+// hand-maintained fact per file (which module's `files` list names it in
+// tools/modules.json) and the layer is read off that module, so a new file's
+// only manual edit is the one line tests/Tooling/MoveModulesTest.php's
+// real-tree dry run (testPlanAgainstTheRealRepositoryIsANoOpAfterTheMove)
+// already required for module membership.
 //
 // The violations that exist today are listed one per line in
 // tools/layers-exceptions.json.  That file is a ratchet, not a mute button:
@@ -595,31 +616,159 @@ function layer_source_paths(string $src): array {
     return $paths;
 }
 
-$layersRaw = file_get_contents($root . '/tools/layers.json');
-check(is_string($layersRaw), 'tools/layers.json is unreadable');
-$layers = json_decode($layersRaw, true);
-check(is_array($layers), 'tools/layers.json is not a JSON object');
-check(isset($layers['ladder'], $layers['rule'], $layers['files'], $layers['notes']), 'tools/layers.json must carry ladder, rule, files and notes');
-$ladder = $layers['ladder'];
-check(is_array($ladder) && $ladder !== [] && $ladder === array_values($ladder), 'tools/layers.json ladder must be a non-empty ordered list');
+/**
+ * DUO-3493: pure derivation of tools/layers.json's old {path => layer} shape
+ * from tools/modules.json's agent modules -- no check()/exit call, so the
+ * mutation self-test below can feed it a deliberately broken structure and
+ * inspect what it reports instead of the process dying mid-suite. `repeated`
+ * is the one malformation the eventual real-tree comparison cannot see by
+ * itself: the same filename listed twice inside one module's `files` array
+ * derives one path, so a copy-paste duplicate would otherwise silently
+ * vanish into a single map entry instead of failing loudly.
+ *
+ * @param array<string,mixed> $modules decoded tools/modules.json
+ * @return array{layers: array<string,string>, notes: array<string,mixed>, repeated: list<string>, malformed: list<string>}
+ */
+function layers_from_modules(array $modules): array {
+    $layers = [];
+    $repeated = [];
+    $malformed = [];
+    $modulesMap = (isset($modules['agent']['modules']) && is_array($modules['agent']['modules'])) ? $modules['agent']['modules'] : [];
+    foreach ($modulesMap as $moduleName => $module) {
+        if (!is_string($moduleName) || $moduleName === ''
+            || !is_array($module) || !isset($module['layer'], $module['files'])
+            || !is_string($module['layer']) || !is_array($module['files'])) {
+            $malformed[] = is_string($moduleName) ? $moduleName : var_export($moduleName, true);
+            continue;
+        }
+        $seenInModule = [];
+        foreach ($module['files'] as $file) {
+            if (!is_string($file) || $file === '') {
+                $malformed[] = "$moduleName::" . var_export($file, true);
+                continue;
+            }
+            if (isset($seenInModule[$file])) {
+                $repeated[] = "$moduleName::$file";
+                continue;
+            }
+            $seenInModule[$file] = true;
+            $path = $moduleName === '.' ? "src/$file" : "src/$moduleName/$file";
+            $layers[$path] = $module['layer'];
+        }
+    }
+    $notes = (isset($modules['layer_notes']) && is_array($modules['layer_notes'])) ? $modules['layer_notes'] : [];
+    return ['layers' => $layers, 'notes' => $notes, 'repeated' => $repeated, 'malformed' => $malformed];
+}
+
+$modulesRaw = file_get_contents($root . '/tools/modules.json');
+check(is_string($modulesRaw), 'tools/modules.json is unreadable');
+$modulesDecoded = json_decode($modulesRaw, true);
+check(is_array($modulesDecoded), 'tools/modules.json is not a JSON object');
+check(isset($modulesDecoded['ladder']) && is_array($modulesDecoded['ladder']) && $modulesDecoded['ladder'] !== [] && $modulesDecoded['ladder'] === array_values($modulesDecoded['ladder']), 'tools/modules.json ladder must be a non-empty ordered list');
+$ladder = $modulesDecoded['ladder'];
 $rank = array_flip($ladder);
-$assignedLayers = $layers['files'];
-check(is_array($assignedLayers) && $assignedLayers !== [], 'tools/layers.json files must be a non-empty path => layer map');
-check(is_array($layers['notes']), 'tools/layers.json notes must be a path => rationale map');
+check(isset($modulesDecoded['agent']['modules']) && is_array($modulesDecoded['agent']['modules']) && $modulesDecoded['agent']['modules'] !== [], 'tools/modules.json has no agent.modules object');
+
+// file_count is read by nobody else -- it is prose a human skims in the
+// module table, exactly the kind of decorative fact that drifts silently.
+// It already had: Apply's file_count sat at 26 against a 27-entry files list
+// until this check was added (DUO-3493). A mismatch names the module and the
+// fix is always the same: set file_count to count(files) in the same edit.
+foreach ($modulesDecoded['agent']['modules'] as $moduleName => $module) {
+    $files = (is_array($module) && isset($module['files']) && is_array($module['files'])) ? $module['files'] : null;
+    if ($files === null) {
+        continue; // reported as malformed by layers_from_modules() below.
+    }
+    $fileCount = is_array($module) ? ($module['file_count'] ?? null) : null;
+    check(
+        $fileCount === null || $fileCount === count($files),
+        "tools/modules.json agent.$moduleName.file_count (" . var_export($fileCount, true) . ') disagrees with its files list (' . count($files) . ' entries); set file_count to match files in the same edit'
+    );
+}
+
+$derived = layers_from_modules($modulesDecoded);
+check($derived['malformed'] === [], 'tools/modules.json agent modules malformed (missing/wrong-typed layer or files): ' . implode(', ', $derived['malformed']));
+check($derived['repeated'] === [], 'tools/modules.json repeats a filename within one module\'s files list: ' . implode(', ', $derived['repeated']));
+$assignedLayers = $derived['layers'];
+check($assignedLayers !== [], 'tools/modules.json derives no agent/src file => layer assignments');
+$layerNotes = $derived['notes'];
 
 // (v) The map and the tree agree in both directions.  An unassigned file is a
 // silent hole in the lint; an assignment for a deleted file is stale prose.
 $layerPaths = layer_source_paths($root . '/agent/src');
 check($layerPaths !== [], 'agent/src contains no PHP files for the layer map');
 $unassignedFiles = array_values(array_diff($layerPaths, array_keys($assignedLayers)));
-check($unassignedFiles === [], 'tools/layers.json assigns no layer to ' . implode(', ', $unassignedFiles) . '; every agent/src file names its rung');
+check($unassignedFiles === [], 'tools/modules.json assigns no module to ' . implode(', ', $unassignedFiles) . "; add each to its module's \"files\" list in tools/modules.json (agent root)");
 $vanishedFiles = array_values(array_diff(array_keys($assignedLayers), $layerPaths));
-check($vanishedFiles === [], 'tools/layers.json assigns a layer to files that no longer exist: ' . implode(', ', $vanishedFiles));
+check($vanishedFiles === [], 'tools/modules.json assigns a module to files that no longer exist: ' . implode(', ', $vanishedFiles) . '; remove them from that module\'s "files" list');
 foreach ($assignedLayers as $path => $layer) {
-    check(is_string($layer) && isset($rank[$layer]), "tools/layers.json puts $path on the unknown rung " . var_export($layer, true));
+    check(is_string($layer) && isset($rank[$layer]), "tools/modules.json puts $path on the unknown rung " . var_export($layer, true));
 }
-$strayNotes = array_values(array_diff(array_keys($layers['notes']), $layerPaths));
-check($strayNotes === [], 'tools/layers.json notes describe files it does not assign: ' . implode(', ', $strayNotes));
+$strayNotes = array_values(array_diff(array_keys($layerNotes), $layerPaths));
+check($strayNotes === [], 'tools/modules.json layer_notes describe files no module assigns: ' . implode(', ', $strayNotes));
+
+// Mutation self-test (DUO-3493): prove the four checks above -- unassigned,
+// vanished, repeated, file_count -- would actually catch the failure mode two
+// independently hand-maintained registries invited: a file quietly dropped
+// from (or duplicated across) modules.json's module `files` lists.
+$mutationProbeModule = 'Kernel';
+$mutationProbeFile = 'Canon.php';
+$mutationProbePath = "src/$mutationProbeModule/$mutationProbeFile";
+check(isset($assignedLayers[$mutationProbePath]), "DUO-3493 mutation probe assumes $mutationProbePath is assigned; tools/modules.json's Kernel module moved or lost Canon.php");
+
+// (a) Dropped from its module: the derived map loses the path entirely, so
+// it would surface as "assigns no module to src/Kernel/Canon.php" against
+// the real, on-disk $layerPaths this suite already computed above.
+$droppedModules = $modulesDecoded;
+$droppedModules['agent']['modules'][$mutationProbeModule]['files'] = array_values(array_diff(
+    $droppedModules['agent']['modules'][$mutationProbeModule]['files'],
+    [$mutationProbeFile]
+));
+$droppedDerived = layers_from_modules($droppedModules);
+check(!isset($droppedDerived['layers'][$mutationProbePath]), "layers_from_modules() would not have caught $mutationProbePath dropped from its module's files list");
+check(
+    in_array($mutationProbePath, array_diff($layerPaths, array_keys($droppedDerived['layers'])), true),
+    "the real-tree comparison would not have flagged $mutationProbePath as unassigned after the drop"
+);
+
+// (b) Claimed by a second module too: the path a module builds always
+// embeds that module's own name, so claiming Canon.php from Policy derives
+// the phantom "src/Policy/Canon.php" -- not a path collision with Kernel's
+// entry, but a file that does not exist on disk, caught by the same
+// real-tree comparison as a "vanished" (never-existed) assignment.
+$otherModule = null;
+foreach (array_keys($modulesDecoded['agent']['modules']) as $candidate) {
+    if ($candidate !== $mutationProbeModule) {
+        $otherModule = $candidate;
+        break;
+    }
+}
+check($otherModule !== null, 'layer mutation self-test needs a second agent module to duplicate into');
+$claimedModules = $modulesDecoded;
+$claimedModules['agent']['modules'][$otherModule]['files'][] = $mutationProbeFile;
+$claimedDerived = layers_from_modules($claimedModules);
+$phantomPath = "src/$otherModule/$mutationProbeFile";
+check(isset($claimedDerived['layers'][$phantomPath]), "layers_from_modules() did not derive the expected phantom path $phantomPath");
+check(
+    in_array($phantomPath, array_diff(array_keys($claimedDerived['layers']), $layerPaths), true),
+    "the real-tree comparison would not have flagged $phantomPath as an assignment to a file that does not exist"
+);
+
+// (c) Repeated within one module's own files list: collapses into the map
+// silently unless `repeated` is checked separately from the path map.
+$repeatedModules = $modulesDecoded;
+$repeatedModules['agent']['modules'][$mutationProbeModule]['files'][] = $mutationProbeFile;
+$repeatedDerived = layers_from_modules($repeatedModules);
+check(in_array("$mutationProbeModule::$mutationProbeFile", $repeatedDerived['repeated'], true), "layers_from_modules() would not have caught $mutationProbeFile repeated in $mutationProbeModule's files list");
+
+// (d) file_count drift: reproduces the actual pre-existing Apply bug this
+// change found and fixed (26 recorded against a 27-entry files list).
+$staleCountModules = $modulesDecoded;
+$staleCountModules['agent']['modules'][$mutationProbeModule]['file_count']++;
+$staleCount = $staleCountModules['agent']['modules'][$mutationProbeModule]['file_count'];
+$realCount = count($staleCountModules['agent']['modules'][$mutationProbeModule]['files']);
+check($staleCount !== $realCount, 'file_count mutation fixture must actually disagree with the files list');
+fwrite(STDOUT, "ok: modules.json mutations (dropped file, file claimed by a second module, repeated filename, stale file_count) are detected\n");
 
 $layerSources = [];
 $layerDeclarations = [];

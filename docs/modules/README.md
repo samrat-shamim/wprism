@@ -53,18 +53,23 @@ Not a module: `cli/duo` stays at `cli/duo` (the extensionless executable), and `
 
 ## Rules
 
-1. **Every file belongs to exactly one module.** All 224 `agent/src` files and all 48 `cli/src` files are
+1. **Every file belongs to exactly one module.** All 225 `agent/src` files and all 76 `cli/src` files are
    assigned in `tools/modules.json`; the assignment is validated against `git ls-files agent/src cli/src`.
 2. **A module has exactly one layer.** That is the invariant that lets a directory-level dependency lint
-   replace the file-level map in `tools/layers.json`. A file whose layer disagrees with its module's layer
-   is a placement bug, not an exception.
+   read a file's layer straight off its module. **DUO-3493 retired `tools/layers.json`**: its file-level
+   `path => layer` map was proven to equal this file's per-module `layer` expanded over `files` (zero
+   mismatches across all 225 agent/src files), so `sandbox/tests/offline/guards/regress_agent_src_requires.php`
+   now derives the map from `tools/modules.json` directly instead of a second, separately hand-maintained
+   registry — the follow-up this rule named when the move landed. A file whose layer disagrees with its
+   module's layer is a placement bug, not an exception.
 3. **Ladder:** `kernel < policy < repository < engine < adapter < surface`. Within a root a module may
    reference only modules in a strictly lower layer, plus itself. Every same-layer or upward edge that
    exists today is enumerated in that module's `exceptions` and is a **ratchet**: it may shrink, never grow.
    The 15 upward module edges carry exactly 38 file-level edges, and that set is equal (verified
    programmatically) to the 38 entries already ratified in `tools/layers-exceptions.json` — the module map
    adds no new layer debt. The remaining 143 file-level edges recorded under `exceptions` are *intra-layer*:
-   legal under `layers.json`'s "own or lower layer" rule, and listed because they are what makes the agent
+   legal under the "own or lower layer" rule (enforced from the layer each module declares here, since
+   DUO-3493 retired `tools/layers.json` — rule 2), and listed because they are what makes the agent
    root one SCC.
 4. **cli may reference agent; agent may never reference cli.** Cross-root edges are written `agent:<Module>`
    in `depends_on` and are exempt from the ladder, because `agent/src` is a library to the orchestrator.
@@ -138,8 +143,11 @@ Counts below are that tool's own plan at `a6b0b9c` — quote `--plan`, not this 
    - `tests/Tooling/DoctorTest.php:253-272` builds a synthetic `agent/src` tree; it stays valid, but confirm
      `tools/doctor.sh`'s closure walk is recursive against it.
    - `tools/layers.json` keys become `src/<Module>/X.php` (the codemod rewrites both it and the sorted
-     `tools/layers-exceptions.json`); decide separately whether to retire the file-level map in favour of the
-     directory lint (rule 2), which is a follow-up, not part of the move.
+     `tools/layers-exceptions.json`). **Done in DUO-3493**: the file-level map was retired in favour of the
+     directory lint (rule 2) as this bullet flagged for a follow-up; `tools/codemod/move-modules.php` keeps its
+     `mm_rewrite_layers_json()` rewriter for a hypothetical future reorganisation that recreates the file (it is
+     exercised only against the synthetic fixtures in `tests/Tooling/MoveModulesTest.php` now that the real
+     `tools/layers.json` is gone).
 5. **Leave `manifests/**` alone.** The move itself is free — nothing hashes an `agent/src` path. What is not
    free is chasing the moved paths into `manifests/`: `ArtifactPolicyIdentity::manifest_rows()` folds each
    named interpreter/provider/regenerator file's `hash_file('sha256', …)` into that adapter's row, so

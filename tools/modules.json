@@ -1,5 +1,5 @@
 {
-  "$comment": "Module map for the agent/src and cli/src directory move (round 3). tools/layers.json remains the layer of record per file until the move lands; after it, module `layer` here is authoritative and the directory lint replaces the file-level map.",
+  "$comment": "Module map for agent/src and cli/src (round 3 TRAIN 1 landed: directory now equals module). DUO-3493: this is the single per-path {module, layer} source -- tools/layers.json's old hand-maintained path=>layer map was proven to equal this file's per-module `layer` expanded over `files` (zero mismatches over all 225 agent/src files) and was retired; sandbox/tests/offline/guards/regress_agent_src_requires.php's directional layer lint derives its file=>layer map from here directly. `layer_notes` carries layers.json's old free-text rationale for placements a filename suffix would suggest otherwise (e.g. a *Materializer file classified repository, not engine).",
   "ladder": [
     "kernel",
     "policy",
@@ -10,13 +10,46 @@
   ],
   "rules": [
     "Every file under a root belongs to exactly one module directory.",
-    "A module has exactly one layer; that is what lets a directory-level lint replace the file-level layer map.",
+    "A module has exactly one layer; that is what lets sandbox/tests/offline/guards/regress_agent_src_requires.php's directional layer lint derive each file's layer straight from here instead of a second, separately hand-maintained tools/layers.json (DUO-3493).",
     "Within a root, a module may reference only modules in a strictly lower layer, plus itself; every same-layer or upward edge that exists today is listed in that module's `exceptions` and is a ratchet (may shrink, never grow).",
     "cli modules may reference agent modules named in `depends_on` (written `agent:<Module>`); the agent root must never reference cli.",
     "`entry_points` are the classes other modules already reference; a new cross-module reference to a non-entry-point class is a design change, not a refactor.",
     "Namespaces do not change in this move: agent/src stays `namespace Duo;`, cli/src stays `namespace Duo\\Orchestrator;`. The additive classmap (agent/duo-classmap.php, cli/duo-classmap.php) maps FQCN to path, so directory != namespace is legal. Sub-namespaces migrate later, per module, Kernel first.",
     "A reserved (0-file) module carries no `exceptions`: composition across engine modules happens in the surface module (`cli/src/Command/`, `agent/src/Command/`), which is where every verb boundary class lives. The one designed exception is a surface->surface dispatch edge the ladder cannot avoid (agent Command -> Assess); when a reserved module lands, any exception it actually needs is a reviewed map change, not a pre-authorised budget."
   ],
+  "layer_notes": {
+    "src/Apply/TypedTableMaterializer.php": "Engine with the rest of the *Materializer family, for the same reason as TypedTableCapture.",
+    "src/Assess/AssessInventory.php": "Surface with Cli.php: the read-only assess projection (round-3 MUP \u00a74.5) is a command-shaped composition over policy, adapter and review, reached only from the wp duo verb that publishes it.",
+    "src/Capture/TypedTableCapture.php": "Engine with the rest of the *Capture family even though it only reads kernel files; the recorded Snapshot -> TypedTableCapture edge names the real seam (a repository state model driving engine capture) instead of hiding it behind a convenient placement.",
+    "src/Code/CodeMaterializer.php": "Repository, not engine, despite the *Materializer suffix: it depends only on PathSafety and is used solely by Code. The engine *Materializer family materializes authored state; this one materializes code bytes for the repository half.",
+    "src/Code/CodeOwnershipPruner.php": "Repository for the same reason as CodeMaterializer: a Code-owned pruner over PathSafety, not an engine apply step.",
+    "src/Code/CodeStageTransaction.php": "Repository: a Code-owned Db/Ledger transaction, kept with Code so the code half stays internally consistent.",
+    "src/Command/Cli.php": "A surface file, and the top of the ladder: it may reference anything.",
+    "src/Grammar/Blocks.php": "Policy, not kernel: block markup rewriting is driven by Policy and Tokens. Kept in one layer with Tokens/Shortcodes so the codec cycle resolves inside a layer instead of across two.",
+    "src/Grammar/ShortcodeAlternateRegistrar.php": "Policy with Tokens/Shortcodes: it registers policy-declared shortcode alternates.",
+    "src/Grammar/Shortcodes.php": "Policy with Tokens/Blocks, for the same reason as Blocks.",
+    "src/Grammar/Tokens.php": "Policy, not kernel, although the four codecs it composes (TextTokenizer, IdentityTokenCodec, StructuredReferenceCodec, UrlQueryReferenceCodec) are kernel: Tokens itself reads Policy to decide what a reference means. Its read of Ledger is the recorded inversion.",
+    "src/Kernel/Canon.php": "Kernel by doctrine (canonical JSON/ordering is a primitive). Its single read of Policy is the oldest recorded inversion in the graph and the highest-value one to retire.",
+    "src/Kernel/DurableFilesystem.php": "Kernel by doctrine. Its two upward edges to Publish/PublicationJournal are an artefact of the guarded InitialStateBoundaryException class being declared in three files; the scanner attributes a reference to every declaring file. Recorded rather than hidden, because collapsing that triple declaration is the real fix.",
+    "src/Kernel/OptionState.php": "Kernel: it depends on Canon alone and is read by 26 files across every layer, including policy grammars. Placing it any higher would invert the *Grammar reads without describing anything true.",
+    "src/Kernel/ReferenceKeyspaceGrammar.php": "Kernel with the rest of the reference grammar: it depends only on ReferenceRules, and the policy loader that reads it sits above.",
+    "src/Kernel/ReferenceKindGrammar.php": "Kernel: a dependency-free reference vocabulary.",
+    "src/Kernel/ReferenceScopeClassifier.php": "Kernel: a dependency-free classifier read by Tokens, Shortcodes, Blocks and Capture.",
+    "src/Kernel/ReferenceShapeGrammar.php": "Kernel with the rest of the reference grammar (ReferenceRules only).",
+    "src/Kernel/TableGraph.php": "Kernel: a dependency-free table dependency graph.",
+    "src/Kernel/TableSchema.php": "Kernel: depends on TableGraph alone.",
+    "src/Kernel/UserMetaState.php": "Kernel: a dependency-free state model, read from the repository and engine layers.",
+    "src/Policy/ArtifactPolicyIdentity.php": "Policy, not adapter: it is the identity a policy load stamps onto a compiled artifact. Its read of AdapterSources is the recorded inversion, not a reason to promote the file.",
+    "src/Policy/CodeConfigGrammar.php": "Policy (the *Grammar axis) although it validates a Code envelope: its caller is SitePolicyValidator/Policy. The resulting read of Code is recorded rather than resolved by moving the grammar into the repository layer.",
+    "src/Policy/DeletionCapabilityResolver.php": "Policy (the *Resolver axis), not the Deletion* engine family: it answers a policy question from OptionNameReferenceResolver and is read by Policy itself.",
+    "src/Repository/CanonicalSurfaces.php": "Repository: a catalogue over OptionState and SidebarState, so it sits with the state models it enumerates rather than with the planners that consume it.",
+    "src/Repository/Identity.php": "Repository: identity is repository-side truth (Uuid + SidebarState + Canon), not an engine operation.",
+    "src/Repository/IdentityBackup.php": "Repository with the rest of the Identity* family. It reads only policy/repository/kernel files, so the placement costs nothing.",
+    "src/Repository/ReferenceGraph.php": "Repository, unlike the Reference* grammar/rules/path files: it is a graph over Snapshot and SidebarState, i.e. compiled repository state.",
+    "src/Repository/RepositoryDeletionParser.php": "Repository with the Repository* family. Its read of the engine Deletion model is a real inversion and is recorded: the parser should take a deletion shape, not the engine type.",
+    "src/Repository/SidebarState.php": "Repository: a state model over Ledger/Snapshot/Db, the same axis as Snapshot and OptionState consumers.",
+    "src/Repository/StateTreeWalker.php": "Repository: a dependency-free walker over compiled state trees, read by Lint."
+  },
   "agent": {
     "root": "agent/src",
     "namespace": "Duo",
@@ -677,7 +710,7 @@
             ]
           }
         ],
-        "file_count": 26,
+        "file_count": 27,
         "files": [
           "Apply.php",
           "ApplyFieldMaterializer.php",
