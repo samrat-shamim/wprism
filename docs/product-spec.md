@@ -18,11 +18,11 @@ The document hierarchy is:
 - This document owns the product promise and direction.
 
 Current platform-certified behavior is authoritative only from the generated
-registry and repository-format specification. Site-certified behavior is
-authoritative only from the generated per-site capability projection described
-below, backed by current reviewed evidence, a certification attestation, and
-environment bindings. Product prose never creates either kind of capability
-claim.
+capability document and repository-format specification. Site-certified
+behavior is authoritative only from the generated per-site capability
+projection described below, backed by current reviewed evidence, a
+certification attestation, and environment bindings. Product prose never
+creates either kind of capability claim.
 
 Normative convention: **must** marks a condition for claiming the corresponding
 product capability; **should** marks the intended default; **may** marks
@@ -276,7 +276,7 @@ Certification provenance and technical readiness are separate dimensions:
 
 - **Platform-certified:** reusable, centrally reviewed evidence covers the
   exact declared stack, surface, and operation. The generated capability
-  registry is the sole source of these claims.
+  document is the sole source of these claims.
 - **Site-certified:** this application's reviewed contract, site-bound evidence,
   and certification attestation cover the exact capability. Site-certified
   means approved by a named customer organization under its policy through
@@ -383,21 +383,35 @@ Declarations are reviewable inputs. They cannot certify themselves.
 
 ### 2. Generated evidence
 
-Qualification produces immutable, content-addressed evidence bundles. The
-bundle binds its test plan, harness and oracle versions, exact dependency and
-environment fingerprints, execution receipts, expiry, and expected capability.
-A digest proves integrity, not authority. The repository pins evidence digests
-and requested capability bindings; effective readiness is always recomputed and
-cannot be asserted by repository text.
+Qualification produces evidence by exercise. Each declared capability names the
+conformance suites that cover it, and those suites run against a live pair of
+environments on the exact stack, schema, and bindings in front of them,
+observing authored state, references, protected runtime, and rebuilt behavior.
+A capability is evidenced when its named suites pass there. The evidence is a
+current run rather than a stored record: it is repeated against the environment
+that will rely on it, so it cannot outlive the code, schema, or declarations it
+was produced against. A passing suite proves behavior, not authority. The
+repository pins the reviewed declarations, the exact adapter bytes those suites
+ran against, and the requested capability bindings; effective readiness is
+always recomputed and cannot be asserted by repository text.
 
 ### 3. Certification attestation
 
-A registered certification gate verifies the evidence bundle, declaration,
-and required policy approvals, then signs an attestation under a configured
-platform or customer-organization trust root. The agent that proposed the
-declaration or ran the tests cannot confer certification merely by editing the
-repository or declaring its work successful. The attestation names the
-approving principal and whether the claim is platform- or site-certified.
+Certification is a signature by a named approving principal over the exact bytes
+it approves. The approving key belongs to a configured platform or
+customer-organization trust root, the signature covers the declaration's exact
+content, and the repository pins that identity and digest; verification runs on
+every load, so a changed declaration, certificate, authority record, or pin
+drops the claim rather than degrading it quietly. Platform certification takes
+the same shape with the platform as approver: a reviewed disposition, written
+with its reason and held where no declaration can reach it, which the generated
+capability document then projects. Either path records what it attests to —
+which validators accepted the declaration, whether the capability was exercised,
+and the approver's written reason — so approval is never read as proof of a run.
+The agent that proposed the declaration or ran the tests cannot confer
+certification merely by editing the repository or declaring its work successful.
+The attestation names the approving principal and whether the claim is platform-
+or site-certified.
 
 ### 4. Environment bindings
 
@@ -588,10 +602,10 @@ the requested operation:
     qualify it;
 11. inject relevant lifecycle, process, network, and provider failures and test
     retry or recovery for the requested profile; and
-12. bind passing evidence to its exact dependencies, submit it to the registered
-    certification gate when certification is requested, and report state class,
-    handling, readiness, certification provenance, effect containment, and
-    effect recovery semantics separately.
+12. bind passing evidence to its exact dependencies, submit the reviewed
+    declaration to a named approving principal when certification is requested,
+    and report state class, handling, readiness, certification provenance,
+    effect containment, and effect recovery semantics separately.
     Every unproved dependency remains Unclassified, Experimental, Not qualified,
     or Unsupported as applicable.
 
@@ -624,11 +638,14 @@ business behavior.
 
 ### Invalidation
 
-Every evidence bundle declares the code, version, schema, policy, oracle,
-environment, and provider facts on which it depends. Relevant drift changes a
-previous Ready result to **Requalification required**. Duo invalidates the
-smallest dependency-bound capability it can prove; it never silently assumes
-continued compatibility.
+Every capability declares the code, version, schema, policy, oracle,
+environment, and provider facts on which it depends, and Duo rechecks those
+facts against the target itself at each use. Relevant drift changes a previous
+Ready result to **Requalification required**: a version outside a declared
+range, adapter bytes that no longer match their pin, a changed reviewed
+disposition, or a named suite that no longer passes on the target. Duo
+invalidates the smallest dependency-bound capability it can prove; it never
+silently assumes continued compatibility.
 
 ## Agent and human authority
 
@@ -928,5 +945,29 @@ Ratification of this document makes the following product decisions:
   per-site projection.
 - Application-contract grammar enters the normative contract only through a
   versioned repository-format change.
+
+### Amendment record
+
+- **2026-08-20 — the claim model is exercised, not sealed.** Owner-delegated
+  ruling, following the teardown train (#477–#480) that removed the
+  certification-evidence apparatus. Immutable, content-addressed evidence
+  bundles and the registered certification gate that verified them leave the
+  target product; the target claim model is now the one that shipped. A
+  capability is manifest-declared, disposition-reviewed by a named human who
+  wrote down the reason, and conformance-tested by named suites against a live
+  pair, with the generated capability document as the single projection of that
+  model and the release gate byte-comparing it against its sources. Ed25519
+  certification over exact adapter bytes, under a platform or
+  customer-organization trust root, remains the certification path and is what
+  Site-certified names. This amends the application contract's parts 2 and 3,
+  qualification step 12, and Invalidation; the roadmap's site-certification rung
+  and its matching standing decision were aligned in the same commit. The
+  five-part contract, the provenance and readiness vocabularies, and every other
+  decision in this document stand as ratified. One naming note, since the
+  ratification record above is frozen: where this document says current
+  platform-certified claims come solely from *the generated registry*, the
+  artifact meant is *the generated capability document*
+  ([docs/capabilities.md](capabilities.md)) — the prose above now uses that
+  name, and the record keeps its original words.
 
 [DESIGN.md](../DESIGN.md) remains untouched as the founding record.
