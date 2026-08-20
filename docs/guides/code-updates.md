@@ -24,8 +24,8 @@ The commands are documented in
 4. **compile** — the repository becomes one immutable, content-addressed
    artifact whose `artifact_hash` binds the state revision and, when present,
    a separate opaque code descriptor and revision.
-5. **adapter disposition gate** — an experimental, unsupported, or
-   expired-evidence adapter claim refuses here, *before* any lease exists.
+5. **adapter disposition gate** — an experimental or unsupported adapter
+   claim refuses here, *before* any lease exists.
 6. **promotion-begin** — an exact owner/artifact session on the target.
 7. **code-stage** — the new bytes land beside the live tree.
 8. **lifecycle retire** — deactivation hooks fire.

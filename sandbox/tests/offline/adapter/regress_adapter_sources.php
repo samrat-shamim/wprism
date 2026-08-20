@@ -407,8 +407,8 @@ check(
 $siteCodes = array_column($siteRow['verdict']['reasons'] ?? [], 'code');
 check(
     in_array('adapter_source_uncertified', $siteCodes, true)
-    && !in_array('missing_registry_entry', $siteCodes, true),
-    'the out-of-tree reason code is its own, never the shipped "someone deleted a registry entry" code'
+    && !in_array('missing_disposition_entry', $siteCodes, true),
+    'the out-of-tree reason code is its own, never the shipped "someone deleted a disposition entry" code'
 );
 $siteReason = null;
 foreach ($siteRow['verdict']['reasons'] ?? [] as $reason) {

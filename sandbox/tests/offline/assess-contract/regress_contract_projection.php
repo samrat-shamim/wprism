@@ -277,8 +277,8 @@ $decidedContract = ApplicationContract::withDigest($decidedContract);
 $unclassifiedFacts = duo_projection_facts();
 $unclassifiedFacts['surfaces']['acme_catalog'] = [
     'operations' => [
-        'capture' => ['facts' => duo_vector('capture', ['policy_class' => null, 'unclassified' => true, 'registry' => ['claim_status' => null, 'verdict_status' => null, 'blockers' => ['missing_registry_entry'], 'source' => null]])],
-        'release' => ['facts' => duo_vector('release', ['policy_class' => null, 'unclassified' => true, 'registry' => ['claim_status' => null, 'verdict_status' => null, 'blockers' => ['missing_registry_entry'], 'source' => null]])],
+        'capture' => ['facts' => duo_vector('capture', ['policy_class' => null, 'unclassified' => true, 'registry' => ['claim_status' => null, 'verdict_status' => null, 'blockers' => ['missing_disposition_entry'], 'source' => null]])],
+        'release' => ['facts' => duo_vector('release', ['policy_class' => null, 'unclassified' => true, 'registry' => ['claim_status' => null, 'verdict_status' => null, 'blockers' => ['missing_disposition_entry'], 'source' => null]])],
     ],
 ];
 $decided = ContractProjection::generate($decidedContract, $unclassifiedFacts, $probe, duo_inventory(), DUO_GENERATED_AT);

@@ -229,7 +229,7 @@ check(
     . 'than left emitting on data nothing produces (still present: ' . implode(', ', $liveDeadCodes) . ')'
 );
 check(
-    str_contains($agentSource, "'missing_registry_entry'")
+    str_contains($agentSource, "'missing_disposition_entry'")
     && str_contains($agentSource, "'authored_state_not_certified'")
     && str_contains($agentSource, "'operation_not_certified'")
     && str_contains($agentSource, "'surface_not_registered'")
@@ -327,7 +327,18 @@ check(
     . 'announces it carries no generated digest, subject record, or bound evidence status'
 );
 $summary = PlanSummary::render(['adapter_dispositions' => $pmproBlockers]);
-check($summary['ok'] === false && str_contains(implode("\n", $summary['lines']), 'CAPABILITY_REGISTRY'), 'host status is non-green and explains the experimental adapter');
+check($summary['ok'] === false && str_contains(implode("\n", $summary['lines']), 'ADAPTER_DISPOSITIONS'), 'host status is non-green and explains the experimental adapter');
+// DUO-3485: the host's section label and the agent's own plan warning report
+// the same $plan['adapter_dispositions'] rows, so they must name the same
+// mechanism. Both used to say "capability registry" — the document the
+// teardown deleted — and nothing pinned the agent half, which is exactly how
+// `duo status` and `wp duo plan` could come to describe it in two words.
+$agentCliSource = (string) file_get_contents("$repo/agent/src/Command/Cli.php");
+check(
+    str_contains($agentCliSource, "'adapter disposition blocker(s) selected — readiness is not green and host promotion will refuse'")
+    && !str_contains($agentCliSource, 'capability registry blocker'),
+    "the agent's plan warning over those same rows names adapter dispositions too, never the deleted capability registry"
+);
 $hostBlockers = CodeDeploy::dispositionBlockers(['resolved_adapters' => RepositoryCompiler::resolved_adapters($pmproPolicy)]);
 check(($hostBlockers[0]['name'] ?? null) === 'paid-memberships-pro', 'host promotion gate refuses the same experimental disposition');
 

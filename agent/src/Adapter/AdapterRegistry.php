@@ -389,13 +389,13 @@ final class AdapterRegistry {
                         . 'certification evidence',
                         (string) ($source['remediation'] ?? '')
                     )
-                    : self::reason('missing_registry_entry', "no capability registry entry exists for '$name'");
+                    : self::reason('missing_disposition_entry', "no reviewed disposition entry exists for '$name'");
                 $claim = [
                     'name' => $name,
                     'status' => $outOfTree ? 'uncertified' : 'unsupported',
                     'reason' => $outOfTree
                         ? "installed out-of-tree from the {$source['source']} adapter source; not reviewed"
-                        : "no capability registry entry exists for '$name'",
+                        : "no reviewed disposition entry exists for '$name'",
                     'plugin_execution' => ['mode' => 'unknown', 'status' => 'unsupported'],
                     'authored_state' => ['status' => 'unsupported'],
                     'supported_versions' => new \stdClass(),

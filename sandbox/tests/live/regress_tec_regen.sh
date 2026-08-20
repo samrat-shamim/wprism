@@ -400,17 +400,17 @@ say "(7d-status) the REGEN_PENDING status signal clears after repair; TEC's sepa
 STATUS_CLEAN_RC=0
 STATUS_CLEAN_OUT=$("$DUO_CLI" status "$ENV_NAME" 2>&1) || STATUS_CLEAN_RC=$?
 echo "$STATUS_CLEAN_OUT"
-[ "$STATUS_CLEAN_RC" -ne 0 ] || fail "expected TEC's capability-registry certification gates to keep 'duo status $ENV_NAME' non-promotable"
+[ "$STATUS_CLEAN_RC" -ne 0 ] || fail "expected TEC's adapter-disposition certification gates to keep 'duo status $ENV_NAME' non-promotable"
 if grep -q "REGEN_PENDING (" <<<"$STATUS_CLEAN_OUT"; then
   fail "duo status still reports an outstanding REGEN_PENDING section after the marker resolved (output: $STATUS_CLEAN_OUT)"
 fi
-grep -q "CAPABILITY_REGISTRY (" <<<"$STATUS_CLEAN_OUT" \
-  || fail "expected the remaining nonzero status to identify TEC's independent capability-registry gate (output: $STATUS_CLEAN_OUT)"
+grep -q "ADAPTER_DISPOSITIONS (" <<<"$STATUS_CLEAN_OUT" \
+  || fail "expected the remaining nonzero status to identify TEC's independent adapter-disposition gate (output: $STATUS_CLEAN_OUT)"
 grep -Eq "the-events-calendar .*\[authored_state_not_certified\]" <<<"$STATUS_CLEAN_OUT" \
-  || fail "expected TEC's authored-state certification reason in capability-registry status (output: $STATUS_CLEAN_OUT)"
+  || fail "expected TEC's authored-state certification reason in adapter-disposition status (output: $STATUS_CLEAN_OUT)"
 grep -Eq "the-events-calendar .*\[operation_not_certified\]" <<<"$STATUS_CLEAN_OUT" \
-  || fail "expected TEC's operation certification reason in capability-registry status (output: $STATUS_CLEAN_OUT)"
-pass "REGEN_PENDING cleared from status after repair; the remaining nonzero result names TEC's independent capability-registry certification gates"
+  || fail "expected TEC's operation certification reason in adapter-disposition status (output: $STATUS_CLEAN_OUT)"
+pass "REGEN_PENDING cleared from status after repair; the remaining nonzero result names TEC's independent adapter-disposition certification gates"
 
 say "(8) ORPHAN-SWEEP PROOF (design review addition 2): a regen_pending marker that can never resolve again must not sit in duo_kv forever — both orphan shapes get swept, loudly, in the same pass that would have processed them"
 
