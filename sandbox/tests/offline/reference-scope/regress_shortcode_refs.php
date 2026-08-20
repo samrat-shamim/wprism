@@ -15,6 +15,17 @@
  *  - agent/src/Review/Lint.php's new scan_shortcodes(): the shortcode twins of
  *    unregistered_block_attr / unrewritten_registered_ref.
  *
+ * Shortcodes.php is a HARD Blocks.php dependency, not a sibling mechanism:
+ * Blocks.php's $rewriteString closure threads every innerContent chunk
+ * through Shortcodes::capture_rewrite_text()/apply_rewrite_text()
+ * (Blocks.php:249 and :261), so a change on this side can regress the
+ * block-refs mechanism without Blocks.php being touched at all. Carrying that
+ * cross-regression HERE is not this suite's job and used to cost real time:
+ * regress-block-refs is its own wired offline leaf, so every corpus pass runs
+ * regress_block_refs.php regardless, and the wrapper that also invoked it
+ * made tools/affected.php read block_refs.php as invoked-elsewhere -- under
+ * which `regress-block-refs` selected for nothing at all on a --changed run.
+ *
  * Runs the REAL, unmodified agent/src/{Canon,Policy,Tokens,Ledger,Pending,
  * Blocks,Shortcodes,Lint}.php against hand-built fixtures, with only two
  * things stubbed: WordPress's shortcode-parsing primitives (support/wp-

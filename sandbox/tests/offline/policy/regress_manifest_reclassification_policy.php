@@ -8,10 +8,12 @@
  * literally "core", to exercise the exact structural-recognition path the
  * fix depends on), never the real manifests/core.json or
  * manifests/polylang.json — this file proves the MECHANISM works in
- * isolation; sandbox/tests/regress_polylang_default_category.sh is the
- * live proof against the real shipped manifests and a real Polylang
- * install (default_category actually converging correctly across two
- * languages).
+ * isolation; sandbox/tests/grind/grind_r3a_multilingual.sh is the live
+ * proof against the real shipped manifests and a real Polylang install
+ * (en/de, and the reclassification is what lets its zero-exclusion
+ * byte-identity diff hold with no default_category carve-out — see that
+ * script's own note at the DIFF_OUT assertion, and manifests/
+ * polylang.json's DUO-3249 note, which cites the same run).
  *
  * DUO-3255 later ratified the formerly-undecided non-core collision case:
  * contradictory rules refuse, identical rules dedupe. The final checks
