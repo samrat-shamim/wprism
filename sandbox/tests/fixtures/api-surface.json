@@ -12715,6 +12715,9 @@
             "abstract": false,
             "constants": {
                 "FORMAT": {
+                    "value_repr": "duo-apply-in-progress/v2"
+                },
+                "FORMAT_V1": {
                     "value_repr": "duo-apply-in-progress/v1"
                 }
             },
@@ -12733,6 +12736,14 @@
                             "name": "preservedDrift",
                             "type": "array",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "writeSet",
+                            "type": "array",
+                            "variadic": false
                         }
                     ],
                     "return_type": "string",
@@ -12740,6 +12751,23 @@
                     "visibility": "public"
                 },
                 "preserved_drift": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "marker",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "write_set": {
                     "abstract": false,
                     "final": false,
                     "parameters": [

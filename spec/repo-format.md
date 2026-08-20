@@ -1281,17 +1281,32 @@ a structured `incomplete_apply` condition, so `duo status` remains non-zero
 until that retry succeeds and clears it.
 
 The marker's value is the canonical object
-`{"format":"duo-apply-in-progress/v1","preserved_drift":[{path,type,uuid}…]}`,
-naming exactly the entities that interrupted apply classified as ordinary
-environment `drift` and therefore deliberately did not write. Reprocessing is
-about rows the failed run wrote, whose `duo_state` base is now stale; it was
-never about rows it preserved. So the next plan widens `unchanged`, `conflict`
-and any *unrecorded* `drift` into `update` with `retry:true` as before, while a
-recorded identity that still classifies as `drift` stays in `drift`: the retry
-plan keeps reporting the true drift count, `duo status` stays non-zero on it,
-the `incomplete_apply` reason states how many entities the retry will not
-overwrite, and the documented capture-first remedy remains the only thing that
-folds them in. A marker carrying no such record (an older agent's, or a
+`{"format":"duo-apply-in-progress/v2","preserved_drift":[{path,type,uuid}…],"write_set":[uuid…]}`.
+`preserved_drift` names exactly the entities that interrupted apply classified
+as ordinary environment `drift` and therefore deliberately did not write;
+`write_set` names exactly the identities of its authored work set — the
+create/adopt/update/conflict rows it was authorized to mutate, locked in before
+the first mutation. Reprocessing is about rows the failed run wrote, whose
+`duo_state` base is now stale; it was never about rows it did not.
+
+So the next plan widens `unchanged` and any *unrecorded* `drift` into `update`
+with `retry:true` as before, and widens a `conflict` row only when `write_set`
+contains its identity. A recorded identity that still classifies as `drift`
+stays in `drift`, and a three-way `conflict` on an identity outside the write
+set stays in `conflict` — where the ordinary gate keeps demanding an explicit
+`--force-theirs` or capture-first choice, exactly as it would on a first apply.
+Both matter because the repository side of an entity can move between the two
+runs (the operator recompiles), which turns a preserved row into a genuine
+three-way divergence that a retry must not resolve on its own. The retry plan
+keeps reporting the true `drift` and `conflict` counts, `duo status` stays
+non-zero on them, and the `incomplete_apply` reason states how many entities
+the retry will not overwrite and which remedy each group needs.
+
+The format string is the contract, and each version is read only for the claim
+it makes. A `duo-apply-in-progress/v1` marker records `preserved_drift` and no
+write set at all: its recorded identities are provably not-written and carve
+out of both buckets, while every other `conflict` row keeps the original
+widening. A marker carrying no record at all (an older agent's, or a
 hand-planted one) keeps the original whole-bucket widening rather than
 inventing a preservation claim.
 
