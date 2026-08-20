@@ -79,7 +79,12 @@ a key is treated as a tree only when it carries both a string `root` and a
    `tools/layers-exceptions.json` edge list (re-sorted, because
    `regress_agent_src_requires.php` asserts SORT_STRING order), and every
    non-recursive `glob()`/`scandir()` over a source tree that would otherwise
-   return zero files and pass vacuously.
+   return zero files and pass vacuously. `tools/layers.json` itself was
+   retired in DUO-3493 — `regress_agent_src_requires.php` now derives its
+   {path => layer} map from `tools/modules.json` directly — so `mm_rewrite_layers_json()`
+   has nothing to rewrite in the real repo today; it stays for a hypothetical
+   future reorganisation that recreates the file, and is exercised only
+   against `tests/Tooling/MoveModulesTest.php`'s synthetic fixtures.
 
 After `--apply` it regenerates both classmaps, deletes the stale
 `sandbox/tmp/affected-index.json`, re-pins the golden block hashes in
