@@ -40,15 +40,32 @@ declare(strict_types=1);
  * `cli/src/Assess`, `cli/src/Contract` and `agent/src/Assess`, not in the
  * evidence a grind records.
  *
- * ## Read this before you re-run it
+ * ## Re-running this is the supported way to change a fixture
  *
- * This script does not currently complete: `RecoveryClaim::build()` refuses the
- * facts assembled below with "recovery claim facts carry unknown key(s):
- * checkpoint_at". The builder moved and this caller did not, so a re-run
- * regenerates nothing and dies partway. Until that is reconciled, apply a
- * targeted delta to the fixture bytes and re-run `grind_mup.sh --self-check`,
- * which is what the evidence-chain teardown did: it narrowed the `evidence`
- * block and rebound the digest over it, and left every other byte alone.
+ * A wholesale re-run reproduces every committed byte beside it, and
+ * `sandbox/tests/offline/guards/regress_fixture_makers.sh` fails the corpus if
+ * it stops doing so. Between #472 and DUO-3483 this script did not complete at
+ * all — `RecoveryClaim::build()` refused its facts with "recovery claim facts
+ * carry unknown key(s): checkpoint_at" — so the fixtures were delta-edited
+ * instead. Two causes, both recorded because a future edit can reintroduce
+ * either:
+ *
+ *   - `checkpoint_at` was passed to `RecoveryClaim::build()`. It was not
+ *     renamed; #472 REMOVED it from the claim on purpose. The claim is
+ *     embedded in the digested part of the authorization plan, so a clock
+ *     value inside it made `plan_digest` a timestamp — two `--plan-only` runs
+ *     a second apart produced two names for one decision. The instant travels
+ *     BESIDE the claim now, as `recovery_profile.checkpoint_at`, excluded from
+ *     `plan_digest` exactly like `frozen_at` (RecoveryClaim.php:36-58 and its
+ *     FACT_KEYS comment at :192-198). It is still handed to
+ *     `RecoveryProfileSelection::decide()` below, which is what publishes it;
+ *   - `evidence.registry_sha256` and `generated_from.dispositions_sha256` were
+ *     `sha256:`-prefixed. Both producers emit BARE 64-hex —
+ *     `ManifestDispositions::sha256()` for the target's
+ *     (agent/src/Policy/ManifestDispositions.php:114) and
+ *     `AssessCommand::registryProvenance()` for the host's
+ *     (cli/src/Command/AssessCommand.php:716). The prefixed form belongs to
+ *     `AdapterObservation`, a different document.
  */
 
 $root = dirname(__DIR__, 4);
@@ -220,12 +237,22 @@ $assess = AssessReport::build(
     ],
     ['transport' => 'docker', 'read_only' => true, 'repo' => '/siterepo'],
     $surfaces,
-    ['invisible_names_count' => 41, 'names_sample' => ['acme_widget_cache'], 'pending_count' => 3],
+    // `undeclared_tables_count` is one because the `table:acme_catalog` row
+    // above IS that table: `AssessReport::unknown()` returns the key on every
+    // run, so a report without it is a document no assess can produce.
+    [
+        'invisible_names_count' => 41,
+        'names_sample' => ['acme_widget_cache'],
+        'pending_count' => 3,
+        'undeclared_tables_count' => 1,
+    ],
+    // Both numbers are BARE 64-hex, the only form either producer emits (see
+    // the docblock). The `sha256:` prefix belongs to AdapterObservation.
     [
         'generated_from' => [
-            'dispositions_sha256' => 'sha256:' . str_repeat('9', 64),
+            'dispositions_sha256' => str_repeat('9', 64),
         ],
-        'registry_sha256' => 'sha256:' . str_repeat('8f', 32),
+        'registry_sha256' => str_repeat('8f', 32),
     ],
     // DUO-3484's host/target comparison, pinned AGREEING: this walk is about
     // the §6.1 words, and a skewed library would withhold the proposal and
@@ -233,9 +260,9 @@ $assess = AssessReport::build(
     // fixtures in regress_assess_composition.sh and regress_contract_accept.sh.
     [
         'agree' => true,
-        'host_registry_sha256' => 'sha256:' . str_repeat('8f', 32),
+        'host_registry_sha256' => str_repeat('8f', 32),
         'meaning' => AssessReport::DISPOSITIONS_AGREE_MEANING,
-        'target_registry_sha256' => 'sha256:' . str_repeat('8f', 32),
+        'target_registry_sha256' => str_repeat('8f', 32),
     ]
 );
 mup_json("$out/assess-report.pass.json", $assess);
@@ -264,9 +291,12 @@ $declaredEffects = [[
     'id' => 'code-lifecycle-window',
     'restored_by' => 'code release',
 ]];
+// No `checkpoint_at` in either call: it is a request fact of
+// `RecoveryProfileSelection::decide()` (used below), never a claim field —
+// `RecoveryClaim::FACT_KEYS` refuses it by name so a clock cannot reach
+// `plan_digest`.
 $operatorClaim = RecoveryClaim::build([
     'additional_does_not_restore' => [],
-    'checkpoint_at' => $now,
     'covered_resources' => ['database checkpoint /siterepo/.duo/checkpoints/promote-1.sql'],
     'declared_external_effects' => $declaredEffects,
     'profile' => RecoveryClaim::OPERATOR_DIRECTED,
@@ -276,7 +306,6 @@ mup_json("$out/recovery-claim.operator-directed.json", $operatorClaim);
 
 $noneClaim = RecoveryClaim::build([
     'additional_does_not_restore' => [],
-    'checkpoint_at' => null,
     'covered_resources' => [],
     'declared_external_effects' => $declaredEffects,
     'profile' => RecoveryClaim::NONE,

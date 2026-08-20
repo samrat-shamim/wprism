@@ -71,10 +71,11 @@
             "environment-bound state drift (1)"
         ]
     },
-    "plan_digest": "sha256:ff60eb1cf5619ffb1449819c403ba88262ac8e1229d8248f146e454f4ed90b2c",
+    "plan_digest": "sha256:be07839a6f78e9fcc9a5b9d7800d3c00ef863899c35989c283e5dbef4f825e29",
     "recovery_profile": {
+        "checkpoint_at": "2026-08-17T09:14:02Z",
         "claim": {
-            "claim_digest": "sha256:643a9b551da1fdb8ea20e19537833f90b690ef3d1f7f16de41b66811be826a9c",
+            "claim_digest": "sha256:7a2460efaafd8e1690d557c201b1a8ac8bcd7cf73d4916af3f1fd5dab20562a5",
             "covered_resources": [
                 "database checkpoint"
             ],
@@ -91,7 +92,7 @@
                 "declared external effect \"transactional-mail\" — recovery semantics: irreversible"
             ],
             "format": "duo-recovery-claim/v1",
-            "maximum_loss_boundary": "writes committed after checkpoint 2026-08-17T09:14:02Z",
+            "maximum_loss_boundary": "writes committed after the checkpoint this release takes immediately before mutation; the instant that checkpoint pins is printed beside this claim",
             "profile": "operator-directed",
             "restores": [
                 "database checkpoint"

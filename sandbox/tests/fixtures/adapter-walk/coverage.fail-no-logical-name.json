@@ -5,7 +5,7 @@
         "invisible_groups": [
             {
                 "count": 37,
-                "prefix": "wpforms_",
+                "prefix": "wpforms",
                 "probable_owner": "wpforms-lite"
             }
         ],

@@ -24,7 +24,7 @@
         }
     ],
     "code_revision_from": "e2f1a0900000000000000000000000000000000000000000000000000000ffff",
-    "contract_digest": "sha256:417ab02ecac87aa8e5adaabeb6255e9717be8880aba88d04fda1ba0cba3395c2",
+    "contract_digest": "sha256:949a564cac1f108aaa6353b8e26075fbd6f86c5535f12f32e529aa9db4a36be3",
     "effects": {
         "containment": "live",
         "containment_basis": "unknown — not enforced in this profile",
@@ -66,7 +66,7 @@
             "environment-bound state drift (1)"
         ]
     },
-    "plan_digest": "sha256:db2baef46fa7b631de5a7183e7b5de585883520b895febf1331f93780f2ed586",
+    "plan_digest": "sha256:e90aa693041a5ea58ad57efbc85dbb6a38f4fc89b7f644adc19bfd4709b76b8a",
     "recovery_profile": {
         "checkpoint_at": "2026-08-17T09:14:02Z",
         "claim": {

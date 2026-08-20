@@ -1,11 +1,11 @@
 {
-    "claim_digest": "sha256:7059bc32462de0cf1364c383641cfd24d8d3e1857393ebfc81bc4a9a4b4dbb4c",
+    "claim_digest": "sha256:ec73f4575e66713575d35b59371bc1a51cbcae862f310535d752c8e43e191c73",
     "covered_resources": [
         "database checkpoint /siterepo/.duo/checkpoints/promote-1.sql"
     ],
     "does_not_restore": [],
     "format": "duo-recovery-claim/v1",
-    "maximum_loss_boundary": "writes committed after checkpoint 2026-08-17T09:14:02Z",
+    "maximum_loss_boundary": "writes committed after the checkpoint this release takes immediately before mutation; the instant that checkpoint pins is printed beside this claim",
     "profile": "operator-directed",
     "restores": [
         "database checkpoint"

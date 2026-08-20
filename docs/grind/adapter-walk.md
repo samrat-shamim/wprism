@@ -288,25 +288,41 @@ after the real shape moves.
 
 This walk asserts a contract being built in parallel, so some of its documents
 are shapes no shipped builder can mint yet: the `site_signed` catalog word,
-`shadowed_by_site`, `Site-certified` with a named principal, the `certify
-adapter` gap action, `logical_name` on an undeclared-table row, and the
-`UNMANAGED PLUGIN` init advisory. Those are constructed from the contract text
-with a `_provenance` note naming the section, and where a shipped validator can
-be asked at all, `make-fixtures.php` **asks it and prints the refusal**:
+`shadowed_by_site`, `Site-certified` with a named principal, `logical_name` on
+an undeclared-table row, and the `UNMANAGED PLUGIN` init advisory. Those are
+constructed from the contract text with a `_provenance` note naming the
+section, and where a shipped validator can be asked at all,
+`make-fixtures.php` **asks it and prints the refusal**:
 
 ```
 contract-new shapes the shipped validators do not accept yet (expected while T6 is being built):
-  - the `certify adapter` gap action (§3.6) is not yet accepted by the shipped validator: …
+  - <shape> (§<section>) is not yet accepted by the shipped validator: <the validator's own message>
 ```
 
 That note is the honest status line, and it is self-clearing: while it appears,
 the product has not landed that half of the contract; when it stops appearing,
 the fixture became a validated one and nothing else has to change.
 
-Two FAIL fixtures are **today's output, byte for byte** —
+**It has stopped appearing, and that is the mechanism working.** The `certify
+adapter` gap action was the one shape this script could ask a validator about,
+and T6 §3.6 landed it into `ProjectionVocabulary::GAP_ACTIONS`, so
+`ContractProposal::validateAssessReport()` accepts the report and the note
+block prints nothing. The call is still in `make-fixtures.php` and will say so
+again the day the word is withdrawn. The remaining contract-new shapes above
+have no host-side validator to ask — a catalog is produced by
+`AdapterSources::survey()` against a live repository — so they carry their
+`_provenance` note and nothing more.
+
+Two FAIL fixtures used to be **today's output, byte for byte** —
 `coverage.fail-no-logical-name.json` and
-`assess-human.no-undeclared-table-line.txt`. They are recorded as failures
-because §3.7 bugs 1 and 2 say they are.
+`assess-human.no-undeclared-table-line.txt` — because §3.7 bugs 1 and 2 meant
+the product really did emit them. Both bugs are fixed:
+`Coverage::tables_report()` publishes `logical_name` on every undeclared row,
+and `AssessRenderer::unknownSection()` prints `N undeclared table(s) (no
+installed adapter declares them)` from the `undeclared_tables_count`
+`AssessReport::unknown()` now returns. Each fixture is therefore an ordinary
+one-edit negative now, and a stronger one than it was: the shipped builder can
+no longer produce either.
 
 ---
 
