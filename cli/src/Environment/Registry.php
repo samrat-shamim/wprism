@@ -30,7 +30,9 @@ final class Registry {
         if ($siteFile !== null && $gitRoot !== null && dirname($siteFile) !== $gitRoot) {
             throw new \RuntimeException(
                 "$siteFile: refusing a nested site.duo.json outside Git worktree root $gitRoot; "
-                . 'the site registry must be rooted in the repository whose environments it controls'
+                . 'the site registry must be rooted in the repository whose environments it controls; '
+                . 'make the site repo its own Git worktree root (git init inside it) or move site.duo.json '
+                . 'to the enclosing worktree root and run this command from there'
             );
         }
         if ($siteFile !== null) {
