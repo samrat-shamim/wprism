@@ -28,7 +28,7 @@ release to awalk2? [y/N]
         }
     ],
     "code_revision_from": "e2f1a0900000000000000000000000000000000000000000000000000000ffff",
-    "contract_digest": "sha256:949a564cac1f108aaa6353b8e26075fbd6f86c5535f12f32e529aa9db4a36be3",
+    "contract_digest": "sha256:f7f036f9e9ec5cc4157504b1300eb602d8c6add5e311fac3af4dd04430ce1ee8",
     "effects": {
         "containment": "live",
         "containment_basis": "unknown — not enforced in this profile",
@@ -70,7 +70,7 @@ release to awalk2? [y/N]
             "environment-bound state drift (1)"
         ]
     },
-    "plan_digest": "sha256:e90aa693041a5ea58ad57efbc85dbb6a38f4fc89b7f644adc19bfd4709b76b8a",
+    "plan_digest": "sha256:c9631de5eb7e0487dea7cb18ad9514c77692d5d1ffef29724eec8bd31fda0d45",
     "recovery_profile": {
         "checkpoint_at": "2026-08-17T09:14:02Z",
         "claim": {

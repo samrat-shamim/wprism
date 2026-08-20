@@ -42,7 +42,14 @@ use Duo\Orchestrator\ApplicationContract;
 use Duo\Orchestrator\ContractProjection;
 use Duo\Orchestrator\ProjectionVocabulary as V;
 
-const DUO_REGISTRY_SHA = 'sha256:8fa100000000000000000000000000000000000000000000000000000000ffff';
+// Bare 64-hex, matching `contract-unbound.json`'s `evidence_pins.registry_sha256`
+// and both real producers — `ManifestDispositions::sha256()`
+// (agent/src/Policy/ManifestDispositions.php:114) and
+// `AssessCommand::registryProvenance()` (cli/src/Command/AssessCommand.php:716).
+// The `sha256:` form belongs to `AdapterObservation`, which re-prefixes this
+// number on the way into a different document
+// (agent/src/Adapter/AdapterObservation.php:548).
+const DUO_REGISTRY_SHA = '8fa100000000000000000000000000000000000000000000000000000000ffff';
 const DUO_GENERATED_AT = '2026-08-17T09:14:02Z';
 
 /**

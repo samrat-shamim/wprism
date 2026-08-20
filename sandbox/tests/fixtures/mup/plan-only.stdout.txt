@@ -28,7 +28,7 @@ release to mup2? [y/N]
         }
     ],
     "code_revision_from": "e2f1a0900000000000000000000000000000000000000000000000000000ffff",
-    "contract_digest": "sha256:949a564cac1f108aaa6353b8e26075fbd6f86c5535f12f32e529aa9db4a36be3",
+    "contract_digest": "sha256:f7f036f9e9ec5cc4157504b1300eb602d8c6add5e311fac3af4dd04430ce1ee8",
     "effects": {
         "containment": "live",
         "containment_basis": "unknown — not enforced in this profile",
@@ -75,7 +75,7 @@ release to mup2? [y/N]
             "environment-bound state drift (1)"
         ]
     },
-    "plan_digest": "sha256:be07839a6f78e9fcc9a5b9d7800d3c00ef863899c35989c283e5dbef4f825e29",
+    "plan_digest": "sha256:a71ee8373817cd1618ab3fcc86d4f16a0b9d5e8fa11e7931c5f22eab748a54f6",
     "recovery_profile": {
         "checkpoint_at": "2026-08-17T09:14:02Z",
         "claim": {
