@@ -199,13 +199,13 @@ branch or edit files before this passes.
   before the PR; it is a requirement, not a suggestion:
   - **Every changed code path executes offline** (`docs/`, `Makefile`, offline
     suites and their fixtures) → **no sweep**; the offline corpus is the gate.
-    Read the directory, then check it: `sandbox/tests/` is split by execution
-    class — `offline/<domain>/` is what the merge gate runs, while `live/`,
-    `grind/`, `certify/` and `spike/` are LIVE-only, and an edit to one of
-    those executes nowhere offline. The split names the class but does not
-    prove it, so confirm against the `Makefile` recipe that runs the file
-    rather than trusting the path — prove its edited logic offline instead (a
-    static pin or a simulated input driving the same jq/shell logic, the
+    `sandbox/tests/` is split by execution class — `offline/<domain>/` is what
+    the merge gate runs, while `live/`, `grind/`, `certify/` and `spike/` are
+    LIVE-only — and `regress_suite_wiring.php`'s clause 4 refuses a suite wired
+    to a target of any class but its own directory's, so the path is the class
+    rather than a convention to re-derive. An edit under those four therefore
+    executes nowhere offline: prove its edited logic offline instead (a static
+    pin or a simulated input driving the same jq/shell logic, the
     DUO-3362/DUO-3406 pattern) or run the edited script's own path once.
   - **`agent/src`/`Policy.php` engine internals** → **one sweep of the
     cheapest manifest that executes the changed path** (`core` for generic
@@ -285,6 +285,10 @@ branch or edit files before this passes.
   offline number is a third of the pre-teardown ~5 min: `Policy::load()` no
   longer re-verifies nine certification closures per process, which used to
   dominate the corpus (see docs/dev-setup.md §Measured wall times).
+- **Cost yardstick (2026-08-20, same host, post-restructure):** `php
+  tools/offline.php -j8` 112.54 s wall over 252 suites (516.47 s of suite
+  time). Moving the corpus into `offline/<domain>/` changed no runtime; the
+  live-pair and conformance figures above are unchanged.
 
 ## Close gate (strict order)
 

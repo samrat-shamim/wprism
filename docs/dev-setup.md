@@ -111,18 +111,24 @@ one unreadable stream. Use `tools/offline.php`.
 
 ### Measured wall times
 
-Measured 2026-08-19 on a full clone (macOS 26.0.1, 10 cores, PHP 8.5.6),
-251/251 offline suites green, zero parallel flakes:
+Measured on a full clone (macOS 26.0.1, 10 cores, PHP 8.5.6), `php
+tools/offline.php -j8`, zero parallel flakes in either run:
 
-| run | wall | suite-seconds | effective parallelism |
-| --- | --- | --- | --- |
-| `php tools/offline.php -j8` | 108.65 s | 499.68 s | 4.6x on 8 workers |
+| date | corpus | wall | suite-seconds | effective parallelism |
+| --- | --- | --- | --- | --- |
+| 2026-08-19 | 251/251 green | 108.65 s | 499.68 s | 4.6x on 8 workers |
+| 2026-08-20 | 252/252 green | 112.54 s | 516.47 s | 4.6x on 8 workers |
+
+The second run is the same host after the `sandbox/tests` restructure: moving
+a suite into `offline/<domain>/` changes no runtime, and the one extra suite
+is `regress-suite-wiring`, which W0 added with the nested layout.
 
 The schedule is bounded below by its single longest suite, so the makespan
-tracks that suite rather than the workers' theoretical 8x. Today's top tier is
-`regress-pair-bootstrap-unit` 75.17 s, `regress-adopt-rollback` 55.91 s,
-`regress-scoped-promote-unit` 34.19 s — all three genuinely serial work
-(container bootstrap, rollback ordering), not accidental cost.
+tracks that suite rather than the workers' theoretical 8x. The 2026-08-19 top
+tier is `regress-pair-bootstrap-unit` 75.17 s, `regress-adopt-rollback`
+55.91 s, `regress-scoped-promote-unit` 34.19 s — all three genuinely serial
+work (container bootstrap, rollback ordering), not accidental cost, and the
+same three in the same order on 2026-08-20 (80.09 s, 57.59 s, 37.02 s).
 
 The certification teardown is visible in this table and worth knowing about if
 you are comparing against an older run. The previous measurement on this same
@@ -149,7 +155,7 @@ Two `Makefile` edits go with it, and `regress_bundle_coverage.sh` fails the
 gate if either is missing: wire the new leaf into `regress-offline-corpus`, and
 bump the `regress-offline-all: N offline suites green` line. That suite expands
 the whole prerequisite graph and compares its size against the declared number
-(`:168`), so an unwired suite and a stale count are separate refusals — each
+(`:201-213`), so an unwired suite and a stale count are separate refusals — each
 with its own self-test inside the suite, so neither can rot unnoticed.
 
 Tooling self-tests are different: they go in `tests/` as PHPUnit 11

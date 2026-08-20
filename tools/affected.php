@@ -8,10 +8,11 @@ declare(strict_types=1);
  *
  * WHY THIS EXISTS
  * ----------------
- * `make regress-offline-all` runs all offline leaf targets (239 today) and costs
- * ~509 s serially / ~97 s at `-j8` (tools/offline.php). Neither number is
- * fast enough to run on every edit while iterating, so this tool answers a
- * narrower question: given a set of changed files, which of those
+ * `make regress-offline-all` runs every offline leaf target and costs minutes
+ * even at `-j8` (tools/offline.php; the dated wall times live in
+ * docs/dev-setup.md §Measured wall times, not here, where they would rot).
+ * That is not fast enough to run on every edit while iterating, so this tool
+ * answers a narrower question: given a set of changed files, which of those
  * targets could possibly be affected? `tools/offline.php --changed[=BASE]`
  * shells out to `php tools/affected.php --base=BASE`, treats stdout as the
  * work list (one target name per line), and intersects it with the real
@@ -26,10 +27,13 @@ declare(strict_types=1);
  * dump is a flat target->prerequisites table with continuations already
  * resolved; leaves are prerequisites with no prerequisites of their own,
  * found by walking from `regress-offline-corpus` (which pulls in
- * `code-half-unit`, its own 22-target aggregator, sharing one leaf --
- * regress-code-descriptor-compiler -- with the direct list: 217 + 22 - 1 =
- * 238, matching Makefile's own `regress-offline-all: 238 offline suites
- * green` status line and regress_bundle_coverage.sh's independent count).
+ * `code-half-unit`, its own aggregator, sharing one leaf --
+ * regress-code-descriptor-compiler -- with the direct list, so the union is
+ * one smaller than the sum of the two lists). How many that is, is
+ * deliberately not restated here: Makefile's own `regress-offline-all: N
+ * offline suites green` status line is the count of record, and
+ * sandbox/tests/offline/guards/regress_bundle_coverage.sh fails the gate the
+ * moment its own independent count disagrees with that line.
  *
  * TARGET -> SUITE FILE, AND WHY inv_elsewhere EXISTS
  * ----------------------------------------------------

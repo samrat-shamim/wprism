@@ -365,6 +365,37 @@ before a `git pull` on the second side). If the pattern this template
 covers ever needs to change, change it once, there, not across every
 fixture's own copy.
 
+## The five execution classes under `sandbox/tests/`
+
+Which gate runs a suite is its directory, not its name. `offline/<domain>/`
+(267 files across fifteen subject domains) is the merge-gate corpus: no
+docker, no pair, `make regress-offline-all` runs every one of them anywhere.
+The other four sit outside that gate, and — with the one exception named
+below — every file in them needs a live pair. `live/` (42 files) is
+per-mechanism pair evidence, one pair each, enumerated by `make
+regress-live-list` and run when the diff touches the mechanism a suite's own
+header names. `grind/` (11) holds the scenario grinds that walk a whole
+fixture site through a round of work (`grind_r1a_forms.sh` and its siblings),
+plus `grind_ecommerce_developer.matrix.json` — a data file whose two readers
+are offline suites, kept here with the harness whose stem it shares.
+`certify/` (6) is live certification-style evidence, one mechanism apiece: the
+merge, deletion, version and adversarial matrices and the two SSH
+adoption/rollback proofs. `spike/` (10) is the hand-run family — the
+exploratory `spike_*.sh` seeds, the three docker smokes whose own headers
+require an already-booted spike-E pair (`cli_smoke.sh`, `cli_triage_smoke.sh`,
+`lint_smoke.sh`), and the two scripts with no `Makefile` target at all.
+`check_guide_commands.sh` is hermetic and could have been an offline suite; it
+is here because its header (`:37`) claims exactly this kinship — "deliberately
+has no Makefile target: same precedent as `cli_status_truth.sh`" — and
+`offline/` is reserved for what the merge gate executes. Nothing in the gate
+runs it; `php tools/offline.php --extras` does, opt-in.
+
+`sandbox/tests/` itself holds no suites, only `fixtures/`, `lib/`, `support/`
+and the corpus wrapper `offline_diagnostics_guard.sh`. The split is enforced,
+not conventional: `regress_suite_wiring.php`'s clause 4 refuses a suite wired
+to a target of any class but its own directory's, and refuses a recipe of one
+class that names a helper sitting in another's.
+
 ## What stays on the legacy `sandbox/docker-compose.yml` this round
 
 Untouched, on purpose: the mega-compose file itself, every pair it defines
