@@ -49,6 +49,7 @@ namespace {
 require_once __DIR__ . '/../../../../cli/src/Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/../../../../cli/src/Plan/PlanContract.php';
 require_once __DIR__ . '/../../../../cli/src/Environment/EnvironmentLifecycle.php';
+require_once __DIR__ . '/../../../../cli/src/Environment/PortablePreviewMaterializer.php';
 
 use Duo\Orchestrator\CommandEnvironmentProvider;
 use Duo\Orchestrator\DriverCapability;
@@ -57,19 +58,28 @@ use Duo\Orchestrator\EnvironmentDriver;
 use Duo\Orchestrator\EnvironmentLifecycleJournal;
 use Duo\Orchestrator\EnvironmentLifecycleCanon;
 use Duo\Orchestrator\EnvironmentMaterializer;
+use Duo\Orchestrator\PortablePreviewMaterializer;
+use Duo\Orchestrator\ProviderLeaseBoundEnvironmentDriver;
 
-function em_fail(string $message): never { fwrite(STDERR, "FAIL: $message\n"); exit(1); }
-function em_ok(bool $condition, string $message): void { if (!$condition) em_fail($message); echo "ok: $message\n"; }
+function em_fail(string $message): never { fwrite(STDERR, "FAIL: $message\n");
+exit(1); }
+function em_ok(bool $condition, string $message): void { if (!$condition) em_fail($message);
+echo "ok: $message\n"; }
 function em_run(array $command, ?string $cwd = null): string {
     $proc = proc_open($command, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $cwd, null, ['bypass_shell' => true]);
     if (!is_resource($proc)) em_fail('could not start fixture command');
-    fclose($pipes[0]); $out = (string) stream_get_contents($pipes[1]); $err = (string) stream_get_contents($pipes[2]);
-    fclose($pipes[1]); fclose($pipes[2]); $exit = proc_close($proc);
+    fclose($pipes[0]);
+    $out = (string) stream_get_contents($pipes[1]);
+    $err = (string) stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $exit = proc_close($proc);
     if ($exit !== 0) em_fail('fixture command failed: ' . implode(' ', $command) . "\n$err");
     return trim($out);
 }
 function em_remove(string $path): void {
-    if (is_link($path) || is_file($path)) { @unlink($path); return; }
+    if (is_link($path) || is_file($path)) { @unlink($path);
+    return; }
     if (!is_dir($path)) return;
     foreach (scandir($path) ?: [] as $name) if ($name !== '.' && $name !== '..') em_remove($path . '/' . $name);
     @rmdir($path);
@@ -126,7 +136,8 @@ final class MaterializerDriver implements EnvironmentDriver {
         }
         return ['exit' => 0, 'stdout' => $this->planJson . "\n", 'stderr' => ''];
     }
-    public function streamWp(array $args): int { $this->calls[] = ['stream', $args]; return 0; }
+    public function streamWp(array $args): int { $this->calls[] = ['stream', $args];
+    return 0; }
     public function wpInstruction(array $args): string { return 'fixture'; }
     public function capabilityReport(string $operation): DriverCapabilityReport {
         return DriverCapabilityReport::forDriver($this->name, $this->driverId(), $operation, [
@@ -137,6 +148,60 @@ final class MaterializerDriver implements EnvironmentDriver {
             DriverCapability::RAW_CONTROL => true,
             DriverCapability::WP_CONTROL => true,
         ]);
+    }
+}
+
+/** A cloud target is unreachable until an exact provider lease/fence is bound. */
+final class PortableMaterializerDriver implements ProviderLeaseBoundEnvironmentDriver {
+    /** @var list<array{kind:string,payload:mixed,phase:string}> */
+    public array $calls = [];
+    /** @var list<array{operation_id:string,identity:array<string,mixed>,fence:array<string,mixed>}> */
+    public array $bindings = [];
+    public int $releases = 0;
+    private bool $bound = false;
+    private string $phase = '';
+
+    public function __construct(private string $name, private string $repo) {}
+    public function name(): string { return $this->name; }
+    public function driverId(): string { return 'fixture-cloud-preview'; }
+    public function repoPath(): string { return $this->repo; }
+    public function describe(): string { return 'fixture cloud preview'; }
+    public function captureRaw(string $script): array {
+        $this->assertBound();
+        $this->calls[] = ['kind' => 'raw', 'payload' => $script, 'phase' => $this->phase];
+        return ['exit' => 0, 'stdout' => '', 'stderr' => ''];
+    }
+    public function captureWp(array $args): array {
+        $this->assertBound();
+        $this->calls[] = ['kind' => 'wp', 'payload' => $args, 'phase' => $this->phase];
+        return ['exit' => 0, 'stdout' => "{}\n", 'stderr' => ''];
+    }
+    public function streamWp(array $args): int {
+        $this->assertBound();
+        $this->calls[] = ['kind' => 'stream', 'payload' => $args, 'phase' => $this->phase];
+        return 0;
+    }
+    public function wpInstruction(array $args): string { return 'fixture cloud preview'; }
+    public function capabilityReport(string $operation): DriverCapabilityReport {
+        return DriverCapabilityReport::forDriver($this->name, $this->driverId(), $operation, [
+            DriverCapability::CODE_MATERIALIZE => true,
+            DriverCapability::RAW_CONTROL => true,
+            DriverCapability::WP_CONTROL => true,
+        ]);
+    }
+    public function bindProviderLease(string $operationId, array $identity, array $mutationFence): void {
+        if (($mutationFence['state'] ?? null) !== 'held') throw new \RuntimeException('fixture received a released fence');
+        $this->bindings[] = ['operation_id' => $operationId, 'identity' => $identity, 'fence' => $mutationFence];
+        $this->bound = true;
+    }
+    public function beginProviderCommandPhase(string $phase): void { $this->phase = $phase; }
+    public function releaseProviderLease(string $operationId, array $releasedFence): void {
+        if (($releasedFence['state'] ?? null) !== 'released') throw new \RuntimeException('fixture received a held release');
+        $this->bound = false;
+        $this->releases++;
+    }
+    private function assertBound(): void {
+        if (!$this->bound) throw new \RuntimeException('cloud target command ran without a held provider lease/fence');
     }
 }
 
@@ -185,7 +250,7 @@ if ($a === 'snapshot-create' && $mode === 'create-loss') {
     exit(75); // provider applied/accepted create but its response was lost
   }
 }
-$caps = ['environment.attach','environment.create','environment.destroy','environment.detach','environment.inspect','environment.mutation.acquire','environment.mutation.read','environment.mutation.release','environment.ttl','environment.ttl.read','environment.url.discover','environment.url.set','operation.receipts','repository.materialize','snapshot.set.abort','snapshot.set.create','snapshot.set.prepare','snapshot.set.read','snapshot.set.restore'];
+$caps = ['environment.attach','environment.create','environment.destroy','environment.detach','environment.inspect','environment.mutation.acquire','environment.mutation.read','environment.mutation.release','environment.ttl','environment.ttl.read','environment.url.discover','environment.url.set','operation.receipts','repository.materialize','repository.sync','snapshot.set.abort','snapshot.set.create','snapshot.set.prepare','snapshot.set.read','snapshot.set.restore'];
 if ($mode === 'attach-only') $caps = array_values(array_diff($caps, ['environment.create', 'environment.destroy']));
 $owner = (string) ($i['mutation_owner'] ?? $i['expected_mutation_owner'] ?? '');
 $materialFence = str_contains($owner, 'duo-env-materialize-');
@@ -204,6 +269,7 @@ $result = match ($a) {
  'snapshot-read' => ['database_sha256'=>$h('db'),'immutable'=>true,'lease_generation'=>1,'lease_id'=>'snapshot-lease-0001','lease_receipt_sha256'=>$h('snapshot-lease'),'media_sha256'=>$h('media'),'retention_receipt_sha256'=>$h('retention'),'semantic_snapshot_sha256'=>$h('semantic-production'),'snapshot_session_id'=>(string)$i['expected_snapshot_session_id'],'snapshot_set_id'=>(string)$i['expected_snapshot_set_id'],'snapshot_set_receipt_sha256'=>(string)$i['expected_snapshot_set_receipt_sha256'],'source_identity'=>'environment-identity-0001'],
  'snapshot-abort' => ['disposition'=>'aborted','lease_generation'=>(int)$i['expected_source_lease_generation'],'lease_id'=>(string)$i['expected_source_lease_id'],'lease_receipt_sha256'=>(string)$i['expected_source_lease_receipt_sha256'],'snapshot_session_id'=>(string)$i['expected_snapshot_session_id'],'source_identity'=>(string)$i['expected_source_identity']],
  'snapshot-restore' => $identity + ['snapshot_set_id'=>(string)$i['snapshot_set_id']],
+ 'repository-sync' => $identity + ['branch_commit'=>(string)$i['branch_commit'],'branch_ref'=>(string)$i['branch_ref'],'candidate_publication_receipt_sha256'=>(string)$i['candidate_publication_receipt_sha256'],'repository_authority_sha256'=>(string)$i['repository_authority_sha256'],'repository_sync_receipt_sha256'=>$h('repository-sync-' . (string)$i['branch_ref'])],
  'repository-materialize' => $identity + ['branch_commit'=>(string)$i['branch_commit'],'repository_receipt_sha256'=>$h('repo')],
  'url-set' => $identity,
  'mutation-acquire' => $mutation('held', $heldReceipt),
@@ -251,7 +317,8 @@ PHP);
         return $body;
     };
 
-    $old = getcwd(); chdir($repo);
+    $old = getcwd();
+    chdir($repo);
     $badSource = CommandEnvironmentProvider::fromEnvironment('production', $cfg('mismatch', $sourceLog));
     $targetProvider = CommandEnvironmentProvider::fromEnvironment('branch', $cfg('ok', $targetLog));
     try {
@@ -419,6 +486,347 @@ PHP);
     em_ok(($contractReceipt['mode'] ?? null) === 'attach' && in_array('release-converged', $contractEvents, true)
         && $promotions === $contractPromotionBase + 1,
         'the same target converges once its plan envelope is complete, on the one journaled promotion');
+
+    // Universal cloud preview consumes the committed portable export on a
+    // reviewed clean base. It must not counterfeit the physical DB/media
+    // snapshot phases or receipt used by production-fidelity rehearsal.
+    em_run(['git', 'branch', 'portable-candidate', $commit], $repo);
+    file_put_contents($repo . '/tracked.txt', "operator checkout remains here\n");
+    em_run(['git', 'add', 'tracked.txt'], $repo);
+    em_run(['git', 'commit', '-m', 'operator checkout after isolated candidate'], $repo);
+    $operatorBranch = em_run(['git', 'symbolic-ref', '--short', 'HEAD'], $repo);
+    $operatorCommit = em_run(['git', 'rev-parse', 'HEAD'], $repo);
+    $portableLog = $tmp . '/portable.log';
+    $portableDriver = new PortableMaterializerDriver('branch-portable', '/portable/repo');
+    $portableProvider = CommandEnvironmentProvider::fromEnvironment(
+        'branch-portable',
+        $cfg('ok', $portableLog)
+    );
+    $portableExport = [
+        'artifact_hash' => hash('sha256', 'portable-artifact'),
+        'chunks' => [[
+            'index' => 0, 'offset' => 0, 'sha256' => hash('sha256', 'portable-chunk'), 'size' => 32,
+        ]],
+        'code_revision' => hash('sha256', 'portable-production-code'),
+        'expected_production_commit' => $commit,
+        'export_sha256' => hash('sha256', 'portable-export'),
+        'export_size' => 32,
+        'format' => 'duo-cloud-origin-export-manifest/v1',
+        'generation' => 7,
+        'repository_revision_hash' => hash('sha256', 'portable-production-state'),
+        'snapshot_hash' => hash('sha256', 'portable-snapshot'),
+    ];
+    $portableExport['manifest_sha256'] = hash(
+        'sha256',
+        \Duo\Canon::encode($portableExport)
+    );
+    $reviewedBase = [
+        'format' => 'duo-reviewed-preview-base/v1',
+        'image_digest' => 'sha256:' . hash('sha256', 'reviewed-wordpress-base'),
+        'platform_fingerprint_sha256' => hash('sha256', 'php-wordpress-platform'),
+        'review_receipt_sha256' => hash('sha256', 'reviewed-clean-base-receipt'),
+    ];
+    $containmentBasis = [
+        'egress_evidence' => 'host-nft-input-forward-default-deny-readback/v1',
+        'format' => 'duo-reviewed-preview-base-containment/v1',
+        'image_reference' => 'registry.example.test/duo/wordpress@' . $reviewedBase['image_digest'],
+        'reviewed_base' => $reviewedBase,
+        'routing_evidence' => 'credential-free-route-authority-readback/v1',
+        'runtime_configuration_sha256' => hash('sha256', 'portable-runtime-configuration'),
+        'seccomp_profile_sha256' => hash('sha256', 'portable-seccomp-profile'),
+        'secrets_evidence' => 'generation-private-files-readonly-mount-readback/v1',
+        'storage_evidence' => 'dm-crypt-xfs-project-quota-exact-readback/v1',
+    ];
+    $reviewedBaseContainment = ['descriptor_sha256' => hash(
+        'sha256',
+        "duo-reviewed-preview-base-containment/v1\0"
+            . EnvironmentLifecycleCanon::encode($containmentBasis)
+    )] + $containmentBasis;
+    $repositoryAuthorityBasis = [
+        'credential_helper_sha256' => hash('sha256', 'portable credential helper'),
+        'format' => 'duo-cloud-repository-authority/v1',
+        'ref_prefix' => 'refs/heads/duo-preview/',
+        'remote_url_sha256' => hash('sha256', 'portable remote URL'),
+    ];
+    $repositoryAuthority = ['descriptor_sha256' => hash(
+        'sha256',
+        "duo-cloud-repository-authority/v1\0"
+            . EnvironmentLifecycleCanon::encode($repositoryAuthorityBasis)
+    )] + $repositoryAuthorityBasis;
+    $portablePublish = static function (array $expected, ?array $prior): array {
+        if ($prior !== null) return $prior;
+        $receipt = $expected;
+        $receipt['publication_receipt_sha256'] = hash(
+            'sha256',
+            "duo-cloud-preview-candidate-publication/v1\0"
+                . EnvironmentLifecycleCanon::encode($expected)
+        );
+        return $receipt;
+    };
+    $portableCleanup = static function (array $publication, array $sync, ?array $prior): array {
+        if ($prior !== null) return $prior;
+        $body = [
+            'branch_commit' => $publication['branch_commit'],
+            'branch_ref' => $publication['branch_ref'],
+            'candidate_publication_receipt_sha256' =>
+                $publication['publication_receipt_sha256'],
+            'format' => 'duo-cloud-preview-candidate-cleanup/v1',
+            'operation_id' => $publication['operation_id'],
+            'repository_sync_receipt_sha256' => $sync['repository_sync_receipt_sha256'],
+            'status' => 'absent',
+        ];
+        $body['cleanup_receipt_sha256'] = hash(
+            'sha256',
+            "duo-cloud-preview-candidate-cleanup/v1\0"
+                . EnvironmentLifecycleCanon::encode($body)
+        );
+        return $body;
+    };
+    $portablePromotions = 0;
+    $portablePromotionContexts = [];
+    $portablePromote = static function (
+        EnvironmentDriver $driver,
+        array $frozen
+    ) use (&$portablePromotions, &$portablePromotionContexts): array {
+        $portablePromotions++;
+        $portablePromotionContexts[] = $frozen;
+        $applied = $driver->captureWp([
+            'duo', 'portable-apply', '--manifest=' . $frozen['portable_export']['manifest_sha256'],
+        ]);
+        if (($applied['exit'] ?? 1) !== 0) throw new \RuntimeException('fixture portable apply failed');
+        $body = [
+            'base_containment_descriptor_sha256' =>
+                $frozen['reviewed_base_containment']['descriptor_sha256'],
+            'base_image_digest' => $frozen['reviewed_base']['image_digest'],
+            'base_platform_fingerprint_sha256' => $frozen['reviewed_base']['platform_fingerprint_sha256'],
+            'base_review_receipt_sha256' => $frozen['reviewed_base']['review_receipt_sha256'],
+            'branch_commit' => $frozen['branch_commit'],
+            'candidate_cleanup_receipt_sha256' =>
+                $frozen['candidate_cleanup_receipt_sha256'],
+            'candidate_publication_receipt_sha256' =>
+                $frozen['candidate_publication_receipt_sha256'],
+            'export_manifest_sha256' => $frozen['portable_export']['manifest_sha256'],
+            'export_snapshot_hash' => $frozen['portable_export']['snapshot_hash'],
+            'format' => 'duo-portable-preview-promotion-receipt/v1',
+            'operation_id' => $frozen['operation_id'],
+            'owner' => $frozen['promotion_owner'],
+            'repository_authority_sha256' =>
+                $frozen['repository_authority']['descriptor_sha256'],
+            'repository_credential_helper_sha256' =>
+                $frozen['repository_authority']['credential_helper_sha256'],
+            'repository_receipt_sha256' => $frozen['repository_receipt_sha256'],
+            'repository_sync_receipt_sha256' => $frozen['repository_sync_receipt_sha256'],
+            'state_revision' => hash('sha256', 'portable-preview-state'),
+            'status' => 'completed',
+        ];
+        $body['receipt_sha256'] = hash('sha256', EnvironmentLifecycleCanon::encode($body));
+        return $body;
+    };
+    $portableObserve = static function (EnvironmentDriver $driver, ?array $evidence): array {
+        if ($evidence !== null) return $evidence;
+        $observed = $driver->captureWp(['duo', 'preview-status', '--format=json']);
+        if (($observed['exit'] ?? 1) !== 0) throw new \RuntimeException('fixture observation failed');
+        return [
+            'containment_receipt_sha256' => hash('sha256', 'portable-containment'),
+            'health' => 'ready',
+        ];
+    };
+    $portableOptions = [
+        'branch' => 'portable-candidate',
+        'branch_commit' => $commit,
+        'fidelity_omissions' => PortablePreviewMaterializer::REQUIRED_FIDELITY_OMISSIONS,
+        'portable_export' => $portableExport,
+        'repository_authority' => $repositoryAuthority,
+        'reviewed_base' => $reviewedBase,
+        'reviewed_base_containment' => $reviewedBaseContainment,
+        'ttl_seconds' => 3600,
+    ];
+    $portableReceipt = PortablePreviewMaterializer::materialize(
+        $portableDriver,
+        $portableProvider,
+        $journal,
+        $portableOptions,
+        $portablePublish,
+        $portableCleanup,
+        $portablePromote,
+        $portableObserve
+    );
+    em_ok(($portableReceipt['format'] ?? null) === 'duo-portable-preview-receipt/v1'
+        && ($portableReceipt['production_fidelity'] ?? null) === false
+        && ($portableReceipt['fidelity']['level'] ?? null) === 'portable-authored-state'
+        && ($portableReceipt['fidelity']['omissions'] ?? null)
+            === PortablePreviewMaterializer::REQUIRED_FIDELITY_OMISSIONS
+        && ($portableReceipt['base_containment_descriptor_sha256'] ?? null)
+            === $reviewedBaseContainment['descriptor_sha256']
+        && !array_key_exists('snapshot_set_id', $portableReceipt)
+        && !array_key_exists('snapshot_set_receipt_sha256', $portableReceipt),
+        'portable preview has a distinct receipt with mandatory physical/runtime fidelity omissions');
+    em_ok(
+        em_run(['git', 'symbolic-ref', '--short', 'HEAD'], $repo) === $operatorBranch
+            && em_run(['git', 'rev-parse', 'HEAD'], $repo) === $operatorCommit
+            && em_run(['git', 'status', '--porcelain=v1', '--untracked-files=all'], $repo) === '',
+        'portable preview consumes the isolated candidate ref without changing the operator checkout'
+    );
+    $portableActions = em_actions($portableLog);
+    em_ok($portableActions === [
+        'capabilities', 'create', 'mutation-acquire', 'mutation-read',
+        'repository-sync', 'repository-materialize', 'url-set', 'inspect', 'ttl-set', 'ttl-read',
+        'mutation-release',
+    ] && array_values(array_filter(
+        $portableActions,
+        static fn(string $action): bool => str_starts_with($action, 'snapshot-')
+    )) === [], 'portable preview creates a slot and never requests physical snapshot create/restore');
+    em_ok(count($portableDriver->bindings) === 1
+        && ($portableDriver->bindings[0]['fence']['state'] ?? null) === 'held'
+        && array_column($portableDriver->calls, 'phase') === ['portable-promotion', 'portable-observation']
+        && $portableDriver->releases === 1,
+        'every portable target command is generation/fence-bound and local routing is revoked on release');
+    em_ok($portablePromotions === 1
+        && ($portablePromotionContexts[0]['branch_commit'] ?? null) === $commit
+        && ($portablePromotionContexts[0]['portable_export']['manifest_sha256'] ?? null)
+            === $portableExport['manifest_sha256']
+        && ($portablePromotionContexts[0]['reviewed_base'] ?? null) === $reviewedBase,
+        'portable promotion freezes the exact candidate, committed export, and reviewed clean base');
+    em_ok(
+        ($portablePromotionContexts[0]['reviewed_base_containment'] ?? null)
+            === $reviewedBaseContainment,
+        'portable promotion freezes the full reviewed-base containment descriptor'
+    );
+    $portableEvents = array_column(
+        $journal->latestForTarget('branch-portable')['events'] ?? [],
+        'event'
+    );
+    $observationIndex = array_search('target-observed', $portableEvents, true);
+    $releaseIndex = array_search('target-fence-release-intent', $portableEvents, true);
+    em_ok(is_int($observationIndex) && is_int($releaseIndex) && $observationIndex < $releaseIndex,
+        'portable observation is durably journaled while the mutation fence is still held');
+
+    $portableBeforeRetry = [
+        count(em_actions($portableLog)), count($portableDriver->calls), $portablePromotions,
+    ];
+    $portableRetry = PortablePreviewMaterializer::materialize(
+        $portableDriver,
+        $portableProvider,
+        $journal,
+        $portableOptions,
+        $portablePublish,
+        $portableCleanup,
+        $portablePromote,
+        $portableObserve
+    );
+    em_ok(($portableRetry['resumed'] ?? false) === true
+        && $portableBeforeRetry === [
+            count(em_actions($portableLog)), count($portableDriver->calls), $portablePromotions,
+        ], 'completed portable retry replays observation locally with zero provider or target contact');
+    $portableLatest = $journal->latestForTarget('branch-portable');
+    $portableActionsBeforeWrongReap = count(em_actions($portableLog));
+    try {
+        PortablePreviewMaterializer::reap(
+            $portableDriver,
+            $portableProvider,
+            $journal,
+            '20000101-000000-' . str_repeat('a', 24)
+        );
+        em_fail('portable reap selected a lifecycle newer than its public intent');
+    } catch (Throwable $e) {
+        em_ok(str_contains($e->getMessage(), 'expected reap operation'),
+            'portable reap pins the expected lifecycle while holding the target journal lock');
+    }
+    em_ok(count(em_actions($portableLog)) === $portableActionsBeforeWrongReap,
+        'a mismatched expected lifecycle refuses before provider contact');
+    $portableReap = PortablePreviewMaterializer::reap(
+        $portableDriver,
+        $portableProvider,
+        $journal,
+        is_array($portableLatest) ? $portableLatest['operation_id'] : null
+    );
+    em_ok(($portableReap['disposition'] ?? null) === 'destroyed'
+        && in_array('destroy', em_actions($portableLog), true)
+        && !in_array('detach', em_actions($portableLog), true),
+        'portable preview reuses exact generation/fence/TTL compare-and-destroy reap');
+
+    // A controller can die after promotion/TTL but before its observation is
+    // durable. Recovery must retain the same fence, skip the journaled
+    // promotion, and reissue only the deterministic observation phase.
+    $recoveryLog = $tmp . '/portable-recovery.log';
+    $recoveryProvider = CommandEnvironmentProvider::fromEnvironment(
+        'branch-portable-recovery',
+        $cfg('ok', $recoveryLog)
+    );
+    $recoveryDriver = new PortableMaterializerDriver(
+        'branch-portable-recovery',
+        '/portable-recovery/repo'
+    );
+    $recoveryObservations = 0;
+    $recoveryObserve = static function (
+        EnvironmentDriver $driver,
+        ?array $evidence
+    ) use (&$recoveryObservations): array {
+        if ($evidence !== null) return $evidence;
+        $recoveryObservations++;
+        $driver->captureWp(['duo', 'preview-status', '--format=json']);
+        if ($recoveryObservations === 1) {
+            throw new \RuntimeException('fixture lost observation response');
+        }
+        return [
+            'containment_receipt_sha256' => hash('sha256', 'recovered-containment'),
+            'health' => 'ready',
+        ];
+    };
+    $recoveryPromotionBase = $portablePromotions;
+    try {
+        PortablePreviewMaterializer::materialize(
+            $recoveryDriver,
+            $recoveryProvider,
+            $journal,
+            $portableOptions,
+            $portablePublish,
+            $portableCleanup,
+            $portablePromote,
+            $recoveryObserve
+        );
+        em_fail('lost portable observation response was accepted');
+    } catch (Throwable $e) {
+        em_ok(str_contains($e->getMessage(), 'lost observation response'),
+            'lost portable observation response leaves a recoverable held-fence journal');
+    }
+    em_ok($portablePromotions === $recoveryPromotionBase + 1
+        && !in_array('mutation-release', em_actions($recoveryLog), true),
+        'failure after portable promotion neither replays promotion nor releases unobserved state');
+    $recoveryRetryDriver = new PortableMaterializerDriver(
+        'branch-portable-recovery',
+        '/portable-recovery/repo'
+    );
+    $recovered = PortablePreviewMaterializer::materialize(
+        $recoveryRetryDriver,
+        $recoveryProvider,
+        $journal,
+        $portableOptions,
+        $portablePublish,
+        $portableCleanup,
+        $portablePromote,
+        $recoveryObserve
+    );
+    $recoveryEvents = array_column(
+        $journal->latestForTarget('branch-portable-recovery')['events'] ?? [],
+        'event'
+    );
+    em_ok(($recovered['format'] ?? null) === 'duo-portable-preview-receipt/v1'
+        && $portablePromotions === $recoveryPromotionBase + 1
+        && count(array_filter(
+            $recoveryEvents,
+            static fn(string $event): bool => $event === 'portable-promotion-applied'
+        )) === 1
+        && array_slice(em_actions($recoveryLog), -3)
+            === ['capabilities', 'mutation-read', 'mutation-release'],
+        'held-fence recovery skips frozen promotion and resumes only observation then release');
+    $recoveryReap = PortablePreviewMaterializer::reap(
+        $recoveryRetryDriver,
+        $recoveryProvider,
+        $journal
+    );
+    em_ok(($recoveryReap['disposition'] ?? null) === 'destroyed',
+        'recovered portable preview remains exactly reapable');
 
     chdir($old);
     echo "PASS: environment materializer orchestration regression\n";

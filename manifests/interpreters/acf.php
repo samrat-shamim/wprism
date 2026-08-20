@@ -98,6 +98,17 @@ final class Acf {
     }
 
     /**
+     * ACF classification returns authored/ref/cast rules only; it never emits
+     * allow_pii or allow_secret. Cloud export consumes this closed declaration
+     * before live capture instead of inferring safety from the current data.
+     *
+     * @return list<'allow_pii'|'allow_secret'>
+     */
+    public function egress_sensitivity_grants(): array {
+        return [];
+    }
+
+    /**
      * Prime field definitions from the immutable repository rather than the
      * target database. An acf-field post is deliberately captured with a
      * verbatim serialized body; using that same body for authorization makes

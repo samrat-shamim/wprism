@@ -7,6 +7,7 @@ declare(strict_types=1);
 namespace Duo\Orchestrator {
     require_once dirname(__DIR__, 4) . '/agent/src/Kernel/Canon.php';
     require_once dirname(__DIR__, 4) . '/cli/src/Refresh/RefreshFieldDiff.php';
+    require_once dirname(__DIR__, 4) . '/cli/src/Refresh/ProductionSnapshotSource.php';
 
     final class RefreshPlan {
         public static array $roles = [];
@@ -122,6 +123,7 @@ require dirname(__DIR__, 4) . '/cli/src/Transport/CodeDeploy.php';
 require dirname(__DIR__, 4) . '/cli/src/Refresh/Refresh.php';
 
 use Duo\Orchestrator\Refresh;
+use Duo\Orchestrator\RefreshRunJournal;
 use Duo\Orchestrator\Transport;
 
 function fail_refresh(string $message): never { fwrite(STDERR, "FAIL: $message\n"); exit(1); }
@@ -167,6 +169,35 @@ final class RefreshTransport extends Transport {
     public function replaceCurrentExport(string $export): void { $this->export = $export; }
 }
 
+final class ImmutableRefreshTransport extends Transport implements \Duo\Orchestrator\ProductionSnapshotSource {
+    public int $assertions = 0;
+    public int $reads = 0;
+    /** @var list<array<string,mixed>> */
+    private array $exports;
+
+    /** @param list<array<string,mixed>> $exports */
+    public function __construct(private string $head, array $exports) {
+        parent::__construct('cloud-production', ['repo_path' => '/not-a-live-target']);
+        $this->exports = $exports;
+    }
+    public function describe(): string { return 'immutable cloud origin'; }
+    protected function wpCommand(array $wpArgs): string { throw new RuntimeException('cloud origin exposed WP command authority'); }
+    protected function rawCommand(string $script): string { throw new RuntimeException('cloud origin exposed raw command authority'); }
+    public function captureRaw(string $script): array { throw new RuntimeException('cloud origin contacted a target shell'); }
+    public function captureWp(array $wpArgs): array { throw new RuntimeException('cloud origin contacted WordPress'); }
+    public function assertProductionRevision(string $expectedCommit): void {
+        $this->assertions++;
+        if (!hash_equals($this->head, $expectedCommit)) throw new RuntimeException('immutable origin commit mismatch');
+    }
+    public function readProductionSnapshot(string $expectedCommit, ?array $scopeContract = null): array {
+        $this->reads++;
+        $this->assertProductionRevision($expectedCommit);
+        if ($scopeContract !== null) throw new RuntimeException('fixture does not expose a scoped snapshot');
+        $index = min($this->reads - 1, count($this->exports) - 1);
+        return $this->exports[$index];
+    }
+}
+
 $tmp = sys_get_temp_dir() . '/duo-refresh-orchestration-' . bin2hex(random_bytes(6));
 $repo = $tmp . '/repo';
 mkdir($repo, 0700, true);
@@ -206,6 +237,64 @@ try {
     ok_refresh(($result['context']['branch_commit'] ?? null) === $feature, 'branch HEAD is W input');
     ok_refresh(($result['context']['production_commit'] ?? null) === $production, 'target HEAD must equal production-ref');
     ok_refresh(is_file($result['plan_path']), 'immutable refresh plan is persisted locally');
+    $refreshJournal = new RefreshRunJournal($repo . '/.git/duo-refresh');
+    $planDocument = json_decode((string) file_get_contents($result['plan_path']), true, 512, JSON_THROW_ON_ERROR);
+    $planTemporary = $result['plan_path'] . '.tmp';
+    file_put_contents($planTemporary, 'partial');
+    chmod($planTemporary, 0600);
+    $refreshJournal->writePlan($planDocument);
+    ok_refresh(!file_exists($planTemporary)
+        && (glob($repo . '/.git/duo-refresh/plans/*.tmp') ?: []) === [],
+        'an interrupted destination-bound refresh plan is removed before the real public write');
+    $outsidePlanResidue = $tmp . '/outside-plan-residue';
+    file_put_contents($outsidePlanResidue, 'retained');
+    chmod($outsidePlanResidue, 0600);
+    symlink($outsidePlanResidue, $planTemporary);
+    try {
+        $refreshJournal->writePlan($planDocument);
+        fail_refresh('symlinked refresh plan crash residue was accepted');
+    } catch (RuntimeException $error) {
+        ok_refresh(str_contains($error->getMessage(), 'temporary refresh journal is unsafe')
+            && is_link($planTemporary)
+            && file_get_contents($outsidePlanResidue) === 'retained',
+            'a symlinked refresh plan residue is refused without unlinking its target');
+    }
+    unlink($planTemporary);
+    unlink($outsidePlanResidue);
+    if (function_exists('pcntl_fork') && function_exists('pcntl_waitpid')) {
+        $concurrentPlan = $planDocument;
+        $concurrentPlan['plan_hash'] = hash('sha256', 'concurrent-refresh-plan');
+        $concurrentPath = $repo . '/.git/duo-refresh/plans/' . $concurrentPlan['plan_hash'] . '.json';
+        $gate = $tmp . '/concurrent-plan-gate';
+        $children = [];
+        for ($writer = 0; $writer < 6; $writer++) {
+            $pid = pcntl_fork();
+            if ($pid === -1) fail_refresh('could not fork concurrent refresh-plan writer');
+            if ($pid === 0) {
+                while (!file_exists($gate)) usleep(1000);
+                try {
+                    (new RefreshRunJournal($repo . '/.git/duo-refresh'))->writePlan($concurrentPlan);
+                    exit(0);
+                } catch (Throwable $error) {
+                    fwrite(STDERR, $error->getMessage() . "\n");
+                    exit(1);
+                }
+            }
+            $children[] = $pid;
+        }
+        touch($gate);
+        $statuses = [];
+        foreach ($children as $pid) {
+            $status = 0;
+            pcntl_waitpid($pid, $status);
+            $statuses[] = pcntl_wifexited($status) ? pcntl_wexitstatus($status) : 255;
+        }
+        ok_refresh($statuses === array_fill(0, 6, 0)
+            && json_decode((string) file_get_contents($concurrentPath), true, 512, JSON_THROW_ON_ERROR) === $concurrentPlan
+            && !file_exists($concurrentPath . '.tmp')
+            && (fileperms($concurrentPath . '.write.lock') & 0777) === 0600,
+            'concurrent content-addressed plan writers serialize without replacing or stranding bytes');
+    }
     $exportCall = $transport->wp[0] ?? [];
     ok_refresh(count($transport->wp) === 1
         && in_array('--skip-plugins', $exportCall, true)
@@ -224,6 +313,26 @@ try {
         && in_array('branch', \Duo\Orchestrator\RefreshPlan::$roles, true)
         && in_array('production-code', \Duo\Orchestrator\RefreshPlan::$roles, true), 'Git artifacts are compiled by role, with production code-only');
     ok_refresh(run_refresh(['git', 'rev-parse', 'HEAD'], $repo) === $feature && run_refresh(['git', 'branch', '--show-current'], $repo) === 'feature', 'refresh leaves source checkout/ref untouched');
+
+    $immutableExport = json_decode($export, true, 512, JSON_THROW_ON_ERROR);
+    $immutable = new ImmutableRefreshTransport($production, [$immutableExport]);
+    $immutableResult = Refresh::refresh($immutable, 'production');
+    ok_refresh(($immutableResult['context']['production_snapshot_hash'] ?? null) === $immutableExport['snapshot_hash']
+        && $immutable->reads === 1
+        && $immutable->assertions >= 3,
+        'Refresh accepts a commit-bound immutable cloud observation without target shell or WordPress authority');
+
+    $movedImmutableExport = $immutableExport;
+    $movedImmutableExport['snapshot_hash'] = hash('sha256', 'immutable-origin-moved');
+    $immutableMoving = new ImmutableRefreshTransport($production, [$immutableExport, $movedImmutableExport]);
+    try {
+        Refresh::rebase($immutableMoving, 'production', 'immutable-origin-stale', ['strategy' => 'manual', 'records' => []]);
+        fail_refresh('immutable source changed between the two mandatory production reads');
+    } catch (RuntimeException $e) {
+        ok_refresh(str_contains($e->getMessage(), 'production changed after refresh planning')
+            && $immutableMoving->reads === 2,
+            'immutable source still participates in Refresh second-read drift detection');
+    }
 
     // An option root is a public scoped-refresh path. The host must forward
     // the exact immutable selector request to the agent, bind the returned
@@ -371,6 +480,13 @@ try {
     $fieldDiffPath = (string) ($fieldComplete['field_diff_path'] ?? '');
     $fieldDiffBytes = $fieldDiffPath === '' ? '' : (string) file_get_contents($fieldDiffPath);
     $fieldDiffJournal = $fieldDiffBytes === '' ? [] : json_decode($fieldDiffBytes, true, 512, JSON_THROW_ON_ERROR);
+    $fieldDiffTemporary = $fieldDiffPath . '.tmp';
+    file_put_contents($fieldDiffTemporary, 'partial');
+    chmod($fieldDiffTemporary, 0600);
+    $refreshJournal->writeFieldDiff($fieldDiffJournal);
+    ok_refresh(!file_exists($fieldDiffTemporary)
+        && (glob($repo . '/.git/duo-refresh/field-diffs/*.tmp') ?: []) === [],
+        'an interrupted destination-bound refresh field diff is removed before exact replay');
     $fieldReceiptEvents = glob($repo . '/.git/duo-refresh/runs/' . $fieldComplete['run_id'] . '/events/*-state-materialized.json') ?: [];
     $fieldReceipt = $fieldReceiptEvents === [] ? [] : json_decode((string) file_get_contents($fieldReceiptEvents[0]), true, 512, JSON_THROW_ON_ERROR);
     ok_refresh(

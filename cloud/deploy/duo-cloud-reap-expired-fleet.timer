@@ -1,0 +1,13 @@
+[Unit]
+Description=Schedule fleet-wide expired Duo Cloud preview cleanup
+
+[Timer]
+OnBootSec=15s
+OnUnitInactiveSec=20s
+AccuracySec=1s
+RandomizedDelaySec=0
+Persistent=true
+Unit=duo-cloud-reap-expired-fleet.service
+
+[Install]
+WantedBy=timers.target

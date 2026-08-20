@@ -11,8 +11,8 @@ about CI belongs in a PR, an issue, or this file.
 
 | path | what it is | ships? |
 | --- | --- | --- |
-| `agent/` | the WordPress drop-in. `duo.php` `require_once`s 95 files at load; `agent/src` is 225 `namespace Duo;` files across 17 directories, each requiring its own dependencies. The only autoload is the generated additive fallback `agent/duo-classmap.php` (rule 1). | yes |
-| `cli/` | the `duo` orchestrator (`cli/duo` is an extensionless `#!/usr/bin/env php` executable) over 76 `cli/src` files | yes |
+| `agent/` | the WordPress drop-in. `duo.php` `require_once`s 98 files at load; `agent/src` is 232 `namespace Duo;` files across 18 directories, each requiring its own dependencies. The only autoload is the generated additive fallback `agent/duo-classmap.php` (rule 1). | yes |
+| `cli/` | the `duo` orchestrator (`cli/duo` is an extensionless `#!/usr/bin/env php` executable) over 87 `cli/src` files | yes |
 | `recovery/` | the recovery runtime (canonical JSON, atomic store, Ed25519 rollback control) | yes |
 | `manifests/` | core + 9 plugin manifests + `duo-agency-cpt` (the one `excluded` regression fixture, no product claim); `providers/`, `interpreters/`, `regenerators/` hook code; `dispositions.json`, the hand-authored reviewed claim source; `capabilities/platform.json` (the platform boundary certificates sign against) and `capabilities/adapter-authorities.json` | yes |
 | `sandbox/` | the test estate: `bin/pair.sh`, `tests/` (213 `regress_*.php` + 95 `regress_*.sh`, counted recursively — every suite is under one of the five execution-class directories `offline/<domain>/`, `live/`, `grind/`, `certify/`, `spike/`, and the corpus root holds only `fixtures/`, `lib/`, `support/` and `offline_diagnostics_guard.sh`), `conformance/`, `siterepo/`, `tmp/` (gitignored scratch) | no |
@@ -27,11 +27,11 @@ list of what reaches a managed site.
 
 1. **The drop-in is dependency-free.** No composer, no vendored packages,
    nothing fetched at runtime inside `agent/`, `cli/`, `recovery/`. A new file
-   in `agent/src` requires its own dependencies, exactly like its 225 siblings.
+   in `agent/src` requires its own dependencies, exactly like its 231 siblings.
    `agent/duo-classmap.php` does not change that contract: it is a *generated
    additive fallback* that only ever fires for a class still undeclared at the
    moment it is referenced, so it resolves nothing on the production path and
-   exists for partially-loaded contexts (`agent/duo.php:106-138` states the
+   exists for partially-loaded contexts (`agent/duo.php:137-147` states the
    three properties that keep it behaviour-neutral). Regenerate it with
    `php tools/classmap-generate.php`; `make release-gate` byte-checks it.
    `vendor/` is dev-only and structurally unreachable from a site.

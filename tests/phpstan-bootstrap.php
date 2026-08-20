@@ -5,8 +5,8 @@ declare(strict_types=1);
 /**
  * PHPStan bootstrap for the Duo drop-in — constants only, never product code.
  *
- * The product has no autoloader by design: agent/duo.php require_once's its
- * 92 files and agent/src's 224 flat `namespace Duo;` files require their own
+ * The product has no autoloader by design: agent/duo.php eagerly require_once's
+ * 98 dependencies and agent/src's 232 flat `namespace Duo;` files require their own
  * dependencies. PHPStan discovers those symbols through `scanDirectories`, so
  * this file must NOT require any of them; doing so would execute drop-in code
  * inside the analyser and couple static analysis to load order.

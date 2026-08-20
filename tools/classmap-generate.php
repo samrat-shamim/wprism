@@ -7,9 +7,9 @@ declare(strict_types=1);
  * autoload fallback (agent/duo-classmap.php, cli/duo-classmap.php).
  *
  * Why this exists: the product has no autoloader by design — agent/duo.php
- * require_once's 91 files at load (duo.php:15-105), agent/src holds 224 files
- * across 17 directories that all declare the one flat `namespace Duo;` and
- * require their own dependencies, and cli/duo requires its 52 cli/src
+ * require_once's 98 files at load (duo.php:15-112), agent/src holds 232 files
+ * across 18 directories that all declare the one flat `namespace Duo;` and
+ * require their own dependencies, and cli/duo requires its 76 cli/src
  * files plus 7 agent/src ones. That contract stays (owner ruling D4: no
  * require line is deleted). What the maps add is a *fallback*: an autoloader
  * only ever fires for a class that is still undeclared at the moment it is
@@ -30,17 +30,17 @@ declare(strict_types=1);
  *    machines must produce identical files or the byte-compare above is
  *    worthless: a map that differs per host turns `make release-gate` into a
  *    coin flip and puts a spurious diff in every unrelated PR.
- *  - Recursive scan of agent/src (17 directories) and cli/src (12). What is
- *    flat is the NAMESPACE, not the tree: all 224 agent/src files declare
- *    `namespace Duo;` and all 75 namespaced cli/src files declare
+ *  - Recursive scan of agent/src (18 directories) and cli/src (13). What is
+ *    flat is the NAMESPACE, not the tree: all 232 agent/src files declare
+ *    `namespace Duo;` and all 86 namespaced cli/src files declare
  *    `namespace Duo\Orchestrator;` whatever directory they sit in. So the
  *    walk finds files; it never derives a name from a path, and a future
  *    sub-namespaced subdirectory is picked up without touching this
  *    generator.
  *  - Every declaration in a file is mapped, not just the one whose name
- *    matches the filename: 14 agent/src files and 6 cli/src files declare
- *    more than one type, and 3 agent/src + 15 cli/src files have a primary
- *    type whose name differs from the filename (cli/src/Command/CommandOutput.php
+ *    matches the filename: 19 agent/src files and 6 cli/src files declare
+ *    more than one type, and some files have a declared type whose name
+ *    differs from the filename (cli/src/Command/CommandOutput.php
  *    alone carries CommandOutput plus its exception types). A
  *    filename-derived map would silently miss all of them, which is exactly
  *    the class of bug an autoloader must not have.

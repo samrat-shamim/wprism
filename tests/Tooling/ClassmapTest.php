@@ -313,7 +313,7 @@ PHP;
     /**
      * The whole point of "additive": including agent/duo.php must still load
      * every file it loaded before, with the autoloader as a net underneath
-     * rather than a replacement. 222 of the 224 agent/src files load eagerly
+     * rather than a replacement. 230 of the 232 agent/src files load eagerly
      * here (Cli.php is WP_CLI-gated, AdapterCertification.php is deliberately
      * lazy — see agent/src/Adapter/AdapterSources.php:898), and the two names that
      * lazy file declares (AdapterCertification and its companion

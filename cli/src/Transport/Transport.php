@@ -155,6 +155,92 @@ abstract class Transport implements EnvironmentDriver {
     }
 
     /**
+     * Capture a WP command while the child reads the controller's original
+     * stdin. Origin pairing needs this narrower boundary: copying a device
+     * code into controller memory, argv, or an environment variable would
+     * expose it through process inspection, while streamWp would let
+     * arbitrary target output bypass the public JSON validator.
+     *
+     * @return array{exit:int, stdout:string, stderr:string}
+     */
+    public function captureWpWithInheritedStdin(array $wpArgs): array {
+        $stdout = tmpfile();
+        $stderr = tmpfile();
+        if (!is_resource($stdout) || !is_resource($stderr)) {
+            if (is_resource($stdout)) {
+                fclose($stdout);
+            }
+            if (is_resource($stderr)) {
+                fclose($stderr);
+            }
+            return ['exit' => 255, 'stdout' => '', 'stderr' => 'failed to create capture files'];
+        }
+
+        $proc = proc_open(
+            $this->wpCommand($wpArgs),
+            [0 => STDIN, 1 => $stdout, 2 => $stderr],
+            $pipes
+        );
+        if (!is_resource($proc)) {
+            fclose($stdout);
+            fclose($stderr);
+            return ['exit' => 255, 'stdout' => '', 'stderr' => 'failed to start process'];
+        }
+
+        $deadline = microtime(true) + 300.0;
+        $forcedExit = null;
+        $observedExit = null;
+        while (true) {
+            $status = proc_get_status($proc);
+            if (!$status['running']) {
+                if (is_int($status['exitcode']) && $status['exitcode'] >= 0) {
+                    $observedExit = $status['exitcode'];
+                }
+                break;
+            }
+            $stdoutStat = fstat($stdout);
+            $stderrStat = fstat($stderr);
+            if (!is_array($stdoutStat) || !is_array($stderrStat)
+                || ($stdoutStat['size'] ?? 0) > 1048576
+                || ($stderrStat['size'] ?? 0) > 1048576) {
+                $forcedExit = 125;
+                proc_terminate($proc, 9);
+                break;
+            }
+            if (microtime(true) >= $deadline) {
+                $forcedExit = 124;
+                proc_terminate($proc, 9);
+                break;
+            }
+            usleep(10000);
+        }
+
+        $exit = proc_close($proc);
+        if ($forcedExit !== null) {
+            $exit = $forcedExit;
+        } elseif ($exit === -1 && $observedExit !== null) {
+            $exit = $observedExit;
+        }
+        rewind($stdout);
+        rewind($stderr);
+        $stdoutBytes = stream_get_contents($stdout, 1048577);
+        $stderrBytes = stream_get_contents($stderr, 1048577);
+        fclose($stdout);
+        fclose($stderr);
+        if (!is_string($stdoutBytes) || !is_string($stderrBytes)
+            || strlen($stdoutBytes) > 1048576 || strlen($stderrBytes) > 1048576) {
+            return ['exit' => 125, 'stdout' => '', 'stderr' => 'target output exceeded the capture limit'];
+        }
+        if ($forcedExit === 124) {
+            return ['exit' => 124, 'stdout' => '', 'stderr' => 'target command exceeded the capture deadline'];
+        }
+        if ($forcedExit === 125) {
+            return ['exit' => 125, 'stdout' => '', 'stderr' => 'target output exceeded the capture limit'];
+        }
+        return ['exit' => $exit, 'stdout' => $stdoutBytes, 'stderr' => $stderrBytes];
+    }
+
+    /**
      * Render the exact host-side command an operator can use for recovery.
      * Promotion checkpoints live inside the target environment, so a bare
      * `wp db import` instruction is insufficient for docker/ssh transports.

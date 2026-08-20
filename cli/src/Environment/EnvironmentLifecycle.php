@@ -23,6 +23,8 @@ final class EnvironmentProviderCapability {
     public const ENVIRONMENT_CREATE = 'environment.create';
     public const ENVIRONMENT_DESTROY = 'environment.destroy';
     public const ENVIRONMENT_DETACH = 'environment.detach';
+    public const ENVIRONMENT_SLEEP = 'environment.sleep';
+    public const ENVIRONMENT_WAKE = 'environment.wake';
     /** Provider-held, operation-idempotent fence around target mutations. */
     public const ENVIRONMENT_MUTATION_ACQUIRE = 'environment.mutation.acquire';
     public const ENVIRONMENT_MUTATION_READ = 'environment.mutation.read';
@@ -34,6 +36,7 @@ final class EnvironmentProviderCapability {
     public const URL_DISCOVER = 'environment.url.discover';
     public const URL_SET = 'environment.url.set';
     public const REPOSITORY_MATERIALIZE = 'repository.materialize';
+    public const REPOSITORY_SYNC = 'repository.sync';
     public const OPERATION_RECEIPTS = 'operation.receipts';
 
     /** @return list<string> */
@@ -42,10 +45,12 @@ final class EnvironmentProviderCapability {
             self::SNAPSHOT_SET_ABORT, self::SNAPSHOT_SET_CREATE, self::SNAPSHOT_SET_PREPARE,
             self::SNAPSHOT_SET_READ, self::SNAPSHOT_SET_RESTORE,
             self::ENVIRONMENT_INSPECT, self::ENVIRONMENT_ATTACH, self::ENVIRONMENT_CREATE,
-            self::ENVIRONMENT_DESTROY, self::ENVIRONMENT_DETACH,
+            self::ENVIRONMENT_DESTROY, self::ENVIRONMENT_DETACH, self::ENVIRONMENT_SLEEP,
+            self::ENVIRONMENT_WAKE,
             self::ENVIRONMENT_MUTATION_ACQUIRE, self::ENVIRONMENT_MUTATION_READ,
             self::ENVIRONMENT_MUTATION_RELEASE, self::ENVIRONMENT_TTL, self::ENVIRONMENT_TTL_READ,
             self::URL_DISCOVER, self::URL_SET, self::REPOSITORY_MATERIALIZE,
+            self::REPOSITORY_SYNC,
             self::OPERATION_RECEIPTS,
         ];
         sort($all, SORT_STRING);
@@ -142,7 +147,16 @@ final class EnvironmentProviderCapabilityReport {
  * provider receives no shell command, and provider output is redacted on all
  * failures because it may contain host or production-data diagnostics.
  */
-final class CommandEnvironmentProvider {
+interface EnvironmentProviderClient {
+    public function environment(): string;
+
+    public function capabilities(string $operationId): EnvironmentProviderCapabilityReport;
+
+    /** @param array<string,mixed> $input @return array<string,mixed> */
+    public function perform(string $action, string $operationId, array $input): array;
+}
+
+final class CommandEnvironmentProvider implements EnvironmentProviderClient {
     public const REQUEST_FORMAT = 'duo-branch-environment-provider-request/v1';
     public const RESPONSE_FORMAT = 'duo-branch-environment-provider-response/v1';
     private const OUTPUT_LIMIT = 1048576;
@@ -342,7 +356,7 @@ final class CommandEnvironmentProvider {
     }
 
     /** @param array<string,mixed> $result */
-    private static function validateActionResult(string $action, array $result): void {
+    public static function validateActionResult(string $action, array $result): void {
         if ($action === 'capabilities') {
             self::assertExactKeys($result, ['capabilities'], 'capabilities result');
             return;
@@ -409,8 +423,28 @@ final class CommandEnvironmentProvider {
             self::assertIdentifier($result['snapshot_set_id'] ?? null, 'snapshot set id');
             return;
         }
+        if ($action === 'repository-sync') {
+            self::assertExactKeys($result, array_merge($identityKeys, [
+                'branch_commit', 'branch_ref', 'candidate_publication_receipt_sha256',
+                'repository_authority_sha256', 'repository_sync_receipt_sha256',
+            ]), 'repository-sync result');
+            self::validateIdentity($result);
+            self::assertGitOid($result['branch_commit'] ?? null);
+            self::assertGitRef($result['branch_ref'] ?? null);
+            self::assertHash(
+                $result['candidate_publication_receipt_sha256'] ?? null,
+                'candidate publication receipt'
+            );
+            self::assertHash($result['repository_authority_sha256'] ?? null, 'repository authority');
+            self::assertHash($result['repository_sync_receipt_sha256'] ?? null, 'repository sync receipt');
+            return;
+        }
         if ($action === 'repository-materialize') {
-            self::assertExactKeys($result, array_merge($identityKeys, ['branch_commit', 'repository_receipt_sha256']), 'repository-materialize result');
+            self::assertExactKeys(
+                $result,
+                array_merge($identityKeys, ['branch_commit', 'repository_receipt_sha256']),
+                'repository-materialize result'
+            );
             self::validateIdentity($result);
             self::assertGitOid($result['branch_commit'] ?? null);
             self::assertHash($result['repository_receipt_sha256'] ?? null, 'repository receipt');
@@ -419,6 +453,15 @@ final class CommandEnvironmentProvider {
         if ($action === 'url-set') {
             self::assertExactKeys($result, $identityKeys, 'url-set result');
             self::validateIdentity($result);
+            return;
+        }
+        if (in_array($action, ['sleep', 'wake'], true)) {
+            self::assertExactKeys($result, array_merge($identityKeys, ['sleep_state']), "$action result");
+            self::validateIdentity($result);
+            $expected = $action === 'sleep' ? 'asleep' : 'awake';
+            if (($result['sleep_state'] ?? null) !== $expected) {
+                throw new \RuntimeException("environment provider $action returned an invalid sleep state");
+            }
             return;
         }
         if (in_array($action, ['mutation-acquire', 'mutation-read', 'mutation-release'], true)) {
@@ -524,8 +567,8 @@ final class CommandEnvironmentProvider {
     private static function assertAction(string $action): void {
         if (!in_array($action, [
             'capabilities', 'inspect', 'attach', 'create', 'snapshot-prepare', 'snapshot-create', 'snapshot-abort',
-            'snapshot-read', 'snapshot-restore', 'repository-materialize', 'url-set',
-            'mutation-acquire', 'mutation-read', 'mutation-release', 'ttl-set', 'ttl-read',
+            'snapshot-read', 'snapshot-restore', 'repository-materialize', 'repository-sync', 'url-set',
+            'mutation-acquire', 'mutation-read', 'mutation-release', 'sleep', 'ttl-set', 'ttl-read', 'wake',
             'destroy', 'detach',
         ], true)) {
             throw new \RuntimeException("unknown environment provider action '$action'");
@@ -566,6 +609,20 @@ final class CommandEnvironmentProvider {
         }
     }
 
+    private static function assertGitRef(mixed $value): void {
+        if (!is_string($value)
+            || strlen($value) > 512
+            || preg_match('#^refs/heads/[A-Za-z0-9][A-Za-z0-9._/-]*$#D', $value) !== 1
+            || str_contains($value, '..')
+            || str_contains($value, '//')
+            || str_contains($value, '@{')
+            || str_ends_with($value, '.')
+            || str_ends_with($value, '/')
+            || str_ends_with($value, '.lock')) {
+            throw new \RuntimeException('environment provider branch ref is invalid');
+        }
+    }
+
     private static function assertPositiveInt(mixed $value, string $label): void {
         if (!is_int($value) || $value < 1) {
             throw new \RuntimeException("environment provider $label must be a positive integer");
@@ -594,18 +651,29 @@ final class CommandEnvironmentProvider {
     }
 }
 
-/** Append-only, machine-local evidence for materialization/reap recovery. */
+/** Bounded machine-local evidence for materialization/reap recovery. */
 final class EnvironmentLifecycleJournal {
     public const RUN_FORMAT = 'duo-branch-environment-run/v1';
     public const EVENT_FORMAT = 'duo-branch-environment-event/v1';
+    private const TARGET_INDEX_FORMAT = 'duo-branch-environment-target-index/v1';
+    private const MAX_IMMUTABLE_BYTES = 16777216;
+    private const MAX_TARGET_INDEX_BYTES = 1048576;
+    private const MAX_STOPPED_EVENTS = 16;
+
+    /** @var array<string,true> */
+    private array $heldTargetLocks = [];
 
     public function __construct(private string $base) {
         $this->base = rtrim($base, '/');
-        foreach ([$this->base, $this->base . '/runs', $this->base . '/targets'] as $path) {
-            if (!is_dir($path) && !mkdir($path, 0700, true) && !is_dir($path)) {
-                throw new \RuntimeException("could not create environment journal '$path'");
-            }
+        foreach ([
+            $this->base => 'environment journal root',
+            $this->base . '/runs' => 'environment journal run root',
+            $this->base . '/targets' => 'environment journal target root',
+            $this->base . '/tombstones' => 'environment journal tombstone root',
+        ] as $path => $label) {
+            $this->ensurePrivateDirectory($path, $label);
         }
+        $this->reconcileTombstones();
     }
 
     /**
@@ -619,14 +687,36 @@ final class EnvironmentLifecycleJournal {
         if ($targetEnvironment === '' || str_contains($targetEnvironment, "\0")) {
             throw new \RuntimeException('invalid environment journal target');
         }
-        $path = $this->base . '/targets/' . hash('sha256', $targetEnvironment) . '.lock';
-        $lock = fopen($path, 'c');
-        if ($lock === false || !flock($lock, LOCK_EX)) {
-            throw new \RuntimeException("could not lock environment target '$targetEnvironment'");
+        return $this->synchronizedTargetHash(
+            hash('sha256', $targetEnvironment),
+            "environment target '$targetEnvironment'",
+            $callback
+        );
+    }
+
+    private function synchronizedTargetHash(string $targetHash, string $label, callable $callback): mixed {
+        if (preg_match('/^[a-f0-9]{64}$/D', $targetHash) !== 1) {
+            throw new \LogicException('invalid environment journal target lock hash');
         }
+        // Journal operations already run inside this lock on the product path.
+        // Re-entry lets their public recovery helpers protect standalone callers
+        // too, without acquiring a second flock that can deadlock this process.
+        if (isset($this->heldTargetLocks[$targetHash])) {
+            return $callback();
+        }
+        $path = $this->base . '/targets/' . $targetHash . '.lock';
+        $lock = @fopen($path, 'c');
+        if ($lock === false || !flock($lock, LOCK_EX)) {
+            if (is_resource($lock)) {
+                fclose($lock);
+            }
+            throw new \RuntimeException("could not lock $label");
+        }
+        $this->heldTargetLocks[$targetHash] = true;
         try {
             return $callback();
         } finally {
+            unset($this->heldTargetLocks[$targetHash]);
             flock($lock, LOCK_UN);
             fclose($lock);
         }
@@ -636,21 +726,41 @@ final class EnvironmentLifecycleJournal {
     public function start(string $operationId, array $run): void {
         self::assertOperationId($operationId);
         self::assertExactRun($run, $operationId);
-        $dir = $this->runDir($operationId);
-        if (is_dir($dir)) {
-            throw new \RuntimeException("environment operation '$operationId' already exists");
-        }
-        if (!mkdir($dir . '/events', 0700, true) && !is_dir($dir . '/events')) {
-            throw new \RuntimeException("could not create environment operation '$operationId'");
-        }
-        $this->writeImmutable($dir . '/run.json', $run);
-        $this->append($operationId, 'prepared', ['intent_sha256' => $run['intent_sha256']]);
+        $targetEnvironment = (string) $run['target_environment'];
+        $this->synchronizedTarget($targetEnvironment, function () use ($operationId, $run, $targetEnvironment): void {
+            $dir = $this->runDir($operationId);
+            if (is_dir($dir)) {
+                throw new \RuntimeException("environment operation '$operationId' already exists");
+            }
+            $latest = $this->latestForTarget($targetEnvironment);
+            $previousReaped = null;
+            if ($latest !== null) {
+                if (!self::eventExists($latest['events'], 'reaped')) {
+                    throw new \RuntimeException(
+                        "target '$targetEnvironment' already has an unreaped environment operation"
+                    );
+                }
+                $previousReaped = $latest['operation_id'];
+            }
+            $index = $this->targetIndex(
+                $targetEnvironment,
+                $operationId,
+                'installing',
+                $previousReaped,
+                $run
+            );
+            $this->writeTargetIndex($index);
+            $this->installIndexedRun($index);
+            $this->writeTargetIndex($this->withIndexPhase($index, 'active'));
+        });
     }
 
     /** @return array<string,mixed> */
     public function read(string $operationId): array {
         self::assertOperationId($operationId);
-        $run = $this->readCanonical($this->runDir($operationId) . '/run.json', 'environment run');
+        $path = $this->runDir($operationId) . '/run.json';
+        $this->reconcileTemporary($path);
+        $run = $this->readCanonical($path, 'environment run');
         self::assertExactRun($run, $operationId);
         return $run;
     }
@@ -661,6 +771,18 @@ final class EnvironmentLifecycleJournal {
         if (preg_match('/^[a-z][a-z0-9-]{0,63}$/D', $event) !== 1 || (array_is_list($data) && $data !== [])) {
             throw new \RuntimeException('invalid environment journal event');
         }
+        $run = $event === 'reaped' ? $this->read($operationId) : null;
+        if (is_array($run)) {
+            return $this->synchronizedTarget(
+                (string) $run['target_environment'],
+                fn(): string => $this->appendLocked($operationId, $event, $data, $run)
+            );
+        }
+        return $this->appendLocked($operationId, $event, $data, null);
+    }
+
+    /** @param array<string,mixed> $data @param ?array<string,mixed> $run */
+    private function appendLocked(string $operationId, string $event, array $data, ?array $run): string {
         $dir = $this->runDir($operationId);
         if (!is_dir($dir . '/events')) {
             throw new \RuntimeException("environment operation '$operationId' has no journal");
@@ -670,12 +792,52 @@ final class EnvironmentLifecycleJournal {
             throw new \RuntimeException("could not lock environment operation '$operationId'");
         }
         try {
-            $events = glob($dir . '/events/*.json') ?: [];
-            sort($events, SORT_STRING);
-            $sequence = count($events) + 1;
-            $previous = $events === []
+            $paths = glob($dir . '/events/*.json') ?: [];
+            sort($paths, SORT_STRING);
+            $records = $this->events($operationId);
+            if (count($paths) !== count($records)) {
+                throw new \RuntimeException("environment operation '$operationId' changed while appending");
+            }
+            if ($event === 'reaped') {
+                foreach ($records as $index => $record) {
+                    if (($record['event'] ?? null) !== 'reaped') {
+                        continue;
+                    }
+                    if (EnvironmentLifecycleCanon::encode($record['data'] ?? null)
+                        !== EnvironmentLifecycleCanon::encode($data)) {
+                        throw new \RuntimeException(
+                            "environment operation '$operationId' replayed reap with changed evidence"
+                        );
+                    }
+                    if (!is_array($run)) {
+                        throw new \RuntimeException("environment operation '$operationId' lost its run identity");
+                    }
+                    $this->finishReapedIndex($run);
+                    return $paths[$index];
+                }
+            }
+            if ($event === 'stopped') {
+                $lastStopped = null;
+                $stoppedCount = 0;
+                foreach ($records as $index => $record) {
+                    if (($record['event'] ?? null) !== 'stopped') {
+                        continue;
+                    }
+                    $stoppedCount++;
+                    $lastStopped = $paths[$index];
+                    if (EnvironmentLifecycleCanon::encode($record['data'] ?? null)
+                        === EnvironmentLifecycleCanon::encode($data)) {
+                        return $paths[$index];
+                    }
+                }
+                if ($stoppedCount >= self::MAX_STOPPED_EVENTS && is_string($lastStopped)) {
+                    return $lastStopped;
+                }
+            }
+            $sequence = count($paths) + 1;
+            $previous = $paths === []
                 ? str_repeat('0', 64)
-                : hash_file('sha256', $events[count($events) - 1]);
+                : hash_file('sha256', $paths[count($paths) - 1]);
             if (!is_string($previous)) {
                 throw new \RuntimeException('could not hash prior environment event');
             }
@@ -690,6 +852,12 @@ final class EnvironmentLifecycleJournal {
             ];
             $path = sprintf('%s/events/%04d-%s.json', $dir, $sequence, $event);
             $this->writeImmutable($path, $record);
+            if ($event === 'reaped') {
+                if (!is_array($run)) {
+                    throw new \RuntimeException("environment operation '$operationId' lost its run identity");
+                }
+                $this->finishReapedIndex($run);
+            }
             return $path;
         } finally {
             flock($lock, LOCK_UN);
@@ -705,6 +873,7 @@ final class EnvironmentLifecycleJournal {
         $events = [];
         $previous = str_repeat('0', 64);
         foreach ($paths as $index => $path) {
+            $this->reconcileTemporary($path);
             $event = $this->readCanonical($path, 'environment event');
             self::assertExactEvent($event, $operationId, $index + 1);
             if (($event['operation_id'] ?? null) !== $operationId
@@ -723,23 +892,398 @@ final class EnvironmentLifecycleJournal {
 
     /** @return ?array{operation_id:string,run:array<string,mixed>,events:list<array<string,mixed>>} */
     public function latestForTarget(string $targetEnvironment): ?array {
-        $paths = glob($this->base . '/runs/*/run.json') ?: [];
-        sort($paths, SORT_STRING);
-        for ($i = count($paths) - 1; $i >= 0; $i--) {
-            $run = $this->readCanonical($paths[$i], 'environment run');
-            $operationId = basename(dirname($paths[$i]));
-            self::assertExactRun($run, $operationId);
-            if (($run['target_environment'] ?? null) !== $targetEnvironment) {
-                continue;
-            }
-            return ['operation_id' => $operationId, 'run' => $run, 'events' => $this->events($operationId)];
+        if ($targetEnvironment === '' || str_contains($targetEnvironment, "\0")) {
+            throw new \RuntimeException('invalid environment journal target');
         }
-        return null;
+        return $this->synchronizedTarget(
+            $targetEnvironment,
+            fn(): ?array => $this->latestForTargetLocked($targetEnvironment)
+        );
+    }
+
+    /** @return ?array{operation_id:string,run:array<string,mixed>,events:list<array<string,mixed>>} */
+    private function latestForTargetLocked(string $targetEnvironment): ?array {
+        $index = $this->readTargetIndex($targetEnvironment);
+        if ($index === null) {
+            return $this->migrateLegacyTarget($targetEnvironment);
+        }
+        if ($index['phase'] === 'installing') {
+            $this->installIndexedRun($index);
+            $index = $this->withIndexPhase($index, 'active');
+            $this->writeTargetIndex($index);
+        }
+        $operationId = $index['operation_id'];
+        $run = $this->read($operationId);
+        if (EnvironmentLifecycleCanon::encode($run)
+            !== EnvironmentLifecycleCanon::encode($index['run'])) {
+            throw new \RuntimeException("environment target '$targetEnvironment' index changed its run identity");
+        }
+        $events = $this->events($operationId);
+        $reaped = self::eventExists($events, 'reaped');
+        if ($reaped && in_array($index['phase'], ['active', 'reaping'], true)) {
+            $this->finishReapedIndex($run);
+            $index = $this->readTargetIndex($targetEnvironment);
+            if ($index === null) {
+                throw new \RuntimeException("environment target '$targetEnvironment' lost its reap index");
+            }
+        }
+        if (($index['phase'] === 'reaped') !== $reaped
+            || ($index['phase'] === 'reaped' && $index['previous_reaped_operation_id'] !== null)) {
+            throw new \RuntimeException("environment target '$targetEnvironment' index contradicts its event journal");
+        }
+        return ['operation_id' => $operationId, 'run' => $run, 'events' => $events];
     }
 
     public function runDir(string $operationId): string {
         self::assertOperationId($operationId);
         return $this->base . '/runs/' . $operationId;
+    }
+
+    /** @param list<array<string,mixed>> $events */
+    private static function eventExists(array $events, string $name): bool {
+        foreach ($events as $event) {
+            if (($event['event'] ?? null) === $name) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @param array<string,mixed> $run @return array<string,mixed> */
+    private function targetIndex(
+        string $targetEnvironment,
+        string $operationId,
+        string $phase,
+        ?string $previousReapedOperationId,
+        array $run
+    ): array {
+        $index = [
+            'format' => self::TARGET_INDEX_FORMAT,
+            'operation_id' => $operationId,
+            'phase' => $phase,
+            'previous_reaped_operation_id' => $previousReapedOperationId,
+            'run' => $run,
+            'target_environment' => $targetEnvironment,
+        ];
+        self::assertTargetIndex($index, $targetEnvironment);
+        return $index;
+    }
+
+    /** @param array<string,mixed> $index @return array<string,mixed> */
+    private function withIndexPhase(array $index, string $phase): array {
+        $index['phase'] = $phase;
+        if ($phase === 'reaped') {
+            $index['previous_reaped_operation_id'] = null;
+        }
+        self::assertTargetIndex($index, (string) ($index['target_environment'] ?? ''));
+        return $index;
+    }
+
+    private function targetIndexPath(string $targetEnvironment): string {
+        if ($targetEnvironment === '' || str_contains($targetEnvironment, "\0")) {
+            throw new \RuntimeException('invalid environment journal target');
+        }
+        return $this->base . '/targets/' . hash('sha256', $targetEnvironment) . '.json';
+    }
+
+    /** @return ?array<string,mixed> */
+    private function readTargetIndex(string $targetEnvironment): ?array {
+        $path = $this->targetIndexPath($targetEnvironment);
+        $this->reconcileMutableTemporary($path);
+        $stat = $this->freshLstat($path);
+        if ($stat === false) {
+            return null;
+        }
+        if (!$this->privateRegularFile($stat, 1)
+            || (int) ($stat['size'] ?? -1) < 2
+            || (int) ($stat['size'] ?? -1) > self::MAX_TARGET_INDEX_BYTES) {
+            throw new \RuntimeException("environment target '$targetEnvironment' index is unsafe");
+        }
+        $index = $this->readCanonical($path, 'environment target index');
+        self::assertTargetIndex($index, $targetEnvironment);
+        return $index;
+    }
+
+    /** @param array<string,mixed> $index */
+    private function writeTargetIndex(array $index): void {
+        $targetEnvironment = $index['target_environment'] ?? null;
+        if (!is_string($targetEnvironment)) {
+            throw new \RuntimeException('environment target index has no target environment');
+        }
+        self::assertTargetIndex($index, $targetEnvironment);
+        $bytes = EnvironmentLifecycleCanon::encode($index) . "\n";
+        if (strlen($bytes) > self::MAX_TARGET_INDEX_BYTES) {
+            throw new \RuntimeException("environment target '$targetEnvironment' index exceeds its byte limit");
+        }
+        $this->writeMutable($this->targetIndexPath($targetEnvironment), $bytes);
+    }
+
+    /** @param array<string,mixed> $index */
+    private function installIndexedRun(array $index): void {
+        $targetEnvironment = (string) ($index['target_environment'] ?? '');
+        self::assertTargetIndex($index, $targetEnvironment);
+        if ($index['phase'] !== 'installing') {
+            throw new \RuntimeException("environment target '$targetEnvironment' is not installing a run");
+        }
+        $operationId = (string) $index['operation_id'];
+        $dir = $this->runDir($operationId);
+        if (!is_dir($dir . '/events')
+            && !mkdir($dir . '/events', 0700, true) && !is_dir($dir . '/events')) {
+            throw new \RuntimeException("could not create environment operation '$operationId'");
+        }
+        $this->assertPrivateDirectory($dir, 'environment run');
+        $this->assertPrivateDirectory($dir . '/events', 'environment event directory');
+        $this->syncDirectory(dirname($dir));
+        $this->writeImmutable($dir . '/run.json', $index['run']);
+        $events = $this->events($operationId);
+        if ($events === []) {
+            $this->append($operationId, 'prepared', [
+                'intent_sha256' => $index['run']['intent_sha256'],
+            ]);
+            $events = $this->events($operationId);
+        }
+        if (count($events) < 1 || ($events[0]['event'] ?? null) !== 'prepared'
+            || ($events[0]['data'] ?? null) !== ['intent_sha256' => $index['run']['intent_sha256']]) {
+            throw new \RuntimeException("environment operation '$operationId' has no exact prepared event");
+        }
+    }
+
+    /** @param array<string,mixed> $run */
+    private function finishReapedIndex(array $run): void {
+        $operationId = $run['operation_id'] ?? null;
+        $targetEnvironment = $run['target_environment'] ?? null;
+        if (!is_string($operationId) || !is_string($targetEnvironment)) {
+            throw new \RuntimeException('environment reap lost its run identity');
+        }
+        self::assertExactRun($run, $operationId);
+        $index = $this->readTargetIndex($targetEnvironment);
+        if ($index === null) {
+            $this->migrateLegacyTarget($targetEnvironment);
+            $index = $this->readTargetIndex($targetEnvironment);
+        }
+        if ($index === null || $index['operation_id'] !== $operationId
+            || EnvironmentLifecycleCanon::encode($index['run']) !== EnvironmentLifecycleCanon::encode($run)) {
+            throw new \RuntimeException("environment operation '$operationId' is not bound to its target index");
+        }
+        if (!self::eventExists($this->events($operationId), 'reaped')) {
+            throw new \RuntimeException("environment operation '$operationId' has no durable reap event");
+        }
+        if ($index['phase'] === 'reaped') {
+            if ($index['previous_reaped_operation_id'] !== null) {
+                throw new \RuntimeException("environment operation '$operationId' retained an invalid reap predecessor");
+            }
+            return;
+        }
+        if (!in_array($index['phase'], ['active', 'reaping'], true)) {
+            throw new \RuntimeException("environment operation '$operationId' has an invalid reap phase");
+        }
+        if ($index['phase'] === 'active') {
+            $index = $this->withIndexPhase($index, 'reaping');
+            $this->writeTargetIndex($index);
+        }
+        $previous = $index['previous_reaped_operation_id'];
+        if (is_string($previous)) {
+            $this->deleteReapedRun($targetEnvironment, $operationId, $previous);
+        }
+        $this->writeTargetIndex($this->withIndexPhase($index, 'reaped'));
+    }
+
+    /** @return ?array{operation_id:string,run:array<string,mixed>,events:list<array<string,mixed>>} */
+    private function migrateLegacyTarget(string $targetEnvironment): ?array {
+        $paths = glob($this->base . '/runs/*/run.json') ?: [];
+        sort($paths, SORT_STRING);
+        $matches = [];
+        foreach ($paths as $path) {
+            $this->reconcileTemporary($path);
+            $run = $this->readCanonical($path, 'environment run');
+            $operationId = basename(dirname($path));
+            self::assertExactRun($run, $operationId);
+            if (($run['target_environment'] ?? null) !== $targetEnvironment) {
+                continue;
+            }
+            $matches[] = [
+                'events' => $this->events($operationId),
+                'operation_id' => $operationId,
+                'run' => $run,
+            ];
+        }
+        if ($matches === []) {
+            return null;
+        }
+        $latest = $matches[count($matches) - 1];
+        foreach (array_slice($matches, 0, -1) as $prior) {
+            if (!self::eventExists($prior['events'], 'reaped')) {
+                throw new \RuntimeException(
+                    "environment target '$targetEnvironment' has multiple unreaped legacy operations"
+                );
+            }
+            $this->deleteReapedRun(
+                $targetEnvironment,
+                $latest['operation_id'],
+                $prior['operation_id']
+            );
+        }
+        $phase = self::eventExists($latest['events'], 'reaped') ? 'reaped' : 'active';
+        $this->writeTargetIndex($this->targetIndex(
+            $targetEnvironment,
+            $latest['operation_id'],
+            $phase,
+            null,
+            $latest['run']
+        ));
+        return $latest;
+    }
+
+    private function deleteReapedRun(
+        string $targetEnvironment,
+        string $currentOperationId,
+        string $previousOperationId
+    ): void {
+        self::assertOperationId($currentOperationId);
+        self::assertOperationId($previousOperationId);
+        if ($currentOperationId === $previousOperationId) {
+            throw new \RuntimeException('environment reap predecessor aliases its current operation');
+        }
+        $tombstone = $this->tombstonePath($targetEnvironment, $previousOperationId);
+        if ($this->freshLstat($tombstone) !== false) {
+            $this->deletePrivateTree($tombstone);
+        }
+        $previousDir = $this->runDir($previousOperationId);
+        if ($this->freshLstat($previousDir) === false) {
+            return;
+        }
+        $previousRun = $this->read($previousOperationId);
+        if (($previousRun['target_environment'] ?? null) !== $targetEnvironment
+            || !self::eventExists($this->events($previousOperationId), 'reaped')) {
+            throw new \RuntimeException(
+                "environment operation '$previousOperationId' is not a fully reaped predecessor"
+            );
+        }
+        $this->assertPrivateDirectory($previousDir, 'environment run selected for reap pruning');
+        if (!@rename($previousDir, $tombstone)) {
+            throw new \RuntimeException(
+                "environment operation '$previousOperationId' could not enter its deletion tombstone"
+            );
+        }
+        $this->syncDirectory(dirname($previousDir));
+        $this->syncDirectory(dirname($tombstone));
+        $this->deletePrivateTree($tombstone);
+    }
+
+    private function tombstonePath(string $targetEnvironment, string $operationId): string {
+        self::assertOperationId($operationId);
+        return $this->base . '/tombstones/' . hash('sha256', $targetEnvironment) . '.' . $operationId;
+    }
+
+    private function reconcileTombstones(): void {
+        $entries = @scandir($this->base . '/tombstones');
+        if (!is_array($entries)) {
+            throw new \RuntimeException('environment journal tombstones could not be listed');
+        }
+        foreach (array_values(array_diff($entries, ['.', '..'])) as $entry) {
+            if (preg_match('/^[a-f0-9]{64}\.[0-9]{8}-[0-9]{6}-[a-f0-9]{24}$/D', $entry) !== 1) {
+                throw new \RuntimeException('environment journal contains a foreign deletion tombstone');
+            }
+            $path = $this->base . '/tombstones/' . $entry;
+            $this->synchronizedTargetHash(
+                substr($entry, 0, 64),
+                "environment journal tombstone '$entry'",
+                function () use ($path): void {
+                    if ($this->freshLstat($path) !== false) {
+                        $this->deletePrivateTree($path);
+                    }
+                }
+            );
+        }
+    }
+
+    private function deletePrivateTree(string $path): void {
+        $this->assertPrivateDirectory($path, 'environment deletion tombstone');
+        $entries = @scandir($path);
+        if (!is_array($entries)) {
+            throw new \RuntimeException("environment deletion tombstone '$path' could not be listed");
+        }
+        foreach ($entries as $entry) {
+            if ($entry === '.' || $entry === '..') {
+                continue;
+            }
+            $child = $path . '/' . $entry;
+            $stat = $this->freshLstat($child);
+            if (!is_array($stat) || is_link($child)) {
+                throw new \RuntimeException("environment deletion tombstone contains an unsafe node at '$child'");
+            }
+            if ((((int) ($stat['mode'] ?? 0)) & 0170000) === 0040000) {
+                $this->deletePrivateTree($child);
+                continue;
+            }
+            if ((((int) ($stat['mode'] ?? 0)) & 0170000) !== 0100000
+                || (int) ($stat['nlink'] ?? 0) !== 1
+                || (int) ($stat['size'] ?? -1) < 0
+                || (int) ($stat['size'] ?? -1) > self::MAX_IMMUTABLE_BYTES
+                || (function_exists('posix_geteuid') && (int) ($stat['uid'] ?? -1) !== posix_geteuid())
+                || !@unlink($child) || $this->freshLstat($child) !== false) {
+                throw new \RuntimeException("environment deletion tombstone contains an unsafe file at '$child'");
+            }
+            $this->syncDirectory($path);
+        }
+        if (!@rmdir($path) || $this->freshLstat($path) !== false) {
+            throw new \RuntimeException("environment deletion tombstone '$path' could not be removed");
+        }
+        $this->syncDirectory(dirname($path));
+    }
+
+    private function ensurePrivateDirectory(string $path, string $label): void {
+        if ($this->freshLstat($path) === false) {
+            $created = @mkdir($path, 0700, true);
+            if ($created && !@chmod($path, 0700)) {
+                throw new \RuntimeException("could not protect environment journal '$path'");
+            }
+            if (!$created && $this->freshLstat($path) === false) {
+                throw new \RuntimeException("could not create environment journal '$path'");
+            }
+        }
+        $this->assertPrivateDirectory($path, $label);
+    }
+
+    private function assertPrivateDirectory(string $path, string $label): void {
+        $stat = $this->freshLstat($path);
+        if (!is_array($stat) || is_link($path)
+            || (((int) ($stat['mode'] ?? 0)) & 0170000) !== 0040000
+            || (DIRECTORY_SEPARATOR === '/' && (((int) ($stat['mode'] ?? 0)) & 0777) !== 0700)
+            || (function_exists('posix_geteuid') && (int) ($stat['uid'] ?? -1) !== posix_geteuid())) {
+            throw new \RuntimeException("$label '$path' is not private and controller-owned");
+        }
+    }
+
+    /** @param array<string,mixed> $index */
+    private static function assertTargetIndex(array $index, string $targetEnvironment): void {
+        $expected = [
+            'format', 'operation_id', 'phase', 'previous_reaped_operation_id', 'run',
+            'target_environment',
+        ];
+        $actual = array_keys($index);
+        sort($actual, SORT_STRING);
+        sort($expected, SORT_STRING);
+        $operationId = $index['operation_id'] ?? null;
+        $previous = $index['previous_reaped_operation_id'] ?? null;
+        if ($actual !== $expected || $index['format'] !== self::TARGET_INDEX_FORMAT
+            || !is_string($operationId) || !is_string($index['target_environment'] ?? null)
+            || $index['target_environment'] !== $targetEnvironment
+            || !in_array($index['phase'] ?? null, ['active', 'installing', 'reaped', 'reaping'], true)
+            || ($previous !== null && !is_string($previous))
+            || ($index['phase'] === 'reaped' && $previous !== null)
+            || $previous === $operationId
+            || !is_array($index['run'] ?? null) || array_is_list($index['run'])) {
+            throw new \RuntimeException("environment target '$targetEnvironment' index is malformed");
+        }
+        self::assertOperationId($operationId);
+        if (is_string($previous)) {
+            self::assertOperationId($previous);
+        }
+        self::assertExactRun($index['run'], $operationId);
+        if (($index['run']['target_environment'] ?? null) !== $targetEnvironment) {
+            throw new \RuntimeException("environment target '$targetEnvironment' index changed target identity");
+        }
     }
 
     /** @param array<string,mixed> $run */
@@ -794,28 +1338,256 @@ final class EnvironmentLifecycleJournal {
         return $time !== false && $time->format('Y-m-d\TH:i:s\Z') === $value;
     }
 
+    private function writeMutable(string $path, string $bytes): void {
+        $this->reconcileMutableTemporary($path);
+        $current = $this->freshLstat($path);
+        if ($current !== false && !$this->privateRegularFile($current, 1)) {
+            throw new \RuntimeException("environment target index is unsafe at '$path'");
+        }
+        $temporary = $path . '.next';
+        $handle = @fopen($temporary, 'x+b');
+        if (!is_resource($handle) || !@chmod($temporary, 0600)) {
+            if (is_resource($handle)) fclose($handle);
+            throw new \RuntimeException("could not create environment target index at '$path'");
+        }
+        try {
+            $offset = 0;
+            while ($offset < strlen($bytes)) {
+                $written = fwrite($handle, substr($bytes, $offset));
+                if (!is_int($written) || $written < 1) {
+                    throw new \RuntimeException("could not write environment target index at '$path'");
+                }
+                $offset += $written;
+            }
+            if (!fflush($handle) || (function_exists('fsync') && !@fsync($handle))) {
+                throw new \RuntimeException("could not durably flush environment target index at '$path'");
+            }
+            $opened = fstat($handle);
+            $named = $this->freshLstat($temporary);
+            if (!is_array($opened) || !is_array($named)
+                || !$this->samePrivateRegularFile($opened, $named, 1)
+                || (int) ($opened['size'] ?? -1) !== strlen($bytes)) {
+                throw new \RuntimeException("temporary environment target index is unsafe at '$path'");
+            }
+        } catch (\Throwable $failure) {
+            fclose($handle);
+            $this->discardMutableTemporary($path);
+            throw $failure;
+        }
+        fclose($handle);
+        if (!@rename($temporary, $path)) {
+            $this->discardMutableTemporary($path);
+            throw new \RuntimeException("could not publish environment target index at '$path'");
+        }
+        $this->syncDirectory(dirname($path));
+    }
+
+    private function reconcileMutableTemporary(string $path): void {
+        $temporary = $path . '.next';
+        $stat = $this->freshLstat($temporary);
+        if ($stat === false) {
+            return;
+        }
+        if (!$this->privateRegularFile($stat, 1)
+            || (int) ($stat['size'] ?? -1) < 2
+            || (int) ($stat['size'] ?? -1) > self::MAX_TARGET_INDEX_BYTES) {
+            throw new \RuntimeException("temporary environment target index is unsafe at '$path'");
+        }
+        $bytes = @file_get_contents($temporary);
+        $value = null;
+        try {
+            $value = is_string($bytes) ? json_decode($bytes, true, 512, JSON_THROW_ON_ERROR) : null;
+        } catch (\Throwable) {
+            // An incomplete create never became target authority.
+        }
+        $canonical = is_array($value) && !array_is_list($value)
+            && EnvironmentLifecycleCanon::encode($value) . "\n" === $bytes;
+        if ($this->freshLstat($path) === false && $canonical) {
+            $targetEnvironment = $value['target_environment'] ?? null;
+            if (!is_string($targetEnvironment)) {
+                throw new \RuntimeException("temporary environment target index is malformed at '$path'");
+            }
+            self::assertTargetIndex($value, $targetEnvironment);
+            if ($this->targetIndexPath($targetEnvironment) !== $path) {
+                throw new \RuntimeException("temporary environment target index changed its path at '$path'");
+            }
+            if (!@rename($temporary, $path)) {
+                throw new \RuntimeException("temporary environment target index could not be recovered at '$path'");
+            }
+            $this->syncDirectory(dirname($path));
+            return;
+        }
+        if (!@unlink($temporary) || $this->freshLstat($temporary) !== false) {
+            throw new \RuntimeException("temporary environment target index could not be removed at '$path'");
+        }
+        $this->syncDirectory(dirname($path));
+    }
+
+    private function discardMutableTemporary(string $path): void {
+        $temporary = $path . '.next';
+        $stat = $this->freshLstat($temporary);
+        if ($stat === false) {
+            return;
+        }
+        if (!$this->privateRegularFile($stat, 1) || !@unlink($temporary)
+            || $this->freshLstat($temporary) !== false) {
+            throw new \RuntimeException("temporary environment target index is unsafe at '$path'");
+        }
+        $this->syncDirectory(dirname($path));
+    }
+
     private function writeImmutable(string $path, array $record): void {
         $bytes = EnvironmentLifecycleCanon::encode($record) . "\n";
+        if (strlen($bytes) > self::MAX_IMMUTABLE_BYTES) {
+            throw new \RuntimeException("environment journal exceeds its byte limit at '$path'");
+        }
+        $this->reconcileTemporary($path);
         if (is_file($path)) {
             if (file_get_contents($path) === $bytes) {
                 return;
             }
             throw new \RuntimeException("immutable environment journal record differs at '$path'");
         }
-        $tmp = $path . '.tmp.' . bin2hex(random_bytes(8));
-        if (file_put_contents($tmp, $bytes, LOCK_EX) !== strlen($bytes)) {
-            @unlink($tmp);
-            throw new \RuntimeException("could not write environment journal '$path'");
+        $temporary = $path . '.tmp';
+        $handle = @fopen($temporary, 'x+b');
+        if (!is_resource($handle) || !@chmod($temporary, 0600)) {
+            if (is_resource($handle)) fclose($handle);
+            throw new \RuntimeException("could not create environment journal '$path'");
         }
-        @chmod($tmp, 0600);
-        if (@link($tmp, $path)) {
-            @unlink($tmp);
+        try {
+            $offset = 0;
+            while ($offset < strlen($bytes)) {
+                $written = fwrite($handle, substr($bytes, $offset));
+                if (!is_int($written) || $written < 1) {
+                    throw new \RuntimeException("could not write environment journal '$path'");
+                }
+                $offset += $written;
+            }
+            if (!fflush($handle) || (function_exists('fsync') && !@fsync($handle))) {
+                throw new \RuntimeException("could not durably flush environment journal '$path'");
+            }
+            $opened = fstat($handle);
+            $named = $this->freshLstat($temporary);
+            if (!is_array($opened) || !is_array($named)
+                || !$this->samePrivateRegularFile($opened, $named, 1)
+                || (int) ($opened['size'] ?? -1) !== strlen($bytes)
+                || (int) ($named['size'] ?? -1) !== strlen($bytes)) {
+                throw new \RuntimeException("temporary environment journal is unsafe at '$path'");
+            }
+        } catch (\Throwable $failure) {
+            fclose($handle);
+            $this->reconcileTemporary($path);
+            throw $failure;
+        }
+        fclose($handle);
+        if (@link($temporary, $path)) {
+            $this->syncDirectory(dirname($path));
+            $this->reconcileTemporary($path);
             return;
         }
-        $same = is_file($path) && file_get_contents($path) === $bytes;
-        @unlink($tmp);
+        try {
+            $same = is_file($path) && file_get_contents($path) === $bytes;
+        } finally {
+            $this->reconcileTemporary($path);
+        }
         if (!$same) {
             throw new \RuntimeException("could not publish immutable environment journal '$path'");
+        }
+    }
+
+    /**
+     * The run directory or its operation lock excludes legitimate writers. A
+     * two-link residue is removed only when the second inode name is the exact
+     * immutable destination left by a completed create-only publication.
+     */
+    private function reconcileTemporary(string $path): void {
+        $temporary = $path . '.tmp';
+        $before = $this->freshLstat($temporary);
+        if ($before === false) {
+            return;
+        }
+        $links = (int) ($before['nlink'] ?? 0);
+        if (!$this->privateRegularFile($before, $links)
+            || ($links !== 1 && $links !== 2)
+            || (int) ($before['size'] ?? -1) < 0
+            || (int) ($before['size'] ?? -1) > self::MAX_IMMUTABLE_BYTES) {
+            throw new \RuntimeException("temporary environment journal is unsafe at '$path'");
+        }
+        if ($links === 2) {
+            $published = $this->freshLstat($path);
+            if (!is_array($published)
+                || !$this->samePrivateRegularFile($before, $published, 2)
+                || (int) ($published['size'] ?? -1) !== (int) ($before['size'] ?? -2)) {
+                throw new \RuntimeException("temporary environment journal is unsafe at '$path'");
+            }
+        }
+        $handle = @fopen($temporary, 'rb');
+        if (!is_resource($handle)) {
+            throw new \RuntimeException("temporary environment journal could not be opened at '$path'");
+        }
+        try {
+            $opened = fstat($handle);
+            $after = $this->freshLstat($temporary);
+            if (!is_array($opened) || !is_array($after)
+                || !$this->samePrivateRegularFile($before, $opened, $links)
+                || !$this->samePrivateRegularFile($opened, $after, $links)
+                || (int) ($before['size'] ?? -1) !== (int) ($opened['size'] ?? -2)
+                || (int) ($after['size'] ?? -1) !== (int) ($opened['size'] ?? -2)) {
+                throw new \RuntimeException("temporary environment journal changed during cleanup at '$path'");
+            }
+            if ($links === 2) {
+                $publishedAfter = $this->freshLstat($path);
+                if (!is_array($publishedAfter)
+                    || !$this->samePrivateRegularFile($opened, $publishedAfter, 2)
+                    || (int) ($publishedAfter['size'] ?? -1) !== (int) ($opened['size'] ?? -2)) {
+                    throw new \RuntimeException("temporary environment journal changed during cleanup at '$path'");
+                }
+            }
+        } finally {
+            fclose($handle);
+        }
+        if (!@unlink($temporary) || $this->freshLstat($temporary) !== false) {
+            throw new \RuntimeException("temporary environment journal could not be removed at '$path'");
+        }
+        $this->syncDirectory(dirname($path));
+    }
+
+    /** @param array<string|int,mixed> $stat */
+    private function privateRegularFile(array $stat, int $links): bool {
+        return (((int) ($stat['mode'] ?? 0)) & 0170000) === 0100000
+            && (DIRECTORY_SEPARATOR !== '/' || (((int) ($stat['mode'] ?? 0)) & 0777) === 0600)
+            && (int) ($stat['nlink'] ?? 0) === $links
+            && (!function_exists('posix_geteuid') || (int) ($stat['uid'] ?? -1) === posix_geteuid());
+    }
+
+    /** @param array<string|int,mixed> $left @param array<string|int,mixed> $right */
+    private function samePrivateRegularFile(array $left, array $right, int $links): bool {
+        return $this->privateRegularFile($left, $links)
+            && $this->privateRegularFile($right, $links)
+            && (string) ($left['dev'] ?? '') === (string) ($right['dev'] ?? '')
+            && (string) ($left['ino'] ?? '') === (string) ($right['ino'] ?? '');
+    }
+
+    /** @return array<string|int,mixed>|false */
+    private function freshLstat(string $path): array|false {
+        clearstatcache(true, $path);
+        return @lstat($path);
+    }
+
+    private function syncDirectory(string $path): void {
+        if (!function_exists('fsync')) {
+            return;
+        }
+        $handle = @fopen($path, 'r');
+        if (!is_resource($handle)) {
+            throw new \RuntimeException("environment journal directory '$path' could not be opened for sync");
+        }
+        try {
+            if (!@fsync($handle)) {
+                throw new \RuntimeException("environment journal directory '$path' could not be synchronized");
+            }
+        } finally {
+            fclose($handle);
         }
     }
 
@@ -854,21 +1626,30 @@ final class EnvironmentMaterializer {
     /**
      * @param array{branch:string,create:bool,ttl_seconds:int} $options
      * @param callable(EnvironmentDriver,array{artifact_path:string,checkpoint_path:string,compiled_summary:array<string,mixed>,operation_id:string,promotion_owner:string}):array<string,mixed> $promote
+     * @param ?callable(EnvironmentDriver,?array<string,mixed>):array<string,mixed> $observeBeforeRelease
      * @return array<string,mixed>
      */
     public static function materialize(
         EnvironmentDriver $sourceDriver,
         EnvironmentDriver $targetDriver,
-        CommandEnvironmentProvider $sourceProvider,
-        CommandEnvironmentProvider $targetProvider,
+        EnvironmentProviderClient $sourceProvider,
+        EnvironmentProviderClient $targetProvider,
         EnvironmentLifecycleJournal $journal,
         array $options,
-        callable $promote
+        callable $promote,
+        ?callable $observeBeforeRelease = null
     ): array {
         return $journal->synchronizedTarget(
             $targetDriver->name(),
             static fn(): array => self::materializeLocked(
-                $sourceDriver, $targetDriver, $sourceProvider, $targetProvider, $journal, $options, $promote
+                $sourceDriver,
+                $targetDriver,
+                $sourceProvider,
+                $targetProvider,
+                $journal,
+                $options,
+                $promote,
+                $observeBeforeRelease
             )
         );
     }
@@ -877,11 +1658,12 @@ final class EnvironmentMaterializer {
     private static function materializeLocked(
         EnvironmentDriver $sourceDriver,
         EnvironmentDriver $targetDriver,
-        CommandEnvironmentProvider $sourceProvider,
-        CommandEnvironmentProvider $targetProvider,
+        EnvironmentProviderClient $sourceProvider,
+        EnvironmentProviderClient $targetProvider,
         EnvironmentLifecycleJournal $journal,
         array $options,
-        callable $promote
+        callable $promote,
+        ?callable $observeBeforeRelease
     ): array {
         $optionKeys = array_keys($options);
         sort($optionKeys, SORT_STRING);
@@ -928,6 +1710,17 @@ final class EnvironmentMaterializer {
             $events = $latest['events'];
             $completed = self::lastEvent($events, 'complete');
             if ($completed !== null) {
+                if ($observeBeforeRelease !== null) {
+                    $observation = self::lastEvent($events, 'target-observed');
+                    $evidence = $observation['data'] ?? null;
+                    if (!is_array($evidence) || array_is_list($evidence)) {
+                        throw new \RuntimeException(
+                            'completed branch environment has no replayable bound observation evidence'
+                        );
+                    }
+                    $replayed = $observeBeforeRelease($targetDriver, $evidence);
+                    self::assertObservationReplay($evidence, $replayed);
+                }
                 return $completed['data'] + ['operation_id' => $operationId, 'resumed' => true];
             }
         } else {
@@ -1192,6 +1985,16 @@ final class EnvironmentMaterializer {
                 self::recordPhase($journal, $operationId, 'target-fence-released', self::publicEvidence($currentFence));
             }
 
+            $leaseDriverBound = false;
+            if ($targetDriver instanceof ProviderLeaseBoundEnvironmentDriver
+                && ($currentFence['state'] ?? null) === 'held') {
+                // Dynamic targets are addressed only by the provider's exact
+                // generation and held CAS fence. Binding earlier would let a
+                // stable alias reach a reused slot before ownership exists.
+                $targetDriver->bindProviderLease($operationId, $targetIdentity, $heldFence);
+                $leaseDriverBound = true;
+            }
+
             $restoreInput = self::identityInput($targetIdentity) + self::mutationInput($heldFence) + [
                 'database_sha256' => $snapshot['database_sha256'], 'media_sha256' => $snapshot['media_sha256'],
                 'snapshot_set_id' => $snapshot['snapshot_set_id'],
@@ -1228,6 +2031,7 @@ final class EnvironmentMaterializer {
             $artifactPath = rtrim($targetDriver->repoPath(), '/') . '/.duo/artifacts/materialize-' . $operationId . '.json';
             $compiledPhase = self::phaseData($journal, $operationId, 'release-compiled');
             if ($compiledPhase === null) {
+                self::beginDriverCommandPhase($targetDriver, 'release-compile');
                 $mkdir = $targetDriver->captureRaw('mkdir -p ' . escapeshellarg(dirname($artifactPath)));
                 if (($mkdir['exit'] ?? 1) !== 0) throw new \RuntimeException('could not create target materialization artifact directory');
                 $compiled = CodeDeploy::compile($targetDriver, $targetDriver->repoPath(), $artifactPath);
@@ -1253,6 +2057,7 @@ final class EnvironmentMaterializer {
             self::recordPhase($journal, $operationId, 'promotion-intent', ['artifact_path' => $artifactPath, 'owner' => $promotionOwner] + $release);
             $promotionReceipt = self::phaseData($journal, $operationId, 'promotion-applied');
             if ($promotionReceipt === null) {
+                self::beginDriverCommandPhase($targetDriver, 'promotion-apply');
                 $promotionReceipt = self::invokePromotion($promote, $targetDriver, [
                     'artifact_path' => $artifactPath,
                     'checkpoint_path' => rtrim($targetDriver->repoPath(), '/') . '/.duo/checkpoints/materialize-' . $operationId . '.sql',
@@ -1266,12 +2071,14 @@ final class EnvironmentMaterializer {
             }
             $verified = self::phaseData($journal, $operationId, 'release-verified');
             if ($verified === null) {
+                self::beginDriverCommandPhase($targetDriver, 'release-verify');
                 $verifyArtifact = rtrim($targetDriver->repoPath(), '/') . '/.duo/artifacts/materialize-verify-' . $operationId . '.json';
                 $verifiedCompile = CodeDeploy::compile($targetDriver, $targetDriver->repoPath(), $verifyArtifact);
                 if (($verifiedCompile['exit'] ?? 1) !== 0 || !is_array($verifiedCompile['summary'] ?? null) || self::releaseIdentity($verifiedCompile['summary']) !== $release) throw new \RuntimeException('target repository changed between frozen promotion and release verification');
                 self::recordPhase($journal, $operationId, 'release-verified', $release);
             }
             if (self::phaseData($journal, $operationId, 'release-converged') === null) {
+                self::beginDriverCommandPhase($targetDriver, 'release-convergence');
                 $planResult = $targetDriver->captureWp(['duo', 'plan', '--repo=' . $targetDriver->repoPath(), '--format=json']);
                 if (($planResult['exit'] ?? 1) !== 0) throw new \RuntimeException('could not verify branch environment convergence');
                 $finalPlan = json_decode(trim((string) $planResult['stdout']), true);
@@ -1314,6 +2121,28 @@ final class EnvironmentMaterializer {
                 }
                 $ttl = $ttlRead;
             }
+            if ($observeBeforeRelease !== null) {
+                $observation = self::phaseData($journal, $operationId, 'target-observed');
+                if ($observation === null) {
+                    if (($currentFence['state'] ?? null) !== 'held') {
+                        throw new \RuntimeException(
+                            'target mutation fence was released without replayable observation evidence'
+                        );
+                    }
+                    // Dynamic target commands are authorized by this exact
+                    // held fence. Rehearsal observes the converged site here,
+                    // before mutation-release makes that proof stale.
+                    self::beginDriverCommandPhase($targetDriver, 'target-observation');
+                    $observation = $observeBeforeRelease($targetDriver, null);
+                    if (array_is_list($observation)) {
+                        throw new \RuntimeException('target observation must be a canonical object');
+                    }
+                    self::recordPhase($journal, $operationId, 'target-observed', $observation);
+                } else {
+                    $replayed = $observeBeforeRelease($targetDriver, $observation);
+                    self::assertObservationReplay($observation, $replayed);
+                }
+            }
             $releaseFenceInput = self::identityInput($targetIdentity) + self::mutationInput($heldFence);
             self::recordIntent($journal, $operationId, 'target-fence-release', $releaseFenceInput);
             $released = self::phaseData($journal, $operationId, 'target-fence-released');
@@ -1321,11 +2150,19 @@ final class EnvironmentMaterializer {
                 $released = $targetProvider->perform('mutation-release', $operationId, $releaseFenceInput);
                 self::assertSameFence($heldFence, $released, true);
                 if (($released['state'] ?? null) !== 'released') throw new \RuntimeException('provider did not release target mutation fence');
+                if ($leaseDriverBound && $targetDriver instanceof ProviderLeaseBoundEnvironmentDriver) {
+                    $targetDriver->releaseProviderLease($operationId, $released);
+                    $leaseDriverBound = false;
+                }
                 self::recordPhase($journal, $operationId, 'target-fence-released', self::publicEvidence($released));
             } else {
                 self::assertSameFence($heldFence, $released, true);
                 if (($released['state'] ?? null) !== 'released') {
                     throw new \RuntimeException('journaled target mutation fence release is not released');
+                }
+                if ($leaseDriverBound && $targetDriver instanceof ProviderLeaseBoundEnvironmentDriver) {
+                    $targetDriver->releaseProviderLease($operationId, $released);
+                    $leaseDriverBound = false;
                 }
             }
 
@@ -1372,26 +2209,42 @@ final class EnvironmentMaterializer {
     /** @return array<string,mixed> */
     public static function reap(
         EnvironmentDriver $targetDriver,
-        CommandEnvironmentProvider $targetProvider,
+        EnvironmentProviderClient $targetProvider,
         EnvironmentLifecycleJournal $journal,
-        ?CommandEnvironmentProvider $sourceProvider = null
+        ?EnvironmentProviderClient $sourceProvider = null,
+        ?string $expectedOperationId = null
     ): array {
         return $journal->synchronizedTarget(
             $targetDriver->name(),
-            static fn(): array => self::reapLocked($targetDriver, $targetProvider, $journal, $sourceProvider)
+            static fn(): array => self::reapLocked(
+                $targetDriver,
+                $targetProvider,
+                $journal,
+                $sourceProvider,
+                $expectedOperationId
+            )
         );
     }
 
     /** @return array<string,mixed> */
     private static function reapLocked(
         EnvironmentDriver $targetDriver,
-        CommandEnvironmentProvider $targetProvider,
+        EnvironmentProviderClient $targetProvider,
         EnvironmentLifecycleJournal $journal,
-        ?CommandEnvironmentProvider $sourceProvider
+        ?EnvironmentProviderClient $sourceProvider,
+        ?string $expectedOperationId
     ): array {
         $latest = $journal->latestForTarget($targetDriver->name());
         if ($latest === null) {
             throw new \RuntimeException("target '{$targetDriver->name()}' has no materialization receipt");
+        }
+        if ($expectedOperationId !== null
+            && ($expectedOperationId === ''
+                || preg_match('/^[0-9]{8}-[0-9]{6}-[a-f0-9]{24}$/D', $expectedOperationId) !== 1
+                || !hash_equals($expectedOperationId, $latest['operation_id']))) {
+            throw new \RuntimeException(
+                'the current target lifecycle does not match the expected reap operation'
+            );
         }
         $operationId = $latest['operation_id'];
         $already = self::phaseData($journal, $operationId, 'reaped');
@@ -1487,6 +2340,15 @@ final class EnvironmentMaterializer {
         $mode = (string) ($identity['mode'] ?? '');
         $action = $mode === 'create' ? 'destroy' : ($mode === 'attach' ? 'detach' : '');
         if ($action === '') throw new \RuntimeException('materialization receipt has no valid target ownership mode');
+        $providerAbsent = self::phaseData($journal, $operationId, 'reap-provider-absent');
+        if ($providerAbsent !== null) {
+            return self::completeInspectedAbsence(
+                $journal,
+                $operationId,
+                $identity,
+                $providerAbsent
+            );
+        }
         $capabilities = $targetProvider->capabilities($operationId);
         $reapRequired = [
             EnvironmentProviderCapability::ENVIRONMENT_INSPECT, EnvironmentProviderCapability::ENVIRONMENT_MUTATION_ACQUIRE,
@@ -1555,12 +2417,114 @@ final class EnvironmentMaterializer {
             return $receipt + ['resumed' => false];
         }
 
-        $current = $targetProvider->perform('inspect', $operationId, self::identityInput($identity) + ['role' => 'target']);
+        // A prior precondition failure may have started the one bounded
+        // terminal-absence probe. Recover its exact operation before any
+        // presence-dependent contact: a successful TTL reap makes inspect and
+        // mutation calls legitimately unavailable, while a still-present
+        // generation rejects the deliberately released fence without cleanup.
+        $terminalProbe = self::recoverTerminalReapProbe(
+            $targetProvider,
+            $journal,
+            $operationId,
+            $identity,
+            $action
+        );
+        $terminalProbeAttempted = $terminalProbe['attempted'];
+        if ($terminalProbe['receipt'] !== null) return $terminalProbe['receipt'];
+
+        $inspectInput = self::identityInput($identity) + ['role' => 'target'];
+        $inspectIntent = self::phaseData($journal, $operationId, 'reap-inspect-intent');
+        $inspected = self::phaseData($journal, $operationId, 'reap-inspected');
+        if ($inspectIntent === null) {
+            if ($inspected !== null) {
+                throw new \RuntimeException('journaled reap inspection has no durable intent');
+            }
+            // Materialization already inspected this identity under
+            // $operationId, so absence needs a distinct operation. Its id is
+            // durable before contact and reused after any lost response.
+            $inspectOperationId = self::operationId();
+            $inspectIntent = [
+                'action' => 'inspect',
+                'input' => $inspectInput,
+                'input_sha256' => hash('sha256', EnvironmentLifecycleCanon::encode($inspectInput)),
+                'inspect_operation_id' => $inspectOperationId,
+            ];
+            self::recordPhase($journal, $operationId, 'reap-inspect-intent', $inspectIntent);
+        } else {
+            self::exactKeys($inspectIntent, [
+                'action', 'input', 'input_sha256', 'inspect_operation_id',
+            ], 'journaled reap inspection intent');
+            $intentInput = $inspectIntent['input'] ?? null;
+            $inspectOperationId = $inspectIntent['inspect_operation_id'] ?? null;
+            $inputSha256 = $inspectIntent['input_sha256'] ?? null;
+            if (($inspectIntent['action'] ?? null) !== 'inspect'
+                || !is_array($intentInput) || array_is_list($intentInput)
+                || EnvironmentLifecycleCanon::encode($intentInput)
+                    !== EnvironmentLifecycleCanon::encode($inspectInput)
+                || !is_string($inputSha256)
+                || !hash_equals(
+                    hash('sha256', EnvironmentLifecycleCanon::encode($inspectInput)),
+                    $inputSha256
+                )
+                || !is_string($inspectOperationId)
+                || preg_match('/^[0-9]{8}-[0-9]{6}-[a-f0-9]{24}$/D', $inspectOperationId) !== 1) {
+                throw new \RuntimeException('journaled reap inspection intent is malformed');
+            }
+        }
+        if ($inspected === null) {
+            $current = $targetProvider->perform('inspect', $inspectOperationId, $inspectInput);
+            self::assertSameIdentity($identity, $current);
+            self::recordPhase($journal, $operationId, 'reap-inspected', [
+                'inspect_operation_id' => $inspectOperationId,
+                'result' => self::publicEvidence($current),
+            ]);
+        } else {
+            self::exactKeys(
+                $inspected,
+                ['inspect_operation_id', 'result'],
+                'journaled reap inspection result'
+            );
+            $current = $inspected['result'] ?? null;
+            if (($inspected['inspect_operation_id'] ?? null) !== $inspectOperationId
+                || !is_array($current) || array_is_list($current)) {
+                throw new \RuntimeException('journaled reap inspection result is malformed');
+            }
+            self::assertSameIdentity($identity, $current);
+        }
+        if (($current['presence'] ?? null) === 'absent') {
+            self::recordPhase(
+                $journal,
+                $operationId,
+                'reap-provider-absent',
+                self::publicEvidence($current)
+            );
+            return self::completeInspectedAbsence(
+                $journal,
+                $operationId,
+                $identity,
+                $current
+            );
+        }
         self::requirePresence($current);
-        self::assertSameIdentity($identity, $current);
         $ttl = self::phaseData($journal, $operationId, 'ttl-set');
         if ($ttl !== null) {
-            $ttlRead = $targetProvider->perform('ttl-read', $operationId, self::identityInput($identity) + self::ttlInput($ttl));
+            try {
+                $ttlRead = $targetProvider->perform(
+                    'ttl-read',
+                    $operationId,
+                    self::identityInput($identity) + self::ttlInput($ttl)
+                );
+            } catch (\Throwable $failure) {
+                return self::completeReapAfterProviderFailure(
+                    $targetProvider,
+                    $journal,
+                    $operationId,
+                    $identity,
+                    $action,
+                    $terminalProbeAttempted,
+                    $failure
+                );
+            }
             self::assertSameTtl($ttl, $ttlRead);
         }
 
@@ -1582,7 +2546,19 @@ final class EnvironmentMaterializer {
                 || EnvironmentLifecycleCanon::encode($input) !== EnvironmentLifecycleCanon::encode($expectedInput)) {
                 throw new \RuntimeException('journaled target mutation fence acquire intent is malformed');
             }
-            $materialFence = $targetProvider->perform('mutation-acquire', $operationId, $input);
+            try {
+                $materialFence = $targetProvider->perform('mutation-acquire', $operationId, $input);
+            } catch (\Throwable $failure) {
+                return self::completeReapAfterProviderFailure(
+                    $targetProvider,
+                    $journal,
+                    $operationId,
+                    $identity,
+                    $action,
+                    $terminalProbeAttempted,
+                    $failure
+                );
+            }
             self::assertFence($materialFence, $identity, $owner, 'held');
             self::recordPhase($journal, $operationId, 'target-fence-acquired', self::publicEvidence($materialFence));
         }
@@ -1596,11 +2572,23 @@ final class EnvironmentMaterializer {
                 if (($materialReleased['state'] ?? null) !== 'released') {
                     throw new \RuntimeException('journaled materialization fence release is not released');
                 }
-                $read = $targetProvider->perform(
-                    'mutation-read',
-                    $operationId,
-                    self::identityInput($identity) + self::mutationInput($materialReleased)
-                );
+                try {
+                    $read = $targetProvider->perform(
+                        'mutation-read',
+                        $operationId,
+                        self::identityInput($identity) + self::mutationInput($materialReleased)
+                    );
+                } catch (\Throwable $failure) {
+                    return self::completeReapAfterProviderFailure(
+                        $targetProvider,
+                        $journal,
+                        $operationId,
+                        $identity,
+                        $action,
+                        $terminalProbeAttempted,
+                        $failure
+                    );
+                }
                 self::assertSameFence($materialReleased, $read);
                 if (($read['state'] ?? null) !== 'released') {
                     throw new \RuntimeException('materialization fence was reacquired after its journaled release');
@@ -1613,18 +2601,42 @@ final class EnvironmentMaterializer {
                     )) {
                     throw new \RuntimeException('journaled materialization fence release intent is malformed');
                 }
-                $released = $targetProvider->perform('mutation-release', $operationId, $releaseInput);
+                try {
+                    $released = $targetProvider->perform('mutation-release', $operationId, $releaseInput);
+                } catch (\Throwable $failure) {
+                    return self::completeReapAfterProviderFailure(
+                        $targetProvider,
+                        $journal,
+                        $operationId,
+                        $identity,
+                        $action,
+                        $terminalProbeAttempted,
+                        $failure
+                    );
+                }
                 self::assertSameFence($materialFence, $released, true);
                 if (($released['state'] ?? null) !== 'released') {
                     throw new \RuntimeException('could not reconcile exact materialization fence release before reap');
                 }
                 self::recordPhase($journal, $operationId, 'target-fence-released', self::publicEvidence($released));
             } else {
-                $read = $targetProvider->perform(
-                    'mutation-read',
-                    $operationId,
-                    self::identityInput($identity) + self::mutationInput($materialFence)
-                );
+                try {
+                    $read = $targetProvider->perform(
+                        'mutation-read',
+                        $operationId,
+                        self::identityInput($identity) + self::mutationInput($materialFence)
+                    );
+                } catch (\Throwable $failure) {
+                    return self::completeReapAfterProviderFailure(
+                        $targetProvider,
+                        $journal,
+                        $operationId,
+                        $identity,
+                        $action,
+                        $terminalProbeAttempted,
+                        $failure
+                    );
+                }
                 self::assertSameFence($materialFence, $read);
                 if (($read['state'] ?? null) === 'held') {
                     // Keep the immutable held tuple in the action intent. The
@@ -1686,15 +2698,39 @@ final class EnvironmentMaterializer {
                 }
             }
             if ($reapFence === null) {
-                $reapFence = $targetProvider->perform('mutation-acquire', $reapOperationId, $reapInput);
+                try {
+                    $reapFence = $targetProvider->perform('mutation-acquire', $reapOperationId, $reapInput);
+                } catch (\Throwable $failure) {
+                    return self::completeReapAfterProviderFailure(
+                        $targetProvider,
+                        $journal,
+                        $operationId,
+                        $identity,
+                        $action,
+                        $terminalProbeAttempted,
+                        $failure
+                    );
+                }
                 self::assertFence($reapFence, $identity, $reapOwner, 'held');
                 self::recordPhase($journal, $operationId, 'reap-fence-acquired', self::publicEvidence($reapFence));
             } else {
-                $read = $targetProvider->perform(
-                    'mutation-read',
-                    $reapOperationId,
-                    self::identityInput($identity) + self::mutationInput($reapFence)
-                );
+                try {
+                    $read = $targetProvider->perform(
+                        'mutation-read',
+                        $reapOperationId,
+                        self::identityInput($identity) + self::mutationInput($reapFence)
+                    );
+                } catch (\Throwable $failure) {
+                    return self::completeReapAfterProviderFailure(
+                        $targetProvider,
+                        $journal,
+                        $operationId,
+                        $identity,
+                        $action,
+                        $terminalProbeAttempted,
+                        $failure
+                    );
+                }
                 self::assertSameFence($reapFence, $read);
                 if (($read['state'] ?? null) !== 'held') {
                     throw new \RuntimeException('reap mutation fence is not held');
@@ -1735,6 +2771,216 @@ final class EnvironmentMaterializer {
         ];
         $receipt['receipt_sha256'] = hash('sha256', EnvironmentLifecycleCanon::encode($receipt));
         return $receipt;
+    }
+
+    /**
+     * Recover the sole terminal-absence probe before replaying a stale
+     * presence observation. A provider refusal is expected while the exact
+     * generation remains present, so it is not completion evidence.
+     *
+     * @param array<string,mixed> $identity
+     * @return array{attempted:bool,receipt:?array<string,mixed>}
+     */
+    private static function recoverTerminalReapProbe(
+        EnvironmentProviderClient $provider,
+        EnvironmentLifecycleJournal $journal,
+        string $operationId,
+        array $identity,
+        string $action
+    ): array {
+        $intent = self::terminalReapProbeIntent(
+            $journal,
+            $operationId,
+            $identity,
+            $action,
+            false
+        );
+        if ($intent === null) return ['attempted' => false, 'receipt' => null];
+        try {
+            $result = $provider->perform($action, $intent['probe_operation_id'], $intent['input']);
+        } catch (\Throwable) {
+            return ['attempted' => true, 'receipt' => null];
+        }
+        return [
+            'attempted' => true,
+            'receipt' => self::completeTerminalReapProbe(
+                $journal,
+                $operationId,
+                $identity,
+                $action,
+                $result
+            ),
+        ];
+    }
+
+    /**
+     * A released materialization fence is deliberately incapable of deleting
+     * a present generation. The same fixed compare-and-reap request can,
+     * however, recover signed terminal absence after the service TTL janitor
+     * wins. One immutable intent bounds retry history regardless of attempts.
+     *
+     * @param array<string,mixed> $identity
+     * @return ?array{action:string,input:array<string,mixed>,input_sha256:string,probe_operation_id:string}
+     */
+    private static function terminalReapProbeIntent(
+        EnvironmentLifecycleJournal $journal,
+        string $operationId,
+        array $identity,
+        string $action,
+        bool $create
+    ): ?array {
+        $intent = self::phaseData($journal, $operationId, 'reap-terminal-probe-intent');
+        if ($intent === null && !$create) return null;
+        $held = self::phaseData($journal, $operationId, 'target-fence-acquired');
+        $released = self::phaseData($journal, $operationId, 'target-fence-released');
+        if ($held === null || $released === null) {
+            if ($intent !== null) {
+                throw new \RuntimeException('journaled terminal reap probe has no released materialization fence');
+            }
+            return null;
+        }
+        self::assertSameFence($held, $released, true);
+        self::assertFence(
+            $released,
+            $identity,
+            self::mutationOwner($operationId, 'materialize'),
+            'released'
+        );
+        $input = self::identityInput($identity)
+            + self::mutationInput($released)
+            + ['compare_and_reap' => true];
+        $inputSha256 = hash('sha256', EnvironmentLifecycleCanon::encode($input));
+        if ($intent === null) {
+            $intent = [
+                'action' => $action,
+                'input' => $input,
+                'input_sha256' => $inputSha256,
+                'probe_operation_id' => self::operationId(),
+            ];
+            self::recordPhase($journal, $operationId, 'reap-terminal-probe-intent', $intent);
+            return $intent;
+        }
+        self::exactKeys(
+            $intent,
+            ['action', 'input', 'input_sha256', 'probe_operation_id'],
+            'journaled terminal reap probe intent'
+        );
+        $probeOperationId = $intent['probe_operation_id'] ?? null;
+        if (($intent['action'] ?? null) !== $action
+            || !is_array($intent['input'] ?? null)
+            || EnvironmentLifecycleCanon::encode($intent['input'])
+                !== EnvironmentLifecycleCanon::encode($input)
+            || !is_string($intent['input_sha256'] ?? null)
+            || !hash_equals($inputSha256, $intent['input_sha256'])
+            || !is_string($probeOperationId)
+            || preg_match('/^[0-9]{8}-[0-9]{6}-[a-f0-9]{24}$/D', $probeOperationId) !== 1) {
+            throw new \RuntimeException('journaled terminal reap probe intent is malformed');
+        }
+        /** @var array{action:string,input:array<string,mixed>,input_sha256:string,probe_operation_id:string} $intent */
+        return $intent;
+    }
+
+    /**
+     * @param array<string,mixed> $identity
+     * @return array<string,mixed>
+     */
+    private static function completeReapAfterProviderFailure(
+        EnvironmentProviderClient $provider,
+        EnvironmentLifecycleJournal $journal,
+        string $operationId,
+        array $identity,
+        string $action,
+        bool $terminalProbeAttempted,
+        \Throwable $failure
+    ): array {
+        if ($terminalProbeAttempted) throw $failure;
+        $intent = self::terminalReapProbeIntent(
+            $journal,
+            $operationId,
+            $identity,
+            $action,
+            true
+        );
+        if ($intent === null) throw $failure;
+        try {
+            $result = $provider->perform($action, $intent['probe_operation_id'], $intent['input']);
+        } catch (\Throwable) {
+            // The triggering provider failure remains the useful diagnostic;
+            // the terminal probe's refusal proves neither presence nor absence.
+            throw $failure;
+        }
+        return self::completeTerminalReapProbe(
+            $journal,
+            $operationId,
+            $identity,
+            $action,
+            $result
+        );
+    }
+
+    /** @param array<string,mixed> $identity @param array<string,mixed> $result @return array<string,mixed> */
+    private static function completeTerminalReapProbe(
+        EnvironmentLifecycleJournal $journal,
+        string $operationId,
+        array $identity,
+        string $action,
+        array $result
+    ): array {
+        self::assertReapResult($result, $identity, $action);
+        self::recordPhase($journal, $operationId, 'reap-provider-complete', self::publicEvidence($result));
+        self::cleanupCandidateRef($journal, $operationId);
+        $receipt = self::reapReceipt($result, $identity, $operationId);
+        self::recordPhase($journal, $operationId, 'reaped', $receipt);
+        return $receipt + ['resumed' => false];
+    }
+
+    /**
+     * @param array<string,mixed> $identity
+     * @param array<string,mixed> $providerAbsent
+     * @return array<string,mixed>
+     */
+    private static function completeInspectedAbsence(
+        EnvironmentLifecycleJournal $journal,
+        string $operationId,
+        array $identity,
+        array $providerAbsent
+    ): array {
+        self::assertSameIdentity($identity, $providerAbsent);
+        if (($providerAbsent['presence'] ?? null) !== 'absent') {
+            throw new \RuntimeException('journaled provider absence evidence is not absent');
+        }
+        self::cleanupCandidateRef($journal, $operationId);
+        $absenceBasis = [
+            'environment_identity' => $identity['environment_identity'],
+            'lease_generation' => $identity['lease_generation'],
+            'lease_id' => $identity['lease_id'],
+            'operation_id' => $operationId,
+            'ownership_receipt_sha256' => $identity['ownership_receipt_sha256'],
+            'provider_response_sha256' => $providerAbsent['_response_sha256'] ?? null,
+            'resource_id' => $identity['resource_id'],
+        ];
+        self::assertHash(
+            (string) $absenceBasis['provider_response_sha256'],
+            'provider absent-inspection response'
+        );
+        $receipt = [
+            'absence_proof_sha256' => hash(
+                'sha256',
+                "duo-branch-environment-inspected-absence/v1\0"
+                    . EnvironmentLifecycleCanon::encode($absenceBasis)
+            ),
+            'disposition' => 'already-absent',
+            'environment_identity' => $identity['environment_identity'],
+            'format' => 'duo-branch-environment-reap/v1',
+            'operation_id' => $operationId,
+            'resource_id' => $identity['resource_id'],
+        ];
+        $receipt['receipt_sha256'] = hash(
+            'sha256',
+            EnvironmentLifecycleCanon::encode($receipt)
+        );
+        self::recordPhase($journal, $operationId, 'reaped', $receipt);
+        return $receipt + ['resumed' => false];
     }
 
     /** @return array<string,mixed> */
@@ -1880,6 +3126,20 @@ final class EnvironmentMaterializer {
         }
     }
 
+    /** @param array<string,mixed> $expected @param array<string,mixed> $actual */
+    private static function assertObservationReplay(array $expected, array $actual): void {
+        if (array_is_list($actual)
+            || EnvironmentLifecycleCanon::encode($actual) !== EnvironmentLifecycleCanon::encode($expected)) {
+            throw new \RuntimeException('replayed target observation differs from its journaled evidence');
+        }
+    }
+
+    private static function beginDriverCommandPhase(EnvironmentDriver $driver, string $phase): void {
+        if ($driver instanceof ProviderLeaseBoundEnvironmentDriver) {
+            $driver->beginProviderCommandPhase($phase);
+        }
+    }
+
     /** @param array<string,mixed> $data */
     private static function recordPhase(EnvironmentLifecycleJournal $journal, string $operationId, string $event, array $data): void {
         $existing = self::phaseData($journal, $operationId, $event);
@@ -1889,6 +3149,16 @@ final class EnvironmentMaterializer {
         }
         if (EnvironmentLifecycleCanon::encode($existing) !== EnvironmentLifecycleCanon::encode($data)) {
             throw new \RuntimeException("environment operation '$operationId' journaled phase '$event' differs from its exact recovery evidence");
+        }
+    }
+
+    /** @param array<string,mixed> $value @param list<string> $expected */
+    private static function exactKeys(array $value, array $expected, string $label): void {
+        $actual = array_keys($value);
+        sort($actual, SORT_STRING);
+        sort($expected, SORT_STRING);
+        if ($actual !== $expected) {
+            throw new \RuntimeException("$label has unknown or missing fields");
         }
     }
 
@@ -2061,7 +3331,7 @@ final class EnvironmentMaterializer {
      * and failed. The original operation error is always retained by callers.
      */
     private static function bestEffortAbortPreparedSnapshot(
-        CommandEnvironmentProvider $provider,
+        EnvironmentProviderClient $provider,
         ?EnvironmentProviderCapabilityReport $capabilities,
         EnvironmentLifecycleJournal $journal,
         string $operationId,
@@ -2097,7 +3367,7 @@ final class EnvironmentMaterializer {
      * that deterministic session. Explicit reap is permitted to abort it.
      */
     private static function abortPreparedSnapshot(
-        CommandEnvironmentProvider $provider,
+        EnvironmentProviderClient $provider,
         ?EnvironmentProviderCapabilityReport $capabilities,
         EnvironmentLifecycleJournal $journal,
         string $operationId,

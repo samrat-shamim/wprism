@@ -6,11 +6,11 @@
 
 **Entry points** (classes other modules already reference; a new cross-module reference to anything else is a design change): `Cli`.
 
-**May depend on:** `Adapter`, `Apply`, `Capture`, `Code`, `Command`, `Init`, `Kernel`, `Policy`, `Promotion`, `Publication`, `Repository`, `Review`, `Scope`.
+**May depend on:** `Adapter`, `Apply`, `Assess`, `Capture`, `Cloud`, `Code`, `Command`, `Init`, `Kernel`, `Policy`, `Promotion`, `Publication`, `Repository`, `Review`, `Scope`.
 
 **Ratified exceptions** (same-layer or upward edges that exist today; ratchet — may shrink, never grow):
 
-- `Assess` (intra-layer, 0 edges) — designed (reserved): Command dispatches the Assess projections; the reverse edge is forbidden.
+- `Assess` (intra-layer, 1 edge) — designed: Command dispatches the Assess projection; the reverse edge is forbidden.
 
 **Must not depend on.** Nothing below it is forbidden, but Command must hold no mechanism of its own: every branch delegates to a module entry point and every refusal goes through CommandRefusal.
 

@@ -81,16 +81,33 @@ function rn_environment_config(string $providerScript, string $config): array {
 
 $operationId = '20260817-090000-0000000000000000abcdefab';
 
-// --------------------------------------------------- the full advertised set
+// ----------------------------------------- the full honestly advertised set
 $full = rn_config($scratch, $makeConfig, 'full');
 $provider = CommandEnvironmentProvider::fromEnvironment('mup2', rn_environment_config($providerScript, $full['config']));
 $report = $provider->capabilities($operationId);
+$referenceCapabilities = array_values(array_diff(
+    EnvironmentProviderCapability::all(),
+    [
+        EnvironmentProviderCapability::ENVIRONMENT_SLEEP,
+        EnvironmentProviderCapability::ENVIRONMENT_WAKE,
+        EnvironmentProviderCapability::REPOSITORY_SYNC,
+    ]
+));
 
 duo_check_same(
-    EnvironmentProviderCapability::all(),
+    $referenceCapabilities,
     $report->toArray()['capabilities'],
-    'the reference provider advertises exactly the protocol\'s capability set, so a rehearsal never '
-        . 'fails negotiation for a capability the pair could actually serve'
+    'the reference provider advertises every protocol capability the pair can honestly serve, while '
+        . 'sleep/wake and configured remote repository sync remain cloud-provider authority'
+);
+duo_check_throws(
+    static fn () => $report->require(
+        [EnvironmentProviderCapability::REPOSITORY_SYNC],
+        'sync a controller-published candidate'
+    ),
+    RuntimeException::class,
+    'the local reference pair refuses cloud-owned repository sync during negotiation',
+    'missing repository.sync'
 );
 duo_check_same(
     'duo-reference-env-provider',

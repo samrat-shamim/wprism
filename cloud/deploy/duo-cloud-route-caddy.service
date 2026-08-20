@@ -1,0 +1,26 @@
+[Unit]
+Description=Duo Cloud host-global preview route Caddy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=duo-cloud
+Group=duo-cloud
+UMask=0077
+Environment=XDG_CONFIG_HOME=/var/lib/duo-cloud/caddy/route-config
+Environment=XDG_DATA_HOME=/var/lib/duo-cloud/caddy/route-data
+ExecStart=/usr/bin/caddy run --environ --config /opt/duo-cloud/deploy/route-caddy-initial.json
+ExecReload=/usr/bin/curl --silent --show-error --fail --request POST http://127.0.0.1:2019/load --header Content-Type:application/json --data-binary @/var/lib/duo-cloud/routes/caddy-active.json
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/duo-cloud/caddy/route-config /var/lib/duo-cloud/caddy/route-data
+Restart=on-failure
+RestartSec=2s
+
+[Install]
+WantedBy=multi-user.target

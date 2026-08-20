@@ -6,11 +6,9 @@ namespace Duo\Orchestrator;
 require_once __DIR__ . '/../Environment/Registry.php';
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/../Environment/EnvironmentLifecycle.php';
+require_once __DIR__ . '/../Environment/EnvironmentTransportFactory.php';
+require_once __DIR__ . '/CommandOutput.php';
 require_once __DIR__ . '/EnvironmentCommandOptions.php';
-require_once __DIR__ . '/../Transport/Transport.php';
-require_once __DIR__ . '/../Transport/LocalTransport.php';
-require_once __DIR__ . '/../Transport/DockerTransport.php';
-require_once __DIR__ . '/../Transport/SshTransport.php';
 
 /**
  * Host command boundary for branch-environment materialization and exact reap.
@@ -25,14 +23,21 @@ final class EnvironmentCommand {
     /**
      * @param list<string> $args
      * @param callable(EnvironmentDriver,array<string,mixed>):array<string,mixed>|int $promote
+     * @param ?callable(EnvironmentDriver,?array<string,mixed>):array<string,mixed> $observeBeforeRelease
      */
-    public static function run(array $args, ?string $envsFileOverride, callable $promote): int {
+    public static function run(
+        array $args,
+        ?string $envsFileOverride,
+        callable $promote,
+        ?callable $observeBeforeRelease = null
+    ): int {
         if (count($args) < 2) {
             fwrite(STDERR, "duo: env requires materialize|reap and a target <env>\n");
             return 1;
         }
         $action = array_shift($args);
         $targetName = array_shift($args);
+        $json = in_array('--format=json', $args, true);
         if (!in_array($action, ['materialize', 'reap'], true)) {
             fwrite(STDERR, "duo: env: unknown action '$action' (expected materialize or reap)\n");
             return 1;
@@ -45,17 +50,23 @@ final class EnvironmentCommand {
             $reapJson = $action === 'reap' ? EnvironmentCommandOptions::reap($args) : false;
             $envs = Registry::load($envsFileOverride, getcwd() ?: '.');
             $targetConfig = Registry::get($envs, $targetName);
-            $targetDriver = Transport::make($targetName, $targetConfig);
-            $targetProvider = CommandEnvironmentProvider::fromEnvironment($targetName, $targetConfig);
+            $targetDriver = EnvironmentTransportFactory::make($targetName, $targetConfig);
+            $targetProvider = self::provider($targetName, $targetConfig, $targetDriver);
             $journal = self::journal();
 
             if ($action === 'reap') {
                 $sourceProvider = null;
                 $latest = $journal->latestForTarget($targetName);
+                if (($latest['run']['source_environment'] ?? null) === 'portable-origin-export') {
+                    throw new \RuntimeException(
+                        "portable cloud previews must be reaped through 'duo preview reap' so their signed remote candidate is reconciled"
+                    );
+                }
                 $sourceName = $latest === null ? null : self::reapSourceName($latest);
                 if ($sourceName !== null) {
                     $sourceConfig = Registry::get($envs, $sourceName);
-                    $sourceProvider = CommandEnvironmentProvider::fromEnvironment($sourceName, $sourceConfig);
+                    $sourceDriver = EnvironmentTransportFactory::make($sourceName, $sourceConfig);
+                    $sourceProvider = self::provider($sourceName, $sourceConfig, $sourceDriver);
                 }
                 $receipt = EnvironmentMaterializer::reap(
                     $targetDriver,
@@ -70,8 +81,8 @@ final class EnvironmentCommand {
             if (!is_array($options)) throw new \RuntimeException('materialize intent is missing');
             $sourceName = $options['source'];
             $sourceConfig = Registry::get($envs, $sourceName);
-            $sourceDriver = Transport::make($sourceName, $sourceConfig);
-            $sourceProvider = CommandEnvironmentProvider::fromEnvironment($sourceName, $sourceConfig);
+            $sourceDriver = EnvironmentTransportFactory::make($sourceName, $sourceConfig);
+            $sourceProvider = self::provider($sourceName, $sourceConfig, $sourceDriver);
             $receipt = EnvironmentMaterializer::materialize(
                 $sourceDriver,
                 $targetDriver,
@@ -83,14 +94,35 @@ final class EnvironmentCommand {
                     'create' => $options['create'],
                     'ttl_seconds' => $options['ttl_seconds'],
                 ],
-                $promote
+                $promote,
+                $observeBeforeRelease
             );
             self::renderReceipt($receipt, $options['json'], 'materialize');
             return 0;
         } catch (\Throwable $e) {
+            if ($json) {
+                return CommandOutput::renderRefusalJson(
+                    'env-' . $action,
+                    'environment_refused',
+                    'the branch environment operation could not be completed safely',
+                    'inspect private operator evidence, correct the blocker, then retry the same environment intent'
+                );
+            }
             fwrite(STDERR, "duo: env $action: {$e->getMessage()}\n");
             return 1;
         }
+    }
+
+    /** @param array<string,mixed> $config */
+    private static function provider(
+        string $environment,
+        array $config,
+        EnvironmentDriver $driver
+    ): EnvironmentProviderClient {
+        if ($driver instanceof EnvironmentProviderClient) {
+            return $driver;
+        }
+        return CommandEnvironmentProvider::fromEnvironment($environment, $config);
     }
 
     /**

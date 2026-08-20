@@ -9,7 +9,7 @@ The normative wire contract is not here — it is
 
 | Path | What it is | Who reads it |
 |---|---|---|
-| [guides/](guides/README.md) | Ten task-shaped operator guides (quickstart → assess → daily-workflow → release → limits; recovery, code-updates, adapter-authoring, internals). Every command in them is mechanically checked against the shipped CLI. | Operators, first |
+| [guides/](guides/README.md) | Ten task-shaped operator guides (quickstart → assess → daily-workflow → release → limits; recovery, cloud-preview, code-updates, adapter-authoring, internals). Every command in them is mechanically checked against the shipped CLI. | Operators, first |
 | [capabilities.md](capabilities.md) | **Generated** — the certified capability matrix. Written by `tools/capability-doc.php` from the manifests + `manifests/dispositions.json`; `make release-gate` byte-compares it. Never hand-edited. | Anyone asking "will Duo manage this?" |
 | [adoption.md](adoption.md) | The SSH adoption contract in full: installing and upgrading Duo on an existing WordPress host. | Operators adopting a real host |
 | [product-spec.md](product-spec.md) | The product specification — customer operations, the versionability contract, the vocabularies, safety invariants, non-goals. Carries its own amendment record. | Anyone arguing about what Duo *is* |
@@ -22,6 +22,8 @@ The normative wire contract is not here — it is
 | [recovery-runtime.md](recovery-runtime.md) | The WordPress-independent PHP recovery runtime and its maintenance-exclusion provider contract. |
 | [checkpoint-bundle.md](checkpoint-bundle.md) · [code-release-runtime.md](code-release-runtime.md) · [upload-bundle.md](upload-bundle.md) · [effect-bundle.md](effect-bundle.md) | The four provider slices of verified SSH rollback: database before-image, code before-image, uploads/media, lifecycle-and-rebuild effects. |
 | [ssh-rollback-certification.md](ssh-rollback-certification.md) | The local certification harness that gates that design. |
+| [universal-cloud-preview.md](universal-cloud-preview.md) | The product, trust, containment and lifecycle boundaries of Duo's portable cloud-preview mode. |
+| [cloud-origin-wire.md](cloud-origin-wire.md) | The exact signed pairing, export-demand, upload and key-lifecycle wire contract between an adopted origin and Duo Cloud. |
 | [assess-vocabulary.md](assess-vocabulary.md) | The six product words `duo assess`, `.duo/contract/projection.json`, the frozen authorization plan and a release refusal all speak. `sandbox/tests/offline/assess-contract/regress_assess_projection.php` is the gate on every cell. |
 | [adapter-walk-bundle.md](adapter-walk-bundle.md) | The wire contract for a site-adapter certification bundle: what `duo adapter certify` must produce and `\Duo\AdapterCertification` verifies, rule by rule. |
 | [compatibility-baseline.json](compatibility-baseline.json) | **Data, not prose** — read at runtime by `cli/src/Onboarding/Doctor.php`. Do not treat it as a document. |

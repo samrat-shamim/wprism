@@ -41,7 +41,7 @@ declare(strict_types=1);
  * HOW IT WORKS
  * ------------
  * Reflection cannot happen in THIS process: the drop-in has no autoloader
- * (agent/duo.php require_once's 91 files, which in turn require_once the
+ * (agent/duo.php require_once's 98 files, which in turn require_once the
  * remaining agent/src siblings; cli/duo does the same for cli/src) and
  * composer's autoload-dev maps only Duo\Tests\ (tests/bootstrap.php), so
  * every Duo\* symbol exists only after that whole require chain has run --
@@ -337,7 +337,7 @@ function as_reflect_properties(ReflectionClass $r): array
             'visibility' => $property->isProtected() ? 'protected' : 'public',
             'static' => $property->isStatic(),
             'readonly' => $property->isReadOnly(),
-            'type' => $type !== null ? (string) $type : null,
+            'type' => as_type_string($type, $r),
         ];
     }
     return $out;
@@ -357,7 +357,7 @@ function as_reflect_methods(ReflectionClass $r): array
             'static' => $method->isStatic(),
             'abstract' => $method->isAbstract(),
             'final' => $method->isFinal(),
-            'return_type' => $returnType !== null ? (string) $returnType : null,
+            'return_type' => as_type_string($returnType, $r),
             'parameters' => as_reflect_parameters($method),
         ];
     }
@@ -368,6 +368,7 @@ function as_reflect_methods(ReflectionClass $r): array
 function as_reflect_parameters(ReflectionMethod $method): array
 {
     $out = [];
+    $declaringClass = $method->getDeclaringClass();
     foreach ($method->getParameters() as $param) {
         $type = $param->getType();
         $hasDefault = $param->isDefaultValueAvailable();
@@ -384,7 +385,7 @@ function as_reflect_parameters(ReflectionMethod $method): array
         }
         $out[] = [
             'name' => $param->getName(),
-            'type' => $type !== null ? (string) $type : null,
+            'type' => as_type_string($type, $declaringClass),
             'by_ref' => $param->isPassedByReference(),
             'variadic' => $param->isVariadic(),
             'has_default' => $hasDefault,
@@ -392,6 +393,31 @@ function as_reflect_parameters(ReflectionMethod $method): array
         ];
     }
     return $out;
+}
+
+/**
+ * PHP 8.5 resolves `self` and `parent` in reflected type strings while the
+ * certified PHP 8.3 runtime preserves the source keywords. Resolve both
+ * forms to their declaring classes so one source signature produces one
+ * snapshot on every supported developer runtime.
+ */
+function as_type_string(?ReflectionType $type, ReflectionClass $declaringClass): ?string
+{
+    if ($type === null) {
+        return null;
+    }
+
+    $replacements = ['self' => $declaringClass->getName()];
+    $parent = $declaringClass->getParentClass();
+    if ($parent !== false) {
+        $replacements['parent'] = $parent->getName();
+    }
+
+    return preg_replace_callback(
+        '/(?<![A-Za-z0-9_\\\\])(self|parent)(?![A-Za-z0-9_\\\\])/i',
+        static fn(array $match): string => $replacements[strtolower($match[1])] ?? $match[1],
+        (string) $type
+    );
 }
 
 /** @return array<string,mixed> case name => backing value repr (unbacked: null) */

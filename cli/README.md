@@ -1216,7 +1216,8 @@ snapshot.set.prepare      snapshot.set.create      snapshot.set.read
 snapshot.set.abort        snapshot.set.restore
 environment.inspect       environment.attach       environment.create
 environment.destroy       environment.detach       environment.ttl
-environment.ttl.read      environment.mutation.acquire
+environment.sleep         environment.wake         environment.ttl.read
+environment.mutation.acquire
 environment.mutation.read environment.mutation.release
 environment.url.discover  environment.url.set      repository.materialize
 operation.receipts
@@ -1245,7 +1246,11 @@ mutating target request carries
 provider must also enforce the held mutation fence tuple. `ttl-set`/`ttl-read`
 publish and verify expiry metadata only; they must not schedule or perform
 automatic destruction. Reap compares both leases before its explicit destroy
-or detach. The host journal lives under Git's common directory at
+or detach. Cloud `environment.sleep` revokes routing before execution while
+retaining the exact generation substrate; `environment.wake` restores execution
+before routing under that same held fence. Providers that cannot prove this
+ordering and retained identity omit both capabilities. The host journal lives
+under Git's common directory at
 `duo-environments/` with mode-0600 immutable run/event records; it is
 operational recovery state and never canonical branch state.
 

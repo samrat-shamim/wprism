@@ -1,0 +1,12 @@
+[Unit]
+Description=Renew Duo Cloud Linux host containment proof for %i
+
+[Timer]
+OnBootSec=2m
+OnUnitInactiveSec=12h
+RandomizedDelaySec=30m
+Persistent=true
+Unit=duo-cloud-verify-linux-host-boundaries@%i.service
+
+[Install]
+WantedBy=timers.target

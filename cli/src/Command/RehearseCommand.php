@@ -110,16 +110,82 @@ final class RehearseCommand {
             return AssessCommand::renderRefusal($refusal, $json, 'rehearse');
         }
 
-        $materialized = EnvironmentCommand::run($arguments, $envsFileOverride, $promote);
+        $observation = null;
+        $materialized = EnvironmentCommand::run(
+            $arguments,
+            $envsFileOverride,
+            $promote,
+            static function (EnvironmentDriver $boundDriver, ?array $replayed) use (
+                &$observation,
+                $flags,
+                $branch,
+                $sourceRoot,
+                $clock,
+                $hostCatalog
+            ): array {
+                if ($replayed !== null) {
+                    $observation = $replayed;
+                    return $replayed;
+                }
+                try {
+                    $observation = [
+                        'format' => 'duo-rehearsal-observation/v1',
+                        'preview' => self::preview(
+                            $boundDriver,
+                            $flags,
+                            $branch,
+                            $sourceRoot,
+                            $clock,
+                            $hostCatalog
+                        ),
+                        'status' => 'ok',
+                    ];
+                } catch (CommandRefusalException $refusal) {
+                    $observation = [
+                        'diagnostics' => $refusal->diagnostics,
+                        'format' => 'duo-rehearsal-observation/v1',
+                        'message' => $refusal->publicMessage,
+                        'reason_code' => $refusal->reasonCode,
+                        'remediation' => $refusal->remediation,
+                        'status' => 'refused',
+                    ];
+                }
+                return $observation;
+            }
+        );
         if ($materialized !== 0) {
             // `EnvironmentCommand` has already printed the provider's own
             // refusal, including a missing capability by its id. Re-wording
             // it here would replace a negotiated fact with a summary.
             return $materialized;
         }
-
         try {
-            $preview = self::preview($driver, $flags, $branch, $sourceRoot, $clock, $hostCatalog);
+            if (!is_array($observation)
+                || ($observation['format'] ?? null) !== 'duo-rehearsal-observation/v1') {
+                throw new CommandRefusalException(
+                    'rehearsal_preview_unavailable',
+                    'the environment converged without replayable observation evidence from its exact provider-held target fence',
+                    'reap the rehearsal environment, then retry with a current Duo controller'
+                );
+            }
+            if (($observation['status'] ?? null) === 'refused') {
+                throw new CommandRefusalException(
+                    (string) ($observation['reason_code'] ?? 'rehearsal_preview_unavailable'),
+                    (string) ($observation['message'] ?? 'the rehearsal preview was refused'),
+                    (string) ($observation['remediation'] ?? 'repair and retry the rehearsal'),
+                    is_array($observation['diagnostics'] ?? null)
+                        ? array_values(array_filter($observation['diagnostics'], 'is_array'))
+                        : []
+                );
+            }
+            $preview = $observation['preview'] ?? null;
+            if (($observation['status'] ?? null) !== 'ok' || !is_array($preview) || array_is_list($preview)) {
+                throw new CommandRefusalException(
+                    'rehearsal_preview_unavailable',
+                    'the replayed rehearsal observation is malformed',
+                    'reap the rehearsal environment, then retry with a current Duo controller'
+                );
+            }
         } catch (CommandRefusalException $refusal) {
             return AssessCommand::renderRefusal($refusal, $json, 'rehearse');
         }

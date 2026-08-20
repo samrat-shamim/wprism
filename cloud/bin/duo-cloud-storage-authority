@@ -1,0 +1,144 @@
+#!/usr/local/bin/php
+<?php
+declare(strict_types=1);
+
+use Duo\Cloud\CanonicalJson;
+use Duo\Cloud\HostStorageConfig;
+use Duo\Cloud\HostAuthorityBusy;
+use Duo\Cloud\NativeContainerArgvProcessRunner;
+use Duo\Cloud\XfsQuotaStorageAuthority;
+
+require_once dirname(__DIR__) . '/runtime/HostStorageConfig.php';
+require_once dirname(__DIR__) . '/runtime/XfsQuotaStorageAuthority.php';
+require_once dirname(__DIR__) . '/src/HostAuthorityBusy.php';
+
+try {
+    $arguments = $_SERVER['argv'] ?? null;
+    if (!is_array($arguments) || !array_is_list($arguments)) {
+        throw new RuntimeException('storage arguments are unavailable');
+    }
+    array_shift($arguments);
+    $action = array_shift($arguments);
+    if (!is_string($action) || !in_array($action, [
+        'bind', 'fleet-preflight', 'inspect', 'preflight',
+        'proof-bind', 'proof-inspect', 'proof-unbind', 'unbind',
+    ], true)) {
+        throw new RuntimeException('storage action is invalid');
+    }
+    $options = [];
+    $requiredPaths = [];
+    while ($arguments !== []) {
+        $flag = array_shift($arguments);
+        $value = array_shift($arguments);
+        if (!is_string($flag) || preg_match('/\A--[a-z][a-z0-9-]*\z/D', $flag) !== 1
+            || !is_string($value) || $value === '' || str_contains($value, "\0")) {
+            throw new RuntimeException('storage options are malformed');
+        }
+        $name = substr($flag, 2);
+        if ($action === 'preflight' && $name === 'required-path') {
+            $requiredPaths[] = $value;
+            continue;
+        }
+        if (isset($options[$name])) {
+            throw new RuntimeException('storage option is repeated');
+        }
+        $options[$name] = $value;
+    }
+    $expected = match ($action) {
+        'bind' => [
+            'config-sha256', 'database-volume', 'filesystem-volume',
+            'lease-generation', 'resource-id',
+        ],
+        'inspect', 'unbind' => ['config-sha256', 'lease-generation', 'resource-id'],
+        'fleet-preflight' => [],
+        'preflight' => ['config-sha256'],
+        'proof-bind', 'proof-inspect', 'proof-unbind' => ['config-sha256', 'proof-id'],
+    };
+    $actual = array_keys($options);
+    sort($actual, SORT_STRING);
+    sort($expected, SORT_STRING);
+    if ($actual !== $expected) {
+        throw new RuntimeException('storage options are incomplete or unknown');
+    }
+    if ($action === 'preflight') {
+        $sorted = $requiredPaths;
+        sort($sorted, SORT_STRING);
+        if ($requiredPaths === [] || $requiredPaths !== $sorted
+            || count(array_unique($requiredPaths)) !== count($requiredPaths)
+            || count($requiredPaths) > 256) {
+            throw new RuntimeException('storage required paths are not canonical and bounded');
+        }
+    } elseif ($requiredPaths !== []) {
+        throw new RuntimeException('storage required paths are outside preflight');
+    }
+    $config = HostStorageConfig::loadInstalled(
+        '/var/lib/duo-cloud/config/storage-authority.json',
+        '/var/lib/duo-cloud/config/storage-authority.sha256'
+    );
+    $sudoUid = getenv('SUDO_UID');
+    if (!function_exists('posix_geteuid') || posix_geteuid() !== 0
+        || !is_string($sudoUid) || preg_match('/\A[1-9][0-9]{0,9}\z/D', $sudoUid) !== 1
+        || !in_array((int) $sudoUid, $config->serviceUids(), true)) {
+        throw new RuntimeException('storage authority requires an authenticated trusted service caller');
+    }
+    $authority = new XfsQuotaStorageAuthority(
+        new NativeContainerArgvProcessRunner($config->timeout(), null, false),
+        $config->binary('container_engine'),
+        $config->binary('dmsetup'),
+        $config->binary('cryptsetup'),
+        $config->binary('findmnt'),
+        $config->binary('xfs_io'),
+        $config->binary('xfs_quota'),
+        $config->string('state_root'),
+        $config->string('mountpoint'),
+        $config->string('mapper_path'),
+        $config->string('mapper_name'),
+        $config->string('mapper_uuid'),
+        $config->string('luks_uuid'),
+        $config->string('backing_device'),
+        $config->string('cipher'),
+        $config->string('key_location'),
+        $config->integer('key_size_bits'),
+        $config->integer('sector_size_bytes'),
+        $config->integer('payload_offset_sectors'),
+        $config->integer('mapper_size_sectors'),
+        $config->string('filesystem_uuid'),
+        $config->string('docker_root'),
+        $config->strings('durable_paths'),
+        $config->workerRoots(),
+        $config->limits(),
+        $config->strings('configuration_sha256s')
+    );
+    $generation = isset($options['lease-generation']) ? (int) $options['lease-generation'] : 0;
+    $result = match ($action) {
+        'bind' => $authority->bind([
+            'configuration_sha256' => $options['config-sha256'],
+            'database_volume' => $options['database-volume'],
+            'filesystem_volume' => $options['filesystem-volume'],
+            'lease_generation' => $generation,
+            'resource_id' => $options['resource-id'],
+        ]),
+        'inspect' => $authority->inspect(
+            $options['config-sha256'],
+            $options['resource-id'],
+            $generation
+        ),
+        'fleet-preflight' => $authority->fleetPreflight(),
+        'preflight' => $authority->preflight($requiredPaths, $options['config-sha256']),
+        'proof-bind' => $authority->proofBind($options['config-sha256'], $options['proof-id']),
+        'proof-inspect' => $authority->proofInspect($options['config-sha256'], $options['proof-id']),
+        'proof-unbind' => $authority->proofUnbind($options['config-sha256'], $options['proof-id']),
+        'unbind' => $authority->unbind(
+            $options['config-sha256'],
+            $options['resource-id'],
+            $generation
+        ),
+    };
+    fwrite(STDOUT, CanonicalJson::encode($result) . "\n");
+} catch (HostAuthorityBusy) {
+    fwrite(STDERR, HostAuthorityBusy::STORAGE_AUTHORITY_STDERR);
+    exit(HostAuthorityBusy::EXIT_STATUS);
+} catch (Throwable) {
+    fwrite(STDERR, "duo-cloud-storage-authority: refused\n");
+    exit(70);
+}

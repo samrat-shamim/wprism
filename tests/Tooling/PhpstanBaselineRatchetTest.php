@@ -131,6 +131,22 @@ final class PhpstanBaselineRatchetTest extends TestCase
         );
     }
 
+    public function testCliArgvGlobalsNeedNoEnvironmentDependentBaseline(): void
+    {
+        $baseline = $this->baselineSource();
+
+        $this->assertStringNotContainsString(
+            'Variable \$argv might not be defined',
+            $baseline,
+            'CLI entrypoints must read the tracked $_SERVER argv value so PHPStan is stable across php.ini files'
+        );
+        $this->assertStringNotContainsString(
+            'Variable \$argc might not be defined',
+            $baseline,
+            'CLI entrypoints must derive argc from the tracked $_SERVER argv value'
+        );
+    }
+
     public function testBaselinePathsAreRepoRelativeAndInsideAnalysedRoots(): void
     {
         $roots = ['agent/', 'cli/', 'recovery/', 'scripts/', 'tools/', 'tests/'];
@@ -147,6 +163,37 @@ final class PhpstanBaselineRatchetTest extends TestCase
                 }
             }
             $this->assertTrue($inRoot, "Baseline path is outside every analysed root: $path");
+        }
+    }
+
+    public function testEveryExtensionlessCloudEntrypointIsAnalysedAndScanned(): void
+    {
+        $config = (string) file_get_contents(DUO_REPO_ROOT . '/phpstan.neon.dist');
+        $this->assertMatchesRegularExpression(
+            '/\n    paths:\n(?<paths>.*?)\n    scanDirectories:/s',
+            $config
+        );
+        preg_match('/\n    paths:\n(?<paths>.*?)\n    scanDirectories:/s', $config, $pathsMatch);
+        preg_match('/\n    scanFiles:\n(?<scan>.*?)\n    bootstrapFiles:/s', $config, $scanMatch);
+        $this->assertArrayHasKey('paths', $pathsMatch);
+        $this->assertArrayHasKey('scan', $scanMatch);
+
+        $entrypoints = glob(DUO_REPO_ROOT . '/cloud/bin/*') ?: [];
+        $this->assertNotSame([], $entrypoints, 'cloud/bin contains no deployed entrypoints');
+        foreach ($entrypoints as $entrypoint) {
+            $this->assertFileExists($entrypoint);
+            $relative = substr($entrypoint, strlen(DUO_REPO_ROOT) + 1);
+            $needle = '- ' . $relative;
+            $this->assertStringContainsString(
+                $needle,
+                $pathsMatch['paths'],
+                "$relative is absent from PHPStan's analysed paths"
+            );
+            $this->assertStringContainsString(
+                $needle,
+                $scanMatch['scan'],
+                "$relative is absent from PHPStan's explicit extensionless scan files"
+            );
         }
     }
 

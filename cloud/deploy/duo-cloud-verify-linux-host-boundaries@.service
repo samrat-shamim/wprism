@@ -1,0 +1,31 @@
+[Unit]
+Description=Verify Duo Cloud Linux host containment boundaries for %i
+StartLimitIntervalSec=0
+After=docker.service network-online.target
+Wants=network-online.target
+RequiresMountsFor=/var/lib/duo-cloud
+
+[Service]
+Type=oneshot
+User=duo-cloud
+Group=duo-cloud
+SupplementaryGroups=docker
+UMask=0077
+EnvironmentFile=/var/lib/duo-cloud/config/workers/%i-host-proof.env
+ExecStart=/opt/duo-cloud/deploy/verify-linux-host-boundaries.php --configuration-file ${DUO_CLOUD_PROOF_CONFIGURATION_FILE} --configuration-sha256 ${DUO_CLOUD_PROOF_CONFIGURATION_SHA256} --host-preflight-root ${DUO_CLOUD_PROOF_HOST_PREFLIGHT_ROOT} --synthetic-rotation-configuration-sha256 ${DUO_CLOUD_PROOF_SYNTHETIC_ROTATION_CONFIGURATION_SHA256}
+RuntimeDirectory=duo-cloud-host-proof
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+PrivateTmp=true
+Delegate=yes
+ProtectHome=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/duo-cloud /run/duo-cloud-host-proof
+Restart=on-failure
+RestartPreventExitStatus=70 78
+RestartSec=30s
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=0

@@ -2,8 +2,8 @@
 #
 # Two facts drive every choice here.
 #
-# 1. The product has no autoloader. agent/duo.php require_once's 92 files and
-#    agent/src holds 224 flat `namespace Duo;` files that require their own
+# 1. The product has no autoloader. agent/duo.php require_once's 98 files and
+#    agent/src holds 232 flat `namespace Duo;` files that require their own
 #    dependencies; recovery/ and cli/ do the same. There is therefore no
 #    composer autoload section to point PHPStan at, and adding one would be a
 #    lie about how the drop-in loads. `scanDirectories`/`scanFiles` is the
@@ -11,10 +11,11 @@
 #    as project code, so that is what carries agent/src, cli/src, recovery/,
 #    the three manifests/ PHP hook directories, and the WordPress/WP-CLI stubs.
 #
-# 2. Nothing here ships. cli/src/Onboarding/Adopt.php:120 tars exactly
-#    `agent manifests recovery`, so a repo-root analyser config is
-#    structurally incapable of reaching a managed site. That is why it is safe
-#    to depend on vendor/ here while the drop-in stays dependency-free
+# 2. cloud/ is deployed separately and never enters a managed site.
+#    cli/src/Onboarding/Adopt.php:120 still tars exactly `agent manifests
+#    recovery`, so this repo-root analyser config is structurally incapable of
+#    sending vendor/ or cloud/ to WordPress. That is why it is safe to depend
+#    on vendor/ here while every shipped runtime stays dependency-free
 #    (asserted by tests/Tooling/PhpstanBaselineRatchetTest.php).
 #
 # Level 2 is the entry ratchet, not the ambition: it is the highest level at
@@ -37,6 +38,24 @@ parameters:
         - agent/duo-loader.php
         - cli/src
         - cli/duo
+        - cloud/bin/duo-cloud-firewall-authority
+        - cloud/bin/duo-cloud-firewall-client
+        - cloud/bin/duo-cloud-git-credential
+        - cloud/bin/duo-cloud-http
+        - cloud/bin/duo-cloud-install-runtime-image-proof
+        - cloud/bin/duo-cloud-origin-admin
+        - cloud/bin/duo-cloud-preflight
+        - cloud/bin/duo-cloud-preflight-fleet
+        - cloud/bin/duo-cloud-reap-expired
+        - cloud/bin/duo-cloud-reap-expired-fleet
+        - cloud/bin/duo-cloud-reap-origin
+        - cloud/bin/duo-cloud-route-authority
+        - cloud/bin/duo-cloud-storage-authority
+        - cloud/bin/duo-cloud-storage-client
+        - cloud/runtime/image/duo-preview-helper
+        - cloud/runtime
+        - cloud/src
+        - cloud/deploy
         - recovery
         - scripts
         - tools
@@ -54,6 +73,9 @@ parameters:
     scanDirectories:
         - agent/src
         - cli/src
+        - cloud/runtime
+        - cloud/src
+        - cloud/deploy
         - recovery
         - manifests/providers
         - manifests/interpreters
@@ -62,6 +84,21 @@ parameters:
 
     scanFiles:
         - cli/duo
+        - cloud/bin/duo-cloud-firewall-authority
+        - cloud/bin/duo-cloud-firewall-client
+        - cloud/bin/duo-cloud-git-credential
+        - cloud/bin/duo-cloud-http
+        - cloud/bin/duo-cloud-install-runtime-image-proof
+        - cloud/bin/duo-cloud-origin-admin
+        - cloud/bin/duo-cloud-preflight
+        - cloud/bin/duo-cloud-preflight-fleet
+        - cloud/bin/duo-cloud-reap-expired
+        - cloud/bin/duo-cloud-reap-expired-fleet
+        - cloud/bin/duo-cloud-reap-origin
+        - cloud/bin/duo-cloud-route-authority
+        - cloud/bin/duo-cloud-storage-authority
+        - cloud/bin/duo-cloud-storage-client
+        - cloud/runtime/image/duo-preview-helper
         - recovery/rollback-control.php
         # php-stubs/wordpress-stubs and php-stubs/wp-cli-stubs both document
         # `scanFiles` as the intended wiring: the stub files declare functions
@@ -75,10 +112,9 @@ parameters:
     bootstrapFiles:
         - tests/phpstan-bootstrap.php
 
-    # `cli/duo` has no .php extension (it is a `#!/usr/bin/env php` executable).
-    # Explicitly-listed paths are analysed regardless of extension, but adding
-    # the bare name here keeps directory traversal of cli/ consistent with the
-    # explicit entry above.
+    # cli/duo, cloud/bin/*, and the runtime image helper are extensionless PHP
+    # executables. Explicit paths above make PHPStan analyse them; directory
+    # traversal remains intentionally limited to ordinary PHP extensions.
     fileExtensions:
         - php
 

@@ -1,0 +1,47 @@
+{
+  "controller_keys": [
+    {"key_id": "controller-key-v1", "public_key": {"path": "/var/lib/duo-cloud/config/keys/controller-public.key", "sha256": "REPLACE_CONTROLLER_PUBLIC_KEY_FILE_SHA256"}, "site_id": "site-a", "tenant_id": "tenant-a"}
+  ],
+  "format": "duo-cloud-production-config/v1",
+  "host_preflight_root": "/var/lib/duo-cloud/host-preflight",
+  "host_durable_paths": {
+    "authority_config_root": "/var/lib/duo-cloud/config",
+    "control_proxy_config_root": "/var/lib/duo-cloud/caddy/control-config",
+    "control_proxy_data_root": "/var/lib/duo-cloud/caddy/control-data",
+    "firewall_authority_state_root": "/var/lib/duo-cloud/firewall",
+    "route_authority_state_root": "/var/lib/duo-cloud/routes",
+    "route_proxy_config_root": "/var/lib/duo-cloud/caddy/route-config",
+    "route_proxy_data_root": "/var/lib/duo-cloud/caddy/route-data",
+    "storage_authority_state_root": "/var/lib/duo-cloud/storage"
+  },
+  "runtime": {
+    "container_engine": {"path": "/usr/bin/docker", "sha256": "REPLACE_DOCKER_SHA256"},
+    "firewall_authority": {"path": "/opt/duo-cloud/bin/duo-cloud-firewall-client", "sha256": "REPLACE_FIREWALL_CLIENT_SHA256"},
+    "git": {"path": "/usr/bin/git", "sha256": "REPLACE_GIT_SHA256"},
+    "image": "registry.example.invalid/duo/wordpress@sha256:REPLACE_IMAGE_SHA256",
+    "memory_bytes": 536870912,
+    "nano_cpus": 500000000,
+    "pids_limit": 128,
+    "platform_fingerprint_sha256": "REPLACE_PLATFORM_SHA256",
+    "preview_domain": "preview.example.invalid",
+    "process_launcher": {"path": "/usr/local/bin/php", "sha256": "REPLACE_PHP_CLI_SHA256"},
+    "process_timeout_seconds": 90,
+    "repository_remote": {"allowed_ref_prefix": "refs/heads/duo-preview/", "credential_helper": "/opt/duo-cloud/bin/duo-cloud-git-credential", "credential_helper_sha256": "REPLACE_CREDENTIAL_HELPER_SHA256", "name": "duo-cloud", "url": "https://git.example.invalid/tenant-a/site-a.git", "url_sha256": "REPLACE_DOMAIN_SEPARATED_REMOTE_URL_SHA256"},
+    "repository_source": "/var/lib/duo-cloud/workers/site-a/repository",
+    "review_receipt_sha256": "REPLACE_REVIEW_RECEIPT_SHA256",
+    "route_authority": {"path": "/opt/duo-cloud/bin/duo-cloud-route-authority", "sha256": "REPLACE_ROUTE_AUTHORITY_SHA256"},
+    "runtime_contract_file": "/opt/duo-cloud/deploy/runtime-image-contract.json",
+    "runtime_contract_sha256": "REPLACE_RUNTIME_CONTRACT_SHA256",
+    "seccomp_profile_file": "/opt/duo-cloud/deploy/seccomp-profile.json",
+    "seccomp_profile_sha256": "REPLACE_SECCOMP_PROFILE_SHA256",
+    "snapshot_object_root": "/var/lib/duo-cloud/workers/site-a/snapshots",
+    "storage_authority": {"path": "/opt/duo-cloud/bin/duo-cloud-storage-client", "sha256": "REPLACE_STORAGE_CLIENT_SHA256"},
+    "workload_repository_path": "/srv/duo/repository"
+  },
+  "service": {
+    "device_digest_key": {"path": "/var/lib/duo-cloud/config/keys/device-digest.key", "sha256": "REPLACE_DEVICE_KEY_FILE_SHA256"},
+    "response_key_id": "service-key-v1",
+    "response_signing_key": {"path": "/var/lib/duo-cloud/config/keys/response-signing.key", "sha256": "REPLACE_RESPONSE_KEY_FILE_SHA256"}
+  },
+  "state_root": "/var/lib/duo-cloud/workers/site-a/state"
+}

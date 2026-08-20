@@ -1,0 +1,103 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+use Duo\Cloud\CaddyRouteAuthority;
+use Duo\Cloud\CanonicalJson;
+use Duo\Cloud\HostAuthorityBusy;
+use Duo\Cloud\NativeContainerArgvProcessRunner;
+use Duo\Cloud\RouteAuthorityConfig;
+
+require_once dirname(__DIR__) . '/runtime/CaddyRouteAuthority.php';
+require_once dirname(__DIR__) . '/src/HostAuthorityBusy.php';
+
+const DUO_ROUTE_CONFIG = '/var/lib/duo-cloud/config/route-authority.json';
+const DUO_ROUTE_CONFIG_PIN = '/var/lib/duo-cloud/config/route-authority.sha256';
+
+try {
+    $arguments = $_SERVER['argv'] ?? null;
+    if (!is_array($arguments) || !array_is_list($arguments)) {
+        throw new RuntimeException('route arguments are unavailable');
+    }
+    $input = duo_route_arguments($arguments);
+    $pinBytes = @file_get_contents(DUO_ROUTE_CONFIG_PIN);
+    if (!is_string($pinBytes)
+        || preg_match('/\A([a-f0-9]{64})\n\z/D', $pinBytes, $pinMatch) !== 1) {
+        throw new RuntimeException('route authority pin is unavailable');
+    }
+    $config = RouteAuthorityConfig::load(DUO_ROUTE_CONFIG, $pinMatch[1]);
+    $timeout = $config->get('process_timeout_seconds');
+    if (!is_int($timeout)) {
+        throw new RuntimeException('route authority timeout is unavailable');
+    }
+    $authority = new CaddyRouteAuthority(
+        $config,
+        new NativeContainerArgvProcessRunner($timeout, null, false)
+    );
+    fwrite(STDOUT, CanonicalJson::encode($authority->execute($input['action'], $input['input'])) . "\n");
+} catch (HostAuthorityBusy) {
+    fwrite(STDERR, HostAuthorityBusy::ROUTE_AUTHORITY_STDERR);
+    exit(HostAuthorityBusy::EXIT_STATUS);
+} catch (Throwable) {
+    fwrite(STDERR, "duo-cloud-route-authority: refused\n");
+    exit(70);
+}
+
+/** @param list<string> $argv @return array{action:string,input:array<string,mixed>} */
+function duo_route_arguments(array $argv): array {
+    $action = $argv[1] ?? null;
+    if (!in_array($action, [
+        'bind', 'host-preflight', 'inspect', 'unbind', 'worker-preflight',
+    ], true)) {
+        throw new RuntimeException('route action is invalid');
+    }
+    if ($action === 'host-preflight') {
+        if (count($argv) !== 2) {
+            throw new RuntimeException('route host preflight arguments are not empty');
+        }
+        return ['action' => 'host-preflight', 'input' => []];
+    }
+    $expected = match ($action) {
+        'bind' => [
+            '--config-sha256', '--route-id', '--reviewed-base-sha256', '--host',
+            '--upstream-container', '--upstream-network', '--upstream-port',
+        ],
+        'inspect', 'unbind' => [
+            '--config-sha256', '--route-id', '--reviewed-base-sha256',
+        ],
+        'worker-preflight' => ['--config-sha256', '--reviewed-base-sha256'],
+    };
+    if (count($argv) !== 2 + count($expected) * 2) {
+        throw new RuntimeException('route arguments are incomplete');
+    }
+    $values = [];
+    for ($index = 0; $index < count($expected); $index++) {
+        $offset = 2 + $index * 2;
+        if (($argv[$offset] ?? null) !== $expected[$index]
+            || !is_string($argv[$offset + 1] ?? null)
+            || $argv[$offset + 1] === '' || str_contains($argv[$offset + 1], "\0")) {
+            throw new RuntimeException('route arguments are not in the closed order');
+        }
+        $values[substr($expected[$index], 2)] = $argv[$offset + 1];
+    }
+    $input = [
+        'configuration_sha256' => $values['config-sha256'],
+        'reviewed_base_sha256' => $values['reviewed-base-sha256'],
+    ];
+    if ($action === 'worker-preflight') {
+        return ['action' => $action, 'input' => $input];
+    }
+    $input['route_id'] = $values['route-id'];
+    if ($action === 'bind') {
+        if ($values['upstream-port'] !== '8080') {
+            throw new RuntimeException('route upstream port is not fixed');
+        }
+        $input += [
+            'host' => $values['host'],
+            'upstream_container' => $values['upstream-container'],
+            'upstream_network' => $values['upstream-network'],
+            'upstream_port' => 8080,
+        ];
+    }
+    return ['action' => $action, 'input' => $input];
+}

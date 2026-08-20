@@ -68,7 +68,8 @@ function el_process(array $argv, ?string $cwd = null): array {
     fclose($pipes[0]);
     $stdout = (string) stream_get_contents($pipes[1]);
     $stderr = (string) stream_get_contents($pipes[2]);
-    fclose($pipes[1]); fclose($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
     return ['exit' => proc_close($process), 'stdout' => $stdout, 'stderr' => $stderr];
 }
 
@@ -381,8 +382,18 @@ PHP;
         '--branch', 'feature-secret-url', '--format=json',
     ], $publicRoot);
     $publicOutput = $publicRefusal['stdout'] . $publicRefusal['stderr'];
+    $publicEnvelope = json_decode(trim($publicRefusal['stdout']), true);
     el_ok($publicRefusal['exit'] !== 0
-        && str_contains($publicRefusal['stderr'], 'credential-free HTTP(S) base URL')
+        && $publicRefusal['stderr'] === ''
+        && $publicEnvelope === [
+            'format' => 'duo-command-refusal/v1',
+            'ok' => false,
+            'command' => 'env-materialize',
+            'error' => 'environment_refused',
+            'reason_code' => 'environment_refused',
+            'message' => 'the branch environment operation could not be completed safely',
+            'remediation' => 'inspect private operator evidence, correct the blocker, then retry the same environment intent',
+        ]
         && !str_contains($publicOutput, 'provider-token')
         && !str_contains($publicOutput, 'X-Amz-Signature')
         && !el_tree_contains($publicRoot . '/.git/duo-environments', 'provider-token')
@@ -413,6 +424,39 @@ PHP;
     $latest = $journal->latestForTarget('branch');
     el_ok(($latest['operation_id'] ?? null) === $operation, 'journal resolves the latest exact target operation');
     el_throws(static fn() => $journal->start($operation, $run), 'already exists', 'run records are immutable');
+
+    $eventDirectory = $journal->runDir($operation) . '/events';
+    $eventTemporary = $eventDirectory . '/0003-residue-recovered.json.tmp';
+    file_put_contents($eventTemporary, 'partial');
+    chmod($eventTemporary, 0600);
+    $journal->append($operation, 'residue-recovered', ['proof' => hash('sha256', 'residue')]);
+    el_ok(is_file($eventDirectory . '/0003-residue-recovered.json')
+        && !file_exists($eventTemporary)
+        && (glob($eventDirectory . '/*.tmp') ?: []) === [],
+        'an interrupted destination-bound environment record is removed before the real append');
+
+    $runPath = $journal->runDir($operation) . '/run.json';
+    $runTemporary = $runPath . '.tmp';
+    link($runPath, $runTemporary);
+    $journal->read($operation);
+    clearstatcache(true, $runPath);
+    el_ok(!file_exists($runTemporary) && (lstat($runPath)['nlink'] ?? 0) === 1,
+        'a post-publication hard-link residue is reconciled without replacing the immutable run');
+
+    $outsideResidue = $tmp . '/outside-environment-residue';
+    file_put_contents($outsideResidue, 'retained');
+    chmod($outsideResidue, 0600);
+    $unsafeTemporary = $eventDirectory . '/0004-unsafe-residue.json.tmp';
+    symlink($outsideResidue, $unsafeTemporary);
+    el_throws(
+        static fn() => $journal->append($operation, 'unsafe-residue', []),
+        'temporary environment journal is unsafe',
+        'a symlinked environment crash residue is refused before append'
+    );
+    el_ok(is_link($unsafeTemporary) && file_get_contents($outsideResidue) === 'retained',
+        'unsafe environment residue refusal does not unlink its target');
+    unlink($unsafeTemporary);
+    unlink($outsideResidue);
 
     $firstEvent = $journal->runDir($operation) . '/events/0001-prepared.json';
     $tampered = json_decode((string) file_get_contents($firstEvent), true);

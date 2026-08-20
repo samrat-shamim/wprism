@@ -1,0 +1,27 @@
+<?php
+declare(strict_types=1);
+
+use Duo\Cloud\ExactHttpFrontController;
+use Duo\Cloud\OperatorDiagnostics;
+use Duo\Cloud\ProductionService;
+
+require_once dirname(__DIR__) . '/runtime/ExactHttpFrontController.php';
+require_once dirname(__DIR__) . '/runtime/OperatorDiagnostics.php';
+require_once dirname(__DIR__) . '/runtime/ProductionService.php';
+
+$configPath = getenv('DUO_CLOUD_CONFIG_FILE');
+$configSha256 = getenv('DUO_CLOUD_CONFIG_SHA256');
+
+try {
+    if (!is_string($configPath) || !is_string($configSha256)) {
+        throw new RuntimeException('deployment configuration is absent');
+    }
+    $service = ProductionService::fromConfigFile($configPath, $configSha256);
+    $service->assertReadyToServe();
+    (new ExactHttpFrontController($service->router()))->serve();
+} catch (Throwable $error) {
+    // Startup diagnostics belong to the protected supervisor. The public
+    // response does not distinguish missing secrets, pins, state, or binaries.
+    (new OperatorDiagnostics())->record('cloud-http-startup', $error);
+    ExactHttpFrontController::emit(ExactHttpFrontController::unavailable());
+}

@@ -37,8 +37,16 @@ final class EnvironmentCommandPreflight {
     }
 
     public static function resolveTransport(?string $envsFileOverride, string $startDir, string $environment): Transport {
+        // Keep vocabulary-only consumers target-free: the release/assess
+        // ratchets load this class before EnvironmentDriver, while resolution
+        // alone needs the concrete transport graph.
+        require_once __DIR__ . '/../Environment/EnvironmentTransportFactory.php';
+        require_once __DIR__ . '/../Environment/Registry.php';
         $envs = Registry::load($envsFileOverride, $startDir);
-        return Transport::make($environment, Registry::get($envs, $environment));
+        return EnvironmentTransportFactory::make(
+            $environment,
+            Registry::get($envs, $environment)
+        );
     }
 
     public static function capabilityReport(EnvironmentDriver $driver, string $operation): DriverCapabilityReport {

@@ -245,6 +245,10 @@ check(
 
 echo "\n== end-to-end: Policy dispatch through the REAL manifests/acf.json ==\n";
 $policy = Policy::load(null, ['acf']);
+check(
+    $policy->egress_sensitivity_grants() === [],
+    'the shipped ACF interpreter explicitly proves it cannot synthesize secret or PII grants'
+);
 // Policy's OWN internal Acf instance (built lazily inside interpreters(),
 // separate from $acf/$acf2 above) must be primed the same way a real
 // RepositoryAuthorization/RepositoryCompiler pass primes it -- otherwise
@@ -378,14 +382,14 @@ check(
     "an interpreter-classified options rule gets the owning manifest's own option_autoload default injected "
         . '(acf.json declares "option_autoload": "preserve") -- caught live on the first run of the '
         . 'regress_acf_term_options_fields.sh sandbox test: OptionState::assert_rule_autoload() hard-requires '
-        . "every options rule to declare autoload, and the interpreter dispatch path originally bypassed the "
+        . 'every options rule to declare autoload, and the interpreter dispatch path originally bypassed the '
         . 'static path\'s own with_option_autoload() injection entirely, so capture failed outright'
 );
 check(
     !array_key_exists('autoload', $policy->meta_rule_for_term('site_logo', ['_site_logo' => 'field_site_logo', 'site_logo' => '9']) ?? []),
-    "the autoload injection is scoped to the option_rule hook specifically -- resolving the SAME primed "
-        . "field_site_logo definition through meta_rule_for_term() instead (a real, non-null rule) must never "
-        . "carry an autoload key, even though the owning manifest (acf.json) DOES declare option_autoload; "
+    'the autoload injection is scoped to the option_rule hook specifically -- resolving the SAME primed '
+        . 'field_site_logo definition through meta_rule_for_term() instead (a real, non-null rule) must never '
+        . 'carry an autoload key, even though the owning manifest (acf.json) DOES declare option_autoload; '
         . 'term_meta has no such concept and must not silently inherit it'
 );
 check(

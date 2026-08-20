@@ -1,0 +1,20 @@
+{
+  "authority": {"path": "/opt/duo-cloud/libexec/duo-cloud-storage-authority", "sha256": "REPLACE_STORAGE_AUTHORITY_SHA256"},
+  "closure": [
+    {"path": "/opt/duo-cloud/libexec/duo-cloud-storage-authority", "sha256": "REPLACE_STORAGE_AUTHORITY_SHA256"},
+    {"path": "/opt/duo-cloud/runtime/HostStorageConfig.php", "sha256": "REPLACE_HOST_STORAGE_CONFIG_SHA256"},
+    {"path": "/opt/duo-cloud/runtime/RuntimeSlotLock.php", "sha256": "REPLACE_RUNTIME_SLOT_LOCK_SHA256"},
+    {"path": "/opt/duo-cloud/runtime/XfsQuotaStorageAuthority.php", "sha256": "REPLACE_XFS_STORAGE_AUTHORITY_SHA256"},
+    {"path": "/opt/duo-cloud/src/CanonicalJson.php", "sha256": "REPLACE_CANONICAL_JSON_SHA256"},
+    {"path": "/opt/duo-cloud/src/ContainerWorkloadRuntime.php", "sha256": "REPLACE_CONTAINER_RUNTIME_SHA256"},
+    {"path": "/opt/duo-cloud/src/ControlRefusal.php", "sha256": "REPLACE_CONTROL_REFUSAL_SHA256"},
+    {"path": "/opt/duo-cloud/src/HostAuthorityBusy.php", "sha256": "REPLACE_HOST_AUTHORITY_BUSY_SHA256"},
+    {"path": "/opt/duo-cloud/src/ImmutableOciReference.php", "sha256": "REPLACE_IMMUTABLE_OCI_REFERENCE_SHA256"},
+    {"path": "/opt/duo-cloud/src/WorkloadRuntime.php", "sha256": "REPLACE_WORKLOAD_RUNTIME_SHA256"},
+    {"path": "/opt/duo-cloud/src/WorkloadSecurityInspection.php", "sha256": "REPLACE_WORKLOAD_SECURITY_INSPECTION_SHA256"}
+  ],
+  "format": "duo-cloud-firewall-client-config/v1",
+  "interpreter": {"path": "/usr/local/bin/php", "sha256": "REPLACE_PHP_CLI_SHA256"},
+  "process_timeout_seconds": 60,
+  "sudo": {"path": "/usr/bin/sudo", "sha256": "REPLACE_SUDO_SHA256"}
+}
