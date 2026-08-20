@@ -235,7 +235,8 @@ final class OfflineRunner
     }
 
     /**
-     * Suite scripts named by a recipe, e.g. `sandbox/tests/regress_x.sh`.
+     * Suite scripts named by a recipe, e.g.
+     * `sandbox/tests/offline/<domain>/regress_x.sh`.
      *
      * Recipes may carry env prefixes and continuations; matching the path
      * shape is robust to both and does not require re-expanding make syntax.

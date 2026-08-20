@@ -62,7 +62,7 @@ list of what reaches a managed site.
    each `offline/` domain means.
    `regress_bundle_coverage.sh` expands the prerequisite graph and compares it
    against the `Makefile`'s own `regress-offline-all: N offline suites green`
-   line (`:168`), so an unwired suite and a stale count each fail the gate —
+   line (`:201-213`), so an unwired suite and a stale count each fail the gate —
    both refusals have their own self-test in that suite. Tooling self-tests go
    in `tests/` instead. Adding a `Makefile` target is otherwise ordinary work.
 5. **New suites use `sandbox/tests/lib/`** (`check.php`, `wp_stubs.php`,
@@ -102,11 +102,13 @@ make release-gate                 # capability-doc --check + classmap --check: t
                                   # capability document and the classmaps match their sources
 ```
 
-the offline leaf targets (252 today; the Makefile's own `N offline suites green` line is the count of record). `tools/offline.php` runs the same work as
-`make regress-offline-all` with per-suite logs and the guard's exact
-diagnostic regex applied per suite, so a failure is named rather than merely
-detected — but the PR quotes the canonical gate, not the fast path. Stock macOS
-ships GNU Make 3.81 (no `--output-sync`); use `tools/offline.php` there.
+The gate runs every offline leaf target — 252 today, and the `Makefile`'s own
+`regress-offline-all: N offline suites green` line is the count of record.
+`tools/offline.php` runs the same work as `make regress-offline-all` with
+per-suite logs and the guard's exact diagnostic regex applied per suite, so a
+failure is named rather than merely detected — but the PR quotes the canonical
+gate, not the fast path. Stock macOS ships GNU Make 3.81 (no `--output-sync`);
+use `tools/offline.php` there.
 
 Mechanically, every change: `php -l` each touched PHP file, `bash -n` each
 touched script, then `make regress-offline-all` green. Warnings are not green —

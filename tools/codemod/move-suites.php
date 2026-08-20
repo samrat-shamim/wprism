@@ -1795,7 +1795,7 @@ function ms_manifest_mentions(string $root, array $placement): array
  * in the rewritten non-moved files the same way.
  *
  * This is the only pre-merge check that reaches the live/, grind/, certify/ and
- * spike/ files: `make regress-offline-all` executes ~239 offline suites and
+ * spike/ files: `make regress-offline-all` executes the offline corpus and
  * none of those, so a `../../agent/src/…` that lost a level in one of them is
  * otherwise invisible until someone books an estate.
  *
