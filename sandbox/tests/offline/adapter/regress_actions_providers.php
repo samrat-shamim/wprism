@@ -248,9 +248,12 @@ expect_throw(
 // The frozen-policy path re-validates rather than trusting the snapshot, so a
 // pinned revision captured before the migration cannot be replayed either.
 expect_throw(
+    // No manifest is published for this one: ManifestValidator runs ahead of
+    // the adapter-source reconstruction, so the `rebuilders` refusal fires
+    // before anything reads the manifest library at all — which is the point.
     fn() => Policy::from_snapshot([
-        'format' => 'duo-policy-snapshot/v4',
-        'adapter_sources' => ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []],
+        'format' => 'duo-policy-snapshot/v6',
+        'adapter_sources' => ['certificates' => [], 'format' => 'duo-adapter-sources/v2', 'out_of_tree' => []],
         'dispositions' => null,
         'site' => ['manifests' => ['retired'], 'spec_version' => DUO_SPEC_VERSION, 'policy' => []],
         'manifests' => [$retired],

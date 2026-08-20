@@ -872,34 +872,43 @@ require __PROVIDER_FILE__;
 $GLOBALS['lazy_providers'] = [new DuoCertificationLazyApiProvider()];
 $GLOBALS['lazy_provider_invocations'] = 0;
 $payload['gate_before_loader'] = \Duo\Providers::runtime_negotiation_available();
+$lazyManifest = [
+    'name' => 'lazy-provider',
+    'spec_version' => 2,
+    'plugin' => 'lazy/lazy.php',
+    'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
+    'providers' => [[
+        'id' => 'lazy-cache', 'plugin' => 'lazy/lazy.php',
+        'source' => 'plugin', 'version' => '1.0.0', 'capabilities' => ['flush'],
+    ]],
+    'actions' => [[
+        'kind' => 'provider', 'provider' => 'lazy-cache', 'capability' => 'flush', 'args' => [],
+        'triggers' => ['post:page'],
+        'effects' => [[
+            'id' => 'lazy-cache-effect', 'kind' => 'external', 'mode' => 'irreversible',
+            'selector' => ['scope' => 'external', 'type' => 'provider_resource', 'value' => 'provider:lazy-cache/flush'],
+        ]],
+    ]],
+];
+// The v6 wire proves shipped membership against the trusted library instead of
+// trusting the snapshot, so this synthetic adapter needs a library that really
+// holds its bytes — otherwise from_snapshot() refuses before the lazy-loading
+// question this child process exists to answer is ever reached.
+$lazyLibrary = sys_get_temp_dir() . '/duo-lazy-manifests-' . getmypid();
+@mkdir($lazyLibrary, 0700, true);
+file_put_contents($lazyLibrary . '/lazy-provider.json', \Duo\Canon::encode($lazyManifest));
+putenv('DUO_MANIFESTS_DIR=' . $lazyLibrary);
 try {
     $policy = \Duo\Policy::from_snapshot([
-        'format' => 'duo-policy-snapshot/v4',
-        'adapter_sources' => ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []],
+        'format' => 'duo-policy-snapshot/v6',
+        'adapter_sources' => ['certificates' => [], 'format' => 'duo-adapter-sources/v2', 'out_of_tree' => []],
         'dispositions' => null,
         'site' => [
             'manifests' => ['lazy-provider'],
             'spec_version' => 2,
             'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []],
         ],
-        'manifests' => [[
-            'name' => 'lazy-provider',
-            'spec_version' => 2,
-            'plugin' => 'lazy/lazy.php',
-            'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
-            'providers' => [[
-                'id' => 'lazy-cache', 'plugin' => 'lazy/lazy.php',
-                'source' => 'plugin', 'version' => '1.0.0', 'capabilities' => ['flush'],
-            ]],
-            'actions' => [[
-                'kind' => 'provider', 'provider' => 'lazy-cache', 'capability' => 'flush', 'args' => [],
-                'triggers' => ['post:page'],
-                'effects' => [[
-                    'id' => 'lazy-cache-effect', 'kind' => 'external', 'mode' => 'irreversible',
-                    'selector' => ['scope' => 'external', 'type' => 'provider_resource', 'value' => 'provider:lazy-cache/flush'],
-                ]],
-            ]],
-        ]],
+        'manifests' => [$lazyManifest],
     ]);
     $negotiation = \Duo\Providers::negotiate($policy, $policy->actions_for(['post:page']));
     $payload['problems'] = $negotiation['problems'];
@@ -909,6 +918,8 @@ try {
 $payload['admin_api_loaded_after'] = function_exists('validate_plugin')
     && function_exists('get_plugins') && function_exists('is_wp_error');
 $payload['invocations'] = $GLOBALS['lazy_provider_invocations'];
+@unlink($lazyLibrary . '/lazy-provider.json');
+@rmdir($lazyLibrary);
 echo json_encode($payload, JSON_THROW_ON_ERROR);
 PHP
 );

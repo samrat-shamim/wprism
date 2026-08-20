@@ -112,9 +112,14 @@ namespace Duo;
  *    unchanged.
  */
 final class AdapterSources {
-    /** v2 adds externally signed certification envelopes for site adapters. */
+    /**
+     * v2 adds externally signed certification envelopes for site adapters, and
+     * is now the only wire generation. v1 retired with the
+     * duo-policy-snapshot/v4 envelope that was its sole carrier — Policy::
+     * from_snapshot() was the one caller of from_snapshot() below, so nothing
+     * else could ever present a v1 record.
+     */
     public const FORMAT = 'duo-adapter-sources/v2';
-    public const LEGACY_FORMAT = 'duo-adapter-sources/v1';
 
     /** The agent's own manifest library — the historical single source. */
     public const SHIPPED = 'shipped';
@@ -327,8 +332,6 @@ final class AdapterSources {
     private array $claims;
     /** @var array<string, bool> whether the repository explicitly pins source + final digest */
     private array $explicitPins = [];
-    /** Frozen wire generation retained when reconstructing a legacy snapshot. */
-    private string $wireFormat;
     /**
      * What this LIVE scan saw beyond the adapters it installed: which sources
      * were reachable at all, which plugin-bundled adapters were refused, which
@@ -353,14 +356,12 @@ final class AdapterSources {
         array $provenance,
         array $certificates = [],
         array $claims = [],
-        string $wireFormat = self::FORMAT,
         array $scanReport = []
     ) {
         $this->origins = $origins;
         $this->provenance = $provenance;
         $this->certificates = $certificates;
         $this->claims = $claims;
-        $this->wireFormat = $wireFormat;
         foreach (['not_installed', 'refusals', 'refused_names', 'sources'] as $key) {
             if (isset($scanReport[$key]) && is_array($scanReport[$key])) {
                 $this->scanReport[$key] = $scanReport[$key];
@@ -391,7 +392,6 @@ final class AdapterSources {
             $scan['provenance'],
             $scan['certificates'],
             $scan['claims'],
-            self::FORMAT,
             [
                 'not_installed' => $scan['not_installed'],
                 'refusals' => $refusals,
@@ -3619,24 +3619,16 @@ final class AdapterSources {
 
     /**
      * Freeze the provenance a verification process must reconstruct. Only the
-     * out-of-tree records travel. In v2, a name absent from this map is shipped
-     * only when from_snapshot() proves that the trusted manifest directory
-     * still holds those exact bytes, so "absent" cannot launder a site adapter.
-     * The legacy v1 read path retains its pre-existing custom-library contract.
+     * out-of-tree records travel. A name absent from this map is shipped only
+     * when from_snapshot() proves that the trusted manifest directory still
+     * holds those exact bytes, so "absent" cannot launder a site adapter.
      */
     public function export(): array {
-        if ($this->wireFormat === self::LEGACY_FORMAT) {
-            return ['format' => self::LEGACY_FORMAT, 'out_of_tree' => $this->provenance];
-        }
         return [
             'certificates' => $this->certificates,
             'format' => self::FORMAT,
             'out_of_tree' => $this->provenance,
         ];
-    }
-
-    public function wire_format(): string {
-        return $this->wireFormat;
     }
 
     /**
@@ -3648,37 +3640,33 @@ final class AdapterSources {
      * the frozen manifest, and the trust tier is re-derived from that manifest's
      * declarations rather than read off the record.
      *
-     * The mutable site repository is never reopened. In the v2 wire, a name
-     * absent from `out_of_tree` is claiming agent-owned shipped authority, so
-     * it is compared byte-for-byte (canonically) with the trusted agent
-     * manifest library. This is required even when a caller reconstructs a
-     * snapshot without disposition/registry data: deleting one provenance row
-     * must not relabel arbitrary site bytes as shipped. Legacy v1 snapshots
-     * retain their historical already-bound custom-library behavior and cannot
-     * carry certificates; every new live export uses v2. Editing an
-     * out-of-tree record in place separately fails through
-     * validate_frozen_record() and the adapter digest binding.
+     * The mutable site repository is never reopened. A name absent from
+     * `out_of_tree` is claiming agent-owned shipped authority, so it is
+     * compared byte-for-byte (canonically) with the trusted agent manifest
+     * library. This is required even when a caller reconstructs a snapshot
+     * without disposition data: deleting one provenance row must not relabel
+     * arbitrary site bytes as shipped. That proof is exactly what the retired
+     * v1 wire had no equivalent of, and why it went with duo-policy-snapshot/v4
+     * rather than being carried forward. Editing an out-of-tree record in place
+     * separately fails through validate_frozen_record() and the adapter digest
+     * binding.
      */
     public static function from_snapshot(array $data, array $manifests): self {
         $keys = array_keys($data);
         sort($keys, SORT_STRING);
         $format = $data['format'] ?? null;
-        $legacy = $format === self::LEGACY_FORMAT;
-        $expectedKeys = $legacy ? ['format', 'out_of_tree'] : ['certificates', 'format', 'out_of_tree'];
-        if ($keys !== $expectedKeys
-            || !in_array($format, [self::LEGACY_FORMAT, self::FORMAT], true)
+        if ($keys !== ['certificates', 'format', 'out_of_tree']
+            || $format !== self::FORMAT
             || !is_array($data['out_of_tree'] ?? null)
             || (array_is_list($data['out_of_tree']) && $data['out_of_tree'] !== [])
-            || (!$legacy && (!is_array($data['certificates'] ?? null)
-                || (array_is_list($data['certificates']) && $data['certificates'] !== [])))) {
+            || !is_array($data['certificates'] ?? null)
+            || (array_is_list($data['certificates']) && $data['certificates'] !== [])) {
             throw new \RuntimeException('duo: frozen adapter source record is malformed');
         }
         $frozen = $data['out_of_tree'];
-        $frozenCertificates = $legacy ? [] : $data['certificates'];
+        $frozenCertificates = $data['certificates'];
         self::assert_identity_map_keys($frozen, 'frozen adapter source out_of_tree');
-        if (!$legacy) {
-            self::assert_identity_map_keys($frozenCertificates, 'frozen adapter source certificates');
-        }
+        self::assert_identity_map_keys($frozenCertificates, 'frozen adapter source certificates');
         $origins = [];
         $provenance = [];
         $certificates = [];
@@ -3688,15 +3676,6 @@ final class AdapterSources {
             self::assert_name($name, 'frozen adapter source record name');
             $record = $frozen[$name] ?? null;
             if ($record === null) {
-                if ($legacy) {
-                    // v1 predates an authoritative shipped-membership proof
-                    // and remains readable for existing custom policy
-                    // snapshots. It cannot carry certificates, while every
-                    // newly exported policy uses the fail-closed v2 path.
-                    $file = rtrim(Policy::manifests_dir(), '/') . '/' . $name . '.json';
-                    $origins[$name] = ['source' => self::SHIPPED, 'file' => $file, 'path' => $file];
-                    continue;
-                }
                 // Absence from out_of_tree is a positive shipped claim, not a
                 // default. Prove it against the trusted agent library before
                 // assigning shipped authority; otherwise deleting one frozen
@@ -3724,11 +3703,8 @@ final class AdapterSources {
                 : null;
             $certificate = $frozenCertificates[$name] ?? null;
             if ($certificate === null) {
-                self::validate_frozen_record($name, $record, $manifest, $legacy ? self::LEGACY_FORMAT : self::FORMAT);
+                self::validate_frozen_record($name, $record, $manifest);
             } else {
-                if ($legacy) {
-                    throw new \RuntimeException("duo: legacy frozen adapter source '$name' cannot carry a certificate");
-                }
                 // The same impossibility the live scan refuses, refused again
                 // on the read side: certification binds `adapter.source:
                 // "site"` and `adapters/<name>.json` INSIDE the signed
@@ -3743,8 +3719,8 @@ final class AdapterSources {
                         . 'site source and ' . self::SITE_DIR . "/$name.json inside the signed statement"
                     );
                 }
-                // A legacy/unsigned frozen policy never needs the optional
-                // certification verifier. Load it only for the v2 record that
+                // An unsigned frozen policy never needs the optional
+                // certification verifier. Load it only for the record that
                 // actually carries a signed external claim; see discover().
                 require_once __DIR__ . '/AdapterCertification.php';
                 $verified = AdapterCertification::verifyFrozen(
@@ -3808,7 +3784,7 @@ final class AdapterSources {
         ksort($provenance, SORT_STRING);
         ksort($certificates, SORT_STRING);
         ksort($claims, SORT_STRING);
-        return new self($origins, $provenance, $certificates, $claims, (string) $format);
+        return new self($origins, $provenance, $certificates, $claims);
     }
 
     /**
@@ -3856,20 +3832,13 @@ final class AdapterSources {
     private static function validate_frozen_record(
         string $name,
         $record,
-        array $manifest,
-        string $recordFormat = self::FORMAT
+        array $manifest
     ): void {
         $provenance = is_array($record) ? ($record['provenance'] ?? null) : null;
         $keys = is_array($record) ? array_keys($record) : [];
         $provenanceKeys = is_array($provenance) ? array_keys($provenance) : [];
         sort($keys, SORT_STRING);
         sort($provenanceKeys, SORT_STRING);
-        // Legacy v1 predates the plugin source entirely, so it stays a
-        // site-only wire: a v1 snapshot claiming a bundled adapter is a
-        // snapshot no version of this engine ever wrote.
-        $allowedSources = $recordFormat === self::LEGACY_FORMAT
-            ? [self::SITE]
-            : [self::SITE, self::PLUGIN];
         if ($keys !== ['certification', 'provenance', 'reason', 'status', 'trust_tier']
             || $record['certification'] !== 'uncertified'
             || $record['status'] !== 'uncertified'
@@ -3880,8 +3849,8 @@ final class AdapterSources {
                 self::TIER_PLUGIN_PROVIDER,
             ], true)
             || $provenanceKeys !== ['format', 'path', 'sha256', 'source']
-            || ($provenance['format'] ?? null) !== $recordFormat
-            || !in_array($provenance['source'] ?? null, $allowedSources, true)
+            || ($provenance['format'] ?? null) !== self::FORMAT
+            || !in_array($provenance['source'] ?? null, [self::SITE, self::PLUGIN], true)
             || !is_string($provenance['path'] ?? null)
             || preg_match('/^[0-9a-f]{64}$/D', (string) ($provenance['sha256'] ?? '')) !== 1) {
             throw new \RuntimeException("duo: frozen adapter source record for '$name' is malformed");

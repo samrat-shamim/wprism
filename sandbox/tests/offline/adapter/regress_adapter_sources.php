@@ -1258,24 +1258,33 @@ expect_throw(
     'a frozen adapter-source map rejects a numeric-only key instead of accepting PHP\'s coerced integer key'
 );
 
+// The v1 wire is retired along with duo-policy-snapshot/v4, the only envelope
+// that ever carried it. This block used to prove v1 reconstructed with its own
+// wire generation; that behaviour is what went, and for a reason this suite is
+// the right place to record: under v1 a manifest absent from `out_of_tree` took
+// SHIPPED authority with no proof, which is the fail-open half of the very
+// laundering the `$laundered` case below pins v2 as closing.
 $legacySnapshot = $snapshot;
 $legacySnapshot['format'] = 'duo-policy-snapshot/v4';
-$legacySnapshot['adapter_sources']['format'] = AdapterSources::LEGACY_FORMAT;
+$legacySnapshot['adapter_sources']['format'] = 'duo-adapter-sources/v1';
 unset($legacySnapshot['adapter_sources']['certificates']);
 $legacySnapshot['adapter_sources']['out_of_tree']['acme-widget']['provenance']['format'] =
-    AdapterSources::LEGACY_FORMAT;
-$legacyFrozen = Policy::from_snapshot($legacySnapshot);
-check(
-    $legacyFrozen->adapter_sources()->wire_format() === AdapterSources::LEGACY_FORMAT
-    && $legacyFrozen->adapter_sources()->source('acme-widget') === 'site',
-    'a legacy v1 unsigned adapter-source snapshot still reconstructs with its original wire generation'
-);
-$legacyCertificate = $legacySnapshot;
-$legacyCertificate['adapter_sources']['certificates'] = [];
+    'duo-adapter-sources/v1';
 expect_throw(
-    fn() => Policy::from_snapshot($legacyCertificate),
-    'frozen adapter source record is malformed',
-    'a legacy v1 adapter-source snapshot cannot smuggle even an empty certificate field'
+    fn() => Policy::from_snapshot($legacySnapshot),
+    'duo-policy-snapshot/v4 is retired and is no longer read',
+    'a legacy v1 unsigned adapter-source snapshot is refused by name rather than reconstructed'
+);
+// And a v1 record has no reader left of its own: Policy::from_snapshot() is the
+// only caller of AdapterSources::from_snapshot(), so pairing the retired record
+// with a CURRENT envelope is refused too. There is no remaining route onto the
+// fail-open path — not through the old envelope, not through the new one.
+$legacyRecordInCurrentEnvelope = $snapshot;
+$legacyRecordInCurrentEnvelope['adapter_sources']['format'] = 'duo-adapter-sources/v1';
+expect_throw(
+    fn() => Policy::from_snapshot($legacyRecordInCurrentEnvelope),
+    'disagrees with its adapter source record format',
+    'the retired v1 record cannot ride a current envelope either'
 );
 
 $laundered = $snapshot;
@@ -1285,19 +1294,27 @@ expect_throw(
     'no shipped manifest exists',
     'dropping a v2 out-of-tree record cannot relabel a site adapter as shipped, even before registry validation'
 );
+// The same drop on the retired wire, and the reason the wire is retired. Under
+// v1 this document did NOT refuse: with no dispositions to demand coverage, the
+// dropped record left 'acme-widget' claiming SHIPPED authority and
+// from_snapshot() agreed, relabelling a site adapter as agent-owned — the exact
+// laundering the `$laundered` case above pins v2 as refusing outright. The
+// compatibility being kept was compatibility with a hole, so both shapes now
+// stop at the envelope.
 $legacyLaundered = $legacySnapshot;
 unset($legacyLaundered['adapter_sources']['out_of_tree']['acme-widget']);
 expect_throw(
     fn() => Policy::from_snapshot($legacyLaundered),
-    'no entry for manifest',
-    'dropping a legacy v1 out-of-tree record from a registry-bound snapshot is still refused by its reviewed shipped coverage'
+    'duo-policy-snapshot/v4 is retired and is no longer read',
+    'dropping a v1 out-of-tree record is refused at the envelope now, not left to the reviewed shipped coverage'
 );
 $legacyCustom = $legacyLaundered;
 $legacyCustom['dispositions'] = null;
-$legacyCustomPolicy = Policy::from_snapshot($legacyCustom);
-check(
-    $legacyCustomPolicy->adapter_sources()->source('acme-widget') === AdapterSources::SHIPPED,
-    'legacy v1 custom snapshots retain their historical already-bound no-registry read compatibility; only new v2 exports require positive shipped bytes'
+expect_throw(
+    fn() => Policy::from_snapshot($legacyCustom),
+    'duo-policy-snapshot/v4 is retired and is no longer read',
+    'and the registry-free variant — the one v1 actually ACCEPTED, laundering a site adapter into a shipped one — '
+    . 'is refused with it'
 );
 $shippedNameLaunder = $snapshot;
 $shippedNameLaunder['site']['manifests'][1] = 'core';
@@ -1482,14 +1499,16 @@ expect_throw(
 
 $bundledLegacy = $bundledSnapshot;
 $bundledLegacy['format'] = 'duo-policy-snapshot/v4';
-$bundledLegacy['adapter_sources']['format'] = AdapterSources::LEGACY_FORMAT;
+$bundledLegacy['adapter_sources']['format'] = 'duo-adapter-sources/v1';
 unset($bundledLegacy['adapter_sources']['certificates']);
 $bundledLegacy['adapter_sources']['out_of_tree']['acme-widget']['provenance']['format'] =
-    AdapterSources::LEGACY_FORMAT;
+    'duo-adapter-sources/v1';
 expect_throw(
     fn() => Policy::from_snapshot($bundledLegacy),
-    'is malformed',
-    'a legacy v1 snapshot cannot carry a bundled record at all — v1 predates the plugin source, so such a snapshot is one no version of this engine ever wrote'
+    'duo-policy-snapshot/v4 is retired and is no longer read',
+    'a legacy v1 snapshot carrying a bundled record is refused with the rest of v4 — it was already a document no '
+    . 'version of this engine ever wrote (v1 predates the plugin source), and the retirement makes that answer '
+    . 'uniform instead of routing it through a per-field malformed check'
 );
 
 // ======================================================================

@@ -1,6 +1,6 @@
 # `sandbox/tests/lib/` — the shared offline test harness
 
-Three PHP files, no dependencies, no composer, no WordPress. Every offline
+Four PHP files, no dependencies, no composer, no WordPress. Every offline
 `regress_*.php` suite runs as `php sandbox/tests/offline/<domain>/X.php`, so
 these must too. (`grind_lib.sh` also lives here; it is the grind harnesses'
 shell library and has nothing to do with the PHP harness below.)
@@ -10,6 +10,19 @@ shell library and has nothing to do with the PHP harness below.)
 | `check.php` | `duo_check*()` assertions and the end-of-suite summary/exit code |
 | `wp_stubs.php` | `\DuoTest\WpStore` plus `function_exists()`-guarded WordPress function stubs |
 | `FakeWpdb.php` | `\DuoTest\FakeWpdb` — a duck-typed `$wpdb` that interprets SQL against seeded rows |
+| `frozen_policy.php` | `\DuoTest\FrozenPolicy` — the `duo-policy-snapshot/v6` envelope for suites that need a `Policy` to test something else |
+
+`FrozenPolicy` exists because the frozen wire stopped taking a snapshot's word
+for provenance. A suite that only wants a `Policy` object used to hand
+`Policy::from_snapshot()` a `duo-policy-snapshot/v4` envelope, where any
+manifest name absent from `out_of_tree` was granted shipped authority with no
+proof; v4 is now refused by name and v6 compares the frozen manifest against
+`<manifests_dir>/<name>.json`. `FrozenPolicy::envelope()` publishes the
+manifests into a scratch library and points `DUO_MANIFESTS_DIR` at it, so a
+synthetic adapter still loads — over the fail-closed path a real deployment
+uses. Pass its third argument when your suite already owns the library
+(`Policy::load()` coverage, manifest-shipped provider code): it publishes there
+and leaves your `DUO_MANIFESTS_DIR` alone.
 
 ## Where your suite goes, and what that costs you in `../`
 

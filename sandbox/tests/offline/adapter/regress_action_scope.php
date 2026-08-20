@@ -21,6 +21,7 @@ require dirname(__DIR__, 4) . '/agent/src/Policy/Policy.php';
 require dirname(__DIR__, 4) . '/agent/src/Repository/SidebarState.php';
 require dirname(__DIR__, 4) . '/agent/src/Repository/Snapshot.php';
 require dirname(__DIR__, 4) . '/agent/src/Apply/Apply.php';
+require __DIR__ . '/../../lib/frozen_policy.php';
 
 $failures = 0;
 $check = static function (bool $condition, string $message) use (&$failures): void {
@@ -79,22 +80,16 @@ $manifest = [
     ],
 ];
 
-$policy = \Duo\Policy::from_snapshot([
-    'format' => 'duo-policy-snapshot/v4',
-    'adapter_sources' => ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []],
-    'dispositions' => null,
-    'site' => [
-        'manifests' => ['trigger-probe'],
-        'spec_version' => DUO_SPEC_VERSION,
-        'policy' => [
-            'options' => ['active_plugins' => ['class' => 'managed', 'autoload' => 'preserve']],
-            'post_meta' => [],
-            'term_meta' => [],
-            'user_meta' => [],
-        ],
+$policy = \Duo\Policy::from_snapshot(\DuoTest\FrozenPolicy::envelope([$manifest], [
+    'manifests' => ['trigger-probe'],
+    'spec_version' => DUO_SPEC_VERSION,
+    'policy' => [
+        'options' => ['active_plugins' => ['class' => 'managed', 'autoload' => 'preserve']],
+        'post_meta' => [],
+        'term_meta' => [],
+        'user_meta' => [],
     ],
-    'manifests' => [$manifest],
-]);
+]));
 
 // Identify a selected row by the one field that distinguishes these four
 // declarations from each other: the transient each names.
@@ -130,17 +125,10 @@ $check(
 
 $expectThrow = static function (array $badManifest, string $needle, string $label) use ($check): void {
     try {
-        \Duo\Policy::from_snapshot([
-            'format' => 'duo-policy-snapshot/v4',
-            'adapter_sources' => ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []],
-            'dispositions' => null,
-            'site' => [
-                'manifests' => ['trigger-probe'],
-                'spec_version' => DUO_SPEC_VERSION,
-                'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []],
-            ],
-            'manifests' => [$badManifest],
-        ]);
+        \Duo\Policy::from_snapshot(\DuoTest\FrozenPolicy::envelope(
+            [$badManifest],
+            \DuoTest\FrozenPolicy::site([$badManifest], DUO_SPEC_VERSION)
+        ));
         $check(false, "$label is rejected before selection");
     } catch (Throwable $failure) {
         $check(str_contains($failure->getMessage(), $needle), "$label is rejected before selection");

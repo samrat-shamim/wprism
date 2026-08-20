@@ -19,8 +19,10 @@ require dirname(__DIR__, 4) . '/agent/src/Kernel/Canon.php';
 require dirname(__DIR__, 4) . '/agent/src/Kernel/OptionState.php';
 require dirname(__DIR__, 4) . '/agent/src/Policy/Policy.php';
 require dirname(__DIR__, 4) . '/recovery/rollback-control.php';
+require __DIR__ . '/../../lib/frozen_policy.php';
 
 use Duo\Policy;
+use DuoTest\FrozenPolicy;
 use Duo\Recovery\EffectBundle;
 use Duo\Recovery\RecoveryExecutor;
 use Duo\Recovery\RollbackControl;
@@ -333,22 +335,10 @@ function woo_effect_shipping_tax_action(): array {
 /** @return list<array<string,mixed>> */
 /** @return array<string,mixed> */
 function woo_effect_policy_for_manifest(array $manifest): Policy {
-    return Policy::from_snapshot([
-        'format' => 'duo-policy-snapshot/v4',
-        'adapter_sources' => ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []],
-        'dispositions' => null,
-        'site' => [
-            'manifests' => [(string) ($manifest['name'] ?? 'woocommerce')],
-            'spec_version' => DUO_SPEC_VERSION,
-            'policy' => [
-                'options' => [],
-                'post_meta' => [],
-                'term_meta' => [],
-                'user_meta' => [],
-            ],
-        ],
-        'manifests' => [$manifest],
-    ]);
+    return Policy::from_snapshot(FrozenPolicy::envelope(
+        [$manifest],
+        FrozenPolicy::site([$manifest], DUO_SPEC_VERSION)
+    ));
 }
 
 /** @return array<string,mixed> */

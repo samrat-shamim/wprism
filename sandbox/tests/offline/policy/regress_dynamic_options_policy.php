@@ -117,8 +117,10 @@ check($missingResolverRefused, 'direct resolver refuses a missing engine resolve
 require __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require __DIR__ . '/../../../../agent/src/Policy/Policy.php';
+require __DIR__ . '/../../lib/frozen_policy.php';
 
 use Duo\Policy;
+use DuoTest\FrozenPolicy;
 
 if (!defined('DUO_SPEC_VERSION')) {
     define('DUO_SPEC_VERSION', 0);
@@ -310,20 +312,19 @@ echo "\n== DUO-3375: the frozen-snapshot entry point reaches the SAME verdict (l
 // the self::validate_dynamic_options() call inside from_snapshot() and the
 // refusal check below flips to FAIL while load() above still refuses — exactly
 // the DUO-3318 L1 divergence class.
+// Deliberately NOT published into $fixtureDir: this half freezes a `core` that
+// carries the dead field, and $fixtureDir's `core.json` is the clean fixture
+// every expect_load_failure() below still loads alongside its bad manifest.
+// FrozenPolicy's own library keeps the two cores apart; restore_fixture_dir()
+// hands DUO_MANIFESTS_DIR back afterwards.
+// A real snapshot has already been through Canon::decode(), so every object is
+// a PHP array by the time from_snapshot() sees it.
 function frozen_snapshot(array $manifests): array {
-    return [
-        'adapter_sources' => ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []],
-        'dispositions' => null,
-        'format' => 'duo-policy-snapshot/v4',
-        'manifests' => $manifests,
-        // A real snapshot has already been through Canon::decode(), so every
-        // object is a PHP array by the time from_snapshot() sees it.
-        'site' => [
-            'manifests' => array_map(static fn(array $m): string => (string) $m['name'], $manifests),
-            'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []],
-            'spec_version' => DUO_SPEC_VERSION,
-        ],
-    ];
+    return FrozenPolicy::envelope($manifests, FrozenPolicy::site($manifests, DUO_SPEC_VERSION));
+}
+
+function restore_fixture_dir(string $fixtureDir): void {
+    putenv("DUO_MANIFESTS_DIR=$fixtureDir");
 }
 
 $cleanCoreManifest = [
@@ -360,6 +361,7 @@ try {
 }
 check($frozenThrew, 'from_snapshot() ALSO refuses a top-level class — the two entry points reach the same verdict (DUO-3375 lockstep)');
 check(str_contains($frozenMsg, 'dynamic_options.theme_mods.class'), "from_snapshot()'s refusal names the dead field too (got: $frozenMsg)");
+restore_fixture_dir($fixtureDir);
 
 // ======================================================================
 echo "\n== DUO-3375: a valid declaration's canonical bytes are UNCHANGED (schema not widened) ==\n";
