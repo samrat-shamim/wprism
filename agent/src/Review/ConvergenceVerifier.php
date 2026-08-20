@@ -65,13 +65,14 @@ final class ConvergenceVerifier {
      *
      * @return array{verifier:string,result:string,live_entities:int,deletions:int}
      */
-    public function verify(array $opts, CompiledRepository $compiled): array {
+    public function verify(array $opts, CompiledRepository $compiled, array $preservedDrift = []): array {
         if ($this->scopeContract !== null) {
             return $this->verify_scoped($opts, $compiled);
         }
         if (!class_exists('\WP_CLI')) {
-            throw new \RuntimeException(
-                'duo: post-apply convergence verification is unavailable outside wp-cli; promotion metadata was not committed'
+            throw $this->failure(
+                'duo: post-apply convergence verification is unavailable outside wp-cli; promotion metadata was not committed',
+                $preservedDrift
             );
         }
 
@@ -114,9 +115,9 @@ final class ConvergenceVerifier {
                 'exit_error' => false,
             ]);
         } catch (\Throwable $t) {
-            throw new \RuntimeException(
+            throw $this->failure(
                 'duo: post-apply convergence verification subprocess failed; promotion metadata was not committed',
-                0,
+                $preservedDrift,
                 $t
             );
         } finally {
@@ -124,14 +125,12 @@ final class ConvergenceVerifier {
             @unlink($policySnapshot);
         }
         if ((int) $res->return_code !== 0) {
-            $detail = trim((string) ($res->stderr ?? ''));
-            if (str_starts_with($detail, 'Error: ')) {
-                $detail = substr($detail, strlen('Error: '));
-            }
-            throw new \RuntimeException(
-                $detail !== ''
-                    ? $detail
-                    : 'duo: post-apply convergence verification subprocess failed; promotion metadata was not committed'
+            throw $this->failure(
+                self::subprocess_diagnosis(
+                    (string) ($res->stderr ?? ''),
+                    (string) ($res->stdout ?? '')
+                ),
+                $preservedDrift
             );
         }
         $lines = preg_split('/\R/', trim((string) ($res->stdout ?? ''))) ?: [];
@@ -139,20 +138,119 @@ final class ConvergenceVerifier {
         try {
             $report = Canon::decode($json);
         } catch (\Throwable $t) {
-            throw new \RuntimeException(
+            throw $this->failure(
                 'duo: post-apply convergence verification returned malformed evidence; promotion metadata was not committed',
-                0,
+                $preservedDrift,
                 $t
             );
         }
         if (!is_array($report)
             || ($report['verifier'] ?? '') !== 'canonical-recapture/v1'
             || ($report['result'] ?? '') !== 'pass') {
-            throw new \RuntimeException(
-                'duo: post-apply convergence verification returned invalid evidence; promotion metadata was not committed'
+            throw $this->failure(
+                'duo: post-apply convergence verification returned invalid evidence; promotion metadata was not committed',
+                $preservedDrift
             );
         }
         return $report;
+    }
+
+    /**
+     * What the verifier subprocess actually said, in the order the channels
+     * are trustworthy.
+     *
+     * DUO-3489 root cause: DUO-3399 (aa58959) routed `verify-canonical`
+     * through Cli::halt_json_failure(), and this class always launches it with
+     * `--format=json` (:97-107). That path prints the refusal envelope with
+     * WP_CLI::line() and WP_CLI::halt(1) (Cli.php:150-151), so STDERR — the
+     * only channel the caller below reads — was empty and every convergence
+     * failure collapsed into the constant "subprocess failed" sentence. That
+     * was measured live: `duo apply prod` on a 2-entity-drifted target
+     * refused with exactly that sentence and named nothing, while
+     * spec/repo-format.md:1235 requires "a mismatch names the failed
+     * invariant". Cli::verify_canonical() now writes the operator sentence to
+     * STDERR before halting, so the first branch is the live one again; the
+     * envelope branch is what keeps a nameless refusal from ever being the
+     * answer if some other path halts without prose.
+     */
+    private static function subprocess_diagnosis(string $stderr, string $stdout): string {
+        $detail = trim($stderr);
+        if (str_starts_with($detail, 'Error: ')) {
+            $detail = substr($detail, strlen('Error: '));
+        }
+        if ($detail !== '') {
+            return $detail;
+        }
+        $lines = preg_split('/\R/', trim($stdout)) ?: [];
+        try {
+            $envelope = Canon::decode((string) end($lines));
+        } catch (\Throwable $undecodable) {
+            $envelope = null;
+        }
+        if (!is_array($envelope) || ($envelope['format'] ?? '') !== 'duo-command-refusal/v1') {
+            return 'duo: post-apply convergence verification subprocess failed with no diagnosis on either channel; '
+                . 'promotion metadata was not committed';
+        }
+        $reason = (string) ($envelope['reason_code'] ?? $envelope['error'] ?? 'unclassified');
+        $message = (string) ($envelope['message'] ?? '');
+        $remediation = (string) ($envelope['remediation'] ?? '');
+        $lines = [
+            'duo: post-apply convergence verification refused (' . $reason
+                . '); promotion metadata was not committed',
+        ];
+        if ($message !== '') {
+            $lines[] = '  ' . $message;
+        }
+        if ($remediation !== '') {
+            $lines[] = '  remedy: ' . $remediation;
+        }
+        if (($envelope['details_redacted'] ?? false) === true) {
+            $lines[] = '  the subprocess redacted its detail; the full chain is in '
+                . '<repo>/.duo/refusals/ on this environment';
+        }
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Every non-scoped convergence failure, with the two facts the operator
+     * asked for and DUO-3489 found missing.
+     *
+     * This gate has exactly one caller — ApplyRequestCoordinator::run():1496,
+     * after the authored transaction committed and the rebuild pass ran — so
+     * "the target was mutated" is a fact about this refusal, not a guess.
+     * Preserved drift is the structural cause when it is present: verify_local()
+     * proves the WHOLE compiled tree, and ApplyPlanner::rebuild_work():699-706 deliberately
+     * excludes `drift` from the write set, so a drifted target can never pass
+     * this gate. Naming it turns a mysterious subprocess exit into the
+     * documented capture-first remedy (docs/guides/capabilities-and-limits.md
+     * "ordinary `drift` … `duo capture` first").
+     *
+     * @param list<array<string,mixed>> $preservedDrift plan `drift` rows this run did not write
+     */
+    private function failure(
+        string $detail,
+        array $preservedDrift,
+        ?\Throwable $previous = null
+    ): \RuntimeException {
+        $lines = [$detail];
+        $lines[] = 'The target WAS mutated: this apply committed its authored writes and ran its rebuild pass. '
+            . 'Only the convergence metadata did not advance — base hashes, applied_revision and deletion '
+            . 'receipts are unchanged and the incomplete-apply retry marker is retained.';
+        if ($preservedDrift !== []) {
+            $paths = [];
+            foreach ($preservedDrift as $row) {
+                $paths[] = '  - ' . (string) ($row['path'] ?? (string) ($row['uuid'] ?? '?'));
+            }
+            sort($paths, SORT_STRING);
+            $lines[] = 'This apply preserved ' . count($preservedDrift)
+                . ' environment-drifted entit' . (count($preservedDrift) === 1 ? 'y' : 'ies')
+                . ' rather than overwriting them, and the gate above proves the whole compiled tree, '
+                . 'so it cannot pass while the repository does not hold them:';
+            $lines[] = implode("\n", $paths);
+            $lines[] = 'Run `duo capture` to fold those environment changes into the repository, commit, '
+                . 'then apply again.';
+        }
+        return new \RuntimeException(implode("\n", $lines), 0, $previous);
     }
 
     /** Fresh-process verifier for the bounded target roots and selected intent. */

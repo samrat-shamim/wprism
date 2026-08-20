@@ -386,27 +386,14 @@ final class ApplyPlanBuilder {
             ];
         }
 
-        // A prior apply that committed authored rows but failed a required
-        // rebuild deliberately left this marker. The live canonical hash can
-        // now be unchanged, drift, or conflict: rebuild actions may normalize
-        // just-written row after COMMIT, while duo_state intentionally still
-        // names the pre-apply base. In every case the interrupted promotion's
-        // repository tree remains the recovery target. Re-run every mapped
-        // canonical entity through phase 2/rebuild until the marker clears;
-        // otherwise the ordinary three-way gate can make a truthful failure
-        // impossible to retry without an unrelated --force-theirs override.
-        $retryingIncompleteApply = Ledger::kv_get('apply_in_progress') !== null;
-        if ($retryingIncompleteApply) {
-            $plan['incomplete_apply'][] = [
-                'reason' => 'previous apply did not complete required rebuilds or convergence metadata',
-            ];
-            foreach (['unchanged', 'drift', 'conflict'] as $retryKind) {
-                foreach ($plan[$retryKind] as $row) {
-                    $plan['update'][] = $row + ['retry' => true];
-                }
-                $plan[$retryKind] = [];
-            }
-        }
+        // The retry widening and DUO-3489's preserved-drift carve-out are a
+        // pure projection over the marker's own payload; the Ledger read is
+        // the only environment fact this block owns.
+        // ApplyPlanner::project_incomplete_apply_retry() states why each
+        // bucket is or is not widened.
+        $incompleteApplyMarker = Ledger::kv_get('apply_in_progress');
+        $retryingIncompleteApply = $incompleteApplyMarker !== null;
+        $plan = ApplyPlanner::project_incomplete_apply_retry($plan, $incompleteApplyMarker);
 
         // DUO-3234 / DUO-3342: expose all durable derived-state retry debt
         // through one read-only planner projection. Ledger and Policy remain

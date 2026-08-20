@@ -37,6 +37,13 @@ wp1_test_manifests() {
 ledger_value() {
   wp1 eval "echo \\Duo\\Ledger::kv_get('$1') ?? 'NULL';" 2>/dev/null | tr -d '\r' | tail -1
 }
+# DUO-3489: apply_in_progress no longer holds the constant '1'. Its value is a
+# canonical duo-apply-in-progress/v1 record naming the environment drift the
+# interrupted apply preserved, so a multi-line value defeats ledger_value's
+# tail -1. Every assertion here is about RETENTION, which is what this asks.
+retry_marker() {
+  wp1 eval "echo \\Duo\\Ledger::kv_get('apply_in_progress') === null ? 'NULL' : 'RETAINED';" 2>/dev/null | tr -d '\r' | tail -1
+}
 expect_failure() {
   local contexts="$1" expected="$2"; shift 2
   if OUT=$(wp1_fail "$contexts" "$@" 2>&1); then
@@ -184,7 +191,7 @@ expect_failure "rebuild term counts" "rebuild term counts" \
 [ "$(wp1 option get blogname | tr -d '\r')" = "DUO 3206 recount failure" ] || fail "recount test did not reach post-commit phase"
 [ "$(ledger_value applied_revision)" = baseline ] || fail "recount failure advanced applied_revision"
 [ "$(wp1 eval "echo \\Duo\\Ledger::state_hash('options/core') ?? 'NULL';" 2>/dev/null | tr -d '\r' | tail -1)" = "$BASE_HASH" ] || fail "recount failure advanced base hash"
-[ "$(ledger_value apply_in_progress)" = 1 ] || fail "recount failure did not retain retry marker"
+[ "$(retry_marker)" = RETAINED ] || fail "recount failure did not retain retry marker"
 PENDING_PLAN=$(wp1 duo plan --repo=/siterepo --json 2>/dev/null | tail -1)
 echo "$PENDING_PLAN" | jq -e '.warnings[] | contains("previous apply did not complete")' >/dev/null \
   || fail "status plan did not surface the incomplete apply marker as a correctness warning"
@@ -202,7 +209,7 @@ grep -Fq 'INCOMPLETE_APPLY' <<<"$STATUS_OUT" \
   || fail "duo status did not name the incomplete apply condition"
 wp1 duo apply --repo=/siterepo --revision=recount-recovered >/dev/null
 [ "$(ledger_value applied_revision)" = recount-recovered ] || fail "recount retry did not advance revision"
-[ "$(ledger_value apply_in_progress)" = NULL ] || fail "recount retry did not clear marker"
+[ "$(retry_marker)" = NULL ] || fail "recount retry did not clear marker"
 reset_baseline
 pass "required recount failure stayed unapplied and retried successfully"
 
@@ -211,10 +218,10 @@ edit_blogname "DUO 3206 cache rebuild failure"
 expect_failure "rebuild object cache" "rebuild object cache" \
   duo apply --repo=/siterepo --revision=bad-cache
 [ "$(ledger_value applied_revision)" = baseline ] || fail "cache rebuild failure advanced applied_revision"
-[ "$(ledger_value apply_in_progress)" = 1 ] || fail "cache rebuild failure did not retain retry marker"
+[ "$(retry_marker)" = RETAINED ] || fail "cache rebuild failure did not retain retry marker"
 wp1 duo apply --repo=/siterepo --revision=cache-recovered >/dev/null
 [ "$(ledger_value applied_revision)" = cache-recovered ] || fail "cache rebuild retry did not advance revision"
-[ "$(ledger_value apply_in_progress)" = NULL ] || fail "cache rebuild retry did not clear marker"
+[ "$(retry_marker)" = NULL ] || fail "cache rebuild retry did not clear marker"
 reset_baseline
 pass "required object-cache failure stayed unapplied and retried successfully"
 
@@ -226,10 +233,10 @@ expect_failure "ledger transaction commit" "ledger transaction commit" \
 [ "$(wp1 option get blogname | tr -d '\r')" = "DUO 3206 ledger commit failure" ] || fail "ledger commit test did not reach committed authored state"
 [ "$(ledger_value applied_revision)" = baseline ] || fail "ledger commit failure advanced applied_revision"
 [ "$(wp1 eval "echo \\Duo\\Ledger::state_hash('options/core') ?? 'NULL';" 2>/dev/null | tr -d '\r' | tail -1)" = "$BASE_HASH" ] || fail "ledger commit failure partially advanced base hash"
-[ "$(ledger_value apply_in_progress)" = 1 ] || fail "ledger commit failure did not retain retry marker"
+[ "$(retry_marker)" = RETAINED ] || fail "ledger commit failure did not retain retry marker"
 wp1 duo apply --repo=/siterepo --revision=ledger-recovered >/dev/null
 [ "$(ledger_value applied_revision)" = ledger-recovered ] || fail "ledger commit retry did not advance revision"
-[ "$(ledger_value apply_in_progress)" = NULL ] || fail "ledger commit retry did not clear marker"
+[ "$(retry_marker)" = NULL ] || fail "ledger commit retry did not clear marker"
 reset_baseline
 pass "ledger metadata transition rolled back atomically and retried"
 
@@ -269,7 +276,7 @@ grep -Fq "duo-3338-absent" <<<"$OUT" || fail "refusal did not name the responsib
 grep -Fq "duo-3338-absent/duo-3338-absent.php" <<<"$OUT" || fail "refusal did not name the owning plugin"
 grep -Eq "install and activate|duo deploy" <<<"$OUT" || fail "refusal carried no remediation path"
 [ "$(ledger_value applied_revision)" = baseline ] || fail "provider refusal advanced applied_revision"
-[ "$(ledger_value apply_in_progress)" = NULL ] || fail "provider refusal wrote the retry marker despite mutating nothing"
+[ "$(retry_marker)" = NULL ] || fail "provider refusal wrote the retry marker despite mutating nothing"
 [ "$(wp1 option get blogname | tr -d '\r')" = "$BLOGNAME_BEFORE" ] \
   || fail "provider refusal mutated the target before negotiating"
 jq '.manifests = ["core"]' "$SITEREPO/site.duo.json" > "$SITEREPO/site.duo.json.tmp"
@@ -364,12 +371,12 @@ echo "$OUT"
 grep -Fq "required manifest action 'provider:duo-3338-fatal/rebuild_probe_state'" <<<"$OUT" \
   || fail "manifest failure did not name the exact failing action"
 [ "$(ledger_value applied_revision)" = baseline ] || fail "manifest action failure advanced applied_revision"
-[ "$(ledger_value apply_in_progress)" = 1 ] || fail "manifest failure did not retain retry marker"
+[ "$(retry_marker)" = RETAINED ] || fail "manifest failure did not retain retry marker"
 jq '.manifests = ["core"]' "$SITEREPO/site.duo.json" > "$SITEREPO/site.duo.json.tmp"
 mv "$SITEREPO/site.duo.json.tmp" "$SITEREPO/site.duo.json"
 wp1 duo apply --repo=/siterepo --revision=manifest-action-recovered >/dev/null
 [ "$(ledger_value applied_revision)" = manifest-action-recovered ] || fail "manifest action retry did not advance revision"
-[ "$(ledger_value apply_in_progress)" = NULL ] || fail "manifest action retry did not clear marker"
+[ "$(retry_marker)" = NULL ] || fail "manifest action retry did not clear marker"
 reset_baseline
 pass "required manifest action failure stayed fatal and unapplied, then retried successfully"
 
@@ -454,7 +461,7 @@ grep -Fq "options/core" <<<"$OUT" \
 [ "$(ledger_value applied_revision)" = baseline ] || fail "verification failure advanced applied_revision"
 [ "$(wp1 eval "echo \\Duo\\Ledger::state_hash('options/core') ?? 'NULL';" 2>/dev/null | tr -d '\r' | tail -1)" = "$BASE_HASH" ] \
   || fail "verification failure advanced the canonical base hash"
-[ "$(ledger_value apply_in_progress)" = 1 ] || fail "verification failure did not retain retry marker"
+[ "$(retry_marker)" = RETAINED ] || fail "verification failure did not retain retry marker"
 jq '.manifests = ["core"]' "$SITEREPO/site.duo.json" > "$SITEREPO/site.duo.json.tmp"
 mv "$SITEREPO/site.duo.json.tmp" "$SITEREPO/site.duo.json"
 wp1 option update blogname "$ORIGINAL_BLOGNAME" >/dev/null
@@ -469,7 +476,7 @@ echo "$VERIFY_JSON" | jq -e \
    and .verification.deletions == 0' >/dev/null \
   || fail "successful retry did not report canonical recapture evidence: $VERIFY_JSON"
 [ "$(ledger_value applied_revision)" = verification-recovered ] || fail "verified retry did not advance revision"
-[ "$(ledger_value apply_in_progress)" = NULL ] || fail "verified retry did not clear marker"
+[ "$(retry_marker)" = NULL ] || fail "verified retry did not clear marker"
 reset_baseline
 pass "post-apply recapture blocked a false-green ledger advance and a clean retry verified"
 
@@ -486,14 +493,14 @@ wp1 db query "DELETE FROM wp_postmeta WHERE post_id=$ATTACH_ID; DELETE FROM wp_p
 expect_failure "rebuild attachment metadata" "rebuild attachment metadata" \
   duo apply --repo=/siterepo --revision=bad-attachment
 [ "$(ledger_value applied_revision)" = baseline ] || fail "attachment rebuild failure advanced applied_revision"
-[ "$(ledger_value apply_in_progress)" = 1 ] || fail "attachment failure did not retain retry marker"
+[ "$(retry_marker)" = RETAINED ] || fail "attachment failure did not retain retry marker"
 NEW_ATTACH_ID=$(wp1 eval "echo \\Duo\\Ledger::id_for('$ATTACH_UUID', \\Duo\\Ledger::KIND_POST) ?? 'NULL';" 2>/dev/null | tr -d '\r' | tail -1)
 [ "$NEW_ATTACH_ID" != NULL ] || fail "attachment test did not reach post-commit rebuild phase"
 META_BEFORE=$(wp1 post meta get "$NEW_ATTACH_ID" _wp_attachment_metadata 2>/dev/null || true)
 [ -z "$META_BEFORE" ] || fail "failed attachment rebuild unexpectedly wrote metadata"
 wp1 duo apply --repo=/siterepo --revision=attachment-recovered >/dev/null
 [ "$(ledger_value applied_revision)" = attachment-recovered ] || fail "attachment retry did not advance revision"
-[ "$(ledger_value apply_in_progress)" = NULL ] || fail "attachment retry did not clear marker"
+[ "$(retry_marker)" = NULL ] || fail "attachment retry did not clear marker"
 META_AFTER=$(wp1 post meta get "$NEW_ATTACH_ID" _wp_attachment_metadata 2>/dev/null || true)
 [ -n "$META_AFTER" ] || fail "attachment retry did not regenerate metadata"
 pass "attachment metadata failure remained retryable and recovered"

@@ -7,6 +7,7 @@ require_once __DIR__ . '/../Repository/IdentityNotes.php';
 require_once __DIR__ . '/../Kernel/OptionState.php';
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Repository/Snapshot.php';
+require_once __DIR__ . '/IncompleteApplyMarker.php';
 
 /**
  * The pure conflict/display-projection half of plan production (DUO-3347
@@ -570,6 +571,82 @@ final class ApplyPlanner {
             'term' => 10,
             default => 0,
         };
+    }
+
+    /**
+     * DUO-3206's retry widening, and DUO-3489's carve-out from it.
+     *
+     * A prior apply that committed authored rows but failed a required
+     * rebuild deliberately left `apply_in_progress`. The live canonical hash
+     * can now be unchanged, drift, or conflict: rebuild actions may normalize
+     * a just-written row after COMMIT, while duo_state intentionally still
+     * names the pre-apply base. In every case the interrupted promotion's
+     * repository tree remains the recovery target, so every mapped canonical
+     * entity is re-run through phase 2/rebuild until the marker clears;
+     * otherwise the ordinary three-way gate can make a truthful failure
+     * impossible to retry without an unrelated --force-theirs override.
+     *
+     * That reasoning covers rows the failed run WROTE. It does not cover
+     * environment-only drift, which a normal apply deliberately leaves for
+     * capture (rebuild_work() below, :700-706 — "A normal apply leaves
+     * environment-only drift for capture"). DUO-3489 measured the consequence
+     * on a live pair:
+     * run 1 planned `drift:2`, preserved both rows, and failed the whole-tree
+     * convergence gate; run 2 planned `drift:0`, silently overwrote both, and
+     * reported `applied 14 entities (canary clean)`. So a row the interrupted
+     * run recorded as preserved drift, and which still classifies as drift
+     * now, stays in `drift`: the plan keeps telling the truth, `duo status`
+     * keeps its non-zero `drift` count, and the documented remedy
+     * (`duo capture` first) remains the only thing that folds it in.
+     *
+     * @param array<string,mixed> $plan
+     * @param string|null $marker the raw `apply_in_progress` ledger value
+     * @return array<string,mixed>
+     */
+    public static function project_incomplete_apply_retry(array $plan, ?string $marker): array {
+        if ($marker === null) {
+            return $plan;
+        }
+        $preserved = IncompleteApplyMarker::preserved_drift($marker);
+        $retained = [];
+        $widened = [];
+        foreach ((array) ($plan['drift'] ?? []) as $row) {
+            if ($preserved !== null && isset($preserved[(string) ($row['uuid'] ?? '')])) {
+                $retained[] = $row;
+                continue;
+            }
+            $widened[] = $row;
+        }
+        $reason = 'previous apply did not complete required rebuilds or convergence metadata';
+        $incomplete = ['reason' => $reason];
+        if ($retained !== []) {
+            $incomplete = [
+                'reason' => $reason . '; ' . count($retained)
+                    . ' environment-drifted entities it deliberately preserved are still drift and are not being overwritten by this retry — run `duo capture` to fold them into the repository first',
+                'preserved_drift' => array_map(
+                    static fn(array $row): array => [
+                        'path' => (string) ($row['path'] ?? ''),
+                        'type' => (string) ($row['type'] ?? ''),
+                        'uuid' => (string) ($row['uuid'] ?? ''),
+                    ],
+                    $retained
+                ),
+            ];
+        }
+        $plan['incomplete_apply'][] = $incomplete;
+        // The three buckets are consumed in their original DUO-3206 order:
+        // rebuild_work() re-sorts `update` only by phase2_rank, and PHP's
+        // stable sort therefore carries this sequence into apply's actual
+        // write order. `drift` keeps only what stays preserved.
+        $plan['drift'] = $widened;
+        foreach (['unchanged', 'drift', 'conflict'] as $retryKind) {
+            foreach ($plan[$retryKind] as $row) {
+                $plan['update'][] = $row + ['retry' => true];
+            }
+            $plan[$retryKind] = [];
+        }
+        $plan['drift'] = $retained;
+        return $plan;
     }
 
     /**

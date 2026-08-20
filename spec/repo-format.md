@@ -1232,7 +1232,7 @@ other effect type or provider resource.
 6. **Phase 2** — resolve refs through the ledger: parents, metas, term relationships, menu structure, option values, body detokenization (block registry restores numeric types).
 7. **Deletes** — only with `--with-deletes`, custom-table children before parents. The engine performs the declared cascades, then queries every exact target and attached sidecar before commit. Any survivor rolls back the transaction. Menus delete their owned menu-item posts; comments, Woo order lookups, Ninja Forms submissions, and other declared runtime references are preserved by guards rather than cascaded.
 8. **Rebuild** — canary disarmed: required derived-dependency synthesis and verification, term recounts (direct SQL), attachment metadata regeneration, manifest-declared structured actions (closed native actions and pre-mutation-negotiated provider capabilities), and cache flush.
-9. **Verify convergence** — recapture the live target through the canonical snapshot reader in a fresh WordPress process before any convergence metadata advances. The verifier is pinned to the exact compiled artifact used by apply, avoiding stale pre-apply plugin models and refusing a concurrently changed repository. Every entity in the compiled tree must have the same type and canonical hash. Target-only entities remain untouched because absence is not deletion authority; when `--with-deletes` is explicit, every compiled tombstone UUID must be absent. A mismatch names the failed invariant, retains `apply_in_progress`, and leaves all base hashes and `applied_revision` unadvanced.
+9. **Verify convergence** — recapture the live target through the canonical snapshot reader in a fresh WordPress process before any convergence metadata advances. The verifier is pinned to the exact compiled artifact used by apply, avoiding stale pre-apply plugin models and refusing a concurrently changed repository. Every entity in the compiled tree must have the same type and canonical hash. Target-only entities remain untouched because absence is not deletion authority; when `--with-deletes` is explicit, every compiled tombstone UUID must be absent. A mismatch names the failed invariant, retains `apply_in_progress`, and leaves all base hashes and `applied_revision` unadvanced. Naming it binds the operator-facing refusal, not only the verifier: the gate runs in a launched `--format=json` process whose value-free refusal envelope is the machine contract on stdout, so that process states its operator sentence on stderr too — the channel the launching apply reads and re-raises — and a launched process that halts without prose is read back from the envelope rather than reported as a bare exit code. The refusal also states that the target WAS mutated (this gate can only run after the authored transaction committed and the rebuild pass ran) and, when the run preserved ordinary environment `drift`, names those entities as the structural cause: this gate proves the whole tree while apply deliberately never writes `drift`, so a drifted target cannot converge until a capture folds it in.
 10. **Receipts and retry** — only after verification passes, a successful or already-absent deletion stores the tombstone hash in `duo_state` with entity type `deletion`; re-planning returns `deleted`, so retries are idempotent. Live hashes and `applied_revision` update atomically with clearing `apply_in_progress`.
 
 Every agent command that advertises `--format=json` refuses through this one
@@ -1279,6 +1279,21 @@ canonical entities (including attachment metadata) rather than mistaking
 byte-equal authored rows for a completed promotion. Plan exposes the marker as
 a structured `incomplete_apply` condition, so `duo status` remains non-zero
 until that retry succeeds and clears it.
+
+The marker's value is the canonical object
+`{"format":"duo-apply-in-progress/v1","preserved_drift":[{path,type,uuid}…]}`,
+naming exactly the entities that interrupted apply classified as ordinary
+environment `drift` and therefore deliberately did not write. Reprocessing is
+about rows the failed run wrote, whose `duo_state` base is now stale; it was
+never about rows it preserved. So the next plan widens `unchanged`, `conflict`
+and any *unrecorded* `drift` into `update` with `retry:true` as before, while a
+recorded identity that still classifies as `drift` stays in `drift`: the retry
+plan keeps reporting the true drift count, `duo status` stays non-zero on it,
+the `incomplete_apply` reason states how many entities the retry will not
+overwrite, and the documented capture-first remedy remains the only thing that
+folds them in. A marker carrying no such record (an older agent's, or a
+hand-planted one) keeps the original whole-bucket widening rather than
+inventing a preservation claim.
 
 Snapshot/rollback is the orchestrator's job in v0. The normal host path,
 `duo promote <env>`, compiles one immutable artifact, acquires a target lease

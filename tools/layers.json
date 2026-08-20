@@ -37,6 +37,7 @@
         "src/Apply/AuthoredTransactionExecutor.php": "engine",
         "src/Apply/AuthoredTransactionRequest.php": "engine",
         "src/Apply/EntityAdopter.php": "engine",
+        "src/Apply/IncompleteApplyMarker.php": "engine",
         "src/Apply/MenuMaterializer.php": "engine",
         "src/Apply/OptionsMaterializer.php": "engine",
         "src/Apply/PostMaterializer.php": "engine",

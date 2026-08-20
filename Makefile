@@ -709,6 +709,13 @@ regress-conflict-view:
 regress-convergence-verifier:
 	php sandbox/tests/offline/apply/regress_convergence_verifier.php
 
+# DUO-3489: what an apply over a drifted target tells the operator (the gate's
+# diagnosis crossing the verify-canonical subprocess boundary, the "was the
+# target mutated" answer, the preserved-drift cause and remedy) and what its
+# retry does to the drift it preserved.
+regress-apply-drift-convergence:
+	php sandbox/tests/offline/apply/regress_apply_drift_convergence.php
+
 # DUO-3347 slice 2: ApplyPlanner was extracted from Apply's plan/conflict
 # production (conflict_view, forced/incomplete override evidence, display
 # titles, lifecycle comparison, nested-delete counts); direct-API proof
@@ -1957,7 +1964,7 @@ regress-user-meta:
 # closed signed SSH crash-matrix evidence verifier.
 regress-offline-all:
 	@bash sandbox/tests/offline_diagnostics_guard.sh "$(MAKE)" --no-print-directory regress-offline-corpus
-	@echo "regress-offline-all: 253 offline suites green"
+	@echo "regress-offline-all: 254 offline suites green"
 
 regress-offline-corpus: code-half-unit \
 	regress-adopt-rollback regress-local-bootstrap regress-capture-publish regress-adapter-contract regress-adapter-sources regress-site-adapter-certification regress-manifest-dispositions regress-interpreter-policy regress-proof-legacy-pair \
@@ -1974,10 +1981,10 @@ regress-offline-corpus: code-half-unit \
 	regress-woocommerce-product-lookups-fake regress-woocommerce-deletion-authority \
 	regress-woocommerce-regen-engine regress-action-scope regress-actions-providers regress-pair-budget-lock regress-pair-compose-unit regress-pair-bootstrap-unit regress-pair-candidate-source \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-capture-record-readback regress-fetch-artifact \
-	regress-ssh-rollback-certification regress-woocommerce-contract regress-init-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-convergence-verifier regress-apply-planner regress-apply-field-materializer regress-path-safety regress-deploy-planner regress-lifecycle-planner regress-state-handoff-verifier regress-lifecycle-executor regress-cli-json-refusals regress-command-output regress-environment-command-preflight regress-passthrough-command regress-environment-command-options regress-driver-capabilities-command regress-environment-list-command regress-doctor-command regress-pending-command regress-classify-command regress-capture-command regress-status-command regress-plan-explain regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
+	regress-ssh-rollback-certification regress-woocommerce-contract regress-init-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-convergence-verifier regress-apply-drift-convergence regress-apply-planner regress-apply-field-materializer regress-path-safety regress-deploy-planner regress-lifecycle-planner regress-state-handoff-verifier regress-lifecycle-executor regress-cli-json-refusals regress-command-output regress-environment-command-preflight regress-passthrough-command regress-environment-command-options regress-driver-capabilities-command regress-environment-list-command regress-doctor-command regress-pending-command regress-classify-command regress-capture-command regress-status-command regress-plan-explain regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
 	regress-manifest-validate regress-adapter-draft regress-scope-closure regress-adapter-catalog regress-adapter-observation regress-plan-contract-trust regress-scope-contract regress-conformance-asserts regress-scope-command regress-refresh-command regress-rebase-command regress-adopt-command regress-init-command \
 	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-elementor-dead-guard regress-elementor-matrix-reset regress-grind-r1c-manifest-preserve regress-observation-guards regress-live-exit-code-contract regress-target-observation-premises regress-bound-helper regress-control-plane-seams regress-recovery-protocol regress-scoped-apply-session regress-scoped-apply-live-cleanup regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-ssh-adopt-evidence-retention regress-scope-wire regress-manifest-grammar regress-compiled-artifact regress-code-descriptor-compiler regress-code-config-grammar regress-menu-materializer regress-adapter-registry regress-agent-src-requires regress-user-meta-materializer regress-pin-resolver regress-term-materializer regress-action-provider-grammar regress-options-materializer regress-cross-manifest-guards regress-relationship-materializer regress-attachment-materializer regress-post-materializer regress-sub-key-grammar regress-delete-executor regress-delete-guard-value-codec regress-delete-guard-evaluator regress-scope-discovery regress-table-graph regress-table-schema regress-snapshot-identity regress-typed-table-capture regress-typed-table-materializer regress-snapshot-pruner regress-taxonomy-grammar regress-option-reference-grammar regress-post-type-grammar regress-discovery-grammar regress-reference-keyspace-grammar regress-reference-kind-grammar regress-offline-diagnostics
-	@echo "regress-offline-corpus: 253 offline suites green"
+	@echo "regress-offline-corpus: 254 offline suites green"
 
 regress-offline-diagnostics:
 	bash sandbox/tests/offline/guards/regress_offline_diagnostics.sh

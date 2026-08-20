@@ -696,6 +696,7 @@
           "AuthoredTransactionExecutor.php",
           "AuthoredTransactionRequest.php",
           "EntityAdopter.php",
+          "IncompleteApplyMarker.php",
           "MenuMaterializer.php",
           "OptionsMaterializer.php",
           "PostMaterializer.php",

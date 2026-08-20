@@ -32,9 +32,18 @@ namespace {
             throw new CliJsonHalt((int) $status);
         }
 
-        public static function error($message): void {
+        /**
+         * WP_CLI::error()'s real second parameter. It was elided while every
+         * caller exited; DUO-3489 added one that does not (verify-canonical
+         * writes its operator sentence to STDERR and then still halts through
+         * the envelope), and a stub that ignores $exit would report that as a
+         * command which never reaches its own envelope at all.
+         */
+        public static function error($message, $exit = true): void {
             self::$errors[] = (string) $message;
-            throw new CliJsonHumanError((string) $message);
+            if ($exit !== false) {
+                throw new CliJsonHumanError((string) $message);
+            }
         }
 
         public static function reset(): void {
@@ -249,8 +258,18 @@ namespace {
         $failures++;
     }
 
-    /** @return array<string,mixed> */
-    function invoke_json(callable $command): array {
+    /**
+     * @param bool $operatorSentenceOnStderr DUO-3489: verify-canonical is the
+     *        one command whose only --format=json caller is this same product
+     *        — apply's in-process convergence gate reads the diagnosis from
+     *        STDERR — so its operator sentence is deliberately written there
+     *        as well. Named per case rather than relaxed globally: for every
+     *        other command "JSON mode never enters human rendering" is still
+     *        the contract, and the record on STDOUT is unchanged for all of
+     *        them, verify-canonical included.
+     * @return array<string,mixed>
+     */
+    function invoke_json(callable $command, bool $operatorSentenceOnStderr = false): array {
         WP_CLI::reset();
         try {
             $command();
@@ -260,7 +279,11 @@ namespace {
         } catch (Throwable $e) {
             check(false, 'JSON refusal halts through the structured path, not ' . get_class($e) . ': ' . $e->getMessage());
         }
-        check(WP_CLI::$errors === [], 'JSON refusal never enters WP_CLI::error human rendering');
+        if ($operatorSentenceOnStderr) {
+            check(count(WP_CLI::$errors) === 1, 'verify-canonical also states its refusal once on STDERR');
+        } else {
+            check(WP_CLI::$errors === [], 'JSON refusal never enters WP_CLI::error human rendering');
+        }
         check(count(WP_CLI::$lines) === 1, 'JSON refusal emits exactly one machine-readable record');
         $decoded = json_decode(WP_CLI::$lines[0] ?? '', true);
         check(is_array($decoded), 'JSON refusal record decodes');
@@ -310,7 +333,10 @@ namespace {
         'capabilities' => 'capabilities',
     ];
     foreach ($commands as $method => $command) {
-        $payload = invoke_json(static fn() => $cli->$method([], ['format' => 'json']));
+        $payload = invoke_json(
+            static fn() => $cli->$method([], ['format' => 'json']),
+            $command === 'verify-canonical'
+        );
         check(($payload['format'] ?? null) === 'duo-command-refusal/v1', "$command refusal names the versioned format");
         check(($payload['ok'] ?? null) === false, "$command refusal is unambiguously not ok");
         check(($payload['command'] ?? null) === $command, "$command refusal names the public command");
@@ -1169,7 +1195,7 @@ namespace {
         ],
     ];
     foreach ($laterGates as $case => [$run, $expectedMessage, $remediationHint]) {
-        $gate = invoke_json($run);
+        $gate = invoke_json($run, str_starts_with($case, 'verify-canonical '));
         check(($gate['format'] ?? null) === 'duo-command-refusal/v1', "$case names the versioned format");
         check(($gate['error'] ?? null) === 'invalid_arguments', "$case has the stable argument error code");
         check(($gate['message'] ?? null) === $expectedMessage, "$case states exactly which argument contract it refused");
