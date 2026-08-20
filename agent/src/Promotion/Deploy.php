@@ -204,17 +204,14 @@ final class Deploy {
         }
 
         self::require_plugin_admin_functions();
-        // Architecture Rulings §1 (report-not-hide): each lifecycle phase runs
-        // in the narrow interval after code-stage and before code-finalize,
-        // so the stale descriptor finding remains visible in both JSON and
-        // human output. A version delta caused by that same verified staging
-        // is reported, but is not mislabeled as a forced out-of-band change.
-        $warnings = [];
-        if ($stagedMaterialization) {
-            foreach ($revisionMismatch as $r) {
-                $warnings[] = 'staged code materialization: ' . $r['message'];
-            }
-        }
+        // Architecture Rulings §1 (report-not-hide): the finding itself is
+        // never dropped — code_revision_mismatch() output still flows into
+        // $mismatch -> $summary['code_mismatch']/['reconciled_code_mismatch']
+        // below exactly as before, in both JSON and human output. What no
+        // longer happens is copying it into $warnings (DUO-3490):
+        // revision_stale_warnings() explains why that copy was never
+        // reporting new information in the one context it fired.
+        $warnings = self::revision_stale_warnings($revisionMismatch, $stagedMaterialization);
         if ($drift && !empty($opts['force_code_drift'])) {
             foreach ($drift as $r) {
                 $warnings[] = 'FORCED past code_drift: ' . $r['message'];
@@ -528,6 +525,53 @@ final class Deploy {
             }
             throw $t;
         }
+    }
+
+    /**
+     * Human-facing text for a code_revision_stale finding discovered mid-run,
+     * or none while $stagedMaterialization holds (DUO-3490).
+     *
+     * Outside $stagedMaterialization this method is never reached with a
+     * non-empty $revisionMismatch: run()'s own refuse-gate just above throws
+     * on that combination before $warnings is even built. Inside it, run()
+     * already called Code::assert_verified_staged($lockedCompiled) BEFORE
+     * $revisionMismatch was computed, the instant $opts['materializing_code']
+     * was set — hash_equals()-verifying the staged descriptor, staged
+     * artifact, and staged payload against this exact promotion lock's own
+     * locked artifact. A "stale" finding surviving that check is therefore
+     * not a risk about THIS lease: DeployCommand.php's fixed phase order
+     * (code-stage -> lifecycle-retire -> lifecycle-activate -> code-finalize,
+     * cli/src/Command/DeployCommand.php:91-128) guarantees retire/activate
+     * always run after code-stage and before finalize, so
+     * completed_code_mismatch() is non-null on literally every code-enabled
+     * deploy's retire/activate phases — whether this environment never
+     * finalized before ("no completed code_revision marker exists") or the
+     * exact same revision was just re-staged over an already-completed match
+     * ("temporary code-stage metadata ... remains after finalize": Code::
+     * stage() calls publish_stage_descriptor() unconditionally on every
+     * stage, and Code::finalize() clears those same keys only inside the one
+     * atomic transaction that also writes code_revision — Code.php
+     * write_completed_descriptor(), :609-618 — so a stage key can never
+     * outlive its OWN run's finalize; measured live, both observed message
+     * variants trace to this same guaranteed structural state, not a cleanup
+     * miss). Warning about an already-verified, guaranteed condition on every
+     * green deploy is the "failure-shaped warning inside a green run" DUO-3490
+     * reports, so this returns no text for it; the finding itself keeps
+     * flowing into $mismatch -> $summary['code_mismatch'] either way. The
+     * non-staged branch below is unreachable with a non-empty
+     * $revisionMismatch from run()'s only call site today (the refuse-gate
+     * throws first) — kept as the explicit, tested fallback rather than a
+     * silent no-op, so a future call site that reaches this method without
+     * that same refuse-gate keeps reporting instead of losing the finding.
+     *
+     * @param list<array{message:string}> $revisionMismatch
+     * @return list<string>
+     */
+    private static function revision_stale_warnings(array $revisionMismatch, bool $stagedMaterialization): array {
+        if ($stagedMaterialization) {
+            return [];
+        }
+        return array_map(fn($r) => 'staged code materialization: ' . $r['message'], $revisionMismatch);
     }
 
     /**

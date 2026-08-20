@@ -150,6 +150,35 @@ $check(
     'ordinary standalone lifecycle deploy must remain supported'
 );
 
+// DUO-3490: retire/activate always run after code-stage and before
+// code-finalize, so completed_code_mismatch() is non-null on every
+// code-enabled deploy's lifecycle phases -- and by the time
+// $stagedMaterialization is true, run() has already called
+// Code::assert_verified_staged() to independently prove the staged
+// descriptor/artifact match this exact promotion lock. Re-surfacing that
+// guaranteed, already-verified finding as a WP_CLI warning on literally
+// every green deploy trained operators to ignore warnings; pin that
+// revision_stale_warnings() reports nothing in that window while the
+// finding itself keeps its reported text everywhere else (the only other
+// caller shape run()'s refuse-gate ever lets through this method).
+$staleWarnings = new \ReflectionMethod(Deploy::class, 'revision_stale_warnings');
+$check(
+    $staleWarnings->invoke(null, [$staleRow], true) === [],
+    'a code_revision_stale finding inside a verified staged-materialization window must not become a warning'
+);
+$check(
+    $staleWarnings->invoke(null, [], true) === [],
+    'an empty revision mismatch inside staged materialization must remain warning-free'
+);
+$check(
+    $staleWarnings->invoke(null, [$staleRow], false) === ['staged code materialization: ' . $staleRow['message']],
+    'a code_revision_stale finding outside staged materialization keeps its reported text'
+);
+$check(
+    $staleWarnings->invoke(null, [], false) === [],
+    'no findings outside staged materialization means no warnings'
+);
+
 // The fresh verifier's artifact identity is mandatory, not an optional
 // comparison. Pin this before any snapshot/artifact read so even an internal
 // empty-value invocation cannot reach Ledger::ensure or target inspection.

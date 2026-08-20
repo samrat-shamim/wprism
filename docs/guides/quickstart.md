@@ -283,56 +283,58 @@ copied, which was never in question.
 ## Path B — a Docker site or a local site without bootstrap authority
 
 Install or mount the Duo agent and manifest library through that environment's
-own control-plane setup, declare the environment, then assess before you
-initialize — the agent is already there, so the assessment costs one read-only
-run and comes before any baseline:
+own control-plane setup — this path has no `duo adopt` step, so nothing else
+will deliver it. "The agent is already there, so the assessment costs one
+read-only run" is true, but `duo assess` still needs a repository to run
+*against*: it walks upward from the current directory for `site.duo.json` and
+refuses with `[local_site_repo_missing]` — "run this command from inside the
+site repository that holds site.duo.json" — the moment it finds none. Path A
+gets that file as a side effect of `duo adopt` (step 2 above, "creates
+`repo_path/site.duo.json` only when it is absent"); Path B has no such step,
+so give assess a repository first, then assess, then init:
 
 ```sh
-cli/duo assess dev
-cli/duo init dev
-```
-
-The target needs WordPress, WP-CLI, Git, a standard supported `wp-content`
-layout, and a writable, pre-existing ordinary `repo_path` with no symbolic-link
-ancestor. Init may create the Git worktree and Duo contracts inside that empty
-or adoption-seed directory, but it does not create the directory, install
-WordPress, or deliver the agent. It refuses before confirmation when those
-prerequisites or the certified managed boundary are not present. An adoption
-seed that already carries explicit `{name, source: "site"|"plugin", digest}`
-pins — what `duo adapter certify --pin` and `duo adapter pin` write for an
-operator-authored or overriding adapter — is still the seed: init recomputes
-and republishes those pins exactly, so certifying first and initializing
-second is the intended order.
-
-Hand-author `site.duo.json` only when you intentionally need a policy that the
-discovered initializer cannot propose. The minimal manual shape remains the
-one the sandbox uses (`sandbox/setup.sh`):
-
-The minimal working shape is the one the sandbox uses (`sandbox/setup.sh`):
-
-```json
+mkdir -p <repo>
+cat > <repo>/site.duo.json <<'EOF'
 {
   "manifests": ["core"],
   "policy": {
     "options": {},
     "post_meta": {},
+    "term_meta": {},
     "post_types": ["post", "page", "attachment"],
     "taxonomies": ["category", "post_tag"]
   },
   "spec_version": 2
 }
+EOF
+cp sandbox/site-repo.gitignore.template <repo>/.gitignore
+git -C <repo> init
 ```
 
-That is the whole file. `manifests` pins which registry manifests apply;
-`policy` holds site-local classification overrides and always wins over a
-manifest; `spec_version` must be an integer exactly equal to the engine's own,
-and compilation refuses the repository outright if it is not. The layout the
-agent expects around this file — `state/`, `media/`, and the optional `code/`
-tree — is normative in
-[spec/repo-format.md](../../spec/repo-format.md#layout).
+That JSON is not a placeholder — it is byte-for-byte the adoption seed
+`InitPlanner` compares a repository's `site.duo.json` against
+(`agent/src/Init/InitPlanner.php:781-838`, `is_adoption_seed()`/
+`existing_config()`'s `$seed`): the one state in which `duo assess` previews
+init's own proposal instead of the seed's trivial `core`-only pin set, and the
+one state in which `duo init` still owns the file and will recompute and
+republish it rather than refuse. The `.gitignore` goes on before anything else
+touches the directory because `assess` itself — not only `init` — starts
+writing scratch here: its `.duo/contract/proposed.json` write (step 3 above)
+needs `/.duo/` ignored from its very first run. `git -C <repo> init` makes
+`<repo>` its own Git worktree root; skip that and, if `<repo>` was created
+inside some other project's checkout — the easy mistake on a first
+experiment — its `site.duo.json` is refused as a nested registry rather than
+trusted, by both `assess` and `init`.
 
-Add the environment to `.duo-envs.json` (or to this file's own `envs` key, if
-every teammate shares it):
+Add the environment next to it, in an untracked `.duo-envs.json` — on this
+path, only there. `site.duo.json` can carry a shared `envs` key in general,
+but the seed comparison is against the *whole decoded file*
+(`existing_config()` filters out nothing except source-bearing manifest
+pins), so an `envs` key inside `site.duo.json` makes the repository
+operator-owned and `duo init` refuses it as `existing_configuration`. Share
+environments through the site file only on the deliberately-manual path
+below, after deciding init is not for you:
 
 ```json
 {
@@ -344,22 +346,63 @@ every teammate shares it):
 }
 ```
 
-For a deliberately manual repository, run `duo doctor`, `duo pending`,
-`duo classify`, and `duo capture`. A fresh site's first queue is usually short
-enough for interactive triage (`duo classify dev` with no flags) rather than a
-batch artifact. Repositories initialized by `duo init` already include the
-required ignore rules and initial baseline; continue with pending review and the daily
-workflow rather than recapturing merely to manufacture a first snapshot.
-
-Both paths need the same `.gitignore`, and hand-rolling it is a mistake people
-make once. Copy the canonical template — exactly what `sandbox/setup.sh` does
-one line after writing `site.duo.json`:
+Then assess before you initialize — nothing here writes to the target, and a
+site full of blocked surfaces is still a successful assessment:
 
 ```sh
-cp sandbox/site-repo.gitignore.template <repo>/.gitignore
+cli/duo assess dev
+cli/duo init dev
 ```
 
-That covers init's sealed recovery journal (`.duo-init-attempt` and its
+The target itself needs WordPress, WP-CLI, Git, and a standard supported
+`wp-content` layout; `repo_path` — a writable, pre-existing ordinary
+directory with no symbolic-link ancestor — is the one piece of that Duo will
+not create for you, on any transport; you already did, in the step above. Init
+may create the Git worktree pieces and Duo contracts it owns inside that seed
+directory, but it does not install WordPress or deliver the agent, and it
+refuses before confirmation when those prerequisites or the certified managed
+boundary are not present. An adoption seed that already carries explicit
+`{name, source: "site"|"plugin", digest}` pins — what `duo adapter certify
+--pin` and `duo adapter pin` write for an operator-authored or overriding
+adapter — is still the seed: init recomputes and republishes those pins
+exactly, so certifying first and initializing second is the intended order.
+
+### When you need a policy the initializer cannot propose
+
+Hand-author `site.duo.json` instead of taking init's proposal only when you
+intentionally need something init cannot discover on its own. The seed above
+is the exact fork line, not just a starting point: a repository whose
+`site.duo.json` is byte-identical to it is still init-owned no matter who
+typed the bytes, `term_meta` included — `duo init` accepts and republishes it
+unchanged. Pin a real manifest, edit `policy`, or drop one key, and the
+repository becomes operator-owned instead: `duo init` refuses with
+`existing_configuration` — "the repository already has a non-seed Duo
+configuration" — correctly, because by then it is one. Continue that
+repository with `duo doctor`, `duo pending`, `duo classify`, and
+`duo capture` instead of `duo init`; a fresh site's first queue is usually
+short enough for interactive triage (`duo classify dev` with no flags) rather
+than a batch artifact. `manifests` pins which registry manifests apply;
+`policy` holds site-local classification overrides and always wins over a
+manifest; `spec_version` must be an integer exactly equal to the engine's own,
+and compilation refuses the repository outright if it is not. The layout the
+agent expects around this file — `state/`, `media/`, and the optional `code/`
+tree — is normative in
+[spec/repo-format.md](../../spec/repo-format.md#layout).
+
+`sandbox/setup.sh` is a live example of that fork, not a second copy of the
+seed to trust literally: its committed `siterepo/a/site.duo.json` omits
+`term_meta` — one key short of the seed above — which is exactly why no spike
+suite that consumes it ever calls `duo init` on it; every one of them
+`classify`s/`capture`s against it directly, as the deliberately manual,
+operator-owned repository it already is. Match the seed byte-for-byte,
+`term_meta` included, if you want `duo init` to keep owning the file instead.
+
+Repositories initialized by `duo init` already include the required ignore
+rules and initial baseline; continue with pending review and the daily
+workflow rather than recapturing merely to manufacture a first snapshot.
+
+That `.gitignore` — already copied above, before either path's first write —
+covers init's sealed recovery journal (`.duo-init-attempt` and its
 `.duo-init-attempt.next` transition), its unpublished `.duo-init-code-*`
 staging root, capture's publication artifacts
 (`state.capture.lock`, `state.capture-staging/`, `state.capture-backup/`,

@@ -492,6 +492,15 @@ PHP;
         'refusing a nested site.duo.json',
         'vendored code cannot shadow the Git-root site registry with a nearer site.duo.json'
     );
+    // DUO-3490: every other refusal in this product carries a remedy; this
+    // one didn't until now. Pin the actionable clause itself (not just the
+    // diagnosis) so a future edit cannot quietly drop it back to a dead end.
+    el_throws(
+        static fn() => Registry::load(null, dirname($nestedOverlay)),
+        'make the site repo its own Git worktree root (git init inside it) or move site.duo.json '
+            . 'to the enclosing worktree root and run this command from there',
+        'nested site.duo.json refusal must name a concrete remedy'
+    );
 
     $missing = el_cli(['env', 'materialize', 'branch', '--from', 'production']);
     el_ok($missing['exit'] !== 0 && str_contains($missing['stderr'], 'requires exactly --from')
