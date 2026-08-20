@@ -363,6 +363,55 @@ final class OfflineRunnerTest extends TestCase
         );
     }
 
+    /**
+     * The premise behind scriptsInRecipe() carrying NO sandbox-relative needle.
+     *
+     * DUO-3482 taught the other two path-aware tools to read a suite named
+     * `tests/grind/x.sh` by a corpus file whose cwd is `sandbox/` (the rule is
+     * stated above ms_sandbox_relative_tail() in tools/codemod/move-suites.php).
+     * This tool was assessed and deliberately left alone, because its input is
+     * Makefile recipes and make runs those from the repo root, so the spelling
+     * cannot appear in one that works. That is a claim about the real Makefile,
+     * not about this regex -- so it is asserted against the real Makefile, and
+     * the assertion is shown to bite on a synthetic recipe that violates it.
+     */
+    public function testNoRealRecipeNamesASuiteSandboxRelatively(): void
+    {
+        $sandboxRelative = '#(?<![A-Za-z0-9_./-])tests/[A-Za-z0-9_./-]+\.(?:sh|php)#';
+
+        // Recipe lines read from the Makefile itself -- a leading TAB is
+        // exactly what make treats as recipe text -- rather than through
+        // parseMakeDatabase(), which consumes `make -pn` database output.
+        $offenders = [];
+        $lines = 0;
+        foreach (explode("\n", (string) file_get_contents(self::repoRoot() . '/Makefile')) as $n => $line) {
+            if (!str_starts_with($line, "\t")) {
+                continue;
+            }
+            $lines++;
+            if (preg_match($sandboxRelative, $line) === 1) {
+                $offenders[] = 'Makefile:' . ($n + 1) . ': ' . trim($line);
+            }
+        }
+        self::assertGreaterThan(200, $lines, 'a scan that read nothing must not read as a clean bill of health');
+        self::assertSame([], $offenders, 'a sandbox-relative path in a recipe names no file from make\'s cwd');
+
+        // …and the check is not vacuous: this is what a violating recipe looks
+        // like, and regress_suite_wiring.php clause 4 is what refuses it in the
+        // corpus (the suite it names would enter no recipe's token list).
+        $bad = OfflineRunner::parseMakeDatabase(implode("\n", [
+            '# Files',
+            '',
+            'regress-cwd-confused:',
+            "\tbash tests/live/regress_cwd_confused.sh",
+            '',
+        ]));
+        self::assertSame(1, preg_match($sandboxRelative, $bad['recipes']['regress-cwd-confused'][0]));
+        // The regex under test sees nothing in it, which is the whole point:
+        // there is no file here for it to have missed.
+        self::assertSame([], OfflineRunner::scriptsInRecipe($bad['recipes']['regress-cwd-confused']));
+    }
+
     // -------------------------------------------------------- serial grouping
 
     public function testSerialGroupDetectsHardCodedTmpPathsIncludingPhpCompanion(): void

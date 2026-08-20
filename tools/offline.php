@@ -241,6 +241,31 @@ final class OfflineRunner
      * Recipes may carry env prefixes and continuations; matching the path
      * shape is robust to both and does not require re-expanding make syntax.
      *
+     * DUO-3482 assessed this regex for the sandbox-relative spelling the other
+     * two path-aware tools were blind to -- a corpus file whose cwd is
+     * `sandbox/` names a suite `tests/grind/x.sh`, and the rule for reading
+     * that is stated in the block above `ms_sandbox_relative_tail()` in
+     * tools/codemod/move-suites.php. This consumer CANNOT encounter it, so it
+     * carries no code for it. Two independent reasons, both structural:
+     *
+     *   - The input is not file text. It is `$db['recipes'][$target]` from
+     *     `make -pn`, i.e. Makefile recipe lines only (offline.php:607); the
+     *     one place this tool reads suite BYTES is serialGroupEvidence()
+     *     below, which greps them for `/tmp/…` and never for a suite path.
+     *   - make runs every recipe with the cwd it was started in, the repo
+     *     root, so a recipe spelled `bash tests/live/regress_x.sh` does not
+     *     name a file this tool failed to see -- it names no file at all and
+     *     the target dies at `No such file or directory`. Before it could even
+     *     get that far, regress_suite_wiring.php refuses it: wiring_path_tokens()
+     *     (:299-310) finds no `sandbox/tests/…` token in that recipe, so the
+     *     suite it runs never enters $namedByRecipe and clause 4 (:607-611)
+     *     reports "<file> is in a class directory but no recipe names it".
+     *     OfflineRunnerTest pins that premise against the real Makefile.
+     *
+     * Adding the second needle here would therefore be dead code guarding a
+     * state two other checks make unreachable, which is the kind of defensive
+     * branch that later reads as evidence the state is possible.
+     *
      * @param list<string> $recipeLines
      * @return list<string>
      */
