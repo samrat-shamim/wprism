@@ -140,8 +140,10 @@ comparable to a run today.
 Use the shared harness — `sandbox/tests/lib/{check.php,wp_stubs.php,FakeWpdb.php}`
 — and read [sandbox/tests/lib/README.md](../sandbox/tests/lib/README.md) for the
 complete skeleton. Three files, no composer, no WordPress: every offline
-`regress_*.php` runs as plain `php sandbox/tests/X.php`, so the harness must
-too.
+`regress_*.php` runs as plain `php sandbox/tests/offline/<domain>/X.php`, so the
+harness must too. The corpus root holds no suites — pick the `offline/` domain
+whose subject matches yours (`tools/suite-layout.review.md` says what each one
+means) and put the file there.
 
 Two `Makefile` edits go with it, and `regress_bundle_coverage.sh` fails the
 gate if either is missing: wire the new leaf into `regress-offline-corpus`, and
@@ -281,7 +283,7 @@ without committing. A generated proposal cannot be accepted unread: it carries
 an `external_effects[]` entry with `decided_by: "unresolved"` that the schema
 refuses, so the human review step is enforced rather than requested.
 
-Offline coverage: `sandbox/tests/regress_assess_composition.sh`,
+Offline coverage: `sandbox/tests/offline/assess-contract/regress_assess_composition.sh`,
 `regress_assess_bounds.sh`, `regress_contract_accept.sh` (all three drive the
 real `php cli/duo` over a `local` transport with a fake `wp` on `PATH`, built by
 `sandbox/tests/fixtures/assess/make-fixture.php`), plus the Contract module's
@@ -328,7 +330,7 @@ refuses without `--writers-excluded` (the checkpoint contains its own promotion
 lease row, so a lock inside the database being imported cannot protect the
 window), enforces code-first ordering by name, and runs the fourth ordered step
 — the lease-releasing abort — in a `finally`, so a failed import cannot skip
-it. Offline coverage: `sandbox/tests/regress_release_next_action.sh`,
+it. Offline coverage: `sandbox/tests/offline/assess-contract/regress_release_next_action.sh`,
 `regress_release_ref_binding.sh` and `regress_recover_ordering.sh`, built by
 `sandbox/tests/fixtures/release/make-release-site.php` (which extends the
 assess fixture) and `make-recover-site.php` (which adds a fake `ssh` and a stub

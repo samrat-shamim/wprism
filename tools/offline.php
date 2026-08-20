@@ -33,7 +33,7 @@ namespace Duo\Tooling;
  * WHY THE WORK LIST COMES FROM MAKE
  * ---------------------------------
  * The Makefile is the single source of truth for what "offline" means, and
- * `sandbox/tests/regress_bundle_coverage.sh` independently proves no suite file
+ * `sandbox/tests/offline/guards/regress_bundle_coverage.sh` independently proves no suite file
  * exists without a bundle entry. Duplicating the list here would create a
  * second, silently-drifting definition and would need a certification round to
  * change. So the list is read back out of make's own rules database
@@ -89,7 +89,7 @@ final class OfflineRunner
     /**
      * Tripwire for make-database parser drift: the Makefile's own
      * `regress-offline-all: N offline suites green` status line (kept truthful
-     * by sandbox/tests/regress_bundle_coverage.sh) is the single source of the
+     * by sandbox/tests/offline/guards/regress_bundle_coverage.sh) is the single source of the
      * expected leaf count, so a bundle change never has to be mirrored here.
      */
     public static function expectedLeaves(string $repoRoot): ?int
@@ -112,7 +112,7 @@ final class OfflineRunner
      *
      * The left boundary is "not a path character" rather than "a quote". A
      * quote-anchored pattern misses the dominant shell shape, which is an
-     * UNQUOTED redirection or assignment: `sandbox/tests/regress_bundle_coverage.sh`
+     * UNQUOTED redirection or assignment: `sandbox/tests/offline/guards/regress_bundle_coverage.sh`
      * writes `2>/tmp/coverage_real.log` and reads it back, a fixed inode that
      * no amount of per-worker TMPDIR isolation can redirect, yet it scanned as
      * parallel-safe. Excluding `[A-Za-z0-9_./-]` before the literal is what

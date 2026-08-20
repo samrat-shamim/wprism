@@ -294,9 +294,9 @@ cross-node invalidation require a separate environment-specific certification.
 Offline validation is:
 
 ```sh
-bash sandbox/tests/regress_ecommerce_developer_static.sh
-php sandbox/tests/regress_ecommerce_extension_migration.php
-php sandbox/tests/regress_capture_atomicity.php
+bash sandbox/tests/offline/guards/regress_ecommerce_developer_static.sh
+php sandbox/tests/offline/ecommerce/regress_ecommerce_extension_migration.php
+php sandbox/tests/offline/capture/regress_capture_atomicity.php
 ```
 
 That check runs shell syntax validation, lints every fixture PHP file, checks

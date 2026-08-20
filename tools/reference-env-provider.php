@@ -57,7 +57,7 @@
 // state-dependent retry suppression remains explicitly marked. It exists so
 // the provider's
 // negotiation and validation paths are covered by an offline suite
-// (sandbox/tests/regress_rehearse_provider.sh) on a machine with no docker at
+// (sandbox/tests/offline/assess-contract/regress_rehearse_provider.sh) on a machine with no docker at
 // all. The flag is never passed by CommandEnvironmentProvider: the argv it is
 // configured with is the two-token form above.
 //

@@ -3,7 +3,7 @@
  * Offline checks for `cli/src/Rehearse/` — the containment disclosure and the
  * "what a release would touch" preview (round-3 MUP §2.2, §4.4, §4.6).
  *
- * Driven by sandbox/tests/regress_rehearse_provider.sh. No docker, no
+ * Driven by sandbox/tests/offline/assess-contract/regress_rehearse_provider.sh. No docker, no
  * WordPress, no network, no target: both classes are pure.
  *
  * usage: php preview-checks.php <fixture-dir>

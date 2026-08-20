@@ -6,7 +6,7 @@ and `\Duo\AdapterCertification` (agent) verifies. Every rule below is enforced
 by the agent; a builder that guesses will be refused by name.*
 
 Authority: `agent/src/Adapter/AdapterCertification.php`. Proof:
-`sandbox/tests/regress_site_adapter_certification.php` § "T6 §3.1/§3.2".
+`sandbox/tests/offline/adapter/regress_site_adapter_certification.php` § "T6 §3.1/§3.2".
 
 ## 1. The site trust root — `adapters/authorities.json`
 

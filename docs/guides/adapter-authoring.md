@@ -831,7 +831,7 @@ file.
    A `certified` entry whose manifest declares a `plugin` must cite
    `conformance-<name>` in its `evidence.tests`, and that citation is only
    discoverable if `sandbox/conformance/entries/<name>.json` exists —
-   `sandbox/tests/regress_manifest_dispositions.php` proves both offline.
+   `sandbox/tests/offline/policy/regress_manifest_dispositions.php` proves both offline.
 4. **Regenerate the public prose** and check it in:
 
    ```sh

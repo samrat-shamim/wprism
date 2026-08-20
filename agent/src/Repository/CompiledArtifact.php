@@ -6,7 +6,7 @@ namespace Duo;
 // called Canon::encode()/write_file() and Code::assert_descriptor() without
 // requiring either file itself, relying on a caller (agent/duo.php's bootstrap,
 // or a test's own hand-picked require list) to have loaded them first.
-// sandbox/tests/regress_cli_json_refusals.php depends on exactly this laxity
+// sandbox/tests/offline/cli/regress_cli_json_refusals.php depends on exactly this laxity
 // for Canon — it stubs a fake Duo\Canon and requires RepositoryCompiler.php
 // (hence this file) without ever loading the real Canon.php; requiring it here
 // fatals that suite with "Cannot redeclare class Duo\Canon" (caught by

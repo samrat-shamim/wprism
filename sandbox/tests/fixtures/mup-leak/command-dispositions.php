@@ -10,7 +10,7 @@ declare(strict_types=1);
  * forbids — and §5.1's whole point is that naming a command is enough,
  * hiding it is not.
  *
- * Driven by sandbox/tests/regress_mup_leak_audit.sh.
+ * Driven by sandbox/tests/offline/assess-contract/regress_mup_leak_audit.sh.
  *
  * usage: php command-dispositions.php <repo-root> [--internals=<path>] [--format=json]
  *

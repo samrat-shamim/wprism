@@ -98,7 +98,7 @@ runs `php -l` over every moved or rewritten PHP file.
 
 ### Constraints the MAP must satisfy (the codemod cannot fix these)
 
-`sandbox/tests/regress_agent_src_requires.php` reserves the `src/Kernel/` rung:
+`sandbox/tests/offline/guards/regress_agent_src_requires.php` reserves the `src/Kernel/` rung:
 it must have **no upward reference at all**, and `tools/layers-exceptions.json`
 may **never** baseline a `src/Kernel/` edge. A map that puts a file with an
 upward edge into `Kernel` fails that suite after the move, and the fix is the

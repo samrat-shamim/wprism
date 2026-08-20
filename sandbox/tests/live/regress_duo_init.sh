@@ -255,7 +255,7 @@ assert_init_plan() {
 #
 # That attestation is gone. The reviewed dispositions are the whole authored
 # claim source and no branch state can expire them, so the mounted library is a
-# straight hermetic COPY (sandbox/tests/certification_fixture.php, shared with
+# straight hermetic COPY (sandbox/tests/offline/adapter/certification_fixture.php, shared with
 # regress_adapter_sources.php). What is kept from that episode is the mount
 # discipline: this pair still never mounts the primary checkout's own manifest
 # directory, so nothing a case does can reach the shipped bytes.
@@ -266,7 +266,7 @@ assert_init_plan() {
 say "manufacture the hermetic manifest library this pair will mount"
 SHIPPED_LIBRARY_BEFORE=$(library_digest "$REPO_ROOT/manifests")
 rm -rf "$HERMETIC_ROOT"
-HERMETIC_MANIFESTS=$(php sandbox/tests/certification_fixture.php "$HERMETIC_ROOT") \
+HERMETIC_MANIFESTS=$(php sandbox/tests/offline/adapter/certification_fixture.php "$HERMETIC_ROOT") \
   || fail "fixture manufacture failed: could not build a hermetic manifest library under $HERMETIC_ROOT"
 [ "$HERMETIC_MANIFESTS" = "$HERMETIC_ROOT/manifests" ] \
   || fail "fixture manufacture failed: hermetic library landed at $HERMETIC_MANIFESTS, not under this run's owned scratch"

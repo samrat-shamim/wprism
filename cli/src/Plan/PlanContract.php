@@ -30,7 +30,7 @@ namespace Duo\Orchestrator;
  * are deliberately not accepted as optional full-plan projections by this
  * trust boundary. The derivation
  * is machine-checked against Apply.php by
- * sandbox/tests/regress_plan_contract_trust.php: an emitter that grows a
+ * sandbox/tests/offline/cli/regress_plan_contract_trust.php: an emitter that grows a
  * bucket without teaching this list about it fails that suite loudly rather
  * than silently widening what a truth-critical caller will trust.
  *

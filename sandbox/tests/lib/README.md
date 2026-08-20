@@ -1,13 +1,36 @@
 # `sandbox/tests/lib/` — the shared offline test harness
 
-Three files, no dependencies, no composer, no WordPress. Every offline
-`regress_*.php` suite runs as `php sandbox/tests/X.php`, so these must too.
+Three PHP files, no dependencies, no composer, no WordPress. Every offline
+`regress_*.php` suite runs as `php sandbox/tests/offline/<domain>/X.php`, so
+these must too. (`grind_lib.sh` also lives here; it is the grind harnesses'
+shell library and has nothing to do with the PHP harness below.)
 
 | file | provides |
 | --- | --- |
 | `check.php` | `duo_check*()` assertions and the end-of-suite summary/exit code |
 | `wp_stubs.php` | `\DuoTest\WpStore` plus `function_exists()`-guarded WordPress function stubs |
 | `FakeWpdb.php` | `\DuoTest\FakeWpdb` — a duck-typed `$wpdb` that interprets SQL against seeded rows |
+
+## Where your suite goes, and what that costs you in `../`
+
+The corpus root holds no suites. A suite lives in the directory of the
+`Makefile` class that runs it, and the offline class is subdivided by domain:
+
+| class | directory | depth below `sandbox/tests/` | `lib/` from a suite | repo root from a suite |
+| --- | --- | --- | --- | --- |
+| offline | `offline/<domain>/` | 2 | `__DIR__ . '/../../lib/'` | `__DIR__ . '/../../../../'`, `dirname(__DIR__, 4)` |
+| live, grind, certify, spike | `live/` … `spike/` | 1 | `__DIR__ . '/../lib/'` | `__DIR__ . '/../../../'`, `dirname(__DIR__, 3)` |
+
+The fifteen offline domains are named by what the suite's *subject* is, not by
+what it requires — `agent/src/Kernel/*` is required by most of the corpus and
+therefore decides nothing. Read the neighbours in the directory you are about
+to join; if none of them is about your subject, you are probably in the wrong
+one. `tools/suite-layout.review.md` records what each domain means and which
+placements were arguments.
+
+Only the offline class holds PHP suites today: `live/`, `grind/`, `certify/`
+and `spike/` are shell harnesses end to end, so the one-level row above is the
+rule for a helper you put beside one, not a skeleton anybody has written yet.
 
 ## A complete new suite
 
@@ -16,13 +39,14 @@ Three files, no dependencies, no composer, no WordPress. Every offline
 /** Offline characterization for <what> and <why it can drift>. */
 declare(strict_types=1);
 
-require_once __DIR__ . '/lib/check.php';
-require_once __DIR__ . '/lib/wp_stubs.php';
-require_once __DIR__ . '/lib/FakeWpdb.php';
+// From offline/<domain>/: two hops to the corpus root, four to the repo root.
+require_once __DIR__ . '/../../lib/check.php';
+require_once __DIR__ . '/../../lib/wp_stubs.php';
+require_once __DIR__ . '/../../lib/FakeWpdb.php';
 
-require_once __DIR__ . '/../../agent/src/Kernel/TransientDbException.php';
-require_once __DIR__ . '/../../agent/src/Kernel/Db.php';
-require_once __DIR__ . '/../../agent/src/Apply/ApplyFieldMaterializer.php';
+require_once __DIR__ . '/../../../../agent/src/Kernel/TransientDbException.php';
+require_once __DIR__ . '/../../../../agent/src/Kernel/Db.php';
+require_once __DIR__ . '/../../../../agent/src/Apply/ApplyFieldMaterializer.php';
 
 use Duo\ApplyFieldMaterializer;
 use Duo\TransientDbException;
@@ -55,16 +79,24 @@ duo_check_summary('my new suite');           // prints PASS/FAIL and exits 0/1
 ```
 
 Add the leaf target to the `Makefile` the way every other offline suite does
-(`php sandbox/tests/<name>.php`); it is picked up by
+(`php sandbox/tests/offline/<domain>/<name>.php`); it is picked up by
 `make regress-offline-corpus` and therefore by `make regress-offline-all`.
 
-**That `Makefile` edit is a certification-closure change.** It expires all nine
-subjects — `dd57e88` did exactly that with a two-line `echo`, recorded in
-`tools/cert-impact-history.jsonl` as driver `suite-declaration-only`, 9 subjects
-expired — so batch it into a certification train rather than shipping it alone
-(docs/dev-setup.md § Certification trains). A self-test for the *tooling* is not
-a suite: put it in `tests/` under PHPUnit, which is outside the closure and
-costs nothing.
+The target name still comes from the basename alone (`regress_foo_bar.php` →
+`regress-foo-bar`): the directory is not part of it and cannot disambiguate
+two files that share a basename, which is why
+`sandbox/tests/offline/guards/regress_bundle_coverage.sh` refuses them outright.
+`sandbox/tests/offline/guards/regress_suite_wiring.php` is the other half — it
+refuses a suite file sitting in a class directory that no recipe runs, so a
+file dropped in the right place but never wired fails loudly instead of looking
+covered.
+
+Two `Makefile` edits go with the new file and `regress_bundle_coverage.sh`
+fails the gate if either is missing: wire the leaf into
+`regress-offline-corpus`, and bump the `regress-offline-all: N offline suites
+green` count line. Adding the target is otherwise ordinary work. A self-test
+for the *tooling* is not a suite: put it in `tests/` under PHPUnit, which the
+offline corpus does not run and which needs no `Makefile` edit at all.
 
 ## Assertions (`check.php`)
 
@@ -199,9 +231,9 @@ what order".
 
 ## The guard: new suites must use the lib
 
-**Every new `sandbox/tests/regress_*.php` uses this library.** Not because
-duplication is untidy, but because a hand-rolled fake only answers the exact
-SQL its author transcribed. Today 42 suites carry a bespoke `$wpdb` and 33
+**Every new `sandbox/tests/offline/<domain>/regress_*.php` uses this library.**
+Not because duplication is untidy, but because a hand-rolled fake only answers
+the exact SQL its author transcribed. Today 42 suites carry a bespoke `$wpdb` and 33
 declare their own WP stubs; they disagree with each other (three different
 `prepare()` return types, two different read-failure conventions, `get_option`
 stubs that return `false`, a hard-coded `home`, or a differently-named global),
@@ -217,7 +249,7 @@ belongs in the live certification instead.
 ## Migrating the existing suites
 
 **Only when the suite is already being edited for another reason.** These files
-are the offline corpus behind nine certifications; a mass rewrite would churn
+are the offline corpus that IS the merge gate; a mass rewrite would churn
 2,114 assertion call sites and 42 fakes for no behavioural gain, and each
 touched file is a chance to change what a suite actually checks.
 
@@ -229,7 +261,8 @@ The incremental path, in the order that keeps every step green:
 2. Replace the bespoke fake `$wpdb` with `FakeWpdb::install()` plus
    `seedTable()` calls derived from its fixture arrays. Run it: any
    `\LogicException` tells you exactly which SQL the interpreter still needs.
-3. Delete the suite's local WP function stubs and require `lib/wp_stubs.php`.
+3. Delete the suite's local WP function stubs and require
+   `__DIR__ . '/../../lib/wp_stubs.php'`.
    Note that an unconditional `function get_option() {}` at file scope is
    compiled before the `require` runs, so a partial migration cannot fatal on
    redeclaration — the suite's own stub simply keeps winning until you remove

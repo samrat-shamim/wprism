@@ -58,7 +58,7 @@ declare(strict_types=1);
  *      because `regress_agent_src_requires.php` requires SORT_STRING order),
  *      and the two non-recursive `glob($dir . '/*.php')` scanners that would
  *      silently see zero files after the move —
- *      `sandbox/tests/regress_agent_src_requires.php:390` and
+ *      `sandbox/tests/offline/guards/regress_agent_src_requires.php:390` and
  *      `tools/affected.php`'s `af_class_map()` / `af_source_graph()`.
  *
  * `manifests/**` is deliberately NOT touched. Those files are digest-bound
@@ -1318,7 +1318,7 @@ function mm_rewrite_source_assertions(string $text, array $placement, array $roo
 
 /**
  * `tools/layers.json` keys are `src/X.php` relative to `agent/`; the layer lint
- * in `sandbox/tests/regress_agent_src_requires.php` derives the same shape from
+ * in `sandbox/tests/offline/guards/regress_agent_src_requires.php` derives the same shape from
  * a recursive walk, so both halves must gain the module segment together.
  *
  * @return array{text: string, changes: int}
@@ -1645,7 +1645,7 @@ PHP;
 function mm_scanner_fixes(): array
 {
     return [
-        'sandbox/tests/regress_agent_src_requires.php' => [
+        'sandbox/tests/offline/guards/regress_agent_src_requires.php' => [
             [
                 "\$files = glob(\$src . '/*.php') ?: [];\nsort(\$files, SORT_STRING);",
                 "// Recursive since the module move (ROUND 3 TRAIN 1): agent/src is no\n"
@@ -1662,19 +1662,19 @@ function mm_scanner_fixes(): array
             ],
             [MM_MUTATION_PATTERN_OLD, MM_MUTATION_PATTERN_NEW, 1],
         ],
-        'sandbox/tests/regress_manifest_validate.php' => [
+        'sandbox/tests/offline/policy/regress_manifest_validate.php' => [
             [MM_MV_ENGINE_GLOB_OLD, MM_MV_ENGINE_GLOB_NEW, 1],
         ],
-        'sandbox/tests/regress_woocommerce_contract.php' => [
+        'sandbox/tests/offline/ecommerce/regress_woocommerce_contract.php' => [
             [MM_WOO_SCAN_OLD, MM_WOO_SCAN_NEW, 1],
         ],
-        'sandbox/tests/regress_capture_refactor_boundaries.php' => [
+        'sandbox/tests/offline/capture/regress_capture_refactor_boundaries.php' => [
             [MM_REFACTOR_READ_OLD, MM_REFACTOR_READ_NEW, 1],
         ],
-        'sandbox/tests/regress_duo3316_contract.php' => [
+        'sandbox/tests/offline/grammar/regress_duo3316_contract.php' => [
             [MM_DUO3316_JOIN_OLD, MM_DUO3316_JOIN_NEW, 1],
         ],
-        'sandbox/tests/regress_manifest_validate.sh' => [
+        'sandbox/tests/offline/policy/regress_manifest_validate.sh' => [
             [MM_MV_BOOT_OLD, MM_MV_BOOT_NEW, 1],
             [MM_MV_LITERAL_OLD, MM_MV_LITERAL_NEW, 1],
             [MM_MV_CLOSURE_OLD, MM_MV_CLOSURE_NEW, 1],
@@ -1814,6 +1814,7 @@ function mm_compute(string $root, array $map, bool $allowPartial = false): array
     $rewrittenDynamic = [];
     $templatedNames = [];
     $scannerFixes = mm_scanner_fixes();
+    $scannerReached = [];
 
     foreach (mm_scan_targets($root) as $relative) {
         // A file that is moving is read from its OLD path but planned under
@@ -1918,6 +1919,7 @@ function mm_compute(string $root, array $map, bool $allowPartial = false): array
 
         // (6) scanner recursion fixes.
         if (isset($scannerFixes[$relative])) {
+            $scannerReached[$relative] = true;
             foreach ($scannerFixes[$relative] as [$needle, $replacement, $occurrences]) {
                 $seen = substr_count($text, $needle);
                 if ($seen === 0) {
@@ -2019,6 +2021,25 @@ function mm_compute(string $root, array $map, bool $allowPartial = false): array
                 . 'ship a require that resolves to a path no longer on disk'
             );
         }
+    }
+
+    // mm_scanner_fixes() is isset()-keyed on a repo-relative path, so a key
+    // naming a path nothing visits fires nothing and reports nothing — the
+    // snippet guard inside the loop can only speak about a file it was handed.
+    // That is a live risk, not a theoretical one: the sandbox/tests restructure
+    // re-homed six of these seven keys, and a forgotten re-key would have left
+    // the scanner recursion silently unapplied while every plan stayed green.
+    // The rule is all-or-nothing on purpose. Reaching NONE of them means the
+    // scanned tree is not the one this table describes (the synthetic repos in
+    // MoveModulesTest have no sandbox/tests and no tools/affected.php), and the
+    // table has nothing to say about it. Reaching SOME is the defect: the keys
+    // live in seven different directories, so no single move can stale them all.
+    $scannerMissed = array_diff(array_keys($scannerFixes), array_keys($scannerReached));
+    if ($scannerReached !== [] && $scannerMissed !== []) {
+        throw new RuntimeException(
+            'move-modules: mm_scanner_fixes() names ' . implode(', ', $scannerMissed)
+            . ', which the scan never reached — re-key the table to the path the file lives at now'
+        );
     }
 
     return [
@@ -2335,7 +2356,7 @@ function mm_apply(string $root, array $plan): array
         );
     }
 
-    // 4b. Golden-hash pins. sandbox/tests/regress_ecommerce_developer_static.sh
+    // 4b. Golden-hash pins. sandbox/tests/offline/guards/regress_ecommerce_developer_static.sh
     //     hashes comment-stripped function blocks of
     //     sandbox/tests/grind/grind_ecommerce_developer.sh; several of those blocks
     //     spell an agent/src path, so the move legitimately changes the text
@@ -2389,7 +2410,7 @@ function mm_apply(string $root, array $plan): array
  */
 function mm_repin_golden_hashes(string $root): array
 {
-    $suite = 'sandbox/tests/regress_ecommerce_developer_static.sh';
+    $suite = 'sandbox/tests/offline/guards/regress_ecommerce_developer_static.sh';
     $path = $root . '/' . $suite;
     if (!is_file($path)) {
         return [];

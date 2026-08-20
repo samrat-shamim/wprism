@@ -15,7 +15,7 @@
  *
  * Both are driven through `EnvironmentCommand::run()` — the same host verb
  * boundary `RehearseCommand` will compose — with a fake direct-argv provider,
- * exactly the way sandbox/tests/regress_environment_materializer.php drives
+ * exactly the way sandbox/tests/offline/environment/regress_environment_materializer.php drives
  * `EnvironmentMaterializer`. Offline: no docker, no WordPress, no network.
  *
  * Three collaborators are stubbed in the namespace BEFORE the product files
@@ -31,7 +31,7 @@
  * usage: php env-command-checks.php <scratch-dir>
  *
  * The negotiation refusals are written to STDERR by the command boundary
- * itself; sandbox/tests/regress_rehearse_provider.sh captures this script's
+ * itself; sandbox/tests/offline/assess-contract/regress_rehearse_provider.sh captures this script's
  * STDERR and asserts the capability ids appear there. This script asserts
  * everything observable in-process: exit status, the provider action log, and
  * the reap receipts.

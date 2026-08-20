@@ -1,6 +1,6 @@
 {
     "format": "duo-parity-plan-summary/v1",
-    "consumed_by": "sandbox/tests/regress_canonical_json_parity.php",
+    "consumed_by": "sandbox/tests/offline/guards/regress_canonical_json_parity.php",
     "note": "the shape of `wp duo plan --format=json` (agent/src/Apply/Apply.php build_plan()), reduced to the buckets the five cli/src/Plan/PlanSummary.php lockstep comments name. `plan` carries ONLY the non-empty buckets; the suite fills every remaining PlanContract::requiredBuckets() entry with [] so the fixture does not have to track that list.",
     "fields": {
         "plan": "the non-empty buckets of the plan envelope",

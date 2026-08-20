@@ -4,7 +4,7 @@ namespace Duo;
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/ApplyFieldMaterializer.php';
 // Deliberately NOT require_once('CompiledArtifact.php') here (the file that
-// declares CompiledRepository): sandbox/tests/regress_code_revision_enforcement.php
+// declares CompiledRepository): sandbox/tests/offline/code-half/regress_code_revision_enforcement.php
 // stubs a fake Duo\CompiledRepository and reaches this file transitively
 // through Apply.php (a direct require_once, verified) without ever loading
 // the real CompiledArtifact.php; requiring it here fatals that suite with

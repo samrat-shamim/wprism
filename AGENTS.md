@@ -15,7 +15,7 @@ about CI belongs in a PR, an issue, or this file.
 | `cli/` | the `duo` orchestrator (`cli/duo` is an extensionless `#!/usr/bin/env php` executable) over 76 `cli/src` files | yes |
 | `recovery/` | the recovery runtime (canonical JSON, atomic store, Ed25519 rollback control) | yes |
 | `manifests/` | core + 9 plugin manifests + `duo-agency-cpt` (the one `excluded` regression fixture, no product claim); `providers/`, `interpreters/`, `regenerators/` hook code; `dispositions.json`, the hand-authored reviewed claim source; `capabilities/platform.json` (the platform boundary certificates sign against) and `capabilities/adapter-authorities.json` | yes |
-| `sandbox/` | the test estate: `bin/pair.sh`, `tests/` (212 `regress_*.php` + 114 `regress_*.sh`, counted recursively — `tests/offline/guards/` is the first suite directory), `conformance/`, `fixtures/`, `lib/`, `siterepo/`, `tmp/` (gitignored scratch) | no |
+| `sandbox/` | the test estate: `bin/pair.sh`, `tests/` (212 `regress_*.php` + 95 `regress_*.sh`, counted recursively — every suite is under one of the five execution-class directories `offline/<domain>/`, `live/`, `grind/`, `certify/`, `spike/`, and the corpus root holds only `fixtures/`, `lib/`, `support/` and `offline_diagnostics_guard.sh`), `conformance/`, `siterepo/`, `tmp/` (gitignored scratch) | no |
 | `tools/` | dev entry points: `doctor.sh`, `offline.php`, `affected.php`, `capability-doc.php`, `classmap-generate.php`, `api-surface.php`; data: `layers.json` (+ `layers-exceptions.json` ratchet), `modules.json` | no |
 | `tests/` | PHPUnit 11 self-tests for `tools/` (`Duo\Tests\…`, PSR-4) | no |
 | `scripts/` | `adapter-certification.php` (reviewer-facing adapter certificate sign/verify), `agent-bootstrap.sh`, `close-gate-check.sh` | mixed |
@@ -55,8 +55,11 @@ list of what reaches a managed site.
    (`:355`) and refuses before any pair mutation — "candidate source is DIRTY"
    (`:369`) — because those two directories are exactly what it bind-mounts.
    An untracked file counts. Scratch goes in `sandbox/tmp/` or a `mktemp -d`.
-4. **A new offline product suite goes in `sandbox/tests/`, MUST be wired into
-   `regress-offline-corpus`, and MUST bump the count line.**
+4. **A new offline product suite goes in `sandbox/tests/offline/<domain>/`,
+   MUST be wired into `regress-offline-corpus`, and MUST bump the count line.**
+   The corpus root holds no suites; `regress_suite_wiring.php` refuses one that
+   sits outside a class directory, and `tools/suite-layout.review.md` says what
+   each `offline/` domain means.
    `regress_bundle_coverage.sh` expands the prerequisite graph and compares it
    against the `Makefile`'s own `regress-offline-all: N offline suites green`
    line (`:168`), so an unwired suite and a stale count each fail the gate —

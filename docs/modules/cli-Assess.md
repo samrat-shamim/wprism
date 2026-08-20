@@ -24,7 +24,7 @@
 
 **Known debts.**
 
-- **No plugin slug may appear in this directory**, and `sandbox/tests/regress_assess_composition.sh` greps it against a forbidden set derived from the shipped manifest library. Surfaces are named by data; the catalog knows only the *grammar* of those names.
+- **No plugin slug may appear in this directory**, and `sandbox/tests/offline/assess-contract/regress_assess_composition.sh` greps it against a forbidden set derived from the shipped manifest library. Surfaces are named by data; the catalog knows only the *grammar* of those names.
 - `provider_negotiation` is a declared seam that this profile always fills with an empty list: MUP §1.3 lists `Providers::diagnose()` problems as a readiness input, and §2.1's composition has no source for them (diagnose() runs inside plan/apply). `duo status` remains the surface that reports them.
 - `env_missing` conditions likewise never reach a row: they are plan rows, and assess deliberately runs no plan. `provision env value` is therefore reachable in `GapActions` but unexercised by `duo assess` today.
 - Containment and recovery are derived from the policy class alone (§1.5/§1.6) because MUP has no egress control. Each inference is stated in `SurfaceCatalog`'s docblock rather than measured.

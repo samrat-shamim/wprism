@@ -1,6 +1,6 @@
 {
     "format": "duo-parity-canonical-json/v1",
-    "consumed_by": "sandbox/tests/regress_canonical_json_parity.php",
+    "consumed_by": "sandbox/tests/offline/guards/regress_canonical_json_parity.php",
     "grammar": {
         "$op": "wrap the value in \\Duo\\OrderPreserved (Canon::normalize_preserving_order())",
         "$obj": "hydrate the value as a \\stdClass rather than a PHP array"

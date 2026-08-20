@@ -1424,10 +1424,17 @@ function ms_literal_targets(string $root, string $text, array $placement): array
  * sites in the tree — was skipped by the rewrite and then caught by --prove as
  * a dangling reference after --apply. `mysandbox/tests/x.php` is still excluded,
  * because `s` is a name character.
+ *
+ * The trailing lookahead splits `.` from the other name characters because a
+ * corpus path also ends prose sentences: `regress_mup_leak_audit.sh:50` names a
+ * suite and then a full stop, and a single `(?![A-Za-z0-9_./-])` read that stop
+ * as the start of a longer name and skipped the site — a whole mention class
+ * invisible to --prove, found by hand in W2. `.` is rejected only when a name
+ * character follows it, so `x.sh.bak` is still not a hit and `x.sh.` is.
  */
 function ms_literal_hits(string $line, string $path): int
 {
-    $pattern = '#(?<![A-Za-z0-9_.-])' . preg_quote($path, '#') . '(?![A-Za-z0-9_./-])#';
+    $pattern = '#(?<![A-Za-z0-9_.-])' . preg_quote($path, '#') . '(?!\.[A-Za-z0-9_-])(?![A-Za-z0-9_/-])#';
     $n = preg_match_all($pattern, $line);
     return is_int($n) ? $n : 0;
 }

@@ -5,7 +5,7 @@
 # unmet requirement, and what to do about it — then converges once the same
 # apply runs against the shipped adapter that declares no such requirement.
 #
-# The offline half (sandbox/tests/regress_provider_contract.php +
+# The offline half (sandbox/tests/offline/adapter/regress_provider_contract.php +
 # regress_actions_providers.php) proves the grammar, the load validation, the
 # negotiation refusal codes, and that the requirement gate fires before the
 # provider is constructed. It structurally cannot prove the thing the gate

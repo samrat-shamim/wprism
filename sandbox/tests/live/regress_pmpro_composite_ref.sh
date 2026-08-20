@@ -12,7 +12,7 @@
 #   - task #126 (sidecar PK override): pmpro_membership_levelmeta's real PK
 #     column is `meta_id`, not `id` — the new `id_column` manifest field.
 #
-# Complements, not replaces, sandbox/tests/regress_composite_ref.php's
+# Complements, not replaces, sandbox/tests/offline/repository/regress_composite_ref.php's
 # offline FakeWpdb harness (fast, no docker, proves the tuple-identity
 # logic and every schema-assertion invariant in isolation). THIS script
 # proves what the offline harness structurally cannot (Apply.php is out of

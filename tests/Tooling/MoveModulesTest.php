@@ -533,4 +533,16 @@ SH);
         self::assertCount(1, $out['changes']);
         self::assertSame('dir-relative', $out['changes'][0]['kind']);
     }
+
+    public function testEveryScannerFixKeyNamesAFileThatExists(): void
+    {
+        // The table is isset()-keyed on a repo-relative path, so a key naming a
+        // path nothing visits applies nothing and reports nothing. Six of the
+        // seven keys were re-homed by the sandbox/tests restructure; this is the
+        // cheap half of the guard (mm_plan() asserts every key was reached).
+        $repo = self::repoRoot();
+        foreach (array_keys(mm_scanner_fixes()) as $key) {
+            self::assertFileExists($repo . '/' . $key, "mm_scanner_fixes() key $key is not on disk");
+        }
+    }
 }

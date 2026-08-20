@@ -73,7 +73,7 @@ selector, `duo recover --list` prints receipt ids that `--restore=<id>` takes,
 and `duo release` prints the plan digest that `duo verify --plan=<digest>`
 takes. Artifact hashes, lease owners, operation ids and session ids are in
 `--format=json` and nowhere else. That is mechanically checked by
-`sandbox/tests/regress_mup_leak_audit.sh`, which also proves that every
+`sandbox/tests/offline/assess-contract/regress_mup_leak_audit.sh`, which also proves that every
 command in the table above is either driven by a host verb or listed here.
 
 ## Where the reference lives
