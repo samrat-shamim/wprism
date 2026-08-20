@@ -1,16 +1,22 @@
 {
-    "assess_digest": "sha256:436b807ff394d2375765a3ab7bd4ebb2a6dda76c6d72b33bc00e76fb740a37f9",
+    "assess_digest": "sha256:5e407955d806114e80a46403fa62b417cbaee9db2848c24a8611db75b5d1379c",
     "authority": {
         "read_only": true,
         "repo": "/siterepo",
         "transport": "docker"
     },
+    "dispositions": {
+        "agree": true,
+        "host_registry_sha256": "8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f",
+        "meaning": "the target answered from the reviewed library this checkout ships",
+        "target_registry_sha256": "8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f"
+    },
     "env": "awalk1",
     "evidence": {
         "generated_from": {
-            "dispositions_sha256": "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+            "dispositions_sha256": "9999999999999999999999999999999999999999999999999999999999999999"
         },
-        "registry_sha256": "sha256:8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f"
+        "registry_sha256": "8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f"
     },
     "format": "duo-assess-report/v1",
     "generated_at": "2026-08-17T09:14:02Z",
@@ -197,6 +203,7 @@
             "table:wpforms_payments",
             "table:wpforms_tasks_meta"
         ],
-        "pending_count": 0
+        "pending_count": 0,
+        "undeclared_tables_count": 3
     }
 }

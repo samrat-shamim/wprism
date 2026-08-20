@@ -31,14 +31,21 @@ declare(strict_types=1);
  * asserts a CONTRACT that is being built in parallel, so several of its
  * documents are shapes no shipped builder can mint yet — the `site_signed`
  * catalog word, `shadowed_by_site`, `Site-certified` with a named principal,
- * the `certify adapter` gap action, `logical_name` on an undeclared-table row,
- * and the `UNMANAGED PLUGIN` init advisory. Those are constructed here from
- * the contract text, each one carrying a `_provenance` note naming the section
- * it comes from, and — where the shipped validator can be asked at all — this
- * script ASKS IT and prints the refusal rather than hiding it. That printed
- * note is the honest status line: while it appears, the product has not landed
- * that half of the contract yet; when it stops appearing, the fixture became a
- * validated one and nothing else has to change.
+ * `logical_name` on an undeclared-table row, and the `UNMANAGED PLUGIN` init
+ * advisory. Those are constructed here from the contract text, each one
+ * carrying a `_provenance` note naming the section it comes from, and — where
+ * the shipped validator can be asked at all — this script ASKS IT and prints
+ * the refusal rather than hiding it. That printed note is the honest status
+ * line: while it appears, the product has not landed that half of the contract
+ * yet; when it stops appearing, the fixture became a validated one and nothing
+ * else has to change.
+ *
+ * The `certify adapter` gap action was on that list and is off it: it is in
+ * `ProjectionVocabulary::GAP_ACTIONS` now, so
+ * `ContractProposal::validateAssessReport()` accepts the report below and
+ * `walk_validate_optional()` prints nothing about it. That is the self-clearing
+ * behaviour working, not a check that stopped running — the call is still
+ * there, and it is what will say so if the word is ever withdrawn.
  *
  * ## Why the FAIL fixtures are hand-mutated
  *
@@ -47,35 +54,62 @@ declare(strict_types=1);
  * in its filename, so `--self-check` proves each helper is non-vacuous: a
  * helper that never fails proves nothing about the run that trusts it.
  *
- * Two of the FAIL fixtures are special and worth naming: `coverage.
- * fail-no-logical-name.json` and `assess-human.no-undeclared-table-line.txt`
- * are TODAY'S output, byte for byte (round-3-adapter-walk.md §3.7 bugs 1 and
- * 2). They are recorded as failures because the contract says they are.
+ * Two of the FAIL fixtures used to be special, and are not any more:
+ * `coverage.fail-no-logical-name.json` and
+ * `assess-human.no-undeclared-table-line.txt` recorded TODAY'S output byte for
+ * byte, because §3.7 bugs 1 and 2 meant the product really did emit them. Both
+ * bugs have since been fixed — `Coverage::tables_report()` publishes
+ * `logical_name` on every undeclared row (agent/src/Review/Coverage.php:185)
+ * and `AssessRenderer::unknownSection()` prints the table line
+ * (cli/src/Assess/AssessRenderer.php:345) — so each is now an ordinary
+ * one-edit negative, which is a stronger fixture than it was: the shipped
+ * builder can no longer produce either one.
  *
  * Plugin slugs appear here on purpose. This is evidence for a walk whose
  * subject is WPForms Lite and a walk-owned fixture plugin; the
  * engine-adapter boundary forbids a plugin slug in `cli/src/Assess`,
  * `cli/src/Contract` and `agent/src/Assess`, not in a grind's fixtures.
  *
- * ## Read this before you re-run it
+ * ## Re-running this is the supported way to change a fixture
  *
- * This script and the fixtures beside it have DIVERGED, and a wholesale re-run
- * fails `grind_adapter_walk.sh --self-check` (4 checks) rather than refreshing
- * it. Three drifts, none of them about what a fixture records:
+ * A wholesale re-run reproduces every committed byte beside it, and
+ * `sandbox/tests/offline/guards/regress_fixture_makers.sh` fails the corpus if
+ * it stops doing so. That was not true between #471 and DUO-3483: the fixtures
+ * were delta-edited four times while this script stood still, so a re-run
+ * failed `grind_adapter_walk.sh --self-check` on four checks. The four causes
+ * are recorded here because each one is a shape a future edit can reintroduce:
  *
- *   - the `$projection` closure emits `principal` / `trust_root`; the committed
- *     fixtures and the grind's own readers use `certification_principal` /
- *     `certification_trust_root`;
- *   - `AssessRenderer` has since grown its own undeclared-table line, so the
- *     hand-insertion below now emits a second one and `assess-human.clean.txt`
- *     ends up with two;
- *   - `Init::render()` reshaped the advisory block, so `init-allow-unmanaged.txt`
- *     comes back in a layout the §3.4 reader does not recognise.
+ *   - the `$projection` closure emitted `principal` / `trust_root`. Those are
+ *     the CATALOG row's spelling (walk_catalog_row); a projection spells the
+ *     same two facts `certification_principal` / `certification_trust_root`,
+ *     beside `certification_provenance` (grind_lib.sh:135-151, T6 §3.2);
+ *   - the undeclared-table line was hand-inserted after `unknown: `.
+ *     `AssessRenderer::unknownSection()` prints it itself now
+ *     (cli/src/Assess/AssessRenderer.php:345) from
+ *     `unknown.undeclared_tables_count`, which `AssessReport::unknown()` has
+ *     published since T6 §3.7 item 2 — so the count is supplied as a fact and
+ *     the line is the renderer's, in the renderer's position;
+ *   - the unknown sample said `option-prefix:wpforms_`. `Coverage::guess_prefix()`
+ *     returns the family token with no trailing underscore
+ *     (agent/src/Review/Coverage.php:231-237), and `AssessReport::unknown()`
+ *     prefixes that verbatim, so `option-prefix:wpforms` is the only spelling a
+ *     site can produce;
+ *   - `evidence.registry_sha256` and `generated_from.dispositions_sha256` were
+ *     `sha256:`-prefixed. Both producers emit BARE 64-hex —
+ *     `ManifestDispositions::sha256()` for the target's
+ *     (agent/src/Policy/ManifestDispositions.php:114) and
+ *     `AssessCommand::registryProvenance()` for the host's
+ *     (cli/src/Command/AssessCommand.php:716). The prefixed form belongs to
+ *     `AdapterObservation`, a different document, and here it printed
+ *     `evidence: reviewed dispositions sha256:8f8f8` where the renderer's
+ *     twelve-hex window should show twelve hex.
  *
- * Until those are reconciled, apply a targeted delta to the fixture bytes and
- * re-run `--self-check`, which is what the evidence-chain teardown did: it
- * touched the `evidence` block, the digests binding it, and the deferred
- * `AdapterRegistry::report()` row, and left every other byte alone.
+ * Two shapes moved under this script without breaking it, and are recorded so
+ * the next diff is expected rather than investigated: `Init::render()` grew an
+ * `advisories` heading and split each row over two lines (the §3.4 reader
+ * matches the row substring, so it still reads), and `certify adapter` joined
+ * `ProjectionVocabulary::GAP_ACTIONS`, so the next-actions roll-up prints it
+ * with a zero count on every site.
  */
 
 $root = dirname(__DIR__, 4);
@@ -169,12 +203,18 @@ $authorityKeyId = 'acme-ops-2026';
 // ---------------------------------------------------------------- projections
 /**
  * One operation projection in ProjectionVocabulary's own key set, plus the two
- * keys §3.2 adds to a certified claim's projection (`principal`,
- * `trust_root`). The extra keys are legal by construction: the shipped
- * validator checks a REQUIRED FLOOR on a projection and lets assess carry
- * additive display keys beside it (ContractProposal::validateReportSurfaces()
- * says so in its own comment), which is exactly the seam §3.2's two new
- * columns land in.
+ * keys §3.2 adds to a certified claim's projection
+ * (`certification_principal`, `certification_trust_root`). The extra keys are
+ * legal by construction: the shipped validator checks a REQUIRED FLOOR on a
+ * projection and lets assess carry additive display keys beside it
+ * (ContractProposal::validateReportSurfaces() says so in its own comment),
+ * which is exactly the seam §3.2's two new columns land in.
+ *
+ * The `certification_` prefix is not decoration. A catalog row spells the same
+ * two facts `trust_root` / `principal` (walk_catalog_row), and run 20 read the
+ * catalog's bare spelling out of a projection and got null/null against a
+ * correct report — so the two documents keep two spellings deliberately, and
+ * `walk_assess_certification` reads this one.
  */
 $projection = static function (
     string $stateClass,
@@ -189,7 +229,9 @@ $projection = static function (
     ?string $trustRoot = null
 ): array {
     return [
+        'certification_principal' => $principal,
         'certification_provenance' => $provenance,
+        'certification_trust_root' => $trustRoot,
         'conditions' => [],
         'effect_containment' => $containment,
         'effect_containment_basis' => $containment === 'prevented'
@@ -199,11 +241,9 @@ $projection = static function (
         'gap_action' => $gapAction,
         'handling' => $handling,
         'meaning' => $meaning,
-        'principal' => $principal,
         'readiness' => $readiness,
         'remediation' => null,
         'state_class' => $stateClass,
-        'trust_root' => $trustRoot,
     ];
 };
 
@@ -363,11 +403,16 @@ $target = [
     'wordpress' => '6.8.2',
 ];
 $authority = ['transport' => 'docker', 'read_only' => true, 'repo' => '/siterepo'];
+// Both numbers are BARE 64-hex, which is the only form either producer emits:
+// the target's is `ManifestDispositions::sha256()` and the host's is
+// `hash('sha256', …)` in `AssessCommand::registryProvenance()`. A `sha256:`
+// prefix here would also corrupt the human view, whose evidence line is a
+// twelve-character window onto this value (AssessRenderer::evidenceSection()).
 $evidence = [
     'generated_from' => [
-        'dispositions_sha256' => 'sha256:' . str_repeat('9', 64),
+        'dispositions_sha256' => str_repeat('9', 64),
     ],
-    'registry_sha256' => 'sha256:' . str_repeat('8f', 32),
+    'registry_sha256' => str_repeat('8f', 32),
 ];
 // DUO-3484's host/target comparison, pinned AGREEING: this walk is about
 // adapter certification words, and a skewed reviewed library would withhold
@@ -385,14 +430,22 @@ $s1Unknown = [
     // Exactly what the coverage document below reports: one invisible option
     // prefix and the same three undeclared tables. A sample naming a table the
     // surface rows do not carry would make the walk's own two readers disagree
-    // about one site.
+    // about one site. `option-prefix:wpforms` carries no trailing underscore
+    // because `AssessReport::unknown()` prefixes `Coverage::guess_prefix()`'s
+    // family token verbatim, and that token is the segments BEFORE the
+    // separator.
     'names_sample' => [
-        'option-prefix:wpforms_',
+        'option-prefix:wpforms',
         'table:wpforms_logs',
         'table:wpforms_payments',
         'table:wpforms_tasks_meta',
     ],
     'pending_count' => 0,
+    // Coverage's exact `tables.undeclared_total`, which is what the human
+    // `unknown:` block's table line prints and what the next-actions roll-up
+    // takes its residual from. Omitting it is not neutral: the renderer would
+    // print `0 undeclared table(s)` beside a sample that names three.
+    'undeclared_tables_count' => 3,
 ];
 
 $s1 = AssessReport::build('awalk1', $now, $target, $authority, $s1Surfaces, $s1Unknown, $evidence, $dispositions);
@@ -409,7 +462,7 @@ walk_json("$out/assess-report.fail-unclassified-no-next-action.json", $noAction)
 $noPrefix = $s1;
 $noPrefix['unknown']['names_sample'] = array_values(array_filter(
     $noPrefix['unknown']['names_sample'],
-    static fn(string $name): bool => $name !== 'option-prefix:wpforms_'
+    static fn(string $name): bool => $name !== 'option-prefix:wpforms'
 ));
 walk_json("$out/assess-report.fail-no-option-prefix.json", $noPrefix);
 
@@ -504,7 +557,9 @@ $siteCertified = AssessReport::build(
     $target,
     $authority,
     $siteCertifiedSurfaces,
-    ['invisible_names_count' => 0, 'names_sample' => [], 'pending_count' => 0],
+    // Every key `AssessReport::unknown()` returns, at zero: a report missing
+    // one of them is a document no assess run can produce.
+    ['invisible_names_count' => 0, 'names_sample' => [], 'pending_count' => 0, 'undeclared_tables_count' => 0],
     $evidence,
     $dispositions
 );
@@ -514,10 +569,15 @@ walk_json("$out/assess-report.site-certified.json", $siteCertified);
 // Site-certified reader must not smooth that into a pass, because
 // `Platform-certified` on an operator-signed adapter would be the product
 // claiming a Duo endorsement it never made (§2).
+//
+// `assess_digest` is deliberately NOT rebound (#477's negative-fixture rule):
+// it keeps the SOURCE report's digest, so this stays a document the builder
+// cannot mint. Rebinding it would make the fixture self-consistent, which is
+// the one property that would defeat it.
 $platformCertified = $siteCertified;
 $platformCertified['surfaces'][0]['operations']['release']['certification_provenance'] = 'Platform-certified';
-$platformCertified['surfaces'][0]['operations']['release']['principal'] = null;
-$platformCertified['surfaces'][0]['operations']['release']['trust_root'] = 'platform';
+$platformCertified['surfaces'][0]['operations']['release']['certification_principal'] = null;
+$platformCertified['surfaces'][0]['operations']['release']['certification_trust_root'] = 'platform';
 walk_json("$out/assess-report.fail-platform-certified.json", $platformCertified);
 
 // ----------------------------------------- the `certify adapter` gap action
@@ -558,6 +618,15 @@ walk_json("$out/assess-report.certify-adapter.json", $certifyReport);
 // One edit: the same blocked row falls back to `install adapter`. That is the
 // word §3.6 exists to stop being emitted here, so the reader must tell them
 // apart rather than accepting any non-empty action.
+//
+// This is the ONE negative fixture that rebinds `assess_digest`, and it is the
+// exception #477's rule is drawn around rather than a lapse from it. The rule
+// keeps a negative un-mintable so the reader cannot be handed a document the
+// builder could have produced; here the whole point is the opposite. `install
+// adapter` on an uncertified-adapter row is precisely what a REGRESSED product
+// would emit, digest and all, so the fixture models that regression faithfully
+// and the reader has to catch it on the WORD. Leaving a stale digest on it
+// would let the reader pass for the wrong reason.
 $certifyFallback = $certifyReport;
 $certifyFallback['surfaces'][0]['next_action'] = 'install adapter';
 $certifyFallback['surfaces'][0]['operations']['release']['gap_action'] = 'install adapter';
@@ -574,8 +643,12 @@ $coverage = [
     'format' => 'duo-coverage-report/v1',
     'options' => [
         'captured' => 214,
+        // `prefix` is `Coverage::guess_prefix()`'s output, which never carries
+        // the trailing separator; `AssessReport::unknown()` reads exactly this
+        // key to build `option-prefix:wpforms` above, so the two documents this
+        // walk cross-reads have to agree here or nowhere.
         'invisible_groups' => [
-            ['count' => 37, 'prefix' => 'wpforms_', 'probable_owner' => 'wpforms-lite'],
+            ['count' => 37, 'prefix' => 'wpforms', 'probable_owner' => 'wpforms-lite'],
         ],
         'invisible_other' => 37,
         'invisible_total' => 41,
@@ -1035,24 +1108,23 @@ $humanLines = AssessRenderer::render($s1, 50, [
     'operation' => 'release',
     'proposal_path' => '.duo/contract/proposed.json',
 ]);
-$humanToday = implode("\n", $humanLines) . "\n";
-
-// §3.7 bug 2: `AssessRenderer::gapSection()` never counts undeclared tables
-// and the `unknown:` block has no table line, so today's render is the FAIL
-// fixture and the contract's is the PASS one. The inserted line is §3.6's
-// literal `N undeclared table(s)`, placed in the unknown block beside the two
-// counts that are already there.
-walk_write("$out/assess-human.no-undeclared-table-line.txt", $humanToday);
-
-$withTableLine = [];
-foreach ($humanLines as $line) {
-    $withTableLine[] = $line;
-    if (str_starts_with($line, 'unknown: ')) {
-        $withTableLine[] = '         3 undeclared table(s)';
-    }
-}
-$clean = implode("\n", $withTableLine) . "\n";
+$clean = implode("\n", $humanLines) . "\n";
 walk_write("$out/assess-human.clean.txt", $clean);
+
+// §3.7 bug 2 is FIXED, which changes what this fixture is. The renderer now
+// prints `N undeclared table(s) (no installed adapter declares them)` itself
+// (AssessRenderer.php:345), so a view without that line is no longer today's
+// output — it is a document the shipped renderer cannot produce, and this is
+// an ordinary one-edit negative fixture: the line, deleted.
+$noTableLine = implode("\n", array_values(array_filter(
+    $humanLines,
+    static fn(string $line): bool => preg_match('/^ *[0-9]+ undeclared table\(s\)/', $line) !== 1
+))) . "\n";
+if ($noTableLine === $clean) {
+    fwrite(STDERR, "make-fixtures: the renderer printed no undeclared-table line to remove\n");
+    exit(2);
+}
+walk_write("$out/assess-human.no-undeclared-table-line.txt", $noTableLine);
 
 // §5.2's leak rule as the walk mechanises it: the human view may print an
 // internal identifier only when a documented command consumes one, and nothing
@@ -1103,7 +1175,11 @@ walk_write("$out/init-blocked.txt", implode("\n", $blockedLines) . "\n");
 // `unsupported` and into `advisories`, and its line reads `UNMANAGED PLUGIN`.
 // `UNMANAGED` is a contract-new word — today's advisory renderer prints
 // `ADVISORY` — so the heading word is substituted here and only here, and the
-// rest of the line is the shipped renderer's.
+// rest of the line is the shipped renderer's, including the `advisories`
+// heading it now prints above the block and the wrapped second line it now
+// puts the reason and remediation on. §3.4's reader matches the row substring
+// (walk_assert_init_line), so that reshape is a layout change and not a
+// contract change.
 $allowLines = Init::render($initProposal(true, [], [$unmanagedRow]));
 $allowText = implode("\n", $allowLines) . "\n";
 $allowText = str_replace('  ADVISORY PLUGIN wpforms-lite', '  UNMANAGED PLUGIN wpforms-lite', $allowText);

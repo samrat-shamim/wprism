@@ -32,7 +32,7 @@
             "url": "/?page_id=1"
         }
     ],
-    "plan_digest": "sha256:ff60eb1cf5619ffb1449819c403ba88262ac8e1229d8248f146e454f4ed90b2c",
+    "plan_digest": "sha256:be07839a6f78e9fcc9a5b9d7800d3c00ef863899c35989c283e5dbef4f825e29",
     "uncovered_surfaces": [
         "store settings"
     ],

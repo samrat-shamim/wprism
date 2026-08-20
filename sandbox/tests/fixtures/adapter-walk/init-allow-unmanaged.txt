@@ -8,5 +8,7 @@ Duo initialization proposal sha256:555555555555555555555555555555555555555555555
   adapters: core, woocommerce
   media: unknown (0 attachment(s), 0 unavailable)
   redacted risk surfaces: 0 secret-shaped option value(s), 0 PII-shaped user-meta value(s); values are never included
-  UNMANAGED PLUGIN wpforms-lite/wpforms.php [active_plugin_without_adapter]: no installed manifest declares this active plugin identity. install or review one versioned adapter, then rerun duo init, or proceed with --allow-unmanaged-plugins and record the decision in the contract
+  advisories (init proceeds; each is a stated, accepted limit on what Duo versions):
+  UNMANAGED PLUGIN wpforms-lite/wpforms.php [active_plugin_without_adapter]
+    no installed manifest declares this active plugin identity install or review one versioned adapter, then rerun duo init, or proceed with --allow-unmanaged-plugins and record the decision in the contract
   result: ready for explicit confirmation

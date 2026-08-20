@@ -1,16 +1,22 @@
 {
-    "assess_digest": "sha256:859ceda1f7293236d21bd0eef09d98d1a61802df8a2feaa24cefe017bae86169",
+    "assess_digest": "sha256:7d772fb1532161227b2527b86728e60d8c935dfc50f6842eff0426817460a7ff",
     "authority": {
         "read_only": true,
         "repo": "/siterepo",
         "transport": "docker"
     },
+    "dispositions": {
+        "agree": true,
+        "host_registry_sha256": "8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f",
+        "meaning": "the target answered from the reviewed library this checkout ships",
+        "target_registry_sha256": "8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f"
+    },
     "env": "mup1",
     "evidence": {
         "generated_from": {
-            "dispositions_sha256": "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+            "dispositions_sha256": "9999999999999999999999999999999999999999999999999999999999999999"
         },
-        "registry_sha256": "sha256:8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f"
+        "registry_sha256": "8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f"
     },
     "format": "duo-assess-report/v1",
     "generated_at": "2026-08-17T09:14:02Z",
@@ -122,6 +128,7 @@
         "names_sample": [
             "acme_widget_cache"
         ],
-        "pending_count": 3
+        "pending_count": 3,
+        "undeclared_tables_count": 1
     }
 }

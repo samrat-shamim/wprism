@@ -1448,18 +1448,27 @@ self_check() {
     soft_fail "the undeclared-table-line check rejected a view that carries the line"
   fi
   if walk_assert_unknown_table_line "$FIXTURES/assess-human.no-undeclared-table-line.txt" 2>/dev/null; then
-    soft_fail "the undeclared-table-line check accepted today's view, which has no table line (§3.7 bug 2)"
+    soft_fail "the undeclared-table-line check accepted a view with the table line removed (§3.7 bug 2's shape)"
   else
-    pass "the undeclared-table-line check catches §3.7 bug 2"
+    pass "the undeclared-table-line check catches a view missing the table line (§3.7 bug 2's shape)"
   fi
   got="$(walk_gap_count "$FIXTURES/assess-human.clean.txt" 'install adapter')"
   [ "$got" -ge 1 ] \
     && pass "the next-actions roll-up counts $got 'install adapter' finding(s)" \
     || soft_fail "the roll-up reader counted '$got' install-adapter findings"
-  if walk_gap_count "$FIXTURES/assess-human.clean.txt" 'certify adapter' >/dev/null 2>&1; then
-    soft_fail "the roll-up reader invented a count for an action the fixture never prints"
+  # The probe has to be a word OUTSIDE ProjectionVocabulary::GAP_ACTIONS.
+  # `GapActions::summarise()` seeds its counts with array_fill_keys(ACTIONS, 0)
+  # (cli/src/Assess/GapActions.php:166), so every closed-set action has a line
+  # on every site and only a non-member can be missing. This probe used to be
+  # `certify adapter`, which T6 §3.6 then ADDED to the set — the roll-up began
+  # printing `0  certify adapter` and the check started asserting the opposite
+  # of what it means. `sign adapter` is the plausible near-miss of that same
+  # word and is not in the set, so it also catches a reader loose enough to
+  # match on `adapter` alone.
+  if walk_gap_count "$FIXTURES/assess-human.clean.txt" 'sign adapter' >/dev/null 2>&1; then
+    soft_fail "the roll-up reader invented a count for an action the roll-up cannot print"
   else
-    pass "the roll-up reader refuses an action the roll-up does not print"
+    pass "the roll-up reader refuses an action outside the closed set"
   fi
 
   # ---- coverage
