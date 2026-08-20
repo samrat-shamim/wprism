@@ -210,6 +210,7 @@ require __DIR__ . '/../../../../agent/src/Grammar/Tokens.php';
 require __DIR__ . '/../../../../agent/src/Repository/Snapshot.php';
 require __DIR__ . '/../../../../agent/src/Repository/SidebarState.php';
 require __DIR__ . '/../../../../agent/src/Repository/IdentityNotes.php';
+require __DIR__ . '/../../lib/frozen_policy.php';
 
 use Duo\Canon;
 use Duo\IdentityNotes;
@@ -218,6 +219,7 @@ use Duo\SidebarState;
 use Duo\Snapshot;
 use Duo\Tokens;
 use Duo\Uuid;
+use DuoTest\FrozenPolicy;
 
 if (!defined('DUO_SPEC_VERSION')) {
     define('DUO_SPEC_VERSION', 2);
@@ -292,19 +294,17 @@ function fresh_site_repo(array $manifests, array $policy = []): string {
  * could not have reached.
  */
 function load_frozen(array $manifests): Policy {
-    return Policy::from_snapshot([
-        'adapter_sources' => ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []],
-        'dispositions' => null,
-        'format' => 'duo-policy-snapshot/v4',
-        'manifests' => $manifests,
-        // A real snapshot has been through Canon::decode(), so every object is
-        // already a PHP array by the time from_snapshot() sees it.
-        'site' => [
-            'manifests' => array_map(static fn(array $m): string => (string) $m['name'], $manifests),
-            'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []],
-            'spec_version' => DUO_SPEC_VERSION,
-        ],
-    ]);
+    // Published into the scratch library this suite already owns, not into one
+    // of FrozenPolicy's own: fresh_manifests_dir() points DUO_MANIFESTS_DIR at
+    // it for the Policy::load() half of every check below, and the two halves
+    // must read the same library to be comparable at all.
+    // A real snapshot has been through Canon::decode(), so every object is
+    // already a PHP array by the time from_snapshot() sees it.
+    return Policy::from_snapshot(FrozenPolicy::envelope(
+        $manifests,
+        FrozenPolicy::site($manifests, DUO_SPEC_VERSION),
+        (string) getenv('DUO_MANIFESTS_DIR')
+    ));
 }
 
 // ---------------------------------------------------------------- fixtures

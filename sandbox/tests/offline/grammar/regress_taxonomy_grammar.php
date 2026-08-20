@@ -18,9 +18,11 @@ if (!defined('DUO_SPEC_VERSION')) {
 require_once __DIR__ . '/../../../../agent/src/Grammar/TaxonomyGrammar.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/../../lib/frozen_policy.php';
 
 use Duo\Policy;
 use Duo\TaxonomyGrammar;
+use DuoTest\FrozenPolicy;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -51,19 +53,9 @@ $assertAccepted = static function (callable $fn, string $label) use ($check): vo
     }
 };
 
-/** Build the smallest legacy frozen-policy envelope the real validator accepts. */
+/** Build the smallest frozen-policy envelope the real validator accepts. */
 $frozenSnapshot = static function (array $manifest): array {
-    return [
-        'adapter_sources' => ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []],
-        'dispositions' => null,
-        'format' => 'duo-policy-snapshot/v4',
-        'manifests' => [$manifest],
-        'site' => [
-            'manifests' => [(string) $manifest['name']],
-            'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []],
-            'spec_version' => 2,
-        ],
-    ];
+    return FrozenPolicy::envelope([$manifest], FrozenPolicy::site([$manifest]));
 };
 
 $assertAccepted(

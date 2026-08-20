@@ -21,10 +21,13 @@ function woo_ok(bool $condition, string $message): void {
 $root = dirname(__DIR__, 4);
 $manifest = json_decode((string) file_get_contents($root . '/manifests/woocommerce.json'), true, flags: JSON_THROW_ON_ERROR);
 $dispositions = json_decode((string) file_get_contents($root . '/manifests/dispositions.json'), true, flags: JSON_THROW_ON_ERROR);
+// No scratch library: $manifest IS manifests/woocommerce.json, so the v2
+// shipped-membership proof compares the frozen bytes against the very file they
+// were read from — the strongest form of the claim this snapshot makes.
 $policy = Policy::from_snapshot([
     'dispositions' => null,
-    'format' => 'duo-policy-snapshot/v4',
-    'adapter_sources' => ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []],
+    'format' => 'duo-policy-snapshot/v6',
+    'adapter_sources' => ['certificates' => [], 'format' => 'duo-adapter-sources/v2', 'out_of_tree' => []],
     'manifests' => [$manifest],
     'site' => ['manifests' => ['woocommerce'], 'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []], 'spec_version' => DUO_SPEC_VERSION],
 ]);

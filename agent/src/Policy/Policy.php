@@ -173,15 +173,25 @@ final class Policy {
     // every manifest default to "shipped", dropping one key would silently
     // launder an out-of-tree adapter into a shipped one on the verification
     // path, which is exactly the provenance guarantee this record exists for.
-    // v5 carries signed site-adapter certification envelopes. from_snapshot()
-    // retains v4 reads only for the prior uncertified adapter-sources/v1 form.
-    // v6 drops the frozen `capabilities` record: the reviewed dispositions are
-    // now the whole authored claim source, and a v5 snapshot's generated
-    // registry has no reader left to validate it against. It is a rejected
-    // format rather than an ignored key — a snapshot carrying a record this
-    // agent no longer checks must not verify as if it had been checked.
+    // v5 carries signed site-adapter certification envelopes. v6 drops the
+    // frozen `capabilities` record: the reviewed dispositions are now the whole
+    // authored claim source, and a v5 snapshot's generated registry has no
+    // reader left to validate it against. It is a rejected format rather than
+    // an ignored key — a snapshot carrying a record this agent no longer checks
+    // must not verify as if it had been checked.
+    //
+    // v4 is retired outright, not merely superseded. Every v4 document any
+    // version of this engine ever exported carries a `capabilities` key —
+    // export_snapshot() emitted one from the commit that introduced v4
+    // (55538ad) through the last v5 commit — so v6's closed key set already
+    // refused every genuine v4 document before the format was even consulted.
+    // What the read path still accepted was a five-key shape nothing ever
+    // wrote, and it accepted it onto the FAIL-OPEN duo-adapter-sources/v1
+    // record, where a name absent from `out_of_tree` took shipped authority
+    // with no proof against the trusted library. Verifying nothing, reachable
+    // only by hand-built input, and weaker than the wire it shadowed: refusing
+    // it by name is the honest answer.
     private const SNAPSHOT_FORMAT = 'duo-policy-snapshot/v6';
-    private const LEGACY_SNAPSHOT_FORMAT = 'duo-policy-snapshot/v4';
     /**
      * The exact canonical-surface literal grammar. Apply derives these keys
      * from authored work as a pure projection (Apply::rebuild_surfaces()) and
@@ -389,9 +399,7 @@ final class Policy {
     public function export_snapshot(): array {
         $adapterSources = $this->adapter_sources()->export();
         return [
-            'format' => ($adapterSources['format'] ?? null) === AdapterSources::LEGACY_FORMAT
-                ? self::LEGACY_SNAPSHOT_FORMAT
-                : self::SNAPSHOT_FORMAT,
+            'format' => self::SNAPSHOT_FORMAT,
             'site' => $this->site,
             'manifests' => $this->manifests,
             'adapter_sources' => $adapterSources,
@@ -405,19 +413,27 @@ final class Policy {
         $keys = array_keys($snapshot);
         sort($keys, SORT_STRING);
         $snapshotFormat = $snapshot['format'] ?? null;
+        // Named ahead of the shape gate on purpose. A genuine v4 document also
+        // carries the retired `capabilities` key, so the closed key set would
+        // otherwise answer an operator holding a real pre-v5 snapshot with the
+        // generic "malformed shape" and never tell them the format is why.
+        if ($snapshotFormat === 'duo-policy-snapshot/v4') {
+            throw new \RuntimeException(
+                'duo: frozen policy snapshot format duo-policy-snapshot/v4 is retired and is no longer read; '
+                . 'its duo-adapter-sources/v1 record let a manifest absent from `out_of_tree` take shipped '
+                . 'authority without proving its bytes against the trusted library, which '
+                . self::SNAPSHOT_FORMAT . ' refuses — re-export the policy with this agent'
+            );
+        }
         if ($keys !== ['adapter_sources', 'dispositions', 'format', 'manifests', 'site']
-            || !in_array($snapshotFormat, [self::LEGACY_SNAPSHOT_FORMAT, self::SNAPSHOT_FORMAT], true)
+            || $snapshotFormat !== self::SNAPSHOT_FORMAT
             || !is_array($snapshot['adapter_sources'] ?? null)
             || !is_array($snapshot['site'] ?? null)
             || !is_array($snapshot['manifests'] ?? null)
             || !array_is_list($snapshot['manifests'])) {
             throw new \RuntimeException('duo: frozen policy snapshot has an unsupported or malformed shape');
         }
-        $adapterSourceFormat = $snapshot['adapter_sources']['format'] ?? null;
-        if (($snapshotFormat === self::LEGACY_SNAPSHOT_FORMAT
-                && $adapterSourceFormat !== AdapterSources::LEGACY_FORMAT)
-            || ($snapshotFormat === self::SNAPSHOT_FORMAT
-                && $adapterSourceFormat !== AdapterSources::FORMAT)) {
+        if (($snapshot['adapter_sources']['format'] ?? null) !== AdapterSources::FORMAT) {
             throw new \RuntimeException(
                 'duo: frozen policy snapshot format disagrees with its adapter source record format'
             );

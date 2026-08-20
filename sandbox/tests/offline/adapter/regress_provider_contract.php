@@ -238,6 +238,7 @@ require $root . '/agent/src/Adapter/Providers.php';
 // DUO-3339: `duo status`'s renderer is pure and is one half of the documented
 // two-renderer lockstep for plan rows, so it is driven directly below.
 require $root . '/cli/src/Plan/PlanSummary.php';
+require __DIR__ . '/../../lib/frozen_policy.php';
 
 $failures = 0;
 $check = static function (bool $condition, string $message) use (&$failures): void {
@@ -251,7 +252,10 @@ $check = static function (bool $condition, string $message) use (&$failures): vo
 $dir = sys_get_temp_dir() . '/duo-provider-contract-' . getmypid();
 @mkdir($dir . '/providers', 0700, true);
 register_shutdown_function(static function () use ($dir): void {
-    @unlink($dir . '/probe.json');
+    // Every manifest $policyFor() freezes is also published here, because the
+    // v6 wire proves shipped membership against the trusted library rather than
+    // taking the snapshot's word for it — so the glob, not just probe.json.
+    array_map('unlink', glob($dir . '/*.json') ?: []);
     array_map('unlink', glob($dir . '/providers/*.php') ?: []);
     array_map('unlink', glob($dir . '/providers/*.php.hidden') ?: []);
     @rmdir($dir . '/providers');
@@ -431,18 +435,16 @@ $manifest = [
         'args' => ['groups' => ['probe-group']],
     ]],
 ];
-$policyFor = static function (array $manifest): \Duo\Policy {
-    return \Duo\Policy::from_snapshot([
-        'format' => 'duo-policy-snapshot/v4',
-        'adapter_sources' => ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []],
-        'dispositions' => null,
-        'site' => [
-            'manifests' => [$manifest['name']],
-            'spec_version' => 2,
-            'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []],
-        ],
-        'manifests' => [$manifest],
-    ]);
+// Published into $dir rather than a library of FrozenPolicy's own: $dir is
+// where this suite's manifest-shipped provider code lives, and Policy resolves
+// `providers[].source: "manifest"` under DUO_MANIFESTS_DIR, so the frozen
+// policy and its provider files must share one directory.
+$policyFor = static function (array $manifest) use ($dir): \Duo\Policy {
+    return \Duo\Policy::from_snapshot(\DuoTest\FrozenPolicy::envelope(
+        [$manifest],
+        \DuoTest\FrozenPolicy::site([$manifest]),
+        $dir
+    ));
 };
 $reset = static function (): void {
     $GLOBALS['duo_test_plugins'] = ['probe/probe.php' => ['Version' => '1.5.0']];
@@ -1023,6 +1025,48 @@ try {
 }
 $check(str_contains($v5Refusal, 'frozen policy snapshot has an unsupported or malformed shape'),
     'a v5 snapshot carrying the retired generated registry is refused by name, not silently accepted');
+// v4 is refused by FORMAT, ahead of the key gate, and this suite owns that
+// contract for the whole corpus. Two shapes reach it and both must be named:
+//
+//  - the six-key document every v4 export any engine version ever wrote (v4 was
+//    current from 55538ad, and export_snapshot() emitted `capabilities` for its
+//    whole life), which the closed key set would otherwise answer with the
+//    generic "malformed shape" and never mention the format; and
+//  - the five-key document nothing ever wrote, which is the ONLY shape the
+//    retired read path could still accept and therefore the only thing it was
+//    still verifying.
+//
+// The refusal names duo-adapter-sources/v1 because that record — not the
+// envelope — is what made v4 worth removing: a manifest absent from
+// `out_of_tree` took shipped authority there with no proof at all.
+foreach ([
+    'a genuine v4 document (six keys, `capabilities` included)' => static function (array $s): array {
+        $s['format'] = 'duo-policy-snapshot/v4';
+        $s['capabilities'] = ['format' => 'duo-capability-registry/v2', 'manifests' => []];
+        $s['adapter_sources'] = ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []];
+        return $s;
+    },
+    'a hand-built v4 document (five keys, the only shape the retired path accepted)' => static function (array $s): array {
+        $s['format'] = 'duo-policy-snapshot/v4';
+        $s['adapter_sources'] = ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []];
+        return $s;
+    },
+] as $label => $mutate) {
+    $v4Refusal = '';
+    try {
+        \Duo\Policy::from_snapshot($mutate($v6Snapshot));
+    } catch (\Throwable $t) {
+        $v4Refusal = $t->getMessage();
+    }
+    $check(str_contains($v4Refusal, 'duo-policy-snapshot/v4 is retired and is no longer read')
+        && str_contains($v4Refusal, 'duo-adapter-sources/v1')
+        && str_contains($v4Refusal, 'duo-policy-snapshot/v6'),
+        "$label is refused with the retired format named, the reason given, and the current format offered "
+        . "(got: $v4Refusal)");
+}
+// The matching half — that the retired v1 adapter-source RECORD has no reader
+// left either — is pinned by regress_adapter_sources.php, whose subject the
+// adapter-source wire is. This suite owns the snapshot generations only.
 $reset();
 $providerFile = $dir . '/providers/probe-cache.php';
 rename($providerFile, $providerFile . '.hidden');
@@ -1128,9 +1172,13 @@ require $engine . '/agent/src/Promotion/Deploy.php';
 require $engine . '/agent/src/Adapter/Providers.php';
 putenv('DUO_MANIFESTS_DIR=' . __DIR__);
 $manifest = json_decode(getenv('DUO_PROBE_MANIFEST'), true);
+// __DIR__ is the parent's scratch manifests dir. The v6 wire proves shipped
+// membership against that library instead of trusting the snapshot, so publish
+// the frozen bytes before freezing them; the parent's shutdown glob removes it.
+file_put_contents(__DIR__ . '/' . $manifest['name'] . '.json', Duo\Canon::encode($manifest));
 $policy = Duo\Policy::from_snapshot([
-    'format' => 'duo-policy-snapshot/v4',
-    'adapter_sources' => ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []],
+    'format' => 'duo-policy-snapshot/v6',
+    'adapter_sources' => ['certificates' => [], 'format' => 'duo-adapter-sources/v2', 'out_of_tree' => []],
     'dispositions' => null,
     'site' => [
         'manifests' => [$manifest['name']],

@@ -526,9 +526,6 @@
                 "GRAMMAR_OK": {
                     "value_repr": "ok"
                 },
-                "LEGACY_FORMAT": {
-                    "value_repr": "duo-adapter-sources/v1"
-                },
                 "NOT_INSTALLED_PLUGIN_INACTIVE": {
                     "value_repr": "plugin_not_active"
                 },
@@ -1213,14 +1210,6 @@
                     ],
                     "return_type": "string",
                     "static": true,
-                    "visibility": "public"
-                },
-                "wire_format": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [],
-                    "return_type": "string",
-                    "static": false,
                     "visibility": "public"
                 }
             },

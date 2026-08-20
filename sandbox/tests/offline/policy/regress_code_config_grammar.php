@@ -21,10 +21,12 @@ require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/CodeConfigGrammar.php';
 require_once __DIR__ . '/manifest_fixtures.php';
+require_once __DIR__ . '/../../lib/frozen_policy.php';
 
 use Duo\Canon;
 use Duo\CodeConfigGrammar;
 use Duo\Policy;
+use DuoTest\FrozenPolicy;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -86,21 +88,11 @@ $assertThrows(
 );
 
 $frozenSnapshot = static function (array $manifests, ?array $code = null): array {
-    $site = [
-        'manifests' => array_map(static fn(array $manifest): string => (string) $manifest['name'], $manifests),
-        'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []],
-        'spec_version' => DUO_SPEC_VERSION,
-    ];
+    $site = FrozenPolicy::site($manifests, DUO_SPEC_VERSION);
     if ($code !== null) {
         $site['code'] = $code;
     }
-    return [
-        'adapter_sources' => ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []],
-        'dispositions' => null,
-        'format' => 'duo-policy-snapshot/v4',
-        'manifests' => $manifests,
-        'site' => $site,
-    ];
+    return FrozenPolicy::envelope($manifests, $site);
 };
 
 $snapshotManifests = [manifest_a(), manifest_b()];

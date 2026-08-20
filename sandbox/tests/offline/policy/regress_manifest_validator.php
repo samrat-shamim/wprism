@@ -18,10 +18,12 @@ require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/ManifestValidator.php';
 require_once __DIR__ . '/manifest_fixtures.php';
+require_once __DIR__ . '/../../lib/frozen_policy.php';
 
 use Duo\Canon;
 use Duo\ManifestValidator;
 use Duo\Policy;
+use DuoTest\FrozenPolicy;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -90,17 +92,7 @@ $check(
 );
 
 $frozenSnapshot = static function (array $manifests): array {
-    return [
-        'adapter_sources' => ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []],
-        'dispositions' => null,
-        'format' => 'duo-policy-snapshot/v4',
-        'manifests' => $manifests,
-        'site' => [
-            'manifests' => array_map(static fn(array $item): string => (string) $item['name'], $manifests),
-            'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []],
-            'spec_version' => DUO_SPEC_VERSION,
-        ],
-    ];
+    return FrozenPolicy::envelope($manifests, FrozenPolicy::site($manifests, DUO_SPEC_VERSION));
 };
 try {
     Policy::from_snapshot($frozenSnapshot([manifest_a(), manifest_b()]));

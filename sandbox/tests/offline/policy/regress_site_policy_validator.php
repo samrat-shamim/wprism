@@ -18,10 +18,12 @@ require_once __DIR__ . '/../../../../agent/src/Policy/SitePolicyValidator.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require_once __DIR__ . '/manifest_fixtures.php';
+require_once __DIR__ . '/../../lib/frozen_policy.php';
 
 use Duo\Canon;
 use Duo\Policy;
 use Duo\SitePolicyValidator;
+use DuoTest\FrozenPolicy;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -139,16 +141,10 @@ $check(
     'SitePolicyValidator owns all eight ordered site grammar calls'
 );
 
-$snapshot = [
-    'adapter_sources' => ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []],
-    'dispositions' => null,
-    'format' => 'duo-policy-snapshot/v4',
-    'manifests' => [manifest_a()],
-    'site' => $baseSite + [
-        'manifests' => ['a'],
-        'spec_version' => DUO_SPEC_VERSION,
-    ],
-];
+$snapshot = FrozenPolicy::envelope([manifest_a()], $baseSite + [
+    'manifests' => ['a'],
+    'spec_version' => DUO_SPEC_VERSION,
+]);
 try {
     Policy::from_snapshot($snapshot);
     $check(true, 'Policy::from_snapshot() reaches the extracted site validator');
