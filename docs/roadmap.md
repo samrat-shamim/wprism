@@ -3,7 +3,7 @@
 Owner lane: delegated to the team-lead session (2026-08-07). Rulings are posted on
 Linear issues as `OWNER RULING` comments; this document holds the direction those
 rulings serve. It changes only by owner commit. Honest boundary refreshed
-2026-08-14 (product-spec ratification; post-DUO-3310/3306/3450).
+2026-08-20 (evidence-seal retraction; post-teardown of DUO-3306/3450).
 
 ## Thesis
 
@@ -45,8 +45,8 @@ on a human's reviewed disposition and on conformance suites that are re-run
 rather than sealed — weaker in kind than a bound record, and honest about it.
 What remains unclaimed: no third-party production site has adopted, no field
 evidence yet shows a real target qualifying for the automatic verified profile,
-the site-level certification gate is still deferred (every application contract
-writes `attestation.state: unsigned`), and there is no public registry.
+contract-level attestation is still deferred (every application contract writes
+`attestation.state: unsigned`), and there is no public registry.
 
 ## Horizons
 
@@ -89,10 +89,12 @@ foundation under it. The sequence is:
 1. **Field grounding and adoptability** — H2's calibration and validation
    cohorts; close internal-ID, undocumented-command, raw-recovery, and
    unbounded-output leaks; freeze outcome, cost, and attention thresholds.
-2. **Site certification** — composed application contracts, a registered
-   certification gate and attestation, generated per-site capability
-   projections, semantic oracles, exact dependency invalidation, and the
-   production launch gate defined by the spec.
+2. **Site certification** — composed application contracts, contract-level
+   attestation signed under a named trust root (the adapter-level Ed25519
+   certificate ships and binds exact bytes; the contract still writes
+   `attestation.state: unsigned`), generated per-site capability projections,
+   semantic oracles, exact dependency invalidation, and the production launch
+   gate defined by the spec.
 3. **Safe scale** — more precise bounded requalification, fleet policy reuse
    without evidence or authority confusion, broader sandbox/effect contracts,
    and stronger conflict, plan, verification, refusal, and recovery UX.
@@ -121,10 +123,12 @@ launch gate passes.
   document (`docs/capabilities.md` and the README block); product prose never
   hand-claims support. Dispositions are reviewed inputs kept separate so a
   manifest cannot certify itself (DUO-3227; release-gate enforces byte-level
-  agreement between the generated prose and those inputs). Future
-  site-certified status is separate and exists only in a generated per-site
-  projection backed by reviewed declarations, current evidence, a registered
-  certification attestation, and environment bindings.
+  agreement between the generated prose and those inputs). Site-certified
+  status is separate and exists only in a generated per-site projection backed
+  by reviewed declarations, conformance suites re-run against that site's pair,
+  a certificate signed under a named trust root and pinned to exact adapter
+  bytes, and environment bindings. The adapter-level certificate ships (T6);
+  contract-level attestation is H3 work.
 - Capability *reduction* is a legitimate certification outcome: working but
   unprovable behavior is removed and refused, not shipped under-proven
   (DUO-3225: Woo product deletion → fail-closed boundary).
