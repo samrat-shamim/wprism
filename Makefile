@@ -1656,13 +1656,13 @@ regress-woocommerce-regen-engine:
 	php sandbox/tests/offline/ecommerce/regress_woocommerce_regen_engine.php
 
 regress-shortcode-refs:
-	bash sandbox/tests/offline/reference-scope/regress_shortcode_refs.sh
+	php sandbox/tests/offline/reference-scope/regress_shortcode_refs.php
 
 regress-term-meta:
 	php sandbox/tests/offline/capture/regress_term_meta.php
 
 regress-url-query-refs:
-	bash sandbox/tests/offline/reference-scope/regress_url_query_refs.sh
+	php sandbox/tests/offline/reference-scope/regress_url_query_refs.php
 
 regress-classification-batch:
 	php sandbox/tests/offline/cli/regress_classification_batch.php

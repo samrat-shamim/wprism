@@ -12,6 +12,18 @@
  *    classify_unscoped_ref()) a third time.
  *  - agent/src/Review/Lint.php's new unrewritten_url_query_ref finding.
  *
+ * This codec sits UNDER the block- and shortcode-ref codecs rather than
+ * beside them: Blocks.php:258 and :260 thread every innerHTML/innerContent
+ * chunk through the same Tokens::tokenize_text()/detokenize_text() facade
+ * this mechanism extends (Tokens.php:185 and :260 are where that facade
+ * delegates to UrlQueryReferenceCodec), and Lint::scan_tree() is the single
+ * entry point for all three scanners. A change on this side can therefore
+ * regress block refs or shortcode refs without Blocks.php or Shortcodes.php
+ * being touched. Both of those are their own wired offline leaves, so every
+ * corpus pass proves them anyway; re-running them from here bought no
+ * coverage and cost tools/affected.php its --changed selection for
+ * `regress-block-refs`, whose only remaining callers were the wrappers.
+ *
  * Runs the REAL, unmodified agent/src/{Canon,Policy,Tokens,Ledger,Pending,
  * Lint}.php against hand-built fixtures, plus agent/src/Capture/Capture.php
  * (class-definition only, for its zero-instance-dependency classify_

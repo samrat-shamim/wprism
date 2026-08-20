@@ -8,8 +8,8 @@
  * — extracted from wp-includes/shortcodes.php at the WordPress/wordpress-
  * develop GitHub mirror's `7.0.2` tag (commit 855551c4477bd5a0407221c57dae
  * 123c4163b434), the SAME pinned core version sandbox/tests/support/wp-
- * block-parser-stub.php already vendors from, so
- * sandbox/tests/offline/reference-scope/regress_shortcode_refs.sh can exercise the real engine
+ * block-parser-stub.php already vendors from, so sandbox/tests/offline/
+ * reference-scope/regress_shortcode_refs.php can exercise the real engine
  * code against WordPress's own real shortcode grammar without booting a
  * WordPress process or docker at all.
  *
