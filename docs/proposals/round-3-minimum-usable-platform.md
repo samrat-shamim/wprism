@@ -5,8 +5,23 @@ Companion to the layout move (same round, separate train). The product
 authority is [docs/product-spec.md](../product-spec.md); the normative wire
 contract is [spec/repo-format.md](../../spec/repo-format.md); the boundary
 doctrine is [docs/proposals/engine-adapter-boundary.md](engine-adapter-boundary.md).
-Nothing here creates a capability claim — the generated registry and the
-generated per-site projection remain the only sources of those.*
+Nothing here creates a capability claim — the adapter manifests plus the
+hand-reviewed `manifests/dispositions.json`, projected by
+`tools/capability-doc.php` into [docs/capabilities.md](../capabilities.md),
+remain the only source of those, and `duo capabilities` is how the same
+question is answered against a live target.*
+
+> **Read this proposal as a round-3 record, not as current mechanism.** It was
+> written on 2026-08-17 against the certification-evidence apparatus that the
+> teardown train (#477–#480) then removed. Two things moved under it and are
+> corrected inline below: `CapabilityRegistry` is now
+> `AdapterRegistry` (`agent/src/Adapter/AdapterRegistry.php`, emitting
+> `duo-capability-report/v1`) with the target probe split out into
+> `TargetProbe::probe_target()`, and "the generated registry" as a source of
+> claims is now the manifests + `manifests/dispositions.json` pair projected
+> into the generated capability document. §7's certification-train process is
+> retired outright and is bracketed there. Everything else — §0's scope, the
+> §1 vocabulary tables, §2–§6's mechanism and acceptance — shipped and stands.
 
 ## 0. What MUP is, and what it deliberately is not
 
@@ -88,24 +103,44 @@ otherwise. That is stated in the output, not hidden.
 
 ### 1.3 Technical readiness
 
-Computed from one `CapabilityRegistry::report()` call for the exact
+Computed from one `AdapterRegistry::report()` call (named
+`CapabilityRegistry::report()` when this was written) for the exact
 `operation` × `surface` × `revision` × target probe.
 
 | Registry evidence | Projected `readiness` |
 |---|---|
 | `verdict.status == certified` and no re-checkable target condition applies | `Ready` |
-| `verdict.status == certified` and at least one condition is re-evaluated at the mutation gate (`plugin_version_mismatch`, `plugin_not_active`, `wordpress_version_mismatch`, `php_version_mismatch`, `database_version_mismatch`, `theme_version_mismatch` re-run against the live target; any `env_missing` plan row) | `Ready with conditions` (conditions listed by code) |
-| blocker `evidence_not_current` or `revision_not_certified` | `Requalification required` |
-| claim `status == experimental`, or `evidence.status == candidate` | `Experimental` |
-| blocker `adapter_source_uncertified`, `missing_registry_entry` (out-of-tree), `surface_not_registered` | `Not qualified` |
-| claim `status` in {`excluded`, `unsupported`}, blocker `surface_explicitly_unsupported`, `multisite_unsupported`, or the surface named in `deletion_semantics.unsupported` for a delete operation | `Unsupported` |
+| `verdict.status == certified` and at least one condition is re-evaluated at the mutation gate (`plugin_version_mismatch`, `plugin_not_active` re-run against the live target; any `env_missing` plan row) | `Ready with conditions` (conditions listed by code) |
+| blocker `evidence_not_current` | `Requalification required` |
+| claim `status == experimental` | `Experimental` |
+| blocker `adapter_source_uncertified`, `missing_disposition_entry` (out-of-tree), `surface_not_registered` | `Not qualified` |
+| claim `status` in {`excluded`, `unsupported`}, blocker `surface_explicitly_unsupported` or `deletion_unsupported`, or the surface named in `deletion_semantics.unsupported` for a delete operation | `Unsupported` |
 | a `Providers::diagnose()` negotiation problem (`missing_plugin`, `inactive_plugin`, `missing_plugin_provider`, `missing_capability`, `undeclared_provider`, `provider_code_unavailable`, `outside_version_range`, `identity_mismatch`, `contract_shape`, …) | `Ready with conditions` whose condition is **unmet** — blocks, and names the negotiation code |
+
+*Six codes in the rows above were written against the generated evidence record
+and left with it (#477–#480); the table now names what the shipped vocabulary
+actually holds, and `cli/src/Contract/ProjectionVocabulary.php:216-245` carries
+the reason for each removal.* `wordpress_version_mismatch`,
+`php_version_mismatch`, `database_version_mismatch` and `theme_version_mismatch`
+were measured platform axes no document reports any more — `target_reasons()`
+raises `plugin_version_mismatch` and `plugin_not_active` and nothing else
+(`agent/src/Adapter/AdapterRegistry.php:559-579`). `revision_not_certified` and
+`profile_evidence_not_current` left `BLOCKERS_REQUALIFICATION`, which now holds
+exactly `evidence_not_current`, synthesized by
+`ContractProjection::withStaleEvidence()`. `multisite_unsupported` left the
+`Unsupported` row because topology is judged once, by `AssessCommand::assess()`
+refusing the whole assessment, not per surface. `missing_registry_entry` is now
+`missing_disposition_entry`. The `Experimental` row lost its second route for a
+structural reason, not a cosmetic one: a claim's evidence is the citation its
+reviewed disposition carries verbatim, and a citation has no status that could
+be `candidate` (`sandbox/tests/offline/assess-contract/regress_assess_projection.php:207-213`).
+That suite is the gate on this table, one fact vector per cell.
 
 ### 1.4 Certification provenance
 
 | Source fact | Projected `certification_provenance` |
 |---|---|
-| `source.source == shipped` **and** claim `status == certified` **and** `evidence.status == current` | `Platform-certified` |
+| `source.source == shipped` **and** claim `status == certified` | `Platform-certified`. The `evidence.status == current` conjunct this row also required is gone: a shipped claim now carries its authored citation with no status at all, so keeping the conjunct would report every platform-reviewed adapter as `Uncertified` (`cli/src/Contract/ProjectionVocabulary.php:788-794`, `:822`) |
 | a site adapter with signed evidence **and** an explicit repository pin binding source `site` + certificate digest | `Site-certified` — **emitted since round-3 T6 §3.2** (this row read "MUP never emits this" while no operator could complete a certification; `duo adapter certify` is that path). The projection also exposes `principal` and `trust_root`; the contract's attestation placeholder stays `unsigned` |
 | everything else | `Uncertified` |
 
@@ -161,7 +196,7 @@ returning a document with its own `format` key, canonicalised through
 
 Composes, in one run, with no mutation: `Doctor::run()` → adopt/init probe
 (`BootstrapEligibility` + `wp duo init --dry-run` proposal read) →
-`wp duo assess-inventory` (new, §3.4) → `CapabilityRegistry::report()` per
+`wp duo assess-inventory` (new, §3.4) → `AdapterRegistry::report()` per
 requested operation → `Coverage::report()` → `Pending::scan_read_only()` →
 `AdapterCatalog::run()` + `wp duo adapter-survey` (the third, plugin-bundled
 adapter source is only reachable on the target).
@@ -500,6 +535,17 @@ pretty, LF) so they diff and merge like the rest of `state/`.
 
 ### 3.2 `contract.json`
 
+*Shipped as **`duo-application-contract/v2`** — the version bumped after this was
+written. v2 narrows `evidence_pins` to the two facts that still exist (the
+content address of the reviewed dispositions a verdict was read from, and the
+proposing host's own copy of that file); v1 additionally pinned a per-subject
+`bundles[]` and two generator-input hashes belonging to the generated capability
+registry and its evidence record, and pins nothing can re-observe are worse than
+no pins. `ApplicationContract` refuses a v1 document by name rather than
+migrating it (`cli/src/Contract/ApplicationContract.php:17-31`, `:370-390`). The
+example below carries the v2 `evidence_pins` shape; the `format` string is left
+at `v1` as the proposal wrote it.*
+
 ```json
 {
   "format": "duo-application-contract/v1",
@@ -543,13 +589,7 @@ pretty, LF) so they diff and merge like the rest of `state/`.
   },
   "evidence_pins": {
     "registry_sha256": "sha256:8fa1…",
-    "generated_from": {"dispositions_sha256": "sha256:9476…", "evidence_sha256": "sha256:27bd…",
-                       "compatibility_sha256": "sha256:8890…"},
-    "bundles": [
-      {"subject": "manifests.woocommerce", "bundle_digest": "sha256:7345…",
-       "bundle_schema": "duo-subject-certification-bundle/v1", "status": "current",
-       "git_revision": "ca94e365…", "expires_with": ["woocommerce", "wordpress", "php", "database"]}
-    ]
+    "generated_from": {"dispositions_sha256": "sha256:9476…"}
   },
   "attestation": {
     "format": "duo-contract-attestation/v1",
@@ -681,7 +721,7 @@ One new agent command only, to keep the drop-in's re-cert surface minimal:
 
 | File | Class | Responsibility |
 |---|---|---|
-| `AssessInventory.php` | `\Duo\AssessInventory` | one read-only pass returning `duo-assess-inventory/v1`: stack probe (`CapabilityRegistry::probe_target()`), active plugins/themes, `Coverage::report()`, `Pending::scan_read_only()`, policy surface groups, and the adapter-survey source block. Names and counts only — no option values, no row contents, exactly `Coverage`'s existing discipline. |
+| `AssessInventory.php` | `\Duo\AssessInventory` | one read-only pass returning `duo-assess-inventory/v1`: stack probe (`TargetProbe::probe_target()`, `agent/src/Adapter/TargetProbe.php:22`), active plugins/themes, `Coverage::report()`, `Pending::scan_read_only()`, policy surface groups, and the adapter-survey source block. Names and counts only — no option values, no row contents, exactly `Coverage`'s existing discipline. |
 
 Registered on `\Duo\Cli` (`agent/src/Command/Cli.php` after the move) as
 `@subcommand assess-inventory`. It calls existing classes; it introduces no new
@@ -808,6 +848,27 @@ recovery) and #10 (recovery claims are literal) executed as a gate.
 ---
 
 ## 7. Sequencing into certification trains
+
+> **RETIRED PROCESS — kept as the record of how round 3 was sequenced.** The
+> certification-train discipline this section defines was the scheduling
+> consequence of the certification-evidence apparatus, and the teardown train
+> (#477–#480) removed the apparatus. Nothing in the paragraph below is runnable
+> today: there is no `tools/cert-impact.php`, no `make
+> certify-subjects-parallel`, no `make capability-registry-generate`, no
+> `scripts/capability-registry.php` and no
+> `sandbox/bin/subject-certification-bundle.php` — verify with `ls`; none of the
+> five exist. `make release-gate` survives, but it is now exactly
+> `capability-doc.php --check` then `classmap-generate.php --check`.
+>
+> **What replaced it.** There is no per-train certification round and no
+> closure to ask a tool about. The merge gate is unconditional and the same for
+> every change: `make regress-offline-all`, whose `Makefile`-asserted
+> `regress-offline-all: N offline suites green` line is the count of record
+> (AGENTS.md, "The loop"; non-negotiable 4). Live evidence is scoped per change
+> to the minimal reasonably-safe set rather than paid as a fixed per-train toll.
+> The T1–T4 sub-sections below are kept because they are the record of what each
+> train actually contained and how it exited; read their exit criteria as
+> history, and the `Makefile` as the gate.
 
 Every train touching `agent/`, `cli/`, `sandbox/bin/`, or `Makefile` pays one
 round (docker, ~45 min: regenerate registry in candidate state →
