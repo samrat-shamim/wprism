@@ -8,6 +8,7 @@ require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Repository/CanonicalSurfaces.php';
 require_once __DIR__ . '/ApplyPlanner.php';
 require_once __DIR__ . '/ApplyPlanBuilder.php';
+require_once __DIR__ . '/IncompleteApplyMarker.php';
 require_once __DIR__ . '/ApplyFieldMaterializer.php';
 require_once __DIR__ . '/MenuMaterializer.php';
 require_once __DIR__ . '/UserMetaMaterializer.php';
@@ -1285,8 +1286,14 @@ final class ApplyRequestCoordinator {
         // required rebuilds AND the post-apply canonical verification gate
         // succeed. It is failure state, never convergence state:
         // applied_revision and base hashes still advance afterward.
+        //
+        // DUO-3489: the value carries the identities this run classified as
+        // environment drift and therefore will NOT write (rebuild_work()
+        // excludes `drift` outside a scoped promotion). A bare marker cannot
+        // tell a row this run wrote from a row it deliberately preserved, and
+        // the next plan's retry widening clobbered the second kind silently.
         if (!$scoped) {
-            Ledger::kv_set('apply_in_progress', '1');
+            Ledger::kv_set('apply_in_progress', IncompleteApplyMarker::encode($plan['drift']));
         }
         $authored = $this->services->authored_transaction_executor()->execute(
             new AuthoredTransactionRequest(
@@ -1480,13 +1487,19 @@ final class ApplyRequestCoordinator {
         // so its uuid must now be absent. Any mismatch throws before the
         // ledger transaction below, retaining apply_in_progress and every
         // prior base hash/revision for a truthful retry.
+        //
+        // DUO-3489: the gate proves the WHOLE compiled tree, while this run
+        // deliberately did not write `drift` — so a drifted target makes this
+        // failure structural, not incidental. Hand the preserved rows over so
+        // the refusal names the cause instead of leaving the operator with a
+        // subprocess exit code.
         $verification = (new ConvergenceVerifier(
             $this->repo,
             $this->policy,
             $this->scopedWorkflow->scopeContract,
             $this->scopedWorkflow->observation,
             $this->scopedWorkflow->session
-        ))->verify($opts, $compiled);
+        ))->verify($opts, $compiled, $plan['drift']);
 
         // ---- ledger bookkeeping (one atomic convergence boundary) ----
         // The retry marker, every base hash, deletes, and applied revision

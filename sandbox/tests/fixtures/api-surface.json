@@ -1,5 +1,5 @@
 {
-    "class_count": 337,
+    "class_count": 338,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -2507,6 +2507,31 @@
                         }
                     ],
                     "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "project_incomplete_apply_retry": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "plan",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "marker",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": true,
                     "visibility": "public"
                 },
@@ -9561,6 +9586,14 @@
                             "name": "compiled",
                             "type": "Duo\\CompiledRepository",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "preservedDrift",
+                            "type": "array",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
@@ -12670,6 +12703,56 @@
                         }
                     ],
                     "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\IncompleteApplyMarker": {
+            "abstract": false,
+            "constants": {
+                "FORMAT": {
+                    "value_repr": "duo-apply-in-progress/v1"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "encode": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "preservedDrift",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "preserved_drift": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "marker",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
                     "static": true,
                     "visibility": "public"
                 }

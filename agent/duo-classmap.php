@@ -91,6 +91,7 @@ return [
     'Duo\\IdentityBackup' => 'src/Repository/IdentityBackup.php',
     'Duo\\IdentityNotes' => 'src/Repository/IdentityNotes.php',
     'Duo\\IdentityTokenCodec' => 'src/Kernel/IdentityTokenCodec.php',
+    'Duo\\IncompleteApplyMarker' => 'src/Apply/IncompleteApplyMarker.php',
     'Duo\\Init' => 'src/Init/Init.php',
     'Duo\\InitAttemptJournal' => 'src/Init/InitAttemptJournal.php',
     'Duo\\InitAttemptRecord' => 'src/Init/InitAttemptJournal.php',

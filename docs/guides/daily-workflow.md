@@ -274,6 +274,16 @@ through, and both are still "not safe to promote" — because they mean this
 plan's own comparison is already stale, or the environment is running with a
 genuine gap.
 
+Ordinary drift is worth one more sentence, because "proceeds through" means
+apply's *pre-mutation* gates, not the whole run. Apply never overwrites an
+entity that drifted out of band; it writes the rest of the plan, leaves those
+rows exactly as the environment has them, and then fails the mandatory
+post-apply convergence gate, which proves the whole compiled tree. That
+refusal names the preserved entities, says plainly that the target was
+mutated, and points at `duo capture`. Nothing is lost and nothing is silently
+overwritten — but the promotion did not complete, and a retry will keep failing
+the same way until the drift is captured.
+
 `duo status` parses and reformats; it never prints raw JSON. For that, and for
 scripting, use `duo plan <env> --format=json`.
 

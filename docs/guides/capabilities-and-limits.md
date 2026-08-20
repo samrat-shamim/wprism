@@ -478,11 +478,11 @@ from the same list:
 | `code_mismatch` | Installed code disagrees with what state declares active. | Install/vendor the code, deploy first, or `--force-code-mismatch`. |
 | `code_drift` | Managed code changed here since Duo's last trusted observation. | Re-deploy to accept the new baseline, restore the recorded version yourself, or `--force-code-drift`. |
 | `code_revision_stale` | The artifact's code payload never completed stage → lifecycle → finalize. | `duo deploy <env>`. **Non-forceable** — this is the ordering invariant, not a judgment call. |
-| `incomplete_apply` | A prior promotion failed before required rebuild/convergence finished. | Re-run apply; the retry clears the marker. |
+| `incomplete_apply` | A prior promotion failed before required rebuild/convergence finished. | Re-run apply; the retry clears the marker. If the interrupted apply preserved environment drift, its row says so and names how many: the retry will *not* overwrite those entities, so `duo capture` first — otherwise the retry fails the same convergence gate again. |
 | `incomplete_lifecycle` | A hook window failed after its durable pre-hook boundary, so a hook may already have committed state. | Restore the exact pre-lifecycle database checkpoint. **Non-forceable.** |
 | `regen_pending` | A derived table with a hard per-entity availability dependency failed post-apply verification. | Nothing: the *next* `duo apply` retries it and either clears it or fails loudly. |
 | `env_missing` (required) | A manifest-declared `class: "env"` option is unset here. | `duo env-set <env> --name=<name> --stdin`. |
-| ordinary `drift` | The environment changed outside Duo. | `duo capture` first — this plan's comparison is already stale. |
+| ordinary `drift` | The environment changed outside Duo. | `duo capture` first — this plan's comparison is already stale. Apply does not refuse *before* mutating on drift: it writes the rest of the plan, deliberately leaves the drifted entities alone, and then fails the post-apply convergence gate, which proves the whole compiled tree. That refusal names the preserved entities and this remedy, and it retains the `incomplete_apply` marker. |
 | `adapter_dispositions` | A pinned manifest is experimental, excluded, uncovered by any reviewed entry, installed out-of-tree and uncertified, signed but not exactly pinned, or outside its reviewed plugin version window. Each row carries the capability report's own code and remediation. | Pin a certified manifest and an in-range plugin version, sign and pin the site adapter (`duo adapter certify … --pin`), or accept the boundary and do not promote. |
 
 If an apply fails after you explicitly authorized a conflict override, its
@@ -493,7 +493,12 @@ inspect the private failure and apply recovery state before retrying.
 Two of those rows are the ones that surprise people. `regen_pending` and
 ordinary `drift` are cases `duo apply` does **not** refuse on — but `duo status`
 still reports them as not clean, because it is a readiness probe rather than a
-prediction of apply's preconditions. An *optional* (`required: false`)
+prediction of apply's preconditions. Read "does not refuse on" precisely: it is
+a statement about apply's *pre-mutation* gates, not a promise that the run
+succeeds. Applying over ordinary drift writes everything else, preserves the
+drifted entities, and then fails the post-apply convergence gate — which is the
+readiness probe being right, one step later and after a mutation. An *optional*
+(`required: false`)
 `env_missing` entry is the mirror image: it is listed for visibility and never
 flips the exit code by itself, because it is plugin-internal bookkeeping the
 plugin populates on its own.

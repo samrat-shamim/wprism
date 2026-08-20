@@ -1799,6 +1799,22 @@ final class Cli {
                 $opts
             );
         } catch (\Throwable $t) {
+            // DUO-3489: this command's ONLY --format=json caller is apply's own
+            // in-process convergence gate (ConvergenceVerifier.php:97-107), and
+            // that caller reads the diagnosis from STDERR
+            // (ConvergenceVerifier::subprocess_diagnosis()). halt_json_failure()
+            // publishes the value-free envelope on STDOUT and halts, so since
+            // DUO-3399 (aa58959) the failed-invariant sentence
+            // spec/repo-format.md:1235 promises reached nobody: a live drifted
+            // apply refused with "post-apply convergence verification
+            // subprocess failed" and named nothing. The envelope on stdout stays
+            // exactly as it is — the machine contract is unchanged and still
+            // value-free; the operator sentence goes back on stderr, where the
+            // human mode below has always put it, for a command whose sole
+            // machine caller is this same product.
+            if (isset($assoc['json']) || ($assoc['format'] ?? '') === 'json') {
+                WP_CLI::error($t->getMessage(), false);
+            }
             self::halt_json_failure($t, $assoc, 'verify-canonical');
             WP_CLI::error($t->getMessage());
         }

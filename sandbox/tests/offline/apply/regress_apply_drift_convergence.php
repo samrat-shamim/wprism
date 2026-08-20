@@ -1,0 +1,434 @@
+<?php
+/**
+ * DUO-3489: what an apply over a drifted target actually tells the operator,
+ * and what its retry does to the drift it preserved.
+ *
+ * Measured live (pair.sh, source 06a7c6f): two entities drifted out of band on
+ * a converged target, `duo plan prod` correctly reported `drift=2`, and then
+ *
+ *   run 1: Error: duo: post-apply convergence verification subprocess failed;
+ *          promotion metadata was not committed        <- names nothing
+ *   run 2: Success: applied 14 entities (canary clean), plan `drift:0`,
+ *          `incomplete_apply:1`                        <- the drift is gone
+ *
+ * Two independent defects produced that pair, and this suite pins both through
+ * the product path.
+ *
+ * (1) The gate cannot say why. ConvergenceVerifier::verify() always launches
+ *     `wp duo verify-canonical --format=json`, and DUO-3399 (aa58959) routed
+ *     that command through Cli::halt_json_failure(), which publishes the
+ *     value-free envelope with WP_CLI::line() and WP_CLI::halt(1). STDERR —
+ *     the only channel verify() read — was empty, so every convergence failure
+ *     collapsed into one constant sentence, in direct contradiction of
+ *     spec/repo-format.md:1235 ("A mismatch names the failed invariant").
+ *
+ * (2) The retry silently overwrites preserved drift. A normal apply leaves
+ *     environment-only drift for capture (ApplyPlanner::rebuild_work():624-630
+ *     excludes `drift` from the write set), but DUO-3206's retry widening
+ *     folded the whole `drift` bucket into `update` on the next run because
+ *     the marker was the constant '1' and could not tell "a row we wrote,
+ *     whose duo_state is stale" from "a row we deliberately did not write".
+ *
+ * Coverage is the real product code in both cases: the shipped
+ * ConvergenceVerifier driven through a WP_CLI stub reproducing the exact live
+ * subprocess shape, the shipped Cli::verify_canonical() handler, and the
+ * shipped pure planner projection that ApplyPlanBuilder now delegates to.
+ */
+declare(strict_types=1);
+
+// Bracketed namespaces throughout: the `Duo\Apply` backend stub below must be
+// declared before Cli.php is required, and a stub for a class the shipped
+// require graph never loads is the established idiom
+// (sandbox/tests/offline/cli/regress_cli_json_refusals.php:47-99).
+namespace {
+
+// From offline/apply/: two hops to the corpus root, four to the repo root.
+require_once __DIR__ . '/../../lib/check.php';
+require_once __DIR__ . '/../../lib/frozen_policy.php';
+
+/** WP_CLI::halt() and WP_CLI::error() both end the process live; here they unwind. */
+final class DuoConvergenceHalt extends RuntimeException {}
+
+final class WP_CLI {
+    /** @var list<string> stdout, as WP_CLI::line() writes it */
+    public static array $lines = [];
+    /** @var list<string> stderr, as WP_CLI::error() writes it */
+    public static array $errors = [];
+    /** @var object|null the canned `wp duo verify-canonical` ProcessRun */
+    public static ?object $result = null;
+    /** @var list<string> every launched subcommand */
+    public static array $commands = [];
+
+    public static function add_command($name, $class): void {}
+
+    public static function runcommand($command, $options) {
+        self::$commands[] = (string) $command;
+        return self::$result;
+    }
+
+    public static function line($line): void {
+        self::$lines[] = (string) $line;
+    }
+
+    public static function halt($status): void {
+        throw new DuoConvergenceHalt('halt:' . (int) $status);
+    }
+
+    public static function error($message, $exit = true): void {
+        self::$errors[] = (string) $message;
+        if ($exit !== false) {
+            throw new DuoConvergenceHalt('error');
+        }
+    }
+
+    public static function success($message): void {}
+    public static function warning($message): void {}
+
+    public static function reset(): void {
+        self::$lines = [];
+        self::$errors = [];
+        self::$commands = [];
+    }
+}
+
+require_once __DIR__ . '/../../../../agent/src/Kernel/Secrets.php';
+require_once __DIR__ . '/../../../../agent/src/Kernel/CommandRefusal.php';
+require_once __DIR__ . '/../../../../agent/src/Review/ConvergenceVerifier.php';
+require_once __DIR__ . '/../../../../agent/src/Repository/CompiledArtifact.php';
+require_once __DIR__ . '/../../../../agent/src/Apply/ApplyPlanner.php';
+require_once __DIR__ . '/../../../../agent/src/Apply/IncompleteApplyMarker.php';
+
+}
+
+namespace Duo {
+    /**
+     * Cli::verify_canonical()'s backend, stubbed for one purpose only: make
+     * the real handler cross its own catch boundary with the exact Throwable
+     * ConvergenceVerifier::verify_local() raises on a non-converged tree.
+     * Nothing about the formatting, redaction, channel choice or exit
+     * behaviour under test is stubbed.
+     */
+    final class Apply {
+        public static ?\Throwable $verifyFailure = null;
+
+        public static function verify_canonical($repo, array $options): array {
+            if (self::$verifyFailure !== null) {
+                throw self::$verifyFailure;
+            }
+            return ['verifier' => 'canonical-recapture/v1', 'result' => 'pass', 'live_entities' => 0, 'deletions' => 0];
+        }
+    }
+}
+
+namespace {
+
+require_once __DIR__ . '/../../../../agent/src/Command/Cli.php';
+
+use Duo\Canon;
+use Duo\Cli;
+use Duo\CompiledRepository;
+use Duo\ConvergenceVerifier;
+use Duo\IncompleteApplyMarker;
+use Duo\Policy;
+use DuoTest\FrozenPolicy;
+
+// ---------------------------------------------------------------- fixtures
+
+$policy = Policy::from_snapshot(FrozenPolicy::envelope([], FrozenPolicy::site([])));
+$compiled = CompiledRepository::create(['tree' => []]);
+
+/** The two entities the live repro drifted, in plan `drift` row shape. */
+$driftRows = [
+    ['uuid' => 'options/core', 'type' => 'option', 'path' => 'state/options/core.json'],
+    [
+        'uuid' => '8f14e45f-ceea-467a-9a3e-1b2c3d4e5f60',
+        'type' => 'post',
+        'path' => 'state/posts/page/8f14e45f--team.md',
+    ],
+];
+
+$processRun = static fn(string $stdout, string $stderr, int $code): object => (object) [
+    'stdout' => $stdout,
+    'stderr' => $stderr,
+    'return_code' => $code,
+];
+
+/** The redacted envelope halt_json_failure() publishes for an unclassified verify-canonical throwable. */
+$redactedEnvelope = json_encode([
+    'format' => 'duo-command-refusal/v1',
+    'ok' => false,
+    'command' => 'verify-canonical',
+    'error' => 'verify_canonical_failed',
+    'reason_code' => 'verify_canonical_failed',
+    'message' => 'verify-canonical refused at an unclassified safety gate',
+    'remediation' => 'inspect the parent apply frozen policy snapshot, compiled artifact, and expected artifact hash, then rerun verification from that exact apply',
+    'details_redacted' => true,
+], JSON_UNESCAPED_SLASHES);
+
+/** verify_local()'s own operator sentence for the live repro's drifted page. */
+$convergenceProse = "duo: post-apply convergence verification failed; promotion metadata was not committed:\n"
+    . '  - post state/posts/page/8f14e45f--team.md (8f14e45f-ceea-467a-9a3e-1b2c3d4e5f60): '
+    . 'canonical hash mismatch (expected ' . str_repeat('a', 64) . ', observed ' . str_repeat('b', 64) . ')';
+
+$verifyFailureMessage = static function (array $preservedDrift) use ($policy, $compiled): string {
+    try {
+        (new ConvergenceVerifier('/siterepo', $policy))->verify([], $compiled, $preservedDrift);
+    } catch (\Throwable $failure) {
+        return $failure->getMessage();
+    }
+    return '';
+};
+
+// ---- 1. The live run-1 shape: rc=1, EMPTY stderr, redacted envelope on
+// stdout. Before the fix this produced one constant sentence naming nothing.
+WP_CLI::reset();
+WP_CLI::$result = $processRun($redactedEnvelope, '', 1);
+$namelessCase = $verifyFailureMessage([]);
+
+duo_check(
+    $namelessCase !== ''
+        && $namelessCase !== 'duo: post-apply convergence verification subprocess failed; promotion metadata was not committed',
+    'a halted --format=json verifier subprocess no longer collapses into the constant "subprocess failed" sentence'
+);
+duo_check(
+    str_contains($namelessCase, 'verify_canonical_failed'),
+    'the refusal names the subprocess reason code the envelope carried'
+);
+duo_check(
+    str_contains($namelessCase, 'remedy: inspect the parent apply frozen policy snapshot'),
+    'the refusal carries the subprocess remediation instead of discarding the envelope'
+);
+duo_check(
+    str_contains($namelessCase, '.duo/refusals/'),
+    'a redacted envelope points the operator at the private evidence record that holds the detail'
+);
+
+// ---- 2. Head 2: every non-scoped convergence failure states whether the
+// target changed. verify() has exactly one caller — ApplyRequestCoordinator's
+// post-rebuild gate — so this is a fact, not a hedge.
+foreach ([
+    'redacted envelope' => $processRun($redactedEnvelope, '', 1),
+    'restored operator prose' => $processRun('', "Error: $convergenceProse", 1),
+    'malformed success evidence' => $processRun('{"verifier":', '', 0),
+    'invalid success evidence' => $processRun('{"verifier":"other/v1","result":"pass"}', '', 0),
+] as $label => $canned) {
+    WP_CLI::reset();
+    WP_CLI::$result = $canned;
+    duo_check(
+        str_contains($verifyFailureMessage([]), 'The target WAS mutated'),
+        "the $label failure answers \"did the target change?\" instead of leaving it to be inferred"
+    );
+}
+
+// ---- 3. The restored stderr channel carries verify_local()'s own findings
+// through verbatim — the bytes certify_merge.sh and spike_b_merge.sh assert.
+WP_CLI::reset();
+WP_CLI::$result = $processRun('', "Error: $convergenceProse", 1);
+$proseCase = $verifyFailureMessage($driftRows);
+duo_check(
+    str_contains($proseCase, 'post-apply convergence verification failed')
+        && str_contains($proseCase, 'canonical hash mismatch')
+        && str_contains($proseCase, 'state/posts/page/8f14e45f--team.md'),
+    'operator prose on stderr survives verbatim: the gate name, the failed invariant, and the entity'
+);
+
+// ---- 4. Head 1's structural cause: this apply preserved drift, the gate
+// proves the whole tree, so the failure is guaranteed. Name it and name the
+// documented remedy.
+duo_check(
+    str_contains($proseCase, 'preserved 2 environment-drifted entities'),
+    'the refusal names how many entities this apply deliberately did not overwrite'
+);
+foreach ($driftRows as $row) {
+    duo_check(
+        str_contains($proseCase, $row['path']),
+        "the refusal names the preserved entity {$row['path']}"
+    );
+}
+duo_check(
+    str_contains($proseCase, 'Run `duo capture`'),
+    'the refusal names capture-first, the remedy docs/guides/capabilities-and-limits.md already documents for ordinary drift'
+);
+duo_check(
+    !str_contains($verifyFailureMessage([]), 'environment-drifted'),
+    'an apply with no preserved drift makes no drift claim — the cause is reported, never assumed'
+);
+
+// ---- 5. The producer side: verify-canonical in --format=json must put its
+// operator sentence on STDERR (where its only machine caller reads it) while
+// the value-free envelope stays the one value on STDOUT.
+$cli = new Cli();
+WP_CLI::reset();
+\Duo\Apply::$verifyFailure = new RuntimeException($convergenceProse);
+$halted = false;
+try {
+    $cli->verify_canonical([], [
+        'repo' => '/siterepo',
+        'expected-artifact' => str_repeat('a', 64),
+        'compiled' => '/tmp/duo-artifact.json',
+        'policy-snapshot' => '/tmp/duo-policy.json',
+        'format' => 'json',
+    ]);
+} catch (DuoConvergenceHalt $stop) {
+    $halted = true;
+}
+duo_check($halted, 'a refused --format=json verify-canonical still halts non-zero');
+duo_check(
+    in_array($convergenceProse, WP_CLI::$errors, true),
+    'the failed-invariant sentence reaches STDERR, the channel apply\'s own verifier reads'
+);
+duo_check_same(1, count(WP_CLI::$lines), 'STDOUT still carries exactly one value: the refusal envelope');
+$envelope = json_decode(WP_CLI::$lines[0] ?? '', true);
+duo_check_same(
+    'duo-command-refusal/v1',
+    $envelope['format'] ?? null,
+    'the machine envelope on STDOUT is unchanged'
+);
+duo_check(
+    !str_contains(WP_CLI::$lines[0] ?? '', 'state/posts/page/'),
+    'the JSON envelope stays value-free: no repository path crosses into the machine contract'
+);
+
+// Human mode is untouched: one sentence on stderr, nothing on stdout.
+WP_CLI::reset();
+try {
+    $cli->verify_canonical([], [
+        'repo' => '/siterepo',
+        'expected-artifact' => str_repeat('a', 64),
+        'compiled' => '/tmp/duo-artifact.json',
+        'policy-snapshot' => '/tmp/duo-policy.json',
+    ]);
+} catch (DuoConvergenceHalt $stop) {
+}
+duo_check_same([], WP_CLI::$lines, 'human-mode verify-canonical writes nothing to STDOUT on refusal');
+duo_check_same([$convergenceProse], WP_CLI::$errors, 'human-mode verify-canonical keeps its exact prior sentence');
+\Duo\Apply::$verifyFailure = null;
+
+// ---------------------------------------------------------------- head 3
+
+// ---- 6. The marker carries what one bit could not.
+$encoded = IncompleteApplyMarker::encode($driftRows);
+$decoded = IncompleteApplyMarker::preserved_drift($encoded);
+duo_check_same(
+    ['8f14e45f-ceea-467a-9a3e-1b2c3d4e5f60', 'options/core'],
+    array_keys($decoded ?? []),
+    'the marker records every preserved-drift identity, in a stable order'
+);
+duo_check_same(
+    'state/posts/page/8f14e45f--team.md',
+    $decoded['8f14e45f-ceea-467a-9a3e-1b2c3d4e5f60']['path'] ?? null,
+    'each recorded identity keeps the path plan and apply report it by'
+);
+duo_check_same($encoded, IncompleteApplyMarker::encode(array_reverse($driftRows)), 'the marker value is order-independent');
+duo_check_same(null, IncompleteApplyMarker::preserved_drift('1'), "DUO-3206's bare '1' marker records nothing");
+duo_check_same(null, IncompleteApplyMarker::preserved_drift('{not json'), 'an unreadable marker records nothing and does not throw');
+duo_check_same(null, IncompleteApplyMarker::preserved_drift(null), 'no marker records nothing');
+duo_check_same(
+    [],
+    IncompleteApplyMarker::preserved_drift(IncompleteApplyMarker::encode([])),
+    'an apply that preserved no drift still writes a marker, with an empty record'
+);
+
+// ---- 7. The retry projection. The plan below is the live repro's shape:
+// two preserved-drift rows, one row the failed run wrote (now `unchanged`),
+// one conflict, and one drift row that appeared only after the failure.
+$freshDrift = ['uuid' => 'c0ffee00-0000-4000-8000-000000000001', 'type' => 'term', 'path' => 'state/terms/category/c0ffee00--news.json'];
+$basePlan = [
+    'create' => [],
+    'update' => [],
+    'unchanged' => [['uuid' => 'written-after-commit', 'type' => 'post', 'path' => 'state/posts/page/written.md']],
+    'drift' => array_merge($driftRows, [$freshDrift]),
+    'conflict' => [['uuid' => 'both-changed', 'type' => 'post', 'path' => 'state/posts/page/both.md']],
+    'incomplete_apply' => [],
+];
+
+$retried = \Duo\ApplyPlanner::project_incomplete_apply_retry($basePlan, $encoded);
+duo_check_same(
+    ['options/core', '8f14e45f-ceea-467a-9a3e-1b2c3d4e5f60'],
+    array_column($retried['drift'], 'uuid'),
+    'a retry keeps every identity the interrupted apply recorded as preserved drift in `drift`, in plan order'
+);
+duo_check_same(
+    ['written-after-commit', $freshDrift['uuid'], 'both-changed'],
+    array_column($retried['update'], 'uuid'),
+    'the retry still widens unchanged/conflict and drift the interrupted run never preserved, in DUO-3206 order'
+);
+duo_check(
+    array_reduce($retried['update'], static fn(bool $all, array $r): bool => $all && ($r['retry'] ?? false) === true, true),
+    'every widened row still carries retry:true for the provider retry channel'
+);
+duo_check_same([], $retried['unchanged'], 'unchanged is still drained by the widening');
+duo_check_same([], $retried['conflict'], 'conflict is still drained by the widening');
+duo_check_same(1, count($retried['incomplete_apply']), 'the retry still reports exactly one incomplete_apply condition');
+duo_check(
+    str_contains((string) $retried['incomplete_apply'][0]['reason'], '2 environment-drifted entities')
+        && str_contains((string) $retried['incomplete_apply'][0]['reason'], 'duo capture'),
+    'the incomplete_apply reason — the string every plan/status renderer prints — states what the retry will NOT overwrite, and the remedy'
+);
+duo_check_same(
+    ['state/options/core.json', 'state/posts/page/8f14e45f--team.md'],
+    array_column($retried['incomplete_apply'][0]['preserved_drift'] ?? [], 'path'),
+    'the machine row lists the preserved entities beside the human reason'
+);
+
+// The carve-out needs evidence. An older agent's bare marker keeps DUO-3206's
+// original whole-bucket widening rather than inventing a preservation claim.
+$legacy = \Duo\ApplyPlanner::project_incomplete_apply_retry($basePlan, '1');
+duo_check_same([], $legacy['drift'], "a bare '1' marker still widens the whole drift bucket");
+duo_check_same(
+    ['written-after-commit', 'options/core', '8f14e45f-ceea-467a-9a3e-1b2c3d4e5f60', $freshDrift['uuid'], 'both-changed'],
+    array_column($legacy['update'], 'uuid'),
+    "a bare '1' marker reproduces DUO-3206's exact prior bucket order"
+);
+duo_check_same(
+    'previous apply did not complete required rebuilds or convergence metadata',
+    $legacy['incomplete_apply'][0]['reason'] ?? null,
+    'without a preservation record the incomplete_apply reason keeps its exact prior bytes'
+);
+duo_check(
+    !array_key_exists('preserved_drift', $legacy['incomplete_apply'][0] ?? []),
+    'no preservation record means no preserved_drift key — the row never claims evidence it lacks'
+);
+
+// No marker at all is not a retry: the plan is returned untouched.
+duo_check_same($basePlan, \Duo\ApplyPlanner::project_incomplete_apply_retry($basePlan, null), 'no marker leaves the plan exactly as built');
+
+// A recorded identity that has since converged is no longer drift, so it is
+// nowhere to carve out: capture-then-apply must still clear the marker.
+$captured = $basePlan;
+$captured['drift'] = [];
+$captured['unchanged'] = array_merge($captured['unchanged'], $driftRows);
+$afterCapture = \Duo\ApplyPlanner::project_incomplete_apply_retry($captured, $encoded);
+duo_check_same([], $afterCapture['drift'], 'after capture folds the drift in, nothing is retained as drift');
+duo_check_same(
+    4,
+    count($afterCapture['update']),
+    'after capture every recorded identity rejoins the retry write set, so the marker can clear'
+);
+duo_check_same(
+    'previous apply did not complete required rebuilds or convergence metadata',
+    $afterCapture['incomplete_apply'][0]['reason'] ?? null,
+    'with nothing retained the reason returns to its exact prior bytes'
+);
+
+// ---- 8. The shipped wiring: the builder delegates, the coordinator records
+// the drift it is about to preserve, and the gate is told about it.
+$builderSource = (string) file_get_contents(__DIR__ . '/../../../../agent/src/Apply/ApplyPlanBuilder.php');
+$coordinatorSource = (string) file_get_contents(__DIR__ . '/../../../../agent/src/Apply/ApplyRequestCoordinator.php');
+duo_check(
+    str_contains($builderSource, 'ApplyPlanner::project_incomplete_apply_retry(')
+        && !str_contains($builderSource, "foreach (['unchanged', 'drift', 'conflict'] as \$retryKind)"),
+    'ApplyPlanBuilder delegates the widening rather than keeping a second copy of it'
+);
+duo_check(
+    str_contains($coordinatorSource, "Ledger::kv_set('apply_in_progress', IncompleteApplyMarker::encode(\$plan['drift']))"),
+    'the marker written before the first mutation records this run\'s preserved drift'
+);
+duo_check(
+    str_contains($coordinatorSource, "))->verify(\$opts, \$compiled, \$plan['drift']);"),
+    'the post-apply gate is handed the rows this run deliberately did not write'
+);
+
+duo_check_summary('regress_apply_drift_convergence');
+
+}
