@@ -131,7 +131,7 @@ final class NinjaFormsFormCache {
      * guess: manifests/ninja-forms.json's own note records Ninja Forms'
      * source (includes/Helper.php) doing exactly `DELETE FROM nf3_upgrades
      * WHERE id=$id` plus `delete_option('nf_form_'.$id)` as the INVERSE
-     * operation, and sandbox/tests/grind_r1a_forms.sh's DUO-3267 probe uses a
+     * operation, and sandbox/tests/grind/grind_r1a_forms.sh's DUO-3267 probe uses a
      * non-zero nf3_upgrades row count as live evidence the rebuild ran. A
      * form whose row is still absent after its build call means the cache was
      * not rebuilt, whatever the call returned.
