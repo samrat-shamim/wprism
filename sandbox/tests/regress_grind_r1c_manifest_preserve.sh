@@ -14,7 +14,7 @@ cd "$(dirname "$0")/.."   # -> sandbox/
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 
-G=tests/grind_r1c_agency.sh
+G=tests/grind/grind_r1c_agency.sh
 M=../manifests/duo-agency-cpt.json
 [ -f "$G" ] || fail "$G is missing"
 [ -f "$M" ] || fail "$M is missing"

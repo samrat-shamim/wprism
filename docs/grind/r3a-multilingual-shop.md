@@ -3,7 +3,7 @@
 *Own pair `r3a1` (:8850) / `r3a2` (:8851), `sandbox/bin/pair.sh` (not the legacy
 `docker-compose.yml`). Own site repo
 (`sandbox/siterepo/{origin-r3a.git,r3a1,r3a2}`). Driver script:
-[`sandbox/tests/grind_r3a_multilingual.sh`](../../sandbox/tests/grind_r3a_multilingual.sh)
+[`sandbox/tests/grind/grind_r3a_multilingual.sh`](../../sandbox/tests/grind/grind_r3a_multilingual.sh)
 — re-runnable (`make grind-r3a`), wipes content/ledger/Polylang state/site-repo
 each run, never tears down containers.*
 
@@ -432,7 +432,7 @@ terms/categories/pages/product, per-item menu translation, everything else
   this round); no schema/behavior change; description_refs/term-relationship
   capabilities unaffected either way.
 - `Makefile` — additive `grind-r3a` target.
-- `sandbox/tests/grind_r3a_multilingual.sh` — new, the full narrative this
+- `sandbox/tests/grind/grind_r3a_multilingual.sh` — new, the full narrative this
   report describes; re-runnable (`make grind-r3a`). DUO-3300 later made the
   language-description and front-end render checks hard failures.
 - `docs/grind/r3a-multilingual-shop.md` — this report.

@@ -152,8 +152,8 @@ const MM_CLOSURE_FILES = [
     'sandbox/conformance/run.sh',
     'sandbox/db.yml',
     'sandbox/init-cli.Dockerfile',
-    'sandbox/tests/certify_version_matrix.sh',
-    'sandbox/tests/regress_multisite_refusal.sh',
+    'sandbox/tests/certify/certify_version_matrix.sh',
+    'sandbox/tests/live/regress_multisite_refusal.sh',
 ];
 
 // ------------------------------------------------------------ path helpers
@@ -2337,7 +2337,7 @@ function mm_apply(string $root, array $plan): array
 
     // 4b. Golden-hash pins. sandbox/tests/regress_ecommerce_developer_static.sh
     //     hashes comment-stripped function blocks of
-    //     sandbox/tests/grind_ecommerce_developer.sh; several of those blocks
+    //     sandbox/tests/grind/grind_ecommerce_developer.sh; several of those blocks
     //     spell an agent/src path, so the move legitimately changes the text
     //     the pin covers. The new value is recomputed by the suite's OWN hash
     //     function (it prints `expected <a>, got <b>` on drift) rather than

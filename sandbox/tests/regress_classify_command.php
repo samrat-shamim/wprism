@@ -287,7 +287,7 @@ assert_classify_command($acceptSecret->streamCalls === 0, 'a secret-only queue n
 // own decision logic is exercised directly by cli/README.md's documented
 // contract; the real interactive `duo classify` wiring (this extraction's
 // own call site) is proven end-to-end by the existing live
-// sandbox/tests/cli_triage_smoke.sh, which pipes scripted stdin through the
+// sandbox/tests/spike/cli_triage_smoke.sh, which pipes scripted stdin through the
 // real `cli/duo classify` subprocess.
 
 echo "PASS: classify command\n";

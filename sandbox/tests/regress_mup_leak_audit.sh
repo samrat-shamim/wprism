@@ -47,7 +47,7 @@
 # evidence, and this suite ships green over a tree that has already been
 # closed, so the self-test is the only thing standing between it and a
 # permanently vacuous pass. Same precedent as
-# sandbox/tests/check_guide_commands.sh.
+# sandbox/tests/spike/check_guide_commands.sh.
 #
 # `set -uo pipefail` rather than `-e`, matching its three sibling suites
 # (regress_assess_composition.sh, regress_release_next_action.sh,

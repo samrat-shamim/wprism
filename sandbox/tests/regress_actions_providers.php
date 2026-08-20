@@ -33,7 +33,7 @@
  *
  * Out of reach offline, and covered live instead: Apply's placement of the
  * negotiation gate before the first mutation and the post-commit fatality of a
- * failing action (sandbox/tests/regress_fatal_mutations.sh), the per-action
+ * failing action (sandbox/tests/live/regress_fatal_mutations_live.sh), the per-action
  * confirmation lines (regress_option_subkeys.sh, regress_woo_attribute_deletion.sh),
  * and the shipped providers' own invoke() bodies against real plugins
  * (conformance sweeps; the Woo one is exercised against a fake public API by

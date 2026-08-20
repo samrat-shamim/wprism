@@ -41,12 +41,50 @@
  * regress_bundle_coverage.sh and tools/affected.php is exercised by the real
  * corpus on every run, not only by their own synthetic fixtures.
  *
- * Clause 4 (the class-prefix invariant) is written to pass against today's
+ * Clause 4 (the class invariant) is written to pass against today's
  * entirely flat estate and to bite progressively as files move: a file still
  * at the sandbox/tests ROOT is exempt, and only a file already under
  * offline/, live/, grind/, certify/ or spike/ has to prove it is wired into a
  * target of the matching class. So this guard cannot block the waves, and no
  * wave can land a file in the wrong class.
+ *
+ * A class directory holds two kinds of file and they cannot be judged by one
+ * rule, which W2 is where it first bites. A SUITE is something make runs:
+ * `live/regress_widgets.sh` is wired to `regress-widgets`, and if it were not
+ * wired at all it would sit in live/ looking like part of the live estate
+ * while running nowhere. A HELPER is everything else a suite needs beside it --
+ * `grind/grind_ecommerce_developer.matrix.json` is read by two offline suites,
+ * `spike/cli_smoke.sh` is a hand-run docker smoke whose target `cli-smoke`
+ * predates the class names entirely. Requiring a helper to be wired would
+ * refuse the ratified layout; requiring nothing of it would let an offline
+ * recipe quietly run a file that sits in live/. So clause 4 splits:
+ *
+ *   - a suite must be wired, and wired to a target of its own class;
+ *   - a helper need not be wired at all, but no recipe of a DIFFERENT
+ *     determinable class may name it.
+ *
+ * A file is a suite when BOTH halves hold, and each half rules out a real
+ * member of the ratified layout that the other would misjudge:
+ *
+ *   - its basename claims a class: `regress_`, `grind_`, `certify_` or
+ *     `spike_`, ending in .php or .sh. `spike/cli_status_truth.sh` and
+ *     `spike/check_guide_commands.sh` deliberately decline that prefix and
+ *     say so in their own headers ("deliberately NOT named regress_* and
+ *     deliberately has no Makefile target"); declining the name is how this
+ *     estate declines a target, so demanding one of them would refuse a file
+ *     for being exactly what it says it is. It is also what keeps
+ *     `grind/grind_ecommerce_developer.matrix.json` -- data, not a program --
+ *     and the three legacy `cli_*`/`lint_*` smokes out of the suite rules;
+ *     `cli-smoke` carries no class prefix and never will.
+ *   - no OTHER file's code runs it. `regress_fatal_mutations.php` claims the
+ *     name and is still not a suite: `regress_fatal_mutations_unit.sh` runs
+ *     it and it has no target of its own, which is why
+ *     regress_bundle_coverage.sh:81-134 exempts it. That definition -- a
+ *     helper is a file some other file's CODE runs, `php <name>` or
+ *     `bash <name>` -- is the estate's single answer, ported here
+ *     (wiring_invoked_elsewhere()) for the same reason the prerequisite
+ *     expansion is: that suite exposes no reusable interface. Ported, not
+ *     re-decided; if the two ever disagree, this one is wrong.
  *
  * WHY THE SELF-TESTS
  * ------------------
@@ -134,6 +172,46 @@ const WIRING_CLASS_PREFIXES = [
     'grind' => 'grind-',
     'spike' => 'spike-',
 ];
+
+/**
+ * The execution classes that have a directory of their own.
+ *
+ * offline/ and live/ are absent from WIRING_CLASS_PREFIXES because neither is
+ * decided by a prefix -- `regress-` fronts both -- but all five are class
+ * directories for the purpose of "which files does clause 4 look at".
+ */
+const WIRING_CLASS_DIRS = ['certify', 'grind', 'live', 'offline', 'spike'];
+
+/**
+ * The four basename prefixes with which a file claims to be a suite of a
+ * class. A file in a class directory that carries none of them is a helper
+ * (see the header): data, substrate, or a hand-run smoke that declined a
+ * target on purpose.
+ */
+const WIRING_SUITE_PREFIXES = ['certify_', 'grind_', 'regress_', 'spike_'];
+
+/** A file make could plausibly be asked to run; a .json data file could not. */
+const WIRING_RUNNABLE_SUFFIXES = ['.php', '.sh'];
+
+/** Does this path's basename claim to be a suite make runs? */
+function wiring_claims_suite_name(string $token): bool
+{
+    $basename = basename($token);
+    $runnable = false;
+    foreach (WIRING_RUNNABLE_SUFFIXES as $suffix) {
+        $runnable = $runnable || str_ends_with($basename, $suffix);
+    }
+    if (!$runnable) {
+        return false;
+    }
+    foreach (WIRING_SUITE_PREFIXES as $prefix) {
+        if (str_starts_with($basename, $prefix)) {
+            return true;
+        }
+    }
+
+    return false;
+}
 
 /**
  * Makefile text -> {target => prerequisite text} and {target => recipe lines},
@@ -232,7 +310,136 @@ function wiring_path_tokens(string $recipe): array
 }
 
 /**
- * The five clauses, run over one Makefile text against one repo root.
+ * Every file under a sandbox/tests class directory, as the repo-relative token
+ * a recipe would have to write to name it.
+ *
+ * Recursive: offline/ is one directory per domain, so a non-recursive read
+ * would see the domain directories and none of the suites inside them -- the
+ * same fail-open shape regress_bundle_coverage.sh:35-42 recursed to close.
+ *
+ * @return list<string>
+ */
+function wiring_class_files(string $root): array
+{
+    $out = [];
+    foreach (WIRING_CLASS_DIRS as $class) {
+        $base = $root . '/sandbox/tests/' . $class;
+        if (!is_dir($base)) {
+            continue;
+        }
+        $walk = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($base, FilesystemIterator::SKIP_DOTS)
+        );
+        foreach ($walk as $entry) {
+            if ($entry instanceof SplFileInfo && $entry->isFile() && !$entry->isLink()) {
+                $out[] = 'sandbox/tests/' . $class
+                    . substr(str_replace('\\', '/', $entry->getPathname()), strlen($base));
+            }
+        }
+    }
+    sort($out, SORT_STRING);
+
+    return $out;
+}
+
+/**
+ * Which of $basenames some OTHER file's code runs, `php <name>` / `bash <name>`.
+ *
+ * Ported from regress_bundle_coverage.sh:81-134, deliberately including its
+ * two judgement calls: only full-line comments are stripped (a doc-comment
+ * mention must not read as an invocation, an inline trailing comment is left
+ * alone), and an optional `<path>/` prefix is accepted so a cross-directory
+ * `php ../apply/regress_x.php` counts the same as a bare sibling name. Erring
+ * toward "invoked" is the safe direction here too: it exempts a file from the
+ * wiring requirement rather than inventing a violation nobody can act on.
+ *
+ * Only the candidates are searched for, because the answer is needed only for
+ * a suite-shaped file that no recipe names -- normally none.
+ *
+ * @param list<string> $basenames
+ * @return array<string,true>
+ */
+function wiring_invoked_elsewhere(string $root, array $basenames): array
+{
+    if ($basenames === []) {
+        return [];
+    }
+    $tests = $root . '/sandbox/tests';
+    if (!is_dir($tests)) {
+        return [];
+    }
+    // Longest first, so a basename that is a strict string prefix of another
+    // cannot capture a match that belongs to the longer name.
+    usort($basenames, static fn(string $a, string $b): int => strlen($b) <=> strlen($a));
+    $pattern = '#(?:php|bash)\s+(?:\S*/)?(' . implode('|', array_map(
+        static fn(string $b): string => preg_quote($b, '#'),
+        $basenames
+    )) . ')\b#';
+
+    $found = [];
+    $walk = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($tests, FilesystemIterator::SKIP_DOTS)
+    );
+    foreach ($walk as $entry) {
+        if (!$entry instanceof SplFileInfo || !$entry->isFile() || $entry->isLink()) {
+            continue;
+        }
+        $self = $entry->getFilename();
+        $code = '';
+        foreach (explode("\n", (string) file_get_contents($entry->getPathname())) as $line) {
+            if (preg_match('/^\s*#/', $line) !== 1) {
+                $code .= $line . "\n";
+            }
+        }
+        if (preg_match_all($pattern, $code, $m) === false) {
+            continue;
+        }
+        foreach ($m[1] as $name) {
+            // A file naming itself is not another file running it.
+            if ($name !== $self) {
+                $found[$name] = true;
+            }
+        }
+    }
+
+    return $found;
+}
+
+/**
+ * The execution class a target belongs to, or null when nothing states one.
+ *
+ * Prefix first, then the two membership lists: `grind-mup` carries a grind
+ * prefix AND a regress-live-list row (the list prints five grind-/certify-
+ * rows for operators), and its prefix is the deliberate statement of class.
+ *
+ * null is a real answer, not a failure -- `cli-smoke`, `lint-smoke` and
+ * `cli-triage-smoke` are hand-run targets named before the class directories
+ * existed. A target with no class cannot contradict a file's directory, so it
+ * is allowed to name a helper anywhere; what it may NOT do is name a suite,
+ * because a suite in a class directory must be wired to that class.
+ *
+ * @param array<string,true> $offlineClosure
+ * @param array<string,true> $liveNames
+ */
+function wiring_target_class(string $target, array $offlineClosure, array $liveNames): ?string
+{
+    foreach (WIRING_CLASS_PREFIXES as $class => $prefix) {
+        if (str_starts_with($target, $prefix)) {
+            return $class;
+        }
+    }
+    if (isset($offlineClosure[$target])) {
+        return 'offline';
+    }
+    if (isset($liveNames[$target])) {
+        return 'live';
+    }
+
+    return null;
+}
+
+/**
+ * The six clauses, run over one Makefile text against one repo root.
  *
  * Returns violations per clause rather than asserting inline so the same code
  * path serves both the self-tests (synthetic Makefile, synthetic tree) and the
@@ -242,7 +449,8 @@ function wiring_path_tokens(string $recipe): array
  *
  * @return array{
  *   variables: list<string>, shape: list<string>, missing: list<string>,
- *   name: list<string>, class: list<string>, recipes: int, nested: int
+ *   name: list<string>, class: list<string>, unwired: list<string>,
+ *   recipes: int, nested: int, helpers: int
  * }
  */
 function wiring_violations(string $root, string $makefileText): array
@@ -264,10 +472,34 @@ function wiring_violations(string $root, string $makefileText): array
         }
     }
 
+    // Suite or helper, decided once for every file in a class directory, by
+    // the two-part definition in the header: the basename claims a class, and
+    // no other file's code runs it.
+    $classFiles = wiring_class_files($root);
+    $claimants = [];
+    foreach ($classFiles as $token) {
+        if (wiring_claims_suite_name($token)) {
+            $claimants[$token] = basename($token);
+        }
+    }
+    $invoked = wiring_invoked_elsewhere($root, array_values(array_unique($claimants)));
+    $suiteFiles = [];
+    foreach ($claimants as $token => $basename) {
+        if (!isset($invoked[$basename])) {
+            $suiteFiles[$token] = true;
+        }
+    }
+
     $out = [
         'variables' => [], 'shape' => [], 'missing' => [],
-        'name' => [], 'class' => [], 'recipes' => 0, 'nested' => 0,
+        'name' => [], 'class' => [], 'unwired' => [],
+        'recipes' => 0, 'nested' => 0,
+        'helpers' => count($classFiles) - count($suiteFiles),
     ];
+
+    // Which class-directory files a recipe names at all: the other half of
+    // clause 4, answered below once every recipe has been read.
+    $namedByRecipe = [];
 
     foreach ($parsed['recipes'] as $target => $recipeLines) {
         foreach ($recipeLines as $recipe) {
@@ -309,8 +541,8 @@ function wiring_violations(string $root, string $makefileText): array
                     $out['name'][] = "$target: expected target '$expected' for $token";
                 }
 
-                // (4) Class-prefix invariant. A file still at the sandbox/tests
-                // ROOT is exempt -- that exemption is what lets this guard pass
+                // (4) Class invariant. A file still at the sandbox/tests ROOT
+                // is exempt -- that exemption is what lets this guard pass
                 // against the flat estate and start biting the moment a file
                 // lands in a class directory.
                 $relative = substr($token, strlen('sandbox/tests/'));
@@ -318,7 +550,23 @@ function wiring_violations(string $root, string $makefileText): array
                     continue;
                 }
                 $out['nested']++;
+                $namedByRecipe[$token][$target] = true;
                 $class = substr($relative, 0, (int) strpos($relative, '/'));
+
+                // A helper is judged by the class of the target that runs it,
+                // not by the class rules a suite answers to: `cli-smoke` states
+                // no class, so it may run spike/cli_smoke.sh, while an offline
+                // recipe naming a file that sits in live/ is the drift this
+                // half of the clause exists to refuse.
+                if (!isset($suiteFiles[$token])) {
+                    $targetClass = wiring_target_class($target, $offlineClosure, $liveNames);
+                    if ($targetClass !== null && $targetClass !== $class) {
+                        $out['class'][] = "$target ($token) is a helper under $class/ but the target"
+                            . " that names it is $targetClass";
+                    }
+                    continue;
+                }
+
                 if ($class === 'offline') {
                     if (!isset($offlineClosure[$target])) {
                         $out['class'][] = "$target ($token) is under offline/ but is not in"
@@ -345,6 +593,20 @@ function wiring_violations(string $root, string $makefileText): array
                     }
                 }
             }
+        }
+    }
+
+    // The other direction, and the one no check answered before: the estate
+    // read from DISK rather than from the Makefile. Every clause above starts
+    // at a recipe, so a suite that no recipe names is invisible to all of them
+    // -- it sits in live/ or grind/ looking like part of that estate and runs
+    // nowhere. regress_bundle_coverage.sh catches this for `regress_*` names
+    // only; grind_*, certify_* and spike_* files are outside its glob
+    // entirely, so before this loop a `grind_x.sh` with no target was checked
+    // by nothing at all.
+    foreach (array_keys($suiteFiles) as $token) {
+        if (!isset($namedByRecipe[$token])) {
+            $out['unwired'][] = "$token is in a class directory but no recipe names it";
         }
     }
 
@@ -392,28 +654,63 @@ function wiring_fixture_makefile(): string
     ]);
 }
 
-/** The synthetic tree the fixture Makefile refers to. Caller removes it. */
-function wiring_fixture_root(): string
+/**
+ * The synthetic tree the fixture Makefile refers to. Caller removes it.
+ *
+ * The base tree is exactly consistent with wiring_fixture_makefile(): every
+ * class-directory suite in it is wired. That is forced by the disk-side half
+ * of clause 4 -- a file planted for one scenario would be an unwired suite in
+ * every other -- so a scenario that needs an extra file passes it in as
+ * `relative path => contents` rather than the tree carrying everything.
+ *
+ * The two base helpers are not incidental: `live/pair_helper.sh` (a runnable
+ * file whose name claims no class) and `grind/grind_data.matrix.json` (data)
+ * are both unwired on purpose, and every scenario asserting "no violations"
+ * is therefore also asserting that a helper is never asked for a target.
+ *
+ * @param array<string,string> $extra
+ */
+function wiring_fixture_root(array $extra = []): string
 {
     $root = (string) tempnam(sys_get_temp_dir(), 'duo-wiring-');
     unlink($root);
-    foreach (['', '/offline/domain', '/live', '/grind'] as $sub) {
-        mkdir($root . '/sandbox/tests' . $sub, 0o777, true);
+    $files = [
+        '/sandbox/tests/offline_diagnostics_guard.sh' => null,
+        '/sandbox/tests/regress_flat_root.php' => null,
+        '/sandbox/tests/regress_flat_orphan.php' => null,
+        '/sandbox/tests/regress_flat_other.php' => null,
+        '/sandbox/tests/offline/domain/regress_nested_offline.php' => null,
+        '/sandbox/tests/live/regress_nested_live.sh' => null,
+        '/sandbox/tests/live/pair_helper.sh' => null,
+        '/sandbox/tests/grind/grind_data.matrix.json' => null,
+    ];
+    foreach ($extra as $path => $contents) {
+        $files[$path] = $contents;
     }
-    foreach ([
-        '/sandbox/tests/offline_diagnostics_guard.sh',
-        '/sandbox/tests/regress_flat_root.php',
-        '/sandbox/tests/regress_flat_orphan.php',
-        '/sandbox/tests/regress_flat_other.php',
-        '/sandbox/tests/offline/domain/regress_nested_offline.php',
-        '/sandbox/tests/offline/domain/regress_flat_orphan.php',
-        '/sandbox/tests/live/regress_nested_live.sh',
-        '/sandbox/tests/grind/regress_wrong_class.sh',
-    ] as $file) {
-        file_put_contents($root . $file, "# synthetic wiring fixture\n");
+    foreach ($files as $file => $contents) {
+        $dir = dirname($root . $file);
+        if (!is_dir($dir)) {
+            mkdir($dir, 0o777, true);
+        }
+        file_put_contents($root . $file, $contents ?? "# synthetic wiring fixture\n");
     }
 
     return $root;
+}
+
+/**
+ * Run $fn against a fixture tree carrying $extra, and remove the tree after.
+ *
+ * @param array<string,string> $extra
+ */
+function wiring_with_root(array $extra, callable $fn): void
+{
+    $root = wiring_fixture_root($extra);
+    try {
+        $fn($root);
+    } finally {
+        wiring_remove_tree($root);
+    }
 }
 
 function wiring_remove_tree(string $path): void
@@ -440,15 +737,23 @@ try {
     $clean = wiring_violations($fixtureRoot, $base);
 
     duo_check_same(
-        ['variables' => [], 'shape' => [], 'missing' => [], 'name' => [], 'class' => []],
+        [
+            'variables' => [], 'shape' => [], 'missing' => [],
+            'name' => [], 'class' => [], 'unwired' => [],
+        ],
         [
             'variables' => $clean['variables'], 'shape' => $clean['shape'],
-            'missing' => $clean['missing'], 'name' => $clean['name'], 'class' => $clean['class'],
+            'missing' => $clean['missing'], 'name' => $clean['name'],
+            'class' => $clean['class'], 'unwired' => $clean['unwired'],
         ],
         'self-test: a correctly wired synthetic Makefile produces no violations'
     );
     duo_check_same(5, $clean['recipes'], 'self-test: the synthetic scan reached all five suite recipes');
     duo_check_same(2, $clean['nested'], 'self-test: two synthetic suites are in class directories');
+    // The base tree carries live/pair_helper.sh and grind/grind_data.matrix.json,
+    // both unwired: the clean result above is also the proof that neither was
+    // asked for a target.
+    duo_check_same(2, $clean['helpers'], 'self-test: both synthetic helpers were classified as helpers');
 
     // regress-flat-orphan is in neither the offline closure nor the live list,
     // and produced no violation above: that is the root exemption. Move the
@@ -459,12 +764,17 @@ try {
         'php sandbox/tests/offline/domain/regress_flat_orphan.php',
         $base
     );
-    $nested = wiring_violations($fixtureRoot, $orphanNested);
-    duo_check(
-        count($nested['class']) === 1
-            && str_contains($nested['class'][0], 'regress-flat-orphan')
-            && str_contains($nested['class'][0], 'not in'),
-        'self-test: a suite under offline/ outside the corpus closure is refused'
+    wiring_with_root(
+        ['/sandbox/tests/offline/domain/regress_flat_orphan.php' => null],
+        static function (string $root) use ($orphanNested): void {
+            $nested = wiring_violations($root, $orphanNested);
+            duo_check(
+                count($nested['class']) === 1
+                    && str_contains($nested['class'][0], 'regress-flat-orphan')
+                    && str_contains($nested['class'][0], 'not in'),
+                'self-test: a suite under offline/ outside the corpus closure is refused'
+            );
+        }
     );
 
     // The mirror: a live suite that IS in the offline closure is claimed by
@@ -483,10 +793,75 @@ try {
     // A grind/ file under a regress- target: the prefix rule for the three
     // enumerated class directories.
     $wrongClass = $base . "\nregress-wrong-class:\n\tbash sandbox/tests/grind/regress_wrong_class.sh\n";
-    $classViolations = wiring_violations($fixtureRoot, $wrongClass)['class'];
+    wiring_with_root(
+        ['/sandbox/tests/grind/regress_wrong_class.sh' => null],
+        static function (string $root) use ($wrongClass): void {
+            $classViolations = wiring_violations($root, $wrongClass)['class'];
+            duo_check(
+                count($classViolations) === 1 && str_contains($classViolations[0], "start with 'grind-'"),
+                'self-test: a suite under grind/ wired to a non-grind target is refused'
+            );
+        }
+    );
+
+    // ---- the helper half of clause 4, which the W2 move is the first to need.
+
+    // A helper that no recipe names is not a gap. live/pair_helper.sh is in
+    // every fixture tree; this asserts the disk-side loop SAW it and let it
+    // be, rather than never having looked -- the same reason `nested` and
+    // `recipes` are counted.
     duo_check(
-        count($classViolations) === 1 && str_contains($classViolations[0], "start with 'grind-'"),
-        'self-test: a suite under grind/ wired to a non-grind target is refused'
+        $clean['unwired'] === [] && $clean['helpers'] === 2,
+        'self-test: an unwired helper under live/ is not required to have a target'
+    );
+
+    // The refusal that exemption must not cost: an OFFLINE recipe running a
+    // file that sits in live/. The target is in the corpus closure, so its
+    // class is offline and the file's directory says live -- exactly the
+    // "which gate runs this" confusion the class directories exist to end.
+    $offlineNamesLiveHelper = str_replace(
+        "\tregress-nested-offline",
+        "\tregress-nested-offline pair-helper",
+        $base
+    ) . "\npair-helper:\n\tbash sandbox/tests/live/pair_helper.sh\n";
+    $helperClaimed = wiring_violations($fixtureRoot, $offlineNamesLiveHelper)['class'];
+    duo_check(
+        count($helperClaimed) === 1
+            && str_contains($helperClaimed[0], 'is a helper under live/')
+            && str_contains($helperClaimed[0], 'is offline'),
+        'self-test: a helper under live/ named by an offline recipe is refused'
+    );
+
+    // The disk-side half: a suite-shaped file in a class directory that no
+    // recipe names at all. Every clause above starts from a recipe, so before
+    // this loop existed the file was checked by nothing.
+    wiring_with_root(
+        ['/sandbox/tests/live/regress_unwired_live.sh' => null],
+        static function (string $root) use ($base): void {
+            $unwired = wiring_violations($root, $base)['unwired'];
+            duo_check(
+                count($unwired) === 1 && str_contains($unwired[0], 'live/regress_unwired_live.sh'),
+                'self-test: a suite-shaped file under live/ that no recipe names is refused'
+            );
+        }
+    );
+
+    // ...and the escape that keeps that from refusing the estate's real
+    // shape: regress_fatal_mutations.php claims a suite name, has no target,
+    // and is run by regress_fatal_mutations_unit.sh. Same shape here.
+    wiring_with_root(
+        [
+            '/sandbox/tests/offline/domain/regress_invoked_helper.php' => null,
+            '/sandbox/tests/offline/domain/regress_nested_offline.php' =>
+                "<?php\n// a wrapper that runs its own helper\nexec('php regress_invoked_helper.php');\n",
+        ],
+        static function (string $root) use ($base): void {
+            $found = wiring_violations($root, $base);
+            duo_check(
+                $found['unwired'] === [] && $found['helpers'] === 3,
+                'self-test: a suite-shaped file another suite runs needs no target of its own'
+            );
+        }
     );
 
     // Clause 5, the one tools/offline.php cannot survive: a make variable in
@@ -576,6 +951,7 @@ $report('shape', 'every sandbox/tests recipe is `php <file>.php` / `bash <file>.
 $report('missing', 'every sandbox/tests path a recipe names exists on disk');
 $report('name', "every target's name matches its suite file's basename, or is a named exception");
 $report('class', 'every suite in a class directory is wired into a target of that class');
+$report('unwired', 'every suite in a class directory is named by some recipe');
 
 // The exception lists are closed sets, not advisory. An entry that no longer
 // names a real target is a stale exemption: it would keep exempting nothing
@@ -601,6 +977,13 @@ foreach (WIRING_NAME_EXCEPTIONS as $target) {
 duo_check(
     $found['nested'] > 0,
     "clause 4 saw at least one real suite in a class directory ({$found['nested']})"
+);
+// The disk-side half has no recipe to start from, so nothing else would notice
+// if it enumerated an empty tree: state the count it actually walked.
+duo_check(
+    count(wiring_class_files($root)) > 0,
+    'clause 4 walked the class directories on disk ('
+        . count(wiring_class_files($root)) . " files, {$found['helpers']} of them helpers)"
 );
 duo_check(
     isset(wiring_closure($parsed['prereqs'], 'regress-offline-corpus')['regress-suite-wiring']),

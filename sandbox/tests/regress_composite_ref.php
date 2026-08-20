@@ -27,7 +27,7 @@
  * budget. What it deliberately does NOT prove: Apply::build_plan()'s own
  * create/update/unchanged bucketing (Apply.php is out of this file's
  * dependency boundary by design — see Snapshot.php's own docblock,
- * "Engine boundary") — that is sandbox/tests/regress_pmpro_composite_ref.sh's
+ * "Engine boundary") — that is sandbox/tests/live/regress_pmpro_composite_ref.sh's
  * job, against a real database.
  *
  * Exit 0 and "ALL PASSED" on success; any failed check prints "FAIL: ..."

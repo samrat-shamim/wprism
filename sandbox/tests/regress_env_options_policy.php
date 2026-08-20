@@ -11,7 +11,7 @@
  *   - Apply::set_env_option() itself (the actual wp_options write) — like
  *     every other Apply.php-touching change in this codebase, that needs
  *     a live $wpdb and gets a live, docker-based proof instead (see
- *     sandbox/tests/regress_env_set.sh), not a FakeWpdb offline harness.
+ *     sandbox/tests/live/regress_env_set.sh), not a FakeWpdb offline harness.
  * DUO-3255 extends this harness with the cross-manifest contradiction
  * gate, identical-rule dedupe, first-match bulk resolution, and a real
  * fixture site.duo.json proving the explicit site-policy escape path.

@@ -32,7 +32,7 @@ final class Deploy {
      * (DUO-3350 slice 6) — kept so this method's existing internal call site
      * (run(), unchanged) and the external callers (Apply::build_plan(),
      * sandbox/tests/regress_template_mismatch.php,
-     * sandbox/tests/regress_adapter_theme_range.sh) need no edit while this
+     * sandbox/tests/live/regress_adapter_theme_range.sh) need no edit while this
      * decomposition proceeds.
      */
     public static function code_mismatch(Policy $policy, array $desired): array {

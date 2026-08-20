@@ -2,7 +2,7 @@
 # ACF manifest conformance seed: one field group (group_duo_demo) with an
 # image field (field_duo_hero) and a relationship field (field_duo_related),
 # plus the content they're attached to — the same scenario spike E already
-# proved end to end (sandbox/tests/spike_e_acf.sh), trimmed for the generic
+# proved end to end (sandbox/tests/spike/spike_e_acf.sh), trimmed for the generic
 # byte-for-byte round-trip check the conformance gate runs. Invoked by
 # conformance/run.sh with wp_conf1/wp_conf2/$COMPOSE already exported.
 #

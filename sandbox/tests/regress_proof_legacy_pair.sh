@@ -113,7 +113,7 @@ grep -Fqx 'env r1a3 never became ready' "$ERR" \
   || { cat "$ERR" >&2; fail 'shared readiness helper changed its timeout diagnostic'; }
 pass 'shared readiness helper preserves the timeout refusal'
 
-for scenario in tests/grind_r1a_forms.sh tests/grind_r1b_shop.sh tests/grind_r1c_agency.sh; do
+for scenario in tests/grind/grind_r1a_forms.sh tests/grind/grind_r1b_shop.sh tests/grind/grind_r1c_agency.sh; do
   bash -n "$scenario"
   grep -Fqx 'source "lib/proof_legacy_pair.sh"' "$scenario" \
     || fail "$scenario does not source the shared legacy proof library"

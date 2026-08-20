@@ -759,7 +759,7 @@ unchanged; only who types it changes.
 
 ## 6. Acceptance
 
-### 6.1 The end-to-end grind: `sandbox/tests/grind_mup.sh` (`make grind-mup`)
+### 6.1 The end-to-end grind: `sandbox/tests/grind/grind_mup.sh` (`make grind-mup`)
 
 Reuses `sandbox/conformance/run.sh`'s proven shape — `pair.sh reset` +
 `pair.sh up`, side 1 as author, side 2 as target, a bare origin and two
@@ -877,10 +877,10 @@ green.
 
 ### T4 — grind, leak closures, guides
 
-**Files:** `sandbox/tests/grind_mup.sh` (new), `Makefile` (`grind-mup` target,
+**Files:** `sandbox/tests/grind/grind_mup.sh` (new), `Makefile` (`grind-mup` target,
 `regress_mup_leak_audit.sh` wiring, suite-count line), bounded-output edits in
 new renderers if the audit finds any, `docs/guides/**` (4 new + 3 updated),
-`sandbox/tests/check_guide_commands.sh` if the extractor needs the new verbs.
+`sandbox/tests/spike/check_guide_commands.sh` if the extractor needs the new verbs.
 
 **Exit criteria:** `make grind-mup` green on a dedicated pair, with step 11's
 literal-recovery assertion passing; `check_guide_commands.sh` green; every

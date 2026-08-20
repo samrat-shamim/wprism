@@ -3,7 +3,7 @@
 *Own pair `r3b1` (:8852) / `r3b2` (:8853), `sandbox/bin/pair.sh` (not the legacy
 `docker-compose.yml`), journal on. Own site repo
 (`sandbox/siterepo/{origin-r3b.git,r3b1,r3b2}`). Driver script:
-[`sandbox/tests/grind_r3b_events.sh`](../../sandbox/tests/grind_r3b_events.sh)
+[`sandbox/tests/grind/grind_r3b_events.sh`](../../sandbox/tests/grind/grind_r3b_events.sh)
 — re-runnable, wipes content/ledger/custom-tables/site-repo each run, never
 tears down containers.*
 
@@ -30,7 +30,7 @@ none was forced into a manifest.
 ## Environment facts
 
 - WordPress (current), PHP 8.3, MariaDB 11 (shared server, `sandbox/db.yml`).
-- The final automated cold-start run of `sandbox/tests/grind_r3b_events.sh`
+- The final automated cold-start run of `sandbox/tests/grind/grind_r3b_events.sh`
   (the one whose tail is quoted in this round's close-out) took **~20+
   minutes** wall-clock — far above every earlier manual pass through the
   same steps, which each ran in low single-digit minutes. Root cause is
@@ -494,7 +494,7 @@ driver report the rendered state truthfully.
 ## Files changed
 
 - `manifests/the-events-calendar.json` (new), `manifests/paid-memberships-pro.json` (new).
-- `sandbox/tests/grind_r3b_events.sh` (new) — the full, re-runnable round.
+- `sandbox/tests/grind/grind_r3b_events.sh` (new) — the full, re-runnable round.
 - `Makefile` — `grind-r3b` target (additive).
 - `docs/grind/r3b-events-memberships.md` (this file, new).
 - Board tasks #124/#125/#126 created for the three engine gaps; no `agent/src/` edits, no

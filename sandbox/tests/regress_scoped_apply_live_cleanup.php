@@ -16,7 +16,7 @@ declare(strict_types=1);
  */
 
 $root = dirname(__DIR__, 2);
-$harnessPath = $root . '/sandbox/tests/regress_scoped_apply_live.sh';
+$harnessPath = $root . '/sandbox/tests/live/regress_scoped_apply_live.sh';
 $harness = file_get_contents($harnessPath);
 if ($harness === false) {
     fwrite(STDERR, "FAIL: could not read scoped live harness: $harnessPath\n");

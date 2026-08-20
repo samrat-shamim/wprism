@@ -128,8 +128,60 @@ final class MoveSuitesTest extends TestCase
         // Substrate: named by every suite, and it stays at the corpus root.
         self::write($root . '/sandbox/tests/lib/check.php', "<?php\nfunction check(bool \$ok): void {}\n");
         self::write($root . '/sandbox/tests/support/stub.php', "<?php\n// a WordPress stub\n");
+        // Reads like substrate, is NOT: the ratified layout moves it, so the
+        // tool must let the map decide rather than a hardcoded stay-list.
         self::write($root . '/sandbox/tests/manifest_fixtures.php', "<?php\n// shared manifest fixtures\n");
         self::write($root . '/sandbox/tests/fixtures/vec/sample.json', "{\"vector\":1}\n");
+
+        // An ancestor-anchored script: it cds to sandbox/, NOT to its own
+        // directory, and names siterepo/ paths relative to that anchor.
+        self::write($root . '/sandbox/siterepo/e1/state/.keep', '');
+        self::write($root . '/sandbox/tests/lint_smoke.sh', <<<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."   # -> sandbox/
+
+FIXDIR=siterepo/e1/.tmp-lint-fixture
+[ -d siterepo/e1/state ] || { echo "seed first"; exit 1; }
+echo "$FIXDIR"
+SH);
+
+        // The assert-on-path-string shape: this suite asserts that ANOTHER
+        // file contains a literal naming a THIRD file. All three move to
+        // different directories.
+        self::write($root . '/sandbox/tests/regress_harness_contract.php', <<<'PHP'
+<?php
+
+declare(strict_types=1);
+
+$harness = (string) file_get_contents(__DIR__ . '/regress_live_init.sh');
+$needle = 'php sandbox/tests/manifest_fixtures.php "$SCRATCH"';
+if (!str_contains($harness, $needle)) {
+    fwrite(STDERR, "harness does not invoke the fixture builder\n");
+    exit(1);
+}
+echo "ok\n";
+PHP);
+
+        self::write($root . '/sandbox/tests/regress_live_init.sh', <<<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$ROOT"
+SCRATCH=$(mktemp -d)
+php sandbox/tests/manifest_fixtures.php "$SCRATCH"
+SH);
+
+        // A data file that both MOVES and carries paths of its own.
+        self::write($root . '/sandbox/tests/grind_matrix.json', <<<'JSON'
+{
+  "cases": [
+    {"id": "a", "harness": "sandbox/tests/grind_walk.sh"},
+    {"id": "b", "harness": "sandbox/tests/grind_walk.sh", "public_command": "php cli/duo promote target"}
+  ]
+}
+JSON);
+        self::write($root . '/sandbox/tests/grind_walk.sh', "#!/usr/bin/env bash\nset -euo pipefail\necho walk\n");
 
         // The PHP suite: classes 1 and 2, plus the three no-touch shapes.
         self::write($root . '/sandbox/tests/regress_thing.php', <<<'PHP'
@@ -243,6 +295,13 @@ MAKE);
             'sandbox/tests/regress_thing.sh' => 'sandbox/tests/offline/thing/regress_thing.sh',
             'sandbox/tests/regress_preserved.sh' => 'sandbox/tests/offline/thing/regress_preserved.sh',
             'sandbox/tests/certify_x.sh' => 'sandbox/tests/certify/certify_x.sh',
+            // Reads like substrate; the map moves it, and the map wins.
+            'sandbox/tests/manifest_fixtures.php' => 'sandbox/tests/offline/policy/manifest_fixtures.php',
+            'sandbox/tests/lint_smoke.sh' => 'sandbox/tests/spike/lint_smoke.sh',
+            'sandbox/tests/regress_harness_contract.php' => 'sandbox/tests/offline/cli/regress_harness_contract.php',
+            'sandbox/tests/regress_live_init.sh' => 'sandbox/tests/live/regress_live_init.sh',
+            'sandbox/tests/grind_matrix.json' => 'sandbox/tests/grind/grind_matrix.json',
+            'sandbox/tests/grind_walk.sh' => 'sandbox/tests/grind/grind_walk.sh',
         ];
     }
 
@@ -263,7 +322,7 @@ MAKE);
             'git mv sandbox/tests/regress_thing.php -> sandbox/tests/offline/thing/regress_thing.php',
             $output
         );
-        self::assertStringContainsString('4 move(s) pending', $output);
+        self::assertStringContainsString('10 move(s) pending', $output);
         self::assertStringContainsString('0 review item(s)', $output);
         // The file still lives at its old path: --plan is pure.
         self::assertFileExists($root . '/sandbox/tests/regress_thing.php');
@@ -286,7 +345,10 @@ MAKE);
 
         // Class 2: substrate stays at the corpus root, so the siblings climb.
         self::assertStringContainsString("require_once __DIR__ . '/../../lib/check.php';", $php);
-        self::assertStringContainsString("require_once __DIR__ . '/../../manifest_fixtures.php';", $php);
+        // manifest_fixtures.php reads like substrate but the map moves it, so
+        // the reference follows it to its new directory rather than climbing
+        // back to a corpus root it no longer lives at.
+        self::assertStringContainsString("require_once __DIR__ . '/../policy/manifest_fixtures.php';", $php);
         self::assertStringContainsString("require_once __DIR__ . '/../../support/stub.php';", $php);
 
         // The trailing separator survives. Without it the join produces
@@ -411,6 +473,193 @@ MAKE);
         );
     }
 
+    /**
+     * The map decides what moves; the only stay-list is MS_SUBSTRATE.
+     *
+     * `manifest_fixtures.php` reads like substrate — 12 suites require it by a
+     * fixed sibling path — and the ratified layout moves it anyway, to
+     * offline/policy/. A tool that privileged it by filename would either
+     * refuse the ratified map or re-point every referrer at a corpus root the
+     * file no longer lives at.
+     */
+    public function testAFileThatReadsLikeSubstrateMovesWhenTheMapSaysSo(): void
+    {
+        $root = $this->makeSyntheticRepo();
+        [$status, $output] = $this->runTool($root, '--apply', '--map=' . $this->writeMap($root, $this->syntheticMap()));
+        self::assertSame(0, $status, $output);
+
+        self::assertFileDoesNotExist($root . '/sandbox/tests/manifest_fixtures.php');
+        self::assertFileExists($root . '/sandbox/tests/offline/policy/manifest_fixtures.php');
+        // The referrer followed it across directories, not up to the root.
+        self::assertStringContainsString(
+            "require_once __DIR__ . '/../policy/manifest_fixtures.php';",
+            self::read($root . '/sandbox/tests/offline/thing/regress_thing.php')
+        );
+        // …while a real substrate reference still climbs to the corpus root.
+        self::assertStringContainsString(
+            "require_once __DIR__ . '/../../lib/check.php';",
+            self::read($root . '/sandbox/tests/offline/thing/regress_thing.php')
+        );
+    }
+
+    /**
+     * A suite that asserts on a path STRING inside another file.
+     *
+     * `regress_init_contract.php:994` checks that regress_duo_init.sh contains
+     * the literal `php sandbox/tests/certification_fixture.php "$HERMETIC_ROOT"`.
+     * The asserting suite, the asserted script and the named helper all land in
+     * different directories, so the needle and the line it looks for have to be
+     * rewritten to the same new path or the moved suite fails on a string
+     * comparison with nothing wrong underneath it.
+     */
+    public function testAnAssertionOnAPathStringStillMatchesTheFileItAssertsAbout(): void
+    {
+        $root = $this->makeSyntheticRepo();
+        [$status, $output] = $this->runTool($root, '--apply', '--map=' . $this->writeMap($root, $this->syntheticMap()));
+        self::assertSame(0, $status, $output);
+
+        $moved = 'sandbox/tests/offline/policy/manifest_fixtures.php';
+        self::assertStringContainsString(
+            "\$needle = 'php $moved \"\$SCRATCH\"';",
+            self::read($root . '/sandbox/tests/offline/cli/regress_harness_contract.php')
+        );
+        self::assertStringContainsString(
+            "php $moved \"\$SCRATCH\"",
+            self::read($root . '/sandbox/tests/live/regress_live_init.sh')
+        );
+
+        // The assertion is the test: both halves agree, so the suite passes.
+        $out = [];
+        exec('php ' . escapeshellarg($root . '/sandbox/tests/offline/cli/regress_harness_contract.php') . ' 2>&1', $out, $rc);
+        self::assertSame(0, $rc, implode("\n", $out));
+    }
+
+    /**
+     * An anchor that names an ANCESTOR other than the script's own directory.
+     *
+     * `lint_smoke.sh:20` is `cd "$(dirname "$0")/.."`, so the cwd is `sandbox/`
+     * and the `siterepo/…` tokens below it are relative to that, not to the
+     * script. Class 3 extends the run so the anchor keeps naming `sandbox/`,
+     * and precisely because it does, those tokens must NOT be touched.
+     * regress_ecommerce_developer_static.sh and grind_ecommerce_developer.sh
+     * share the shape.
+     */
+    public function testAnAncestorAnchorKeepsItsTargetAndLeavesItsTokensAlone(): void
+    {
+        $root = $this->makeSyntheticRepo();
+        [$status, $output] = $this->runTool($root, '--apply', '--map=' . $this->writeMap($root, $this->syntheticMap()));
+        self::assertSame(0, $status, $output);
+
+        $sh = self::read($root . '/sandbox/tests/spike/lint_smoke.sh');
+        // One level deeper, so the run gains one and still lands on sandbox/.
+        self::assertStringContainsString('cd "$(dirname "$0")/../.."', $sh);
+        self::assertStringContainsString('FIXDIR=siterepo/e1/.tmp-lint-fixture', $sh);
+        self::assertStringContainsString('[ -d siterepo/e1/state ]', $sh);
+
+        $out = [];
+        exec('bash ' . escapeshellarg($root . '/sandbox/tests/spike/lint_smoke.sh') . ' 2>&1', $out, $rc);
+        self::assertSame(0, $rc, implode("\n", $out));
+    }
+
+    /**
+     * A moved JSON data file gets class 6 applied to its own contents.
+     *
+     * grind_ecommerce_developer.matrix.json moves to grind/ AND carries 21
+     * `"harness"` values naming grind_ecommerce_developer.sh, which moves in
+     * the same wave.
+     */
+    public function testAMovedDataFileHasItsOwnPathsRewritten(): void
+    {
+        $root = $this->makeSyntheticRepo();
+        [$status, $output] = $this->runTool($root, '--apply', '--map=' . $this->writeMap($root, $this->syntheticMap()));
+        self::assertSame(0, $status, $output);
+
+        $json = self::read($root . '/sandbox/tests/grind/grind_matrix.json');
+        self::assertSame(2, substr_count($json, '"sandbox/tests/grind/grind_walk.sh"'));
+        self::assertStringNotContainsString('"sandbox/tests/grind_walk.sh"', $json);
+        // Prose in a neighbouring field is not a path and is left alone.
+        self::assertStringContainsString('"php cli/duo promote target"', $json);
+        self::assertIsArray(json_decode($json, true), 'the rewrite must leave valid JSON');
+    }
+
+    /**
+     * Subset maps compose.
+     *
+     * W2 feeds the live/grind/certify/spike values and W3 the offline ones.
+     * Applying them in sequence must land exactly where applying the whole map
+     * at once lands — otherwise the wave order becomes load-bearing and a
+     * half-migrated tree is a state nobody validated. Mid-split a file that
+     * stays put may name one that moved, which is why the __DIR__ pass is not
+     * gated on the referring file having moved.
+     */
+    public function testASplitMapAppliedInSequenceMatchesTheWholeMapAtOnce(): void
+    {
+        $whole = $this->makeSyntheticRepo();
+        $map = $this->syntheticMap();
+        [$status, $output] = $this->runTool($whole, '--apply', '--map=' . $this->writeMap($whole, $map));
+        self::assertSame(0, $status, $output);
+
+        $split = $this->makeSyntheticRepo();
+        $first = [];
+        $second = [];
+        foreach ($map as $key => $value) {
+            if (preg_match('#^sandbox/tests/(live|grind|certify|spike)/#', $value) === 1) {
+                $first[$key] = $value;
+            } else {
+                $second[$key] = $value;
+            }
+        }
+        self::assertNotEmpty($first);
+        self::assertNotEmpty($second);
+
+        file_put_contents($split . '/w2.json', (string) json_encode($first, JSON_UNESCAPED_SLASHES));
+        file_put_contents($split . '/w3.json', (string) json_encode($second, JSON_UNESCAPED_SLASHES));
+        [$s1, $o1] = $this->runTool($split, '--apply', '--map=' . $split . '/w2.json');
+        self::assertSame(0, $s1, $o1);
+        [$s2, $o2] = $this->runTool($split, '--apply', '--map=' . $split . '/w3.json');
+        self::assertSame(0, $s2, $o2);
+
+        // Compare the corpus and every rewritten file outside it.
+        exec('diff -r ' . escapeshellarg($split . '/sandbox/tests') . ' '
+            . escapeshellarg($whole . '/sandbox/tests') . ' 2>&1', $diff, $diffStatus);
+        self::assertSame(0, $diffStatus, "split and whole trees differ:\n" . implode("\n", $diff));
+        foreach (['Makefile', 'docs/guides/internals.md'] as $file) {
+            self::assertSame(
+                self::read($whole . '/' . $file),
+                self::read($split . '/' . $file),
+                "$file differs between the split and whole applies"
+            );
+        }
+
+        // tearDown only removes the most recent temp root.
+        self::removeTree($whole);
+    }
+
+    /**
+     * A subset map is validated on its own terms: no totality check, and the
+     * literal pass touches only paths the GIVEN map names. Without this, W2
+     * could not run at all — 266 of the 335 corpus entries are absent from it.
+     */
+    public function testASubsetMapNeitherRequiresNorRewritesUnmappedFiles(): void
+    {
+        $root = $this->makeSyntheticRepo();
+        $subset = ['sandbox/tests/certify_x.sh' => 'sandbox/tests/certify/certify_x.sh'];
+
+        [$status, $output] = $this->runTool($root, '--apply', '--map=' . $this->writeMap($root, $subset));
+        self::assertSame(0, $status, $output);
+
+        self::assertFileExists($root . '/sandbox/tests/certify/certify_x.sh');
+        // Everything the subset does not name is untouched, in place and in text.
+        self::assertFileExists($root . '/sandbox/tests/regress_thing.php');
+        self::assertStringContainsString(
+            "require_once __DIR__ . '/lib/check.php';",
+            self::read($root . '/sandbox/tests/regress_thing.php')
+        );
+        $makefile = self::read($root . '/Makefile');
+        self::assertStringContainsString('bash sandbox/tests/certify/certify_x.sh', $makefile);
+        self::assertStringContainsString('php sandbox/tests/regress_thing.php', $makefile);
+    }
+
     // -------------------------------------------------------------- prove
 
     public function testProveCatchesADeliberatelyDangledReference(): void
@@ -457,7 +706,96 @@ MAKE);
 
         [$dangling, $output] = $this->runTool($root, '--prove', '--map=' . $map);
         self::assertSame(1, $dangling, $output);
-        self::assertStringContainsString('a surviving mention of the pre-move path', $output);
+        self::assertStringContainsString('the pre-move path (now at', $output);
+    }
+
+    /**
+     * The prover's ONLY softening is a classification with evidence.
+     *
+     * A referent under a gitignored runtime root is exempt and says why; a
+     * referent that simply is not there is a dangling reference and fails.
+     * Both live in the same file and are reached by the same pass, so this is
+     * the test that the exemption is a classification rather than a hole.
+     */
+    public function testTheProverExemptsClassifiedRuntimeTargetsButNotDanglingOnes(): void
+    {
+        $root = $this->makeSyntheticRepo();
+        $map = $this->syntheticMap();
+
+        // Exempt: sandbox/tmp/ is gitignored scratch (.gitignore:4).
+        self::write($root . '/sandbox/tests/regress_runtime.php', <<<'PHP'
+<?php
+
+declare(strict_types=1);
+
+$sandbox = dirname(__DIR__, 1);
+$scratch = $sandbox . '/tmp/reference-env/origin.git';
+$estate = $sandbox . '/siterepo/mup1';
+echo "ok\n";
+PHP);
+        $map['sandbox/tests/regress_runtime.php'] = 'sandbox/tests/offline/thing/regress_runtime.php';
+        exec('git -C ' . escapeshellarg($root) . ' add -A 2>&1');
+
+        [$status, $output] = $this->runTool($root, '--apply', '--map=' . $this->writeMap($root, $map));
+        self::assertSame(0, $status, $output);
+
+        [$clean, $proveOutput] = $this->runTool($root, '--prove', '--map=' . $this->writeMap($root, $map));
+        self::assertSame(0, $clean, $proveOutput);
+        self::assertStringContainsString('gitignored scratch root', $proveOutput);
+        self::assertStringContainsString('gitignored pair estate', $proveOutput);
+
+        // Now add a referent that is NOT classified: same file, same pass.
+        $moved = $root . '/sandbox/tests/offline/thing/regress_runtime.php';
+        file_put_contents($moved, str_replace(
+            "\$estate = \$sandbox . '/siterepo/mup1';",
+            "\$estate = \$sandbox . '/tests/lib/absent_helper.php';",
+            self::read($moved)
+        ));
+
+        [$dangling, $danglingOutput] = $this->runTool($root, '--prove', '--map=' . $this->writeMap($root, $map));
+        self::assertSame(1, $dangling, $danglingOutput);
+        self::assertStringContainsString('sandbox/tests/lib/absent_helper.php', $danglingOutput);
+        self::assertStringContainsString('which does not exist', $danglingOutput);
+        // …and the classified one is still exempt rather than swept up with it.
+        self::assertStringContainsString('gitignored scratch root', $danglingOutput);
+    }
+
+    /**
+     * PHP variables are function-scoped; this scan is file-scoped.
+     *
+     * `cli/src/Adapter/AdapterDraft.php` binds `$repo = dirname(__DIR__, 3)` in
+     * boot() at :390 and separately declares `read_prior_manifest(string $repo,
+     * …)` at :435, where `$repo` is a MANAGED SITE's repository. Resolving the
+     * second against the first reported `$repo . '/site.duo.json'` as a
+     * dangling reference to a file that only ever exists on a site.
+     */
+    public function testAFunctionParameterIsNotResolvedAsARootVariable(): void
+    {
+        $shared = token_get_all(<<<'PHP'
+<?php
+class Draft {
+    private static function boot(): void {
+        $repo = dirname(__DIR__, 3);
+        $agent = $repo . '/agent/duo.php';
+    }
+    private static function read_prior(string $repo, string $name): void {
+        $path = $repo . '/adapters/' . $name . '.json';
+    }
+}
+PHP);
+        self::assertArrayNotHasKey('repo', ms_php_root_vars($shared, 'cli/src/Adapter', 0));
+
+        // A name never used as a parameter still resolves, or the fix would
+        // have bought its precision by disabling the feature.
+        $clean = token_get_all(<<<'PHP'
+<?php
+$duoRoot = dirname(__DIR__, 2);
+$canon = $duoRoot . '/agent/src/Kernel/Canon.php';
+PHP);
+        self::assertSame(
+            ['duoRoot' => ''],
+            ms_php_root_vars($clean, 'sandbox/tests', 0)
+        );
     }
 
     public function testProveAcceptsANegativeExistenceAssertion(): void
@@ -652,6 +990,40 @@ MAKE);
         foreach ($result['changes'] as $change) {
             self::assertStringNotContainsString('ROUND 3 TRAIN 1', $change['from']);
         }
+    }
+
+    /**
+     * The restructure lands one wave at a time, so `tools/suite-layout.json`
+     * and its review record must keep naming pre-move paths until the last
+     * wave lands — they are the map the next wave is derived from and the
+     * record of what each placement was decided on. Both sit inside the
+     * `tools` scan root, so without the exclusion the literal pass rewrites
+     * every completed row to `"<new>": "<new>"` and the prover's stale-mention
+     * check makes that corruption mandatory rather than optional.
+     */
+    public function testTheLayoutMapAndItsReviewRecordAreNeverRewritten(): void
+    {
+        $root = $this->makeSyntheticRepo();
+        $record = "The ratified rename is\n"
+            . "sandbox/tests/regress_thing.sh -> sandbox/tests/offline/thing/regress_thing.sh\n";
+        self::write(
+            $root . '/tools/suite-layout.json',
+            (string) json_encode($this->syntheticMap(), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n"
+        );
+        self::write($root . '/tools/suite-layout.review.md', $record);
+        exec('git -C ' . escapeshellarg($root) . ' add -A 2>&1');
+        $mapBefore = self::read($root . '/tools/suite-layout.json');
+
+        [$status, $output] = $this->runTool($root, '--apply', '--map=' . $this->writeMap($root, $this->syntheticMap()));
+        self::assertSame(0, $status, $output);
+
+        self::assertSame($mapBefore, self::read($root . '/tools/suite-layout.json'));
+        self::assertSame($record, self::read($root . '/tools/suite-layout.review.md'));
+
+        // The pre-move paths those two files still spell are not dangling
+        // references — they are the record. --prove must stay green.
+        [$clean, $proveOutput] = $this->runTool($root, '--prove', '--map=' . $this->writeMap($root, $this->syntheticMap()));
+        self::assertSame(0, $clean, $proveOutput);
     }
 
     /**

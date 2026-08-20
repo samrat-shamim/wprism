@@ -46,7 +46,7 @@
  *   and duo_agency_room_slots — a parent row with a site-unique code and a
  *   child row whose code is unique only WITHIN its parent, the shape a
  *   multi-column natural key exists for. The SHIPPED manifest deliberately
- *   does not declare them; sandbox/tests/regress_parent_scoped_natural_key.sh
+ *   does not declare them; sandbox/tests/live/regress_parent_scoped_natural_key.sh
  *   supplies that declaration through a test-manifests overlay, so the two
  *   suites that already drive this fixture keep loading byte-identical
  *   adapter bytes.

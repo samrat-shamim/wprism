@@ -35,7 +35,7 @@
 # re-touching the conf pair — out of this fixture's own footprint. DUO-3238
 # wired it into conformance/checks/fse.sh's front-page assertions (the file
 # that actually flaked) — see that file for the first real usage.
-# sandbox/tests/certify_merge.sh still has no HTTP/render checks to apply
+# sandbox/tests/certify/certify_merge.sh still has no HTTP/render checks to apply
 # this to (headless by design, a data-layer certification like
 # spike_b_merge.sh) — see that file's header.
 retry_render_check() { # retry_render_check <url> <check_fn> [attempts=2] [delay_seconds=5]

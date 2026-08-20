@@ -39,14 +39,29 @@ declare(strict_types=1);
  *     directory) is invisible to it — which is correct: rewriting those would
  *     corrupt an embedded program. `sandbox/tests/regress_provider_contract.php
  *     :1113` is exactly that shape.
- *  2. php-dir-literal — `__DIR__ . '<literal>'` in a moved PHP file, re-based
- *     for the new depth and FOLLOWING the map, so a reference to a sibling
- *     suite that also moved lands on its new home
- *     (`regress_init_contract.php:623` reads `__DIR__ . '/regress_duo_init.sh'`).
- *     Sibling substrate forms — `'/lib/…'`, `'/fixtures/…'`, `'/support/…'`,
- *     `'/manifest_fixtures.php'` — become `'/../../lib/…'` and so on per depth,
- *     because the substrate stays at the root. Measured: 864 sites under
- *     sandbox/tests, 793 in the flat files this wave moves.
+ *  2. php-dir-literal — `__DIR__ . '<literal>'`, re-based for the new depth and
+ *     FOLLOWING the map, so a reference to a sibling that also moved lands on
+ *     its new home (`regress_init_contract.php:623` reads
+ *     `__DIR__ . '/regress_duo_init.sh'`; the ratified map sends that script to
+ *     `live/` and the reference becomes `'/../../live/regress_duo_init.sh'`).
+ *     Two things follow from "following the map", and both are load-bearing:
+ *
+ *       * THE MAP DECIDES WHAT MOVES, not this file's prose. Only the four
+ *         MS_SUBSTRATE entries are refused as destinations; every other corpus
+ *         file moves if the map says so. `manifest_fixtures.php` and
+ *         `certification_fixture.php` read like substrate and are NOT —
+ *         the ratified layout sends them to `offline/policy/` and
+ *         `offline/adapter/`, and a referrer's `'/manifest_fixtures.php'`
+ *         correctly becomes `'/../policy/manifest_fixtures.php'`. A reference
+ *         to something the map leaves at the root (`'/lib/check.php'`) becomes
+ *         `'/../../lib/check.php'` by the same arithmetic, not by a special
+ *         case.
+ *       * The pass is NOT gated on the referring file having moved. A file that
+ *         stays put still needs re-pointing when the file it NAMES moved, which
+ *         a subset map makes the common case — see the comment in ms_compute().
+ *
+ *     Measured: 864 sites under sandbox/tests, 785 rewritten by the ratified
+ *     335-entry map.
  *  3. shell-anchor — the `$(dirname "$0")` self-anchor, and the `ROOT=` /
  *     `REPO_ROOT=` / `SANDBOX=` assignment forms built on it. Policy, and the
  *     one judgement call in this tool:
@@ -118,12 +133,14 @@ declare(strict_types=1);
  * reason, because a path expression nobody understood is exactly the thing that
  * ships broken into a `live/` file the offline gate never runs.
  *
- * UNPROVABLE is the separate, non-blocking bucket: a site a class DID rewrite
- * whose referent does not exist on disk, so `--prove` cannot check it. There is
- * exactly one in the flat tree — `regress_init_contract.php:1066` builds
- * `__DIR__ . '/../unsafe1'` with `mkdir()` and removes it in a shutdown
- * function — and `MS_RUNTIME_CREATED_TARGETS` names its resolved target so the
- * prover stays green without weakening for anything else.
+ * UNPROVABLE is the separate, non-blocking bucket: a referent that legitimately
+ * does not exist in a source checkout, so `--prove` cannot check it.
+ * `ms_runtime_created_reason()` is the only thing that softens the prover, and
+ * it is a classification carrying evidence rather than a list of paths that
+ * were in the way: three runtime ROOTS (`sandbox/tmp/` and `sandbox/siterepo/`
+ * from `.gitignore:3-4`, and `agent/duo/`, the deployed mu-plugin layout) and
+ * two named files. Anything it does not match is a dangling reference and
+ * fails, which is what stops a wrong `../` run from hiding in the same bucket.
  *
  * ------------------------------------------------ what --prove cannot catch
  *
@@ -165,6 +182,16 @@ const MS_TESTS_ROOT = 'sandbox/tests';
  * wp_stubs.php / FakeWpdb.php skeleton AGENTS.md rule 5 points new suites at;
  * `offline_diagnostics_guard.sh` is invoked by the Makefile's own
  * `regress-offline-corpus` wrapper line.
+ *
+ * THIS LIST IS EXHAUSTIVE AND DELIBERATELY SHORT. It is the only place where
+ * this tool overrides the map, so anything not named here moves when the map
+ * says so — including files that read like substrate and are not.
+ * `manifest_fixtures.php` (required by 12 suites) and `certification_fixture.php`
+ * are the two that catch people out: the ratified layout moves them to
+ * `offline/policy/` and `offline/adapter/`, and every referring
+ * `__DIR__ . '/manifest_fixtures.php'` correctly follows to
+ * `'/../policy/manifest_fixtures.php'`. Do not grow this list to "protect" a
+ * file; a hand-reviewed map that moves it has already made that decision.
  */
 const MS_SUBSTRATE = ['lib', 'fixtures', 'support', 'offline_diagnostics_guard.sh'];
 
@@ -208,6 +235,15 @@ const MS_SCAN_FILES = [
  * excludes its own: they speak ABOUT the pre-move layout by construction. The
  * test asserts `git mv sandbox/tests/regress_x.php sandbox/tests/offline/…`,
  * and rewriting that assertion would make it a tautology.
+ *
+ * The layout map and its review record are the same category, and the map is
+ * additionally this tool's own INPUT. Rewriting them mid-wave turns each
+ * completed row into `"<new>": "<new>"` and each reviewed rationale into a
+ * tautology — `suite-layout.review.md:153` states the one ratified rename as
+ * `regress_fatal_mutations.sh -> live/regress_fatal_mutations_live.sh`, a
+ * sentence with no meaning once the left side is rewritten. A wave moves a
+ * subset, so both files must keep naming pre-move paths until the last one
+ * lands; the prover's stale-mention check would otherwise force the corruption.
  */
 const MS_SCAN_EXCLUDE = [
     '.git/',
@@ -216,6 +252,8 @@ const MS_SCAN_EXCLUDE = [
     'sandbox/tmp/',
     'tests/Tooling/MoveSuitesTest.php',
     'tools/codemod/move-suites.php',
+    'tools/suite-layout.json',
+    'tools/suite-layout.review.md',
     'vendor/',
 ];
 
@@ -241,20 +279,72 @@ const MS_MOVE_MODULES_KEYS = [
 ];
 
 /**
- * Repo-relative targets a suite CREATES at runtime, so `--prove` cannot assert
- * they exist without running the suite.
+ * Referents that legitimately do not exist in a source checkout, each with the
+ * reason it is exempt from the prover's existence assertion.
  *
- * One entry, and it stays one entry unless a human adds another deliberately:
- * `sandbox/tests/regress_init_contract.php:1066-1069` builds `$unsafeRoot =
- * __DIR__ . '/../unsafe1'` with `mkdir(…, 0777, true)` and unlinks it from a
- * `register_shutdown_function()`. Every other one of the 793 `__DIR__`-relative
- * targets in the flat corpus resolves to a file or directory that is on disk,
- * which is what makes the prover's existence assertion a real check rather than
- * a formality.
+ * This is the ONLY thing that softens `--prove`, so it is a classification with
+ * evidence rather than a list of paths that were in the way. Every entry names
+ * what creates the referent and where that is stated; anything not matched here
+ * is a dangling reference and fails, which is what keeps a wrong `../` run —
+ * the defect this tool exists to prevent — from hiding in the same bucket.
+ *
+ * Prefixes are runtime ROOTS: nothing under them is ever a source file.
+ *
+ * @return array<string,string> repo-relative prefix => reason
  */
-const MS_RUNTIME_CREATED_TARGETS = [
-    'sandbox/unsafe1',
-];
+function ms_runtime_created_prefixes(): array
+{
+    return [
+        // `.gitignore:4`. AGENTS.md rule 3 sends all scratch here, so a suite
+        // that writes a fixture tree writes it under this root and nothing in
+        // it is ever committed (`git ls-files sandbox/tmp` is empty).
+        'sandbox/tmp/' => 'gitignored scratch root (.gitignore:4); AGENTS.md rule 3 puts all scratch here',
+        // `.gitignore:3`. `sandbox/bin/pair.sh` creates `siterepo/<pair><n>` per
+        // pair; `git ls-files sandbox/siterepo` is empty.
+        'sandbox/siterepo/' => 'gitignored pair estate (.gitignore:3); sandbox/bin/pair.sh creates siterepo/<pair><n> at runtime',
+        // The DEPLOYED drop-in layout, not the source one. `agent/duo-loader.php`
+        // is the mu-plugin shim that sits in `wp-content/mu-plugins/` on a
+        // managed site and requires `duo/duo.php` BESIDE IT THERE; in this tree
+        // the agent is `agent/duo.php` and `agent/duo/` has no tracked files.
+        'agent/duo/' => 'the deployed mu-plugin layout: agent/duo-loader.php:7 requires duo/duo.php beside itself on a managed site, never in this tree',
+    ];
+}
+
+/**
+ * Exact referents, same contract as the prefixes above.
+ *
+ * @return array<string,string> repo-relative path => reason
+ */
+function ms_runtime_created_targets(): array
+{
+    return [
+        // Built and torn down inside one run: the suite mkdir()s it at
+        // :1066-1069 and unlinks it from a register_shutdown_function().
+        'sandbox/unsafe1' => 'created and removed within a single run by regress_init_contract.php:1066-1069',
+        // Operator-installed on a managed site. installed_config() asserts a
+        // regular file with 0600 permissions before reading it, which is what
+        // a secrets-grade operator drop-in looks like — never a repo file.
+        'agent/scoped-promotion-control.json' => 'operator-installed on a managed site; ScopedPromotionAuthority::installed_config() asserts a 0600 regular file (agent/src/Promotion/ScopedPromotionAuthority.php:133-136)',
+    ];
+}
+
+/**
+ * The reason `$target` is exempt from the existence assertion, or null when it
+ * is an ordinary referent that must exist.
+ */
+function ms_runtime_created_reason(string $target): ?string
+{
+    $exact = ms_runtime_created_targets();
+    if (isset($exact[$target])) {
+        return $exact[$target];
+    }
+    foreach (ms_runtime_created_prefixes() as $prefix => $reason) {
+        if (str_starts_with($target . '/', $prefix)) {
+            return $reason;
+        }
+    }
+    return null;
+}
 
 // ------------------------------------------------------------ path helpers
 
@@ -841,6 +931,52 @@ function ms_dirname_depth_at(array $tokens, array $significant, int $at): ?int
 }
 
 /**
+ * Every name that appears as a function/closure PARAMETER anywhere in the file.
+ *
+ * Used to disqualify it as a root variable: see the comment in
+ * ms_php_root_vars(). Conservative by construction — one parameter of that name
+ * anywhere is enough to disqualify it everywhere, because this scan cannot tell
+ * which function body a use sits in.
+ *
+ * @param list<array{0:int,1:string,2:int}|string> $tokens
+ * @return array<string,bool>
+ */
+function ms_php_parameter_names(array $tokens): array
+{
+    $out = [];
+    $count = count($tokens);
+    for ($i = 0; $i < $count; $i++) {
+        $t = $tokens[$i];
+        if (!is_array($t) || ($t[0] !== T_FUNCTION && $t[0] !== T_FN)) {
+            continue;
+        }
+        // Walk to the signature's opening paren, then to its match.
+        $depth = 0;
+        for ($j = $i + 1; $j < $count; $j++) {
+            $tok = $tokens[$j];
+            if ($tok === '(') {
+                $depth++;
+                continue;
+            }
+            if ($tok === ')') {
+                if (--$depth === 0) {
+                    $i = $j;
+                    break;
+                }
+                continue;
+            }
+            if ($depth > 0 && is_array($tok) && $tok[0] === T_VARIABLE) {
+                $out[substr((string) $tok[1], 1)] = true;
+            }
+            if ($depth === 0 && ($tok === '{' || $tok === ';')) {
+                break;
+            }
+        }
+    }
+    return $out;
+}
+
+/**
  * Variables bound to `dirname(__DIR__[, N])`, resolved to the repo-relative
  * directory each one names once the file sits at `$dirRel`.
  *
@@ -877,7 +1013,15 @@ function ms_php_root_vars(array $tokens, string $dirRel, int $delta): array
     }
 
     $vars = [];
-    $ambiguous = [];
+    // PHP variables are FUNCTION-scoped and this scan is FILE-scoped, so a name
+    // bound to dirname(__DIR__, N) in one function must not be resolved in
+    // another that takes the same name as an argument. Live instance:
+    // cli/src/Adapter/AdapterDraft.php binds `$repo = dirname(__DIR__, 3)` in
+    // boot() at :390 and separately declares `read_prior_manifest(string $repo,
+    // …)` at :435, where `$repo` is a MANAGED SITE's repository. Without this,
+    // `$repo . '/site.duo.json'` resolved against the duo repo root and was
+    // reported as a dangling reference to a file that only exists on a site.
+    $ambiguous = ms_php_parameter_names($tokens);
     $n = count($significant);
     for ($s = 0; $s + 4 < $n; $s++) {
         $v = $tokens[$significant[$s]];
@@ -1089,8 +1233,13 @@ function ms_rewrite_shell(string $root, string $source, string $oldRel, string $
         // is the obvious one; the quiet one is a BARE sibling token —
         // `support/wp-shortcode-stub.php`, `manifest_fixtures.php`,
         // `certification_fixture.php` — which resolves beside the script today
-        // and names substrate that stays at the corpus root after the move. 13
-        // of the 14 cwd-follows scripts carry at least one.
+        // and will not after the move. 13 of the 14 cwd-follows scripts carry
+        // at least one. Where such a token lands is the MAP's decision, never a
+        // list in this file: `support/` stays at the corpus root so the token
+        // climbs to `../../support/…`, while the ratified layout moves
+        // `certification_fixture.php` into `offline/adapter/` and the same
+        // arithmetic sends the token there instead. Only MS_SUBSTRATE is
+        // refused as a destination; nothing else here is privileged.
         //
         // A token is rewritten only when it RESOLVES against the script's old
         // directory. That existence test is the whole safety argument: a bare
@@ -1169,14 +1318,12 @@ function ms_rewrite_shell(string $root, string $source, string $oldRel, string $
  *
  * @param array<string,string> $placement oldRel => newRel
  * @return array{text:string, changes:list<array{line:int, from:string, to:string, kind:string}>,
- *               targets:list<array{line:int, target:string, expr:string}>,
- *               stale:list<array{line:int, target:string, expr:string}>}
+ *               targets:list<array{line:int, target:string, expr:string}>}
  */
 function ms_rewrite_literals(string $text, array $placement, string $relative): array
 {
     $changes = [];
     $targets = [];
-    $stale = [];
     $kind = $relative === 'Makefile' ? 'makefile-recipe' : 'repo-literal';
 
     $values = [];
@@ -1188,14 +1335,6 @@ function ms_rewrite_literals(string $text, array $placement, string $relative): 
     foreach ($lines as $n => $lineText) {
         if (!str_contains($lineText, MS_TESTS_ROOT . '/')) {
             continue;
-        }
-
-        // Stale keys are read off the ORIGINAL line: rewriting first would
-        // turn a mention this pass failed to catch into a valid-looking one.
-        foreach ($placement as $oldRel => $newRel) {
-            if (ms_literal_hits($lineText, $oldRel) > 0) {
-                $stale[] = ['line' => $n + 1, 'target' => $oldRel, 'expr' => $oldRel];
-            }
         }
 
         $replaced = $lineText;
@@ -1226,7 +1365,54 @@ function ms_rewrite_literals(string $text, array $placement, string $relative): 
         }
     }
 
-    return ['text' => implode("\n", $lines), 'changes' => $changes, 'targets' => $targets, 'stale' => $stale];
+    return ['text' => implode("\n", $lines), 'changes' => $changes, 'targets' => $targets];
+}
+
+/**
+ * Corpus paths a file MENTIONS, read without rewriting anything.
+ *
+ * `--prove` cannot reuse `ms_rewrite_literals()` for this: that function
+ * applies the map in memory first, so on a tree where the move has not run it
+ * "finds" the new path in text that still says the old one and reports the new
+ * path as dangling. That is wrong in exactly the state the waves put the repo
+ * in — after W2 the Makefile legitimately still names 266 flat W3 suites, and a
+ * full-map prove flagged 728 of them.
+ *
+ * What is checkable whatever fraction of the map has been applied:
+ *   - a mention of a NEW path must resolve: the text was rewritten, so the file
+ *     had better be there;
+ *   - a mention of an OLD path must resolve too. It does while that move is
+ *     still pending, and does NOT once the move ran and a rewrite was missed —
+ *     which is the real defect this catches.
+ * Both reduce to one claim, every corpus path a file names exists, and that
+ * claim holds before, during and after any subset of the map.
+ *
+ * @param array<string,string> $placement oldRel => newRel
+ * @return list<array{line:int, target:string, expr:string, negated:bool}>
+ */
+function ms_literal_targets(string $root, string $text, array $placement): array
+{
+    $out = [];
+    foreach (explode("\n", $text) as $n => $lineText) {
+        if (!str_contains($lineText, MS_TESTS_ROOT . '/')) {
+            continue;
+        }
+        $negated = ms_line_negates_existence($lineText);
+        foreach ($placement as $oldRel => $newRel) {
+            if (ms_literal_hits($lineText, $newRel) > 0) {
+                $out[] = ['line' => $n + 1, 'target' => $newRel, 'expr' => $newRel, 'negated' => $negated];
+            }
+            if (ms_literal_hits($lineText, $oldRel) > 0 && !file_exists($root . '/' . $oldRel)) {
+                $out[] = [
+                    'line' => $n + 1,
+                    'target' => $oldRel,
+                    'expr' => "the pre-move path (now at $newRel)",
+                    'negated' => $negated,
+                ];
+            }
+        }
+    }
+    return $out;
 }
 
 /**
@@ -1422,24 +1608,40 @@ function ms_compute(string $root, array $map): array
         $changes = array_merge($changes, $lit['changes']);
         $targets = array_merge($targets, $lit['targets']);
 
-        if ($moved && ms_is_php_path($relative)) {
+        // NOT gated on $moved. A file that stays put still needs re-pointing
+        // when the file it NAMES moved, and a subset map makes that the common
+        // case rather than the exotic one: wave W2 moves regress_duo_init.sh
+        // into live/ while regress_init_contract.php — a W3 file — stays flat
+        // holding `__DIR__ . '/regress_duo_init.sh'`. Class 6 cannot see that
+        // literal (it is a bare sibling name, not a repo-relative path), so
+        // gating this pass on $moved left two dangling references that only
+        // --prove caught. With old == new the depth delta is zero, so the only
+        // rewrites a non-moved file can receive are the ones the map earned.
+        if (ms_is_php_path($relative)) {
             $r = ms_rewrite_php($text, $relative, $newRel, $placement);
             $text = $r['source'];
             $changes = array_merge($changes, $r['changes']);
             $targets = array_merge($targets, $r['targets']);
-            foreach ($r['review'] as $v) {
-                $review[] = ['file' => $newRel] + $v;
+            if ($moved) {
+                // Review is a claim about a file this wave is RESTRUCTURING.
+                // An unresolvable __DIR__ in a file nobody is touching is not
+                // this tool's business and would block every plan forever.
+                foreach ($r['review'] as $v) {
+                    $review[] = ['file' => $newRel] + $v;
+                }
             }
         }
-        if ($moved && ms_is_shell_path($relative)) {
+        if (ms_is_shell_path($relative)) {
             $r = ms_rewrite_shell($root, $text, $relative, $newRel, $placement);
             $text = $r['text'];
             $changes = array_merge($changes, $r['changes']);
             $targets = array_merge($targets, $r['targets']);
             $cwdKind = $r['cwd'];
             $handled = $r['accounted'];
-            foreach ($r['review'] as $v) {
-                $review[] = ['file' => $newRel] + $v;
+            if ($moved) {
+                foreach ($r['review'] as $v) {
+                    $review[] = ['file' => $newRel] + $v;
+                }
             }
         }
 
@@ -1448,11 +1650,24 @@ function ms_compute(string $root, array $map): array
         // PENDING destination is absent only because --apply has not run yet,
         // and listing those would bury the one entry that matters under ~890
         // of them.
+        //
+        // Scoped to files this run actually touches. The __DIR__ pass reads
+        // every PHP file in the scan roots (it has to — a file that stays put
+        // may name one that moved), and most of them carry runtime paths that
+        // were never on disk: `$repo . '/state'` in cli/src/Adapter/AdapterDraft
+        // .php:691, `$sandbox . '/tmp/…'` in the rehearse fixtures. Nine such
+        // sites surfaced against an EMPTY map, which is exactly the kind of
+        // noise that teaches a reader to skip this section.
         foreach ($targets as $t) {
             if ($t['target'] === '' || $t['negated'] || file_exists($root . '/' . $t['target'])) {
                 continue;
             }
-            if (isset($pending[$t['target']]) || in_array($t['target'], MS_RUNTIME_CREATED_TARGETS, true)) {
+            // Pending destinations are absent only because --apply has not run.
+            if (isset($pending[$t['target']])) {
+                continue;
+            }
+            $reason = ms_runtime_created_reason($t['target']);
+            if ($reason !== null) {
                 continue;
             }
             $unprovable[] = ['file' => $moved ? $newRel : $relative] + $t;
@@ -1608,19 +1823,8 @@ function ms_prove(string $root, array $map): array
         if ($isValue && ms_is_shell_path($relative)) {
             $targets = array_merge($targets, ms_rewrite_shell($root, $bytes, $relative, $relative, [])['targets']);
         }
-        $lit = ms_rewrite_literals($bytes, $placement, $relative);
-        $targets = array_merge($targets, $lit['targets']);
-        // A mapping KEY still spelled anywhere is a mention the rewrite pass
-        // missed; post-apply it names a file that is no longer there.
-        foreach ($lit['stale'] as $s) {
-            $dangling[] = ['file' => $relative] + [
-                'line' => $s['line'],
-                'target' => $s['target'],
-                'expr' => 'a surviving mention of the pre-move path ' . $s['target'],
-            ];
-            $checked++;
-        }
-        if ($targets === [] && $lit['stale'] === []) {
+        $targets = array_merge($targets, ms_literal_targets($root, $bytes, $placement));
+        if ($targets === []) {
             continue;
         }
         $files++;
@@ -1643,8 +1847,9 @@ function ms_prove(string $root, array $map): array
                 $dangling[] = $row;
                 continue;
             }
-            if (in_array($t['target'], MS_RUNTIME_CREATED_TARGETS, true)) {
-                $unprovable[] = $row;
+            $reason = ms_runtime_created_reason($t['target']);
+            if ($reason !== null) {
+                $unprovable[] = $row + ['reason' => $reason];
                 continue;
             }
             $dangling[] = $row;
@@ -1872,9 +2077,16 @@ function ms_print_prove($out, array $result): void
     }
 
     if ($result['unprovable'] !== []) {
-        fwrite($out, "\n=== UNPROVABLE (runtime-created; see MS_RUNTIME_CREATED_TARGETS) ===\n");
+        fwrite($out, "\n=== UNPROVABLE (classified; see ms_runtime_created_reason()) ===\n");
         foreach ($result['unprovable'] as $item) {
-            fwrite($out, sprintf("%s:%d  %s -> %s\n", $item['file'], $item['line'], $item['expr'], $item['target']));
+            fwrite($out, sprintf(
+                "%s:%d  %s -> %s\n      exempt: %s\n",
+                $item['file'],
+                $item['line'],
+                $item['expr'],
+                $item['target'],
+                $item['reason'] ?? 'runtime-created'
+            ));
         }
     }
 }
@@ -1949,8 +2161,20 @@ REFUSALS (the map is hand-reviewed; nothing here is corrected silently)
   two values sharing a stem but landing in different directories — the .php
     and .sh halves of one subject move together
   any move of lib/, fixtures/, support/ or offline_diagnostics_guard.sh: the
-    shared substrate stays at the corpus root
+    shared substrate stays at the corpus root. That list is EXHAUSTIVE — it is
+    the only place this tool overrides the map. Files that read like substrate
+    and are not (manifest_fixtures.php, certification_fixture.php) move when
+    the map says so, and their referrers follow.
   a value that would land on an existing file the map does not move
+
+SUBSET MAPS
+  Any mapping file is accepted on its own terms: there is no totality check, no
+  "every corpus file must be mapped", and class 6 rewrites only paths the GIVEN
+  map names. Waves therefore compose — applying the live/grind/certify/spike
+  subset and then the offline subset produces a byte-identical tree to applying
+  the whole map at once, which is asserted in tests/Tooling/MoveSuitesTest.php.
+  This is also why the __DIR__ pass is not gated on the referring file having
+  moved: mid-split, a file that stays put may name one that did.
 
 WHAT IS REWRITTEN
   php-dirname-depth  dirname(__DIR__[, N]) in a moved PHP file -> N + depth delta

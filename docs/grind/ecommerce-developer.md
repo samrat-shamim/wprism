@@ -1,6 +1,6 @@
 # Ecommerce developer grind
 
-`sandbox/tests/grind_ecommerce_developer.sh` is the clean-room ecommerce
+`sandbox/tests/grind/grind_ecommerce_developer.sh` is the clean-room ecommerce
 scenario. It uses an HTTP-enabled `sandbox/bin/pair.sh` workflow and does not
 run as part of a normal static test pass. A live run requires an explicit pair
 authorization because it starts Docker, uses the shared MariaDB service, and
@@ -14,7 +14,7 @@ the run and preserves its exact paths for diagnosis.
 
 ## DUO-3337 move matrix
 
-The machine-readable [DUO-3337 move matrix](../../sandbox/tests/grind_ecommerce_developer.matrix.json)
+The machine-readable [DUO-3337 move matrix](../../sandbox/tests/grind/grind_ecommerce_developer.matrix.json)
 is the acceptance index for this proof. Every row has the same fields:
 move ID, intent, public command, status, code delta, authored-state delta,
 generated-state policy, required capabilities, semantic plan, expected write

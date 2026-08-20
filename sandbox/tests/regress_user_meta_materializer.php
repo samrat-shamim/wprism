@@ -5,7 +5,7 @@
  * full behavioral proof of finalize_user_meta() -- exact-login resolution
  * across divergent numeric ids, authored/runtime classification, ref
  * decoding, duplicate-row collapse, missing-user handling -- already lives
- * in sandbox/tests/regress_user_meta.sh, a live conformance script that
+ * in sandbox/tests/live/regress_user_meta.sh, a live conformance script that
  * exercises this exact code path end to end through a real duo apply against
  * two real WordPress + MySQL targets. This file does not re-implement or
  * re-assert that behavior -- doing so from a hand-copied twin of the

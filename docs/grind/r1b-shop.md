@@ -1,6 +1,6 @@
 # Grind round R1-B — a full WooCommerce shop (task #47)
 
-*Own env pair `r1b1` (:8816) / `r1b2` (:8817), docker-compose profile `r1b`, journal on (`DUO_JOURNAL`). Own site repo (`sandbox/siterepo/{origin-r1b.git,r1b1,r1b2}`). Driver script: [`sandbox/tests/grind_r1b_shop.sh`](../../sandbox/tests/grind_r1b_shop.sh) — re-runnable, resets r1b1/r1b2 content + ledger + journal + attribute/shipping/tax tables each run; passes clean end to end (`make grind-r1b`). No `agent/src/` edits — every mitigation below is manifest/policy-level. `manifests/woocommerce.json` is this round's own manifest (extended honestly, not faked).*
+*Own env pair `r1b1` (:8816) / `r1b2` (:8817), docker-compose profile `r1b`, journal on (`DUO_JOURNAL`). Own site repo (`sandbox/siterepo/{origin-r1b.git,r1b1,r1b2}`). Driver script: [`sandbox/tests/grind/grind_r1b_shop.sh`](../../sandbox/tests/grind/grind_r1b_shop.sh) — re-runnable, resets r1b1/r1b2 content + ledger + journal + attribute/shipping/tax tables each run; passes clean end to end (`make grind-r1b`). No `agent/src/` edits — every mitigation below is manifest/policy-level. `manifests/woocommerce.json` is this round's own manifest (extended honestly, not faked).*
 
 ## Mission
 
@@ -49,7 +49,7 @@ Error: duo: unclassified meta keys on in-scope entities (loud-and-blocking gate)
   [wp duo classify resolves all three; capture succeeds]
 ```
 
-Those decisions are now folded into `manifests/woocommerce.json` — the whole point of graduating a classify session into the shared manifest is that a *fresh* site never has to rediscover them. `sandbox/tests/grind_r1b_shop.sh` runs against that graduated manifest, so re-enacting the gate in the script would be fiction (capture just succeeds). What the script *does* verify, honestly: with `manifests/woocommerce.json` alone and an empty site policy, capture succeeds cleanly and `wp duo pending` shows **zero** outstanding items for any key this round introduced — proof the manifest, not a site override, is what closes the gap now.
+Those decisions are now folded into `manifests/woocommerce.json` — the whole point of graduating a classify session into the shared manifest is that a *fresh* site never has to rediscover them. `sandbox/tests/grind/grind_r1b_shop.sh` runs against that graduated manifest, so re-enacting the gate in the script would be fiction (capture just succeeds). What the script *does* verify, honestly: with `manifests/woocommerce.json` alone and an empty site policy, capture succeeds cleanly and `wp duo pending` shows **zero** outstanding items for any key this round introduced — proof the manifest, not a site override, is what closes the gap now.
 
 ## `attribute_pa_*`: solved cleanly by a pattern; `pa_*` taxonomies: not solvable the same way
 
@@ -157,14 +157,14 @@ Conflicting price edits to the **same variation** on both environments (r1b1: Sm
 1. `install_env()`'s `case "$SETUP"` hook (`hpos`, `block-theme`) runs identically on both `conf1` and `conf2` *before* any seeding — the one place a symmetric "pre-provision the global attributes needed by the seed" step could live for both environments, and it doesn't exist as a generic capability today.
 2. A variable-product seed would immediately hit the same taxonomy-registration gap this round characterized: `conf2` (the fresh target) has no `pa_size`/`pa_color` attribute rows until something creates them, and nothing in `run.sh`'s current flow does.
 
-Recommendation for whoever owns the next `run.sh` change: add a manifest-declared `setup` case (e.g. `"setup": "woo-attrs"`) that runs a small, generic "pre-provision named global attributes" step identically on both conformance environments, mirroring how `hpos`/`block-theme` already work. Until then, this round's variable-product/attribute/shipping/tax coverage lives only in `sandbox/tests/grind_r1b_shop.sh`, run on its own dedicated pair — a real, honest gap in CI coverage, stated rather than hidden.
+Recommendation for whoever owns the next `run.sh` change: add a manifest-declared `setup` case (e.g. `"setup": "woo-attrs"`) that runs a small, generic "pre-provision named global attributes" step identically on both conformance environments, mirroring how `hpos`/`block-theme` already work. Until then, this round's variable-product/attribute/shipping/tax coverage lives only in `sandbox/tests/grind/grind_r1b_shop.sh`, run on its own dedicated pair — a real, honest gap in CI coverage, stated rather than hidden.
 
 ## Files changed
 
 - `manifests/woocommerce.json` — `_price` reclassified `derived`; `product_variation` post type; `_children`/`_default_attributes`/`_product_attributes`/`_variation_description` post_meta rules; `meta_patterns` (new key) for `attribute_pa_*`; 5 custom tables added as typed-snapshot intent markers; extensive `notes` entries recording the empirical basis for every decision above.
 - `sandbox/docker-compose.yml` — new `r1b` profile (`db`/`wp`/`cli` × `r1b1`/`r1b2`, journal on), anchored after the r1a block.
 - `Makefile` — additive `grind-r1b` target.
-- `sandbox/tests/grind_r1b_shop.sh` — new, the full narrative this report describes; re-runnable (`make grind-r1b`).
+- `sandbox/tests/grind/grind_r1b_shop.sh` — new, the full narrative this report describes; re-runnable (`make grind-r1b`).
 - `docs/grind/r1b-shop.md` — this report.
 - **Not touched**: `agent/src/**`, `sandbox/conformance/**` (see above), any sibling's env/profile/files.
 - **New tasks filed**: #72 (variation post_title anomaly, escalated), plus this round's contribution folded into #75 (typed-snapshot, shared with R1-A's nf3_* findings).

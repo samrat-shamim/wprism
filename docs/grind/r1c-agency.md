@@ -1,6 +1,6 @@
 # Grind round R1-C — the agency stack, tested for INTERPLAY (task #48)
 
-*Own env pair `r1c1` (:8818) / `r1c2` (:8819), docker-compose profile `r1c`, journal on (`DUO_JOURNAL`). Own site repo (`sandbox/siterepo/{origin-r1c.git,r1c1,r1c2}`). Driver script: [`sandbox/tests/grind_r1c_agency.sh`](../../sandbox/tests/grind_r1c_agency.sh) — re-runnable, resets r1c1/r1c2 content + ledger + journal each run; passes clean end to end (`make grind-r1c`). No `agent/src/` edits — every mitigation below is manifest/policy-level. `manifests/{acf,elementor}.json` untouched (read-only this round, per the round's ownership split).*
+*Own env pair `r1c1` (:8818) / `r1c2` (:8819), docker-compose profile `r1c`, journal on (`DUO_JOURNAL`). Own site repo (`sandbox/siterepo/{origin-r1c.git,r1c1,r1c2}`). Driver script: [`sandbox/tests/grind/grind_r1c_agency.sh`](../../sandbox/tests/grind/grind_r1c_agency.sh) — re-runnable, resets r1c1/r1c2 content + ledger + journal each run; passes clean end to end (`make grind-r1c`). No `agent/src/` edits — every mitigation below is manifest/policy-level. `manifests/{acf,elementor}.json` untouched (read-only this round, per the round's ownership split).*
 
 ## Mission
 
@@ -92,7 +92,7 @@ Success: captured 0 posts, 1 terms, 0 menus, 1 options file(s), 0 media blob(s) 
 - `sandbox/fixtures/duo-agency-cpt/duo-agency-cpt.php` — new fixture plugin (`project` CPT, `project_type` taxonomy, 3 classification-surface keys).
 - `sandbox/docker-compose.yml` — new `r1c` profile (`db`/`wp`/`cli` × `r1c1`/`r1c2`, journal on, spike-G-style nested bind mount for `duo-agency-cpt`), anchored after the last existing profile block.
 - `Makefile` — additive `grind-r1c` target.
-- `sandbox/tests/grind_r1c_agency.sh` — new, the full narrative this report describes; re-runnable.
+- `sandbox/tests/grind/grind_r1c_agency.sh` — new, the full narrative this report describes; re-runnable.
 - `manifests/duo-agency-cpt.json` — new, graduated via `policy-to-manifest`, verified byte-identical against the inline policy it replaces.
 - `docs/grind/r1c-agency.md` — this report.
 - **Not touched**: `manifests/acf.json`, `manifests/elementor.json`, `manifests/interpreters/acf.php`, `agent/src/**`, any sibling's env/profile/files.

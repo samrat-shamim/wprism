@@ -185,7 +185,7 @@ $attributeLookupBoundary = $unsupportedApplySurfaces[1] ?? [];
 woo_ok(str_contains((string) ($attributeLookupBoundary['reason'] ?? ''), 'does not mutate this table')
     && str_contains((string) ($attributeLookupBoundary['reason'] ?? ''), 'explicitly'),
     'attribute lookup disposition forbids best-effort mutation under a verified receipt and names manual repair');
-$matrixHarness = (string) file_get_contents($root . '/sandbox/tests/certify_version_matrix.sh');
+$matrixHarness = (string) file_get_contents($root . '/sandbox/tests/certify/certify_version_matrix.sh');
 woo_ok(str_contains($matrixHarness, 'update_option("default_category", (int) $category->term_id)'), 'version-matrix resets the core default-category reference before each plugin boundary');
 
 echo "PASS: WooCommerce 11.x option/table inventory and rebuild contract are explicit\n";

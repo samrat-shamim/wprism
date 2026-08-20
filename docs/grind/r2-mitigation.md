@@ -49,8 +49,8 @@ One false positive was caught **by the conformance sweep, not by review**: scope
 must be checked against policy membership, not inferred from minting state —
 otherwise every fresh target env's first `apply` (unminted but correctly-scoped
 rows, e.g. `default_category` on a new install) aborts spuriously. Regression:
-`sandbox/tests/regress_option_ref_scope.sh` (7 assertions, including that exact
-case). `sandbox/tests/grind_r1c_agency.sh` step (1) now asserts the abort + the
+`sandbox/tests/live/regress_option_ref_scope.sh` (7 assertions, including that exact
+case). `sandbox/tests/grind/grind_r1c_agency.sh` step (1) now asserts the abort + the
 escape hatch instead of the old quiet drop. Spec: "Unscoped references"
 (spec v0.10).
 

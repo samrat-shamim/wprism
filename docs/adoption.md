@@ -448,7 +448,7 @@ before granting it and narrow the listed entity kinds where possible.
 ## Repository certification transcript
 
 The reproducible two-host transcript lives in
-`sandbox/tests/certify_ssh_adoption_roundtrip.sh` and runs as:
+`sandbox/tests/certify/certify_ssh_adoption_roundtrip.sh` and runs as:
 
 ```sh
 make certify-ssh-adoption-roundtrip

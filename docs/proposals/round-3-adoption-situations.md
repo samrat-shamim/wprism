@@ -7,7 +7,7 @@ plugins, edge cases combinations." Every gap a situation hits is fixed, not file
 
 ## Shape
 
-One driver, `sandbox/tests/grind_adoption.sh`, ten situations, each a fresh pair
+One driver, `sandbox/tests/grind/grind_adoption.sh`, ten situations, each a fresh pair
 reset; the same `grind_mup.sh`/`grind_adapter_walk.sh` conventions
 (`--self-check`, `--dry-run`, evidence dir per situation, exact PASS string, one
 dedicated pair, `DUO_EXPECTED_SOURCE_SHA`, `ADOPT_SITUATIONS=A1,…`). "Progressive"

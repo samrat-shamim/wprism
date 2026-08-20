@@ -208,7 +208,7 @@ require_once __DIR__ . '/../Apply/TypedTableMaterializer.php';
  *   "No update bucket" describes the two-column pure-join proving fixture's
  *   OWN observed behavior (plan can never place it in `update`, because
  *   there is no content that can change independent of identity — verified
- *   live, not merely asserted, by sandbox/tests/regress_pmpro_composite_ref.sh's
+ *   live, not merely asserted, by sandbox/tests/live/regress_pmpro_composite_ref.sh's
  *   own `.plan.update == 0` assertion across two full round-trips; Apply::
  *   build_plan() is out of reach of this file's OWN offline harness,
  *   regress_composite_ref.php, by design — see this file's docblock,

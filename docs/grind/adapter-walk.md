@@ -1,6 +1,6 @@
 # Operator-authored adapters — the four-scenario walk
 
-Driver: [`sandbox/tests/grind_adapter_walk.sh`](../../sandbox/tests/grind_adapter_walk.sh).
+Driver: [`sandbox/tests/grind/grind_adapter_walk.sh`](../../sandbox/tests/grind/grind_adapter_walk.sh).
 Fixtures: [`sandbox/tests/fixtures/adapter-walk/`](../../sandbox/tests/fixtures/adapter-walk/)
 and the walk-owned plugin [`sandbox/fixtures/acme-catalog/`](../../sandbox/fixtures/acme-catalog/).
 Specification: [round-3 T6 §4](../proposals/round-3-adapter-walk.md).
@@ -51,7 +51,7 @@ One scenario at a time, for a shorter feedback loop while the product is being
 built:
 
 ```sh
-WALK_SCENARIOS=S2 bash sandbox/tests/grind_adapter_walk.sh
+WALK_SCENARIOS=S2 bash sandbox/tests/grind/grind_adapter_walk.sh
 ```
 
 ### Inputs
@@ -78,8 +78,8 @@ adapter present to be worth making.
 ### Offline modes (no docker, no pair, no network)
 
 ```sh
-bash sandbox/tests/grind_adapter_walk.sh --self-check   # every pure helper vs recorded documents
-bash sandbox/tests/grind_adapter_walk.sh --dry-run      # --self-check, then the resolved plan
+bash sandbox/tests/grind/grind_adapter_walk.sh --self-check   # every pure helper vs recorded documents
+bash sandbox/tests/grind/grind_adapter_walk.sh --dry-run      # --self-check, then the resolved plan
 ```
 
 `--self-check` runs each jq/bash helper against the PASS document in

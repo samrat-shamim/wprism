@@ -16,7 +16,7 @@ declare(strict_types=1);
  */
 
 $root = dirname(__DIR__, 2);
-$harnessPath = $root . '/sandbox/tests/regress_ssh_adopt.sh';
+$harnessPath = $root . '/sandbox/tests/live/regress_ssh_adopt.sh';
 $harness = file_get_contents($harnessPath);
 if ($harness === false) {
     fwrite(STDERR, "FAIL: could not read SSH-adoption harness: $harnessPath\n");

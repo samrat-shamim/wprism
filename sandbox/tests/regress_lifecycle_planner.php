@@ -9,8 +9,8 @@
  * could silently drift from the real one, and
  * sandbox/tests/regress_code_revision_enforcement.php,
  * sandbox/tests/regress_template_mismatch.php,
- * sandbox/tests/regress_adapter_theme_range.sh, and
- * sandbox/tests/regress_code_drift.sh already exercise the real behavior
+ * sandbox/tests/live/regress_adapter_theme_range.sh, and
+ * sandbox/tests/live/regress_code_drift.sh already exercise the real behavior
  * deeply, unchanged, through Deploy's own kept facades. This file proves
  * the extraction itself: Deploy no longer inlines the moved bodies, only
  * thin facades remain, and LifecyclePlanner is a directly reachable,

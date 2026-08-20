@@ -83,7 +83,7 @@ fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 # The premise/answer assertion helpers the seeds and postdeploy hooks call
 # (require_fixture_ids/values/state, require_duo_answered) live in the shared
 # fragment: TWO harnesses source those hooks (this one and
-# sandbox/tests/certify_version_matrix.sh), and DUO-3408 is what happens when
+# sandbox/tests/certify/certify_version_matrix.sh), and DUO-3408 is what happens when
 # a helper reaches only one of them. Full doctrine in the fragment itself.
 . conformance/asserts.sh
 

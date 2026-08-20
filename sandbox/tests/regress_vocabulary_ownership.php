@@ -34,7 +34,7 @@
  * What this file does NOT cover, because it genuinely needs a live target:
  * apply of a parent-scoped natural key end to end, cross-environment UUID
  * equality against two real auto-increment sequences, and rename-as-ordinary-
- * update continuity — sandbox/tests/regress_parent_scoped_natural_key.sh owns
+ * update continuity — sandbox/tests/live/regress_parent_scoped_natural_key.sh owns
  * those against a real database pair.
  *
  * Exit 0 and "ALL PASSED" on success; any failed check prints "FAIL: ..."

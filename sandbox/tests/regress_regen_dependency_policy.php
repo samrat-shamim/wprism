@@ -16,7 +16,7 @@
  * across a real transaction) match every OTHER Apply.php-touching change
  * in this codebase, none of which get a FakeWpdb offline harness (see
  * regress_snapshot_meta.sh/regress_shipping_zones.sh/regress_collision.sh
- * — all live, docker-based). sandbox/tests/regress_tec_regen.sh is that
+ * — all live, docker-based). sandbox/tests/live/regress_tec_regen.sh is that
  * live proof, including the hard-fail + marker-retry mechanics. Nor the
  * DUO-3360 digest binding of the regenerator FILE (a changed regenerator is a
  * changed adapter): that row is built by two implementations that cannot call
