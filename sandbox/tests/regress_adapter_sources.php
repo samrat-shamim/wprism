@@ -57,7 +57,7 @@ require __DIR__ . '/../../agent/src/Promotion/Deploy.php';
 require __DIR__ . '/../../cli/src/Plan/PlanSummary.php';
 require_once __DIR__ . '/../../agent/src/Policy/ArtifactPolicyIdentity.php';
 // The shared hermetic-library fixture (extracted by DUO-3421 so
-// sandbox/tests/regress_duo_init.sh can mount the identical library into a
+// sandbox/tests/live/regress_duo_init.sh can mount the identical library into a
 // live pair). shipped_library() below is this suite's scratch-root wrapper.
 require __DIR__ . '/certification_fixture.php';
 

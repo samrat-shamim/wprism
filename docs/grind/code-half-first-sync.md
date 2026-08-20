@@ -1,7 +1,7 @@
 # Code-half first-sync hook recovery grind
 
 Driver:
-[`sandbox/tests/grind_first_sync_hook_recovery.sh`](../../sandbox/tests/grind_first_sync_hook_recovery.sh).
+[`sandbox/tests/grind/grind_first_sync_hook_recovery.sh`](../../sandbox/tests/grind/grind_first_sync_hook_recovery.sh).
 
 Run it from the repository root:
 

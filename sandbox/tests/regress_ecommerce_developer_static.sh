@@ -4,9 +4,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-SCRIPT="tests/grind_ecommerce_developer.sh"
+SCRIPT="tests/grind/grind_ecommerce_developer.sh"
 FIXTURE="fixtures/duo-ecommerce-developer-grind"
-MATRIX="tests/grind_ecommerce_developer.matrix.json"
+MATRIX="tests/grind/grind_ecommerce_developer.matrix.json"
 STATIC_STRUCTURE_FILE=""
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
@@ -1598,7 +1598,7 @@ THEME_MATRIX_ROW="$(jq -ce '.moves[] | select(.id == "theme-upgrade-downgrade-re
 jq -e '
   .status == "exercised" and
   .public_command == "php cli/duo --envs-file=<pair-envs> promote target --force-theirs" and
-  .harness == "sandbox/tests/grind_ecommerce_developer.sh" and
+  .harness == "sandbox/tests/grind/grind_ecommerce_developer.sh" and
   (.gap == null) and
   (.linear_routing == null) and
   ((.required_capabilities | index("target runtime preflight")) != null) and

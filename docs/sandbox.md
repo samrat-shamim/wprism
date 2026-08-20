@@ -369,8 +369,9 @@ fixture's own copy.
 
 Untouched, on purpose: the mega-compose file itself, every pair it defines
 (`a`/`b`, `c`, `e1`/`e2`, `f1`/`f2`, `conf1`/`conf2`, `fx1`/`fx2`, `g1`/`g2`,
-`r1a*`, `r1b*`, `r1c*`), `sandbox/setup.sh`, every `sandbox/tests/spike_*.sh`
-and `grind_*.sh` script, and `sandbox/conformance/run.sh`'s *env
+`r1a*`, `r1b*`, `r1c*`), `sandbox/setup.sh`, every
+`sandbox/tests/spike/spike_*.sh` and `sandbox/tests/grind/grind_*.sh` script,
+and `sandbox/conformance/run.sh`'s *env
 provisioning* only gets migrated once tasks #72/#73/#75 (the sibling
 engine-gap work using the conformance pair concurrently) are all complete —
 see the git history / task board around task #74 for the migration status
@@ -435,7 +436,7 @@ The narrower live fixtures keep their own targets, each with its rationale in
 the `Makefile` beside it: `certify-merge`, `certify-adversarial-matrix`,
 `certify-deletion-matrix`, `certify-version-matrix`
 (`VMATRIX_MANIFEST=<name>` names the manifest whose `version_range` edges get
-installed — `sandbox/tests/certify_version_matrix.sh:52`),
+installed — `sandbox/tests/certify/certify_version_matrix.sh:52`),
 `certify-ssh-adoption-roundtrip` and `certify-ssh-rollback`. They keep the
 `certify-` prefix for their history; each is a live proof of one mechanism,
 and none of them publishes a record.

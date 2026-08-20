@@ -28,7 +28,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-delete-guard-evaluator
 .PHONY: regress-scope-discovery regress-user-meta-capture regress-entity-meta-capture regress-menu-capture regress-media-capture regress-options-capture regress-table-graph regress-table-schema regress-snapshot-identity regress-typed-table-capture regress-typed-table-materializer regress-snapshot-pruner
 
-.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b grind-code-half-first-sync grind-ecommerce-developer-live pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones regress-natural-key-rename certify-merge certify-adversarial-matrix certify-deletion-matrix certify-version-matrix certify-ssh-adoption-roundtrip certify-ssh-rollback regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-adapter-sources regress-fetch-artifact regress-adapter-theme-range regress-discovery-completeness regress-core-semantics regress-attachment-portability regress-repository-compiler regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate regress-acf-meta-interpreter regress-widgets regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-stage-transaction-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-plan-title-render regress-conflict-view regress-template-mismatch regress-code-deploy-unit regress-lifecycle-state-handoff regress-lifecycle-phase-handoff-unit regress-plugin-dependency-order regress-rollback-authority regress-recovery-executor regress-checkpoint-bundle regress-code-release code-half-unit \
+.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b grind-code-half-first-sync grind-ecommerce-developer-live pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones regress-natural-key-rename certify-merge certify-adversarial-matrix certify-deletion-matrix certify-version-matrix certify-ssh-adoption-roundtrip certify-ssh-rollback regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations-live regress-adapter-contract regress-adapter-sources regress-fetch-artifact regress-adapter-theme-range regress-discovery-completeness regress-core-semantics regress-attachment-portability regress-repository-compiler regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate regress-acf-meta-interpreter regress-widgets regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-stage-transaction-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-plan-title-render regress-conflict-view regress-template-mismatch regress-code-deploy-unit regress-lifecycle-state-handoff regress-lifecycle-phase-handoff-unit regress-plugin-dependency-order regress-rollback-authority regress-recovery-executor regress-checkpoint-bundle regress-code-release code-half-unit \
 	regress-adopt-rollback regress-block-refs regress-composite-ref regress-doctor-env-values regress-dynamic-options-policy regress-taxonomy-object-keyspace \
 	regress-env-options-policy regress-export-manifest-roundtrip regress-manifest-reclassification-policy regress-ecommerce-developer-matrix \
 	regress-menu-field-reclassification-policy regress-regen-dependency-policy regress-shortcode-refs \
@@ -73,19 +73,19 @@ setup:
 	bash sandbox/setup.sh
 
 spike-a:
-	bash sandbox/tests/spike_a_round_trip.sh
+	bash sandbox/tests/spike/spike_a_round_trip.sh
 
 spike-b:
-	bash sandbox/tests/spike_b_merge.sh
+	bash sandbox/tests/spike/spike_b_merge.sh
 
 spike-c:
-	bash sandbox/tests/spike_c_provenance.sh
+	bash sandbox/tests/spike/spike_c_provenance.sh
 
 spike-d:
-	bash sandbox/tests/spike_d_woo.sh
+	bash sandbox/tests/spike/spike_d_woo.sh
 
 spike-e:
-	bash sandbox/tests/spike_e_acf.sh
+	bash sandbox/tests/spike/spike_e_acf.sh
 
 spikes: spike-a spike-b spike-c spike-d spike-e
 
@@ -93,33 +93,33 @@ conformance-%:
 	bash sandbox/conformance/run.sh $*
 
 cli-smoke:
-	bash sandbox/tests/cli_smoke.sh
+	bash sandbox/tests/spike/cli_smoke.sh
 
 cli-triage-smoke:
-	bash sandbox/tests/cli_triage_smoke.sh
+	bash sandbox/tests/spike/cli_triage_smoke.sh
 
 lint-smoke:
-	bash sandbox/tests/lint_smoke.sh
+	bash sandbox/tests/spike/lint_smoke.sh
 
 # Grind round R1-C (task #48): the agency stack — Elementor + ACF active
 # together, plus a custom CPT plugin dogfooded through code/ — tested for
 # INTERPLAY. Own pair (r1c1 :8818 / r1c2 :8819, profile r1c). See
 # docs/grind/r1c-agency.md for the full report.
 grind-r1c:
-	bash sandbox/tests/grind_r1c_agency.sh
+	bash sandbox/tests/grind/grind_r1c_agency.sh
 
 # Grind round R1-A (task #46): a forms-driven business site — Contact Form 7
 # + Ninja Forms on twentytwentyone. Own pair (r1a1 :8814 / r1a2 :8815,
 # profile r1a). See docs/grind/r1a-forms.md for the full report.
 grind-r1a:
-	bash sandbox/tests/grind_r1a_forms.sh
+	bash sandbox/tests/grind/grind_r1a_forms.sh
 
 # Grind round R1-B (task #47): a full WooCommerce shop — Storefront theme,
 # VARIABLE products with GLOBAL attributes (pa_* dynamic taxonomies),
 # shipping zones, tax rates, a grouped product. Own pair (r1b1 :8816 /
 # r1b2 :8817, profile r1b). See docs/grind/r1b-shop.md for the full report.
 grind-r1b:
-	bash sandbox/tests/grind_r1b_shop.sh
+	bash sandbox/tests/grind/grind_r1b_shop.sh
 
 # DUO-3337: the full ecommerce developer proof is live-only and deliberately
 # outside regress-offline-all.  Require an explicit disposable pair and free
@@ -132,7 +132,7 @@ grind-ecommerce-developer-live:
 	@test -n "$(ECOMMERCE_PAIR)" || { echo 'ECOMMERCE_PAIR is required; use a unique disposable pair name' >&2; exit 2; }
 	@test -n "$(PORT1)" || { echo 'PORT1 is required; choose a free host port' >&2; exit 2; }
 	@test -n "$(PORT2)" || { echo 'PORT2 is required; choose a free host port' >&2; exit 2; }
-	ECOMMERCE_PAIR="$(ECOMMERCE_PAIR)" ECOMMERCE_PORT1="$(PORT1)" ECOMMERCE_PORT2="$(PORT2)" bash sandbox/tests/grind_ecommerce_developer.sh
+	ECOMMERCE_PAIR="$(ECOMMERCE_PAIR)" ECOMMERCE_PORT1="$(PORT1)" ECOMMERCE_PORT2="$(PORT2)" bash sandbox/tests/grind/grind_ecommerce_developer.sh
 
 # Sandbox redesign (task #74): one parameterized pair (sandbox/pair.yml)
 # against one shared MariaDB (sandbox/db.yml), driven by sandbox/bin/pair.sh
@@ -163,7 +163,7 @@ pair-list:
 # on) — NOT the legacy sandbox/docker-compose.yml. See
 # docs/grind/r3b-events-memberships.md for the full report.
 grind-r3b:
-	bash sandbox/tests/grind_r3b_events.sh
+	bash sandbox/tests/grind/grind_r3b_events.sh
 
 # Grind round R3-A (task #90): a multilingual WooCommerce shop — Polylang
 # (free) + WooCommerce + Storefront, two languages (en/de), translated
@@ -173,20 +173,20 @@ grind-r3b:
 # sandbox/docker-compose.yml. See docs/grind/r3a-multilingual-shop.md for
 # the full report.
 grind-r3a:
-	bash sandbox/tests/grind_r3a_multilingual.sh
+	bash sandbox/tests/grind/grind_r3a_multilingual.sh
 
 # Engine tasks #92/#93 (taxonomy_patterns + shipping-zone stack /
 # option_name_refs): regressions against the r3e pair (sandbox/bin/pair.sh,
 # 8854/8855) — see docs/grind's r3-eng-woo report for the full live
 # acceptance narrative these regressions guard on an ongoing basis.
 regress-pa-attributes:
-	bash sandbox/tests/regress_pa_attributes.sh
+	bash sandbox/tests/live/regress_pa_attributes.sh
 
 regress-woo-attribute-deletion:
-	bash sandbox/tests/regress_woo_attribute_deletion.sh
+	bash sandbox/tests/live/regress_woo_attribute_deletion.sh
 
 regress-shipping-zones:
-	bash sandbox/tests/regress_shipping_zones.sh
+	bash sandbox/tests/live/regress_shipping_zones.sh
 
 regress-natural-key-rename:
 	php sandbox/tests/regress_natural_key_rename.php
@@ -204,7 +204,7 @@ regress-natural-key-rename:
 # that DUO-3208 landed, but stays out of this fixture per the issue's own
 # routing to DUO-3223's matrix).
 certify-merge:
-	bash sandbox/tests/certify_merge.sh
+	bash sandbox/tests/certify/certify_merge.sh
 
 # DUO-3223 (adversarial certification matrix): cases that don't belong to
 # any single capability's own certification fixture. PART 1 (add/add
@@ -215,7 +215,7 @@ certify-merge:
 # continuation) proves DUO-3223's own "fresh/mapped/restored target" axis.
 # See the script's own header for full detail.
 certify-adversarial-matrix:
-	bash sandbox/tests/certify_adversarial_matrix.sh
+	bash sandbox/tests/certify/certify_adversarial_matrix.sh
 
 # DUO-3223 slice 4 (--with-deletes scenarios): the three manifests with real
 # deletion boundaries on plugin-owned typed-snapshot tables, beyond core's
@@ -224,7 +224,7 @@ certify-adversarial-matrix:
 # cascades, and Paid Memberships Pro proves an empty-guards composite_ref
 # delete. See the script's own header for the exact contracts.
 certify-deletion-matrix:
-	bash sandbox/tests/certify_deletion_matrix.sh
+	bash sandbox/tests/certify/certify_deletion_matrix.sh
 
 # DUO-3223's own last remaining piece (version-boundary matrix), unblocked
 # by the owner ruling on artifact sourcing (issue comment 0ec1d2e3): installs
@@ -235,7 +235,7 @@ certify-deletion-matrix:
 # only -- see the script's own header for why, and DUO-3223 for the
 # remaining 6 pinned manifests as their own next slice.
 certify-version-matrix:
-	bash sandbox/tests/certify_version_matrix.sh
+	bash sandbox/tests/certify/certify_version_matrix.sh
 
 # DUO-3213 (atomic capture publication): offline, no docker -- exercises
 # agent/src/Publication/Publish.php's capture lock, staging dir, atomic swap, and crash
@@ -254,7 +254,7 @@ regress-capture-publish:
 # 8862/8863, headless). Uses WordPress core's own bundled Hello Dolly
 # plugin — zero network installs.
 regress-code-drift:
-	bash sandbox/tests/regress_code_drift.sh
+	bash sandbox/tests/live/regress_code_drift.sh
 
 # DUO-3233 (sub-key option classification): a fresh, from-scratch pair
 # (sandbox/bin/pair.sh, asub3233 8910/8911) — Polylang's `post_types`/
@@ -264,29 +264,29 @@ regress-code-drift:
 # sibling keys. See manifests/polylang.json's and manifests/yoast.json's
 # own notes for the full empirical trail.
 regress-option-subkeys:
-	bash sandbox/tests/regress_option_subkeys.sh
+	bash sandbox/tests/live/regress_option_subkeys.sh
 
 # DUO-3211: explicit absent/present/deleted option records, exact autoload,
 # conflict/delete safety, database assertions, recapture, and retry.
 regress-option-reconciliation:
-	bash sandbox/tests/regress_option_reconciliation.sh
+	bash sandbox/tests/live/regress_option_reconciliation.sh
 
 regress-discovery-completeness:
-	bash sandbox/tests/regress_discovery_completeness.sh
+	bash sandbox/tests/live/regress_discovery_completeness.sh
 
 regress-core-semantics:
-	bash sandbox/tests/regress_core_semantics.sh
+	bash sandbox/tests/live/regress_core_semantics.sh
 
 regress-attachment-portability:
-	bash sandbox/tests/regress_attachment_portability.sh
+	bash sandbox/tests/live/regress_attachment_portability.sh
 
 # DUO-3206: offline wpdb return semantics plus a live, isolated failure-
 # injection matrix for insert/update/delete/transactions/rebuild-actions/ledger.
 regress-fatal-mutations-unit:
 	bash sandbox/tests/regress_fatal_mutations_unit.sh
 
-regress-fatal-mutations:
-	bash sandbox/tests/regress_fatal_mutations.sh
+regress-fatal-mutations-live:
+	bash sandbox/tests/live/regress_fatal_mutations_live.sh
 
 # DUO-3222 (version-pinned adapter compatibility contract): Policy::load()'s
 # new validators, Policy::theme_ranges(), and RepositoryCompiler's
@@ -320,7 +320,7 @@ release-gate:
 	php tools/classmap-generate.php --check
 
 regress-multisite-refusal:
-	bash sandbox/tests/regress_multisite_refusal.sh
+	bash sandbox/tests/live/regress_multisite_refusal.sh
 
 # DUO-3262: optional term/user interpreter hooks plus static-policy fallback;
 # pure PHP fixture manifests/interpreters, no WordPress or docker.
@@ -342,7 +342,7 @@ regress-acf-meta-interpreter:
 # site-repo/plan/apply pipeline needed, since code_mismatch() is a plain
 # static function. Own sandbox/bin/pair.sh pair (asub3222tr 8918/8919).
 regress-adapter-theme-range:
-	bash sandbox/tests/regress_adapter_theme_range.sh
+	bash sandbox/tests/live/regress_adapter_theme_range.sh
 
 # DUO-3266/DUO-3275: menu-item meta capture used to read a fixed 8-key
 # allowlist and silently drop everything else, never reaching the
@@ -355,10 +355,10 @@ regress-adapter-theme-range:
 # classify --set` syntax pending suggests, then captures/applies/round-trips
 # across two independent environments with real token resolution.
 regress-menu-item-meta-gate:
-	bash sandbox/tests/regress_menu_item_meta_gate.sh
+	bash sandbox/tests/live/regress_menu_item_meta_gate.sh
 
 regress-widgets:
-	bash sandbox/tests/regress_widgets.sh
+	bash sandbox/tests/live/regress_widgets.sh
 
 # DUO-3216: offline host-orchestrator state-machine contract — one compiled
 # artifact, pre-checkpoint lease, retire -> activate -> apply ordering, stop-on-first-
@@ -401,7 +401,7 @@ regress-coverage-offline:
 # Live: needs an already-up pair with WooCommerce active, e.g.
 #   DUO_PAIR=mypair make regress-coverage
 regress-coverage:
-	bash sandbox/tests/regress_coverage.sh
+	bash sandbox/tests/live/regress_coverage.sh
 
 regress-post-field-classification:
 	php sandbox/tests/regress_post_field_classification.php
@@ -440,7 +440,7 @@ regress-actions-providers:
 # provider through the `duo_providers` filter, negotiated and invoked against a
 # real target. Own pair, so it is live-list material, never offline-all.
 regress-provider-contract-live:
-	bash sandbox/tests/regress_provider_contract_live.sh
+	bash sandbox/tests/live/regress_provider_contract_live.sh
 
 # DUO-3340 live adapter-authoring exercise: controlled plugin source, journal /
 # pending review, inert host draft, shipped-manifest graduation, and provider /
@@ -448,7 +448,7 @@ regress-provider-contract-live:
 # offline count.
 .PHONY: regress-adapter-authoring-live adapter-authoring-exercise
 regress-adapter-authoring-live:
-	bash sandbox/tests/regress_adapter_authoring_live.sh
+	bash sandbox/tests/live/regress_adapter_authoring_live.sh
 
 adapter-authoring-exercise: regress-adapter-authoring-live
 
@@ -467,7 +467,7 @@ regress-plan-category-summary:
 # PLAN_CATEGORY_SUMMARY_PAIR/PORT1/PORT2 — belongs in regress-live-list, NEVER
 # the offline count.
 regress-plan-category-summary-live:
-	bash sandbox/tests/regress_plan_category_summary_live.sh
+	bash sandbox/tests/live/regress_plan_category_summary_live.sh
 
 # DUO-3345 (bounded plan-view slice): offline proof of the explicit
 # same-snapshot filtered projection, canonical AND/OR request grammar,
@@ -483,7 +483,7 @@ regress-plan-view:
 # test-manifests overlay, the shipped manifest bytes stay byte-identical. Own
 # pair, so it is live-list material, never offline-all.
 regress-provider-requirements-live:
-	bash sandbox/tests/regress_provider_requirements_live.sh
+	bash sandbox/tests/live/regress_provider_requirements_live.sh
 
 # DUO-3318: ownership of the engine's closed manifest vocabularies, the safe
 # extension points around them, and the parent-scoped multi-column natural key
@@ -615,7 +615,7 @@ regress-adapter-observation:
 # whose local ids genuinely differ. Own pair, so it is live-list material,
 # never offline-all.
 regress-parent-scoped-natural-key:
-	bash sandbox/tests/regress_parent_scoped_natural_key.sh
+	bash sandbox/tests/live/regress_parent_scoped_natural_key.sh
 
 regress-code-revision-enforcement:
 	php sandbox/tests/regress_code_revision_enforcement.php
@@ -1192,7 +1192,7 @@ regress-code-compatibility:
 # artifact/owner until exact code + checkpoint recovery, after which the fixed
 # artifact may establish the first three-way base.
 grind-code-half-first-sync:
-	bash sandbox/tests/grind_first_sync_hook_recovery.sh
+	bash sandbox/tests/grind/grind_first_sync_hook_recovery.sh
 
 # ROUND 3 T4 (docs/proposals/round-3-minimum-usable-platform.md §6.1; narrative
 # in docs/grind/mup.md): the end-to-end minimum-usable-platform grind on a
@@ -1205,7 +1205,7 @@ grind-code-half-first-sync:
 grind-mup:
 	MUP_PAIR="$(MUP_PAIR)" MUP_PORT1="$(MUP_PORT1)" MUP_PORT2="$(MUP_PORT2)" MUP_STEP11="$(MUP_STEP11)" \
 	MUP_THEME_SLUG="$(MUP_THEME_SLUG)" MUP_THEME_VERSION="$(MUP_THEME_VERSION)" \
-	bash sandbox/tests/grind_mup.sh
+	bash sandbox/tests/grind/grind_mup.sh
 
 # ROUND 3 T6 (docs/proposals/round-3-adapter-walk.md; narrative in
 # docs/grind/adapter-walk.md): the operator-authored-adapter walk on a dedicated
@@ -1218,7 +1218,7 @@ grind-mup:
 grind-adapter-walk:
 	WALK_PAIR="$(WALK_PAIR)" WALK_PORT1="$(WALK_PORT1)" WALK_PORT2="$(WALK_PORT2)" WALK_SCENARIOS="$(WALK_SCENARIOS)" \
 	WALK_THEME_SLUG="$(WALK_THEME_SLUG)" WALK_THEME_VERSION="$(WALK_THEME_VERSION)" \
-	bash sandbox/tests/grind_adapter_walk.sh
+	bash sandbox/tests/grind/grind_adapter_walk.sh
 
 # ROUND 3 T7 (docs/proposals/round-3-adoption-situations.md; narrative in
 # docs/grind/adoption.md): ten progressive-adoption situations on a dedicated
@@ -1230,12 +1230,12 @@ grind-adapter-walk:
 # Usage: make grind-adoption [ADOPT_PAIR=adopt ADOPT_PORT1=9600 ADOPT_PORT2=9601 ADOPT_SITUATIONS=A1,…,A10]
 grind-adoption:
 	ADOPT_PAIR="$(ADOPT_PAIR)" ADOPT_PORT1="$(ADOPT_PORT1)" ADOPT_PORT2="$(ADOPT_PORT2)" ADOPT_SITUATIONS="$(ADOPT_SITUATIONS)" \
-	bash sandbox/tests/grind_adoption.sh
+	bash sandbox/tests/grind/grind_adoption.sh
 
 # DUO-3216: live activation/deactivation/order gate, deploy-window mail/HTTP
 # observations, and the composed host promote path with a retained DB dump.
 regress-promotion:
-	bash sandbox/tests/regress_promotion.sh
+	bash sandbox/tests/live/regress_promotion.sh
 
 # DUO-3214(a): offline, no docker -- Capture::guard_secret()'s two
 # is_string()-gated call sites (post_meta, options) now deep-scan via
@@ -1400,7 +1400,7 @@ regress-mup-leak-audit:
 
 
 regress-promotion-lock:
-	bash sandbox/tests/regress_promotion_lock.sh
+	bash sandbox/tests/live/regress_promotion_lock.sh
 
 # DUO-3353: responsibility-focused publication/lease control-plane seams.
 # Offline and intentionally independent of WordPress/$wpdb; the existing
@@ -1421,7 +1421,7 @@ regress-recovery-protocol:
 # PROMOTION, already comprehensive) with the still-uncovered concurrent
 # CAPTURE axis.
 regress-capture-concurrency:
-	bash sandbox/tests/regress_capture_concurrency.sh
+	bash sandbox/tests/live/regress_capture_concurrency.sh
 
 # DUO-3285: the 25 regress_*.{sh,php} scripts below existed in sandbox/tests/
 # with NO Makefile target at all before this issue -- unreachable via `make`,
@@ -1442,7 +1442,7 @@ regress-local-bootstrap:
 # then an out-of-band controller container proves local adopt -> init from a
 # target with no pre-mounted Duo control plane. Live-only; never offline-all.
 regress-local-bootstrap-live:
-	bash sandbox/tests/regress_local_bootstrap_live.sh
+	bash sandbox/tests/live/regress_local_bootstrap_live.sh
 
 regress-block-refs:
 	php sandbox/tests/regress_block_refs.php
@@ -1509,7 +1509,7 @@ regress-environment-materializer-recovery:
 # deliberately: it owns source/target DB/media/repository resources and its
 # machine-local provider independently proves snapshot/fence/TTL cleanup.
 regress-environment-materializer-live:
-	bash sandbox/tests/regress_environment_materializer_live.sh
+	bash sandbox/tests/live/regress_environment_materializer_live.sh
 
 regress-frozen-materialization-promotion:
 	php sandbox/tests/regress_frozen_materialization_promotion.php
@@ -1751,31 +1751,31 @@ regress-refresh-export-unit:
 
 # --- live (docker/pair.sh-dependent), now in regress-live-list ---
 regress-acf-term-options-fields:
-	bash sandbox/tests/regress_acf_term_options_fields.sh
+	bash sandbox/tests/live/regress_acf_term_options_fields.sh
 
 regress-collision:
-	bash sandbox/tests/regress_collision.sh
+	bash sandbox/tests/live/regress_collision.sh
 
 regress-entity-type-width:
-	bash sandbox/tests/regress_entity_type_width.sh
+	bash sandbox/tests/live/regress_entity_type_width.sh
 
 regress-env-set:
-	bash sandbox/tests/regress_env_set.sh
+	bash sandbox/tests/live/regress_env_set.sh
 
 regress-option-ref-scope:
-	bash sandbox/tests/regress_option_ref_scope.sh
+	bash sandbox/tests/live/regress_option_ref_scope.sh
 
 regress-pmpro-composite-ref:
-	bash sandbox/tests/regress_pmpro_composite_ref.sh
+	bash sandbox/tests/live/regress_pmpro_composite_ref.sh
 
 regress-repository-authorization:
-	bash sandbox/tests/regress_repository_authorization.sh
+	bash sandbox/tests/live/regress_repository_authorization.sh
 
 regress-repository-compiler-integration:
-	bash sandbox/tests/regress_repository_compiler_integration.sh
+	bash sandbox/tests/live/regress_repository_compiler_integration.sh
 
 regress-scope-gate:
-	bash sandbox/tests/regress_scope_gate.sh
+	bash sandbox/tests/live/regress_scope_gate.sh
 
 # DUO-3344: offline, no docker — a scope resolved from explicit roots closes
 # over declared edges only, every inclusion names the edge that pulled it in,
@@ -1850,7 +1850,7 @@ regress-scoped-apply-live:
 	@test -n "$(SCOPED_APPLY_LIVE_PORT1)" || { echo 'SCOPED_APPLY_LIVE_PORT1 is required; choose a free even port >= 8900' >&2; exit 2; }
 	@test -n "$(SCOPED_APPLY_LIVE_PORT2)" || { echo 'SCOPED_APPLY_LIVE_PORT2 is required; use PORT1 + 1' >&2; exit 2; }
 	@test -n "$(DUO_EXPECTED_SOURCE_SHA)" || { echo 'DUO_EXPECTED_SOURCE_SHA is required; bind evidence to git rev-parse HEAD' >&2; exit 2; }
-	SCOPED_APPLY_LIVE_PAIR="$(SCOPED_APPLY_LIVE_PAIR)" SCOPED_APPLY_LIVE_PORT1="$(SCOPED_APPLY_LIVE_PORT1)" SCOPED_APPLY_LIVE_PORT2="$(SCOPED_APPLY_LIVE_PORT2)" DUO_EXPECTED_SOURCE_SHA="$(DUO_EXPECTED_SOURCE_SHA)" bash sandbox/tests/regress_scoped_apply_live.sh
+	SCOPED_APPLY_LIVE_PAIR="$(SCOPED_APPLY_LIVE_PAIR)" SCOPED_APPLY_LIVE_PORT1="$(SCOPED_APPLY_LIVE_PORT1)" SCOPED_APPLY_LIVE_PORT2="$(SCOPED_APPLY_LIVE_PORT2)" DUO_EXPECTED_SOURCE_SHA="$(DUO_EXPECTED_SOURCE_SHA)" bash sandbox/tests/live/regress_scoped_apply_live.sh
 
 # DUO-3344 slice 6 live proof: the SAME scope contract's selected-identity
 # set flows unchanged through scope -> capture -> refresh-export -> plan ->
@@ -1870,13 +1870,13 @@ regress-scope-chain-stability:
 	@test -n "$(SCOPE_CHAIN_PORT1)" || { echo 'SCOPE_CHAIN_PORT1 is required; choose a free even port >= 8900' >&2; exit 2; }
 	@test -n "$(SCOPE_CHAIN_PORT2)" || { echo 'SCOPE_CHAIN_PORT2 is required; use PORT1 + 1' >&2; exit 2; }
 	@test -n "$(DUO_EXPECTED_SOURCE_SHA)" || { echo 'DUO_EXPECTED_SOURCE_SHA is required; bind evidence to git rev-parse HEAD' >&2; exit 2; }
-	SCOPE_CHAIN_PAIR="$(SCOPE_CHAIN_PAIR)" SCOPE_CHAIN_PORT1="$(SCOPE_CHAIN_PORT1)" SCOPE_CHAIN_PORT2="$(SCOPE_CHAIN_PORT2)" DUO_EXPECTED_SOURCE_SHA="$(DUO_EXPECTED_SOURCE_SHA)" bash sandbox/tests/regress_scope_chain_stability.sh
+	SCOPE_CHAIN_PAIR="$(SCOPE_CHAIN_PAIR)" SCOPE_CHAIN_PORT1="$(SCOPE_CHAIN_PORT1)" SCOPE_CHAIN_PORT2="$(SCOPE_CHAIN_PORT2)" DUO_EXPECTED_SOURCE_SHA="$(DUO_EXPECTED_SOURCE_SHA)" bash sandbox/tests/live/regress_scope_chain_stability.sh
 
 regress-snapshot-meta:
-	bash sandbox/tests/regress_snapshot_meta.sh
+	bash sandbox/tests/live/regress_snapshot_meta.sh
 
 regress-generic-reference-shapes:
-	bash sandbox/tests/regress_generic_reference_shapes.sh
+	bash sandbox/tests/live/regress_generic_reference_shapes.sh
 
 # DUO-3344 live SSH adoption/scoped-promotion evidence must be allocated by
 # its operator and bind a clean standalone clone's exact candidate commit:
@@ -1886,19 +1886,19 @@ regress-ssh-adopt:
 	@test -n "$(ADOPT_FIXTURE)" || { echo 'ADOPT_FIXTURE is required; choose an unused lowercase fixture name' >&2; exit 2; }
 	@test -n "$(ADOPT_SSH_PORT)" || { echo 'ADOPT_SSH_PORT is required; choose an unused port in 8900..65535' >&2; exit 2; }
 	@test -n "$(DUO_EXPECTED_SOURCE_SHA)" || { echo 'DUO_EXPECTED_SOURCE_SHA is required; bind the run to git rev-parse HEAD' >&2; exit 2; }
-	ADOPT_FIXTURE="$(ADOPT_FIXTURE)" ADOPT_SSH_PORT="$(ADOPT_SSH_PORT)" DUO_EXPECTED_SOURCE_SHA="$(DUO_EXPECTED_SOURCE_SHA)" bash sandbox/tests/regress_ssh_adopt.sh
+	ADOPT_FIXTURE="$(ADOPT_FIXTURE)" ADOPT_SSH_PORT="$(ADOPT_SSH_PORT)" DUO_EXPECTED_SOURCE_SHA="$(DUO_EXPECTED_SOURCE_SHA)" bash sandbox/tests/live/regress_ssh_adopt.sh
 
 certify-ssh-adoption-roundtrip:
-	bash sandbox/tests/certify_ssh_adoption_roundtrip.sh
+	bash sandbox/tests/certify/certify_ssh_adoption_roundtrip.sh
 
 certify-ssh-rollback:
-	bash sandbox/tests/certify_ssh_rollback.sh
+	bash sandbox/tests/certify/certify_ssh_rollback.sh
 
 regress-tec-regen:
-	bash sandbox/tests/regress_tec_regen.sh
+	bash sandbox/tests/live/regress_tec_regen.sh
 
 regress-user-meta:
-	bash sandbox/tests/regress_user_meta.sh
+	bash sandbox/tests/live/regress_user_meta.sh
 
 # DUO-3285: one target bundling every offline (no-docker) regress suite --
 # cheap enough to run at every local close-gate. Hosted CI is intentionally
@@ -1980,7 +1980,7 @@ regress-live-list:
 	@echo "  regress-discovery-completeness            pair codexmac3205 8900/8901"
 	@echo "  regress-core-semantics                    pair codexmac3207 8900/8901"
 	@echo "  regress-attachment-portability            pair codexmac3265 8964/8965"
-	@echo "  regress-fatal-mutations                   pair codexmaca3206 9210/..."
+	@echo "  regress-fatal-mutations-live              pair codexmaca3206 9210/..."
 	@echo "  regress-multisite-refusal                 own disposable pair (parameterized: MULTISITE_PAIR/PORT1/PORT2)"
 	@echo "  regress-adapter-theme-range               pair asub3222tr 8918/8919"
 	@echo "  regress-provider-contract-live            pair claudemacb3338 8930/8931"
@@ -2046,4 +2046,4 @@ regress-bound-helper:
 	php sandbox/tests/regress_bound_helper.php
 
 regress-duo-init:
-	bash sandbox/tests/regress_duo_init.sh
+	bash sandbox/tests/live/regress_duo_init.sh

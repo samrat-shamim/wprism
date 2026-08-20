@@ -620,7 +620,7 @@ check(
 $publishSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Publication/PublicationJournal.php');
 $captureSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Capture/CapturePublicationWorkflow.php')
     . (string) file_get_contents(__DIR__ . '/../../agent/src/Capture/InitialCaptureBoundary.php');
-$liveHarness = (string) file_get_contents(__DIR__ . '/regress_duo_init.sh');
+$liveHarness = (string) file_get_contents(__DIR__ . '/live/regress_duo_init.sh');
 check(
     str_contains($publishSource, 'public static function lock_new(')
         && str_contains($publishSource, 'public static function assert_lock_path(')
@@ -1077,7 +1077,7 @@ $invalidOutput = [];
 $invalidExit = 0;
 exec(
     'DUO_INIT_PAIR=' . escapeshellarg('../unsafe') . ' bash '
-        . escapeshellarg(__DIR__ . '/regress_duo_init.sh') . ' 2>&1',
+        . escapeshellarg(__DIR__ . '/live/regress_duo_init.sh') . ' 2>&1',
     $invalidOutput,
     $invalidExit
 );

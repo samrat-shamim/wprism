@@ -8,8 +8,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
-MATRIX="sandbox/tests/grind_ecommerce_developer.matrix.json"
-HARNESS="sandbox/tests/grind_ecommerce_developer.sh"
+MATRIX="sandbox/tests/grind/grind_ecommerce_developer.matrix.json"
+HARNESS="sandbox/tests/grind/grind_ecommerce_developer.sh"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 pass() { echo "ok: $*"; }
@@ -91,7 +91,7 @@ check_matrix() {
       all($root.moves[]; (.acceptance | type == "array" and length > 0 and all(.[]; type == "string" and length > 0))) and
       ($replacement.status == "exercised") and
       ($replacement.public_command == "php cli/duo --envs-file=<pair-envs> promote target --with-deletes") and
-      ($replacement.harness == "sandbox/tests/grind_ecommerce_developer.sh") and
+      ($replacement.harness == "sandbox/tests/grind/grind_ecommerce_developer.sh") and
       (([($replacement | .. | strings)] | join("\n")) | contains("--replace-extension") | not) and
       (($replacement.code_delta | join("\n")) | contains("duo-commerce-extension") and contains("duo-commerce-replacement")) and
       (($replacement.authored_state_delta | join("\n")) | contains("active_plugins") and contains("expected-hash")) and
@@ -188,7 +188,7 @@ check_public_entrypoint() {
   grep -Fq '$(PORT2)' <<<"$target" || return 1
   grep -Fq 'ECOMMERCE_PORT1="$(PORT1)"' <<<"$target" || return 1
   grep -Fq 'ECOMMERCE_PORT2="$(PORT2)"' <<<"$target" || return 1
-  grep -Fq 'sandbox/tests/grind_ecommerce_developer.sh' <<<"$target" || return 1
+  grep -Fq 'sandbox/tests/grind/grind_ecommerce_developer.sh' <<<"$target" || return 1
   grep -Fq 'regress-ecommerce-developer-matrix' Makefile || return 1
   grep -Fq 'regress-ecommerce-developer-matrix' <(sed -n '/^regress-offline-corpus:/,/^[[:space:]]*@echo/p' Makefile) || return 1
   return 0

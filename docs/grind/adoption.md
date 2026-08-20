@@ -1,6 +1,6 @@
 # Progressive adoption — the ten-situation grind
 
-Driver: [`sandbox/tests/grind_adoption.sh`](../../sandbox/tests/grind_adoption.sh).
+Driver: [`sandbox/tests/grind/grind_adoption.sh`](../../sandbox/tests/grind/grind_adoption.sh).
 Substrate: [`sandbox/tests/lib/grind_lib.sh`](../../sandbox/tests/lib/grind_lib.sh)
 (shared with the adapter walk). Plan: [round-3 T7](../proposals/round-3-adoption-situations.md).
 
@@ -32,10 +32,10 @@ Ten situations, each on a fresh `pair.sh reset` of one dedicated pair:
 ## Running it
 
 ```sh
-bash sandbox/tests/grind_adoption.sh --self-check      # helpers vs fixtures, no docker
-bash sandbox/tests/grind_adoption.sh --dry-run         # every argv, nothing executed
-DUO_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD) bash sandbox/tests/grind_adoption.sh
-ADOPT_SITUATIONS=A1,A3 ADOPT_KEEP=1 … bash sandbox/tests/grind_adoption.sh
+bash sandbox/tests/grind/grind_adoption.sh --self-check      # helpers vs fixtures, no docker
+bash sandbox/tests/grind/grind_adoption.sh --dry-run         # every argv, nothing executed
+DUO_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD) bash sandbox/tests/grind/grind_adoption.sh
+ADOPT_SITUATIONS=A1,A3 ADOPT_KEEP=1 … bash sandbox/tests/grind/grind_adoption.sh
 ```
 
 Knobs: `ADOPT_PAIR` (default `adopt`), `ADOPT_PORT1/2` (9600/9601),

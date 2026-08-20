@@ -85,7 +85,7 @@ echo "ok: term_language relationships (capability 1) correct in both directions"
 # misreport them as fabrication. The unambiguous test is Duo's OWN
 # disambiguated representation: re-capture conf2 and confirm post_en/
 # post_fr's `terms` field never contains a term-object taxonomy — exactly
-# the assertion sandbox/tests/regress_collision.sh uses for its (engineered)
+# the assertion sandbox/tests/live/regress_collision.sh uses for its (engineered)
 # collision, applied here to this fixture's (organic) one.
 wp_conf2 duo capture --repo=/siterepo --out=/siterepo/.tmp-fabcheck >/dev/null
 POST_EN_FILE=$(find "${CONF_REPO2:-siterepo/conf2}"/.tmp-fabcheck/posts -name '*conformance-polylang-post-en*')

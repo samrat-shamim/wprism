@@ -4,7 +4,7 @@
 # actions) through its REAL admin import batch process
 # (NF_Admin_Processes_ImportForm — the exact class wp-admin's "Add New Form"
 # template gallery drives), not hand-authored table rows. Mirrors
-# sandbox/tests/grind_r1a_forms.sh's import_nf_template() helper, adapted to
+# sandbox/tests/grind/grind_r1a_forms.sh's import_nf_template() helper, adapted to
 # this harness's conf1-only, single-invocation convention (run.sh already
 # exports $COMPOSE/wp_conf1/fail/pass to this script's process).
 set -euo pipefail

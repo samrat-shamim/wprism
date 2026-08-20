@@ -12,7 +12,7 @@ cd "$(dirname "$0")/.."   # -> sandbox/
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 
-F=tests/certify_version_matrix.sh
+F=tests/certify/certify_version_matrix.sh
 [ -f "$F" ] || fail "$F is missing"
 
 python3 - "$F" <<'PY'

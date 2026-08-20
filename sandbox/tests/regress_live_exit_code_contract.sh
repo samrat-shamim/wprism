@@ -17,9 +17,9 @@ cd "$(dirname "$0")/.."   # -> sandbox/
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
 
-SCOPE=tests/regress_scope_gate.sh
-COMPILER=tests/regress_repository_compiler_integration.sh
-AUTH=tests/regress_repository_authorization.sh
+SCOPE=tests/live/regress_scope_gate.sh
+COMPILER=tests/live/regress_repository_compiler_integration.sh
+AUTH=tests/live/regress_repository_authorization.sh
 for file in "$SCOPE" "$COMPILER" "$AUTH"; do
   [ -f "$file" ] || fail "live regression source is missing: $file"
 done

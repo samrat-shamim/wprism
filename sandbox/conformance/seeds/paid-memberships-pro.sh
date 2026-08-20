@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Paid Memberships Pro manifest conformance seed (DUO-3239 — promoting
-# DUO-3235's own hand-run proof, sandbox/tests/regress_pmpro_composite_ref.sh,
+# DUO-3235's own hand-run proof, sandbox/tests/live/regress_pmpro_composite_ref.sh,
 # into the permanent CI-run registry). Authors PMPro's real system pages via
 # its own pmpro_generatePages() setup function (the exact 9-name/title array
 # regress_pmpro_composite_ref.sh already verified against this manifest's

@@ -1,6 +1,6 @@
 # Grind round R1-A — a forms-driven business site (task #46)
 
-*Own env pair `r1a1` (:8814) / `r1a2` (:8815), docker-compose profile `r1a`, journal on (`DUO_JOURNAL`). Own site repo (`sandbox/siterepo/{origin-r1a.git,r1a1,r1a2}`). Driver script: [`sandbox/tests/grind_r1a_forms.sh`](../../sandbox/tests/grind_r1a_forms.sh) — re-runnable, resets r1a1/r1a2 content + ledger + nf3_\* tables each run. No `agent/src/` edits (engine window closed this round).*
+*Own env pair `r1a1` (:8814) / `r1a2` (:8815), docker-compose profile `r1a`, journal on (`DUO_JOURNAL`). Own site repo (`sandbox/siterepo/{origin-r1a.git,r1a1,r1a2}`). Driver script: [`sandbox/tests/grind/grind_r1a_forms.sh`](../../sandbox/tests/grind/grind_r1a_forms.sh) — re-runnable, resets r1a1/r1a2 content + ledger + nf3_\* tables each run. No `agent/src/` edits (engine window closed this round).*
 
 ## Mission
 
@@ -116,7 +116,7 @@ Branched the site repo (`edit-r1a1`/`edit-r1a2`) from a common base. On r1a1, ed
 ## Files changed
 
 - `sandbox/docker-compose.yml` — `r1a` profile (db/wp/cli-r1a1 :8814, db/wp/cli-r1a2 :8815, journal on), inserted after the `spikeg` block.
-- `sandbox/tests/grind_r1a_forms.sh` (new) — the full, re-runnable round: boot/install, content-reset (including the corrected `nf3_upgrades` truncation), CF7 + Ninja Forms real seeding, pages/menu/posts.
+- `sandbox/tests/grind/grind_r1a_forms.sh` (new) — the full, re-runnable round: boot/install, content-reset (including the corrected `nf3_upgrades` truncation), CF7 + Ninja Forms real seeding, pages/menu/posts.
 - `manifests/contact-form-7.json` (new), `manifests/ninja-forms.json` (new).
 - `sandbox/conformance/seeds/contact-form-7.sh` (new), `sandbox/conformance/checks/contact-form-7.sh` (new), `sandbox/conformance/manifests.json` (added `contact-form-7` entry), `.github/workflows/conformance.yml` (added to matrix).
 - `Makefile` — `grind-r1a` target (additive).

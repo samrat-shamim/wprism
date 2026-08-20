@@ -26,9 +26,9 @@
 #
 # What this does NOT cover, because it genuinely needs a live target: Apply's
 # placement of the negotiation gate ahead of the first mutation and the
-# post-commit fatality of a failing action (sandbox/tests/regress_fatal_mutations.sh),
-# the per-declaration confirmation lines (regress_option_subkeys.sh for a
-# provider capability, regress_woo_attribute_deletion.sh for a native action),
+# post-commit fatality of a failing action (sandbox/tests/live/regress_fatal_mutations_live.sh),
+# the per-declaration confirmation lines (live/regress_option_subkeys.sh for a
+# provider capability, live/regress_woo_attribute_deletion.sh for a native action),
 # and the shipped providers' own invoke() bodies against real plugins (the
 # conformance sweeps; the WooCommerce one is additionally exercised against a
 # fake public API by regress_woocommerce_deletion_authority.php).

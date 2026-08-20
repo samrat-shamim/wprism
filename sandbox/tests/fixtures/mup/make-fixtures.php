@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * Regenerate the recorded documents `sandbox/tests/grind_mup.sh --self-check`
+ * Regenerate the recorded documents `sandbox/tests/grind/grind_mup.sh --self-check`
  * runs its pure jq/bash helpers against (round-3 MUP §6.1).
  *
  * Usage: php sandbox/tests/fixtures/mup/make-fixtures.php [<out-dir>]

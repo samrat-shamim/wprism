@@ -30,7 +30,7 @@ done <<<"$CALLED"
 pass "every hook-called require_* helper ($(wc -l <<<"$CALLED" | tr -d ' ') distinct) is defined in the shared fragment"
 
 # Both harnesses must source the fragment.
-for harness in conformance/run.sh tests/certify_version_matrix.sh; do
+for harness in conformance/run.sh tests/certify/certify_version_matrix.sh; do
   grep -qE '^\. conformance/asserts\.sh' "$harness" \
     || fail "$harness does not source the shared fragment — its hooks' premise assertions die at runtime"
 done

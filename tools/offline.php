@@ -913,15 +913,15 @@ TXT;
             return [];
         }
         $extras = [];
-        $guide = $this->repoRoot . '/sandbox/tests/check_guide_commands.sh';
+        $guide = $this->repoRoot . '/sandbox/tests/spike/check_guide_commands.sh';
         if (is_file($guide)) {
             $extras[] = [
                 'target' => 'extras-check-guide-commands',
-                'argv' => ['bash', 'sandbox/tests/check_guide_commands.sh'],
+                'argv' => ['bash', 'sandbox/tests/spike/check_guide_commands.sh'],
                 'serial' => false,
             ];
         } else {
-            fwrite(STDERR, "tools/offline.php: NOTICE --extras: sandbox/tests/check_guide_commands.sh missing, skipped\n");
+            fwrite(STDERR, "tools/offline.php: NOTICE --extras: sandbox/tests/spike/check_guide_commands.sh missing, skipped\n");
         }
         if (is_file($this->repoRoot . '/vendor/bin/phpunit')) {
             $extras[] = [

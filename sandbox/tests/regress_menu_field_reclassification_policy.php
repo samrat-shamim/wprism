@@ -11,7 +11,7 @@
  * mechanism, generalized to a second section, not a new one. Uses FAKE
  * fixture manifests via DUO_MANIFESTS_DIR, never the real
  * manifests/core.json or manifests/polylang.json — this file proves the
- * MECHANISM works in isolation; sandbox/tests/grind_r3a_multilingual.sh is
+ * MECHANISM works in isolation; sandbox/tests/grind/grind_r3a_multilingual.sh is
  * the live proof against the real shipped manifests and a real Polylang
  * install (menu-location capture actually staying deterministic across a
  * simulated default-language flip).

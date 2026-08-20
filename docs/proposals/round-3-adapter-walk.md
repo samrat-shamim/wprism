@@ -4,7 +4,7 @@
 able to author and override adapters for their published or custom plugins;
 the walk exercises several scenarios and every gap it hits is fixed, not filed.*
 
-This is the shared contract between the walk (`sandbox/tests/grind_adapter_walk.sh`)
+This is the shared contract between the walk (`sandbox/tests/grind/grind_adapter_walk.sh`)
 and the product changes it exercises. Words, flags and file shapes below are
 binding on both; the grind asserts them, the product emits them.
 
@@ -189,7 +189,7 @@ so exactly as today.
 4. `duo manifest-pin` guide/code drift (`source` key in the printed object).
 5. Anything else the walk hits.
 
-## 4. The walk: `sandbox/tests/grind_adapter_walk.sh`
+## 4. The walk: `sandbox/tests/grind/grind_adapter_walk.sh`
 
 Shape: `grind_mup.sh`'s (say/pass/fail, `--self-check`, `--dry-run`, evidence
 dir, exact PASS string, one dedicated pair, `DUO_EXPECTED_SOURCE_SHA`). Subject

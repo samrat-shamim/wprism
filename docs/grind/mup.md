@@ -1,6 +1,6 @@
 # Minimum-Usable-Platform end-to-end grind
 
-Driver: [`sandbox/tests/grind_mup.sh`](../../sandbox/tests/grind_mup.sh).
+Driver: [`sandbox/tests/grind/grind_mup.sh`](../../sandbox/tests/grind/grind_mup.sh).
 Fixtures: [`sandbox/tests/fixtures/mup/`](../../sandbox/tests/fixtures/mup/).
 Specification: [round-3 MUP §6.1](../proposals/round-3-minimum-usable-platform.md).
 
@@ -25,12 +25,12 @@ make grind-mup MUP_PORT1=9400 MUP_PORT2=9401
 ```
 
 `make grind-mup` is wired by the orchestrator; the driver itself is
-`bash sandbox/tests/grind_mup.sh` and takes every input from the environment,
+`bash sandbox/tests/grind/grind_mup.sh` and takes every input from the environment,
 so the target is one line:
 
 ```make
 grind-mup:
-	bash sandbox/tests/grind_mup.sh
+	bash sandbox/tests/grind/grind_mup.sh
 ```
 
 A candidate-bound run — the form that produces evidence — adds the source gate
@@ -59,8 +59,8 @@ DUO_SOURCE_ROOT=$(pwd -P) DUO_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD) \
 ### Offline modes (no docker, no pair, no network)
 
 ```sh
-bash sandbox/tests/grind_mup.sh --self-check   # every pure helper vs recorded documents
-bash sandbox/tests/grind_mup.sh --dry-run      # --self-check, then the resolved plan
+bash sandbox/tests/grind/grind_mup.sh --self-check   # every pure helper vs recorded documents
+bash sandbox/tests/grind/grind_mup.sh --dry-run      # --self-check, then the resolved plan
 ```
 
 `--self-check` runs each jq/bash helper in the driver against the PASS document

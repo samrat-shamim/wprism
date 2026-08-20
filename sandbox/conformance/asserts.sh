@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Shared premise/answer assertion helpers for every harness that sources the
 # conformance seeds and postdeploy hooks (DUO-3408). Two harnesses run those
-# hooks — conformance/run.sh and sandbox/tests/certify_version_matrix.sh — and
+# hooks — conformance/run.sh and sandbox/tests/certify/certify_version_matrix.sh — and
 # the helpers lived only in the first, so bundle leg 12 died at the first
 # premise assertion with `command not found` (exit 127) on pristine main. One
 # implementation, sourced by both; run.sh additionally `export -f`s them for
