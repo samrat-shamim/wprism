@@ -10,8 +10,8 @@
       "plugins": [{"slug": "storefront-commerce", "min": "10.0.0", "max": "11.0.0"}]
     },
     "manifest_pins": [
-      {"name": "core", "source": "shipped", "adapter_digest": "sha256:4d1e00000000000000000000000000000000000000000000000000000000ffff"},
-      {"name": "storefront-commerce", "source": "shipped", "adapter_digest": "sha256:c07a00000000000000000000000000000000000000000000000000000000ffff"}
+      {"name": "core", "source": "shipped", "adapter_digest": "4d1e00000000000000000000000000000000000000000000000000000000ffff"},
+      {"name": "storefront-commerce", "source": "shipped", "adapter_digest": "c07a00000000000000000000000000000000000000000000000000000000ffff"}
     ],
     "surfaces": [
       {"id": "products", "label": "Products", "state_class": "authored", "handling": "manage",
@@ -45,9 +45,9 @@
     }
   },
   "evidence_pins": {
-    "registry_sha256": "sha256:8fa100000000000000000000000000000000000000000000000000000000ffff",
+    "registry_sha256": "8fa100000000000000000000000000000000000000000000000000000000ffff",
     "generated_from": {
-      "dispositions_sha256": "sha256:947600000000000000000000000000000000000000000000000000000000ffff"
+      "dispositions_sha256": "947600000000000000000000000000000000000000000000000000000000ffff"
     }
   },
   "attestation": {

@@ -114,6 +114,59 @@ duo_check_same(
     'contract_digest is sha256 over everything above it'
 );
 
+// ------------------------------------------------------- fixture wire form
+// DUO-3488: these five fixtures teach the wire form of three fields whose real
+// producers all emit BARE 64-hex — `adapter_digest` from
+// `RepositoryCompiler::resolved_adapters()`
+// (agent/src/Policy/ArtifactPolicyIdentity.php:147), `registry_sha256` from
+// `ManifestDispositions::sha256()`
+// (agent/src/Policy/ManifestDispositions.php:114) and, on the host side,
+// `AssessCommand::registryProvenance()` (cli/src/Command/AssessCommand.php:716),
+// which also emits `generated_from.dispositions_sha256`. The `sha256:` form
+// belongs to `AdapterObservation`, which re-prefixes the number on its way into
+// a different document (agent/src/Adapter/AdapterObservation.php:548).
+//
+// Nothing downstream enforces the form — every validator on this path is a
+// non-empty-string check (ApplicationContract.php:385-389) — so before this
+// assertion existed, reintroducing the prefix in a fixture AND in
+// `regress_contract_projection.php`'s coupled `DUO_REGISTRY_SHA` left the whole
+// corpus green while the fixtures taught a form no producer emits. That is the
+// silent path this pins shut; the equality coupling next door only catches a
+// one-sided change.
+// A file that matches nothing is reported as an offender rather than skipped:
+// silence is how a form check dies, and the one assertion below has to be able
+// to say so.
+$wireFormOffenders = [];
+foreach ([
+    __DIR__ . '/../../fixtures/contract/contract-unbound.json',
+    __DIR__ . '/../../fixtures/contract/assess-report-unbound.json',
+    __DIR__ . '/../../fixtures/contract/proposal-seed.json',
+    __DIR__ . '/../../fixtures/release/contract-declared-unbound.json',
+    __DIR__ . '/../../fixtures/release/contract-undeclared-unbound.json',
+] as $ownedFixture) {
+    $raw = (string) file_get_contents($ownedFixture);
+    $matched = preg_match_all(
+        '/"(adapter_digest|registry_sha256|dispositions_sha256)"\s*:\s*"([^"]*)"/',
+        $raw,
+        $found,
+        PREG_SET_ORDER
+    );
+    if ($matched === 0) {
+        $wireFormOffenders[] = basename($ownedFixture) . ': carries none of the three fields, so this check went vacuous';
+        continue;
+    }
+    foreach ($found as [, $field, $value]) {
+        if (preg_match('/^[a-f0-9]{64}$/D', $value) !== 1) {
+            $wireFormOffenders[] = basename($ownedFixture) . ": $field = $value";
+        }
+    }
+}
+duo_check_same(
+    [],
+    $wireFormOffenders,
+    'every fixture hash whose producer emits bare 64-hex is stored bare, never sha256:-prefixed'
+);
+
 // ------------------------------------------------------------- canonical JSON
 $encoded = ApplicationContract::encode($contract);
 duo_check_same($encoded, ApplicationContract::encode($contract), 'encoding is byte-stable');
