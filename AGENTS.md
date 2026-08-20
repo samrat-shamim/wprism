@@ -11,11 +11,11 @@ about CI belongs in a PR, an issue, or this file.
 
 | path | what it is | ships? |
 | --- | --- | --- |
-| `agent/` | the WordPress drop-in. `duo.php` `require_once`s 91 files at load; `agent/src` is 224 `namespace Duo;` files across 17 directories, each requiring its own dependencies. The only autoload is the generated additive fallback `agent/duo-classmap.php` (rule 1). | yes |
+| `agent/` | the WordPress drop-in. `duo.php` `require_once`s 95 files at load; `agent/src` is 225 `namespace Duo;` files across 17 directories, each requiring its own dependencies. The only autoload is the generated additive fallback `agent/duo-classmap.php` (rule 1). | yes |
 | `cli/` | the `duo` orchestrator (`cli/duo` is an extensionless `#!/usr/bin/env php` executable) over 76 `cli/src` files | yes |
 | `recovery/` | the recovery runtime (canonical JSON, atomic store, Ed25519 rollback control) | yes |
 | `manifests/` | core + 9 plugin manifests + `duo-agency-cpt` (the one `excluded` regression fixture, no product claim); `providers/`, `interpreters/`, `regenerators/` hook code; `dispositions.json`, the hand-authored reviewed claim source; `capabilities/platform.json` (the platform boundary certificates sign against) and `capabilities/adapter-authorities.json` | yes |
-| `sandbox/` | the test estate: `bin/pair.sh`, `tests/` (212 `regress_*.php` + 95 `regress_*.sh`, counted recursively — every suite is under one of the five execution-class directories `offline/<domain>/`, `live/`, `grind/`, `certify/`, `spike/`, and the corpus root holds only `fixtures/`, `lib/`, `support/` and `offline_diagnostics_guard.sh`), `conformance/`, `siterepo/`, `tmp/` (gitignored scratch) | no |
+| `sandbox/` | the test estate: `bin/pair.sh`, `tests/` (213 `regress_*.php` + 95 `regress_*.sh`, counted recursively — every suite is under one of the five execution-class directories `offline/<domain>/`, `live/`, `grind/`, `certify/`, `spike/`, and the corpus root holds only `fixtures/`, `lib/`, `support/` and `offline_diagnostics_guard.sh`), `conformance/`, `siterepo/`, `tmp/` (gitignored scratch) | no |
 | `tools/` | dev entry points: `doctor.sh`, `offline.php`, `affected.php`, `capability-doc.php`, `classmap-generate.php`, `api-surface.php`; data: `modules.json`, the single per-path `{module, layer}` source for `agent/src` and `cli/src` (+ `layers-exceptions.json`, the upward-reference ratchet against it — `tools/layers.json`'s old duplicate file-level `path => layer` map was retired in DUO-3493) | no |
 | `tests/` | PHPUnit 11 self-tests for `tools/` (`Duo\Tests\…`, PSR-4) | no |
 | `scripts/` | `adapter-certification.php` (reviewer-facing adapter certificate sign/verify), `agent-bootstrap.sh`, `close-gate-check.sh` | mixed |
@@ -27,7 +27,7 @@ list of what reaches a managed site.
 
 1. **The drop-in is dependency-free.** No composer, no vendored packages,
    nothing fetched at runtime inside `agent/`, `cli/`, `recovery/`. A new file
-   in `agent/src` requires its own dependencies, exactly like its 224 siblings.
+   in `agent/src` requires its own dependencies, exactly like its 225 siblings.
    `agent/duo-classmap.php` does not change that contract: it is a *generated
    additive fallback* that only ever fires for a class still undeclared at the
    moment it is referenced, so it resolves nothing on the production path and
@@ -102,7 +102,7 @@ make release-gate                 # capability-doc --check + classmap --check: t
                                   # capability document and the classmaps match their sources
 ```
 
-The gate runs every offline leaf target — 252 today, and the `Makefile`'s own
+The gate runs every offline leaf target — 254 today, and the `Makefile`'s own
 `regress-offline-all: N offline suites green` line is the count of record.
 `tools/offline.php` runs the same work as `make regress-offline-all` with
 per-suite logs and the guard's exact diagnostic regex applied per suite, so a

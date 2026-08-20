@@ -253,8 +253,10 @@ capability(
 
 This spec uses the customer operations **Assess, Rehearse, Capture, Merge,
 Release, Verify, Delete, and Recover**. Branching is a Git workflow outcome. The
-generated registry may decompose one customer operation into engine operations
-such as compile, plan, deploy, apply, promote, recapture, and render-api. A
+per-operation capability projection may decompose one customer operation into
+engine operations such as compile, plan, deploy, apply, promote, recapture, and
+render-api — that projection is what `AdapterRegistry::report()` evaluates for
+an exact operation × surface × target and what `duo capabilities` returns. A
 customer operation is technically Ready only when every engine capability on
 its declared dependency map is current; product terminology cannot create an
 alias claim.
@@ -738,7 +740,9 @@ default.
 - Quiet best-effort support for an unknown plugin or surface.
 
 Multisite and additional transports may be future scopes, but no prose claim
-exists until their exact capabilities enter the generated registry.
+exists until their exact capabilities are declared in an adapter manifest,
+reviewed into `manifests/dispositions.json`, and projected into the generated
+capability document.
 
 ## Privacy and ecosystem evidence
 
@@ -969,5 +973,36 @@ Ratification of this document makes the following product decisions:
   artifact meant is *the generated capability document*
   ([docs/capabilities.md](capabilities.md)) — the prose above now uses that
   name, and the record keeps its original words.
+- **2026-08-20 — the two registry phrases the census left ambiguous.** Naming
+  resolution only; no decision in this document changes. The 2026-08-20 entry
+  above renamed *the generated registry* to *the generated capability document*
+  where the phrase meant the platform-certified claim catalog, and deliberately
+  left two occurrences alone because they meant something else. Both are now
+  named exactly:
+  - **The versionability contract** — "the generated registry may decompose one
+    customer operation into engine operations" meant neither catalog nor
+    document but the **per-operation capability projection**: the
+    `capability(stack, surface, operation, …)` evaluation sketched directly
+    above it, which is `AdapterRegistry::report()`
+    (`agent/src/Adapter/AdapterRegistry.php:319`, `duo-capability-report/v1`)
+    run for one exact operation × surface × target probe, projected into this
+    document's vocabulary by `ProjectionVocabulary` and surfaced by
+    `duo capabilities` and `duo assess`. A decomposition into compile/plan/
+    deploy/apply/promote/recapture/render-api is a per-operation answer about
+    one target, not a row in a catalog.
+  - **Explicit non-goals** — "no prose claim exists until their exact
+    capabilities enter the generated registry" meant the **claim admission
+    path**, which is now three named steps and not an artifact anything writes
+    to: declared in an adapter manifest, reviewed into
+    `manifests/dispositions.json` by a human who wrote down the reason, and
+    projected into the generated capability document. The sentence's force is
+    unchanged — a future scope earns prose by passing those gates, never by
+    being written about first.
+
+  The distinction both resolutions preserve is the one the teardown made
+  load-bearing: a *claim* is authored and reviewed once and lives in the
+  library; a *verdict* is computed per target, per operation, and lives only in
+  a report. The retired registry blurred them by generating both, which is why a
+  single word could stand for either.
 
 [DESIGN.md](../DESIGN.md) remains untouched as the founding record.

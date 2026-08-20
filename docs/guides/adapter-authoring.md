@@ -199,8 +199,11 @@ term_relationships; `menu`: those plus menu_items); `guards` lists the
 reverse references that must be empty before a delete is allowed (`{table,
 column, id_kind, reason}` — `manifests/core.json`'s `post:attachment` shows a
 comments guard and a child-posts guard). An empty guard list is a claim that
-nothing references the row: make it only when it is true. The T6 walk's
-WPForms adapter declares exactly the block above, because a WPForms Lite form
+nothing references the row: make it only when it is true. The T6 walk — the
+four-scenario operator-authored adapter grind narrated in
+[docs/grind/adapter-walk.md](../grind/adapter-walk.md), whose S2 is "an operator
+authors and certifies an adapter for a plugin the platform never reviewed" —
+gives its WPForms adapter exactly the block above, because a WPForms Lite form
 is referenced by nothing Duo manages; without it S2 stopped at the first
 target-side capture after a form was deleted.
 

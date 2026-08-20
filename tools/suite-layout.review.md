@@ -414,3 +414,26 @@ symptom, so `MoveSuitesTest::testTheShippedLayoutMapStillPlansCleanAgainstTheRea
 now runs `--plan --map=tools/suite-layout.json` against this checkout inside
 `composer check`. The next suite deletion that strands a row fails the loop
 immediately instead of silently disarming the prover for days.
+
+### 2026-08-20 — the offline count is the `Makefile`'s to assert, and it has moved
+
+"How execution class was decided" above says the offline closure is **252 paths,
+which is exactly the count the `Makefile` asserts**, and the mechanical-contract
+section re-derives the same 252 with `make -n regress-offline-corpus`. Both
+sentences were true at ratification and stay written down. The number is not:
+re-derived against this checkout, `make -n regress-offline-corpus | grep -oE
+'sandbox/tests/…' | sort -u | wc -l` prints **254**, and the `Makefile`'s own
+`regress-offline-corpus: 254 offline suites green` line agrees.
+
+Nothing here is a defect, because 252 was never this document's number to own.
+`regress_bundle_coverage.sh` expands the prerequisite graph and compares it
+against that `Makefile` line (AGENTS.md non-negotiable 4), so the count of record
+lives there and moves every time a suite is wired in — twice since ratification.
+This record's claim is the *equality*: the closure and the asserted count are the
+same set, re-derived the same way. That still holds. Quote `make -n`, or the
+`Makefile` line, never a number transcribed into prose here.
+
+The "251 at the root / the 252nd already nested" split is likewise decision-time
+detail: the restructure this record planned has landed, so every offline member
+now sits under `offline/<domain>/` and the root holds no suites at all
+(`regress_suite_wiring.php` clause 4 refuses one that does).

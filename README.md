@@ -59,6 +59,7 @@ What this deliberately is not: a claim is not sealed to a content-addressed evid
 |---|---|
 | [spec/repo-format.md](spec/repo-format.md) | The normative site-repo contract: entity formats, tokens, ledger, apply semantics |
 | [DESIGN.md](DESIGN.md) | Founding design record: state partition, classification policy, identity model, GitOps semantics |
+| [docs/](docs/README.md) | Map of the documentation tree: guides, runtime references, module map, engineering history |
 | [docs/guides/](docs/guides/README.md) | Operator guides: quickstart, daily workflow, code updates, adapter authoring, limits |
 | [docs/adoption.md](docs/adoption.md) | Installing/updating Duo on an existing SSH WordPress host |
 | [docs/roadmap.md](docs/roadmap.md) | Owner roadmap: thesis, horizons, standing decisions |
@@ -95,7 +96,7 @@ make release-gate     # regenerate-and-compare: the capability document and the 
 make down             # stop; `make clean` also deletes volumes
 ```
 
-Beyond these, the Makefile carries the full live and offline regression surface — the six `certify-*` matrices (including `certify-ssh-rollback` and `certify-ssh-adoption-roundtrip`), `regress-*`, and the grind rounds (`grind-r1a` … `grind-r3b`): realistic multi-plugin stacks round-tripped end-to-end, with narrative reports in [docs/grind/](docs/grind/).
+Beyond these, the Makefile carries the full live and offline regression surface — the seven `certify-*` targets (the merge, version-skew-merge, adversarial, deletion and version matrices, plus `certify-ssh-rollback` and `certify-ssh-adoption-roundtrip`), `regress-*`, and the grind rounds (`grind-r1a` … `grind-r3b`): realistic multi-plugin stacks round-tripped end-to-end, with narrative reports in [docs/grind/](docs/grind/).
 
 ## Working an issue (agents)
 

@@ -2,7 +2,7 @@
 
 **Purpose.** Plans and executes writes of repository state into a live site: apply planning, services, the authored transaction and the per-entity materializers.
 
-**Directory** `agent/src/Apply/` &middot; **layer** `engine` &middot; **files** 26 &middot; **status** populated
+**Directory** `agent/src/Apply/` &middot; **layer** `engine` &middot; **files** 27 &middot; **status** populated
 
 **Entry points** (classes other modules already reference; a new cross-module reference to anything else is a design change): `ApplyPlanner`, `Apply`, `MenuMaterializer`, `RelationshipMaterializer`, `TypedTableMaterializer`.
 
@@ -29,7 +29,7 @@
 
 **Known debts.**
 
-- Largest module (26 files) and the largest fan-out in the repo: ApplyRequestCoordinator references 38 other files, ApplyServices 27.
+- Largest engine module (27 files; only `Kernel`'s 28 is bigger) and the largest fan-out in the repo: `ApplyRequestCoordinator` carries 50 `require_once` lines, `ApplyServices` 27.
 - 12 edges into Scope and 13 into Rebuild: the apply/scope/rebuild triangle is the densest part of the engine SCC.
 
 **Sub-namespace plan.** Target `Duo\Apply\`. Not in this round: the move keeps `namespace Duo;` flat so that manifest interpreters/providers can keep naming `\Duo\Policy`, `\Duo\ProviderSdk`, `\Duo\Providers` and `\Duo\Canon` by FQCN — those hook files are `hash_file`'d into every adapter's identity row (`ArtifactPolicyIdentity::manifest_rows()`), so renaming the namespace moves each `adapter_digest` and forces a recompile plus a reviewed re-pin on every deployed site. Kernel migrates first (no inbound FQCN from manifests); Policy, Adapter and Canon migrate last, behind a hook-file change.

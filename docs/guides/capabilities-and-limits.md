@@ -800,7 +800,9 @@ rather than working around it.
 - Representative descriptor-driven plugin identity replacement — **Exercised (DUO-3357)** through the ordinary compositional plan and public `duo promote --with-deletes`; there is no special replacement command or general plugin/theme replacement claim.
 - Theme upgrade, downgrade refusal, and removal as a managed lifecycle — **Exercised (DUO-3358)** by the ecommerce proof through the generic preflight, staged lifecycle, and finalization path.
 - Bounded native WordPress-cron proof — **Exercised (DUO-3359)** in the ecommerce
-  grind: one classified `publish_future_post` event is listed and run through
+  grind ([`sandbox/tests/grind/grind_ecommerce_developer.sh`](../../sandbox/tests/grind/grind_ecommerce_developer.sh),
+  narrated in [docs/grind/ecommerce-developer.md](../grind/ecommerce-developer.md)):
+  one classified `publish_future_post` event is listed and run through
   public WP-CLI, while unrelated cron and Action Scheduler inventories remain
   stable. This is proof of the existing native scheduling contract, not a new
   Duo-managed scheduler or an unbounded queue-drain capability.

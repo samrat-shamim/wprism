@@ -167,13 +167,29 @@ certification separation exists to refuse (`agent/src/Adapter/AdapterSources.php
 states the same rationale for the fourth word `uncertified`). So the mapping is
 stated here instead of being invented in code:
 
+> **The apparatus this table was originally written against is gone; the
+> distinction it enforces is not.** The teardown train (#477–#480) removed the
+> certification-evidence machinery — the generated
+> `manifests/capabilities/registry.json`, its evidence record with the
+> `current`/`candidate` `evidence.status` field, and the per-subject
+> certification bundles — and renamed the class that reports capability.
+> `CapabilityRegistry` no longer exists (`cli/src/Adapter/AdapterCertify.php:996`:
+> "There is no CapabilityRegistry.php to require any more"); the reporter is
+> `AdapterRegistry::report()` in `agent/src/Adapter/AdapterRegistry.php`,
+> emitting `duo-capability-report/v1` (`:57`), and the reviewed claim source is
+> the hand-authored `manifests/dispositions.json`. The blocker code for a name
+> with no reviewed entry is `missing_disposition_entry` (`:392`), not
+> `missing_registry_entry`. Every row below is restated against what ships
+> today. The doctrine above is unchanged: it never required a particular
+> reporter, only that the six states stay visibly distinct.
+
 | Doctrine word | Where it is visibly reported today |
 |---|---|
-| certified | `dispositions.json` status `certified` + a `certified` verdict from `CapabilityRegistry::report()`; `duo adapter list` disposition column |
-| exercised | not a status. The evidence facts behind it are: `evidence.status` (`current`/`candidate`), `plugin_execution.status` (`verified`/`unverified`/`not-a-product-claim`), and each named test citation resolved against the bundle's own verdict — all three printed by `duo adapter inspect` |
+| certified | `dispositions.json` status `certified` + a `certified` verdict from `AdapterRegistry::report()`; `duo adapter list` disposition column |
+| exercised | not a status. The evidence facts behind it are printed by `duo adapter inspect` under "verification (the facts that exist, not a scale)": `evidence.bundle_schema`, `plugin_execution.status` (`verified`/`unverified`/`not-a-product-claim`), and each cited test **id and nothing else** — a verdict word there would be a result that process did not produce (`cli/src/Adapter/AdapterCatalog.php:1052-1063`). The retired `evidence.status` (`current`/`candidate`) conjunct is gone with the apparatus that set it (`cli/src/Transport/CodeDeploy.php:191-194` records why keeping it would now refuse every claim) |
 | uncertified | the fourth status word, carried by an out-of-tree adapter's synthesized provenance record; blocker code `adapter_source_uncertified` |
-| incompatible | two separate code sets, deliberately not merged: a **certification** verdict from `CapabilityRegistry::report()` whose reason names the mismatch (`plugin_version_mismatch`, `wordpress_version_mismatch`, `php_version_mismatch`, `database_version_mismatch`, `theme_version_mismatch`, `revision_not_certified`, `multisite_unsupported`), and a **negotiation** problem row from `Providers::diagnose()` (`outside_version_range`, `identity_mismatch`, `contract_shape`, `malformed_capability`, `invalid_capability_args`, `non_idempotent_capability`) |
-| missing | certification: `missing_registry_entry`. Negotiation: `missing_plugin`, `inactive_plugin`, `missing_plugin_provider`, `missing_capability`, `undeclared_provider`, `provider_code_unavailable` |
+| incompatible | two separate code sets, deliberately not merged: a **certification** verdict from `AdapterRegistry::report()` whose reason names the mismatch (`plugin_version_mismatch`, `plugin_not_active` — the two `target_reasons()` raises today, `agent/src/Adapter/AdapterRegistry.php:559-579`), and a **negotiation** problem row from `Providers::diagnose()` (`outside_version_range`, `identity_mismatch`, `contract_shape`, `malformed_capability`, `invalid_capability_args`, `non_idempotent_capability`). The five platform-axis codes this row used to name — `wordpress_version_mismatch`, `php_version_mismatch`, `database_version_mismatch`, `theme_version_mismatch`, `revision_not_certified` — were raised against the generated evidence record's measured axes and went with it; `multisite_unsupported` survives only as an *init* refusal (`agent/src/Init/InitPlanner.php:340`), because topology is now judged once for the whole assessment rather than per surface (`cli/src/Contract/ProjectionVocabulary.php:219-235`) |
+| missing | certification: `missing_disposition_entry` — `no reviewed disposition entry exists for '<name>'`. Negotiation: `missing_plugin`, `inactive_plugin`, `missing_plugin_provider`, `missing_capability`, `undeclared_provider`, `provider_code_unavailable` |
 | ambiguous | refused rather than reported as a status — `AdapterSources` refuses ambiguous identity, shadowing, declared-name collisions, case-fold confusables, an unanchored plugin bundle, and two active plugins bundling one name at load, and `duo adapter doctor` / `wp duo adapter-survey` report the same conditions as refusal rows with codes `ambiguous_identity`, `shadows_shipped`, `name_collision`, `case_collision`, `plugin_anchor_mismatch`, `source_collision`, `source_unreadable`. One ambiguity is deliberately NOT refused: a plugin-bundled name a shipped or site definition already answers to is RESOLVED by the source precedence `shipped > site > plugin` and reported as an installed-but-not-loaded row naming its winner. Ambiguity is refused where the operator authored both sides; where a third party's update created it, resolving it loudly beats taking the site down (see spec/repo-format.md, "Plugin-bundled adapters") |
 
 The requirement the table serves is unchanged: each of those states must be

@@ -371,16 +371,16 @@ Which gate runs a suite is its directory, not its name. `offline/<domain>/`
 (267 files across fifteen subject domains) is the merge-gate corpus: no
 docker, no pair, `make regress-offline-all` runs every one of them anywhere.
 The other four sit outside that gate, and — with the one exception named
-below — every file in them needs a live pair. `live/` (42 files) is
+below — every file in them needs a live pair. `live/` (43 files) is
 per-mechanism pair evidence, one pair each, enumerated by `make
 regress-live-list` and run when the diff touches the mechanism a suite's own
 header names. `grind/` (11) holds the scenario grinds that walk a whole
 fixture site through a round of work (`grind_r1a_forms.sh` and its siblings),
 plus `grind_ecommerce_developer.matrix.json` — a data file whose two readers
 are offline suites, kept here with the harness whose stem it shares.
-`certify/` (6) is live certification-style evidence, one mechanism apiece: the
-merge, deletion, version and adversarial matrices and the two SSH
-adoption/rollback proofs. `spike/` (10) is the hand-run family — the
+`certify/` (7) is live certification-style evidence, one mechanism apiece: the
+merge, version-skew-merge, deletion, version and adversarial matrices and the
+two SSH adoption/rollback proofs. `spike/` (10) is the hand-run family — the
 exploratory `spike_*.sh` seeds, the three docker smokes whose own headers
 require an already-booted spike-E pair (`cli_smoke.sh`, `cli_triage_smoke.sh`,
 `lint_smoke.sh`), and the two scripts with no `Makefile` target at all.
