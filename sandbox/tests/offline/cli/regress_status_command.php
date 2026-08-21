@@ -38,6 +38,20 @@ final class StatusCommandDriver implements EnvironmentDriver {
         if ($this->mode === 'unsafe-env-missing') {
             $plan['env_missing'] = [['name' => "unsafe\0option", 'required' => true]];
         }
+        // DUO-3502: a tombstone this environment still holds. An ordinary
+        // apply performs no deletion at all without --with-deletes
+        // (agent/src/Apply/ApplyPreparationCoordinator.php:167-169 leaves
+        // $executeDeletes false and AuthoredTransactionExecutor.php:222-253
+        // skips its whole delete block), yet the revision is still recorded
+        // as applied — so the row survives every promote until somebody
+        // authorizes it, and readiness must say so.
+        if ($this->mode === 'pending-delete') {
+            $plan['delete'] = [[
+                'uuid' => '9c8e6f21-4a35-4b0d-8a11-2f6d5c4b3a29',
+                'type' => 'post',
+                'path' => 'state/deletions/9c8e6f21-4a35-4b0d-8a11-2f6d5c4b3a29.json',
+            ]];
+        }
         return ['exit' => 0, 'stdout' => json_encode($plan) . "\n", 'stderr' => ''];
     }
     public function streamWp(array $wpArgs): int { return 99; }
@@ -166,6 +180,136 @@ assert_status_command(
     str_contains($unsafeEnvironmentLines, 'cannot render a safe command')
         && !str_contains($unsafeEnvironmentLines, 'duo env-set --envs-file='),
     'option-looking environment never renders as a positional command token'
+);
+
+$pendingDelete = new StatusCommandDriver('pending-delete');
+ob_start();
+$pendingDeleteExit = StatusCommand::run(
+    $pendingDelete,
+    [],
+    static function (string $c, string $m, string $r): void {},
+    static function (array $r): void {},
+    static fn(EnvironmentDriver $d): bool => true
+);
+$pendingDeleteOutput = (string) ob_get_clean();
+assert_status_command(
+    $pendingDeleteExit === 1,
+    'a planned deletion this environment still holds keeps status non-ready'
+);
+assert_status_command(
+    str_contains(
+        $pendingDeleteOutput,
+        "pending deletes (the repository authored these deletions and this environment still holds them):\n"
+            . '  - state/deletions/9c8e6f21-4a35-4b0d-8a11-2f6d5c4b3a29.json'
+    ),
+    'status itemizes the pending deletion the way it itemizes a blocked one, not as a bare count'
+);
+assert_status_command(
+    str_contains(
+        $pendingDeleteOutput,
+        'planned deletions are not authorized — an ordinary promote performs none of them; '
+            . 'rerun with `duo promote status-fixture --with-deletes` once these are the deletions you intend'
+    ),
+    'host status renders the exact authorizing promote command for this environment'
+);
+
+// --with-deletes is destructive authority, so the rendered command must carry
+// the operator-selected registry for the same reason the env-set remediation
+// above does: a same-named environment resolving through an auto-discovered
+// registry would authorize deletions against another site.
+$pendingDeleteRegistry = new StatusCommandDriver('pending-delete');
+ob_start();
+$pendingDeleteRegistryExit = StatusCommand::run(
+    $pendingDeleteRegistry,
+    [],
+    static function (string $c, string $m, string $r): void {},
+    static function (array $r): void {},
+    static fn(EnvironmentDriver $d): bool => true,
+    '/tmp/custom registry.json'
+);
+$pendingDeleteRegistryOutput = (string) ob_get_clean();
+assert_status_command(
+    $pendingDeleteRegistryExit === 1
+        && str_contains(
+            $pendingDeleteRegistryOutput,
+            "rerun with `duo '--envs-file=/tmp/custom registry.json' promote status-fixture --with-deletes`"
+        ),
+    'the deletion authorization command preserves the exact operator-selected registry binding'
+);
+
+// No environment is owned by the caller (`wp duo plan` read directly, or an
+// unsafe environment token): the target-side command takes neither a positional
+// environment nor a registry, so it is always exact.
+$targetSidePlan = [];
+foreach (PlanContract::requiredBuckets() as $bucket) $targetSidePlan[$bucket] = [];
+$targetSidePlan['delete'] = [['uuid' => 'options/core', 'type' => 'options']];
+$targetSideLines = implode("\n", PlanSummary::render($targetSidePlan)['lines']);
+assert_status_command(
+    str_contains($targetSideLines, "pending deletes (") && str_contains($targetSideLines, '  - options options/core'),
+    'a caller with no environment registry still itemizes every pending deletion'
+);
+assert_status_command(
+    str_contains(
+        $targetSideLines,
+        'planned deletions are not authorized — an ordinary apply performs none of them; '
+            . 'rerun with `wp duo apply --with-deletes` once these are the deletions you intend'
+    ),
+    'target-side readiness renders the target-side authorization command'
+);
+assert_status_command(
+    PlanSummary::render($targetSidePlan)['ok'] === false,
+    'a pending deletion alone makes readiness false — apply will not perform it and the revision advances anyway'
+);
+
+// `duo release` owns the deletion-authorization decision itself: it refuses a
+// pending deletion by name with `release_deletes_not_authorized` and no gap
+// action (cli/src/Release/AuthorizationPlan.php:613-625). Counting the bucket
+// in `ok` for that caller shadowed the reviewed refusal behind the generic
+// `release_target_not_clean` one (ReleaseCommand.php:271-293), whose remedy —
+// capture/refresh/rebase — is the wrong answer for a plan that needs a flag.
+// The opt-out drops that one term and its remedy line, and nothing else.
+$releasePlan = [];
+foreach (PlanContract::requiredBuckets() as $bucket) $releasePlan[$bucket] = [];
+$releasePlan['delete'] = [[
+    'uuid' => '9c8e6f21-4a35-4b0d-8a11-2f6d5c4b3a29',
+    'type' => 'post',
+    'path' => 'state/deletions/9c8e6f21-4a35-4b0d-8a11-2f6d5c4b3a29.json',
+]];
+$releaseRendered = PlanSummary::render($releasePlan, [], 'status-fixture', null, [], true);
+assert_status_command(
+    $releaseRendered['ok'] === true,
+    'a caller owning deletion authority is not blocked by the pending deletion its own gate refuses'
+);
+assert_status_command(
+    PlanSummary::render($releasePlan, [], 'status-fixture')['ok'] === false,
+    'the same plan is still not ready for an ordinary promote — the opt-out is per caller, not global'
+);
+$releaseLines = implode("\n", $releaseRendered['lines']);
+assert_status_command(
+    str_contains($releaseLines, '  - state/deletions/9c8e6f21-4a35-4b0d-8a11-2f6d5c4b3a29.json')
+        && !str_contains($releaseLines, 'planned deletions are not authorized'),
+    'the rows stay itemized while the host-status remedy gives way to the caller own refusal text'
+);
+
+// The opt-out is exactly one term wide: a referential guard still makes the
+// same plan not-clean, so release still refuses before it authorizes anything.
+$releaseBlocked = $releasePlan;
+$releaseBlocked['delete'][0]['blocked'] = 'comments reference this post — 1 row(s)';
+assert_status_command(
+    PlanSummary::render($releaseBlocked, [], 'status-fixture', null, [], true)['ok'] === false,
+    'a guard-blocked deletion still blocks a caller that owns ordinary deletion authority'
+);
+$releaseConflict = $releasePlan;
+$releaseConflict['delete'] = [];
+$releaseConflict['delete_conflict'] = [[
+    'uuid' => '1d5b7e40-88c2-4f6a-9e33-70a1c2b3d4e5',
+    'type' => 'post',
+    'path' => 'state/deletions/1d5b7e40-88c2-4f6a-9e33-70a1c2b3d4e5.json',
+    'reason' => 'target entity changed locally since the tombstone base',
+]];
+assert_status_command(
+    PlanSummary::render($releaseConflict, [], 'status-fixture', null, [], true)['ok'] === false,
+    'a deletion conflict still blocks that caller — only the ordinary pending bucket is its own to authorize'
 );
 
 $malformed = new StatusCommandDriver('malformed');

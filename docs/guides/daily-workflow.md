@@ -166,9 +166,9 @@ authored display name — a post's title, a term's or menu's name — carries it
 the row's `title` in plan JSON, and both renderers print it in single quotes
 after the path. The two differ in *where* you see it, deliberately.
 `wp duo plan` prints it on every itemized row; `duo status` itemizes only rows
-that demand a decision — drift, conflict, collision, blocked or conflicted
-deletes — so the name shows up exactly there, while a clean create/update batch
-still renders as counts alone. Rows with no authored name (options, sidebars,
+that demand a decision — drift, conflict, collision, pending, blocked or
+conflicted deletes — so the name shows up exactly there, while a clean
+create/update batch still renders as counts alone. Rows with no authored name (options, sidebars,
 typed tables, tombstones) look the same as they always did; the name is never
 guessed or derived.
 
@@ -266,8 +266,8 @@ duo status stage
 
 This is the question "is this environment safe to promote?", and its **exit
 code is the answer**. Non-zero means no. It renders counts per plan bucket,
-drift paths, blocked-delete reasons, code findings, lifecycle receipts, and any
-plan-level warnings — warnings alone never flip the exit code. On the rows it
+drift paths, pending and blocked deletions, code findings, lifecycle receipts,
+and any plan-level warnings — warnings alone never flip the exit code. On the rows it
 itemizes, each entity's authored WordPress display name follows its repository
 path in single quotes, so you are reading "the Pricing page", not a UUID.
 
@@ -279,7 +279,11 @@ probe, not a prediction of whether `duo apply` would refuse. Ordinary state
 drift and a missing required `env` value are both cases apply happily proceeds
 through, and both are still "not safe to promote" — because they mean this
 plan's own comparison is already stale, or the environment is running with a
-genuine gap.
+genuine gap. A planned deletion this environment still holds is the third and
+the sharpest: an ordinary apply performs *no* deletion without
+`--with-deletes` — it warns that it applied none of them, writes the rest of
+the plan, and records the revision as applied — so the tombstone stays pending
+until somebody authorizes it, and status keeps saying no until then.
 
 Ordinary drift is worth one more sentence, because "proceeds through" means
 apply's *pre-mutation* gates, not the whole run. Apply never overwrites an
@@ -336,6 +340,13 @@ Then it prints one page — requested scope, capabilities and their conditions,
 what may change, the recovery claim, effects, and the authority still required
 — ending in a single question. `--plan-only` prints exactly that and exits
 having mutated nothing, including the site repository.
+
+That deletion refusal is release-only. An ordinary `duo promote <env>` does not
+refuse on an unauthorized deletion: it warns loudly that it performed none of
+the planned ones, applies the rest, and leaves the tombstone pending for
+`duo status` to keep reporting. Same fact, two postures — release freezes the
+authorization in front of promotion, promote reports it and lets the readiness
+probe hold the line.
 
 Behind: `duo verify`, which pairs a fresh read-only convergence re-read with
 the HTTP journey oracles your contract declares. Both must pass. If you

@@ -331,6 +331,19 @@ reviewed live effect, which is the only form that may proceed, and then only
 under the frozen plan's own authority. The alternative is a silent unknown
 reaching production.
 
+`release_deletes_not_authorized` is the one row with a counterpart outside
+release, and the two postures differ deliberately. An ordinary `duo promote
+<env>` does not refuse on an unauthorized deletion: it warns that it performed
+none of the planned deletions, applies the rest, and records the revision as
+applied — the tombstone stays pending and `duo status <env>` stays non-zero
+until you rerun with `--with-deletes`. Release does not inherit that posture,
+because its whole job in front of promotion is to freeze what is authorized
+before a byte moves. Its own "is this target clean enough to authorize
+anything?" check leaves the pending deletion to this row on purpose, so what
+you get back is the flag remedy above and not a capture-first one — every other
+unclean condition, a guard-blocked or conflicted deletion included, still
+refuses as `release_target_not_clean` first.
+
 ## When release fails after the plan is frozen
 
 Then, and only then, you get exactly one next action from a closed set of six.

@@ -109,6 +109,22 @@ final class PlanSummary {
      *   caller that has no accepted contract, which includes `duo status`
      *   today — renders byte-identically to every prior release: the label
      *   line is emitted only when the map resolves the row's own surface.
+     * @param bool $deletionAuthorityOwnedByCaller For the one caller that runs
+     *   its own reviewed deletion-authorization gate over this same plan:
+     *   `duo release` refuses a pending deletion with
+     *   `release_deletes_not_authorized` and the remedy "re-run duo release
+     *   --with-deletes" (cli/src/Release/AuthorizationPlan.php:613-625),
+     *   deliberately carrying NO gap action because an authorization flag is
+     *   not an assessment gap. Counting the `delete` bucket in `ok` for that
+     *   caller would shadow its specific refusal behind the generic
+     *   `release_target_not_clean` one (ReleaseCommand.php:271-293) and send
+     *   the operator to capture/refresh/rebase a plan that needs a flag. So
+     *   this drops the pending-delete term from `ok` and the host-status
+     *   remedy line with it — and nothing else: a guard-blocked row still
+     *   counts through `$blocked`, `delete_conflict` still counts, and the
+     *   rows stay itemized so the caller's own refusal is still printed over
+     *   a complete picture. `duo status` never passes it: for an ordinary
+     *   promote the pending deletion IS the readiness answer.
      * @return array{lines: list<string>, ok: bool}
      */
     public static function render(
@@ -116,7 +132,8 @@ final class PlanSummary {
         array $viewCategories = [],
         ?string $environment = null,
         ?string $envsFileOverride = null,
-        array $surfaceLabels = []
+        array $surfaceLabels = [],
+        bool $deletionAuthorityOwnedByCaller = false
     ): array {
         $lines = [];
         $counts = [];
@@ -218,6 +235,23 @@ final class PlanSummary {
             // Verbatim match of agent/src/Command/Cli.php's plan() warning for the
             // identical condition — see this class's own docblock.
             $lines[] = 'environment drift detected — capture-first workflow recommended';
+        }
+
+        // DUO-3502: the `delete` bucket is a plan row an ordinary promote
+        // does NOT converge. It was counted in the summary line above and
+        // itemized only when a referential guard also blocked it, so the one
+        // state that needs an extra flag looked identical to the states that
+        // apply just performs. Itemize it the way blocked deletes are
+        // itemized, and render the exact authorizing command with it.
+        if (!empty($plan['delete'])) {
+            $lines[] = 'pending deletes (the repository authored these deletions and this environment still holds them):';
+            foreach ($plan['delete'] as $r) {
+                $lines[] = '  - ' . self::label($r);
+                self::appendSurfaceLine($lines, $r, $surfaceLabels, '    ');
+            }
+            if (!$deletionAuthorityOwnedByCaller) {
+                $lines[] = self::pendingDeleteRemediation($environment, $envsFileOverride);
+            }
         }
 
         $blocked = array_values(array_filter(
@@ -500,6 +534,27 @@ final class PlanSummary {
         //                     reader can't know in advance whether the next
         //                     apply will even pass --with-deletes, so a
         //                     blocked row always counts as not-clean.
+        //   - delete        : a tombstone this environment still holds.
+        //                     Apply neither refuses on it nor performs it:
+        //                     without --with-deletes the coordinator leaves
+        //                     $executeDeletes false
+        //                     (agent/src/Apply/ApplyPreparationCoordinator.php:167-169),
+        //                     the executor skips its whole delete block
+        //                     (AuthoredTransactionExecutor.php:222-253), and
+        //                     the run still records applied_revision
+        //                     (ApplyLedgerFinalizer.php:94-99). DUO-3502
+        //                     makes that skip loud on apply's warnings
+        //                     channel, but the row stays pending on the
+        //                     target until somebody passes the flag — so a
+        //                     status answering "safe to promote" here would
+        //                     promise that an ordinary promote converges a
+        //                     plan row it will not touch. Same "known gap,
+        //                     not an apply-refuse case" shape as drift and
+        //                     env_missing; the remedy is the exact
+        //                     --with-deletes command rendered with the rows.
+        //                     The single exception is the caller that owns
+        //                     the deletion-authorization decision itself —
+        //                     see $deletionAuthorityOwnedByCaller above.
         //   - drift         : apply does NOT refuse on drift alone (a
         //                     drifted entity either folds into 'update' the
         //                     moment the repo side changes too, or just
@@ -562,9 +617,33 @@ final class PlanSummary {
             && !$missingUser
             && !$adapterDispositions
             && !$blocked
+            && ($deletionAuthorityOwnedByCaller || $counts['delete'] === 0)
             && $counts['drift'] === 0;
 
         return ['lines' => $lines, 'ok' => $ok];
+    }
+
+    /**
+     * The one remedy line for planned-but-unauthorized deletions.
+     *
+     * `--with-deletes` is the destructive authorization flag, so the rendered
+     * command binds the operator-selected registry exactly as the env_missing
+     * remediation above does: a same-named environment resolving through a
+     * different auto-discovered registry would authorize deletions against
+     * another site. An environment name or registry path that cannot render
+     * as a safe token falls back to the target-side command, which takes
+     * neither and is therefore always exact.
+     */
+    private static function pendingDeleteRemediation(?string $environment, ?string $envsFileOverride): string {
+        $environmentArg = $environment === null ? null : self::environmentArg($environment);
+        $registryArg = $envsFileOverride === null ? '' : self::shellArg('--envs-file=' . $envsFileOverride);
+        if ($environmentArg === null || $registryArg === null) {
+            return 'planned deletions are not authorized — an ordinary apply performs none of them; '
+                . 'rerun with `wp duo apply --with-deletes` once these are the deletions you intend';
+        }
+        return 'planned deletions are not authorized — an ordinary promote performs none of them; rerun with `duo'
+            . ($registryArg === '' ? '' : ' ' . $registryArg)
+            . " promote $environmentArg --with-deletes` once these are the deletions you intend";
     }
 
     /** @param list<array<string,mixed>> $envMissing */
