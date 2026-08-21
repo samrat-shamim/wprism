@@ -443,13 +443,23 @@ final class InitConfirmation {
                     (string) $attemptPublication['published']
                 );
                 InitOwnedArtifacts::assert_directory_inode($codeRoot, $codeRootIdentity, 'code publication root');
-                $lockPath = $codeRoot . '/' . basename(CodeSourceLock::PATH);
-                InitOwnedArtifacts::assert_absent_owned_path($lockPath, 'code lock');
-                Canon::write_file($lockPath, CodeSourceLock::encode($lockRows));
+                // NOT $lockPath: that name is already bound, 340 lines above, to
+                // Publish::lock_path($stateDir) -- the state.capture.lock this
+                // transaction holds -- and is read again after the capture
+                // payload is staged, to prove the lock pathname still names the
+                // held inode. Reusing the name here pointed that gate at
+                // code/duo-code.lock.json and made it refuse every split init
+                // with "capture lock pathname no longer names the held lock
+                // inode". Caught in review after DUO-3499 merged; the live
+                // split leg would have caught it too, one case later than the
+                // run that found it.
+                $codeLockPath = $codeRoot . '/' . basename(CodeSourceLock::PATH);
+                InitOwnedArtifacts::assert_absent_owned_path($codeLockPath, 'code lock');
+                Canon::write_file($codeLockPath, CodeSourceLock::encode($lockRows));
                 // Read it back through the grammar the compiler will use, so a
                 // publication that produced anything the gate would refuse
                 // fails here rather than at the operator's first compile.
-                if (Canon::encode(CodeSourceLock::parse(Canon::read_file($lockPath)))
+                if (Canon::encode(CodeSourceLock::parse(Canon::read_file($codeLockPath)))
                     !== Canon::encode(['format' => CodeSourceLock::FORMAT, 'components' => CodeSourceLock::sort_components($lockRows)])) {
                     throw new \RuntimeException('duo: published code lock differs from its reviewed classification');
                 }
