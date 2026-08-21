@@ -945,9 +945,10 @@ final class InitPlanner {
 
     /**
      * Whether the repository's site.duo.json is exactly the adoption seed
-     * (possibly carrying explicit out-of-tree pins) — the state in which
-     * `duo assess` previews the init proposal instead of the seed's own
-     * `core`-only pin set (T7 grind A3).
+     * (possibly carrying explicit out-of-tree pins and the scope rules those
+     * pins wrote — see existing_config()) — the state in which `duo assess`
+     * previews the init proposal instead of the seed's own `core`-only pin set
+     * (T7 grind A3).
      */
     public static function is_adoption_seed(string $repo): bool {
         try {
@@ -968,6 +969,15 @@ final class InitPlanner {
         }
         $raw = Canon::read_file($file);
         $data = Canon::decode($raw);
+        $seed = [
+            'manifests' => ['core'],
+            'policy' => [
+                'options' => [], 'post_meta' => [], 'term_meta' => [],
+                'post_types' => ['post', 'page', 'attachment'],
+                'taxonomies' => ['category', 'post_tag'],
+            ],
+            'spec_version' => DUO_SPEC_VERSION,
+        ];
         // T6 §3.4's own remediation order — install the site adapter, certify
         // it (`duo adapter certify --pin` writes the {name, source:"site",
         // digest} pin), THEN run init — means the seed init receives already
@@ -981,26 +991,168 @@ final class InitPlanner {
         // `existing_configuration` on a repository whose non-seed content was
         // exactly one certified adapter and its pin.)
         $comparable = $data;
+        $pinned = [];
         if (is_array($comparable) && is_array($comparable['manifests'] ?? null)) {
+            foreach ($comparable['manifests'] as $pin) {
+                if (is_array($pin)
+                    && is_string($pin['name'] ?? null)
+                    && in_array($pin['source'] ?? null, [AdapterSources::SITE, AdapterSources::PLUGIN], true)) {
+                    $pinned[(string) $pin['name']] = (string) $pin['source'];
+                }
+            }
             $comparable['manifests'] = array_values(array_filter(
                 $comparable['manifests'],
                 static fn ($pin): bool => !(is_array($pin)
                     && in_array($pin['source'] ?? null, [AdapterSources::SITE, AdapterSources::PLUGIN], true))
             ));
         }
-        $seed = [
-            'manifests' => ['core'],
-            'policy' => [
-                'options' => [], 'post_meta' => [], 'term_meta' => [],
-                'post_types' => ['post', 'page', 'attachment'],
-                'taxonomies' => ['category', 'post_tag'],
-            ],
-            'spec_version' => DUO_SPEC_VERSION,
-        ];
+        // The SCOPE half of the same pin. Since DUO-3495 `--pin` is the site's
+        // scope opt-in as well as its pin: AdapterCertify::adoptScope()
+        // (cli/src/Adapter/AdapterCertify.php:501) writes
+        // `policy.scope.<kind>.<name> = {"class":"authored"}` for every surface
+        // the certified adapter declares authored that site.duo.json had not
+        // decided (:588-609 is the writer). So the file T6 §3.4's order hands
+        // init is the seed PLUS a pin PLUS those rules — and reading only the
+        // pin as seed-compatible made the documented order refuse
+        // `existing_configuration` (grind_adapter_walk.sh S2).
+        //
+        // Set aside exactly the rules that command would have written on the
+        // seed and nothing else: ScopeAdoption::plan() is asked against the
+        // literal $seed above, so an EXTEND row is by construction a surface a
+        // pinned adapter declares authored and the seed had not decided.
+        // Everything else under `policy.scope` — a `runtime` rule, a rule for a
+        // type no pinned adapter declares, a rule for a name the adapter
+        // classifies itself — is a decision only the site can have made, and
+        // still reads owned. `policy.scope` absent takes none of this path.
+        // The set-aside is keyed on the same site/plugin pins as the pin half
+        // above, for the same reason: what the operator's own host verb wrote
+        // in one act is one fact about the repository, not two.
+        //
+        // What init then republishes carries the opt-in ONCE, as the flat
+        // `policy.post_types`/`taxonomies` entry adapter_scope():842 folds in
+        // for every selected adapter's declared-authored surfaces — the same
+        // list the pre-init order produces — and the scope rule does not
+        // survive. Two representations would be the divergence risk DUO-3495
+        // was careful about in the other direction: a site scope rule OUTRANKS
+        // every manifest (Policy::post_type_rule_details():1876-1879 returns the
+        // site rule before it looks at one), so a stale `authored` rule would
+        // keep classifying a surface the adapter had since reclassified, with
+        // the file agreeing with itself and disagreeing with the library. The flat entry cannot diverge that way — it names
+        // the type as in scope and leaves the CLASS to the declaring manifest,
+        // which is what DUO-3504 needs `declaring_manifest()` to keep answering.
+        if ($pinned !== []
+            && is_array($comparable['policy'] ?? null)
+            && is_array($comparable['policy']['scope'] ?? null)) {
+            $scope = $comparable['policy']['scope'];
+            $stripped = self::without_pin_scope_rules($scope, self::pin_scope_rules($pinned, $repo, $seed));
+            // Only a set-aside that actually removed a rule may remove the
+            // node it emptied. `"scope": {}` or `{"post_type": {}}` in the file
+            // is not something either verb writes (writeScopeRules() runs only
+            // for a non-empty row set), so it is left where it is and reads
+            // owned like any other byte the seed does not have.
+            if ($stripped !== $scope) {
+                if ($stripped === []) {
+                    unset($comparable['policy']['scope']);
+                } else {
+                    $comparable['policy']['scope'] = $stripped;
+                }
+            }
+        }
         return [
             'mode' => Canon::encode($comparable) === Canon::encode($seed) ? 'adoption-seed' : 'owned',
             'identity' => InitOwnedArtifacts::regular_file_identity($file, 'site.duo.json'),
         ];
+    }
+
+    /**
+     * The `policy.scope` entries `duo adapter certify --pin` / `duo adapter
+     * pin` would have written on the adoption seed for these out-of-tree pins.
+     *
+     * The manifests are read the way installed_manifests():930 reads them —
+     * AdapterSources::discover() over the same library, the origin's own
+     * resolved file — and the pin's WRITTEN source must be the source the
+     * engine resolves, because a pin claiming `site` for a name only the
+     * shipped library answers to is a repository defect PinResolver::
+     * validate_manifest_sources() refuses on the next load; it does not get to
+     * vouch for a scope rule here.
+     *
+     * Every failure returns fewer rules, never more: an unscannable library, a
+     * pin naming no installed adapter, an unreadable manifest each leave the
+     * recorded rule in `$comparable`, where it reads as a site edit and the
+     * repository reads owned. That is the refusing direction, and it is the
+     * one init already takes for every other input it cannot read.
+     *
+     * @param array<string,string> $pinned name => the source the pin declares
+     * @param array<string,mixed>  $seed   the literal adoption seed body
+     * @return array<string,array<string,true>> kind => surface name => true
+     */
+    private static function pin_scope_rules(array $pinned, string $repo, array $seed): array {
+        try {
+            $dir = Policy::manifests_dir();
+            $sources = AdapterSources::discover($dir, $repo);
+        } catch (\Throwable $t) {
+            return [];
+        }
+        $names = $sources->names();
+        $rules = [];
+        foreach ($pinned as $name => $source) {
+            if (!in_array($name, $names, true) || $sources->source($name) !== $source) {
+                continue;
+            }
+            try {
+                $manifest = Canon::decode(Canon::read_file($sources->file($name, $dir)));
+            } catch (\Throwable $t) {
+                continue;
+            }
+            if (!is_array($manifest)) {
+                continue;
+            }
+            // One reading of "declares authored", shared with the writer:
+            // ScopeAdoption::plan() is what AdapterCertify::adoptScope() calls,
+            // and an EXTEND row is exactly the rule it writes.
+            foreach (ScopeAdoption::plan($manifest, $seed) as $row) {
+                if ($row['state'] === ScopeAdoption::EXTEND) {
+                    $rules[$row['kind']][$row['name']] = true;
+                }
+            }
+        }
+        return $rules;
+    }
+
+    /**
+     * `policy.scope` with exactly those rules removed, and the `kind` node
+     * removed when removing them emptied it — which is the state the file was
+     * in before the pin wrote the first one.
+     *
+     * The recorded value must be `{"class":"authored"}` and nothing else: that
+     * is the whole rule the writer emits, and a value carrying anything more is
+     * not a rule this command produced.
+     *
+     * @param array<string,mixed> $scope             the file's decoded policy.scope
+     * @param array<string,array<string,true>> $pinned kind => surface name => true
+     * @return array<string,mixed>
+     */
+    private static function without_pin_scope_rules(array $scope, array $pinned): array {
+        foreach ($scope as $kind => $rules) {
+            if (!is_array($rules)) {
+                continue;
+            }
+            $kept = $rules;
+            foreach ($rules as $name => $rule) {
+                if (isset($pinned[$kind][$name]) && $rule === ['class' => 'authored']) {
+                    unset($kept[$name]);
+                }
+            }
+            if ($kept === $rules) {
+                continue;
+            }
+            if ($kept === []) {
+                unset($scope[$kind]);
+            } else {
+                $scope[$kind] = $kept;
+            }
+        }
+        return $scope;
     }
 
     /** @param array<string,mixed> $proposal */

@@ -352,7 +352,7 @@ git -C <repo> init
 
 That JSON is not a placeholder — it is byte-for-byte the adoption seed
 `InitPlanner` compares a repository's `site.duo.json` against
-(`agent/src/Init/InitPlanner.php:781-838`, `is_adoption_seed()`/
+(`agent/src/Init/InitPlanner.php:953-1060`, `is_adoption_seed()`/
 `existing_config()`'s `$seed`): the one state in which `duo assess` previews
 init's own proposal instead of the seed's trivial `core`-only pin set, and the
 one state in which `duo init` still owns the file and will recompute and
@@ -367,10 +367,11 @@ trusted, by both `assess` and `init`.
 
 Add the environment next to it, in an untracked `.duo-envs.json` — on this
 path, only there. `site.duo.json` can carry a shared `envs` key in general,
-but the seed comparison is against the *whole decoded file*
-(`existing_config()` filters out nothing except source-bearing manifest
-pins), so an `envs` key inside `site.duo.json` makes the repository
-operator-owned and `duo init` refuses it as `existing_configuration`. Share
+but the seed comparison is against the *whole decoded file* (the only
+things `existing_config()` sets aside are source-bearing manifest pins and
+the scope rules those pins wrote — the paragraph below), so an `envs` key
+inside `site.duo.json` makes the repository operator-owned and `duo init`
+refuses it as `existing_configuration`. Share
 environments through the site file only on the deliberately-manual path
 below, after deciding init is not for you:
 
@@ -404,6 +405,23 @@ boundary are not present. An adoption seed that already carries explicit
 --pin` and `duo adapter pin` write for an operator-authored or overriding
 adapter — is still the seed: init recomputes and republishes those pins
 exactly, so certifying first and initializing second is the intended order.
+
+Those two commands write a second thing, and it is part of the seed too: a
+pin is the site's scope opt-in, so `--pin` also records
+`policy.scope.post_type.<type>` / `policy.scope.taxonomy.<taxonomy>` =
+`{"class": "authored"}` for every surface the adapter declares authored that
+the file had not already decided (it prints each one). A rule that a pinned
+site or plugin adapter accounts for that way travels with its pin and leaves
+the repository a seed. Nothing else under `policy.scope` does: a `runtime`
+rule, a rule for a surface no pinned adapter declares, a rule for one the
+adapter classifies itself, or one you added by hand is a policy decision, and
+the repository is operator-owned again. Init then republishes that opt-in
+*once*, as the ordinary flat `policy.post_types` / `policy.taxonomies` entry
+it writes for every adapter it selects — the same file you would have got by
+installing the adapter before init — and not as a scope rule beside it: a
+site scope rule outranks every manifest, so keeping both would let a stale
+`authored` rule go on classifying a surface its adapter had since
+reclassified.
 
 ### When you need a policy the initializer cannot propose
 

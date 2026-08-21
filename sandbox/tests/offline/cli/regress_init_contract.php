@@ -2243,6 +2243,81 @@ check($seedMode([$sitePin]) === 'owned', 'a pin set without core is not the seed
 @unlink($seedRoot . '/site.duo.json');
 @rmdir($seedRoot);
 
+// The SCOPE half of the same set-aside (DUO-3515). Since DUO-3495 `--pin` is
+// the site's scope opt-in as well as its pin — AdapterCertify::adoptScope()
+// (cli/src/Adapter/AdapterCertify.php:501) writes
+// `policy.scope.<kind>.<name> = {"class":"authored"}` for every surface the
+// adapter declares authored that the site had not decided — so the file the
+// documented order hands init is the seed PLUS a pin PLUS those rules, and
+// init refused `existing_configuration` on its own guide's order
+// (grind_adapter_walk.sh S2). The verb is exercised end to end against the
+// real signer in sandbox/tests/offline/adapter/regress_adapter_certify.php;
+// what this suite owns is WHICH rules existing_config() will account for, and
+// that the answer comes from the installed manifest rather than from the file
+// asserting it about itself.
+$scopeRoot = sys_get_temp_dir() . '/duo_init_seed_scope_' . bin2hex(random_bytes(4));
+mkdir($scopeRoot . '/adapters', 0777, true);
+\Duo\Canon::write_file($scopeRoot . '/adapters/acme-widgets.json', \Duo\Canon::encode([
+    'name' => 'acme-widgets',
+    'option_autoload' => 'preserve',
+    'post_types' => ['acme_log' => ['class' => 'runtime'], 'acme_widget' => ['class' => 'authored']],
+    'spec_version' => DUO_SPEC_VERSION,
+    'taxonomies' => ['acme_widget_kind' => new stdClass()],
+]));
+// The digest is not the engine's here: PinResolver compares its VALUE on
+// every load, and this fixture is about which SURFACES a named, installed,
+// source-agreeing pin can account for.
+$widgetPin = ['digest' => str_repeat('d', 64), 'name' => 'acme-widgets', 'source' => 'site'];
+$scopeMode = static function (array $manifests, ?array $scope) use ($scopeRoot, $seedBody, $existingConfig): string {
+    $body = $seedBody;
+    $body['manifests'] = $manifests;
+    if ($scope !== null) {
+        $body['policy']['scope'] = $scope;
+    }
+    \Duo\Canon::write_file($scopeRoot . '/site.duo.json', \Duo\Canon::encode($body));
+
+    return (string) $existingConfig->invoke(null, $scopeRoot)['mode'];
+};
+$adopted = [
+    'post_type' => ['acme_widget' => ['class' => 'authored']],
+    'taxonomy' => ['acme_widget_kind' => ['class' => 'authored']],
+];
+check($scopeMode(['core', $widgetPin], null) === 'adoption-seed', 'premise: the seed carrying only this site pin reads adoption-seed');
+check(
+    $scopeMode(['core', $widgetPin], $adopted) === 'adoption-seed',
+    'and it still does with the rules that pin wrote beside it: an authored post_type and the structural '
+    . 'taxonomy the manifest declares with no class at all, which ScopeAdoption reads as authored'
+);
+check(
+    $scopeMode(['core'], $adopted) === 'owned',
+    'the same rules with no out-of-tree pin beside them are an owned policy: nothing in the repository vouches for them'
+);
+check(
+    $scopeMode(['core', ['digest' => str_repeat('d', 64), 'name' => 'acme-widgets', 'source' => 'plugin']], $adopted) === 'owned',
+    'nor does a pin whose written source disagrees with the source the engine resolves — a defect PinResolver '
+    . 'refuses on the next load does not get to account for a scope rule here'
+);
+check(
+    $scopeMode(['core', ['digest' => str_repeat('e', 64), 'name' => 'acme-absent', 'source' => 'site']], $adopted) === 'owned',
+    'and a pin naming an adapter this repository does not install accounts for nothing: the declaration has to be readable, not merely named'
+);
+check(
+    $scopeMode(['core', $widgetPin], ['post_type' => ['acme_log' => ['class' => 'authored']]]) === 'owned',
+    'a rule for a type the pinned adapter classifies RUNTIME itself is not one `--pin` would have written — it adopts declarations, it does not invent them'
+);
+check(
+    $scopeMode(['core', $widgetPin], ['post_type' => ['acme_widget' => ['class' => 'runtime']]]) === 'owned',
+    'and neither is a runtime rule for the declared type: the set-aside is the exact rule the verb writes, not the surface it names'
+);
+check(
+    $scopeMode(['core', $widgetPin], ['post_type' => ['post' => ['class' => 'authored']]]) === 'owned',
+    'a rule for a type the seed already carries in its flat list is one the pin would have skipped as settled, so it too reads owned'
+);
+@unlink($scopeRoot . '/site.duo.json');
+@unlink($scopeRoot . '/adapters/acme-widgets.json');
+@rmdir($scopeRoot . '/adapters');
+@rmdir($scopeRoot);
+
 // T7 grind A2: a block theme's site-editor customisations live in core's
 // non-public, _builtin FSE types, which the scope gate never names. Init
 // proposes the certified core FSE profile's scope for a block theme and says
