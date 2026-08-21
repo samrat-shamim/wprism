@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Duo\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Policy/ScopeContract.php';
+require_once dirname(__DIR__, 3) . '/agent/src/Code/CodeSourceLock.php';
 
 /** Explicit non-error terminal for `duo rebase --interactive` cancellation. */
 final class RefreshFieldResolutionCancelled extends \RuntimeException {}
@@ -527,7 +528,15 @@ final class Refresh {
             // must not become production deletion authority while Git says
             // the production ref has different bytes.
             . ' && git -C ' . $repo
-            . ' ls-files --others --ignored --exclude-standard -- site.duo.json state media code manifests';
+            . ' ls-files --others --ignored --exclude-standard -- site.duo.json state media code manifests'
+            // ...except the component trees the production ref's own lock
+            // declares, which are ignored BY DESIGN and are identified bytes
+            // rather than unidentified ones (lockedTreePathspecs()). The
+            // status walk above is deliberately not narrowed: it never lists
+            // an ignored file, so a tracked or untracked change inside a
+            // locked tree is a split the repository itself contradicts and
+            // still refuses here.
+            . self::lockedTreePathspecs($expected);
         $result = $transport->captureRaw($script);
         if (($result['exit'] ?? 1) !== 0) {
             throw new \RuntimeException('cannot verify production target Git HEAD: ' . self::transportReason($result));
@@ -545,6 +554,118 @@ final class Refresh {
                 "production target Git HEAD '$actual' does not equal --production-ref '$expected'; refusing to infer topology from a code descriptor"
             );
         }
+    }
+
+    /**
+     * The `:(exclude)` pathspec suffix that keeps the ignored-files walk above
+     * from reporting the code components the production ref itself declares.
+     *
+     * ## Why an ignored tree can be excluded at all
+     *
+     * The gate's rule is "no bytes that `--production-ref` does not identify",
+     * not "no ignored files". Since DUO-3499 a split repository deliberately
+     * keeps each locked component on disk and out of Git
+     * (`/code/wp-content/plugins/woocommerce/` in `.gitignore`), and the
+     * identification of those bytes is the TRACKED `code/duo-code.lock.json`
+     * at that same ref: every entry carries a `tree_sha256` over the whole
+     * component subtree, and the compile gate refuses a mismatch as
+     * `code_component_digest_mismatch` and an absent tree as
+     * `code_component_unresolved`
+     * (agent/src/Code/CodeDescriptorCompiler.php:135 lock_diagnostics()). So the
+     * lock covers the tree's CONTENTS — a stray file inside a locked component
+     * moves that digest — which is why excluding the whole subtree costs this
+     * gate nothing, while an ignored file BESIDE a locked tree, an undeclared
+     * ignored directory, or a tombstone anywhere else is still unidentified and
+     * still refuses, with the message unchanged.
+     *
+     * Before this, `ls-files --others --ignored -- … code` listed every locked
+     * tree on every split repository, so the default init since DUO-3499 could
+     * never rehearse or refresh at all: the first `duo rehearse` refused
+     * "production target repository has tracked, untracked, or ignored
+     * canonical changes" (grind_adapter_walk.sh S1 on a 3-component split).
+     *
+     * ## Why the lock is read from the LOCAL repository
+     *
+     * `$expected` is the commit `prepare()` resolved with
+     * `resolveCommit($root, $productionRef)`, so the object is in this checkout
+     * and `<commit>:code/duo-code.lock.json` is literally "the lock at that
+     * ref". No extra target round trip is spent re-reading bytes Git already
+     * addresses by oid, and nothing is weakened if the target is somewhere
+     * else entirely: this same function then refuses on the HEAD equality
+     * below, which is unconditional.
+     */
+    private static function lockedTreePathspecs(string $expected): string {
+        $suffix = '';
+        foreach (self::lockedComponentTrees($expected) as $tree) {
+            // `literal` is load-bearing, not decoration: a component name is a
+            // safe single path segment but may still contain `[`, `*` or `?`
+            // (PathSafety::safe_component():77-79 forbids only `..`, `/`,
+            // backslashes and control bytes), and a glob-interpreted
+            // `:(exclude)` for a component named `wc[1]` silently excludes
+            // nothing while reading as though it did.
+            $suffix .= ' ' . escapeshellarg(':(exclude,literal)' . $tree);
+        }
+        return $suffix;
+    }
+
+    /**
+     * The `code/wp-content/<root>/<component>/` trees `$expected` declares, or
+     * `[]` for any repository that does not declare a parseable split.
+     *
+     * Every early return is the REFUSING direction: no site config, a format-1
+     * (fully vendored) declaration, a lock absent at that ref, or a lock that
+     * does not parse all yield no exclusions, so the ignored files are reported
+     * and the caller refuses exactly as it does today. A repository whose
+     * `.gitignore` and lock disagree is DUO-3499's own
+     * `code_component_unlocked` — the compile gate's refusal to make, not this
+     * one's to guess around.
+     *
+     * @return list<string>
+     */
+    private static function lockedComponentTrees(string $expected): array {
+        try {
+            $root = self::repositoryRoot();
+        } catch (\Throwable $t) {
+            return [];
+        }
+        $site = self::run(['git', '-C', $root, 'cat-file', '-p', $expected . ':site.duo.json']);
+        if (($site['exit'] ?? 1) !== 0) {
+            return [];
+        }
+        $config = json_decode(trim((string) $site['stdout']), true);
+        $code = is_array($config) ? ($config['code'] ?? null) : null;
+        // The whole format-2 identity, not just its number: assert_config_v2()
+        // (agent/src/Code/CodeDescriptorCompiler.php:431-443) admits exactly
+        // one lock path in v1, and a declaration naming another one is not a
+        // split this gate knows how to trust.
+        if (!is_array($code) || ($code['format'] ?? null) !== 2
+            || ($code['lock'] ?? null) !== \Duo\CodeSourceLock::PATH) {
+            return [];
+        }
+        $lock = self::run(['git', '-C', $root, 'cat-file', '-p', $expected . ':' . \Duo\CodeSourceLock::PATH]);
+        if (($lock['exit'] ?? 1) !== 0) {
+            return [];
+        }
+        try {
+            // parse() runs assert_lock(), so `root` is one of ROOTS and
+            // `component` is one safe path segment before either reaches a
+            // pathspec — the lock can never name a tree outside code/wp-content.
+            $parsed = \Duo\CodeSourceLock::parse(trim((string) $lock['stdout']));
+        } catch (\Throwable $t) {
+            return [];
+        }
+        $trees = [];
+        foreach ((array) ($parsed['components'] ?? []) as $entry) {
+            // gitignore_line() is the spelling that PUT the tree out of Git in
+            // the first place (init and `duo code-classify` both write it), so
+            // taking it back apart here — leading `/` off, trailing `/` kept —
+            // means the excluded path and the ignored path cannot drift.
+            $trees[] = substr(
+                \Duo\CodeSourceLock::gitignore_line((string) $entry['root'], (string) $entry['component']),
+                1
+            );
+        }
+        return $trees;
     }
 
     private static function rebaseCodeOnly(string $worktree, string $production, string $base, string $runDir): void {

@@ -120,6 +120,11 @@ namespace {
 require dirname(__DIR__, 4) . '/cli/src/Transport/Transport.php';
 require dirname(__DIR__, 4) . '/cli/src/Transport/CodeDeploy.php';
 require dirname(__DIR__, 4) . '/cli/src/Refresh/Refresh.php';
+// Required here, not leaned on through Refresh.php: the DUO-3520 fixtures
+// below build their lock with the writer's own helpers, and a suite that only
+// saw this class because the code under test happened to load it would fail to
+// LOAD against the prior bytes instead of failing on the defect.
+require_once dirname(__DIR__, 4) . '/agent/src/Code/CodeSourceLock.php';
 
 use Duo\Orchestrator\Refresh;
 use Duo\Orchestrator\Transport;
@@ -165,6 +170,39 @@ final class RefreshTransport extends Transport {
     }
     public function replaceAfterNextExport(string $export): void { $this->exportAfterNextRead = $export; }
     public function replaceCurrentExport(string $export): void { $this->export = $export; }
+}
+
+/**
+ * A transport that RUNS the target script instead of answering it from a
+ * canned string.
+ *
+ * `assertTargetHead()` composes real `git status` / `git ls-files` invocations
+ * against `repoPath()`, and DUO-3520 is entirely about which paths those
+ * commands list on a split repository — a fake that returns pre-baked lines
+ * would be asserting the fixture, not Git. This executes the exact script the
+ * production transport would ship, against a real repository on disk; only the
+ * remote hop is missing.
+ */
+final class RefreshTargetTransport extends Transport {
+    public array $raw = [];
+    public function __construct(string $target, private string $export) {
+        parent::__construct('production', ['repo_path' => $target]);
+    }
+    public function describe(): string { return 'split target'; }
+    protected function wpCommand(array $wpArgs): string { return 'false'; }
+    protected function rawCommand(string $script): string { return 'false'; }
+    public function captureRaw(string $script): array {
+        $this->raw[] = $script;
+        $errFile = tempnam(sys_get_temp_dir(), 'duo-refresh-target-err');
+        $out = []; $code = 0;
+        exec($script . ' 2>' . escapeshellarg((string) $errFile), $out, $code);
+        $stderr = $errFile === false ? '' : (string) @file_get_contents($errFile);
+        if ($errFile !== false) @unlink($errFile);
+        return ['exit' => $code, 'stdout' => implode("\n", $out) . "\n", 'stderr' => $stderr];
+    }
+    public function captureWp(array $wpArgs): array {
+        return ['exit' => 0, 'stdout' => $this->export . "\n", 'stderr' => ''];
+    }
 }
 
 $tmp = sys_get_temp_dir() . '/duo-refresh-orchestration-' . bin2hex(random_bytes(6));
@@ -447,6 +485,200 @@ try {
     ok_refresh(str_contains($failedEventBytes, 'semantic planner did not return a resolved'),
         'post-run field failure preserves the detailed cause only in private event evidence');
     if ($failedFieldRun !== null) Refresh::abort($failedFieldRun);
+
+    // ------------------------------------------------------------ DUO-3520
+    // Since DUO-3499 the DEFAULT init is split: each locked component stays on
+    // disk and out of Git, excluded by a root-anchored `.gitignore` line and
+    // identified by `code/duo-code.lock.json`'s `tree_sha256` at the same ref.
+    // assertTargetHead() listed every one of those trees as an "ignored
+    // canonical change", so the first `duo rehearse` on ANY split repository
+    // refused — grind_adapter_walk.sh S1 on a 3-component split (woocommerce,
+    // wpforms-lite, twentytwentyone) died there while the identical scenario
+    // passed the day before, when init still vendored everything.
+    //
+    // The gate's rule is "no bytes --production-ref does not identify", and the
+    // lock IS that identification. Everything it does not name still refuses.
+    $refusal = 'production target repository has tracked, untracked, or ignored canonical changes; '
+        . 'refusing a refresh-export from bytes not identified by --production-ref';
+
+    /** The `tree_sha256` a one-file component's subtree hashes to, built exactly as the lock's own writer does. */
+    $treeDigest = static fn(string $path, string $bytes): string =>
+        \Duo\CodeSourceLock::tree_sha256([['path' => $path, 'sha256' => hash('sha256', $bytes)]]);
+
+    /**
+     * A source checkout (the host's cwd) plus its production clone (the target),
+     * both real Git repositories: base commit -> `production` -> `feature`, so
+     * merge-base is the base exactly as the fixture above arranges it.
+     */
+    $buildPair = static function (string $label, array $codeConfig, ?array $lock, array $ignoreLines) use ($tmp): array {
+        $source = $tmp . '/' . $label . '-source';
+        $target = $tmp . '/' . $label . '-target';
+        mkdir($source . '/state', 0700, true);
+        file_put_contents($source . '/state/base.json', "{}\n");
+        file_put_contents($source . '/.gitignore', implode("\n", $ignoreLines) . "\n");
+        file_put_contents($source . '/site.duo.json', json_encode(
+            ['code' => $codeConfig, 'manifests' => ['core'], 'spec_version' => 2],
+            JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+        ) . "\n");
+        if ($lock !== null) {
+            mkdir($source . '/code', 0700, true);
+            file_put_contents($source . '/code/duo-code.lock.json', json_encode(
+                ['components' => $lock, 'format' => \Duo\CodeSourceLock::FORMAT],
+                JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+            ) . "\n");
+        }
+        run_refresh(['git', 'init', '-q', '-b', 'main'], $source);
+        run_refresh(['git', 'config', 'user.email', 'test@example.invalid'], $source);
+        run_refresh(['git', 'config', 'user.name', 'Refresh Test'], $source);
+        run_refresh(['git', 'add', '.'], $source);
+        run_refresh(['git', 'commit', '-q', '-m', 'base'], $source);
+        $base = run_refresh(['git', 'rev-parse', 'HEAD'], $source);
+        run_refresh(['git', 'checkout', '-q', '-b', 'production'], $source);
+        file_put_contents($source . '/state/prod.json', "{}\n");
+        run_refresh(['git', 'add', '.'], $source);
+        run_refresh(['git', 'commit', '-q', '-m', 'production'], $source);
+        $production = run_refresh(['git', 'rev-parse', 'HEAD'], $source);
+        run_refresh(['git', 'checkout', '-q', '-b', 'feature', $base], $source);
+        file_put_contents($source . '/state/feature.json', "{}\n");
+        run_refresh(['git', 'add', '.'], $source);
+        run_refresh(['git', 'commit', '-q', '-m', 'feature'], $source);
+        run_refresh(['git', 'clone', '-q', '--no-hardlinks', $source, $target]);
+        run_refresh(['git', '-C', $target, 'checkout', '-q', $production], $source);
+
+        return ['source' => $source, 'target' => $target, 'production' => $production];
+    };
+    $plant = static function (string $root, string $relative, string $bytes): void {
+        $path = $root . '/' . $relative;
+        if (!is_dir(dirname($path))) mkdir(dirname($path), 0700, true);
+        file_put_contents($path, $bytes);
+    };
+
+    $shopBytes = "<?php // acme-shop\n";
+    $themeBytes = "/* acme-theme */\n";
+    $splitPair = $buildPair(
+        'split',
+        ['format' => 2, 'layout' => 'wp-content', 'lock' => \Duo\CodeSourceLock::PATH, 'source' => 'code/wp-content'],
+        // Sorted by root then component, as assert_lock() requires. The
+        // digests are real — computed the way the lock's writer computes them —
+        // but this gate never reads them: proving the on-disk tree still
+        // matches is the COMPILE gate's job (code_component_digest_mismatch),
+        // and that division is exactly why excluding the tree here is safe.
+        [[
+            'component' => 'acme-shop',
+            'origin' => ['archive_sha256' => hash('sha256', 'shop-archive'), 'kind' => 'wp-org-release',
+                'url' => 'https://downloads.example.invalid/acme-shop.1.0.zip'],
+            'root' => 'plugins',
+            'tree_sha256' => $treeDigest('acme-shop.php', $shopBytes),
+            'version' => '1.0',
+        ], [
+            'component' => 'acme-theme',
+            'origin' => ['archive_sha256' => hash('sha256', 'theme-archive'), 'kind' => 'wp-org-release',
+                'url' => 'https://downloads.example.invalid/acme-theme.2.0.zip'],
+            'root' => 'themes',
+            'tree_sha256' => $treeDigest('style.css', $themeBytes),
+            'version' => '2.0',
+        ]],
+        [
+            \Duo\CodeSourceLock::gitignore_line('plugins', 'acme-shop'),
+            \Duo\CodeSourceLock::gitignore_line('themes', 'acme-theme'),
+            // Two ignore lines the lock deliberately does NOT declare: a stray
+            // file beside a locked tree, and a whole undeclared directory.
+            // Both are ignored bytes under `code` that nothing identifies.
+            '/code/wp-content/plugins/debug.log',
+            '/code/wp-content/plugins/leftover/',
+        ]
+    );
+    $plant($splitPair['target'], 'code/wp-content/plugins/acme-shop/acme-shop.php', $shopBytes);
+    $plant($splitPair['target'], 'code/wp-content/themes/acme-theme/style.css', $themeBytes);
+
+    $splitTransport = new RefreshTargetTransport($splitPair['target'], $export);
+    chdir($splitPair['source']);
+    $splitResult = [];
+    try {
+        $splitResult = Refresh::refresh($splitTransport, 'production');
+    } catch (\RuntimeException $e) {
+        // Named rather than left as an uncaught fatal: against the prior bytes
+        // this is THE defect, and the report should read as the refusal the
+        // grind saw rather than as a stack trace.
+        fail_refresh('a split repository must pass the target-head gate, but it refused: ' . $e->getMessage());
+    }
+    ok_refresh(
+        ($splitResult['context']['production_commit'] ?? null) === $splitPair['production'],
+        'a split repository whose ignored component trees are exactly the ones its lock declares passes the '
+        . 'target-head gate — the defect refused every DUO-3499 default init at its first rehearse'
+    );
+    $splitScript = $splitTransport->raw[0] ?? '';
+    ok_refresh(
+        str_contains($splitScript, "':(exclude,literal)code/wp-content/plugins/acme-shop/'")
+            && str_contains($splitScript, "':(exclude,literal)code/wp-content/themes/acme-theme/'")
+            && str_contains($splitScript, 'ls-files --others --ignored --exclude-standard -- site.duo.json state media code manifests'),
+        'each locked tree is excluded by its own literal pathspec, appended to the unchanged partition list; '
+        . '`literal` keeps a component name that contains glob metacharacters (safe_component() admits them) '
+        . 'from being read as a pattern that would match something else, or nothing'
+    );
+
+    // The bytes the lock does not name are still unidentified. Each case below
+    // restores the target afterwards, so the next one starts from the state
+    // that just passed.
+    foreach ([
+        ['code/wp-content/plugins/debug.log', "stray\n",
+            'an ignored stray file BESIDE a locked tree still refuses: the lock names component trees, and '
+            . 'nothing identifies this one'],
+        ['code/wp-content/plugins/leftover/old.php', "<?php // left behind\n",
+            'and so does a whole ignored directory under code that the lock does not declare — the tombstone '
+            . 'threat model the gate exists for is untouched'],
+        ['code/wp-content/plugins/rogue.php', "<?php // beside\n",
+            'and an UNTRACKED (not ignored) sibling beside the locked tree refuses through the status arm, '
+            . 'which the exclusion never touched'],
+    ] as [$relative, $bytes, $message]) {
+        $plant($splitPair['target'], $relative, $bytes);
+        $caught = null;
+        try {
+            Refresh::refresh(new RefreshTargetTransport($splitPair['target'], $export), 'production');
+        } catch (\RuntimeException $e) {
+            $caught = $e->getMessage();
+        }
+        ok_refresh($caught === $refusal, $message . ' (with the refusal byte-identical)');
+        @unlink($splitPair['target'] . '/' . $relative);
+        @rmdir(dirname($splitPair['target'] . '/' . $relative));
+    }
+
+    // The status arm is deliberately NOT narrowed: it never lists an ignored
+    // file, so every tracked change is still a refusal on a split repository.
+    file_put_contents($splitPair['target'] . '/state/base.json', "{\"edited\":true}\n");
+    $trackedCaught = null;
+    try {
+        Refresh::refresh(new RefreshTargetTransport($splitPair['target'], $export), 'production');
+    } catch (\RuntimeException $e) {
+        $trackedCaught = $e->getMessage();
+    }
+    ok_refresh($trackedCaught === $refusal, 'a tracked canonical edit on a split target still refuses');
+    file_put_contents($splitPair['target'] . '/state/base.json', "{}\n");
+
+    // A fully vendored (format 1) repository takes none of the new path: no
+    // lock exists, so no pathspec is excluded and any ignored file under code
+    // refuses exactly as it did before.
+    $vendoredPair = $buildPair(
+        'vendored',
+        ['format' => 1, 'layout' => 'wp-content', 'source' => 'code/wp-content'],
+        null,
+        ['/code/wp-content/plugins/acme-shop/']
+    );
+    $plant($vendoredPair['target'], 'code/wp-content/plugins/acme-shop/acme-shop.php', $shopBytes);
+    $vendoredTransport = new RefreshTargetTransport($vendoredPair['target'], $export);
+    chdir($vendoredPair['source']);
+    $vendoredCaught = null;
+    try {
+        Refresh::refresh($vendoredTransport, 'production');
+    } catch (\RuntimeException $e) {
+        $vendoredCaught = $e->getMessage();
+    }
+    ok_refresh(
+        $vendoredCaught === $refusal && !str_contains($vendoredTransport->raw[0] ?? '', ':(exclude'),
+        'a format-1 repository excludes nothing and still refuses an ignored tree under code — only a parseable '
+        . 'format-2 lock at the production ref identifies bytes'
+    );
+
     chdir($old);
     echo "PASS: refresh host orchestration regression\n";
 } finally {
