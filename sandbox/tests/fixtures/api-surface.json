@@ -47106,6 +47106,9 @@
                 },
                 "LONGEST_CORE_ID_KIND": {
                     "value_repr": "widget_media_gallery"
+                },
+                "SIDEBARS_OPTION": {
+                    "value_repr": "sidebars_widgets"
                 }
             },
             "final": true,
@@ -47423,6 +47426,23 @@
                         }
                     ],
                     "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "owns_option": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "name",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
                     "static": true,
                     "visibility": "public"
                 },

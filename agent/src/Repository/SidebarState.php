@@ -25,6 +25,33 @@ final class SidebarState {
         return str_starts_with($kind, 'widget_') && strlen($kind) > 7 ? substr($kind, 7) : null;
     }
 
+    /**
+     * The one top-level option name this class owns outright. Named as a
+     * constant so `load_sidebars_option()` (:279) and the apply write (:520)
+     * — the two queries that MAKE the ownership claim below true — cannot
+     * drift from it.
+     */
+    public const SIDEBARS_OPTION = 'sidebars_widgets';
+
+    /**
+     * Whether this class, rather than a manifest classification, owns an
+     * option name end to end: `sidebars_widgets` plus kind()'s own
+     * `widget_` prefix (:20-22), which is exactly the set
+     * load_widget_options() enumerates (`option_name LIKE 'widget\_%'`,
+     * :213) and gates (an undeclared type with real instances refuses
+     * capture at :262-269).
+     *
+     * DUO-3508: `Pending::mechanism_owner()` asks this so a journal-observed
+     * write to one of these names is not queued for a classification that
+     * does not exist — there is no class to give. manifests/core.json:86
+     * records the alternative (declaring the family in `options{}`) being
+     * tried and reverted, with this guard named as "the actual, sufficient,
+     * already-shipped blocking net".
+     */
+    public static function owns_option(string $name): bool {
+        return $name === self::SIDEBARS_OPTION || str_starts_with($name, 'widget_');
+    }
+
     public static function assert_width_budget(): void {
         if (strlen(self::LONGEST_CORE_ID_KIND) > Ledger::ID_KIND_WIDTH) {
             throw new \RuntimeException(
@@ -253,7 +280,7 @@ final class SidebarState {
         global $wpdb;
         $raw = $wpdb->get_var($wpdb->prepare(
             "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
-            'sidebars_widgets'
+            self::SIDEBARS_OPTION
         ));
         if ($raw === null) {
             return [];
@@ -490,10 +517,10 @@ final class SidebarState {
         $sidebars[$sidebar] = $keys;
         $sidebars['array_version'] = max(3, (int) ($sidebars['array_version'] ?? 3));
         Db::query($GLOBALS['wpdb']->prepare(
-            "INSERT INTO {$GLOBALS['wpdb']->options} (option_name, option_value, autoload) VALUES ('sidebars_widgets', %s, 'yes') "
+            "INSERT INTO {$GLOBALS['wpdb']->options} (option_name, option_value, autoload) VALUES ('" . self::SIDEBARS_OPTION . "', %s, 'yes') "
             . 'ON DUPLICATE KEY UPDATE option_value = VALUES(option_value)', maybe_serialize($sidebars)
         ), "apply sidebar '$sidebar'");
-        wp_cache_delete('sidebars_widgets', 'options');
+        wp_cache_delete(self::SIDEBARS_OPTION, 'options');
         wp_cache_delete('alloptions', 'options');
     }
 

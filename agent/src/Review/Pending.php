@@ -1,6 +1,11 @@
 <?php
 namespace Duo;
 
+// DUO-3508: the queue's mechanism-ownership test below asks SidebarState
+// directly, and the drop-in has no autoloader — every engine file names the
+// classes it loads (sandbox/tests/offline/guards/regress_agent_src_requires.php).
+require_once __DIR__ . '/../Repository/SidebarState.php';
+
 /**
  * The core loop's review queue (DESIGN.md 3.1.5): `wp duo pending` is the
  * step between "unclassified write blocked capture" and "wp duo classify
@@ -16,6 +21,19 @@ namespace Duo;
  *     wp_options directly. The journal enriches those rows but is never a
  *     completeness dependency. Options outside a claimed namespace remain
  *     journal-only because no adapter has asserted ownership of them.
+ *
+ * A journal-observed name is not automatically a review item (DUO-3508). A
+ * name a dedicated engine mechanism already owns end to end has no
+ * classification to give, so demanding one is noise, not safety. Two
+ * mechanisms own names today: SidebarState, over `sidebars_widgets` and the
+ * whole `widget_<type>` family (SidebarState::owns_option(),
+ * Repository/SidebarState.php:51-53), and the dynamic_options resolver, over
+ * any declared prefix — core.json's `theme_mods_` is the one shipped case
+ * (Policy::dynamic_option_rule_for_prefix(), Policy/Policy.php:885). Neither
+ * is silenced by this: SidebarState still refuses capture for an undeclared
+ * widget type with real instances (SidebarState.php:262-269) and the gate
+ * walk still emits its own `widgets:<type>` finding
+ * (Capture/CaptureGateScanner.php:100-106). See mechanism_owner() below.
  *
  * A proposal is NEVER guessed here — it is always exactly the journal's own
  * capability x surface signal (Journal::propose, aggregated), or null.
@@ -293,8 +311,23 @@ final class Pending {
      * wins; a given id is checked against posts before terms. This is a
      * hint for `classify` time, not proof the key IS a ref: small ids can
      * coincide with unrelated numbers.
+     *
+     * DUO-3508: a whole value of exactly 0/1 is a boolean flag, and gets no
+     * hint at all. This is not the "small ids coincide" caveat being applied
+     * twice — it is a value shape that can never be a reference, on a site
+     * where the answer is always the same wrong one: `blog_public`,
+     * `fresh_site` and `wc_installing` all store '1', and post #1 is
+     * WordPress's own "Hello world!" seed row, so every such row was
+     * decorated with a confident `-> post #1 'Hello world!'`.
+     * numeric_candidates() is deliberately NOT where this test goes: it is
+     * shared with Lint::scan_tree() at eight call sites (Lint.php:197, 235,
+     * 316, 445, 575, 613, 665, 713), where a bare 1 sitting inside a larger
+     * structure is a genuine candidate.
      */
     private static function ref_hint($value, ?callable $observationReadCheckpoint = null): ?array {
+        if ($value === 1 || $value === '1' || $value === 0 || $value === '0') {
+            return null;
+        }
         foreach (self::numeric_candidates($value) as [$id, ]) {
             if ($id <= 0) {
                 continue;
@@ -392,9 +425,41 @@ final class Pending {
     // ------------------------------------------------------ journal evidence
 
     /**
+     * The dedicated engine mechanism that already owns $item end to end, or
+     * null when the review queue is the right place to ask a human.
+     *
+     * `Journal::ground_truth()` answers from the exact/pattern rule table
+     * alone (Journal.php:331-334 -> Policy::option_rule(), Policy.php:634-636
+     * -> PolicyRuleResolver), which structurally cannot see either mechanism
+     * below. Before DUO-3508 that made a fresh install demand a
+     * classification for ~46 names whose owner is engine code rather than any
+     * manifest declaration: every `widget_<type>` row, `sidebars_widgets`,
+     * and both the active theme's `theme_mods_<stylesheet>` row and each
+     * stale-residue one.
+     *
+     * dynamic_options is asked by PREFIX on purpose, never through
+     * resolve_dynamic_option(): the active row is governed (class `env` plus
+     * declared sub_keys) and a residue row is declared env-local residue
+     * (manifests/core.json:85), so both belong out of the queue — and the
+     * prefix lookup needs no `get_option('stylesheet')` read, which
+     * scan_read_only()'s strictly read-only observation path must not
+     * acquire.
+     */
+    private static function mechanism_owner(Policy $policy, string $tbl, string $item): ?string {
+        if ($tbl !== 'options') {
+            return null;
+        }
+        if (SidebarState::owns_option($item)) {
+            return 'widgets';
+        }
+        return $policy->dynamic_option_rule_for_prefix($item) !== null ? 'dynamic_options' : null;
+    }
+
+    /**
      * Aggregate duo_journal rows for one table, keeping only items with NO
      * policy rule (Journal::ground_truth — the exact lookup Journal::report
-     * uses, reused rather than re-derived). Multiple rows per item
+     * uses, reused rather than re-derived) and no dedicated owning mechanism
+     * (mechanism_owner above). Multiple rows per item
      * (different surface/caps/proposal combinations) collapse to one
      * evidence bundle; proposal takes the strongest signal seen —
      * authored > runtime > abstain-only ('review' rows alone => null,
@@ -426,8 +491,11 @@ final class Pending {
                 continue;
             }
             if (!isset($out[$item])) {
-                if (Journal::ground_truth($policy, $tbl, $item) !== null) {
-                    $excluded[$item] = true; // already classified — not part of the review queue
+                if (Journal::ground_truth($policy, $tbl, $item) !== null
+                    || self::mechanism_owner($policy, $tbl, $item) !== null) {
+                    // Already classified, or owned end to end by a dedicated
+                    // mechanism — either way not part of the review queue.
+                    $excluded[$item] = true;
                     continue;
                 }
                 $out[$item] = ['n' => 0, 'surfaces' => [], 'caps' => [], 'proposal' => null];
