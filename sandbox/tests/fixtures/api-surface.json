@@ -21455,6 +21455,14 @@
                             "name": "cfg",
                             "type": "array",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "serviceRunningProbe",
+                            "type": "?callable",
+                            "variadic": false
                         }
                     ],
                     "return_type": null,

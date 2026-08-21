@@ -89,6 +89,16 @@ $docker = new DockerTransport('container-proof', [
     'transport' => 'docker', 'compose_file' => '/tmp/duo-driver-compose.yml',
     'service' => 'cli', 'repo_path' => '/repo',
 ]);
+// DUO-3513: the opt-in `mode: "exec"` docker driver is a first-class
+// EnvironmentDriver too -- it must share the exact same attach/promote/
+// create capability contract as `run` mode, `local`, and `ssh`. The probe
+// seam is fixed to "running" so capabilityReport() (which never touches the
+// target) stays deterministic offline; regress_docker_exec_mode.php is the
+// suite for the mode's own command-string and not-running behavior.
+$dockerExec = new DockerTransport('container-exec-proof', [
+    'transport' => 'docker', 'compose_file' => '/tmp/duo-driver-compose.yml',
+    'service' => 'cli', 'repo_path' => '/repo', 'mode' => 'exec',
+], static fn(): bool => true);
 $ssh = new SshTransport('ssh-proof', [
     'transport' => 'ssh', 'host' => 'fixture.invalid',
     'wp_path' => '/wordpress', 'repo_path' => '/repo',
@@ -111,7 +121,7 @@ assert_true(DriverCapability::all() === $expectedVocabulary, 'capability vocabul
 pass('closed vocabulary names lifecycle, control, code, snapshot, maintenance, URL, TTL, and receipts');
 
 $proofRequirements = null;
-foreach ([$local, $docker, $ssh] as $driver) {
+foreach ([$local, $docker, $dockerExec, $ssh] as $driver) {
     assert_true($driver instanceof EnvironmentDriver, $driver->driverId() . ' does not implement EnvironmentDriver');
     $attach = $driver->capabilityReport('attach');
     assert_true($attach->ready(), $driver->driverId() . ' cannot attach to a pre-existing target');
@@ -122,10 +132,11 @@ foreach ([$local, $docker, $ssh] as $driver) {
     assert_true(!$create->ready(), $driver->driverId() . ' silently inferred create from attach');
     assert_true(required_capabilities($create) === ['environment.attach', 'environment.create'], 'create requirements changed');
 }
-pass('local, container, and SSH drivers share one proof contract while attach remains distinct from create');
+pass('local, container (run and exec mode), and SSH drivers share one proof contract while attach remains distinct from create');
 
 assert_true(!$local->capabilityReport('adopt')->ready(), 'local driver fabricated bootstrap support without an opt-in');
 assert_true(!$docker->capabilityReport('adopt')->ready(), 'container driver fabricated bootstrap support');
+assert_true(!$dockerExec->capabilityReport('adopt')->ready(), 'container driver in exec mode still fabricated no bootstrap support');
 assert_true($ssh->capabilityReport('adopt')->ready(), 'SSH adoption path did not declare its actual upload/bootstrap support');
 pass('driver-specific bootstrap support is explicit and truthful');
 
