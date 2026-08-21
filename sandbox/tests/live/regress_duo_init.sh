@@ -841,23 +841,35 @@ file_put_contents(WP_PLUGIN_DIR . "/woocommerce/duo-init-jwt.php", $payload);
 # straddles the 32KB streaming read must still be FOUND. Detection is now
 # visible as the advisory rather than as a refusal, so that is what is asserted
 # -- named, redacted, and explicitly not the blocking reason code.
-assert_exit 0 "cross-chunk JWT is an advisory, not a blocker" "${DUO[@]}" init "${PAIR}1" --yes
-grep -q 'jwt_in_code_file' <<<"$OUT" || fail "cross-chunk JWT advisory omitted its reason code"
-grep -q 'advisories (init proceeds' <<<"$OUT" \
-  || fail "cross-chunk JWT was not reported under the advisories heading"
-! grep -q 'credential_bearing_code_file' <<<"$OUT" \
+# Deliberately the READ-ONLY proposal, not a confirmation. Detection is a
+# proposal-time property, so confirming proves nothing extra -- and a completing
+# init here would mint durable `_duo_uuid` identities into wp_postmeta, which is
+# SITE state that no reset in this file clears (repo_host/find -delete and the
+# DROP TABLE idiom clear the repository and the ledger, and nothing clears the
+# site). Those identities then survive into the kill-phase loop below, whose
+# assertions require a pristine site, and it fails there at
+# "recovery left minted identities" -- an unrelated case, broken from here.
+# Duo minting identities on a successful init and keeping them is correct and
+# intended; the mistake was making a DETECTION case complete an init at all.
+# stdout only, like assert_init_plan(): a docker transport writes "Container
+# ... Creating" to STDERR on every invocation, and assert_exit's 2>&1 would fold
+# that into $OUT and make it unparseable as JSON.
+set +e
+JWT_PLAN=$(wp1 duo init --repo=/siterepo --format=json)
+JWT_PLAN_CODE=$?
+set -e
+[ "$JWT_PLAN_CODE" -eq 0 ] \
+  || fail "cross-chunk JWT proposal exited $JWT_PLAN_CODE: $JWT_PLAN"
+jq -e '[.advisories[] | select(.code == "jwt_in_code_file")] | length == 1' <<<"$JWT_PLAN" >/dev/null \
+  || fail "cross-chunk JWT proposal did not carry exactly one jwt_in_code_file advisory: $JWT_PLAN"
+jq -e '[.unsupported[] | select(.code == "credential_bearing_code_file")] | length == 0' <<<"$JWT_PLAN" >/dev/null \
   || fail "cross-chunk JWT was reported as a blocking credential after #476 made it advisory"
-! grep -q 'eyJAAAA' <<<"$OUT" || fail "cross-chunk JWT advisory exposed the credential value"
-[ -f "$HOST_REPO/site.duo.json" ] && [ -d "$HOST_REPO/state" ] \
-  || fail "advisory-only init did not publish its baseline"
+jq -e '.ready == true' <<<"$JWT_PLAN" >/dev/null \
+  || fail "cross-chunk JWT advisory left the proposal not ready"
+! grep -q 'eyJAAAA' <<<"$JWT_PLAN" || fail "cross-chunk JWT advisory exposed the credential value"
+[ ! -e "$HOST_REPO/site.duo.json" ] && [ ! -d "$HOST_REPO/state" ] \
+  || fail "cross-chunk JWT proposal mutated the repository"
 wp1 eval 'unlink(WP_PLUGIN_DIR . "/woocommerce/duo-init-jwt.php");' >/dev/null
-# The advisory init SUCCEEDED, so it left a complete baseline and a ledger. The
-# cases below assume a pristine repository -- the next one mkdirs state/ and
-# media/ to prove they block -- so reset both, the same way every other
-# completed-init case in this file does.
-repo_host 1
-find "$HOST_REPO" -mindepth 1 -delete
-wp1 db query 'DROP TABLE IF EXISTS wp_duo_journal,wp_duo_kv,wp_duo_map,wp_duo_state' >/dev/null
 pass "bounded JWT matcher covers streaming chunk boundaries and states the finding without blocking"
 
 say "foreign state, media, capture receipts, and non-pristine ledger ownership refuse before writes"
