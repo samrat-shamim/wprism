@@ -92,6 +92,10 @@ require __DIR__ . '/src/Command/AssessCommand.php';
 // it earlier would pull AssessCommand's own dependency graph in first and
 // make the later plain `require` of AdapterCatalog fatal on redeclaration.
 require __DIR__ . '/src/Command/CodeClassifyCommand.php';
+// DUO-3500. `require_once`, and harmless here: DeployCommand.php (line 43)
+// already pulled this file in, because `duo deploy` runs the same resolver as
+// an automatic pre-compile phase.
+require_once __DIR__ . '/src/Command/CodeResolveCommand.php';
 require __DIR__ . '/src/Command/ContractCommand.php';
 // Round-3 MUP §2.2-§2.5, in the same last-in-block position and for the same
 // reason: every class below require_once's its own dependencies by path, so a
@@ -194,6 +198,7 @@ use Duo\Orchestrator\EnvironmentLifecycleJournal;
 use Duo\Orchestrator\PendingCommand;
 use Duo\Orchestrator\ClassifyCommand;
 use Duo\Orchestrator\CodeClassifyCommand;
+use Duo\Orchestrator\CodeResolveCommand;
 use Duo\Orchestrator\StatusCommand;
 use Duo\Orchestrator\AssessCommand;
 use Duo\Orchestrator\ContractCommand;
@@ -260,6 +265,7 @@ Usage:
   duo assess <env> [--operation=<ops>] [--limit=<1..200>] [--format=json]
   duo contract <env> show|propose|accept [--format=json]
   duo code-classify <env> [--dry-run] [--offline] [--cache-dir=<path>]
+  duo code-resolve  <env> [--dry-run] [--offline] [--cache-dir=<path>]
   duo rehearse <env> --from <production-env> [--branch <ref>] [--create]
                      [--ttl <seconds>] [--limit=<1..200>] [--format=json]
   duo rehearse <env> --reap [--format=json]
@@ -547,6 +553,23 @@ Verbs:
                           repository describes different components than this
                           checkout. A fresh clone then needs the materialization
                           step in docs/guides/code-updates.md before it compiles.
+  code-resolve <env>      Materialize every component code/duo-code.lock.json
+    [--dry-run]           declares, on THIS host, into the local checkout's
+    [--offline]           code/wp-content. Reads the content-addressed release
+    [--cache-dir=<path>]  cache first and fetches only on a miss; verifies
+                          archive_sha256 before unpacking and tree_sha256
+                          after; unpacks to a staging directory under .duo/ and
+                          renames the verified tree into place, so a component
+                          is never half-written. A component already present at
+                          its locked digest is reported unchanged and not
+                          rewritten; one present at any OTHER digest refuses
+                          rather than overwriting bytes Git does not carry.
+                          `local` and `docker` only -- an ssh environment keeps
+                          its repository where this host cannot write it and
+                          refuses with code_resolve_transport_unsupported.
+                          `duo deploy` and `duo promote` run this same resolver
+                          automatically, before compile, as
+                          `<verb> phase: code-resolve`.
   status <env>            Run `wp duo plan --format=json` and print counts per
                           plan bucket (incl. deletion conflicts,
                           code_mismatch, and code_drift), drift paths,
@@ -1138,6 +1161,7 @@ function main(array $argv): int {
         'pending' => cmd_pending($transport, $extra),
         'classify' => cmd_classify($transport, $extra),
         'code-classify' => CodeClassifyCommand::run($transport, $extra),
+        'code-resolve' => CodeResolveCommand::run($transport, $extra),
         'refresh' => cmd_refresh($transport, $extra),
         'rebase' => cmd_rebase($transport, $extra),
     };
@@ -2118,6 +2142,15 @@ function cmd_promote_internal(EnvironmentDriver $t, array $extra, ?array $frozen
         ];
         echo "promote phase: compile (frozen artifact)\n";
     } else {
+        // DUO-3500, host-side and before compile, exactly as in deploy. Only
+        // the non-frozen arm: a frozen context arrives with an artifact that
+        // was ALREADY compiled elsewhere, so resolving now could not change
+        // what that artifact hashed — the resolve must have happened before
+        // that compile or not at all.
+        $resolveExit = CodeResolveCommand::deployPhase($t, 'promote');
+        if ($resolveExit !== null) {
+            return $resolveExit;
+        }
         echo "promote phase: compile\n";
         $compile = CodeDeploy::compile($t, $repo, $artifact);
         if ($compile['exit'] !== 0) {

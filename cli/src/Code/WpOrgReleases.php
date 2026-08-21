@@ -4,10 +4,12 @@ declare(strict_types=1);
 namespace Duo\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
+require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/PathSafety.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Code/CodeSourceLock.php';
 
 use Duo\CodeSourceLock;
+use Duo\CommandRefusalException;
 use Duo\PathSafety;
 
 /**
@@ -50,6 +52,21 @@ use Duo\PathSafety;
  *   locked when the release unpacks to exactly these bytes, vendored with a
  *   STATED reason otherwise. A resolver does not need this one.
  *
+ * ## Why fetch() raises a REASON-CODED refusal
+ *
+ * The three fetch failures below are the only ones a caller can act on
+ * differently, and `duo code-resolve` (DUO-3500) is the caller that lets them
+ * escape: `classify()` folds every one of them into a stated "vendored
+ * because…" reason and never rethrows. Naming the reason where the failure is
+ * DETECTED — rather than re-deriving it in the resolver by matching on message
+ * text — is what keeps `code_resolve_cache_corrupt` and
+ * `code_resolve_archive_digest_mismatch` from silently collapsing into one
+ * "fetch failed" arm the day a message is reworded. The operator message each
+ * refusal carries is unchanged and still holds the url, the digests and the
+ * cache path; the PUBLIC message must not, because
+ * CommandRefusalException redacts every public field naming a home directory
+ * (agent/src/Kernel/CommandRefusal.php:199).
+ *
  * `DUO_CODE_ARTIFACT_BASE` overrides only where bytes are FETCHED from (a
  * mirror, or a `file://` fixture in the offline suite). The url recorded in the
  * lock is always the canonical downloads.wordpress.org one, because a
@@ -59,6 +76,15 @@ use Duo\PathSafety;
 final class WpOrgReleases {
     public const CANONICAL_BASE = 'https://downloads.wordpress.org';
     public const FETCH_BASE_ENV = 'DUO_CODE_ARTIFACT_BASE';
+
+    /** A cached archive no longer hashes to the digest recorded beside it. */
+    public const REASON_CACHE_CORRUPT = 'code_resolve_cache_corrupt';
+
+    /** A downloaded archive does not hash to the digest the caller declared. */
+    public const REASON_ARCHIVE_DIGEST_MISMATCH = 'code_resolve_archive_digest_mismatch';
+
+    /** `--offline` was requested and the host cache has no entry for the url. */
+    public const REASON_OFFLINE_MISS = 'code_resolve_offline_miss';
 
     /** wp.org serves plugins and themes from two fixed path segments. */
     private const RELEASE_PATH = ['plugins' => 'plugin', 'themes' => 'theme'];
@@ -140,7 +166,12 @@ final class WpOrgReleases {
                     // matches the digest recorded beside it is evidence of a
                     // corrupted or tampered cache, and quietly replacing it
                     // would destroy the only copy of that evidence.
-                    throw new \RuntimeException(
+                    throw new CommandRefusalException(
+                        self::REASON_CACHE_CORRUPT,
+                        'a cached release archive no longer hashes to the digest recorded beside it',
+                        'inspect the named cache entry, remove it by hand, then retry; nothing re-fetches over '
+                        . 'evidence of a corrupted or tampered cache',
+                        [],
                         "duo: the cached archive for $canonicalUrl no longer matches its recorded digest; "
                         . "inspect and remove $path by hand before retrying"
                     );
@@ -148,7 +179,12 @@ final class WpOrgReleases {
                 return ['path' => $path, 'sha256' => $digest, 'source' => 'cache'];
             }
             if ($this->offline) {
-                throw new \RuntimeException(
+                throw new CommandRefusalException(
+                    self::REASON_OFFLINE_MISS,
+                    'offline mode refuses every network fetch and the host cache holds no entry for this release',
+                    'prime the host cache from a machine that can reach the release registry, or rerun without '
+                    . '--offline; there is no latest-fallback and nothing is guessed',
+                    [],
                     "duo: offline mode refuses to fetch $canonicalUrl and the host cache has no entry for it"
                 );
             }
@@ -160,7 +196,12 @@ final class WpOrgReleases {
                     throw new \RuntimeException("duo: could not digest the downloaded archive for $canonicalUrl");
                 }
                 if ($expectedSha256 !== null && !hash_equals($expectedSha256, $digest)) {
-                    throw new \RuntimeException(
+                    throw new CommandRefusalException(
+                        self::REASON_ARCHIVE_DIGEST_MISMATCH,
+                        'a downloaded release archive does not hash to the digest the lock declares',
+                        'the partial download was discarded and nothing was cached; re-lock the component with '
+                        . 'duo code-classify if the upstream archive legitimately changed',
+                        [],
                         "duo: $canonicalUrl downloaded as $digest, but the lock declares $expectedSha256; "
                         . 'the partial download was removed and nothing was cached'
                     );

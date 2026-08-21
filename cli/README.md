@@ -39,6 +39,7 @@ duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
 duo adopt  <env>
 duo init   <env> [--yes] [--allow-unmanaged-plugins] [--code=split|full] [--offline] [--cache-dir=<path>]
 duo code-classify <env> [--dry-run] [--offline] [--cache-dir=<path>]
+duo code-resolve  <env> [--dry-run] [--offline] [--cache-dir=<path>]
 duo status <env> [--category=<ids>] [--action=<buckets>] [--entity=<kinds>] [--limit=<1..200>]
 duo assess <env> [--operation=<ops>] [--limit=<1..200>] [--format=json]
 duo contract <env> show|propose|accept [--format=json]
@@ -343,9 +344,42 @@ are rejected when the registry is loaded.
   untracks anything, not assumed. No re-pin, no deploy, nothing fleet-visible.
   It refuses a repository with uncommitted changes under `code/`, one that
   already declares format 2, and one whose `site.duo.json` is not canonical.
-  A fresh clone afterwards needs the materialization step documented in
-  [docs/guides/code-updates.md](../docs/guides/code-updates.md); until it runs,
+  A fresh clone afterwards needs `duo code-resolve` below; until it runs,
   compilation refuses by name with `code_component_unresolved`.
+
+- **`duo code-resolve <env> [--dry-run] [--offline] [--cache-dir=<path>]`** —
+  materializes every component `code/duo-code.lock.json` declares into
+  `code/wp-content`, on THIS host. For each entry it reads the same
+  content-addressed cache `duo init` uses and fetches **only on a miss** (a
+  `vendored-archive` entry is read from the repository-relative path the lock
+  names instead), verifies `origin.archive_sha256` before unpacking and
+  `tree_sha256` after, unpacks into a staging directory under `.duo/`, and
+  renames only a verified tree into place — so a component is never
+  half-written. There is no latest-fallback and nothing is skipped on a miss.
+
+  A component already present at its locked digest is reported unchanged and
+  is not rewritten. A component present at any OTHER digest **refuses**
+  (`code_resolve_component_drifted`) rather than being overwritten: its tree is
+  `.gitignore`d, so those bytes exist in exactly one place. The other refusals
+  — `code_resolve_cache_corrupt` (refuse, do not re-fetch, the changed byte is
+  evidence), `code_resolve_archive_digest_mismatch` (the partial download is
+  deleted and nothing is cached), `code_resolve_tree_digest_mismatch`,
+  `code_resolve_offline_miss` — each name their own remedy.
+
+  **`local` and `docker` only.** Resolution is host work because the target
+  never reaches a registry, so the host must be able to write the repository
+  the compile will hash: a local environment's `repo_path` IS that path, and a
+  docker environment's host side is the checkout you run the command from. An
+  `ssh` environment refuses with `code_resolve_transport_unsupported`;
+  host-to-target push is DUO-3514.
+
+  `duo deploy` and `duo promote` run this same resolver automatically as
+  `<verb> phase: code-resolve`, before `compile` and outside every promotion
+  lease. The phase is silent for a repository with no lock. On `ssh` with a
+  lock present it cannot resolve, so it asks the target for its own
+  `wp duo code-inventory` and proceeds only when every locked component already
+  hashes correctly there — otherwise it refuses before compile.
+  See [docs/guides/code-updates.md](../docs/guides/code-updates.md).
 
 - **`duo status <env>`** — runs `wp duo plan --repo=<repo_path>
   --format=json` (note: `--format=json`, not `--json` — wp-cli's dispatcher

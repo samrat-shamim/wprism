@@ -117,7 +117,10 @@ launch gate passes.
   from a registry, so classification and resolution are orchestrator-host work
   only. That constraint is what keeps `code_release_provider`'s shipped probe
   attestation ("off-target build and dependency resolution … no target Git
-  history or registry credentials") true for a site using both.
+  history or registry credentials") true for a site using both. Resolution
+  itself shipped as DUO-3500 (`duo code-resolve`, and the automatic
+  `<verb> phase: code-resolve` inside deploy and promote) for `local` and
+  `docker`; host-to-target push over ssh is DUO-3514.
 - natural_key identity: the key supplies deterministic bootstrap identity;
   the ledger supplies continuity thereafter, so renames retain UUIDs and are
   surfaced as informational observations (DUO-3237 revised ruling).

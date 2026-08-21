@@ -30,6 +30,8 @@ return [
     'Duo\\Orchestrator\\ClassifyCommand' => 'src/Command/ClassifyCommand.php',
     'Duo\\Orchestrator\\CodeClassifyCommand' => 'src/Command/CodeClassifyCommand.php',
     'Duo\\Orchestrator\\CodeDeploy' => 'src/Transport/CodeDeploy.php',
+    'Duo\\Orchestrator\\CodeResolveCommand' => 'src/Command/CodeResolveCommand.php',
+    'Duo\\Orchestrator\\CodeResolver' => 'src/Code/CodeResolver.php',
     'Duo\\Orchestrator\\CommandEnvironmentProvider' => 'src/Environment/EnvironmentLifecycle.php',
     'Duo\\Orchestrator\\CommandOutput' => 'src/Command/CommandOutput.php',
     'Duo\\Orchestrator\\ContractCommand' => 'src/Command/ContractCommand.php',

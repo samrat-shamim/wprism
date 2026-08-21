@@ -1,5 +1,5 @@
 {
-    "class_count": 342,
+    "class_count": 344,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -21101,6 +21101,193 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\Orchestrator\\CodeResolveCommand": {
+            "abstract": false,
+            "constants": {
+                "REASON_TRANSPORT_UNSUPPORTED": {
+                    "value_repr": "code_resolve_transport_unsupported"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "deployPhase": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "transport",
+                            "type": "Duo\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "verb",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?int",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "transport",
+                            "type": "Duo\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "extra",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\CodeResolver": {
+            "abstract": false,
+            "constants": {
+                "REASON_ARCHIVE_MISSING": {
+                    "value_repr": "code_resolve_archive_missing"
+                },
+                "REASON_COMPONENT_UNSAFE": {
+                    "value_repr": "code_resolve_component_unsafe"
+                },
+                "REASON_DRIFTED": {
+                    "value_repr": "code_resolve_component_drifted"
+                },
+                "REASON_LOCK_UNREADABLE": {
+                    "value_repr": "code_resolve_lock_unreadable"
+                },
+                "REASON_TREE_DIGEST_MISMATCH": {
+                    "value_repr": "code_resolve_tree_digest_mismatch"
+                },
+                "REASON_UNPACK_FAILED": {
+                    "value_repr": "code_resolve_unpack_failed"
+                },
+                "REASON_WRITE_FAILED": {
+                    "value_repr": "code_resolve_write_failed"
+                },
+                "STAGING": {
+                    "value_repr": ".duo/code-resolve"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "__construct": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "releases",
+                            "type": "Duo\\Orchestrator\\WpOrgReleases",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": null,
+                    "static": false,
+                    "visibility": "public"
+                },
+                "declaredLock": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repo",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "locateSiteRepo": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "startDir",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "resolve": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repo",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "components",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "dryRun",
+                            "type": "bool",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\Orchestrator\\CommandEnvironmentProvider": {
             "abstract": false,
             "constants": {
@@ -30920,6 +31107,15 @@
                 },
                 "FETCH_BASE_ENV": {
                     "value_repr": "DUO_CODE_ARTIFACT_BASE"
+                },
+                "REASON_ARCHIVE_DIGEST_MISMATCH": {
+                    "value_repr": "code_resolve_archive_digest_mismatch"
+                },
+                "REASON_CACHE_CORRUPT": {
+                    "value_repr": "code_resolve_cache_corrupt"
+                },
+                "REASON_OFFLINE_MISS": {
+                    "value_repr": "code_resolve_offline_miss"
                 }
             },
             "final": true,

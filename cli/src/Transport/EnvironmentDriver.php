@@ -189,6 +189,13 @@ final class DriverCapabilityReport {
     private static function requirements(string $operation): array {
         $requirements = match ($operation) {
             'attach' => [DriverCapability::ATTACH],
+            // DUO-3500. `code-resolve` writes the HOST's own checkout and runs
+            // no command on the target at all on the transports it supports
+            // (local, docker), so attach is the whole of its demand. Requiring
+            // WP-CLI or raw control would refuse a resolution on a target that
+            // is merely asleep — and the bytes this verb materializes are on
+            // the host either way.
+            'code-resolve' => [DriverCapability::ATTACH],
             'doctor' => [
                 DriverCapability::ATTACH, DriverCapability::RAW_CONTROL, DriverCapability::WP_CONTROL,
             ],
