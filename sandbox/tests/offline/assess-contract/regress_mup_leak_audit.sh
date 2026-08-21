@@ -389,7 +389,7 @@ foreach ($contract["declarations"]["surfaces"] as $index => $surface) {
 }
 $proposal["contract"] = $contract;
 file_put_contents($path, json_encode($proposal, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-' "$RSITE/.duo/contract/proposed.json"
+' "$RSITE/.duo/contract/fixture/proposed.json"
 rel 'accept' contract fixture accept || { fail 'contract accept failed'; cat "$TMP/accept.err" >&2; }
 
 rel 'assess'      assess fixture

@@ -439,8 +439,10 @@ are rejected when the registry is loaded.
   never from a plugin name. Containment reads `unknown — not enforced in this
   profile` wherever it is not structurally prevented, and nothing here is a
   capability claim. It writes nothing to the target; locally it writes
-  `.duo/contract/proposed.json` and regenerates `.duo/contract/projection.json`
-  when a contract has already been accepted. `--operation` narrows the
+  `.duo/contract/<env>/proposed.json` and regenerates
+  `.duo/contract/projection.json` when a contract has already been accepted.
+  The proposal is per environment and the contract and projection are per site,
+  so assessing one environment never overwrites another's review in flight. `--operation` narrows the
   projected product operations (`capture`, `merge`, `release`, `verify`,
   `delete`, `recover`; default all six) and `--limit` bounds every human
   listing. Exit 0 for a bounded assessment **including one where every surface
@@ -450,13 +452,16 @@ are rejected when the registry is loaded.
 
 - **`duo contract <env> show|propose|accept [--format=json]`** — the per-site
   application contract as one reviewed object under `.duo/contract/`.
-  `propose` regenerates `proposed.json` from a fresh assessment; a proposal is
-  never authority, and its generated external-effect entry is deliberately
+  `propose` regenerates `.duo/contract/<env>/proposed.json` from a fresh
+  assessment; a proposal is never authority, and its generated external-effect
+  entry is deliberately
   unreviewed, so accepting it unread is refused by the schema rather than by
   advice. `show` renders the accepted contract and its generated projection
   from disk and contacts nothing — they are committed review artifacts.
-  `accept` re-runs the assessment, refuses a stale proposal rather than
-  reconciling it, writes `contract.json` + `projection.json` canonically under
+  `accept` re-runs the assessment, refuses a proposal generated for another
+  environment (`contract_proposal_environment_mismatch`) and a stale one
+  (`contract_proposal_stale`) rather than reconciling either, writes
+  `contract.json` + `projection.json` canonically under
   compare-and-swap, and stages them; it never commits, because the commit is
   the reviewer's signature. The attestation this profile writes is always
   `unsigned`, so every site-scoped claim projects `Uncertified`.

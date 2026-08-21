@@ -18,6 +18,23 @@ use Duo\CommandRefusalException;
  * (generated, a review artifact). All three are canonical JSON through
  * `\Duo\Canon` so they diff and merge like the rest of `state/`.
  *
+ * **Two tiers, and the directory says which.** `contract.json` and
+ * `projection.json` are PER SITE and sit directly in `.duo/contract/`: the
+ * contract is one reviewed statement about this repository, and
+ * `environment_bindings.required[]` is how it says what varies per
+ * environment (ApplicationContract.php:428-441). `proposed.json` is PER
+ * ENVIRONMENT and sits in `.duo/contract/<env>/`, because the document is
+ * environment-specific in two independent ways: it stamps `environment`
+ * from the report (ContractProposal.php:185), and the `assess_digest` it
+ * binds itself with covers `env` plus `target.home`/`target.siteurl`
+ * (AssessReport.php:103, ContractProposal.php:113). One slot for N
+ * environments meant `duo assess <other-env>` silently overwrote a
+ * reviewed-but-unaccepted proposal — unrecoverably, since `/.duo/` is
+ * inside the site repo's own ignore (InitRepositoryBoundary.php:247) — and
+ * the next accept blamed the site with `contract_proposal_stale` (DUO-3503).
+ * That is why the three proposal methods take the environment as a REQUIRED
+ * argument: a default would let the shared slot back in by omission.
+ *
  * Two mechanics are the reason this is a class rather than three
  * `file_put_contents()` calls.
  *
@@ -43,6 +60,17 @@ final class ContractStore {
     public const PROPOSAL_FILE = 'proposed.json';
     public const PROJECTION_FILE = 'projection.json';
 
+    /**
+     * The charset an environment name must match before it becomes a path
+     * segment. Byte-identical to the registry's own rule
+     * (Registry.php:103), which is what makes this a defence-in-depth
+     * check rather than a second, divergent opinion: every name that
+     * reaches here through `EnvironmentDriver::name()` has already passed
+     * it, and the point of repeating it is that this is where the value
+     * stops being a name and starts being a directory.
+     */
+    private const ENVIRONMENT_PATTERN = '/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/D';
+
     private string $siteRepo;
 
     public function __construct(string $siteRepo) {
@@ -67,8 +95,20 @@ final class ContractStore {
         return $this->directory() . '/' . self::CONTRACT_FILE;
     }
 
-    public function proposalPath(): string {
-        return $this->directory() . '/' . self::PROPOSAL_FILE;
+    /** The proposal for one environment: `.duo/contract/<env>/proposed.json`. */
+    public function proposalPath(string $environment): string {
+        return $this->directory() . '/' . self::segment($environment) . '/' . self::PROPOSAL_FILE;
+    }
+
+    /**
+     * The same path relative to the site repository, for the three places
+     * that print it to an operator (AssessCommand::run(),
+     * ContractCommand::propose(), ReleaseCommand::prepare()). Rendering it
+     * here rather than at each call site is what keeps the printed promise
+     * and the written file from drifting apart.
+     */
+    public function proposalRelativePath(string $environment): string {
+        return self::DIRECTORY . '/' . self::segment($environment) . '/' . self::PROPOSAL_FILE;
     }
 
     public function projectionPath(): string {
@@ -107,8 +147,8 @@ final class ContractStore {
     }
 
     /** @return array<string,mixed>|null */
-    public function readProposal(): ?array {
-        return $this->readJson($this->proposalPath());
+    public function readProposal(string $environment): ?array {
+        return $this->readJson($this->proposalPath($environment));
     }
 
     /** @return array<string,mixed>|null */
@@ -152,13 +192,39 @@ final class ContractStore {
     }
 
     /** @param array<string,mixed> $document */
-    public function writeProposal(array $document): void {
-        $this->writeAtomic($this->proposalPath(), Canon::encode($document));
+    public function writeProposal(string $environment, array $document): void {
+        // writeAtomic() creates the directory it is handed (:273), so the
+        // new `.duo/contract/<env>/` level needs no separate mkdir here.
+        $this->writeAtomic($this->proposalPath($environment), Canon::encode($document));
     }
 
     /** @param array<string,mixed> $document */
     public function writeProjection(array $document): void {
         $this->writeAtomic($this->projectionPath(), Canon::encode($document));
+    }
+
+    /**
+     * The environment as one path segment, refused unless it is one.
+     *
+     * The value is about to be joined into a filesystem path, so an
+     * unchecked name is a traversal (`../../etc`) or a name no filesystem
+     * accepts. Refusing beats sanitizing: a silently rewritten segment
+     * means the file the operator was told about and the file that was
+     * written are different files. Follows this class's `site_repo_missing`
+     * (:80) in keeping the offending value operator-only.
+     */
+    private static function segment(string $environment): string {
+        if (preg_match(self::ENVIRONMENT_PATTERN, $environment) !== 1) {
+            throw new CommandRefusalException(
+                'contract_environment_invalid',
+                'the environment name is not a legal path segment',
+                'rename the environment in site.duo.json to match [A-Za-z0-9][A-Za-z0-9._-]{0,63}',
+                [],
+                "illegal environment path segment: $environment"
+            );
+        }
+
+        return $environment;
     }
 
     /** @return array<string,mixed>|null */

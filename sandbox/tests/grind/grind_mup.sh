@@ -1055,7 +1055,8 @@ pass "step 3 — assess validates; products and orders project the §6.1 words; 
 # Step 4 — propose, review, accept the application contract.
 # ---------------------------------------------------------------------------
 say "step 4/13 — duo contract ${PAIR}1 propose -> review -> accept"
-PROPOSED="$HOST_R1/.duo/contract/proposed.json"
+# Per environment since DUO-3503: `.duo/contract/<env>/proposed.json`.
+PROPOSED="$HOST_R1/.duo/contract/${PAIR}1/proposed.json"
 CONTRACT="$HOST_R1/.duo/contract/contract.json"
 PROJECTION="$HOST_R1/.duo/contract/projection.json"
 duo_in "$HOST_R1" contract "${PAIR}1" propose
@@ -1097,7 +1098,7 @@ if ! dry; then
     || fail "step 4: the reviewed proposal does not carry the declared lifecycle window and two journeys"
   mv "$PROPOSED.reviewed" "$PROPOSED"
 else
-  plan "jq: review .duo/contract/proposed.json — declare code-lifecycle-window live/provider-state restorable/operator; declare journeys $SHOP_PATH and $LANDING_PATH"
+  plan "jq: review .duo/contract/${PAIR}1/proposed.json — declare code-lifecycle-window live/provider-state restorable/operator; declare journeys $SHOP_PATH and $LANDING_PATH"
 fi
 
 duo_in "$HOST_R1" contract "${PAIR}1" accept

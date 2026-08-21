@@ -695,7 +695,37 @@ duo_check_refuses(
     'a target reporting no reviewed-library hash is unbuildable, never silently agreeing'
 );
 
-$store->writeProposal($proposal);
-duo_check_json_equal($proposal, $store->readProposal(), 'the proposal round-trips through the store');
+// The proposal is per environment; the store takes the segment as a REQUIRED
+// argument so the pre-DUO-3503 shared `.duo/contract/proposed.json` slot
+// cannot return by omission (ContractStore.php:21-36).
+$store->writeProposal('fixture', $proposal);
+duo_check_same(
+    $repo . '/.duo/contract/fixture/proposed.json',
+    $store->proposalPath('fixture'),
+    'the proposal is published under .duo/contract/<env>/'
+);
+duo_check_same(
+    '.duo/contract/fixture/proposed.json',
+    $store->proposalRelativePath('fixture'),
+    'and the printed path is the same path, relative to the site repo'
+);
+duo_check_json_equal(
+    $proposal,
+    $store->readProposal('fixture'),
+    'the proposal round-trips through the store'
+);
+duo_check_same(
+    null,
+    $store->readProposal('other'),
+    'another environment reads its own empty slot, never this one'
+);
+// The value becomes a directory name, so it is checked before it is joined.
+foreach (['../escape', '.hidden', 'has space', ''] as $illegal) {
+    duo_check_refuses(
+        static fn () => $store->proposalPath($illegal),
+        'contract_environment_invalid',
+        "an environment name that is not a legal path segment is refused: '$illegal'"
+    );
+}
 
 duo_check_summary('regress_contract_shape');

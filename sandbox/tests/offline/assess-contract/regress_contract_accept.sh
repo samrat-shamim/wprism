@@ -37,6 +37,10 @@ php "$ROOT/sandbox/tests/fixtures/assess/make-fixture.php" "$TMP/site" >/dev/nul
 
 SITE="$TMP/site/repo"
 CONTRACT_DIR="$SITE/.duo/contract"
+# The proposal is per environment (DUO-3503): `.duo/contract/<env>/`,
+# beside the per-site contract.json and projection.json, never in place
+# of them. This suite drives the fixture's one env, `fixture`.
+PROPOSAL="$CONTRACT_DIR/fixture/proposed.json"
 # The boundary every product-initialized site repository carries
 # (InitRepositoryBoundary::ensure_gitignore(), sandbox/site-repo.gitignore.template):
 # Duo's whole private working area is ignored. accept must still stage the
@@ -97,7 +101,7 @@ say 'propose'
 duo "$TMP/propose.txt" contract fixture propose
 STATUS=$?
 [ "$STATUS" = 0 ] && pass 'propose exits 0' || { fail "propose exited $STATUS"; cat "$TMP/propose.txt.err" >&2; }
-[ -f "$CONTRACT_DIR/proposed.json" ] && pass 'propose writes .duo/contract/proposed.json' \
+[ -f "$PROPOSAL" ] && pass 'propose writes .duo/contract/fixture/proposed.json' \
   || fail 'propose wrote no proposal'
 [ -f "$CONTRACT_DIR/contract.json" ] \
   && fail 'propose wrote an accepted contract, which is not its job' \
@@ -124,7 +128,7 @@ grep -Fq 'external_effect_unreviewed' "$TMP/accept-unread.txt.err" \
 
 # ------------------------------------------------------------------- accept
 say 'accept'
-review_proposal "$CONTRACT_DIR/proposed.json"
+review_proposal "$PROPOSAL"
 duo "$TMP/accept.txt" contract fixture accept
 STATUS=$?
 [ "$STATUS" = 0 ] && pass 'a reviewed proposal is accepted' \
@@ -228,7 +232,7 @@ grep -Fq 'projection:' "$TMP/show.txt" \
 # ------------------------------------------------------------ stale proposal
 say 'a stale proposal refuses rather than reconciling'
 duo "$TMP/propose2.txt" contract fixture propose
-review_proposal "$CONTRACT_DIR/proposed.json"
+review_proposal "$PROPOSAL"
 # The site moves under the review: one plugin version changes. Nothing else,
 # including the clock, may make accept refuse — and this must.
 php -r '
@@ -274,7 +278,7 @@ STATUS=$?
 # record this checkout's provenance next to declarations every one of which
 # came out of the target's capability reports.
 say 'proposing or accepting across two reviewed libraries refuses'
-PROPOSAL_BEFORE=$(cat "$CONTRACT_DIR/proposed.json")
+PROPOSAL_BEFORE=$(cat "$PROPOSAL")
 CONTRACT_BEFORE=$(cat "$CONTRACT_DIR/contract.json")
 
 DUO_LIBRARY_SKEW=1 duo "$TMP/propose-skew.txt" contract fixture propose
@@ -288,9 +292,9 @@ grep -Fq 're-adopt this environment from this checkout, or check out the revisio
   "$TMP/propose-skew.txt.err" \
   && pass 'and names BOTH remedies — a sha256 carries no ordering, so which side is ahead is not derivable' \
   || fail 'the refusal named no remedy, or only one direction of the skew'
-[ "$PROPOSAL_BEFORE" = "$(cat "$CONTRACT_DIR/proposed.json")" ] \
+[ "$PROPOSAL_BEFORE" = "$(cat "$PROPOSAL")" ] \
   && pass 'the refused propose left the existing proposal untouched' \
-  || fail 'a refused propose still rewrote proposed.json'
+  || fail 'a refused propose still rewrote fixture/proposed.json'
 
 DUO_LIBRARY_SKEW=1 duo "$TMP/accept-skew.txt" contract fixture accept
 STATUS=$?
@@ -320,7 +324,7 @@ STATUS=$?
 # ------------------------------------------------- a contract that moved
 say 'a contract that moved under the review refuses'
 duo "$TMP/propose3.txt" contract fixture propose
-review_proposal "$CONTRACT_DIR/proposed.json"
+review_proposal "$PROPOSAL"
 # Build a VALID but different contract, and arm the fake `wp` to land it
 # during the capabilities call — i.e. inside accept's own read-modify-write
 # window, which is the only place a compare-and-swap can be reached from a

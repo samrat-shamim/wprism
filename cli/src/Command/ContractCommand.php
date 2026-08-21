@@ -56,6 +56,16 @@ use Duo\CommandRefusalException;
  * moved" never reads as "the site moved". Anything else that differs — a
  * plugin version, a new table, an expired bundle, a changed policy class —
  * moves the digest and refuses with `assess_digest_stale`.
+ *
+ * Staleness is a claim about the SITE, so it must never be the way an
+ * environment mix-up is reported. The proposal lives at
+ * `.duo/contract/<env>/proposed.json` and stamps the environment it was
+ * generated for, and `accept` compares that stamp against the environment
+ * it was invoked for before it contacts anything
+ * (`contract_proposal_environment_mismatch`). Before DUO-3503 the one
+ * shared slot made a cross-environment overwrite surface as
+ * `contract_proposal_stale` — "the site returns something different now"
+ * about a site that had not moved.
  */
 final class ContractCommand {
     /** @var list<string> */
@@ -139,13 +149,13 @@ final class ContractCommand {
         // same skew — it withholds the file and says so.
         AssessReport::requireDispositionsAgree($result['report']);
         AssessCommand::writeLocalArtifacts($result);
-        $proposal = $result['store']->readProposal() ?? [];
+        $proposal = $result['store']->readProposal($driver->name()) ?? [];
         if ($json) {
             return [rtrim(Canon::encode($proposal), "\n")];
         }
 
         $lines = [
-            'proposed contract written: ' . AssessCommand::PROPOSAL_PATH,
+            'proposed contract written: ' . $result['store']->proposalRelativePath($driver->name()),
             'review required: ' . (int) ($proposal['review_required_count'] ?? 0) . ' item(s)',
         ];
         foreach (array_slice((array) ($proposal['review_required'] ?? []), 0, ContractProposal::MAX_REVIEW_ITEMS) as $item) {
@@ -184,7 +194,7 @@ final class ContractCommand {
         // discovering that after four round-trips helps nobody.
         AssessCommand::requireGitWorktreeRoot($siteRepo);
 
-        $proposal = $store->readProposal();
+        $proposal = $store->readProposal($driver->name());
         if ($proposal === null) {
             throw new CommandRefusalException(
                 'contract_proposal_missing',
@@ -193,6 +203,30 @@ final class ContractCommand {
             );
         }
         ContractProposal::validateProposal($proposal);
+
+        // The environment bind, and like the worktree check above it is
+        // refused BEFORE the target is contacted: this is answerable from
+        // two strings already in hand, and four round-trips of assess to
+        // reach the same answer helps nobody. `validateProposal()` has
+        // required a non-empty `environment` since the format existed
+        // (ContractProposal.php:313-318) and nothing had ever compared it,
+        // so the field was a promise the product did not keep (DUO-3503).
+        // Per-environment paths make a mismatch here mean the file was
+        // moved, copied or hand-edited — the residual case the path alone
+        // cannot rule out, and exactly the one where accepting a contract
+        // reviewed against another environment is the harm.
+        if (!hash_equals($driver->name(), (string) $proposal['environment'])) {
+            throw new CommandRefusalException(
+                'contract_proposal_environment_mismatch',
+                'the proposal was generated for a different environment than this accept',
+                'run duo contract ' . self::token($driver->name())
+                    . ' propose for this environment, review the fresh proposal, then accept it',
+                [[
+                    'proposed_for' => self::token((string) $proposal['environment']),
+                    'accepting' => self::token($driver->name()),
+                ]]
+            );
+        }
 
         // The digest the caller read before it began. `writeContract()`
         // refuses if the stored contract has moved since, which is the

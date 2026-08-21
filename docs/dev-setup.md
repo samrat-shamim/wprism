@@ -257,9 +257,12 @@ calls for all six product operations — and the host-side `duo adapter list`.
 It prints the stack, the authority Duo actually has, one row per
 WordPress-language surface with the six spec dimensions, the unknown queue
 counted and named, and one next action per gap from a closed set. It writes
-`.duo/contract/proposed.json` into the **local** site repository (the directory
-holding `site.duo.json`, not the target's `repo_path`), and regenerates
-`.duo/contract/projection.json` when a contract has already been accepted.
+`.duo/contract/<env>/proposed.json` into the **local** site repository (the
+directory holding `site.duo.json`, not the target's `repo_path`), and
+regenerates `.duo/contract/projection.json` when a contract has already been
+accepted. The proposal is per environment and the contract and projection are
+per site, so assessing one environment leaves another's review in flight
+alone.
 
 Three things about it are easy to get wrong when reading the output:
 

@@ -516,7 +516,7 @@ $cleanHuman = "stack: WordPress 6.8.2 · PHP 8.3.33 · MariaDB 11.8.8 · single-
     . "  next action: install adapter (release)\n"
     . "\n"
     . "unknown: 41 option names invisible to every installed adapter (use --format=json)\n"
-    . "proposed contract written: .duo/contract/proposed.json\n";
+    . "proposed contract written: .duo/contract/mup1/proposed.json\n";
 mup_write("$out/assess-human.clean.txt", $cleanHuman);
 mup_write(
     "$out/assess-human.leaks-uuid.txt",

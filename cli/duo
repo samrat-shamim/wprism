@@ -553,10 +553,13 @@ Verbs:
                           Containment is reported as `unknown — not enforced
                           in this profile` wherever it is not structurally
                           prevented; nothing here is a capability claim.
-                          Writes .duo/contract/proposed.json in the LOCAL
-                          site repository (never authoritative), and
+                          Writes .duo/contract/<env>/proposed.json in the
+                          LOCAL site repository (never authoritative), and
                           regenerates .duo/contract/projection.json when a
-                          contract has already been accepted.
+                          contract has already been accepted. The proposal
+                          is per environment, the contract and projection
+                          are per site: assessing one environment never
+                          touches another's review.
                           --operation narrows the projected product
                           operations (capture, merge, release, verify,
                           delete, recover; default all six); --limit bounds
@@ -568,16 +571,17 @@ Verbs:
                           (unreachable target, unsupported topology).
   contract <env>          The per-site application contract as one reviewed
     show|propose|accept   object under .duo/contract/.
-    [--format=json]       propose regenerates proposed.json from a fresh
-                          assessment; a proposal is never authority and the
-                          generated external-effect entry is deliberately
-                          unreviewed, so accepting it unread is refused by
-                          the schema rather than by advice.
+    [--format=json]       propose regenerates <env>/proposed.json from a
+                          fresh assessment; a proposal is never authority
+                          and the generated external-effect entry is
+                          deliberately unreviewed, so accepting it unread is
+                          refused by the schema rather than by advice.
                           show renders the accepted contract and its
                           generated projection from disk and contacts
                           nothing — they are committed review artifacts.
-                          accept re-runs the assessment, refuses a stale
-                          proposal rather than reconciling it, writes
+                          accept re-runs the assessment, refuses a proposal
+                          generated for another environment or a stale one
+                          rather than reconciling either, writes
                           contract.json + projection.json canonically under
                           compare-and-swap, and STAGES them. It never
                           commits: the commit is the reviewer's signature.

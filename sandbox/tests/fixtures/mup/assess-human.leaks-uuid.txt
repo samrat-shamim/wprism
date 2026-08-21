@@ -10,5 +10,5 @@ table:acme_catalog  unclassified  block           Not qualified Uncertified     
   next action: install adapter (release)
 
 unknown: 41 option names invisible to every installed adapter (use --format=json)
-proposed contract written: .duo/contract/proposed.json
+proposed contract written: .duo/contract/mup1/proposed.json
 operation: 7b1c9a02-4f6d-4c3e-9b21-0a5d3e8c7f14

@@ -1107,7 +1107,7 @@ walk_write(
 $humanLines = AssessRenderer::render($s1, 50, [
     'contract_present' => false,
     'operation' => 'release',
-    'proposal_path' => '.duo/contract/proposed.json',
+    'proposal_path' => '.duo/contract/awalk1/proposed.json',
 ]);
 $clean = implode("\n", $humanLines) . "\n";
 walk_write("$out/assess-human.clean.txt", $clean);
