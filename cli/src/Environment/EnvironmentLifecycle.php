@@ -3,6 +3,18 @@ declare(strict_types=1);
 
 namespace Duo\Orchestrator;
 
+// The only require in this file, and it earns its place: materializeLocked()
+// renders the refresh code-resolve phases through CodeResolveCommand, and this
+// file is loaded directly — without cli/duo's load order — by
+// sandbox/tests/offline/environment/regress_rehearse_provider.php. Relying on
+// the shell to have loaded the class first made that suite fatal with
+// `Class "Duo\Orchestrator\CodeResolveCommand" not found`, which is exactly
+// why every file here requires its own dependencies. Safe in every order:
+// cli/duo pulls the same file in with `require_once` (:98), and its one
+// dependency cli/duo plain-`require`s — EnvironmentDriver.php — is already
+// loaded at cli/duo:17, before this file at :18.
+require_once __DIR__ . '/../Command/CodeResolveCommand.php';
+
 /**
  * Optional host-owned lifecycle provider for branch environments.
  *
@@ -1039,6 +1051,10 @@ final class EnvironmentMaterializer {
                     self::git($root, ['update-ref', '-d', 'refs/heads/' . $candidateRef]);
                 }
                 $candidate = Refresh::rebase($sourceDriver, $productionCommit, $candidateRef);
+                // Named with this path's own verb, the one its refusals already
+                // use ("duo: env materialize: ..."), so an operator reading a
+                // rehearse log sees one vocabulary throughout.
+                CodeResolveCommand::renderRefreshPhase($candidate, 'env materialize');
                 $plan = self::readJson((string) $candidate['plan_path'], 'refresh plan');
                 $semantic = [
                     'branch_commit' => (string) $candidate['head'],

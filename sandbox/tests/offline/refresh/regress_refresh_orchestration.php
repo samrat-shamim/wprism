@@ -17,8 +17,15 @@ namespace Duo\Orchestrator {
         public static ?array $lastInteractivePresentation = null;
         public static ?array $lastContext = null;
         public static function normalizeProductionSnapshot(array $export): array { return $export; }
+        /** role => `{root}/{component}` => present, recorded at the moment the compiler was handed the worktree (DUO-3523). */
+        public static array $lockedBytes = [];
+        /** `{root}/{component}` the next compile should look for. */
+        public static array $lockedExpect = [];
         public static function compileGitWorktree(string $path, string $commit, string $role): array {
             self::$roles[] = $role;
+            foreach (self::$lockedExpect as $component) {
+                self::$lockedBytes[$role][$component] = is_dir($path . '/code/wp-content/' . $component);
+            }
             return ['commit' => $commit, 'format' => 'duo-refresh-compiled-test/v1', 'role' => $role];
         }
         public static function assertProductionCodeMatches(array $production, array $code): void {
@@ -125,6 +132,13 @@ require dirname(__DIR__, 4) . '/cli/src/Refresh/Refresh.php';
 // saw this class because the code under test happened to load it would fail to
 // LOAD against the prior bytes instead of failing on the defect.
 require_once dirname(__DIR__, 4) . '/agent/src/Code/CodeSourceLock.php';
+// Same reason as the line above: the DUO-3523 fixture builds its registry with
+// WpOrgReleases' own digest helper, so the suite must fail on the ASSERTION
+// against prior bytes, not on a class it only saw because Refresh.php loaded it.
+require_once dirname(__DIR__, 4) . '/cli/src/Code/CodeResolver.php';
+// The renderer under test. Required here for the same reason: the report
+// assertions below must fail on the ASSERTION against prior bytes.
+require_once dirname(__DIR__, 4) . '/cli/src/Command/CodeResolveCommand.php';
 
 use Duo\Orchestrator\Refresh;
 use Duo\Orchestrator\Transport;
@@ -501,10 +515,6 @@ try {
     $refusal = 'production target repository has tracked, untracked, or ignored canonical changes; '
         . 'refusing a refresh-export from bytes not identified by --production-ref';
 
-    /** The `tree_sha256` a one-file component's subtree hashes to, built exactly as the lock's own writer does. */
-    $treeDigest = static fn(string $path, string $bytes): string =>
-        \Duo\CodeSourceLock::tree_sha256([['path' => $path, 'sha256' => hash('sha256', $bytes)]]);
-
     /**
      * A source checkout (the host's cwd) plus its production clone (the target),
      * both real Git repositories: base commit -> `production` -> `feature`, so
@@ -555,27 +565,73 @@ try {
 
     $shopBytes = "<?php // acme-shop\n";
     $themeBytes = "/* acme-theme */\n";
+
+    // ------------------------------------------------------------ DUO-3523
+    // A Git worktree of a split commit carries NO locked component bytes, so
+    // every compile the host performs must have them materialized into the
+    // worktree first. That makes these components genuinely resolvable rather
+    // than nominal: a local `file://` registry holding real archives, reached
+    // through WpOrgReleases' mirror override, with the cache pointed at scratch
+    // so the suite never touches the developer's real one — and, decisively,
+    // never the network. The lock still carries the CANONICAL wp.org url,
+    // because CodeSourceLock::assert_origin() admits only `https://`; the
+    // override rewrites it at fetch time (WpOrgReleases::fetchUrl():227-231).
+    $registry = $tmp . '/wporg';
+    mkdir($registry . '/plugin', 0700, true);
+    mkdir($registry . '/theme', 0700, true);
+    putenv('XDG_CACHE_HOME=' . $tmp . '/cache');
+    putenv(\Duo\Orchestrator\WpOrgReleases::FETCH_BASE_ENV . '=file://' . $registry);
+
+    /** One real zip, plus the two digests the lock must declare for it. */
+    $publish = static function (string $segment, string $component, string $version, string $file, string $body)
+        use ($registry, $tmp): array {
+        $archive = $registry . '/' . $segment . '/' . $component . '.' . $version . '.zip';
+        $zip = new ZipArchive();
+        if ($zip->open($archive, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+            fail_refresh("could not create the fixture archive $archive");
+        }
+        $zip->addEmptyDir($component);
+        $zip->addFromString($component . '/' . $file, $body);
+        $zip->close();
+        // treeDigest() over the unpacked component is the same computation the
+        // resolver verifies with, so a fixture that disagreed would fail loudly
+        // here rather than silently prove nothing.
+        $probe = $tmp . '/probe-' . bin2hex(random_bytes(4)) . '/' . $component;
+        mkdir($probe, 0700, true);
+        file_put_contents($probe . '/' . $file, $body);
+        $tree = \Duo\Orchestrator\WpOrgReleases::treeDigest($probe);
+        remove_refresh(dirname($probe));
+
+        return [
+            'archive_sha256' => hash_file('sha256', $archive),
+            'tree_sha256' => $tree,
+            'url' => \Duo\Orchestrator\WpOrgReleases::canonicalUrl(
+                $segment === 'plugin' ? 'plugins' : 'themes',
+                $component,
+                $version
+            ),
+        ];
+    };
+    $shopRelease = $publish('plugin', 'acme-shop', '1.0', 'acme-shop.php', $shopBytes);
+    $themeRelease = $publish('theme', 'acme-theme', '2.0', 'style.css', $themeBytes);
+
     $splitPair = $buildPair(
         'split',
         ['format' => 2, 'layout' => 'wp-content', 'lock' => \Duo\CodeSourceLock::PATH, 'source' => 'code/wp-content'],
-        // Sorted by root then component, as assert_lock() requires. The
-        // digests are real — computed the way the lock's writer computes them —
-        // but this gate never reads them: proving the on-disk tree still
-        // matches is the COMPILE gate's job (code_component_digest_mismatch),
-        // and that division is exactly why excluding the tree here is safe.
+        // Sorted by root then component, as assert_lock() requires.
         [[
             'component' => 'acme-shop',
-            'origin' => ['archive_sha256' => hash('sha256', 'shop-archive'), 'kind' => 'wp-org-release',
-                'url' => 'https://downloads.example.invalid/acme-shop.1.0.zip'],
+            'origin' => ['archive_sha256' => $shopRelease['archive_sha256'], 'kind' => 'wp-org-release',
+                'url' => $shopRelease['url']],
             'root' => 'plugins',
-            'tree_sha256' => $treeDigest('acme-shop.php', $shopBytes),
+            'tree_sha256' => $shopRelease['tree_sha256'],
             'version' => '1.0',
         ], [
             'component' => 'acme-theme',
-            'origin' => ['archive_sha256' => hash('sha256', 'theme-archive'), 'kind' => 'wp-org-release',
-                'url' => 'https://downloads.example.invalid/acme-theme.2.0.zip'],
+            'origin' => ['archive_sha256' => $themeRelease['archive_sha256'], 'kind' => 'wp-org-release',
+                'url' => $themeRelease['url']],
             'root' => 'themes',
-            'tree_sha256' => $treeDigest('style.css', $themeBytes),
+            'tree_sha256' => $themeRelease['tree_sha256'],
             'version' => '2.0',
         ]],
         [
@@ -592,6 +648,8 @@ try {
     $plant($splitPair['target'], 'code/wp-content/themes/acme-theme/style.css', $themeBytes);
 
     $splitTransport = new RefreshTargetTransport($splitPair['target'], $export);
+    \Duo\Orchestrator\RefreshPlan::$lockedExpect = ['plugins/acme-shop', 'themes/acme-theme'];
+    \Duo\Orchestrator\RefreshPlan::$lockedBytes = [];
     chdir($splitPair['source']);
     $splitResult = [];
     try {
@@ -677,6 +735,115 @@ try {
         $vendoredCaught === $refusal && !str_contains($vendoredTransport->raw[0] ?? '', ':(exclude'),
         'a format-1 repository excludes nothing and still refuses an ignored tree under code — only a parseable '
         . 'format-2 lock at the production ref identifies bytes'
+    );
+
+    // ------------------------------------------------------------ DUO-3523
+    // The compile half of the same split. `git worktree add --detach` produces
+    // a checkout with NO locked component bytes — that is what the split means —
+    // so RepositoryCompiler refused every host compile with
+    // `[code_source_missing] code/wp-content` and no split repository could
+    // rehearse, refresh or rebase (grind_adapter_walk.sh S1). Refresh now
+    // materializes the declared lock into each worktree it creates, through the
+    // one host-side resolver, before handing it to the compiler.
+    ok_refresh(
+        (\Duo\Orchestrator\RefreshPlan::$lockedBytes['base'] ?? null) === ['plugins/acme-shop' => true, 'themes/acme-theme' => true]
+            && (\Duo\Orchestrator\RefreshPlan::$lockedBytes['branch'] ?? null) === ['plugins/acme-shop' => true, 'themes/acme-theme' => true]
+            && (\Duo\Orchestrator\RefreshPlan::$lockedBytes['production-code'] ?? null) === ['plugins/acme-shop' => true, 'themes/acme-theme' => true],
+        'every worktree the host compiles is handed the locked component bytes — base, branch AND production-code, '
+        . 'each verified against the lock before the compiler sees it; against the prior bytes each of these '
+        . 'directories is absent and the compiler refuses code_source_missing'
+    );
+
+    // The resolution is REPORTED, in the vocabulary `duo code-resolve` and the
+    // deploy phase already use. Refresh returns the resolver's rows; the
+    // command renders them (CodeResolveCommand::renderRefreshPhase()), because
+    // cli/src/Refresh/Refresh.php has no `echo` in it at all.
+    $resolveRows = $splitResult['code_resolve'] ?? [];
+    ok_refresh(
+        array_keys($resolveRows) === ['base', 'branch', 'production-code']
+            && array_column($resolveRows['production-code']['rows'] ?? [], 'state') === ['resolved', 'resolved']
+            && ($resolveRows['production-code']['lock'] ?? null) === \Duo\CodeSourceLock::PATH,
+        'the result carries one reported phase per compiled worktree, each naming the lock it read and the '
+        . 'state of every component it materialized'
+    );
+    ob_start();
+    \Duo\Orchestrator\CodeResolveCommand::renderRefreshPhase($splitResult, 'refresh');
+    $rendered = (string) ob_get_clean();
+    ok_refresh(
+        str_contains($rendered, 'duo: refresh: code-resolve (production-code worktree): 2 component(s) declared in code/duo-code.lock.json')
+            && str_contains($rendered, 'RESOLVED plugins/acme-shop 1.0 — ')
+            && str_contains($rendered, 'duo: refresh: code-resolve (production-code worktree): 2 materialized, 0 unchanged.'),
+        'and it renders as the same RESOLVED rows and `N materialized, M unchanged` summary the resolver already '
+        . 'prints elsewhere, prefixed with the worktree it was for — one vocabulary for one piece of work'
+    );
+    ob_start();
+    \Duo\Orchestrator\CodeResolveCommand::renderRefreshPhase(['plan_path' => '/x'], 'refresh');
+    ok_refresh(
+        (string) ob_get_clean() === '',
+        'a result with nothing resolved prints NOTHING, so a format-1 refresh keeps its output byte-identical'
+    );
+
+    // A component the lock declares but the host cannot produce is a TYPED
+    // refusal, not a compile-time surprise: the archive resolves and unpacks,
+    // and its tree does not hash to what the lock declares. Raised in the
+    // parent process precisely so the reason code survives — the compile worker
+    // boundary flattens a refusal to its message (DUO-3524).
+    $driftRelease = $publish('plugin', 'acme-drift', '3.0', 'acme-drift.php', "<?php // drift\n");
+    $driftPair = $buildPair(
+        'drift',
+        ['format' => 2, 'layout' => 'wp-content', 'lock' => \Duo\CodeSourceLock::PATH, 'source' => 'code/wp-content'],
+        [[
+            'component' => 'acme-drift',
+            'origin' => ['archive_sha256' => $driftRelease['archive_sha256'], 'kind' => 'wp-org-release',
+                'url' => $driftRelease['url']],
+            'root' => 'plugins',
+            // The archive is genuine and its archive_sha256 matches; only the
+            // declared TREE digest is wrong, so the refusal is the resolver's
+            // own verification and not a transport failure.
+            'tree_sha256' => str_repeat('d', 64),
+            'version' => '3.0',
+        ]],
+        [\Duo\CodeSourceLock::gitignore_line('plugins', 'acme-drift')]
+    );
+    $plant($driftPair['target'], 'code/wp-content/plugins/acme-drift/acme-drift.php', "<?php // drift\n");
+    chdir($driftPair['source']);
+    $driftRefusal = null;
+    try {
+        Refresh::refresh(new RefreshTargetTransport($driftPair['target'], $export), 'production');
+    } catch (\Duo\CommandRefusalException $e) {
+        $driftRefusal = $e;
+    }
+    ok_refresh(
+        $driftRefusal instanceof \Duo\CommandRefusalException
+            && $driftRefusal->reasonCode === \Duo\Orchestrator\CodeResolver::REASON_TREE_DIGEST_MISMATCH,
+        'a component the host cannot resolve refuses with the resolver\'s own typed reason code '
+        . '(code_resolve_tree_digest_mismatch) rather than as a bare compile failure — got '
+        . ($driftRefusal === null ? 'no refusal at all' : $driftRefusal->reasonCode)
+    );
+    ok_refresh(
+        $driftRefusal !== null && $driftRefusal->publicMessage !== '' && $driftRefusal->remediation !== ''
+            && !str_contains($driftRefusal->publicMessage, $driftPair['source']),
+        'and it carries the reviewed public message and remedy the resolver already owns, with no repository path in them'
+    );
+    // The materialization runs INSIDE the try whose finally removes the three
+    // worktrees. Placed one line above it — the obvious spot, right after the
+    // `worktree add` calls — a refusal would leak all three and leave a scratch
+    // directory the outer finally cannot rmdir.
+    ok_refresh(
+        count(preg_grep('/^worktree /', preg_split('/\r?\n/', run_refresh(['git', 'worktree', 'list', '--porcelain'], $driftPair['source'])) ?: [])) === 1
+            && (glob($driftPair['source'] . '/.git/duo-refresh/scratch/*') ?: []) === [],
+        'and the refusal leaves no worktree and no scratch directory behind: the three compile worktrees are '
+        . 'created before it and removed by the same finally that cleans a compile failure'
+    );
+
+    // Format 1 takes none of this path at all: declaredLock() answers null for
+    // a fully vendored repository, so materializeLockedCode() returns before it
+    // constructs a resolver or reads a cache.
+    ok_refresh(
+        \Duo\Orchestrator\CodeResolver::declaredLock($vendoredPair['source']) === null
+            && \Duo\Orchestrator\CodeResolver::declaredLock($splitPair['source']) !== null,
+        'a fully vendored (format 1) repository declares no lock, so the materialization is a no-op there by '
+        . 'construction rather than by a branch that could be got wrong'
     );
 
     chdir($old);
