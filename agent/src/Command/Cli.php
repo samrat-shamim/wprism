@@ -182,6 +182,22 @@ final class Cli {
      */
     private static ?string $initRepositoryIdentityAtEntry = null;
 
+    /**
+     * Whether that same directory was ALREADY a Duo repository at init entry
+     * (DUO-3522).
+     *
+     * DUO-3516 asked "is this already a Duo repository?" at REFUSAL time, and
+     * for init that is the wrong moment: init is the command that CREATES the
+     * marker. An init that published site.duo.json and then failed during
+     * capture answered its own question yes, recorded `.duo/refusals`, and left
+     * it behind -- the rollback has no deletion authority over `.duo`, so the
+     * repository was not byte-empty after a recovery that correctly reported it
+     * restored (regress_duo_init's post-next-link case, live 2026-08-21).
+     * Asking at ENTRY is what DUO-3516's own docblock already claimed happens:
+     * "a fresh init therefore records nothing".
+     */
+    private static bool $initRepositoryWasDuoAtEntry = false;
+
     /** dev:ino of an ordinary, non-symlinked directory, or null. */
     private static function directory_identity(string $path): ?string {
         $path = rtrim($path, '/');
@@ -230,18 +246,33 @@ final class Cli {
         if ($identity === null) {
             return false;
         }
-        $root = rtrim($repo, '/');
-        $site = $root . '/site.duo.json';
-        $duo = $root . '/.duo';
-        $isDuoRepository = (!is_link($site) && is_file($site)) || (!is_link($duo) && is_dir($duo));
-        if (!$isDuoRepository) {
+        if (!self::is_duo_repository($repo)) {
             return false;
         }
         if ($command === 'init') {
+            // Both entry-time facts, not one of each: the directory must still
+            // be the one init bound (DUO-3516) AND must have been a Duo
+            // repository before init touched it (DUO-3522). A fresh init
+            // satisfies neither half of that by publishing its own marker
+            // mid-command.
             return self::$initRepositoryIdentityAtEntry !== null
-                && self::$initRepositoryIdentityAtEntry === $identity;
+                && self::$initRepositoryIdentityAtEntry === $identity
+                && self::$initRepositoryWasDuoAtEntry;
         }
         return true;
+    }
+
+    /**
+     * The marker that says a directory is a Duo repository: a regular
+     * site.duo.json, or a real `.duo/` beside the promotion checkpoints this
+     * record was always meant to sit next to. Neither is followed through a
+     * symlink.
+     */
+    private static function is_duo_repository(string $repo): bool {
+        $root = rtrim($repo, '/');
+        $site = $root . '/site.duo.json';
+        $duo = $root . '/.duo';
+        return (!is_link($site) && is_file($site)) || (!is_link($duo) && is_dir($duo));
     }
 
     private static function record_private_refusal_evidence(
@@ -944,6 +975,7 @@ final class Cli {
             // compares against this to refuse writing into a directory that
             // replaced the one this command reviewed.
             self::$initRepositoryIdentityAtEntry = self::directory_identity((string) $repo);
+            self::$initRepositoryWasDuoAtEntry = self::is_duo_repository((string) $repo);
             // The literal, not InitPlanner::ALLOW_UNMANAGED_PLUGINS: this file
             // deliberately requires four small things, and naming the constant
             // would drag the whole Init loader graph (AdapterSources, Policy,
