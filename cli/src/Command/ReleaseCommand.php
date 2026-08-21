@@ -70,7 +70,16 @@ use Duo\CommandRefusalException;
  *     from current facts (MUP §3.4's refresh row: "any assess, status, or
  *     release regenerates projection.json"), never read from disk — a
  *     contract cannot certify itself, and a committed projection is a review
- *     artifact, not evidence about the target as it is now.
+ *     artifact, not evidence about the target as it is now. Regeneration is
+ *     unconditional — the plan rendered at step 5 always reflects current
+ *     facts, `--plan-only` included — but persisting the regenerated
+ *     document to `.duo/contract/projection.json` is a site-repository
+ *     mutation, so it is gated on a release that can actually proceed past
+ *     this step: `--plan-only` (step 5) skips the write entirely, matching
+ *     the "mutated nothing" promise docs/guides/release.md:122-124,
+ *     docs/guides/daily-workflow.md:330-331 and cli/README.md:502-503 all
+ *     make, and which the write used to break by running unconditionally
+ *     inside `prepare()` before the plan-only return.
  *     `AuthorizationPlan::refusals()` then enumerates the whole gate.
  *  4. **Recovery profile.** `RecoveryProfileSelection` proves what the target
  *     can actually do and `decide()` applies `--profile` / the
@@ -302,7 +311,17 @@ final class ReleaseCommand {
             'generated_at' => $now,
         ]);
         $projection = AssessCommand::projection($assessment, $contract);
-        $store->writeProjection($projection);
+        // Regeneration above is unconditional (step 3's docblock), but
+        // persisting it is a site-repository mutation, so it is gated on a
+        // release that can proceed past this step. Without this gate every
+        // `--plan-only` run rewrote `.duo/contract/projection.json` before
+        // ever reaching the plan-only return at :215 — contradicting the
+        // "mutated nothing… not the target, not the site repository" promise
+        // documented three times (docs/guides/release.md:122-124,
+        // docs/guides/daily-workflow.md:330-331, cli/README.md:502-503).
+        if (!$flags['plan_only']) {
+            $store->writeProjection($projection);
+        }
         $all = is_array($projection['surfaces'] ?? null) ? array_values($projection['surfaces']) : [];
         $scope = self::scope($plan, $all);
         // `AuthorizationPlan::refusals()` and `build()` are documented to

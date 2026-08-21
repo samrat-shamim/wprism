@@ -1575,7 +1575,7 @@ namespace {
         ],
         'classify missing --set' => [
             static fn() => $cli->classify([], ['repo' => '/fixture']),
-            '--set required, e.g. --set "post_meta:foo=runtime"',
+            '--set required, e.g. --set="post_meta:foo=runtime"',
         ],
         'journal-report backend refusal' => [
             static function () use ($cli): void {

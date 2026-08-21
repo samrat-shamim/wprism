@@ -236,7 +236,7 @@ final class SidebarState {
                     "duo: widget option '$name' contains instances but type '$type' is undeclared -- either add "
                     . "\"$type\" to a pinned manifest's widgets{} grammar (see manifests/core.json's "
                     . 'widgets.block/nav_menu/text for the shape) if its settings should be portable, or declare it '
-                    . "a deliberate exclusion (wp duo classify --set 'options:$name=runtime') if not"
+                    . "a deliberate exclusion (wp duo classify --set='options:$name=runtime') if not"
                 );
             }
             if (isset($declared[$type])) {
