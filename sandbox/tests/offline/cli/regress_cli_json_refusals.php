@@ -916,9 +916,13 @@ namespace {
         if (!str_contains($doc, '--format=<format>')) {
             continue;
         }
+        // Resolve the name exactly as WP-CLI does -- the @subcommand tag, else
+        // the RAW method name. This used to hyphenate the fallback, which let a
+        // handler whose envelope names `code-inventory` pass while WP-CLI had
+        // registered it as `code_inventory` (DUO-3517).
         $command = preg_match('/@subcommand\s+(\S+)/', $doc, $sub) === 1
             ? $sub[1]
-            : str_replace('_', '-', $method);
+            : $method;
         $advertised[] = $command;
         check(
             str_contains($body, "self::halt_json_failure(\$t, \$assoc, '$command')"),
