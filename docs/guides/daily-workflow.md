@@ -119,7 +119,14 @@ hard-matches a secret pattern under an `authored` rule, it aborts and tells you
 exactly which key. That is the loud-and-blocking posture the whole
 classification pipeline is built on; the remedy is `duo pending` and
 `duo classify`, covered in
-[capabilities-and-limits.md](capabilities-and-limits.md).
+[capabilities-and-limits.md](capabilities-and-limits.md). Expect that queue to
+hold genuinely undeclared plugin options — the rows a fresh WooCommerce or
+Yoast install adds — and not WordPress's own bookkeeping: every
+`widget_<type>` row, `sidebars_widgets`, and every `theme_mods_*` row belongs
+to a dedicated engine mechanism that already handles it, so `duo pending` does
+not ask you to classify them (their writes stay visible in `wp duo journal`,
+and a widget type with live instances that no manifest declares still refuses
+capture, loudly).
 
 Then review the diff as a diff. Canonical state is entity-per-file, sorted, and
 deterministically serialized precisely so that `git diff` is legible to a human
