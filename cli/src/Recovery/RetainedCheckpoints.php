@@ -72,6 +72,23 @@ final class RetainedCheckpoints {
         'retained release checkpoints are the plain database checkpoints promote kept under .duo/checkpoints; '
         . 'restoring one drives the operator-directed path (abort, begin, isolated import, final abort)';
 
+    /**
+     * Supersession is a fact only the TARGET holds. The durable
+     * `promotion_session` row lives in the target's `duo_kv`
+     * (`agent/src/Promotion/PromotionLease.php:1005`) and no host verb reads
+     * it, so this listing cannot mark a row "not restorable" without
+     * inventing an answer — and an older checkpoint IS still restorable when
+     * no later session was begun. Step 1 stays the authority (DUO-3506).
+     * What the listing can honestly do is name the refusal in advance, with
+     * the reason code the failed step now carries and the same remedy, so an
+     * operator choosing between two retained checkpoints knows the older one
+     * can be refused and why.
+     */
+    public const DISCLOSURE_SUPERSEDED =
+        'a retained checkpoint older than the target\'s latest begun promotion session is refused at step 1 '
+        . 'with promotion_abort_session_superseded; an obsolete checkpoint is not a safe recovery source, so '
+        . 'recover that release through the provider that owns the target\'s backups instead';
+
     public const DISCLOSURE_NO_IDENTITY =
         'a retained checkpoint whose compiled artifact is gone has no lease identity and cannot be restored by '
         . 'this command; recover it through the provider that owns the target\'s backups';

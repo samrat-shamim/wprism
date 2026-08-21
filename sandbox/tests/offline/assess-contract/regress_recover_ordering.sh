@@ -205,6 +205,129 @@ ORDER="$(wp_steps | tr '\n' ' ')"
 [ "$ORDER" = "abort " ] \
   && pass 'a lease cleanup that did not succeed stops before begin/import' \
   || fail "a failed lease cleanup ran: $ORDER"
+# A failure the target did not classify keeps the constant sentence, so the
+# code below is a real signal rather than decoration on every failure.
+grep -Fq 'abort: FAILED — the target refused or failed this step; inspect private operator evidence' \
+  "$TMP/leasefail.txt" \
+  && pass 'an unclassified step failure keeps its constant detail' \
+  || { fail 'an unclassified step failure lost the constant detail'; sed -n '1,25p' "$TMP/leasefail.txt" >&2; }
+grep -Eq '^ +(reason|remedy): ' "$TMP/leasefail.txt" \
+  && fail 'an unclassified failure invented a reason code' \
+  || pass 'an unclassified failure claims no reason code it was not given'
+
+# ------------------------------------------- the target's own refusal, DUO-3506
+say 'a step-1 refusal the target classified'
+
+# The lease steps are asked in MACHINE mode so the target can answer with a
+# reason code at all. `CodeDeploy::abortArgs()`/`beginArgs()` deliberately stay
+# human for promote/deploy's compensating cleanup, which renders the target's
+# raw streams to a waiting operator (cli/duo:3094-3103); the recovery-only
+# variants are what carry --format=json.
+php -r '
+require_once $argv[1] . "/cli/src/Transport/CodeDeploy.php";
+$cd = "Duo\\Orchestrator\\CodeDeploy";
+$owner = "promote-recover-fixture-owner";
+$hash = str_repeat("ab", 32);
+$fail = [];
+foreach (["recoveryAbortArgs", "recoveryBeginArgs"] as $recovery) {
+    if (!in_array("--format=json", $cd::$recovery($owner, $hash), true)) {
+        $fail[] = "$recovery() does not ask for JSON";
+    }
+}
+foreach (["abortArgs", "beginArgs"] as $shared) {
+    if (in_array("--format=json", $cd::$shared($owner, $hash), true)) {
+        $fail[] = "$shared() gained --format=json; promote/deploy cleanup output would move (rule 8)";
+    }
+}
+// Same command, same identity, same order -- only the reply format differs.
+if ($cd::recoveryAbortArgs($owner, $hash)
+    !== array_merge($cd::abortArgs($owner, $hash), ["--format=json"])) {
+    $fail[] = "recoveryAbortArgs() is not abortArgs() plus the format flag";
+}
+if ($fail !== []) {
+    fwrite(STDERR, "FAIL: " . implode(" | ", $fail) . "\n");
+    exit(1);
+}
+echo "ok: only the recovery-path lease steps ask the target in machine mode\n";
+' "$ROOT" || fail 'the recovery lease steps do not ask in machine mode'
+
+# Exactly what the agent puts on stdout when a --format=json abort is refused:
+# one `duo-command-refusal/v1` object, non-zero exit, nothing on stderr
+# (agent/src/Command/Cli.php:145-146). The reason code and the two reviewed
+# public fields are `PromotionLease::assert_abort_session()`'s own
+# (agent/src/Promotion/PromotionLease.php), which
+# offline/recovery/regress_promotion_abort_reason.php pins at the source.
+ENVELOPE="$TMP/superseded-envelope.json"
+cat > "$ENVELOPE" <<'JSON'
+{"format":"duo-command-refusal/v1","ok":false,"command":"promotion-abort","error":"promotion_abort_session_superseded","reason_code":"promotion_abort_session_superseded","message":"promotion abort refused: a newer promotion session superseded the one this abort names","remediation":"restore or recover the release that owns the latest begun promotion session; an obsolete checkpoint is not a safe recovery source, so recover this target through the provider that owns its backups instead"}
+JSON
+
+DUO_RECOVER_STATUS="$TMP/f/status/database-only.json" DUO_ABORT_EXIT=1 \
+  DUO_ABORT_ENVELOPE="$ENVELOPE" \
+  recover "superseded" --restore=receipt-recover-fixture --writers-excluded
+STATUS=$?
+[ "$STATUS" = 1 ] && pass 'a refused step 1 is reported as not recovered (exit 1)' \
+  || fail "a refused step 1 exited $STATUS"
+ORDER="$(wp_steps | tr '\n' ' ')"
+[ "$ORDER" = "abort " ] \
+  && pass 'a refused step 1 still stops before begin/import' \
+  || fail "a refused step 1 ran: $ORDER"
+grep -Fq 'abort: FAILED — promotion abort refused: a newer promotion session superseded the one this abort names' \
+  "$TMP/superseded.txt" \
+  && pass "the failed step carries the target's own public message, not the constant sentence" \
+  || { fail 'the failed step still reported the constant sentence'; sed -n '1,25p' "$TMP/superseded.txt" >&2; }
+grep -Fq '    reason: promotion_abort_session_superseded' "$TMP/superseded.txt" \
+  && pass 'the human view names promotion_abort_session_superseded' \
+  || fail 'the human view did not name the reason code'
+grep -Fq '    remedy: restore or recover the release that owns the latest begun promotion session' \
+  "$TMP/superseded.txt" \
+  && pass 'the human view carries the remedy, which is the only next action there is' \
+  || fail 'the human view did not carry the remedy'
+# §5.2: the target's operator sentence names the superseding lease owner and a
+# 64-hex artifact hash. Neither is consumed by any documented command, so the
+# host publishes the reviewed fields and never the raw streams.
+grep -Eq '[0-9a-f]{64}' "$TMP/superseded.txt" \
+  && fail 'a 64-hex identifier reached the recover human view' \
+  || pass 'no artifact hash reaches the human view'
+
+# The same three facts, additively, in the machine document.
+DUO_RECOVER_STATUS="$TMP/f/status/database-only.json" DUO_ABORT_EXIT=1 \
+  DUO_ABORT_ENVELOPE="$ENVELOPE" \
+  recover "supersededjson" --restore=receipt-recover-fixture --writers-excluded --format=json
+php -r '
+$doc = json_decode((string) file_get_contents($argv[1]), true);
+if (!is_array($doc)) {
+    fwrite(STDERR, "FAIL: recover --format=json produced no document\n");
+    exit(1);
+}
+$fail = [];
+if (($doc["format"] ?? null) !== "duo-recovery-outcome/v1") {
+    $fail[] = "the outcome format moved";
+}
+$step = $doc["steps"][0] ?? [];
+if (($step["step"] ?? null) !== "abort" || ($step["ok"] ?? null) !== false) {
+    $fail[] = "step 1 is not the failed abort";
+}
+if (($step["reason_code"] ?? null) !== "promotion_abort_session_superseded") {
+    $fail[] = "the failed step carries no reason_code";
+}
+if (!str_contains((string) ($step["remediation"] ?? ""), "provider that owns its backups")) {
+    $fail[] = "the failed step carries no remediation";
+}
+if (($step["detail"] ?? "") === "the target refused or failed this step; inspect private operator evidence") {
+    $fail[] = "the machine detail is still the constant sentence";
+}
+// The additive fields are exactly that: nothing the document already
+// published moved.
+foreach (["checkpoint", "checkpoint_at", "checkpoint_source", "claim", "environment", "recovered", "steps"] as $key) {
+    if (!array_key_exists($key, $doc)) { $fail[] = "the outcome lost $key"; }
+}
+if ($fail !== []) {
+    fwrite(STDERR, "FAIL: " . implode(" | ", $fail) . "\n");
+    exit(1);
+}
+echo "ok: duo-recovery-outcome/v1 carries the reason code and remedy on the failed step\n";
+' "$TMP/supersededjson.txt" || fail 'the machine outcome did not carry the classified refusal'
 
 # ------------------------------------------------------ an absent checkpoint
 say 'an absent checkpoint'
@@ -239,6 +362,23 @@ grep -Fq 'this transport carries no rollback authority runtime, so only the data
 grep -Fq 'retained release checkpoints are the plain database checkpoints promote kept under .duo/checkpoints' "$TMP/plainlist.txt" \
   && pass 'the listing says what a retained checkpoint is and how it is restored' \
   || fail 'the listing did not disclose what a retained checkpoint is'
+# DUO-3506: the listing discloses the refusal an older checkpoint can meet at
+# step 1, WITHOUT claiming to know which row it applies to. `promotion_session`
+# is target-side state no host verb reads, and an older checkpoint is still
+# restorable when no later session was begun, so a per-row "not restorable"
+# marker would be a fabrication and would take away a restore the target allows.
+grep -Fq "a retained checkpoint older than the target's latest begun promotion session is refused at step 1 with promotion_abort_session_superseded" \
+  "$TMP/plainlist.txt" \
+  && pass 'the listing names the supersession refusal an older checkpoint can meet' \
+  || { fail 'the listing did not disclose the supersession refusal'; sed -n '1,16p' "$TMP/plainlist.txt" >&2; }
+grep -Fq 'provider that owns the target' "$TMP/plainlist.txt" \
+  && pass 'the listing carries the remedy beside that refusal' \
+  || fail 'the listing named the refusal without its remedy'
+# The disclosure is a note; no ROW may carry a supersession verdict. Row lines
+# are the ones that are not `note: ` lines and are not the `covers:` detail.
+grep -v '^note: ' "$TMP/plainlist.txt" | grep -Fiq 'supersede' \
+  && fail 'a listing row carries a supersession verdict the host cannot reach' \
+  || pass 'no row is marked superseded — step 1 stays the authority'
 grep -Fq 'receipt-recover-fixture' "$TMP/plainlist.txt" \
   && fail 'a local transport printed a signed receipt it cannot have read' \
   || pass 'no signed receipt is invented on a transport without an authority runtime'

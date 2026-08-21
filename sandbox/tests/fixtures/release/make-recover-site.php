@@ -48,6 +48,15 @@ declare(strict_types=1);
  *   DUO_WP_CALLS=<file>      every fake-wp invocation, one per line, in order
  *   DUO_RECOVER_STATUS=<f>   the authority status document to serve
  *   DUO_ABORT_EXIT=<n>       `duo promotion-abort` exit code (default 0)
+ *   DUO_ABORT_ENVELOPE=<f>   a file whose bytes `duo promotion-abort` prints
+ *                            on STDOUT, for the refusal the agent answers a
+ *                            `--format=json` abort with
+ *                            (`duo-command-refusal/v1`). Set it together with
+ *                            DUO_ABORT_EXIT=<non-zero>: an envelope is what a
+ *                            REFUSED abort returns, and the two knobs stay
+ *                            separate so a suite can also prove that a
+ *                            failure carrying no envelope keeps the constant
+ *                            detail (RecoverCommand::STEP_FAILED_DETAIL)
  *   DUO_BEGIN_EXIT=<n>       `duo promotion-begin` exit code (default 0)
  *   DUO_IMPORT_EXIT=<n>      `wp db import` exit code (default 0) — the
  *                            failed-import case the mandatory final abort is
@@ -304,7 +313,16 @@ $wpShim = <<<'SH'
 set -u
 printf '%s\n' "$*" >> "$DUO_WP_CALLS"
 case " $* " in
-  *" duo promotion-abort "*) exit "${DUO_ABORT_EXIT:-0}" ;;
+  *" duo promotion-abort "*)
+    # The agent answers a --format=json refusal with one
+    # `duo-command-refusal/v1` object on STDOUT and exits non-zero
+    # (agent/src/Command/Cli.php:145-146). Reproduce exactly that: bytes on
+    # stdout, the injected exit code, nothing on stderr.
+    if [ -n "${DUO_ABORT_ENVELOPE:-}" ] && [ -f "${DUO_ABORT_ENVELOPE}" ]; then
+      cat "${DUO_ABORT_ENVELOPE}"
+    fi
+    exit "${DUO_ABORT_EXIT:-0}"
+    ;;
   *" duo promotion-begin "*) exit "${DUO_BEGIN_EXIT:-0}" ;;
   *" db import "*) exit "${DUO_IMPORT_EXIT:-0}" ;;
   *" core is-installed "*) exit 0 ;;

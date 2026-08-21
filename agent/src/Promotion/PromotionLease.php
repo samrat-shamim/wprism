@@ -1,6 +1,7 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Kernel/ProcessFence.php';
 require_once __DIR__ . '/PromotionSessionJournal.php';
 require_once __DIR__ . '/LifecycleJournal.php';
@@ -1321,12 +1322,41 @@ class PromotionLease {
         return ProcessFence::name();
     }
 
-    /** @param array<string,mixed> $current */
+    /**
+     * Both abort refusals below are DELIBERATE, DOCUMENTED safety decisions
+     * (docs/guides/code-updates.md:207-209, cli/README.md:1008-1010), so each
+     * one names a stable reason code instead of arriving as an unclassified
+     * Throwable. Before DUO-3506 they were bare `\RuntimeException`s, which
+     * meant `Cli::halt_json_failure()` classified them through its catch-all
+     * (`agent/src/Command/Cli.php:79-94`): the machine caller received
+     * `promotion_abort_failed` plus `details_redacted: true`, and
+     * `duo recover --restore=<older retained id>` reduced that to one
+     * constant sentence — "the target refused or failed this step".
+     *
+     * The public message and remediation are constant and value-free because
+     * the operator sentence is not: it carries the lease owner token and the
+     * 64-hex artifact hash, and MUP §5.2 admits an internal identifier into a
+     * public view only when a documented command consumes it — nothing
+     * consumes either. Passing today's exact sentence as `$operatorMessage`
+     * keeps `parent::__construct` (agent/src/Kernel/CommandRefusal.php:52)
+     * and therefore `WP_CLI::error($t->getMessage())` byte-identical, which
+     * is what `sandbox/tests/live/regress_promotion_lock.sh:99-107` greps.
+     * `CommandRefusalException extends \RuntimeException`, so every existing
+     * catch around abort still classifies these the same way.
+     *
+     * @param array<string,mixed> $current
+     */
     private static function assert_abort_ownership(array $current, string $owner, string $artifactHash): void {
         $currentOwner = (string) ($current['owner'] ?? 'unknown');
         $currentArtifact = (string) ($current['artifact_hash'] ?? 'unknown');
         if (!hash_equals($owner, $currentOwner) || !hash_equals($artifactHash, $currentArtifact)) {
-            throw new \RuntimeException(
+            throw new CommandRefusalException(
+                'promotion_abort_lock_not_owned',
+                'promotion abort refused: the promotion lease on this target belongs to a different owner '
+                    . 'and artifact',
+                'release the exact recorded lease through the release that holds it, or restore its database '
+                    . 'checkpoint, before aborting again',
+                [],
                 "duo: promotion abort refused; lock belongs to '$currentOwner' for artifact '$currentArtifact'"
             );
         }
@@ -1340,9 +1370,19 @@ class PromotionLease {
         $sessionOwner = (string) $session['owner'];
         $sessionArtifact = (string) $session['artifact_hash'];
         if (!hash_equals($owner, $sessionOwner) || !hash_equals($artifactHash, $sessionArtifact)) {
-            throw new \RuntimeException(
+            // The remediation is the whole point of the code: an obsolete
+            // checkpoint is not a safe recovery source once a later session
+            // has begun, so the operator is sent to the provider's backups
+            // rather than to a retry this gate will refuse identically.
+            throw new CommandRefusalException(
+                'promotion_abort_session_superseded',
+                'promotion abort refused: a newer promotion session superseded the one this abort names',
+                'restore or recover the release that owns the latest begun promotion session; an obsolete '
+                    . 'checkpoint is not a safe recovery source, so recover this target through the provider '
+                    . 'that owns its backups instead',
+                [],
                 "duo: promotion abort refused; the latest begun session belongs to '$sessionOwner' "
-                . "for artifact '$sessionArtifact'"
+                    . "for artifact '$sessionArtifact'"
             );
         }
     }

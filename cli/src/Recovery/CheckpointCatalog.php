@@ -159,6 +159,11 @@ final class CheckpointCatalog {
         }
         $disclosures = is_array($catalog['disclosures'] ?? null) ? array_values($catalog['disclosures']) : [];
         $disclosures[] = RetainedCheckpoints::DISCLOSURE_RETAINED;
+        // Unconditional beside the retained disclosure, because the host
+        // cannot tell which rows it applies to: `promotion_session` is
+        // target-side state no host verb reads (DUO-3506). A per-row marker
+        // would be a fabrication; a note beside the list is the honest form.
+        $disclosures[] = RetainedCheckpoints::DISCLOSURE_SUPERSEDED;
         foreach ($retained as $row) {
             if ((string) ($row['artifact_hash'] ?? '') === '') {
                 $disclosures[] = RetainedCheckpoints::DISCLOSURE_NO_IDENTITY;

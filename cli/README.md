@@ -1012,7 +1012,9 @@ in manifests, native actions, or plugin-owned providers—not this shell.
   themes, and user MU code, and a final abort of the row restored by the
   import—even when import fails. The first abort refuses if a newer session
   superseded this checkpoint, instead of presenting an obsolete dump as a safe
-  recovery source. After a code-enabled failure, first reconcile or
+  recovery source; `duo recover` reports that refusal as
+  `promotion_abort_session_superseded` with its remedy, on the failed step and
+  in `duo-recovery-outcome/v1`. After a code-enabled failure, first reconcile or
   restore code to its known pre-promotion revision; a database import alone is
   not a complete code-and-state rollback. On success it retains the checkpoint
   and prints the phase trace.
