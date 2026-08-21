@@ -420,6 +420,27 @@ final class InitPlanner {
                 'remediation' => 'use ordinary recovery/capture workflows or explicitly remove the abandoned baseline after review',
             ];
         }
+        // DUO-3497: a site booted with DUO_JOURNAL on arrives here with journal
+        // rows and no identity at all, which InitSiteProbe::ledger() now counts
+        // apart from `rows` above. Init proceeds and preserves them — nothing
+        // on the init or baseline-capture path writes duo_journal (the only
+        // statement in the shipped runtime that removes journal rows is
+        // Cli::journal_reset's TRUNCATE, agent/src/Command/Cli.php:1989, which
+        // regress_init_contract.php pins as a tree-wide invariant) — so the
+        // operator is told the evidence is there rather than left to discover
+        // an empty `duo pending` after destroying it.
+        // Deliberately count-free: `advisories` is inside the digest that binds
+        // proposal to confirmation, and a number that moves with ordinary
+        // traffic would refuse every confirmation on a journaling site.
+        if ($ledger['observations'] > 0) {
+            $advisories[] = [
+                'code' => 'retained_journal_observations',
+                'extension' => 'wordpress-database',
+                'kind' => 'repository',
+                'reason' => 'the provenance journal already holds observations recorded before initialization; they are runtime evidence, not baseline identity, and init preserves them',
+                'remediation' => 'read them with wp duo journal-report and expect them in the post-init duo pending review queue; wp duo journal-reset would destroy the only record of writes no adapter declares',
+            ];
+        }
         foreach ($git['blockers'] as $blocker) {
             $unsupported[] = $blocker;
         }

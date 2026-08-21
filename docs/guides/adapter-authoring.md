@@ -610,7 +610,11 @@ whole point is to learn what the plugin actually writes. The provenance journal
 records those writes; `wp duo journal-report --manifests=<names>` aggregates
 them and scores proposals against the manifests you already have.
 `wp duo journal-reset` truncates the journal when you want a clean observation
-window for one specific interaction.
+window for one specific interaction. It warns with the number of rows it is
+about to destroy first: options no adapter declares are recorded nowhere else,
+so those rows leave `duo pending` permanently. It is not a prerequisite for
+`duo init` — observations are not ledger identity, and a site journalling from
+first boot initializes with them intact.
 
 Note what the journal will *not* do: a bare authenticated write never proposes
 `authored`. Proposals come from evidence and are deliberately conservative.

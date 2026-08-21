@@ -1824,6 +1824,186 @@ try {
 }
 $GLOBALS['wpdb'] = $originalWpdb;
 
+// ---------------------------------------------------------------------------
+// DUO-3497: the first-run freshness probe, exercised against real rows.
+//
+// A site booted with DUO_JOURNAL on refused `duo init` with
+// `existing_duo_ledger` — "remove the abandoned baseline after review" — while
+// holding nothing but observation rows: the journal's first flush calls
+// Ledger::ensure(), which creates all four tables (agent/src/Repository/
+// Ledger.php:81-113), and the probe counted every row in all four as ledger
+// identity. The escape it did not name, `wp duo journal-reset`, then truncated
+// the only record of the options no adapter declares, so the post-init
+// `duo pending` queue came back empty with those writes still in the database.
+//
+// The rows are structurally distinguishable and always were: `duo_journal` has
+// its own table, its own append-only shape (t/op/tbl/item/surface/actor/caps/
+// hook/proposal — no uuid, no content_hash, no key), and exactly one writer in
+// the tree, Journal::flush() (agent/src/Review/Journal.php:105-109), whose
+// observer refuses every duo_-prefixed table (`:67`). So it is counted apart.
+//
+// This is the shared harness (sandbox/tests/lib/FakeWpdb.php), not the bespoke
+// InitRiskWpdb above: the probe's whole question is which physical tables exist
+// and how many rows each holds, and a fake that holds rows answers it without
+// transcribing the SQL.
+require_once __DIR__ . '/../../lib/FakeWpdb.php';
+$ledgerWpdb = \DuoTest\FakeWpdb::install();
+$journalRow = static fn(int $id, string $item, string $surface, string $proposal): array => [
+    'id' => $id, 't' => '2026-08-21 00:00:0' . $id, 'op' => 'UPDATE', 'tbl' => 'options',
+    'item' => $item, 'surface' => $surface, 'actor' => 0, 'caps' => '', 'hook' => '',
+    'proposal' => $proposal,
+];
+$ledgerWpdb->seedTable('wp_duo_journal', [
+    $journalRow(1, 'acme_license_key', 'admin', 'authored'),
+    $journalRow(2, 'acme_sync_cursor', 'cron', 'runtime'),
+    $journalRow(3, 'acme_license_key', 'front', 'runtime'),
+]);
+$ledgerWpdb->seedTable('wp_duo_kv', []);
+$ledgerWpdb->seedTable('wp_duo_map', []);
+$ledgerWpdb->seedTable('wp_duo_state', []);
+$journalOnly = \Duo\InitSiteProbe::ledger();
+check(
+    $journalOnly === ['tables' => 4, 'rows' => 0, 'observations' => 3],
+    'journal-only state reports zero ledger rows, so init is not blocked, and reports the observations separately'
+);
+// The two halves of the blocker predicate, on the same environment: `rows` is
+// what `existing_duo_ledger` reads, `observations` is what the advisory reads.
+check(
+    $journalOnly['rows'] === 0 && $journalOnly['observations'] > 0,
+    'a DUO_JOURNAL-from-boot environment is pristine by the ledger question and non-empty by the evidence question'
+);
+foreach ([
+    ['wp_duo_kv', [['k' => 'applied_revision', 'v' => str_repeat('9', 40)]], 'a captured baseline revision'],
+    ['wp_duo_map', [['uuid' => str_repeat('a', 36), 'entity_type' => 'post', 'id_kind' => 'post', 'local_id' => 12]], 'a durable identity mapping'],
+    ['wp_duo_state', [['uuid' => str_repeat('a', 36), 'entity_type' => 'post', 'content_hash' => str_repeat('b', 64)]], 'a content hash at last sync'],
+] as [$identityTable, $identityRows, $identityLabel]) {
+    $ledgerWpdb->seedTable($identityTable, $identityRows);
+    $withIdentity = \Duo\InitSiteProbe::ledger();
+    check(
+        $withIdentity === ['tables' => 4, 'rows' => 1, 'observations' => 3],
+        "$identityLabel still counts as a ledger row, so a genuine baseline keeps refusing init beside the same observations"
+    );
+    $ledgerWpdb->seedTable($identityTable, []);
+}
+// Unchanged, and the reason it must stay unchanged: an unknown duo_* table is
+// non-pristine evidence counted WITHOUT its target-controlled name ever
+// reaching SQL, so it never gets a COUNT(*) of its own.
+$ledgerWpdb->seedTable('wp_duo_shadow', [['id' => 1]]);
+$ledgerWpdb->resetLog();
+$withUnknown = \Duo\InitSiteProbe::ledger();
+check(
+    $withUnknown === ['tables' => 5, 'rows' => 1, 'observations' => 3],
+    'an unknown duo_ table is still one unit of non-pristine ledger evidence, never an observation'
+);
+check(
+    !str_contains(implode("\n", $ledgerWpdb->queries()), 'wp_duo_shadow'),
+    'the unknown table name is never interpolated into a query'
+);
+// The probe reads and never repairs: no CREATE/ALTER/DROP/TRUNCATE, and no
+// statement that could remove the evidence it just decided to keep.
+check($ledgerWpdb->ddlLog() === [], 'the freshness probe issues no DDL on the tables it inspects');
+$ledgerWpdb->seedTable('wp_duo_shadow', []);
+$ledgerWpdb->seedTable('wp_duo_journal', []);
+check(
+    \Duo\InitSiteProbe::ledger() === ['tables' => 5, 'rows' => 1, 'observations' => 0],
+    'an empty journal reports no observations while the unknown table still blocks'
+);
+// A failed COUNT is not a zero — on either side of the split. Without this the
+// split would turn an unreadable journal into "no observations to preserve".
+$ledgerWpdb = \DuoTest\FakeWpdb::install();
+$ledgerWpdb->seedTable('wp_duo_journal', [$journalRow(1, 'acme_license_key', 'admin', 'authored')]);
+$ledgerWpdb->seedTable('wp_duo_kv', []);
+$ledgerWpdb->seedTable('wp_duo_map', []);
+$ledgerWpdb->seedTable('wp_duo_state', []);
+$ledgerWpdb->failNextQuery('injected COUNT failure', 'wp_duo_journal');
+try {
+    \Duo\InitSiteProbe::ledger();
+    fail('an unreadable journal COUNT was reported as zero observations');
+} catch (ReflectionException $unexpected) {
+    throw $unexpected;
+} catch (Throwable $expected) {
+    check(
+        str_contains($expected->getMessage(), 'could not verify that the existing Duo ledger is pristine'),
+        'an unreadable observation COUNT fails closed with the existing pristine-check diagnostic'
+    );
+}
+$GLOBALS['wpdb'] = $originalWpdb;
+
+// The wire shape is untouched: `state.ledger` still enumerates exactly `rows`
+// and `tables`, so the probe's third key never reaches `duo-init-plan/v1` and
+// the host's `($ledger['rows'] ?? null) === 0` readiness assertion keeps its
+// exact bytes — it now reads an identity-only count, which is the question it
+// was always asking. Nothing was added to the envelope, so no version bump and
+// no optional field: unlike DUO-3489's duo-apply-in-progress/v2, there is no
+// new field whose absence could read as a claim.
+check(
+    str_contains($plannerSource, "'ledger' => ['rows' => \$ledger['rows'], 'tables' => \$ledger['tables']],")
+        && !str_contains($plannerSource, "'observations' => \$ledger['observations']"),
+    'the init proposal still publishes exactly {rows, tables}, so the separated observation count stays out of the digest-bound wire'
+);
+$initHostSource = (string) file_get_contents(__DIR__ . '/../../../../cli/src/Onboarding/Init.php');
+check(
+    str_contains($initHostSource, "&& (\$ledger['rows'] ?? null) === 0"),
+    'the host readiness contract still requires a zero ledger row count, unchanged'
+);
+// The advisory that replaces the misdirecting refusal. It carries no
+// interpolated count on purpose: advisories are inside the digest that binds
+// proposal to confirmation (InitPlanner::assert_confirmed_proposal), and a
+// number that moves with ordinary traffic would refuse every confirmation on a
+// journaling site.
+$observationAdvisory = strpos($plannerSource, "'code' => 'retained_journal_observations',");
+check(
+    strpos($plannerSource, "if (\$ledger['observations'] > 0) {") !== false && $observationAdvisory !== false,
+    'a journal-only environment produces an advisory rather than a blocker'
+);
+check(
+    str_contains($plannerSource, 'read them with wp duo journal-report and expect them in the post-init duo pending review queue')
+        && str_contains($plannerSource, 'wp duo journal-reset would destroy the only record of writes no adapter declares'),
+    'the advisory names both the evidence command and the cost of the reset that used to be the only escape'
+);
+check(
+    $observationAdvisory !== false
+        && !preg_match('/\$ledger\[.observations.\]/', substr($plannerSource, $observationAdvisory, 900)),
+    'the advisory interpolates no observation count, so its bytes cannot move between proposal and confirmation'
+);
+check(
+    str_contains($plannerSource, "if (\$ledger['rows'] > 0) {")
+        && str_contains($plannerSource, "'reason' => 'Duo ledger rows already exist, so this is not an uninitialized environment',")
+        && str_contains($plannerSource, "'remediation' => 'use ordinary recovery/capture workflows or explicitly remove the abandoned baseline after review',"),
+    'existing_duo_ledger keeps its exact reviewed bytes; the fix is what feeds it, not what it says'
+);
+// The survival half of the claim. Observations only reach the post-init
+// `duo pending` queue if nothing between here and there deletes them, and
+// Pending's own aggregation (agent/src/Review/Pending.php:405-416) has no
+// time or init predicate — it groups every row in the table. So the invariant
+// worth pinning is tree-wide: exactly one statement anywhere in the shipped
+// runtime removes journal rows, and it is the operator's explicit reset.
+$journalDestroyers = [];
+$duoRepoRoot = (string) realpath(__DIR__ . '/../../../../');
+foreach (['agent', 'cli', 'recovery'] as $shippedRoot) {
+    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(
+        $duoRepoRoot . '/' . $shippedRoot,
+        FilesystemIterator::SKIP_DOTS
+    ));
+    foreach ($iterator as $shippedFile) {
+        if ($shippedFile->getExtension() !== 'php') {
+            continue;
+        }
+        $body = (string) file_get_contents($shippedFile->getPathname());
+        if (preg_match_all('/(?:TRUNCATE|DELETE|DROP)[^;\n]*duo_journal/i', $body, $hits) === 0) {
+            continue;
+        }
+        $journalDestroyers[] = [
+            substr($shippedFile->getPathname(), strlen($duoRepoRoot) + 1),
+            count($hits[0]),
+        ];
+    }
+}
+check(
+    $journalDestroyers === [['agent/src/Command/Cli.php', 1]],
+    'the only statement in the shipped runtime that removes journal rows is journal-reset, so init and its baseline capture preserve the observations'
+);
+
 $adapterRepo = sys_get_temp_dir() . '/duo-init-adapter-permissions-' . bin2hex(random_bytes(6));
 mkdir($adapterRepo . '/adapters', 0777, true);
 file_put_contents($adapterRepo . '/adapters/foreign.json', "{}\n");
