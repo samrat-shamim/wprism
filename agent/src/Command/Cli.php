@@ -9,7 +9,7 @@ require_once __DIR__ . '/../Review/PlanView.php';
 use WP_CLI;
 
 /**
- * wp duo <capture|refresh-export|plan|explain|apply|scope|capabilities|adapter-observe|adapter-survey|orphans|deploy|code-preflight|code-stage|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|journal-reset>
+ * wp duo <capture|refresh-export|plan|explain|apply|scope|capabilities|adapter-observe|adapter-survey|orphans|deploy|code-preflight|code-stage|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|journal-reset|code-inventory>
  */
 final class Cli {
     private const REFUSAL_FORMAT = 'duo-command-refusal/v1';
@@ -805,6 +805,8 @@ final class Cli {
      * ## OPTIONS
      * --repo=<path> : Site repository whose code/wp-content is reported.
      * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand code-inventory
      */
     public function code_inventory($args, $assoc) {
         require_once __DIR__ . '/../Code/CodeDescriptorCompiler.php';

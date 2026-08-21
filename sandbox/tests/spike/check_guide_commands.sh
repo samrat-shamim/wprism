@@ -85,15 +85,30 @@ host_verbs() {
 }
 
 # agent/src/Command/Cli.php registers the whole class as `wp duo`, so every public
-# method is a subcommand: underscores become hyphens unless an explicit
-# @subcommand annotation names it.
+# method is a subcommand, named exactly as WP-CLI names it: the `@subcommand`
+# annotation when one is present, otherwise the RAW method name. WP-CLI never
+# hyphenates a method name itself (CommandFactory::create_subcommand takes the
+# tag or `$reflection->name`), which is why `code_inventory` shipped unreachable
+# as `wp duo code-inventory` while this checker -- which used to hyphenate --
+# validated the guide citation green (DUO-3517). Emitting the raw name means a
+# guide that cites a hyphenated form of an untagged method now fails here.
 agent_commands() {
-    {
-        grep -oE '^[[:space:]]*public function [a-z_]+' "$AGENT_CLI" \
-            | sed 's/.*public function //' | tr '_' '-'
-        grep -oE '@subcommand [a-z][a-z0-9-]*' "$AGENT_CLI" \
-            | sed 's/@subcommand //'
-    } | sort -u
+    # One name per handler, exactly as WP-CLI registers it: the @subcommand tag
+    # seen in the docblock above the method, else the raw method name. A tagged
+    # method is NOT also reachable under its raw name, so neither is listed here.
+    awk '
+        /@subcommand [a-z][a-z0-9-]*/ {
+            match($0, /@subcommand [a-z][a-z0-9-]*/)
+            tag = substr($0, RSTART + 12, RLENGTH - 12)
+            next
+        }
+        /^[[:space:]]*public function [a-z_]+/ {
+            match($0, /public function [a-z_]+/)
+            name = substr($0, RSTART + 16, RLENGTH - 16)
+            print (tag != "" ? tag : name)
+            tag = ""
+        }
+    ' "$AGENT_CLI" | sort -u
 }
 
 # --- token extraction --------------------------------------------------------
