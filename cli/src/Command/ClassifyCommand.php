@@ -108,7 +108,12 @@ final class ClassifyCommand {
             }
             echo "classification batch exported: $path\n";
             echo 'queue sha256: ' . ClassificationBatch::queueHash($items) . "\n";
-            echo "review every decisions[].class, then run: duo classify {$driver->name()} --apply-batch=$path\n";
+            // The options completions are named at export time because that is
+            // when the reviewer has the file open; naming them only in the
+            // apply-time refusal would cost a whole round trip (DUO-3496).
+            echo 'review every decisions[].class; an options row classed authored or managed also needs'
+                . " autoload (preserve or a literal storage value), one classed env needs required (true|false)\n";
+            echo "then run: duo classify {$driver->name()} --apply-batch=$path\n";
             return 0;
         } catch (\Throwable $e) {
             fwrite(STDERR, $e->getMessage() . "\n");
@@ -178,6 +183,7 @@ final class ClassifyCommand {
         $result = Triage::acceptProposals($items);
         $decisions = $result['decisions'];
         $secretSkipped = $result['secretSkipped'];
+        $storageSkipped = $result['storageSkipped'];
 
         $exit = 0;
         if ($decisions) {
@@ -196,13 +202,26 @@ final class ClassifyCommand {
             return $exit !== 0 ? $exit : 2;
         }
 
+        // Reported after the secret set and with the same exit contract: a
+        // proposal cannot carry the storage or provisioning decision the site
+        // grammar demands of these rows (DUO-3496), so they stay pending
+        // rather than being completed by this command's guess.
+        if ($storageSkipped) {
+            fwrite(STDERR, 'duo: classify --accept-proposals: skipped ' . count($storageSkipped)
+                . " option item(s) whose proposed class needs a decision no proposal carries -- these need a human (\`duo classify {$driver->name()}\`):\n");
+            foreach ($storageSkipped as $s) {
+                fwrite(STDERR, "  - $s\n");
+            }
+            return $exit !== 0 ? $exit : 2;
+        }
+
         if ($decisions) {
             printf("%d accepted.\n", count($decisions));
         }
         return $exit;
     }
 
-    /** @param list<array{section:string,key:string,class:string,ref?:string,cast?:string}> $decisions */
+    /** @param list<array{section:string,key:string,class:string,ref?:string,cast?:string,autoload?:string,required?:bool}> $decisions */
     private static function buildArgs(array $decisions, bool $needAllowSecret): array {
         $specs = array_map(function (array $d): string {
             $spec = "{$d['section']}:{$d['key']}={$d['class']}";
@@ -211,6 +230,16 @@ final class ClassifyCommand {
             }
             if (isset($d['cast'])) {
                 $spec .= ",cast={$d['cast']}";
+            }
+            // The two site-grammar completions (DUO-3496). `required` is a
+            // real boolean by the time it gets here and travels as the only
+            // two spellings the agent's spec parser accepts, so the decision
+            // survives the string transport without either end guessing.
+            if (isset($d['autoload'])) {
+                $spec .= ",autoload={$d['autoload']}";
+            }
+            if (isset($d['required'])) {
+                $spec .= ',required=' . ($d['required'] ? 'true' : 'false');
             }
             return $spec;
         }, $decisions);

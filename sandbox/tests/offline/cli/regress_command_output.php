@@ -68,5 +68,62 @@ $check(str_contains($rendered, $redacted) && str_contains($rendered, "Container 
 $check(substr_count($rendered, '.duo/refusals/') === 1 && strpos($rendered, '.duo/refusals/') > strpos($rendered, $redacted), 'renderTransportDetail appends the private-evidence hint once, after the streams');
 $check(!str_contains($capture(['exit' => 1, 'stdout' => "Error: plain failure\n", 'stderr' => '']), '.duo/refusals/'), 'renderTransportDetail adds no hint to ordinary failures');
 
+// The OTHER redaction witness: cli/duo's render_command_refusal_human(), the
+// path a human-mode command takes. It printed "details: redacted from machine
+// output; inspect private operator evidence" and stopped there — an
+// instruction to inspect evidence whose location the operator was never told
+// (DUO-3496). The pointer names WHERE, never WHAT: the sentence itself stays
+// out of stdout and stderr exactly as before.
+//
+// The host shell runs main() at the bottom, so this loads its body without
+// that block — the same seam regress_plan_view.php uses — inside a subprocess,
+// because the renderer writes to STDERR.
+$renderHumanRefusal = static function (array $refusal): string {
+    $duoPath = __DIR__ . '/../../../../cli/duo';
+    $script = '$source = (string) file_get_contents(' . var_export($duoPath, true) . ');'
+        . '$at = strpos($source, "\ntry {\n    exit(main(\$argv));");'
+        . '$php = strpos($source, "<?php");'
+        . 'if ($at === false || $php === false) { fwrite(STDERR, "host shell main guard moved\n"); exit(2); }'
+        . '$body = substr($source, $php + 5, $at - ($php + 5));'
+        . '$body = str_replace("__DIR__", ' . var_export(var_export(dirname(realpath($duoPath) ?: $duoPath), true), true) . ', $body);'
+        . '$body = (string) preg_replace("/^require /m", "require_once ", $body);'
+        . 'eval($body);'
+        . 'render_command_refusal_human(json_decode(' . var_export(json_encode($refusal), true) . ', true));';
+    $spec = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
+    $proc = proc_open([PHP_BINARY, '-r', $script], $spec, $pipes);
+    fclose($pipes[1]);
+    $err = (string) stream_get_contents($pipes[2]);
+    fclose($pipes[2]);
+    proc_close($proc);
+    return $err;
+};
+$humanRedacted = $renderHumanRefusal([
+    'format' => 'duo-command-refusal/v1',
+    'ok' => false,
+    'command' => 'apply',
+    'reason_code' => 'apply_failed',
+    'message' => 'apply refused at an unclassified safety gate',
+    'remediation' => 'inspect apply_in_progress and recovery evidence',
+    'details_redacted' => true,
+]);
+$check(
+    str_contains($humanRedacted, 'details: redacted from machine output; inspect private operator evidence'),
+    'the human renderer still states the redaction in the words it always used'
+);
+$check(
+    substr_count($humanRedacted, ".duo/refusals/") === 1
+        && str_contains($humanRedacted, "under the target site repository's .duo/refusals/"),
+    'and now names the directory the sentence went to, once'
+);
+$check(
+    !str_contains($renderHumanRefusal([
+        'format' => 'duo-command-refusal/v1',
+        'ok' => false,
+        'reason_code' => 'invalid_arguments',
+        'message' => '--repo is required for capture',
+    ]), '.duo/refusals/'),
+    'an unredacted refusal gets no pointer: nothing private was written for it'
+);
+
 echo $failures === 0 ? "PASS: command output contract\n" : "FAIL: $failures command output assertions\n";
 exit($failures === 0 ? 0 : 1);

@@ -3,6 +3,11 @@ declare(strict_types=1);
 
 namespace Duo\Orchestrator;
 
+// The per-class option completions this file prompts for are the same closed
+// vocabulary the batch artifact validates against; one statement of it, read
+// from there (DUO-3496).
+require_once __DIR__ . '/ClassificationBatch.php';
+
 /**
  * Interactive triage engine behind `duo classify <env>`. Pure decision
  * logic: reads prompts/responses through injected in/out streams (STDIN/
@@ -22,6 +27,11 @@ namespace Duo\Orchestrator;
  * to type the literal word "allow" before it's added to the batch. A
  * ref-hint on an authored decision offers a y/N follow-up to attach
  * `ref=<kind>` to that --set clause.
+ *
+ * An options row gets one more closed follow-up, because the site grammar
+ * will not load the rule without it: authored/managed asks for `autoload`,
+ * env asks for the boolean `required`. Both re-ask on anything unrecognized
+ * and offer `s` to skip the item — neither may be defaulted.
  */
 final class Triage {
     /** letter => policy class */
@@ -38,7 +48,7 @@ final class Triage {
      * @param resource $in
      * @param resource $out
      * @return array{
-     *   decisions: list<array{section:string, key:string, class:string, ref?:string}>,
+     *   decisions: list<array{section:string, key:string, class:string, ref?:string, autoload?:string, required?:bool}>,
      *   classified: int, skipped: int, quit: bool, needAllowSecret: bool
      * }
      */
@@ -118,6 +128,50 @@ final class Triage {
             $decision = ['section' => $section, 'key' => $key, 'class' => $class];
             $eof = false;
 
+            // The site grammar completes an options rule before it will load
+            // it (DUO-3496): authored/managed needs a storage flag, env needs
+            // the provisioning boolean. Asked here, in the same pass, because
+            // the alternative is the target refusing the batched write
+            // half-way through — `wp duo classify` writes each --set spec in
+            // order, so a refusal on spec 7 leaves 1-6 already written.
+            if ($section === 'options'
+                && in_array($class, ClassificationBatch::CLASSES_NEEDING_AUTOLOAD, true)) {
+                $answer = self::askClosed(
+                    $in,
+                    $out,
+                    '  autoload (preserve replays the source row\'s own flag; a literal value pins it): ['
+                    . implode('|', self::autoloadChoices()) . '|s=skip] ',
+                    self::autoloadChoices()
+                );
+                if ($answer === null) {
+                    $quit = true;
+                    break;
+                }
+                if ($answer === 's') {
+                    $skipped++;
+                    fwrite($out, "  skipped (no autoload decision)\n");
+                    continue;
+                }
+                $decision['autoload'] = $answer;
+            } elseif ($section === 'options' && $class === 'env') {
+                $answer = self::askClosed(
+                    $in,
+                    $out,
+                    '  required on a fresh environment (true: an operator provisions it; false: it self-populates): [true|false|s=skip] ',
+                    ['true', 'false']
+                );
+                if ($answer === null) {
+                    $quit = true;
+                    break;
+                }
+                if ($answer === 's') {
+                    $skipped++;
+                    fwrite($out, "  skipped (no required decision)\n");
+                    continue;
+                }
+                $decision['required'] = $answer === 'true';
+            }
+
             if ($class === 'authored' && $refHint !== null) {
                 $kind = self::str($refHint['kind'] ?? null, '');
                 fwrite($out, '  attach ref=' . ($kind !== '' ? $kind : '?') . ' (' . Pending::formatRefHint($refHint) . ')? [y/N] ');
@@ -131,7 +185,14 @@ final class Triage {
 
             $decisions[] = $decision;
             $classified++;
-            fwrite($out, "  -> $section:$key = {$decision['class']}" . (isset($decision['ref']) ? ",ref={$decision['ref']}" : '') . "\n");
+            $echo = "  -> $section:$key = {$decision['class']}" . (isset($decision['ref']) ? ",ref={$decision['ref']}" : '');
+            if (isset($decision['autoload'])) {
+                $echo .= ",autoload={$decision['autoload']}";
+            }
+            if (isset($decision['required'])) {
+                $echo .= ',required=' . ($decision['required'] ? 'true' : 'false');
+            }
+            fwrite($out, $echo . "\n");
 
             if ($eof) {
                 $quit = true;
@@ -159,11 +220,12 @@ final class Triage {
      * code around this.
      *
      * @param list<array<string, mixed>> $items
-     * @return array{decisions: list<array{section:string,key:string,class:string}>, secretSkipped: list<string>}
+     * @return array{decisions: list<array{section:string,key:string,class:string}>, secretSkipped: list<string>, storageSkipped: list<string>}
      */
     public static function acceptProposals(array $items): array {
         $decisions = [];
         $secretSkipped = [];
+        $storageSkipped = [];
         foreach ($items as $item) {
             $section = self::str($item['section'] ?? null, '?');
             $key = self::str($item['key'] ?? null, '?');
@@ -176,9 +238,57 @@ final class Triage {
                 $secretSkipped[] = "$section:$key ($secret)";
                 continue;
             }
+            // A journal proposal is a CLASS signal and only that: it reports
+            // which capability wrote the value on which surface
+            // (Journal::propose), which says nothing about how the option row
+            // must be stored or whether an operator provisions it on a fresh
+            // environment. Accepting one for an options row that the site
+            // grammar will not load without that second field would mean
+            // inventing the field — the silent default this command has never
+            // taken for secrets either, reported the same way (DUO-3496).
+            if ($section === 'options'
+                && (in_array($proposal, ClassificationBatch::CLASSES_NEEDING_AUTOLOAD, true) || $proposal === 'env')) {
+                $storageSkipped[] = "$section:$key (proposed $proposal; needs "
+                    . ($proposal === 'env' ? 'required' : 'autoload') . ')';
+                continue;
+            }
             $decisions[] = ['section' => $section, 'key' => $key, 'class' => $proposal];
         }
-        return ['decisions' => $decisions, 'secretSkipped' => $secretSkipped];
+        return ['decisions' => $decisions, 'secretSkipped' => $secretSkipped, 'storageSkipped' => $storageSkipped];
+    }
+
+    /** `preserve` plus the storage values, in the agent's own published order. */
+    private static function autoloadChoices(): array {
+        return array_merge(
+            ClassificationBatch::OPTION_AUTOLOAD_SENTINELS,
+            ClassificationBatch::OPTION_AUTOLOAD_VALUES
+        );
+    }
+
+    /**
+     * One closed-vocabulary follow-up prompt. Returns the chosen value, `s`
+     * to skip the item, or null at EOF — and re-asks anything else rather
+     * than defaulting, because the grammar these two prompts serve refuses a
+     * guessed value by construction ("insertion may never guess", "no silent
+     * default either way").
+     *
+     * @param resource $in
+     * @param resource $out
+     * @param list<string> $accepted
+     */
+    private static function askClosed($in, $out, string $prompt, array $accepted): ?string {
+        while (true) {
+            fwrite($out, $prompt);
+            $line = fgets($in);
+            if ($line === false) {
+                return null;
+            }
+            $choice = strtolower(trim($line));
+            if ($choice === 's' || in_array($choice, $accepted, true)) {
+                return $choice;
+            }
+            fwrite($out, "  (unrecognized: '$choice')\n");
+        }
     }
 
     private static function str(mixed $v, string $default): string {

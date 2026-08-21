@@ -1071,14 +1071,24 @@ in manifests, native actions, or plugin-owned providers—not this shell.
   into git, matching the project's loud-and-blocking posture on everything
   else (§3.1.5).
 
+  **The options completion**: an options row classified `authored` or
+  `managed` gets one more closed prompt for `autoload`, and one classified
+  `env` gets one for the boolean `required` — the two fields the agent's site
+  grammar refuses the rule without. Both re-ask on anything unrecognized and
+  offer `s` to skip the item; neither is ever defaulted, and the skip is what
+  keeps a half-made decision out of the batch. Nothing is asked for a
+  `post_meta`, `term_meta`, `user_meta` or `scope` row, where the grammar
+  reads neither field.
+
   **Ref attachment**: an `authored` decision on an item carrying a
   `ref_hint` gets one more y/N prompt — "attach `ref=<kind>` to this
   classification?" — before moving on. Declining leaves the field authored
   but untyped.
 
   All decisions are batched into a **single** `wp duo classify --repo=<repo_path>
-  --set=<section>:<key>=<class>[,ref=<kind>] […]` call at the end (not one
-  call per item) — its output streams live and its exit code propagates.
+  --set=<section>:<key>=<class>[,ref=<kind>][,autoload=<flag>][,required=<bool>] […]`
+  call at the end (not one call per item) — its output streams live and its
+  exit code propagates.
   A final `N classified, M skipped.` line summarizes the session. Exit 0
   immediately with "review queue is empty" if there was nothing to triage.
 
@@ -1094,22 +1104,50 @@ in manifests, native actions, or plugin-owned providers—not this shell.
   pipeline can tell "nothing to do" apart from "a human needs to look at
   this."
 
+  An options row whose proposal is `authored` (or `managed`/`env`) is skipped
+  the same way and for the same kind of reason: a journal proposal reports
+  which capability wrote the value on which surface, which says nothing about
+  how the row must be stored or whether an operator provisions it, and this
+  mode does not invent the missing half. It prints the `section:key`, the
+  proposed class and the field it would need, and exits 2. Rows in other
+  sections in the same queue still apply.
+
   ```
   duo classify e1 --accept-proposals
   ```
 
 - **`duo classify <env> --export-batch=<path>` / `--apply-batch=<path>`** —
   reviewed bulk triage for an aged site's first queue, where historical writes
-  cannot have journal proposals. Export writes a value-redacted JSON artifact:
-  every row retains the pending evidence and has editable `class`, `ref`,
-  `cast`, and `allow_secret` fields. It refuses to overwrite an existing file.
-  Fill every `decisions[].class`, review any ref/cast and secret override, then
-  apply the same path. Apply fetches the live queue again and verifies the
-  artifact's environment and SHA-256 binding before opening the one batched
-  remote policy write. A partial review, changed queue, unsupported
-  manifest/schema surface, malformed rule, or unacknowledged authored secret
-  is a mutation-free refusal. If a valid decision exposes a new pending item,
-  apply reports that next queue and exits 2; export and review a new batch.
+  cannot have journal proposals. Export writes a value-redacted
+  `duo-classification-batch/v2` artifact: every row retains the pending
+  evidence and has editable `class`, `ref`, `cast`, and `allow_secret` fields,
+  and an options row additionally has `autoload` and `required`. It refuses to
+  overwrite an existing file. Fill every `decisions[].class`, review any
+  ref/cast and secret override, then apply the same path. Apply fetches the
+  live queue again and verifies the artifact's environment and SHA-256 binding
+  before opening the one batched remote policy write. A partial review,
+  changed queue, unsupported manifest/schema surface, malformed rule, or
+  unacknowledged authored secret is a mutation-free refusal. If a valid
+  decision exposes a new pending item, apply reports that next queue and exits
+  2; export and review a new batch.
+
+  An options row is not complete at `class` alone, because the agent's site
+  grammar will not load the rule it produces: `authored` and `managed` need
+  `autoload` (`preserve` to replay the source row's own flag, or a literal
+  `yes|no|auto|on|off|auto-on|auto-off` to pin it), and `env` needs the boolean
+  `required` (`true` when an operator must provision the value on a fresh
+  environment). Both are exported as `null` and neither is ever prefilled from
+  evidence: an observed autoload flag is an observation, while the rule is a
+  contract capture enforces. An unfilled one refuses on the host naming the row
+  and the field; a field the class does not read (`autoload` on a `runtime`
+  row, either one on `post_meta`) refuses rather than being recorded as a
+  decision nothing acts on. A `duo-classification-batch/v1` artifact — the
+  shape that had no place to put these — refuses with re-export as its named
+  remedy. The interactive and `--accept-proposals` modes follow the same rule:
+  triage asks for the field, and `--accept-proposals` skips an options row
+  whose proposed class needs one (a journal proposal is a class signal and
+  carries no storage decision), reporting it and exiting 2 the way it already
+  does for secrets.
 
   ```sh
   duo coverage production --format=json > coverage.json

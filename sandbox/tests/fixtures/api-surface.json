@@ -19797,8 +19797,33 @@
         "Duo\\Orchestrator\\ClassificationBatch": {
             "abstract": false,
             "constants": {
+                "CLASSES_NEEDING_AUTOLOAD": {
+                    "value_repr": [
+                        "authored",
+                        "managed"
+                    ]
+                },
                 "FORMAT": {
+                    "value_repr": "duo-classification-batch/v2"
+                },
+                "FORMAT_WITHOUT_STORAGE_DECISIONS": {
                     "value_repr": "duo-classification-batch/v1"
+                },
+                "OPTION_AUTOLOAD_SENTINELS": {
+                    "value_repr": [
+                        "preserve"
+                    ]
+                },
+                "OPTION_AUTOLOAD_VALUES": {
+                    "value_repr": [
+                        "yes",
+                        "no",
+                        "auto",
+                        "on",
+                        "off",
+                        "auto-on",
+                        "auto-off"
+                    ]
                 }
             },
             "final": true,

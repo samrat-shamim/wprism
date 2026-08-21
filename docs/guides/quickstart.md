@@ -238,7 +238,9 @@ is value-redacted: it carries the evidence, never live values.
   "class": "authored",
   "ref": null,
   "cast": null,
-  "allow_secret": false
+  "allow_secret": false,
+  "autoload": "preserve",
+  "required": null
 }
 ```
 
@@ -248,6 +250,13 @@ short form is `authored` only for portable intent, `runtime` for
 environment-local operational state, `derived` for state a declared
 regeneration path rebuilds, `env` for separately provisioned per-environment
 values, and `managed` for lifecycle-managed options.
+
+An **options** row needs one more answer, and only the one its class reads:
+`autoload` when the class is `authored` or `managed` (`preserve` replays the
+source row's own flag; `yes|no|auto|on|off|auto-on|auto-off` pins it), and the
+boolean `required` when the class is `env` (`true` if an operator must
+provision the value on a fresh environment). Both are `null` on export and
+neither is ever guessed — the same posture as `pending`'s proposals.
 
 ### 7. Apply the batch — then look again
 
@@ -259,7 +268,9 @@ cli/duo pending production
 The artifact is bound to the environment and to the exact pending evidence by
 SHA-256. If a write landed after export, apply refuses *before* touching
 `site.duo.json` — export and review a fresh batch. Partial batches refuse for
-the same reason.
+the same reason, and so does a row whose class needs `autoload` or `required`
+and does not have it: the refusal names the row and the field, and no remote
+write is opened.
 
 **The capture gate is an empty queue, not a successful batch.** One layer of
 decisions routinely exposes another, so keep looping until `duo pending` prints
