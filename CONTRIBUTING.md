@@ -93,3 +93,11 @@ not copied forward.
 
 Not here. See [`SECURITY.md`](SECURITY.md) — do not open a public issue or PR
 for a security finding.
+
+## License and sign-off
+
+The project is licensed [GPL-2.0-or-later](LICENSE), and contributions are
+accepted under those same terms. Certify that you have the right to submit
+your change under that license by signing off each commit
+(`git commit -s`, the [Developer Certificate of Origin](https://developercertificate.org/)
+— a statement of provenance, not a copyright assignment).

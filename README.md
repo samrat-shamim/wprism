@@ -106,3 +106,14 @@ Engineering work is tracked in Linear ("Duo WP Branchability — Correctness Clo
 git clone https://github.com/duotronic-ai/duo-wp && cd duo-wp
 bash scripts/agent-bootstrap.sh   # verifies host prereqs, pre-pulls sandbox images
 ```
+
+## License
+
+Duo is free software, licensed under the [GNU General Public License, version 2
+or later](LICENSE) — the WordPress ecosystem's own license. The `agent/` drop-in
+runs inside WordPress, so GPL compatibility is not just a choice here but the
+shipped half's natural obligation; the whole repository carries one license
+rather than splitting hairs at the tarball boundary
+(`cli/src/Onboarding/Adopt.php` ships exactly `agent manifests recovery`).
+Contributions are accepted under the same terms — see
+[CONTRIBUTING.md](CONTRIBUTING.md).
