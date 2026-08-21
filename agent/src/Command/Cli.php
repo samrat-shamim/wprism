@@ -168,6 +168,82 @@ final class Cli {
      * writable directory → nothing written, never a second failure), carries
      * no trace, and is 0600 like every other private artifact there.
      */
+    /**
+     * The repository inode `init` started against, or null (DUO-3516).
+     *
+     * `init` is the only command that binds a repository root and then holds
+     * it across a lease, a pause and a re-review, so it is the only one whose
+     * `--repo` path can name a DIFFERENT directory by the time it refuses --
+     * indeed the most important init refusal says exactly that. Snapshotting
+     * the inode at entry lets the evidence recorder answer "is this still the
+     * directory this command was reviewing?" without reaching into the init
+     * boundary, which would drag its whole loader graph into every process
+     * that merely opens the command surface.
+     */
+    private static ?string $initRepositoryIdentityAtEntry = null;
+
+    /** dev:ino of an ordinary, non-symlinked directory, or null. */
+    private static function directory_identity(string $path): ?string {
+        $path = rtrim($path, '/');
+        if ($path === '' || is_link($path) || !is_dir($path)) {
+            return null;
+        }
+        clearstatcache(true, $path);
+        $stat = @lstat($path);
+        return $stat === false ? null : $stat['dev'] . ':' . $stat['ino'];
+    }
+
+    /**
+     * Whether a redacted refusal may write its private evidence into $repo.
+     *
+     * DUO-3516. The recorder used to resolve `--repo` lexically at refusal
+     * time and `mkdir(0700, recursive)` its way to `.duo/refusals` in whatever
+     * now sat at that path. After an identity-gate refusal -- whose entire
+     * meaning is "this path is no longer the reviewed repository" -- that
+     * planted Duo state in an unrelated operator directory, and through a
+     * swapped-in symlink it planted it OUTSIDE the repository altogether
+     * (regress_duo_init's post-proposal swap cases, live 2026-08-21).
+     *
+     * Three conditions, each closing one of those doors:
+     *
+     * 1. The path is an ordinary directory Duo is not following a link to.
+     *    Nothing else in the code half follows a symlinked repository root
+     *    either (InitRepositoryBoundary::root_blocker refuses one), and a
+     *    poisoned `site.duo.json` behind that link must not qualify it.
+     * 2. It is ALREADY a Duo repository -- a regular `site.duo.json`, or a
+     *    real `.duo/` beside the promotion checkpoints this record was always
+     *    meant to sit next to. Creating that directory as a side effect of a
+     *    refusal is what let the recorder reach anywhere at all.
+     * 3. For `init`, the directory is still the one the command started
+     *    against. A fresh init therefore records nothing (its target is not a
+     *    Duo repository yet, and its evidence is the sealed attempt journal);
+     *    an init recovering an interrupted attempt in a real repository still
+     *    records, which is the init refusal actually worth reading.
+     *
+     * Skipping is silent and carries no second failure, exactly as every other
+     * best-effort path here does: the envelope is unchanged and still says
+     * `details_redacted`, and the operator's documented remedy -- rerun in
+     * human mode -- is unaffected.
+     */
+    private static function refusal_evidence_repository(string $repo, string $command): bool {
+        $identity = self::directory_identity($repo);
+        if ($identity === null) {
+            return false;
+        }
+        $root = rtrim($repo, '/');
+        $site = $root . '/site.duo.json';
+        $duo = $root . '/.duo';
+        $isDuoRepository = (!is_link($site) && is_file($site)) || (!is_link($duo) && is_dir($duo));
+        if (!$isDuoRepository) {
+            return false;
+        }
+        if ($command === 'init') {
+            return self::$initRepositoryIdentityAtEntry !== null
+                && self::$initRepositoryIdentityAtEntry === $identity;
+        }
+        return true;
+    }
+
     private static function record_private_refusal_evidence(
         \Throwable $t,
         array $assoc,
@@ -175,7 +251,7 @@ final class Cli {
         string $reasonCode
     ): void {
         $repo = $assoc['repo'] ?? null;
-        if (!is_string($repo) || $repo === '' || !is_dir($repo)) {
+        if (!is_string($repo) || !self::refusal_evidence_repository($repo, $command)) {
             return;
         }
         $dir = rtrim($repo, '/') . '/.duo/refusals';
@@ -864,6 +940,10 @@ final class Cli {
     public function init($args, $assoc) {
         try {
             $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('init', '--repo');
+            // DUO-3516: before anything can move it. The evidence recorder
+            // compares against this to refuse writing into a directory that
+            // replaced the one this command reviewed.
+            self::$initRepositoryIdentityAtEntry = self::directory_identity((string) $repo);
             // The literal, not InitPlanner::ALLOW_UNMANAGED_PLUGINS: this file
             // deliberately requires four small things, and naming the constant
             // would drag the whole Init loader graph (AdapterSources, Policy,
