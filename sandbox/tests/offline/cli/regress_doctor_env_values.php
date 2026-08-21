@@ -15,7 +15,8 @@ use Duo\Orchestrator\Transport;
 final class DoctorTransport extends Transport {
     public array $rawScripts = [];
 
-    public function __construct(private string $gitResult) {
+    /** @param array{exit:int, stdout:string, stderr:string}|null $gitOverride raw result for the probe, overriding the exit:0/stdout:$gitResult default (DUO-3512: simulates a transport/shell failure the sentinel-only fake below couldn't express) */
+    public function __construct(private string $gitResult, private ?array $gitOverride = null) {
         parent::__construct('doctor-regression', ['repo_path' => '/srv/site-repo']);
     }
 
@@ -40,7 +41,7 @@ final class DoctorTransport extends Transport {
             return self::result('duo-repo-ok');
         }
         if (str_contains($script, 'git ls-files --error-unmatch .duo-env-values.json')) {
-            return self::result($this->gitResult);
+            return $this->gitOverride ?? self::result($this->gitResult);
         }
         return ['exit' => 97, 'stdout' => '', 'stderr' => "unexpected raw command: $script"];
     }
@@ -119,5 +120,34 @@ if ($noGit['ok'] !== true || $noGitCheck['ok'] !== false || empty($noGitCheck['a
     fail('no-git environment did not remain an honest non-blocking advisory');
 }
 pass('missing git remains an explicit advisory rather than a false pass');
+
+// DUO-3512: a transport/shell failure produces neither sentinel Doctor
+// otherwise switches on. Before this fix, $out === 'duo-tracked' read that
+// as false and the check rendered a clean, non-advisory [PASS] — a false
+// clean bill of health from a probe that never actually ran.
+$erroredExit = new DoctorTransport('unused', ['exit' => 1, 'stdout' => '', 'stderr' => 'connection reset by peer']);
+$errored = Doctor::run($erroredExit);
+$erroredCheck = check($errored, $label);
+if ($errored['ok'] !== true || $erroredCheck['ok'] !== false || empty($erroredCheck['advisory'])) {
+    fail('a non-zero exit / empty stdout from the tracked-status probe was not rendered as a non-blocking WARN');
+}
+if (!str_contains($erroredCheck['detail'], 'could not verify')
+    || !str_contains($erroredCheck['detail'], 'the tracked-status probe did not run')
+    || !str_contains($erroredCheck['detail'], 'connection reset by peer')) {
+    fail('probe-failure WARN did not name that the probe did not run, with the underlying reason');
+}
+pass('non-zero exit / empty stdout from the probe is a WARN naming the reason, never a silent PASS');
+
+$garbledExit = new DoctorTransport('unused', ['exit' => 0, 'stdout' => "garbled\n", 'stderr' => '']);
+$garbled = Doctor::run($garbledExit);
+$garbledCheck = check($garbled, $label);
+if ($garbled['ok'] !== true || $garbledCheck['ok'] !== false || empty($garbledCheck['advisory'])) {
+    fail('exit 0 with unexpected stdout from the tracked-status probe was not rendered as a non-blocking WARN');
+}
+if (!str_contains($garbledCheck['detail'], 'could not verify')
+    || !str_contains($garbledCheck['detail'], 'the tracked-status probe did not run')) {
+    fail('unexpected-stdout WARN did not name that the probe did not run');
+}
+pass('exit 0 with output outside the three known sentinels is a WARN, never a silent PASS');
 
 echo "REGRESS_DOCTOR_ENV_VALUES PASSED\n";
