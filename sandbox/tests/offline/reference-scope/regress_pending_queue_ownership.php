@@ -34,7 +34,7 @@
  *
  * Fails against the prior defect at the queue assertion (`widget_*`,
  * `sidebars_widgets` and both `theme_mods_*` rows appear in the queue) and at
- * the ref-hint assertion (`blog_public`, whole value '1', is decorated
+ * the ref-hint assertion (`acme_public_flag`, whole value '1', is decorated
  * `-> post #1 'Hello world!'`).
  */
 declare(strict_types=1);
@@ -131,7 +131,7 @@ namespace {
         $journalRow(6, 'options', 'theme_mods_twentytwentyfive', 'admin', 'manage_options', 'authored'),
         $journalRow(7, 'options', 'theme_mods_twentytwentyone', 'admin', 'manage_options', 'authored'),
         $journalRow(8, 'options', '_transient_acme_lock', 'cron', '', 'review'),
-        $journalRow(9, 'options', 'blog_public', 'admin', 'manage_options', 'authored'),
+        $journalRow(9, 'options', 'acme_public_flag', 'admin', 'manage_options', 'authored'),
         $journalRow(10, 'options', 'acme_api_endpoint', 'admin', 'manage_options', 'authored'),
         $journalRow(11, 'options', 'acme_featured_post', 'admin', 'manage_options', 'authored'),
         // tbl != 'options': the ownership question is options-scoped, so a
@@ -151,7 +151,7 @@ namespace {
         ['option_id' => 7, 'option_name' => '_transient_acme_lock', 'option_value' => '1', 'autoload' => 'no'],
         // The DUO-3508 ref-hint case: a boolean flag whose whole value is '1',
         // on a site that has WordPress's own seed post at id 1.
-        ['option_id' => 8, 'option_name' => 'blog_public', 'option_value' => '1', 'autoload' => 'yes'],
+        ['option_id' => 8, 'option_name' => 'acme_public_flag', 'option_value' => '1', 'autoload' => 'yes'],
         ['option_id' => 9, 'option_name' => 'acme_api_endpoint', 'option_value' => 'https://api.acme.test/v2', 'autoload' => 'yes'],
         ['option_id' => 10, 'option_name' => 'acme_featured_post', 'option_value' => '42', 'autoload' => 'yes'],
     ]);
@@ -204,6 +204,8 @@ namespace {
     duo_check_same('widgets', $owner('options', 'widget_undeclared'), 'SidebarState owns an UNdeclared widget type row too — ownership is the family, not the declaration');
     duo_check_same('dynamic_options', $owner('options', 'theme_mods_twentytwentyfive'), "the active theme's theme_mods row is owned by the dynamic_options resolver");
     duo_check_same('dynamic_options', $owner('options', 'theme_mods_twentytwentyone'), 'a stale theme_mods residue row is owned by the same declared prefix');
+    // DUO-3509 declares blog_public (authored) in manifests/core.json, so the boolean-valued UNDECLARED example the queue
+    // assertions below use is acme_public_flag; blog_public stays here only to show mechanism_owner() is about mechanisms, not rules.
     duo_check_same(null, $owner('options', 'blog_public'), 'an unowned core option is left for the queue to ask about');
     duo_check_same(null, $owner('options', 'acme_api_endpoint'), 'an unowned plugin option is left for the queue to ask about');
     duo_check_same(null, $owner('postmeta', 'widget_text'), 'the ownership test is options-scoped: a post_meta key of the same name is untouched');
@@ -215,7 +217,7 @@ namespace {
     $keys = array_map(static fn(array $i): string => $i['section'] . ':' . $i['key'], $items);
 
     duo_check_same(
-        ['options:acme_api_endpoint', 'options:acme_featured_post', 'options:blog_public', 'post_meta:widget_text'],
+        ['options:acme_api_endpoint', 'options:acme_featured_post', 'options:acme_public_flag', 'post_meta:widget_text'],
         $keys,
         'only genuinely undeclared names are queued; every widget_*, sidebars_widgets and theme_mods_* observation is out'
     );
@@ -276,8 +278,8 @@ namespace {
 
     duo_check_same(
         null,
-        $byKey['options:blog_public']['ref_hint'] ?? null,
-        "blog_public's whole value of '1' gets no hint, though post #1 ('Hello world!') exists and used to be offered as one"
+        $byKey['options:acme_public_flag']['ref_hint'] ?? null,
+        "acme_public_flag's whole value of '1' gets no hint, though post #1 ('Hello world!') exists and used to be offered as one"
     );
     duo_check_same(
         ['kind' => 'post', 'id' => 42, 'title' => 'Featured', 'post_type' => 'page'],
