@@ -396,7 +396,9 @@ command's redacted evidence but never live values. Review every decision:
   "class": "authored",
   "ref": null,
   "cast": null,
-  "allow_secret": false
+  "allow_secret": false,
+  "autoload": "preserve",
+  "required": null
 }
 ```
 
@@ -407,6 +409,22 @@ managed options. Attach `ref`/`cast` only when the value's schema justifies it.
 An authored secret requires the row's explicit `allow_secret: true`; that is a
 reviewed escape hatch, not a recommendation to store secrets in Git.
 
+An **options** row carries two more fields, because the site grammar refuses
+the rule without them and the exporter never guesses either one:
+
+- `autoload` — required when the class is `authored` or `managed`.
+  `preserve` replays whatever flag the source row already has; a literal
+  (`yes|no|auto|on|off|auto-on|auto-off`) pins it, and capture then refuses a
+  source row that disagrees. Leave the other field `null`.
+- `required` — required when the class is `env`. `true` means an operator must
+  provision this value on a fresh environment (a genuine secret or
+  site-identity value); `false` means plugin-internal bookkeeping that
+  self-populates and is not worth checklisting.
+
+Neither field belongs on a `post_meta`, `term_meta`, `user_meta` or `scope`
+row, and a field the chosen class does not read is refused rather than
+recorded as a decision nothing acts on.
+
 Apply the complete batch and immediately check for a next queue:
 
 ```sh
@@ -416,8 +434,13 @@ cli/duo pending production
 
 The artifact is bound to the environment and the exact pending evidence by
 SHA-256. If a write arrives after export, apply refuses before changing
-`site.duo.json`; export and review a new batch. Partial batches and surfaces
-that actually require a manifest or table schema refuse for the same reason.
+`site.duo.json`; export and review a new batch. Partial batches — a missing
+class, or a missing `autoload`/`required` on the options row that needs it —
+and surfaces that actually require a manifest or table schema refuse for the
+same reason, on the host, before any remote write opens. A batch still
+carrying the older `duo-classification-batch/v1` format refuses by name: that
+shape has no field for the storage decision, so the remedy is a fresh export,
+never an edit.
 One successful batch can expose another layer, so "review queue is empty"—not
 the batch command alone—is the capture gate.
 

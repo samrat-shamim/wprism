@@ -235,6 +235,14 @@ check(($resolved->env_options()['shared_name']['required'] ?? null) === true,
 // The pure declaration checks belong to OptionGrammar, while Policy retains
 // only the runtime effective-rule/query behavior. Keep both loader paths and
 // the published sentinel vocabulary wired directly to the collaborator.
+//
+// DUO-3496 adds a THIRD call site inside Policy — set_rule()'s write boundary,
+// which runs the same two validators over the single rule it is about to write
+// so `wp duo classify` can no longer produce a site.duo.json the next
+// Policy::load() refuses. That is the guard's own point rather than an
+// exception to it: the alternative was restating the two checks inside
+// set_rule, which is exactly the duplication this assertion exists to catch.
+// It stays pinned at one call each so a second, drifting copy still fails.
 $policySource = file_get_contents(__DIR__ . '/../../../../agent/src/Policy/Policy.php');
 $manifestValidatorSource = file_get_contents(__DIR__ . '/../../../../agent/src/Policy/ManifestValidator.php');
 $sitePolicyValidatorSource = file_get_contents(__DIR__ . '/../../../../agent/src/Policy/SitePolicyValidator.php');
@@ -248,15 +256,17 @@ check(
         && $optionGrammar->hasMethod('optionAutoloadSentinels')
         && !$policyReflection->hasMethod('validate_env_options')
         && !$policyReflection->hasMethod('validate_option_storage')
-        && substr_count($policySource, 'OptionGrammar::validate_env_options(') === 0
-        && substr_count($policySource, 'OptionGrammar::validate_option_storage(') === 0
+        && substr_count($policySource, 'OptionGrammar::validate_env_options(') === 1
+        && substr_count($policySource, 'OptionGrammar::validate_option_storage(') === 1
+        && str_contains($policySource, 'private static function assert_option_rule_loads(')
+        && strpos($policySource, 'assert_option_rule_loads(') < strpos($policySource, 'OptionGrammar::validate_option_storage(')
         && substr_count($manifestValidatorSource, 'OptionGrammar::validate_env_options(') === 1
         && substr_count($manifestValidatorSource, 'OptionGrammar::validate_option_storage(') === 1
         && substr_count($sitePolicyValidatorSource, 'OptionGrammar::validate_env_options(') === 1
         && substr_count($sitePolicyValidatorSource, 'OptionGrammar::validate_option_storage(') === 1
         && substr_count($policySource, 'OptionGrammar::optionAutoloadSentinels()') === 1
         && !str_contains($policySource, 'OPTION_AUTOLOAD_SENTINELS'),
-    'option declaration/storage validation and sentinel publication live in OptionGrammar; Policy has no duplicate validators'
+    'option declaration/storage validation and sentinel publication live in OptionGrammar; Policy has no duplicate validators, only set_rule\'s write-boundary call'
 );
 
 // ======================================================================

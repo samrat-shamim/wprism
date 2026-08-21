@@ -2308,11 +2308,14 @@ final class Cli {
      *
      * ## OPTIONS
      * --repo=<path>
-     * --set=<spec>         : "section:key=class[,ref=post][,cast=string]"
+     * --set=<spec>         : "section:key=class[,ref=post][,cast=string][,autoload=preserve][,required=true]"
      *   (section is options|post_meta|term_meta|user_meta|scope; scope keys are
      *   post_type:<name> or taxonomy:<name>, and accept only
-     *   authored|runtime|derived|env. The spec is split on the
-     *   FIRST ':' and the FIRST '='). Two wp-cli parsing quirks verified
+     *   authored|runtime|derived|env. autoload= and required= are options-only
+     *   and the site grammar demands them: an options rule classed
+     *   authored or managed needs autoload=preserve or a literal storage
+     *   value, and one classed env needs required=true|false. The spec is
+     *   split on the FIRST ':' and the FIRST '='). Two wp-cli parsing quirks verified
      *   empirically against this exact command (both silently swallow the
      *   value otherwise — instrumented with a live var_dump of $args/$assoc,
      *   not assumed):
@@ -2381,6 +2384,15 @@ final class Cli {
             if (isset($w['rule']['cast'])) {
                 $extra[] = "cast={$w['rule']['cast']}";
             }
+            // The storage/provisioning decisions echo like every other written
+            // field: additive, so a rule that carries neither prints the exact
+            // bytes it printed before DUO-3496 added them.
+            if (isset($w['rule']['autoload'])) {
+                $extra[] = "autoload={$w['rule']['autoload']}";
+            }
+            if (array_key_exists('required', $w['rule'])) {
+                $extra[] = 'required=' . ($w['rule']['required'] ? 'true' : 'false');
+            }
             if (!empty($w['rule']['allow_secret'])) {
                 $extra[] = 'allow_secret=true';
             }
@@ -2415,8 +2427,25 @@ final class Cli {
                 $rule['ref'] = $v;
             } elseif ($k === 'cast') {
                 $rule['cast'] = $v;
+            } elseif ($k === 'autoload') {
+                $rule['autoload'] = $v;
+            } elseif ($k === 'required') {
+                // The site grammar wants a real boolean and refuses anything
+                // else ("no silent default either way" —
+                // OptionGrammar::validate_env_options), so the two spellings
+                // that ARE a decision are the only two this spec accepts:
+                // required=1 or required=yes would be this parser guessing
+                // which of them the operator meant.
+                if ($v !== 'true' && $v !== 'false') {
+                    throw new \RuntimeException(
+                        "duo: bad required='$v' in --set spec '$spec' (expected required=true or required=false)"
+                    );
+                }
+                $rule['required'] = $v === 'true';
             } else {
-                throw new \RuntimeException("duo: unknown option '$k' in --set spec '$spec' (expected ref=|cast=)");
+                throw new \RuntimeException(
+                    "duo: unknown option '$k' in --set spec '$spec' (expected ref=|cast=|autoload=|required=)"
+                );
             }
         }
 

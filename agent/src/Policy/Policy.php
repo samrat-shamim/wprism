@@ -2784,14 +2784,70 @@ final class Policy {
         } elseif (isset($rule['allow_pii']) || isset($rule['missing_user'])) {
             throw new \RuntimeException('duo: allow_pii and missing_user are valid only for user_meta rules');
         }
+        if ($section !== 'options'
+            && (array_key_exists('autoload', $rule) || array_key_exists('required', $rule))) {
+            throw new \RuntimeException('duo: autoload and required are valid only for options rules');
+        }
 
         $siteFile = rtrim($repo, '/') . '/site.duo.json';
         if (!is_file($siteFile)) {
             throw new \RuntimeException("duo: $siteFile not found (not a duo site repo?)");
         }
         $site = Canon::decode(Canon::read_file($siteFile));
+        if ($section === 'options') {
+            self::assert_option_rule_loads($key, $rule, (array) ($site['policy'] ?? []));
+        }
         $site['policy'][$section][$key] = $rule;
         Canon::write_file($siteFile, Canon::encode($site));
+    }
+
+    /**
+     * The loader's own option grammar, run at the write boundary (DUO-3496).
+     *
+     * `classify` used to write `options.<key> = {"class":"authored"}` and
+     * exit 0; the very next command refused the document it had just
+     * produced — "site.duo.json options.legacy_banner needs autoload=preserve
+     * or an explicit supported autoload value", or the env twin demanding an
+     * explicit boolean `required` (agent/src/Grammar/OptionGrammar.php:76-96
+     * and :42-56) — because SitePolicyValidator runs both on every
+     * Policy::load(). Running them here, with the same 'site.duo.json' label,
+     * makes the refusal identical but arrives before the bytes land, so
+     * nothing has to be repaired by hand.
+     *
+     * Scoped to the ONE rule being written plus the document's own
+     * `option_autoload` default rather than the whole policy: an already
+     * incomplete row elsewhere (written by the defect this fixes) must not
+     * block the classify that repairs a different key, and the default is the
+     * legitimate site-level way an operator can already have answered the
+     * autoload question for every row at once (proven offline: a
+     * `policy.option_autoload` document accepts an authored rule with no
+     * per-row flag).
+     *
+     * @param array<string,mixed> $rule
+     * @param array<string,mixed> $policy the site document's `policy` object
+     */
+    private static function assert_option_rule_loads(string $key, array $rule, array $policy): void {
+        $class = $rule['class'] ?? '';
+        // An inert field is a decision that silently does nothing: the grammar
+        // reads `autoload` only for authored/managed rules and `required` only
+        // for env rules, so accepting either anywhere else would record an
+        // operator's answer that no consumer ever asks for.
+        if (array_key_exists('autoload', $rule) && !in_array($class, ['authored', 'managed'], true)) {
+            throw new \RuntimeException(
+                "duo: options.$key declares autoload with class=$class; the storage flag is read only for authored and managed option rules"
+            );
+        }
+        if (array_key_exists('required', $rule) && $class !== 'env') {
+            throw new \RuntimeException(
+                "duo: options.$key declares required with class=$class; the provisioning decision is read only for env option rules"
+            );
+        }
+        $probe = ['options' => [$key => $rule]];
+        if (array_key_exists('option_autoload', $policy)) {
+            $probe['option_autoload'] = $policy['option_autoload'];
+        }
+        OptionGrammar::validate_option_storage($probe, 'site.duo.json');
+        OptionGrammar::validate_env_options($probe, 'site.duo.json');
     }
 
     /**
