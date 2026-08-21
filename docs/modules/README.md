@@ -53,7 +53,7 @@ Not a module: `cli/duo` stays at `cli/duo` (the extensionless executable), and `
 
 ## Rules
 
-1. **Every file belongs to exactly one module.** All 225 `agent/src` files and all 76 `cli/src` files are
+1. **Every file belongs to exactly one module.** All 226 `agent/src` files and all 76 `cli/src` files are
    assigned in `tools/modules.json`; the assignment is validated against `git ls-files agent/src cli/src`.
 2. **A module has exactly one layer.** That is the invariant that lets a directory-level dependency lint
    read a file's layer straight off its module. **DUO-3493 retired `tools/layers.json`**: its file-level
@@ -99,7 +99,7 @@ Not a module: `cli/duo` stays at `cli/duo` (the extensionless executable), and `
 Computed from the real reference graph (the `declarations()`/`references()` token scanner from
 `sandbox/tests/offline/guards/regress_agent_src_requires.php`) **at the move**, over the 272 files it moved
 (agent 224 + cli 48): 1,065 file→file edges, of which 764 cross a module boundary. Those two totals are a
-dated snapshot and have not been re-derived since; the tree is 225 + 76 = 301 files today. The *shape*
+dated snapshot and have not been re-derived since; the tree is 226 + 76 = 302 files today. The *shape*
 below is what this section is for, and it is re-checkable from `tools/modules.json` at any time.
 
 - **`cli` is a clean DAG.** All twelve cli modules are acyclic and have zero exceptions.

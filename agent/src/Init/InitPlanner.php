@@ -13,6 +13,7 @@ require_once __DIR__ . '/InitRepositoryBoundary.php';
 require_once __DIR__ . '/InitSiteProbe.php';
 require_once __DIR__ . '/../Policy/ManifestDispositions.php';
 require_once __DIR__ . '/../Policy/Policy.php';
+require_once __DIR__ . '/../Policy/ScopeAdoption.php';
 require_once __DIR__ . '/../Repository/RepositoryCompiler.php';
 
 /**
@@ -662,6 +663,12 @@ final class InitPlanner {
      * exactly those types (T7 grind A4), because a DECLARED type is not left
      * local either. Init is the site's opt-in.
      *
+     * The per-manifest half of that reading is `ScopeAdoption::
+     * declared_authored()`, shared with the post-init opt-in `duo adapter
+     * certify --pin` performs (DUO-3495): an adapter that arrives after init
+     * has to mean the same thing to the site's scope as one selected during
+     * it, and two copies of "declared authored" would eventually disagree.
+     *
      * @param list<string> $selected
      * @param array<string,array<string,mixed>> $manifests
      * @return array{post_types:list<string>,taxonomies:list<string>}
@@ -674,16 +681,9 @@ final class InitPlanner {
             if (!is_array($manifest)) {
                 continue;
             }
-            foreach (($manifest['post_types'] ?? []) as $postType => $rule) {
-                if (is_array($rule) && ($rule['class'] ?? 'authored') === 'authored') {
-                    $postTypes[] = (string) $postType;
-                }
-            }
-            foreach (($manifest['taxonomies'] ?? []) as $taxonomy => $rule) {
-                if (is_array($rule) && ($rule['class'] ?? 'authored') === 'authored') {
-                    $taxonomies[] = (string) $taxonomy;
-                }
-            }
+            $declared = ScopeAdoption::declared_authored($manifest);
+            $postTypes = array_merge($postTypes, $declared['post_types']);
+            $taxonomies = array_merge($taxonomies, $declared['taxonomies']);
         }
         $postTypes = array_values(array_unique($postTypes));
         $taxonomies = array_values(array_unique($taxonomies));

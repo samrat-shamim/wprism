@@ -239,8 +239,8 @@ Usage:
   duo adapter doctor [--repo=<site-repo>] [--format=json]
   duo adapter keygen --out=<secret-key-file> [--key-id=<id>]
   duo adapter certify <site-repo> --name=<n> --secret-key-file=<f>
-                      [--key-id=<id>] [--reason=<text>] [--pin]
-  duo adapter pin <site-repo> --name=<n> [--source=site|plugin]
+                      [--key-id=<id>] [--reason=<text>] [--pin [--adopt-scope]]
+  duo adapter pin <site-repo> --name=<n> [--source=site|plugin] [--adopt-scope]
   duo adapter-observe <env> [--out=<local-file>|--format=json]
   duo doctor <env>
   duo driver-capabilities <env> [--operation=<workflow>] [--format=json]

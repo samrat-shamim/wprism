@@ -539,8 +539,24 @@ check(
     ),
     'generic target init has no plugin-name branch'
 );
-check(str_contains($plannerSource, "(\$rule['class'] ?? 'authored') === 'authored'"), 'post-type scope expands only from authored manifest rulings — explicit, or structural (classless, which the policy reads as authored)');
-check(substr_count($plannerSource, "(\$rule['class'] ?? 'authored') === 'authored'") >= 2, 'post-type and taxonomy scope expand from authored manifest rulings — explicit or structural — and from nothing else');
+// DUO-3495 moved the rule itself into Duo\ScopeAdoption so the post-init
+// opt-in (`duo adapter certify --pin`) reads a manifest the same way init
+// does. Assert it in its new home AND that init reaches it rather than
+// keeping a second copy: two readings of "declared authored" that drift is
+// exactly the failure this consolidation prevents.
+$scopeAdoptionSource = (string) file_get_contents(__DIR__ . '/../../../../agent/src/Policy/ScopeAdoption.php');
+check(str_contains($scopeAdoptionSource, "(\$rule['class'] ?? 'authored') === 'authored'"), 'post-type scope expands only from authored manifest rulings — explicit, or structural (classless, which the policy reads as authored)');
+check(
+    str_contains($plannerSource, 'ScopeAdoption::declared_authored($manifest)')
+        && !str_contains($plannerSource, "(\$rule['class'] ?? 'authored') === 'authored'"),
+    'init reads that one rule instead of restating it'
+);
+check(
+    str_contains($scopeAdoptionSource, "foreach (['post_types', 'taxonomies'] as \$section)")
+        && substr_count($scopeAdoptionSource, "(\$rule['class'] ?? 'authored') === 'authored'") === 1,
+    'post-type and taxonomy scope expand from authored manifest rulings — explicit or structural — and from nothing else, '
+    . 'now through ONE expression applied to both sections rather than two copies that can drift'
+);
 $lockedRecheck = strrpos($confirmationSource, 'InitPlanner::assert_confirmed_proposal($proposal, $expectedDigest);');
 $siteWrite = $lockedRecheck === false ? false : strpos($confirmationSource, '$sitePublication = InitOwnedArtifacts::publish_owned_file(', $lockedRecheck);
 check($lockedRecheck !== false && $siteWrite !== false && $lockedRecheck < $siteWrite, 'under-lock digest recheck precedes the site-config write');

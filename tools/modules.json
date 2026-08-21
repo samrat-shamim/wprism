@@ -152,7 +152,8 @@
           "ScopeClosure",
           "ArtifactPolicyIdentity",
           "ScopeDiscovery",
-          "PolicyRuleResolver"
+          "PolicyRuleResolver",
+          "ScopeAdoption"
         ],
         "depends_on": [
           "Kernel",
@@ -243,7 +244,7 @@
             ]
           }
         ],
-        "file_count": 18,
+        "file_count": 19,
         "files": [
           "ArtifactPolicyIdentity.php",
           "CodeConfigGrammar.php",
@@ -258,6 +259,7 @@
           "PolicyLoadFinalizer.php",
           "PolicyRuleResolver.php",
           "PolicyWriter.php",
+          "ScopeAdoption.php",
           "ScopeClosure.php",
           "ScopeContract.php",
           "ScopeDiscovery.php",

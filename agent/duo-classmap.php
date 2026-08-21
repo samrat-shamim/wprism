@@ -193,6 +193,7 @@ return [
     'Duo\\RepositoryReferenceGraphValidator' => 'src/Repository/RepositoryReferenceGraphValidator.php',
     'Duo\\RepositorySchemaValidator' => 'src/Repository/RepositorySchemaValidator.php',
     'Duo\\RepositoryStateFileCatalog' => 'src/Repository/RepositoryStateFileCatalog.php',
+    'Duo\\ScopeAdoption' => 'src/Policy/ScopeAdoption.php',
     'Duo\\ScopeClosure' => 'src/Policy/ScopeClosure.php',
     'Duo\\ScopeContract' => 'src/Policy/ScopeContract.php',
     'Duo\\ScopeDiscovery' => 'src/Policy/ScopeDiscovery.php',
