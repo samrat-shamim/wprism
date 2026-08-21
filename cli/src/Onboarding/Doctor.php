@@ -125,6 +125,28 @@ final class Doctor {
                         . 'exit non-zero, meaning untracked/absent).',
                     true
                 );
+            } elseif ($r['exit'] !== 0 || ($out !== 'duo-tracked' && $out !== 'duo-untracked')) {
+                // DUO-3512: the script above is built entirely from shell && / ||, so a
+                // transport/shell failure (non-zero exit, empty or truncated stdout) reaches
+                // here having produced none of the three sentinels the two branches around
+                // this one assume. Before this branch existed, `$tracked = ($out ===
+                // 'duo-tracked')` read that as false and this whole check rendered [PASS] —
+                // a false clean bill of health from a probe that never actually ran, exactly
+                // the failure mode the duo-nogit branch's own comment above (:98-110) exists
+                // to rule out for the git-absent case specifically. That comment's "when it
+                // CAN be checked" covers "git is missing"; it does not cover "the probe
+                // errored out or returned garbage", so this is a second, sibling branch
+                // rather than a fold-in: same non-blocking WARN vocabulary and manual-
+                // verification remedy, naming that the probe didn't complete rather than
+                // that git is absent.
+                $checks[] = self::check(
+                    '.duo-env-values.json not git-tracked', false,
+                    'could not verify — the tracked-status probe did not run (' . self::reason($r) . '). '
+                        . 'Verify manually (from a machine with a checkout of this repo): git -C <checkout> '
+                        . 'ls-files --error-unmatch .duo-env-values.json (should exit non-zero, meaning '
+                        . 'untracked/absent).',
+                    true
+                );
             } else {
                 $tracked = $out === 'duo-tracked';
                 $detail = $tracked
