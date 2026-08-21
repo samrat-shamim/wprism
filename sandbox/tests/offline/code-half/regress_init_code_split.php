@@ -477,6 +477,42 @@ $printed = (string) ob_get_clean();
 duo_check_same(null, $lockPlan, 'a site with no lockable component proposes no lock and contacts nothing');
 duo_check(str_contains($printed, 'no lockable plugin or theme component'), 'and says so');
 
+// ---------------------------------------------------------------------------
+// E. The capture-lock name is never rebound by the code-lock write.
+// ---------------------------------------------------------------------------
+
+// InitConfirmation's full transaction needs a loaded WordPress and a live
+// $wpdb, so it cannot run here -- but the defect this pins is structural and
+// therefore is pinnable. `$lockPath` is bound once, ~340 lines before the code
+// lock is published, to the state.capture.lock this transaction holds, and is
+// read again AFTER the capture payload is staged to prove the lock pathname
+// still names the held inode. DUO-3499 shipped the code-lock write reusing that
+// same variable name, which pointed that gate at code/duo-code.lock.json and
+// made it refuse every split init with "capture lock pathname no longer names
+// the held lock inode" -- a split init could not complete at all. The invariant
+// is "the capture-lock name is assigned exactly once, and to the capture lock",
+// so that is what this asserts, rather than the absence of one bad spelling.
+$confirmationSource = (string) file_get_contents(__DIR__ . '/../../../../agent/src/Init/InitConfirmation.php');
+preg_match_all('/\$lockPath\s*=(?!=)/', $confirmationSource, $lockPathAssignments);
+duo_check_same(
+    1,
+    count($lockPathAssignments[0]),
+    'InitConfirmation binds $lockPath exactly once, so no later write can retarget the capture-lock gate'
+);
+duo_check(
+    str_contains($confirmationSource, '$lockPath = Publish::lock_path($stateDir);'),
+    'and binds it to the state.capture.lock this transaction holds'
+);
+duo_check(
+    str_contains($confirmationSource, "InitOwnedArtifacts::regular_file_identity(\$lockPath, 'state.capture.lock')"),
+    'so the post-staging re-verification still identifies the capture lock by that name'
+);
+duo_check(
+    str_contains($confirmationSource, "\$codeLockPath = \$codeRoot . '/' . basename(CodeSourceLock::PATH);")
+        && str_contains($confirmationSource, 'Canon::write_file($codeLockPath, CodeSourceLock::encode($lockRows));'),
+    'and the code lock is published through its own distinct path variable'
+);
+
 remove_tree($scratch);
 
 duo_check_summary('regress_init_code_split');

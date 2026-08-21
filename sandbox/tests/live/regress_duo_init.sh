@@ -550,10 +550,19 @@ set +e
 wait "$SWAP_DIR_PID"; SWAP_DIR_CODE=$?
 set -e
 [ "$SWAP_DIR_CODE" -ne 0 ] || fail "post-proposal ordinary-directory replacement unexpectedly initialized"
-[ -z "$(find "$HOST_REPO/swap-directory" -mindepth 1 -maxdepth 1 -print -quit)" ] \
-  || fail "replacement ordinary directory received a repository write before digest refusal"
-[ -z "$(find "$HOST_REPO/swap-directory-reviewed" -mindepth 1 -maxdepth 1 -print -quit)" ] \
-  || fail "reviewed ordinary directory retained a failed-init write"
+# The cleanup below removes both directories, so a failure that only says
+# "received a write" leaves the next reader with nothing to diagnose (it did,
+# once). Name the entries and the refusal in the failure itself.
+SWAP_DIR_WROTE=$(find "$HOST_REPO/swap-directory" -mindepth 1 -maxdepth 1 2>/dev/null | head -20)
+SWAP_REVIEWED_WROTE=$(find "$HOST_REPO/swap-directory-reviewed" -mindepth 1 -maxdepth 1 2>/dev/null | head -20)
+[ -z "$SWAP_DIR_WROTE" ] \
+  || fail "replacement ordinary directory received a repository write before digest refusal:
+$SWAP_DIR_WROTE
+the refused init's own answer was:
+$(cat "/tmp/${PAIR}-init-root-directory.log" 2>&1)"
+[ -z "$SWAP_REVIEWED_WROTE" ] \
+  || fail "reviewed ordinary directory retained a failed-init write:
+$SWAP_REVIEWED_WROTE"
 rmdir "$HOST_REPO/swap-directory" "$HOST_REPO/swap-directory-reviewed"
 [ "$(wp1 db query "SHOW TABLES LIKE 'wp_duo_%'" --skip-column-names | wc -l | tr -d ' ')" = "0" ] \
   || fail "root replacement tests created ledger tables"
