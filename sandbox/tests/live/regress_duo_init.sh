@@ -828,14 +828,37 @@ $jwt = "eyJ" . str_repeat("A", 700) . ".eyJ" . str_repeat("B", 24) . ".signature
 $payload = str_repeat("x", 32067) . "\n" . $jwt;
 file_put_contents(WP_PLUGIN_DIR . "/woocommerce/duo-init-jwt.php", $payload);
 ' >/dev/null
-assert_exit 2 "cross-chunk JWT blocks init" "${DUO[@]}" init "${PAIR}1" --yes
-grep -q 'credential_bearing_code_file' <<<"$OUT" || fail "JWT blocker omitted its reason code"
-grep -q 'jwt' <<<"$OUT" || fail "JWT blocker omitted its redacted label"
-! grep -q 'eyJAAAA' <<<"$OUT" || fail "JWT blocker exposed the credential value"
-[ ! -e "$HOST_REPO/site.duo.json" ] && [ ! -d "$HOST_REPO/state" ] \
-  || fail "cross-chunk JWT proposal mutated the repository"
+# DUO-3519: this case asserted exit 2 until 2026-08-21. It has not blocked
+# since #476 (2026-08-19), which deliberately reclassified a COMPLETE JWT in
+# shipped code from blocking to advisory: shipped code carries public tokens
+# (Yoast's OIDC software statement, id-token fixtures) far more often than live
+# credentials, and the hard block refused `duo init` on every site running that
+# plugin (T7 grind A4). The rationale and the line it draws live on
+# InitCodeInventory::ADVISORY_SECRET_LABELS, and InitCodeBaseline's staged-code
+# gate already agrees with it through blockingSecretLabel().
+#
+# The SUBJECT of the case is unchanged and is why it still exists: a JWT that
+# straddles the 32KB streaming read must still be FOUND. Detection is now
+# visible as the advisory rather than as a refusal, so that is what is asserted
+# -- named, redacted, and explicitly not the blocking reason code.
+assert_exit 0 "cross-chunk JWT is an advisory, not a blocker" "${DUO[@]}" init "${PAIR}1" --yes
+grep -q 'jwt_in_code_file' <<<"$OUT" || fail "cross-chunk JWT advisory omitted its reason code"
+grep -q 'advisories (init proceeds' <<<"$OUT" \
+  || fail "cross-chunk JWT was not reported under the advisories heading"
+! grep -q 'credential_bearing_code_file' <<<"$OUT" \
+  || fail "cross-chunk JWT was reported as a blocking credential after #476 made it advisory"
+! grep -q 'eyJAAAA' <<<"$OUT" || fail "cross-chunk JWT advisory exposed the credential value"
+[ -f "$HOST_REPO/site.duo.json" ] && [ -d "$HOST_REPO/state" ] \
+  || fail "advisory-only init did not publish its baseline"
 wp1 eval 'unlink(WP_PLUGIN_DIR . "/woocommerce/duo-init-jwt.php");' >/dev/null
-pass "bounded JWT matcher covers streaming chunk boundaries"
+# The advisory init SUCCEEDED, so it left a complete baseline and a ledger. The
+# cases below assume a pristine repository -- the next one mkdirs state/ and
+# media/ to prove they block -- so reset both, the same way every other
+# completed-init case in this file does.
+repo_host 1
+find "$HOST_REPO" -mindepth 1 -delete
+wp1 db query 'DROP TABLE IF EXISTS wp_duo_journal,wp_duo_kv,wp_duo_map,wp_duo_state' >/dev/null
+pass "bounded JWT matcher covers streaming chunk boundaries and states the finding without blocking"
 
 say "foreign state, media, capture receipts, and non-pristine ledger ownership refuse before writes"
 mkdir -p "$HOST_REPO/state" "$HOST_REPO/media"
