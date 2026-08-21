@@ -335,7 +335,7 @@ final class LifecyclePlanner {
     }
 
     /**
-     * DUO-3231 (docs/proposals/code-half.md's risk register #1, "wp-admin/
+     * DUO-3231 (docs/code-half.md's risk register #1, "wp-admin/
      * filesystem-initiated updates are silent code drift, and detection
      * alone is not a fix"): a SEPARATE question from code_mismatch() above.
      * code_mismatch asks "is what's installed compatible with what the

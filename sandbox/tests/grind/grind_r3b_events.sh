@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Grind round R3-B (task #91) — an events + memberships site: The Events
 # Calendar (free, wp.org) + Paid Memberships Pro (free, but no longer on
-# wp.org — see docs/grind/r3b-events-memberships.md) stress-testing the
+# wp.org — installed from the author's own GitHub release tag, see below)
+# stress-testing the
 # brand-new typed-snapshot custom-table grammar (agent/src/Repository/Snapshot.php,
 # task #75) against schemas it was NOT designed around. Three distinct
 # engine gaps were found this round: (1) TEC's tec_events/tec_occurrences
@@ -328,7 +329,7 @@ $GIT_1 push -q origin main
 say "round-trip: clone into ${PAIR}2, deploy, plan, apply (adopt installer collisions)"
 git clone -q "$ORIGIN" "$HOST2"
 # DUO-3216/DUO-3250: deploy runs BEFORE plan/apply, matching the documented
-# deploy-before-apply contract (docs/proposals/code-half.md §3.4) and the
+# deploy-before-apply contract (docs/code-half.md §3.4) and the
 # exact ordering grind_r1b_shop.sh's own PR #14 fix established for this
 # same class of scenario. This reorder is proactive, not reactive to a live
 # failure here: TEC+PMPro install identically active on both r3b1/r3b2

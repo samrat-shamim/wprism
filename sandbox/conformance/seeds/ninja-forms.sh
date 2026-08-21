@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Ninja Forms manifest conformance seed (task #75, docs/grind/r1a-forms.md):
+# Ninja Forms manifest conformance seed (task #75, grind round R1-A):
 # imports the plugin's own bundled "Job Application" template (23 fields, 3
 # actions) through its REAL admin import batch process
 # (NF_Admin_Processes_ImportForm — the exact class wp-admin's "Add New Form"
@@ -10,7 +10,7 @@
 set -euo pipefail
 
 # Ninja Forms auto-creates a default "Contact Me" sample form on activation —
-# confirmed live, also noted in docs/grind/r1a-forms.md ("nobody asked for
+# confirmed live in grind round R1-A ("nobody asked for
 # it"). install_env() activates the plugin on conf1 (role=author) before
 # this seed ever runs, so conf1 already has its own "Contact Me" row by now.
 # nf3_forms is a "mapped"-identity table (no natural key exists for "the

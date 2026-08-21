@@ -1,6 +1,8 @@
 # Engine core, adapter packages, and the WordPress SDLC — boundary doctrine
 
-*Owner ruling — 2026-08-09, refreshed for the product-first program tracked in
+*Owner ruling — 2026-08-09; promoted to canonical documentation at this path
+2026-08-21, its § numbering load-bearing because six shipped source sites cite
+it by name. Refreshed for the product-first program tracked in
 Linear's [Engine/Adapter Boundary & WordPress SDLC](https://linear.app/duotronic/project/engineadapter-boundary-and-wordpress-sdlc-c0fdf8775799)
 project. The project description and its “Fresh product and architecture
 roadmap” are the companion planning authority. Historical issue sequencing is

@@ -125,8 +125,8 @@ final class TermMaterializer {
      * resolved back through the ledger and re-serialized with PHP's OWN
      * serialize() — so int-typed ids come back as `i:N;`, matching
      * Polylang's own writes byte-for-byte in TYPE, not just in decoded
-     * value (docs/frontier/polylang.md verified this column is genuinely
-     * int-typed, not the digit-string convention ACF/Yoast use elsewhere).
+     * value (verified empirically: this column's ids are genuinely int-typed
+     * `i:N;`, not the digit-string convention ACF/Yoast use elsewhere).
      * Every other taxonomy keeps the plain detokenize_text() treatment.
      */
     public function encode_description(string $taxonomy, $description): string {
@@ -144,10 +144,12 @@ final class TermMaterializer {
 
     /**
      * Term-keyspace symmetry of Apply's own reconcile_relationships(): a
-     * term's own membership in OTHER taxonomies as object_id (docs/frontier/
-     * polylang.md's "term-object relationship capture/apply" — Polylang's
-     * term_language/term_translations). Scoped to $termObjectTaxes — the
-     * same manifest-keyspace collision guard reconcile_relationships() applies
+     * term's own membership in OTHER taxonomies as object_id — a relationship
+     * type the data model had no room for until Polylang's
+     * term_language/term_translations forced it, since those rows store a
+     * TERM id in the column every other taxonomy fills with a POST id.
+     * Scoped to $termObjectTaxes — the same manifest-keyspace collision guard
+     * reconcile_relationships() applies
      * for posts — so this never touches a colliding POST's own
      * relationship rows just because the numeric id matches. Two-phase-
      * safe for free: this only ever runs in phase 2 (finalize_term()),

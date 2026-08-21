@@ -206,7 +206,7 @@ rm -rf siterepo/r1a1 && mkdir -p siterepo/r1a1
 # naming CF7's own seven postmeta keys (_form/_mail/_mail_2/_messages/
 # _additional_settings/_hash/_locale) as unclassified. manifests/contact-
 # form-7.json already declares all seven as authored -- built during the
-# ORIGINAL R1-A grind round (docs/grind/r1a-forms.md) and empirically
+# ORIGINAL R1-A grind round and empirically
 # verified then -- and its own note already says "wpcf7_contact_form must
 # be added to site.duo.json's policy.post_types for any of this to take
 # effect": post_types already had it (below), but the manifest declaring
@@ -357,7 +357,7 @@ $GIT_1 push -qu origin main
 say "round-trip: clone into r1a2, deploy, plan, apply"
 rm -rf siterepo/r1a2 && mkdir -p siterepo/r1a2
 git clone -q siterepo/origin-r1a.git siterepo/r1a2
-# DUO-3216/DUO-3250: deploy runs BEFORE plan/apply (docs/proposals/code-half.md
+# DUO-3216/DUO-3250: deploy runs BEFORE plan/apply (docs/code-half.md
 # §3.4), mirroring grind_r3b_events.sh's own PR #14-established ordering.
 # Proactive here too: CF7+Ninja Forms install identically active on both
 # r1a1/r1a2 (install_env runs on both sides), so Deploy::code_mismatch()

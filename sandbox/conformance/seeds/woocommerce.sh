@@ -24,7 +24,7 @@
 #
 # A VARIABLE product with global attributes (pa_size/pa_color) is added
 # below — task #92/#117's own recommendation, deliberately deferred until
-# taxonomy_patterns shipped (docs/grind/r1b-shop.md's original conformance-
+# taxonomy_patterns shipped (grind round R1-B's original conformance-
 # extension note flagged this needed a generic "pre-provision named global
 # attributes" setup hook first; that recommendation is now OBSOLETE, not
 # just unneeded — taxonomy_patterns + task #75's woocommerce_attribute_

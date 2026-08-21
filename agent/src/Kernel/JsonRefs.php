@@ -6,12 +6,13 @@ require_once __DIR__ . '/ReferencePath.php';
 /**
  * Minimal JSON-path-style primitive shared by json_refs (rewrite a scalar/
  * array id at a declared path) and key_refs (rewrite a map's own KEYS at a
- * declared path) — task #11 wave 2 / docs/frontier/elementor.md's proposed
- * "JSON-path id-ref declarations for postmeta", generalized to options too
- * (docs/frontier/polylang.md's `polylang` option finding, design-review-v0
- * finding #9). Also used by Lint::scan_tree() to know which locators a
- * declaration already "owns" (declared paths clean, undeclared paths in the
- * same structure still flagged — see Lint.php).
+ * declared path) — task #11 wave 2. Shaped by Elementor's `_elementor_data`
+ * postmeta, whose ids sit at nested JSON paths rather than at the value's
+ * root, then generalized to options by Polylang's `polylang` option — one
+ * flat array mixing authored config with a ref-bearing `nav_menus` sub-key
+ * (design-review-v0 finding #9). Also used by Lint::scan_tree() to know which
+ * locators a declaration already "owns" (declared paths clean, undeclared
+ * paths in the same structure still flagged — see Lint.php).
  *
  * Grammar (deliberately minimal — no filters, no explicit array indices;
  * designed from the actual verified samples below, not speculatively):

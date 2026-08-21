@@ -8,7 +8,7 @@ require_once __DIR__ . '/LifecyclePlanner.php';
 require_once __DIR__ . '/StateHandoffVerifier.php';
 
 /**
- * docs/proposals/code-half.md §3.4/§6: reconciles active_plugins/template/
+ * docs/code-half.md §3.4/§6: reconciles active_plugins/template/
  * stylesheet (managed-class core-manifest options, see manifests/core.json)
  * against the environment's actual state, using real WP APIs —
  * activate_plugin()/deactivate_plugins()/switch_theme() — so their

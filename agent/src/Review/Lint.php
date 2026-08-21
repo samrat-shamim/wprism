@@ -10,15 +10,15 @@ require_once __DIR__ . '/LintFinding.php';
 require_once __DIR__ . '/../Repository/StateTreeWalker.php';
 
 /**
- * The generalized suspicious-ref linter (task #11's linter half; docs/
- * frontier/{fse,polylang,elementor}.md — each independently proved that
+ * The generalized suspicious-ref linter (task #11's linter half). The FSE,
+ * Polylang and Elementor frontier explorations each independently proved that
  * byte-identical round-tripping reports "clean" on real corruption the
  * moment a ref-shaped value reaches canonical state without ever passing
  * through a declared rewrite path: both sides just encode the same wrong
- * bytes, and the diff comes back empty). Pending::ref_hint() was this
+ * bytes, and the diff comes back empty. Pending::ref_hint() was this
  * check's seed — one key, one current live value. Lint::scan_tree()
- * generalizes it to a whole captured state tree, across every canonical surface the
- * three frontier explorations independently found broken.
+ * generalizes it to a whole captured state tree, across every canonical
+ * surface those three explorations found broken.
  *
  * scan_tree() reads a CAPTURED state tree from disk — the canonical files
  * are the honest input, because anything id-shaped or env-URL-shaped that

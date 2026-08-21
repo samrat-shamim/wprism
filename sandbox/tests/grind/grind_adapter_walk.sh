@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Operator-authored adapters — the four-scenario walk (round-3 T6 §4).
 #
-# Contract: docs/proposals/round-3-adapter-walk.md. That document is binding on
+# Contract: docs/grind/adapter-walk.md, with the certification bundle's wire
+# format in docs/adapter-walk-bundle.md. Those documents are binding on
 # both sides: the walk asserts the words, the product emits them. Where the
 # contract left a spelling open this script chose one and recorded it in "words
 # this walk asserts" below, so the product builders can match a table rather

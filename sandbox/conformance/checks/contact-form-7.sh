@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Contact Form 7 render-level acceptance (Grind R1-A, docs/grind/r1a-forms.md):
+# Contact Form 7 render-level acceptance (Grind R1-A):
 # byte-identical canonical state alone doesn't prove the shortcode actually
 # resolves on the target environment — CF7 embeds a persisted _hash, not the
 # numeric post id, so this check confirms conf2's OWN rendered form carries

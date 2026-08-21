@@ -500,8 +500,13 @@ final class Tokens {
     }
 
     // ---- structured (JSON-path) refs: json_refs + key_refs ----
-    // (task #11 wave 2 / docs/frontier/elementor.md, docs/frontier/
-    // polylang.md's `polylang` option finding, design-review-v0 finding #9)
+    // (task #11 wave 2; design-review-v0 finding #9.) Two independently
+    // measured shapes forced this: Elementor's `_elementor_data` postmeta,
+    // a JSON *string* carrying a bare numeric attachment id at
+    // `settings.image.id` beside a redundant absolute URL, and Polylang's
+    // `polylang` option, one flat array mixing authored config with a
+    // ref-bearing `nav_menus` sub-key. Neither ref sits at the value's root,
+    // so no whole-value `ref` declaration can reach either.
     //
     // Operate on an already-DECODED native structure — Capture/Apply own
     // deciding HOW to decode/re-encode the raw stored value (a JSON-text

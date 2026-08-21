@@ -5,8 +5,8 @@
 # post_type/taxonomy was never added to policy scope, so it was never
 # minted a uuid). Before this task, BOTH cases warn-and-dropped the whole
 # option silently (`duo capture` exited 0) — the exact
-# elementor_active_kit-out-of-scope shape docs/grind/r1c-agency.md
-# escalated. Only UNSCOPED is fixed here: it's a policy gap a human can
+# elementor_active_kit-out-of-scope shape grind round R1-C
+# escalated (task #73). Only UNSCOPED is fixed here: it's a policy gap a human can
 # actually close, so it now aborts capture by default (same posture as the
 # unclassified-meta gate), with `--force-unresolved-refs` as the explicit
 # best-effort escape hatch. DANGLING must keep warning-and-dropping exactly

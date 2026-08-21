@@ -15,7 +15,7 @@ declare(strict_types=1);
  * sorted and serialized to one deterministic JSON fixture
  * (sandbox/tests/fixtures/api-surface.json). tests/Tooling/ApiSurfaceTest.php
  * pins `--check` against that committed fixture, so a decomposition PR
- * (docs/proposals/engine-adapter-boundary.md; DUO-3335 byte-compatibility
+ * (docs/adapter-boundary.md; DUO-3335 byte-compatibility
  * posture) that silently drops, narrows, or renames a method some OTHER file
  * still calls fails a fast, offline PHPUnit assertion instead of surfacing
  * three call-sites deep in the offline corpus -- or not surfacing

@@ -320,7 +320,8 @@ git -C "$R1" push -qu origin main
 # Generalized suspicious-ref linter (agent/src/Review/Lint.php / `wp duo lint`):
 # flags ref-shaped values that reached canonical state without a declared
 # rewrite path — exactly the blind spot the byte-diff acceptance checks
-# below cannot see (docs/frontier/{fse,polylang,elementor}.md). HARD GATE:
+# below cannot see (the FSE, Polylang and Elementor frontier explorations
+# each hit it). HARD GATE:
 # all in-tree manifests run clean against it; a finding here means either a
 # manifest gap or a genuinely dangling/unrewritten ref — both are failures.
 say "lint conf1's captured state (hard gate)"
@@ -462,7 +463,7 @@ pass "canonical state identical across environments"
 # Manifest-specific render-level acceptance (conformance/checks/<name>.sh,
 # optional): byte-identical canonical state is necessary but not sufficient
 # once a ref-shaped value is invisible to the tokenizer — source and target
-# would then simply encode the same wrong bytes (docs/frontier/fse.md's
+# would then simply encode the same wrong bytes (the FSE exploration's
 # core methodological finding). Checks curl the live conf2 site and grep
 # rendered output, not state/, so they catch what a byte-diff cannot.
 CHECK="conformance/checks/$MANIFEST.sh"

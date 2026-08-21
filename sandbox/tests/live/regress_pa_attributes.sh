@@ -24,8 +24,9 @@
 # variation data with zero manual pre-provisioning.
 #
 # Runs against the existing r3e pair (already up for tasks #92/#93; own
-# WooCommerce install, own Duo Tee variable-product fixture — see
-# docs/grind's r3-eng-woo report). Touches NEITHER r3e1's nor r3e2's real
+# WooCommerce install, own Duo Tee variable-product fixture). This script IS
+# the ongoing acceptance record: each assertion below states what it pins.
+# Touches NEITHER r3e1's nor r3e2's real
 # site-repo git history: every capture below targets a throwaway scratch
 # repo directory inside the same bind mount (--repo=/siterepo/.tmp-*,
 # --out=.../state-out, which Capture::run() documents as skipping ledger

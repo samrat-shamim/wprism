@@ -22,6 +22,8 @@ The normative wire contract is not here — it is
 | [recovery-runtime.md](recovery-runtime.md) | The WordPress-independent PHP recovery runtime and its maintenance-exclusion provider contract. |
 | [checkpoint-bundle.md](checkpoint-bundle.md) · [code-release-runtime.md](code-release-runtime.md) · [upload-bundle.md](upload-bundle.md) · [effect-bundle.md](effect-bundle.md) | The four provider slices of verified SSH rollback: database before-image, code before-image, uploads/media, lifecycle-and-rebuild effects. |
 | [ssh-rollback-certification.md](ssh-rollback-certification.md) | The local certification harness that gates that design. |
+| [assess-vocabulary.md](assess-vocabulary.md) | The six product words `duo assess`, `.duo/contract/projection.json`, the frozen authorization plan and a release refusal all speak. `sandbox/tests/offline/assess-contract/regress_assess_projection.php` is the gate on every cell. |
+| [adapter-walk-bundle.md](adapter-walk-bundle.md) | The wire contract for a site-adapter certification bundle: what `duo adapter certify` must produce and `\Duo\AdapterCertification` verifies, rule by rule. |
 | [compatibility-baseline.json](compatibility-baseline.json) | **Data, not prose** — read at runtime by `cli/src/Onboarding/Doctor.php`. Do not treat it as a document. |
 
 ## Working in this repo
@@ -30,8 +32,19 @@ The normative wire contract is not here — it is
 |---|---|
 | [dev-setup.md](dev-setup.md) | Fresh checkout to a green gate: prerequisites, gotchas, measured wall times. |
 | [sandbox.md](sandbox.md) | The test estate — the pair model, the five execution classes under `sandbox/tests/`, and which gate runs what. |
+| [grind/](grind/README.md) | **Live specifications, not history.** Six documents, each specifying a runnable harness and naming its `make` target (`grind-mup`, `grind-adapter-walk`, `grind-adoption`, `grind-code-half-first-sync`, `grind-ecommerce-developer-live`, `regress-adapter-authoring-live`). All live-only; none runs in `make regress-offline-all`. |
 | [modules/](modules/README.md) | The module map for `agent/src` and `cli/src`: the index, the layer ladder and its ratchet, and a one-page charter per module. Projected from [`tools/modules.json`](../tools/modules.json), which is the machine-readable authority. |
 | [agents/](agents/linear-loop.md) | This repo's own dispatch protocol for coding agents: claim gate, evidence scoping, close gate. Internal process, not product. |
+
+## Design doctrine
+
+Living rulings, not history. Both are cited by `§` number from shipped source,
+so their section numbering is load-bearing: extend it, never renumber it.
+
+| Path | What it is |
+|---|---|
+| [code-half.md](code-half.md) | The `code/` half in full: layout and dependency modes, deploy semantics per transport, the cross-partition invariant (`active_plugins ⊆ plugins in code/`), the plugin-upgrade workflow, engine touchpoints, and the risk register. Nine shipped source citation sites across eight files, `manifests/core.json`'s own note and a `duo doctor` warning string all cite its § numbers. |
+| [adapter-boundary.md](adapter-boundary.md) | The owner ruling on where engine core stops and an adapter package starts: the four extension surfaces, the provider contract, the trust tiers. Six shipped source sites cite it by name. |
 
 ## Engineering history
 
@@ -40,7 +53,10 @@ would leave only the conclusions.
 
 | Path | What it is |
 |---|---|
-| [proposals/](proposals/) | Design proposals as written, at the date written — the boundary doctrine, the code half, verified SSH rollback, and the round-3 program (MUP, the adapter walk, adoption situations). Several are cited from shipped source and their paths are load-bearing. Where a proposal's mechanism has since been retired or renamed, it carries a dated framing note saying so rather than being quietly rewritten. |
-| [frontier/](frontier/) | Gap reports for plugins at the edge of what Duo supports (Elementor, Polylang, FSE): what was tried, what refused, and why. |
-| [grind/](grind/) | Narrative reports from grind runs — realistic multi-plugin stacks walked end to end. **Mixed by design:** ten of them still have a live `make grind-*` target and are re-runnable specs (`r1a`, `r1b`, `r1c`, `r3a`, `r3b`, `mup`, `adapter-walk`, `adoption`, `ecommerce-developer`, `code-half-first-sync`); the rest (`r2-mitigation`, `r3-round`, `code-half`, `code-half-ecosystem`, `duo-3340-adapter-authoring`) are the discovery trail that produced them, with no target. Several are cited by path from shipped manifest note strings, so none of these files may move. |
 | [design-review-v0.md](design-review-v0.md) | The independent adversarial review of the v0 design, before any code was written. Findings 1–27 are folded into `DESIGN.md`; this preserves the register verbatim. |
+
+The round diaries that used to sit under `proposals/`, `frontier/` and
+`grind/` were dissolved on 2026-08-21: every finding they carried was promoted
+into the document, manifest note or code comment that needed it, and the
+narrative shells were deleted rather than left as paths that outlive their
+content. `git log` still has them.

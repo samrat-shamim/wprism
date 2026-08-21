@@ -19,10 +19,12 @@ require_once __DIR__ . '/../Apply/TypedTableMaterializer.php';
  * pick-side replay of FK-bearing custom-table rows corrupts silently, so
  * refusing opaque mode isn't enough; something has to actually capture these
  * tables safely). Primary fixture: Ninja Forms' nf3_forms/nf3_fields/
- * nf3_actions + their _meta twins (task #75, docs/grind/r1a-forms.md).
- * Secondary: WooCommerce's woocommerce_attribute_taxonomies (docs/grind/
- * r1b-shop.md). Both grounded empirically on live installs, not assumed —
- * see the manifests' own notes for the DESCRIBE/data evidence.
+ * nf3_actions + their _meta twins (task #75, grind round R1-A).
+ * Secondary: WooCommerce's woocommerce_attribute_taxonomies (grind round
+ * R1-B). Both grounded empirically on live installs, not assumed — see the
+ * manifests' own notes for the DESCRIBE/data evidence, and
+ * sandbox/tests/grind/grind_r1a_forms.sh / grind_r1b_shop.sh for the runnable
+ * rounds themselves.
  *
  * ---- The two table shapes ----
  *
@@ -119,7 +121,10 @@ require_once __DIR__ . '/../Apply/TypedTableMaterializer.php';
  *   description that it might serve).
  * - `"identity": {"mode": "natural_key", "column": "<col>"}` — for a table
  *   with a confirmed-stable, human-chosen, unique column (WooCommerce's
- *   `attribute_name`: verified in docs/grind/r1b-shop.md). A fresh row's
+ *   `attribute_name`: WooCommerce's own admin/wc-cli create path refuses a
+ *   duplicate name at the application layer, which is what makes it stable in
+ *   practice even though the DB index is merely MUL — verified live in grind
+ *   round R1-B). A fresh row's
  *   uuid is DERIVED, not minted: `Uuid::v5(Uuid::NAMESPACE_DUO,
  *   "<table>:<natural key value>")` — the SAME (table, value) always
  *   produces the SAME uuid. This is BOOTSTRAP identity for a never-seen row;
@@ -290,9 +295,10 @@ require_once __DIR__ . '/../Apply/TypedTableMaterializer.php';
  * `{id}` substitutes the row's own newly-resolved local id. Run once per
  * finalized row, inside the same transaction as the rest of apply (a raw
  * DELETE fires no WordPress hooks, so this needs no special canary
- * carve-out). WooCommerce's analogous hazard (wc_attribute_taxonomies
- * TRANSIENT survives a raw table write, confirmed in docs/grind/
- * r1b-shop.md) needs no equivalent here: it is blanket, not row-id-keyed,
+ * carve-out). WooCommerce's analogous hazard (the wc_attribute_taxonomies
+ * TRANSIENT survives a raw table write and then produces a real "slug already
+ * in use" error against an empty table — confirmed live in grind round R1-B)
+ * needs no equivalent here: it is blanket, not row-id-keyed,
  * so the top-level manifest `"actions"` channel already covers it with zero
  * plugin logic in engine code: the closed native action `transient.delete`,
  * named with `wc_attribute_taxonomies` as structured data — see

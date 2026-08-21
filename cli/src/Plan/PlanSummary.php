@@ -19,8 +19,8 @@ require_once __DIR__ . '/PlanContract.php';
  * below, mirroring agent/src/Command/Cli.php's plan() rendering deliberately (a
  * human reading `duo status` and one reading `wp duo plan` directly must
  * never see different advice for the same plan):
- *   - code_mismatch (agent/src/Promotion/Deploy.php::code_mismatch(), docs/proposals/
- *     code-half.md §3.2): a DIFFERENT row shape —
+ *   - code_mismatch (agent/src/Promotion/Deploy.php::code_mismatch(),
+ *     docs/code-half.md §3.2): a DIFFERENT row shape —
  *     {issue,kind,plugin|theme,message,...}, no uuid/path — so label()
  *     below does not apply to it. `code_revision_stale` is the one
  *     non-forceable member: it names an unfinalized code payload and must

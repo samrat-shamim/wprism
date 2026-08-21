@@ -553,7 +553,7 @@ fwrite(STDOUT, 'ok: every agent/src engine class reference is self-required or d
 // nothing about direction.  agent/src is 225 files across 17 module
 // directories with no autoloader and no package boundary, and the reference
 // graph above puts most of them in one strongly connected component, so the
-// boundary doctrine in docs/proposals/engine-adapter-boundary.md ("engine
+// boundary doctrine in docs/adapter-boundary.md ("engine
 // core ships generic mechanisms"; adapters sit outside it) is today a claim
 // nobody can check by reading.  This section makes it mechanical: every
 // agent/src file sits on exactly one rung of an ordered ladder, and a

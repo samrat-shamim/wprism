@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Elementor manifest conformance seed: reproduces docs/frontier/elementor.md's
-# exact verified fixture (an "image" widget referencing an attachment by id,
-# a "button" widget with an internal link entered as a plain URL — carrying
-# NO id at all, per the report's own finding) and extends it with the two
+# Elementor manifest conformance seed: reproduces the Elementor frontier
+# exploration's exact verified fixture (an "image" widget referencing an
+# attachment by id, a "button" widget with an internal link entered as a
+# plain URL — carrying NO id at all, which is why Elementor itself does not
+# know the link is internal) and extends it with the two
 # additional media-control shapes task #11 wave 2 empirically verified
-# beyond the report (section "background_image", gallery widget
+# beyond it (section "background_image", gallery widget
 # "wp_gallery" — an ARRAY of the same {id,url} shape) so all three declared
 # json_refs paths in manifests/elementor.json are actually exercised, plus
 # elementor_active_kit (the option-ref case the report found already works).
@@ -165,7 +166,7 @@ PHP
 $COMPOSE run --rm -T cli1 wp eval-file /siterepo/.tmp-elementor-seed.php
 rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-elementor-seed.php
 
-# docs/frontier/elementor.md's own finding, reproduced independently this
+# The Elementor frontier finding, reproduced independently this
 # session on fx1/fx2: _elementor_css / _elementor_element_cache / a
 # versioned _elementor_migrations_state_<hash> are created lazily on the
 # page's FIRST front-end render, not at save time — a capture taken before

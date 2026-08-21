@@ -3,7 +3,9 @@
 Driver: [`sandbox/tests/grind/grind_adapter_walk.sh`](../../sandbox/tests/grind/grind_adapter_walk.sh).
 Fixtures: [`sandbox/tests/fixtures/adapter-walk/`](../../sandbox/tests/fixtures/adapter-walk/)
 and the walk-owned plugin [`sandbox/fixtures/acme-catalog/`](../../sandbox/fixtures/acme-catalog/).
-Specification: [round-3 T6 §4](../proposals/round-3-adapter-walk.md).
+This document is the specification the driver implements (originally round-3
+T6); `make grind-adapter-walk` runs it. The certification bundle's wire format
+is [docs/adapter-walk-bundle.md](../adapter-walk-bundle.md).
 
 `grind_mup.sh` proves the loop works for a site whose plugins the platform
 already knows. This proves the other half of the product: an operator whose

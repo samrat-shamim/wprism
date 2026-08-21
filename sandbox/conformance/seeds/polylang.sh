@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Polylang manifest conformance seed: docs/frontier/polylang.md's exact
-# fixture (two languages, one translated category pair, one translated post
-# pair) plus the report's own proposed acceptance-criterion (d) hardening —
+# Polylang manifest conformance seed: the Polylang frontier exploration's
+# exact fixture (two languages, one translated category pair, one translated
+# post pair) plus its own proposed acceptance-criterion (d) hardening —
 # "extend the fixture with an extra unrelated post/attachment inserted
 # between languages and content, specifically to break the lucky-coincidence
 # case this exploration didn't stress." Without that, conf1 and conf2 go

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Progressive adoption — ten situations a simulated end user walks through
-# (round-3 T7; plan: docs/proposals/round-3-adoption-situations.md).
+# (round-3 T7; spec: docs/grind/adoption.md).
 #
 # One driver, ten situations, each on a FRESH `pair.sh reset` of one dedicated
 # pair. "Progressive" means each situation is the sequence the same operator

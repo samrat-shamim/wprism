@@ -16,8 +16,9 @@ final class Canon {
      * consumer reads a value's raw PHP array iteration order — WooCommerce's
      * variation-title generator reads the parent's `_product_attributes`
      * array order directly, so this sort permanently reordered it on every
-     * applied target (a real, non-timing divergence — see manifests/
-     * woocommerce.json's own note and docs/grind/r3-round.md). An
+     * applied target (a real, non-timing divergence, reproduced on two
+     * independent attribute orderings in round 3 — see manifests/
+     * woocommerce.json's own task #123 note). An
      * OrderPreserved-wrapped value skips ksort() recursively at every
      * nesting level inside it, while everything else in the SAME document
      * still gets the ordinary alphabetical treatment — the wrapper is a

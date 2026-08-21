@@ -7,7 +7,7 @@
 # actually HAS one to remove.
 #
 # Ninja Forms mints a "Contact Me" sample form on every activation
-# (confirmed live, also noted in docs/grind/r1a-forms.md). nf3_forms is a
+# (confirmed live in grind round R1-A). nf3_forms is a
 # "mapped"-identity table (Snapshot.php's identity-modes docblock names
 # nf3_forms/nf3_fields/nf3_actions specifically): a fresh row always mints a
 # random uuid, with no natural key for apply to converge on — so two

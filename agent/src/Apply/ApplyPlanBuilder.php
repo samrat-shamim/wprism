@@ -354,7 +354,7 @@ final class ApplyPlanBuilder {
             hash('sha256', Canon::encode([]))
         );
 
-        // docs/proposals/code-half.md §3.2: the cross-partition invariant's
+        // docs/code-half.md §3.2: the cross-partition invariant's
         // plan-time checks read BOTH live lifecycle facts (active plugins /
         // themes) and, for an opt-in code descriptor, the completed verified
         // payload revision in the environment ledger. Keep these in the same

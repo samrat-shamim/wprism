@@ -23,9 +23,9 @@
 #       posture, mirrored onto table id_kinds per team-lead's design
 #       review).
 #
-# Runs against the existing r3e pair (already up for tasks #92/#93 -- see
-# docs/grind's r3-eng-woo report for the full live acceptance narrative;
-# this script is the ongoing regression, not a re-run of that narrative).
+# Runs against the existing r3e pair (already up for tasks #92/#93). This
+# script IS the acceptance narrative now: every assertion below states the
+# behaviour it pins, so there is nothing to re-run elsewhere.
 # Touches NEITHER r3e1's nor r3e2's real site-repo git history for the
 # dangling/unscoped cases: throwaway scratch repos + throwaway raw-SQL
 # fixtures, cleaned up on exit, mirroring regress_option_ref_scope.sh's

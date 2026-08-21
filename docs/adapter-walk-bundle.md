@@ -1,9 +1,12 @@
-# T6 — the site-adapter certification bundle, exactly
+# The site-adapter certification bundle, exactly
 
-*Companion to [round-3-adapter-walk.md](round-3-adapter-walk.md) §3.1–§3.5.
-This is the wire contract `duo adapter certify` (cli, host-side) must produce
-and `\Duo\AdapterCertification` (agent) verifies. Every rule below is enforced
-by the agent; a builder that guesses will be refused by name.*
+*Companion to the operator-authored-adapter walk,
+[docs/grind/adapter-walk.md](grind/adapter-walk.md) (`make grind-adapter-walk`),
+whose S2/S3/S4 scenarios drive every rule below end to end. This is the wire
+contract `duo adapter certify` (cli, host-side) must produce and
+`\Duo\AdapterCertification` (agent) verifies. Every rule below is enforced by
+the agent; a builder that guesses will be refused by name. Originated as the
+round-3 T6 bundle proposal; promoted to canonical documentation 2026-08-21.*
 
 Authority: `agent/src/Adapter/AdapterCertification.php`. Proof:
 `sandbox/tests/offline/adapter/regress_site_adapter_certification.php` § "T6 §3.1/§3.2".

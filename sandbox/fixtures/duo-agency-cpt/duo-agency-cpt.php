@@ -14,8 +14,8 @@
  * Version: 0.1.0
  *
  * 'project' CPT + 'project_type' taxonomy: what an ACF field group and an
- * Elementor page both need to exist before this round's interplay points
- * (docs/grind/r1c-agency.md) can be built at all.
+ * Elementor page both need to exist before grind round R1-C's interplay
+ * points (sandbox/tests/grind/grind_r1c_agency.sh) can be built at all.
  *
  * REST: POST /wp-json/duo-agency/v1/projects/<id>/notes (manage_options only):
  *   - post meta _duo_project_internal_notes — an admin-authored account note

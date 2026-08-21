@@ -485,7 +485,7 @@ services:
   # directory the way the a/b/c/conf/e*/fx* profiles mount theirs. Each
   # env's wp-content/plugins/duo-agency-cpt binds from THAT env's own
   # site-repo checkout's code/wp-content/plugins/duo-agency-cpt — per spike
-  # G's bootstrap-order finding (docs/proposals/code-half.md's phase-1
+  # G's bootstrap-order finding (docs/code-half.md's phase-1
   # appendix): code/ must be authored on the host BEFORE wp-r1c1/wp-r1c2 are
   # ever created (docker pins a bind-mount source at container-create time),
   # and any rm+recreate of that source needs `--force-recreate` on the

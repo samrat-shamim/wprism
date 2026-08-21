@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Elementor render-level acceptance (docs/frontier/elementor.md's core
-# finding, mirroring checks/fse.sh's methodology): byte-identical canonical
-# state is NOT sufficient proof for _elementor_data's ids/URLs — the report's
-# own confirmed corruption round-tripped byte-identical to itself while
+# Elementor render-level acceptance (the Elementor frontier finding,
+# mirroring checks/fse.sh's methodology): byte-identical canonical
+# state is NOT sufficient proof for _elementor_data's ids/URLs — the
+# confirmed corruption round-tripped byte-identical to itself while
 # rendering the SOURCE environment's host on the TARGET. This check curls
 # conf2's seeded elementor page after apply and greps the rendered HTML
 # (and Elementor's regenerated per-page CSS, which is where a section
