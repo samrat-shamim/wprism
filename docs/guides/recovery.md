@@ -87,6 +87,7 @@ checkpoints: 1
     covers: database checkpoint
 note: this transport carries no rollback authority runtime, so only the database checkpoints its releases retained are listed
 note: retained release checkpoints are the plain database checkpoints promote kept under .duo/checkpoints; restoring one drives the operator-directed path (abort, begin, isolated import, final abort)
+note: a retained checkpoint older than the target's latest begun promotion session is refused at step 1 with promotion_abort_session_superseded; an obsolete checkpoint is not a safe recovery source, so recover that release through the provider that owns the target's backups instead
 ```
 
 The id is the file name promote wrote, and it is what `--restore=<id>` takes.
@@ -216,6 +217,62 @@ recovery succeeded.
 Exit 0 means the recovery reached its terminal state. Exit 1 means a refusal,
 or a recovery that did not — and in that case the printed steps are the
 evidence of where it stopped.
+
+## An older checkpoint after a later release
+
+**The first abort refuses if a newer session has superseded this checkpoint,
+rather than presenting an obsolete dump as a safe recovery source.** That is
+the same sentence [code-updates.md](code-updates.md) states about the code
+path, and it is the one property of this verb that surprises people: the
+checkpoint you want is still listed, still has its artifact, still has its
+file — and step 1 stops anyway.
+
+It stops because the lease `promotion-begin` takes is bound to one
+`(owner, artifact hash)` pair, and post-begin phases are continuations of the
+target's **latest begun** promotion session, never fresh locks. If a later
+release began its own session on this target, an abort naming the older pair is
+not this release's cleanup to run, and the database underneath it is no longer
+the database that checkpoint describes.
+
+The refusal names itself:
+
+```text
+recover production: not recovered
+  abort: FAILED — promotion abort refused: a newer promotion session superseded the one this abort names
+    reason: promotion_abort_session_superseded
+    remedy: restore or recover the release that owns the latest begun promotion session; an obsolete checkpoint is not a safe recovery source, so recover this target through the provider that owns its backups instead
+```
+
+Nothing else ran. Step 1 stands outside the mandatory-final-abort guarantee on
+purpose: nothing has been reinstated, so there is no lease row for a fourth
+step to release, and the recovery window was never opened.
+
+The remedy is the last line, and it is not a retry — the gate is deterministic
+and a second run refuses identically. Either recover the release that owns the
+latest begun session (its own checkpoint is the one that matches the current
+database), or, if what you need is the state this obsolete checkpoint holds,
+recover this target through the provider that owns its backups. `duo recover`
+deliberately has no flag that forces past this.
+
+`--format=json` carries the same three facts on the failed step —
+`reason_code`, the public `detail`, and `remediation` — inside
+`duo-recovery-outcome/v1`, so a pipeline reads the reason rather than a
+generic failure. The target's own sentence names the superseding lease owner
+and artifact hash; those are internal identifiers no `duo` command consumes,
+so they stay in the target's private operator evidence rather than in either
+view.
+
+The sibling refusal is `promotion_abort_lock_not_owned`: a *live* lease row on
+the target that belongs to a different owner and artifact. Both are listed with
+their remedies in
+[capabilities-and-limits.md](capabilities-and-limits.md#refusal-to-remedy).
+
+`duo recover <env> --list` prints this property as a note beside the retained
+rows. It is a note and not a per-row marker for a reason: the durable session
+row lives on the target and no host verb reads it, so the listing cannot say
+*which* checkpoint is superseded without inventing an answer — and an older
+checkpoint is still perfectly restorable when no later session was begun. Step
+1 is the authority.
 
 ## Code first, enforced rather than advised
 

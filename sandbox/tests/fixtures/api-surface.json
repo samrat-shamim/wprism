@@ -20438,6 +20438,56 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "recoveryAbortArgs": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "owner",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "artifactHash",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "recoveryBeginArgs": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "owner",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "artifactHash",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "recoveryDbImportArgs": {
                     "abstract": false,
                     "final": false,
@@ -25068,6 +25118,9 @@
                 "SOURCE_RECEIPT": {
                     "value_repr": "receipt"
                 },
+                "STEP_FAILED_DETAIL": {
+                    "value_repr": "the target refused or failed this step; inspect private operator evidence"
+                },
                 "WRITERS_EXCLUDED_FLAG": {
                     "value_repr": "--writers-excluded"
                 }
@@ -27674,6 +27727,9 @@
                 },
                 "DISCLOSURE_RETAINED": {
                     "value_repr": "retained release checkpoints are the plain database checkpoints promote kept under .duo/checkpoints; restoring one drives the operator-directed path (abort, begin, isolated import, final abort)"
+                },
+                "DISCLOSURE_SUPERSEDED": {
+                    "value_repr": "a retained checkpoint older than the target's latest begun promotion session is refused at step 1 with promotion_abort_session_superseded; an obsolete checkpoint is not a safe recovery source, so recover that release through the provider that owns the target's backups instead"
                 },
                 "ID_PREFIX": {
                     "value_repr": "promote-"

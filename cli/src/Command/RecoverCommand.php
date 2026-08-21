@@ -90,6 +90,17 @@ final class RecoverCommand {
     /** The flag that asserts a real external maintenance window. */
     public const WRITERS_EXCLUDED_FLAG = '--writers-excluded';
 
+    /**
+     * What a failed step reports when the target sent no classified refusal —
+     * a transport error, `wp db import`'s own non-zero exit, an agent build
+     * that predates the reason codes. It stays byte-identical to what every
+     * failed step said before DUO-3506, so the only thing that changed for an
+     * unclassified failure is that it is now distinguishable from a
+     * classified one.
+     */
+    public const STEP_FAILED_DETAIL =
+        'the target refused or failed this step; inspect private operator evidence';
+
     /** Where the checkpoint instant printed beside the claim came from. */
     public const SOURCE_RECEIPT = 'receipt';
     public const SOURCE_PLAN = 'authorization-plan';
@@ -298,13 +309,13 @@ final class RecoverCommand {
         // DIFFERENT promotion owner recover the target, it does not authorize
         // this restore. Nothing has been reinstated yet either, so there is no
         // lease row for a fourth step to release.
-        $steps[] = self::step($transport, 'abort', CodeDeploy::abortArgs($owner, $artifactHash));
+        $steps[] = self::step($transport, 'abort', CodeDeploy::recoveryAbortArgs($owner, $artifactHash));
         if (!$steps[0]['ok']) {
             return ['recovered' => false, 'steps' => $steps];
         }
 
         try {
-            $begin = self::step($transport, 'begin', CodeDeploy::beginArgs($owner, $artifactHash));
+            $begin = self::step($transport, 'begin', CodeDeploy::recoveryBeginArgs($owner, $artifactHash));
             $steps[] = $begin;
             if (!$begin['ok']) {
                 return ['recovered' => false, 'steps' => $steps];
@@ -317,7 +328,11 @@ final class RecoverCommand {
             // failed after opening the window. That is the whole point of the
             // rule, so it lives in a `finally` where no future early return
             // can route around it.
-            $steps[] = self::step($transport, 'final-abort', CodeDeploy::abortArgs($owner, $artifactHash));
+            $steps[] = self::step(
+                $transport,
+                'final-abort',
+                CodeDeploy::recoveryAbortArgs($owner, $artifactHash)
+            );
         }
         $final = $steps[count($steps) - 1];
 
@@ -603,19 +618,83 @@ final class RecoverCommand {
     /**
      * One ordered step, run through the agent's own argument builders.
      *
+     * A failure the target CLASSIFIED is reported with its reason code and
+     * its reviewed remediation; a failure it did not keeps the constant
+     * sentence below. Before DUO-3506 every failure of all four steps
+     * collapsed onto that one sentence, in the human view and in
+     * `duo-recovery-outcome/v1` alike, because `$result['stdout']` was never
+     * read — so a deliberate, documented refusal (restoring a checkpoint a
+     * later promotion session superseded) reached the operator as an
+     * unexplained failure with no next action.
+     *
      * @param list<string> $args
      * @return array<string,mixed>
      */
     private static function step(EnvironmentDriver $transport, string $name, array $args): array {
         $result = $transport->captureWp($args);
-
-        return [
-            'detail' => ($result['exit'] ?? 1) === 0
-                ? 'completed'
-                : 'the target refused or failed this step; inspect private operator evidence',
-            'ok' => ($result['exit'] ?? 1) === 0,
+        $ok = ($result['exit'] ?? 1) === 0;
+        $step = [
+            'detail' => $ok ? 'completed' : self::STEP_FAILED_DETAIL,
+            'ok' => $ok,
             'step' => $name,
         ];
+        if ($ok) {
+            return $step;
+        }
+        $refusal = self::targetRefusal($result);
+        if ($refusal === null) {
+            return $step;
+        }
+
+        return [
+            'detail' => $refusal['message'],
+            'ok' => false,
+            'reason_code' => $refusal['reason_code'],
+            'remediation' => $refusal['remediation'],
+            'step' => $name,
+        ];
+    }
+
+    /**
+     * The target's own refusal for a failed step, when it sent one.
+     *
+     * The two lease steps are asked in machine mode
+     * (`CodeDeploy::recoveryAbortArgs()`/`recoveryBeginArgs()`), so a refusal
+     * arrives as a `duo-command-refusal/v1` object on stdout. Exactly three
+     * reviewed fields are lifted out of it — reason code, public message,
+     * remediation — because those are the only ones the agent screens as
+     * public (agent/src/Kernel/CommandRefusal.php:38-49); its diagnostics are
+     * a per-command shape this renderer has no line for.
+     *
+     * The raw stdout/stderr are deliberately NOT echoed the way
+     * `CommandOutput::renderTransportDetail()` echoes promote's cleanup. The
+     * operator sentence behind `promotion_abort_session_superseded` names the
+     * superseding lease owner token and its 64-hex artifact hash, and MUP
+     * §5.2 admits an internal identifier into a human view only when a
+     * documented command consumes it — no `duo` verb takes either. The screen
+     * below is the host's own last line before printing: the agent already
+     * applied it, and a target this build did not compile is not a reason to
+     * take its word.
+     *
+     * @param array<string,mixed> $result a `captureWp()` result
+     * @return ?array{reason_code:string,message:string,remediation:string}
+     */
+    private static function targetRefusal(array $result): ?array {
+        $decoded = json_decode(trim((string) ($result['stdout'] ?? '')), true);
+        if (!is_array($decoded) || ($decoded['format'] ?? null) !== 'duo-command-refusal/v1') {
+            return null;
+        }
+        $code = $decoded['reason_code'] ?? $decoded['error'] ?? null;
+        $message = $decoded['message'] ?? null;
+        $remediation = $decoded['remediation'] ?? null;
+        if (!is_string($code) || preg_match('/^[a-z][a-z0-9_]{2,63}$/D', $code) !== 1
+            || !is_string($message) || $message === ''
+            || !is_string($remediation) || $remediation === ''
+            || CommandRefusalException::containsSensitivePublicDetail([$message, $remediation])) {
+            return null;
+        }
+
+        return ['message' => $message, 'reason_code' => $code, 'remediation' => $remediation];
     }
 
     /**
@@ -649,6 +728,15 @@ final class RecoverCommand {
             }
             $lines[] = '  ' . (string) $step['step'] . ': '
                 . ($step['ok'] === true ? 'ok' : 'FAILED') . ' — ' . (string) $step['detail'];
+            // A classified refusal is the only failure with a next action, so
+            // print the code the operator can grep the guides for and the
+            // remedy the target itself reviewed. Both are constant, value-free
+            // text (MUP §5.2); the sentence naming the superseding lease stays
+            // on the target's private operator evidence.
+            if (is_string($step['reason_code'] ?? null)) {
+                $lines[] = '    reason: ' . $step['reason_code'];
+                $lines[] = '    remedy: ' . (string) $step['remediation'];
+            }
         }
         $lines[] = 'the claim this recovery was performed under, unchanged:';
         foreach (RecoveryClaim::humanLines($outcome['claim'], $limit) as $line) {

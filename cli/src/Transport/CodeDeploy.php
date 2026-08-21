@@ -290,6 +290,38 @@ PHP;
     }
 
     /**
+     * The same two lease commands, asked in MACHINE mode, for `duo recover`
+     * only (DUO-3506).
+     *
+     * `abortArgs()`/`beginArgs()` stay human deliberately: promote and deploy
+     * run them as compensating cleanup and render the target's own stdout and
+     * stderr straight back to the operator who is standing there
+     * (cli/duo:3094-3103), so a `--format=json` on those two would change
+     * that output for every caller of those verbs.
+     *
+     * `RecoverCommand` has the opposite need. It drives the four ordered
+     * steps unattended and reports one line per step, so with the agent in
+     * human mode `promotion_abort()` falls through to
+     * `WP_CLI::error($t->getMessage())` (agent/src/Command/Cli.php:645-657)
+     * and the reason exists only as prose on a stream nothing reads. Asked in
+     * JSON, the agent answers a refusal with `duo-command-refusal/v1`
+     * carrying a stable reason code — `promotion_abort_session_superseded`
+     * for the case that produced this issue — which `RecoverCommand::step()`
+     * surfaces. Same command, same identity, same order; only the reply
+     * format differs.
+     *
+     * @return array<int,string>
+     */
+    public static function recoveryAbortArgs(string $owner, string $artifactHash): array {
+        return array_merge(self::abortArgs($owner, $artifactHash), ['--format=json']);
+    }
+
+    /** @return array<int,string> */
+    public static function recoveryBeginArgs(string $owner, string $artifactHash): array {
+        return array_merge(self::beginArgs($owner, $artifactHash), ['--format=json']);
+    }
+
+    /**
      * Recovery imports must remain reachable even when installed user code
      * fatals during ordinary WordPress bootstrap. Reuse the isolated control
      * bootstrap so the checkpoint restore cannot load plugins, themes, or the

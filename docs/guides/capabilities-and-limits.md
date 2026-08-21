@@ -508,6 +508,25 @@ decision matrix is the comment on `PlanSummary::render()` in
 [cli/src/Plan/PlanSummary.php](../../cli/src/Plan/PlanSummary.php); the prose contract is
 in [cli/README.md](../../cli/README.md).
 
+### The promotion lease refusals `duo recover` can stop on
+
+Those thirteen rows are `duo status`'s readiness buckets. The two below belong
+to a different moment: they are refusals the **target** raises at step 1 of
+`duo recover <env> --restore=<id> --writers-excluded`, when the lease cleanup
+that opens the recovery window is not a cleanup this release is entitled to
+run. Both are deliberate and neither is forceable. `duo recover` prints the
+code and the remedy beside the failed step, and carries both in
+`duo-recovery-outcome/v1`.
+
+| Reason code | What it means | Remedy |
+|---|---|---|
+| `promotion_abort_session_superseded` | A newer promotion session superseded the one this abort names. The checkpoint you asked to restore belongs to a release the target has already moved past, and post-begin phases are continuations of the latest begun session, never fresh locks. | Restore or recover the release that owns the latest begun promotion session. An obsolete checkpoint is not a safe recovery source, so recover this target through the provider that owns its backups instead. **Non-forceable** — see [code-updates.md](code-updates.md) on obsolete checkpoints. |
+| `promotion_abort_lock_not_owned` | The promotion lease on this target belongs to a different owner and artifact. `abort` is exact-identity by design: it treats an already-absent *matching* lease as success and never deletes another promotion's row, even an expired one. | Release the exact recorded lease through the release that holds it, or restore its database checkpoint, before aborting again. **Non-forceable.** |
+
+Neither refusal republishes the lease owner token or the artifact hash it
+found. Those are internal identifiers no `duo` verb consumes, so they stay in
+the target's private operator evidence; the code above is what you grep for.
+
 ### On force flags
 
 Where a force flag exists at all, two standing rules apply: a forced override

@@ -73,7 +73,8 @@
  *          [WHERE <cond>] [GROUP BY <cols>] [ORDER BY <cols> [ASC|DESC]]
  *          [LIMIT n [OFFSET m] | LIMIT m, n]
  *     items: * | alias.* | COUNT(*) | <literal> | [alias.]col | LENGTH(col)
- *            | GET_LOCK(..) | RELEASE_LOCK(..)   , each with an optional AS alias
+ *            | GET_LOCK(..) | RELEASE_LOCK(..) | IS_USED_LOCK(..)
+ *            | CONNECTION_ID()                  , each with an optional AS alias
  *     cond:  AND / OR / parentheses over
  *            <operand> = != <> < <= > >= <operand>
  *            <operand> [NOT] IN (<values>)
@@ -219,6 +220,32 @@ final class FakeWpdb {
     private ?array $transactionSnapshot = null;
     private int $lockResult = 1;
 
+    /**
+     * The connection this fake reports, and which advisory locks it holds.
+     *
+     * `agent/src/Kernel/ProcessFence.php` is a real shipped seam that every
+     * promotion-lease path crosses: `acquire()` reads `CONNECTION_ID()` then
+     * `GET_LOCK()`, and `isContinuous()` re-reads `CONNECTION_ID()` and asks
+     * `IS_USED_LOCK()` whether THIS connection still holds the named fence
+     * (`:27`, `:54-58`). Without those two functions no suite could drive
+     * `PromotionLease::abort()` or any of its siblings through the library,
+     * which is why two suites carry a hand-rolled `$wpdb` whose whole job is
+     * to answer them (`offline/reference-scope/regress_scoped_promotion_target.php:181`,
+     * `offline/code-half/regress_lifecycle_phase_handoff_unit.php:42`).
+     *
+     * The model is the one property those fakes fake: a lock is held by a
+     * connection. `GET_LOCK` records the name when it succeeds, `RELEASE_LOCK`
+     * forgets it, and `IS_USED_LOCK` answers with the holding connection id or
+     * NULL — so `setConnectionId()` reproduces a reconnect, which is the
+     * discontinuity ProcessFence exists to refuse. `IS_FREE_LOCK` keeps
+     * returning `setLockResult()` verbatim: nothing under `agent/` calls it,
+     * so it has no behaviour to model here.
+     */
+    private int $connectionId = 1;
+
+    /** @var array<string,int> lock name => holding connection id */
+    private array $heldLocks = [];
+
     public function __construct(string $prefix = 'wp_') {
         $this->prefix = $prefix;
         $this->base_prefix = $prefix;
@@ -336,6 +363,17 @@ final class FakeWpdb {
     /** Result GET_LOCK() reports; 0 makes the engine's lock acquisition fail. */
     public function setLockResult(int $result): self {
         $this->lockResult = $result;
+        return $this;
+    }
+
+    /**
+     * The id `CONNECTION_ID()` reports. Changing it mid-suite is a reconnect:
+     * every advisory lock a real server held on the old connection is gone,
+     * which is the discontinuity `ProcessFence::isContinuous()` detects.
+     */
+    public function setConnectionId(int $id): self {
+        $this->connectionId = $id;
+        $this->heldLocks = [];
         return $this;
     }
 
@@ -1550,7 +1588,14 @@ final class FakeWpdb {
             } while ($this->acceptOp(','));
             $this->expectOp(')');
         }
-        if (!in_array($name, ['LENGTH', 'CHAR_LENGTH', 'GET_LOCK', 'RELEASE_LOCK', 'IS_FREE_LOCK'], true)) {
+        if (!in_array(
+            $name,
+            [
+                'LENGTH', 'CHAR_LENGTH', 'GET_LOCK', 'RELEASE_LOCK', 'IS_FREE_LOCK',
+                'IS_USED_LOCK', 'CONNECTION_ID',
+            ],
+            true
+        )) {
             throw $this->unsupported("SQL function $name()");
         }
         return ['k' => 'fn', 'name' => $name, 'args' => $args, 'label' => $name . '()'];
@@ -1779,9 +1824,30 @@ final class FakeWpdb {
             // Advisory locks are a live-MySQL concern; the fake reports a
             // configurable, deterministic result so the engine's lock branch
             // is exercisable without a server.
-            'GET_LOCK', 'RELEASE_LOCK', 'IS_FREE_LOCK' => $this->lockResult,
+            'GET_LOCK' => $this->acquireAdvisoryLock((string) ($args[0] ?? '')),
+            'RELEASE_LOCK' => $this->releaseAdvisoryLock((string) ($args[0] ?? '')),
+            'IS_FREE_LOCK' => $this->lockResult,
+            // NULL when nobody holds it, as MySQL answers; the holding
+            // connection id otherwise, which is the equality
+            // ProcessFence::isContinuous() tests.
+            'IS_USED_LOCK' => $this->heldLocks[(string) ($args[0] ?? '')] ?? null,
+            'CONNECTION_ID' => $this->connectionId,
             default => throw $this->unsupported('SQL function ' . $node['name']),
         };
+    }
+
+    /** GET_LOCK(): records the holder only when the configured result is 1. */
+    private function acquireAdvisoryLock(string $name): int {
+        if ($this->lockResult === 1 && $name !== '') {
+            $this->heldLocks[$name] = $this->connectionId;
+        }
+        return $this->lockResult;
+    }
+
+    /** RELEASE_LOCK(): a released lock stops being held, whatever it reports. */
+    private function releaseAdvisoryLock(string $name): int {
+        unset($this->heldLocks[$name]);
+        return $this->lockResult;
     }
 
     private function evalColumn(array $node, array $row, ?array $ctx): mixed {
