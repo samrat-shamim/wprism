@@ -101,6 +101,27 @@ woo_ok(($policy->option_rule('woocommerce_flat_rate_41_settings')['ref'] ?? null
     && $policy->match_option_name_ref('woocommerce_flat_rate_41_settings') !== null,
     'shipping instance settings use option-name embedded typed identity');
 
+// DUO-3509: three rows a fresh WooCommerce 11.0.1 install carries that this
+// inventory did not name. Two of them fall OUTSIDE this manifest's own
+// option_namespaces (`^(?:action_scheduler|wc|woocommerce)_`), which is why
+// they are asked through option_rule() rather than owned_option_rule() —
+// they reached `duo pending` through the journal, not through namespace
+// enumeration, and a namespace claim for `default_product_cat` would be a
+// claim over a name WordPress core's own `default_category` is a sibling of.
+woo_ok(($policy->option_rule('default_product_cat')['class'] ?? '') === 'authored'
+    && ($policy->option_rule('default_product_cat')['ref'] ?? null) === 'term',
+    'the fallback product category is authored and resolves through the term ledger');
+woo_ok(($policy->option_rule('product_cat_children')['class'] ?? '') === 'derived',
+    "core's product_cat hierarchy cache is excluded as derived, not carried as a foreign id graph");
+woo_ok(($policy->owned_option_rule('wc_installing')['class'] ?? '') === 'runtime',
+    "WC_Install's raw-SQL install mutex row stays runtime-local");
+// The name is computed (`'schema-' . static::class`), so the rule is a
+// pattern and must cover a schema class this repo has never seen.
+foreach (['ActionScheduler_StoreSchema', 'ActionScheduler_LoggerSchema', 'ActionScheduler_FutureSchema'] as $schemaClass) {
+    woo_ok(($policy->option_rule("schema-$schemaClass")['class'] ?? '') === 'runtime',
+        "schema-$schemaClass is runtime — its value embeds this environment's own migration timestamp");
+}
+
 $expectedTables = preg_split('/\s+/', trim(<<<'TABLES'
 actionscheduler_actions actionscheduler_claims actionscheduler_groups actionscheduler_logs
 wc_admin_note_actions wc_admin_notes wc_category_lookup wc_customer_lookup wc_download_log wc_email_unsubscribes wc_order_addresses wc_order_coupon_lookup wc_order_operational_data wc_order_product_lookup wc_order_stats wc_order_tax_lookup wc_orders wc_orders_meta wc_product_attributes_lookup wc_product_download_directories wc_product_meta_lookup wc_rate_limits wc_reserved_stock wc_tax_rate_classes wc_webhooks
