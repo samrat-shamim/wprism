@@ -20,8 +20,9 @@ final class TextTokenizer {
     /** JSON-escaped forms (every "/" -> "\/") of the two URLs above -- every
      *  "/" in a wp_json_encode()'d string is escaped this way when the
      *  JSON_UNESCAPED_SLASHES flag is absent, which is Elementor's own
-     *  convention for _elementor_data (confirmed byte-level via xxd in
-     *  docs/frontier/elementor.md) and is legal, unremarkable JSON. */
+     *  convention for _elementor_data (confirmed byte-level via `xxd`: the
+     *  stored bytes are `5c 2f` — one literal backslash then "/", genuinely
+     *  escaped, not a display artifact) and is legal, unremarkable JSON. */
     private string $homeEscaped;
     private string $uploadsUrlEscaped;
 

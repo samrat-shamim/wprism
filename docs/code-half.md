@@ -1,6 +1,6 @@
-# The Code Half (`code/`) — Design Proposal
+# The Code Half (`code/`)
 
-*Proposal — 2026-08-05. Status: design exploration; the implementation ruling below is authoritative for the first functional skeleton. Owner: code-design (Task #18).*
+*Written as a proposal 2026-08-05; promoted to canonical documentation at this path 2026-08-21 because eight shipped source files (nine citation sites), `manifests/core.json`'s own note and a `duo doctor` warning string cite its § numbers by name. The § numbering is therefore load-bearing — renumber nothing. Status: the implementation ruling below is authoritative for the first functional skeleton. Owner: code-design (Task #18).*
 
 > **Implementation ruling (2026-08-07).** Duo's first complete code-half
 > transport is an opt-in, descriptor-hashed `code/wp-content` payload of

@@ -10,9 +10,9 @@
 # journal on); this script boots, installs, and seeds them itself — it
 # never touches envs a/b/c/conf*/e*/fx*/g*/r1a*/r1c* or their site repos.
 #
-# See docs/grind/r1b-shop.md for the full narrative and findings (as
-# ORIGINALLY run — several engine gaps it documents have since closed; see
-# each section's own comments below for what's current). Short version:
+# This script is the round's own record: each section's comments carry the
+# finding it guards and note where an originally-documented engine gap has
+# since closed. Short version:
 # variable products could not be captured AT ALL until _price was
 # reclassified 'derived' (WooCommerce writes it multi-row on a variable
 # parent — one row per distinct variation price — and the v0 engine hard-
@@ -229,7 +229,7 @@ wp_r1b1 wc product_variation create "$TEE_ID" --sku=DUO-TEE-M-BLUE --regular_pri
 wp_r1b1 eval "wc_get_product($TEE_ID)->set_default_attributes(['pa_size' => 'small', 'pa_color' => 'red']); wc_get_product($TEE_ID)->save();" >/dev/null
 PRICE_ROWS=$(wp_r1b1 db query "SELECT COUNT(*) FROM wp_postmeta WHERE post_id=$TEE_ID AND meta_key=\"_price\"" --skip-column-names)
 [ "$PRICE_ROWS" -ge 3 ] || fail "expected the variable parent to carry multiple _price rows (got $PRICE_ROWS) — WooCommerce's own multi-row price shape is the whole point of this seed"
-pass "Duo Tee ($TEE_ID) + 4 variations seeded; confirmed WooCommerce wrote $PRICE_ROWS distinct _price rows on the parent — this is exactly the multi-value shape that made _price authored+capture mutually exclusive for variable products (see docs/grind/r1b-shop.md); manifests/woocommerce.json now classifies it derived for precisely this reason, which is why the capture below does NOT abort on it"
+pass "Duo Tee ($TEE_ID) + 4 variations seeded; confirmed WooCommerce wrote $PRICE_ROWS distinct _price rows on the parent — this is exactly the multi-value shape that made _price authored+capture mutually exclusive for variable products; manifests/woocommerce.json now classifies it derived for precisely this reason, which is why the capture below does NOT abort on it"
 
 say "grouped product Duo Bundle (Duo Mug + Duo Sticker Pack) and featured product Duo Cap"
 MUG_ID=$(wp_r1b1 wc product create --name='Duo Mug' --slug=duo-mug --type=simple --status=publish \
@@ -278,8 +278,8 @@ pass "COD payment gateway available"
 # on _price/_children/_default_attributes/_product_attributes/attribute_pa_*/
 # _variation_description, `wp duo pending` surfacing evidence, `wp duo
 # classify` resolving each deliberately) happened once, interactively, while
-# manifests/woocommerce.json was still missing these rules — see
-# docs/grind/r1b-shop.md for that full transcript. This script runs against
+# manifests/woocommerce.json was still missing these rules; that manifest's
+# own notes carry each decision's reasoning. This script runs against
 # the REPO'S CURRENT, ALREADY-GRADUATED manifest (the whole point of folding
 # classify-session decisions into the shared manifest is that a fresh site
 # never has to rediscover them), so re-enacting the gate here would be

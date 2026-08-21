@@ -538,7 +538,7 @@ $check(
 $planGuardSection = substr(
     $planBuilderSource,
     strpos($planBuilderSource, '// Runtime reverse references are target facts'),
-    strpos($planBuilderSource, '// docs/proposals/code-half.md')
+    strpos($planBuilderSource, '// docs/code-half.md')
         - strpos($planBuilderSource, '// Runtime reverse references are target facts')
 );
 $check(

@@ -2,7 +2,8 @@
 
 Driver: [`sandbox/tests/grind/grind_adoption.sh`](../../sandbox/tests/grind/grind_adoption.sh).
 Substrate: [`sandbox/tests/lib/grind_lib.sh`](../../sandbox/tests/lib/grind_lib.sh)
-(shared with the adapter walk). Plan: [round-3 T7](../proposals/round-3-adoption-situations.md).
+(shared with the adapter walk). This document is the specification the driver
+implements (originally round-3 T7); `make grind-adoption` runs it.
 
 The adapter walk proves that an operator can author and override adapters. This
 grind proves the thing every real user does before that: **adopting Duo

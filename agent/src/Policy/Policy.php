@@ -995,9 +995,9 @@ final class Policy {
     }
 
     /**
-     * `taxonomies.<tax>.description_refs` (spec v0.8 / docs/frontier/
-     * polylang.md's "typed serialized-description rewriting"): declares
-     * that a taxonomy's term_taxonomy.description column holds PHP-
+     * `taxonomies.<tax>.description_refs` (spec v0.8; typed
+     * serialized-description rewriting): declares that a taxonomy's
+     * term_taxonomy.description column holds PHP-
      * serialized data (Polylang's post_translations/term_translations
      * `{lang_slug: local_id}` shape, verified byte-for-byte) with ref-typed
      * values reachable via the ordinary json_refs primitive at path "$.*"
@@ -2625,7 +2625,7 @@ final class Policy {
     }
 
     /**
-     * docs/proposals/code-half.md §4.3's version_range mechanism: a manifest
+     * docs/code-half.md §4.3's version_range mechanism: a manifest
      * may declare a top-level `"plugin"` (the plugin's basename, e.g.
      * "woocommerce/woocommerce.php" — the same string active_plugins/
      * get_plugins() key on) alongside `"version_range": {"min","max"}`

@@ -238,9 +238,10 @@ Adding a class to `agent/src` or `cli/src` therefore has one extra step: run
 
 ## `duo assess` / `duo contract` (round-3 MUP)
 
-Two environment-bound host verbs land with the round-3 minimum usable platform
-([docs/proposals/round-3-minimum-usable-platform.md](proposals/round-3-minimum-usable-platform.md)
-§2.1 and §2.6). Both take an `<env>` and neither writes to a target.
+Two environment-bound host verbs land with the round-3 minimum usable platform;
+the six product words they report are defined in
+[docs/assess-vocabulary.md](assess-vocabulary.md). Both take an `<env>` and
+neither writes to a target.
 
 ```bash
 duo assess <env> [--operation=<csv>] [--limit=<1..200>] [--format=json]

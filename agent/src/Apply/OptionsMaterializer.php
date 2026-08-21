@@ -130,7 +130,7 @@ final class OptionsMaterializer {
                 continue;
             }
             if (($rule['class'] ?? '') === 'managed') {
-                // active_plugins/template/stylesheet (docs/proposals/code-half.md
+                // active_plugins/template/stylesheet (docs/code-half.md
                 // §3.1): writing these via raw $wpdb would make WordPress believe
                 // a plugin/theme is active while skipping every activation-hook
                 // side effect that makes it actually work — activate_plugin()/

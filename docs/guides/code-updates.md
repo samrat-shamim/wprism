@@ -9,7 +9,7 @@ costs.
 
 The commands are documented in
 [cli/README.md](../../cli/README.md); the design reasoning is in
-[docs/proposals/code-half.md](../proposals/code-half.md).
+[docs/code-half.md](../code-half.md).
 
 ## The lifecycle order, and why it is that order
 

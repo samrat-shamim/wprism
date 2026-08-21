@@ -2,7 +2,7 @@
 # Override: bind-mount a plugin directory from THIS pair's own siterepo
 # checkout's code/ tree, instead of a shared static fixture (sandbox/
 # pair.yml's --codebind <plugin-dir> mode; spike G's pattern —
-# docs/proposals/code-half.md §5 — generalized off that spike's one-off
+# docs/code-half.md §5 — generalized off that spike's one-off
 # g1/g2 compose profile). Layered in via `docker compose -f pair.yml
 # -f pair.codebind.yml ...` with DUO_CODEBIND_PLUGIN set to the plugin's
 # directory name (e.g. "duo-agency-cpt").

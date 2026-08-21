@@ -4,7 +4,7 @@
 # keys, exclude the rest), with apply-side SUB-KEY-LEVEL merge into the live
 # blob that never clobbers excluded sibling keys. Closes the long-documented
 # gap in manifests/polylang.json's own notes and grind board #121/task #121
-# (docs/grind/r3a-multilingual-shop.md): the `polylang` option's
+# (grind round R3-A): the `polylang` option's
 # `post_types`/`taxonomies`/`nav_menus` sub-keys never propagated, so a
 # translated-CPT's language relationship and a per-language menu-location
 # swap broke on every fresh target.

@@ -5,8 +5,8 @@ namespace Duo;
  * The closed native-action vocabulary: engine-implemented operations whose
  * semantics belong to WordPress core rather than to any one plugin.
  *
- * The boundary doctrine bounds this file precisely (docs/proposals/
- * engine-adapter-boundary.md, "Structured native action"): a native action is
+ * The boundary doctrine bounds this file precisely
+ * (docs/adapter-boundary.md, "Structured native action"): a native action is
  * appropriate only when the operation means the same thing no matter which
  * plugin declared it. Anything whose behavior is a plugin's own belongs in a
  * provider, so this vocabulary stays deliberately small and never grows an

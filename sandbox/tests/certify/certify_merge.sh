@@ -27,7 +27,7 @@
 #     About/Hello-Duo/Team scenario, clean-roomed onto pair.sh.
 #   PART 2 — EXTENSION: a typed-snapshot TABLE entity conflict (task #75's
 #     grammar, spec/repo-format.md's "Custom tables" section), reproducing
-#     the shape docs/grind/r3b-events-memberships.md proved ad hoc (a
+#     the shape grind round R3-B proved ad hoc (a
 #     PMPro membership-price conflict on a table entity's field) on
 #     woocommerce_attribute_taxonomies.attribute_label instead — the
 #     cheaper typed-snapshot fixture available: 5 scalar columns, ZERO FK
@@ -281,7 +281,7 @@ pass "PART 1 complete: conflict, fail-closed drift preservation, capture-first r
 # PART 2 — EXTENSION: typed-snapshot table entity merge
 # ============================================================================
 
-say "PART 2 — typed-snapshot table entity merge (woocommerce_attribute_taxonomies.attribute_label — reproduces docs/grind/r3b-events-memberships.md's membership-price conflict shape on the cheaper woo-attribute fixture)"
+say "PART 2 — typed-snapshot table entity merge (woocommerce_attribute_taxonomies.attribute_label — reproduces grind round R3-B's membership-price conflict shape on the cheaper woo-attribute fixture)"
 
 say "PART 2 — branch edit-attr-a: env A relabels the attribute"
 $GIT_A checkout -qb edit-attr-a main

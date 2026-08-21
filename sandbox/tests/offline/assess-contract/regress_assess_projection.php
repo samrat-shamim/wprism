@@ -1,7 +1,7 @@
 <?php
 /**
  * Offline characterization for the round-3 vocabulary projection
- * (docs/proposals/round-3-minimum-usable-platform.md §1.1-§1.6).
+ * (docs/assess-vocabulary.md §1.1-§1.6).
  *
  * The §1 tables are the only definition of six product words that appear in
  * `duo assess`, in `.duo/contract/projection.json`, in the frozen
@@ -654,7 +654,7 @@ try {
 
 // ------------------------------------------------------- the no-plugin-slug gate
 //
-// docs/proposals/engine-adapter-boundary.md: supporting another plugin must
+// docs/adapter-boundary.md: supporting another plugin must
 // not require adding its name, schema or business rules to engine core. MUP
 // §T2's exit criteria name this grep as the mechanical proof for the three
 // round-3 directories. Surface labels are data — registry claim `surfaces[]`,

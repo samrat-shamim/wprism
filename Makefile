@@ -103,21 +103,23 @@ lint-smoke:
 
 # Grind round R1-C (task #48): the agency stack — Elementor + ACF active
 # together, plus a custom CPT plugin dogfooded through code/ — tested for
-# INTERPLAY. Own pair (r1c1 :8818 / r1c2 :8819, profile r1c). See
-# docs/grind/r1c-agency.md for the full report.
+# INTERPLAY. Own pair (r1c1 :8818 / r1c2 :8819, profile r1c). The script is
+# the spec: its header names each interplay point and the finding it guards.
 grind-r1c:
 	bash sandbox/tests/grind/grind_r1c_agency.sh
 
 # Grind round R1-A (task #46): a forms-driven business site — Contact Form 7
 # + Ninja Forms on twentytwentyone. Own pair (r1a1 :8814 / r1a2 :8815,
-# profile r1a). See docs/grind/r1a-forms.md for the full report.
+# profile r1a). The script is the spec: its header names the fixture and the
+# findings each assertion guards.
 grind-r1a:
 	bash sandbox/tests/grind/grind_r1a_forms.sh
 
 # Grind round R1-B (task #47): a full WooCommerce shop — Storefront theme,
 # VARIABLE products with GLOBAL attributes (pa_* dynamic taxonomies),
 # shipping zones, tax rates, a grouped product. Own pair (r1b1 :8816 /
-# r1b2 :8817, profile r1b). See docs/grind/r1b-shop.md for the full report.
+# r1b2 :8817, profile r1b). The script is the spec: its header names the
+# fixture and the findings each assertion guards.
 grind-r1b:
 	bash sandbox/tests/grind/grind_r1b_shop.sh
 
@@ -160,8 +162,9 @@ pair-list:
 # Calendar + Paid Memberships Pro — stress-testing the typed-snapshot
 # custom-table grammar (task #75) against schemas it wasn't designed
 # around. Own sandbox/bin/pair.sh pair (r3b1 :8852 / r3b2 :8853, journal
-# on) — NOT the legacy sandbox/docker-compose.yml. See
-# docs/grind/r3b-events-memberships.md for the full report.
+# on) — NOT the legacy sandbox/docker-compose.yml. The script is the spec;
+# the engine gaps this round escalated are recorded in the note strings of
+# manifests/the-events-calendar.json and manifests/paid-memberships-pro.json.
 grind-r3b:
 	bash sandbox/tests/grind/grind_r3b_events.sh
 
@@ -170,15 +173,15 @@ grind-r3b:
 # pages/category/pa_color terms/one product, per-language menus, an
 # UNTRANSLATED variable product (pa_size x pa_color, 4 variations). Own
 # sandbox/bin/pair.sh pair (r3a1 :8850 / r3a2 :8851) — NOT the legacy
-# sandbox/docker-compose.yml. See docs/grind/r3a-multilingual-shop.md for
-# the full report.
+# sandbox/docker-compose.yml. The script is the spec; manifests/polylang.json's
+# own notes carry what this round confirmed live.
 grind-r3a:
 	bash sandbox/tests/grind/grind_r3a_multilingual.sh
 
 # Engine tasks #92/#93 (taxonomy_patterns + shipping-zone stack /
 # option_name_refs): regressions against the r3e pair (sandbox/bin/pair.sh,
-# 8854/8855) — see docs/grind's r3-eng-woo report for the full live
-# acceptance narrative these regressions guard on an ongoing basis.
+# 8854/8855) — each suite's own header carries the live acceptance narrative
+# it guards on an ongoing basis.
 regress-pa-attributes:
 	bash sandbox/tests/live/regress_pa_attributes.sh
 
@@ -1222,9 +1225,8 @@ regress-code-compatibility:
 grind-code-half-first-sync:
 	bash sandbox/tests/grind/grind_first_sync_hook_recovery.sh
 
-# ROUND 3 T4 (docs/proposals/round-3-minimum-usable-platform.md §6.1; narrative
-# in docs/grind/mup.md): the end-to-end minimum-usable-platform grind on a
-# dedicated docker pair — assess → contract → rehearse → capture → merge →
+# ROUND 3 T4 (spec: docs/grind/mup.md): the end-to-end minimum-usable-platform
+# grind on a dedicated docker pair — assess → contract → rehearse → capture → merge →
 # release (authorization plan, deploy-before-apply) → verify → recover → assess
 # → reap. Live-only (docker); NOT auto-bundled (regress-live-list). Step 11
 # (recover) needs an SSH-adopted target: on a plain pair it fails by default
@@ -1235,8 +1237,8 @@ grind-mup:
 	MUP_THEME_SLUG="$(MUP_THEME_SLUG)" MUP_THEME_VERSION="$(MUP_THEME_VERSION)" \
 	bash sandbox/tests/grind/grind_mup.sh
 
-# ROUND 3 T6 (docs/proposals/round-3-adapter-walk.md; narrative in
-# docs/grind/adapter-walk.md): the operator-authored-adapter walk on a dedicated
+# ROUND 3 T6 (spec: docs/grind/adapter-walk.md; wire contract:
+# docs/adapter-walk-bundle.md): the operator-authored-adapter walk on a dedicated
 # docker pair — four scenarios (S1 published plugin kept unmanaged, S2 a site
 # adapter the operator drafts/certifies, S3 an in-house plugin with a bundled
 # adapter promoted and certified, S4 a site override of a shipped adapter), each
@@ -1248,9 +1250,9 @@ grind-adapter-walk:
 	WALK_THEME_SLUG="$(WALK_THEME_SLUG)" WALK_THEME_VERSION="$(WALK_THEME_VERSION)" \
 	bash sandbox/tests/grind/grind_adapter_walk.sh
 
-# ROUND 3 T7 (docs/proposals/round-3-adoption-situations.md; narrative in
-# docs/grind/adoption.md): ten progressive-adoption situations on a dedicated
-# docker pair — brochure, FSE, shop with orders, shop+SEO+forms, multilingual
+# ROUND 3 T7 (spec: docs/grind/adoption.md): ten progressive-adoption
+# situations on a dedicated docker pair — brochure, FSE, shop with orders,
+# shop+SEO+forms, multilingual
 # shop, builder site, late adapter adoption, plugin+adapter code release,
 # version edges, edge cases — each from doctor/first-look through the loop.
 # Same substrate as the walk (sandbox/tests/lib/grind_lib.sh). Live-only
@@ -1344,8 +1346,8 @@ regress-order-preserving:
 regress-canonical-json-parity:
 	php sandbox/tests/offline/guards/regress_canonical_json_parity.php
 
-# ROUND 3 T2 (docs/proposals/round-3-minimum-usable-platform.md §6.2): the
-# assess + contract product surface. Pure PHP / bash offline suites over the
+# ROUND 3 T2 (vocabulary: docs/assess-vocabulary.md): the assess + contract
+# product surface. Pure PHP / bash offline suites over the
 # fixture site repos and a fake `wp`; no docker.
 # the §1 vocabulary projection, table-driven: every cell of state class × handling × readiness × certification provenance × containment × recovery semantics, plus the no-plugin-slug gate over the Assess/Contract modules
 regress-assess-projection:
@@ -1375,8 +1377,9 @@ regress-assess-bounds:
 regress-contract-accept:
 	bash sandbox/tests/offline/assess-contract/regress_contract_accept.sh
 
-# ROUND 3 T3 (docs/proposals/round-3-minimum-usable-platform.md §6.2): release,
-# verify, recover and rehearse. Offline over fixture site repos, fake drivers
+# ROUND 3 T3 (docs/assess-vocabulary.md §1.6 is the containment rule the
+# release gate below enforces): release, verify, recover and rehearse.
+# Offline over fixture site repos, fake drivers
 # and a fake `wp`/`ssh`; no docker.
 # duo-authorization-plan/v1: durable freeze before any mutation, digest stability, plan_changed invalidation on any fact drift, --plan-only mutates nothing, weaker --profile needs the explicit flag
 regress-authorization-plan:
@@ -1390,7 +1393,7 @@ regress-release-containment-gate:
 regress-recover-claim:
 	php sandbox/tests/offline/assess-contract/regress_recover_claim.php
 
-# ROUND 3 T6 (docs/proposals/round-3-adapter-walk.md §3.5): `duo adapter keygen|certify|pin` — the
+# ROUND 3 T6 (wire contract: docs/adapter-walk-bundle.md): `duo adapter keygen|certify|pin` — the
 # operator's own trust root under adapters/authorities.json, the unexercised site bundle, the
 # exact {name,source,digest} pin, and the shipped-name override; offline against a scratch site repo
 regress-adapter-certify:
@@ -1416,8 +1419,9 @@ regress-release-ref-binding:
 regress-recover-ordering:
 	bash sandbox/tests/offline/assess-contract/regress_recover_ordering.sh
 
-# ROUND 3 T4 (docs/proposals/round-3-minimum-usable-platform.md §5.2, §6.2): the
-# MUP leak audit — no internal identifier in the human view of assess / release
+# ROUND 3 T4 (the internal-ID leak closure; docs/guides/internals.md is the
+# canonical list of what a human may see): the MUP leak audit — no internal
+# identifier in the human view of assess / release
 # --plan-only / verify / recover / rehearse unless a documented command consumes
 # it; every public `wp duo` command is host-driven or named in
 # docs/guides/internals.md; the retired four-command raw-recovery recipe cites

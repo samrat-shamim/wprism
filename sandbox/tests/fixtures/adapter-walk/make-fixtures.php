@@ -4,7 +4,8 @@ declare(strict_types=1);
 /**
  * Regenerate the recorded documents `sandbox/tests/grind/grind_adapter_walk.sh
  * --self-check` runs its pure jq/bash helpers against
- * (docs/proposals/round-3-adapter-walk.md).
+ * (spec: docs/grind/adapter-walk.md; wire contract:
+ * docs/adapter-walk-bundle.md).
  *
  * Usage: php sandbox/tests/fixtures/adapter-walk/make-fixtures.php [<out-dir>]
  *        (default out-dir: this directory)

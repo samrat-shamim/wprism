@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# FSE render-level acceptance (docs/frontier/fse.md's core methodological
-# finding): byte-identical canonical state is NOT sufficient proof for
+# FSE render-level acceptance (the FSE frontier exploration's core
+# methodological finding): byte-identical canonical state is NOT sufficient proof for
 # ref-shaped block attributes the tokenizer doesn't know to look for — a
 # broken fixture (nav links pointing back at the source env) captures and
 # re-captures identically to itself, because both sides encode the same
@@ -22,7 +22,7 @@ CONF2_PORT="${CONF2_PORT:-8807}"
 
 # DUO-3238: retry the whole front-page render as one unit. Two documented
 # load-flake instances against exactly this assertion set motivated
-# _retry_helper.sh (docs/grind/r3b-events-memberships.md; DUO-3228 task 0's
+# _retry_helper.sh (grind round R3-B; DUO-3228 task 0's
 # About-permalink failure) — this is its first wiring. front_page_checks()
 # bundles every assertion below against the SAME curled body (a stale or
 # incomplete render is a property of the page as a whole, not any single
@@ -71,7 +71,9 @@ retry_render_check "http://localhost:${CONF2_PORT}/" front_page_checks \
 
 pass "conf2 renders its own nav (post/term/custom links), reusable-block image, and footer link — none point at conf1"
 
-# --- active-theme-mismatch guard (docs/frontier/fse.md's other open gap,
+# --- active-theme-mismatch guard (the FSE exploration's other open gap:
+# wp_template/wp_template_part rows carry a wp_theme term, so a target
+# running a different active theme silently ignores every applied template;
 # task #32) --------------------------------------------------------------
 # Runs strictly AFTER the green render check above, and restores conf2's
 # theme before this script returns — leaves conf2 exactly as run.sh's own

@@ -96,7 +96,7 @@ make release-gate     # regenerate-and-compare: the capability document and the 
 make down             # stop; `make clean` also deletes volumes
 ```
 
-Beyond these, the Makefile carries the full live and offline regression surface — the seven `certify-*` targets (the merge, version-skew-merge, adversarial, deletion and version matrices, plus `certify-ssh-rollback` and `certify-ssh-adoption-roundtrip`), `regress-*`, and the grind rounds (`grind-r1a` … `grind-r3b`): realistic multi-plugin stacks round-tripped end-to-end, with narrative reports in [docs/grind/](docs/grind/).
+Beyond these, the Makefile carries the full live and offline regression surface — the seven `certify-*` targets (the merge, version-skew-merge, adversarial, deletion and version matrices, plus `certify-ssh-rollback` and `certify-ssh-adoption-roundtrip`), `regress-*`, and the grind rounds (`grind-r1a` … `grind-r3b`, plus `grind-mup`, `grind-adapter-walk`, `grind-adoption`): realistic multi-plugin stacks round-tripped end-to-end. Each grind script is its own spec; [docs/grind/](docs/grind/) carries the written specification for the harnesses that have one.
 
 ## Working an issue (agents)
 

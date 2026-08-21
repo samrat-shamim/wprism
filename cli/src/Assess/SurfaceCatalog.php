@@ -24,7 +24,7 @@ use Duo\CommandRefusalException;
  * selector — and nothing about which names a particular ecosystem uses.
  * That is the engine-adapter boundary stated as code: supporting another
  * plugin must not require adding its name, schema, or business rules here
- * (docs/proposals/engine-adapter-boundary.md), and
+ * (docs/adapter-boundary.md), and
  * `regress_assess_composition.sh` greps this directory to keep it true.
  *
  * ## Where a row comes from

@@ -9,8 +9,8 @@
 # POST that happened to reuse its numeric id, both at capture (fabricated
 # into the post's `terms` field) and at apply (fabricated into the target's
 # DB, or — worse — a colliding term's genuine relationships deleted as
-# "extra" during reconciliation). See docs/frontier/polylang.md's
-# "Object-id collision cross-contaminates captured POST relationships".
+# "extra" during reconciliation). The Polylang frontier exploration named
+# this "object-id collision cross-contaminates captured POST relationships".
 #
 # Why this isn't in `make spikes`: this is primarily an engine-invariant
 # regression, not a plugin-conformance test — it needs Polylang purely

@@ -142,7 +142,7 @@ final class Doctor {
             );
         }
 
-        // DUO-3231 (docs/proposals/code-half.md risk register #1):
+        // DUO-3231 (docs/code-half.md risk register #1):
         // DISALLOW_FILE_MODS closes wp-admin's file-mod UI at the source —
         // the recommended mitigation for silent code drift, alongside (not
         // instead of) code_drift's after-the-fact DETECTION
@@ -162,7 +162,7 @@ final class Doctor {
             $set = $r['exit'] === 0 && $out === 'duo-set';
             $detail = $set ? '' : 'DISALLOW_FILE_MODS is not set (or false) in wp-config.php — wp-admin plugin/theme '
                 . 'install/update/delete UI stays open, so a one-click update can silently drift this '
-                . "environment's code out from under git (docs/proposals/code-half.md risk #1). Recommended: "
+                . "environment's code out from under git (docs/code-half.md risk #1). Recommended: "
                 . "define('DISALLOW_FILE_MODS', true); — `duo deploy`'s code_drift check still catches an update "
                 . 'after the fact, but this closes the hole at the source.';
             $checks[] = self::check('DISALLOW_FILE_MODS set', $set, $detail, true);

@@ -151,7 +151,7 @@ final class AdapterSources {
     public const PLUGIN_PATH_PREFIX = 'plugins';
 
     /**
-     * Trust tiers named exactly as docs/proposals/engine-adapter-boundary.md
+     * Trust tiers named exactly as docs/adapter-boundary.md
      * names them, so a diagnostic line and the doctrine cannot drift into two
      * vocabularies for one decision. Ordered least to most executable authority;
      * a manifest reports the highest tier it actually reaches.

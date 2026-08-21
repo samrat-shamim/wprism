@@ -1174,7 +1174,7 @@ final class Cli {
                 }
             }
         }
-        // code_mismatch (docs/proposals/code-half.md §3.2): a different row
+        // code_mismatch (docs/code-half.md §3.2): a different row
         // shape (issue/kind/plugin-or-theme/message, no uuid/path) than the
         // $kinds loop above, so it gets its own rendering rather than being
         // folded into that loop. A descriptor's code_revision_stale row is
@@ -1834,7 +1834,7 @@ final class Cli {
      * what state/options/core.json declares — the ONLY place
      * activate_plugin()/deactivate_plugins()/switch_theme() run, and
      * deliberately OUTSIDE `wp duo apply`'s hook-free canary
-     * (docs/proposals/code-half.md §3.4): activation hooks MUST fire here
+     * (docs/code-half.md §3.4): activation hooks MUST fire here
      * (that's how plugins do one-time setup/migrations); apply's canary
      * requires the opposite, so the two can never share a transaction.
      * Refuses loudly, listing every finding, while any currently-desired-
@@ -2440,15 +2440,15 @@ final class Cli {
     }
 
     /**
-     * The generalized suspicious-ref linter (task #11; docs/frontier/{fse,
-     * polylang,elementor}.md): scans a CAPTURED state tree for ref-shaped
-     * values that reached canonical state WITHOUT ever passing through a
-     * declared rewrite path. This is the correctness gate byte-identical
-     * round-tripping cannot be: a value the tokenizer never looks at gets
-     * captured and re-applied as the exact same wrong bytes on every
-     * environment, so `duo capture`'s own determinism check reports
-     * "clean" on real corruption — all three frontier explorations
-     * independently hit this blind spot and lost real content to it.
+     * The generalized suspicious-ref linter (task #11): scans a CAPTURED
+     * state tree for ref-shaped values that reached canonical state WITHOUT
+     * ever passing through a declared rewrite path. This is the correctness
+     * gate byte-identical round-tripping cannot be: a value the tokenizer
+     * never looks at gets captured and re-applied as the exact same wrong
+     * bytes on every environment, so `duo capture`'s own determinism check reports
+     * "clean" on real corruption — the FSE, Polylang and Elementor frontier
+     * explorations each hit this blind spot independently and each lost real
+     * content to it.
      *
      * Four detection classes, each finding tagged accordingly:
      *   bare_id             — a numeric post_meta/option value with no ref

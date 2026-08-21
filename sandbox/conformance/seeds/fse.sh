@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # FSE (block theme) manifest conformance seed: exercises the four content
-# types docs/frontier/fse.md's exploration found (wp_template,
+# types the FSE frontier exploration found (wp_template,
 # wp_template_part, wp_navigation, wp_block) plus the block registry's two
 # new capabilities (polymorphic kind dispatch, string-attribute
-# tokenization) via core/navigation-link's id+kind+url attributes — the
-# report's one real gap. run.sh's "block-theme" setup hook activates
+# tokenization) via core/navigation-link's id+kind+url attributes — that
+# exploration's one real gap. run.sh's "block-theme" setup hook activates
 # twentytwentyfive (bundled with core, no `theme install` needed) on both
 # conf1 and conf2 before this seed or the apply that follows it; without
 # that symmetry the customized "home" wp_template's wp_theme term would be

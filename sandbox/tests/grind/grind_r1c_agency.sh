@@ -11,7 +11,8 @@
 # journal on); this script boots, installs, and seeds them itself — it
 # never touches envs a/b/c/conf*/e*/fx*/g*/r1a*/r1b* or their site repos.
 #
-# Deliberate interplay points (see docs/grind/r1c-agency.md for outcomes):
+# Deliberate interplay points (each one's outcome is stated at its own
+# assertion below, in the `say` line that introduces it):
 #   1. An ACF relationship field on 'project' pointing AT Elementor-built
 #      pages (does the ref-rewrite care what builder authored the target?).
 #   2. An Elementor page linking to a project's permalink via a plain URL
@@ -175,7 +176,7 @@ pass "both envs installed (WP+ACF+Elementor active); duo-agency-cpt present in c
 
 # ============================================================ baseline + the elementor_active_kit footgun
 
-say "(1) INTERPLAY FINDING (behavior updated by task #73): elementor_active_kit is classified authored+ref:post by manifests/elementor.json, but 'elementor_library' is not yet in THIS site's policy.post_types — and the kit post is REAL, so this is a scope gap, not a dangling ref. This grind originally found a silent warn-and-drop here (docs/grind/r1c-agency.md's engine-gap writeup, escalated as task #73); capture must now ABORT loudly instead"
+say "(1) INTERPLAY FINDING (behavior updated by task #73): elementor_active_kit is classified authored+ref:post by manifests/elementor.json, but 'elementor_library' is not yet in THIS site's policy.post_types — and the kit post is REAL, so this is a scope gap, not a dangling ref. This grind originally found a silent warn-and-drop here, escalated as task #73; capture must now ABORT loudly instead"
 
 # DUO-3229 (fail closed on unscoped entity types) postdates this fixture and
 # added its OWN, coarser, unconditional gate (Capture::build()'s scope_gaps()
@@ -276,7 +277,7 @@ say "(2) on r1c2: plan shows pending activation as the ONLY code_mismatch findin
 # r1b/r3a siblings — caught live via a full end-to-end run, DUO-3274's
 # sweep). Two shapes exist on main for DUO-3216-era breakage (owner ruling):
 # reorder to deploy-before-plan (grind_r1b_shop.sh's PR #14,
-# grind_r3b_events.sh's DUO-3250/#37 — docs/proposals/code-half.md §3.4's
+# grind_r3b_events.sh's DUO-3250/#37 — docs/code-half.md §3.4's
 # deploy-before-apply contract), or flip the assertion to expect the
 # inactive_in_environment finding when the section's own point IS that
 # pending state. This section is the second kind: DUO-3250's own commit
@@ -528,7 +529,7 @@ MOBILE_ID=$(echo "$SEED_JSON" | jq -r .mobile_id)
 ALPHA_URL=$(echo "$SEED_JSON" | jq -r .alpha_url)
 pass "seeded: ACF field group (image+relationship+taxonomy) on 'project'; 2 projects; 2 Elementor pages; relationship fields backfilled against the real Elementor page ids"
 
-say "(3) render both Elementor pages once — the 3 keys (_elementor_css/_elementor_element_cache/_elementor_migrations_state_<hash>) are created lazily on FIRST front-end render, not at save time (docs/frontier/elementor.md's own finding)"
+say "(3) render both Elementor pages once — the 3 keys (_elementor_css/_elementor_element_cache/_elementor_migrations_state_<hash>) are created lazily on FIRST front-end render, not at save time (the Elementor frontier exploration's own finding)"
 curl -fs "$R1C1/our-work/" >/dev/null || fail "r1c1 front-end render of 'Our Work' failed"
 curl -fs "$R1C1/start-a-project/" >/dev/null || fail "r1c1 front-end render of 'Start a Project' failed"
 pass "both Elementor pages rendered once on r1c1"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Contact Form 7 manifest conformance seed (Grind R1-A, docs/grind/r1a-forms.md):
+# Contact Form 7 manifest conformance seed (Grind R1-A):
 # a real form built via WPCF7_ContactForm::get_template()+save() — CF7's own
 # admin-screen code path, not hand-authored postmeta — with customized mail
 # settings, plus pages embedding both the modern hash shortcode and the

@@ -2,7 +2,9 @@
 
 Driver: [`sandbox/tests/grind/grind_mup.sh`](../../sandbox/tests/grind/grind_mup.sh).
 Fixtures: [`sandbox/tests/fixtures/mup/`](../../sandbox/tests/fixtures/mup/).
-Specification: [round-3 MUP §6.1](../proposals/round-3-minimum-usable-platform.md).
+This document is the specification the driver implements (originally round-3
+MUP §6.1); `make grind-mup` runs it. The six product words the loop reports are
+defined in [docs/assess-vocabulary.md](../assess-vocabulary.md).
 
 This is the only test in the estate that runs the whole customer loop the round
 exists to ship — `assess → contract → rehearse → capture/merge → release +

@@ -750,9 +750,13 @@ are plan-time signals, not proof of corruption; each carries its own caveat
 note, because small ids legitimately coincide with counts, versions, and
 ordering indexes.
 
-Real worked narratives, with the empirical grounding for each decision, are in
-[docs/grind/r1a-forms.md](../grind/r1a-forms.md) and
-[docs/grind/r1c-agency.md](../grind/r1c-agency.md).
+Real worked examples, with the empirical grounding for each decision, are the
+grind rounds themselves: `make grind-r1a` (forms — Contact Form 7 + Ninja
+Forms) and `make grind-r1c` (the agency stack — Elementor + ACF + a
+dogfooded CPT plugin). Each script's header states the fixture and the
+finding behind every assertion, and the manifests those rounds produced
+(`manifests/contact-form-7.json`, `manifests/ninja-forms.json`,
+`manifests/elementor.json`) carry the reasoning in their own note strings.
 
 ## Dispositions: the reviewed claim source
 
@@ -1081,7 +1085,7 @@ The derived ratification claims nothing an unexercised check cannot support:
 no `delete` operation, no lifecycle phases, every intent-only table marked
 unsupported, and every open-ended `default_class: authored` keyspace recorded
 `unsupported` rather than justified. The full wire contract is
-[round-3-adapter-walk-bundle.md](../proposals/round-3-adapter-walk-bundle.md).
+[docs/adapter-walk-bundle.md](../adapter-walk-bundle.md).
 
 Every catalog and diagnostic row carries `trust_root` (`platform` for a shipped
 row, `site` or `platform` for a signed out-of-tree one, `null` when nothing

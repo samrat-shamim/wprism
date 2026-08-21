@@ -36,8 +36,8 @@ wp_conf1 post meta update "$POST_ID" _yoast_wpseo_meta-robots-noindex 0
 # Per-term SEO override on CAT_A (task #11 wave 2 — key_refs + json_refs on
 # wpseo_taxonomy_meta): seeded via WPSEO_Taxonomy_Meta::set_values(),
 # Yoast's own documented public API (verified empirically against a running
-# install this session, not guessed — see docs/frontier/elementor.md's
-# sibling report and manifests/yoast.json's notes for the exact byte shape:
+# install this session, not guessed — see manifests/yoast.json's own notes
+# for the exact byte shape:
 # PHP-serialized {taxonomy: {term_id(int): {wpseo_opengraph-image-id
 # (digit STRING), ...}}}). Needs an attachment for the og-image-id field,
 # which this seed didn't otherwise create.

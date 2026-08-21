@@ -13,8 +13,8 @@ require_once __DIR__ . '/../Kernel/CommandRefusal.php';
  * Plugin-owned provider contract: discovery, negotiation, and invocation of
  * executable semantics the engine deliberately does not own.
  *
- * The boundary doctrine's fourth extension surface (docs/proposals/
- * engine-adapter-boundary.md, "Plugin-owned provider") is what this file
+ * The boundary doctrine's fourth extension surface
+ * (docs/adapter-boundary.md, "Plugin-owned provider") is what this file
  * implements literally. A provider supplies behavior the plugin already owns;
  * the engine holds only the loading contract, the negotiation gate, and the
  * receipt/verification posture. Nothing here dispatches on a plugin name, and
@@ -72,9 +72,9 @@ final class Providers {
     /**
      * The engine batch channels a `scope: entity` capability may opt into
      * (DUO-3369). This is the doctrine's "declared … required lifecycle
-     * context" and "batching … and retry semantics" (docs/proposals/
-     * engine-adapter-boundary.md, "The provider contract must define"), made
-     * declarable instead of implicit. Closed for the same reason the
+     * context" and "batching … and retry semantics" (docs/adapter-boundary.md,
+     * "The provider contract must define"), made declarable instead of
+     * implicit. Closed for the same reason the
      * native-action vocabulary is closed: every name is engine-assembled
      * evidence with one fixed meaning, so an adapter may opt IN to a channel
      * but may never mint one — a name the engine does not assemble would be a

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Polylang render/API-level acceptance (docs/frontier/polylang.md's proposed
-# acceptance criteria (b)/(c)/(d), mirroring checks/fse.sh's and checks/
-# elementor.sh's methodology): byte-identical canonical state between conf1
-# and conf2 is necessary but not sufficient — the report's own confirmed
-# corruption round-tripped byte-identical to itself while Polylang's own
+# Polylang render/API-level acceptance (the Polylang frontier exploration's
+# proposed acceptance criteria (b)/(c)/(d), mirroring checks/fse.sh's and
+# checks/elementor.sh's methodology): byte-identical canonical state between
+# conf1 and conf2 is necessary but not sufficient — that exploration's own
+# confirmed corruption round-tripped byte-identical to itself while Polylang's own
 # lookup functions returned nothing/wrong values on the target. This check
 # calls Polylang's OWN documented public API on conf2 (not Duo's state
 # tree) and inspects the raw DB bytes for type fidelity, using conf2's own

@@ -135,7 +135,7 @@ final class ActionProviderGrammar {
      *
      * The retired `rebuilders` channel let a manifest name a wp-cli command
      * string — including `eval '<php>'` — that Apply then executed verbatim.
-     * The boundary doctrine (docs/proposals/engine-adapter-boundary.md §1)
+     * The boundary doctrine (docs/adapter-boundary.md §1)
      * forbids engine core executing manifest-supplied PHP/shell/WP-CLI
      * strings, so the key is refused rather than ignored: manifests carry no
      * unknown-top-level-key validator, so silently dropping the channel would
