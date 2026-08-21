@@ -440,8 +440,18 @@ final class LifecyclePlanner {
      * deployed canonical tree — the two are expected to agree at the
      * instant this runs (deploy just reconciled activation; capture just
      * read live state), and reading live state directly means this
-     * function needs nothing passed in beyond $policy, keeping both call
-     * sites (Deploy::run() and Capture::run()) to one line each.
+     * function needs nothing passed in beyond $policy, keeping its call
+     * sites to one line each.
+     *
+     * DUO-3507: this is the UNCONDITIONAL writer, and Deploy::run() is the
+     * only caller entitled to use it that way. By the time deploy
+     * re-baselines (Deploy.php:464-472) it has already refused on drift
+     * (Deploy.php:203-210, "duo: deploy refused — code_drift") or been
+     * explicitly forced past it with --force-code-drift while warning once
+     * per overridden row (Deploy.php:221-224) — the consent gate already
+     * happened, so this write is that decision's consequence rather than
+     * the decision itself. Capture has no such gate and never asks, so it
+     * goes through observe_code_versions() below instead of calling this.
      *
      * Records EVERY currently-active plugin's version, not just ones a
      * $desired list happens to name — code_drift() only ever CONSULTS the
@@ -472,6 +482,44 @@ final class LifecyclePlanner {
             $versions['template_version'] = (string) wp_get_theme($template)->get('Version');
         }
         Ledger::kv_set(self::CODE_VERSIONS_KEY, wp_json_encode($versions));
+    }
+
+    /**
+     * Capture's baseline write: observe, never accept (DUO-3507).
+     *
+     * `duo capture` reads live state and publishes it; it does not
+     * reconcile code, and it has no --force-code-drift consent gate the way
+     * Deploy::run() does. Overwriting the baseline across an unaccepted
+     * drift was therefore the one place a durable finding was erased by a
+     * verb that never asked: code_drift() reads exactly the key
+     * record_code_versions() writes (:369), so the re-baseline deleted
+     * the evidence from every later `duo status`/`duo plan`, and the drift
+     * row's own remedy text names 'duo deploy' as the accept path
+     * (:400-401, :429-430) and never names capture.
+     *
+     * So: nothing to accept — no baseline recorded yet, or zero drift —
+     * writes exactly as before; anything to accept leaves the recorded blob
+     * byte-identical and hands the rows back for the caller to report. The
+     * scope handed to code_drift() is this environment's own live
+     * active_plugins/template/stylesheet rather than a repository's desired
+     * set, because capture is answering "what did I just observe here",
+     * and code_drift() already declines to compare a plugin with no
+     * recorded baseline (:383-384) — so this is not a widening of "Duo has
+     * no opinion about a plugin it was never told to manage".
+     *
+     * @return list<array{issue:string, kind:string, plugin?:string, theme?:string, message:string, installed_version:string, recorded_version:string}> non-empty means the baseline was NOT moved
+     */
+    public static function observe_code_versions(Policy $policy): array {
+        $drift = self::code_drift($policy, [
+            'active_plugins' => Deploy::current_active_plugins(),
+            'template' => (string) get_option('template'),
+            'stylesheet' => (string) get_option('stylesheet'),
+        ]);
+        if ($drift !== []) {
+            return $drift;
+        }
+        self::record_code_versions($policy);
+        return [];
     }
 
     /** @param array<string,array{min:string,max:string,manifest:string}> $ranges @param list<array<string,mixed>> $rows */

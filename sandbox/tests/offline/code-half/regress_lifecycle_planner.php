@@ -42,8 +42,11 @@ check(str_contains($plannerSource, 'final class LifecyclePlanner'), 'LifecyclePl
 
 // === Prove the extraction itself. code_mismatch()/code_revision_mismatch()/
 // code_drift()/record_code_versions() each keep a thin Deploy facade (each
-// has an external caller beyond Deploy::run() itself -- Apply::build_plan()
-// for the first three, Capture::run() for the fourth); compiled_code_revision()
+// had an external caller beyond Deploy::run() itself at extraction time --
+// Apply::build_plan() for the first three, Capture::run() for the fourth;
+// DUO-3507 later moved capture onto observe_code_versions(), so
+// record_code_versions()'s facade is now Deploy-internal and is kept only
+// because run() still spells it self::); compiled_code_revision()
 // and check_theme_range() had no caller anywhere outside their own moved
 // cluster and were removed from Deploy.php entirely, no facade needed.
 foreach ([
@@ -102,6 +105,34 @@ foreach (['compiled_code_revision', 'check_theme_range'] as $private) {
     check($planner->getMethod($private)->isPrivate(), "$private() stays private -- an internal collaborator, not a shared API");
 }
 
+// DUO-3507: observe_code_versions() is capture's baseline write -- the same
+// single-$policy shape as the record_code_versions() it wraps, but returning
+// the code_drift rows it declined to accept instead of nothing. That return
+// type IS the fix: a void observe() could not tell capture there was
+// anything to warn about, and a record_code_versions() that returned rows
+// would have made deploy's unconditional re-baseline (Deploy.php:472,
+// downstream of its own refuse-or-force gate) conditional by accident.
+// The behaviour itself is exercised in
+// sandbox/tests/offline/code-half/regress_capture_code_baseline.php.
+check(
+    array_map(static fn(ReflectionParameter $p): string => $p->getName(), $planner->getMethod('observe_code_versions')->getParameters()) === ['policy'],
+    'observe_code_versions() takes exactly the policy, like the writer it wraps'
+);
+check($planner->getMethod('observe_code_versions')->isPublic(), 'observe_code_versions() is public on LifecyclePlanner');
+check(
+    (string) $planner->getMethod('observe_code_versions')->getReturnType() === 'array',
+    'observe_code_versions() returns the rows it declined to accept'
+);
+check(
+    (string) $planner->getMethod('record_code_versions')->getReturnType() === 'void',
+    'record_code_versions() still returns nothing -- it decides nothing, it just writes'
+);
+check(
+    str_contains($plannerSource, 'self::record_code_versions($policy);')
+        && str_contains($plannerSource, 'if ($drift !== []) {'),
+    'observe_code_versions() composes code_drift() and record_code_versions() rather than re-implementing either'
+);
+
 // sandbox/tests/offline/policy/regress_manifest_validate.sh's static WordPress-reach
 // scanner keys its allowlist on exact "file.php:function_name" pairs -- a
 // stale entry there (still naming Deploy.php for a function that moved)
@@ -116,6 +147,13 @@ foreach (['code_mismatch', 'code_drift', 'record_code_versions', 'check_theme_ra
         "regress_manifest_validate.sh's wp_allow list points $fn at LifecyclePlanner.php, not the old Deploy.php location"
     );
 }
+// observe_code_versions() never lived on Deploy.php, so it is not a renamed
+// entry -- it is a NEW unguarded get_option('template'/'stylesheet') reach in
+// boot()'s load closure, which that scanner fails loud on unless allowlisted.
+check(
+    str_contains($scannerSource, 'LifecyclePlanner.php:observe_code_versions'),
+    "regress_manifest_validate.sh's wp_allow list covers observe_code_versions()'s own get_option() reach"
+);
 
 if ($checks < 1) {
     fwrite(STDERR, "FAIL: no checks ran\n");

@@ -96,7 +96,10 @@ auto-update. `DISALLOW_FILE_MODS` (checked by `duo doctor`) is the policy fix
 for the class of problem, not just its detection.
 
 **Remedy**: re-deploy to accept the installed version as the new baseline,
-restore the recorded version, or pass `--force-code-drift`.
+restore the recorded version, or pass `--force-code-drift`. Note that a
+`duo capture` is **not** an accept: capture observes reality, warns once per
+finding, and leaves the recorded baseline alone. Accepting a code change is
+`duo deploy`'s decision, and it has `duo deploy`'s consent gate in front of it.
 
 Drift is scoped to exactly the plugins and theme slots the target state names.
 Duo has no opinion about a plugin it was never told to manage.
@@ -134,8 +137,22 @@ past — it means the compatibility claim you are relying on does not exist.
 
 ## Version baselines: what actually gets recorded
 
-The `code_versions` baseline is **overwritten, never merged**, on a successful
-`duo deploy` and on `duo capture`. It records the installed version of **every
+The `code_versions` baseline is **overwritten, never merged** — never a
+partial write that keeps the drifted entries and moves the rest. Which verb
+writes it, and when, is the part that matters:
+
+- **`duo deploy` writes it unconditionally**, at the end of a successful run.
+  By then deploy has already refused on `code_drift` or been explicitly forced
+  past it with `--force-code-drift`, warning once per overridden finding — the
+  decision was taken, so the write is that decision's consequence.
+- **`duo capture` writes it only when there is nothing to accept**: no
+  baseline recorded yet, or zero drift. Across an unaccepted drift it leaves
+  the recorded bytes exactly as they were and emits one warning per finding
+  instead. Capture is the observe-reality verb; it does not reconcile code and
+  has no `--force-code-drift` of its own, so it never quietly consumes a
+  decision you have not made.
+
+Whichever verb writes it, it records the installed version of **every
 plugin currently active in the environment** — not only the ones target state
 names — plus the template and stylesheet slots and their versions. Drift
 detection then reads back a narrower slice: it compares only the plugins the
@@ -143,7 +160,7 @@ target state declares active, because Duo has no opinion about a plugin it was
 never told to manage. Recording wider than you read is deliberate, so a plugin
 activated today already has a baseline the next time it matters.
 
-Three consequences follow, and the third is the one teams get wrong:
+Four consequences follow, and the third is the one teams get wrong:
 
 1. A plugin with no recorded baseline is not drift — it is simply unminted,
    and Duo skips it rather than inventing a comparison. In practice this means
@@ -158,6 +175,13 @@ Three consequences follow, and the third is the one teams get wrong:
    that step is yours: your package manager, your release directory, your
    backup. Duo detects the divergence and refuses to write state across it. It
    does not put the old bytes back.
+4. **Capturing across a `code_drift` does not clear it.** The finding is still
+   there on the next `duo status`, `duo plan` and `duo apply`, because capture
+   left the baseline untouched. That is deliberate: the two ways forward stay
+   the ones the finding's own message names — restore the recorded version, or
+   accept the installed one with `duo deploy` (`--force-code-drift` if deploy
+   is still refusing). Capture will tell you, once per finding, that this is
+   what it did.
 
 Theme upgrade, incompatible-downgrade refusal, unsafe parent-removal refusal,
 and dependency-safe removal are exercised by the ecommerce developer proof.

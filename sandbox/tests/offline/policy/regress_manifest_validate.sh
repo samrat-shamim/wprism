@@ -154,7 +154,18 @@ printf 'boot() loads: %s\n' "$(tr '\n' ' ' <<<"$engine_files" | sed 's#[^ ]*/##g
 # own entry unchanged -- it still calls get_option('stylesheet'/'template')
 # directly, earlier in the method, to compute $stylesheetMismatch/
 # $templateMismatch before the moved call.
-wp_allow='TargetProbe.php:probe_target,Policy.php:taxonomies,NativeActions.php:delete_transient_action,NativeActions.php:transient_state,NativeActions.php:option_row_present,LifecyclePlanner.php:code_mismatch,LifecyclePlanner.php:code_drift,LifecyclePlanner.php:record_code_versions,LifecyclePlanner.php:check_theme_range,LifecycleExecutor.php:execute,Deploy.php:run,Deploy.php:current_active_plugins,Deploy.php:plugin_runtime_state,Providers.php:plugin_supplied_providers'
+#
+# DUO-3507 added LifecyclePlanner.php:observe_code_versions -- capture's
+# baseline write, which scopes code_drift() to this environment's own live
+# state and therefore reads get_option('template'/'stylesheet') directly, the
+# same unguarded reach its two neighbours code_drift/record_code_versions
+# already carry. It is a NEW entry, not a renamed one: manifest-validate does
+# not call it either (it is capture's call site, not this command's), and it
+# sits in the same load closure only because AdapterCertification pulls Deploy
+# -> LifecyclePlanner in. The alternative -- putting the drift check at the
+# capture call site instead -- was rejected precisely because it would teach a
+# second file where the live code facts live just to dodge this line.
+wp_allow='TargetProbe.php:probe_target,Policy.php:taxonomies,NativeActions.php:delete_transient_action,NativeActions.php:transient_state,NativeActions.php:option_row_present,LifecyclePlanner.php:code_mismatch,LifecyclePlanner.php:code_drift,LifecyclePlanner.php:record_code_versions,LifecyclePlanner.php:observe_code_versions,LifecyclePlanner.php:check_theme_range,LifecycleExecutor.php:execute,Deploy.php:run,Deploy.php:current_active_plugins,Deploy.php:plugin_runtime_state,Providers.php:plugin_supplied_providers'
 wp_allow_via='AdapterRegistry::report() Policy::taxonomies() NativeActions::execute() Deploy::code_mismatch() Deploy::code_drift() Providers::negotiate()'
 
 scan_wp() {

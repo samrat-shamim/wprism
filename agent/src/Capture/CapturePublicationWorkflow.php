@@ -13,6 +13,7 @@ require_once __DIR__ . '/../Kernel/Db.php';
 require_once __DIR__ . '/../Repository/Identity.php';
 require_once __DIR__ . '/InitialCaptureBoundary.php';
 require_once __DIR__ . '/../Repository/Ledger.php';
+require_once __DIR__ . '/../Promotion/LifecyclePlanner.php';
 require_once __DIR__ . '/../Review/Lint.php';
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Publication/Publish.php';
@@ -33,6 +34,21 @@ require_once __DIR__ . '/../Repository/Snapshot.php';
  * destination lock and produces the stable capture summary.
  */
 final class CapturePublicationWorkflow {
+    /**
+     * DUO-3507: appended to each code_drift row this capture declined to
+     * accept. The row's own message already names the three ways forward --
+     * accept with 'duo deploy', restore the recorded version, or pass
+     * --force-code-drift (LifecyclePlanner.php:400-401, :429-430) -- so this
+     * adds only the part the row cannot know: that THIS verb saw the drift,
+     * left the recorded baseline byte-identical, and therefore did not
+     * consume the operator's decision. Deploy's symmetric line for the
+     * opposite outcome is 'FORCED past code_drift: ' . $r['message']
+     * (Deploy.php:221-224).
+     */
+    private const CODE_DRIFT_OBSERVED = " — 'duo capture' observed this and did NOT accept it as the new baseline: "
+        . 'capture reports what it sees, it does not reconcile code. The recorded versions are unchanged, so this '
+        . "finding is still there on the next 'duo status'.";
+
     public static function run(
         string $repo,
         ?string $outDir,
@@ -691,7 +707,20 @@ final class CapturePublicationWorkflow {
                             array_column($candidate['entities'], 'uuid'),
                             array_column($candidate['deletions'], 'uuid')
                         ));
-                        Deploy::record_code_versions($c->policy());
+                        // DUO-3507: capture observes code, it never accepts
+                        // it. The unconditional re-baseline stays deploy's
+                        // alone -- Deploy.php:464-472 reaches
+                        // LifecyclePlanner::record_code_versions() only after
+                        // that verb's own refuse-or-force gate
+                        // (Deploy.php:203-210, :221-224). Capture has no such
+                        // gate, so an unaccepted drift leaves the recorded
+                        // blob byte-identical and every row is reported
+                        // (Architecture Rulings §1, report-not-hide) rather
+                        // than erased by a silent re-baseline that produced
+                        // no output at all.
+                        foreach (LifecyclePlanner::observe_code_versions($c->policy()) as $observed) {
+                            $candidate['warnings'][] = (string) $observed['message'] . self::CODE_DRIFT_OBSERVED;
+                        }
                     }
                 }
                 $intent = Publish::mark_commit_ready($stateDir, $intent, $initialBaseline);
