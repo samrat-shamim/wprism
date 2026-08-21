@@ -408,18 +408,41 @@ duo_check_same(
 // exists for (grind_adapter_walk.sh S2).
 $siteRepo = $scratch . '/siterepo';
 mkdir($siteRepo . '/adapters', 0777, true);
+// DUO-3504: this adapter now declares one of every shape whose PROVENANCE
+// used to be lost, so the surface-group assertions below are about the three
+// distinct mechanisms rather than one lucky case:
+//   acme_product  — classed, and shadowed by the site scope rule `certify
+//                   --pin` writes (cli/src/Adapter/AdapterCertify.php:588-609)
+//   acme_note     — STRUCTURAL `{}` (the Contact Form 7 shape) with NO site
+//                   rule at all: post_type_rule_details():1846 tests
+//                   isset(...['class']) and so resolves source null, which is
+//                   a second and independent way the declarant was lost
+//   option_patterns — a classification with no exact key for declared_names()
+//                   to enumerate
 Canon::write_file($siteRepo . '/adapters/acme-storefront.json', Canon::encode([
     'name' => 'acme-storefront',
     'option_autoload' => 'preserve',
     'option_namespaces' => [['match' => '^acme_storefront_']],
+    'option_patterns' => [['class' => 'runtime', 'match' => '^acme_storefront_cache_']],
     'options' => ['acme_storefront_layout' => ['class' => 'authored']],
     'plugin' => 'acme-storefront/acme-storefront.php',
+    'post_types' => ['acme_note' => new stdClass(), 'acme_product' => ['class' => 'authored']],
     'spec_version' => DUO_SPEC_VERSION,
+    'taxonomies' => ['acme_brand' => new stdClass()],
     'version_range' => ['max' => '5.0.0', 'min' => '4.0.0'],
 ]));
 Canon::write_file($siteRepo . '/site.duo.json', Canon::encode([
     'manifests' => ['core', 'acme-storefront'],
-    'policy' => new stdClass(),
+    // Exactly the bytes `duo adapter certify --pin` writes for the two types
+    // this adapter declares. They are the site's own whole-type decision and
+    // they must keep winning the CLASSIFICATION (asserted below, and pinned
+    // as DUO-3495's contract at offline/adapter/regress_adapter_certify.php
+    // :985-990) — the point of the DUO-3504 assertions is that winning the
+    // class does not transfer the CREDIT for declaring the surface.
+    'policy' => ['scope' => [
+        'post_type' => ['acme_product' => ['class' => 'authored']],
+        'taxonomy' => ['acme_brand' => ['class' => 'authored']],
+    ]],
     'spec_version' => DUO_SPEC_VERSION,
 ]));
 register_shutdown_function(static function () use ($siteRepo): void {
@@ -446,6 +469,84 @@ duo_check(
     . var_export($siteRows['acme-storefront']['adapter_digest'] ?? null, true)
 );
 duo_check_same('uncertified', $siteRows['acme-storefront']['status'] ?? null, 'its status is the site source\'s own word');
+
+// ---------------------------------------------------------------------------
+// DUO-3504: WHO DECLARED THIS SURFACE, versus WHOSE RULE CLASSIFIED IT.
+//
+// `duo adapter certify --pin` adopts a certified adapter's declared types by
+// writing `policy.scope.<kind>.<name>` into site.duo.json (DUO-3495). That
+// rule then wins `post_type_rule_details()`:1841 — correctly; site policy
+// always wins — and `source` reads `site.duo.json`. `declarant()` used to map
+// every non-manifest source onto `core`, so the adapter the operator had just
+// certified vanished from `declared_by`, and the host printed
+// "Platform-certified" (ProjectionVocabulary::projectProvenance():788-822)
+// for the adapter's own CPT with no principal line at all
+// (AssessRenderer::siteCertifiedPrincipals():514-535). Provenance is a second
+// fact, not the winning rule's byproduct.
+// ---------------------------------------------------------------------------
+$siteGroups = array_column($siteDocument['policy']['surface_groups'], null, 'id');
+duo_check_same(
+    ['class' => 'authored', 'declared_by' => 'acme-storefront'],
+    ['class' => $siteGroups['post_type:acme_product']['class'] ?? null,
+        'declared_by' => $siteGroups['post_type:acme_product']['declared_by'] ?? null],
+    'a site scope rule adopting a declared post type keeps the ADAPTER as its declarant — the site decided the '
+    . 'class, it did not declare the type'
+);
+duo_check_same(
+    'site.duo.json',
+    $sitePolicy->post_type_rule_details('acme_product')['source'],
+    'and the engine still answers site.duo.json for that same type: the classification precedence is untouched'
+);
+duo_check_same(
+    ['class' => 'authored', 'declared_by' => 'acme-storefront'],
+    ['class' => $siteGroups['taxonomy:acme_brand']['class'] ?? null,
+        'declared_by' => $siteGroups['taxonomy:acme_brand']['declared_by'] ?? null],
+    'the same for the taxonomy the same rule adopted — one mechanism, both kinds'
+);
+// The second, independent loss: no site rule is involved at all here.
+// post_type_rule_details():1845-1846 walks the manifests testing
+// isset($m['post_types'][$name]['class']), so a declaration written the way
+// Contact Form 7 writes `wpcf7_contact_form: {}` resolves to source null and
+// the type read as core's — while taxonomy_rule_details():1861-1866 defaults
+// the same shape to authored and names the manifest. declaring_manifest()
+// asks whether the adapter NAMES the surface, which both shapes answer.
+duo_check_same(
+    ['source' => null, 'declared_by' => 'acme-storefront'],
+    ['source' => $sitePolicy->post_type_rule_details('acme_note')['source'],
+        'declared_by' => $siteGroups['post_type:acme_note']['declared_by'] ?? null],
+    'a STRUCTURAL `{}` post type is credited to its adapter even though no rule of any kind resolved for it'
+);
+duo_check_same(
+    'acme-storefront',
+    $sitePolicy->declaring_manifest('post_types', 'acme_product'),
+    'Policy::declaring_manifest() is the one accessor behind that, and it names the declaring adapter directly'
+);
+duo_check_same(
+    null,
+    $sitePolicy->declaring_manifest('post_types', 'post'),
+    'and answers null for a core surface no adapter declares — `core` is AssessInventory\'s word, not Policy\'s'
+);
+// An adapter that classifies its options by PATTERN had no option_group row
+// at all: declared_names() enumerates exact `options` keys only, so the whole
+// surface was invisible — never grouped here, and never pending either,
+// because a pattern-classified option IS classified
+// (PolicyRuleResolver::details():89-103).
+duo_check(
+    isset($siteGroups['option_group:acme-storefront:runtime']),
+    'a pattern-declared option class mints its own option_group row — got '
+    . implode(', ', array_values(array_filter(
+        array_keys($siteGroups),
+        static fn(string $id): bool => str_starts_with($id, 'option_group:')
+    )))
+);
+duo_check_same(
+    ['class' => 'runtime', 'count' => null, 'declared_by' => 'acme-storefront',
+        'id' => 'option_group:acme-storefront:runtime', 'kind' => 'option_group'],
+    (static function (array $g): array { ksort($g, SORT_STRING);
+    return $g; })($siteGroups['option_group:acme-storefront:runtime'] ?? []),
+    'and the row names no option: a class, a declarant and a null count, so §4.6\'s bound stays declarants x '
+    . 'classes rather than growing with the site'
+);
 
 // T7 grind A3: on an adoption seed the inventory is projected against the
 // init proposal and says so in an `adoption` block; an init-owned repository's

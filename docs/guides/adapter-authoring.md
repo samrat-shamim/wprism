@@ -1003,6 +1003,14 @@ once, and `duo release`/`duo promote` admit the adapter through their existing
 certified-and-exactly-pinned gate: a valid signature without the exact
 `{name, source: "site", digest}` pin stays `signed_unpinned` and blocked.
 
+That `Site-certified` reading does not depend on how a type reached authored
+scope. The `policy.scope.<kind>.<name>` rule `--pin` writes is the site's own
+classification decision and it wins classification, exactly as "site policy
+always wins" says — but deciding a type's class does not un-declare it, so the
+adapter remains the surface's declarant. A type adopted by `--pin` and a type
+already on the site's flat `policy.post_types` list therefore assess
+identically (DUO-3504; before it, the first read `Platform-certified`).
+
 **The certificate binds bytes, so an edit breaks it.** Any change to
 `adapters/<name>.json` moves the digest; the pin then refuses and the claim
 drops back to uncertified. Re-run `duo adapter certify … --pin` after every

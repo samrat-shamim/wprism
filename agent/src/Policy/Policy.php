@@ -1896,6 +1896,55 @@ final class Policy {
     }
 
     /**
+     * Which pinned ADAPTER declares a surface — provenance, deliberately
+     * independent of which declaration won the classification above.
+     *
+     * The two questions are different and DUO-3504 is the bill for having
+     * conflated them. `post_type_rule_details()`:1841-1843 returns
+     * `site.duo.json` the moment a site scope rule exists, which is correct
+     * and load-bearing (site policy always wins, and that source is compared
+     * against namespace owners in `owned_option_rule()`:667-668). But
+     * DUO-3495 made `duo adapter certify --pin` write exactly such a rule for
+     * every type the adapter declares
+     * (cli/src/Adapter/AdapterCertify.php:588-609), so a site that adopted a
+     * certified adapter's CPT erased the adapter from
+     * `AssessInventory::declarant()` and `duo assess` printed
+     * "Platform-certified" for that adapter's own post type. Deciding a
+     * type's CLASS does not un-declare the type.
+     *
+     * DECLARES, not "declares authored". One `isset()` over the manifest
+     * section is the whole rule, and it is uniform on purpose:
+     *
+     *  - It sees a STRUCTURAL declaration — `"wpcf7_contact_form": {}`, the
+     *    shape Contact Form 7 uses — which `:1846`'s `isset(...['class'])`
+     *    test cannot, a second and independent way an adapter lost credit for
+     *    its own type even with no scope rule in play.
+     *  - It does not filter by class. Filtering would leave provenance
+     *    path-dependent for a `runtime`/`derived` declaration exactly as this
+     *    issue found it for an authored one: unshadowed, `:1846` already
+     *    credits that manifest; shadowed by a site rule, a class filter would
+     *    hand the credit back to the platform. An adapter that names a
+     *    surface declares it whatever it classifies it as.
+     *
+     * `$section` is the manifest section name, the same vocabulary
+     * `rule_details()` takes. `core` is never an answer: it is the platform,
+     * not an adapter, and `AssessInventory::CORE_DECLARANT` already means "no
+     * adapter declared this". Null says exactly that.
+     */
+    public function declaring_manifest(string $section, string $name): ?string {
+        foreach ($this->manifests as $m) {
+            $declarant = (string) ($m['name'] ?? '');
+            if ($declarant === '' || $declarant === 'core') {
+                continue;
+            }
+            if (isset($m[$section][$name])) {
+                return $declarant;
+            }
+        }
+        return null;
+    }
+
+    /**
      * Pure repository-side taxonomy authorization. taxonomies() expands
      * pattern matches from the live target database, which is right for
      * capture discovery but wrong for immutable-revision preflight: the same

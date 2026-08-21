@@ -491,7 +491,7 @@ final class AdapterCertify {
      * human wrote it with `duo classify` or `duo init --allow-unmanaged-
      * plugins` recorded it for an unmanaged plugin's rowful type, and the
      * grammar has no third key to tell them apart ("scope rules accept class
-     * only", Policy.php:2745). So provenance is not recoverable and this does
+     * only", Policy.php:2794). So provenance is not recoverable and this does
      * not infer it: a recorded entry is PRINTED with the two commands that
      * change it and left exactly as the site wrote it. `--adopt-scope` is the
      * operator supplying the missing fact themselves.
@@ -597,7 +597,7 @@ final class AdapterCertify {
             // The rule shape the scope grammar admits and nothing more:
             // ScopeGrammar::validate_scope_classes() refuses any other key,
             // and Policy::set_rule() writes exactly this for
-            // `--set=scope:<kind>:<name>=authored` (Policy.php:2745-2752).
+            // `--set=scope:<kind>:<name>=authored` (Policy.php:2794-2801).
             self::objectNode($scope, $row['kind'])->{$row['name']} = ['class' => 'authored'];
         }
 

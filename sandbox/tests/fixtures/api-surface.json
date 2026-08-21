@@ -31922,6 +31922,31 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "declaring_manifest": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "section",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "name",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "deletion_capability": {
                     "abstract": false,
                     "final": false,
