@@ -54,7 +54,23 @@ final class Coverage {
         ];
     }
 
-    /** @return array<string,mixed> */
+    /** The two classes whose declared rows OptionsCapture always writes into
+     *  the artifact: authored through the whitelist loop
+     *  (OptionsCapture.php:67-82) and managed through the fixed
+     *  active_plugins/template/stylesheet loop (:202-216). */
+    private const CAPTURED_CLASSES = ['authored', 'managed'];
+
+    /**
+     * Four buckets, one per row, and every row lands in exactly one of them
+     * before the loop `continue`s — so `total === captured +
+     * declared_excluded + pending + invisible_total` holds by construction
+     * rather than by a runtime check this deliberately never-throwing class
+     * could not raise anyway (see the class docblock). The invariant is
+     * asserted where it can actually fail a gate:
+     * sandbox/tests/offline/assess-contract/regress_coverage_offline.php.
+     *
+     * @return array<string,mixed>
+     */
     private static function options_report(Policy $policy, array $activeSlugs): array {
         global $wpdb;
         // Same query shape as Capture::gate_scan()'s own options loop --
@@ -68,48 +84,93 @@ final class Coverage {
         foreach ($rows as $row) {
             $allOptionValues[(string) $row['option_name']] = (string) $row['option_value'];
         }
-        $exact = $policy->authored_options();
-        $subKeyed = $policy->sub_keyed_options();
+        // DUO-3505: the UNFILTERED exact enumeration, not authored_options()
+        // + sub_keyed_options(). Visibility asks "does any rule win for this
+        // name", which is not the class question capture asks; answering it
+        // with capture's class-filtered enumerators is what reported every
+        // declared env/runtime/derived name as invisible to every installed
+        // adapter (measured: a site holding only the 19 option names
+        // manifests/core.json itself declares read 10 of them invisible,
+        // including the 3 managed rows the artifact always contains).
+        $declared = $policy->exact_options();
+        // The one shipped dynamic_options resolver (core.json's theme_mods,
+        // resolver `active_stylesheet`), read once per report exactly as
+        // OptionsCapture::capture():121-131 resolves it once per run.
+        $stylesheet = (string) get_option('stylesheet');
 
         $captured = 0;
         $pending = 0;
+        $declaredExcluded = self::declared_excluded_seed();
         $invisibleNames = [];
         foreach ($rows as $row) {
             $name = (string) $row['option_name'];
-            // Exact-declaration path: authored_options()/sub_keyed_options()
-            // resolve independent of namespace ownership entirely (mirrors
-            // build_options()'s own two-loop structure -- see DUO-3257's
-            // own corrected-measurement note: option_namespace() ALONE
-            // undercounts "captured" by missing this path).
-            if (isset($exact[$name]) || isset($subKeyed[$name])) {
-                $captured++;
-                continue;
+            $owner = null;
+            $fromDynamic = false;
+            // Precedence is the engine's own, in the engine's own order,
+            // every step delegating to the resolver the capture/apply path
+            // uses -- never a second reimplementation of the grammar.
+            //
+            // 1. An exact rule of ANY class, from a pinned manifest or from
+            //    site.duo.json.
+            $rule = $declared[$name] ?? null;
+            if ($rule === null) {
+                // 2. Namespace ownership, unchanged from DUO-3290 and still
+                //    reached only when 1 missed: owned_option_rule() throws
+                //    on cross-manifest ambiguity (Policy.php:669-672), and a
+                //    name that already has an exact rule must not be put in
+                //    front of that throw by this non-gating report.
+                $owner = $policy->option_namespace($name);
+                if ($owner !== null) {
+                    $rule = $policy->owned_option_rule_via_interpreter($name, $allOptionValues)
+                        ?? ($policy->match_option_name_ref($name) !== null ? ['class' => 'authored'] : null)
+                        ?? $policy->owned_option_rule($name);
+                }
             }
-            $owner = $policy->option_namespace($name);
-            if ($owner === null) {
+            // 3. option_patterns -- core.json's own ^_transient_ /
+            //    ^_site_transient_ (derived) and ^_wp_session_ (runtime) win
+            //    here, which is why every transient and session row on every
+            //    site used to be counted invisible.
+            $rule ??= $policy->option_rule($name);
+            if ($rule === null) {
+                // 4. dynamic_options by prefix: core.json's theme_mods_
+                //    family, whose active-theme row OptionsCapture writes.
+                $rule = $policy->dynamic_option_rule_for_prefix($name);
+                $fromDynamic = $rule !== null;
+            }
+            if ($rule === null) {
+                if ($owner !== null) {
+                    // Namespace-claimed but unresolved: this is gate_scan()'s
+                    // OWN pending bucket, not invisible -- already loud via
+                    // `wp duo pending` today. Counted here for the total to
+                    // reconcile, not because coverage introduces a new gate.
+                    $pending++;
+                    continue;
+                }
+                // No rule from any source. This, and only this, is what
+                // "invisible to every installed adapter" has ever meant.
                 $invisibleNames[] = $name;
                 continue;
             }
-            $resolved = $policy->owned_option_rule_via_interpreter($name, $allOptionValues) !== null
-                || $policy->match_option_name_ref($name) !== null
-                || $policy->owned_option_rule($name) !== null;
-            if ($resolved) {
+            if (self::is_captured($policy, $name, $rule, $fromDynamic, $stylesheet)) {
                 $captured++;
-            } else {
-                // Namespace-claimed but unresolved: this is gate_scan()'s
-                // OWN pending bucket, not invisible -- already loud via
-                // `wp duo pending` today. Counted here for the total to
-                // reconcile (captured + pending + invisible === total),
-                // not because coverage is introducing a new gate.
-                $pending++;
+                continue;
             }
+            // Declared and deliberately excluded: an adapter models this name
+            // and says Duo must not version it. Not invisible, not pending,
+            // not captured, and carrying no next action -- there is nothing
+            // here to classify.
+            $class = (string) ($rule['class'] ?? 'unknown');
+            $declaredExcluded[$class] = ($declaredExcluded[$class] ?? 0) + 1;
         }
+        ksort($declaredExcluded, SORT_STRING);
 
         [$transientNames, $realInvisibleNames] = self::partition_transients($invisibleNames);
 
         return [
             'total' => count($rows),
             'captured' => $captured,
+            'declared_excluded' => array_sum($declaredExcluded),
+            'declared_excluded_by_class' => $declaredExcluded,
             'pending' => $pending,
             'invisible_total' => count($invisibleNames),
             'invisible_transient' => count($transientNames),
@@ -118,7 +179,74 @@ final class Coverage {
         ];
     }
 
-    /** @return array{0:string[],1:string[]} */
+    /**
+     * Does Duo write this name into the captured artifact? One branch per
+     * writer in OptionsCapture::capture(), so the two can only disagree if
+     * one of them changes: authored (:67-82) and managed (:202-216) whole-
+     * name writes, declared sub_keys (:118-120), an option-name-ref match
+     * (:93), and the ONE dynamic row the active theme resolves to (:121-140).
+     *
+     * A rule that matches none of those is declared and excluded: env,
+     * runtime or derived with no sub-keys, which no writer ever touches.
+     */
+    private static function is_captured(
+        Policy $policy,
+        string $name,
+        array $rule,
+        bool $fromDynamic,
+        string $stylesheet
+    ): bool {
+        if ($fromDynamic) {
+            // A dynamic declaration carries the same sub_keys for EVERY row
+            // sharing its prefix, so the sub_keys test below would call a
+            // former theme's leftover row captured. Only the currently-
+            // resolved name is written; its siblings are the residue
+            // WordPress itself keeps against a switch back (DUO-3264).
+            return !$policy->is_dynamic_option_residue($name, ['active_stylesheet' => $stylesheet]);
+        }
+        if (in_array((string) ($rule['class'] ?? ''), self::CAPTURED_CLASSES, true)) {
+            return true;
+        }
+        if (!empty($rule['sub_keys'])) {
+            return true;
+        }
+        return $policy->match_option_name_ref($name) !== null;
+    }
+
+    /**
+     * Every class a declared-but-uncaptured row can carry, seeded to zero:
+     * Policy::CLASSES minus CAPTURED_CLASSES, so the key set is complete by
+     * derivation rather than by a literal list that could fall behind the
+     * closed vocabulary. All keys are always present including the zeroes --
+     * GapActions.php:152-156's "the count is the signal" doctrine, so an
+     * operator reads a 0 instead of inferring one from an absent key -- and
+     * ksorted so the published bytes are canonical.
+     *
+     * @return array<string,int>
+     */
+    private static function declared_excluded_seed(): array {
+        $seed = [];
+        foreach (Policy::CLASSES as $class) {
+            if (!in_array($class, self::CAPTURED_CLASSES, true)) {
+                $seed[$class] = 0;
+            }
+        }
+        ksort($seed, SORT_STRING);
+        return $seed;
+    }
+
+    /**
+     * The transient/other split of the genuinely-invisible set.
+     *
+     * DUO-3505: with any manifest pinned that declares transient patterns --
+     * core.json's own ^_transient_ and ^_site_transient_, class derived --
+     * this partition is now structurally zero, because such a row has a
+     * winning rule and never reaches the invisible set at all. It stays
+     * because it is still the honest answer for a site that pins no manifest
+     * declaring them, and because Cli.php:2103 publishes both counts.
+     *
+     * @return array{0:string[],1:string[]}
+     */
     private static function partition_transients(array $names): array {
         $transient = [];
         $other = [];

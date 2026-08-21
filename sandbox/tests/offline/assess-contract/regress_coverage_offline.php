@@ -213,6 +213,148 @@ check((int) ($undeclared[0]['row_count'] ?? -1) === 2, 'row_count is the real CO
 check(($undeclared[0]['probable_owner'] ?? null) === 'acme-catalog',
     'attribution still resolves the owning active plugin slug');
 
+// ======================================================================
+// options_report() visibility, through the PUBLIC product path.
+//
+// DUO-3505: visibility used to be decided by two CLASS-FILTERED capture
+// enumerators (authored_options() + sub_keyed_options()), so a name whose
+// winning rule was anything else -- env, runtime, derived, managed, an
+// option_patterns match, a dynamic_options row -- was reported "invisible to
+// every installed adapter" even though a pinned adapter declares it by name.
+// Measured before the fix on a site holding only the 19 option names
+// manifests/core.json itself declares: 10 invisible, including the 3 managed
+// rows the artifact always contains.
+//
+// Every row below is seeded against the REAL shipped manifests/core.json plus
+// four site-policy rules, so what is asserted is the shipped library's own
+// answer rather than a fixture's idea of it.
+// ======================================================================
+echo "\n== options_report() visibility (product path) ==\n";
+
+$visibilityScratch = sys_get_temp_dir() . '/duo_regress_coverage_visibility_' . getmypid() . '_' . bin2hex(random_bytes(4));
+mkdir($visibilityScratch . '/repo', 0777, true);
+register_shutdown_function(static function () use ($visibilityScratch): void {
+    @unlink($visibilityScratch . '/repo/site.duo.json');
+    @rmdir($visibilityScratch . '/repo');
+    @rmdir($visibilityScratch);
+});
+// The four site-policy rules from the issue: an agency's own adapter
+// declaring its option family exactly, one name per class.
+file_put_contents($visibilityScratch . '/repo/site.duo.json', json_encode([
+    'manifests' => ['core'],
+    'policy' => [
+        'options' => [
+            // autoload is mandatory on an insertable rule: OptionGrammar.php:92
+            // refuses "insertion may never guess".
+            'agency_cs_settings' => ['class' => 'authored', 'autoload' => 'preserve'],
+            // an env rule needs an explicit boolean `required`: OptionGrammar.php:48.
+            'agency_cs_api_key' => ['class' => 'env', 'required' => true],
+            'agency_cs_case_count' => ['class' => 'derived'],
+            'agency_cs_cache_stamp' => ['class' => 'runtime'],
+        ],
+    ],
+    'spec_version' => DUO_SPEC_VERSION,
+], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+
+$store = DuoTest\WpStore::reset();
+// stylesheet is read by options_report() itself to resolve core.json's
+// dynamic_options.theme_mods (resolver `active_stylesheet`).
+$store->seedOptions([
+    'active_plugins' => ['acme-catalog/acme-catalog.php'],
+    'stylesheet' => 'fixture-child',
+    'template' => 'fixture-parent',
+]);
+$wpdb = DuoTest\FakeWpdb::install();
+$optionRows = [
+    // captured: site-policy authored
+    'agency_cs_settings' => 'x',
+    // declared and excluded, one per class, all four previously invisible
+    'agency_cs_api_key' => 'x',
+    'agency_cs_case_count' => 'x',
+    'agency_cs_cache_stamp' => 'x',
+    // core.json `managed`: OptionsCapture.php:202-216 always writes these
+    'active_plugins' => 'a:0:{}',
+    'template' => 'fixture-parent',
+    'stylesheet' => 'fixture-child',
+    // core.json `authored` / `env`
+    'blogname' => 'Fixture',
+    'siteurl' => 'https://fixture.test',
+    // core.json option_patterns: ^_transient_ (derived), ^_wp_session_ (runtime)
+    '_transient_foo' => 'x',
+    '_wp_session_abc' => 'x',
+    // core.json dynamic_options.theme_mods: the active theme's row is written,
+    // a former theme's row is residue WordPress keeps (DUO-3264)
+    'theme_mods_fixture-child' => 'a:0:{}',
+    'theme_mods_fixture-parent' => 'a:0:{}',
+    // the ONE name nothing declares
+    'genuinely_unknown_thing' => 'x',
+];
+$seeded = [];
+$optionId = 1;
+foreach ($optionRows as $optionName => $optionValue) {
+    $seeded[] = [
+        'option_id' => $optionId++,
+        'option_name' => $optionName,
+        'option_value' => $optionValue,
+        'autoload' => 'yes',
+    ];
+}
+$wpdb->seedTable('wp_options', $seeded);
+
+$o = Duo\Coverage::report($visibilityScratch . '/repo')['options'];
+
+// The published key set, asserted exactly like the undeclared-table row above,
+// so a future key drop is a failing suite rather than a silently empty section
+// of somebody's assessment.
+$optionKeys = array_keys($o);
+sort($optionKeys, SORT_STRING);
+check($optionKeys === [
+    'captured', 'declared_excluded', 'declared_excluded_by_class', 'invisible_groups',
+    'invisible_other', 'invisible_total', 'invisible_transient', 'pending', 'total',
+], 'the options report publishes exactly the nine documented keys — got ' . implode(',', $optionKeys));
+
+check($o['total'] === count($optionRows),
+    'every seeded row is read (' . count($optionRows) . ') — got ' . var_export($o['total'], true));
+
+// The headline defect: a name a pinned adapter declares is never invisible,
+// whatever its class. Before the fix these were group `agency_cs` count 2.
+$invisiblePrefixes = array_column($o['invisible_groups'], 'prefix');
+check(!in_array('agency_cs', $invisiblePrefixes, true),
+    'site-policy env/derived/runtime rules are NOT reported invisible (before DUO-3505: prefix agency_cs, 2 rows) — got '
+    . json_encode($o['invisible_groups']));
+check($o['invisible_total'] === 1 && $invisiblePrefixes === ['genuinely_unknown'],
+    'the ONE name no rule from any source matches is the whole invisible set — got '
+    . $o['invisible_total'] . ' ' . json_encode($invisiblePrefixes));
+check($o['invisible_transient'] === 0,
+    'a transient is declared by core.json\'s own ^_transient_ pattern, so it never reaches the invisible set — got '
+    . var_export($o['invisible_transient'], true));
+
+// captured means exactly "Duo writes this name into the artifact".
+// agency_cs_settings + active_plugins + template + stylesheet + blogname
+// + theme_mods_fixture-child = 6.
+check($o['captured'] === 6,
+    'captured counts the authored, the three managed and the active theme\'s dynamic row (6) — got '
+    . var_export($o['captured'], true));
+
+// declared and excluded, by class:
+//   env     = agency_cs_api_key, siteurl, theme_mods_fixture-parent (residue)
+//   derived = agency_cs_case_count, _transient_foo
+//   runtime = agency_cs_cache_stamp, _wp_session_abc
+check($o['declared_excluded'] === 7,
+    'seven declared names have no writer and are counted excluded, not invisible — got '
+    . var_export($o['declared_excluded'], true));
+check($o['declared_excluded_by_class'] === ['derived' => 2, 'env' => 3, 'runtime' => 2],
+    'the per-class split is published ksorted, every class of Policy::CLASSES minus authored/managed present — got '
+    . json_encode($o['declared_excluded_by_class']));
+check(array_sum($o['declared_excluded_by_class']) === $o['declared_excluded'],
+    'the per-class split sums to the total it splits');
+
+// The invariant the four buckets exist to satisfy: every row lands in exactly
+// one of them (Coverage.php's options_report() docblock).
+check($o['total'] === $o['captured'] + $o['declared_excluded'] + $o['pending'] + $o['invisible_total'],
+    'total === captured + declared_excluded + pending + invisible_total — got '
+    . $o['total'] . ' vs ' . ($o['captured'] + $o['declared_excluded'] + $o['pending'] + $o['invisible_total']));
+
 if ($failures > 0) {
     fwrite(STDERR, "\n$failures check(s) FAILED\n");
     exit(1);

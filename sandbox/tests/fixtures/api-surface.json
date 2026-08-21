@@ -31918,6 +31918,14 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "exact_options": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "export_manifest": {
                     "abstract": false,
                     "final": false,

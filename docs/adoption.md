@@ -386,8 +386,18 @@ cli/duo classify production --export-batch=production-review.json
 `coverage` is a survey, not a green gate. Reconcile its active plugin owners,
 option counts, and custom-table counts with the inventory you expect. A plugin
 with uncovered state needs a manifest/schema issue; it cannot be made safe by
-classifying an unrelated option. The exported JSON contains the pending
-command's redacted evidence but never live values. Review every decision:
+classifying an unrelated option.
+
+Its four option buckets sum to `total`. A **declared** name is never invisible,
+whatever its class: an option an adapter declares `env`, `runtime` or `derived`
+is *declared and excluded*, counted under `declared-excluded` (broken out per
+class in `--format=json`), and carries no action — the adapter models it and
+says Duo must not version it. `invisible` means **no rule from any source** — no
+exact declaration, no namespace claim, no pattern, no dynamic prefix — so it is
+the count that genuinely needs an adapter.
+
+The exported JSON contains the pending command's redacted evidence but never
+live values. Review every decision:
 
 ```json
 {

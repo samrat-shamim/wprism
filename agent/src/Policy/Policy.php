@@ -709,6 +709,28 @@ final class Policy {
     }
 
     /**
+     * Every exact option name a pinned manifest or site policy declares, of
+     * ANY class, mapped to its winning rule.
+     *
+     * The unfiltered sibling of authored_options()/sub_keyed_options() below,
+     * and deliberately a separate accessor rather than a filter argument on
+     * them: bulk CAPTURE asks "is this name in the whitelist", which is a
+     * class question, while bulk VISIBILITY asks "does any rule win for this
+     * name at all", which is not. DUO-3505: Coverage::options_report()
+     * answered the second question with the first question's enumerators, so
+     * a name an adapter declares env/runtime/derived was reported "invisible
+     * to every installed adapter" — 10 of the 19 option names
+     * manifests/core.json itself declares, measured on a site holding
+     * nothing else. Same ExactOptionResolver as the filtered views, so the
+     * pin winner is identical to the per-name capture/apply path.
+     *
+     * @return array<string,array> name => winning rule, ksorted
+     */
+    public function exact_options(): array {
+        return $this->exact_option_resolver()->all();
+    }
+
+    /**
      * Option names classified authored (the capture whitelist).
      *
      * DUO-3255: ExactOptionResolver is the single precedence path for this

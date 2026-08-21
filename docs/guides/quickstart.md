@@ -223,6 +223,15 @@ appears in the review queue. Read it against the inventory you expect. A plugin
 with uncovered state needs a manifest or table schema — it cannot be made safe
 by classifying an unrelated option.
 
+Its four option buckets sum to `total`. A **declared** name is never invisible,
+whatever its class: an option an adapter declares `env`, `runtime` or `derived`
+is *declared and excluded*, counted under `declared-excluded` (broken out per
+class in `--format=json`), and carries no action — the adapter models it and
+says Duo must not version it. `invisible` means the opposite: **no rule from any
+source** — no exact declaration, no namespace claim, no pattern, no dynamic
+prefix. Those are the names nothing on the site can see, and the only ones the
+count is asking you to do something about.
+
 `pending` is the review queue. Its proposals come from observed evidence and
 are never guessed; an item with no proposal prints `-` rather than a
 plausible-looking default.

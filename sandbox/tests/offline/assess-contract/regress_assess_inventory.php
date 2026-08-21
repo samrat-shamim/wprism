@@ -232,6 +232,20 @@ duo_check(
     $coverage['options']['total'] === 4,
     'the real Coverage projection read all four seeded option rows (' . $coverage['options']['total'] . ')'
 );
+// DUO-3505, at the composition boundary the defect was actually observed at:
+// of the four rows above, `blogname` is core.json authored (captured),
+// `siteurl` is core.json env and `_transient_acme_cache` matches core.json's
+// own ^_transient_ pattern (both declared and excluded), leaving
+// `acme_storefront_api_secret` as the ONE name no rule from any source
+// matches. Before the fix this read 3, and AssessReport::unknown() rolled all
+// three into the `classify` next-action count -- so an assessment told an
+// operator to classify two names the pinned adapter already declares, in the
+// same document whose policy.surface_groups[] listed them as declared.
+duo_check(
+    $coverage['options']['invisible_total'] === 1,
+    'only the genuinely undeclared name is invisible; the declared env/derived rows are not ('
+    . $coverage['options']['invisible_total'] . ')'
+);
 
 $facts = [
     'probe' => $probe,
