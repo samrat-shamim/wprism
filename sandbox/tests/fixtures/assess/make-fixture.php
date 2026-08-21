@@ -400,9 +400,15 @@ case " $* " in
         exit 1
       fi
       exit 0 ;;
-  *class_exists*) echo duo-ok; exit 0 ;;
-  *DISALLOW_FILE_MODS*) echo duo-set; exit 0 ;;
-  *db_server_info*) echo "8.3.33|11.8.8|mariadb|7.0.3"; exit 0 ;;
+  *class_exists*DISALLOW_FILE_MODS*db_server_info*)
+      # DUO-3511: Doctor::run() asks for agent presence, DISALLOW_FILE_MODS and
+      # the PHP/database/WordPress facts in ONE eval, so this answers with the
+      # one JSON object it decodes. This case is FIRST-MATCH-WINS against the
+      # three narrower patterns it replaced -- a *class_exists* case would have
+      # matched the composed snippet too and answered "duo-ok", which Doctor
+      # cannot decode, so there is deliberately no such case left to shadow it.
+      printf '%s\n' '{"agent":"duo-ok","file_mods":"duo-set","php":"8.3.33","db_version":"11.8.8","db_engine":"mariadb","wp":"7.0.3"}'
+      exit 0 ;;
   *" duo assess-inventory "*)
       if [ "${DUO_MULTISITE:-0}" = 1 ]; then
         cat "$DUO_FIXTURES/inventory-multisite.json"

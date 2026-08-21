@@ -65,11 +65,12 @@ final class AdoptCommandFakeTransport implements AdoptionTransport, EnvironmentD
         if ($script === 'echo duo-reachable') {
             return ['exit' => 0, 'stdout' => "duo-reachable\n", 'stderr' => ''];
         }
-        if (str_contains($script, 'git ls-files --error-unmatch .duo-env-values.json')) {
-            return ['exit' => 0, 'stdout' => "duo-untracked\n", 'stderr' => ''];
-        }
-        if (str_contains($script, 'site.duo.json')) {
-            return ['exit' => 0, 'stdout' => "duo-repo-ok\n", 'stderr' => ''];
+        // DUO-3511: doctor's repo-path and tracked-status answers are line 1
+        // and line 2 of one script now, so adopt's own transactional doctor
+        // run sees the same two-line payload a real target prints.
+        if (str_contains($script, 'site.duo.json')
+            && str_contains($script, 'git ls-files --error-unmatch .duo-env-values.json')) {
+            return ['exit' => 0, 'stdout' => "duo-repo-ok\nduo-untracked\n", 'stderr' => ''];
         }
         if (str_contains($script, 'archive=') && str_contains($script, 'agent_new=')) {
             return ['exit' => 0, 'stdout' => "duo-repo-created\n", 'stderr' => ''];
@@ -94,14 +95,18 @@ final class AdoptCommandFakeTransport implements AdoptionTransport, EnvironmentD
         if (str_contains($snippet, 'duo-policy-ok')) {
             return ['exit' => 0, 'stdout' => "duo-policy-ok\n", 'stderr' => ''];
         }
-        if (str_contains($snippet, 'class_exists')) {
-            return ['exit' => 0, 'stdout' => "duo-ok\n", 'stderr' => ''];
-        }
-        if (str_contains($snippet, 'DISALLOW_FILE_MODS')) {
-            return ['exit' => 0, 'stdout' => "duo-set\n", 'stderr' => ''];
-        }
-        if (str_contains($snippet, 'PHP_VERSION')) {
-            return ['exit' => 0, 'stdout' => "8.3.33|11.8.8|mariadb|7.0.2\n", 'stderr' => ''];
+        // DUO-3511: doctor's three WordPress-side facts arrive in one eval.
+        if (str_contains($snippet, 'class_exists')
+            && str_contains($snippet, 'DISALLOW_FILE_MODS')
+            && str_contains($snippet, 'db_server_info')) {
+            return ['exit' => 0, 'stdout' => (string) json_encode([
+                'agent' => 'duo-ok',
+                'file_mods' => 'duo-set',
+                'php' => '8.3.33',
+                'db_version' => '11.8.8',
+                'db_engine' => 'mariadb',
+                'wp' => '7.0.2',
+            ]) . "\n", 'stderr' => ''];
         }
         return ['exit' => 99, 'stdout' => '', 'stderr' => 'unexpected WordPress probe'];
     }
@@ -162,7 +167,10 @@ assert_adopt_command(str_contains($healthyOutput, 'adopt: installed agent '), 's
 assert_adopt_command(str_contains($healthyOutput, '[PASS] transport reachable'), 'success renders the doctor result');
 assert_adopt_command(str_contains($healthyOutput, '[WARN] DISALLOW_FILE_MODS set') === false, 'healthy fixture does not invent an advisory warning');
 assert_adopt_command($healthy->uploadCalls === 1, 'successful adoption uploads one archive');
-assert_adopt_command(count($healthy->rawScripts) === 9, 'adoption plus doctor performs the bounded raw probe set (' . count($healthy->rawScripts) . ')');
-assert_adopt_command(count($healthy->wpArgs) === 8, 'adoption plus doctor performs the bounded WordPress probe set (' . count($healthy->wpArgs) . ')');
+// DUO-3511: 9 -> 8 raw and 8 -> 6 wp, and every one of the three fewer calls
+// is doctor's. Adopt's own probe set did not move: the transactional doctor
+// run inside the install transaction now costs 2 raw + 2 wp instead of 3 + 4.
+assert_adopt_command(count($healthy->rawScripts) === 8, 'adoption plus doctor performs the bounded raw probe set (' . count($healthy->rawScripts) . ')');
+assert_adopt_command(count($healthy->wpArgs) === 6, 'adoption plus doctor performs the bounded WordPress probe set (' . count($healthy->wpArgs) . ')');
 
 echo "PASS: adopt command\n";

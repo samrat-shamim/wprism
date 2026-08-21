@@ -71,15 +71,18 @@ check "$([ "$STATUS" = 0 ] && echo 0 || echo 1)" "a bounded assessment exits 0 (
 # checks come first (they gate everything), then the read-only init probe,
 # then the inventory, then one capabilities call per DISTINCT registry
 # operation — four for all six product operations, never six.
+# Doctor is TWO wp calls here, not four (DUO-3511): `core is-installed`, then
+# one composed eval carrying agent presence, DISALLOW_FILE_MODS and the
+# PHP/database/WordPress facts. The mapping below names that composed snippet
+# by all three facts, so a re-split stops mapping to `doctor` and the order
+# assertion fails instead of quietly absorbing the extra round trips.
 # The bootstrap rule runs FIRST and on the raw line: the eligibility probe
 # wraps its own `core is-installed` in an isolated control-plane --exec, so a
 # doctor rule applied first would swallow it.
 ORDER=$(sed -e 's/.*bootstrap eligibility.*/bootstrap/' "$TMP/calls.txt" \
   | sed -e 's/.*--path=[^ ]* //' \
   | sed -e 's/^\(core is-installed\).*/doctor/' \
-        -e 's/^eval.*class_exists.*/doctor/' \
-        -e 's/^eval.*DISALLOW_FILE_MODS.*/doctor/' \
-        -e 's/^eval.*db_server_info.*/doctor/' \
+        -e 's/^eval.*class_exists.*DISALLOW_FILE_MODS.*db_server_info.*/doctor/' \
         -e 's/^duo init .*/init-probe/' \
         -e 's/^duo assess-inventory .*/assess-inventory/' \
         -e 's/^duo capabilities .*--operation=\([a-z]*\).*/capabilities:\1/' \
