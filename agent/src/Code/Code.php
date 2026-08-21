@@ -460,6 +460,12 @@ final class Code {
                 'staged' => true,
                 'code_revision' => $descriptor['code_revision'],
                 'files' => count($descriptor['files']),
+                // DUO-3501: 'files' stays the whole descriptor inventory it
+                // has always been; these two partition it by what this stage
+                // actually had to move, so a re-stage of an unchanged payload
+                // is visible as such instead of looking like a full rewrite.
+                'written' => $materialized['written'],
+                'unchanged' => $materialized['unchanged'],
                 'abandoned_stage_removed' => $materialized['abandoned_stage_removed'],
                 'promotion_lock' => ['owner' => $owner, 'held_for_finalize' => true],
             ];
@@ -800,8 +806,9 @@ final class Code {
         }
     }
 
-    private static function write_payload(string $repo, array $descriptor): void {
-        CodeMaterializer::write_payload($repo, $descriptor);
+    /** @return array{written:int,unchanged:int} */
+    private static function write_payload(string $repo, array $descriptor): array {
+        return CodeMaterializer::write_payload($repo, $descriptor);
     }
 
     /**
@@ -812,7 +819,7 @@ final class Code {
      *
      * @param array<string,array<string,mixed>> $history
      * @param list<string> $stagedCreatedPaths
-     * @return array{abandoned_stage_removed:list<string>,created_paths:list<string>}
+     * @return array{abandoned_stage_removed:list<string>,created_paths:list<string>,written:int,unchanged:int}
      */
     private static function materialize_payload(
         string $repo,

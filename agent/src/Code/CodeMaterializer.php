@@ -23,7 +23,7 @@ final class CodeMaterializer {
      *
      * @param array<string,array<string,mixed>> $history
      * @param list<string> $stagedCreatedPaths
-     * @return array{abandoned_stage_removed:list<string>,created_paths:list<string>}
+     * @return array{abandoned_stage_removed:list<string>,created_paths:list<string>,written:int,unchanged:int}
      */
     public static function materialize_payload(
         string $repo,
@@ -47,19 +47,33 @@ final class CodeMaterializer {
             $descriptor,
             $stagedCreatedPaths
         );
-        self::write_payload($repo, $descriptor);
+        $counts = self::write_payload($repo, $descriptor);
         return [
             'abandoned_stage_removed' => $abandonedStageRemoved,
             'created_paths' => $createdPaths,
+            'written' => $counts['written'],
+            'unchanged' => $counts['unchanged'],
         ];
     }
 
-    public static function write_payload(string $repo, array $descriptor): void {
+    /**
+     * Materialize every descriptor row under the caller's lease and report
+     * what it had to move.  Re-staging the same descriptor is the common
+     * case, not the exception: a lifecycle retry, a state-only release and a
+     * repeated `duo deploy` of one artifact all re-enter this loop with a
+     * target that already holds those exact bytes, and the loop used to
+     * temp+rename all 8,918 files of a real payload every single time.
+     *
+     * @return array{written:int,unchanged:int}
+     */
+    public static function write_payload(string $repo, array $descriptor): array {
         if (!defined('WP_CONTENT_DIR') || !is_string(WP_CONTENT_DIR) || WP_CONTENT_DIR === '') {
             throw new \RuntimeException('duo: code-stage requires WordPress WP_CONTENT_DIR');
         }
         self::assert_target_layout($descriptor);
         $source = rtrim($repo, '/') . '/' . self::SOURCE;
+        $written = 0;
+        $unchanged = 0;
         foreach ($descriptor['files'] as $row) {
             $relative = $row['path'];
             $src = self::safe_join($source, $relative);
@@ -73,6 +87,29 @@ final class CodeMaterializer {
             self::ensure_target_parent(dirname($dst));
             if (is_link($dst) || (file_exists($dst) && !is_file($dst))) {
                 throw new \RuntimeException("duo: code-stage target path is not a regular file '$relative'");
+            }
+            // Every refusal this loop owns has already been re-checked for
+            // this row above -- source present, not a symlink, still hashing
+            // to the descriptor -- and the target has been proven a regular
+            // non-symlink file or absent.  Only then may an already-correct
+            // target be left alone: the two conditions below are exactly the
+            // observable result of the write they replace, so a skipped row
+            // is byte-for-byte and mode-for-mode what the temp+rename would
+            // have produced.  Mode is part of the test because the write
+            // branch below chmods its temp file to fileperms($src) & 0777
+            // before the rename; a content-only test would silently stop
+            // converging a bit the write converges.  Nothing downstream
+            // loses proof either:
+            // stage's own authorization gate re-hashes the entire staged
+            // payload (Code::assert_verified_staged, agent/src/Code/Code.php:96-124)
+            // and code-finalize re-verifies it again, so a wrongly-skipped
+            // row still fails closed with "code-finalize verification failed
+            // for '<path>'" (self::verify_payload) rather than promoting.
+            if (is_file($dst)
+                && (fileperms($dst) & 0777) === (fileperms($src) & 0777)
+                && hash_equals((string) $row['sha256'], (string) hash_file('sha256', $dst))) {
+                $unchanged++;
+                continue;
             }
             $tmp = dirname($dst) . '/.' . basename($dst) . '.duo-stage-' . bin2hex(random_bytes(8));
             try {
@@ -89,7 +126,9 @@ final class CodeMaterializer {
                     @unlink($tmp);
                 }
             }
+            $written++;
         }
+        return ['written' => $written, 'unchanged' => $unchanged];
     }
 
     /** @param list<string> $stagedCreatedPaths @return list<string> */

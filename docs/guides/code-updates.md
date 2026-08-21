@@ -52,6 +52,27 @@ anything else that writes `WP_CONTENT_DIR` during stage and finalize. Stable
 symlinks are refused, but this materializer is not an adversarial filesystem-
 race sandbox and does not claim to be.
 
+Stage writes only what the target does not already hold. Every descriptor row
+is re-checked under the lease — the source must be present, not a symlink, and
+still hash to the compiled descriptor; the target must be absent or a regular
+non-symlink file — and only then is a row whose target already carries those
+exact bytes and that exact mode left in place instead of being republished.
+A second `duo deploy` of the same artifact therefore rewrites nothing, and the
+stage receipt says so on its own line, above the unchanged success line:
+
+```
+code payload: 0 written, 8918 unchanged of 8918 file(s)
+Success: staged code revision <rev> (8918 file(s)); promotion lease retained for finalize
+```
+
+Verification is untouched: `code-stage` still re-hashes the entire
+staged payload before lifecycle may run, and `code-finalize` re-verifies it
+again, so a row wrongly left in place fails closed instead of being promoted.
+A `written` count that stays high across two identical deploys is itself a
+signal worth reading — either something outside Duo is rewriting
+`WP_CONTENT_DIR` between runs, or the target filesystem is not preserving the
+source's file modes.
+
 ## The four refusal families
 
 ### 1. `code_mismatch` — the environment's code is not what state declares
