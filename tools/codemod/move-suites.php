@@ -148,7 +148,7 @@ declare(strict_types=1);
  * it is a classification carrying evidence rather than a list of paths that
  * were in the way: three runtime ROOTS (`sandbox/tmp/` and `sandbox/siterepo/`
  * from `.gitignore:3-4`, and `agent/duo/`, the deployed mu-plugin layout) and
- * two named files. Anything it does not match is a dangling reference and
+ * three named files. Anything it does not match is a dangling reference and
  * fails, which is what stops a wrong `../` run from hiding in the same bucket.
  *
  * ------------------------------------------------ what --prove cannot catch
@@ -334,6 +334,25 @@ function ms_runtime_created_targets(): array
         // regular file with 0600 permissions before reading it, which is what
         // a secrets-grade operator drop-in looks like — never a repo file.
         'agent/scoped-promotion-control.json' => 'operator-installed on a managed site; ScopedPromotionAuthority::installed_config() asserts a 0600 regular file (agent/src/Promotion/ScopedPromotionAuthority.php:133-136)',
+        // Machine-local php-cs-fixer result cache: `/.php-cs-fixer.cache` is
+        // gitignored (.gitignore:67, the DUO WP-4 dev-toolchain block) and
+        // written only the first time php-cs-fixer actually runs
+        // (.php-cs-fixer.dist.php:86 setCacheFile(__DIR__ . '/.php-cs-fixer.cache')).
+        // A fresh clone or `git worktree add` has run php-cs-fixer zero times,
+        // so the reference this tool's own class 2 finds while scanning
+        // .php-cs-fixer.dist.php (an MS_SCAN_FILES member) resolves to nothing
+        // there — DUO-3494: MoveSuitesTest::
+        // testEmptyMapAgainstTheRealRepositoryIsAQuietNoOp failed in exactly
+        // that state, on the newcomer path CONTRIBUTING.md's first command
+        // walks. The LEADING SLASH is not a typo: ms_rewrite_php() resolves
+        // `__DIR__ . '/x'` against `$oldDir . '/' . ltrim($literal, '/')`, and
+        // for a repo-ROOT file (oldDir === '', .php-cs-fixer.dist.php's own
+        // case — the only MS_SCAN_FILES entry ms_is_php_path() accepts) that
+        // concatenation itself starts with '/', so `ms_norm()` treats it as
+        // already-anchored and keeps the leading slash rather than trimming
+        // it the way every other (non-root) referrer's target is. The key
+        // here has to match that exact string or the isset() below misses it.
+        '/.php-cs-fixer.cache' => 'machine-local php-cs-fixer result cache (.gitignore:67); written only on the first php-cs-fixer run, so a fresh clone/worktree has none yet — .php-cs-fixer.dist.php:86 is the reference',
     ];
 }
 

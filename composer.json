@@ -27,11 +27,13 @@
     },
     "scripts": {
         "check": [
+            "@check-vendor",
             "@lint",
             "@stan",
             "@cs",
             "@test:unit"
         ],
+        "check-vendor": "test -f vendor/autoload.php || { echo 'composer check: vendor/ is not installed -- run: composer install' >&2; exit 1; }",
         "lint": "dirs=''; for d in agent cli recovery scripts tools tests manifests/providers manifests/interpreters manifests/regenerators; do if [ -d \"$d\" ]; then dirs=\"$dirs $d\"; fi; done; { find $dirs -type f -name '*.php' -print0; if [ -d cli ]; then find cli -maxdepth 1 -type f -name duo -print0; fi; } | xargs -0 -P 8 -n 1 php -l > /dev/null && echo 'lint: ok'",
         "stan": "phpstan analyse --memory-limit=1G",
         "cs": "kept=$(mktemp); trap 'rm -f \"$kept\"' EXIT; { git diff -z --name-only --diff-filter=ACMR origin/main... -- '*.php' 2>/dev/null; git diff -z --cached --name-only --diff-filter=ACMR -- '*.php'; git diff -z --name-only --diff-filter=ACMR -- '*.php'; git ls-files -z --others --exclude-standard -- '*.php'; } | sort -zu | while IFS= read -r -d '' f; do case \"$f\" in agent/*|cli/*|recovery/*|scripts/*|tools/*|tests/*) [ -f \"$f\" ] && printf '%s\\0' \"$f\" ;; esac; done > \"$kept\"; if [ -s \"$kept\" ]; then xargs -0 php-cs-fixer fix --dry-run --diff --config=.php-cs-fixer.dist.php -- < \"$kept\"; else echo 'cs: no changed php files'; fi",
@@ -41,6 +43,7 @@
     },
     "scripts-descriptions": {
         "check": "lint + phpstan + php-cs-fixer (changed files) + phpunit — the whole dev gate.",
+        "check-vendor": "Fail fast with a named remedy when vendor/ is missing, instead of letting @stan die 'phpstan: command not found' with no explanation (DUO-3494).",
         "lint": "php -l over every first-party PHP file, 8-way parallel — including the 8 adapter hook files under manifests/{providers,interpreters,regenerators}, which Adopt.php:121 tars onto every managed site and which nothing else here parsed. Those three directories are deliberately php -l ONLY: they are absent from the 'cs'/'cs:fix' path filter and from .php-cs-fixer.dist.php's Finder, because ArtifactPolicyIdentity::manifest_rows() hashes each hook file into its adapter's digest, so one reformatted byte refuses deployed compiled artifacts (that config's header has the full reasoning).",
         "stan": "phpstan analyse over the whole tree at the committed baseline (see phpstan-baseline.neon and the ceiling ratchet test).",
         "cs": "php-cs-fixer --dry-run over changed PHP files only (never the whole tree: a mass reformat buries the change under review, and agent/, cli/ and recovery/ are bytes that reach a managed site — see .php-cs-fixer.dist.php's own header).",

@@ -931,6 +931,45 @@ PHP);
     }
 
     /**
+     * DUO-3494: `.php-cs-fixer.dist.php` is an MS_SCAN_FILES member, so
+     * ms_compute() scans and rewrites it REGARDLESS of $moved (the comment
+     * above the __DIR__ pass at :1875 is why — a file nobody is moving can
+     * still name one that moved). Its own `__DIR__ . '/.php-cs-fixer.cache'`
+     * (.php-cs-fixer.dist.php:86) names php-cs-fixer's result cache, which is
+     * gitignored (.gitignore:67) and absent until php-cs-fixer has run once —
+     * so on any fresh clone/worktree that reference used to land in
+     * UNPROVABLE. That is exactly what
+     * testEmptyMapAgainstTheRealRepositoryIsAQuietNoOp caught against this
+     * repo's own root file (CONTRIBUTING.md's first command produces exactly
+     * that state). Reproduced here against a synthetic root so the assertion
+     * is about the CLASSIFICATION rather than this developer machine's
+     * cache-file history — paired with an unrelated `__DIR__` miss in the SAME
+     * file, so a loosened match (e.g. "any repo-root reference the prover
+     * can't find") would still fail this test.
+     */
+    public function testThePlanExemptsThePhpCsFixerCacheReferenceButNotAnUnrelatedOne(): void
+    {
+        $root = $this->makeSyntheticRepo();
+        self::write($root . '/.php-cs-fixer.dist.php', <<<'PHP'
+<?php
+
+declare(strict_types=1);
+
+$cache = __DIR__ . '/.php-cs-fixer.cache';
+$bogus = __DIR__ . '/not-a-real-file.txt';
+echo "$cache $bogus\n";
+PHP);
+        self::assertFileDoesNotExist($root . '/.php-cs-fixer.cache');
+
+        [$status, $output] = $this->runTool($root, '--plan', '--map=' . $this->writeMap($root, $this->syntheticMap()));
+
+        self::assertSame(0, $status, $output);
+        self::assertStringContainsString('1 unprovable site(s)', $output);
+        self::assertStringNotContainsString('.php-cs-fixer.cache', $output);
+        self::assertStringContainsString("not-a-real-file.txt' -> /not-a-real-file.txt", $output);
+    }
+
+    /**
      * PHP variables are function-scoped; this scan is file-scoped.
      *
      * `cli/src/Adapter/AdapterDraft.php` binds `$repo = dirname(__DIR__, 3)` in
@@ -1320,5 +1359,36 @@ PHP);
         self::assertTrue(ms_line_negates_existence("check(!is_file(\$root . '/manifests/gone.php'), 'retired');"));
         self::assertTrue(ms_line_negates_existence('assert(is_dir($p) === false);'));
         self::assertFalse(ms_line_negates_existence("check(is_file(\$root . '/manifests/core.json'), 'ships');"));
+    }
+
+    /**
+     * ms_runtime_created_reason()'s php-cs-fixer-cache entry (DUO-3494),
+     * isolated from the file-scanning machinery exercised above.
+     *
+     * The LEADING SLASH in the key is not incidental. ms_rewrite_php()'s
+     * class 2 pass computes a `__DIR__ . '<literal>'` target as
+     * `ms_norm($oldDir . '/' . ltrim($literal, '/'))`; for every OTHER referrer
+     * $oldDir is a non-empty directory, so the join never starts with '/' and
+     * ms_norm() returns a plain relative path — the shape 'sandbox/unsafe1' and
+     * 'agent/scoped-promotion-control.json' both use. .php-cs-fixer.dist.php is
+     * the one MS_SCAN_FILES member ms_is_php_path() accepts that sits at the
+     * repo ROOT (oldDir === ''), so its own join already starts with '/' before
+     * ms_norm() ever sees it, and ms_norm() keeps that leading slash rather
+     * than stripping it. A key without it is a DIFFERENT string and must not
+     * match — which is what the second assertion pins.
+     */
+    public function testRuntimeCreatedReasonExemptsThePhpCsFixerCacheByItsExactTarget(): void
+    {
+        $reason = ms_runtime_created_reason('/.php-cs-fixer.cache');
+        self::assertNotNull($reason);
+        self::assertStringContainsString('php-cs-fixer', $reason);
+
+        // Without the leading slash it is a different string — a loosened
+        // match (str_ends_with, basename comparison) would pass this test
+        // vacuously; the exact isset() lookup does not.
+        self::assertNull(ms_runtime_created_reason('.php-cs-fixer.cache'));
+        // An unrelated repo-root __DIR__ miss is still a dangling reference,
+        // not swept up by the same classification.
+        self::assertNull(ms_runtime_created_reason('/not-a-real-file.txt'));
     }
 }
