@@ -124,7 +124,7 @@ hold genuinely undeclared plugin options — the rows a fresh WooCommerce or
 Yoast install adds — and not WordPress's own bookkeeping: every
 `widget_<type>` row, `sidebars_widgets`, and every `theme_mods_*` row belongs
 to a dedicated engine mechanism that already handles it, so `duo pending` does
-not ask you to classify them (their writes stay visible in `wp duo journal`,
+not ask you to classify them (their writes stay visible in `wp duo journal-report`,
 and a widget type with live instances that no manifest declares still refuses
 capture, loudly).
 
