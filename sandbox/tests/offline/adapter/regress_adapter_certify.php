@@ -1053,14 +1053,15 @@ duo_check_same(
 // (5) Insertion never guesses beyond the declaration. A structural taxonomy
 // (no class at all) is authored and is adopted; a post type the ADAPTER
 // itself classifies runtime is its author's decision and is left alone.
-$declRepo = cert_init_site($root, 'scope-declared', [
+$declManifest = [
     'name' => 'acme-cases',
     'option_autoload' => 'preserve',
     'options' => ['acme_cases_layout' => ['class' => 'authored']],
     'post_types' => ['acme_case' => ['class' => 'authored'], 'acme_log' => ['class' => 'runtime']],
     'spec_version' => DUO_SPEC_VERSION,
     'taxonomies' => ['acme_case_kind' => new stdClass()],
-], []);
+];
+$declRepo = cert_init_site($root, 'scope-declared', $declManifest, []);
 $declRun = cert_run(['pin', $declRepo, '--name=acme-cases', '--source=site']);
 duo_check_same(0, $declRun['exit'], 'a site adapter declaring three surfaces pins');
 duo_check(
@@ -1073,6 +1074,164 @@ duo_check(
     !isset($declScope['post_type']['acme_log']),
     'a type the adapter itself classifies runtime is never opted in — the pin adopts declarations, it does not invent them'
 );
+
+// ------------- certify --pin, THEN init: the pin's scope rules are seed (DUO-3515)
+// docs/guides/quickstart.md's seed paragraph and T6 §3.4 both put certify
+// before init ("certifying first and initializing second is the intended
+// order"). Since DUO-3495 `--pin` is the site's scope opt-in as well as its
+// pin, so the file init is handed is the seed + the pin + the rules the pin
+// wrote — and InitPlanner::existing_config() set aside only the pin, so the
+// documented order refused `existing_configuration` on a repository whose
+// entire non-seed content was one certified adapter (grind_adapter_walk.sh
+// S2). Every file below is one this suite's own verb just wrote, on top of
+// the seed's own bytes.
+require_once $duoRoot . '/agent/src/Init/InitPlanner.php';
+
+/**
+ * A repository whose site.duo.json is the ADOPTION SEED — `Adopt::SEED`'s own
+ * body (cli/src/Onboarding/Adopt.php:20-30), which is what `duo adopt` writes
+ * and what `duo init` is then handed.
+ *
+ * Deliberately NOT cert_init_site()'s file: init publishes the flat lists
+ * SORTED and the seed does not (`post, page, attachment` here against
+ * `attachment, page, post` there), and existing_config() compares the file to
+ * the seed's bytes exactly — so an init-shaped fixture would answer `owned`
+ * before any pin and prove nothing about this fix.
+ */
+function cert_seed_site(string $root, string $label, array $manifest): string {
+    $repo = $root . '/' . $label;
+    mkdir($repo . '/adapters', 0755, true);
+    Canon::write_file($repo . '/adapters/' . $manifest['name'] . '.json', Canon::encode($manifest));
+    Canon::write_file($repo . '/site.duo.json', Canon::encode([
+        'manifests' => ['core'],
+        'policy' => [
+            'options' => [], 'post_meta' => [], 'term_meta' => [],
+            'post_types' => ['post', 'page', 'attachment'],
+            'taxonomies' => ['category', 'post_tag'],
+        ],
+        'spec_version' => DUO_SPEC_VERSION,
+    ]));
+
+    return $repo;
+}
+
+/** Edit site.duo.json through $edit, run $then, put the original bytes back. */
+function cert_with_edited_site(string $repo, callable $edit, callable $then): void {
+    $file = $repo . '/site.duo.json';
+    $before = (string) file_get_contents($file);
+    $site = json_decode($before, false, 512, JSON_THROW_ON_ERROR);
+    $edit($site);
+    // Typed, exactly as AdapterCertify::writeScopeRules() is and for its
+    // reason: an associative round trip rewrites the seed's empty sections and
+    // this would stop testing the scope rule.
+    Canon::write_file($file, Canon::encode($site));
+    try {
+        $then();
+    } finally {
+        Canon::write_file($file, $before);
+    }
+}
+
+/** The same, for one hand-added `policy.scope.<kind>.<name>` rule. */
+function cert_with_scope_rule(string $repo, string $kind, string $name, array $rule, callable $then): void {
+    cert_with_edited_site($repo, static function (stdClass $site) use ($kind, $name, $rule): void {
+        $site->policy->scope->{$kind}->{$name} = $rule;
+    }, $then);
+}
+
+// (6) The reported sequence itself: seed, certify --pin, then ask what init
+// asks. One declared post type — grind_adapter_walk.sh S2's own shape.
+$s2Repo = cert_seed_site($root, 'seed-certify', $rich);
+duo_check(
+    \Duo\InitPlanner::is_adoption_seed($s2Repo),
+    'premise: before the pin the adoption seed reads as the adoption seed'
+);
+$s2Cert = cert_run(['certify', $s2Repo, '--name=acme-catalog', '--secret-key-file=' . $secretPath,
+    '--key-id=' . $signKeyId, '--reason=' . $reason, '--pin']);
+duo_check_same(0, $s2Cert['exit'], 'certify --pin runs on the seed, as T6 §3.4 orders it');
+duo_check(
+    str_contains($s2Cert['out'], '+ policy.scope.post_type.acme_item = {"class": "authored"}'),
+    'and writes its one authored scope rule there too — the seed had decided nothing'
+);
+duo_check(
+    \Duo\InitPlanner::is_adoption_seed($s2Repo),
+    'THE FIX: seed + one {name, source:"site", digest} pin + the one authored rule that pin wrote is STILL the '
+    . 'adoption seed, so init proposes instead of refusing existing_configuration'
+);
+cert_with_edited_site($s2Repo, static function (stdClass $site): void {
+    unset($site->policy->scope);
+}, static function () use ($s2Repo): void {
+    duo_check(
+        \Duo\InitPlanner::is_adoption_seed($s2Repo),
+        'PREMISE, both ways: with policy.scope removed the same file still reads as the seed — DUO-3494 already '
+        . 'set the pin itself aside, so the verdict above turns on the scope rule and on nothing else certify wrote'
+    );
+});
+cert_with_edited_site($s2Repo, static function (stdClass $site): void {
+    unset($site->policy->scope->post_type->acme_item);
+}, static function () use ($s2Repo): void {
+    duo_check(
+        !\Duo\InitPlanner::is_adoption_seed($s2Repo),
+        'and an EMPTY policy.scope.post_type left behind still reads owned: neither verb writes an empty node '
+        . '(writeScopeRules() runs only for a non-empty row set), so the set-aside removes only what it emptied'
+    );
+});
+
+// (7) The two-surface case, through `duo adapter pin`: a declared post type
+// AND a structural taxonomy, both adopted by the one command.
+$pinRepo = cert_seed_site($root, 'seed-pin', $declManifest);
+$seedPin = cert_run(['pin', $pinRepo, '--name=acme-cases', '--source=site']);
+duo_check_same(0, $seedPin['exit'], 'the same adoption runs through `duo adapter pin` on a seed');
+duo_check(
+    str_contains($seedPin['out'], '+ policy.scope.post_type.acme_case = {"class": "authored"}')
+        && str_contains($seedPin['out'], '+ policy.scope.taxonomy.acme_case_kind = {"class": "authored"}'),
+    'writing one rule per declared surface, post type and taxonomy alike'
+);
+duo_check(
+    \Duo\InitPlanner::is_adoption_seed($pinRepo),
+    'and both rules are seed-compatible: they are one fact about the repository with the pin that wrote them, '
+    . 'not a policy the operator hand-authored'
+);
+duo_check_same(
+    ['post_types' => ['acme_case'], 'taxonomies' => ['acme_case_kind']],
+    \Duo\InitPlanner::adapter_scope(
+        ['acme-cases'],
+        ['acme-cases' => Canon::decode(Canon::read_file($pinRepo . '/adapters/acme-cases.json'))]
+    ),
+    'THE REPUBLISH RULE: init folds exactly those surfaces into the flat policy.post_types/taxonomies it '
+    . 'publishes for a selected adapter, and the scope rule does not survive beside them. One representation '
+    . 'cannot disagree with itself; a site scope rule outranks every manifest, so a stale authored rule would '
+    . 'keep classifying a surface its adapter had since reclassified'
+);
+
+// (8) Everything else under policy.scope is still an owned decision.
+cert_with_scope_rule($pinRepo, 'post_type', 'acme_other', ['class' => 'runtime'], static function () use ($pinRepo): void {
+    duo_check(
+        !\Duo\InitPlanner::is_adoption_seed($pinRepo),
+        'a hand-written runtime rule beside them is a decision only the site can have made — `--pin` writes '
+        . 'authored and never a class it was not asked for — and the repository reads owned again'
+    );
+});
+cert_with_scope_rule($pinRepo, 'post_type', 'acme_log', ['class' => 'authored'], static function () use ($pinRepo): void {
+    duo_check(
+        !\Duo\InitPlanner::is_adoption_seed($pinRepo),
+        'and so does an authored rule for a type the pinned adapter classifies RUNTIME itself: the pin adopts '
+        . 'declarations, so a rule it would never have written is not seed content'
+    );
+});
+cert_with_scope_rule($pinRepo, 'taxonomy', 'acme_unrelated', ['class' => 'authored'], static function () use ($pinRepo): void {
+    duo_check(
+        !\Duo\InitPlanner::is_adoption_seed($pinRepo),
+        'nor is an authored rule for a surface no pinned adapter declares at all'
+    );
+});
+cert_with_scope_rule($pinRepo, 'post_type', 'acme_case', ['class' => 'runtime'], static function () use ($pinRepo): void {
+    duo_check(
+        !\Duo\InitPlanner::is_adoption_seed($pinRepo),
+        'and flipping the pin\'s own rule to runtime reads owned: what is set aside is the exact rule the verb '
+        . 'writes ({"class":"authored"}), not the surface it names'
+    );
+});
 
 // ------------------------------------------------------------------ closure
 
