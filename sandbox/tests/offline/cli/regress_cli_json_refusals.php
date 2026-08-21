@@ -724,6 +724,13 @@ namespace {
     // byte-identical; the record lives beside the promotion checkpoints.
     $evidenceRepo = sys_get_temp_dir() . '/duo-cli-json-refusal-evidence-' . bin2hex(random_bytes(6));
     mkdir($evidenceRepo, 0700, true);
+    // DUO-3516: the record goes to a directory that is ALREADY a Duo
+    // repository. It used to be written into whatever the raw --repo string
+    // named, creating .duo/ on the way -- which, after an identity-gate
+    // refusal, planted Duo state in an unrelated operator directory (and
+    // through a swapped-in symlink, outside the repository entirely). This
+    // fixture therefore carries the marker a real repository has.
+    file_put_contents($evidenceRepo . '/site.duo.json', "{}\n");
     $evidenceCause = new RuntimeException('provider capability failed: X-Amz-Signature=EVIDENCECAUSE');
     \Duo\Capture::$failure = new RuntimeException(
         'duo: required manifest action failed with sk_live_EVIDENCESENTENCE',
@@ -756,8 +763,89 @@ namespace {
     $withoutRepo = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture-does-not-exist', 'format' => 'json']));
     check(($withoutRepo['details_redacted'] ?? null) === true, 'a missing repository still yields the redacted envelope');
     check(!is_dir('/fixture-does-not-exist'), 'no repository is conjured to hold evidence');
+
+    // DUO-3516: an ordinary directory that is NOT a Duo repository gets
+    // nothing — the negative case the live swap-directory failure was.
+    $strangerDir = sys_get_temp_dir() . '/duo-cli-json-refusal-stranger-' . bin2hex(random_bytes(6));
+    mkdir($strangerDir, 0700, true);
+    \Duo\Capture::$failure = new RuntimeException('duo: refused with sk_live_STRANGER');
+    $inStranger = invoke_json(static fn() => $cli->capture([], ['repo' => $strangerDir, 'format' => 'json']));
+    check(($inStranger['details_redacted'] ?? null) === true, 'a non-repository directory still yields the redacted envelope');
+    check(!is_dir($strangerDir . '/.duo'), 'and no .duo/ is created inside a directory that is not a Duo repository');
+    check(scandir($strangerDir) === ['.', '..'], 'the stranger directory is left exactly as it was found');
+    @rmdir($strangerDir);
+
+    // A real `.duo/` alone qualifies it, beside the promotion checkpoints the
+    // record was always meant to sit next to — no site.duo.json required.
+    $checkpointRepo = sys_get_temp_dir() . '/duo-cli-json-refusal-checkpoints-' . bin2hex(random_bytes(6));
+    mkdir($checkpointRepo . '/.duo/checkpoints', 0700, true);
+    \Duo\Capture::$failure = new RuntimeException('duo: refused with sk_live_CHECKPOINTS');
+    invoke_json(static fn() => $cli->capture([], ['repo' => $checkpointRepo, 'format' => 'json']));
+    check(
+        count(glob($checkpointRepo . '/.duo/refusals/*-capture-*.json') ?: []) === 1,
+        'an existing .duo/ qualifies a repository even with no site.duo.json'
+    );
+
+    // A symlinked repository root is never followed, whatever sits behind it —
+    // the live symlink swap case, where the target even carried a poisoned
+    // site.duo.json.
+    $linkTarget = sys_get_temp_dir() . '/duo-cli-json-refusal-external-' . bin2hex(random_bytes(6));
+    mkdir($linkTarget, 0700, true);
+    file_put_contents($linkTarget . '/site.duo.json', "{poisoned\n");
+    $linkPath = sys_get_temp_dir() . '/duo-cli-json-refusal-link-' . bin2hex(random_bytes(6));
+    symlink($linkTarget, $linkPath);
+    \Duo\Capture::$failure = new RuntimeException('duo: refused with sk_live_SYMLINK');
+    invoke_json(static fn() => $cli->capture([], ['repo' => $linkPath, 'format' => 'json']));
+    check(!is_dir($linkTarget . '/.duo'), 'a symlinked repository root is not followed, even to a directory holding a site.duo.json');
+
+    // init is held to one extra condition: the directory must STILL be the one
+    // it started against. That is the live failure's exact shape -- the root is
+    // replaced between the lease and the refusal -- so it is asserted against
+    // the predicate directly rather than through a stubbed init transaction.
+    $gate = new ReflectionMethod(\Duo\Cli::class, 'refusal_evidence_repository');
+    $snapshot = new ReflectionProperty(\Duo\Cli::class, 'initRepositoryIdentityAtEntry');
+    $identityOf = new ReflectionMethod(\Duo\Cli::class, 'directory_identity');
+
+    $snapshot->setValue(null, null);
+    check(
+        $gate->invoke(null, $evidenceRepo, 'init') === false,
+        'init records nothing when it never snapshotted a repository identity'
+    );
+    check(
+        $gate->invoke(null, $evidenceRepo, 'capture') === true,
+        'while every other command still records into the same Duo repository'
+    );
+
+    $snapshot->setValue(null, $identityOf->invoke(null, $evidenceRepo));
+    check(
+        $gate->invoke(null, $evidenceRepo, 'init') === true,
+        'init records while the directory it started against is still the one at that path'
+    );
+
+    // The live case: same path, different inode.
+    $swapped = sys_get_temp_dir() . '/duo-cli-json-refusal-swapped-' . bin2hex(random_bytes(6));
+    $reviewed = $swapped . '-reviewed';
+    mkdir($swapped, 0700, true);
+    file_put_contents($swapped . '/site.duo.json', "{}\n");
+    $snapshot->setValue(null, $identityOf->invoke(null, $swapped));
+    rename($swapped, $reviewed);
+    mkdir($swapped, 0700, true);
+    file_put_contents($swapped . '/site.duo.json', "{}\n");
+    check(
+        $gate->invoke(null, $swapped, 'init') === false,
+        'and refuses once that path names a different directory, even one that is itself a Duo repository'
+    );
+    $snapshot->setValue(null, null);
+    @unlink($swapped . '/site.duo.json'); @rmdir($swapped);
+    @unlink($reviewed . '/site.duo.json'); @rmdir($reviewed);
+
     foreach (glob($evidenceRepo . '/.duo/refusals/*') ?: [] as $f) unlink($f);
-    @rmdir($evidenceRepo . '/.duo/refusals'); @rmdir($evidenceRepo . '/.duo'); @rmdir($evidenceRepo);
+    @rmdir($evidenceRepo . '/.duo/refusals'); @rmdir($evidenceRepo . '/.duo');
+    @unlink($evidenceRepo . '/site.duo.json'); @rmdir($evidenceRepo);
+    foreach (glob($checkpointRepo . '/.duo/refusals/*') ?: [] as $f) unlink($f);
+    @rmdir($checkpointRepo . '/.duo/refusals'); @rmdir($checkpointRepo . '/.duo/checkpoints');
+    @rmdir($checkpointRepo . '/.duo'); @rmdir($checkpointRepo);
+    @unlink($linkPath); @unlink($linkTarget . '/site.duo.json'); @rmdir($linkTarget);
 
     echo "\n== DUO-3397: refresh-export and scope answer machines with the same envelope ==\n";
     $productLeakShapes = [

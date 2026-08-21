@@ -518,11 +518,19 @@ set -e
 [ "$SWAP_LINK_CODE" -ne 0 ] || fail "post-proposal symlink replacement unexpectedly initialized"
 ! grep -q 'duo-init-swap-poison\|duo-init-swap-adapter-poison' "/tmp/${PAIR}-init-root-symlink.log" \
   || fail "post-proposal symlink replacement traversed external child content"
+# DUO-3516 added `.duo` to this list. The four names above are the init
+# transaction's own artifacts, and the swapped-in link never received one --
+# but the redacted refusal's private evidence recorder DID follow this link and
+# create `.duo/refusals` in the external target, outside the repository
+# entirely. The sibling swap-directory case caught the same hole only because
+# it asserts emptiness rather than four names.
 [ ! -e "$HOST_REPO/swap-link/state.capture.lock" ] \
   && [ ! -e "$HOST_REPO/swap-link/.git" ] \
   && [ ! -e "$HOST_REPO/swap-link/code" ] \
   && [ ! -e "$HOST_REPO/swap-link/state" ] \
-  || fail "post-proposal symlink replacement received a repository write"
+  && [ ! -e "$HOST_REPO/swap-link/.duo" ] \
+  || fail "post-proposal symlink replacement received a repository write:
+$(find "$HOST_REPO/swap-link/" -mindepth 1 -maxdepth 1 2>/dev/null | head -20)"
 [ "$SWAP_SENTINEL_SHA" = "$(wp1 eval 'echo hash_file("sha256", ABSPATH . "duo-init-swap-external/sentinel");')" ] \
   || fail "post-proposal symlink replacement changed the external sentinel"
 rm -f "$HOST_REPO/swap-link"

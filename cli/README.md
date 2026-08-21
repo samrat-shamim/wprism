@@ -723,7 +723,17 @@ are rejected when the registry is loaded.
   record under the site repository's `.duo/refusals/` (one
   `duo-private-refusal-evidence/v1` JSON file per redacted refusal, next to
   the promotion checkpoints), and the host prints one stderr line naming that
-  place whenever a captured transport returns such an envelope. Known
+  place whenever a captured transport returns such an envelope. The record is
+  written only into a directory that is **already a Duo repository** — a
+  regular `site.duo.json`, or a `.duo/` that already exists — reached without
+  following a symlinked repository root, and for `init` only while that
+  directory is still the one the command started against (DUO-3516). A
+  refusal must never materialize Duo state in a directory that just failed
+  the repository-identity gate, or in one that is not a Duo repository at
+  all, so where those conditions do not hold nothing is written and the
+  operator's documented remedy — rerun in human mode to read the sentence —
+  is what applies. The envelope is byte-identical either way: it carries
+  `details_redacted: true` and never an evidence path. Known
   uncertain-commit and ambiguous-publication refusals explicitly say not to
   retry or discard retained recovery evidence.
   The host uses the same envelope if environment or driver preflight refuses
