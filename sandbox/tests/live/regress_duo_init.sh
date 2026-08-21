@@ -1210,8 +1210,13 @@ set -e
 assert_exit 1 "post-next-link normal-error recovery" "${DUO[@]}" init "${PAIR}1" --yes
 grep -q 'safely rolled back' <<<"$OUT" \
   || fail "post-next-link failure did not recover through the sealed initial manifest path"
-[ -z "$(find "$HOST_REPO" -mindepth 1 -maxdepth 1 -print -quit)" ] \
-  || fail "post-next-link normal-error recovery did not restore byte-empty repository ownership"
+# Self-diagnosing, like the swap cases: the EXIT cleanup removes $HOST_REPO, so
+# "did not restore byte-empty" on its own leaves the next reader nothing to act
+# on -- which cost an evidence run to learn.
+POST_NEXT_LEFTOVER=$(find "$HOST_REPO" -mindepth 1 -maxdepth 1 2>/dev/null | head -20)
+[ -z "$POST_NEXT_LEFTOVER" ] \
+  || fail "post-next-link normal-error recovery did not restore byte-empty repository ownership:
+$POST_NEXT_LEFTOVER"
 wp1 db query 'DROP TABLE IF EXISTS wp_duo_journal,wp_duo_kv,wp_duo_map,wp_duo_state' >/dev/null
 pass "normal failure after the fresh intent next-link recovers without legacy cleanup"
 
