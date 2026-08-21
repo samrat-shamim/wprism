@@ -7,6 +7,10 @@ require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Init/InitPlanner.php';
 require_once __DIR__ . '/../Policy/Policy.php';
+// DUO-3504: pattern_groups() reads PATTERN_KEYS through this class's own
+// accessor rather than restating `option_patterns`, so it is required here in
+// its own right (rule 1) and not by way of Policy.php's transitive load.
+require_once __DIR__ . '/../Policy/PolicyRuleResolver.php';
 require_once __DIR__ . '/../Adapter/AdapterSources.php';
 require_once __DIR__ . '/../Adapter/TargetProbe.php';
 require_once __DIR__ . '/../Repository/RepositoryCompiler.php';
@@ -78,11 +82,22 @@ final class AssessInventory {
     ];
 
     /**
-     * `declared_by` for a rule no pinned ADAPTER declared — WordPress core's
-     * own surfaces and the site's own `site.duo.json` policy. The distinction
-     * that matters downstream is "an adapter claimed this" versus "nobody
-     * did"; naming the site file here would put a second, non-manifest token
-     * into a field whose consumers key it against manifest names.
+     * `declared_by` for a surface NO PINNED ADAPTER DECLARES — WordPress
+     * core's own surfaces, and site-local policy nobody shipped a manifest
+     * for. The distinction that matters downstream is "an adapter claimed
+     * this" versus "nobody did"; naming the site file here would put a
+     * second, non-manifest token into a field whose consumers key it against
+     * manifest names.
+     *
+     * DUO-3504 narrowed this from "no adapter's rule WON" to "no adapter
+     * DECLARES it". A site scope rule outranks every manifest for
+     * classification and must keep doing so, but it does not un-declare the
+     * surface — and `duo adapter certify --pin` writes one for every type the
+     * adapter it just certified declares (DUO-3495,
+     * cli/src/Adapter/AdapterCertify.php:588-609), so the old reading made
+     * `duo assess` credit the platform for a site-certified adapter's own
+     * CPT. `declarant()` below asks `Policy::declaring_manifest()` before it
+     * settles for this value.
      */
     public const CORE_DECLARANT = 'core';
 
@@ -620,7 +635,7 @@ final class AssessInventory {
                 'post_type',
                 $postType,
                 (string) ($details['rule']['class'] ?? 'authored'),
-                self::declarant($policy, $details['source'] ?? null),
+                self::declarant($policy, 'post_types', $postType, $details['source'] ?? null),
                 $counts['post_types'][$postType] ?? 0
             );
         }
@@ -630,7 +645,7 @@ final class AssessInventory {
                 'taxonomy',
                 $taxonomy,
                 (string) ($details['rule']['class'] ?? 'authored'),
-                self::declarant($policy, $details['source'] ?? null),
+                self::declarant($policy, 'taxonomies', $taxonomy, $details['source'] ?? null),
                 $counts['taxonomies'][$taxonomy] ?? 0
             );
         }
@@ -641,7 +656,7 @@ final class AssessInventory {
                 'table',
                 $logical,
                 (string) ($details['rule']['class'] ?? 'authored'),
-                self::declarant($policy, $details['source'] ?? null),
+                self::declarant($policy, 'tables', $logical, $details['source'] ?? null),
                 // Absent from this install: null is "not here", which is a
                 // different fact from an empty table's 0.
                 $counts['tables'][$logical] ?? null
@@ -659,7 +674,7 @@ final class AssessInventory {
                 'menu',
                 $field,
                 $policy->menu_field_class($field),
-                self::declarant($policy, $details['source'] ?? null),
+                self::declarant($policy, 'menu_fields', $field, $details['source'] ?? null),
                 null
             );
         }
@@ -670,7 +685,7 @@ final class AssessInventory {
                 'widget',
                 $type,
                 self::widget_class($details['rule'] ?? null),
-                self::declarant($policy, $details['source'] ?? null),
+                self::declarant($policy, 'widgets', $type, $details['source'] ?? null),
                 null
             );
         }
@@ -683,7 +698,7 @@ final class AssessInventory {
             'media',
             'attachment',
             (string) ($mediaDetails['rule']['class'] ?? 'authored'),
-            self::declarant($policy, $mediaDetails['source'] ?? null),
+            self::declarant($policy, 'post_types', 'attachment', $mediaDetails['source'] ?? null),
             $counts['post_types']['attachment'] ?? 0
         );
 
@@ -740,10 +755,60 @@ final class AssessInventory {
                 $details['source'] = self::section_source($policy, $section, $name);
             }
             $class = (string) ($details['rule']['class'] ?? 'authored');
-            $declaredBy = self::declarant($policy, $details['source'] ?? null);
+            $declaredBy = self::declarant($policy, $section, $name, $details['source'] ?? null);
             $groups[$declaredBy . ':' . $class] = ['class' => $class, 'declared_by' => $declaredBy];
         }
+        foreach (self::pattern_groups($policy, $section) as $key => $group) {
+            $groups[$key] ??= $group;
+        }
         ksort($groups, SORT_STRING);
+        return $groups;
+    }
+
+    /**
+     * The same `declarant:class` groups for declarations made by PATTERN
+     * rather than by exact key (DUO-3504).
+     *
+     * `declared_names()` above enumerates exact keys only, so an adapter that
+     * classifies its options by namespace — `option_patterns`, the fallback
+     * `PolicyRuleResolver::details()`:89-103 consults after every exact
+     * declaration misses — had NO row here at all. Its options are genuinely
+     * classified, so they never appear in the pending queue either: the whole
+     * surface was invisible to assess rather than merely mis-attributed.
+     *
+     * The pattern key comes from `PolicyRuleResolver::pattern_keys()` rather
+     * than a literal, so this enumerates exactly the sections whose lookup
+     * really has a pattern fallback — today `options` only; `user_meta` has
+     * none and correctly yields nothing.
+     *
+     * §4.6's bound is untouched: no option NAME is produced (a pattern has no
+     * finite name set to list), only the declarant x class pair the group id
+     * already is — so the row count stays declarants x classes and cannot
+     * grow with the site. The `??=` above is precedence written down rather
+     * than a real contest: a group's value is a function of its own key, so a
+     * pattern re-minting an existing group re-mints an identical row.
+     *
+     * @return array<string,array{class:string,declared_by:string}>
+     */
+    private static function pattern_groups(Policy $policy, string $section): array {
+        $patternKey = PolicyRuleResolver::pattern_keys()[$section] ?? null;
+        if ($patternKey === null) {
+            return [];
+        }
+        $groups = [];
+        foreach ($policy->manifests as $manifest) {
+            $declaredBy = (string) ($manifest['name'] ?? '');
+            if ($declaredBy === '') {
+                continue;
+            }
+            foreach ((array) ($manifest[$patternKey] ?? []) as $pattern) {
+                if (!is_array($pattern)) {
+                    continue;
+                }
+                $class = (string) ($pattern['class'] ?? 'authored');
+                $groups[$declaredBy . ':' . $class] = ['class' => $class, 'declared_by' => $declaredBy];
+            }
+        }
         return $groups;
     }
 
@@ -827,21 +892,32 @@ final class AssessInventory {
     }
 
     /**
-     * Map a rule's resolved source onto the contract's two-value declarant:
-     * the manifest name when a pinned ADAPTER declared it, `core` otherwise.
-     * `site.duo.json` collapses into `core` on purpose — the consumer keys
-     * this field against manifest names, and a site override is "no adapter
-     * claimed this", which is exactly what `core` means here.
+     * Name the pinned adapter behind a surface: the winning rule's own source
+     * when a pinned manifest wrote it, otherwise whichever pinned adapter
+     * DECLARES the surface, otherwise `core`.
+     *
+     * The second step is the DUO-3504 fix and it is additive — the rule that
+     * won is untouched, and `site.duo.json` still never appears in this field
+     * (the consumer keys it against manifest names). What changed is that a
+     * site rule shadowing a manifest declaration no longer costs the adapter
+     * the credit for declaring it: `certify --pin` writes exactly such a rule
+     * for every type it adopts, and the resulting `core` made
+     * `ProjectionVocabulary::projectProvenance()` print "Platform-certified"
+     * for a site-certified adapter's own CPT while
+     * `AssessRenderer::siteCertifiedPrincipals()` printed no principal at all.
+     *
+     * `$section` and `$name` locate the surface in the manifest grammar; they
+     * are what `Policy::declaring_manifest()` needs and they are known at
+     * every call site.
      */
-    private static function declarant(Policy $policy, mixed $source): string {
-        if (!is_string($source) || $source === '') {
-            return self::CORE_DECLARANT;
-        }
-        foreach ($policy->manifests as $manifest) {
-            if ((string) ($manifest['name'] ?? '') === $source) {
-                return $source;
+    private static function declarant(Policy $policy, string $section, string $name, mixed $source): string {
+        if (is_string($source) && $source !== '') {
+            foreach ($policy->manifests as $manifest) {
+                if ((string) ($manifest['name'] ?? '') === $source) {
+                    return $source;
+                }
             }
         }
-        return self::CORE_DECLARANT;
+        return $policy->declaring_manifest($section, $name) ?? self::CORE_DECLARANT;
     }
 }

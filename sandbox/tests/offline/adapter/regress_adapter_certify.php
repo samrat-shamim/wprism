@@ -939,7 +939,21 @@ function cert_init_site(string $root, string $label, array $manifest, array $sco
     return $repo;
 }
 
-/** The two questions capture asks about a whole type, answered by the engine. */
+/**
+ * The two questions capture asks about a whole type, plus the one `duo
+ * assess` asks — deliberately reported side by side, because DUO-3504 was
+ * this pin answering the first two right and the third wrong.
+ *
+ * `source` is the declaration that WON the classification, and after the pin
+ * it is `site.duo.json` by design: the scope rule this command writes is the
+ * site's own whole-type decision and site policy always wins. `declared_by`
+ * is a second, additive fact — which pinned adapter DECLARES the type
+ * (`Policy::declaring_manifest()`) — and it is what
+ * `AssessInventory::declarant()` reports as the surface group's `declared_by`
+ * and the host renders as "Site-certified". Reading the first as the second
+ * made `duo assess` print "Platform-certified" for the CPT of the adapter the
+ * operator had just certified.
+ */
 function cert_type_verdict(string $repo, string $postType): array {
     $policy = Policy::load($repo);
     $details = $policy->post_type_rule_details($postType);
@@ -948,15 +962,17 @@ function cert_type_verdict(string $repo, string $postType): array {
         'in_scope' => in_array($postType, $policy->post_types(), true),
         'class' => $details['rule']['class'] ?? null,
         'source' => $details['source'],
+        'declared_by' => $policy->declaring_manifest('post_types', $postType),
     ];
 }
 
 // (1) Nothing recorded: the pin opts the site in, and says exactly what it wrote.
 $freshRepo = cert_init_site($root, 'scope-fresh', $rich, []);
 duo_check_same(
-    ['in_scope' => false, 'class' => null, 'source' => null],
+    ['in_scope' => false, 'class' => null, 'source' => null, 'declared_by' => null],
     cert_type_verdict($freshRepo, 'acme_item'),
-    'fixture premise: before the pin the engine knows nothing about the declared type'
+    'fixture premise: before the pin the engine knows nothing about the declared type — including who declares '
+    . 'it, because an unpinned adapter is not yet part of this site\'s policy'
 );
 $freshCert = cert_run(['certify', $freshRepo, '--name=acme-catalog', '--secret-key-file=' . $secretPath,
     '--key-id=' . $signKeyId, '--reason=' . $reason, '--pin']);
@@ -967,9 +983,10 @@ duo_check(
     'and prints the exact rule it wrote — a scope widen is never silent'
 );
 duo_check_same(
-    ['in_scope' => true, 'class' => 'authored', 'source' => 'site.duo.json'],
+    ['in_scope' => true, 'class' => 'authored', 'source' => 'site.duo.json', 'declared_by' => 'acme-catalog'],
     cert_type_verdict($freshRepo, 'acme_item'),
-    'the engine now answers both of capture\'s questions for the declared type: in scope, and authored'
+    'the engine now answers all three questions for the declared type: in scope, authored, and — DUO-3504 — '
+    . 'declared by the adapter that was just certified, even though the rule that classified it is the site\'s own'
 );
 $freshBytes = (string) file_get_contents($freshRepo . '/site.duo.json');
 duo_check(
@@ -999,7 +1016,7 @@ duo_check_same(
     Canon::decode(Canon::read_file($walkRepo . '/site.duo.json'))['policy']['scope']['post_type']['acme_item'] ?? null,
     'THE INVARIANT: a recorded site scope class is not rewritten. `duo classify` and `duo init '
     . '--allow-unmanaged-plugins` write byte-identical rules and the grammar carries no provenance key '
-    . '(Policy.php:2745), so flipping it would be a guess about which one wrote it'
+    . '(Policy.php:2794), so flipping it would be a guess about which one wrote it'
 );
 duo_check(
     str_contains($walkCert['out'], 'scope: 1 surface(s) this adapter declares stay LOCAL')
@@ -1021,9 +1038,10 @@ duo_check(
     'and reports the override as an override, naming the class it replaced'
 );
 duo_check_same(
-    ['in_scope' => true, 'class' => 'authored', 'source' => 'site.duo.json'],
+    ['in_scope' => true, 'class' => 'authored', 'source' => 'site.duo.json', 'declared_by' => 'acme-catalog'],
     cert_type_verdict($walkRepo, 'acme_item'),
-    'after which the walkthrough\'s capture has nothing left to refuse — one printed command, zero hand-edits'
+    'after which the walkthrough\'s capture has nothing left to refuse — one printed command, zero hand-edits — '
+    . 'and the adapter is still the declarant an --adopt-scope override did not transfer to the site'
 );
 duo_check_same(
     2,

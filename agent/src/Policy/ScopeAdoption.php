@@ -33,10 +33,10 @@ namespace Duo;
  * returns the site rule before it ever looks at a manifest). Two different
  * acts write byte-identical `{"class":"runtime"}` there — `duo classify
  * --set=scope:<kind>:<name>=runtime` through `Policy::set_rule()`
- * (Policy.php:2752) and `duo init --allow-unmanaged-plugins` recording an
+ * (Policy.php:2801) and `duo init --allow-unmanaged-plugins` recording an
  * unmanaged plugin's rowful type (`InitPlanner::unmanaged_scope()`:640) — and
  * the grammar admits no third key that could tell them apart
- * (Policy.php:2745: "scope rules accept class only"). So provenance is NOT
+ * (Policy.php:2794: "scope rules accept class only"). So provenance is NOT
  * recoverable from the file, and nothing here guesses it: a recorded entry is
  * reported as `shadowed` and left exactly as the site wrote it. Only an
  * operator saying so in a second, explicit act may change it.
