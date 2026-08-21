@@ -67,6 +67,27 @@ $secret = refusal(static fn() => $gates->guardSecret(
 check($secret->reasonCode === 'secret_state_refused', 'deep secret refusal is owned by the safety boundary');
 check(str_contains($secret->getMessage(), '--repo=/private/repository'), 'secret remediation uses the normalized repository path');
 check(!str_contains((string) json_encode($secret->payload()), 'sk_live_'), 'secret bytes are absent from public diagnostics');
+// DUO-3510: the printed remedy must be the `=` form -- wp-cli parses a
+// space-separated --set value as a bare boolean flag and silently drops the
+// intended value (measured against this exact command, Cli.php:2335-2343).
+// The 'options' section additionally needs autoload=preserve or the pasted
+// command trades one refusal (OptionGrammar.php:89-93) for another.
+check(
+    str_contains($secret->getMessage(), "--set='options:gateway=authored,autoload=preserve' --allow-secret"),
+    'secret remediation for an options surface uses the working = form with autoload=preserve'
+);
+check(!str_contains($secret->getMessage(), "--set 'options:gateway=authored'"), 'secret remediation no longer prints the broken space form');
+
+$secretPostMeta = refusal(static fn() => $gates->guardSecret(
+    'post_meta',
+    '_payment_config',
+    ['token' => 'sk_live_DIRECTBOUNDARY123456'],
+    []
+));
+check(
+    str_contains($secretPostMeta->getMessage(), "--set='post_meta:_payment_config=authored' --allow-secret"),
+    'secret remediation for a non-options surface uses the = form without an autoload suffix'
+);
 
 $pii = refusal(static fn() => $gates->guardPersonalData('contact_email', 'person@example.test', [], 'operator'));
 check($pii->reasonCode === 'personal_data_refused', 'PII refusal is owned by the safety boundary');

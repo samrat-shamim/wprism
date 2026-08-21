@@ -105,7 +105,7 @@ require_duo_answered "conf1 duo capture (unknown widget type probe)" human "$FAK
 # a generic "go classify it" -- both real remedies named inline.
 echo "$FAKE_CAPTURE_OUT" | grep -q "add \"regress_fake_type\" to a pinned manifest's widgets{} grammar" \
   || fail "refusal did not name the first remedy (extend widgets{} grammar), or misidentified the type: $FAKE_CAPTURE_OUT"
-echo "$FAKE_CAPTURE_OUT" | grep -q "declare it a deliberate exclusion (wp duo classify --set 'options:widget_regress_fake_type=runtime')" \
+echo "$FAKE_CAPTURE_OUT" | grep -q "declare it a deliberate exclusion (wp duo classify --set='options:widget_regress_fake_type=runtime')" \
   || fail "refusal did not name the second remedy (deliberate exclusion): $FAKE_CAPTURE_OUT"
 
 # The substantive gate: does the second remedy the message names ACTUALLY

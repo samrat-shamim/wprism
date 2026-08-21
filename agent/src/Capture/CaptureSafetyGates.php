@@ -30,7 +30,7 @@ final class CaptureSafetyGates {
             $operatorMessage = "duo: incomplete state discovery on manifest-owned or in-scope surfaces (loud-and-blocking gate):\n  - "
                 . implode("\n  - ", $keys)
                 . "\nClassify them in site.duo.json policy.options / policy.post_meta / policy.term_meta or a manifest."
-                . " Run: wp duo pending --repo={$this->repo} for evidence + proposals, then wp duo classify --repo={$this->repo} --set '<section>:<key>=<class>'.";
+                . " Run: wp duo pending --repo={$this->repo} for evidence + proposals, then wp duo classify --repo={$this->repo} --set='<section>:<key>=<class>'.";
             $diagnostics = array_map(static fn(string $surface): array => [
                 'code' => 'unclassified_state',
                 'surface' => $surface,
@@ -245,11 +245,24 @@ final class CaptureSafetyGates {
         if ($label === null) {
             return;
         }
+        // The `=` form is required, not stylistic: wp-cli parses a
+        // space-separated `--set` value as a bare boolean flag and the
+        // intended value lands in positional $args instead, silently
+        // (measured against this exact command, Cli.php:2335-2343; restated
+        // normatively at docs/guides/adapter-authoring.md:631-636 and
+        // spec/repo-format.md:621). An `options` row additionally needs
+        // autoload=preserve or OptionGrammar::validate_option_storage()
+        // refuses it (OptionGrammar.php:89-93) — `preserve` replays the
+        // source row's own autoload flag (OptionGrammar.php:59-68), the same
+        // shape ClassifyCommand's batched --set already emits
+        // (regress_classify_command.php:370) — so the pasted remedy works
+        // unmodified instead of trading one refusal for another.
+        $setSpec = "$section:$key=authored" . ($section === 'options' ? ',autoload=preserve' : '');
         $operatorMessage = "duo: secret guard tripped — $section '$key'$context looks like a $label but is classified authored; "
             . "refusing to capture it into state/.\n"
             . "If this is really a secret, reclassify it env-bound or runtime instead of authored.\n"
             . "If this is a false positive, allow it explicitly:\n"
-            . "  wp duo classify --repo={$this->repo} --set '$section:$key=authored' --allow-secret";
+            . "  wp duo classify --repo={$this->repo} --set='$setSpec' --allow-secret";
         throw new CommandRefusalException(
             'secret_state_refused',
             'capture found secret-shaped data on an authored surface',

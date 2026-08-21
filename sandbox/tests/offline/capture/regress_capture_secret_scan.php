@@ -71,6 +71,26 @@ $msg = invoke_guard_secret('post_meta', 'my_api_key', 'sk_live_ABCDEF1234567890'
 check($msg !== null, 'S1a: a bare Stripe-shaped string still trips the guard');
 check($msg !== null && str_contains($msg, 'stripe key'), 'S1a: message names the correct label (got: ' . ($msg ?? 'null') . ')');
 check($msg !== null && str_contains($msg, "post_meta 'my_api_key'"), 'S1a: message names the section and key');
+// DUO-3510: the printed remedy is a copy-pasteable command. wp-cli parses a
+// space-separated --set value as a bare boolean flag and silently drops the
+// intended value (measured against this exact command, Cli.php:2335-2343),
+// so the guard must print the `=` form, not the documented-broken space form.
+check(
+    $msg !== null && str_contains($msg, "--set='post_meta:my_api_key=authored' --allow-secret"),
+    'S1a: printed remedy uses the working = form, not the wp-cli-broken space form'
+);
+
+$msg = invoke_guard_secret('options', 'stripe_api_key', 'sk_live_ABCDEF1234567890', []);
+check($msg !== null, 'S1c: a bare Stripe-shaped string in options still trips the guard');
+// An options row needs autoload=preserve or OptionGrammar::validate_option_storage()
+// refuses it (OptionGrammar.php:89-93) -- the pasted remedy must survive that
+// gate rather than trade one refusal for another. `preserve` replays the
+// source row's own autoload flag (OptionGrammar.php:59-68), the same shape
+// ClassifyCommand's batched --set already emits (regress_classify_command.php:370).
+check(
+    $msg !== null && str_contains($msg, "--set='options:stripe_api_key=authored,autoload=preserve' --allow-secret"),
+    'S1c: printed remedy for an options surface carries autoload=preserve so it survives OptionGrammar'
+);
 
 $msg = invoke_guard_secret('options', 'blogname', 'Ordinary Site Name', []);
 check($msg === null, 'S1b: an ordinary string is never flagged');

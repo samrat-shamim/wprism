@@ -2065,7 +2065,7 @@ final class Cli {
             ));
         }
         WP_CLI::line('');
-        WP_CLI::success(count($items) . " pending item(s) — classify with: wp duo classify --repo=<repo> --set 'section:key=class'");
+        WP_CLI::success(count($items) . " pending item(s) — classify with: wp duo classify --repo=<repo> --set='section:key=class'");
     }
 
     /**
@@ -2365,9 +2365,9 @@ final class Cli {
             $raw = $assoc['set'] ?? throw new CommandRefusalException(
                 'invalid_arguments',
                 '--set is required for classify',
-                'supply --set "section:key=class" (for example --set "post_meta:foo=runtime") and rerun classify',
+                'supply --set="section:key=class" (for example --set="post_meta:foo=runtime") and rerun classify',
                 [],
-                '--set required, e.g. --set "post_meta:foo=runtime"'
+                '--set required, e.g. --set="post_meta:foo=runtime"'
             );
             $specs = [];
             foreach ((array) $raw as $chunk) {

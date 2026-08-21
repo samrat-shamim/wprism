@@ -146,6 +146,22 @@ grep -q "rev-parse HEAD" "$TMP/git-calls.txt" \
 say '--from on the ref the target is actually on'
 : > "$TMP/git-calls.txt"
 HEAD_REF="$(git -C "$SITE" rev-parse HEAD)"
+
+# DUO-3510: `--plan-only` is documented three times (docs/guides/release.md:
+# 122-124, docs/guides/daily-workflow.md:330-331, cli/README.md:502-503) as
+# exiting "having mutated nothing at all — not the target, not the site
+# repository." ReleaseCommand::prepare() used to call $store->writeProjection()
+# unconditionally at step 3, before run()'s plan-only return at :215, so every
+# plan-only release rewrote .duo/contract/projection.json in the site repo.
+# Capture the file's state (present-and-hashed, or absent) before the run
+# below so the "unchanged" assertion after it is meaningful either way.
+PROJECTION="$SITE/.duo/contract/projection.json"
+if [ -f "$PROJECTION" ]; then
+  PROJECTION_BEFORE="$(sha256sum "$PROJECTION" | awk '{print $1}')"
+else
+  PROJECTION_BEFORE=""
+fi
+
 duo "$TMP/match.txt" release fixture --from="$HEAD_REF" --plan-only
 STATUS=$?
 cat "$TMP/match.txt.err" >> "$TMP/match.txt"
@@ -154,6 +170,17 @@ cat "$TMP/match.txt.err" >> "$TMP/match.txt"
 grep -Fq "releasing code revision $HEAD_REF" "$TMP/match.txt" \
   && pass 'the frozen plan names the exact revision it was bound to' \
   || fail 'the plan does not name the bound revision'
+
+if [ -n "$PROJECTION_BEFORE" ]; then
+  PROJECTION_AFTER="$(sha256sum "$PROJECTION" | awk '{print $1}')"
+  [ "$PROJECTION_AFTER" = "$PROJECTION_BEFORE" ] \
+    && pass 'plan-only leaves .duo/contract/projection.json bytes unchanged' \
+    || fail 'plan-only rewrote .duo/contract/projection.json, contradicting the "mutated nothing" promise'
+else
+  [ ! -f "$PROJECTION" ] \
+    && pass 'plan-only writes no .duo/contract/projection.json into a site repository that had none' \
+    || fail 'plan-only WROTE .duo/contract/projection.json into a site repository that had none, contradicting the "mutated nothing… not the target, not the site repository" promise (docs/guides/release.md:122-124)'
+fi
 
 # ----------------------------------------------------- an unresolvable ref
 say 'a ref that does not exist locally'
