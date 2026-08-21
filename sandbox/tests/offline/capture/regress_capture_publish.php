@@ -182,9 +182,10 @@ function p8_post_front(string $id, string $type, string $slug): array {
 function p8_options_document(): array {
     $records = [];
     foreach ([
-        'active_plugins', 'blogdescription', 'blogname', 'default_category', 'page_for_posts',
-        'page_on_front', 'posts_per_page', 'show_on_front', 'sticky_posts', 'stylesheet',
-        'template', 'wp_page_for_privacy_policy',
+        'active_plugins', 'blog_public', 'blogdescription', 'blogname', 'default_category',
+        'page_for_posts', 'page_on_front', 'permalink_structure', 'posts_per_page',
+        'show_on_front', 'sticky_posts', 'stylesheet', 'template',
+        'wp_page_for_privacy_policy',
     ] as $name) {
         $records[$name] = OptionState::absent();
     }
