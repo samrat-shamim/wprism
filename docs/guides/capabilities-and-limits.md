@@ -245,7 +245,7 @@ time and `--format=json` carries all six.
 | `derived` | a `derived` rule |
 | `environment-bound` | an `env` rule |
 | `external` | a **declared** provider action whose declared effects reach a system outside this WordPress install |
-| `unclassified` | no rule matched: the review queue, or a name `duo coverage` reports as invisible to every installed adapter |
+| `unclassified` | **no rule from any source** matched: the review queue, or a name `duo coverage` reports as invisible to every installed adapter. A name a manifest or site policy *does* declare projects the class it declares — `runtime`, `derived`, `environment-bound` — never `unclassified`, and `coverage` counts it under `declared-excluded` rather than invisible |
 
 `external` is only ever emitted from a declaration. Duo never infers from
 observation that a surface is externally owned; an unmodelled integration

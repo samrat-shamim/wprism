@@ -1049,8 +1049,14 @@ final class AdapterDraft {
         $out = [];
         // `--match` scopes the seed the way it scopes the exported rules: an
         // author drafting the wpforms adapter wants wpforms' family, not the
-        // 90 core-option prefixes coverage also cannot attribute (the T6 walk
-        // read a draft proposing `admin`, `blog`, `avatar`… beside `wpforms`).
+        // WordPress default-option prefixes coverage also cannot attribute to
+        // any active plugin (the T6 walk read a draft proposing `admin`,
+        // `blog`, `avatar`… beside `wpforms`). DUO-3505 shrank that set but
+        // not to zero: `admin` and `blog` came from names manifests/core.json
+        // declares by name and coverage no longer reports them invisible at
+        // all, while `avatar_default`, `upload_path` and their siblings sit
+        // outside core.json's 19 exact declarations, so they are genuinely
+        // undeclared and still noise in somebody else's adapter draft.
         // A prefix or table is kept when the operator's pattern matches it as
         // an option name would spell it (`<prefix>_`); an unscoped draft
         // keeps everything, as before.

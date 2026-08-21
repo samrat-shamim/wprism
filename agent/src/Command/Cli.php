@@ -2098,8 +2098,14 @@ final class Cli {
         $o = $report['options'];
         WP_CLI::line('OPTIONS');
         WP_CLI::line(sprintf(
-            '  total=%d  captured=%d  pending=%d  invisible=%d (transient=%d, other=%d)',
-            $o['total'], $o['captured'], $o['pending'], $o['invisible_total'],
+            // DUO-3505: declared-excluded is the fourth bucket, published so
+            // the line reconciles on screen (total === captured +
+            // declared-excluded + pending + invisible). A name an adapter
+            // declares env/runtime/derived is modelled and deliberately not
+            // versioned; it used to be counted invisible, which read as a
+            // gap an operator had to close.
+            '  total=%d  captured=%d  declared-excluded=%d  pending=%d  invisible=%d (transient=%d, other=%d)',
+            $o['total'], $o['captured'], $o['declared_excluded'], $o['pending'], $o['invisible_total'],
             $o['invisible_transient'], $o['invisible_other']
         ));
         if ($o['invisible_groups']) {

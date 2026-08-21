@@ -702,6 +702,14 @@ and nothing else, so pass a `wp duo assess-inventory --format=json` document
 instead when you want post types too. The draft records which families its seed
 actually supplied in `_draft.seed`, so a short draft is never a silent one.
 
+`options.invisible_groups[].prefix` means **genuinely undeclared** — no rule
+from any source, exact or namespace or pattern or dynamic prefix. A family your
+adapter (or any pinned adapter) already declares by name is no longer seeded,
+so `--seed` stops proposing an `option_namespaces` claim plus a blanket
+`runtime` `option_patterns` rule over options half of which are already
+`authored`. What it proposes is what nothing models yet, which is the only
+thing a new adapter is for.
+
 **Every seeded candidate is `runtime`, and that is a default, not an
 observation.** An undeclared table is one Duo has never read a row of; calling
 it `authored` on that evidence would put live operational rows into your
