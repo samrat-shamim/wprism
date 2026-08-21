@@ -229,6 +229,13 @@ INIT_PLAN_DIGEST=""
 assert_init_plan() {
   local runner="$1" repo="$2" label="$3" plan ready digest rc=0
   INIT_PLAN_DIGEST=""
+  # DUO-3519: the validated proposal itself, for the one case that asserts on
+  # its CONTENT rather than confirming its digest. Publishing it here is what
+  # keeps that case inside the checked shape DUO-3421 requires -- a proposal
+  # must reach the suite through this helper, which proves manufacture (ready
+  # + 64-hex digest) on a stdout-only capture, never through a bare
+  # `X=$(wp1 duo init ...)`.
+  INIT_PLAN_JSON=""
   set +e
   plan=$("$runner" duo init --repo="$repo" --format=json)
   rc=$?
@@ -243,6 +250,7 @@ assert_init_plan() {
   [[ "$digest" =~ ^[a-f0-9]{64}$ ]] \
     || fail "fixture manufacture failed: $label proposal carried no 64-hex digest for $repo: $plan"
   INIT_PLAN_DIGEST="$digest"
+  INIT_PLAN_JSON="$plan"
 }
 
 # DUO-3421: every `duo init` proposal below is capability-gated — init refuses
@@ -851,22 +859,18 @@ file_put_contents(WP_PLUGIN_DIR . "/woocommerce/duo-init-jwt.php", $payload);
 # "recovery left minted identities" -- an unrelated case, broken from here.
 # Duo minting identities on a successful init and keeping them is correct and
 # intended; the mistake was making a DETECTION case complete an init at all.
-# stdout only, like assert_init_plan(): a docker transport writes "Container
-# ... Creating" to STDERR on every invocation, and assert_exit's 2>&1 would fold
-# that into $OUT and make it unparseable as JSON.
-set +e
-JWT_PLAN=$(wp1 duo init --repo=/siterepo --format=json)
-JWT_PLAN_CODE=$?
-set -e
-[ "$JWT_PLAN_CODE" -eq 0 ] \
-  || fail "cross-chunk JWT proposal exited $JWT_PLAN_CODE: $JWT_PLAN"
-jq -e '[.advisories[] | select(.code == "jwt_in_code_file")] | length == 1' <<<"$JWT_PLAN" >/dev/null \
-  || fail "cross-chunk JWT proposal did not carry exactly one jwt_in_code_file advisory: $JWT_PLAN"
-jq -e '[.unsupported[] | select(.code == "credential_bearing_code_file")] | length == 0' <<<"$JWT_PLAN" >/dev/null \
+# Through assert_init_plan, like every other proposal in this file: it captures
+# stdout only (a docker transport writes "Container ... Creating" to STDERR on
+# every invocation, which would make the JSON unparseable) and proves the
+# proposal was manufactured -- ready, with a 64-hex digest -- before anything
+# reads it. DUO-3421's pin requires that shape; regress_init_contract.php
+# enforces it offline over this file.
+assert_init_plan wp1 /siterepo "cross-chunk JWT"
+jq -e '[.advisories[] | select(.code == "jwt_in_code_file")] | length == 1' <<<"$INIT_PLAN_JSON" >/dev/null \
+  || fail "cross-chunk JWT proposal did not carry exactly one jwt_in_code_file advisory: $INIT_PLAN_JSON"
+jq -e '[.unsupported[] | select(.code == "credential_bearing_code_file")] | length == 0' <<<"$INIT_PLAN_JSON" >/dev/null \
   || fail "cross-chunk JWT was reported as a blocking credential after #476 made it advisory"
-jq -e '.ready == true' <<<"$JWT_PLAN" >/dev/null \
-  || fail "cross-chunk JWT advisory left the proposal not ready"
-! grep -q 'eyJAAAA' <<<"$JWT_PLAN" || fail "cross-chunk JWT advisory exposed the credential value"
+! grep -q 'eyJAAAA' <<<"$INIT_PLAN_JSON" || fail "cross-chunk JWT advisory exposed the credential value"
 [ ! -e "$HOST_REPO/site.duo.json" ] && [ ! -d "$HOST_REPO/state" ] \
   || fail "cross-chunk JWT proposal mutated the repository"
 wp1 eval 'unlink(WP_PLUGIN_DIR . "/woocommerce/duo-init-jwt.php");' >/dev/null
