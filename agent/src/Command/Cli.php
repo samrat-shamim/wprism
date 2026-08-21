@@ -1969,6 +1969,23 @@ final class Cli {
     public function journal_reset($args, $assoc) {
         global $wpdb;
         Ledger::ensure();
+        // DUO-3497: options outside a claimed adapter namespace are visible
+        // ONLY through the journal — capture whitelists options, so nothing
+        // else ever names them (agent/src/Review/Pending.php:16-19). This
+        // TRUNCATE is therefore the one operation that empties `duo pending`
+        // while the writes it named are still in the database, which is the
+        // silent-uncapture the product exists to refuse. Say the size of the
+        // loss before taking it; a read that fails is not a zero.
+        $observations = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}duo_journal");
+        if (!empty($wpdb->last_error) || !is_numeric($observations)) {
+            WP_CLI::error('duo: journal-reset could not read the observations it would destroy; repair the journal before resetting it');
+        }
+        if ((int) $observations > 0) {
+            WP_CLI::warning(sprintf(
+                'destroying %d observation row(s): options no adapter declares are recorded nowhere else, so duo pending loses them permanently and no capture gate will name them again',
+                (int) $observations
+            ));
+        }
         Db::query("TRUNCATE TABLE {$wpdb->prefix}duo_journal", 'journal truncate');
         WP_CLI::success('journal truncated');
     }

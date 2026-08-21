@@ -19,14 +19,23 @@ namespace {
 
     final class ObservationCliHalt extends RuntimeException {}
 
-    /** Minimal WP-CLI surface to run Cli::adapter_observe's refusal path. */
+    /**
+     * Minimal WP-CLI surface to run Cli::adapter_observe's refusal path, plus
+     * the warning/success channels DUO-3497's journal-reset guard writes on.
+     */
     final class WP_CLI {
         /** @var list<string> */
         public static array $errors = [];
+        /** @var list<string> */
+        public static array $warnings = [];
+        /** @var list<string> */
+        public static array $successes = [];
 
         public static function add_command(mixed $name, mixed $class): void {}
         public static function line(mixed $line): void {}
         public static function halt(mixed $status): never { throw new ObservationCliHalt((string) $status); }
+        public static function warning(mixed $message): void { self::$warnings[] = (string) $message; }
+        public static function success(mixed $message): void { self::$successes[] = (string) $message; }
         public static function error(mixed $message): never {
             self::$errors[] = (string) $message;
             throw new ObservationCliHalt((string) $message);
@@ -65,6 +74,9 @@ namespace {
         public bool $journalPresent = true;
         public bool $journalPrerequisiteQueryFails = false;
         public bool $journalQueryFails = false;
+        /** DUO-3497: what `journal-reset` is about to destroy, and a read that fails. */
+        public int $journalRowCount = 0;
+        public bool $journalCountQueryFails = false;
         /** Simulate a failed value SELECT whose next successful SELECT clears wpdb::$last_error. */
         public bool $failCurrentValueThenSuccess = false;
         private bool $currentValueFailureDelivered = false;
@@ -100,6 +112,14 @@ namespace {
                     return null;
                 }
                 return $this->journalPresent ? 'wp_duo_journal' : null;
+            }
+            if (str_contains($query, 'SELECT COUNT(*) FROM wp_duo_journal')) {
+                if ($this->journalCountQueryFails) {
+                    $this->last_error = 'simulated unreadable duo_journal COUNT';
+                    return null;
+                }
+                // wpdb reads mysqli's text protocol: COUNT(*) arrives as a string.
+                return (string) $this->journalRowCount;
             }
             if (str_contains($query, 'secret-meta')) {
                 return 'sk_live_abcdefghijklmnopqrst';
@@ -481,6 +501,70 @@ namespace {
         'adapter-observe suspends journal before even malformed-argument refusal paths'
     );
 
+    // DUO-3497: the other end of the same evidence. `journal-reset` is the one
+    // statement in the shipped runtime that removes journal rows, and options
+    // no adapter declares are recorded NOWHERE else — capture whitelists
+    // options, so the journal is their only witness (agent/src/Review/
+    // Pending.php:16-19). Truncating silently therefore empties `duo pending`
+    // while the writes it named are still in the database: silent-uncapture.
+    // The live report had it destroying the observations only because
+    // `duo init` refused `existing_duo_ledger` on a journal-only environment
+    // and named no other escape; that half is fixed in InitSiteProbe::ledger(),
+    // and this half stays true wherever an operator reaches for the command.
+    echo "\n== journal-reset states the evidence it destroys ==\n";
+    $resetWpdb = new ObservationFakeWpdb();
+    $GLOBALS['wpdb'] = $resetWpdb;
+    $resetWpdb->journalRowCount = 7;
+    Ledger::$ensureCalls = 0;
+    Db::$mutationCalls = 0;
+    WP_CLI::$warnings = [];
+    WP_CLI::$successes = [];
+    WP_CLI::$errors = [];
+    (new Cli())->journal_reset([], []);
+    check(
+        count(WP_CLI::$warnings) === 1
+            && str_contains(WP_CLI::$warnings[0], 'destroying 7 observation row(s)')
+            && str_contains(WP_CLI::$warnings[0], 'duo pending loses them permanently'),
+        'a populated journal-reset names the count and what the review queue loses before truncating'
+    );
+    check(
+        Db::$mutationCalls === 1 && WP_CLI::$successes === ['journal truncated'],
+        'the truncate still runs and its success line keeps its exact bytes'
+    );
+
+    $resetWpdb->journalRowCount = 0;
+    Db::$mutationCalls = 0;
+    WP_CLI::$warnings = [];
+    WP_CLI::$successes = [];
+    (new Cli())->journal_reset([], []);
+    check(
+        WP_CLI::$warnings === [] && Db::$mutationCalls === 1
+            && WP_CLI::$successes === ['journal truncated'],
+        'an already-empty journal warns about nothing and still resets'
+    );
+
+    // A read that fails is not "nothing to lose": destroying evidence whose
+    // size could not be read is exactly the move this product refuses.
+    $resetWpdb->journalCountQueryFails = true;
+    Db::$mutationCalls = 0;
+    WP_CLI::$warnings = [];
+    WP_CLI::$successes = [];
+    WP_CLI::$errors = [];
+    $resetRefused = false;
+    try {
+        (new Cli())->journal_reset([], []);
+    } catch (ObservationCliHalt) {
+        $resetRefused = true;
+    }
+    check(
+        $resetRefused && Db::$mutationCalls === 0 && WP_CLI::$successes === []
+            && count(WP_CLI::$errors) === 1
+            && str_contains(WP_CLI::$errors[0], 'could not read the observations it would destroy'),
+        'an unreadable journal count refuses before the TRUNCATE instead of destroying an unknown quantity of evidence'
+    );
+    $resetWpdb->journalCountQueryFails = false;
+    WP_CLI::$errors = [];
+
     echo "\n== target projection and read-only target paths ==\n";
     $site = sys_get_temp_dir() . '/duo-observation-site-' . bin2hex(random_bytes(6));
     mkdir($site, 0700, true);
@@ -555,6 +639,26 @@ namespace {
     check(
         !str_contains($journalReadSource, 'Ledger::ensure') && !str_contains($pendingReadSource, 'Ledger::ensure'),
         'narrow read-only Journal/Pending entry points cannot call Ledger::ensure'
+    );
+    // DUO-3497's survival half. Observations recorded before `duo init` reach
+    // the post-init review queue only because this aggregation has no time,
+    // id, or initialization predicate — it groups every row in the table. The
+    // statement is pinned whitespace-normalized so a date bound added later is
+    // a red assertion here rather than a queue that quietly goes short.
+    $pendingJournalSource = method_source(
+        $repoRoot . '/agent/src/Review/Pending.php',
+        Pending::class,
+        'journal_unclassified'
+    );
+    check(
+        str_contains(
+            (string) preg_replace('/\s+/', ' ', $pendingJournalSource),
+            'SELECT item, surface, caps, proposal, COUNT(*) AS n '
+            . 'FROM {$wpdb->prefix}duo_journal '
+            . "WHERE tbl = %s AND item != '' "
+            . 'GROUP BY item, surface, caps, proposal'
+        ),
+        'the pending queue aggregates every journal row, so observations written before init still reach it'
     );
 
     $prerequisiteReadErrorDb = new ObservationFakeWpdb();

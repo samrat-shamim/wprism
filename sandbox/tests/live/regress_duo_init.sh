@@ -844,6 +844,29 @@ grep -q 'existing_capture_receipt' <<<"$OUT" || fail "capture receipt blocker wa
 [ "$(wp1 db query "SHOW TABLES LIKE 'wp_duo_%'" --skip-column-names | wc -l | tr -d ' ')" = "0" ] \
   || fail "capture receipt refusal created ledger tables"
 rm -f "$HOST_REPO/state.capture-receipt"
+# DUO-3497: a site booted with DUO_JOURNAL on reaches init holding observation
+# rows and nothing else — Journal::flush() calls Ledger::ensure(), so all four
+# tables exist with zero identity rows. That is not an abandoned baseline, and
+# the freshness probe no longer reads it as one. Proposal-only (no --confirm),
+# so this stays read-only and leaves the following stale-ledger case untouched.
+wp1 eval '
+\Duo\Ledger::ensure();
+global $wpdb;
+$wpdb->query($wpdb->prepare(
+    "INSERT INTO {$wpdb->prefix}duo_journal (t, op, tbl, item, surface, actor, caps, hook, proposal)"
+    . " VALUES (%s, %s, %s, %s, %s, %d, %s, %s, %s)",
+    "2026-08-21 00:00:00", "UPDATE", "options", "duo_init_journal_only", "admin", 0, "", "", "review"
+));
+' >/dev/null
+JOURNAL_ONLY_PROPOSAL=$(wp1 duo init --repo=/siterepo --format=json)
+if grep -q 'existing_duo_ledger' <<<"$JOURNAL_ONLY_PROPOSAL"; then
+  fail "journal-only observations were reported as an existing Duo ledger"
+fi
+grep -q 'retained_journal_observations' <<<"$JOURNAL_ONLY_PROPOSAL" \
+  || fail "journal-only observations produced no retention advisory"
+[ "$(wp1 db query 'SELECT COUNT(*) FROM wp_duo_journal' --skip-column-names | tr -d '[:space:]')" = "1" ] \
+  || fail "the init proposal mutated the provenance journal it reported on"
+wp1 db query 'TRUNCATE TABLE wp_duo_journal' >/dev/null
 wp1 eval '\Duo\Ledger::ensure(); \Duo\Ledger::kv_set("duo_init_stale", "1");' >/dev/null
 assert_exit 2 "non-pristine ledger blocks init" "${DUO[@]}" init "${PAIR}1" --yes
 grep -q 'existing_duo_ledger' <<<"$OUT" || fail "stale ledger blocker was missing"
