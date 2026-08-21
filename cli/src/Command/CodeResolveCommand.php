@@ -298,6 +298,32 @@ final class CodeResolveCommand {
     }
 
     /**
+     * Report the code resolution a refresh/rebase/rehearse performed into its
+     * compile worktrees (DUO-3523).
+     *
+     * Rendering lives HERE, not in Refresh: `cli/src/Refresh/Refresh.php`
+     * contains no `echo` at all — it returns structured results and its command
+     * renders them — and the work being reported is this file's own, so it gets
+     * this file's own vocabulary. A split refresh therefore prints the same
+     * `RESOLVED/UNCHANGED` rows and the same `N materialized, M unchanged`
+     * summary as `duo code-resolve` and the deploy phase, differing only in the
+     * prefix that says which worktree it was for.
+     *
+     * A format-1 repository resolves nothing, so `code_resolve` is absent or
+     * empty and NOTHING is printed — its output stays byte-identical.
+     *
+     * @param array<string,mixed> $result a Refresh::refresh()/rebase() result
+     */
+    public static function renderRefreshPhase(array $result, string $verb): void {
+        foreach ((array) ($result['code_resolve'] ?? []) as $role => $phase) {
+            if (!is_array($phase) || ($phase['rows'] ?? []) === []) {
+                continue;
+            }
+            self::render((string) $phase['lock'], $phase['rows'], false, "$verb: code-resolve ($role worktree)");
+        }
+    }
+
+    /**
      * @param list<array{root:string,component:string,version:string,state:string,detail:string}> $rows
      */
     private static function render(string $lockPath, array $rows, bool $dryRun, string $phasePrefix): void {

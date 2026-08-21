@@ -8,6 +8,12 @@ require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/PassthroughCommand.php';
 require_once __DIR__ . '/../Refresh/Refresh.php';
 require_once __DIR__ . '/../Refresh/RefreshFieldDiff.php';
+// DUO-3523: rendered here, so this file requires it. `require_once` and safe
+// in every load order: cli/duo pulls CodeResolveCommand.php in with
+// `require_once` too (cli/duo:98, and DeployCommand.php:43 before it), and the
+// only dependency of that file which cli/duo plain-`require`s —
+// EnvironmentDriver.php — is already loaded by cli/duo:17.
+require_once __DIR__ . '/CodeResolveCommand.php';
 
 /** Host command boundary for semantic refresh planning and field-diff output. */
 final class RefreshCommand {
@@ -37,6 +43,7 @@ final class RefreshCommand {
                 ? PassthroughCommand::readScopeContractInput($flags['--scope-contract'])['contract']
                 : null;
             $result = Refresh::refresh($driver, $flags['--production-ref'], $scope, $fieldDiff);
+            CodeResolveCommand::renderRefreshPhase($result, 'refresh');
             if ($fieldDiff) {
                 if (!is_array($result['field_diff'] ?? null)) {
                     throw new \RuntimeException('field-level resolution is unavailable for this refresh plan');

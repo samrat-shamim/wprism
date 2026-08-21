@@ -6,6 +6,12 @@ namespace Duo\Orchestrator;
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/PassthroughCommand.php';
 require_once __DIR__ . '/../Refresh/Refresh.php';
+// DUO-3523: rendered here, so this file requires it. `require_once` and safe
+// in every load order: cli/duo pulls CodeResolveCommand.php in with
+// `require_once` too (cli/duo:98, and DeployCommand.php:43 before it), and the
+// only dependency of that file which cli/duo plain-`require`s —
+// EnvironmentDriver.php — is already loaded by cli/duo:17.
+require_once __DIR__ . '/CodeResolveCommand.php';
 
 /** Host parser/output boundary for refresh rebase and abort commands. */
 final class RebaseCommand {
@@ -75,6 +81,7 @@ final class RebaseCommand {
                 ? PassthroughCommand::readScopeContractInput($flags['--scope-contract'])['contract']
                 : null;
             $result = Refresh::rebase($driver, $flags['--production-ref'], $flags['--new-branch'], $parsed['resolution'], $scope, $fieldPath, $parsed['interactive'], $parsed['strategy_seen']);
+            CodeResolveCommand::renderRefreshPhase($result, 'rebase');
             echo 'refresh rebase complete: ' . $result['new_branch'] . ' at ' . $result['head'] . "\n";
             echo 'plan: ' . $result['plan_path'] . ' run: ' . $result['run_id'] . "\n";
             return 0;

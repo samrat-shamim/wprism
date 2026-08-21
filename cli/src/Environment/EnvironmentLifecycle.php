@@ -1039,6 +1039,10 @@ final class EnvironmentMaterializer {
                     self::git($root, ['update-ref', '-d', 'refs/heads/' . $candidateRef]);
                 }
                 $candidate = Refresh::rebase($sourceDriver, $productionCommit, $candidateRef);
+                // Named with this path's own verb, the one its refusals already
+                // use ("duo: env materialize: ..."), so an operator reading a
+                // rehearse log sees one vocabulary throughout.
+                CodeResolveCommand::renderRefreshPhase($candidate, 'env materialize');
                 $plan = self::readJson((string) $candidate['plan_path'], 'refresh plan');
                 $semantic = [
                     'branch_commit' => (string) $candidate['head'],

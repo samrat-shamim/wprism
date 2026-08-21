@@ -5,6 +5,7 @@ namespace Duo\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Policy/ScopeContract.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Code/CodeSourceLock.php';
+require_once __DIR__ . '/../Code/CodeResolver.php';
 
 /** Explicit non-error terminal for `duo rebase --interactive` cancellation. */
 final class RefreshFieldResolutionCancelled extends \RuntimeException {}
@@ -64,6 +65,7 @@ final class Refresh {
         return [
             'plan' => $prepared['plan'],
             'plan_path' => $prepared['plan_path'],
+            'code_resolve' => $prepared['code_resolve'] ?? [],
             'context' => $prepared['context'],
             'field_diff' => $prepared['field_diff'],
             'field_diff_path' => $prepared['field_diff_path'],
@@ -184,6 +186,7 @@ final class Refresh {
 
         try {
             self::git($root, ['worktree', 'add', '--detach', $worktree, (string) $context['branch_commit']]);
+            $candidateCode = array_filter(['candidate' => self::materializeLockedCode($worktree)]);
             $journal->append($runId, 'worktree-created', ['worktree' => $worktree]);
 
             if ($scopeContract === null) {
@@ -255,6 +258,9 @@ final class Refresh {
                 'run_id' => $runId,
                 'new_branch' => $newBranch,
                 'head' => $candidate,
+                // Both halves: the three worktrees prepare() built, and the
+                // candidate this method built. A rebase materializes four.
+                'code_resolve' => ($prepared['code_resolve'] ?? []) + $candidateCode,
                 'field_diff_path' => $fieldResolution === null ? null : $prepared['field_diff_path'],
             ];
         } catch (\Throwable $e) {
@@ -331,6 +337,15 @@ final class Refresh {
             self::git($root, ['worktree', 'add', '--detach', $branchTree, $branchCommit]);
             self::git($root, ['worktree', 'add', '--detach', $productionTree, $productionCommit]);
             try {
+                // Inside this try, not above it: the worktrees are removed by
+                // its own finally, and a refusal raised before entering it
+                // would leak all three plus the scratch directory the outer
+                // finally then cannot rmdir.
+                $codeResolve = array_filter([
+                    'base' => self::materializeLockedCode($baseTree),
+                    'branch' => self::materializeLockedCode($branchTree),
+                    'production-code' => self::materializeLockedCode($productionTree),
+                ]);
                 $base = self::planner('compileGitWorktree', [$baseTree, $baseCommit, 'base']);
                 $branchArtifact = self::planner(
                     'compileGitWorktree',
@@ -410,6 +425,7 @@ final class Refresh {
                 return [
                     'plan' => $plan,
                     'plan_path' => $planPath,
+                    'code_resolve' => $codeResolve,
                     'context' => $context,
                     'field_diff' => $fieldDiff,
                     'field_bundle' => $fieldBundle,
@@ -666,6 +682,74 @@ final class Refresh {
             );
         }
         return $trees;
+    }
+
+    /**
+     * Put the locked component bytes into a freshly-created compile worktree.
+     *
+     * ## Why a checkout is not enough
+     *
+     * Since DUO-3499 a split repository declares `code.format: 2` and keeps each
+     * locked component OUT of Git — `code/duo-code.lock.json` is tracked, the
+     * bytes are not. `git worktree add --detach` therefore produces a checkout
+     * with no `code/wp-content` at all (on the reported repository,
+     * `git ls-files code/wp-content` returns 0), and `RepositoryCompiler`
+     * correctly refuses it:
+     *
+     *   [code_source_missing] code/wp-content — site.duo.json opts into code
+     *   materialization but code/wp-content is missing
+     *
+     * That is grind_adapter_walk.sh S1 on a 3-component split (DUO-3523): the
+     * host was compiling a checkout it had never populated. Every worktree this
+     * class compiles has the same hole, so every one of them is materialized
+     * here — base, branch, production-code (prepare():332-334) and the rebase
+     * candidate (:187).
+     *
+     * ## Why this runs in the parent
+     *
+     * The single compile chokepoint is `RefreshPlan::compileGitWorktreeWorker()`,
+     * which would be the tidier home — but it runs in a FRESH PROCESS whose
+     * entrypoint reports failure as `fwrite(STDERR, $e->getMessage()); exit(1)`
+     * (RefreshPlanCompile.php:28-31). Only the message survives that boundary, so
+     * a CommandRefusalException raised there arrives with its reason code
+     * stripped and the operator cannot tell a cold cache from a drifted tree
+     * from an unreadable lock. Materializing HERE keeps the refusal typed,
+     * because CommandRefusalException propagates in-process. (The boundary
+     * itself is DUO-3524, filed rather than fixed here.)
+     *
+     * ## What it does not do
+     *
+     * Nothing, for a fully vendored repository: `declaredLock()` returns null
+     * for `code.format` 1 or a repository with no code half
+     * (CodeResolver.php:129-135), so format 1 takes no new path at all. Nothing
+     * either for a component already present at its declared `tree_sha256` —
+     * `resolve()` compares before it fetches. It never vendors bytes into the
+     * commit: the resolver writes only under `code/wp-content`, the worktree is
+     * disposable, and the lock still governs what those bytes must hash to.
+     *
+     * Resolution is ONLINE, exactly as `duo code-resolve` and the deploy
+     * code-resolve phase are: the components are digest-pinned by the lock and
+     * every archive is verified against `archive_sha256` and `tree_sha256` on
+     * unpack, so reaching the host cache and then wp.org adds no trust. A cold
+     * cache with no network is named by the resolver's own typed
+     * `code_resolve_*` refusal rather than by a second offline mode invented
+     * here.
+     */
+    private static function materializeLockedCode(string $worktree): ?array {
+        $lock = CodeResolver::declaredLock($worktree);
+        if ($lock === null) {
+            return null;
+        }
+        $resolver = new CodeResolver(new WpOrgReleases(WpOrgReleases::defaultCacheDir()));
+
+        // The rows are RETURNED, never printed: this file has no `echo` in it
+        // at all and is a library that hands structured results to a command
+        // that renders them. The refresh/rebase/rehearse callers pass them to
+        // CodeResolveCommand's own renderer, so a split refresh reports the
+        // same `RESOLVED/UNCHANGED` rows and the same `N materialized, M
+        // unchanged` summary as `duo code-resolve` and the deploy phase — one
+        // vocabulary for one piece of work.
+        return ['lock' => $lock['path'], 'rows' => $resolver->resolve($worktree, $lock['components'], false)];
     }
 
     private static function rebaseCodeOnly(string $worktree, string $production, string $base, string $runDir): void {
