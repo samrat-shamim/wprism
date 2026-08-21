@@ -476,7 +476,7 @@ Compilation raises three blocking, non-forceable diagnostics:
 
 | diagnostic | condition | remedy |
 | --- | --- | --- |
-| `code_component_unresolved` | the lock declares a component and the repository carries none of its bytes | run the materialization step for that component before compiling |
+| `code_component_unresolved` | the lock declares a component and the repository carries none of its bytes | `duo code-resolve <env>`, which `duo deploy` and `duo promote` also run themselves before compiling |
 | `code_component_digest_mismatch` | the component is present but hashes to something other than `tree_sha256` | re-materialize the locked release, or re-lock the bytes if they are the intended ones |
 | `code_component_unlocked` | the repository-root `.gitignore` excludes a component under `code/wp-content` that the lock does not declare | declare it in the lock, or remove the ignore line |
 

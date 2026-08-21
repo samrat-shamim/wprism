@@ -695,11 +695,8 @@ only supported placement, and the code half enforces the asymmetry itself: a
 `code/wp-content/plugins/` is inventoried as an owned component file and
 shipped to the target.
 
-What did NOT land, deliberately:
+What did NOT land in phase 2, deliberately:
 
-- **No resolver.** Materializing a locked component in a fresh clone is the
-  operator's build step today (`docs/guides/code-updates.md`). `duo
-  code-resolve` is DUO-3500.
 - **No fetcher in the agent, ever.** `code_release_provider`'s probe attests
   "off-target build and dependency resolution … no target Git history or
   registry credentials" (`docs/code-release-runtime.md:24-28`); a target-side
@@ -707,3 +704,44 @@ What did NOT land, deliberately:
 - **No change to per-deploy staging cost.** `CodeMaterializer::write_payload()`
   still writes every descriptor file on every stage. The split addresses
   repository size and Git history, not deploy wall time.
+
+---
+
+## Phase 3: the resolver (2026-08-21, DUO-3500)
+
+Phase 2 shipped a declaration and a gate but no way back: materializing a
+locked component in a fresh clone was the operator's build step. `duo
+code-resolve <env>` is that step, and `duo deploy` / `duo promote` run it
+themselves as `<verb> phase: code-resolve` before `compile` — outside every
+promotion lease, silent for any repository with no lock.
+
+It adds no algorithm. The content-addressed cache, the refuse-don't-refetch
+rule on a corrupted entry, the delete-partial-and-refuse rule on a download
+digest mismatch, `--offline`, the unpack entry check and the tree digest are
+all `WpOrgReleases`, unchanged from phase 2 — the same primitives `duo init
+--code=split` already classified against. What phase 3 adds is the direction:
+an origin becomes bytes, verified twice (`archive_sha256` before the unpack,
+`tree_sha256` after), staged under `.duo/` and renamed into
+`code/wp-content/<root>/<component>/` only once verified, so no component is
+ever half-written. `vendored-archive` origins take the identical path with no
+cache and no network.
+
+Two decisions worth recording, because both are refusals where a convenience
+would have been easy:
+
+- **A component present at any digest other than its locked one refuses**
+  (`code_resolve_component_drifted`) instead of being overwritten. The tree is
+  `.gitignore`d by construction, so those bytes exist in exactly one place on
+  earth; re-materializing over them would destroy the only copy of whatever
+  the operator actually has. Remove the directory to re-materialize, or
+  `duo code-classify` to re-lock what is there.
+- **`local` and `docker` only, and `ssh` says so by name.** The egress
+  constraint above is absolute — the target never fetches — so resolution
+  needs a host that can WRITE the repository the compile will hash. A local
+  environment's `repo_path` is that path; a docker environment's host side is
+  the checkout `duo` is standing in. An ssh target's repository is on the far
+  side of the transport, so the verb refuses with
+  `code_resolve_transport_unsupported` naming DUO-3514 (host→target push), and
+  the automatic deploy phase refuses too — unless it can PROVE the point is
+  moot by asking the target for its own `wp duo code-inventory` and finding
+  every locked component already at its declared digest.

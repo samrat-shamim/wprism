@@ -5,6 +5,7 @@ namespace Duo\Orchestrator;
 
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/CommandOutput.php';
+require_once __DIR__ . '/CodeResolveCommand.php';
 require_once __DIR__ . '/../Transport/CodeDeploy.php';
 
 /**
@@ -52,6 +53,17 @@ final class DeployCommand {
             return $mkdir['exit'] !== 0 ? $mkdir['exit'] : 1;
         }
 
+        // DUO-3500: host-side, before compile, and outside every lease. It
+        // prints nothing at all unless this repository declares a code lock,
+        // so an ordinary format-1 deploy emits exactly the phase lines it
+        // always did. When a lock IS declared, resolving here is what makes
+        // the compile below able to hash the declared bytes instead of
+        // refusing `code_component_unresolved`
+        // (agent/src/Code/CodeDescriptorCompiler.php:144-153).
+        $resolveExit = CodeResolveCommand::deployPhase($transport, 'deploy');
+        if ($resolveExit !== null) {
+            return $resolveExit;
+        }
         echo "deploy phase: compile\n";
         $compile = CodeDeploy::compile($transport, $repo, $artifact);
         if ($compile['exit'] !== 0) {

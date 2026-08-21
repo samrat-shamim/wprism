@@ -21,17 +21,21 @@ The commands are documented in
 2. **rollback-authority fence** — target mutation is refused while the external
    rollback authority is invalid or in a nonterminal state.
 3. **artifact directory** — created under the target's operational `.duo/`.
-4. **compile** — the repository becomes one immutable, content-addressed
+4. **code-resolve** — host-side, and only for a repository that declares
+   `code/duo-code.lock.json`; silent for every other repository. See
+   [`duo deploy` and `duo promote` resolve for you](#duo-deploy-and-duo-promote-resolve-for-you)
+   below.
+5. **compile** — the repository becomes one immutable, content-addressed
    artifact whose `artifact_hash` binds the state revision and, when present,
    a separate opaque code descriptor and revision.
-5. **adapter disposition gate** — an experimental or unsupported adapter
+6. **adapter disposition gate** — an experimental or unsupported adapter
    claim refuses here, *before* any lease exists.
-6. **promotion-begin** — an exact owner/artifact session on the target.
-7. **code-stage** — the new bytes land beside the live tree.
-8. **lifecycle retire** — deactivation hooks fire.
-9. **lifecycle activate** — in a *fresh process*, so the new code is what
-   boots and its own updater notices the version change deterministically.
-10. **code-finalize** — requires both lifecycle receipts, so a merely staged
+7. **promotion-begin** — an exact owner/artifact session on the target.
+8. **code-stage** — the new bytes land beside the live tree.
+9. **lifecycle retire** — deactivation hooks fire.
+10. **lifecycle activate** — in a *fresh process*, so the new code is what
+    boots and its own updater notices the version change deterministically.
+11. **code-finalize** — requires both lifecycle receipts, so a merely staged
     payload can never be promoted into a completed `code_revision` by skipping
     the WordPress lifecycle.
 
@@ -147,8 +151,9 @@ own declaration is not a compatibility judgment.
 
 - `code_component_unresolved` — the lock declares a component and this
   repository carries none of its bytes. This is the normal state of a FRESH
-  CLONE of a split repository, and the expected remedy: run the materialization
-  step for that component (below) before compiling.
+  CLONE of a split repository, and the expected remedy is
+  [`duo code-resolve`](#resolving-a-split-repository) — which `duo deploy` and
+  `duo promote` now run for you, before compiling.
 - `code_component_digest_mismatch` — the component is present but hashes to
   something other than its declared `tree_sha256`. Either re-materialize the
   locked release, or, if these bytes are the intended ones, re-lock the
@@ -366,36 +371,97 @@ leave the working tree** — only Git stops tracking them — so the next compil
 produces the identical `code_revision` and the identical `artifact_hash`. No
 re-pin, no deploy, nothing fleet-visible.
 
-### The materialization step
+### Resolving a split repository
 
 A fresh clone of a split repository does not contain the locked components'
 bytes, so it refuses to compile with `code_component_unresolved` naming each
-one. Putting the bytes back is your build step today; Duo has no verb for it
-yet. **Planned (DUO-3500)**: `duo code-resolve` will read the lock, fetch from
-the same content-addressed host cache `duo init` already uses, verify
-`archive_sha256` before unpacking and `tree_sha256` after, and materialize into
-`code/wp-content`. Until then:
+one. `duo code-resolve` is the step that answers that refusal:
+
+Note what this is *not* needed for: `duo init --code=split` leaves the locked
+components on disk, so the repository it produces is deployable immediately.
+Run `duo code-resolve` there and every component is reported **unchanged** —
+nothing is fetched and nothing is rewritten. The split's win at init is the
+repository shape (a lock plus `.gitignore` lines instead of vendored bytes in
+Git history); the resolver is what makes the *next* clone of that repository
+deployable too.
+
 
 ```sh
-# for each locked component, from code/duo-code.lock.json:
-curl -fL -o /tmp/woocommerce.zip \
-  https://downloads.wordpress.org/plugin/woocommerce.11.0.0.zip
-# verify origin.archive_sha256 BEFORE unpacking
-shasum -a 256 /tmp/woocommerce.zip
-unzip -q /tmp/woocommerce.zip -d code/wp-content/plugins/
+duo code-resolve production --dry-run   # print what it would fetch, write nothing
+duo code-resolve production
 ```
 
-The next compilation — whichever verb reaches it, `duo deploy` or
-`duo promote` — then verifies `tree_sha256` for you and refuses on any
-disagreement, so an archive that was re-packaged upstream cannot be mistaken
-for the pinned one. `composer install` into `code/wp-content/plugins/` is
-equally valid where you already use it.
+It reads `code/duo-code.lock.json`, and for every entry:
 
-The practical consequence is unchanged and now applies to both shapes:
-**resolution runs before `duo deploy`, never inside it.** It happens wherever
-you have git, composer, and registry access — a developer machine or CI — and
-only the resolved tree reaches the target. Duo's contract begins at "these
-bytes are the code half of this artifact".
+1. reports the component **unchanged** if it is already on disk at its locked
+   `tree_sha256`, and does not rewrite it;
+2. **refuses** if it is on disk at any *other* digest
+   (`code_resolve_component_drifted`). That tree is `.gitignore`d, so its bytes
+   exist in exactly one place — remove the directory and rerun to
+   re-materialize the release, or `duo code-classify` to re-lock the bytes you
+   actually have. Nothing overwrites a tree Git does not carry;
+3. otherwise resolves it: a `wp-org-release` comes from the same
+   content-addressed host cache `duo init` uses (`$XDG_CACHE_HOME/duo/
+   code-artifacts`, else `~/.cache/duo/code-artifacts`, or `--cache-dir=`), and
+   is fetched **only on a cache miss**; a `vendored-archive` is read from the
+   repository-relative path the lock names. Either way `archive_sha256` is
+   verified before anything is unpacked and `tree_sha256` after, in a staging
+   directory under `.duo/`, and only a verified tree is renamed into
+   `code/wp-content/<root>/<component>/`. A component is never half-written.
+
+There is no latest-fallback anywhere and nothing is ever skipped on a miss. The
+refusals you can hit, each naming its own remedy:
+
+| reason code | what happened |
+| --- | --- |
+| `code_resolve_cache_corrupt` | a cached archive no longer hashes to the digest recorded beside it. It is **not** re-fetched: a byte that changed under a digest is evidence. Inspect and delete that cache file by hand, then rerun. |
+| `code_resolve_archive_digest_mismatch` | the archive — downloaded, or vendored in the repository — does not hash to the lock's `archive_sha256`. Only the partial download is deleted and nothing is cached. |
+| `code_resolve_tree_digest_mismatch` | the archive digest matched but the unpacked tree does not equal `tree_sha256`. That is an upstream re-package under a reused version; re-lock with `duo code-classify` if it is legitimate. |
+| `code_resolve_offline_miss` | `--offline` was passed and the cache has no entry. `--offline` forbids the network and nothing else: a warm cache still resolves. |
+| `code_resolve_transport_unsupported` | see the transport rule below. |
+
+`composer install` into `code/wp-content/plugins/` remains equally valid where
+you already use it; the compile gate verifies whatever ends up on disk either
+way.
+
+### Where resolution can run: local and docker, never ssh
+
+Resolution is **host** work, always. The production target never fetches from a
+registry — that is what `code_release_provider`'s probe attests
+([docs/code-release-runtime.md](../code-release-runtime.md)) — so the machine
+running `duo` must be able to write the repository the compile will hash:
+
+- **`local`** — `repo_path` is a host path by definition. Resolved in place.
+- **`docker`** — `repo_path` is the path *inside* the container; the host side
+  of that bind mount is the checkout you are standing in, which is also where
+  `duo` found the environment registry. Run `duo code-resolve` from inside
+  that checkout.
+- **`ssh`** — the repository is on the far side of the network boundary and
+  this host cannot write it. The verb refuses with
+  `code_resolve_transport_unsupported`. Host-to-target push is tracked as
+  **DUO-3514** and is not implemented; until it lands, materialize the locked
+  components on the target itself (the same three verification steps, by hand
+  or from your own build) and deploy from there.
+
+### `duo deploy` and `duo promote` resolve for you
+
+Both verbs run the identical resolver as an automatic host-side phase,
+`<verb> phase: code-resolve`, immediately **before `compile`** and therefore
+before `promotion-begin` — outside every promotion lease, with no checkpoint
+taken and nothing to compensate if it refuses. It is completely silent for a
+repository that declares no lock, so a fully vendored deploy prints exactly the
+phase lines it always did.
+
+On **ssh with a lock present**, deploy cannot resolve, so it verifies instead:
+it asks the target for its own `wp duo code-inventory` and proceeds only when
+**every** locked component already hashes to its declared `tree_sha256` there.
+If any does not, it refuses with `code_resolve_transport_unsupported` before
+compile, naming the components that are missing or drifted.
+
+The practical consequence, restated for the split: **resolution still happens
+on the host and never on the target.** What changed is that you no longer have
+to remember to run it — `duo deploy` does, from the same lock, through the same
+cache, with the same two digests verified.
 
 ### What the split does NOT change
 
