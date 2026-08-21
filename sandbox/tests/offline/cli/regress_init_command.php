@@ -78,6 +78,15 @@ $proposal = [
             'themes' => '/fixture/wp-content/themes',
         ],
         'components' => ['plugins' => [], 'themes' => []],
+        // DUO-3499: deliberately empty. This suite is about the command's
+        // orchestration (refusal rendering, confirmation gating, exit codes),
+        // and an empty inventory is what makes the host skip classification
+        // entirely -- the offline corpus contacts no release registry. The
+        // classification path itself is covered by
+        // sandbox/tests/offline/code-half/regress_init_code_split.php against a
+        // local file:// archive fixture.
+        'component_inventory' => [],
+        'split' => [],
         'declaration' => ['format' => 1, 'layout' => 'wp-content', 'source' => 'code/wp-content'],
         'active_plugins' => [],
         'active_theme' => ['stylesheet' => 'fixture', 'template' => 'fixture'],

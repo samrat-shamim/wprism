@@ -13,7 +13,11 @@ final class InitAttemptRecord {
         'preparing', 'locked', 'git-planned', 'git-reserved', 'git-ready',
         'gitignore-planned', 'gitignore-ready', 'code-stage-planned',
         'code-staging', 'code-staged', 'code-root-planned',
-        'code-root-reserved', 'code-publish-planned', 'code-ready',
+        'code-root-reserved', 'code-publish-planned',
+        // DUO-3499: the code lock is published inside the already-reserved
+        // code root, between the verified payload rename and `code-ready`, so
+        // the identity recorded at `code-ready` covers the lock too.
+        'code-lock-planned', 'code-lock-written', 'code-ready',
         'config-planned', 'config-ready', 'media-planned', 'state-planned',
         'capture-ready', 'capture-payload-ready',
     ];

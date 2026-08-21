@@ -73,7 +73,7 @@ signal worth reading — either something outside Duo is rewriting
 `WP_CONTENT_DIR` between runs, or the target filesystem is not preserving the
 source's file modes.
 
-## The four refusal families
+## The five refusal families
 
 ### 1. `code_mismatch` — the environment's code is not what state declares
 
@@ -134,6 +134,32 @@ the three theme equivalents (`code_source_theme_version_missing`,
 plugin headers, fix `active_plugins`, or fix the manifest's declared range,
 then recompile. A malformed or absent version range is not a thing to proceed
 past — it means the compatibility claim you are relying on does not exist.
+
+### 5. The code lock — `code_component_*`
+
+Only for a repository whose `site.duo.json` declares `code` format 2 (see
+[Splitting the code half](#splitting-the-code-half-vendored-versus-locked)
+below). The lock names components the repository deliberately does not carry in
+Git, and compilation refuses when the bytes on disk do not match what it
+declares. All three are **blocking and non-forceable**: there is no argument on
+any code path that relaxes them, by design — a payload that does not match its
+own declaration is not a compatibility judgment.
+
+- `code_component_unresolved` — the lock declares a component and this
+  repository carries none of its bytes. This is the normal state of a FRESH
+  CLONE of a split repository, and the expected remedy: run the materialization
+  step for that component (below) before compiling.
+- `code_component_digest_mismatch` — the component is present but hashes to
+  something other than its declared `tree_sha256`. Either re-materialize the
+  locked release, or, if these bytes are the intended ones, re-lock the
+  component with `duo code-classify`.
+- `code_component_unlocked` — the repository-root `.gitignore` excludes a
+  component under `code/wp-content` that the lock does not declare. A clone
+  would carry neither its bytes nor any way to obtain them. Declare it in the
+  lock, or remove the ignore line.
+
+**Remedy**: named per diagnostic above. The refusal always names the component,
+its locked version, and the step.
 
 ## Version baselines: what actually gets recorded
 
@@ -216,6 +242,17 @@ authors ship down-migrations, and most do not. A site running WooCommerce's
 HPOS tables under HPOS-unaware code is not a state Duo can reason its way out
 of after the fact.
 
+**A locked component's old bytes are no longer guaranteed to be in Git
+history.** For a vendored component, `git checkout <old-rev> -- code/` always
+works, because the bytes are in the repository. For a component declared in
+`code/duo-code.lock.json`, they are not: rolling back to a version that has
+aged out of your host cache and off the registry is a rollback you cannot
+perform without a copy of the archive. If a component must be restorable
+independently of a third party, keep it **vendored** — or keep a
+`vendored-archive` copy of its release inside the repository and lock against
+that instead. This is an explicit, accepted consequence of the split, not an
+oversight.
+
 ### The promotion-recovery sequence
 
 When a promotion fails, one verb performs the recovery:
@@ -264,26 +301,107 @@ make it recoverable. See
 [docs/code-release-runtime.md](../code-release-runtime.md) for the contract and
 [docs/recovery-runtime.md](../recovery-runtime.md) for the provider protocol.
 
-## Vendored versus composer-managed
+## Splitting the code half: vendored versus locked
 
-A site's `code/` tree can hold plugins either way, and the decision is
-per-package, not site-wide: a `require` entry in `code/composer.json` means
-composer-managed; physical presence under `wp-content/plugins/` with no
-`require` entry means vendored wholesale. Public plugins are the natural
-composer case (the lockfile diff is small and reviewable); premium or
-unregistered plugins are the natural vendored case.
+A site's `code/` tree holds every component's bytes on disk either way. What
+the split decides, per component, is whether **Git carries those bytes**:
 
-**No Duo command behaves differently between the two today.** There is no
-`--vendored` flag, no mode switch, and no composer integration inside the
-agent or the orchestrator — both are deliberately dependency-free PHP. Version
-checks read the plugin's own `Version:` header from what is physically on
-disk, which is correct for both modes and needs no lockfile at all.
+- **Vendored** — the bytes are committed. This is the only shape that existed
+  before 2026-08-21 and remains the default for anything that cannot be
+  byte-verified against a published release: premium plugins, first-party code,
+  anything patched locally.
+- **Locked** — the component is declared in `code/duo-code.lock.json` with the
+  release it came from and the digest its unpacked tree must have, and a
+  root-anchored `/code/wp-content/<root>/<component>/` line in the
+  repository-root `.gitignore` keeps it out of Git.
 
-The practical consequence: **`composer install` runs before `duo deploy`, never
-inside it.** Resolution happens wherever you have git, composer, and registry
-access — a developer machine or CI — and only the resolved tree reaches the
-target. Duo's contract begins at "these bytes are the code half of this
-artifact".
+**Duo commands do behave differently between the two, since DUO-3499.**
+`duo init` classifies each active component and defaults to `--code=split`;
+`duo code-classify` migrates an already-initialized repository; and compilation
+gates every locked component against its declared digest (refusal family 5
+above). What has NOT changed: version checks still read the plugin's own
+`Version:` header from what is physically on disk, there is still no composer
+integration inside the agent or the orchestrator, and both remain
+dependency-free PHP.
+
+A component is locked only when Duo fetched its published wp.org release,
+unpacked it, and found it hash-identical to what is installed. A version that
+was re-packaged upstream, or a component with one local patch, classifies as
+**vendored with the reason printed** — never silently locked. Expect the
+practical split to be smaller than a slug list suggests.
+
+Classification runs on the ORCHESTRATOR HOST and never on the target. That is a
+correctness constraint, not a preference: `code_release_provider`'s probe
+attests "off-target build and dependency resolution … no target Git history or
+registry credentials"
+([docs/code-release-runtime.md](../code-release-runtime.md)), and a fetcher
+inside the agent would make that attestation false.
+
+### Runbook: splitting a new site
+
+```sh
+duo init production                 # --code=split is the default
+duo init production --code=full     # keep the pre-DUO-3499 fully vendored shape
+duo init production --offline       # contact no registry; equivalent to --code=full
+```
+
+The proposal prints the classification for every component, with its reason,
+before you confirm — and the classification is inside the digest, so a
+confirmation carrying a different one is refused rather than silently applied.
+
+### Runbook: splitting an existing repository
+
+Run it from inside the site repository, like `duo assess` and `duo contract`:
+
+```sh
+duo code-classify production --dry-run   # print the plan, write nothing
+duo code-classify production
+git add .gitignore site.duo.json code/duo-code.lock.json
+git commit -m 'duo: declare third-party code in duo-code.lock.json'
+```
+
+It refuses if `code/` has uncommitted changes, and refuses if the target's
+repository describes different components than your checkout. **The bytes never
+leave the working tree** — only Git stops tracking them — so the next compile
+produces the identical `code_revision` and the identical `artifact_hash`. No
+re-pin, no deploy, nothing fleet-visible.
+
+### The materialization step
+
+A fresh clone of a split repository does not contain the locked components'
+bytes, so it refuses to compile with `code_component_unresolved` naming each
+one. Putting the bytes back is your build step today; Duo has no verb for it
+yet. **Planned (DUO-3500)**: `duo code-resolve` will read the lock, fetch from
+the same content-addressed host cache `duo init` already uses, verify
+`archive_sha256` before unpacking and `tree_sha256` after, and materialize into
+`code/wp-content`. Until then:
+
+```sh
+# for each locked component, from code/duo-code.lock.json:
+curl -fL -o /tmp/woocommerce.zip \
+  https://downloads.wordpress.org/plugin/woocommerce.11.0.0.zip
+# verify origin.archive_sha256 BEFORE unpacking
+shasum -a 256 /tmp/woocommerce.zip
+unzip -q /tmp/woocommerce.zip -d code/wp-content/plugins/
+```
+
+The next compilation — whichever verb reaches it, `duo deploy` or
+`duo promote` — then verifies `tree_sha256` for you and refuses on any
+disagreement, so an archive that was re-packaged upstream cannot be mistaken
+for the pinned one. `composer install` into `code/wp-content/plugins/` is
+equally valid where you already use it.
+
+The practical consequence is unchanged and now applies to both shapes:
+**resolution runs before `duo deploy`, never inside it.** It happens wherever
+you have git, composer, and registry access — a developer machine or CI — and
+only the resolved tree reaches the target. Duo's contract begins at "these
+bytes are the code half of this artifact".
+
+### What the split does NOT change
+
+The resolved tree is still the same size, and `duo deploy` still stages every
+descriptor file on every deploy. The split addresses repository size and Git
+history, not deploy wall time.
 
 ## Worked example: WooCommerce 8.x → 9.x
 

@@ -2,6 +2,7 @@
 namespace Duo;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
+require_once __DIR__ . '/../Code/CodeSourceLock.php';
 require_once __DIR__ . '/InitOwnedArtifacts.php';
 require_once __DIR__ . '/InitProtocol.php';
 
@@ -222,8 +223,40 @@ final class InitRepositoryBoundary {
         }
     }
 
-    /** @return ?array{previous:?string,published:string} */
-    public static function ensure_gitignore(string $repo, string $expectedIdentity): ?array {
+    /**
+     * The root-anchored ignore lines a published lock requires (DUO-3499).
+     *
+     * Root-anchored and repository-root only, because the code half enforces
+     * the placement asymmetrically: a `.gitignore` under `code/wp-content/` is
+     * refused outright by the descriptor compiler
+     * (agent/src/Code/CodeDescriptorCompiler.php:97-99) and one under
+     * `code/wp-content/plugins/` is inventoried as an owned component file and
+     * SHIPPED to the target. CodeSourceLock::gitignore_line() is the single
+     * writer of the form, and the compile gate reads back exactly that form.
+     *
+     * @param list<array<string,mixed>> $lockRows
+     * @return list<string>
+     */
+    public static function locked_component_ignore_lines(array $lockRows): array {
+        $lines = [];
+        foreach ($lockRows as $row) {
+            if (!is_array($row) || !is_string($row['root'] ?? null) || !is_string($row['component'] ?? null)) {
+                throw new \RuntimeException('duo: init cannot ignore a malformed locked component');
+            }
+            $lines[CodeSourceLock::gitignore_line($row['root'], $row['component'])] = true;
+        }
+        ksort($lines, SORT_STRING);
+        return array_keys($lines);
+    }
+
+    /**
+     * @param list<string> $lockedLines the locked components' ignore lines,
+     *        published in the same owned-file transaction as Duo's own local
+     *        artifacts so a repository never exists with a lock that declares
+     *        a component Git is still tracking (DUO-3499)
+     * @return ?array{previous:?string,published:string}
+     */
+    public static function ensure_gitignore(string $repo, string $expectedIdentity, array $lockedLines = []): ?array {
         $path = $repo . '/.gitignore';
         if (is_link($path) || (file_exists($path) && !is_file($path))) {
             throw new \RuntimeException('duo: init refuses a non-file .gitignore boundary');
@@ -263,7 +296,8 @@ final class InitRepositoryBoundary {
         $lines = $next === '' ? [] : preg_split('/\r?\n/', $next);
         $known = array_fill_keys(is_array($lines) ? $lines : [], true);
         $missing = array_values(array_filter($required, static fn(string $line): bool => !isset($known[$line])));
-        if ($missing === [] && !$migrated) {
+        $missingLocked = array_values(array_filter($lockedLines, static fn(string $line): bool => !isset($known[$line])));
+        if ($missing === [] && $missingLocked === [] && !$migrated) {
             return null;
         }
         if ($missing !== []) {
@@ -274,6 +308,20 @@ final class InitRepositoryBoundary {
                 $next .= "\n";
             }
             $next .= "# Duo local publication and environment artifacts\n" . implode("\n", $missing) . "\n";
+        }
+        if ($missingLocked !== []) {
+            // Its own block and its own heading: these lines are not Duo's
+            // local scratch, they are the operator-visible consequence of the
+            // reviewed classification, and the remedy for each one is in the
+            // lock rather than in this file.
+            if ($next !== '' && !str_ends_with($next, "\n")) {
+                $next .= "\n";
+            }
+            if ($next !== '') {
+                $next .= "\n";
+            }
+            $next .= '# Duo code lock: these components are declared in ' . CodeSourceLock::PATH
+                . ", not carried in Git\n" . implode("\n", $missingLocked) . "\n";
         }
         return InitOwnedArtifacts::publish_owned_file($path, $next, $identity, '.gitignore');
     }

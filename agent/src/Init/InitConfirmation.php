@@ -4,6 +4,7 @@ namespace Duo;
 require_once __DIR__ . '/../Capture/Capture.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Code/Code.php';
+require_once __DIR__ . '/../Code/CodeSourceLock.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/InitAttemptJournal.php';
 require_once __DIR__ . '/InitCodeBaseline.php';
@@ -31,11 +32,23 @@ final class InitConfirmation {
      * assert_confirmed_proposal(), which is the reviewed-decision property the
      * whole digest protocol exists for.
      *
+     * $lockPlan is the host's code classification and rides to both
+     * recomputations for exactly the same reason (DUO-3499,
+     * InitPlanner::CODE_LOCK_ARGUMENT): it is inside `code.split`, `code.split`
+     * is inside the digest, so a confirmation carrying a different
+     * classification recomputes a different proposal and is refused.
+     *
+     * @param ?list<array<string,mixed>> $lockPlan
      * @return array<string,mixed>
      */
-    public static function run(string $repo, string $expectedDigest, bool $allowUnmanagedPlugins = false): array {
+    public static function run(
+        string $repo,
+        string $expectedDigest,
+        bool $allowUnmanagedPlugins = false,
+        ?array $lockPlan = null
+    ): array {
         $logicalRepo = InitRepositoryBoundary::normalize($repo);
-        $proposal = InitPlanner::proposal($logicalRepo, $allowUnmanagedPlugins);
+        $proposal = InitPlanner::proposal($logicalRepo, $allowUnmanagedPlugins, $lockPlan);
         InitPlanner::assert_confirmed_proposal($proposal, $expectedDigest);
 
         // A connection-scoped database advisory lease is non-durable and
@@ -240,7 +253,8 @@ final class InitConfirmation {
                 $binding['identity'],
                 true,
                 true,
-                $allowUnmanagedPlugins
+                $allowUnmanagedPlugins,
+                $lockPlan
             );
             InitPlanner::assert_confirmed_proposal($proposal, $expectedDigest);
 
@@ -312,7 +326,14 @@ final class InitConfirmation {
             );
             $gitignorePublication = InitRepositoryBoundary::ensure_gitignore(
                 $repo,
-                (string) ($proposal['state']['gitignore_identity'] ?? '')
+                (string) ($proposal['state']['gitignore_identity'] ?? ''),
+                // DUO-3499: the locked components' root-anchored ignore lines
+                // are published in the SAME owned-file transaction as Duo's own
+                // local artifacts, so a repository never exists in a state where
+                // the lock declares a component Git is still tracking.
+                InitRepositoryBoundary::locked_component_ignore_lines(
+                    (array) ($proposal['code']['lock'] ?? [])
+                )
             );
             $attemptRecord['phase'] = 'gitignore-ready';
             $attemptRecord['owned']['gitignore_publication'] = $gitignorePublication;
@@ -404,6 +425,40 @@ final class InitConfirmation {
             $publishedDescriptor = Code::descriptor_from_source($codeRoot . '/wp-content');
             if (Canon::encode($publishedDescriptor) !== Canon::encode($descriptor)) {
                 throw new \RuntimeException('duo: published code baseline differs from its reviewed descriptor');
+            }
+            // DUO-3499: the lock is published INSIDE the reserved code root and
+            // BEFORE code_identity is taken, so it needs no ownership
+            // bookkeeping of its own: the identity recorded at `code-ready`
+            // already covers it, the interrupted-attempt compensation that
+            // removes the code root already removes it
+            // (InitRecovery.php:535-548), and the committed-attempt
+            // verification that re-identifies the root already proves it
+            // unchanged (InitRecovery.php:738-744).
+            $lockRows = (array) ($proposal['code']['lock'] ?? []);
+            if ($lockRows !== []) {
+                $attemptRecord['phase'] = 'code-lock-planned';
+                $attemptPublication = InitAttemptJournal::write(
+                    $repo,
+                    $attemptRecord,
+                    (string) $attemptPublication['published']
+                );
+                InitOwnedArtifacts::assert_directory_inode($codeRoot, $codeRootIdentity, 'code publication root');
+                $lockPath = $codeRoot . '/' . basename(CodeSourceLock::PATH);
+                InitOwnedArtifacts::assert_absent_owned_path($lockPath, 'code lock');
+                Canon::write_file($lockPath, CodeSourceLock::encode($lockRows));
+                // Read it back through the grammar the compiler will use, so a
+                // publication that produced anything the gate would refuse
+                // fails here rather than at the operator's first compile.
+                if (Canon::encode(CodeSourceLock::parse(Canon::read_file($lockPath)))
+                    !== Canon::encode(['format' => CodeSourceLock::FORMAT, 'components' => CodeSourceLock::sort_components($lockRows)])) {
+                    throw new \RuntimeException('duo: published code lock differs from its reviewed classification');
+                }
+                $attemptRecord['phase'] = 'code-lock-written';
+                $attemptPublication = InitAttemptJournal::write(
+                    $repo,
+                    $attemptRecord,
+                    (string) $attemptPublication['published']
+                );
             }
             $publishedCodeIdentity = InitOwnedArtifacts::directory_identity($codeRoot, 'code publication root');
             $attemptRecord['phase'] = 'code-ready';

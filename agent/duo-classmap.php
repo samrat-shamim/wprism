@@ -58,6 +58,7 @@ return [
     'Duo\\CodeDescriptorCompiler' => 'src/Code/CodeDescriptorCompiler.php',
     'Duo\\CodeMaterializer' => 'src/Code/CodeMaterializer.php',
     'Duo\\CodeOwnershipPruner' => 'src/Code/CodeOwnershipPruner.php',
+    'Duo\\CodeSourceLock' => 'src/Code/CodeSourceLock.php',
     'Duo\\CodeStageTransaction' => 'src/Code/CodeStageTransaction.php',
     'Duo\\CodeStateContract' => 'src/Code/CodeStateContract.php',
     'Duo\\CommandRefusalException' => 'src/Kernel/CommandRefusal.php',

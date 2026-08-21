@@ -43,7 +43,7 @@ under 25 files.
 | `assess-contract` | 17 | the round-3 MUP vocabulary: `assess`, `contract`, `release`, `verify`, `recover`, `rehearse` |
 | `capture` | 17 | `agent/src/Capture/*` and `agent/src/Publication/*` — the read side and its durable tree publication |
 | `cli` | 24 | `cli/src/Command/*` verb surfaces, plan rendering, host-side onboarding/adoption |
-| `code-half` | 21 | `agent/src/Code/*` plus the DUO-3350 Deploy/lifecycle collaborators |
+| `code-half` | 25 | `agent/src/Code/*` plus the DUO-3350 Deploy/lifecycle collaborators |
 | `ecommerce` | 7 | WooCommerce contracts and the ecommerce extension migration |
 | `environment` | 11 | `Duo\Orchestrator\EnvironmentDriver` / DUO-3324 materialize-reap |
 | `grammar` | 25 | `agent/src/Grammar/*` plus the Kernel classes that define how an authored *value* is represented (codecs, tokenizers, reference grammars, order preservation) |
@@ -437,3 +437,24 @@ The "251 at the root / the 252nd already nested" split is likewise decision-time
 detail: the restructure this record planned has landed, so every offline member
 now sits under `offline/<domain>/` and the root holds no suites at all
 (`regress_suite_wiring.php` clause 4 refuses one that does).
+
+### 2026-08-21 — the four code-half split suites (DUO-3499)
+
+`regress_code_source_lock.php`, `regress_code_lock_compile_gate.php`,
+`regress_init_code_split.php` and `regress_code_classify.php` all landed in
+`code-half`, taking it from 21 to 25 — at the stated cap, not over it.
+
+The placement is by SUBJECT, per this document's own rule. All four are about
+the code half's own contract: what `code/duo-code.lock.json` may say, what
+compilation refuses when the bytes disagree with it, and the two verbs that
+write it. Two of them touch `agent/src/Init/*` and `cli/src/Command/*` and so
+have a plausible case for `capture` (17) or `cli` (24) instead, and that case
+was considered and rejected: `regress_init_code_split.php` asserts almost
+nothing about init's transaction and almost everything about whether a
+component may be declared out of Git, and `regress_code_classify.php` asserts
+that a migration leaves `code_revision` byte-identical, which is a statement
+about the descriptor. A reader looking for "why did my locked component refuse
+to compile" reads `code-half`, and all four answers should be in one place.
+
+`code-half` is now full. The next code-half suite either replaces one of these
+or forces the split of this domain, which is what the cap is for.

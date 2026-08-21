@@ -452,7 +452,8 @@
           "Code",
           "CodeStateContract",
           "CodeCompatibility",
-          "CodeDescriptorCompiler"
+          "CodeDescriptorCompiler",
+          "CodeSourceLock"
         ],
         "depends_on": [
           "Code",
@@ -479,13 +480,14 @@
             ]
           }
         ],
-        "file_count": 7,
+        "file_count": 8,
         "files": [
           "Code.php",
           "CodeCompatibility.php",
           "CodeDescriptorCompiler.php",
           "CodeMaterializer.php",
           "CodeOwnershipPruner.php",
+          "CodeSourceLock.php",
           "CodeStageTransaction.php",
           "CodeStateContract.php"
         ]
@@ -1405,6 +1407,24 @@
           "ManifestValidate.php"
         ]
       },
+      "Code": {
+        "layer": "policy",
+        "purpose": "Host-side code-half sourcing: the wp.org release cache, fetch, verify, unpack and tree-digest primitives behind `duo init --code=split`, `duo code-classify` and (DUO-3500) `duo code-resolve`.",
+        "status": "populated",
+        "entry_points": [
+          "WpOrgReleases"
+        ],
+        "depends_on": [
+          "Code",
+          "agent:Code",
+          "agent:Kernel"
+        ],
+        "exceptions": [],
+        "file_count": 1,
+        "files": [
+          "WpOrgReleases.php"
+        ]
+      },
       "Command": {
         "layer": "surface",
         "purpose": "The `duo` verb handlers, agent passthrough, option parsing, preflight and operator output. Composition across engine modules happens here: a `*Command` calls each engine module downward and hands the results to the next, which is why the populated cli modules need no intra-layer exceptions.",
@@ -1432,12 +1452,13 @@
           "agent:Policy"
         ],
         "exceptions": [],
-        "file_count": 25,
+        "file_count": 26,
         "files": [
           "AdoptCommand.php",
           "AssessCommand.php",
           "CaptureCommand.php",
           "ClassifyCommand.php",
+          "CodeClassifyCommand.php",
           "CommandOutput.php",
           "ContractCommand.php",
           "DeployCommand.php",

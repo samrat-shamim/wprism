@@ -110,6 +110,14 @@ launch gate passes.
 
 - Artifact sourcing: wp.org release archive, sha256-locked, no latest-fallback
   (DUO-3223 ruling; lockfile schema leaves room for vendored premium ZIPs).
+  Extended from the test estate to the PRODUCT code half on 2026-08-21
+  (owner ruling, shipped as DUO-3499): Duo owns a lockfile,
+  `code/duo-code.lock.json`; `duo init` defaults to `--code=split`; and the
+  egress constraint is absolute — the agent/production target NEVER fetches
+  from a registry, so classification and resolution are orchestrator-host work
+  only. That constraint is what keeps `code_release_provider`'s shipped probe
+  attestation ("off-target build and dependency resolution … no target Git
+  history or registry credentials") true for a site using both.
 - natural_key identity: the key supplies deterministic bootstrap identity;
   the ledger supplies continuity thereafter, so renames retain UUIDs and are
   surfaced as informational observations (DUO-3237 revised ruling).

@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Duo\Orchestrator;
 
+require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
+
 /**
  * An init phase the target answered with the common v1 refusal envelope.
  *
@@ -53,22 +55,51 @@ final class Init {
      */
     public const UNMANAGED_PLUGIN_CODE = 'active_plugin_without_adapter';
 
-    /** @return array<string,mixed> */
-    public static function proposal(EnvironmentDriver $transport, bool $allowUnmanagedPlugins = false): array {
+    /**
+     * The host's per-component code classification, forwarded to BOTH target
+     * calls for the same reason ALLOW_UNMANAGED_PLUGINS is (DUO-3499).
+     *
+     * The classification is a decision — it changes what the repository
+     * declares and what Git carries — so it lives inside the proposal digest.
+     * A confirmation that omitted it would ask the target to re-plan a fully
+     * vendored repository and fail the digest bind, which is the right failure
+     * but a confusing one to read.
+     */
+    public const CODE_LOCK_ARGUMENT = '--code-lock-b64';
+
+    /** The two code declarations a proposal may carry. */
+    private const DECLARATION_FULL = ['format' => 1, 'layout' => 'wp-content', 'source' => 'code/wp-content'];
+    private const DECLARATION_SPLIT = [
+        'format' => 2,
+        'layout' => 'wp-content',
+        'lock' => 'code/duo-code.lock.json',
+        'source' => 'code/wp-content',
+    ];
+
+    /** @param ?list<array<string,mixed>> $lockPlan @return array<string,mixed> */
+    public static function proposal(
+        EnvironmentDriver $transport,
+        bool $allowUnmanagedPlugins = false,
+        ?array $lockPlan = null
+    ): array {
         $args = ['duo', 'init', '--repo=' . $transport->repoPath(), '--format=json'];
         if ($allowUnmanagedPlugins) {
             $args[] = self::ALLOW_UNMANAGED_PLUGINS;
+        }
+        if ($lockPlan !== null) {
+            $args[] = self::lockArgument($lockPlan);
         }
         $proposal = self::request($transport, $args, 'proposal');
         self::assertProposal($transport, $proposal);
         return $proposal;
     }
 
-    /** @return array<string,mixed> */
+    /** @param ?list<array<string,mixed>> $lockPlan @return array<string,mixed> */
     public static function confirm(
         EnvironmentDriver $transport,
         string $digest,
-        bool $allowUnmanagedPlugins = false
+        bool $allowUnmanagedPlugins = false,
+        ?array $lockPlan = null
     ): array {
         if (preg_match('/^[a-f0-9]{64}$/', $digest) !== 1) {
             throw new \RuntimeException('duo init confirmation requires the exact 64-hex proposal digest');
@@ -80,9 +111,23 @@ final class Init {
         if ($allowUnmanagedPlugins) {
             $args[] = self::ALLOW_UNMANAGED_PLUGINS;
         }
+        if ($lockPlan !== null) {
+            $args[] = self::lockArgument($lockPlan);
+        }
         $result = self::request($transport, $args, 'confirmation');
         self::assertResult($transport, $result, $digest);
         return $result;
+    }
+
+    /**
+     * Canonical JSON, base64-encoded — the same wire shape `--scope-request-b64`
+     * uses, so the classification survives every transport's argv quoting
+     * unchanged and the target verifies exactly the bytes the host decided on.
+     *
+     * @param list<array<string,mixed>> $lockPlan
+     */
+    private static function lockArgument(array $lockPlan): string {
+        return self::CODE_LOCK_ARGUMENT . '=' . base64_encode(\Duo\Canon::encode($lockPlan));
     }
 
     /** @return list<string> */
@@ -107,6 +152,9 @@ final class Init {
         }
         $theme = $code['active_theme'] ?? [];
         $lines[] = '    active theme: stylesheet=' . ($theme['stylesheet'] ?? '?') . ', template=' . ($theme['template'] ?? '?');
+        foreach (self::renderSplit($code) as $line) {
+            $lines[] = $line;
+        }
         $lines[] = '  state: ' . ($state['repository'] ?? '?') . ' (site.duo.json + canonical capture baseline)';
         $lines[] = '  Git: ' . ($state['git']['mode'] ?? 'unknown') . ' (' . ($state['git']['version'] ?? 'unknown') . ')';
         $adapterNames = array_map(static fn(array $row): string => (string) ($row['name'] ?? '?'), $state['adapters'] ?? []);
@@ -161,6 +209,46 @@ final class Init {
     }
 
     /**
+     * The per-component code split (DUO-3499).
+     *
+     * Every component is named with its classification and the REASON for it,
+     * because the interesting case is the one that did not lock: a plugin
+     * whose installed tree does not hash-match its own published release is a
+     * fact about this site the operator should read before confirming, not a
+     * silent omission from a shorter list.
+     *
+     * @param array<string,mixed> $code
+     * @return list<string>
+     */
+    private static function renderSplit(array $code): array {
+        $split = (array) ($code['split'] ?? []);
+        if ($split === []) {
+            return [];
+        }
+        $locked = array_values(array_filter(
+            $split,
+            static fn($row): bool => is_array($row) && ($row['classification'] ?? null) === 'locked'
+        ));
+        $lines = [
+            '    code split: ' . count($locked) . ' locked, ' . (count($split) - count($locked)) . ' vendored'
+                . ($locked === []
+                    ? ' (no component could be verified against a release; the whole payload stays in Git)'
+                    : ' (locked components are declared in ' . self::DECLARATION_SPLIT['lock']
+                        . ' and are not carried in Git)'),
+        ];
+        foreach ($split as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $lines[] = '      ' . strtoupper((string) ($row['classification'] ?? 'vendored')) . ' '
+                . ($row['root'] ?? '?') . '/' . ($row['component'] ?? '?') . ' '
+                . (($row['version'] ?? '') !== '' ? $row['version'] : '(no version header)')
+                . ' — ' . ($row['reason'] ?? '');
+        }
+        return $lines;
+    }
+
+    /**
      * One advisory row's headline.
      *
      * @param array<string,mixed> $row
@@ -184,15 +272,27 @@ final class Init {
             . ($row['reason'] ?? 'coverage is incomplete') . '. ' . ($row['remediation'] ?? '');
     }
 
-    /** @return list<string> */
-    public static function nextSteps(string $env, string $repo): array {
+    /**
+     * @param bool $hasLock the repository published a code lock, so its locked
+     *        components are on disk but deliberately NOT in Git (DUO-3499)
+     * @return list<string>
+     */
+    public static function nextSteps(string $env, string $repo, bool $hasLock = false): array {
         $gitRepo = escapeshellarg($repo);
         $envArg = escapeshellarg($env);
-        return [
+        $addStep = $hasLock
+            // Not a bare `git add code`: with a lock, that command adds only
+            // the vendored half, and an operator reading the old line would
+            // reasonably believe the clone in step 5 is complete. It is not --
+            // it needs the materialization step before it can compile.
+            ? "  1. git -C $gitRepo add .gitignore site.duo.json code state media && git -C $gitRepo commit -m \"duo: initial code and state baselines\""
+                . ' # the locked components are ignored by design; code/duo-code.lock.json declares them'
+            : "  1. git -C $gitRepo add .gitignore site.duo.json code state media && git -C $gitRepo commit -m \"duo: initial code and state baselines\"";
+        $steps = [
             'Managed state scope is clean. Coverage outside the selected adapters remains advisory, not a whole-site guarantee.',
             "The Git worktree is ready at target path $repo.",
             'Publish it, then make an ordinary developer checkout. Confirm the target worktree is on the intended named branch (not detached), and replace the quoted YOUR_* values before running these commands:',
-            "  1. git -C $gitRepo add .gitignore site.duo.json code state media && git -C $gitRepo commit -m \"duo: initial code and state baselines\"",
+            $addStep,
             "  2. git -C $gitRepo remote add origin 'YOUR_GIT_URL' # skip if origin already exists",
             "  3. TARGET_BRANCH=\$(git -C $gitRepo symbolic-ref --quiet --short HEAD) && test -n \"\$TARGET_BRANCH\" || { echo 'target worktree is detached; switch to the intended branch first' >&2; exit 1; }",
             "  4. git -C $gitRepo push -u origin \"HEAD:refs/heads/\$TARGET_BRANCH\"",
@@ -208,6 +308,13 @@ final class Init {
             '  follow the exact checkpoint receipt on failure     # rollback',
             'Executable code remains a separate content-addressed half under code/wp-content; review its descriptor and ownership boundary independently from state.',
         ];
+        if ($hasLock) {
+            $steps[] = 'This repository declares a code lock (code/duo-code.lock.json): the components it names are on disk '
+                . 'at the target but are NOT in Git, so a fresh clone carries neither their bytes nor a way to compile. '
+                . 'Run the materialization step documented in docs/guides/code-updates.md in \'YOUR_WORKSPACE\' before '
+                . 'the first compile; until then Duo refuses with code_component_unresolved and names the component.';
+        }
+        return $steps;
     }
 
     /** @return array<string,mixed> */
@@ -290,7 +397,14 @@ final class Init {
                 && self::validCodeRoots($code['roots'] ?? null)
                 && self::validComponents($components)
                 && is_array($declaration)
-                && $declaration === ['format' => 1, 'layout' => 'wp-content', 'source' => 'code/wp-content']
+                // DUO-3499: exactly one of the two legal declarations. Format 2
+                // is accepted only when the split actually locked something --
+                // a repository that declares a lock and locks nothing would
+                // publish an empty lock file and gain a compile gate for no
+                // reason.
+                && in_array($declaration, [self::DECLARATION_FULL, self::DECLARATION_SPLIT], true)
+                && self::validSplit($code['split'] ?? null, $declaration === self::DECLARATION_SPLIT)
+                && self::validComponentInventory($code['component_inventory'] ?? null)
                 && self::listOfArrays($code['active_plugins'] ?? null)
                 && is_array($code['active_theme'] ?? null)
                 && is_string($code['active_theme']['stylesheet'] ?? null)
@@ -304,7 +418,7 @@ final class Init {
                 && is_string($state['repository_identity'] ?? null)
                 && preg_match('/^sha256:[a-f0-9]{64}$/', (string) $state['repository_identity']) === 1
                 && is_array($config)
-                && ($config['code'] ?? null) === ['format' => 1, 'layout' => 'wp-content', 'source' => 'code/wp-content']
+                && ($config['code'] ?? null) === $declaration
                 && self::listOfArrays($config['manifests'] ?? null)
                 && is_array($config['policy'] ?? null)
                 && ($config['spec_version'] ?? null) === 2
@@ -400,6 +514,69 @@ final class Init {
             if (!is_array($components[$name] ?? null) || !array_is_list($components[$name])) return false;
             foreach ($components[$name] as $component) {
                 if (!is_string($component) || $component === '') return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * The classification the operator is being asked to confirm (DUO-3499).
+     *
+     * Total over the components it names, single-line reasons, and a locked
+     * entry that actually carries an origin: the host validates this even
+     * though the target already did, because the host is what renders it for
+     * review and must not render a shape it does not understand.
+     */
+    private static function validSplit(mixed $split, bool $requiresLocked): bool {
+        if (!is_array($split) || !array_is_list($split)) {
+            return false;
+        }
+        $locked = 0;
+        $seen = [];
+        foreach ($split as $row) {
+            if (!is_array($row)
+                || !in_array($row['classification'] ?? null, ['locked', 'vendored'], true)
+                || !is_string($row['root'] ?? null)
+                || !is_string($row['component'] ?? null)
+                || !is_string($row['version'] ?? null)
+                || !is_string($row['tree_sha256'] ?? null)
+                || preg_match('/^[a-f0-9]{64}$/', (string) $row['tree_sha256']) !== 1
+                || !is_string($row['reason'] ?? null)
+                || trim((string) $row['reason']) === '') {
+                return false;
+            }
+            $key = $row['root'] . '/' . $row['component'];
+            if (isset($seen[$key])) {
+                return false;
+            }
+            $seen[$key] = true;
+            if ($row['classification'] === 'locked') {
+                $locked++;
+                if (!is_array($row['origin'] ?? null)) {
+                    return false;
+                }
+            } elseif (array_key_exists('origin', $row)) {
+                return false;
+            }
+        }
+        return $requiresLocked ? $locked > 0 : true;
+    }
+
+    /** The read-only per-component identity the host classifies against. */
+    private static function validComponentInventory(mixed $rows): bool {
+        if (!is_array($rows) || !array_is_list($rows)) {
+            return false;
+        }
+        foreach ($rows as $row) {
+            if (!is_array($row)
+                || !is_string($row['root'] ?? null)
+                || !is_string($row['component'] ?? null)
+                || !is_string($row['version'] ?? null)
+                || !is_string($row['tree_sha256'] ?? null)
+                || preg_match('/^[a-f0-9]{64}$/', (string) $row['tree_sha256']) !== 1
+                || !is_int($row['files'] ?? null) || $row['files'] < 0
+                || !is_int($row['bytes'] ?? null) || $row['bytes'] < 0) {
+                return false;
             }
         }
         return true;

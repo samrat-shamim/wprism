@@ -19,6 +19,10 @@ final class CodeStateContract {
      * @param array<string,mixed> $descriptor
      */
     public static function validate(CompiledRepository $compiled, array $descriptor): void {
+        // No lock is threaded here by design: a compiled artifact reached this
+        // point only by passing CodeDescriptorCompiler's lock gate, so at stage
+        // time every locked component is already resolved and the lock-aware
+        // remedy below would name a step that has already run.
         self::validate_requirements(self::requirements($compiled), $descriptor);
     }
 
@@ -30,9 +34,13 @@ final class CodeStateContract {
      *
      * @param array<string,mixed> $tree
      * @param array<string,mixed> $descriptor
+     * @param array<string,array<string,mixed>> $lockedComponents `{root}/{component}`
+     *        => lock entry (DUO-3499). Empty for a format-1 repository, which
+     *        is why every message below is byte-identical to its historical
+     *        text when nothing is locked.
      */
-    public static function validate_tree(array $tree, array $descriptor): void {
-        self::validate_requirements(self::requirements_from_tree($tree), $descriptor);
+    public static function validate_tree(array $tree, array $descriptor, array $lockedComponents = []): void {
+        self::validate_requirements(self::requirements_from_tree($tree), $descriptor, $lockedComponents);
     }
 
     /**
@@ -49,8 +57,12 @@ final class CodeStateContract {
         return self::requirements_from_tree($tree);
     }
 
-    /** @param array<string,mixed> $requirements @param array<string,mixed> $descriptor */
-    private static function validate_requirements(array $requirements, array $descriptor): void {
+    /**
+     * @param array<string,mixed> $requirements
+     * @param array<string,mixed> $descriptor
+     * @param array<string,array<string,mixed>> $lockedComponents
+     */
+    private static function validate_requirements(array $requirements, array $descriptor, array $lockedComponents = []): void {
         self::assert_explicit_lifecycle_intent($requirements);
         $availablePlugins = [];
         foreach ($descriptor['plugin_main_files'] ?? [] as $row) {
@@ -62,6 +74,7 @@ final class CodeStateContract {
             if (!isset($availablePlugins[$plugin])) {
                 throw new \RuntimeException(
                     "duo: code-stage refused — canonical active plugin '$plugin' has no matching plugin main file in code/wp-content/plugins"
+                    . self::lock_remedy($lockedComponents, 'plugins', explode('/', (string) $plugin, 2)[0])
                 );
             }
         }
@@ -73,6 +86,7 @@ final class CodeStateContract {
             if (array_key_exists($slot, $requirements) && !isset($themes[$requirements[$slot]])) {
                 throw new \RuntimeException(
                     "duo: code-stage refused — canonical $slot '{$requirements[$slot]}' has no matching theme directory in code/wp-content/themes"
+                    . self::lock_remedy($lockedComponents, 'themes', (string) $requirements[$slot])
                 );
             }
         }
@@ -106,6 +120,31 @@ final class CodeStateContract {
                 );
             }
         }
+    }
+
+    /**
+     * The lock-aware tail of an absence refusal (DUO-3499).
+     *
+     * An absent component means two different things, and the operator's next
+     * action differs: an UNLOCKED component is genuinely missing from the
+     * repository and must be added; a LOCKED one is a component this
+     * repository deliberately does not carry in Git, and the remedy is the
+     * materialization step, not an edit. The historical sentence is kept
+     * verbatim in front of this tail so nothing that already greps for it
+     * moves, and the tail is empty whenever nothing is locked -- which is
+     * every format-1 repository.
+     *
+     * @param array<string,array<string,mixed>> $lockedComponents
+     */
+    private static function lock_remedy(array $lockedComponents, string $root, string $component): string {
+        $entry = $lockedComponents[$root . '/' . $component] ?? null;
+        if (!is_array($entry)) {
+            return '';
+        }
+        $version = (string) ($entry['version'] ?? '');
+        return ". The code lock declares $root/$component version $version, so this repository carries none of its "
+            . 'bytes until the materialization step documented in docs/guides/code-updates.md runs '
+            . '(composer install, unzip the locked release archive, or duo code-resolve)';
     }
 
     /**

@@ -7,6 +7,14 @@ namespace Duo;
  * state-only repository shape remains valid; when present, the existing Code
  * contract remains the single owner of its exact format/layout/source bytes.
  *
+ * DUO-3499 added `format: 2` (the split declaration, whose fourth key names
+ * `code/duo-code.lock.json`). This gate deliberately did not learn a second
+ * grammar for it: Code::assert_config() is still the single owner of every
+ * legal shape and of the exact refusal bytes for each, so format 1 keeps its
+ * historical message verbatim and format 2 gets its own. The one message this
+ * file owns — the non-object refusal below — is unchanged for the same reason
+ * it was worded that way originally: it fires before any format is known.
+ *
  * This file deliberately does not require Code.php. Policy.php had the same
  * implicit Code dependency before this extraction, and Code.php's bootstrap
  * graph includes materialization classes that standalone Policy consumers do

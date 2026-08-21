@@ -28,6 +28,7 @@ return [
     'Duo\\Orchestrator\\CheckpointCatalog' => 'src/Recovery/CheckpointCatalog.php',
     'Duo\\Orchestrator\\ClassificationBatch' => 'src/Onboarding/ClassificationBatch.php',
     'Duo\\Orchestrator\\ClassifyCommand' => 'src/Command/ClassifyCommand.php',
+    'Duo\\Orchestrator\\CodeClassifyCommand' => 'src/Command/CodeClassifyCommand.php',
     'Duo\\Orchestrator\\CodeDeploy' => 'src/Transport/CodeDeploy.php',
     'Duo\\Orchestrator\\CommandEnvironmentProvider' => 'src/Environment/EnvironmentLifecycle.php',
     'Duo\\Orchestrator\\CommandOutput' => 'src/Command/CommandOutput.php',
@@ -98,4 +99,5 @@ return [
     'Duo\\Orchestrator\\Triage' => 'src/Onboarding/Triage.php',
     'Duo\\Orchestrator\\VerifiedRollbackProfile' => 'src/Recovery/VerifiedRollbackProfile.php',
     'Duo\\Orchestrator\\VerifyCommand' => 'src/Command/VerifyCommand.php',
+    'Duo\\Orchestrator\\WpOrgReleases' => 'src/Code/WpOrgReleases.php',
 ];

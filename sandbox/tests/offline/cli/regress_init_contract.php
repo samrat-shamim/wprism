@@ -82,6 +82,11 @@ $proposal = [
             'themes' => '/var/www/html/wp-content/themes',
         ],
         'components' => ['plugins' => ['woocommerce'], 'themes' => ['shop-theme']],
+        'component_inventory' => [
+            ['bytes' => 6144, 'component' => 'woocommerce', 'files' => 30, 'root' => 'plugins', 'tree_sha256' => str_repeat('7', 64), 'version' => '11.0.0'],
+            ['bytes' => 2048, 'component' => 'shop-theme', 'files' => 12, 'root' => 'themes', 'tree_sha256' => str_repeat('8', 64), 'version' => '4.6.0'],
+        ],
+        'split' => [],
         'declaration' => ['format' => 1, 'layout' => 'wp-content', 'source' => 'code/wp-content'],
         'active_plugins' => [['basename' => 'woocommerce/woocommerce.php', 'version' => '11.0.0']],
         'active_theme' => ['stylesheet' => 'shop-theme', 'template' => 'shop-theme'],
@@ -354,9 +359,13 @@ $initHandlerSource = (string) file_get_contents(__DIR__ . '/../../../../cli/src/
 check(
     substr_count($initCommandSource, 'return InitCommand::run(') === 1
         && substr_count($initCommandSource, 'function cmd_init(EnvironmentDriver $t, array $extra, ?string $envsFileOverride = null): int {') === 1
-        && substr_count($initHandlerSource, '$renderRefusal($e->refusal);') === 2
+        // DUO-3499 made it three target calls, not two: the read-only probe,
+        // the re-proposal that carries the host's code classification, and the
+        // confirmation. Each can be refused with the same v1 envelope, so each
+        // has to reach the same host renderer.
+        && substr_count($initHandlerSource, '$renderRefusal($e->refusal);') === 3
         && substr_count($initHandlerSource, 'callable $readLine') === 1,
-    'init keeps a thin cli facade while both refusal phases use the shared host renderer'
+    'init keeps a thin cli facade while every refusal phase uses the shared host renderer'
 );
 
 foreach ([
@@ -460,16 +469,25 @@ check(
     $agentInit->getFileName() === realpath(__DIR__ . '/../../../../agent/src/Init/Init.php')
         && $publicAgentInitMethods === ['confirm', 'proposal']
         && $proposalMethod->isPublic() && $proposalMethod->isStatic()
-        && count($proposalParameters) === 2
+        // DUO-3499 added exactly one optional trailing parameter to each: the
+        // host's code classification. Both stay defaulted, so every existing
+        // caller (AssessInventory's read-only probe among them) is unchanged,
+        // and both still carry it to their owning collaborator rather than
+        // interpreting it here.
+        && count($proposalParameters) === 3
         && $proposalParameters[0]->getName() === 'repo'
         && (string) $proposalParameters[0]->getType() === 'string'
         && $proposalParameters[1]->getName() === 'allowUnmanagedPlugins'
         && (string) $proposalParameters[1]->getType() === 'bool'
         && $proposalParameters[1]->isDefaultValueAvailable()
         && $proposalParameters[1]->getDefaultValue() === false
+        && $proposalParameters[2]->getName() === 'lockPlan'
+        && (string) $proposalParameters[2]->getType() === '?array'
+        && $proposalParameters[2]->isDefaultValueAvailable()
+        && $proposalParameters[2]->getDefaultValue() === null
         && (string) $proposalMethod->getReturnType() === 'array'
         && $confirmMethod->isPublic() && $confirmMethod->isStatic()
-        && count($confirmParameters) === 3
+        && count($confirmParameters) === 4
         && $confirmParameters[0]->getName() === 'repo'
         && (string) $confirmParameters[0]->getType() === 'string'
         && $confirmParameters[1]->getName() === 'expectedDigest'
@@ -477,11 +495,14 @@ check(
         && $confirmParameters[2]->getName() === 'allowUnmanagedPlugins'
         && (string) $confirmParameters[2]->getType() === 'bool'
         && $confirmParameters[2]->getDefaultValue() === false
+        && $confirmParameters[3]->getName() === 'lockPlan'
+        && (string) $confirmParameters[3]->getType() === '?array'
+        && $confirmParameters[3]->getDefaultValue() === null
         && (string) $proposalMethod->getReturnType() === 'array'
-        && str_contains($initFacadeSource, 'return InitPlanner::proposal($repo, $allowUnmanagedPlugins);')
+        && str_contains($initFacadeSource, 'return InitPlanner::proposal($repo, $allowUnmanagedPlugins, $lockPlan);')
         && str_contains(
             $initFacadeSource,
-            'return InitConfirmation::run($repo, $expectedDigest, $allowUnmanagedPlugins);'
+            'return InitConfirmation::run($repo, $expectedDigest, $allowUnmanagedPlugins, $lockPlan);'
         ),
     'target Init facade preserves its exact public API — now with the reviewed unmanaged-plugin decision, '
     . 'defaulted off — and delegates both operations to their owning collaborators'
@@ -560,7 +581,26 @@ check(
 $lockedRecheck = strrpos($confirmationSource, 'InitPlanner::assert_confirmed_proposal($proposal, $expectedDigest);');
 $siteWrite = $lockedRecheck === false ? false : strpos($confirmationSource, '$sitePublication = InitOwnedArtifacts::publish_owned_file(', $lockedRecheck);
 check($lockedRecheck !== false && $siteWrite !== false && $lockedRecheck < $siteWrite, 'under-lock digest recheck precedes the site-config write');
-check(str_contains($plannerSource, "'code' => ['format' => 1, 'layout' => 'wp-content', 'source' => Code::SOURCE]"), 'site config declares code independently from state policy');
+check(str_contains($plannerSource, "'code' => \$code['declaration'],"), 'site config declares code independently from state policy');
+// DUO-3499: format 1 is still what the inventory declares by default; the
+// planner switches it to format 2 only when the reviewed classification
+// actually locked something.
+$codeInventorySource = (string) file_get_contents(__DIR__ . '/../../../../agent/src/Init/InitCodeInventory.php');
+$codeLockCliSource = (string) file_get_contents(__DIR__ . '/../../../../agent/src/Command/Cli.php');
+check(
+    str_contains($codeInventorySource, "'declaration' => ['format' => 1, 'layout' => 'wp-content', 'source' => Code::SOURCE]"),
+    'an unclassified code proposal still declares the fully vendored format-1 shape'
+);
+check(
+    str_contains($plannerSource, "'lock' => CodeSourceLock::PATH,")
+        && str_contains($plannerSource, "\$code['split'] = \$rows;"),
+    'the split declaration and the reviewed classification are produced together, inside the digested proposal'
+);
+check(
+    str_contains($plannerSource, "public const CODE_LOCK_ARGUMENT = 'code-lock-b64';")
+        && str_contains($codeLockCliSource, "\$lockPlan = self::init_lock_plan(\$assoc['code-lock-b64'] ?? null);"),
+    'the code-classification argument spelling is identical in the planner constant and the WP-CLI surface'
+);
 check(str_contains($codeBaselineSource, 'Code::descriptor_from_source($stage)'), 'captured code is validated by the existing descriptor contract before publication');
 check(
     str_contains($confirmationSource, 'Capture::run_initial_baseline(')

@@ -433,7 +433,11 @@ $knownGapsByFile = [
     'Blocks' => ['Policy', 'Shortcodes', 'Tokens'],
     'Canon' => ['OrderPreserved', 'Policy'],
     'CanonicalSurfaces' => ['OptionState', 'Policy', 'SidebarState'],
-    'Cli' => ['AdapterObservation', 'AdapterRegistry', 'AdapterSources', 'Apply', 'Canon', 'Capture', 'Code', 'CodeCompilationException', 'Coverage', 'Db', 'Deploy', 'IdentityBackup', 'Init', 'InitialStateBoundaryException', 'Journal', 'Ledger', 'Lint', 'ManifestDispositions', 'Orphans', 'Pending', 'Policy', 'PromotionLock', 'RefreshExport', 'RepositoryAuthorizationException', 'RepositoryCompilationException', 'RepositoryCompiler', 'ScopeClosure', 'ScopeContract', 'ScopedPromotionAuthority', 'ScopedStateOverlay', 'Secrets'],
+    // DUO-3499 closed the CodeCompilationException gap: Cli::code_inventory()
+    // require_once's CodeDescriptorCompiler.php, which declares it, so the
+    // allowlist entry became a no-longer-observed gap and this two-sided
+    // ratchet correctly refused to keep it.
+    'Cli' => ['AdapterObservation', 'AdapterRegistry', 'AdapterSources', 'Apply', 'Canon', 'Capture', 'Code', 'Coverage', 'Db', 'Deploy', 'IdentityBackup', 'Init', 'InitialStateBoundaryException', 'Journal', 'Ledger', 'Lint', 'ManifestDispositions', 'Orphans', 'Pending', 'Policy', 'PromotionLock', 'RefreshExport', 'RepositoryAuthorizationException', 'RepositoryCompilationException', 'RepositoryCompiler', 'ScopeClosure', 'ScopeContract', 'ScopedPromotionAuthority', 'ScopedStateOverlay', 'Secrets'],
     // The reader deliberately tests this bridge at runtime rather than
     // requiring it: an unavailable bridge is a stable artifact diagnostic.
     'CompiledArtifactReader' => ['CodeStateContract'],
