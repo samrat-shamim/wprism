@@ -62,8 +62,14 @@ final class Deploy {
     /**
      * Thin compatibility facade over LifecyclePlanner::record_code_versions()
      * (DUO-3350 slice 6) — kept so this method's existing internal call site
-     * (run(), unchanged) and the external caller (Capture::run()) need no
-     * edit while this decomposition proceeds.
+     * (run(), unchanged) needs no edit while this decomposition proceeds.
+     *
+     * DUO-3507 removed the one external caller: capture now goes through
+     * LifecyclePlanner::observe_code_versions(), which writes the baseline
+     * only when there is nothing to accept. run()'s own call at :472 is
+     * therefore the only unconditional re-baseline left in the product, and
+     * it is entitled to be one — it runs after this verb's refuse-or-force
+     * gate (:203-210, :221-224), which is the consent capture never had.
      */
     public static function record_code_versions(Policy $policy): void {
         LifecyclePlanner::record_code_versions($policy);

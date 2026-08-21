@@ -29,8 +29,11 @@
 # reporting what was overridden (Architecture Rulings §1); apply's forced
 # pass does NOT clear the finding (apply never re-baselines — it doesn't
 # own code state); deploy's forced pass DOES clear it (re-baselines
-# unconditionally); capture alone (no force flag involved at all) also
-# re-baselines.
+# unconditionally); and a plain capture (DUO-3507) OBSERVES the drift —
+# it warns once per row, leaves duo_kv['code_versions'] byte-identical and
+# the finding standing, and records a baseline only when there is nothing
+# to accept. Capture is the observe-reality verb; accepting a code change
+# is deploy's decision and has deploy's consent gate in front of it.
 #
 # PART 2: the DISALLOW_FILE_MODS `duo doctor` check via the REAL cli/duo
 # orchestrator (DockerTransport against this same pair) — advisory only,
@@ -84,7 +87,7 @@ cat > siterepo/codedrift1/site.duo.json <<'EOF'
 EOF
 cp site-repo.gitignore.template siterepo/codedrift1/.gitignore
 
-say "PART 1 — capture: must record a code_versions baseline (Deploy::record_code_versions())"
+say "PART 1 — capture: must record a code_versions baseline (LifecyclePlanner::observe_code_versions(), nothing to accept yet)"
 wp1 duo capture --repo=/siterepo
 git -C siterepo/codedrift1 add -A
 git -C siterepo/codedrift1 -c user.name=duo -c user.email=duo@example.test commit -qm "baseline capture ($HELLO_BASENAME active)"
@@ -143,7 +146,7 @@ say "PART 1 — apply does NOT own code state: the baseline is still corrupted a
 PLAN3=$(wp1 duo plan --repo=/siterepo --format=json | tail -1)
 echo "$PLAN3" | jq -e '.code_drift | length == 1' >/dev/null \
   || fail "expected code_drift to STILL be present after a forced apply (apply must not silently re-baseline), got: $(echo "$PLAN3" | jq -c .code_drift)"
-pass "confirmed: apply forcing through a finding does not clear it — only deploy/capture legitimately observe code"
+pass "confirmed: apply forcing through a finding does not clear it — apply does not own code state"
 
 say "PART 1 — deploy must ALSO refuse by default on the same drift"
 set +e
@@ -167,20 +170,45 @@ echo "$PLAN4" | jq -e '.code_drift | length == 0' >/dev/null \
   || fail "expected code_drift to be CLEARED after a forced deploy (re-baseline), got: $(echo "$PLAN4" | jq -c .code_drift)"
 pass "confirmed: deploy re-baselines unconditionally — the drift it just forced past is gone on the next plan"
 
-say "PART 1 — capture alone (no force flag involved) also re-baselines"
+say "PART 1 — DUO-3507: a plain capture OBSERVES the drift and refuses to accept it as the new baseline"
 wp1 eval "
 \$v = json_decode(\Duo\Ledger::kv_get('code_versions'), true) ?: ['plugins' => []];
 \$v['plugins']['$HELLO_BASENAME'] = '$FAKE_BASELINE';
 \Duo\Ledger::kv_set('code_versions', wp_json_encode(\$v));
 " >/dev/null
 PLAN5=$(wp1 duo plan --repo=/siterepo --format=json | tail -1)
-echo "$PLAN5" | jq -e '.code_drift | length == 1' >/dev/null || fail "re-corruption before the capture re-baseline check did not take"
-wp1 duo capture --repo=/siterepo >/dev/null
+echo "$PLAN5" | jq -e '.code_drift | length == 1' >/dev/null || fail "re-corruption before the capture observation check did not take"
+KV_BEFORE=$(wp1 eval "echo \Duo\Ledger::kv_get('code_versions');" 2>&1 | tail -1)
+CAPTURE_OBSERVED=$(wp1 duo capture --repo=/siterepo 2>&1)
 git -C siterepo/codedrift1 checkout -q -- state 2>/dev/null || true
+echo "$CAPTURE_OBSERVED"
+grep -q "did NOT accept it as the new baseline" <<<"$CAPTURE_OBSERVED" \
+  || fail "expected a plain 'duo capture' to WARN that it only observed the drift, got: $CAPTURE_OBSERVED"
+grep -q "$HELLO_BASENAME" <<<"$CAPTURE_OBSERVED" \
+  || fail "the capture warning does not name the drifted plugin: $CAPTURE_OBSERVED"
+KV_AFTER=$(wp1 eval "echo \Duo\Ledger::kv_get('code_versions');" 2>&1 | tail -1)
+[ "$KV_BEFORE" = "$KV_AFTER" ] \
+  || fail "capture moved the recorded baseline across an unaccepted drift: '$KV_BEFORE' -> '$KV_AFTER'"
 PLAN6=$(wp1 duo plan --repo=/siterepo --format=json | tail -1)
-echo "$PLAN6" | jq -e '.code_drift | length == 0' >/dev/null \
-  || fail "expected a plain 'duo capture' to also re-baseline, got: $(echo "$PLAN6" | jq -c .code_drift)"
-pass "capture re-baselines too — either capture or deploy counts as 'Duo legitimately observed this environment's code'"
+echo "$PLAN6" | jq -e '.code_drift | length == 1' >/dev/null \
+  || fail "expected the code_drift finding to SURVIVE a plain 'duo capture', got: $(echo "$PLAN6" | jq -c .code_drift)"
+pass "capture reports the drift, leaves duo_kv['code_versions'] byte-identical, and the finding survives — accepting code is deploy's decision, not a side effect of observing"
+
+say "PART 1 — with nothing to accept, capture still records the baseline (the ordinary path is unchanged)"
+wp1 eval "\Duo\Ledger::kv_delete('code_versions');" >/dev/null
+CAPTURE_CLEAN=$(wp1 duo capture --repo=/siterepo 2>&1)
+git -C siterepo/codedrift1 checkout -q -- state 2>/dev/null || true
+echo "$CAPTURE_CLEAN"
+if grep -q "did NOT accept it as the new baseline" <<<"$CAPTURE_CLEAN"; then
+  fail "a capture with no baseline to compare against must not warn about code_drift: $CAPTURE_CLEAN"
+fi
+KV_RECORDED=$(wp1 eval "echo \Duo\Ledger::kv_get('code_versions');" 2>&1 | tail -1)
+jq -e --arg p "$HELLO_BASENAME" --arg v "$REAL_VERSION" '.plugins[$p] == $v' >/dev/null <<<"$KV_RECORDED" \
+  || fail "expected capture to record the live version when there is nothing to accept, got: $KV_RECORDED"
+PLAN7=$(wp1 duo plan --repo=/siterepo --format=json | tail -1)
+echo "$PLAN7" | jq -e '.code_drift | length == 0' >/dev/null \
+  || fail "expected zero code_drift after capture recorded a fresh baseline, got: $(echo "$PLAN7" | jq -c .code_drift)"
+pass "capture still maintains the baseline whenever there is no unaccepted finding standing in the way"
 
 say "PART 2 — DISALLOW_FILE_MODS advisory doctor check, via the real cli/duo orchestrator"
 ABS_COMPOSE="$(pwd)/pair.yml"

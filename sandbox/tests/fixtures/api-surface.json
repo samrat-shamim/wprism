@@ -15897,6 +15897,23 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "observe_code_versions": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "policy",
+                            "type": "Duo\\Policy",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "record_code_versions": {
                     "abstract": false,
                     "final": false,
