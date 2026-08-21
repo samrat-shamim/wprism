@@ -704,6 +704,17 @@ final class Cli {
             return;
         }
         $recovered = count((array) ($summary['abandoned_stage_removed'] ?? []));
+        // DUO-3501: the success line below is pinned bytes (AGENTS.md rule 8),
+        // so the write/skip split arrives as its own line. It is unconditional
+        // and reads both keys directly: an operator must be able to tell
+        // "this stage moved nothing" from "this receipt does not say", and a
+        // missing key must surface as a diagnostic rather than as a 0.
+        WP_CLI::line(sprintf(
+            'code payload: %d written, %d unchanged of %d file(s)',
+            $summary['written'],
+            $summary['unchanged'],
+            $summary['files']
+        ));
         WP_CLI::success(sprintf(
             'staged code revision %s (%d file(s)%s); promotion lease retained for finalize',
             $summary['code_revision'],

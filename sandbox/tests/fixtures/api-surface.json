@@ -8664,7 +8664,7 @@
                             "variadic": false
                         }
                     ],
-                    "return_type": "void",
+                    "return_type": "array",
                     "static": true,
                     "visibility": "public"
                 }
