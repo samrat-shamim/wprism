@@ -1,0 +1,13 @@
+[Unit]
+Description=Schedule Duo Cloud origin-object retention for %i
+
+[Timer]
+OnBootSec=30s
+OnUnitInactiveSec=45s
+AccuracySec=1s
+RandomizedDelaySec=0
+Persistent=true
+Unit=duo-cloud-reap-origin@%i.service
+
+[Install]
+WantedBy=timers.target

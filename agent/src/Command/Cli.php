@@ -5,11 +5,13 @@ require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Review/PlanExplanation.php';
 require_once __DIR__ . '/../Review/PlanCategorySummary.php';
 require_once __DIR__ . '/../Review/PlanView.php';
+require_once __DIR__ . '/../Cloud/OriginPairing.php';
+require_once __DIR__ . '/../Cloud/OriginUploadCoordinator.php';
 
 use WP_CLI;
 
 /**
- * wp duo <capture|refresh-export|plan|explain|apply|scope|capabilities|adapter-observe|adapter-survey|orphans|deploy|code-preflight|code-stage|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|journal-reset>
+ * wp duo <capture|refresh-export|origin-pair|origin-export|origin-status|origin-rotate|origin-revoke|origin-uninstall|plan|explain|apply|scope|capabilities|adapter-observe|adapter-survey|orphans|deploy|code-preflight|code-stage|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|journal-reset>
  */
 final class Cli {
     private const REFUSAL_FORMAT = 'duo-command-refusal/v1';
@@ -326,6 +328,12 @@ final class Cli {
             'capabilities' => 'inspect the manifest disposition registry, the platform boundary, and this repository\'s manifest pins, then correct that input before reporting capabilities again',
             'adapter-observe' => 'inspect private target evidence and restore the existing provenance-journal prerequisite or policy inputs before collecting a new adapter observation',
             'adapter-survey' => 'inspect the agent manifest library and, if --repo was given, that repository\'s site.duo.json and adapters/ source, then correct the unreadable or malformed input before surveying again',
+            'origin-pair' => 'pin the Duo Cloud HTTPS endpoint and Ed25519 service key in wp-config, then begin with a device code on stdin or resume with --poll',
+            'origin-export' => 'inspect the private origin upload journal and pairing status, restore the exact production Git revision if needed, then retry the same export',
+            'origin-status' => 'pin the Duo Cloud trust descriptor and WordPress secret keys in wp-config, then retry through the isolated control plane',
+            'origin-rotate' => 'finish or abandon the active export, then retry the current pairing rollover; revoke and pair again before a later planned rollover',
+            'origin-revoke' => 'inspect the private pairing state and retry the same administrator-requested revocation through the isolated control plane',
+            'origin-uninstall' => 'inspect the private upload and pairing journals, then retry the same crash-safe uninstall revocation through the isolated control plane',
             default => "correct the named $command blocker, then retry the command",
         };
     }
@@ -1948,6 +1956,351 @@ final class Cli {
             $report['agreement_pct'] ?? 'n/a',
             $report['agree'], $report['disagree'], $report['abstain'], $report['unclassified']
         ));
+    }
+
+    /**
+     * Begin or resume the outbound Duo Cloud origin pairing.
+     *
+     * The device code is intentionally stdin-only. Shell history, process
+     * listings, WP-CLI diagnostics, and transport recovery instructions all
+     * retain argv; none may become a second bearer-code store.
+     *
+     * ## OPTIONS
+     * --repo=<path> : Adopted production repository.
+     * [--device-code-stdin] : Read one device code line from stdin.
+     * [--poll] : Resume the exact durable pairing poll without a device code.
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand origin-pair
+     */
+    public function origin_pair($args, $assoc) {
+        try {
+            self::origin_control_plane();
+            self::origin_arguments($args, $assoc, 'origin-pair', [
+                'device-code-stdin', 'format', 'poll', 'repo',
+            ]);
+            $stdin = array_key_exists('device-code-stdin', $assoc);
+            $poll = array_key_exists('poll', $assoc);
+            if ($stdin === $poll) {
+                throw new CommandRefusalException(
+                    'invalid_arguments',
+                    'origin-pair requires exactly one of --device-code-stdin or --poll',
+                    'begin with --device-code-stdin, then resume a pending pairing with --poll',
+                    [],
+                    'origin-pair mode is ambiguous'
+                );
+            }
+            $repo = self::origin_repo($assoc, 'origin-pair');
+            if ($poll) {
+                $pairing = OriginPairing::production($repo);
+                $pairing->poll();
+                $result = $pairing->status();
+            } else {
+                $coordinator = OriginUploadCoordinator::production($repo);
+                $deviceCode = self::origin_device_code();
+                try {
+                    $result = $coordinator->beginPairing($deviceCode, self::origin_connector());
+                } finally {
+                    if ($deviceCode !== '') {
+                        sodium_memzero($deviceCode);
+                    }
+                }
+            }
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'origin-pair');
+            WP_CLI::error($t->getMessage());
+            return;
+        }
+        self::origin_output('pair', $result, $assoc);
+    }
+
+    /**
+     * Poll once when idle or finish the exact accepted outbound export.
+     *
+     * ## OPTIONS
+     * --repo=<path> : Adopted production repository.
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand origin-export
+     */
+    public function origin_export($args, $assoc) {
+        try {
+            self::origin_control_plane();
+            self::origin_arguments($args, $assoc, 'origin-export', ['format', 'repo']);
+            $coordinator = OriginUploadCoordinator::production(
+                self::origin_repo($assoc, 'origin-export')
+            );
+            $result = $coordinator->run();
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'origin-export');
+            WP_CLI::error($t->getMessage());
+            return;
+        }
+        self::origin_output('export', $result, $assoc);
+    }
+
+    /**
+     * Read the redacted pairing and upload journals without target content.
+     *
+     * ## OPTIONS
+     * --repo=<path> : Adopted production repository.
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand origin-status
+     */
+    public function origin_status($args, $assoc) {
+        try {
+            self::origin_control_plane();
+            self::origin_arguments($args, $assoc, 'origin-status', ['format', 'repo']);
+            $repo = self::origin_repo($assoc, 'origin-status');
+            $pairing = OriginPairing::production($repo);
+            $coordinator = OriginUploadCoordinator::production($repo);
+            $result = [
+                'pairing' => $pairing->status(),
+                'upload' => $coordinator->status(),
+            ];
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'origin-status');
+            WP_CLI::error($t->getMessage());
+            return;
+        }
+        self::origin_output('status', $result, $assoc);
+    }
+
+    /**
+     * Perform or recover the current pairing's one deterministic key rollover.
+     *
+     * ## OPTIONS
+     * --repo=<path> : Adopted production repository.
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand origin-rotate
+     */
+    public function origin_rotate($args, $assoc) {
+        try {
+            self::origin_control_plane();
+            self::origin_arguments($args, $assoc, 'origin-rotate', ['format', 'repo']);
+            $coordinator = OriginUploadCoordinator::production(
+                self::origin_repo($assoc, 'origin-rotate')
+            );
+            $result = $coordinator->rotate();
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'origin-rotate');
+            WP_CLI::error($t->getMessage());
+            return;
+        }
+        self::origin_output('rotate', $result, $assoc);
+    }
+
+    /**
+     * Revoke the paired origin key with durable administrator authority.
+     *
+     * ## OPTIONS
+     * --repo=<path> : Adopted production repository.
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand origin-revoke
+     */
+    public function origin_revoke($args, $assoc) {
+        try {
+            self::origin_control_plane();
+            self::origin_arguments($args, $assoc, 'origin-revoke', ['format', 'repo']);
+            $coordinator = OriginUploadCoordinator::production(
+                self::origin_repo($assoc, 'origin-revoke')
+            );
+            $result = $coordinator->revoke();
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'origin-revoke');
+            WP_CLI::error($t->getMessage());
+            return;
+        }
+        self::origin_output('revoke', $result, $assoc);
+    }
+
+    /**
+     * Delete the recoverable local export and revoke with uninstall authority.
+     *
+     * ## OPTIONS
+     * --repo=<path> : Adopted production repository.
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand origin-uninstall
+     */
+    public function origin_uninstall($args, $assoc) {
+        try {
+            self::origin_control_plane();
+            self::origin_arguments($args, $assoc, 'origin-uninstall', ['format', 'repo']);
+            $coordinator = OriginUploadCoordinator::production(
+                self::origin_repo($assoc, 'origin-uninstall')
+            );
+            $result = $coordinator->uninstall();
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'origin-uninstall');
+            WP_CLI::error($t->getMessage());
+            return;
+        }
+        self::origin_output('uninstall', $result, $assoc);
+    }
+
+    private static function origin_control_plane(): void {
+        if (!defined('WP_CLI') || WP_CLI !== true
+            || !defined('DUO_CONTROL_PLANE') || DUO_CONTROL_PLANE !== true) {
+            throw new \RuntimeException(
+                'duo: cloud origin commands require the isolated WP-CLI control plane'
+            );
+        }
+    }
+
+    /** @param list<string> $allowed */
+    private static function origin_arguments(
+        array $args,
+        array $assoc,
+        string $command,
+        array $allowed
+    ): void {
+        $keys = array_keys($assoc);
+        sort($keys, SORT_STRING);
+        sort($allowed, SORT_STRING);
+        if ($args !== [] || array_diff($keys, $allowed) !== []) {
+            throw new CommandRefusalException(
+                'invalid_arguments',
+                "$command received an unsupported argument",
+                "use wp help duo $command and pass only its documented arguments",
+                [],
+                "$command argument surface is closed"
+            );
+        }
+        if (isset($assoc['format']) && $assoc['format'] !== 'json') {
+            throw new CommandRefusalException(
+                'invalid_arguments',
+                "$command accepts only --format=json",
+                'omit --format for the redacted human summary, or use --format=json',
+                [],
+                "$command output format is unsupported"
+            );
+        }
+        foreach (['device-code-stdin', 'poll'] as $flag) {
+            if (array_key_exists($flag, $assoc) && $assoc[$flag] !== true) {
+                throw new CommandRefusalException(
+                    'invalid_arguments',
+                    "$command flag --$flag accepts no value",
+                    "pass --$flag by itself; device codes are accepted only as one stdin line",
+                    [],
+                    "$command flag value is unsupported"
+                );
+            }
+        }
+    }
+
+    private static function origin_repo(array $assoc, string $command): string {
+        $repo = $assoc['repo'] ?? null;
+        if (!is_string($repo) || $repo === '' || $repo[0] !== '/' || str_contains($repo, "\0")) {
+            throw new CommandRefusalException(
+                'invalid_arguments',
+                "$command requires one absolute --repo path",
+                'supply the adopted production repository path selected by the trusted environment driver',
+                [],
+                "$command repository is missing or malformed"
+            );
+        }
+        return $repo;
+    }
+
+    private static function origin_device_code(): string {
+        if (!defined('STDIN') || !is_resource(STDIN)) {
+            throw new \RuntimeException('duo: cloud origin device-code stdin is unavailable');
+        }
+        if (function_exists('stream_isatty') && stream_isatty(STDIN)) {
+            fwrite(STDERR, 'Duo Cloud device code: ');
+        }
+        $line = fgets(STDIN, 129);
+        if (!is_string($line) || $line === ''
+            || (strlen($line) === 128 && !str_ends_with($line, "\n"))) {
+            throw new \RuntimeException('duo: cloud origin device-code stdin must contain one bounded line');
+        }
+        return rtrim($line, "\r\n");
+    }
+
+    /** @return array<string,mixed> */
+    private static function origin_connector(): array {
+        foreach (['home_url', 'site_url', 'get_bloginfo', 'is_multisite'] as $function) {
+            if (!function_exists($function)) {
+                throw new \RuntimeException('duo: cloud origin connector requires a complete WordPress runtime');
+            }
+        }
+        $home = (string) home_url('/');
+        $site = (string) site_url('/');
+        $wordpress = (string) get_bloginfo('version');
+        if ($home === '' || $site === '' || $wordpress === ''
+            || str_contains($home, "\0") || str_contains($site, "\0")) {
+            throw new \RuntimeException('duo: cloud origin connector site identity is unavailable');
+        }
+        return [
+            'agent_version' => DUO_AGENT_VERSION,
+            'home_url_sha256' => hash('sha256', $home),
+            'installation_id' => 'wp-' . hash(
+                'sha256',
+                "duo-cloud-origin-installation/v1\0" . $home . "\0" . $site
+            ),
+            'multisite' => (bool) is_multisite(),
+            'php_version' => PHP_VERSION,
+            'site_url_sha256' => hash('sha256', $site),
+            'wordpress_version' => $wordpress,
+        ];
+    }
+
+    /** @param array<string,mixed> $result */
+    private static function origin_output(string $operation, array $result, array $assoc): void {
+        $document = [
+            'format' => 'duo-cloud-origin-command/v1',
+            'operation' => $operation,
+            'result' => $result,
+        ];
+        if (($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(rtrim(Canon::encode($document), "\n"));
+            return;
+        }
+        if ($operation === 'status') {
+            WP_CLI::line('origin pairing: ' . (string) ($result['pairing']['phase'] ?? 'unknown'));
+            WP_CLI::line('origin upload: ' . (string) ($result['upload']['phase'] ?? 'unknown'));
+            self::origin_authority_lines((array) ($result['pairing'] ?? []));
+            self::origin_commit_lines((array) ($result['upload'] ?? []));
+            return;
+        }
+        if ($operation === 'export') {
+            WP_CLI::line('origin upload: ' . (string) ($result['phase'] ?? 'unknown'));
+            if (is_string($result['remote_state'] ?? null)) {
+                WP_CLI::line('cloud demand: ' . $result['remote_state']);
+            }
+            self::origin_commit_lines($result);
+            return;
+        }
+        WP_CLI::line('origin pairing: ' . (string) ($result['phase'] ?? 'unknown'));
+        self::origin_authority_lines($result);
+        if ($operation === 'pair' && in_array($result['phase'] ?? null, ['pending', 'polling'], true)) {
+            WP_CLI::line('next: rerun this command with --poll; no device code belongs in argv');
+        }
+    }
+
+    /** @param array<string,mixed> $status */
+    private static function origin_authority_lines(array $status): void {
+        $authority = $status['pairing'] ?? null;
+        if (!is_array($authority)) {
+            return;
+        }
+        WP_CLI::line('tenant: ' . (string) ($authority['tenant_id'] ?? 'unknown'));
+        WP_CLI::line('site: ' . (string) ($authority['site_id'] ?? 'unknown'));
+        WP_CLI::line('origin generation: ' . (string) ($authority['origin_generation'] ?? 'unknown'));
+    }
+
+    /** @param array<string,mixed> $status */
+    private static function origin_commit_lines(array $status): void {
+        $receipt = $status['last_commit'] ?? null;
+        if (!is_array($receipt)) {
+            return;
+        }
+        WP_CLI::line('snapshot: ' . (string) ($receipt['snapshot_hash'] ?? 'unknown'));
+        WP_CLI::line('retained until: ' . (string) ($receipt['retention_deadline'] ?? 'unknown'));
     }
 
     /**

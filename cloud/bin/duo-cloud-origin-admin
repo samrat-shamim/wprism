@@ -1,0 +1,55 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+use Duo\Cloud\CanonicalJson;
+use Duo\Cloud\ProductionService;
+
+require_once dirname(__DIR__) . '/runtime/ProductionService.php';
+
+$arguments = $_SERVER['argv'] ?? null;
+if (!is_array($arguments) || !array_is_list($arguments)) {
+    fwrite(STDERR, "duo-cloud-origin-admin: refused\n");
+    exit(64);
+}
+foreach ($arguments as $argument) {
+    if (!is_string($argument)) {
+        fwrite(STDERR, "duo-cloud-origin-admin: refused\n");
+        exit(64);
+    }
+}
+$ttl = 600;
+if (count($arguments) === 4 && $arguments[1] === 'issue-device-code' && $arguments[2] === '--ttl'
+    && preg_match('/\A(?:[1-9]|[1-9][0-9]|[1-5][0-9]{2}|600)\z/D', $arguments[3]) === 1) {
+    $ttl = (int) $arguments[3];
+} elseif (count($arguments) !== 2 || $arguments[1] !== 'issue-device-code') {
+    fwrite(STDERR, "duo-cloud-origin-admin: refused\n");
+    exit(64);
+}
+
+$configPath = getenv('DUO_CLOUD_CONFIG_FILE');
+$configSha256 = getenv('DUO_CLOUD_CONFIG_SHA256');
+try {
+    if (!is_string($configPath) || !is_string($configSha256)) {
+        throw new RuntimeException('deployment configuration is absent');
+    }
+    $service = ProductionService::fromConfigFile($configPath, $configSha256);
+    $principal = $service->principal();
+    $issued = $service->origin()->issueDeviceCode(
+        $principal['tenant_id'],
+        $principal['site_id'],
+        $ttl
+    );
+    fwrite(STDOUT, CanonicalJson::encode([
+        'device_code' => $issued['device_code'],
+        'expires_at' => $issued['expires_at'],
+        'format' => 'duo-cloud-origin-device-code/v1',
+        'site_id' => $principal['site_id'],
+        'tenant_id' => $principal['tenant_id'],
+    ]) . "\n");
+} catch (Throwable) {
+    // The local operator receives a stable refusal; secret/config detail goes
+    // only to protected preflight/supervisor diagnostics.
+    fwrite(STDERR, "duo-cloud-origin-admin: refused\n");
+    exit(70);
+}

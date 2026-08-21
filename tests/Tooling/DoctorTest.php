@@ -173,10 +173,12 @@ final class DoctorTest extends TestCase
     public function testEveryFailAndWarnCarriesARemedy(): void
     {
         $lines = explode("\n", self::doctor()['stdout']);
+        $checked = 0;
         foreach ($lines as $index => $line) {
             if (!str_starts_with($line, 'WARN') && !str_starts_with($line, 'FAIL')) {
                 continue;
             }
+            ++$checked;
             $tail = implode("\n", array_slice($lines, $index + 1, 12));
             self::assertStringContainsString(
                 'remedy:',
@@ -184,6 +186,10 @@ final class DoctorTest extends TestCase
                 "no remedy printed under: $line"
             );
         }
+
+        // A certified, fully provisioned checkout legitimately has zero
+        // WARN/FAIL lines; that vacuous success must still be a non-risky test.
+        self::addToAssertionCount($checked === 0 ? 1 : 0);
     }
 
     public function testTheCheatSheetNamesTheCanonicalGate(): void

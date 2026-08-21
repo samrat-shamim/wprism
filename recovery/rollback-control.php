@@ -1512,5 +1512,6 @@ require_once __DIR__ . '/UploadBundle.php';
 require_once __DIR__ . '/EffectBundle.php';
 
 if (isset($_SERVER['SCRIPT_FILENAME']) && realpath((string) $_SERVER['SCRIPT_FILENAME']) === __FILE__) {
-    exit(rollback_control_main($argv));
+    $cliArgv = $_SERVER['argv'] ?? [];
+    exit(rollback_control_main(is_array($cliArgv) ? array_map('strval', $cliArgv) : []));
 }

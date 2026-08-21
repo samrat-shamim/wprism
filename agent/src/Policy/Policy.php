@@ -233,6 +233,13 @@ final class Policy {
      * is consulted only for an option NAME already namespace-owned by some
      * manifest's option_namespaces declaration — unlike the meta hooks, an
      * interpreter has no implicit reach over every option in the table.
+     * Cloud export additionally requires
+     *   egress_sensitivity_grants(): list<'allow_pii'|'allow_secret'>
+     * to declare a context-independent superset of any sensitivity grants
+     * the interpreter can synthesize. It stays optional for local capture so
+     * legacy/custom interpreters retain their established classification
+     * behavior, but egress_sensitivity_grants() refuses cloud export when the
+     * declaration is absent or non-canonical.
      *
      * Interpreter CODE is part of the manifest artifact, never the engine:
      * a declared name resolves to <manifests_dir>/interpreters/<name>.php,
@@ -1471,6 +1478,70 @@ final class Policy {
             $this->interpreterInstances[$name] = new $class($this);
         }
         return $this->interpreterInstances;
+    }
+
+    /**
+     * Return every policy capability that explicitly permits sensitive data.
+     *
+     * Static declarations can be inspected without touching WordPress. An
+     * interpreter can synthesize rules from live entity context, so cloud
+     * export requires each shipped interpreter to declare a conservative,
+     * context-independent superset of the grants it can produce. Missing or
+     * non-canonical declarations refuse here rather than guessing at egress.
+     *
+     * @return list<'allow_pii'|'allow_secret'>
+     */
+    public function egress_sensitivity_grants(): array {
+        $grants = [];
+        foreach ([$this->site, $this->manifests] as $declarations) {
+            self::collect_egress_sensitivity_grants($declarations, $grants);
+        }
+        foreach ($this->interpreters() as $name => $interpreter) {
+            if (!method_exists($interpreter, 'egress_sensitivity_grants')) {
+                throw new \RuntimeException(
+                    "duo: interpreter '$name' does not declare its egress sensitivity capabilities"
+                );
+            }
+            $declared = $interpreter->egress_sensitivity_grants();
+            if (!is_array($declared) || !array_is_list($declared) || count($declared) > 2) {
+                throw new \RuntimeException(
+                    "duo: interpreter '$name' has invalid egress sensitivity capabilities"
+                );
+            }
+            foreach ($declared as $grant) {
+                if ($grant !== 'allow_pii' && $grant !== 'allow_secret') {
+                    throw new \RuntimeException(
+                        "duo: interpreter '$name' declares unknown egress sensitivity capability"
+                    );
+                }
+            }
+            $canonical = $declared;
+            sort($canonical, SORT_STRING);
+            if ($canonical !== $declared || count(array_unique($declared, SORT_STRING)) !== count($declared)) {
+                throw new \RuntimeException(
+                    "duo: interpreter '$name' egress sensitivity capabilities must be sorted and unique"
+                );
+            }
+            foreach ($declared as $grant) {
+                $grants[$grant] = true;
+            }
+        }
+        $result = array_keys($grants);
+        sort($result, SORT_STRING);
+        return $result;
+    }
+
+    /** @param array<string,bool> $grants */
+    private static function collect_egress_sensitivity_grants(mixed $value, array &$grants): void {
+        if (!is_array($value)) {
+            return;
+        }
+        foreach ($value as $key => $child) {
+            if (($key === 'allow_secret' || $key === 'allow_pii') && $child === true) {
+                $grants[$key] = true;
+            }
+            self::collect_egress_sensitivity_grants($child, $grants);
+        }
     }
 
     /**

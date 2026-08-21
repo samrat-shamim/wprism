@@ -1,0 +1,13 @@
+[Unit]
+Description=Refresh Duo Cloud worker-local readiness for %i
+
+[Timer]
+OnBootSec=10s
+OnUnitInactiveSec=20s
+AccuracySec=1s
+RandomizedDelaySec=0
+Persistent=true
+Unit=duo-cloud-preflight@%i.service
+
+[Install]
+WantedBy=timers.target

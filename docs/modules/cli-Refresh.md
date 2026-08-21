@@ -2,9 +2,9 @@
 
 **Purpose.** The B/P/W refresh planner, field diff and local state materializer that reconciles git, production and working state.
 
-**Directory** `cli/src/Refresh/` &middot; **layer** `repository` &middot; **files** 4 &middot; **status** populated
+**Directory** `cli/src/Refresh/` &middot; **layer** `repository` &middot; **files** 8 &middot; **status** populated
 
-**Entry points** (classes other modules already reference; a new cross-module reference to anything else is a design change): `Refresh`, `RefreshFieldDiff`.
+**Entry points** (classes other modules already reference; a new cross-module reference to anything else is a design change): `CloudCommittedOriginExport`, `CloudOriginExportClient`, `Refresh`, `RefreshFieldDiff`, `ProductionSnapshotSource`, `RefreshProductionSource`.
 
 **May depend on:** `Refresh`, `Transport`, `agent:Code`, `agent:Kernel`, `agent:Policy`, `agent:Repository`, `agent:Scope`.
 

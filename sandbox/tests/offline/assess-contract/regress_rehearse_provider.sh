@@ -2,7 +2,8 @@
 # Regression — round-3 MUP §2.2 / §4.4 / §6.2: `duo rehearse`'s provider
 # contract and its containment disclosure.
 #
-# Five properties, none of which needs a pair, docker, WordPress or a network:
+# Seven properties, none of which needs a pair, Docker, a live WordPress site, or
+# an external network:
 #
 #   1. CAPABILITY NEGOTIATION. A provider advertising a subset of what a
 #      branch materialization needs makes the command refuse, naming the
@@ -41,12 +42,31 @@
 #      an Experimental or Uncertified capability cannot be authorized from a
 #      rehearsal — plus the bounded preview of what a release would touch.
 #
-# Offline: no docker, no WordPress, no network, no target.
+#   6. UNIVERSAL PORTABLE PREVIEW. The public `duo preview` grammar drives a
+#      deterministic loopback service and fake WP/Git process boundaries while
+#      the real origin controller, Refresh, lifecycle, frozen promotion, full
+#      plan convergence, and exact reap implementations remain in the path.
+#
+#   7. THE WORDPRESS ORIGIN CONNECTOR. Public `duo origin` commands traverse
+#      the real isolated target runner and shipped `Duo\Cli` methods against a
+#      signed loopback authority, including upload, lifecycle, and terminal
+#      re-pair. The loopback is the whole service; no cloud account is used.
+#
+# Offline: no Docker, live WordPress, external network, or external target.
 # Dependencies: sandbox/tests/fixtures/rehearse/make-provider-config.php
 # Dependencies: sandbox/tests/fixtures/rehearse/provider-negotiation-checks.php
 # sandbox/tests/fixtures/rehearse/provider-stdin-checks.php
+# cli/src/Command/OriginCommand.php
+# cli/src/Command/PreviewCommand.php
+# cli/src/Environment/PreviewRunJournal.php
 # sandbox/tests/fixtures/rehearse/reference-provider-command-checks.php
 # sandbox/tests/fixtures/rehearse/slot-reuse-checks.php
+# sandbox/tests/fixtures/rehearse/cloud-preview-command-checks.php
+# sandbox/tests/fixtures/rehearse/cloud-preview-control-endpoint.php
+# sandbox/tests/fixtures/rehearse/universal-preview-command-checks.php
+# sandbox/tests/fixtures/rehearse/origin-connector-command-checks.php
+# sandbox/tests/fixtures/rehearse/origin-connector-command-target.php
+# sandbox/tests/fixtures/rehearse/origin-connector-command-endpoint.php
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
@@ -325,6 +345,46 @@ else
   cat "$TMP/reference-command.err" >&2
 fi
 sed -n 's/^ok: /ok: /p' "$TMP/reference-command.out"
+
+# A cloud preview has a stable signed control endpoint but no statically named
+# worker. The provider first allocates the resource and holds its mutation
+# fence; only then may the driver address that exact generation. This is driven
+# through EnvironmentCommand, not by calling either protocol helper directly.
+say 'dynamic cloud target is lease-and-fence bound through EnvironmentCommand'
+mkdir -p "$TMP/cloud-preview"
+if php "$FIX/cloud-preview-command-checks.php" "$TMP/cloud-preview" > "$TMP/cloud-preview.out" 2> "$TMP/cloud-preview.err"; then
+  pass 'the dynamic cloud-preview product-path checks pass'
+else
+  fail 'the dynamic cloud-preview product-path checks failed'
+  cat "$TMP/cloud-preview.err" >&2
+fi
+sed -n 's/^ok: /ok: /p' "$TMP/cloud-preview.out"
+
+# The universal preview fixture deliberately substitutes target documents to
+# isolate controller recovery. This companion proof crosses that remaining
+# boundary through the actual agent command methods and signed authority.
+say 'public origin commands traverse the shipped WordPress connector'
+mkdir -p "$TMP/origin-connector"
+if php "$FIX/origin-connector-command-checks.php" "$TMP/origin-connector" > "$TMP/origin-connector.out" 2> "$TMP/origin-connector.err"; then
+  pass 'the WordPress origin connector product-path checks pass'
+else
+  fail 'the WordPress origin connector product-path checks failed'
+  cat "$TMP/origin-connector.err" >&2
+fi
+sed -n 's/^ok: /ok: /p' "$TMP/origin-connector.out"
+
+# The public command must compose the outbound origin demand, semantic rebase,
+# exact candidate publication/sync/cleanup, frozen promotion, convergence, and
+# compare-and-reap protocol as one recoverable product path.
+say 'universal cloud preview composes through the public duo preview grammar'
+mkdir -p "$TMP/universal-preview"
+if php "$FIX/universal-preview-command-checks.php" "$TMP/universal-preview" > "$TMP/universal-preview.out" 2> "$TMP/universal-preview.err"; then
+  pass 'the universal cloud-preview product path completes and reaps'
+else
+  fail 'the universal cloud-preview product path failed'
+  cat "$TMP/universal-preview.err" >&2
+fi
+sed -n 's/^ok: /ok: /p' "$TMP/universal-preview.out"
 
 # ------------------------------------------------------ 5: the disclosure
 say 'the containment disclosure and the rehearsal preview'

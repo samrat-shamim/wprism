@@ -1,0 +1,35 @@
+; Normative pool template. Install after creating the fixed service account,
+; private socket directory, pinned config environment, and protected log sink.
+[global]
+error_log = syslog
+log_level = notice
+syslog.facility = daemon
+syslog.ident = duo-cloud-fpm-REPLACE_WORKER
+
+[duo-cloud-REPLACE_WORKER]
+user = duo-cloud
+group = duo-cloud
+pm = static
+pm.max_children = 4
+pm.max_requests = 250
+; Authority transitions own bounded subprocess deadlines and crash journals.
+; An asynchronous FPM kill can strand an executing receipt or root child, so
+; the supervisor must drain workers instead of terminating an active request.
+request_terminate_timeout = 0
+rlimit_files = 4096
+listen = /run/duo-cloud/REPLACE_WORKER/php-fpm.sock
+listen.owner = duo-cloud
+listen.group = duo-cloud
+listen.mode = 0660
+clear_env = yes
+catch_workers_output = yes
+decorate_workers_output = no
+security.limit_extensions =
+php_admin_flag[display_errors] = off
+php_admin_flag[display_startup_errors] = off
+php_admin_flag[expose_php] = off
+php_admin_flag[log_errors] = on
+php_admin_value[max_execution_time] = 0
+php_admin_value[error_log] = syslog
+env[DUO_CLOUD_CONFIG_FILE] = /var/lib/duo-cloud/config/workers/REPLACE_WORKER.json
+env[DUO_CLOUD_CONFIG_SHA256] = REPLACE_WITH_LOWERCASE_SHA256

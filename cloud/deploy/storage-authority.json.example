@@ -1,0 +1,33 @@
+{
+  "backing_device": "/dev/nvme0n1p3",
+  "cipher": "aes-xts-plain64",
+  "configuration_sha256s": ["REPLACE_SITE_A_CONFIGURATION_SHA256", "REPLACE_SITE_B_CONFIGURATION_SHA256"],
+  "container_engine": {"path": "/usr/bin/docker", "sha256": "REPLACE_DOCKER_SHA256"},
+  "cryptsetup": {"path": "/usr/sbin/cryptsetup", "sha256": "REPLACE_CRYPTSETUP_SHA256"},
+  "dmsetup": {"path": "/usr/sbin/dmsetup", "sha256": "REPLACE_DMSETUP_SHA256"},
+  "docker_root": "/var/lib/duo-cloud/docker",
+  "durable_paths": ["/var/lib/duo-cloud"],
+  "filesystem_uuid": "REPLACE_XFS_UUID",
+  "findmnt": {"path": "/usr/bin/findmnt", "sha256": "REPLACE_FINDMNT_SHA256"},
+  "format": "duo-cloud-host-storage-config/v1",
+  "key_location": "keyring",
+  "key_size_bits": 512,
+  "limits": {"database_bytes": 1073741824, "database_inodes": 100000, "filesystem_bytes": 2147483648, "filesystem_inodes": 200000, "worker_bytes": 8589934592, "worker_inodes": 1000000},
+  "luks_uuid": "REPLACE_LUKS2_UUID",
+  "mapper_name": "duo_cloud",
+  "mapper_path": "/dev/mapper/duo_cloud",
+  "mapper_size_sectors": 209715200,
+  "mapper_uuid": "CRYPT-LUKS2-REPLACE_STRIPPED_LUKS2_UUID-duo_cloud",
+  "mountpoint": "/var/lib/duo-cloud",
+  "payload_offset_sectors": 32768,
+  "process_timeout_seconds": 10,
+  "sector_size_bytes": 512,
+  "service_uids": [10001],
+  "state_root": "/var/lib/duo-cloud/storage",
+  "worker_roots": [
+    {"configuration_sha256": "REPLACE_SITE_A_CONFIGURATION_SHA256", "path": "/var/lib/duo-cloud/workers/site-a"},
+    {"configuration_sha256": "REPLACE_SITE_B_CONFIGURATION_SHA256", "path": "/var/lib/duo-cloud/workers/site-b"}
+  ],
+  "xfs_io": {"path": "/usr/sbin/xfs_io", "sha256": "REPLACE_XFS_IO_SHA256"},
+  "xfs_quota": {"path": "/usr/sbin/xfs_quota", "sha256": "REPLACE_XFS_QUOTA_SHA256"}
+}

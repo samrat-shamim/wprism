@@ -1,0 +1,37 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+use Duo\Cloud\CanonicalJson;
+use Duo\Cloud\ProductionConfig;
+use Duo\Cloud\ProductionDeploymentProofs;
+
+require_once dirname(__DIR__) . '/runtime/ProductionDeploymentProofs.php';
+
+try {
+    $arguments = $_SERVER['argv'] ?? null;
+    if (!is_array($arguments) || !array_is_list($arguments) || count($arguments) !== 1) {
+        throw new RuntimeException('runtime image proof installer arguments are invalid');
+    }
+    $configPath = getenv('DUO_CLOUD_CONFIG_FILE');
+    $configSha256 = getenv('DUO_CLOUD_CONFIG_SHA256');
+    $proofPath = getenv('DUO_CLOUD_RUNTIME_IMAGE_PROOF_FILE');
+    $proofSha256 = getenv('DUO_CLOUD_RUNTIME_IMAGE_PROOF_SHA256');
+    if (!is_string($configPath) || !is_string($configSha256)
+        || !is_string($proofPath) || !is_string($proofSha256)) {
+        throw new RuntimeException('runtime image proof installation authority is absent');
+    }
+    $config = ProductionConfig::load($configPath, $configSha256);
+    $proofs = new ProductionDeploymentProofs($config);
+    $proofs->installRuntimeImage($proofPath, $proofSha256);
+    fwrite(STDOUT, CanonicalJson::encode([
+        'format' => 'duo-cloud-runtime-image-proof-installation/v1',
+        'path' => $proofs->runtimeImagePath(),
+        'review_receipt_sha256' => $config->runtime()['review_receipt_sha256'],
+        'state' => 'installed',
+    ]) . "\n");
+    exit(0);
+} catch (Throwable) {
+    fwrite(STDERR, "duo-cloud-install-runtime-image-proof: refused\n");
+    exit(70);
+}

@@ -80,7 +80,16 @@ Four rules that will bite you if you learn them the hard way:
   `\Duo\Interpreters\<CamelCase(name)>` with
   `post_meta_rule(string $key, array $allMeta): ?array`; it may additionally
   define `term_meta_rule()` and `user_meta_rule()` with the same signature and
-  nullable-defer semantics. A regenerator, declared under a post type's
+  nullable-defer semantics. An interpreter intended for Cloud origin export
+  must also define
+  `egress_sensitivity_grants(): array` as a sorted, unique list drawn only from
+  `allow_pii` and `allow_secret`. That list is a conservative,
+  context-independent superset of every sensitivity grant the interpreter can
+  synthesize; return `[]` only when it can synthesize neither (the shipped ACF
+  interpreter is the reviewed example). Local capture remains compatible with
+  older/custom interpreters, but Cloud export refuses before live observation
+  when this declaration is absent or malformed. A regenerator, declared under
+  a post type's
   `regen_dependency`, resolves to `manifests/regenerators/<name>.php` and must
   define `\Duo\Regenerators\<CamelCase(name)>` with
   `regenerate(int $localId): void`. A manifest-sourced provider resolves to
@@ -461,7 +470,10 @@ provider ids, duplicate table `id_kind`s). `--manifest` narrows what is checked
 individually; `--pins`/`--all` choose the co-loaded set. A declared
 `interpreter` or `regen_dependency.regenerator` is resolved too: the named file
 must exist under `interpreters/`/`regenerators/` in the same directory and must
-define the contract class.
+define the local capture contract class. `manifest-validate` deliberately does
+not require `egress_sensitivity_grants()` because local-only interpreters remain
+supported; the Cloud export boundary validates that additional closed contract
+before touching live data.
 
 Refusals are the engine's own, printed verbatim with their exact coordinates
 (`manifest 'x' actions[0].args.name …`, `table 'y' … identity.columns …`). A

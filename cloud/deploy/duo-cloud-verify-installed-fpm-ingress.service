@@ -1,0 +1,27 @@
+[Unit]
+Description=Verify installed Duo Cloud FPM and control-edge boundary
+After=duo-cloud-control-caddy.service
+Requires=duo-cloud-control-caddy.service
+ConditionPathIsDirectory=/run/systemd/system
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+EnvironmentFile=/var/lib/duo-cloud/config/installed-fpm-ingress.env
+ExecStart=/opt/duo-cloud/deploy/verify-installed-fpm-ingress.php --configuration-file=${DUO_CLOUD_INSTALLED_FPM_CONFIGURATION_FILE} --configuration-sha256=${DUO_CLOUD_INSTALLED_FPM_CONFIGURATION_SHA256} --host-preflight-root=${DUO_CLOUD_INSTALLED_FPM_HOST_PREFLIGHT_ROOT}
+CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_FOWNER CAP_SYS_PTRACE
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/duo-cloud/host-preflight
+RestrictAddressFamilies=AF_INET AF_UNIX
+LockPersonality=true
+MemoryDenyWriteExecute=true
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=60s

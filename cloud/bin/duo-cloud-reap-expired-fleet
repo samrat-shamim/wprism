@@ -1,0 +1,31 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+use Duo\Cloud\CanonicalJson;
+use Duo\Cloud\OperatorDiagnostics;
+use Duo\Cloud\ProductionFleetConfig;
+use Duo\Cloud\ProductionFleetReaper;
+
+require_once dirname(__DIR__) . '/runtime/ProductionFleetReaper.php';
+
+try {
+    $arguments = $_SERVER['argv'] ?? null;
+    if (!is_array($arguments) || !array_is_list($arguments) || count($arguments) !== 1) {
+        throw new RuntimeException('fleet expired preview reap arguments are invalid');
+    }
+    $path = getenv('DUO_CLOUD_FLEET_CONFIG_FILE');
+    $sha256 = getenv('DUO_CLOUD_FLEET_CONFIG_SHA256');
+    if (!is_string($path) || !is_string($sha256)) {
+        throw new RuntimeException('fleet expired preview reap configuration is absent');
+    }
+    $result = (new ProductionFleetReaper(
+        ProductionFleetConfig::load($path, $sha256)
+    ))->sweep();
+    fwrite(STDOUT, CanonicalJson::encode($result) . "\n");
+    exit(($result['state'] ?? null) === 'complete' ? 0 : 1);
+} catch (Throwable $error) {
+    (new OperatorDiagnostics())->record('fleet-expired-preview-reap', $error);
+    fwrite(STDERR, "duo-cloud-reap-expired-fleet: refused\n");
+    exit(70);
+}

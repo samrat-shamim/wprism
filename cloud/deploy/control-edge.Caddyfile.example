@@ -1,0 +1,54 @@
+# The public control TLS proxy preserves the exact Host header while forwarding
+# to this loopback-only listener. Add one explicit host/socket pair per worker;
+# never use a wildcard or a fallback worker. Preview-route Caddy owns host :443.
+{
+	admin off
+	servers {
+		timeouts {
+			read_body 10s
+			read_header 5s
+			idle 30s
+		}
+	}
+}
+
+http://:8081 {
+	bind 127.0.0.1
+	@worker_site_a {
+		host site-a.control.example.invalid
+		path /v1/preview/control /v1/preview/lifecycle /v1/origin/controller/export /v1/origin/pair/begin /v1/origin/pair/poll /v1/origin/demand/poll /v1/origin/export/announce /v1/origin/export/missing /v1/origin/export/chunk /v1/origin/export/commit /v1/origin/key/rotate /v1/origin/revoke
+	}
+	handle @worker_site_a {
+		request_body {
+			max_size 2MiB
+		}
+		reverse_proxy unix//run/duo-cloud/site-a/php-fpm.sock {
+			transport fastcgi {
+				root /opt/duo-cloud
+				env SCRIPT_FILENAME /opt/duo-cloud/bin/duo-cloud-http
+				env SCRIPT_NAME /duo-cloud-http
+			}
+		}
+	}
+
+	@worker_site_b {
+		host site-b.control.example.invalid
+		path /v1/preview/control /v1/preview/lifecycle /v1/origin/controller/export /v1/origin/pair/begin /v1/origin/pair/poll /v1/origin/demand/poll /v1/origin/export/announce /v1/origin/export/missing /v1/origin/export/chunk /v1/origin/export/commit /v1/origin/key/rotate /v1/origin/revoke
+	}
+	handle @worker_site_b {
+		request_body {
+			max_size 2MiB
+		}
+		reverse_proxy unix//run/duo-cloud/site-b/php-fpm.sock {
+			transport fastcgi {
+				root /opt/duo-cloud
+				env SCRIPT_FILENAME /opt/duo-cloud/bin/duo-cloud-http
+				env SCRIPT_NAME /duo-cloud-http
+			}
+		}
+	}
+
+	handle {
+		respond 404
+	}
+}

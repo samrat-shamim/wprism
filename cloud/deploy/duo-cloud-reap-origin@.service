@@ -1,0 +1,23 @@
+[Unit]
+Description=Reap expired Duo Cloud origin exports for %i
+After=local-fs.target
+RequiresMountsFor=/var/lib/duo-cloud
+
+[Service]
+Type=oneshot
+User=duo-cloud
+Group=duo-cloud
+SupplementaryGroups=docker
+UMask=0077
+EnvironmentFile=/var/lib/duo-cloud/config/workers/%i.env
+ExecStart=/opt/duo-cloud/bin/duo-cloud-reap-origin --limit 100
+PrivateTmp=true
+Delegate=yes
+ProtectHome=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/duo-cloud
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=0

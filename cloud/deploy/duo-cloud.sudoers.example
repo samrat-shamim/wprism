@@ -1,0 +1,4 @@
+# Validate with visudo -cf before installing as mode 0440, owner root:root.
+Defaults:duo-cloud env_reset,secure_path=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+duo-cloud ALL=(root) NOPASSWD:NOSETENV: /opt/duo-cloud/libexec/duo-cloud-firewall-authority *
+duo-cloud ALL=(root) NOPASSWD:NOSETENV: /opt/duo-cloud/libexec/duo-cloud-storage-authority *

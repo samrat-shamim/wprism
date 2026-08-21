@@ -1,0 +1,12 @@
+{
+  "admin_endpoint": "http://127.0.0.1:2019/config/",
+  "container_engine": {"path": "/usr/bin/docker", "sha256": "REPLACE_DOCKER_SHA256"},
+  "curl": {"path": "/usr/bin/curl", "sha256": "REPLACE_CURL_SHA256"},
+  "format": "duo-cloud-route-authority-config/v1",
+  "principals": [
+    {"preview_domain": "preview.example.invalid", "reviewed_base_sha256": "REPLACE_SITE_A_REVIEWED_BASE_SHA256", "runtime_configuration_sha256": "REPLACE_SITE_A_CONFIGURATION_SHA256"},
+    {"preview_domain": "preview.example.invalid", "reviewed_base_sha256": "REPLACE_SITE_B_REVIEWED_BASE_SHA256", "runtime_configuration_sha256": "REPLACE_SITE_B_CONFIGURATION_SHA256"}
+  ],
+  "process_timeout_seconds": 30,
+  "state_root": "/var/lib/duo-cloud/routes"
+}

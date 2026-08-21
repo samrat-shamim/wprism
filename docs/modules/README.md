@@ -1,6 +1,6 @@
 # Module map for `agent/src` and `cli/src`
 
-The flat layout is gone: `agent/src` becomes 17 module directories, `cli/src` becomes 12.
+The flat layout is gone: `agent/src` has 18 module directories, `cli/src` has 12.
 The machine-readable map is [`tools/modules.json`](../../tools/modules.json); this page is its index and its rules.
 Each module has a one-page charter next to this file.
 
@@ -34,16 +34,17 @@ Sub-namespaces migrate later, per module, Kernel first.
 | [agent:Init](agent-Init.md) | `agent/src/Init/` | engine | 13 | `Init`, `InitProtocol` | `Code`, `Init`, `Kernel`, `Policy`, `Repository` | First-contact onboarding of a site: probing, planning, confirming, journalling and recovering the initial owned baseline. |
 | [agent:Review](agent-Review.md) | `agent/src/Review/` | engine | 17 | `Canary`, `ConvergenceVerifier`, `Journal`, `Lint`, +7 | `Code`, `Grammar`, `Kernel`, `Policy`, `Repository`, `Review` | Read-only projections over plans and state — lint and its reference scanners, coverage, pending, journal, orphans, canary, convergence verification and refresh export. |
 | [agent:Adapter](agent-Adapter.md) | `agent/src/Adapter/` | adapter | 10 | `AdapterSources`, `Providers`, `ProviderActionBatchBuilder`, `AdapterRegistry`, +3 | `Adapter`, `Kernel`, `Policy`, `Promotion`, `Rebuild`, `Repository`, `Review` | The plugin-facing boundary: manifest sources, adapter registry, observation, site adapter certification and the provider SDK the engine calls through. |
-| [agent:Command](agent-Command.md) | `agent/src/Command/` | surface | 1 | `Cli` | `Adapter`, `Apply`, `Assess`, `Capture`, `Code`, `Command`, `Init`, `Kernel`, `Policy`, `Promotion`, `Publication`, `Repository`, `Review`, `Scope` | The `wp duo …` WP-CLI surface: verb dispatch, argument parsing, refusal envelopes and operator output. |
+| [agent:Cloud](agent-Cloud.md) | `agent/src/Cloud/` | adapter | 7 | `OriginCloudClient`, `OriginExporter`, `OriginPairing`, `OriginPairingStateStore`, +4 | `Cloud`, `Kernel`, `Policy`, `Review` | The outbound Duo Cloud connector boundary: an isolated production observation, private immutable upload spool, pairing, and closed signed cloud protocol. |
+| [agent:Command](agent-Command.md) | `agent/src/Command/` | surface | 1 | `Cli` | `Adapter`, `Apply`, `Assess`, `Capture`, `Cloud`, `Code`, `Command`, `Init`, `Kernel`, `Policy`, `Promotion`, `Publication`, `Repository`, `Review`, `Scope` | The `wp duo …` WP-CLI surface: verb dispatch, argument parsing, refusal envelopes and operator output. |
 | [agent:Assess](agent-Assess.md) | `agent/src/Assess/` | surface | 1 | `AssessInventory` | `Adapter`, `Assess`, `Code`, `Grammar`, `Kernel`, `Policy`, `Repository`, `Review` | Read-only inventory and projection commands answering 'what is here, and what can Duo do with it' before any write. |
-| [cli:Transport](cli-Transport.md) | `cli/src/Transport/` | kernel | 6 | `EnvironmentDriver`, `Transport`, `CodeDeploy`, `SshTransport`, +1 | `Transport` | Carries bytes and commands to a target environment: the transport implementations, the environment driver handle and code deployment. |
+| [cli:Transport](cli-Transport.md) | `cli/src/Transport/` | kernel | 6 | `EnvironmentDriver`, `ProviderLeaseBoundEnvironmentDriver`, `Transport`, `CodeDeploy`, +2 | `Transport` | Carries bytes and commands to a target environment: the transport implementations, the environment driver handle and code deployment. |
 | [cli:Plan](cli-Plan.md) | `cli/src/Plan/` | kernel | 3 | `PlanContract`, `PlanSummary`, `PlanView` | `Plan` | The plan wire contract and its operator/JSON renderings, with no I/O of its own. |
-| [cli:Refresh](cli-Refresh.md) | `cli/src/Refresh/` | repository | 4 | `Refresh`, `RefreshFieldDiff` | `Refresh`, `Transport`, `agent:Code`, `agent:Kernel`, `agent:Policy`, `agent:Repository`, `agent:Scope` | The B/P/W refresh planner, field diff and local state materializer that reconciles git, production and working state. |
-| [cli:Environment](cli-Environment.md) | `cli/src/Environment/` | engine | 2 | `Registry`, `EnvironmentLifecycle` | `Environment`, `Plan`, `Refresh`, `Transport` | The environment registry and lifecycle that materialize, bind and reap the environments the orchestrator drives. |
+| [cli:Refresh](cli-Refresh.md) | `cli/src/Refresh/` | repository | 8 | `CloudCommittedOriginExport`, `CloudOriginExportClient`, `Refresh`, `RefreshFieldDiff`, +2 | `Refresh`, `Transport`, `agent:Code`, `agent:Kernel`, `agent:Policy`, `agent:Repository`, `agent:Scope` | The B/P/W refresh planner, field diff and local state materializer that reconciles git, production and working state. |
+| [cli:Environment](cli-Environment.md) | `cli/src/Environment/` | engine | 7 | `EnvironmentLifecycle`, `EnvironmentTransportFactory`, `CloudPreviewTransport`, `PortablePreviewMaterializer`, +2 | `Environment`, `Plan`, `Refresh`, `Transport`, `agent:Kernel` | The environment registry and lifecycle that materialize, bind and reap the environments the orchestrator drives. |
 | [cli:Recovery](cli-Recovery.md) | `cli/src/Recovery/` | engine | 7 | `RollbackAuthority`, `RecoveryProfileSelection`, `RecoveryClaim`, `CheckpointCatalog`, +1 | `Recovery`, `Transport`, `agent:Kernel` | Rollback authority and the verified/scoped rollback profiles that prove a target can be returned to a known state, plus the round-3 profile selection, checkpoint catalog, retained-checkpoint policy and recovery claim that `duo recover` and the authorization plan consume. |
 | [cli:Onboarding](cli-Onboarding.md) | `cli/src/Onboarding/` | engine | 7 | `Doctor`, `Adopt`, `BootstrapEligibility`, `ClassificationBatch`, +3 | `Onboarding`, `Transport` | Adopting, initializing, diagnosing and triaging a site — the first-run and health mechanics behind adopt/init/doctor/classify/pending. |
 | [cli:Adapter](cli-Adapter.md) | `cli/src/Adapter/` | adapter | 5 | `AdapterCatalog`, `AdapterCertify`, `AdapterDraft`, `AdapterObservation`, +1 | `Adapter`, `Transport`, `agent:Adapter`, `agent:Delete`, `agent:Kernel`, `agent:Policy`, `agent:Rebuild`, `agent:Repository` | Authoring-side adapter tooling: catalog, certification, draft, observation and manifest validation against the agent's policy. |
-| [cli:Command](cli-Command.md) | `cli/src/Command/` | surface | 25 | `PassthroughCommand`, `CommandOutput`, `EnvironmentCommandPreflight`, `EnvironmentCommandOptions` | `Adapter`, `Assess`, `Command`, `Contract`, `Environment`, `Onboarding`, `Plan`, `Recovery`, `Refresh`, `Rehearse`, `Release`, `Transport`, `agent:Kernel`, `agent:Policy` | The `duo` verb handlers, agent passthrough, option parsing, preflight and operator output — and the only place composition across engine modules happens. |
+| [cli:Command](cli-Command.md) | `cli/src/Command/` | surface | 27 | `PassthroughCommand`, `CommandOutput`, `EnvironmentCommandPreflight`, `EnvironmentCommandOptions`, +2 | `Adapter`, `Assess`, `Command`, `Contract`, `Environment`, `Onboarding`, `Plan`, `Recovery`, `Refresh`, `Rehearse`, `Release`, `Transport`, `agent:Kernel`, `agent:Policy` | The `duo` verb handlers, agent passthrough, option parsing, preflight and operator output — and the only place composition across engine modules happens. |
 | [cli:Assess](cli-Assess.md) | `cli/src/Assess/` | engine | 5 | `StackInventory`, `SurfaceCatalog`, `GapActions`, `AssessReport`, `AssessRenderer` | `Assess`, `Contract`, `Plan`, `Transport`, `agent:Adapter`, `agent:Assess`, `agent:Kernel` | The assess mechanism — stack inventory, surface catalog, gap actions, the `duo-assess-report/v1` document and its bounded renderer. `AssessCommand` lives in `cli/src/Command/`. |
 | [cli:Release](cli-Release.md) | `cli/src/Release/` | engine | 5 | `AuthorizationPlan`, `AuthorizationPlanRenderer`, `ReleaseOutcome`, `NextAction`, +1 | `Contract`, `Plan`, `Release`, `Transport`, `agent:Kernel`, `agent:Policy` | The frozen authorization plan, its renderer, the closed next-action set and the journey oracle. `ReleaseCommand`/`VerifyCommand`/`RecoverCommand` live in `cli/src/Command/`. |
 | [cli:Rehearse](cli-Rehearse.md) | `cli/src/Rehearse/` | engine | 2 | `RehearsalPlanPreview`, `RehearsalDisclosure` | `Contract`, `Plan`, `Rehearse`, `Transport`, `agent:Kernel` | Rehearsal mechanism — the preview of what a release would touch, and the containment disclosure. `RehearseCommand` lives in `cli/src/Command/`. |
@@ -53,7 +54,7 @@ Not a module: `cli/duo` stays at `cli/duo` (the extensionless executable), and `
 
 ## Rules
 
-1. **Every file belongs to exactly one module.** All 225 `agent/src` files and all 76 `cli/src` files are
+1. **Every file belongs to exactly one module.** All 232 `agent/src` files and all 87 `cli/src` files are
    assigned in `tools/modules.json`; the assignment is validated against `git ls-files agent/src cli/src`.
 2. **A module has exactly one layer.** That is the invariant that lets a directory-level dependency lint
    read a file's layer straight off its module. **DUO-3493 retired `tools/layers.json`**: its file-level
@@ -99,19 +100,19 @@ Not a module: `cli/duo` stays at `cli/duo` (the extensionless executable), and `
 Computed from the real reference graph (the `declarations()`/`references()` token scanner from
 `sandbox/tests/offline/guards/regress_agent_src_requires.php`) **at the move**, over the 272 files it moved
 (agent 224 + cli 48): 1,065 file→file edges, of which 764 cross a module boundary. Those two totals are a
-dated snapshot and have not been re-derived since; the tree is 225 + 76 = 301 files today. The *shape*
+dated snapshot and have not been re-derived since; the tree is 232 + 87 = 319 files today. The *shape*
 below is what this section is for, and it is re-checkable from `tools/modules.json` at any time.
 
 - **`cli` is a clean DAG.** All twelve cli modules are acyclic and have zero exceptions.
-- **`agent` is one 15-module strongly connected component** — Adapter, Apply, Capture, Code, Delete,
+- **`agent` contains one 15-module strongly connected component** — Adapter, Apply, Capture, Code, Delete,
   Grammar, Init, Kernel, Policy, Promotion, Publication, Rebuild, Repository, Review, Scope. Only
-  `Command` and `Assess` sit outside it. This is the module-level shadow of the known
+  `Cloud`, `Command` and `Assess` sit outside it. This is the module-level shadow of the known
   160-file reference SCC.
 - Removing the 38 ratified upward file edges leaves three smaller cycles, which is the honest work list:
   - `Policy <-> Grammar` (30 edges down, 7 back)
   - `Code <-> Repository` (6 down, 4 back)
   - `Apply <-> Capture <-> Delete <-> Init <-> Promotion <-> Rebuild <-> Review <-> Scope` (the engine SCC)
-- `Publication`, `Adapter` and `Assess` are the agent modules with no exceptions at all.
+- `Publication`, `Adapter`, `Cloud` and `Assess` are the agent modules with no exceptions at all.
 
 ## Move mechanics
 

@@ -43,8 +43,8 @@ declare(strict_types=1);
  * Rule choices are descriptive of what 615 committed .php files already do,
  * and they apply uniformly to every file this config ever touches — whether
  * found by the Finder (tools/, tests/) or named explicitly on the command
- * line by `cs`/`cs:fix` (which can include agent/, cli/, recovery/,
- * scripts/ files):
+ * line by `cs`/`cs:fix` (which can include agent/, cli/, cloud/, recovery/,
+ * or scripts/ files):
  *   - @PSR12 is the base (4-space, no tabs, import layout); the brace and
  *     blank-line-after-open-tag rules that contradict the tree's own style
  *     are switched off below (see the measured note there). They are off
@@ -58,7 +58,7 @@ declare(strict_types=1);
  *     that intentionally do not have it. New files add it by hand instead.
  *   - single_quote and short array syntax are already the prevailing style.
  *   - no_unused_imports is the one rule that catches a real defect class here,
- *     since agent/src's 224 flat `namespace Duo;` files hand-maintain their
+ *     since agent/src's 232 flat `namespace Duo;` files hand-maintain their
  *     own `use` lists alongside hand-written require_once chains.
  *
  * setRiskyAllowed(false) is the load-bearing line: no rule that can change
@@ -93,7 +93,7 @@ return (new PhpCsFixer\Config())
         'array_syntax' => ['syntax' => 'short'],
         // House style, measured over the tree before enabling this config:
         // `<?php` is immediately followed by `namespace Duo;` (no blank line),
-        // and 219/224 agent classes plus every function put the opening brace
+        // and 227/232 agent classes plus every function put the opening brace
         // on the same line. PSR-12's brace/blank-line rules would flag 321 of
         // 333 first-party files on their first unrelated edit. These five are
         // pure brace-position/blank-line layout rules and are switched off

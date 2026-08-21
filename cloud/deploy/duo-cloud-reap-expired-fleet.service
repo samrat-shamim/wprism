@@ -1,0 +1,27 @@
+[Unit]
+Description=Reap expired Duo Cloud preview generations across the fleet
+After=docker.service duo-cloud-route-caddy.service network-online.target
+Wants=network-online.target
+RequiresMountsFor=/var/lib/duo-cloud
+
+[Service]
+Type=oneshot
+User=duo-cloud
+Group=duo-cloud
+SupplementaryGroups=docker
+UMask=0077
+EnvironmentFile=/var/lib/duo-cloud/config/fleet.env
+ExecStart=/opt/duo-cloud/bin/duo-cloud-reap-expired-fleet
+RuntimeDirectory=duo-cloud-host-proof
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+PrivateTmp=true
+Delegate=yes
+ProtectHome=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/duo-cloud /run/duo-cloud-host-proof
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=0

@@ -12,6 +12,7 @@ them — a duplicated flag table is a flag table that goes stale in silence.
 | [quickstart.md](quickstart.md) | You have a WordPress site (or an empty repo) and no Duo yet. |
 | [assess.md](assess.md) | You need to know what Duo can honestly do with a site, and to write that decision down as a contract. |
 | [daily-workflow.md](daily-workflow.md) | Duo is installed and your team needs a day-to-day loop. |
+| [cloud-preview.md](cloud-preview.md) | The site is adopted and you want an on-demand branch URL without provisioning another WordPress host. |
 | [release.md](release.md) | You are shipping a change: rehearse, read the authorization plan, release, verify. |
 | [recovery.md](recovery.md) | A release failed, or you want to know exactly what a rollback would and would not give back. |
 | [code-updates.md](code-updates.md) | You are updating plugin/theme code, or a code refusal is blocking you. |
@@ -21,10 +22,10 @@ them — a duplicated flag table is a flag table that goes stale in silence.
 
 Reading order for someone new: **quickstart → assess → daily-workflow →
 release → capabilities-and-limits**, then **recovery** before your first
-production release rather than during it, then **code-updates** the first time
-you ship a plugin update, then **adapter-authoring** the first time you hit a
-plugin nobody has written a manifest for. **internals** is reference, not
-reading.
+production release rather than during it. Read **cloud-preview** when you want
+an on-demand branch URL, **code-updates** the first time you ship a plugin
+update, then **adapter-authoring** the first time you hit a plugin nobody has
+written a manifest for. **internals** is reference, not reading.
 
 ## The honesty contract
 

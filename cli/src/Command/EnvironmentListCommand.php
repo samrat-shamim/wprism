@@ -4,10 +4,7 @@ declare(strict_types=1);
 namespace Duo\Orchestrator;
 
 require_once __DIR__ . '/../Environment/Registry.php';
-require_once __DIR__ . '/../Transport/Transport.php';
-require_once __DIR__ . '/../Transport/LocalTransport.php';
-require_once __DIR__ . '/../Transport/DockerTransport.php';
-require_once __DIR__ . '/../Transport/SshTransport.php';
+require_once __DIR__ . '/../Environment/EnvironmentTransportFactory.php';
 
 /** Target-free host handler for listing configured environments. */
 final class EnvironmentListCommand {
@@ -21,7 +18,7 @@ final class EnvironmentListCommand {
         foreach ($envs as $name => $cfg) {
             $name = (string) $name;
             try {
-                $transport = Transport::make($name, $cfg);
+                $transport = EnvironmentTransportFactory::make($name, $cfg);
                 printf("%-{$width}s  %s\n", $name, $transport->describe());
             } catch (\Throwable $e) {
                 printf("%-{$width}s  ERROR: %s\n", $name, $e->getMessage());

@@ -1,0 +1,47 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+use Duo\Cloud\CanonicalJson;
+use Duo\Cloud\ProductionService;
+
+require_once dirname(__DIR__) . '/runtime/ProductionService.php';
+
+$arguments = $_SERVER['argv'] ?? null;
+if (!is_array($arguments) || !array_is_list($arguments)) {
+    fwrite(STDERR, "duo-cloud-reap-origin: refused\n");
+    exit(64);
+}
+foreach ($arguments as $argument) {
+    if (!is_string($argument)) {
+        fwrite(STDERR, "duo-cloud-reap-origin: refused\n");
+        exit(64);
+    }
+}
+$limit = 100;
+if (count($arguments) === 3 && $arguments[1] === '--limit'
+    && preg_match('/\A[1-9][0-9]{0,2}\z/D', $arguments[2]) === 1
+    && (int) $arguments[2] <= 1000) {
+    $limit = (int) $arguments[2];
+} elseif (count($arguments) !== 1) {
+    fwrite(STDERR, "duo-cloud-reap-origin: refused\n");
+    exit(64);
+}
+
+$configPath = getenv('DUO_CLOUD_CONFIG_FILE');
+$configSha256 = getenv('DUO_CLOUD_CONFIG_SHA256');
+try {
+    if (!is_string($configPath) || !is_string($configSha256)) {
+        throw new RuntimeException('deployment configuration is absent');
+    }
+    $reaped = ProductionService::fromConfigFile($configPath, $configSha256)
+        ->origin()
+        ->reapExpiredExports($limit);
+    fwrite(STDOUT, CanonicalJson::encode([
+        'format' => 'duo-cloud-origin-retention-sweep/v1',
+        'reaped' => $reaped,
+    ]) . "\n");
+} catch (Throwable) {
+    fwrite(STDERR, "duo-cloud-reap-origin: refused\n");
+    exit(70);
+}

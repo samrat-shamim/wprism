@@ -57,6 +57,7 @@ file_put_contents($root . '/interpreters/legacy-post-only.php', <<<'PHP'
 namespace Duo\Interpreters;
 final class LegacyPostOnly {
     public function __construct($policy) {}
+    public function egress_sensitivity_grants(): array { return []; }
     public function post_meta_rule(string $key, array $allMeta): ?array {
         return $key === 'post_dynamic' && ($allMeta['_post_dynamic'] ?? null) === 'field_1'
             ? ['class' => 'authored']
@@ -71,6 +72,7 @@ file_put_contents($root . '/interpreters/all-meta-hooks.php', <<<'PHP'
 namespace Duo\Interpreters;
 final class AllMetaHooks {
     public function __construct($policy) {}
+    public function egress_sensitivity_grants(): array { return []; }
     public function post_meta_rule(string $key, array $allMeta): ?array {
         return $key === 'post_dynamic' ? ['class' => 'authored'] : null;
     }
@@ -84,6 +86,38 @@ final class AllMetaHooks {
             ? ['class' => 'authored', 'ref' => 'user']
             : null;
     }
+}
+PHP
+);
+
+file_put_contents($root . '/interpreters/sensitive.php', <<<'PHP'
+<?php
+namespace Duo\Interpreters;
+final class Sensitive {
+    public function __construct($policy) {}
+    public function egress_sensitivity_grants(): array { return ['allow_pii']; }
+    public function post_meta_rule(string $key, array $allMeta): ?array { return null; }
+}
+PHP
+);
+
+file_put_contents($root . '/interpreters/undeclared-egress.php', <<<'PHP'
+<?php
+namespace Duo\Interpreters;
+final class UndeclaredEgress {
+    public function __construct($policy) {}
+    public function post_meta_rule(string $key, array $allMeta): ?array { return null; }
+}
+PHP
+);
+
+file_put_contents($root . '/interpreters/noncanonical-egress.php', <<<'PHP'
+<?php
+namespace Duo\Interpreters;
+final class NoncanonicalEgress {
+    public function __construct($policy) {}
+    public function egress_sensitivity_grants(): array { return ['allow_secret', 'allow_pii']; }
+    public function post_meta_rule(string $key, array $allMeta): ?array { return null; }
 }
 PHP
 );
@@ -143,6 +177,10 @@ check(
     $legacy->user_meta_capture_blocker('user_static', []) === null,
     'non-authored static user_meta classifications remain usable without arming capture refusal'
 );
+check(
+    $legacy->egress_sensitivity_grants() === [],
+    'an interpreter with an explicit empty sensitivity capability is eligible for egress'
+);
 
 write_manifest($root, 'full', [
     'interpreter' => 'all-meta-hooks',
@@ -195,6 +233,28 @@ check(
     'neither user hook nor static policy silently invents a classification'
 );
 
+echo "\n== egress sensitivity is closed before live interpretation ==\n";
+write_manifest($root, 'sensitive', ['interpreter' => 'sensitive']);
+$sensitive = Policy::load(null, ['sensitive']);
+check(
+    $sensitive->egress_sensitivity_grants() === ['allow_pii'],
+    'an interpreter contributes its context-independent sensitivity superset'
+);
+write_manifest($root, 'undeclared-egress', ['interpreter' => 'undeclared-egress']);
+$undeclaredEgress = Policy::load(null, ['undeclared-egress']);
+check_throws(
+    fn() => $undeclaredEgress->egress_sensitivity_grants(),
+    'does not declare its egress sensitivity capabilities',
+    'an interpreter without the egress contract refuses before live data is read'
+);
+write_manifest($root, 'noncanonical-egress', ['interpreter' => 'noncanonical-egress']);
+$noncanonicalEgress = Policy::load(null, ['noncanonical-egress']);
+check_throws(
+    fn() => $noncanonicalEgress->egress_sensitivity_grants(),
+    'must be sorted and unique',
+    'interpreter sensitivity capabilities must have one canonical representation'
+);
+
 echo "\n== user_meta is a first-class policy section ==\n";
 $siteRepo = $root . '/site';
 mkdir($siteRepo);
@@ -215,6 +275,15 @@ check(
 check(
     $sitePolicy->user_meta_missing_behavior(['profile_owner' => 'user:editor']) === 'warn',
     'static authored user_meta policy carries explicit warn-and-skip missing-user behavior'
+);
+Policy::set_rule($siteRepo, 'user_meta', 'profile_private', [
+    'class' => 'authored',
+    'allow_pii' => true,
+]);
+$sitePolicy = Policy::load($siteRepo);
+check(
+    $sitePolicy->egress_sensitivity_grants() === ['allow_pii'],
+    'static site policy sensitivity grants are included with interpreter capabilities'
 );
 $export = Policy::export_manifest($siteRepo, '^profile_', 'profile-fixture');
 $exportedUserMeta = (array) $export['user_meta'];

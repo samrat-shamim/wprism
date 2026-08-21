@@ -1,0 +1,13 @@
+[Unit]
+Description=Refresh the shared Duo Cloud host-admission lease
+
+[Timer]
+OnBootSec=5s
+OnUnitInactiveSec=20s
+AccuracySec=1s
+RandomizedDelaySec=0
+Persistent=true
+Unit=duo-cloud-preflight-fleet.service
+
+[Install]
+WantedBy=timers.target

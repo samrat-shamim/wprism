@@ -1,0 +1,24 @@
+#!/usr/local/bin/php
+<?php
+declare(strict_types=1);
+
+use Duo\Cloud\Image\PreviewRuntimeHelper;
+
+require_once __DIR__ . '/PreviewRuntimeHelper.php';
+
+try {
+    $arguments = $_SERVER['argv'] ?? null;
+    if (!is_array($arguments) || !array_is_list($arguments)) {
+        throw new RuntimeException('runtime helper arguments are unavailable');
+    }
+    foreach ($arguments as $argument) {
+        if (!is_string($argument)) {
+            throw new RuntimeException('runtime helper argument is invalid');
+        }
+    }
+    $program = basename((string) array_shift($arguments));
+    exit((new PreviewRuntimeHelper())->dispatch($program, array_values($arguments)));
+} catch (Throwable) {
+    fwrite(STDERR, "duo-preview-runtime: refused\n");
+    exit(70);
+}

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Duo\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Policy/ScopeContract.php';
+require_once __DIR__ . '/RefreshProductionSource.php';
 
 /** Explicit non-error terminal for `duo rebase --interactive` cancellation. */
 final class RefreshFieldResolutionCancelled extends \RuntimeException {}
@@ -87,6 +88,57 @@ final class Refresh {
         bool $interactive = false,
         bool $legacyStrategyExplicit = false
     ): array {
+        return self::rebaseWithProductionSource(
+            $transport,
+            $productionRef,
+            $newBranch,
+            $resolution,
+            $scopeContract,
+            $fieldResolutionPath,
+            $interactive,
+            $legacyStrategyExplicit
+        );
+    }
+
+    /**
+     * Rebase from immutable semantic production truth without granting the
+     * source EnvironmentDriver shell, WP, deployment, or provider authority.
+     *
+     * @return array{plan_path:string,run_id:string,new_branch:string,head:string}
+     */
+    public static function rebaseProductionSource(
+        RefreshProductionSource $source,
+        string $productionRef,
+        string $newBranch,
+        array $resolution = [],
+        ?array $scopeContract = null,
+        ?string $fieldResolutionPath = null,
+        bool $interactive = false,
+        bool $legacyStrategyExplicit = false
+    ): array {
+        return self::rebaseWithProductionSource(
+            $source,
+            $productionRef,
+            $newBranch,
+            $resolution,
+            $scopeContract,
+            $fieldResolutionPath,
+            $interactive,
+            $legacyStrategyExplicit
+        );
+    }
+
+    /** @return array{plan_path:string,run_id:string,new_branch:string,head:string} */
+    private static function rebaseWithProductionSource(
+        EnvironmentDriver|RefreshProductionSource $source,
+        string $productionRef,
+        string $newBranch,
+        array $resolution,
+        ?array $scopeContract,
+        ?string $fieldResolutionPath,
+        bool $interactive,
+        bool $legacyStrategyExplicit
+    ): array {
         self::requirePlanner(['normalizeProductionSnapshot', 'compileGitWorktree', 'assertProductionCodeMatches', 'plan', 'normalizePlan', 'materialize', 'validateMaterialization']);
         $resolution = self::normalizeResolution($resolution);
         if (($fieldResolutionPath !== null || $interactive)
@@ -99,7 +151,7 @@ final class Refresh {
         if (($fieldResolutionPath !== null || $interactive) && $scopeContract !== null) {
             throw new \RuntimeException('field-level resolution is unavailable for scoped refresh; use legacy --strategy/--resolve');
         }
-        $prepared = self::prepare($transport, $productionRef, $scopeContract, $fieldResolutionPath !== null || $interactive);
+        $prepared = self::prepare($source, $productionRef, $scopeContract, $fieldResolutionPath !== null || $interactive);
         $fieldResolution = null;
         $fieldBundle = null;
         if ($fieldResolutionPath !== null || $interactive) {
@@ -143,7 +195,7 @@ final class Refresh {
 
         // Re-read production immediately before local materialization.  A plan
         // from a prior live snapshot must never silently become a new baseline.
-        $again = self::readProduction($transport, (string) $context['production_commit'], $scopeContract);
+        $again = self::readProduction($source, (string) $context['production_commit'], $scopeContract);
         if (($again['snapshot_hash'] ?? null) !== ($context['production_snapshot_hash'] ?? null)) {
             throw new \RuntimeException(
                 'production changed after refresh planning; no candidate branch was created (run duo refresh/rebase again)'
@@ -164,7 +216,7 @@ final class Refresh {
             'plan_hash' => $context['plan_hash'],
             'plan_path' => $prepared['plan_path'],
             'production_commit' => $context['production_commit'],
-            'production_env' => $transport->name(),
+            'production_env' => self::productionEnvironmentName($source),
             'production_snapshot_hash' => $context['production_snapshot_hash'],
             'source_head' => $context['branch_commit'],
             'worktree' => $worktree,
@@ -299,7 +351,7 @@ final class Refresh {
 
     /** @return array<string,mixed> */
     private static function prepare(
-        EnvironmentDriver $transport,
+        EnvironmentDriver|RefreshProductionSource $transport,
         string $productionRef,
         ?array $scopeContract = null,
         bool $includeFieldDiff = false
@@ -351,7 +403,7 @@ final class Refresh {
                     'branch_commit' => $branchCommit,
                     'branch_name' => $branch,
                     'production_commit' => $productionCommit,
-                    'production_env' => $transport->name(),
+                    'production_env' => self::productionEnvironmentName($transport),
                     'production_snapshot_hash' => $production['snapshot_hash'],
                 ];
                 if ($scopeContract !== null) {
@@ -427,40 +479,49 @@ final class Refresh {
 
     /** @return array<string,mixed> */
     private static function readProduction(
-        EnvironmentDriver $transport,
+        EnvironmentDriver|RefreshProductionSource $transport,
         string $productionCommit,
         ?array $scopeContract = null
     ): array {
         self::assertTargetHead($transport, $productionCommit);
-        // Boot only core + the protected Duo agent. Ordinary WP-CLI plugin,
-        // theme, or user-MU bootstrap runs before RefreshExport can open its
-        // READ ONLY transaction and can execute arbitrary production DML;
-        // that would make a nominal observation mutate the target before our
-        // server-enforced boundary even exists. Reuse the proven control
-        // bootstrap that shadows user MU code and skips regular plugins and
-        // themes while leaving manifest-owned providers available to Duo.
-        $wpArgs = ['duo', 'refresh-export', '--repo=' . $transport->repoPath(), '--format=json'];
-        if ($scopeContract !== null) {
-            $request = [
-                'format' => 'duo-scope-request/v1',
-                'scope_hash' => (string) ($scopeContract['scope_hash'] ?? ''),
-                'selectors' => $scopeContract['selectors'] ?? null,
-            ];
-            if (!is_array($request['selectors'])
-                || preg_match('/^[a-f0-9]{64}$/D', $request['scope_hash']) !== 1) {
-                throw new \RuntimeException('refresh scope contract is malformed');
+        if ($transport instanceof ProductionSnapshotSource) {
+            // The source implementation owns signature, tenant/site,
+            // generation, commit, and immutable-object readback checks. It
+            // returns semantic truth only; it gains no shell or target command
+            // authority through this interface.
+            $raw = $transport->readProductionSnapshot($productionCommit, $scopeContract);
+        } else {
+            // Boot only core + the protected Duo agent. Ordinary WP-CLI plugin,
+            // theme, or user-MU bootstrap runs before RefreshExport can open its
+            // READ ONLY transaction and can execute arbitrary production DML;
+            // that would make a nominal observation mutate the target before our
+            // server-enforced boundary even exists. Reuse the proven control
+            // bootstrap that shadows user MU code and skips regular plugins and
+            // themes while leaving manifest-owned providers available to Duo.
+            $wpArgs = ['duo', 'refresh-export', '--repo=' . $transport->repoPath(), '--format=json'];
+            if ($scopeContract !== null) {
+                $request = [
+                    'format' => 'duo-scope-request/v1',
+                    'scope_hash' => (string) ($scopeContract['scope_hash'] ?? ''),
+                    'selectors' => $scopeContract['selectors'] ?? null,
+                ];
+                if (!is_array($request['selectors'])
+                    || preg_match('/^[a-f0-9]{64}$/D', $request['scope_hash']) !== 1) {
+                    throw new \RuntimeException('refresh scope contract is malformed');
+                }
+                $wpArgs[] = '--scope-request-b64=' . base64_encode(\Duo\Canon::encode($request));
             }
-            $wpArgs[] = '--scope-request-b64=' . base64_encode(\Duo\Canon::encode($request));
-        }
-        $result = $transport->captureWp(CodeDeploy::controlArgs($wpArgs));
-        if (($result['exit'] ?? 1) !== 0) {
-            throw new \RuntimeException('refresh-export failed for production environment ' . $transport->name()
-                . ': ' . self::transportReason($result));
-        }
-        try {
-            $raw = json_decode(trim((string) ($result['stdout'] ?? '')), true, 512, JSON_THROW_ON_ERROR);
-        } catch (\Throwable $e) {
-            throw new \RuntimeException('refresh-export returned invalid JSON: ' . $e->getMessage());
+            $result = $transport->captureWp(CodeDeploy::controlArgs($wpArgs));
+            if (($result['exit'] ?? 1) !== 0) {
+                throw new \RuntimeException('refresh-export failed for production environment '
+                    . self::productionEnvironmentName($transport)
+                    . ': ' . self::transportReason($result));
+            }
+            try {
+                $raw = json_decode(trim((string) ($result['stdout'] ?? '')), true, 512, JSON_THROW_ON_ERROR);
+            } catch (\Throwable $e) {
+                throw new \RuntimeException('refresh-export returned invalid JSON: ' . $e->getMessage());
+            }
         }
         self::assertProductionExportShape($raw);
         $production = self::planner('normalizeProductionSnapshot', [$raw]);
@@ -518,7 +579,14 @@ final class Refresh {
         }
     }
 
-    private static function assertTargetHead(EnvironmentDriver $transport, string $expected): void {
+    private static function assertTargetHead(
+        EnvironmentDriver|RefreshProductionSource $transport,
+        string $expected
+    ): void {
+        if ($transport instanceof ProductionSnapshotSource) {
+            $transport->assertProductionRevision($expected);
+            return;
+        }
         $repo = escapeshellarg($transport->repoPath());
         $script = 'git -C ' . $repo . ' rev-parse --verify HEAD^{commit}'
             . ' && git -C ' . $repo . ' status --porcelain=v1 --untracked-files=all'
@@ -545,6 +613,14 @@ final class Refresh {
                 "production target Git HEAD '$actual' does not equal --production-ref '$expected'; refusing to infer topology from a code descriptor"
             );
         }
+    }
+
+    private static function productionEnvironmentName(
+        EnvironmentDriver|RefreshProductionSource $transport
+    ): string {
+        return $transport instanceof RefreshProductionSource
+            ? $transport->productionEnvironmentName()
+            : $transport->name();
     }
 
     private static function rebaseCodeOnly(string $worktree, string $production, string $base, string $runDir): void {
@@ -811,6 +887,7 @@ final class Refresh {
  * without ever recording mutable state in the source branch.
  */
 final class RefreshRunJournal {
+    private const MAX_IMMUTABLE_BYTES = 16777216;
     private string $base;
 
     public function __construct(string $base) {
@@ -866,6 +943,7 @@ final class RefreshRunJournal {
     /** @return array<string,mixed> */
     public function read(string $runId): array {
         $path = $this->runDir($runId) . '/run.json';
+        $this->reconcileTemporary($path);
         $bytes = @file_get_contents($path);
         if ($bytes === false) {
             throw new \RuntimeException("refresh run '$runId' does not exist");
@@ -893,6 +971,9 @@ final class RefreshRunJournal {
         try {
             $events = glob($dir . '/events/*.json') ?: [];
             sort($events, SORT_STRING);
+            foreach ($events as $eventPath) {
+                $this->reconcileTemporary($eventPath);
+            }
             $seq = count($events) + 1;
             $record = ['data' => $data, 'event' => $event, 'format' => 'duo-refresh-event/v1', 'sequence' => $seq, 'timestamp' => gmdate('c')];
             $this->writeImmutable(sprintf('%s/events/%04d-%s.json', $dir, $seq, preg_replace('/[^a-z0-9-]/', '-', $event)), $record);
@@ -924,7 +1005,21 @@ final class RefreshRunJournal {
     }
 
     private function writeImmutable(string $path, array $record): string {
+        $lock = $this->openPrivateLock($path . '.write.lock');
+        try {
+            return $this->writeImmutableLocked($path, $record);
+        } finally {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+        }
+    }
+
+    private function writeImmutableLocked(string $path, array $record): string {
         $bytes = self::encode($record) . "\n";
+        if (strlen($bytes) > self::MAX_IMMUTABLE_BYTES) {
+            throw new \RuntimeException("refresh journal exceeds its byte limit at '$path'");
+        }
+        $this->reconcileTemporary($path);
         if (is_file($path)) {
             $current = file_get_contents($path);
             if ($current === $bytes) {
@@ -932,26 +1027,219 @@ final class RefreshRunJournal {
             }
             throw new \RuntimeException("immutable refresh journal record already differs at '$path'");
         }
-        $tmp = $path . '.tmp.' . bin2hex(random_bytes(8));
-        $written = file_put_contents($tmp, $bytes, LOCK_EX);
-        if ($written !== strlen($bytes)) {
-            @unlink($tmp);
-            throw new \RuntimeException("could not write refresh journal record '$path'");
+        $temporary = $path . '.tmp';
+        $handle = @fopen($temporary, 'x+b');
+        if (!is_resource($handle) || !@chmod($temporary, 0600)) {
+            if (is_resource($handle)) fclose($handle);
+            throw new \RuntimeException("could not create refresh journal record '$path'");
         }
-        @chmod($tmp, 0600);
+        try {
+            $offset = 0;
+            while ($offset < strlen($bytes)) {
+                $written = fwrite($handle, substr($bytes, $offset));
+                if (!is_int($written) || $written < 1) {
+                    throw new \RuntimeException("could not write refresh journal record '$path'");
+                }
+                $offset += $written;
+            }
+            if (!fflush($handle) || (function_exists('fsync') && !@fsync($handle))) {
+                throw new \RuntimeException("could not durably flush refresh journal record '$path'");
+            }
+            $opened = fstat($handle);
+            $named = $this->freshLstat($temporary);
+            if (!is_array($opened) || !is_array($named)
+                || !$this->samePrivateRegularFile($opened, $named, 1)
+                || (int) ($opened['size'] ?? -1) !== strlen($bytes)
+                || (int) ($named['size'] ?? -1) !== strlen($bytes)) {
+                throw new \RuntimeException("temporary refresh journal is unsafe at '$path'");
+            }
+        } catch (\Throwable $failure) {
+            fclose($handle);
+            $this->reconcileTemporary($path);
+            throw $failure;
+        }
+        fclose($handle);
         // link(2) is create-only, unlike rename(2), which may replace a
         // concurrent writer's record. Both files are in the same Git common
         // directory, so a hard link gives an atomic no-clobber publication.
-        if (@link($tmp, $path)) {
-            @unlink($tmp);
+        if (@link($temporary, $path)) {
+            $this->syncDirectory(dirname($path));
+            $this->reconcileTemporary($path);
             return $path;
         }
-        $current = is_file($path) ? file_get_contents($path) : false;
-        @unlink($tmp);
+        try {
+            $current = is_file($path) ? file_get_contents($path) : false;
+        } finally {
+            $this->reconcileTemporary($path);
+        }
         if ($current === $bytes) {
             return $path;
         }
         throw new \RuntimeException("could not publish immutable refresh journal record '$path'");
+    }
+
+    /** @return resource */
+    private function openPrivateLock(string $path) {
+        $before = $this->freshLstat($path);
+        if (is_array($before)
+            && (((((int) ($before['mode'] ?? 0)) & 0170000) !== 0100000)
+                || (int) ($before['size'] ?? -1) !== 0
+                || (int) ($before['nlink'] ?? 0) !== 1
+                || (function_exists('posix_geteuid')
+                    && (int) ($before['uid'] ?? -1) !== posix_geteuid())
+                || is_link($path))) {
+            throw new \RuntimeException("refresh journal write lock is unsafe at '$path'");
+        }
+        $handle = @fopen($path, 'c+b');
+        if (!is_resource($handle)) {
+            throw new \RuntimeException("could not open refresh journal write lock at '$path'");
+        }
+        $opened = fstat($handle);
+        $named = $this->freshLstat($path);
+        if (!is_array($opened) || !is_array($named)
+            || is_link($path)
+            || (((int) ($opened['mode'] ?? 0)) & 0170000) !== 0100000
+            || (((int) ($named['mode'] ?? 0)) & 0170000) !== 0100000
+            || (int) ($opened['nlink'] ?? 0) !== 1 || (int) ($named['nlink'] ?? 0) !== 1
+            || (int) ($opened['size'] ?? -1) !== 0 || (int) ($named['size'] ?? -1) !== 0
+            || (function_exists('posix_geteuid')
+                && ((int) ($opened['uid'] ?? -1) !== posix_geteuid()
+                    || (int) ($named['uid'] ?? -1) !== posix_geteuid()))
+            || (string) ($opened['dev'] ?? '') !== (string) ($named['dev'] ?? '')
+            || (string) ($opened['ino'] ?? '') !== (string) ($named['ino'] ?? '')
+            || (is_array($before)
+                && ((string) ($before['dev'] ?? '') !== (string) ($opened['dev'] ?? '')
+                    || (string) ($before['ino'] ?? '') !== (string) ($opened['ino'] ?? '')))) {
+            fclose($handle);
+            throw new \RuntimeException("refresh journal write lock is unsafe at '$path'");
+        }
+        if (!@chmod($path, 0600) || !fflush($handle)
+            || (function_exists('fsync') && !@fsync($handle))) {
+            fclose($handle);
+            throw new \RuntimeException("could not make refresh journal write lock private at '$path'");
+        }
+        if ($before === false) {
+            $this->syncDirectory(dirname($path));
+        }
+        $opened = fstat($handle);
+        if (!is_array($opened)) {
+            fclose($handle);
+            throw new \RuntimeException("refresh journal write lock is unsafe at '$path'");
+        }
+        $named = $this->freshLstat($path);
+        if (!is_array($named) || !$this->samePrivateRegularFile($opened, $named, 1)
+            || (int) ($named['size'] ?? -1) !== 0) {
+            fclose($handle);
+            throw new \RuntimeException("refresh journal write lock is unsafe at '$path'");
+        }
+        if (!flock($handle, LOCK_EX)) {
+            fclose($handle);
+            throw new \RuntimeException("could not acquire refresh journal write lock at '$path'");
+        }
+        $named = $this->freshLstat($path);
+        if (!is_array($named) || !$this->samePrivateRegularFile($opened, $named, 1)
+            || (int) ($named['size'] ?? -1) !== 0) {
+            flock($handle, LOCK_UN);
+            fclose($handle);
+            throw new \RuntimeException("refresh journal write lock changed while held at '$path'");
+        }
+        return $handle;
+    }
+
+    /**
+     * Content-addressed plans and diffs may have concurrent writers, so their
+     * path lock serializes this destination-bound residue. A two-link residue
+     * is accepted only when the verified second name is the published record.
+     */
+    private function reconcileTemporary(string $path): void {
+        $temporary = $path . '.tmp';
+        $before = $this->freshLstat($temporary);
+        if ($before === false) {
+            return;
+        }
+        $links = (int) ($before['nlink'] ?? 0);
+        if (!$this->privateRegularFile($before, $links)
+            || ($links !== 1 && $links !== 2)
+            || (int) ($before['size'] ?? -1) < 0
+            || (int) ($before['size'] ?? -1) > self::MAX_IMMUTABLE_BYTES) {
+            throw new \RuntimeException("temporary refresh journal is unsafe at '$path'");
+        }
+        if ($links === 2) {
+            $published = $this->freshLstat($path);
+            if (!is_array($published)
+                || !$this->samePrivateRegularFile($before, $published, 2)
+                || (int) ($published['size'] ?? -1) !== (int) ($before['size'] ?? -2)) {
+                throw new \RuntimeException("temporary refresh journal is unsafe at '$path'");
+            }
+        }
+        $handle = @fopen($temporary, 'rb');
+        if (!is_resource($handle)) {
+            throw new \RuntimeException("temporary refresh journal could not be opened at '$path'");
+        }
+        try {
+            $opened = fstat($handle);
+            $after = $this->freshLstat($temporary);
+            if (!is_array($opened) || !is_array($after)
+                || !$this->samePrivateRegularFile($before, $opened, $links)
+                || !$this->samePrivateRegularFile($opened, $after, $links)
+                || (int) ($before['size'] ?? -1) !== (int) ($opened['size'] ?? -2)
+                || (int) ($after['size'] ?? -1) !== (int) ($opened['size'] ?? -2)) {
+                throw new \RuntimeException("temporary refresh journal changed during cleanup at '$path'");
+            }
+            if ($links === 2) {
+                $publishedAfter = $this->freshLstat($path);
+                if (!is_array($publishedAfter)
+                    || !$this->samePrivateRegularFile($opened, $publishedAfter, 2)
+                    || (int) ($publishedAfter['size'] ?? -1) !== (int) ($opened['size'] ?? -2)) {
+                    throw new \RuntimeException("temporary refresh journal changed during cleanup at '$path'");
+                }
+            }
+        } finally {
+            fclose($handle);
+        }
+        if (!@unlink($temporary) || $this->freshLstat($temporary) !== false) {
+            throw new \RuntimeException("temporary refresh journal could not be removed at '$path'");
+        }
+        $this->syncDirectory(dirname($path));
+    }
+
+    /** @param array<string|int,mixed> $stat */
+    private function privateRegularFile(array $stat, int $links): bool {
+        return (((int) ($stat['mode'] ?? 0)) & 0170000) === 0100000
+            && (DIRECTORY_SEPARATOR !== '/' || (((int) ($stat['mode'] ?? 0)) & 0777) === 0600)
+            && (int) ($stat['nlink'] ?? 0) === $links
+            && (!function_exists('posix_geteuid') || (int) ($stat['uid'] ?? -1) === posix_geteuid());
+    }
+
+    /** @param array<string|int,mixed> $left @param array<string|int,mixed> $right */
+    private function samePrivateRegularFile(array $left, array $right, int $links): bool {
+        return $this->privateRegularFile($left, $links)
+            && $this->privateRegularFile($right, $links)
+            && (string) ($left['dev'] ?? '') === (string) ($right['dev'] ?? '')
+            && (string) ($left['ino'] ?? '') === (string) ($right['ino'] ?? '');
+    }
+
+    /** @return array<string|int,mixed>|false */
+    private function freshLstat(string $path): array|false {
+        clearstatcache(true, $path);
+        return @lstat($path);
+    }
+
+    private function syncDirectory(string $path): void {
+        if (!function_exists('fsync')) {
+            return;
+        }
+        $handle = @fopen($path, 'r');
+        if (!is_resource($handle)) {
+            throw new \RuntimeException("refresh journal directory '$path' could not be opened for sync");
+        }
+        try {
+            if (!@fsync($handle)) {
+                throw new \RuntimeException("refresh journal directory '$path' could not be synchronized");
+            }
+        } finally {
+            fclose($handle);
+        }
     }
 
     private static function encode(mixed $value): string {

@@ -1,0 +1,49 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+use Duo\Cloud\CanonicalJson;
+use Duo\Cloud\FirewallAuthorityArguments;
+use Duo\Cloud\FirewallClientConfig;
+use Duo\Cloud\HostAuthorityBusy;
+use Duo\Cloud\NativeContainerArgvProcessRunner;
+
+require_once dirname(__DIR__) . '/runtime/FirewallClientConfig.php';
+require_once dirname(__DIR__) . '/runtime/FirewallAuthorityArguments.php';
+require_once dirname(__DIR__) . '/src/ContainerWorkloadRuntime.php';
+require_once dirname(__DIR__) . '/src/HostAuthorityBusy.php';
+
+try {
+    $arguments = $_SERVER['argv'] ?? null;
+    if (!is_array($arguments) || !array_is_list($arguments)) {
+        throw new RuntimeException('firewall client arguments are unavailable');
+    }
+    array_shift($arguments);
+    FirewallAuthorityArguments::parse($arguments);
+    $configPath = '/var/lib/duo-cloud/config/firewall-client.json';
+    $pinPath = '/var/lib/duo-cloud/config/firewall-client.sha256';
+    $config = FirewallClientConfig::loadInstalled($configPath, $pinPath);
+    $runner = new NativeContainerArgvProcessRunner($config->timeout(), null, false);
+    $result = $runner->run(array_merge([
+        $config->sudo(), '--non-interactive', '--', $config->authority(),
+    ], $arguments));
+    if (HostAuthorityBusy::matchesProcessResult(
+        $result,
+        HostAuthorityBusy::FIREWALL_AUTHORITY_STDERR
+    )) {
+        fwrite(STDERR, HostAuthorityBusy::FIREWALL_CLIENT_STDERR);
+        exit(HostAuthorityBusy::EXIT_STATUS);
+    }
+    if ($result['exit'] !== 0 || $result['stderr'] !== ''
+        || strlen($result['stdout']) > 1048576 || !str_ends_with($result['stdout'], "\n")) {
+        throw new RuntimeException('firewall authority refused');
+    }
+    $document = CanonicalJson::decodeObject($result['stdout'], 1048576);
+    if ($result['stdout'] !== CanonicalJson::encode($document) . "\n") {
+        throw new RuntimeException('firewall authority response is not canonical');
+    }
+    fwrite(STDOUT, $result['stdout']);
+} catch (Throwable) {
+    fwrite(STDERR, "duo-cloud-firewall-client: refused\n");
+    exit(70);
+}

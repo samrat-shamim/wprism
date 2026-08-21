@@ -103,12 +103,19 @@ require_once __DIR__ . '/src/Adapter/AdapterObservation.php';
 require_once __DIR__ . '/src/Review/Coverage.php';
 require_once __DIR__ . '/src/Review/Lint.php';
 require_once __DIR__ . '/src/Assess/AssessInventory.php';
+require_once __DIR__ . '/src/Cloud/OriginStore.php';
+require_once __DIR__ . '/src/Cloud/OriginExporter.php';
+require_once __DIR__ . '/src/Cloud/OriginCloudClient.php';
+require_once __DIR__ . '/src/Cloud/OriginPairing.php';
+require_once __DIR__ . '/src/Cloud/OriginUploadJournal.php';
+require_once __DIR__ . '/src/Cloud/OriginUploadSource.php';
+require_once __DIR__ . '/src/Cloud/OriginUploadCoordinator.php';
 
 /**
  * Additive classmap fallback (DUO-3481, owner rulings D3/D4).
  *
  * Every require_once above is retained and still does all the loading: after
- * this bootstrap runs, 237 of the 239 names in duo-classmap.php are already
+ * this bootstrap runs, 250 of the 252 names in duo-classmap.php are already
  * declared, and the two exceptions (Duo\AdapterCertification and the
  * Duo\SupersededSiteAdapterCertificate declared in the same file) are
  * require_once'd at each of that file's three use sites in AdapterSources.php

@@ -1,0 +1,1 @@
+{"admin":{"listen":"127.0.0.1:2019"},"apps":{"http":{"servers":{"duo_previews":{"automatic_https":{"disable_redirects":true},"listen":[":443"],"routes":[],"tls_connection_policies":[{"protocol_min":"tls1.2"}]}}}}}

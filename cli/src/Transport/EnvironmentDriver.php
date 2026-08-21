@@ -27,6 +27,36 @@ interface EnvironmentDriver {
     public function capabilityReport(string $operation): DriverCapabilityReport;
 }
 
+/**
+ * A dynamically provisioned driver must not route by a mutable environment
+ * alias. The materializer supplies the provider's exact resource lease and
+ * held mutation fence together, after both have passed closed-schema and
+ * journal recovery validation; no target command is legal before that bind.
+ */
+interface ProviderLeaseBoundEnvironmentDriver extends EnvironmentDriver {
+    /**
+     * @param array<string,mixed> $identity
+     * @param array<string,mixed> $mutationFence
+     */
+    public function bindProviderLease(string $operationId, array $identity, array $mutationFence): void;
+
+    /**
+     * Start one journal-owned command phase. Calls inside the phase receive
+     * deterministic sequence identities, so a controller restart can recover
+     * a lost response without executing the same remote command twice.
+     */
+    public function beginProviderCommandPhase(string $phase): void;
+
+    /**
+     * @param array<string,mixed> $releasedFence
+     *
+     * Revoke the local routing authority after the provider confirms release.
+     * The service still enforces the live fence; this closes the controller's
+     * own stale-object path as a second, independent boundary.
+     */
+    public function releaseProviderLease(string $operationId, array $releasedFence): void;
+}
+
 /** Closed, versioned vocabulary for environment-driver capabilities. */
 final class DriverCapability {
     public const ATTACH = 'environment.attach';

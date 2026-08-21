@@ -1,0 +1,24 @@
+[Unit]
+Description=Refresh Duo Cloud worker-local readiness for %i
+After=docker.service duo-cloud-preflight-fleet.service duo-cloud-route-caddy.service network-online.target
+Wants=network-online.target
+RequiresMountsFor=/var/lib/duo-cloud
+
+[Service]
+Type=oneshot
+User=duo-cloud
+Group=duo-cloud
+SupplementaryGroups=docker
+UMask=0077
+EnvironmentFile=/var/lib/duo-cloud/config/workers/%i.env
+ExecStart=/opt/duo-cloud/bin/duo-cloud-preflight
+PrivateTmp=true
+Delegate=yes
+ProtectHome=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/duo-cloud
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=18s

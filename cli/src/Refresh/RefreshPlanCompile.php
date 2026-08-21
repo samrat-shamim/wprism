@@ -6,20 +6,23 @@ use Duo\Orchestrator\RefreshPlan;
 require __DIR__ . '/RefreshPlan.php';
 
 try {
-    if (!in_array($argc, [4, 5, 6], true)) {
+    $cliArgv = $_SERVER['argv'] ?? [];
+    $cliArgv = is_array($cliArgv) ? array_map('strval', $cliArgv) : [];
+    $cliArgc = count($cliArgv);
+    if (!in_array($cliArgc, [4, 5, 6], true)) {
         throw new RuntimeException('usage: RefreshPlanCompile.php <worktree> <commit> <role> [complete-media|candidate <scope-contract>|field-diff-policy]');
     }
-    if (($argv[4] ?? null) === 'field-diff-policy' && $argc !== 5) {
+    if (($cliArgv[4] ?? null) === 'field-diff-policy' && $cliArgc !== 5) {
         throw new RuntimeException('field-diff-policy accepts no scope or compiler mode argument');
     }
-    $artifact = ($argv[4] ?? null) === 'field-diff-policy'
-        ? RefreshPlan::fieldDiffPolicyWorker($argv[1], $argv[2], $argv[3])
+    $artifact = ($cliArgv[4] ?? null) === 'field-diff-policy'
+        ? RefreshPlan::fieldDiffPolicyWorker($cliArgv[1], $cliArgv[2], $cliArgv[3])
         : RefreshPlan::compileGitWorktreeWorker(
-            $argv[1],
-            $argv[2],
-            $argv[3],
-            $argv[4] ?? null,
-            $argv[5] ?? null
+            $cliArgv[1],
+            $cliArgv[2],
+            $cliArgv[3],
+            $cliArgv[4] ?? null,
+            $cliArgv[5] ?? null
         );
     echo json_encode(
         $artifact,

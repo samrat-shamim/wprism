@@ -1,0 +1,12 @@
+{
+  "container_engine": {"path": "/usr/bin/docker", "sha256": "REPLACE_DOCKER_SHA256"},
+  "format": "duo-cloud-host-firewall-config/v1",
+  "ip": {"path": "/usr/bin/ip", "sha256": "REPLACE_IP_SHA256"},
+  "nft": {"path": "/usr/sbin/nft", "sha256": "REPLACE_NFT_SHA256"},
+  "principals": [
+    {"configuration_sha256s": ["REPLACE_SITE_A_CONFIGURATION_SHA256"], "service_uid": 10001, "worker_id": "site-a"},
+    {"configuration_sha256s": ["REPLACE_SITE_B_CONFIGURATION_SHA256"], "service_uid": 10001, "worker_id": "site-b"}
+  ],
+  "process_timeout_seconds": 5,
+  "state_root": "/var/lib/duo-cloud/firewall"
+}

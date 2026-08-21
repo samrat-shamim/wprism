@@ -1155,6 +1155,38 @@
           "TargetProbe.php"
         ]
       },
+      "Cloud": {
+        "layer": "adapter",
+        "purpose": "The outbound Duo Cloud connector boundary: an isolated production observation, private immutable upload spool, pairing, and closed signed cloud protocol.",
+        "status": "populated",
+        "entry_points": [
+          "OriginCloudClient",
+          "OriginExporter",
+          "OriginPairing",
+          "OriginPairingStateStore",
+          "OriginStore",
+          "OriginUploadCoordinator",
+          "OriginUploadJournal",
+          "OriginUploadSource"
+        ],
+        "depends_on": [
+          "Cloud",
+          "Kernel",
+          "Policy",
+          "Review"
+        ],
+        "exceptions": [],
+        "file_count": 7,
+        "files": [
+          "OriginCloudClient.php",
+          "OriginExporter.php",
+          "OriginPairing.php",
+          "OriginStore.php",
+          "OriginUploadCoordinator.php",
+          "OriginUploadJournal.php",
+          "OriginUploadSource.php"
+        ]
+      },
       "Command": {
         "layer": "surface",
         "purpose": "The `wp duo \u2026` WP-CLI surface: verb dispatch, argument parsing, refusal envelopes and operator output.",
@@ -1167,6 +1199,7 @@
           "Apply",
           "Assess",
           "Capture",
+          "Cloud",
           "Code",
           "Command",
           "Init",
@@ -1229,6 +1262,7 @@
         "status": "populated",
         "entry_points": [
           "EnvironmentDriver",
+          "ProviderLeaseBoundEnvironmentDriver",
           "Transport",
           "CodeDeploy",
           "SshTransport",
@@ -1273,8 +1307,12 @@
         "purpose": "The B/P/W refresh planner, field diff and local state materializer that reconciles git, production and working state.",
         "status": "populated",
         "entry_points": [
+          "CloudCommittedOriginExport",
+          "CloudOriginExportClient",
           "Refresh",
-          "RefreshFieldDiff"
+          "RefreshFieldDiff",
+          "ProductionSnapshotSource",
+          "RefreshProductionSource"
         ],
         "depends_on": [
           "Refresh",
@@ -1286,12 +1324,16 @@
           "agent:Scope"
         ],
         "exceptions": [],
-        "file_count": 4,
+        "file_count": 8,
         "files": [
+          "CloudCommittedOriginExport.php",
+          "CloudOriginExportClient.php",
+          "ProductionSnapshotSource.php",
           "Refresh.php",
           "RefreshFieldDiff.php",
           "RefreshPlan.php",
-          "RefreshPlanCompile.php"
+          "RefreshPlanCompile.php",
+          "RefreshProductionSource.php"
         ]
       },
       "Environment": {
@@ -1299,19 +1341,29 @@
         "purpose": "The environment registry and lifecycle that materialize, bind and reap the environments the orchestrator drives.",
         "status": "populated",
         "entry_points": [
-          "Registry",
-          "EnvironmentLifecycle"
+          "EnvironmentLifecycle",
+          "EnvironmentTransportFactory",
+          "CloudPreviewTransport",
+          "PortablePreviewMaterializer",
+          "PreviewRunJournal",
+          "Registry"
         ],
         "depends_on": [
           "Environment",
           "Plan",
           "Refresh",
-          "Transport"
+          "Transport",
+          "agent:Kernel"
         ],
         "exceptions": [],
-        "file_count": 2,
+        "file_count": 7,
         "files": [
+          "CloudPreviewTransport.php",
           "EnvironmentLifecycle.php",
+          "EnvironmentTransportFactory.php",
+          "ImmutableOciReference.php",
+          "PortablePreviewMaterializer.php",
+          "PreviewRunJournal.php",
           "Registry.php"
         ]
       },
@@ -1411,7 +1463,9 @@
           "PassthroughCommand",
           "CommandOutput",
           "EnvironmentCommandPreflight",
-          "EnvironmentCommandOptions"
+          "EnvironmentCommandOptions",
+          "OriginCommand",
+          "PreviewCommand"
         ],
         "depends_on": [
           "Adapter",
@@ -1430,7 +1484,7 @@
           "agent:Policy"
         ],
         "exceptions": [],
-        "file_count": 25,
+        "file_count": 27,
         "files": [
           "AdoptCommand.php",
           "AssessCommand.php",
@@ -1446,8 +1500,10 @@
           "EnvironmentCommandPreflight.php",
           "EnvironmentListCommand.php",
           "InitCommand.php",
+          "OriginCommand.php",
           "PassthroughCommand.php",
           "PendingCommand.php",
+          "PreviewCommand.php",
           "PromoteCommand.php",
           "RebaseCommand.php",
           "RecoverCommand.php",

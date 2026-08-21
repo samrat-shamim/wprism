@@ -374,6 +374,11 @@ function ref_action_capability(): array {
         'snapshot-abort' => 'snapshot.set.abort',
         'snapshot-restore' => 'snapshot.set.restore',
         'repository-materialize' => 'repository.materialize',
+        // The portable-cloud protocol owns the configured remote authority
+        // needed to serve this action. The local pair has no such authority,
+        // so it recognizes the action only to refuse its absent capability
+        // before reaching Git or Docker.
+        'repository-sync' => 'repository.sync',
         'url-set' => 'environment.url.set',
         'mutation-acquire' => 'environment.mutation.acquire',
         'mutation-read' => 'environment.mutation.read',

@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh installed Duo Cloud FPM ingress proof
+
+[Timer]
+OnBootSec=30s
+OnUnitInactiveSec=30s
+AccuracySec=1s
+Unit=duo-cloud-verify-installed-fpm-ingress.service
+
+[Install]
+WantedBy=timers.target

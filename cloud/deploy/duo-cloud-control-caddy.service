@@ -1,0 +1,24 @@
+[Unit]
+Description=Duo Cloud loopback control FastCGI edge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=duo-cloud-edge
+Group=duo-cloud-edge
+SupplementaryGroups=duo-cloud
+UMask=0077
+Environment=XDG_CONFIG_HOME=/var/lib/duo-cloud/caddy/control-config
+Environment=XDG_DATA_HOME=/var/lib/duo-cloud/caddy/control-data
+ExecStart=/usr/bin/caddy run --environ --config /opt/duo-cloud/deploy/control-edge.Caddyfile --adapter caddyfile
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/duo-cloud/caddy/control-config /var/lib/duo-cloud/caddy/control-data
+Restart=on-failure
+RestartSec=2s
+
+[Install]
+WantedBy=multi-user.target

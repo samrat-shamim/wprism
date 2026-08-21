@@ -1,0 +1,34 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+use Duo\Cloud\CanonicalJson;
+use Duo\Cloud\OperatorDiagnostics;
+use Duo\Cloud\ProductionFleetConfig;
+use Duo\Cloud\ProductionFleetPreflight;
+
+require_once dirname(__DIR__) . '/runtime/ProductionFleetPreflight.php';
+
+try {
+    $arguments = $_SERVER['argv'] ?? null;
+    if (!is_array($arguments) || !array_is_list($arguments) || count($arguments) !== 1) {
+        throw new RuntimeException('fleet preflight arguments are invalid');
+    }
+    $path = getenv('DUO_CLOUD_FLEET_CONFIG_FILE');
+    $sha256 = getenv('DUO_CLOUD_FLEET_CONFIG_SHA256');
+    if (!is_string($path) || !is_string($sha256)) {
+        throw new RuntimeException('fleet preflight configuration is absent');
+    }
+    $diagnostics = new OperatorDiagnostics();
+    $result = (new ProductionFleetPreflight(
+        ProductionFleetConfig::load($path, $sha256),
+        true,
+        $diagnostics
+    ))->refresh();
+    fwrite(STDOUT, CanonicalJson::encode($result) . "\n");
+    exit(($result['state'] ?? null) === 'host_ready' ? 0 : 70);
+} catch (Throwable $error) {
+    (new OperatorDiagnostics())->record('fleet-preflight', $error);
+    fwrite(STDERR, "duo-cloud-preflight-fleet: refused\n");
+    exit(70);
+}

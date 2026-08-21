@@ -17,7 +17,6 @@ require __DIR__ . '/src/Environment/Registry.php';
 require __DIR__ . '/src/Transport/EnvironmentDriver.php';
 require __DIR__ . '/src/Environment/EnvironmentLifecycle.php';
 require __DIR__ . '/src/Command/CommandOutput.php';
-require __DIR__ . '/src/Command/EnvironmentCommandPreflight.php';
 require __DIR__ . '/src/Command/PassthroughCommand.php';
 require __DIR__ . '/src/Command/PromoteCommand.php';
 require __DIR__ . '/src/Command/CaptureCommand.php';
@@ -27,6 +26,9 @@ require __DIR__ . '/src/Transport/Transport.php';
 require __DIR__ . '/src/Transport/LocalTransport.php';
 require __DIR__ . '/src/Transport/DockerTransport.php';
 require __DIR__ . '/src/Transport/SshTransport.php';
+require __DIR__ . '/src/Environment/CloudPreviewTransport.php';
+require __DIR__ . '/src/Environment/EnvironmentTransportFactory.php';
+require __DIR__ . '/src/Command/EnvironmentCommandPreflight.php';
 require __DIR__ . '/src/Command/EnvironmentCommand.php';
 require __DIR__ . '/src/Command/EnvironmentListCommand.php';
 require dirname(__DIR__) . '/recovery/rollback-control.php';
@@ -40,6 +42,7 @@ require __DIR__ . '/src/Command/InitCommand.php';
 require __DIR__ . '/src/Onboarding/Doctor.php';
 require __DIR__ . '/src/Command/DoctorCommand.php';
 require __DIR__ . '/src/Transport/CodeDeploy.php';
+require __DIR__ . '/src/Command/OriginCommand.php';
 require __DIR__ . '/src/Command/DeployCommand.php';
 require __DIR__ . '/src/Command/AdoptCommand.php';
 require __DIR__ . '/src/Command/ScopeCommand.php';
@@ -66,6 +69,7 @@ if (is_file(__DIR__ . '/src/Refresh/RefreshPlan.php')) {
 require __DIR__ . '/src/Refresh/Refresh.php';
 require __DIR__ . '/src/Command/RefreshCommand.php';
 require __DIR__ . '/src/Command/RebaseCommand.php';
+require __DIR__ . '/src/Command/PreviewCommand.php';
 // Round-3 MUP §2.1/§2.6. Deliberately last in this block: every class
 // below `require_once`s its own dependencies by path, and this file's
 // convention is a bare `require`, so a leaf loaded early here would be
@@ -118,13 +122,12 @@ require_once dirname(__DIR__) . '/agent/src/Policy/ScopeContract.php';
  *
  * Every require above is retained; nothing here loads anything eagerly. Two
  * maps are registered because this process legitimately spans both trees:
- * cli/duo-classmap.php covers the 60 Duo\Orchestrator\* types under cli/src
- * (all 60 are already declared once the require block above finishes, so that
- * registration is pure insurance), and agent/duo-classmap.php covers the 238
- * Duo\* types under agent/src, of which this bootstrap declares only ten —
- * the seven agent/src files required directly above plus what they pull in.
- * The remaining 228 arrive later and by hand: RefreshPlan::loadCompiler()
- * require_once's 38 agent/src files (cli/src/Refresh/RefreshPlan.php:1028), and
+ * cli/duo-classmap.php covers 101 Duo\Orchestrator\* types under cli/src (all
+ * 101 are already declared when the require block finishes, so registration is
+ * pure insurance), while agent/duo-classmap.php covers 252 Duo\* types under
+ * agent/src. This bootstrap declares ten of those; the remaining 242 arrive
+ * later and by hand. RefreshPlan::loadCompiler() require_once's its agent/src
+ * compiler closure (cli/src/Refresh/RefreshPlan.php:1028), and
  * AdapterCatalog/AdapterDraft/ManifestValidate each have their own boot()
  * that requires the Canon/OptionState/ManifestDispositions/Policy set (plus,
  * in AdapterCatalog's case, the AdapterRegistry it names statically). Those
@@ -215,6 +218,8 @@ use Duo\Orchestrator\AdoptCommand;
 use Duo\Orchestrator\Refresh;
 use Duo\Orchestrator\RefreshCommand;
 use Duo\Orchestrator\RebaseCommand;
+use Duo\Orchestrator\OriginCommand;
+use Duo\Orchestrator\PreviewCommand;
 
 function duo_usage(): string {
     return <<<TXT
@@ -244,6 +249,16 @@ Usage:
   duo adapter-observe <env> [--out=<local-file>|--format=json]
   duo doctor <env>
   duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
+  duo origin pair <production-env> [--poll] [--format=json]
+  duo origin export <production-env> [--format=json]
+  duo origin status <production-env> [--format=json]
+  duo origin rotate <production-env> [--format=json]
+  duo origin revoke <production-env> [--format=json]
+  duo origin uninstall <production-env> [--format=json]
+  duo preview create <cloud-env> --from=<production-env> --production-ref=<ref> --new-branch=<branch> [--ttl=<seconds>] [--format=json]
+  duo preview sleep <cloud-env> [--format=json]
+  duo preview wake <cloud-env> [--format=json]
+  duo preview reap <cloud-env> [--format=json]
   duo adopt  <env>
   duo init   <env> [--yes] [--allow-unmanaged-plugins]
   duo status <env> [--category=<ids>] [--action=<buckets>] [--entity=<kinds>] [--limit=<1..200>]
@@ -291,6 +306,38 @@ Verbs:
                           Repeated reap is idempotent; stale identity refuses.
   envs                    List environments from site.duo.json + .duo-envs.json
                           (overlay wins per env name), with transport summaries.
+  origin pair <env>       Pair an adopted production site to Duo Cloud. The
+    [--poll]              device code is read directly by the target WP-CLI
+                          process from stdin and never enters controller/target
+                          argv. Rerun with --poll to resume the durable signed
+                          exchange after approving the code.
+  origin export <env>     Poll once for a generation-bound Cloud demand and,
+                          when demanded, seal one immutable production export,
+                          upload its verified chunks, and commit its receipt.
+  origin status <env>     Read only redacted pairing and upload-journal state.
+  origin rotate <env>     Perform or recover the current pairing's one signing-
+                          key rollover while the upload journal is idle. A
+                          repeat replays its receipt; revoke and pair again to
+                          authorize a later planned rollover.
+  origin revoke <env>     Durably revoke the paired origin key with the fixed
+                          administrator-requested reason.
+  origin uninstall <env>  Crash-safely delete any local export spool, then
+                          revoke the paired key with the fixed uninstall reason.
+                          Every origin command uses the isolated
+                          DUO_CONTROL_PLANE bootstrap and the HTTPS/service-key
+                          trust descriptor pinned in wp-config.
+  preview create <env>    Build one lower-fidelity, portable-authored-state
+                          preview from a committed outbound production export.
+                          The exact semantic-rebase candidate is published only
+                          to the signed operation ref, synced under the held
+                          cloud fence, then removed before materialization.
+  preview sleep <env>     Under a generation-exact held sleep fence, durably
+                          remove routing and then execution while retaining
+                          credentials, volumes, storage, URL, and lease identity.
+  preview wake <env>      Resume that exact retained generation, verify it, then
+                          restore its URL route and release the sleep fence.
+  preview reap <env>      Compare and destroy only the exact provider-owned
+                          preview generation recorded by the durable journal.
   manifest-validate       Adapter-authoring aid: run the engine's REAL manifest
     <manifests-dir>       validators over a directory of manifests with no
     [--manifest=<names>]  WordPress, no database, and no environment. Each
@@ -955,6 +1002,12 @@ function main(array $argv): int {
     if ($verb === 'env') {
         return cmd_environment($rest, $envsFileOverride);
     }
+    if ($verb === 'origin') {
+        return OriginCommand::run($rest, $envsFileOverride, getcwd() ?: '.');
+    }
+    if ($verb === 'preview') {
+        return cmd_preview($rest, $envsFileOverride);
+    }
 
     // No environment, no transport, no registry: this one reads manifest files
     // on this machine and drives the engine's own offline validators over them.
@@ -1143,6 +1196,19 @@ function cmd_environment(array $args, ?string $envsFileOverride): int {
         $args,
         $envsFileOverride,
         static fn(EnvironmentDriver $driver, array $context): array|int => cmd_promote_frozen($driver, $context)
+    );
+}
+
+/** Public universal cloud-preview composition. */
+function cmd_preview(array $args, ?string $envsFileOverride): int {
+    return PreviewCommand::run(
+        $args,
+        $envsFileOverride,
+        getcwd() ?: '.',
+        static fn(EnvironmentDriver $driver, array $context): array|int =>
+            cmd_promote_frozen($driver, $context),
+        static fn(EnvironmentDriver $driver, ?array $prior): array =>
+            PreviewCommand::observeConvergence($driver, $prior)
     );
 }
 
@@ -3172,6 +3238,8 @@ function cmd_classify(EnvironmentDriver $t, array $extra): int {
     });
 }
 
+$argv = $_SERVER['argv'] ?? [];
+$argv = is_array($argv) ? array_map('strval', $argv) : [];
 try {
     exit(main($argv));
 } catch (\Throwable $e) {

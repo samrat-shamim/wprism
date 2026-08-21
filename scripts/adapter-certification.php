@@ -157,7 +157,8 @@ function cert_cli_secret_file(string $path): string {
 }
 
 try {
-    [$command, $args] = cert_cli_args($argv);
+    $cliArgv = $_SERVER['argv'] ?? [];
+    [$command, $args] = cert_cli_args(is_array($cliArgv) ? array_map('strval', $cliArgv) : []);
     switch ($command) {
         case 'sign':
             cert_cli_require($args, [

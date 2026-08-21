@@ -6,6 +6,16 @@ namespace Duo\Tests\Tooling;
 
 use PHPUnit\Framework\TestCase;
 
+final class ApiSurfaceSelfTypeFixture
+{
+    public self $peer;
+
+    public function replace(self $peer): self
+    {
+        return $peer;
+    }
+}
+
 /**
  * Pins tools/api-surface.php (WP-10) against the two things a
  * regenerate-and-gate snapshot must guarantee, plus its comparison logic
@@ -196,5 +206,17 @@ final class ApiSurfaceTest extends TestCase
         $diff = as_diff($committed, $mutated);
 
         self::assertContains('+ Duo\\__SyntheticTestClass__ (added)', $diff);
+    }
+
+    public function testSelfTypesResolveToTheDeclaringClassAcrossPhpVersions(): void
+    {
+        self::requireTool();
+
+        $surface = as_reflect_symbol(ApiSurfaceSelfTypeFixture::class);
+        $expected = ApiSurfaceSelfTypeFixture::class;
+
+        self::assertSame($expected, $surface['properties']['peer']['type']);
+        self::assertSame($expected, $surface['methods']['replace']['return_type']);
+        self::assertSame($expected, $surface['methods']['replace']['parameters'][0]['type']);
     }
 }

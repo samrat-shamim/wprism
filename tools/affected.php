@@ -84,7 +84,7 @@ declare(strict_types=1);
  *       af_extract_dirs() for the three gates that keep this from
  *       degenerating into `--all`.
  * A fifth signal closes the transitive gap symmetric to (c): agent/src,
- * cli/src, and recovery are "224 flat namespace Duo files with
+ * cli/src, and recovery are "232 flat namespace Duo files with
  * self-requires" (repo fact) that pull each other in via
  * `require_once __DIR__ . '/Sibling.php'` (same-directory, no root prefix,
  * so (b) alone would miss it) or a rooted cross-directory literal that (b)
@@ -499,7 +499,7 @@ function af_primary_targets(string $root): array
  * costs. The one that forced this change: a suite under
  * sandbox/tests/offline/<domain>/ is in no allowlist entry, so nothing it
  * invokes -- and nothing that invokes it -- resolves, and the involved-file
- * BFS silently stops at the suite itself. The one it also fixes: the 91 files
+ * BFS silently stops at the suite itself. The one it also fixes: the 94 files
  * under sandbox/tests/fixtures/<subject>/ were already two levels down and
  * therefore already unresolvable, so a grind fixture edit selected nothing.
  *

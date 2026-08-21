@@ -1,0 +1,31 @@
+[Unit]
+Description=Duo Cloud dependency-free HTTP authority pool for %i
+After=local-fs.target network.target
+RequiresMountsFor=/var/lib/duo-cloud
+
+[Service]
+Type=notify
+User=duo-cloud
+Group=duo-cloud
+SupplementaryGroups=docker
+UMask=0077
+RuntimeDirectory=duo-cloud/%i
+RuntimeDirectoryMode=0751
+ExecStart=/usr/sbin/php-fpm8.3 --nodaemonize --fpm-config /var/lib/duo-cloud/config/workers/%i-fpm.conf -c /opt/duo-cloud/deploy/php-fpm.ini
+ExecReload=/bin/kill --signal USR2 $MAINPID
+PrivateTmp=true
+Delegate=yes
+ProtectHome=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/duo-cloud /run/duo-cloud/%i
+Restart=on-failure
+RestartSec=2s
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=30s
+TimeoutStopSec=0
+
+[Install]
+WantedBy=multi-user.target

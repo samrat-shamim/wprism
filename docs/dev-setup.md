@@ -197,7 +197,7 @@ first-party source file that ships inside `agent/`, and **every existing
 `require_once` stays** (owner ruling D4). The fallback is additive — an
 autoloader is only consulted for a class that is *still undeclared* when it is
 referenced — so on the production path it resolves nothing at all. Measured:
-after `agent/duo.php` finishes, 237 of the map's 239 names are already
+after `agent/duo.php` finishes, 250 of the map's 252 names are already
 declared, and the two exceptions (`Duo\AdapterCertification` and the
 `Duo\SupersededSiteAdapterCertificate` declared in the same file) are
 `require_once`d at each of that file's three use sites in `AdapterSources.php`

@@ -931,10 +931,11 @@ namespace {
     // shrinking the set the contract sentence claims is closed.
     // 27 with DUO-3326's `code-preflight` plus scoped promotion's two
     // orchestrator-only handoff commands; 28 with round-3 MUP §4.5's
-    // `assess-inventory`. Every advertised handler is covered by the common
-    // envelope contract, so this count moves with the set rather than around
-    // it.
-    check(count($advertised) === 28, 'every one of the 28 --format=json commands was scanned (' . count($advertised) . ')');
+    // `assess-inventory`; 32 with Cloud origin pair/export/status/revoke; 34
+    // with the closed origin rotate/uninstall maintenance surface.
+    // Every advertised handler is covered by the common envelope contract,
+    // so this count moves with the set rather than around it.
+    check(count($advertised) === 34, 'every one of the 34 --format=json commands was scanned (' . count($advertised) . ')');
 
     // Each newly enveloped command got a reviewed remediation arm, because the
     // default arm promises to "correct the named blocker" on exactly the path
@@ -945,6 +946,7 @@ namespace {
         'code-preflight', 'promotion-begin', 'promotion-abort', 'promotion-begin-scoped',
         'promotion-complete-scoped', 'env-set', 'orphans', 'verify-canonical',
         'journal-report', 'pending', 'coverage', 'classify', 'lint', 'capabilities',
+        'origin-rotate', 'origin-uninstall',
     ] as $command) {
         $arm = (string) $armed->invoke(null, $command);
         check(

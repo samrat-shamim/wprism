@@ -550,7 +550,7 @@ fwrite(STDOUT, 'ok: every agent/src engine class reference is self-required or d
 // DUO-3481 (WP-11): directional layer lint.
 //
 // Everything above answers "does this file load what it names".  It says
-// nothing about direction.  agent/src is 225 files across 17 module
+// nothing about direction.  agent/src is 232 files across 18 module
 // directories with no autoloader and no package boundary, and the reference
 // graph above puts most of them in one strongly connected component, so the
 // boundary doctrine in docs/adapter-boundary.md ("engine
