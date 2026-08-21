@@ -251,7 +251,8 @@ final class ReleaseCommand {
                 'contract_missing',
                 'this site repository has no accepted application contract, so no reviewed declaration says '
                     . 'what this release is allowed to reach',
-                'run duo assess ' . self::token($driver->name()) . ', review .duo/contract/proposed.json, then '
+                'run duo assess ' . self::token($driver->name()) . ', review '
+                    . $store->proposalRelativePath($driver->name()) . ', then '
                     . 'duo contract ' . self::token($driver->name()) . ' accept',
                 'declare in contract'
             );

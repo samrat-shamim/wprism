@@ -301,7 +301,7 @@ address of the reviewed dispositions the verdict was read from, and this
 checkout's own copy of that document.
 
 ```sh
-cli/duo contract production propose   # writes .duo/contract/proposed.json
+cli/duo contract production propose   # writes .duo/contract/production/proposed.json
 # review and edit the proposal, then:
 cli/duo contract production accept    # writes contract.json + projection.json
 cli/duo contract production show

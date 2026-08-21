@@ -936,12 +936,13 @@ assess_both() {
 CONTRACT_DIGEST=""
 contract_cycle() {
   local scenario="$1" env="$2" dir="$3" landing="$4" extraJourney="$5" surfaceFilter="${6:-.}"
-  local proposed="$dir/.duo/contract/proposed.json"
+  # Per environment since DUO-3503: `.duo/contract/<env>/proposed.json`.
+  local proposed="$dir/.duo/contract/$env/proposed.json"
   local contract="$dir/.duo/contract/contract.json"
   say "$scenario — duo contract $env propose -> review -> accept"
   duo_ok "$EVIDENCE/$scenario/contract-propose.txt" "$dir" contract "$env" propose
   if dry; then
-    plan "jq: review .duo/contract/proposed.json — code-lifecycle-window live/provider-state restorable/operator; journeys <landing permalink path> and /?post_type=product$([ "$extraJourney" = '-' ] || printf ' (+1 scenario journey)')"
+    plan "jq: review .duo/contract/$env/proposed.json — code-lifecycle-window live/provider-state restorable/operator; journeys <landing permalink path> and /?post_type=product$([ "$extraJourney" = '-' ] || printf ' (+1 scenario journey)')"
     plan "jq: review every surface this scenario decides (§3.6)"
     CONTRACT_DIGEST='<contract-digest>'
   else

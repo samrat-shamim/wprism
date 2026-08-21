@@ -40,5 +40,5 @@ next actions:
       0  certify adapter
       2  nothing — supported
 evidence: reviewed dispositions 8f8f8f8f8f8f
-proposed contract written: .duo/contract/proposed.json (accept with duo contract awalk1 accept)
+proposed contract written: .duo/contract/awalk1/proposed.json (accept with duo contract awalk1 accept)
 artifact: a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1

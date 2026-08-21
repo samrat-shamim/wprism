@@ -63,9 +63,12 @@ use Duo\CommandRefusalException;
  *     own `adapter-survey` block already rode in with the inventory.
  *
  * Nothing in this command writes to the target. The only write it performs
- * is local: `.duo/contract/proposed.json` in the site repository, and
+ * is local: `.duo/contract/<env>/proposed.json` in the site repository, and
  * `.duo/contract/projection.json` when a contract has already been
- * accepted (MUP §3.4's refresh row).
+ * accepted (MUP §3.4's refresh row). The proposal carries the environment
+ * in its path because it carries it in its content (DUO-3503,
+ * ContractStore.php:21-36): assessing one environment must not overwrite
+ * the review in flight for another.
  *
  * ## Exit status
  *
@@ -76,9 +79,6 @@ use Duo\CommandRefusalException;
  * only when the assessment itself refuses.
  */
 final class AssessCommand {
-    /** Where the proposal and projection live, relative to the site repo. */
-    public const PROPOSAL_PATH = ContractStore::DIRECTORY . '/' . ContractStore::PROPOSAL_FILE;
-
     /** The operation whose projection the human table's columns show. */
     public const DEFAULT_VIEW_OPERATION = 'release';
 
@@ -113,6 +113,12 @@ final class AssessCommand {
                 'generated_at' => ($clock ?? static fn (): string => gmdate('Y-m-d\TH:i:s\Z'))(),
             ]);
             self::writeLocalArtifacts($result);
+            // Inside the try, not beside the render below: the path is
+            // derived from an environment name the store refuses when it is
+            // not a legal segment (contract_environment_invalid), and that
+            // refusal must render as a refusal rather than escape as a
+            // fatal from a command that had already finished its work.
+            $proposalPath = $result['store']->proposalRelativePath((string) $result['report']['env']);
         } catch (CommandRefusalException $refusal) {
             return self::renderRefusal($refusal, $json);
         }
@@ -123,7 +129,7 @@ final class AssessCommand {
             return 0;
         }
         $lines = AssessRenderer::render($result['report'], $limit, [
-            'proposal_path' => self::PROPOSAL_PATH,
+            'proposal_path' => $proposalPath,
             'contract_present' => $result['contract'] !== null,
             'operation' => $viewOperation,
         ]);
@@ -330,7 +336,15 @@ final class AssessCommand {
         /** @var ContractStore $store */
         $store = $result['store'];
         if (AssessReport::dispositionsAgree($result['report'])) {
-            $store->writeProposal(ContractProposal::fromAssessReport($result['report'], $result['seed']));
+            // The report's own `env`, not a caller-supplied one: the document
+            // stamps that value as `environment` (ContractProposal.php:185)
+            // and binds it into `assess_digest` (AssessReport.php:103), so
+            // the path it lands under is derived from the same fact rather
+            // than agreed separately (DUO-3503).
+            $store->writeProposal(
+                (string) $result['report']['env'],
+                ContractProposal::fromAssessReport($result['report'], $result['seed'])
+            );
         }
         if ($result['contract'] === null) {
             return;

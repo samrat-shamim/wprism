@@ -108,7 +108,7 @@ next actions:
       2  nothing — supported
 evidence: 4 certification subject(s) pinned
           certified by site-1a2b3c4d5e6f (site trust root); contract attestation unsigned
-proposed contract written: .duo/contract/proposed.json (accept with duo contract production accept)
+proposed contract written: .duo/contract/production/proposed.json (accept with duo contract production accept)
 ```
 
 **Exit 0 is not a green light, and it is not meant to be one.** A bounded
@@ -189,7 +189,7 @@ read the presence of the line as the signal. The count is the signal.
 | Next action | What you actually do |
 |---|---|
 | `classify` | The surface has no disposition. `duo pending <env>` lists it, `duo classify <env>` decides it. Cheapest remedy on the list, which is why it sorts first. |
-| `declare in contract` | Duo can see the effect but cannot bound it. Add the declaration to `.duo/contract/proposed.json` and accept it — see below, and the containment rule in [release.md](release.md#when-release-refuses-before-it-freezes-anything). |
+| `declare in contract` | Duo can see the effect but cannot bound it. Add the declaration to `.duo/contract/<env>/proposed.json` and accept it — see below, and the containment rule in [release.md](release.md#when-release-refuses-before-it-freezes-anything). |
 | `qualify in rehearsal` | **Never printed by this profile.** It stays in the closed set so a projection written by an older build still validates, but nothing emits it: rehearsal says in its own output that it cannot qualify anything, so naming it as your next step was sending you to prove that. |
 | `install adapter` | Nothing models this surface, and something probably owns it — an active plugin, or a table with a plugin's name on it. Write or install an adapter; [adapter-authoring.md](adapter-authoring.md) is the whole path, and `duo adapter-draft --seed` will propose the surface for you. |
 | `certify adapter` | The adapter **is** installed and is one signature or one pin short: `duo adapter certify <site-repo> --name=<n> --secret-key-file=<key> --pin`. It is also the word for the other two rows that need a reviewed, current claim rather than a repeat run — a contract whose pinned dispositions moved (`Requalification required`) and an authored `experimental` status — neither of which a rehearsal can produce. |
@@ -219,13 +219,13 @@ reads its declared external effects for the does-not-restore list.
 
 ```sh
 duo contract production propose
-$EDITOR .duo/contract/proposed.json
+$EDITOR .duo/contract/production/proposed.json
 duo contract production accept
 duo contract production show
 ```
 
-`propose` re-runs the assessment and writes `.duo/contract/proposed.json`. A
-proposal is never authority — a declaration cannot certify itself — and the
+`propose` re-runs the assessment and writes `.duo/contract/<env>/proposed.json`.
+A proposal is never authority — a declaration cannot certify itself — and the
 generated document deliberately carries an external-effects entry marked
 `decided_by: "unresolved"` that validation *refuses*. The only way to accept a
 proposal is to have edited it: the human review step is enforced by the
@@ -242,6 +242,16 @@ reconciling it (the site moved between propose and accept: re-propose), writes
 `contract.json` and `projection.json` canonically under compare-and-swap, and
 **stages** them. It never commits. The commit is your signature on the review,
 and a tool that made it would be signing on your behalf.
+
+**Two tiers, and the paths say which.** The contract is **per site** — one
+`.duo/contract/contract.json`, with `environment_bindings.required[]` naming
+what varies between environments — while the proposal and the review you write
+into it are **per environment**, at `.duo/contract/<env>/proposed.json`. So
+`duo assess stage` never touches a `production` proposal you are halfway
+through reviewing, and `duo contract production accept` refuses a proposal
+stamped for another environment
+(`contract_proposal_environment_mismatch`) instead of reporting it as a site
+that moved.
 
 `show` renders what is on disk and contacts nothing, which is the point:
 `contract.json` and `projection.json` are committed review artifacts, and

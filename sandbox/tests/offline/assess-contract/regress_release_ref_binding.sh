@@ -91,7 +91,7 @@ foreach ($contract["declarations"]["surfaces"] as $index => $surface) {
 }
 $proposal["contract"] = $contract;
 file_put_contents($path, json_encode($proposal, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-' "$SITE/.duo/contract/proposed.json"
+' "$SITE/.duo/contract/fixture/proposed.json"
 duo "$TMP/accept.txt" contract fixture accept \
   || { fail 'contract accept failed'; cat "$TMP/accept.txt.err" >&2; }
 

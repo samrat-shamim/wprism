@@ -274,8 +274,8 @@ echo "ok: the report document validates, and every §1 projection matches\n";
 
 # --------------------------------------------------------------- the proposal
 say 'the proposed contract'
-if [ -f "$TMP/site/repo/.duo/contract/proposed.json" ]; then
-  pass 'assess writes .duo/contract/proposed.json into the LOCAL site repository'
+if [ -f "$TMP/site/repo/.duo/contract/fixture/proposed.json" ]; then
+  pass 'assess writes .duo/contract/fixture/proposed.json into the LOCAL site repository'
 else
   fail 'assess did not write the proposed contract'
 fi
@@ -291,7 +291,7 @@ if (count($effects) !== 1 || $effects[0]["decided_by"] !== "unresolved") {
 if (($p["review_required_count"] ?? 0) < 1) { $fail("a generated proposal with an unreviewed effect must require review"); }
 if (!isset($p["contract"]["declarations"]["surface_labels"])) { $fail("the surface_labels map is missing"); }
 echo "ok: the proposal is a proposal — unsigned, unreviewed where it must be, and never authority\n";
-' "$TMP/site/repo/.duo/contract/proposed.json" || fail 'the generated proposal is wrong'
+' "$TMP/site/repo/.duo/contract/fixture/proposed.json" || fail 'the generated proposal is wrong'
 
 # ---------------------------------------------------------------- human view
 # The human view is a PROJECTION of the document above, never a second
@@ -367,7 +367,7 @@ assert_absent "$TMP/outh.txt" 'contract attestation unsigned' \
 # bake the skew in. Minting is gated in AssessCommand::writeLocalArtifacts(),
 # which is the only writeProposal() call in the tree.
 say 'a host/target library mismatch is loud, and assess still answers'
-PROPOSAL_BEFORE=$(cat "$TMP/site/repo/.duo/contract/proposed.json")
+PROPOSAL_BEFORE=$(cat "$TMP/site/repo/.duo/contract/fixture/proposed.json")
 ( cd "$TMP/site/repo" && DUO_LIBRARY_SKEW=1 run_assess "$TMP/calls-skew.txt" "$TMP/skew.json" "$TMP/skew.err" \
     assess fixture --format=json )
 STATUS=$?
@@ -397,10 +397,10 @@ foreach (["host_registry_sha256", "target_registry_sha256"] as $k) {
 echo "ok: the machine document states both hashes, the verdict and its meaning\n";
 ' "$TMP/skew.json" || fail 'the mismatch is not a first-class block in the machine document'
 
-if [ "$PROPOSAL_BEFORE" = "$(cat "$TMP/site/repo/.duo/contract/proposed.json")" ]; then
+if [ "$PROPOSAL_BEFORE" = "$(cat "$TMP/site/repo/.duo/contract/fixture/proposed.json")" ]; then
   pass 'assess minted no proposal from the mismatched assessment — the earlier one is untouched, not overwritten'
 else
-  fail 'a mismatched assessment rewrote .duo/contract/proposed.json'
+  fail 'a mismatched assessment rewrote .duo/contract/fixture/proposed.json'
 fi
 
 ( cd "$TMP/site/repo" && DUO_LIBRARY_SKEW=1 run_assess "$TMP/calls-skewh.txt" "$TMP/skew.txt" "$TMP/skewh.err" \
@@ -411,7 +411,7 @@ assert_contains "$TMP/skew.txt" 'the target answered from a different reviewed l
   'and prints the document own meaning sentence rather than a second wording of it'
 assert_contains "$TMP/skew.txt" 'no proposed contract written' \
   'the human view says the proposal was withheld, where it would have claimed one was written'
-assert_absent "$TMP/skew.txt" 'proposed contract written: .duo/contract/proposed.json (accept' \
+assert_absent "$TMP/skew.txt" 'proposed contract written: .duo/contract/fixture/proposed.json (accept' \
   'and never claims a proposal an operator could accept'
 # MUP §5.2 again: the mismatch lines are the newest place a 64-hex digest
 # could reach a terminal, and they print twelve.

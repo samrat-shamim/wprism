@@ -165,11 +165,13 @@ claim. What you are looking for is whether the surfaces you actually care about
 read `Ready` or `Ready with conditions` for the operations you intend, and
 whether the unknown section is a queue you are willing to work through.
 
-Assess also writes `.duo/contract/proposed.json` in your local site repository.
-That is the beginning of the reviewed application contract that `duo release`,
-`duo verify` and `duo recover` all read later; you do not have to deal with it
-now, and [assess.md](assess.md#record-the-decision-the-application-contract)
-picks it up when you do.
+Assess also writes `.duo/contract/<env>/proposed.json` in your local site
+repository — per environment, because the proposal describes one environment,
+while the contract it becomes is one per site. That is the beginning of the
+reviewed application contract that `duo release`, `duo verify` and `duo recover`
+all read later; you do not have to deal with it now, and
+[assess.md](assess.md#record-the-decision-the-application-contract) picks it up
+when you do.
 
 If the assessment says the site is not a fit, you have learned that before
 creating a baseline, which is the whole reason this step is here rather than
@@ -340,7 +342,7 @@ init's own proposal instead of the seed's trivial `core`-only pin set, and the
 one state in which `duo init` still owns the file and will recompute and
 republish it rather than refuse. The `.gitignore` goes on before anything else
 touches the directory because `assess` itself — not only `init` — starts
-writing scratch here: its `.duo/contract/proposed.json` write (step 3 above)
+writing scratch here: its `.duo/contract/<env>/proposed.json` write (step 3 above)
 needs `/.duo/` ignored from its very first run. `git -C <repo> init` makes
 `<repo>` its own Git worktree root; skip that and, if `<repo>` was created
 inside some other project's checkout — the easy mistake on a first

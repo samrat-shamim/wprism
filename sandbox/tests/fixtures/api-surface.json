@@ -18476,9 +18476,6 @@
                 "DEFAULT_VIEW_OPERATION": {
                     "value_repr": "release"
                 },
-                "PROPOSAL_PATH": {
-                    "value_repr": ".duo/contract/proposed.json"
-                },
                 "STEPS": {
                     "value_repr": [
                         "doctor",
@@ -21118,7 +21115,33 @@
                 "proposalPath": {
                     "abstract": false,
                     "final": false,
-                    "parameters": [],
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "environment",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "proposalRelativePath": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "environment",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
                     "return_type": "string",
                     "static": false,
                     "visibility": "public"
@@ -21142,7 +21165,16 @@
                 "readProposal": {
                     "abstract": false,
                     "final": false,
-                    "parameters": [],
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "environment",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
                     "return_type": "?array",
                     "static": false,
                     "visibility": "public"
@@ -21193,6 +21225,14 @@
                     "abstract": false,
                     "final": false,
                     "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "environment",
+                            "type": "string",
+                            "variadic": false
+                        },
                         {
                             "by_ref": false,
                             "default": null,
