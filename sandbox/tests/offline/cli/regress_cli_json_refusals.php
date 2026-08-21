@@ -65,6 +65,37 @@ namespace Duo {
         }
     }
 
+    /**
+     * DUO-3522: enough of Init to drive Cli::init() down its refusal path.
+     * $onCall runs BEFORE the throw, which is how the suite reproduces the
+     * shape that mattered -- an init that publishes site.duo.json and only then
+     * fails, so the directory becomes a Duo repository mid-command.
+     */
+    final class Init {
+        public const FORMAT = 'duo-init-plan/v1';
+        public static ?\Throwable $failure = null;
+        /** @var ?callable */
+        public static $onCall = null;
+
+        private static function answer(): array {
+            if (self::$onCall !== null) {
+                (self::$onCall)();
+            }
+            if (self::$failure !== null) {
+                throw self::$failure;
+            }
+            return ['format' => self::FORMAT, 'ready' => true];
+        }
+
+        public static function proposal($repo, $allowUnmanagedPlugins = false, $lockPlan = null): array {
+            return self::answer();
+        }
+
+        public static function confirm($repo, $digest, $allowUnmanagedPlugins = false, $lockPlan = null): array {
+            return self::answer();
+        }
+    }
+
     final class Apply {
         public static ?\Throwable $planFailure = null;
         public static ?\Throwable $applyFailure = null;
@@ -817,10 +848,53 @@ namespace {
     );
 
     $snapshot->setValue(null, $identityOf->invoke(null, $evidenceRepo));
+    (new ReflectionProperty(\Duo\Cli::class, 'initRepositoryWasDuoAtEntry'))->setValue(null, true);
     check(
         $gate->invoke(null, $evidenceRepo, 'init') === true,
         'init records while the directory it started against is still the one at that path'
     );
+
+    // DUO-3522: the moment the "already a Duo repository?" question is asked.
+    // init is the command that CREATES that marker, so asking at refusal time
+    // let a half-published init answer its own question: it published
+    // site.duo.json, failed during capture, recorded `.duo/refusals`, and left
+    // it behind -- the rollback has no deletion authority over `.duo`, so the
+    // repository was not byte-empty after a recovery that correctly reported it
+    // restored. Both facts are therefore snapshotted at ENTRY.
+    // Driven through Cli::init() itself, not through the predicate: the whole
+    // defect was WHEN the question gets asked, and only the real entry point
+    // takes the entry-time snapshots.
+    $freshRepo = sys_get_temp_dir() . '/duo-cli-json-refusal-fresh-init-' . bin2hex(random_bytes(6));
+    mkdir($freshRepo, 0700, true);
+    \Duo\Init::$onCall = static function () use ($freshRepo): void {
+        // The half-published init: the marker exists by the time it fails.
+        file_put_contents($freshRepo . '/site.duo.json', "{}\n");
+    };
+    \Duo\Init::$failure = new RuntimeException('duo: init refused with sk_live_FRESHINIT');
+    $freshInit = invoke_json(static fn() => $cli->init([], ['repo' => $freshRepo, 'format' => 'json']));
+    check(($freshInit['details_redacted'] ?? null) === true, 'the half-published init still yields the redacted envelope');
+    check(
+        !is_dir($freshRepo . '/.duo'),
+        'a fresh init records nothing even after it has published site.duo.json mid-command'
+    );
+    check(
+        is_file($freshRepo . '/site.duo.json'),
+        'and the marker it published is left alone -- the recorder skips, it does not clean up after init'
+    );
+
+    // Entered against a repository that was ALREADY real: still records, which
+    // is the interrupted-attempt refusal actually worth reading.
+    \Duo\Init::$onCall = null;
+    \Duo\Init::$failure = new RuntimeException('duo: init refused with sk_live_EXISTINGINIT');
+    invoke_json(static fn() => $cli->init([], ['repo' => $freshRepo, 'format' => 'json']));
+    check(
+        count(glob($freshRepo . '/.duo/refusals/*-init-*.json') ?: []) === 1,
+        'an init entered against an existing Duo repository still records'
+    );
+    \Duo\Init::$failure = null;
+    foreach (glob($freshRepo . '/.duo/refusals/*') ?: [] as $f) unlink($f);
+    @rmdir($freshRepo . '/.duo/refusals'); @rmdir($freshRepo . '/.duo');
+    @unlink($freshRepo . '/site.duo.json'); @rmdir($freshRepo);
 
     // The live case: same path, different inode.
     $swapped = sys_get_temp_dir() . '/duo-cli-json-refusal-swapped-' . bin2hex(random_bytes(6));

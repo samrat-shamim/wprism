@@ -726,8 +726,16 @@ are rejected when the registry is loaded.
   place whenever a captured transport returns such an envelope. The record is
   written only into a directory that is **already a Duo repository** — a
   regular `site.duo.json`, or a `.duo/` that already exists — reached without
-  following a symlinked repository root, and for `init` only while that
-  directory is still the one the command started against (DUO-3516). A
+  following a symlinked repository root, and for `init` only when that
+  directory was already a Duo repository *when the command started* and is
+  still the same directory (DUO-3516, DUO-3522). Both init conditions are
+  entry-time facts on purpose: `init` is the command that CREATES that marker,
+  so asking at refusal time let an init that published `site.duo.json` and then
+  failed answer its own question — and the `.duo/` it wrote then survived the
+  rollback that reported the repository restored. A **fresh** `init` therefore
+  records nothing; its evidence is the sealed attempt journal and a human-mode
+  rerun. An `init` recovering an interrupted attempt inside a real repository
+  still records. A
   refusal must never materialize Duo state in a directory that just failed
   the repository-identity gate, or in one that is not a Duo repository at
   all, so where those conditions do not hold nothing is written and the
