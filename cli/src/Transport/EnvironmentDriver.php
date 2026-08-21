@@ -205,7 +205,11 @@ final class DriverCapabilityReport {
             // control or a snapshot capability for it would refuse a
             // verification on a driver that can honestly answer it.
             'init', 'status', 'capabilities', 'adapter-observe', 'capture', 'lint', 'plan', 'explain', 'apply', 'env-set',
-            'pending', 'classify', 'coverage', 'scope', 'assess', 'contract', 'verify' => [
+            // `code-classify` (DUO-3499) joins the same read-only WP-CLI set:
+            // it runs `wp duo code-inventory` and writes only into the LOCAL
+            // checkout. Demanding raw control would refuse a migration on a
+            // driver that can honestly answer the one question it asks.
+            'pending', 'classify', 'coverage', 'scope', 'assess', 'contract', 'verify', 'code-classify' => [
                 DriverCapability::ATTACH, DriverCapability::WP_CONTROL,
             ],
             'refresh', 'rebase' => [

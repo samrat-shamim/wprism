@@ -37,7 +37,8 @@ duo adapter-observe <env> [--out=<local-file>|--format=json]
 duo doctor <env>
 duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
 duo adopt  <env>
-duo init   <env> [--yes]
+duo init   <env> [--yes] [--allow-unmanaged-plugins] [--code=split|full] [--offline] [--cache-dir=<path>]
+duo code-classify <env> [--dry-run] [--offline] [--cache-dir=<path>]
 duo status <env> [--category=<ids>] [--action=<buckets>] [--entity=<kinds>] [--limit=<1..200>]
 duo assess <env> [--operation=<ops>] [--limit=<1..200>] [--format=json]
 duo contract <env> show|propose|accept [--format=json]
@@ -312,6 +313,39 @@ are rejected when the registry is loaded.
   WordPress or deliver the agent; SSH and explicitly authorized local targets
   use `duo adopt` first, while Docker targets must already expose the agent
   through their control plane.
+
+  Since DUO-3499 init also proposes a **code split**, on by default. It asks
+  the target for each active component's `{root, component, version,
+  tree_sha256, bytes, files}` — the target reaches no registry, ever — then
+  resolves each candidate's published wp.org release archive on THIS host into
+  a content-addressed cache, unpacks it, and locks the component only when the
+  unpacked tree is hash-identical to what is installed. Everything else is
+  vendored with its reason printed. The classification is sent back inside the
+  proposal, so it rides in the digest exactly as `--allow-unmanaged-plugins`
+  does and a stale `--confirm` cannot apply a split nobody read. On
+  confirmation the agent publishes `code/duo-code.lock.json` and the
+  root-anchored `.gitignore` lines. `--code=full` keeps the fully vendored
+  shape; `--offline` contacts nothing and is equivalent, with the reason
+  stated; `--cache-dir=<path>` overrides the default cache
+  (`$XDG_CACHE_HOME/duo/code-artifacts`, else `~/.cache/duo/code-artifacts`).
+
+- **`duo code-classify <env> [--dry-run] [--offline] [--cache-dir=<path>]`** —
+  migrates an ALREADY-INITIALIZED repository to the same split. It runs from
+  inside the site repository, like `duo assess` and `duo contract`, and writes
+  only into that local checkout: `code/duo-code.lock.json`, the root-anchored
+  `.gitignore` lines, `code` format 2 in `site.duo.json`, and `git rm --cached`
+  for each locked tree. `<env>` is used for exactly one thing — asking the
+  target for its own `wp duo code-inventory` so a checkout that disagrees with
+  the target it deploys to is refused before anything is untracked.
+
+  The bytes never leave the working tree, so **the next compile produces the
+  identical `code_revision`** — asserted by the command itself before it
+  untracks anything, not assumed. No re-pin, no deploy, nothing fleet-visible.
+  It refuses a repository with uncommitted changes under `code/`, one that
+  already declares format 2, and one whose `site.duo.json` is not canonical.
+  A fresh clone afterwards needs the materialization step documented in
+  [docs/guides/code-updates.md](../docs/guides/code-updates.md); until it runs,
+  compilation refuses by name with `code_component_unresolved`.
 
 - **`duo status <env>`** — runs `wp duo plan --repo=<repo_path>
   --format=json` (note: `--format=json`, not `--json` — wp-cli's dispatcher

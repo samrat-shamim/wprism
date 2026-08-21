@@ -3,6 +3,8 @@ namespace Duo;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Code/Code.php';
+require_once __DIR__ . '/../Code/CodeCompatibility.php';
+require_once __DIR__ . '/../Code/CodeSourceLock.php';
 require_once __DIR__ . '/../Kernel/Secrets.php';
 
 /** Read-only inventory and credential classification for the initial code baseline. */
@@ -63,10 +65,12 @@ final class InitCodeInventory {
 
         $advisories = [];
         $inventory = self::inventory($roots, $components, $blockers, $advisories);
+        $pluginRows = self::pluginInventory($activePlugins);
         return [
-            'active_plugins' => self::pluginInventory($activePlugins),
+            'active_plugins' => $pluginRows,
             'active_theme' => ['stylesheet' => $stylesheet, 'template' => $template],
             'bytes' => $inventory['bytes'],
+            'component_inventory' => self::componentInventory($roots, $components, $inventory, $pluginRows),
             'components' => $components,
             'declaration' => ['format' => 1, 'layout' => 'wp-content', 'source' => Code::SOURCE],
             'files' => count($inventory['files']),
@@ -79,17 +83,102 @@ final class InitCodeInventory {
     }
 
     /**
+     * Per-component identity for the DUO-3499 code-half split.
+     *
+     * This is READ-ONLY reporting and nothing more. The agent states what each
+     * active component is and what its bytes hash to; deciding whether a
+     * component can be sourced from a release archive is the HOST's job, and
+     * deliberately so — a target that reached a package registry would falsify
+     * the `code_release_provider` probe attestation "off-target build and
+     * dependency resolution … no target Git history or registry credentials"
+     * (docs/code-release-runtime.md:24-28).
+     *
+     * `tree_sha256` is computed through CodeSourceLock over the same rows the
+     * descriptor compiler builds, so the digest the host classifies against is
+     * bit-for-bit the digest the compile gate will later demand.
+     *
+     * @param array<string,mixed> $roots
+     * @param array<string,list<string>> $components
+     * @param array{files:list<array{path:string,sha256:string}>,bytes:int,component_bytes:array<string,int>} $inventory
+     * @param list<array{basename:string,version:string}> $pluginRows
+     * @return list<array{bytes:int,component:string,files:int,root:string,tree_sha256:string,version:string}>
+     */
+    private static function componentInventory(array $roots, array $components, array $inventory, array $pluginRows): array {
+        $pluginVersions = [];
+        foreach ($pluginRows as $row) {
+            $component = explode('/', (string) $row['basename'], 2)[0];
+            // First sorted basename wins: two active entries under one
+            // directory are the same component and therefore one version.
+            if (!isset($pluginVersions[$component])) {
+                $pluginVersions[$component] = (string) $row['version'];
+            }
+        }
+        $rows = [];
+        foreach ($components as $rootName => $names) {
+            if (!in_array($rootName, CodeSourceLock::ROOTS, true)) {
+                continue;
+            }
+            foreach ($names as $name) {
+                $componentRows = CodeSourceLock::component_rows($inventory['files'], $rootName, $name);
+                if ($componentRows === []) {
+                    continue;
+                }
+                $version = $rootName === 'plugins'
+                    ? ($pluginVersions[$name] ?? '')
+                    : self::themeVersion($roots, $name);
+                $rows[] = [
+                    'bytes' => (int) ($inventory['component_bytes'][$rootName . '/' . $name] ?? 0),
+                    'component' => $name,
+                    'files' => count($componentRows),
+                    'root' => $rootName,
+                    'tree_sha256' => CodeSourceLock::tree_sha256($componentRows),
+                    'version' => $version,
+                ];
+            }
+        }
+        usort($rows, static fn(array $a, array $b): int =>
+            [$a['root'], $a['component']] <=> [$b['root'], $b['component']]);
+        return $rows;
+    }
+
+    /**
+     * A theme's `Version:` header, read straight from style.css rather than
+     * through wp_get_theme(): the same 8KB header reader the descriptor
+     * compiler already applies to every payload theme
+     * (agent/src/Code/CodeDescriptorCompiler.php:147-152), so the version the
+     * proposal reports is the version the payload declares.
+     *
+     * @param array<string,mixed> $roots
+     */
+    private static function themeVersion(array $roots, string $slug): string {
+        $root = $roots['themes'] ?? null;
+        if (!is_string($root) || $root === '') {
+            return '';
+        }
+        $style = rtrim($root, '/') . '/' . $slug . '/style.css';
+        if (is_link($style) || !is_file($style)) {
+            return '';
+        }
+        return (string) (CodeCompatibility::header_value($style, 'Version') ?? '');
+    }
+
+    /**
      * @param array<string,mixed> $roots
      * @param array<string,list<string>> $components
      * @param list<array<string,string>> $blockers
      * @param ?list<array<string,string>> $advisories the non-blocking findings
      *        (a JWT inside a code file — see inventoryFile()); null when the
      *        caller re-walks only to prove the tree unchanged (InitCodeBaseline)
-     * @return array{files:list<array{path:string,sha256:string}>,bytes:int}
+     * @return array{files:list<array{path:string,sha256:string}>,bytes:int,component_bytes:array<string,int>}
      */
     public static function inventory(array $roots, array $components, array &$blockers, ?array &$advisories = null): array {
         $files = [];
         $bytes = 0;
+        // DUO-3499: per-component byte totals, accumulated from the ONE walk
+        // this method already performs. Summing filesize() again per component
+        // would be a second full stat pass over a payload measured at 8,918
+        // files -- the exact cost DUO-3421/DUO-3425 removed from this path.
+        $componentBytes = [];
         foreach ($components as $rootName => $names) {
             $root = $roots[$rootName] ?? null;
             if (!is_string($root) || $root === '') {
@@ -102,8 +191,10 @@ final class InitCodeInventory {
             foreach ($names as $name) {
                 $source = rtrim($root, '/') . '/' . $name;
                 $prefix = $rootName . '/' . $name;
+                $before = $bytes;
                 try {
                     self::inventoryPath($source, $prefix, $files, $bytes, $blockers, $advisories);
+                    $componentBytes[$prefix] = $bytes - $before;
                 } catch (\Throwable $error) {
                     $blockers[] = [
                         'code' => 'code_component_unreadable', 'extension' => $prefix, 'kind' => 'code',
@@ -113,7 +204,8 @@ final class InitCodeInventory {
             }
         }
         usort($files, static fn(array $a, array $b): int => $a['path'] <=> $b['path']);
-        return ['files' => $files, 'bytes' => $bytes];
+        ksort($componentBytes, SORT_STRING);
+        return ['files' => $files, 'bytes' => $bytes, 'component_bytes' => $componentBytes];
     }
 
     /**

@@ -86,6 +86,12 @@ require __DIR__ . '/src/Assess/SurfaceCatalog.php';
 require __DIR__ . '/src/Assess/AssessReport.php';
 require __DIR__ . '/src/Assess/AssessRenderer.php';
 require __DIR__ . '/src/Command/AssessCommand.php';
+// After AssessCommand and AdapterCatalog above: this shell loads with plain
+// `require`, and CodeClassifyCommand require_once's AssessCommand for the
+// local site-repo resolution every from-inside-the-repo verb shares. Loading
+// it earlier would pull AssessCommand's own dependency graph in first and
+// make the later plain `require` of AdapterCatalog fatal on redeclaration.
+require __DIR__ . '/src/Command/CodeClassifyCommand.php';
 require __DIR__ . '/src/Command/ContractCommand.php';
 // Round-3 MUP §2.2-§2.5, in the same last-in-block position and for the same
 // reason: every class below require_once's its own dependencies by path, so a
@@ -187,6 +193,7 @@ use Duo\Orchestrator\EnvironmentDriver;
 use Duo\Orchestrator\EnvironmentLifecycleJournal;
 use Duo\Orchestrator\PendingCommand;
 use Duo\Orchestrator\ClassifyCommand;
+use Duo\Orchestrator\CodeClassifyCommand;
 use Duo\Orchestrator\StatusCommand;
 use Duo\Orchestrator\AssessCommand;
 use Duo\Orchestrator\ContractCommand;
@@ -248,10 +255,11 @@ Usage:
   duo doctor <env>
   duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
   duo adopt  <env>
-  duo init   <env> [--yes] [--allow-unmanaged-plugins]
+  duo init   <env> [--yes] [--allow-unmanaged-plugins] [--code=split|full] [--offline] [--cache-dir=<path>]
   duo status <env> [--category=<ids>] [--action=<buckets>] [--entity=<kinds>] [--limit=<1..200>]
   duo assess <env> [--operation=<ops>] [--limit=<1..200>] [--format=json]
   duo contract <env> show|propose|accept [--format=json]
+  duo code-classify <env> [--dry-run] [--offline] [--cache-dir=<path>]
   duo rehearse <env> --from <production-env> [--branch <ref>] [--create]
                      [--ttl <seconds>] [--limit=<1..200>] [--format=json]
   duo rehearse <env> --reap [--format=json]
@@ -511,6 +519,34 @@ Verbs:
                           to fix first. It does not weaken any other refusal —
                           an installed but UNCERTIFIED adapter still blocks init
                           (certify it with `duo adapter certify`).
+    --code=split|full     Whether third-party components whose installed bytes
+                          hash-match their own published wp.org release archive
+                          are declared in `code/duo-code.lock.json` and left out
+                          of Git (`split`, the default), or vendored into Git
+                          wholesale (`full`). Classification runs on THIS host,
+                          never on the target, and only a component that was
+                          fetched, unpacked and hash-matched is locked; every
+                          other one is vendored with its reason printed. The
+                          classification is inside the proposal digest.
+    --offline             Contact no release registry. Equivalent to
+                          `--code=full`, with the reason stated.
+    --cache-dir=<path>    Absolute path for the content-addressed release cache
+                          (default `\$XDG_CACHE_HOME/duo/code-artifacts`, else
+                          `~/.cache/duo/code-artifacts`).
+  code-classify <env>     Migrate an already-initialized repository to the
+    [--dry-run]           code-half split. Runs from INSIDE the site repo, like
+    [--offline]           assess and contract. Reads each component's digest
+    [--cache-dir=<path>]  from code/wp-content, classifies it against its own
+                          published wp.org release on THIS host, then writes
+                          code/duo-code.lock.json, the root-anchored .gitignore
+                          lines, and `code` format 2 into site.duo.json, and
+                          `git rm --cached` the locked trees. The bytes stay on
+                          disk, so the next compile produces the IDENTICAL
+                          code_revision -- asserted, not assumed. Refuses if
+                          code/ has uncommitted changes, or if <env>'s
+                          repository describes different components than this
+                          checkout. A fresh clone then needs the materialization
+                          step in docs/guides/code-updates.md before it compiles.
   status <env>            Run `wp duo plan --format=json` and print counts per
                           plan bucket (incl. deletion conflicts,
                           code_mismatch, and code_drift), drift paths,
@@ -1101,6 +1137,7 @@ function main(array $argv): int {
         'rehearse' => cmd_rehearse($transport, $extra, $envsFileOverride),
         'pending' => cmd_pending($transport, $extra),
         'classify' => cmd_classify($transport, $extra),
+        'code-classify' => CodeClassifyCommand::run($transport, $extra),
         'refresh' => cmd_refresh($transport, $extra),
         'rebase' => cmd_rebase($transport, $extra),
     };

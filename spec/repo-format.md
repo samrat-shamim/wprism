@@ -394,8 +394,13 @@ that state revision while the outer artifact hash still binds the full site
 policy and both halves. This makes the enforceable invariant:
 
 ```text
-canonical active plugin/theme ⊆ compiled payload ⊆ verified target payload
+canonical active plugin/theme ⊆ (vendored ∪ resolved locked) ⊆ verified target payload
 ```
+
+For a format-1 repository the middle term is exactly the vendored payload, and
+this reads as it always has. Format 2 (below) splits that term without weakening
+it: a locked component satisfies the invariant only once its bytes are present
+and hash-match the lock, which is what the compile gate refuses on.
 
 The completed marker is not trusted by itself. Plan/apply revalidate its stored
 descriptor and the managed target bytes (including unexpected regular files
@@ -403,9 +408,92 @@ inside an owned component); a same-version PHP edit is therefore stale code,
 not a clean environment. Recovery is the host `duo deploy <env>` path. Generic
 force flags cannot authorize state apply while this descriptor proof is stale.
 
+### `code` format 2 — the declared split
+
+Format 2 adds exactly one key. Everything else about the code half is unchanged:
+
+```json
+{
+  "code": {
+    "format": 2,
+    "layout": "wp-content",
+    "lock": "code/duo-code.lock.json",
+    "source": "code/wp-content"
+  }
+}
+```
+
+`lock` may name only `code/duo-code.lock.json` in this version. Format 1 remains
+valid and unchanged; a repository moves between the two only by an explicit act
+(`duo init --code=split` at first run, `duo code-classify` afterwards).
+
+The lock declares components the repository deliberately does NOT carry in Git.
+It lives outside `code/wp-content`, so the descriptor never inventories it and
+no lock byte ever reaches a target.
+
+```json
+{
+  "format": "duo-code-lock/v1",
+  "components": [
+    {
+      "root": "plugins",
+      "component": "woocommerce",
+      "version": "11.0.0",
+      "origin": {
+        "kind": "wp-org-release",
+        "url": "https://downloads.wordpress.org/plugin/woocommerce.11.0.0.zip",
+        "archive_sha256": "<64 hex>"
+      },
+      "tree_sha256": "<64 hex>"
+    }
+  ]
+}
+```
+
+`root` is `plugins` or `themes`; `component` is one safe path segment; entries
+are deterministically sorted by `(root, component)` and canonically encoded.
+`origin.kind` is `wp-org-release` (with an `https://` `url`) or
+`vendored-archive` (with a repository-relative `path`), each carrying
+`archive_sha256` and optionally `archive_root` — the directory inside the
+archive that holds the component. Both digests exist because a published
+version can be re-packaged and a ZIP digest is not a tree digest:
+`archive_sha256` says what to fetch, `tree_sha256` says what the unpacked
+component must hash to.
+
+`tree_sha256` is the sha256 of the canonical, path-sorted `{path, sha256}` rows
+of that component's subtree — exactly the rows compilation already inventories,
+with each path made relative to the component root instead of to
+`code/wp-content`.
+
+Resolution — turning an origin back into bytes — happens strictly BEFORE
+compilation and never on the target. The lock is a precondition gate, never an
+indirection the descriptor follows, so `code_revision`, `artifact_hash` and the
+staged-payload proof keep meaning exactly what they mean for format 1. A
+repository that migrates from format 1 to format 2 without moving a byte
+compiles to the identical `code_revision`.
+
+Compilation raises three blocking, non-forceable diagnostics:
+
+| diagnostic | condition | remedy |
+| --- | --- | --- |
+| `code_component_unresolved` | the lock declares a component and the repository carries none of its bytes | run the materialization step for that component before compiling |
+| `code_component_digest_mismatch` | the component is present but hashes to something other than `tree_sha256` | re-materialize the locked release, or re-lock the bytes if they are the intended ones |
+| `code_component_unlocked` | the repository-root `.gitignore` excludes a component under `code/wp-content` that the lock does not declare | declare it in the lock, or remove the ignore line |
+
+The third is answered without invoking `git`: only a literal, root-anchored
+`/code/wp-content/<root>/<component>/` line in the repository-root `.gitignore`
+counts. That file is the only supported placement, and the code half enforces
+the asymmetry itself — a `.gitignore` at `code/wp-content/` is refused as an
+unsafe payload path, and one at `code/wp-content/plugins/` is inventoried as an
+owned component file and shipped to the target.
+
 Composer resolution, full-webroot/core ownership, controller-built SSH
 artifacts, and atomic release-directory swaps are later build/deployment modes
-that must emit this same descriptor contract; they are not implied by format 1.
+that must emit this same descriptor contract. Format 2 delivers the DECLARATION
+and the compile-time gate for a split repository, plus first-run classification
+(`duo init --code=split`) and migration (`duo code-classify`) on the
+orchestrator host. It does not deliver an in-product resolver: materializing a
+locked component in a fresh clone is the operator's build step today.
 
 The separation is structural, not merely naming. Code scanning and filesystem
 mutation never parse or apply canonical entities. State planning and apply never

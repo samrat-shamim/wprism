@@ -25,6 +25,11 @@ final class EnvironmentCommandPreflight {
         // list reads as the document does; `regress_environment_command_preflight.php`
         // pins the order as a two-sided ratchet.
         'release', 'verify', 'recover', 'rehearse',
+        // DUO-3499. `code-classify` is environment-bound for the same reason
+        // `assess` is: it takes <env> and asks that target for its own code
+        // inventory, so the trees it stops tracking are provably the trees
+        // that target compiles.
+        'code-classify',
     ];
 
     public static function requiresEnvironment(string $verb): bool {

@@ -8,6 +8,7 @@ if (!class_exists(Canon::class, false)) {
     require_once __DIR__ . '/../Kernel/Canon.php';
 }
 require_once __DIR__ . '/CodeCompatibility.php';
+require_once __DIR__ . '/CodeSourceLock.php';
 require_once __DIR__ . '/../Kernel/PathSafety.php';
 
 /**
@@ -65,7 +66,142 @@ final class CodeDescriptorCompiler {
             return null;
         }
         self::assert_config($config);
-        return self::descriptor_from_source(rtrim($repo, '/') . '/' . self::SOURCE);
+        $descriptor = self::descriptor_from_source(rtrim($repo, '/') . '/' . self::SOURCE);
+        // DUO-3499: the lock is a PRECONDITION gate, never an indirection the
+        // descriptor follows. descriptor_from_source() above still hashes only
+        // the bytes on disk, so code_revision, artifact_hash and
+        // assert_verified_staged() keep meaning exactly what they meant before
+        // a lock existed; all the lock adds is a refusal when the bytes those
+        // digests describe are not the bytes the repository declared.
+        $lock = self::load_lock($repo, $config);
+        if ($lock !== null) {
+            $diagnostics = self::lock_diagnostics($repo, $lock, $descriptor);
+            if ($diagnostics) {
+                self::throw_diagnostics($diagnostics);
+            }
+        }
+        return $descriptor;
+    }
+
+    /**
+     * The declared lock path, or null for a format-1 (fully vendored) repo.
+     *
+     * @param array<string,mixed> $config
+     */
+    public static function lock_path(array $config): ?string {
+        return ($config['format'] ?? null) === 2 ? (string) $config['lock'] : null;
+    }
+
+    /**
+     * Read and validate the declared lock. A missing or malformed lock is a
+     * hard failure rather than a lock-free fallback: format 2 states that this
+     * repository does not carry every component's bytes, so proceeding without
+     * the declaration would compile a payload nobody declared complete.
+     *
+     * @param array<string,mixed> $config
+     * @return ?array<string,mixed>
+     */
+    public static function load_lock(string $repo, array $config): ?array {
+        $relative = self::lock_path($config);
+        if ($relative === null) {
+            return null;
+        }
+        $path = rtrim($repo, '/') . '/' . $relative;
+        if (is_link($path) || !is_file($path)) {
+            throw new \RuntimeException(
+                "duo: site.duo.json code format 2 declares $relative, but it is not a regular file in this repository"
+            );
+        }
+        $raw = @file_get_contents($path);
+        if (!is_string($raw)) {
+            throw new \RuntimeException("duo: $relative could not be read");
+        }
+        return CodeSourceLock::parse($raw);
+    }
+
+    /**
+     * The three blocking, non-forceable lock diagnostics.
+     *
+     * They are computed from the descriptor that was just built, so they see
+     * exactly the bytes the artifact would carry. None of them has a force
+     * flag by design: a payload that does not match its own declaration is not
+     * a preference, and DESIGN.md's posture is an honest refusal over hollow
+     * coverage.
+     *
+     * @param array<string,mixed> $lock
+     * @param array<string,mixed> $descriptor
+     * @return list<array{severity:string,code:string,path:string,locator:string,message:string}>
+     */
+    public static function lock_diagnostics(string $repo, array $lock, array $descriptor): array {
+        $diagnostics = [];
+        $index = CodeSourceLock::index($lock);
+        foreach ($index as $key => $entry) {
+            [$root, $component] = explode('/', (string) $key, 2);
+            $version = (string) ($entry['version'] ?? '');
+            $declared = (string) ($entry['tree_sha256'] ?? '');
+            $actual = CodeSourceLock::tree_sha256_from_descriptor($descriptor, $root, $component);
+            if ($actual === null) {
+                self::diagnostic(
+                    $diagnostics,
+                    'code_component_unresolved',
+                    self::SOURCE . '/' . $key,
+                    '',
+                    "the lock declares $key version $version, but this repository carries none of its bytes; "
+                    . 'run the materialization step documented in docs/guides/code-updates.md '
+                    . '(composer install, unzip the locked release archive, or duo code-resolve) before compiling'
+                );
+                continue;
+            }
+            if (!hash_equals($declared, $actual)) {
+                self::diagnostic(
+                    $diagnostics,
+                    'code_component_digest_mismatch',
+                    self::SOURCE . '/' . $key,
+                    '',
+                    "the present bytes of $key hash to $actual, but the lock declares $declared for version $version; "
+                    . 're-materialize the locked release, or re-lock the component with duo code-classify if these '
+                    . 'bytes are the intended ones'
+                );
+            }
+        }
+        foreach (self::ignored_components($repo) as $key => $_ignored) {
+            if (isset($index[$key])) {
+                continue;
+            }
+            self::diagnostic(
+                $diagnostics,
+                'code_component_unlocked',
+                self::SOURCE . '/' . $key,
+                '',
+                ".gitignore excludes $key from this repository, but the lock does not declare it, so a fresh clone "
+                . 'would carry neither its bytes nor any way to obtain them; declare the component in '
+                . CodeSourceLock::PATH . ' or remove its .gitignore line'
+            );
+        }
+        return $diagnostics;
+    }
+
+    /**
+     * Components the repository-root `.gitignore` excludes from Git.
+     *
+     * The repository root is the ONLY supported location, and that is a
+     * property of the code half rather than a convention: a `.gitignore` under
+     * `code/wp-content/` is refused outright by descriptor_from_source()
+     * (:97-99 — the payload may contain only plugins/, themes/ and
+     * mu-plugins/), and one under `code/wp-content/plugins/` is inventoried as
+     * an owned component file and SHIPPED to the target. Reading only the root
+     * file means the gate answers identically with no git binary and with no
+     * .git directory at all.
+     *
+     * @return array<string,bool>
+     */
+    private static function ignored_components(string $repo): array {
+        $path = rtrim($repo, '/') . '/.gitignore';
+        if (is_link($path) || !is_file($path)) {
+            return [];
+        }
+        $raw = @file_get_contents($path);
+        return is_string($raw) ? CodeSourceLock::ignored_components($raw) : [];
     }
 
     /** @return array<string,mixed> */
@@ -190,7 +326,88 @@ final class CodeDescriptorCompiler {
         return $base;
     }
 
+    /**
+     * Per-component identity for one already-published `code/wp-content` tree
+     * (DUO-3499): what each lockable component is, and what its bytes hash to.
+     *
+     * This is the repository-side twin of InitCodeInventory::probe()'s
+     * `component_inventory`, which reports the same shape for a LIVE site. Both
+     * derive `tree_sha256` through CodeSourceLock from the same descriptor rows,
+     * so a component classified from one is the same component the compile gate
+     * checks against the other. `wp duo code-inventory` publishes this, and
+     * `duo code-classify` consumes it.
+     *
+     * @return list<array{bytes:int,component:string,files:int,root:string,tree_sha256:string,version:string}>
+     */
+    public static function component_inventory(string $source): array {
+        $source = rtrim($source, '/');
+        $descriptor = self::descriptor_from_source($source);
+        $rows = [];
+        foreach ((array) $descriptor['owned_roots'] as $owned) {
+            [$root, $component] = explode('/', (string) $owned, 2) + [null, null];
+            if (!in_array($root, CodeSourceLock::ROOTS, true) || !is_string($component)) {
+                continue;
+            }
+            $componentRows = CodeSourceLock::component_rows((array) $descriptor['files'], $root, $component);
+            if ($componentRows === []) {
+                continue;
+            }
+            $bytes = 0;
+            foreach ($componentRows as $row) {
+                $size = @filesize($source . '/' . $owned . '/' . $row['path']);
+                $bytes += is_int($size) ? $size : 0;
+            }
+            $rows[] = [
+                'bytes' => $bytes,
+                'component' => $component,
+                'files' => count($componentRows),
+                'root' => $root,
+                'tree_sha256' => CodeSourceLock::tree_sha256($componentRows),
+                'version' => self::component_version($source, $descriptor, $root, $component),
+            ];
+        }
+        usort($rows, static fn(array $a, array $b): int =>
+            [$a['root'], $a['component']] <=> [$b['root'], $b['component']]);
+        return $rows;
+    }
+
+    /**
+     * The `Version:` header the component itself declares, read through the
+     * same bounded 8KB header reader every other code-half consumer uses. An
+     * empty string means the component states no version, which is a fact a
+     * classifier must see rather than guess around.
+     *
+     * @param array<string,mixed> $descriptor
+     */
+    private static function component_version(string $source, array $descriptor, string $root, string $component): string {
+        if ($root === 'themes') {
+            $style = $source . '/themes/' . $component . '/style.css';
+            return is_file($style) && !is_link($style)
+                ? (string) (CodeCompatibility::header_value($style, 'Version') ?? '')
+                : '';
+        }
+        foreach ((array) $descriptor['plugin_main_files'] as $row) {
+            $path = (string) ($row['path'] ?? '');
+            if ($path === 'plugins/' . $component . '.php'
+                || str_starts_with($path, 'plugins/' . $component . '/')) {
+                $file = $source . '/' . $path;
+                return is_file($file) && !is_link($file)
+                    ? (string) (CodeCompatibility::header_value($file, 'Version') ?? '')
+                    : '';
+            }
+        }
+        return '';
+    }
+
     public static function assert_config(array $config): void {
+        // DUO-3499: format 2 is the split declaration. It is selected by its
+        // own format integer OR by the presence of the `lock` key, so a
+        // format-1 declaration that grew a stray key still reaches the
+        // original refusal below with its exact historical bytes.
+        if (($config['format'] ?? null) === 2 || array_key_exists('lock', $config)) {
+            self::assert_config_v2($config);
+            return;
+        }
         $keys = array_keys($config);
         sort($keys, SORT_STRING);
         if ($keys !== ['format', 'layout', 'source']
@@ -200,6 +417,28 @@ final class CodeDescriptorCompiler {
             throw new \RuntimeException(
                 'duo: site.duo.json code must contain exactly '
                 . '{"format":1,"layout":"wp-content","source":"code/wp-content"}'
+            );
+        }
+    }
+
+    /**
+     * The split declaration. Only one lock path is legal in v1: the path is
+     * part of the repository format, not an operator preference, and a second
+     * spelling would mean two places a reviewer has to look for the same fact.
+     *
+     * @param array<string,mixed> $config
+     */
+    private static function assert_config_v2(array $config): void {
+        $keys = array_keys($config);
+        sort($keys, SORT_STRING);
+        if ($keys !== ['format', 'layout', 'lock', 'source']
+            || $config['format'] !== 2
+            || $config['layout'] !== self::LAYOUT
+            || $config['lock'] !== CodeSourceLock::PATH
+            || $config['source'] !== self::SOURCE) {
+            throw new \RuntimeException(
+                'duo: site.duo.json code format 2 must contain exactly '
+                . '{"format":2,"layout":"wp-content","lock":"' . CodeSourceLock::PATH . '","source":"code/wp-content"}'
             );
         }
     }

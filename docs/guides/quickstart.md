@@ -190,6 +190,17 @@ digest—not a host-authored config—and refuses if any discovered fact changes
 Use `--yes` only for automation that has already preserved the rendered
 proposal.
 
+By default `duo init` also proposes a **code split**: each active plugin and
+theme whose installed bytes hash-match its own published wp.org release is
+declared in `code/duo-code.lock.json` and kept out of Git, and everything else
+is vendored wholesale as before. Classification runs on the orchestrator host,
+never on the target, and the proposal prints every component with its
+classification and the reason for it before you confirm — the classification is
+inside the digest, so a stale `--confirm` cannot apply one you did not read.
+`--code=full` keeps the fully vendored shape; `--offline` contacts no registry
+and is equivalent, with the reason stated. See
+[code-updates.md](code-updates.md#splitting-the-code-half-vendored-versus-locked).
+
 Before confirming, quiesce every non-Duo writer to the repository namespace,
 including package managers, self-updaters, Git/shell automation, and processes
 that can write `.git`, `code/`, `media/`, `state/`, or `state.capture*`. Init's
@@ -199,7 +210,12 @@ in place until init succeeds or any retained recovery evidence is resolved.
 
 On success the target repository is Git-ready and contains independent
 `site.duo.json`, `code/wp-content`, `state`, and content-addressed `media`
-contracts. Init finishes through ordinary `duo status`. Its clean statement is
+contracts — plus `code/duo-code.lock.json` when the split locked at least one
+component. The locked components' bytes are on disk and compile normally at the
+target; they are simply not in Git, so a fresh clone needs the materialization
+step in [code-updates.md](code-updates.md#the-materialization-step) before its
+first compile. Duo refuses that compile by name (`code_component_unresolved`)
+rather than producing a shrunken payload. Init finishes through ordinary `duo status`. Its clean statement is
 limited to the selected managed adapters; unsupported site state is never
 silently promoted into that claim, and the initial state capture is not a
 promotion rollback checkpoint.
@@ -458,7 +474,12 @@ delete only the journal and leave its partial payload behind.
 The generated template already keeps the root-local machine registry
 (`/.duo-envs.json`), operational artifact/checkpoint directory (`/.duo/`), and
 environment-value scratch file (`/.duo-env-values.json`) out of Git. The root
-anchors preserve legitimate same-named files inside vendored code. `duo doctor`
+anchors preserve legitimate same-named files inside vendored code. When the
+split locked components, a second labelled block holds their root-anchored
+`/code/wp-content/<root>/<component>/` lines; those are the exact lines the
+compile gate reads back, and the repository-root `.gitignore` is the only place
+they may live — one inside `code/wp-content/` refuses compile, and one inside
+`code/wp-content/plugins/` would be shipped to the target as payload. `duo doctor`
 separately checks that the environment-value file is not Git-tracked — a
 tracked one is a blocking failure wherever it can find a `git` binary to check
 with.

@@ -644,3 +644,66 @@ Bedrock layouts remains an explicit agent-locator/layout-contract milestone;
 it must not be implemented by guessing around configured bootstrap code.
 
 Two operational findings from the spike worth carrying forward: (1) docker nested bind mounts pin their source directory at container-create time (`rprivate`) — author `code/` before creating the long-lived containers, and `--force-recreate` them after any rm-and-recreate of the mount source; in-place content changes propagate live. (2) Recovering from "code removed while still active" cannot use `wp plugin deactivate`/wp-admin (both validate the plugin on disk) — reconcile via canonical from an environment that still has the code, or direct `active_plugins` option surgery as last resort.
+
+---
+
+## Phase 2: implemented (2026-08-21)
+
+The declared split shipped (DUO-3499). The implementation ruling above is
+unchanged in what it makes the DEFAULT — vendored-wholesale is still the
+transport shape, and every format-1 repository keeps working byte-for-byte —
+but it is no longer all-or-nothing: a lock declares a per-component exception.
+
+What landed:
+
+- **`code/duo-code.lock.json`, `duo-code-lock/v1`.** One entry per component
+  the repository deliberately does not carry in Git: `{root, component,
+  version, origin: {kind, url|path, archive_sha256, archive_root?},
+  tree_sha256}`, canonically encoded and sorted by `(root, component)`. It
+  lives OUTSIDE `code/wp-content`, so the descriptor never inventories it and
+  no lock byte reaches a target. The grammar is
+  `agent/src/Code/CodeSourceLock.php`; `tree_sha256` is computed over exactly
+  the `{path, sha256}` rows compilation already builds, re-rooted at the
+  component, so a declared digest and a compiled digest come from one
+  algorithm.
+- **`site.duo.json` `code` format 2**, adding only `"lock"`. Format 1 keeps its
+  exact refusal bytes; a repository moves between the two only by an explicit
+  act.
+- **A blocking, non-forceable compile gate**: `code_component_unresolved`,
+  `code_component_digest_mismatch`, `code_component_unlocked`. The lock is a
+  precondition, never an indirection the descriptor follows, so `code_revision`
+  and `artifact_hash` mean exactly what they meant before.
+- **`duo init --code=split` (the default) and `duo init --code=full`.** The
+  agent reports each active component's `{root, component, version,
+  tree_sha256, bytes, files}` and reaches no registry. The HOST resolves the
+  wp.org release for that slug and version into a content-addressed cache,
+  unpacks it, and locks the component only when the unpacked tree hash-matches
+  what is installed. Everything else is vendored with its reason stated. The
+  classification rides inside the proposal digest, so a changed classification
+  invalidates a stale `--confirm`.
+- **`duo code-classify <env>`** migrates an already-initialized repository. The
+  bytes never leave the working tree; only Git stops tracking them, so the next
+  compile produces the identical `code_revision`.
+
+§1.3/§1.4's gitignore Option A/B discussion is settled by the generated form:
+root-anchored `/code/wp-content/<root>/<component>/` lines in the
+REPOSITORY-ROOT `.gitignore`, written in the same owned-file transaction as
+Duo's own local artifacts and carrying their own labelled block. That is the
+only supported placement, and the code half enforces the asymmetry itself: a
+`.gitignore` at `code/wp-content/` is refused as an unsafe payload path
+(`agent/src/Code/CodeDescriptorCompiler.php:97-99`), and one at
+`code/wp-content/plugins/` is inventoried as an owned component file and
+shipped to the target.
+
+What did NOT land, deliberately:
+
+- **No resolver.** Materializing a locked component in a fresh clone is the
+  operator's build step today (`docs/guides/code-updates.md`). `duo
+  code-resolve` is DUO-3500.
+- **No fetcher in the agent, ever.** `code_release_provider`'s probe attests
+  "off-target build and dependency resolution … no target Git history or
+  registry credentials" (`docs/code-release-runtime.md:24-28`); a target-side
+  fetcher would make that attestation false for any site using both.
+- **No change to per-deploy staging cost.** `CodeMaterializer::write_payload()`
+  still writes every descriptor file on every stage. The split addresses
+  repository size and Git history, not deploy wall time.

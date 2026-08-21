@@ -602,10 +602,24 @@ final class Policy {
         return new AdapterRegistry($this, $this->manifestDispositions);
     }
 
-    /** @return ?array{format:int,layout:string,source:string} */
+    /** @return ?array{format:int,layout:string,source:string,lock?:string} */
     public function code_config(): ?array {
         $code = $this->site['code'] ?? null;
         return is_array($code) ? $code : null;
+    }
+
+    /**
+     * The repository-relative code lock path a format-2 declaration names, or
+     * null for the fully vendored format-1 shape and for a state-only repo
+     * (DUO-3499). Read straight off the declaration so Policy keeps no code
+     * grammar of its own — CodeConfigGrammar already refused anything else at
+     * load time.
+     */
+    public function code_lock_path(): ?string {
+        $code = $this->code_config();
+        return is_array($code) && ($code['format'] ?? null) === 2 && is_string($code['lock'] ?? null)
+            ? $code['lock']
+            : null;
     }
 
     /** @return array{rule:?array, source:?string} Policy's compatibility facade over PolicyRuleResolver. */

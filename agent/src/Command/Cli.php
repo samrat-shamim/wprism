@@ -771,6 +771,76 @@ final class Cli {
     }
 
     /**
+     * Decode `--code-lock-b64` into the classification list the planner
+     * verifies (DUO-3499).
+     *
+     * Strict base64 and a JSON list, or nothing: a silently-empty
+     * classification would produce a fully vendored proposal that the operator
+     * asked to be split, which is exactly the kind of quiet downgrade the
+     * digest protocol exists to prevent.
+     *
+     * @param mixed $raw
+     * @return ?list<array<string,mixed>>
+     */
+    private static function init_lock_plan($raw): ?array {
+        if ($raw === null) {
+            return null;
+        }
+        $decoded = is_string($raw) ? base64_decode($raw, true) : false;
+        $plan = is_string($decoded) ? json_decode($decoded, true) : null;
+        if (!is_array($plan) || !array_is_list($plan)) {
+            throw CommandRefusalException::invalidArgument('init', '--code-lock-b64');
+        }
+        return $plan;
+    }
+
+    /**
+     * Report the code components this site repository carries, with the exact
+     * digests the code lock and the compile gate use.
+     *
+     * Read-only, and deliberately repository-scoped rather than site-scoped:
+     * the lock declares what `code/wp-content` must hash to, so that tree —
+     * not the live wp-content beside it — is what a classifier has to see.
+     *
+     * ## OPTIONS
+     * --repo=<path> : Site repository whose code/wp-content is reported.
+     * [--format=<format>] : Output format. Accepts json.
+     */
+    public function code_inventory($args, $assoc) {
+        require_once __DIR__ . '/../Code/CodeDescriptorCompiler.php';
+        $components = [];
+        try {
+            $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('code-inventory', '--repo');
+            $source = rtrim((string) $repo, '/') . '/' . CodeDescriptorCompiler::SOURCE;
+            $components = CodeDescriptorCompiler::component_inventory($source);
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'code-inventory');
+            WP_CLI::error($t->getMessage());
+        }
+        $result = [
+            'format' => 'duo-code-inventory/v1',
+            'components' => $components,
+            'source' => CodeDescriptorCompiler::SOURCE,
+        ];
+        if (($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(json_encode($result, JSON_UNESCAPED_SLASHES));
+            return;
+        }
+        foreach ($result['components'] as $row) {
+            WP_CLI::line(sprintf(
+                '  %s/%s %s %s (%d file(s), %d byte(s))',
+                $row['root'],
+                $row['component'],
+                $row['version'] === '' ? '(no version header)' : $row['version'],
+                $row['tree_sha256'],
+                $row['files'],
+                $row['bytes']
+            ));
+        }
+        WP_CLI::success(sprintf('%d code component(s)', count($result['components'])));
+    }
+
+    /**
      * Discover and initialize an existing WordPress site through a reviewed,
      * digest-bound proposal. Without --confirm this command is read-only.
      *
@@ -781,6 +851,12 @@ final class Cli {
      *   is reported as an advisory instead of an unsupported capability, is not selected, and has nothing
      *   written about it; the decision for its state belongs in the contract. The flag is inside the
      *   proposal digest, so it must be supplied identically to the --confirm run.
+     * [--code-lock-b64=<base64>] : The orchestrator's per-component code classification, as base64
+     *   canonical JSON. The agent never produces this: classifying a component means comparing it against
+     *   a release archive, and this target does not reach a package registry. What it does is verify that
+     *   every classified component is one it actually inventoried, at the same version and tree digest.
+     *   The classification is inside the proposal digest, so it must be supplied identically to the
+     *   --confirm run.
      * [--format=<format>] : Output format. Accepts json.
      */
     public function init($args, $assoc) {
@@ -796,9 +872,12 @@ final class Cli {
             // regress_init_contract.php, which asserts the constant's value
             // and this exact line together.
             $allowUnmanagedPlugins = isset($assoc['allow-unmanaged-plugins']);
+            // The literal again, for the same reason and held by the same
+            // suite: InitPlanner::CODE_LOCK_ARGUMENT is 'code-lock-b64'.
+            $lockPlan = self::init_lock_plan($assoc['code-lock-b64'] ?? null);
             $result = isset($assoc['confirm'])
-                ? Init::confirm((string) $repo, (string) $assoc['confirm'], $allowUnmanagedPlugins)
-                : Init::proposal((string) $repo, $allowUnmanagedPlugins);
+                ? Init::confirm((string) $repo, (string) $assoc['confirm'], $allowUnmanagedPlugins, $lockPlan)
+                : Init::proposal((string) $repo, $allowUnmanagedPlugins, $lockPlan);
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'init');
             WP_CLI::error($t->getMessage());

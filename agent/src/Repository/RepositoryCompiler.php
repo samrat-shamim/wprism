@@ -271,6 +271,12 @@ final class RepositoryCompiler {
     private function run(): CompiledRepository {
         SidebarState::assert_policy($this->policy);
         $codeDescriptor = null;
+        // DUO-3499: `{root}/{component}` => lock entry for a format-2 (split)
+        // repository, `[]` otherwise. Code::compile() above is the blocking
+        // gate that already refused an unresolved or mismatched component;
+        // this map exists only so CodeStateContract's absence refusal can name
+        // the materialization step instead of an edit the operator cannot make.
+        $codeLockedComponents = [];
         $codeConfig = $this->policy->code_config();
         try {
             if ($codeConfig !== null) {
@@ -278,6 +284,7 @@ final class RepositoryCompiler {
                     throw new \RuntimeException('code payload support is not loaded');
                 }
                 $codeDescriptor = Code::compile($this->repo, $codeConfig);
+                $codeLockedComponents = Code::locked_components($this->repo, $codeConfig);
             }
         } catch (CodeCompilationException $e) {
             foreach ($e->diagnostics as $diagnostic) {
@@ -412,7 +419,7 @@ final class RepositoryCompiler {
                     // second, less-specific failure.
                 }
                 try {
-                    CodeStateContract::validate_tree($tree, $codeDescriptor);
+                    CodeStateContract::validate_tree($tree, $codeDescriptor, $codeLockedComponents);
                 } catch (\Throwable $t) {
                     $this->add('code_state_mismatch', 'state/options/core.json', '', $t->getMessage());
                 }

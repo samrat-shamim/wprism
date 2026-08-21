@@ -2,6 +2,7 @@
 namespace Duo;
 
 require_once __DIR__ . '/CodeDescriptorCompiler.php';
+require_once __DIR__ . '/CodeSourceLock.php';
 require_once __DIR__ . '/../Kernel/PathSafety.php';
 require_once __DIR__ . '/CodeStageTransaction.php';
 require_once __DIR__ . '/CodeMaterializer.php';
@@ -70,6 +71,34 @@ final class Code {
     /** Validate a site.duo.json code declaration independently of Policy. */
     public static function assert_config(array $config): void {
         CodeDescriptorCompiler::assert_config($config);
+    }
+
+    /**
+     * The declared code lock path, or null for a fully vendored (format 1)
+     * repository. DUO-3499.
+     *
+     * @param ?array<string,mixed> $config
+     */
+    public static function lock_path(?array $config): ?string {
+        return $config === null ? null : CodeDescriptorCompiler::lock_path($config);
+    }
+
+    /**
+     * `{root}/{component}` => lock entry for every component this repository
+     * declares but deliberately does not carry in Git; `[]` for a format-1
+     * repository. Callers use it only to explain a refusal — the authoritative
+     * gate is CodeDescriptorCompiler::lock_diagnostics(), which runs inside
+     * compile() before any descriptor leaves the compiler.
+     *
+     * @param ?array<string,mixed> $config
+     * @return array<string,array<string,mixed>>
+     */
+    public static function locked_components(string $repo, ?array $config): array {
+        if ($config === null || CodeDescriptorCompiler::lock_path($config) === null) {
+            return [];
+        }
+        $lock = CodeDescriptorCompiler::load_lock($repo, $config);
+        return $lock === null ? [] : CodeSourceLock::index($lock);
     }
 
     /**

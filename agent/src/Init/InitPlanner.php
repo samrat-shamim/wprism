@@ -4,6 +4,7 @@ namespace Duo;
 require_once __DIR__ . '/../Adapter/AdapterSources.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Code/Code.php';
+require_once __DIR__ . '/../Code/CodeSourceLock.php';
 require_once __DIR__ . '/InitAttemptJournal.php';
 require_once __DIR__ . '/InitCodeInventory.php';
 require_once __DIR__ . '/InitOwnedArtifacts.php';
@@ -41,8 +42,31 @@ final class InitPlanner {
      */
     public const ALLOW_UNMANAGED_PLUGINS = 'allow-unmanaged-plugins';
 
-    /** @return array<string,mixed> */
-    public static function proposal(string $repo, bool $allowUnmanagedPlugins = false): array {
+    /**
+     * The host's per-component code classification, carried as one base64
+     * canonical-JSON argument (DUO-3499).
+     *
+     * It rides inside the proposal exactly as ALLOW_UNMANAGED_PLUGINS does and
+     * for the same reason: the classification changes what the repository will
+     * declare and what Git will carry, so it is a REVIEWED decision. It is
+     * folded into `code.split`, `code.split` is inside the digest, and a
+     * confirmation that supplies a different classification therefore
+     * recomputes a different digest and is refused by
+     * assert_confirmed_proposal() rather than silently applying a split the
+     * operator never saw.
+     *
+     * The agent never produces this itself. Classification requires comparing
+     * an installed tree against a release archive, and a target that fetched
+     * one would falsify the `code_release_provider` probe attestation
+     * "off-target build and dependency resolution … no target Git history or
+     * registry credentials" (docs/code-release-runtime.md:24-28). What the
+     * agent does is verify: every classified component must be one this probe
+     * actually found, at the same version and the same tree digest.
+     */
+    public const CODE_LOCK_ARGUMENT = 'code-lock-b64';
+
+    /** @param ?list<array<string,mixed>> $lockPlan @return array<string,mixed> */
+    public static function proposal(string $repo, bool $allowUnmanagedPlugins = false, ?array $lockPlan = null): array {
         $logicalRepo = InitRepositoryBoundary::normalize($repo);
         $rootBlocker = InitRepositoryBoundary::root_blocker($logicalRepo);
         if ($rootBlocker !== null) {
@@ -56,7 +80,8 @@ final class InitPlanner {
                 $binding['identity'],
                 false,
                 false,
-                $allowUnmanagedPlugins
+                $allowUnmanagedPlugins,
+                $lockPlan
             );
         } finally {
             if (!@chdir($binding['previous_cwd'])) {
@@ -65,14 +90,15 @@ final class InitPlanner {
         }
     }
 
-    /** @return array<string,mixed> */
+    /** @param ?list<array<string,mixed>> $lockPlan @return array<string,mixed> */
     public static function proposal_bound(
         string $repo,
         string $logicalRepo,
         string $rootIdentity,
         bool $ownsCaptureLock = false,
         bool $ownsInitAttempt = false,
-        bool $allowUnmanagedPlugins = false
+        bool $allowUnmanagedPlugins = false,
+        ?array $lockPlan = null
     ): array {
         global $wpdb;
         if (!is_object($wpdb)) {
@@ -176,6 +202,7 @@ final class InitPlanner {
         $unsupported = array_merge($unsupported, $code['blockers']);
         $advisories = array_merge($advisories, $code['advisories']);
         unset($code['blockers'], $code['advisories']);
+        $code = self::code_split($code, $lockPlan);
 
         $selected = array_values(array_unique($selected));
         sort($selected, SORT_STRING);
@@ -303,7 +330,10 @@ final class InitPlanner {
         }
 
         $config = [
-            'code' => ['format' => 1, 'layout' => 'wp-content', 'source' => Code::SOURCE],
+            // The declaration the split produced: format 1 when every
+            // component is vendored, format 2 naming the lock when at least
+            // one is not carried in Git (DUO-3499).
+            'code' => $code['declaration'],
             'manifests' => $pins,
             'policy' => [
                 'options' => new \stdClass(),
@@ -480,6 +510,121 @@ final class InitPlanner {
         ];
         $proposal['digest'] = hash('sha256', Canon::encode($proposal));
         return $proposal;
+    }
+
+    /**
+     * Fold the host's classification into the code proposal (DUO-3499).
+     *
+     * The agent's job here is verification, not decision. Every classified
+     * component must be one this run actually inventoried, at the same version
+     * and the same `tree_sha256`; the plan must be TOTAL over the inventory, so
+     * a component cannot be quietly left unclassified and land in Git by
+     * omission; and every locked entry must satisfy the lock grammar before it
+     * reaches the proposal, so a confirmation can never be asked to write a
+     * lock its own reader would refuse.
+     *
+     * A violation throws rather than becoming an `unsupported` row: these are
+     * host protocol errors, not conditions of the site being adopted.
+     *
+     * @param array<string,mixed> $code
+     * @param ?list<array<string,mixed>> $lockPlan
+     * @return array<string,mixed>
+     */
+    private static function code_split(array $code, ?array $lockPlan): array {
+        // Always present, so the proposal shape does not depend on the mode.
+        // An empty split means no component was classified and the entire
+        // payload is vendored -- which is exactly `duo init --code=full` and
+        // exactly what every repository initialized before DUO-3499 has.
+        $code['split'] = [];
+        if ($lockPlan === null) {
+            return $code;
+        }
+        $inventory = [];
+        foreach ((array) ($code['component_inventory'] ?? []) as $row) {
+            $inventory[$row['root'] . '/' . $row['component']] = $row;
+        }
+        $rows = [];
+        $lock = [];
+        $seen = [];
+        foreach ($lockPlan as $i => $entry) {
+            if (!is_array($entry) || array_is_list($entry)) {
+                throw new \RuntimeException("duo: init code classification [$i] must be an object");
+            }
+            $keys = array_keys($entry);
+            sort($keys, SORT_STRING);
+            $classification = $entry['classification'] ?? null;
+            $expectedKeys = $classification === 'locked'
+                ? ['classification', 'component', 'origin', 'reason', 'root', 'tree_sha256', 'version']
+                : ['classification', 'component', 'reason', 'root', 'tree_sha256', 'version'];
+            if (!in_array($classification, ['locked', 'vendored'], true)) {
+                throw new \RuntimeException("duo: init code classification [$i] must be locked or vendored");
+            }
+            if ($keys !== $expectedKeys) {
+                throw new \RuntimeException(
+                    "duo: init code classification [$i] must contain exactly " . implode(', ', $expectedKeys)
+                );
+            }
+            if (!is_string($entry['reason']) || trim($entry['reason']) === ''
+                || preg_match('/[\x00-\x1f\x7f]/', $entry['reason']) === 1) {
+                throw new \RuntimeException(
+                    "duo: init code classification [$i] must state a single-line reason; a classification nobody can read is not reviewed"
+                );
+            }
+            $key = (string) $entry['root'] . '/' . (string) $entry['component'];
+            $probed = $inventory[$key] ?? null;
+            if ($probed === null) {
+                throw new \RuntimeException(
+                    "duo: init code classification names '$key', which is not an active component of this site"
+                );
+            }
+            if (isset($seen[$key])) {
+                throw new \RuntimeException("duo: init code classification names '$key' more than once");
+            }
+            $seen[$key] = true;
+            // The host classified a specific set of bytes. If the site moved
+            // between the probe and the classification, the decision under
+            // review is about a tree that no longer exists.
+            if ((string) $entry['version'] !== (string) $probed['version']
+                || (string) $entry['tree_sha256'] !== (string) $probed['tree_sha256']) {
+                throw new \RuntimeException(
+                    "duo: init code classification for '$key' describes a different version or tree digest than this site has; "
+                    . 'rerun duo init so the classification is made against the current bytes'
+                );
+            }
+            $rows[] = $entry;
+            if ($classification === 'locked') {
+                $lock[] = [
+                    'root' => $entry['root'],
+                    'component' => $entry['component'],
+                    'version' => $entry['version'],
+                    'origin' => $entry['origin'],
+                    'tree_sha256' => $entry['tree_sha256'],
+                ];
+            }
+        }
+        if (count($seen) !== count($inventory)) {
+            $missing = array_values(array_diff(array_keys($inventory), array_keys($seen)));
+            throw new \RuntimeException(
+                'duo: init code classification is incomplete; it says nothing about ' . implode(', ', $missing)
+                . '. Every active component must be classified, or one would be vendored by omission'
+            );
+        }
+        usort($rows, static fn(array $a, array $b): int =>
+            [(string) $a['root'], (string) $a['component']] <=> [(string) $b['root'], (string) $b['component']]);
+        $code['split'] = $rows;
+        if ($lock !== []) {
+            $code['lock'] = CodeSourceLock::sort_components($lock);
+            // Refuse here, where the operator can still read the proposal,
+            // rather than mid-transaction when the lock is being published.
+            CodeSourceLock::assert_lock(['format' => CodeSourceLock::FORMAT, 'components' => $code['lock']]);
+            $code['declaration'] = [
+                'format' => 2,
+                'layout' => 'wp-content',
+                'lock' => CodeSourceLock::PATH,
+                'source' => Code::SOURCE,
+            ];
+        }
+        return $code;
     }
 
     /**

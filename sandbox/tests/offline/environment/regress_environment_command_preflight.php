@@ -27,15 +27,19 @@ $check = static function (bool $condition, string $message) use (&$failures): vo
 // environment-bound because all four take <env> and all four reach the
 // target — release through the promote path, verify by re-reading it,
 // recover through its rollback authority runtime, rehearse by materializing
-// into it. That is 23 + 4 = 27 environment-bound verbs.
+// into it. That is 23 + 4 = 27 environment-bound verbs. DUO-3499 appends
+// `code-classify`, environment-bound for the same reason `assess` is: it takes
+// <env> and asks that target for its own code inventory, so the trees it stops
+// tracking are provably the trees that target compiles. 28.
 $expected = [
     'doctor', 'driver-capabilities', 'adopt', 'init', 'status', 'capabilities',
     'adapter-observe', 'capture', 'lint', 'plan', 'explain', 'apply', 'deploy', 'env-set',
     'promote', 'pending', 'classify', 'coverage', 'scope', 'refresh', 'rebase',
     'assess', 'contract',
     'release', 'verify', 'recover', 'rehearse',
+    'code-classify',
 ];
-$check(count($expected) === 27, 'the environment-bound verb ratchet is 27 verbs after round-3 MUP §2.2-§2.5');
+$check(count($expected) === 28, 'the environment-bound verb ratchet is 28 verbs after DUO-3499 adds code-classify');
 $check(EnvironmentCommandPreflight::environmentVerbs() === $expected, 'environment command vocabulary remains ordered and closed');
 $check(EnvironmentCommandPreflight::requiresEnvironment('capture'), 'capture is environment-bound');
 $check(EnvironmentCommandPreflight::requiresEnvironment('lint'), 'lint is environment-bound');

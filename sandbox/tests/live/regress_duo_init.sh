@@ -53,6 +53,11 @@ WORDPRESS_OFFLINE_COMPOSE_FILE="$REPO_ROOT/sandbox/pair.wordpress-offline.yml"
 # derived from the validated $PAIR, so the EXIT trap's removals stay bounded to
 # paths this run owns.
 HERMETIC_ROOT="/tmp/${PAIR}-init-manifests"
+# DUO-3499: the host-side release mirror the split leg classifies against, and
+# its content-addressed cache. Both are derived from the validated $PAIR for the
+# same reason HERMETIC_ROOT is -- the EXIT trap's removals stay bounded to paths
+# this run owns.
+CODE_MIRROR="/tmp/${PAIR}-code-artifacts"
 INIT_LOGS=(
   "/tmp/${PAIR}-init-concurrent-1.log"
   "/tmp/${PAIR}-init-concurrent-2.log"
@@ -84,7 +89,7 @@ cleanup() {
   local preserve="${1:-0}" destroy_status=0 remaining="" evidence=""
   if [ "$preserve" = 1 ]; then
     printf 'preserved init evidence for %s (this run failed; nothing below was deleted):\n' "$PAIR" >&2
-    for evidence in "${INIT_LOGS[@]}" "$HERMETIC_ROOT"; do
+    for evidence in "${INIT_LOGS[@]}" "$HERMETIC_ROOT" "$CODE_MIRROR"; do
       if [ -e "$evidence" ]; then
         printf '  %s\n' "$evidence" >&2
       fi
@@ -111,7 +116,7 @@ cleanup() {
   rm -f "$ENVS_FILE"
   if [ "$preserve" != 1 ]; then
     rm -f "${INIT_LOGS[@]}" "/tmp/${PAIR}-committed-site.duo.json"
-    rm -rf "$HERMETIC_ROOT"
+    rm -rf "$HERMETIC_ROOT" "$CODE_MIRROR"
   fi
   rm -rf "$HOST_REPO" \
     "$REPO_ROOT/sandbox/siterepo/${PAIR}2" \
@@ -1375,8 +1380,16 @@ say "confirm the content-addressed proposal through the public host CLI"
 # DUO-3428: the certified per-init clock. One public host-CLI invocation that
 # proposes and confirms, which is the whole operator-visible span the
 # fifteen-minute claim is about.
-time_golden_init 0 "duo init Woo golden path" "${DUO[@]}" init "${PAIR}1" --yes
+# DUO-3499 made `--code=split` the default, so the fully vendored shape this
+# leg has always certified is now the explicit opt-out and is spelled as one.
+# It stays the timed golden path: the fifteen-minute claim is about the span an
+# operator waits for a complete baseline, and adding a release-classification
+# round trip to the measured leg would change that claim's subject rather than
+# testing it. The split leg below is timed by nobody and asserted by everything.
+time_golden_init 0 "duo init Woo golden path" "${DUO[@]}" init "${PAIR}1" --yes --code=full
 grep -q 'code: managed-baseline-proposed' <<<"$OUT" || fail "init did not propose a separate code baseline"
+grep -q -- '--code=full: every active component is vendored into Git' <<<"$OUT" \
+  || fail "the fully vendored opt-out did not state its reason before the proposal"
 grep -q 'active plugin: woocommerce/woocommerce.php 11.0.0' <<<"$OUT" || fail "init did not inventory the active plugin version"
 grep -q 'Initialized canonical state baseline' <<<"$OUT" || fail "init did not name the state baseline"
 grep -q 'Initialized separate code baseline' <<<"$OUT" || fail "init did not name the independent code baseline"
@@ -1394,6 +1407,8 @@ for needle in branch '"$DUO_CLI" capture' '"$DUO_CLI" plan' '"$DUO_CLI" promote'
   grep -q "$needle" <<<"$OUT" || fail "workflow guide omitted $needle"
 done
 
+# The format-1 declaration, byte for byte: `--code=full` must keep producing
+# exactly the repository shape every pre-DUO-3499 init produced.
 jq -e '
   ([.manifests[].name] | sort) == ["core", "woocommerce"] and
   ([.manifests[] | select((.digest | type) != "string" or (.digest | length) != 64)] | length) == 0 and
@@ -1416,6 +1431,14 @@ find "$HOST_REPO/state/terms/pa_duoinit" -type f -name '*.json' -print -quit | g
   || fail "Duo's control-plane loader leaked into the managed code payload"
 [ "$(wp1 db query "SHOW TABLES LIKE 'wp_duo_%'" --skip-column-names | wc -l | tr -d ' ')" -ge 3 ] \
   || fail "confirmed capture did not establish the environment ledger"
+# DUO-3499: the number the split leg has to reproduce exactly. Splitting a
+# repository moves no byte under code/wp-content, so it must compile to the
+# identical code_revision -- that equality is the whole reason the migration is
+# free, and asserting it across two real inits is what proves it live.
+FULL_CODE_REVISION=$(wp1 db query "SELECT v FROM wp_duo_kv WHERE k = 'code_revision'" \
+  --skip-column-names | tr -d '[:space:]')
+[[ "$FULL_CODE_REVISION" =~ ^[0-9a-f]{64}$ ]] \
+  || fail "the fully vendored init published no completed code revision"
 pass "state/media identity exists independently from executable code"
 
 say "the advertised Git baseline, commit, and branch path is executable"
@@ -1435,6 +1458,104 @@ say "ordinary public status remains the truth source for the managed scope"
 assert_exit 0 "duo status after init" "${DUO[@]}" status "${PAIR}1"
 grep -q '0 conflict' <<<"$OUT" || fail "clean status did not report zero conflicts"
 grep -q '0 drift' <<<"$OUT" || fail "clean status did not report zero drift"
+
+say "the split default declares its wp.org components in the lock instead of committing them"
+# DUO-3499. `--code=split` is the DEFAULT, so this is the ordinary init and the
+# `--code=full` run above is the explicit opt-out.
+#
+# Classification runs on THIS host and never on the target -- a target that
+# reached a package registry would falsify code_release_provider's shipped probe
+# attestation. The mirror below is the same pinned WooCommerce 11.0.0 archive
+# `fetch_artifact` already digest-verified into the pair's artifact cache,
+# republished where the host can read it, so this leg is hermetic and runs
+# unchanged under DUO_WORDPRESS_ORG_OFFLINE=1. DUO_CODE_ARTIFACT_BASE moves only
+# WHERE bytes are fetched from: the url the lock records is still the canonical
+# downloads.wordpress.org one, because a wp-org-release's identity is its
+# canonical url plus its archive digest, never the host that served it. The
+# archive_sha256 assertion below is what proves that -- it must equal
+# conformance/artifacts.lock.json's own pin for this release.
+rm -rf "$CODE_MIRROR"
+mkdir -p "$CODE_MIRROR/plugin" "$CODE_MIRROR/cache"
+"${COMPOSE[@]}" run --rm -T -u root --entrypoint cat cli1 "$WOO_ARTIFACT" \
+  >"$CODE_MIRROR/plugin/woocommerce.11.0.0.zip"
+WOO_PINNED_SHA256=$(jq -r '.plugins.woocommerce."11.0.0".sha256' "$DUO_ARTIFACT_LOCKFILE")
+[[ "$WOO_PINNED_SHA256" =~ ^[0-9a-f]{64}$ ]] \
+  || fail "the artifact lock has no usable WooCommerce 11.0.0 digest pin"
+[ "$(sha256sum "$CODE_MIRROR/plugin/woocommerce.11.0.0.zip" | awk '{print $1}')" = "$WOO_PINNED_SHA256" ] \
+  || fail "the host release mirror is not the pinned WooCommerce 11.0.0 archive"
+
+repo_host 1
+find "$HOST_REPO" -mindepth 1 -delete
+wp1 db query 'DROP TABLE IF EXISTS wp_duo_journal,wp_duo_kv,wp_duo_map,wp_duo_state' >/dev/null
+export DUO_CODE_ARTIFACT_BASE="file://$CODE_MIRROR"
+assert_exit 0 "duo init split default" \
+  "${DUO[@]}" init "${PAIR}1" --yes --cache-dir="$CODE_MIRROR/cache"
+unset DUO_CODE_ARTIFACT_BASE
+SPLIT_OUT="$OUT"
+SPLIT_VIEW=$(grep -E '^ +(LOCKED|VENDORED) ' <<<"$SPLIT_OUT" || true)
+grep -q 'code split: ' <<<"$SPLIT_OUT" \
+  || fail "the split proposal did not render a per-component classification; when nothing locks the host
+still prints why, and that is the diagnosis:
+$SPLIT_VIEW"
+# Self-diagnosing on purpose: the interesting failure here is a component that
+# did NOT lock, and the host already wrote down why. Print the classification
+# rather than making the next reader re-instrument the suite to see it (the
+# DUO-3413 evidence discipline this file already follows).
+grep -q 'LOCKED plugins/woocommerce 11.0.0 ' <<<"$SPLIT_VIEW" \
+  || fail "the pinned WooCommerce release did not lock; the host's own classification said:
+$SPLIT_VIEW"
+grep -q 'declares a code lock' <<<"$SPLIT_OUT" \
+  || fail "the split next-steps did not name the materialization a fresh clone needs"
+
+jq -e '.code == {"format":2,"layout":"wp-content","lock":"code/duo-code.lock.json","source":"code/wp-content"}' \
+  "$HOST_REPO/site.duo.json" >/dev/null \
+  || fail "the split baseline did not declare code format 2 naming the lock"
+jq -e --arg sha "$WOO_PINNED_SHA256" '
+  .format == "duo-code-lock/v1" and
+  ([.components[] | select(.root == "plugins" and .component == "woocommerce")] | length) == 1 and
+  ([.components[] | select(.root == "plugins" and .component == "woocommerce")][0]
+    | .version == "11.0.0"
+      and .origin.kind == "wp-org-release"
+      and .origin.url == "https://downloads.wordpress.org/plugin/woocommerce.11.0.0.zip"
+      and .origin.archive_sha256 == $sha
+      and (.tree_sha256 | test("^[0-9a-f]{64}$")))
+' "$HOST_REPO/code/duo-code.lock.json" >/dev/null \
+  || fail "the published code lock did not declare the pinned WooCommerce release:
+$(cat "$HOST_REPO/code/duo-code.lock.json" 2>&1)"
+
+git1 config user.name 'Duo Init Regression'
+git1 config user.email 'duo-init@example.invalid'
+git1 add .gitignore site.duo.json code state media
+git1 commit -m 'duo: initial code and state baselines' >/dev/null
+# Every locked component, whichever ones this WordPress version's releases
+# actually matched: present on disk, ignored by a root-anchored line, and
+# carried by nobody in Git. Driven from the published lock rather than a
+# hard-coded slug list, because a theme that hash-matches its own release locks
+# by exactly the same rule WooCommerce does.
+while read -r LOCKED_COMPONENT; do
+  [ -n "$LOCKED_COMPONENT" ] || continue
+  [ -d "$HOST_REPO/code/wp-content/$LOCKED_COMPONENT" ] \
+    || fail "locked component $LOCKED_COMPONENT is not on disk; the split declares bytes, it never deletes them"
+  grep -qx "/code/wp-content/$LOCKED_COMPONENT/" "$HOST_REPO/.gitignore" \
+    || fail "locked component $LOCKED_COMPONENT has no root-anchored ignore line in the repository-root .gitignore"
+  LOCKED_TRACKED=$(git1 ls-files -- "code/wp-content/$LOCKED_COMPONENT" | head -3)
+  [ -z "$LOCKED_TRACKED" ] \
+    || fail "Git tracked locked component $LOCKED_COMPONENT: $LOCKED_TRACKED"
+done < <(jq -r '.components[] | "\(.root)/\(.component)"' "$HOST_REPO/code/duo-code.lock.json")
+[ -f "$HOST_REPO/code/wp-content/plugins/woocommerce/woocommerce.php" ] \
+  || fail "the locked WooCommerce bytes left the working tree"
+[ -z "$(git1 status --porcelain)" ] \
+  || fail "the split baseline left unstaged repository files"
+
+# THE claim, live: splitting moves no byte under code/wp-content, so it must
+# compile to the identical code_revision the fully vendored run produced.
+SPLIT_CODE_REVISION=$(wp1 db query "SELECT v FROM wp_duo_kv WHERE k = 'code_revision'" \
+  --skip-column-names | tr -d '[:space:]')
+[ "$SPLIT_CODE_REVISION" = "$FULL_CODE_REVISION" ] \
+  || fail "the split baseline compiled to code_revision $SPLIT_CODE_REVISION, not the fully vendored run's $FULL_CODE_REVISION; the split must move no byte"
+assert_exit 0 "duo status after split init" "${DUO[@]}" status "${PAIR}1"
+grep -q '0 conflict' <<<"$OUT" || fail "split baseline status did not report zero conflicts"
+pass "the split declares wp.org components in the lock, keeps their bytes, and compiles to the identical code revision"
 
 say "post-COMMIT SIGKILL finalizes the verified tuple instead of stranding its journal"
 repo_host 2

@@ -18,16 +18,28 @@ final class Init {
      *
      * @return array<string,mixed>
      */
-    public static function proposal(string $repo, bool $allowUnmanagedPlugins = false): array {
-        return InitPlanner::proposal($repo, $allowUnmanagedPlugins);
+    public static function proposal(
+        string $repo,
+        bool $allowUnmanagedPlugins = false,
+        ?array $lockPlan = null
+    ): array {
+        return InitPlanner::proposal($repo, $allowUnmanagedPlugins, $lockPlan);
     }
 
-    /** @return array<string,mixed> */
+    /**
+     * $lockPlan is `wp duo init --code-lock-b64`, and like
+     * $allowUnmanagedPlugins it must be supplied identically to proposal():
+     * the classification is inside the digest (InitPlanner::CODE_LOCK_ARGUMENT).
+     *
+     * @param ?list<array<string,mixed>> $lockPlan
+     * @return array<string,mixed>
+     */
     public static function confirm(
         string $repo,
         string $expectedDigest,
-        bool $allowUnmanagedPlugins = false
+        bool $allowUnmanagedPlugins = false,
+        ?array $lockPlan = null
     ): array {
-        return InitConfirmation::run($repo, $expectedDigest, $allowUnmanagedPlugins);
+        return InitConfirmation::run($repo, $expectedDigest, $allowUnmanagedPlugins, $lockPlan);
     }
 }
