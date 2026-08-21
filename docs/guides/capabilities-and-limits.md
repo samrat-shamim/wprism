@@ -463,7 +463,7 @@ this is a design position, not a backlog item.
 
 `duo status <env>` answers "safe to promote?" and encodes the answer in its
 exit code. Non-zero means no. The table below covers every condition in
-`PlanSummary::render()`'s `ok` expression — thirteen of them — and the one
+`PlanSummary::render()`'s `ok` expression — fourteen of them — and the one
 remedy for each. `code_mismatch` and `code_revision_stale` are split into two
 rows because they demand different actions, though the exit code reads them
 from the same list:
@@ -473,6 +473,7 @@ from the same list:
 | `conflict` | Repo and environment both changed the same entity. Plan JSON and human output identify the last-synced base, repository intent, and target intent without exposing raw values. | The recommended choice is to capture/reconcile both intents in the repository and re-plan. `duo apply --force-theirs` selects the explicitly destructive alternative and reports every override; when that intent includes declared option deletion, the view also requires `--with-deletes`. Supplying deletion authority alone does not select the conflict override. |
 | `delete_conflict` | The target no longer matches the base a deletion tombstone expected — someone changed the entity after the tombstone was written. Distinct from a blocked delete: nothing is referencing it, the *base* moved. The view includes the tombstone's expected-base and receipt evidence. | Capture/reconcile first, or knowingly use `duo apply --with-deletes --force-theirs`; both flags are mandatory. Once `--force-theirs` selects the override, a missing companion flag refuses before mutation and reports required versus supplied flags without calling the override authorized. `--with-deletes` alone retains the ordinary conflict refusal. |
 | `collision` | An unmanaged environment entity already holds this slug. | `duo apply --adopt-by-slug=<kinds>`, or rename. Inspect every collision first. |
+| pending `delete` (unauthorized) | The repository authored a deletion this environment still holds. An ordinary `duo apply`/`duo promote` performs no deletion at all without `--with-deletes`: it warns that it skipped every planned one, applies the rest, and records the revision as applied. The tombstone stays pending until somebody authorizes it. | `duo promote <env> --with-deletes` (or `wp duo apply --with-deletes`) once the deletions in the plan are the deletions you intend. |
 | blocked `delete` | A referential guard found live rows pointing at the deletion target. | Repair the referencing owner, or `duo apply --with-deletes --force-delete-referenced`. Forced execution stays loud. |
 | `missing_user` | An authored user-meta sidecar names an exact login that does not exist here. Apply refuses before mutation. | Create or reconcile the user outside Duo, or declare `missing_user: "warn"` on every authored key in that sidecar to warn-and-skip it. |
 | `code_mismatch` | Installed code disagrees with what state declares active. | Install/vendor the code, deploy first, or `--force-code-mismatch`. |

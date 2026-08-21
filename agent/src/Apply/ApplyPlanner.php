@@ -778,6 +778,47 @@ final class ApplyPlanner {
     }
 
     /**
+     * The operator sentence for tombstones an ordinary apply planned but was
+     * never authorized to execute.
+     *
+     * Only the SCOPED path refuses this state
+     * (ApplyPreparationCoordinator.php:171-179). A full apply keeps
+     * `$executeDeletes` false while `rebuild_work()` above hands back a fully
+     * populated `delete_work`, and AuthoredTransactionExecutor.php:222-253
+     * then skips its entire delete block — so the target still holds every
+     * tombstoned entity, and ApplyLedgerFinalizer.php:94-99 still records
+     * `applied_revision` for the run. Before DUO-3502 the only trace of that
+     * was numeric: `"delete":1` beside `"deleted":0` in the receipt
+     * (ApplyRequestCoordinator.php:1533-1534), which no operator reads as
+     * "none of the planned deletions happened".
+     *
+     * Pure by construction, exactly like `rebuild_work()`: the caller owns the
+     * authorization decision and guards `$deleteWork !== []`; this only
+     * renders the rows it was handed. `path` is the tombstone's repository
+     * path; the `<type> <uuid>` fallback covers rows projected without one.
+     *
+     * @param list<array<string,mixed>> $deleteWork
+     */
+    public static function unauthorized_deletes_warning(array $deleteWork): string {
+        $rows = array_map(
+            static function (array $row): string {
+                $path = (string) ($row['path'] ?? '');
+                return $path !== ''
+                    ? $path
+                    : (string) ($row['type'] ?? '?') . ' ' . (string) ($row['uuid'] ?? '?');
+            },
+            $deleteWork
+        );
+        return sprintf(
+            'planned deletions NOT applied (%d) — --with-deletes was not supplied; the target still holds them '
+                . 'and this revision is recorded as applied without them. Rerun with --with-deletes to authorize:'
+                . "\n  - %s",
+            count($deleteWork),
+            implode("\n  - ", $rows)
+        );
+    }
+
+    /**
      * Project the exact plan facts which authorize a later mutation.
      *
      * Report-only buckets are intentionally excluded. The selected plan

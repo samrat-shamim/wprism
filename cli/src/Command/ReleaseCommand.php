@@ -269,7 +269,25 @@ final class ReleaseCommand {
 
         // 2. Target facts.
         $plan = self::targetPlan($driver);
-        $readiness = PlanSummary::render($plan, [], $driver->name(), null, self::surfaceLabels($contract));
+        // Pending deletions are this command's own decision, not an
+        // assessment gap: `AuthorizationPlan::refusals()` refuses them by name
+        // with `release_deletes_not_authorized` and no gap action
+        // (cli/src/Release/AuthorizationPlan.php:613-625). DUO-3502 made a
+        // pending deletion non-ready for `duo status`, which is right for an
+        // ordinary promote and wrong here — it would shadow that reviewed
+        // refusal behind the generic one below and send the operator to
+        // capture/refresh/rebase a plan that needs a flag. Every other
+        // readiness term still applies, including a guard-blocked delete and
+        // `delete_conflict`, and the rows stay itemized in the lines printed
+        // above the refusal.
+        $readiness = PlanSummary::render(
+            $plan,
+            [],
+            $driver->name(),
+            null,
+            self::surfaceLabels($contract),
+            deletionAuthorityOwnedByCaller: true
+        );
         $head = self::targetHead($driver);
         $target = [
             'artifact_hash' => self::targetArtifactHash($driver),

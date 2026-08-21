@@ -177,6 +177,23 @@ final class ApplyPreparationCoordinator {
                     . 'no scoped session or authored target mutation was created'
             );
         }
+
+        // A full apply has no counterpart to the scoped refusal above: it keeps
+        // $executeDeletes false and still hands the populated $deleteWork on to
+        // an executor that skips its whole delete block
+        // (AuthoredTransactionExecutor.php:222-253), while
+        // ApplyLedgerFinalizer.php:94-99 records applied_revision for the run
+        // regardless. DUO-3502's owner ruling keeps that a warning rather than a
+        // refusal — the run did converge everything it WAS authorized to write,
+        // and no new flag or refusal is introduced — so the missing half of the
+        // truth goes on the warnings channel this method already carries by
+        // reference, which reaches $summary['warnings']
+        // (ApplyRequestCoordinator.php:1536) and WP_CLI::warning()
+        // (Cli.php:1679-1680) immediately above the unchanged success line.
+        if (!$request->scoped && !$executeDeletes && $deleteWork !== []) {
+            $warnings[] = ApplyPlanner::unauthorized_deletes_warning($deleteWork);
+        }
+
         if ($executeDeletes) {
             $blocked = array_filter($deleteWork, fn($row) => isset($row['blocked']));
             if ($blocked && empty($opts['force_delete_referenced'])) {
