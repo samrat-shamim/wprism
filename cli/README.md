@@ -1218,7 +1218,7 @@ Per-transport required keys:
 | Transport | Required keys | Optional keys |
 |---|---|---|
 | `local` | `wp_path`, `repo_path` | machine-local-only exact `bootstrap: {"format":"duo-local-control-plane/v1"}` |
-| `docker` | `compose_file`, `service`, `repo_path` | `profile` |
+| `docker` | `compose_file`, `service`, `repo_path` | `profile`, `mode` (`"run"` default, or `"exec"` — DUO-3513, see Transports below) |
 | `ssh` | `host`, `wp_path`, `repo_path` | `ssh_config`, paired `rollback_key_id` + `rollback_signing_key`, `rollback_recovery`, `verified_rollback` |
 
 A missing required key is a loud, specific error naming the environment,
@@ -1434,6 +1434,7 @@ stderr, and merging the streams would corrupt the JSON `duo status` parses).
 
 - **`local`**: `wp --path=<wp_path> duo <verb> --repo=<repo_path> …`
 - **`docker`**: `docker compose -f <compose_file> [--profile <profile>] run --rm -T <service> wp duo <verb> --repo=<repo_path> …`
+  (default, or explicit `"mode": "run"`)
 - **`ssh`**: `ssh -T <host> 'cd <wp_path> && wp duo <verb> --repo=<repo_path> …'`
   (the remote command is assembled with each part escaped, then the whole
   thing is escaped again as the single argument to `ssh`; `-T` defeats a user
@@ -1446,6 +1447,71 @@ run`'s trailing arguments are otherwise passed as the container's argv
 directly, not interpreted by a shell) and directly for `local`/`ssh` (PHP's
 `proc_open`/`passthru` already invoke `/bin/sh -c` for string commands, and
 `ssh` already hands its command argument to the remote login shell).
+
+### `docker` transport mode (DUO-3513)
+
+`"mode": "exec"` is an opt-in per-environment key that switches every
+`docker` command from `run --rm` to `exec` against an **already-running**
+service:
+
+```
+docker compose -f <compose_file> [--profile <profile>] exec -T <service> wp duo <verb> --repo=<repo_path> …
+```
+
+and the raw-command shape follows the same substitution (`exec -T <service>
+bash -c '<script>'` in place of `run --rm -T <service> bash -c '<script>'`).
+Any `mode` value other than `"run"` or `"exec"` is a loud, specific error
+naming the environment, the key, and the offending value — never a silent
+fallback to `run`. Leaving `mode` unset, or setting it to `"run"`, produces
+byte-identical command strings to every environment defined before DUO-3513.
+
+**Why opt in.** `run --rm` pays container create plus (on the legacy
+`sandbox/docker-compose.yml` estate, which uses `depends_on`) dependency
+resolution plus wp-cli's own startup, on every single call — measured on one
+host at roughly 0.40s + 0.51s + 0.33s. `exec -T` against a container that is
+already up pays only the wp-cli startup floor, measured at roughly 0.14s —
+about 0.77s saved per call on that estate, or about 0.26s per call on a
+`sandbox/pair.sh` pair (which has no `depends_on` to begin with — see
+`docs/sandbox.md`).
+
+**What it costs.** Unlike `run --rm`, `exec` does not create a fresh
+container per call:
+
+- wp-cli's own cache/tmp state persists across calls instead of starting
+  clean every time.
+- Any edit to the service's environment variables or mounts goes stale until
+  the operator recreates it (`docker compose up -d --force-recreate
+  <service>`, or an equivalent).
+- The service must already be running. `wordpress:cli`'s default CMD (`wp
+  shell`) exits immediately without a TTY, so a service meant to stay
+  resident for `exec` needs its own long-running `command:`, e.g. `command:
+  ["tail", "-f", "/dev/null"]`.
+
+**The not-running precondition.** Before building an `exec` command,
+`DockerTransport` checks once per `duo` process whether the target service
+is running (`docker compose … ps --status=running --services`); the result
+is cached for the rest of that invocation, so a single `duo` call never pays
+that probe twice. If the service is not running, every command — `wp`, raw,
+and the env-set stdin handoff alike — fails with the exact remedy instead of
+reaching docker at all:
+
+```
+env '<name>': transport mode "exec" requires service '<svc>' to be running. remedy: docker compose -f <compose_file> [--profile <profile>] up -d <svc>
+```
+
+so `duo doctor <env>` renders `[FAIL] transport reachable — …` with that
+remedy as its first check, the same way any other unreachable transport
+does. It never falls back to `run`.
+
+Container user stays whatever the service's own `user:` is (`33:33` for the
+sandbox's `cli-*` services); `exec` does not change that. The `--exec`
+control-plane bootstrap (`CodeDeploy::controlArgs`, used by `compile`,
+`promotion-*`, `code-stage`, `code-preflight`, `code-finalize`, `deploy`,
+`scope`) is per-process wp-cli state and is unaffected by container
+residency. `env-set`'s stdin piping (`PassthroughCommand::streamWpInput`)
+works the same way over `exec` as over `run`: `-T` is passed explicitly on
+both, so stdin is a plain pipe rather than a TTY even against an older
+compose that would otherwise allocate one.
 
 ## Env-bound value provisioning
 

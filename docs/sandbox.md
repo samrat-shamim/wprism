@@ -203,6 +203,18 @@ Publishing ports is its own overlay (`pair.http.yml`) so a pair that will
 never be curled can skip host-port consumption entirely — one less shared,
 finite resource to collide over when several pairs run at once.
 
+**`duo`'s `mode: "exec"` transport opt-in (DUO-3513, cli/README.md) is a
+separate, host-CLI-level concern from the printed pattern above.** It lets an
+environment in `.duo-envs.json` swap `docker compose run --rm` for `docker
+compose exec` against an already-resident service, trading a fresh container
+per call for wp-cli's own startup floor. `pair.yml`'s `cli1`/`cli2` are not
+resident today: they carry no `command:` override, so `docker compose up -d
+cli1` would start `wordpress:cli`'s default CMD (`wp shell`), which exits
+immediately without a TTY. Pointing a docker environment's `mode` at `"exec"`
+against a `pair.sh` pair therefore requires giving that service its own
+long-running `command:` (e.g. `command: ["tail", "-f", "/dev/null"]`) first —
+out of scope for this pass, which only adds the transport-level opt-in.
+
 **`--journal`** layers in `pair.journal.yml`, which adds `DUO_JOURNAL` to
 `WORDPRESS_CONFIG_EXTRA` on all four services (matching the exact define the
 legacy compose file's `spikec`/`r1a`/`r1b`/`r1c` profiles already
