@@ -6,12 +6,65 @@ namespace Duo\Orchestrator;
 require_once __DIR__ . '/../Transport/Transport.php';
 
 /**
- * `duo doctor <env>` — five checks, each gated on the previous one so a
- * broken transport doesn't produce a wall of confusing downstream failures.
- * Four are blocking (fold into the overall `ok`); the fifth (DISALLOW_
- * FILE_MODS, DUO-3231) is advisory-only — see its own check below for why.
+ * `duo doctor <env>` — ten rendered rows over exactly four target round
+ * trips, because a row and a round trip are not the same thing.
+ *
+ * Two of the four are true gates: the raw reachability echo (nothing
+ * downstream means anything through a broken transport) and `wp core
+ * is-installed` (no WordPress-side fact is readable without it). The other
+ * two are compositions. SITE_FACTS answers agent presence,
+ * DISALLOW_FILE_MODS and the PHP/database/WordPress facts in ONE `wp eval`:
+ * those three were never gates on each other, only siblings under the same
+ * `if ($installed)`. One raw script answers the repo-path row and the
+ * `.duo-env-values.json` tracked-status row that genuinely IS gated on it —
+ * one call because that gate is a shell test, not a decision this host has
+ * to make in between. DUO-3511 measured what the old one-call-per-row shape
+ * cost: a per-call transport floor of ~1.24 s on the docker-compose.yml
+ * estate (~0.73 s on pair.yml), paid seven times for four answers.
+ *
+ * Rows still fail independently, and their order here is the render order.
+ * Six are always blocking (they fold into the overall `ok`);
+ * `.duo-env-values.json` is blocking when it can be checked and advisory
+ * when the target ships no git binary; DISALLOW_FILE_MODS (DUO-3231), the
+ * WordPress core version (DUO-3222) and the coverage pointer (DUO-3290) are
+ * always advisory — each check below states its own reason.
  */
 final class Doctor {
+    /**
+     * The one composed `wp eval` an installed target answers.
+     *
+     * Composing three evals into one is only safe because every field is
+     * computed inside its OWN try/catch. `$wpdb->db_version()` and
+     * `$wpdb->db_server_info()` throw on a target whose database handle is
+     * gone — `class_exists()` and `defined()` cannot — and one shared try
+     * (or none at all) would let that single failure erase the
+     * agent-presence and DISALLOW_FILE_MODS answers with it, printing
+     * "agent class not found" at an operator whose agent is installed and
+     * fine. That is a false diagnosis the three separate evals could not
+     * produce, so the isolation is not a nicety: it is the property that
+     * makes the composition equivalent. A field that throws stays null and
+     * sinks only the row that needed it (self::compatibility_facts()).
+     *
+     * The `(string)` casts are the pre-composition semantics preserved
+     * verbatim: the old snippet concatenated each fact into a
+     * pipe-separated line, so a null return arrived as '' and was compared
+     * as ''. It still is — is_string(), not a truthiness test, is what
+     * separates a value from the thrown-field sentinel below.
+     */
+    private const SITE_FACTS = 'global $wpdb; '
+        . '$duo = ["agent" => null, "file_mods" => null, "php" => null, '
+        . '"db_version" => null, "db_engine" => null, "wp" => null]; '
+        . 'try { $duo["agent"] = class_exists("\\Duo\\Capture") ? "duo-ok" : "duo-missing"; } '
+        . 'catch (\Throwable $e) {} '
+        . 'try { $duo["file_mods"] = (defined("DISALLOW_FILE_MODS") && DISALLOW_FILE_MODS) '
+        . '? "duo-set" : "duo-unset"; } catch (\Throwable $e) {} '
+        . 'try { $duo["php"] = PHP_VERSION; } catch (\Throwable $e) {} '
+        . 'try { $duo["db_version"] = (string) $wpdb->db_version(); } catch (\Throwable $e) {} '
+        . 'try { $duo["db_engine"] = stripos((string) $wpdb->db_server_info(), "mariadb") !== false '
+        . '? "mariadb" : "mysql"; } catch (\Throwable $e) {} '
+        . 'try { $duo["wp"] = (string) get_bloginfo("version"); } catch (\Throwable $e) {} '
+        . 'echo json_encode($duo);';
+
     /** @return array{ok:bool, checks: list<array{label:string, ok:bool, detail:string, advisory?:bool}>} */
     public static function run(EnvironmentDriver $t, ?callable $wpArgs = null): array {
         $captureWp = static function (array $args) use ($t, $wpArgs): array {
@@ -32,16 +85,28 @@ final class Doctor {
             $checks[] = self::check('WordPress installed', false, 'skipped: transport unreachable');
         }
 
+        // DUO-3511: one round trip, three rows. $facts is null whenever the
+        // call failed or its payload was not a JSON object — the exact
+        // condition each of those rows already had to survive when it owned
+        // an eval of its own, so each one falls back to the bytes it printed
+        // then (self::field(), self::reason()). $factsCall is kept alive past
+        // the raw probe below because two of the three rows are rendered
+        // after it, in render order.
+        $factsCall = ['exit' => 0, 'stdout' => '', 'stderr' => ''];
+        $facts = null;
+        if ($installed) {
+            $factsCall = $captureWp(['eval', self::SITE_FACTS]);
+            $facts = self::site_facts($factsCall);
+        }
+
         $agentPresent = false;
         if ($installed) {
-            $snippet = 'echo class_exists("\\Duo\\Capture") ? "duo-ok" : "duo-missing";';
-            $r = $captureWp(['eval', $snippet]);
-            $out = trim($r['stdout']);
-            $agentPresent = $r['exit'] === 0 && $out === 'duo-ok';
+            $out = self::field($facts, 'agent', $factsCall);
+            $agentPresent = $factsCall['exit'] === 0 && $out === 'duo-ok';
             if ($agentPresent) {
                 $detail = '';
-            } elseif ($r['exit'] !== 0) {
-                $detail = self::reason($r);
+            } elseif ($factsCall['exit'] !== 0) {
+                $detail = self::reason($factsCall);
             } else {
                 $adoption = $t instanceof AdoptionTransport ? $t->capabilityReport('adopt') : null;
                 if ($adoption !== null && $adoption->ready()) {
@@ -67,12 +132,35 @@ final class Doctor {
         }
 
         $repo = $t->repoPath();
+        $repoOk = false;
+        $gitOut = '';
         if ($reachable) {
             $repoEsc = escapeshellarg($repo);
             $fileEsc = escapeshellarg(rtrim($repo, '/') . '/site.duo.json');
-            $script = "[ -d $repoEsc ] && [ -f $fileEsc ] && echo duo-repo-ok || echo duo-repo-missing";
+            // DUO-3511: one script, two answers — line 1 the repo-path
+            // answer, line 2 the tracked-status answer the block below reads.
+            // These two compose (where the three evals merely coexisted)
+            // because the git half is genuinely gated on the repo half, and
+            // that gate is a shell test: running it target-side costs nothing
+            // and decides nothing this host needed to see first. A
+            // repo-missing target therefore prints line 1 alone and its git
+            // row renders the same `skipped: repo path unavailable` it
+            // rendered when these were two calls. Exit status stays 0 in
+            // every non-error case (each half already ended in an `echo`), so
+            // a non-zero exit still means the transport failed rather than
+            // that some answer was "no".
+            $script = "if [ -d $repoEsc ] && [ -f $fileEsc ]; then echo duo-repo-ok; cd $repoEsc && "
+                . '{ command -v git >/dev/null 2>&1 || { echo duo-nogit; exit 0; }; } && '
+                . 'git ls-files --error-unmatch .duo-env-values.json >/dev/null 2>&1 '
+                . '&& echo duo-tracked || echo duo-untracked; '
+                . 'else echo duo-repo-missing; fi';
             $r = $t->captureRaw($script);
-            $out = trim($r['stdout']);
+            // trim() first, then split: the pre-composition read was
+            // trim($r['stdout']), so a transport that pads the payload with a
+            // blank line still resolves to the same first answer it did then.
+            $lines = explode("\n", trim($r['stdout']));
+            $out = trim($lines[0]);
+            $gitOut = trim($lines[1] ?? '');
             $repoOk = $r['exit'] === 0 && $out === 'duo-repo-ok';
             $detail = $repoOk ? '' : ($out === 'duo-repo-missing' ? "$repo: path missing or no site.duo.json" : self::reason($r));
             $checks[] = self::check("repo path has site.duo.json ($repo)", $repoOk, $detail);
@@ -108,15 +196,20 @@ final class Doctor {
         // docblock). So this checks for git's presence FIRST and reports
         // "could not verify" honestly (advisory, not a false clean bill of
         // health) rather than silently trusting an absent tool.
+        //
+        // DUO-3511: that answer now arrives as line 2 of the composed repo
+        // script above instead of from a probe of its own, so every branch
+        // below switches on $gitOut — line 2 — and never on $out, which holds
+        // the repo half's own `duo-repo-ok`. DUO-3512's sibling branch below
+        // is what closes the "probe never ran" false PASS; under composition
+        // its reachable trigger is exactly "line 1 said duo-repo-ok but line 2
+        // is none of the three sentinels", because a non-zero exit sinks
+        // $repoOk above and this block is gated on it — a failed call renders
+        // the repo row's FAIL plus `skipped: repo path unavailable`, both
+        // blocking, which is louder than this WARN and byte-identical to what
+        // a failed repo probe rendered before either issue.
         if ($reachable && $repoOk) {
-            $repoEsc = escapeshellarg($repo);
-            $script = "cd $repoEsc && "
-                . '{ command -v git >/dev/null 2>&1 || { echo duo-nogit; exit 0; }; } && '
-                . 'git ls-files --error-unmatch .duo-env-values.json >/dev/null 2>&1 '
-                . '&& echo duo-tracked || echo duo-untracked';
-            $r = $t->captureRaw($script);
-            $out = trim($r['stdout']);
-            if ($out === 'duo-nogit') {
+            if ($gitOut === 'duo-nogit') {
                 $checks[] = self::check(
                     '.duo-env-values.json not git-tracked', false,
                     'could not verify — this environment has no git binary, so tracked-status cannot be '
@@ -125,7 +218,7 @@ final class Doctor {
                         . 'exit non-zero, meaning untracked/absent).',
                     true
                 );
-            } elseif ($r['exit'] !== 0 || ($out !== 'duo-tracked' && $out !== 'duo-untracked')) {
+            } elseif ($r['exit'] !== 0 || ($gitOut !== 'duo-tracked' && $gitOut !== 'duo-untracked')) {
                 // DUO-3512: the script above is built entirely from shell && / ||, so a
                 // transport/shell failure (non-zero exit, empty or truncated stdout) reaches
                 // here having produced none of the three sentinels the two branches around
@@ -139,16 +232,28 @@ final class Doctor {
                 // rather than a fold-in: same non-blocking WARN vocabulary and manual-
                 // verification remedy, naming that the probe didn't complete rather than
                 // that git is absent.
+                //
+                // DUO-3511: the sentinel is line 2 of the composed repo/git
+                // script now, so the reason is built from the git half's OWN
+                // answer. self::reason($r) would otherwise return the whole
+                // payload — `duo-repo-ok` and a newline folded into this
+                // one-line detail — where DUO-3512 rendered just what the
+                // tracked-status probe printed. stderr still wins over stdout
+                // exactly as before, so a transport error keeps naming itself.
+                // The `$r['exit'] !== 0` clause is kept verbatim and is
+                // belt-and-braces here: see this block's DUO-3511 note above
+                // for why a failed call cannot reach it.
                 $checks[] = self::check(
                     '.duo-env-values.json not git-tracked', false,
-                    'could not verify — the tracked-status probe did not run (' . self::reason($r) . '). '
-                        . 'Verify manually (from a machine with a checkout of this repo): git -C <checkout> '
+                    'could not verify — the tracked-status probe did not run ('
+                        . self::reason(['exit' => $r['exit'], 'stdout' => $gitOut, 'stderr' => $r['stderr']])
+                        . '). Verify manually (from a machine with a checkout of this repo): git -C <checkout> '
                         . 'ls-files --error-unmatch .duo-env-values.json (should exit non-zero, meaning '
                         . 'untracked/absent).',
                     true
                 );
             } else {
-                $tracked = $out === 'duo-tracked';
+                $tracked = $gitOut === 'duo-tracked';
                 $detail = $tracked
                     ? '.duo-env-values.json is committed to this repo. It exists to hold provisioned secret '
                         . 'values and must never be tracked. Run `git rm --cached .duo-env-values.json`, add it '
@@ -178,10 +283,8 @@ final class Doctor {
         // (the exact failure mode DESIGN.md's posture section warns
         // against: friction that teaches people to ignore the check).
         if ($installed) {
-            $snippet = 'echo (defined("DISALLOW_FILE_MODS") && DISALLOW_FILE_MODS) ? "duo-set" : "duo-unset";';
-            $r = $captureWp(['eval', $snippet]);
-            $out = trim($r['stdout']);
-            $set = $r['exit'] === 0 && $out === 'duo-set';
+            $out = self::field($facts, 'file_mods', $factsCall);
+            $set = $factsCall['exit'] === 0 && $out === 'duo-set';
             $detail = $set ? '' : 'DISALLOW_FILE_MODS is not set (or false) in wp-config.php — wp-admin plugin/theme '
                 . 'install/update/delete UI stays open, so a one-click update can silently drift this '
                 . "environment's code out from under git (docs/code-half.md risk #1). Recommended: "
@@ -218,15 +321,17 @@ final class Doctor {
                     'baseline file missing or malformed — cannot verify PHP/database compatibility'
                 );
             } else {
-                $snippet = 'global $wpdb; echo PHP_VERSION . "|" . $wpdb->db_version() . "|" '
-                    . '. (stripos($wpdb->db_server_info(), "mariadb") !== false ? "mariadb" : "mysql") . "|" '
-                    . '. get_bloginfo("version");';
-                $r = $captureWp(['eval', $snippet]);
-                $parts = $r['exit'] === 0 ? explode('|', trim($r['stdout'])) : [];
-                if (count($parts) !== 4) {
+                // DUO-3511: the same refusal the pipe-separated read produced,
+                // now reached by three routes that were one route before — a
+                // failed call, an undecodable payload, and a field whose
+                // target-side try/catch caught a throw. reason() quotes what
+                // the target actually printed, which for the third route is
+                // the payload naming exactly which facts came back null.
+                $parts = self::compatibility_facts($facts);
+                if ($parts === null) {
                     $checks[] = self::check(
                         'compatibility baseline (docs/compatibility-baseline.json)', false,
-                        'could not read PHP/database/WordPress facts from the environment: ' . self::reason($r)
+                        'could not read PHP/database/WordPress facts from the environment: ' . self::reason($factsCall)
                     );
                 } else {
                     [$phpVersion, $dbVersion, $dbEngine, $wpVersion] = $parts;
@@ -292,6 +397,59 @@ final class Doctor {
             $t,
             static fn(array $args): array => CodeDeploy::controlArgs($args)
         );
+    }
+
+    /**
+     * The decoded SITE_FACTS payload, or null when there is none to read.
+     *
+     * @param array{exit:int, stdout:string, stderr:string} $r
+     * @return ?array<string, mixed>
+     */
+    private static function site_facts(array $r): ?array {
+        if ($r['exit'] !== 0) {
+            return null;
+        }
+        $decoded = json_decode(trim($r['stdout']), true);
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    /**
+     * One field of the composed payload, or — when the payload could not be
+     * decoded or does not carry that field as a string — the raw stdout the
+     * row read when it owned its own eval. So `agent class not found (wp eval
+     * returned 'duo-missing')` stays byte-identical on the decoded path, and
+     * a target that printed something else still gets that something quoted
+     * back at its operator instead of a blob it never sent.
+     *
+     * @param ?array<string, mixed> $facts
+     * @param array{exit:int, stdout:string, stderr:string} $r
+     */
+    private static function field(?array $facts, string $key, array $r): string {
+        $value = $facts[$key] ?? null;
+        return is_string($value) ? $value : trim($r['stdout']);
+    }
+
+    /**
+     * The four compatibility facts, or null when ANY of them is missing —
+     * the sentinel a target-side try/catch leaves behind for the one field
+     * that threw. An empty string is a VALUE here, not a sentinel: the
+     * pre-composition snippet concatenated a null return into the payload as
+     * '' and compared it as '', and is_string() keeps that path intact while
+     * still catching the null a throw produces.
+     *
+     * @param ?array<string, mixed> $facts
+     * @return ?list<string>
+     */
+    private static function compatibility_facts(?array $facts): ?array {
+        $parts = [];
+        foreach (['php', 'db_version', 'db_engine', 'wp'] as $key) {
+            $value = $facts[$key] ?? null;
+            if (!is_string($value)) {
+                return null;
+            }
+            $parts[] = $value;
+        }
+        return $parts;
     }
 
     /** @return ?array{php:array{min:string,max:string}, database:array{engine:string,min:string,max:string}, wordpress:array{last_verified:string}} */

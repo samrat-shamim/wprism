@@ -44,6 +44,16 @@ class HealthyDoctorDriver implements EnvironmentDriver {
     public int $rawCalls = 0;
     public int $wpCalls = 0;
 
+    /**
+     * DUO-3511: an injected {exit,stdout,stderr} for the composed eval (null
+     * = the healthy payload), and the production snippet exactly as Doctor
+     * sent it. The suite runs that snippet at the bottom of this file, so the
+     * per-field isolation the composition rests on is PROVEN rather than
+     * imitated by a fixture that could agree with a broken snippet.
+     */
+    public ?array $factsResult = null;
+    public string $factsSnippet = '';
+
     public function __construct(private bool $agentPresent = true) {}
 
     public function name(): string { return 'healthy-fixture'; }
@@ -53,11 +63,16 @@ class HealthyDoctorDriver implements EnvironmentDriver {
     public function captureRaw(string $script): array {
         $this->rawCalls++;
         if ($script === 'echo duo-reachable') return ['exit' => 0, 'stdout' => "duo-reachable\n", 'stderr' => ''];
-        if (str_contains($script, 'git ls-files --error-unmatch .duo-env-values.json')) {
-            return ['exit' => 0, 'stdout' => "duo-untracked\n", 'stderr' => ''];
-        }
-        if (str_contains($script, 'site.duo.json')) {
-            return ['exit' => 0, 'stdout' => "duo-repo-ok\n", 'stderr' => ''];
+        // DUO-3511: ONE script now carries the repo-path question and the
+        // .duo-env-values.json question, so it answers in the two lines the
+        // production script prints. Both str_contains() are load-bearing:
+        // matching the git half alone (what this fake did when they were two
+        // probes) would answer without line 1 and sink the repo row, and a
+        // re-split would fall through to the refusal below instead of
+        // silently passing.
+        if (str_contains($script, 'site.duo.json')
+            && str_contains($script, 'git ls-files --error-unmatch .duo-env-values.json')) {
+            return ['exit' => 0, 'stdout' => "duo-repo-ok\nduo-untracked\n", 'stderr' => ''];
         }
         return ['exit' => 99, 'stdout' => '', 'stderr' => 'unexpected raw probe'];
     }
@@ -65,11 +80,25 @@ class HealthyDoctorDriver implements EnvironmentDriver {
         $this->wpCalls++;
         if ($wpArgs === ['core', 'is-installed']) return ['exit' => 0, 'stdout' => "\n", 'stderr' => ''];
         $snippet = (string) ($wpArgs[1] ?? '');
-        if (str_contains($snippet, 'class_exists')) {
-            return ['exit' => 0, 'stdout' => ($this->agentPresent ? "duo-ok\n" : "duo-missing\n"), 'stderr' => ''];
+        // DUO-3511: the composed eval, recognised by all three facts it must
+        // carry — a snippet that lost one is not this call and must not be
+        // answered as if it were.
+        if (str_contains($snippet, 'class_exists')
+            && str_contains($snippet, 'DISALLOW_FILE_MODS')
+            && str_contains($snippet, 'db_server_info')) {
+            $this->factsSnippet = $snippet;
+            if ($this->factsResult !== null) {
+                return $this->factsResult;
+            }
+            return ['exit' => 0, 'stdout' => (string) json_encode([
+                'agent' => $this->agentPresent ? 'duo-ok' : 'duo-missing',
+                'file_mods' => 'duo-unset',
+                'php' => '8.3.33',
+                'db_version' => '11.8.8',
+                'db_engine' => 'mariadb',
+                'wp' => '7.0.2',
+            ]) . "\n", 'stderr' => ''];
         }
-        if (str_contains($snippet, 'DISALLOW_FILE_MODS')) return ['exit' => 0, 'stdout' => "duo-unset\n", 'stderr' => ''];
-        if (str_contains($snippet, 'PHP_VERSION')) return ['exit' => 0, 'stdout' => "8.3.33|11.8.8|mariadb|7.0.2\n", 'stderr' => ''];
         return ['exit' => 99, 'stdout' => '', 'stderr' => 'unexpected WordPress probe'];
     }
     public function streamWp(array $wpArgs): int { return 99; }
@@ -135,8 +164,13 @@ ob_start();
 $healthyExit = DoctorCommand::run($healthy);
 $healthyOutput = (string) ob_get_clean();
 assert_doctor_command($healthyExit === 0, 'healthy doctor exits successfully');
-assert_doctor_command($healthy->rawCalls === 3, 'healthy doctor performs each raw probe exactly once');
-assert_doctor_command($healthy->wpCalls === 4, 'healthy doctor performs each WordPress probe exactly once');
+// DUO-3511: the shape, not just the rendering. Doctor answered these same
+// ten rows in SEVEN target calls before this — three of the four `wp eval`s
+// were independent siblings under one `if ($installed)`, and the git probe
+// re-entered a target the repo probe had just left. Every row below renders
+// identically either way, so a re-split is only ever visible as a count.
+assert_doctor_command($healthy->rawCalls === 2, 'healthy doctor makes exactly two raw round trips: reachability, then the composed repo/git script (made ' . $healthy->rawCalls . ')');
+assert_doctor_command($healthy->wpCalls === 2, 'healthy doctor makes exactly two wp round trips: core is-installed, then the composed facts eval (made ' . $healthy->wpCalls . ')');
 assert_doctor_command(str_contains($healthyOutput, '[PASS] transport reachable'), 'healthy doctor renders a pass row');
 assert_doctor_command(str_contains($healthyOutput, '[WARN] DISALLOW_FILE_MODS set'), 'healthy doctor renders advisory warning');
 
@@ -174,6 +208,55 @@ assert_doctor_command(
     'non-adoptable doctor directs the operator to the environment control plane instead of an impossible adopt command'
 );
 
+// DUO-3511: a per-field sentinel. The target's own try/catch caught a
+// $wpdb->db_version() throw and left that ONE field null; the rows that never
+// needed the database must still print their real answers. This is the
+// assertion a naive composition fails — one try around the whole snippet, or
+// a host-side read that demands every field before trusting any, turns a
+// compatibility-row failure into "agent class not found" on a site whose
+// agent is installed and fine.
+$sunkDb = new HealthyDoctorDriver();
+$sunkDb->factsResult = ['exit' => 0, 'stdout' => (string) json_encode([
+    'agent' => 'duo-ok',
+    'file_mods' => 'duo-unset',
+    'php' => '8.3.33',
+    'db_version' => null,
+    'db_engine' => null,
+    'wp' => '7.0.2',
+]) . "\n", 'stderr' => ''];
+ob_start();
+$sunkDbExit = DoctorCommand::run($sunkDb);
+$sunkDbOutput = (string) ob_get_clean();
+assert_doctor_command($sunkDbExit === 1, 'an unreadable database fact remains a blocking doctor failure');
+assert_doctor_command(str_contains($sunkDbOutput, '[PASS] duo agent present'), 'a sunk database fact did not sink the agent-presence row');
+assert_doctor_command(str_contains($sunkDbOutput, '[WARN] DISALLOW_FILE_MODS set'), 'a sunk database fact did not sink the DISALLOW_FILE_MODS row');
+assert_doctor_command(!str_contains($sunkDbOutput, 'agent class not found'), 'a sunk database fact did not fabricate a missing agent');
+assert_doctor_command(str_contains(
+    $sunkDbOutput,
+    '[FAIL] compatibility baseline (docs/compatibility-baseline.json) — could not read PHP/database/WordPress facts from the environment:'
+), 'a sunk database fact fails the compatibility row it actually belongs to');
+
+// DUO-3511: an undecodable payload is the one case where every row falls back
+// to exactly what it printed when it owned its own eval — including this
+// sentence, which has been doctor's answer to an unreadable environment since
+// DUO-3222, and including quoting back what the target really printed rather
+// than a JSON blob it never sent.
+$garbled = new HealthyDoctorDriver();
+$garbled->factsResult = ['exit' => 0, 'stdout' => "PHP Notice: a plugin wrote to stdout\n", 'stderr' => ''];
+ob_start();
+$garbledExit = DoctorCommand::run($garbled);
+$garbledOutput = (string) ob_get_clean();
+assert_doctor_command($garbledExit === 1, 'an undecodable facts payload remains a blocking doctor failure');
+assert_doctor_command(str_contains(
+    $garbledOutput,
+    '[FAIL] compatibility baseline (docs/compatibility-baseline.json) — could not read PHP/database/WordPress facts from the environment: PHP Notice: a plugin wrote to stdout'
+), 'an undecodable payload reproduces the pre-composition compatibility refusal verbatim');
+assert_doctor_command(str_contains(
+    $garbledOutput,
+    "agent class not found (wp eval returned 'PHP Notice: a plugin wrote to stdout')"
+), 'an undecodable payload quotes what the target printed, as the single-purpose eval did');
+assert_doctor_command(str_contains($garbledOutput, '[WARN] DISALLOW_FILE_MODS set'), 'an undecodable payload leaves DISALLOW_FILE_MODS advisory, never blocking');
+
 ob_start();
 DoctorCommand::render([
     'ok' => true,
@@ -186,5 +269,44 @@ $rendered = (string) ob_get_clean();
 assert_doctor_command(str_contains($rendered, '[PASS] hard check'), 'render preserves pass rows');
 assert_doctor_command(str_contains($rendered, '[WARN] advisory check'), 'render labels advisory failures as warnings');
 assert_doctor_command(str_contains($rendered, 'recommended setting missing'), 'render preserves advisory detail');
+
+// DUO-3511: the isolation the whole composition rests on, proven by RUNNING
+// the production snippet Doctor just sent (captured above) instead of
+// trusting a fixture to imitate it — a fixture can only agree with a snippet
+// that is already broken. $wpdb->db_version() throws here the way it does on
+// a target whose database handle is gone; class_exists() and defined() cannot
+// throw, so the agent and DISALLOW_FILE_MODS fields MUST survive it. One try
+// around the whole snippet — the obvious naive composition — emits
+// {"agent":null,…} and fails this block.
+//
+// A two-method duck type, deliberately not sandbox/tests/lib's FakeWpdb:
+// that class is a SQL interpreter for agent-side suites, ships no
+// db_server_info() at all, and offers no seam for a throwing db_version() —
+// the only two behaviours this block needs.
+final class ThrownDbWpdb {
+    public function db_version(): string {
+        throw new RuntimeException('MySQL server has gone away');
+    }
+    public function db_server_info(): string {
+        return '11.8.8-MariaDB-1:11.8.8+maria~ubu2404';
+    }
+}
+if (!function_exists('get_bloginfo')) {
+    function get_bloginfo(string $show): string { return $show === 'version' ? '7.0.2' : ''; }
+}
+class_alias(stdClass::class, 'Duo\\Capture');
+$GLOBALS['wpdb'] = new ThrownDbWpdb();
+assert_doctor_command($healthy->factsSnippet !== '', 'the healthy run recorded the composed eval snippet');
+ob_start();
+eval($healthy->factsSnippet);
+$payload = (string) ob_get_clean();
+$facts = json_decode($payload, true);
+assert_doctor_command(is_array($facts), "the composed snippet emitted a JSON object through a throwing \$wpdb (got '$payload')");
+assert_doctor_command(($facts['agent'] ?? null) === 'duo-ok', 'a throwing $wpdb sank the agent-presence field');
+assert_doctor_command(($facts['file_mods'] ?? null) === 'duo-unset', 'a throwing $wpdb sank the DISALLOW_FILE_MODS field');
+assert_doctor_command(($facts['php'] ?? null) === PHP_VERSION, 'a throwing $wpdb sank the PHP version field');
+assert_doctor_command(($facts['wp'] ?? null) === '7.0.2', 'a throwing $wpdb sank the WordPress version field');
+assert_doctor_command(array_key_exists('db_version', $facts) && $facts['db_version'] === null, 'the thrown field did not leave its own null sentinel');
+assert_doctor_command(($facts['db_engine'] ?? null) === 'mariadb', 'the sibling database field did not answer independently of the thrown one');
 
 echo "PASS: doctor command\n";
