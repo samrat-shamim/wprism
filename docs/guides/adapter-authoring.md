@@ -869,8 +869,8 @@ own key:
 
 ```sh
 duo adapter keygen --out=<secret-key-file> [--key-id=<id>]
-duo adapter certify <site-repo> --name=<n> --secret-key-file=<f> [--key-id=<id>] [--reason=<text>] [--pin]
-duo adapter pin <site-repo> --name=<n> [--source=site|plugin]
+duo adapter certify <site-repo> --name=<n> --secret-key-file=<f> [--key-id=<id>] [--reason=<text>] [--pin [--adopt-scope]]
+duo adapter pin <site-repo> --name=<n> [--source=site|plugin] [--adopt-scope]
 ```
 
 `certify` binds the signed statement to `manifests/capabilities/platform.json`
@@ -951,6 +951,33 @@ duo adapter certify <site-repo> --name=<name> \
 4. Immediately verifies what it just wrote, through the live verifier.
 5. Prints the `{digest, name, source}` pin object; `--pin` writes it into
    `site.duo.json`.
+6. With `--pin`, opts the site into the post types and taxonomies the adapter
+   declares authored — the same reading `duo init` applies to an adapter
+   selected during init — and prints every rule it wrote:
+
+   ```
+   scope: wrote 1 authored scope rule(s) for surface(s) this adapter declares and site.duo.json had not decided
+     + policy.scope.post_type.acme_item = {"class": "authored"}
+   ```
+
+   It writes only where `site.duo.json` had decided nothing. A surface your
+   `policy.scope` already records — including the `{"class": "runtime"}` that
+   `duo init --allow-unmanaged-plugins` writes for an unmanaged plugin's
+   rowful types — is a **site decision, and site policy always wins**, so the
+   pin leaves it exactly as it is and says what that costs:
+
+   ```
+   scope: 1 surface(s) this adapter declares stay LOCAL — site.duo.json already decided them, and a recorded site rule outranks every manifest
+     ! policy.scope.post_type.acme_item = {"class": "runtime"} — capture will skip post_type acme_item
+     to adopt them anyway: duo adapter pin <site-repo> --name=<name> --adopt-scope
+     to decide one on the site: wp duo classify --repo=<repo> --set='scope:post_type:acme_item=authored'
+   ```
+
+   `--adopt-scope` is deliberately a second, explicit act. `duo classify` and
+   `duo init --allow-unmanaged-plugins` write byte-identical rules and the
+   scope grammar carries no provenance key, so nothing can tell your own
+   decision from init's record — and a command that guessed would silently
+   re-manage a type you meant to keep local.
 
 **What this certificate says, and what it does not.** It says: this
 organization's key approves *these exact bytes*, and the engine's validators

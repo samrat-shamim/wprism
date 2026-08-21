@@ -10,6 +10,7 @@ use Duo\AdapterSources;
 use Duo\Canon;
 use Duo\Policy;
 use Duo\RepositoryCompiler;
+use Duo\ScopeAdoption;
 
 /**
  * `duo adapter keygen | certify | pin` — the operator's own certification
@@ -211,12 +212,12 @@ final class AdapterCertify {
 
     /**
      * `duo adapter certify <site-repo> --name=<n> --secret-key-file=<f>
-     *  [--key-id=<id>] [--reason=<text>] [--pin]`
+     *  [--key-id=<id>] [--reason=<text>] [--pin] [--adopt-scope]`
      *
      * @param list<string> $args
      */
     private static function certify(array $args): int {
-        $flags = self::flags($args, ['name', 'secret-key-file', 'key-id', 'reason'], ['pin']);
+        $flags = self::flags($args, ['name', 'secret-key-file', 'key-id', 'reason'], ['pin', 'adopt-scope']);
         $repo = self::onlySiteRepo($flags['positional'], 'certify');
         if (is_int($repo)) {
             return $repo;
@@ -232,6 +233,14 @@ final class AdapterCertify {
         $reason = trim((string) ($flags['reason'] ?? ''));
         if ($reason === '') {
             $reason = self::DEFAULT_REASON;
+        }
+        $pinRequested = ($flags['pin'] ?? false) === true;
+        $adoptScope = ($flags['adopt-scope'] ?? false) === true;
+        if ($adoptScope && !$pinRequested) {
+            // Without a pin there is no adoption to widen: an unpinned
+            // adapter is not loaded, so writing its scope would opt the site
+            // into types nothing can classify.
+            return self::fail('--adopt-scope only means something with --pin: scope follows the pin, not the signature');
         }
 
         self::boot();
@@ -349,10 +358,15 @@ final class AdapterCertify {
         echo "\npin object for site.duo.json manifests[]:\n";
         echo rtrim(Canon::encode($pinObject)) . "\n";
 
-        if (($flags['pin'] ?? false) === true) {
+        if ($pinRequested) {
             $changed = self::writePin($repo, $pinObject);
             echo "\n" . ($changed ? 'wrote' : 'confirmed') . ' the pin in site.duo.json'
                 . " — the certificate binds these exact bytes, so re-run certify after any edit\n";
+            // The pin is the site's opt-in act, so it must carry the scope
+            // that act implies — DUO-3495: before this, certify --pin wrote a
+            // pin that extended no scope and `duo capture` silently skipped
+            // every type the newly-certified adapter declares.
+            self::adoptScope($repo, $name, $manifest, $adoptScope);
         } else {
             echo "\nThe adapter stays UNCERTIFIED until this exact object is in site.duo.json manifests[]:\n"
                 . '  a certificate without an exact {name,source,digest} pin reads `signed_unpinned`. '
@@ -367,7 +381,8 @@ final class AdapterCertify {
     // -----------------------------------------------------------------
 
     /**
-     * `duo adapter pin <site-repo> --name=<n> [--source=site|plugin]`
+     * `duo adapter pin <site-repo> --name=<n> [--source=site|plugin]
+     *  [--adopt-scope]`
      *
      * The host-side, WordPress-free twin of `wp duo manifest-pin`. It runs
      * the same `Policy::load()` + `RepositoryCompiler::resolved_adapters()`
@@ -382,7 +397,7 @@ final class AdapterCertify {
      * @param list<string> $args
      */
     private static function pin(array $args): int {
-        $flags = self::flags($args, ['name', 'source'], []);
+        $flags = self::flags($args, ['name', 'source'], ['adopt-scope']);
         $repo = self::onlySiteRepo($flags['positional'], 'pin');
         if (is_int($repo)) {
             return $repo;
@@ -439,6 +454,11 @@ final class AdapterCertify {
                 . "moves the digest and the pin refuses\n  until it is rewritten. That is the point — rerun "
                 . "`duo adapter pin` (and `duo adapter certify`, if it is certified) after every edit.\n";
         }
+        // Same act, same consequence as `certify --pin`: this is where the
+        // site opts into an adapter, so this is where the scope it declares
+        // stops being invisible (DUO-3495). Last, so the pin's own trailer
+        // stays one block.
+        self::adoptScope($repo, $name, self::resolvedManifest($repo, $name), ($flags['adopt-scope'] ?? false) === true);
 
         return 0;
     }
@@ -446,6 +466,169 @@ final class AdapterCertify {
     // -----------------------------------------------------------------
     // shared mechanism
     // -----------------------------------------------------------------
+
+    /**
+     * The scope half of a pin: opt the site into what the newly-pinned
+     * adapter declares, say exactly what that did, and never guess.
+     *
+     * ## Why a pin may widen scope at all
+     *
+     * "Site policy always wins" (docs/guides/adapter-authoring.md
+     * §Precedence) is about a rule the site RECORDED, not about a hole. This
+     * writes only where `policy.scope.<kind>.<name>` is absent and the flat
+     * list does not already name the type — i.e. where the site has said
+     * nothing — and what it writes is exactly what the operator's own command
+     * just asked for: `duo adapter certify --pin`/`duo adapter pin` IS a
+     * site-authored act, and it edits site.duo.json already. It is also the
+     * same opt-in `duo init` performs for an adapter selected at init time
+     * (`InitPlanner::adapter_scope()` merges every declared-authored type into
+     * the proposed `policy.post_types`), which is the whole asymmetry DUO-3495
+     * reported: an adapter that arrives one minute after init meant nothing.
+     *
+     * ## Why a recorded class is never flipped without being asked
+     *
+     * `{"class":"runtime"}` under `policy.scope` is byte-identical whether a
+     * human wrote it with `duo classify` or `duo init --allow-unmanaged-
+     * plugins` recorded it for an unmanaged plugin's rowful type, and the
+     * grammar has no third key to tell them apart ("scope rules accept class
+     * only", Policy.php:2745). So provenance is not recoverable and this does
+     * not infer it: a recorded entry is PRINTED with the two commands that
+     * change it and left exactly as the site wrote it. `--adopt-scope` is the
+     * operator supplying the missing fact themselves.
+     *
+     * @param array<string,mixed> $manifest the adapter this pin resolves to
+     */
+    private static function adoptScope(string $repo, string $name, array $manifest, bool $adopt): void {
+        $site = json_decode((string) file_get_contents($repo . '/site.duo.json'), true);
+        if (!is_array($site)) {
+            throw new \RuntimeException('duo: site.duo.json must be a JSON object');
+        }
+        $rows = ScopeAdoption::plan($manifest, $site);
+        if ($rows === []) {
+            return;
+        }
+
+        // Three buckets, keyed on the plan's own verdict rather than on the
+        // recorded class: `added` is a hole being filled, `flipped` is a
+        // recorded decision the operator asked to override, `shadowed` is one
+        // left standing. Nothing else is touched.
+        $added = [];
+        $flipped = [];
+        $shadowed = [];
+        foreach ($rows as $row) {
+            if ($row['state'] === ScopeAdoption::EXTEND) {
+                $added[] = $row;
+            } elseif ($row['state'] === ScopeAdoption::SHADOWED && $adopt) {
+                $flipped[] = $row;
+            } elseif ($row['state'] === ScopeAdoption::SHADOWED) {
+                $shadowed[] = $row;
+            }
+        }
+        $write = array_merge($added, $flipped);
+        if ($write !== []) {
+            self::writeScopeRules($repo, $write);
+        }
+
+        if ($added !== []) {
+            echo "\nscope: wrote " . count($added) . ' authored scope rule(s) for surface(s) this adapter declares'
+                . " and site.duo.json had not decided\n";
+            foreach ($added as $row) {
+                echo '  + ' . $row['pointer'] . " = {\"class\": \"authored\"}\n";
+            }
+        }
+        if ($flipped !== []) {
+            echo "\nscope: --adopt-scope overrode " . count($flipped)
+                . " decision(s) site.duo.json had already recorded\n";
+            foreach ($flipped as $row) {
+                echo '  ~ ' . $row['pointer'] . ' = {"class": "' . $row['class'] . "\"} -> {\"class\": \"authored\"}\n";
+            }
+        }
+        if ($shadowed !== []) {
+            echo "\nscope: " . count($shadowed) . ' surface(s) this adapter declares stay LOCAL — site.duo.json'
+                . " already decided them, and a recorded site rule outranks every manifest\n";
+            foreach ($shadowed as $row) {
+                echo '  ! ' . $row['pointer'] . ' = {"class": "' . $row['class'] . '"} — capture will skip '
+                    . $row['kind'] . ' ' . $row['name'] . "\n";
+            }
+            echo "  to adopt them anyway: duo adapter pin $repo --name=$name --adopt-scope\n";
+            echo '  to decide one on the site: wp duo classify --repo=<repo> --set=\''
+                . $shadowed[0]['spec'] . "'\n";
+        }
+        if ($added === [] && $flipped === [] && $shadowed === []) {
+            echo "\nscope: every surface this adapter declares is already in site.duo.json's authored scope\n";
+        }
+    }
+
+    /**
+     * The manifest the ENGINE resolves for `$name`, read after the pin is
+     * written so precedence, source pins and overrides are already applied —
+     * the same bytes the next `duo capture` will classify with.
+     *
+     * @return array<string,mixed>
+     */
+    private static function resolvedManifest(string $repo, string $name): array {
+        foreach (Policy::load($repo)->manifests as $manifest) {
+            if (is_array($manifest) && (string) ($manifest['name'] ?? '') === $name) {
+                return $manifest;
+            }
+        }
+        throw new \RuntimeException("duo: the engine resolved no manifest for adapter '$name' after pinning it");
+    }
+
+    /**
+     * Write `{"class": "authored"}` scope rules into site.duo.json.
+     *
+     * Typed, like `writePin()` and for the same reason: `"policy": {}` and
+     * every empty section inside it are JSON OBJECTS, and an associative
+     * round trip rewrites them as `[]` — a file the engine then refuses.
+     * Only the named `policy.scope.<kind>.<name>` nodes are touched.
+     *
+     * @param list<array{kind:string,name:string}> $rows
+     */
+    private static function writeScopeRules(string $repo, array $rows): void {
+        $file = $repo . '/site.duo.json';
+        $raw = file_get_contents($file);
+        if ($raw === false) {
+            throw new \RuntimeException("duo: cannot read $file");
+        }
+        $site = self::typedObject($raw, 'site.duo.json');
+        $scope = self::objectNode(self::objectNode($site, 'policy'), 'scope');
+        foreach ($rows as $row) {
+            // The rule shape the scope grammar admits and nothing more:
+            // ScopeGrammar::validate_scope_classes() refuses any other key,
+            // and Policy::set_rule() writes exactly this for
+            // `--set=scope:<kind>:<name>=authored` (Policy.php:2745-2752).
+            self::objectNode($scope, $row['kind'])->{$row['name']} = ['class' => 'authored'];
+        }
+
+        $encoded = Canon::encode($site);
+        if (hash_equals($raw, $encoded)) {
+            return;
+        }
+        self::atomicWrite($file, $encoded, 0644);
+    }
+
+    /**
+     * The child object at `$key`, created when absent.
+     *
+     * An empty JSON object that has been through PHP associative arrays comes
+     * back as `[]` — Canon::normalize()'s own rule — and the engine reads both
+     * as "nothing declared here"; the hand-edited fixture above (this file's
+     * T6-walk S2 case) carries a literal `"policy": []` for that reason. So an
+     * EMPTY list is admitted and becomes the object the new rule needs, while
+     * a populated one is a genuine shape error and is refused.
+     */
+    private static function objectNode(\stdClass $parent, string $key): \stdClass {
+        $value = $parent->{$key} ?? null;
+        if ($value instanceof \stdClass) {
+            return $value;
+        }
+        if ($value === null || $value === []) {
+            return $parent->{$key} = new \stdClass();
+        }
+
+        throw new \RuntimeException("duo: site.duo.json '$key' must be a JSON object");
+    }
 
     /** Whether site.duo.json already pins `$name` with the given source. */
     private static function hasSourcePin(string $repo, string $name, string $source): bool {
@@ -997,6 +1180,11 @@ final class AdapterCertify {
         foreach ([
             'Canon', 'OptionState', 'ManifestDispositions',
             'Policy', 'AdapterCertification', 'RepositoryCompiler',
+            // ScopeAdoption is the agent's own reading of "which surfaces
+            // does this manifest declare authored" — the same one init
+            // applies to a selected adapter. A second copy here would be a
+            // second product (DUO-3495).
+            'ScopeAdoption',
         ] as $class) {
             $file = $files[$class] ?? null;
             if (!is_string($file)) {

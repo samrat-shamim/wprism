@@ -442,6 +442,60 @@ put($termPath, Canon::encode($term));
 $p = authorization_failure($termRuntime); needs($p, 'repository_field_not_authored');
 ok('term files cannot smuggle runtime or undeclared meta past repository authorization');
 
+// DUO-3495: the whole-type refusal an operator meets after adopting an
+// adapter for a plugin `duo init --allow-unmanaged-plugins` left local. Its
+// coordinates (`classification=runtime declared_by=site.duo.json`) said a
+// rule exists somewhere and named neither the entry nor the fix, so the
+// reported walkthrough spent two more hand-edits of site.duo.json finding
+// both. The remedy clause is asserted THROUGH the product path — a real
+// compile of a real repository — and then FOLLOWED literally, because a
+// remedy nobody executed is a sentence, not a repair.
+$scopeShadow = "$tmp/scope-shadowed-type"; $ss = build_valid($scopeShadow);
+$sitePath = "$scopeShadow/site.duo.json";
+$site = Canon::decode(file_get_contents($sitePath));
+$site['policy']['post_types'][] = 'duo_case';
+$site['policy']['scope']['post_type']['duo_case'] = ['class' => 'runtime'];
+put($sitePath, Canon::encode($site));
+$casePath = "$scopeShadow/state/posts/duo_case/" . uuid(41) . "--case-one.md";
+put($casePath, Canon::post_file(post_front(uuid(41), 'duo_case', 'case-one'), 'Case one'));
+$p = authorization_failure($scopeShadow); needs($p, 'repository_field_not_authored');
+$typeRow = null;
+foreach ($p['diagnostics'] as $d) {
+    if ($d['code'] === 'repository_field_not_authored' && $d['surface'] === 'post_type' && $d['field'] === 'type') {
+        $typeRow = $d;
+    }
+}
+if ($typeRow === null) fail('no whole-type authorization finding: ' . json_encode($p));
+if (($typeRow['classification'] ?? null) !== 'runtime' || ($typeRow['declared_by'] ?? null) !== 'site.duo.json') {
+    fail('the finding lost its existing coordinates: ' . json_encode($typeRow));
+}
+$remedy = (string) ($typeRow['remediation'] ?? '');
+if (!str_contains($remedy, 'policy.scope.post_type.duo_case')) {
+    fail('the remedy does not name the recorded scope entry: ' . var_export($remedy, true));
+}
+if (!str_contains($remedy, "--set='scope:post_type:duo_case=authored'")) {
+    fail('the remedy does not carry the copy-pasteable classify spec: ' . var_export($remedy, true));
+}
+// The remedy has to survive the JSON boundary too: Cli::halt_json_failure()
+// drops the WHOLE diagnostic batch when any field looks sensitive, so a
+// remedy carrying a repository path would delete the evidence it explains.
+if (\Duo\CommandRefusalException::containsSensitivePublicDetail($p['diagnostics'])) {
+    fail('the remedy made the diagnostic batch unpublishable: ' . json_encode($p['diagnostics']));
+}
+$message = '';
+try { compile_repo($scopeShadow); } catch (RepositoryAuthorizationException $e) { $message = $e->getMessage(); }
+if (!str_contains($message, "\n      remedy: $remedy")) {
+    fail('the human refusal does not carry the remedy on its own line: ' . $message);
+}
+if (!str_contains($message, 'surface=post_type field=type classification=runtime declared_by=site.duo.json')) {
+    fail('the key=value head of the finding line moved: ' . $message);
+}
+// Follow it exactly, and only it: one recorded class, changed once.
+$site['policy']['scope']['post_type']['duo_case'] = ['class' => 'authored'];
+put($sitePath, Canon::encode($site));
+compile_repo($scopeShadow);
+ok('a shadowed whole-type refusal names its recorded entry and one copy-pasteable edit, and that edit alone clears it');
+
 $termSchema = "$tmp/term-meta-required"; $ts = build_valid($termSchema);
 $termPath = "$termSchema/state/terms/category/{$ts['term']}--news.json";
 $term = Canon::decode(file_get_contents($termPath));

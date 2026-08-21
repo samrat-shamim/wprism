@@ -2,9 +2,9 @@
 
 **Purpose.** Loads, validates and pins the manifest and site policy that decides which WordPress state Duo owns, and answers every ownership question the engine asks.
 
-**Directory** `agent/src/Policy/` &middot; **layer** `policy` &middot; **files** 18 &middot; **status** populated
+**Directory** `agent/src/Policy/` &middot; **layer** `policy` &middot; **files** 19 &middot; **status** populated
 
-**Entry points** (classes other modules already reference; a new cross-module reference to anything else is a design change): `Policy`, `ScopeContract`, `ManifestDispositions`, `ScopeClosure`, `ArtifactPolicyIdentity`, `ScopeDiscovery`, `PolicyRuleResolver`.
+**Entry points** (classes other modules already reference; a new cross-module reference to anything else is a design change): `Policy`, `ScopeContract`, `ManifestDispositions`, `ScopeClosure`, `ArtifactPolicyIdentity`, `ScopeDiscovery`, `PolicyRuleResolver`, `ScopeAdoption`.
 
 **May depend on:** `Kernel`, `Policy`.
 

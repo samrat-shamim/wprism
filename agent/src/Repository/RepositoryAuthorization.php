@@ -1,6 +1,8 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/../Policy/ScopeAdoption.php';
+
 /**
  * A fail-closed repository preflight with stable, machine-readable findings.
  * It deliberately runs before Ledger::ensure(), Capture::snapshot(), deploy
@@ -13,7 +15,7 @@ final class RepositoryAuthorizationException extends \RuntimeException {
     public function __construct(array $diagnostics) {
         $this->diagnostics = $diagnostics;
         $lines = array_map(static function (array $d): string {
-            return sprintf(
+            $line = sprintf(
                 '[%s] %s uuid=%s surface=%s field=%s classification=%s declared_by=%s',
                 $d['code'],
                 $d['path'],
@@ -23,6 +25,15 @@ final class RepositoryAuthorizationException extends \RuntimeException {
                 $d['classification'],
                 $d['declared_by'] ?? 'none'
             );
+            // The key=value head stays byte-identical for every finding that
+            // ever had one: it is what live suites and operator greps key on
+            // (sandbox/tests/live/regress_option_subkeys.sh:592 quotes a whole
+            // line). A remedy is an ADDITIONAL indented line under its own
+            // finding rather than another key=value pair, because the sentence
+            // holds spaces and would end the scan mid-remedy (DUO-3495).
+            return isset($d['remediation']) && is_string($d['remediation']) && $d['remediation'] !== ''
+                ? $line . "\n      remedy: " . $d['remediation']
+                : $line;
         }, $diagnostics);
         parent::__construct(
             'duo: repository authorization failed (' . count($diagnostics)
@@ -193,7 +204,16 @@ final class RepositoryAuthorization {
         $typeDetails = $policy->post_type_rule_details($postType);
         $typeClass = $typeDetails['rule']['class'] ?? 'authored';
         if ($typeClass !== 'authored') {
-            self::finding($out, 'repository_field_not_authored', $path, $uuid, 'post_type', 'type', $typeClass, $typeDetails['source']);
+            // The whole-type class is the one finding whose coordinates named
+            // no repair: `classification=runtime declared_by=site.duo.json`
+            // says a rule exists somewhere without saying WHICH entry or what
+            // to write instead, and DUO-3495's walkthrough spent two more
+            // hand-edits of site.duo.json discovering both.
+            self::finding(
+                $out, 'repository_field_not_authored', $path, $uuid, 'post_type', 'type',
+                $typeClass, $typeDetails['source'],
+                ScopeAdoption::scope_class_remedy('post_type', $postType, $typeClass, $typeDetails['source'])
+            );
         }
 
         foreach (['title', 'slug', 'status', 'date', 'date_gmt', 'modified', 'modified_gmt', 'author', 'parent',
@@ -541,8 +561,16 @@ final class RepositoryAuthorization {
         }
     }
 
-    private static function finding(array &$out, string $code, string $path, string $uuid, string $surface, string $field, string $classification, ?string $source): void {
-        $out[] = [
+    /**
+     * `$remediation` is an OPTIONAL in-place field, not a new envelope
+     * version. `duo-apply-in-progress` needed v2 (DUO-3489) because absence
+     * of its new field could be read as a claim; absence here claims nothing
+     * beyond "this finding carries no reviewed one-line remedy", which is
+     * exactly what every finding said before. Existing readers key on `code`
+     * (regress_repository_compiler.sh:179 columns it) and are unaffected.
+     */
+    private static function finding(array &$out, string $code, string $path, string $uuid, string $surface, string $field, string $classification, ?string $source, ?string $remediation = null): void {
+        $finding = [
             'code' => $code,
             'path' => $path,
             'uuid' => $uuid,
@@ -551,5 +579,9 @@ final class RepositoryAuthorization {
             'classification' => $classification,
             'declared_by' => $source,
         ];
+        if ($remediation !== null) {
+            $finding['remediation'] = $remediation;
+        }
+        $out[] = $finding;
     }
 }

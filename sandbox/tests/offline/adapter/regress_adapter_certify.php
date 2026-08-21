@@ -901,6 +901,161 @@ duo_check(
     'and no trust root was written for the failed attempt'
 );
 
+// ------------------------------- the pin is the site's scope opt-in (DUO-3495)
+// The reported walkthrough: a site initialized with --allow-unmanaged-plugins
+// records the unmanaged plugin's CPT as policy.scope.post_type.<cpt> =
+// {"class":"runtime"}; the developer later authors, certifies and pins an
+// adapter that declares that CPT. Before this, the pin extended no scope, so
+// `duo capture` silently skipped the type, and three hand-edits of
+// site.duo.json were the only way forward. What follows is that exact
+// sequence, plus the invariant the fix must not spend to get there: a
+// recorded site decision is never rewritten by a command that was not told
+// to rewrite it.
+
+/** A site repository whose site.duo.json is init-shaped, with an optional recorded scope. */
+function cert_init_site(string $root, string $label, array $manifest, array $scope): string {
+    $repo = $root . '/' . $label;
+    mkdir($repo . '/adapters', 0755, true);
+    Canon::write_file($repo . '/adapters/' . $manifest['name'] . '.json', Canon::encode($manifest));
+    $policy = [
+        // Empty JSON OBJECTS, as `duo init` writes them. They are the reason
+        // the scope writer is typed: an associative round trip rewrites each
+        // one as `[]` and the engine then refuses the file.
+        'options' => new stdClass(),
+        'post_meta' => new stdClass(),
+        'post_types' => ['attachment', 'page', 'post'],
+        'taxonomies' => ['category', 'post_tag'],
+        'term_meta' => new stdClass(),
+    ];
+    if ($scope !== []) {
+        $policy['scope'] = $scope;
+    }
+    Canon::write_file($repo . '/site.duo.json', Canon::encode([
+        'manifests' => ['core'],
+        'policy' => $policy,
+        'spec_version' => DUO_SPEC_VERSION,
+    ]));
+
+    return $repo;
+}
+
+/** The two questions capture asks about a whole type, answered by the engine. */
+function cert_type_verdict(string $repo, string $postType): array {
+    $policy = Policy::load($repo);
+    $details = $policy->post_type_rule_details($postType);
+
+    return [
+        'in_scope' => in_array($postType, $policy->post_types(), true),
+        'class' => $details['rule']['class'] ?? null,
+        'source' => $details['source'],
+    ];
+}
+
+// (1) Nothing recorded: the pin opts the site in, and says exactly what it wrote.
+$freshRepo = cert_init_site($root, 'scope-fresh', $rich, []);
+duo_check_same(
+    ['in_scope' => false, 'class' => null, 'source' => null],
+    cert_type_verdict($freshRepo, 'acme_item'),
+    'fixture premise: before the pin the engine knows nothing about the declared type'
+);
+$freshCert = cert_run(['certify', $freshRepo, '--name=acme-catalog', '--secret-key-file=' . $secretPath,
+    '--key-id=' . $signKeyId, '--reason=' . $reason, '--pin']);
+duo_check_same(0, $freshCert['exit'], 'certify --pin succeeds on a repository that had decided nothing about the type');
+duo_check(
+    str_contains($freshCert['out'], 'scope: wrote 1 authored scope rule(s)')
+        && str_contains($freshCert['out'], '+ policy.scope.post_type.acme_item = {"class": "authored"}'),
+    'and prints the exact rule it wrote — a scope widen is never silent'
+);
+duo_check_same(
+    ['in_scope' => true, 'class' => 'authored', 'source' => 'site.duo.json'],
+    cert_type_verdict($freshRepo, 'acme_item'),
+    'the engine now answers both of capture\'s questions for the declared type: in scope, and authored'
+);
+$freshBytes = (string) file_get_contents($freshRepo . '/site.duo.json');
+duo_check(
+    str_contains($freshBytes, '"options": {}') && str_contains($freshBytes, '"term_meta": {}'),
+    'the write is typed: init\'s empty policy sections are still JSON objects, not lists the engine refuses'
+);
+
+// (2) Rerunning decides nothing twice: no rule, no byte, and it says so.
+$freshAgain = cert_run(['certify', $freshRepo, '--name=acme-catalog', '--secret-key-file=' . $secretPath,
+    '--key-id=' . $signKeyId, '--reason=' . $reason, '--pin']);
+duo_check(
+    $freshAgain['exit'] === 0
+        && str_contains($freshAgain['out'], "scope: every surface this adapter declares is already in site.duo.json's authored scope")
+        && hash_equals($freshBytes, (string) file_get_contents($freshRepo . '/site.duo.json')),
+    'a second certify --pin writes no scope rule and no byte — adoption is idempotent'
+);
+
+// (3) The walkthrough proper: init already recorded the type as runtime.
+$walkRepo = cert_init_site($root, 'scope-walkthrough', $rich, [
+    'post_type' => ['acme_item' => ['class' => 'runtime']],
+]);
+$walkCert = cert_run(['certify', $walkRepo, '--name=acme-catalog', '--secret-key-file=' . $secretPath,
+    '--key-id=' . $signKeyId, '--reason=' . $reason, '--pin']);
+duo_check_same(0, $walkCert['exit'], 'certify --pin still succeeds over a recorded runtime scope class');
+duo_check_same(
+    ['class' => 'runtime'],
+    Canon::decode(Canon::read_file($walkRepo . '/site.duo.json'))['policy']['scope']['post_type']['acme_item'] ?? null,
+    'THE INVARIANT: a recorded site scope class is not rewritten. `duo classify` and `duo init '
+    . '--allow-unmanaged-plugins` write byte-identical rules and the grammar carries no provenance key '
+    . '(Policy.php:2745), so flipping it would be a guess about which one wrote it'
+);
+duo_check(
+    str_contains($walkCert['out'], 'scope: 1 surface(s) this adapter declares stay LOCAL')
+        && str_contains($walkCert['out'], '! policy.scope.post_type.acme_item = {"class": "runtime"} — capture will skip post_type acme_item'),
+    'and the dead end is named instead of being left to be discovered by an empty capture'
+);
+duo_check(
+    str_contains($walkCert['out'], 'duo adapter pin ' . realpath($walkRepo) . ' --name=acme-catalog --adopt-scope')
+        && str_contains($walkCert['out'], "wp duo classify --repo=<repo> --set='scope:post_type:acme_item=authored'"),
+    'with both remedies copy-pasteable: the host command, and the agent-side classify spec'
+);
+
+// (4) --adopt-scope is the operator supplying the fact the file cannot carry.
+$adoptRun = cert_run(['pin', $walkRepo, '--name=acme-catalog', '--source=site', '--adopt-scope']);
+duo_check_same(0, $adoptRun['exit'], 'the printed --adopt-scope command runs');
+duo_check(
+    str_contains($adoptRun['out'], 'scope: --adopt-scope overrode 1 decision(s) site.duo.json had already recorded')
+        && str_contains($adoptRun['out'], '~ policy.scope.post_type.acme_item = {"class": "runtime"} -> {"class": "authored"}'),
+    'and reports the override as an override, naming the class it replaced'
+);
+duo_check_same(
+    ['in_scope' => true, 'class' => 'authored', 'source' => 'site.duo.json'],
+    cert_type_verdict($walkRepo, 'acme_item'),
+    'after which the walkthrough\'s capture has nothing left to refuse — one printed command, zero hand-edits'
+);
+duo_check_same(
+    2,
+    cert_run(['certify', $walkRepo, '--name=acme-catalog', '--secret-key-file=' . $secretPath,
+        '--key-id=' . $signKeyId, '--adopt-scope'])['exit'],
+    '--adopt-scope without --pin is refused rather than silently inert: scope follows the pin'
+);
+
+// (5) Insertion never guesses beyond the declaration. A structural taxonomy
+// (no class at all) is authored and is adopted; a post type the ADAPTER
+// itself classifies runtime is its author's decision and is left alone.
+$declRepo = cert_init_site($root, 'scope-declared', [
+    'name' => 'acme-cases',
+    'option_autoload' => 'preserve',
+    'options' => ['acme_cases_layout' => ['class' => 'authored']],
+    'post_types' => ['acme_case' => ['class' => 'authored'], 'acme_log' => ['class' => 'runtime']],
+    'spec_version' => DUO_SPEC_VERSION,
+    'taxonomies' => ['acme_case_kind' => new stdClass()],
+], []);
+$declRun = cert_run(['pin', $declRepo, '--name=acme-cases', '--source=site']);
+duo_check_same(0, $declRun['exit'], 'a site adapter declaring three surfaces pins');
+duo_check(
+    str_contains($declRun['out'], '+ policy.scope.post_type.acme_case = {"class": "authored"}')
+        && str_contains($declRun['out'], '+ policy.scope.taxonomy.acme_case_kind = {"class": "authored"}'),
+    'a structural declaration (no class) is authored and adopted, exactly as init reads one'
+);
+$declScope = Canon::decode(Canon::read_file($declRepo . '/site.duo.json'))['policy']['scope'];
+duo_check(
+    !isset($declScope['post_type']['acme_log']),
+    'a type the adapter itself classifies runtime is never opted in — the pin adopts declarations, it does not invent them'
+);
+
 // ------------------------------------------------------------------ closure
 
 duo_check(
