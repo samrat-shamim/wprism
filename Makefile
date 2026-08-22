@@ -7,7 +7,8 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-assess-projection regress-assess-inventory regress-contract-shape regress-contract-projection regress-assess-composition regress-assess-bounds regress-contract-accept regress-contract-multi-env
 .PHONY: regress-offline-all regress-offline-corpus regress-offline-diagnostics
 .PHONY: regress-lifecycle-options-snapshot
-.PHONY: regress-core-lifecycle regress-core-data-boundary
+.PHONY: regress-core-lifecycle regress-core-data-boundary regress-core-scope-platform
+.PHONY: regress-platform-compatibility
 .PHONY: regress-cli-json-refusals regress-agent-subcommand-names regress-command-output regress-environment-command-preflight regress-environment-command regress-passthrough-command regress-environment-command-options regress-driver-capabilities-command regress-environment-list-command regress-doctor-command regress-adopt-command regress-pending-command regress-classify-command regress-capture-command regress-deploy-command regress-promote-command regress-status-command regress-scope-command regress-refresh-command regress-rebase-command
 .PHONY: regress-plan-explain
 .PHONY: regress-plan-category-summary regress-plan-category-summary-live regress-plugin-adapter-source regress-scoped-apply-live regress-scoped-apply-live-cleanup regress-scope-chain-stability
@@ -306,6 +307,12 @@ regress-core-lifecycle:
 regress-core-data-boundary:
 	bash sandbox/tests/live/regress_core_data_boundary.sh
 
+# Exact platform matrix for the host-integrated core adapter: supported PHP
+# 8.3/MariaDB 11/WordPress 7.0.3 round trip plus real adjacent WordPress and
+# PHP-exclusive-maximum refusals. Multisite retains its dedicated live suite.
+regress-core-scope-platform:
+	bash sandbox/tests/live/regress_core_scope_platform.sh
+
 regress-attachment-portability:
 	bash sandbox/tests/live/regress_attachment_portability.sh
 
@@ -334,6 +341,12 @@ regress-fetch-artifact:
 
 regress-manifest-dispositions:
 	php sandbox/tests/offline/policy/regress_manifest_dispositions.php
+
+# The one agent-side platform pre-policy gate: every inclusive/exclusive
+# PHP/MariaDB edge, exact WordPress value, topology/engine mismatch, checked
+# probe failure, aggregate diagnostic, and pre-repository ordering.
+regress-platform-compatibility:
+	php sandbox/tests/offline/policy/regress_platform_compatibility.php
 
 regress-adapter-sources:
 	bash sandbox/tests/offline/adapter/regress_adapter_sources.sh
@@ -2111,7 +2124,7 @@ regress-offline-all:
 	@echo "regress-offline-all: 274 offline suites green"
 
 regress-offline-corpus: code-half-unit \
-	regress-adopt-rollback regress-local-bootstrap regress-capture-publish regress-adapter-contract regress-adapter-sources regress-site-adapter-certification regress-ecosystem-adapter-batch regress-code-snippets-state-provider regress-yoast-duplicate-post-role-provider regress-adapter-production-readiness regress-manifest-dispositions regress-interpreter-policy regress-proof-legacy-pair \
+	regress-adopt-rollback regress-local-bootstrap regress-capture-publish regress-adapter-contract regress-adapter-sources regress-site-adapter-certification regress-ecosystem-adapter-batch regress-code-snippets-state-provider regress-yoast-duplicate-post-role-provider regress-adapter-production-readiness regress-manifest-dispositions regress-platform-compatibility regress-interpreter-policy regress-proof-legacy-pair \
 	regress-acf-meta-interpreter regress-fatal-mutations-unit regress-capture-secret-scan regress-user-meta-capture regress-entity-meta-capture regress-menu-capture regress-media-capture regress-options-capture regress-reference-scope-classifier regress-capture-safety-gates regress-capture-gate-scanner regress-capture-refactor-boundaries \
 	regress-order-preserving regress-canonical-json-parity regress-assess-projection regress-assess-inventory regress-contract-shape regress-contract-projection regress-assess-composition regress-assess-bounds regress-contract-accept regress-contract-multi-env regress-authorization-plan regress-release-containment-gate regress-recover-claim regress-verify-oracles regress-rehearse-provider regress-release-next-action regress-release-ref-binding regress-recover-ordering regress-mup-leak-audit regress-adapter-certify \
 	regress-block-refs regress-identity-token-codec regress-text-tokenizer regress-structured-reference-codec regress-url-query-reference-codec regress-lint-primitives regress-block-reference-scanner regress-menu-reference-scanner regress-serialized-term-description-scanner regress-shortcode-reference-scanner regress-composite-ref regress-doctor-env-values regress-environment-driver regress-environment-lifecycle regress-environment-command regress-environment-materializer regress-environment-materializer-ssh regress-environment-materializer-recovery regress-frozen-materialization-promotion regress-docker-exec-mode regress-pending-queue-ownership \
@@ -2155,6 +2168,7 @@ regress-live-list:
 	@echo "  regress-core-semantics                    pair codexmac3207 8900/8901"
 	@echo "  regress-core-lifecycle                    own disposable pair (parameterized: CORE_LIFECYCLE_PAIR/PORT1/PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate; exact offline WordPress 7.0.2 -> 7.0.3 -> rollback/reinstall)"
 	@echo "  regress-core-data-boundary                own disposable pair (parameterized: CORE_DATA_BOUNDARY_PAIR/PORT1/PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate; exact offline WordPress 7.0.3)"
+	@echo "  regress-core-scope-platform               own disposable pair (parameterized: CORE_SCOPE_PLATFORM_PAIR/PORT1/PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate; exact PHP 8.3/8.4 + WordPress 7.0.2/7.0.3 matrix)"
 	@echo "  regress-attachment-portability            pair codexmac3265 8964/8965"
 	@echo "  regress-fatal-mutations-live              pair codexmaca3206 9210/..."
 	@echo "  regress-multisite-refusal                 own disposable pair (parameterized: MULTISITE_PAIR/PORT1/PORT2)"

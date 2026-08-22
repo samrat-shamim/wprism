@@ -18,6 +18,9 @@ require_once __DIR__ . '/ManifestGrammar.php';
 // DUO-3348 slice 4: adapter provenance / capability-readiness resolution,
 // required here for the same "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/../Adapter/AdapterRegistry.php';
+// Runtime platform compatibility is a pre-policy gate: direct `wp duo`
+// mutations must not be able to bypass the host-side doctor boundary.
+require_once __DIR__ . '/PlatformCompatibility.php';
 // DUO-3348 slice 5: manifest-pin normalization/validation, required here for
 // the same "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/PinResolver.php';
@@ -271,6 +274,18 @@ final class Policy {
         }
     }
 
+    /** Refuse unexercised runtime versions before any policy/repository read. */
+    private static function assert_supported_platform(): void {
+        // Pure manifest/compiler contexts intentionally have no WordPress
+        // runtime. The product path defines both before any wp-cli command is
+        // dispatched, so this guard separates offline validation from a live
+        // target instead of treating absent facts as compatible defaults.
+        if (!defined('ABSPATH') || !function_exists('get_bloginfo')) {
+            return;
+        }
+        PlatformCompatibility::assert_supported(ManifestDispositions::platform_boundary());
+    }
+
     /**
      * Supply the engine-owned vocabularies used by the pure manifest-local
      * validator without making ManifestValidator duplicate runtime policy
@@ -306,6 +321,7 @@ final class Policy {
     ): self {
         if (!$allowUnsupportedSiteForReadOnlyCapabilities) {
             self::assert_single_site();
+            self::assert_supported_platform();
         }
         $p = new self();
         if ($repo !== null) {
@@ -410,6 +426,7 @@ final class Policy {
     /** Reconstruct and fully validate a policy exported by export_snapshot(). */
     public static function from_snapshot(array $snapshot): self {
         self::assert_single_site();
+        self::assert_supported_platform();
         $keys = array_keys($snapshot);
         sort($keys, SORT_STRING);
         $snapshotFormat = $snapshot['format'] ?? null;

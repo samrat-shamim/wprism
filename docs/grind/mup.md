@@ -236,8 +236,9 @@ live run knows what to look at rather than rediscovering it.
 
 1. **Readiness may not be `Ready`.** Step 3 asserts the §6.1 words literally.
    The WordPress/PHP/MariaDB route into a non-`Ready` row is gone with the
-   generated capability registry — no runtime gate reads those versions any
-   more. What survives is the *plugin* window: `plugin_version_mismatch` and
+   generated capability registry — the global pre-policy gate owns those
+   versions instead of projecting them as per-surface blockers. What survives
+   in the report is the *plugin* window: `plugin_version_mismatch` and
    `plugin_not_active` are condition codes, not blockers
    (`cli/src/Assess/SurfaceCatalog.php:137-139`), so a WooCommerce outside
    `manifests/woocommerce.json`'s `version_range` (`11.0.0` ≤ v < `12.0.0`)

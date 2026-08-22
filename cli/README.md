@@ -204,12 +204,12 @@ are rejected when the registry is loaded.
   7. installed PHP version is inside `docs/compatibility-baseline.json`'s
      declared range (DUO-3222)
   8. installed database engine/version is inside the same baseline
-  9. installed WordPress core version (informational only — reported, never
-     enforced; see the baseline file's own note on why)
+  9. installed WordPress core version equals the one exact exercised version
+     in the baseline (a wider claim requires a real core-version matrix)
 
   Exit 0 only if every check above except the ones that were actually
-  advisory/informational on this particular run (always 9; 6 whenever
-  `DISALLOW_FILE_MODS` is genuinely unset; 5 only in the no-git case)
+  advisory on this particular run (6 whenever `DISALLOW_FILE_MODS` is
+  genuinely unset; 5 only in the no-git case)
   passes.
 
 - **`duo driver-capabilities <env> [--operation=<workflow>]`

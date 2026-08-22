@@ -145,6 +145,7 @@ return [
     'Duo\\PlanCategorySummary' => 'src/Review/PlanCategorySummary.php',
     'Duo\\PlanExplanation' => 'src/Review/PlanExplanation.php',
     'Duo\\PlanView' => 'src/Review/PlanView.php',
+    'Duo\\PlatformCompatibility' => 'src/Policy/PlatformCompatibility.php',
     'Duo\\Policy' => 'src/Policy/Policy.php',
     'Duo\\PolicyLoadFinalizer' => 'src/Policy/PolicyLoadFinalizer.php',
     'Duo\\PolicyRuleResolver' => 'src/Policy/PolicyRuleResolver.php',

@@ -348,7 +348,7 @@ function capdoc_plugin_label(string $name, array $manifest, array $supportedVers
  */
 function capdoc_version_label(array $supportedVersions, array $platform): string {
     if (isset($supportedVersions['wordpress'])) {
-        return 'WordPress ' . $platform['compatibility']['wordpress']['last_verified'] . ' (last verified)';
+        return 'WordPress ' . $platform['compatibility']['wordpress']['last_verified'] . ' (exact exercised)';
     }
     $range = $supportedVersions['range'] ?? null;
     if (is_array($range) && isset($range['min'], $range['max'])) {
@@ -419,7 +419,7 @@ function capdoc_platform_section(array $platform): string {
     $out .= '| Site mode | ' . capdoc_cell((string) $platform['site_mode']) . " |\n";
     $out .= '| Plugin execution | ' . capdoc_cell((string) $platform['plugin_execution']) . " |\n";
     $out .= '| Branchable state | ' . capdoc_cell((string) $platform['branchable_state']) . " |\n";
-    $out .= '| WordPress | ' . capdoc_cell($compatibility['wordpress']['last_verified']) . " (last verified) |\n";
+    $out .= '| WordPress | ' . capdoc_cell($compatibility['wordpress']['last_verified']) . " (exact exercised) |\n";
     $out .= '| PHP | >=' . capdoc_cell($compatibility['php']['min']) . ' <'
         . capdoc_cell($compatibility['php']['max']) . " |\n";
     $out .= '| Database | ' . capdoc_cell($compatibility['database']['engine']) . ' >='

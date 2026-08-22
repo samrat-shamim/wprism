@@ -23,11 +23,11 @@ require_once __DIR__ . '/../Transport/Transport.php';
  * estate (~0.73 s on pair.yml), paid seven times for four answers.
  *
  * Rows still fail independently, and their order here is the render order.
- * Six are always blocking (they fold into the overall `ok`);
+ * Every compatibility axis is blocking (it folds into the overall `ok`);
  * `.duo-env-values.json` is blocking when it can be checked and advisory
  * when the target ships no git binary; DISALLOW_FILE_MODS (DUO-3231), the
- * WordPress core version (DUO-3222) and the coverage pointer (DUO-3290) are
- * always advisory — each check below states its own reason.
+ * coverage pointer (DUO-3290) is always advisory — each check below states
+ * its own reason.
  */
 final class Doctor {
     /**
@@ -308,11 +308,10 @@ final class Doctor {
         // treatment above — an environment genuinely outside the tested
         // PHP/database range is exactly the "unproven behavior hidden
         // behind a broad compatibility claim" DESIGN.md's vision invariant
-        // forbids. wordpress core has no real pin anywhere in this
-        // project's own Docker tags (see the baseline file's own note), so
-        // it is reported, never compared — a fabricated range with no pin
-        // behind it would be an untested guess, exactly what this
-        // project's discipline avoids elsewhere.
+        // forbids. WordPress is one exact value rather than a fabricated
+        // range: pair.yml pins 7.0.3 and the agent pre-policy gate enforces
+        // that same last_verified value, so doctor must not label another
+        // core version compatible while direct product commands refuse it.
         if ($installed) {
             $baseline = self::read_baseline();
             if ($baseline === null) {
@@ -355,9 +354,18 @@ final class Doctor {
                             : 'outside the declared baseline (>=' . ($db['min'] ?? '?') . ' <' . ($db['max'] ?? '?')
                                 . ' — docs/compatibility-baseline.json).')
                     );
-                    // Informational only — see this block's own header comment for why WordPress
-                    // core gets no enforced range.
-                    $checks[] = self::check("WordPress core ($wpVersion)", true, '', true);
+                    $wordpress = $baseline['wordpress'] ?? null;
+                    $verifiedWordPress = is_array($wordpress)
+                        ? (string) ($wordpress['last_verified'] ?? '')
+                        : '';
+                    $wordpressOk = $verifiedWordPress !== '' && hash_equals($verifiedWordPress, $wpVersion);
+                    $checks[] = self::check(
+                        "WordPress core ($wpVersion)",
+                        $wordpressOk,
+                        $wordpressOk ? '' : 'outside the exact exercised core boundary ('
+                            . ($verifiedWordPress !== '' ? $verifiedWordPress : '?')
+                            . ' — docs/compatibility-baseline.json). A wider claim requires a real core-version matrix.'
+                    );
                 }
             }
         } else {

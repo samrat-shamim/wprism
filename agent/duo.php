@@ -23,6 +23,7 @@ require_once __DIR__ . '/src/Kernel/Secrets.php';
 require_once __DIR__ . '/src/Kernel/CommandRefusal.php';
 require_once __DIR__ . '/src/Kernel/PersonalData.php';
 require_once __DIR__ . '/src/Policy/ManifestDispositions.php';
+require_once __DIR__ . '/src/Policy/PlatformCompatibility.php';
 require_once __DIR__ . '/src/Adapter/AdapterSources.php';
 require_once __DIR__ . '/src/Adapter/TargetProbe.php';
 require_once __DIR__ . '/src/Rebuild/NativeActions.php';
