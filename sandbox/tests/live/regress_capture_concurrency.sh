@@ -512,7 +512,7 @@ pass "capture-held apply refused before authored or derived target mutation"
 release_capture || fail "could not release capture C after proving target-wide contention"
 wait "$PID_C" || { tail -60 "$LOG_C"; fail "capture C itself failed (see log above)"; }
 PID_C=""
-[ "$(wp1 eval 'echo null === \\Duo\\Ledger::kv_get("promotion_lock") ? "none" : "held";')" = none ] \
+[ "$(wp1 eval 'echo null === \Duo\Ledger::kv_get("promotion_lock") ? "none" : "held";')" = none ] \
   || fail "capture/apply contention left a durable promotion lock"
 
 say "PART 2 — retry against the previously refused different destination succeeds after release"
@@ -599,9 +599,9 @@ echo wp_json_encode([
 ')
 jq -e '.stored_nonempty and .generated_nonempty and .rules_match' <<<"$RULE_PARITY" >/dev/null \
   || fail "fresh-process generated/stored rewrite rules diverged after contention: $RULE_PARITY"
-[ "$(wp1 eval 'echo null === \\Duo\\Ledger::kv_get("promotion_lock") ? "none" : "held";')" = none ] \
+[ "$(wp1 eval 'echo null === \Duo\Ledger::kv_get("promotion_lock") ? "none" : "held";')" = none ] \
   || fail "successful apply retained its promotion lock"
-[ "$(wp1 eval 'echo null === \\Duo\\Ledger::kv_get("apply_in_progress") ? "none" : "held";')" = none ] \
+[ "$(wp1 eval 'echo null === \Duo\Ledger::kv_get("apply_in_progress") ? "none" : "held";')" = none ] \
   || fail "successful apply retained incomplete-apply recovery state"
 
 APPLY_RETRY=$(wp1 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
@@ -676,9 +676,9 @@ DELETE_UUID_ROWS=$(wp1 db query \
 [ "$DELETE_UUID_ROWS" = 0 ] || fail "winning delete left $DELETE_UUID_ROWS embedded identity rows"
 [ -z "$(wp1 eval "echo (string) \\Duo\\Ledger::id_for('$BASE_PAGE_UUID', \\Duo\\Ledger::KIND_POST);")" ] \
   || fail "winning delete retained the page's ledger identity"
-[ "$(wp1 eval 'echo null === \\Duo\\Ledger::kv_get("promotion_lock") ? "none" : "held";')" = none ] \
+[ "$(wp1 eval 'echo null === \Duo\Ledger::kv_get("promotion_lock") ? "none" : "held";')" = none ] \
   || fail "winning delete retained its promotion lock"
-[ "$(wp1 eval 'echo null === \\Duo\\Ledger::kv_get("apply_in_progress") ? "none" : "held";')" = none ] \
+[ "$(wp1 eval 'echo null === \Duo\Ledger::kv_get("apply_in_progress") ? "none" : "held";')" = none ] \
   || fail "winning delete retained incomplete-apply recovery state"
 
 DELETE_RETRY=$(wp1 duo apply --repo=/siterepo --default-author=admin --with-deletes --format=json | awk 'NF { line=$0 } END { print line }')
