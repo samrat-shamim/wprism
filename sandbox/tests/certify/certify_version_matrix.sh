@@ -1408,6 +1408,65 @@ wp1 duo capture --repo=/siterepo
 "${GIT1[@]}" commit -qm "capture: valid PMPro state for adjacent-version refusals"
 "${GIT1[@]}" push -q origin main
 
+say "negative control: missing PMPro code refuses before lifecycle mutation"
+wp1 plugin deactivate paid-memberships-pro >/dev/null 2>&1 || true
+wp1 plugin delete paid-memberships-pro >/dev/null
+set +e
+DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_RC=$?
+set -e
+[ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse missing PMPro code, but it exited 0 (got: $DEPLOY_OUT)"
+grep -Eq "code_mismatch|missing_in_code|is not installed" <<<"$DEPLOY_OUT" \
+  || fail "missing PMPro refusal did not name the compatibility gate (got: $DEPLOY_OUT)"
+grep -q "paid-memberships-pro/paid-memberships-pro.php" <<<"$DEPLOY_OUT" \
+  || fail "missing PMPro refusal did not name the exact expected basename (got: $DEPLOY_OUT)"
+if wp1 plugin is-installed paid-memberships-pro >/dev/null 2>&1; then
+  fail "missing-code refusal installed PMPro before returning"
+fi
+pass "confirmed: absent PMPro code is refused and remains absent"
+
+say "negative control: the right exact bytes under the wrong basename refuse rather than being guessed"
+WRONG_BASENAME_ARTIFACT=$(fetch_artifact paid-memberships-pro 3.8.3 cli1)
+wp1 plugin install "$WRONG_BASENAME_ARTIFACT" >/dev/null
+WRONG_BASENAME_VERSION=$(wp1 plugin get paid-memberships-pro-3.8.3 --field=version)
+[ "$WRONG_BASENAME_VERSION" = "3.8.3" ] \
+  || fail "wrong-basename premise did not install official 3.8.3 bytes under the archive root"
+set +e
+DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_RC=$?
+set -e
+[ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse PMPro under the wrong basename, but it exited 0 (got: $DEPLOY_OUT)"
+grep -Eq "code_mismatch|missing_in_code|is not installed" <<<"$DEPLOY_OUT" \
+  || fail "wrong-basename PMPro refusal did not name the compatibility gate (got: $DEPLOY_OUT)"
+grep -q "paid-memberships-pro/paid-memberships-pro.php" <<<"$DEPLOY_OUT" \
+  || fail "wrong-basename PMPro refusal did not name the exact expected basename (got: $DEPLOY_OUT)"
+wp1 plugin is-installed paid-memberships-pro-3.8.3 >/dev/null \
+  || fail "wrong-basename refusal rewrote or removed the installed upstream directory"
+if wp1 plugin is-active paid-memberships-pro-3.8.3 >/dev/null 2>&1; then
+  fail "wrong-basename refusal activated unrecognized PMPro code"
+fi
+pass "confirmed: exact PMPro bytes under paid-memberships-pro-3.8.3 remain inactive and are never accepted as the canonical basename"
+wp1 plugin delete paid-memberships-pro-3.8.3 >/dev/null
+
+say "negative control: an unreadable exact main file refuses before activation"
+UNREADABLE_ARTIFACT=$(fetch_artifact paid-memberships-pro 3.8.3 cli1)
+wp1 plugin install "$UNREADABLE_ARTIFACT" >/dev/null
+normalize_version_matrix_archive_root cli1 plugin paid-memberships-pro paid-memberships-pro-3.8.3
+"${PAIR_COMPOSE[@]}" run --rm -T cli1 sh -c 'chmod 000 /var/www/html/wp-content/plugins/paid-memberships-pro/paid-memberships-pro.php'
+set +e
+DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_RC=$?
+set -e
+"${PAIR_COMPOSE[@]}" run --rm -T cli1 sh -c 'chmod 0644 /var/www/html/wp-content/plugins/paid-memberships-pro/paid-memberships-pro.php'
+[ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse unreadable PMPro code, but it exited 0 (got: $DEPLOY_OUT)"
+grep -Eq "code_mismatch|outside_version_range|unknown version|is not installed" <<<"$DEPLOY_OUT" \
+  || fail "unreadable PMPro refusal did not name the compatibility gate (got: $DEPLOY_OUT)"
+if wp1 plugin is-active paid-memberships-pro >/dev/null 2>&1; then
+  fail "unreadable-plugin refusal activated PMPro before returning"
+fi
+pass "confirmed: unreadable PMPro main-file metadata refuses and remains inactive"
+wp1 plugin delete paid-memberships-pro >/dev/null
+
 for OUT_OF_RANGE_VERSION in 3.8.2 3.8.4; do
   wp1 plugin deactivate paid-memberships-pro >/dev/null 2>&1 || true
   wp1 plugin delete paid-memberships-pro >/dev/null
@@ -1430,8 +1489,11 @@ for OUT_OF_RANGE_VERSION in 3.8.2 3.8.4; do
     || fail "PMPro refusal did not name the exact plugin basename (got: $DEPLOY_OUT)"
   grep -q "$OUT_OF_RANGE_VERSION" <<<"$DEPLOY_OUT" \
     || fail "PMPro refusal did not name installed version $OUT_OF_RANGE_VERSION (got: $DEPLOY_OUT)"
+  if wp1 plugin is-active paid-memberships-pro >/dev/null 2>&1; then
+    fail "outside-range PMPro $OUT_OF_RANGE_VERSION was activated before deploy refused"
+  fi
   printf '%s\n' "$DEPLOY_OUT"
-  pass "confirmed: official PMPro $OUT_OF_RANGE_VERSION is loudly refused outside exact range >=3.8.3 <3.8.4"
+  pass "confirmed: official PMPro $OUT_OF_RANGE_VERSION is loudly refused and remains inactive outside exact range >=3.8.3 <3.8.4"
 done
 fi
 
