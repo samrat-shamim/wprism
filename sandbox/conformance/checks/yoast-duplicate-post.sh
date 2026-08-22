@@ -38,6 +38,19 @@ foreach ($settingNames as $name) {
     }
 }
 ksort($settings, SORT_STRING);
+$normalizeSetting = static function (mixed $value) use (&$normalizeSetting): mixed {
+    if (!is_array($value)) {
+        return $value;
+    }
+    if (!array_is_list($value)) {
+        ksort($value, SORT_STRING);
+    }
+    foreach ($value as $key => $nested) {
+        $value[$key] = $normalizeSetting($nested);
+    }
+    return $value;
+};
+$settings = $normalizeSetting($settings);
 $roles = [];
 foreach (['administrator', 'duo_reviewer', 'duo_source_only', 'editor', 'subscriber'] as $name) {
     $role = get_role($name);
