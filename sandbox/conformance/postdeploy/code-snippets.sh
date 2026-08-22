@@ -26,9 +26,6 @@ for ($i = 0; $i < 5; $i++) {
     }
 }
 
-Code_Snippets\Settings\update_setting('general', 'enable_flat_files', true);
-$settings = Code_Snippets\Settings\get_settings_values();
-do_action('code_snippets/settings_updated', $settings);
 $stale = Code_Snippets\save_snippet(new Code_Snippets\Snippet([
     'name' => 'Target stale executable projection',
     'desc' => 'Its row is removed without plugin hooks so the old file survives.',
@@ -40,9 +37,8 @@ $stale = Code_Snippets\save_snippet(new Code_Snippets\Snippet([
 if (!$stale) {
     throw new RuntimeException('could not create the stale target projection');
 }
-// 3.9.6 does not create a flat file merely because a new snippet is saved
-// after the setting was enabled. The settings action is the plugin's public
-// bulk-rebuild boundary and is the same path the shipped provider delegates.
+// The settings action is the plugin's public bulk-rebuild boundary and is the
+// same path the shipped provider delegates.
 do_action('code_snippets/settings_updated', Code_Snippets\Settings\get_settings_values());
 $table = Code_Snippets\code_snippets()->db->get_table_name(false);
 $hash = Code_Snippets\Snippet_Files::get_hashed_table_name($table);
@@ -86,6 +82,11 @@ PHPEOF
 
 HOSTILE_FILE="${CONF_REPO2:-siterepo/conf2}/.tmp-code-snippets-hostile.php"
 printf '%s' "$HOSTILE_PHP" > "$HOSTILE_FILE"
+# Code Snippets caches flat-file activation for the life of a WordPress
+# process. A real settings save and the next request are therefore distinct:
+# enable in one process, then create/check the projection in the eval-file
+# process whose plugin bootstrap observes the persisted value.
+wp_conf2 eval 'Code_Snippets\Settings\update_setting("general", "enable_flat_files", true); do_action("code_snippets/settings_updated", Code_Snippets\Settings\get_settings_values());' >/dev/null
 HOSTILE_OUT=$(wp_conf2 eval-file /siterepo/.tmp-code-snippets-hostile.php)
 require_observed_nonempty "Code Snippets hostile target seed" "$HOSTILE_OUT"
 HOSTILE_JSON=$(printf '%s\n' "$HOSTILE_OUT" | awk 'NF { line=$0 } END { print line }')
