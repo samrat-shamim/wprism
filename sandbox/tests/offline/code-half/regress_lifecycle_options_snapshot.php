@@ -55,6 +55,24 @@ function maybe_unserialize($value) {
 }
 
 final class LifecycleOptionsFakeWpdb {
+    /** The lifecycle path now proves the fixed WordPress read schema before taking a snapshot. */
+    private const CORE_COLUMNS = [
+        'posts' => [
+            'ID', 'post_author', 'post_date', 'post_date_gmt', 'post_content', 'post_title',
+            'post_excerpt', 'post_status', 'comment_status', 'ping_status', 'post_password',
+            'post_name', 'post_modified', 'post_modified_gmt', 'post_parent', 'menu_order',
+            'post_type', 'post_mime_type',
+        ],
+        'postmeta' => ['meta_id', 'post_id', 'meta_key', 'meta_value'],
+        'terms' => ['term_id', 'name', 'slug'],
+        'term_taxonomy' => ['term_taxonomy_id', 'term_id', 'taxonomy', 'description', 'parent'],
+        'term_relationships' => ['object_id', 'term_taxonomy_id', 'term_order'],
+        'termmeta' => ['meta_id', 'term_id', 'meta_key', 'meta_value'],
+        'options' => ['option_id', 'option_name', 'option_value', 'autoload'],
+        'users' => ['ID', 'user_login'],
+        'usermeta' => ['umeta_id', 'user_id', 'meta_key', 'meta_value'],
+    ];
+
     public string $prefix = 'wp_';
     public string $posts = 'wp_posts';
     public string $postmeta = 'wp_postmeta';
@@ -117,6 +135,15 @@ final class LifecycleOptionsFakeWpdb {
     public function get_results($query, $output = ARRAY_A): array {
         [$sql, $args] = $this->unwrap($query);
         $this->queries[] = $sql;
+        if (str_contains($sql, 'information_schema.COLUMNS')) {
+            $rows = [];
+            foreach (self::CORE_COLUMNS as $property => $columns) {
+                foreach ($columns as $column) {
+                    $rows[] = ['TABLE_NAME' => $this->$property, 'COLUMN_NAME' => $column];
+                }
+            }
+            return $rows;
+        }
         if (str_contains($sql, "tt.taxonomy = 'nav_menu'")) {
             return $this->menuTerms;
         }
