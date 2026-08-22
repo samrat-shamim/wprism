@@ -16,6 +16,7 @@ PAIR="${CORE_SCOPE_PLATFORM_PAIR:-corescope}"
 PORT1="${CORE_SCOPE_PLATFORM_PORT1:-8996}"
 PORT2="${CORE_SCOPE_PLATFORM_PORT2:-8997}"
 WP83_IMAGE='wordpress@sha256:a09147f15a882b956f67a617e9e1e053adf9322c45c797c2ff7c0e66522bf204'
+WP702_IMAGE='wordpress@sha256:3dcb744b16cb673639d98cf1aa5ea1de46732850629830bf101f44165b9040a1'
 WP84_IMAGE='wordpress@sha256:322fedc0b666dfdbbb7c940fc934ec9f5ac4d8b1c4c6147838291b6c7eb197db'
 CLI83_IMAGE='wordpress@sha256:2b5e9d4d3e51909dca1aaa4732e9f5e5bf0377c2114dbd8ff39f060bff202586'
 CLI84_IMAGE='wordpress@sha256:13d152baa3c9111882d05e8ef4c32b4c84019b1bf7bf66b042c6b45e7aaba81d'
@@ -99,14 +100,6 @@ write_env_file() {
   ' > "$ENVS_FILE"
 }
 
-tree_fingerprint() {
-  find "$1" -type f -print0 \
-    | LC_ALL=C sort -z \
-    | xargs -0 shasum -a 256 \
-    | shasum -a 256 \
-    | awk '{print $1}'
-}
-
 prepare_repo() {
   cp tests/fixtures/core_lifecycle_site.duo.json "$R1/site.duo.json"
   cp tests/fixtures/core_lifecycle_site.duo.json "$R2/site.duo.json"
@@ -135,7 +128,7 @@ assert_platform_json_refusal() { # <expected-code> <observed> <required> <label>
   pass "$label is a typed non-zero platform refusal"
 }
 
-for image in "$WP83_IMAGE" "$WP84_IMAGE" "$CLI83_IMAGE" "$CLI84_IMAGE"; do
+for image in "$WP83_IMAGE" "$WP702_IMAGE" "$WP84_IMAGE" "$CLI83_IMAGE" "$CLI84_IMAGE"; do
   docker image inspect "$image" >/dev/null 2>&1 \
     || fail "exact platform image is absent locally; this evidence run will not float or pull: $image"
 done
@@ -143,6 +136,8 @@ done
   || fail 'PHP 8.3 web image does not carry exact WordPress 7.0.3'
 [ "$(docker run --rm --entrypoint php "$WP84_IMAGE" -r 'include "/usr/src/wordpress/wp-includes/version.php"; echo $wp_version;')" = "$WORDPRESS_SUPPORTED" ] \
   || fail 'PHP 8.4 refusal image does not carry exact WordPress 7.0.3'
+[ "$(docker run --rm --entrypoint php "$WP702_IMAGE" -r 'include "/usr/src/wordpress/wp-includes/version.php"; echo $wp_version;')" = "$WORDPRESS_REFUSED" ] \
+  || fail 'adjacent refusal image does not carry exact WordPress 7.0.2'
 [[ "$(docker run --rm --entrypoint php "$CLI83_IMAGE" -r 'echo PHP_VERSION;')" == 8.3.* ]] \
   || fail 'supported CLI image is not PHP 8.3'
 [[ "$(docker run --rm --entrypoint php "$CLI84_IMAGE" -r 'echo PHP_VERSION;')" == 8.4.* ]] \
@@ -244,15 +239,14 @@ grep -q '\[PASS\] PHP version (8\.3\.' <<<"$DOCTOR_OUT" \
 pass 'supported exact platform round-trips, repeats idempotently, preserves target-only state, recaptures managed bytes identically, and passes doctor'
 
 say 'real adjacent WordPress version refuses before mutation'
-STATE_BEFORE=$(tree_fingerprint "$R1/state")
-wp1 core download --version="$WORDPRESS_REFUSED" --force --skip-content >/dev/null
+destroy_owned_pair
+export DUO_WP_IMAGE="$WP702_IMAGE" DUO_CLI_IMAGE="$CLI83_IMAGE"
+bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --headless --artifacts --wordpress-offline
+prepare_repo
 [ "$(wp1 core version)" = "$WORDPRESS_REFUSED" ] \
-  || fail 'real adjacent WordPress artifact did not replace the source runtime'
-wp1 core verify-checksums --version="$WORDPRESS_REFUSED" >/dev/null \
-  || fail 'adjacent WordPress bytes do not match the official release checksums'
+  || fail 'pinned adjacent WordPress artifact did not boot the refused runtime'
 assert_platform_json_refusal platform_wordpress_version_unsupported "$WORDPRESS_REFUSED" "$WORDPRESS_SUPPORTED" 'WordPress 7.0.2'
-[ "$(tree_fingerprint "$R1/state")" = "$STATE_BEFORE" ] \
-  && [ "$(wp1 option get duo_platform_mutation_canary)" = untouched ] \
+[ ! -e "$R1/state" ] && [ "$(wp1 option get duo_platform_mutation_canary)" = untouched ] \
   && [ ! -e "$R1/state.capture-staging" ] && [ ! -e "$R1/state.capture-backup" ] \
   || fail 'WordPress version refusal changed repository or authored state'
 set +e
