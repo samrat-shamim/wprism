@@ -229,6 +229,13 @@ INIT_PLAN_DIGEST=""
 assert_init_plan() {
   local runner="$1" repo="$2" label="$3" plan ready digest rc=0
   INIT_PLAN_DIGEST=""
+  # DUO-3519: the validated proposal itself, for the one case that asserts on
+  # its CONTENT rather than confirming its digest. Publishing it here is what
+  # keeps that case inside the checked shape DUO-3421 requires -- a proposal
+  # must reach the suite through this helper, which proves manufacture (ready
+  # + 64-hex digest) on a stdout-only capture, never through a bare
+  # `X=$(wp1 duo init ...)`.
+  INIT_PLAN_JSON=""
   set +e
   plan=$("$runner" duo init --repo="$repo" --format=json)
   rc=$?
@@ -243,6 +250,7 @@ assert_init_plan() {
   [[ "$digest" =~ ^[a-f0-9]{64}$ ]] \
     || fail "fixture manufacture failed: $label proposal carried no 64-hex digest for $repo: $plan"
   INIT_PLAN_DIGEST="$digest"
+  INIT_PLAN_JSON="$plan"
 }
 
 # DUO-3421: every `duo init` proposal below is capability-gated — init refuses
@@ -828,14 +836,45 @@ $jwt = "eyJ" . str_repeat("A", 700) . ".eyJ" . str_repeat("B", 24) . ".signature
 $payload = str_repeat("x", 32067) . "\n" . $jwt;
 file_put_contents(WP_PLUGIN_DIR . "/woocommerce/duo-init-jwt.php", $payload);
 ' >/dev/null
-assert_exit 2 "cross-chunk JWT blocks init" "${DUO[@]}" init "${PAIR}1" --yes
-grep -q 'credential_bearing_code_file' <<<"$OUT" || fail "JWT blocker omitted its reason code"
-grep -q 'jwt' <<<"$OUT" || fail "JWT blocker omitted its redacted label"
-! grep -q 'eyJAAAA' <<<"$OUT" || fail "JWT blocker exposed the credential value"
+# DUO-3519: this case asserted exit 2 until 2026-08-21. It has not blocked
+# since #476 (2026-08-19), which deliberately reclassified a COMPLETE JWT in
+# shipped code from blocking to advisory: shipped code carries public tokens
+# (Yoast's OIDC software statement, id-token fixtures) far more often than live
+# credentials, and the hard block refused `duo init` on every site running that
+# plugin (T7 grind A4). The rationale and the line it draws live on
+# InitCodeInventory::ADVISORY_SECRET_LABELS, and InitCodeBaseline's staged-code
+# gate already agrees with it through blockingSecretLabel().
+#
+# The SUBJECT of the case is unchanged and is why it still exists: a JWT that
+# straddles the 32KB streaming read must still be FOUND. Detection is now
+# visible as the advisory rather than as a refusal, so that is what is asserted
+# -- named, redacted, and explicitly not the blocking reason code.
+# Deliberately the READ-ONLY proposal, not a confirmation. Detection is a
+# proposal-time property, so confirming proves nothing extra -- and a completing
+# init here would mint durable `_duo_uuid` identities into wp_postmeta, which is
+# SITE state that no reset in this file clears (repo_host/find -delete and the
+# DROP TABLE idiom clear the repository and the ledger, and nothing clears the
+# site). Those identities then survive into the kill-phase loop below, whose
+# assertions require a pristine site, and it fails there at
+# "recovery left minted identities" -- an unrelated case, broken from here.
+# Duo minting identities on a successful init and keeping them is correct and
+# intended; the mistake was making a DETECTION case complete an init at all.
+# Through assert_init_plan, like every other proposal in this file: it captures
+# stdout only (a docker transport writes "Container ... Creating" to STDERR on
+# every invocation, which would make the JSON unparseable) and proves the
+# proposal was manufactured -- ready, with a 64-hex digest -- before anything
+# reads it. DUO-3421's pin requires that shape; regress_init_contract.php
+# enforces it offline over this file.
+assert_init_plan wp1 /siterepo "cross-chunk JWT"
+jq -e '[.advisories[] | select(.code == "jwt_in_code_file")] | length == 1' <<<"$INIT_PLAN_JSON" >/dev/null \
+  || fail "cross-chunk JWT proposal did not carry exactly one jwt_in_code_file advisory: $INIT_PLAN_JSON"
+jq -e '[.unsupported[] | select(.code == "credential_bearing_code_file")] | length == 0' <<<"$INIT_PLAN_JSON" >/dev/null \
+  || fail "cross-chunk JWT was reported as a blocking credential after #476 made it advisory"
+! grep -q 'eyJAAAA' <<<"$INIT_PLAN_JSON" || fail "cross-chunk JWT advisory exposed the credential value"
 [ ! -e "$HOST_REPO/site.duo.json" ] && [ ! -d "$HOST_REPO/state" ] \
   || fail "cross-chunk JWT proposal mutated the repository"
 wp1 eval 'unlink(WP_PLUGIN_DIR . "/woocommerce/duo-init-jwt.php");' >/dev/null
-pass "bounded JWT matcher covers streaming chunk boundaries"
+pass "bounded JWT matcher covers streaming chunk boundaries and states the finding without blocking"
 
 say "foreign state, media, capture receipts, and non-pristine ledger ownership refuse before writes"
 mkdir -p "$HOST_REPO/state" "$HOST_REPO/media"
@@ -1187,8 +1226,13 @@ set -e
 assert_exit 1 "post-next-link normal-error recovery" "${DUO[@]}" init "${PAIR}1" --yes
 grep -q 'safely rolled back' <<<"$OUT" \
   || fail "post-next-link failure did not recover through the sealed initial manifest path"
-[ -z "$(find "$HOST_REPO" -mindepth 1 -maxdepth 1 -print -quit)" ] \
-  || fail "post-next-link normal-error recovery did not restore byte-empty repository ownership"
+# Self-diagnosing, like the swap cases: the EXIT cleanup removes $HOST_REPO, so
+# "did not restore byte-empty" on its own leaves the next reader nothing to act
+# on -- which cost an evidence run to learn.
+POST_NEXT_LEFTOVER=$(find "$HOST_REPO" -mindepth 1 -maxdepth 1 2>/dev/null | head -20)
+[ -z "$POST_NEXT_LEFTOVER" ] \
+  || fail "post-next-link normal-error recovery did not restore byte-empty repository ownership:
+$POST_NEXT_LEFTOVER"
 wp1 db query 'DROP TABLE IF EXISTS wp_duo_journal,wp_duo_kv,wp_duo_map,wp_duo_state' >/dev/null
 pass "normal failure after the fresh intent next-link recovers without legacy cleanup"
 
