@@ -974,7 +974,15 @@ EOF
     [ "$(wp1 plugin get code-snippets --field=version)" = 3.9.6 ] \
       && [ "$(wp2 plugin get code-snippets --field=version)" = 3.9.6 ] \
       || fail "Code Snippets supported in-place upgrade did not install 3.9.6 on both sides"
-    wp2 duo deploy --repo=/siterepo >/dev/null
+    UPGRADE_DEPLOY_RC=0
+    UPGRADE_DEPLOY_OUT=$(wp2 duo deploy --repo=/siterepo 2>&1) || UPGRADE_DEPLOY_RC=$?
+    require_duo_answered "Code Snippets out-of-band 3.9.5 to 3.9.6 upgrade refusal" human "$UPGRADE_DEPLOY_OUT"
+    [ "$UPGRADE_DEPLOY_RC" -ne 0 ] \
+      && grep -q 'deploy refused — code_drift' <<<"$UPGRADE_DEPLOY_OUT" \
+      && grep -q 'recorded 3.9.5' <<<"$UPGRADE_DEPLOY_OUT" \
+      && grep -q 'is 3.9.6 on this environment' <<<"$UPGRADE_DEPLOY_OUT" \
+      || fail "Code Snippets out-of-band upgrade did not refuse at the exact code-drift boundary: $UPGRADE_DEPLOY_OUT"
+    wp2 duo deploy --repo=/siterepo --force-code-drift >/dev/null
     UPGRADE_PLAN=$(wp2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
     require_duo_answered "Code Snippets 3.9.5 to 3.9.6 target plan" json "$UPGRADE_PLAN"
     jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$UPGRADE_PLAN" >/dev/null \
