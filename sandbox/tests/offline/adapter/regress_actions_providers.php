@@ -882,6 +882,25 @@ check(
     ]],
     "and the shipped regenerator file's real bytes are what its identity row carries"
 );
+$tecPolicy = $shippedPolicies['the-events-calendar'];
+$tecBatch = $tecPolicy->regen_batch('tribe_events');
+$tecRegenerator = $tecPolicy->regenerators()['the-events-calendar'] ?? null;
+$tecRegeneratorSource = (string) file_get_contents("$shipped/regenerators/the-events-calendar.php");
+check(
+    $tecBatch === ['enabled' => true, 'always_on_write' => true],
+    'TEC opts into always-on-write refresh because an existing occurrence row can still carry stale dates'
+);
+check(
+    $tecRegenerator !== null && method_exists($tecRegenerator, 'regenerate_batch'),
+    'TEC implements the batch callable selected by its refresh declaration'
+);
+check(
+    str_contains($tecRegeneratorSource, "get_post_meta(\$localId, '_EventStartDate', true)")
+        && str_contains($tecRegeneratorSource, "get_post_meta(\$localId, '_EventEndDate', true)")
+        && str_contains($tecRegeneratorSource, 'SELECT start_date, end_date')
+        && str_contains($tecRegeneratorSource, 'count($rows) !== 1'),
+    'TEC verifies exact occurrence values and cardinality after repair, never row existence alone'
+);
 
 echo "\n== purely declarative adapters keep the pre-change behavior exactly ==\n";
 

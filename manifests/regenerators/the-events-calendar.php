@@ -76,5 +76,61 @@ final class TheEventsCalendar {
             );
         }
         $event->occurrences()->save_occurrences();
+
+        global $wpdb;
+        $table = $wpdb->prefix . 'tec_occurrences';
+        $rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT start_date, end_date FROM `$table` WHERE post_id = %d ORDER BY occurrence_id",
+                $localId
+            ),
+            ARRAY_A
+        );
+        if ($wpdb->last_error !== '') {
+            throw new \RuntimeException(
+                "duo: TEC occurrence verification query failed for post $localId: {$wpdb->last_error}"
+            );
+        }
+        $expectedStart = (string) get_post_meta($localId, '_EventStartDate', true);
+        $expectedEnd = (string) get_post_meta($localId, '_EventEndDate', true);
+        if (count($rows) !== 1
+            || (string) ($rows[0]['start_date'] ?? '') !== $expectedStart
+            || (string) ($rows[0]['end_date'] ?? '') !== $expectedEnd) {
+            $actual = count($rows) === 1
+                ? (string) ($rows[0]['start_date'] ?? '') . '..' . (string) ($rows[0]['end_date'] ?? '')
+                : count($rows) . ' occurrence row(s)';
+            throw new \RuntimeException(
+                "duo: TEC occurrence verification failed for post $localId: expected "
+                . "$expectedStart..$expectedEnd, got $actual"
+            );
+        }
+    }
+
+    /**
+     * @param list<int> $liveIds
+     * @param list<array<string,mixed>> $deletionContext
+     */
+    public function regenerate_batch(
+        array $liveIds,
+        array $deletionContext,
+        ?callable $heartbeat = null
+    ): void {
+        if ($deletionContext !== []) {
+            throw new \RuntimeException(
+                'duo: TEC deletion regeneration is unsupported; event/venue/organizer cascade semantics '
+                . 'must be certified before deletion context can be consumed'
+            );
+        }
+        $ids = array_values(array_unique(array_filter(
+            array_map('intval', $liveIds),
+            static fn(int $id): bool => $id > 0
+        )));
+        sort($ids, SORT_NUMERIC);
+        foreach ($ids as $localId) {
+            if ($heartbeat !== null) {
+                $heartbeat();
+            }
+            $this->regenerate($localId);
+        }
     }
 }
