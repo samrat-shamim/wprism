@@ -2,8 +2,9 @@
 declare(strict_types=1);
 
 /**
- * Offline product-path contract for the five exact-artifact adapter drafts
- * added by the 2026-08-22 ecosystem probe. The assertions load the shipped
+ * Offline product-path contract for the five exact-artifact adapters added by
+ * the 2026-08-22 ecosystem probe, including the independently certified
+ * Advanced Editor Tools and Classic Editor subjects. The assertions load the shipped
  * manifests and disposition registry through Policy::load(); fixtures would
  * miss the byte set that managed sites actually pin.
  *
@@ -87,6 +88,7 @@ $artifacts = [
 ];
 
 $effectiveRanges = $policy->version_ranges();
+$certified = ['advanced-editor-tools', 'classic-editor'];
 foreach ($artifacts as $name => $artifact) {
     $manifest = $manifests[$name];
     duo_check_same($artifact['plugin'], $manifest['plugin'] ?? null, "$name pins the observed plugin basename");
@@ -102,19 +104,34 @@ foreach ($artifacts as $name => $artifact) {
     );
 
     $entry = $policy->manifest_disposition($name);
-    duo_check_same('experimental', $entry['status'] ?? null, "$name is explicitly experimental, never implicitly certified");
+    $expectedStatus = in_array($name, $certified, true) ? 'certified' : 'experimental';
+    duo_check_same($expectedStatus, $entry['status'] ?? null, "$name carries its reviewed certification status");
     duo_check_json_equal(
         ['plugin' => $artifact['plugin'], 'range' => $artifact['range']],
         $entry['supported_versions'] ?? null,
         "$name disposition repeats the exact artifact boundary"
     );
-    $unsupportedOperations = array_column($entry['unsupported'] ?? [], 'operation');
-    duo_check(in_array('promote', $unsupportedOperations, true), "$name carries an explicit promotion blocker");
-    duo_check_same(
-        ['bundle_schema' => 'duo-subject-certification-bundle/v1', 'tests' => ['conformance-ecosystem-adapter-batch']],
-        $entry['evidence'] ?? null,
-        "$name cites the exact-artifact live capture-plan suite"
-    );
+    if (in_array($name, $certified, true)) {
+        duo_check_same(
+            ['bundle_schema' => 'duo-subject-certification-bundle/v1', 'tests' => ["conformance-$name", 'exact-artifact-version-matrix']],
+            $entry['evidence'] ?? null,
+            "$name cites its isolated adversarial round trip and adjacent-version matrix"
+        );
+        duo_check(
+            !in_array('promote', array_column($entry['unsupported'] ?? [], 'operation'), true),
+            "$name has no stale production promotion blocker"
+        );
+    } else {
+        duo_check_same(
+            ['bundle_schema' => 'duo-subject-certification-bundle/v1', 'tests' => ['conformance-ecosystem-adapter-batch']],
+            $entry['evidence'] ?? null,
+            "$name cites the exact-artifact live capture-plan suite"
+        );
+        duo_check(
+            in_array('promote', array_column($entry['unsupported'] ?? [], 'operation'), true),
+            "$name keeps its explicit promotion blocker"
+        );
+    }
 }
 
 foreach (['wpforms', 'redirection', 'custom-post-type-ui'] as $rejected) {
@@ -130,12 +147,13 @@ duo_check_same(
 );
 duo_check(is_file($root . '/sandbox/conformance/seeds/ecosystem-adapter-batch.sh'), 'the live suite authors representative state through plugin APIs');
 duo_check(is_file($root . '/sandbox/conformance/capture-checks/ecosystem-adapter-batch.sh'), 'the live suite checks plugin consumption and canonical reference bytes');
-foreach ($artifacts as $artifact) {
+foreach ($artifacts as $name => $artifact) {
     $slug = explode('/', $artifact['plugin'], 2)[0];
     $version = $artifact['range']['min'];
     $locked = $artifactLock['plugins'][$slug][$version] ?? null;
     duo_check_same($artifact['sha256'], $locked['sha256'] ?? null, "$slug $version live evidence is locked to the researched artifact digest");
-    duo_check_same('exercise-fixture', $locked['role'] ?? null, "$slug $version is labeled evidence, not a certified boundary");
+    $expectedRole = in_array($name, $certified, true) ? 'certified-boundary' : 'exercise-fixture';
+    duo_check_same($expectedRole, $locked['role'] ?? null, "$slug $version carries the reviewed evidence role");
 }
 
 foreach ($standaloneEntries as $name => $fixture) {
@@ -313,14 +331,18 @@ foreach (['_dp_creation_date_gmt', '_dp_has_been_republished', '_dp_has_rewrite_
 
 foreach ($names as $name) {
     $operations = $policy->manifest_disposition($name)['capabilities']['operations'] ?? [];
-    duo_check(!in_array('apply', $operations, true), "$name does not claim hook-free apply while its postcondition is open");
+    if (in_array($name, $certified, true)) {
+        duo_check(in_array('apply', $operations, true), "$name claims the exact hook-free option apply path its isolated target profile proves");
+    } else {
+        duo_check(!in_array('apply', $operations, true), "$name does not claim hook-free apply while its postcondition is open");
+    }
 }
 
 $blockerNames = array_values(array_unique(array_column($policy->certification_readiness_blockers(), 'name')));
 sort($blockerNames, SORT_STRING);
-$sortedNames = $names;
+$sortedNames = array_values(array_diff($names, $certified));
 sort($sortedNames, SORT_STRING);
-duo_check_same($sortedNames, $blockerNames, 'every new experimental adapter blocks promotion through the capability registry');
+duo_check_same($sortedNames, $blockerNames, 'only the three still-experimental adapters block promotion through the capability registry');
 
 $limitations = (string) file_get_contents($root . '/docs/guides/adapter-authoring-limitations.md');
 foreach ([

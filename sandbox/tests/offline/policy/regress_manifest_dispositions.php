@@ -155,6 +155,28 @@ check(
         ],
     'Paid Memberships Pro repeats the enforceable exact range and names its adjacent-tag refusal evidence'
 );
+foreach ([
+    'advanced-editor-tools' => ['plugin' => 'tinymce-advanced/tinymce-advanced.php', 'min' => '5.9.2', 'max' => '5.9.3'],
+    'classic-editor' => ['plugin' => 'classic-editor/classic-editor.php', 'min' => '1.7.0', 'max' => '1.7.1'],
+] as $name => $expected) {
+    $entry = $data['manifests'][$name];
+    check(
+        ($entry['status'] ?? null) === 'certified'
+            && ($entry['supported_versions'] ?? null) === [
+                'plugin' => $expected['plugin'],
+                'range' => ['max' => $expected['max'], 'min' => $expected['min']],
+            ]
+            && ($entry['evidence']['tests'] ?? null) === [
+                "conformance-$name",
+                'exact-artifact-version-matrix',
+            ]
+            && ($entry['capabilities']['lifecycle_phases'] ?? null) === ['retire', 'activate', 'verify']
+            && in_array('deploy', $entry['capabilities']['operations'] ?? [], true)
+            && in_array('apply', $entry['capabilities']['operations'] ?? [], true)
+            && in_array('render-api', $entry['capabilities']['operations'] ?? [], true),
+        "$name binds exact code identity to isolated round-trip, adjacent-version, lifecycle, and plugin-visible evidence"
+    );
+}
 check(($data['profiles']['fse']['status'] ?? null) === 'certified', 'FSE is a named certified profile of core');
 foreach ($data['manifests'] as $name => $entry) {
     check(isset($entry['supported_versions'], $entry['capabilities']['entity_sections'], $entry['capabilities']['field_sections']), "$name names versions, entities, and fields");
@@ -174,11 +196,12 @@ function subject_test_is_discoverable(string $repo, string $test, string $name):
     // That whole directory went with the certification-evidence apparatus, so
     // the fallback could only ever return false — it read as a real lookup
     // while being an unconditional refusal, which is the trap this deletes.
-    // The two arms above answer every id dispositions.json cites today (10
-    // `conformance-*`, 7 `exact-artifact-version-matrix`, core's
-    // `multisite-refusal`). A new KIND of id is undiscoverable until this
-    // function learns where that kind lives, and the callers below say so by
-    // name rather than the suite quietly passing on a path nobody maintains.
+    // The two arms above answer every id the certified set cites today: 11
+    // `conformance-*` ids (ten manifests plus the FSE profile), 9 exact-
+    // version ids, and core's `multisite-refusal`. A new KIND of id is
+    // undiscoverable until this function learns where that kind lives, and
+    // the callers below say so by name rather than the suite quietly passing
+    // on a path nobody maintains.
     return false;
 }
 foreach ($data['manifests'] as $name => $entry) {

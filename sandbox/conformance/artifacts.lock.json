@@ -43,7 +43,7 @@
       "1.7.0": {
         "url": "https://downloads.wordpress.org/plugin/classic-editor.1.7.0.zip",
         "sha256": "7cc7799b0b7d820fbb7528dbff8027c736e52513992416cb37279f44d3d9dd77",
-        "role": "exercise-fixture"
+        "role": "certified-boundary"
       }
     },
     "code-snippets": {
@@ -140,7 +140,7 @@
       "5.9.2": {
         "url": "https://downloads.wordpress.org/plugin/tinymce-advanced.5.9.2.zip",
         "sha256": "ec4c6635dc9d0f9c27d0256d7b83b3655b5904c936748604c698d256fbfd69c7",
-        "role": "exercise-fixture"
+        "role": "certified-boundary"
       }
     },
     "the-events-calendar": {

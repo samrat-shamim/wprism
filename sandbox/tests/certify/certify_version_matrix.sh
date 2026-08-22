@@ -7,15 +7,17 @@
 # backed by real evidence at ITS OWN edges, not just the one version every
 # other fixture happens to exercise.
 #
-# First eight real plugins: ACF, Contact Form 7, Elementor, Ninja Forms,
-# Paid Memberships Pro, Polylang, WooCommerce, and Yoast SEO. ACF proved the artifact-sourcing
-# mechanism itself; the others prove the matrix accepts genuinely different
+# First ten real plugins: ACF, Advanced Editor Tools, Classic Editor, Contact
+# Form 7, Elementor, Ninja Forms, Paid Memberships Pro, Polylang, WooCommerce,
+# and Yoast SEO. ACF proved the artifact-sourcing mechanism itself; the others
+# prove the matrix accepts genuinely different
 # plugin content shapes rather than replaying one ACF fixture. This closes the
 # last pinned-manifest boundary that DUO-3223 had explicitly scope-accounted.
 #
-# For EACH boundary version (ACF 6.0.0/6.8.7; CF7 6.0.1/6.1.6; Elementor
-# 4.0.0/4.2.2; Ninja Forms 3.4.34.2/3.14.11; PMPro 3.8.3 (with
-# adjacent official-tag refusals); Polylang 3.5/3.8.6;
+# For EACH boundary version (ACF 6.0.0/6.8.7; Advanced Editor Tools 5.9.2;
+# Classic Editor 1.7.0; CF7 6.0.1/6.1.6; Elementor 4.0.0/4.2.2; Ninja Forms
+# 3.4.34.2/3.14.11; PMPro 3.8.3 (with adjacent official-tag refusals);
+# Polylang 3.5/3.8.6;
 # WooCommerce 11.0.0 (the only stable in-range 11.x release); Yoast SEO
 # 28.0/28.2 — all real
 # wp.org releases except PMPro's official upstream GitHub tags, never invented): fresh state, install ONLY from
@@ -382,6 +384,83 @@ check_pmpro_content() {
   . conformance/checks/paid-memberships-pro.sh
 }
 
+seed_advanced_editor_tools_content() {
+  wp_conf1() { wp1 "$@"; }
+  local CONF_REPO1="siterepo/${PAIR}1"
+  local COMPOSE="$PAIR_COMPOSE_STRING"
+  . conformance/seeds/advanced-editor-tools.sh
+  unset -f wp_conf1
+}
+
+check_advanced_editor_tools_boundary_content() {
+  local out
+  out=$(wp2 eval '
+    wp_set_current_user(1);
+    $settings = get_option("tadv_settings");
+    $admin = get_option("tadv_admin_settings");
+    echo wp_json_encode([
+      "admin" => $admin,
+      "buttons_1" => array_values(apply_filters("mce_buttons", ["formatselect"], "content")),
+      "buttons_2" => array_values(apply_filters("mce_buttons_2", [], "content")),
+      "buttons_3" => array_values(apply_filters("mce_buttons_3", [], "content")),
+      "buttons_4" => array_values(apply_filters("mce_buttons_4", [], "content")),
+      "classic_buttons" => array_values(apply_filters("mce_buttons", [], "classic-block")),
+      "init" => apply_filters("tiny_mce_before_init", [], "content"),
+      "settings" => $settings,
+    ]);
+  ')
+  require_observed_nonempty "Advanced Editor Tools boundary target behavior" "$out"
+  out=$(printf '%s\n' "$out" | awk 'NF { line=$0 } END { print line }')
+  printf '%s\n' "$out" | jq -e '
+    .buttons_1 == ["bold","italic","underline","strikethrough"] and
+    .buttons_2 == ["bullist","numlist","blockquote","link","unlink"] and
+    .buttons_3 == ["forecolor","backcolor","removeformat","charmap"] and
+    .buttons_4 == ["code","fullscreen","searchreplace"] and
+    .classic_buttons == ["bold","italic","link","undo","redo"] and
+    .settings.toolbar_1 == "bold,italic,underline,strikethrough" and
+    .admin.options == "no_autop,table_resize_bars" and
+    .admin.disabled_editors == "rest_of_wpadmin" and
+    .init.wpautop == false and .init.tadv_noautop == true
+  ' >/dev/null || fail "Advanced Editor Tools boundary target did not consume the applied toolbar/admin settings: $out"
+  pass "Advanced Editor Tools exact boundary drives all four toolbars, Classic block controls, and no-autop behavior on the target"
+}
+
+seed_classic_editor_content() {
+  wp_conf1() { wp1 "$@"; }
+  local CONF_REPO1="siterepo/${PAIR}1"
+  local COMPOSE="$PAIR_COMPOSE_STRING"
+  . conformance/seeds/classic-editor.sh
+  unset -f wp_conf1
+}
+
+check_classic_editor_boundary_content() {
+  local out
+  out=$(wp2 eval '
+    wp_set_current_user(1);
+    $plain = get_page_by_path("classic-editor-plain-fixture", OBJECT, "post");
+    $blocks = get_page_by_path("classic-editor-block-fixture", OBJECT, "post");
+    if (!$plain || !$blocks) { throw new RuntimeException("Classic Editor boundary posts are missing"); }
+    $get_settings = new ReflectionMethod("Classic_Editor", "get_settings");
+    echo wp_json_encode([
+      "allow" => get_option("classic-editor-allow-users"),
+      "block_post_uses_blocks" => (bool) use_block_editor_for_post($blocks),
+      "plain_post_uses_blocks" => (bool) use_block_editor_for_post($plain),
+      "post_type_uses_blocks" => (bool) use_block_editor_for_post_type("post"),
+      "replace" => get_option("classic-editor-replace"),
+      "settings" => $get_settings->invoke(null, "refresh", 1),
+    ]);
+  ')
+  require_observed_nonempty "Classic Editor boundary target behavior" "$out"
+  out=$(printf '%s\n' "$out" | awk 'NF { line=$0 } END { print line }')
+  printf '%s\n' "$out" | jq -e '
+    .replace == "classic" and .allow == "allow" and
+    .settings.editor == "classic" and .settings["allow-users"] == true and
+    .plain_post_uses_blocks == false and .block_post_uses_blocks == true and
+    .post_type_uses_blocks == true
+  ' >/dev/null || fail "Classic Editor boundary target did not consume the applied selection settings: $out"
+  pass "Classic Editor exact boundary selects classic for plain content while preserving block-editor routing for block content"
+}
+
 reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
   # core/theme installed and the site "installed" (unlike `pair.sh reset`,
   # which drops the database entirely and leaves the site UNINSTALLED until
@@ -427,10 +506,23 @@ reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
     }
   ' >/dev/null
   local plugin
-  for plugin in advanced-custom-fields contact-form-7 elementor ninja-forms paid-memberships-pro polylang woocommerce wordpress-seo; do
+  for plugin in advanced-custom-fields classic-editor contact-form-7 elementor ninja-forms paid-memberships-pro polylang tinymce-advanced woocommerce wordpress-seo; do
     "$cli" plugin deactivate "$plugin" >/dev/null 2>&1 || true
     "$cli" plugin delete "$plugin" >/dev/null 2>&1 || true
   done
+  # The two editor adapters are option-only. Classic Editor's exact WP-CLI
+  # activation/uninstall lifecycle retains its settings, while Advanced
+  # Editor Tools can retain legacy rows when code is removed without its
+  # uninstall hook. Clear the complete reviewed ownership sets so a later
+  # exact boundary cannot inherit another case's authored or migration state.
+  "$cli" db query "
+    DELETE FROM wp_options WHERE option_name IN (
+      'classic-editor-allow-users', 'classic-editor-replace',
+      'tadv_admin_settings', 'tadv_allbtns', 'tadv_btns1', 'tadv_btns2',
+      'tadv_btns3', 'tadv_btns4', 'tadv_options', 'tadv_plugins',
+      'tadv_settings', 'tadv_toolbars', 'tadv_version'
+    );
+  " >/dev/null
   # Ninja Forms' custom tables and schema-version options survive plugin
   # deletion. Leaving them behind makes a later boundary inherit an earlier
   # release's schema instead of exercising a fresh install at that boundary.
@@ -509,6 +601,140 @@ run_elementor_command() {
   rm -f "$command_log"
   return "$rc"
 }
+
+# These patch-bounded editor manifests each admit exactly one real release.
+# Repeating the same bytes under artificial min/max labels would add runtime,
+# not evidence; certify the one admitted artifact once and pair it with an
+# adjacent official-release refusal below.
+if [ "$VMATRIX_MANIFEST" = advanced-editor-tools ]; then
+VMATRIX_CASES=$((VMATRIX_CASES + 1))
+AET_VERSION=5.9.2
+say "boundary: tinymce-advanced $AET_VERSION (only admitted patch)"
+
+reset_env wp1
+reset_env wp2
+reset_case_repositories
+
+say "fetch + verify tinymce-advanced $AET_VERSION (digest-checked artifact only)"
+AET_ARTIFACT_1=$(fetch_artifact tinymce-advanced "$AET_VERSION" cli1)
+AET_ARTIFACT_2=$(fetch_artifact tinymce-advanced "$AET_VERSION" cli2)
+wp1 plugin install "$AET_ARTIFACT_1" --activate >/dev/null
+AET_INSTALLED_1=$(wp1 plugin get tinymce-advanced --field=version)
+[ "$AET_INSTALLED_1" = "$AET_VERSION" ] \
+  || fail "side 1 installed version mismatch: expected $AET_VERSION, got $AET_INSTALLED_1"
+pass "side 1: tinymce-advanced $AET_VERSION installed from verified artifact, active"
+
+cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+{
+  "manifests": ["core", "advanced-editor-tools"],
+  "policy": {
+    "options": {},
+    "post_meta": {},
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "spec_version": 2
+}
+EOF
+cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
+"${GIT1[@]}" init -q -b main
+"${GIT1[@]}" remote add origin "../origin-$PAIR.git"
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "policy: Advanced Editor Tools $AET_VERSION exact-boundary certification"
+"${GIT1[@]}" push -qu origin main
+
+seed_advanced_editor_tools_content
+wp1 duo capture --repo=/siterepo
+wp1 duo lint --repo=/siterepo
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "capture: Advanced Editor Tools $AET_VERSION settings"
+"${GIT1[@]}" push -q origin main
+
+clone_case_target
+wp2 plugin install "$AET_ARTIFACT_2" >/dev/null
+INSTALLED_2=$(wp2 plugin get tinymce-advanced --field=version)
+require_fixture_values INSTALLED_2
+[ "$INSTALLED_2" = "$AET_VERSION" ] \
+  || fail "side 2 installed version mismatch: expected $AET_VERSION, got $INSTALLED_2"
+wp2 duo deploy --repo=/siterepo
+REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
+wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
+  || fail "apply canary not clean at tinymce-advanced $AET_VERSION"
+check_advanced_editor_tools_boundary_content
+
+wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-final
+AET_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
+rm -rf "siterepo/${PAIR}2/.tmp-final"
+[ -z "$AET_DIFF" ] \
+  || fail "byte-identity broken at tinymce-advanced $AET_VERSION: $AET_DIFF"
+pass "Advanced Editor Tools $AET_VERSION deploys, drives native editor behavior, and recaptures byte-identically"
+fi
+
+if [ "$VMATRIX_MANIFEST" = classic-editor ]; then
+VMATRIX_CASES=$((VMATRIX_CASES + 1))
+CLASSIC_VERSION=1.7.0
+say "boundary: classic-editor $CLASSIC_VERSION (only admitted patch)"
+
+reset_env wp1
+reset_env wp2
+reset_case_repositories
+
+say "fetch + verify classic-editor $CLASSIC_VERSION (digest-checked artifact only)"
+CLASSIC_ARTIFACT_1=$(fetch_artifact classic-editor "$CLASSIC_VERSION" cli1)
+CLASSIC_ARTIFACT_2=$(fetch_artifact classic-editor "$CLASSIC_VERSION" cli2)
+wp1 plugin install "$CLASSIC_ARTIFACT_1" --activate >/dev/null
+CLASSIC_INSTALLED_1=$(wp1 plugin get classic-editor --field=version)
+[ "$CLASSIC_INSTALLED_1" = "$CLASSIC_VERSION" ] \
+  || fail "side 1 installed version mismatch: expected $CLASSIC_VERSION, got $CLASSIC_INSTALLED_1"
+pass "side 1: classic-editor $CLASSIC_VERSION installed from verified artifact, active"
+
+cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+{
+  "manifests": ["core", "classic-editor"],
+  "policy": {
+    "options": {},
+    "post_meta": {},
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "spec_version": 2
+}
+EOF
+cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
+"${GIT1[@]}" init -q -b main
+"${GIT1[@]}" remote add origin "../origin-$PAIR.git"
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "policy: Classic Editor $CLASSIC_VERSION exact-boundary certification"
+"${GIT1[@]}" push -qu origin main
+
+seed_classic_editor_content
+wp1 duo capture --repo=/siterepo
+wp1 duo lint --repo=/siterepo
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "capture: Classic Editor $CLASSIC_VERSION settings and routed posts"
+"${GIT1[@]}" push -q origin main
+
+clone_case_target
+wp2 plugin install "$CLASSIC_ARTIFACT_2" >/dev/null
+INSTALLED_2=$(wp2 plugin get classic-editor --field=version)
+require_fixture_values INSTALLED_2
+[ "$INSTALLED_2" = "$CLASSIC_VERSION" ] \
+  || fail "side 2 installed version mismatch: expected $CLASSIC_VERSION, got $INSTALLED_2"
+wp2 duo deploy --repo=/siterepo
+REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
+wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
+  || fail "apply canary not clean at classic-editor $CLASSIC_VERSION"
+check_classic_editor_boundary_content
+
+wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-final
+CLASSIC_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
+rm -rf "siterepo/${PAIR}2/.tmp-final"
+[ -z "$CLASSIC_DIFF" ] \
+  || fail "byte-identity broken at classic-editor $CLASSIC_VERSION: $CLASSIC_DIFF"
+pass "Classic Editor $CLASSIC_VERSION deploys, routes both editor modes natively, and recaptures byte-identically"
+fi
 
 if [ "$VMATRIX_MANIFEST" = acf ]; then
 VMATRIX_CASES=$((VMATRIX_CASES + 1))
@@ -1160,6 +1386,138 @@ fi
 # unless --force-code-mismatch is passed. This only needs `duo deploy`
 # (code-only reconciliation), not a full capture/apply round-trip — the
 # refusal fires before any target mutation is attempted.
+if [ "$VMATRIX_MANIFEST" = advanced-editor-tools ]; then
+say "negative control: tinymce-advanced 5.9.0 (adjacent official release below the exact 5.9.2 contract) must be REFUSED"
+reset_env wp1
+reset_case_repositories
+
+AET_IN_RANGE=$(fetch_artifact tinymce-advanced 5.9.2 cli1)
+wp1 plugin install "$AET_IN_RANGE" --activate >/dev/null
+NEGATIVE_INSTALLED=$(wp1 plugin get tinymce-advanced --field=version)
+require_fixture_values NEGATIVE_INSTALLED
+[ "$NEGATIVE_INSTALLED" = "5.9.2" ] \
+  || fail "negative control premise did not install exact tinymce-advanced 5.9.2 bytes"
+cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+{
+  "manifests": ["core", "advanced-editor-tools"],
+  "policy": {
+    "options": {},
+    "post_meta": {},
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "spec_version": 2
+}
+EOF
+cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
+"${GIT1[@]}" init -q -b main
+"${GIT1[@]}" remote add origin "../origin-$PAIR.git"
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "policy: Advanced Editor Tools negative-control pin"
+"${GIT1[@]}" push -qu origin main
+seed_advanced_editor_tools_content
+wp1 duo capture --repo=/siterepo
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "capture: valid Advanced Editor Tools state for negative control"
+"${GIT1[@]}" push -q origin main
+
+wp1 plugin deactivate tinymce-advanced >/dev/null
+wp1 plugin delete tinymce-advanced >/dev/null
+AET_OUT_OF_RANGE=$(fetch_artifact tinymce-advanced 5.9.0 cli1)
+wp1 plugin install "$AET_OUT_OF_RANGE" >/dev/null
+INSTALLED_OOR=$(wp1 plugin get tinymce-advanced --field=version)
+[ "$INSTALLED_OOR" = "5.9.0" ] \
+  || fail "negative control: expected tinymce-advanced 5.9.0 installed, got $INSTALLED_OOR"
+AET_REFUSAL_BEFORE=$(wp1 eval 'echo hash("sha256", wp_json_encode([get_option("tadv_settings", null), get_option("tadv_admin_settings", null)]));')
+require_observed_nonempty "Advanced Editor Tools refusal state baseline" "$AET_REFUSAL_BEFORE"
+set +e
+DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_RC=$?
+set -e
+[ "$DEPLOY_RC" -ne 0 ] \
+  || fail "expected deploy to refuse tinymce-advanced 5.9.0, but it exited 0 (got: $DEPLOY_OUT)"
+grep -Eq "outside_version_range|outside the '.*' manifest's declared version_range" <<<"$DEPLOY_OUT" \
+  || fail "tinymce-advanced 5.9.0 refused for the wrong reason (got: $DEPLOY_OUT)"
+grep -q "tinymce-advanced/tinymce-advanced.php" <<<"$DEPLOY_OUT" \
+  || fail "Advanced Editor Tools refusal did not name the exact basename (got: $DEPLOY_OUT)"
+grep -q "5.9.0" <<<"$DEPLOY_OUT" \
+  || fail "Advanced Editor Tools refusal did not name installed version 5.9.0 (got: $DEPLOY_OUT)"
+if wp1 plugin is-active tinymce-advanced >/dev/null 2>&1; then
+  fail "outside-range tinymce-advanced 5.9.0 was activated before refusal"
+fi
+AET_REFUSAL_AFTER=$(wp1 eval 'echo hash("sha256", wp_json_encode([get_option("tadv_settings", null), get_option("tadv_admin_settings", null)]));')
+[ "$AET_REFUSAL_AFTER" = "$AET_REFUSAL_BEFORE" ] \
+  || fail "Advanced Editor Tools outside-range refusal mutated authored settings"
+printf '%s\n' "$DEPLOY_OUT"
+pass "official tinymce-advanced 5.9.0 is loudly refused, remains inactive, and cannot mutate admitted settings"
+fi
+
+if [ "$VMATRIX_MANIFEST" = classic-editor ]; then
+say "negative control: classic-editor 1.6.7 (adjacent official release below the exact 1.7.0 contract) must be REFUSED"
+reset_env wp1
+reset_case_repositories
+
+CLASSIC_IN_RANGE=$(fetch_artifact classic-editor 1.7.0 cli1)
+wp1 plugin install "$CLASSIC_IN_RANGE" --activate >/dev/null
+NEGATIVE_INSTALLED=$(wp1 plugin get classic-editor --field=version)
+require_fixture_values NEGATIVE_INSTALLED
+[ "$NEGATIVE_INSTALLED" = "1.7.0" ] \
+  || fail "negative control premise did not install exact classic-editor 1.7.0 bytes"
+cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+{
+  "manifests": ["core", "classic-editor"],
+  "policy": {
+    "options": {},
+    "post_meta": {},
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "spec_version": 2
+}
+EOF
+cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
+"${GIT1[@]}" init -q -b main
+"${GIT1[@]}" remote add origin "../origin-$PAIR.git"
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "policy: Classic Editor negative-control pin"
+"${GIT1[@]}" push -qu origin main
+seed_classic_editor_content
+wp1 duo capture --repo=/siterepo
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "capture: valid Classic Editor state for negative control"
+"${GIT1[@]}" push -q origin main
+
+wp1 plugin deactivate classic-editor >/dev/null
+wp1 plugin delete classic-editor >/dev/null
+CLASSIC_OUT_OF_RANGE=$(fetch_artifact classic-editor 1.6.7 cli1)
+wp1 plugin install "$CLASSIC_OUT_OF_RANGE" >/dev/null
+INSTALLED_OOR=$(wp1 plugin get classic-editor --field=version)
+[ "$INSTALLED_OOR" = "1.6.7" ] \
+  || fail "negative control: expected classic-editor 1.6.7 installed, got $INSTALLED_OOR"
+CLASSIC_REFUSAL_BEFORE=$(wp1 eval 'echo hash("sha256", wp_json_encode([get_option("classic-editor-replace", null), get_option("classic-editor-allow-users", null)]));')
+require_observed_nonempty "Classic Editor refusal state baseline" "$CLASSIC_REFUSAL_BEFORE"
+set +e
+DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_RC=$?
+set -e
+[ "$DEPLOY_RC" -ne 0 ] \
+  || fail "expected deploy to refuse classic-editor 1.6.7, but it exited 0 (got: $DEPLOY_OUT)"
+grep -Eq "outside_version_range|outside the '.*' manifest's declared version_range" <<<"$DEPLOY_OUT" \
+  || fail "classic-editor 1.6.7 refused for the wrong reason (got: $DEPLOY_OUT)"
+grep -q "classic-editor/classic-editor.php" <<<"$DEPLOY_OUT" \
+  || fail "Classic Editor refusal did not name the exact basename (got: $DEPLOY_OUT)"
+grep -q "1.6.7" <<<"$DEPLOY_OUT" \
+  || fail "Classic Editor refusal did not name installed version 1.6.7 (got: $DEPLOY_OUT)"
+if wp1 plugin is-active classic-editor >/dev/null 2>&1; then
+  fail "outside-range classic-editor 1.6.7 was activated before refusal"
+fi
+CLASSIC_REFUSAL_AFTER=$(wp1 eval 'echo hash("sha256", wp_json_encode([get_option("classic-editor-replace", null), get_option("classic-editor-allow-users", null)]));')
+[ "$CLASSIC_REFUSAL_AFTER" = "$CLASSIC_REFUSAL_BEFORE" ] \
+  || fail "Classic Editor outside-range refusal mutated authored settings"
+printf '%s\n' "$DEPLOY_OUT"
+pass "official classic-editor 1.6.7 is loudly refused, remains inactive, and cannot mutate admitted settings"
+fi
+
 if [ "$VMATRIX_MANIFEST" = acf ]; then
 say "negative control: acf 5.12.6 (real wp.org release, genuinely below manifests/acf.json's own declared min 6.0.0) must be REFUSED, not silently accepted"
 reset_env wp1

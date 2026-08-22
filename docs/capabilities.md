@@ -33,8 +33,8 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 |---|---|---|---|---|
 | [core](#core) | certified | WordPress core | WordPress 7.0.3 (last verified) | apply, capture, compile, delete, deploy, plan, promote, recapture, render-api |
 | [acf](#acf) | certified | `advanced-custom-fields/acf.php` | >=6.0.0 <7.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
-| [advanced-editor-tools](#advanced-editor-tools) | experimental | `tinymce-advanced/tinymce-advanced.php` | >=5.9.2 <5.9.3 | capture, compile, plan, recapture |
-| [classic-editor](#classic-editor) | experimental | `classic-editor/classic-editor.php` | >=1.7.0 <1.7.1 | capture, compile, plan, recapture |
+| [advanced-editor-tools](#advanced-editor-tools) | certified | `tinymce-advanced/tinymce-advanced.php` | >=5.9.2 <5.9.3 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
+| [classic-editor](#classic-editor) | certified | `classic-editor/classic-editor.php` | >=1.7.0 <1.7.1 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [code-snippets](#code-snippets) | experimental | `code-snippets/code-snippets.php` | >=3.9.6 <3.9.7 | capture, compile, plan, recapture |
 | [contact-form-7](#contact-form-7) | certified | `contact-form-7/wp-contact-form-7.php` | >=6.0.0 <7.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [duo-agency-cpt](#duo-agency-cpt) | excluded | none declared | fixture only | test-only |
@@ -89,42 +89,38 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 
 ## advanced-editor-tools
 
-**Status: experimental.** Experimental exact-artifact draft: the current editor settings and upgrade residue are classified, with offline grammar and cross-adapter coverage but no clean-target editor/render conformance.
+**Status: certified.** Certified for exact Advanced Editor Tools 5.9.2 with sanitized four-toolbar/admin settings, hostile target convergence, plugin-visible editor behavior, option deletion, lifecycle recovery, conflict/idempotence, and official 5.9.0 refusal evidence.
 
 - **Plugin:** `tinymce-advanced/tinymce-advanced.php`
 - **Version range:** >=5.9.2 <5.9.3
-- **Operations:** capture, compile, plan, recapture
-- **Lifecycle phases:** none declared
+- **Operations:** apply, capture, compile, deploy, plan, promote, recapture, render-api
+- **Lifecycle phases:** retire, activate, verify
 - **Declared entities:** none
 - **Declared fields:** `options` (11 keys)
 - **Deletions supported:** none
-- **Deletions unsupported:** plugin-specific deletes
-- **Exercised by:** `conformance-ecosystem-adapter-batch`
+- **Deletions unsupported:** plugin-specific entity deletes
+- **Exercised by:** `conformance-advanced-editor-tools`, `exact-artifact-version-matrix`
 
 **Unsupported, explicitly.**
 
-- `options.tadv_admin_settings|tadv_settings` / `apply` — No clean-target editor and settings round-trip has established hook-free option apply for this exact artifact.
-- `production` / `promote` — No exact-artifact clean-target editor and settings round-trip evidence exists.
-- `deletions.*` / `delete` — The adapter declares settings only and owns no plugin-specific entity deletion selector.
+- `deletions.*` / `delete` — The adapter owns option state only; no Advanced Editor Tools entity deletion selector exists beyond generic authored-option deletion through apply --with-deletes.
 
 ## classic-editor
 
-**Status: experimental.** Experimental exact-artifact draft: both single-site editor policy options are classified, with offline grammar coverage but no clean-target editor-selection conformance.
+**Status: certified.** Certified for exact Classic Editor 1.7.0 on single-site WordPress with both editor-routing branches, hostile target convergence, option deletion, source-faithful uninstall residue recovery, conflict/idempotence, and official 1.6.7 refusal evidence.
 
 - **Plugin:** `classic-editor/classic-editor.php`
 - **Version range:** >=1.7.0 <1.7.1
-- **Operations:** capture, compile, plan, recapture
-- **Lifecycle phases:** none declared
+- **Operations:** apply, capture, compile, deploy, plan, promote, recapture, render-api
+- **Lifecycle phases:** retire, activate, verify
 - **Declared entities:** none
 - **Declared fields:** `options` (2: classic-editor-allow-users, classic-editor-replace)
 - **Deletions supported:** none
-- **Deletions unsupported:** plugin-specific deletes
-- **Exercised by:** `conformance-ecosystem-adapter-batch`
+- **Deletions unsupported:** plugin-specific entity deletes
+- **Exercised by:** `conformance-classic-editor`, `exact-artifact-version-matrix`
 
 **Unsupported, explicitly.**
 
-- `options.classic-editor-allow-users|classic-editor-replace` / `apply` — No clean-target editor-selection round-trip has established hook-free option apply for this exact artifact.
-- `production` / `promote` — No exact-artifact clean-target editor-selection evidence exists.
 - `multisite` / `all` — Duo v1 refuses multisite, so Classic Editor's network option is outside this adapter.
 
 ## code-snippets

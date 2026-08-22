@@ -20,39 +20,35 @@
     },
     "advanced-editor-tools": {
       "capabilities": {
-        "deletion_semantics": {"supported": [], "unsupported": ["plugin-specific deletes"]},
+        "deletion_semantics": {"supported": [], "unsupported": ["plugin-specific entity deletes"]},
         "entity_sections": [],
         "field_sections": ["options"],
-        "lifecycle_phases": [],
-        "operations": ["capture", "compile", "plan", "recapture"]
+        "lifecycle_phases": ["retire", "activate", "verify"],
+        "operations": ["capture", "compile", "plan", "deploy", "apply", "recapture", "render-api"]
       },
       "default_authored_keyspaces": [],
-      "evidence": {"bundle_schema": "duo-subject-certification-bundle/v1", "tests": ["conformance-ecosystem-adapter-batch"]},
-      "reason": "Experimental exact-artifact draft: the current editor settings and upgrade residue are classified, with offline grammar and cross-adapter coverage but no clean-target editor/render conformance.",
-      "status": "experimental",
+      "evidence": {"bundle_schema": "duo-subject-certification-bundle/v1", "tests": ["conformance-advanced-editor-tools", "exact-artifact-version-matrix"]},
+      "reason": "Certified for exact Advanced Editor Tools 5.9.2 with sanitized four-toolbar/admin settings, hostile target convergence, plugin-visible editor behavior, option deletion, lifecycle recovery, conflict/idempotence, and official 5.9.0 refusal evidence.",
+      "status": "certified",
       "supported_versions": {"plugin": "tinymce-advanced/tinymce-advanced.php", "range": {"max": "5.9.3", "min": "5.9.2"}},
       "unsupported": [
-        {"operation": "apply", "reason": "No clean-target editor and settings round-trip has established hook-free option apply for this exact artifact.", "surface": "options.tadv_admin_settings|tadv_settings"},
-        {"operation": "promote", "reason": "No exact-artifact clean-target editor and settings round-trip evidence exists.", "surface": "production"},
-        {"operation": "delete", "reason": "The adapter declares settings only and owns no plugin-specific entity deletion selector.", "surface": "deletions.*"}
+        {"operation": "delete", "reason": "The adapter owns option state only; no Advanced Editor Tools entity deletion selector exists beyond generic authored-option deletion through apply --with-deletes.", "surface": "deletions.*"}
       ]
     },
     "classic-editor": {
       "capabilities": {
-        "deletion_semantics": {"supported": [], "unsupported": ["plugin-specific deletes"]},
+        "deletion_semantics": {"supported": [], "unsupported": ["plugin-specific entity deletes"]},
         "entity_sections": [],
         "field_sections": ["options"],
-        "lifecycle_phases": [],
-        "operations": ["capture", "compile", "plan", "recapture"]
+        "lifecycle_phases": ["retire", "activate", "verify"],
+        "operations": ["capture", "compile", "plan", "deploy", "apply", "recapture", "render-api"]
       },
       "default_authored_keyspaces": [],
-      "evidence": {"bundle_schema": "duo-subject-certification-bundle/v1", "tests": ["conformance-ecosystem-adapter-batch"]},
-      "reason": "Experimental exact-artifact draft: both single-site editor policy options are classified, with offline grammar coverage but no clean-target editor-selection conformance.",
-      "status": "experimental",
+      "evidence": {"bundle_schema": "duo-subject-certification-bundle/v1", "tests": ["conformance-classic-editor", "exact-artifact-version-matrix"]},
+      "reason": "Certified for exact Classic Editor 1.7.0 on single-site WordPress with both editor-routing branches, hostile target convergence, option deletion, source-faithful uninstall residue recovery, conflict/idempotence, and official 1.6.7 refusal evidence.",
+      "status": "certified",
       "supported_versions": {"plugin": "classic-editor/classic-editor.php", "range": {"max": "1.7.1", "min": "1.7.0"}},
       "unsupported": [
-        {"operation": "apply", "reason": "No clean-target editor-selection round-trip has established hook-free option apply for this exact artifact.", "surface": "options.classic-editor-allow-users|classic-editor-replace"},
-        {"operation": "promote", "reason": "No exact-artifact clean-target editor-selection evidence exists.", "surface": "production"},
         {"operation": "all", "reason": "Duo v1 refuses multisite, so Classic Editor's network option is outside this adapter.", "surface": "multisite"}
       ]
     },

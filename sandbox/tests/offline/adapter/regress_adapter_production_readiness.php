@@ -108,12 +108,15 @@ foreach ($matrix['adapters'] as $name => $adapter) {
     );
 }
 
-duo_check(
-    array_filter(
-        $matrix['adapters'],
-        static fn(array $adapter): bool => $adapter['readiness'] === 'ready'
-    ) === [],
-    'the stronger production-readiness audit currently makes no unearned ready claim'
+$readyAdapters = array_keys(array_filter(
+    $matrix['adapters'],
+    static fn(array $adapter): bool => $adapter['readiness'] === 'ready'
+));
+sort($readyAdapters, SORT_STRING);
+duo_check_same(
+    ['advanced-editor-tools', 'classic-editor'],
+    $readyAdapters,
+    'only the two adapters with complete isolated adversarial and exact-version evidence are production-ready'
 );
 
 duo_check_summary('adapter production-readiness ledger');

@@ -38,20 +38,20 @@
       }
     },
     "advanced-editor-tools": {
-      "readiness": "unready",
-      "covered": {},
-      "gaps": {
-        "contract-dependency": "One exact exercise artifact exists, but no supported-boundary plus out-of-range refusal matrix exists.",
-        "clean-target": "The shared profile stops before deploy/apply and performs only a second source capture.",
-        "dirty-target": "No target settings/default collision matrix exists.",
-        "native-behavior": "Only source-side editor filters consume the setting; target editor behavior is untested.",
-        "deletion": "The no-entity boundary is documented but not exercised as a no-partial-mutation refusal.",
-        "failure-recovery": "No target apply fault/retry exercise exists.",
-        "concurrency-idempotence": "No competing settings capture/apply exercise exists.",
-        "lifecycle": "Activation, upgrade, deactivation, uninstall residue, and reinstall are untested.",
-        "data-boundary": "Toolbar edge values, unknown button/plugin names, long UTF-8, and malformed imported settings are untested.",
-        "scope-platform": "Optional editor modes and platform boundaries have not been exercised on the target."
+      "readiness": "ready",
+      "covered": {
+        "contract-dependency": ["manifests/advanced-editor-tools.json", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "clean-target": ["sandbox/conformance/entries/advanced-editor-tools.json", "sandbox/conformance/seeds/advanced-editor-tools.sh", "sandbox/conformance/checks/advanced-editor-tools.sh"],
+        "dirty-target": ["sandbox/conformance/postdeploy/advanced-editor-tools.sh", "sandbox/conformance/checks/advanced-editor-tools.sh"],
+        "native-behavior": ["sandbox/conformance/seeds/advanced-editor-tools.sh", "sandbox/conformance/checks/advanced-editor-tools.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "deletion": ["sandbox/conformance/checks/advanced-editor-tools.sh", "sandbox/tests/offline/apply/regress_delete_authorization_receipt.php"],
+        "failure-recovery": ["sandbox/conformance/checks/advanced-editor-tools.sh", "sandbox/tests/offline/apply/regress_fatal_mutations.php", "sandbox/tests/offline/apply/regress_options_materializer.php"],
+        "concurrency-idempotence": ["sandbox/conformance/checks/advanced-editor-tools.sh", "sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php"],
+        "lifecycle": ["sandbox/conformance/checks/advanced-editor-tools.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "data-boundary": ["sandbox/conformance/seeds/advanced-editor-tools.sh", "sandbox/conformance/postdeploy/advanced-editor-tools.sh", "sandbox/conformance/checks/advanced-editor-tools.sh"],
+        "scope-platform": ["sandbox/conformance/checks/advanced-editor-tools.sh", "sandbox/tests/live/regress_multisite_refusal.sh"]
       },
+      "gaps": {},
       "blocked": {},
       "not_applicable": {
         "identity-references": "The adapter declares only stable option values and no local identity reference.",
@@ -59,20 +59,20 @@
       }
     },
     "classic-editor": {
-      "readiness": "unready",
-      "covered": {},
-      "gaps": {
-        "contract-dependency": "One exact exercise artifact exists, but no supported-boundary plus out-of-range refusal matrix exists.",
-        "clean-target": "The shared profile stops before deploy/apply and performs only a second source capture.",
-        "dirty-target": "No opposite target policy/default convergence matrix exists.",
-        "native-behavior": "Only the source-side editor-selection filter is checked.",
-        "deletion": "The no-entity boundary is documented but not exercised as a no-partial-mutation refusal.",
-        "failure-recovery": "No target apply fault/retry exercise exists.",
-        "concurrency-idempotence": "No competing settings capture/apply exercise exists.",
-        "lifecycle": "Activation, upgrade, deactivation, network residue, and reinstall are untested.",
-        "data-boundary": "Invalid and legacy option values are not exercised through capture/apply/refusal.",
-        "scope-platform": "The single-site boundary is declared, but target behavior and multisite refusal are not adapter-owned evidence."
+      "readiness": "ready",
+      "covered": {
+        "contract-dependency": ["manifests/classic-editor.json", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "clean-target": ["sandbox/conformance/entries/classic-editor.json", "sandbox/conformance/seeds/classic-editor.sh", "sandbox/conformance/checks/classic-editor.sh"],
+        "dirty-target": ["sandbox/conformance/postdeploy/classic-editor.sh", "sandbox/conformance/checks/classic-editor.sh"],
+        "native-behavior": ["sandbox/conformance/seeds/classic-editor.sh", "sandbox/conformance/checks/classic-editor.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "deletion": ["sandbox/conformance/checks/classic-editor.sh", "sandbox/tests/offline/apply/regress_delete_authorization_receipt.php"],
+        "failure-recovery": ["sandbox/conformance/checks/classic-editor.sh", "sandbox/tests/offline/apply/regress_fatal_mutations.php", "sandbox/tests/offline/apply/regress_options_materializer.php"],
+        "concurrency-idempotence": ["sandbox/conformance/checks/classic-editor.sh", "sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php"],
+        "lifecycle": ["sandbox/conformance/checks/classic-editor.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "data-boundary": ["sandbox/conformance/seeds/classic-editor.sh", "sandbox/conformance/postdeploy/classic-editor.sh", "sandbox/conformance/checks/classic-editor.sh"],
+        "scope-platform": ["sandbox/conformance/checks/classic-editor.sh", "sandbox/tests/live/regress_multisite_refusal.sh"]
       },
+      "gaps": {},
       "blocked": {},
       "not_applicable": {
         "identity-references": "The adapter declares two enum-like options and no local identity reference.",
