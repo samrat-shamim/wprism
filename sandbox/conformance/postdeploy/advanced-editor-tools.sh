@@ -40,6 +40,12 @@ $runtime = [
 foreach ($runtime as $name) {
     update_option($name, ['probe' => "target-runtime-$name"]);
 }
+$version_property = new ReflectionProperty($instance, 'plugin_version');
+$runtime_version = (int) $version_property->getValue($instance);
+if ($runtime_version < 5900) {
+    throw new RuntimeException('Advanced Editor Tools exact runtime version premise changed');
+}
+update_option('tadv_version', $runtime_version);
 update_option('tadv_future_setting', 'target-only-neighbor');
 echo wp_json_encode([
     'admin' => get_option('tadv_admin_settings'),
