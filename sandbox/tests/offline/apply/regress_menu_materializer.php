@@ -144,6 +144,58 @@ $check(
     'constructor depends on exactly Policy, Tokens, and ApplyFieldMaterializer -- no Apply instance'
 );
 
+// Core dirty-target conformance found that an explicitly adopted menu kept a
+// target-only custom item because the item had no _duo_uuid and the cleanup
+// projection indexed UUID-bearing rows only. Exercise the real private
+// projection used by finalize_menu(): every physical id is retained, while
+// only UUID-bearing rows enter the canonical lookup.
+$indexEnvironmentItems = new ReflectionMethod(MenuMaterializer::class, 'index_environment_items');
+$obsoleteEnvironmentItems = new ReflectionMethod(MenuMaterializer::class, 'obsolete_environment_items');
+$environment = $indexEnvironmentItems->invoke($menuMaterializer, [
+    ['ID' => '11', 'uuid' => '11111111-1111-4111-8111-111111111111'],
+    ['ID' => '12', 'uuid' => '22222222-2222-4222-8222-222222222222'],
+    ['ID' => '13', 'uuid' => null],
+    ['ID' => '14', 'uuid' => ''],
+], 'main');
+$check(
+    $environment === [
+        'by_uuid' => [
+            '11111111-1111-4111-8111-111111111111' => 11,
+            '22222222-2222-4222-8222-222222222222' => 12,
+        ],
+        'by_id' => [11 => '11111111-1111-4111-8111-111111111111', 12 => '22222222-2222-4222-8222-222222222222', 13 => null, 14 => null],
+    ],
+    'menu observation retains sidecarless target items by physical id'
+);
+$obsolete = $obsoleteEnvironmentItems->invoke($menuMaterializer, $environment['by_id'], [
+    '11111111-1111-4111-8111-111111111111' => 11,
+]);
+$check(
+    $obsolete === [12 => '22222222-2222-4222-8222-222222222222', 13 => null, 14 => null],
+    'menu-scoped cleanup removes stale canonical and sidecarless target items while keeping the desired item'
+);
+
+foreach ([
+    'one identity on multiple target items' => [
+        ['ID' => '21', 'uuid' => '33333333-3333-4333-8333-333333333333'],
+        ['ID' => '22', 'uuid' => '33333333-3333-4333-8333-333333333333'],
+    ],
+    'contradictory identities on one target item' => [
+        ['ID' => '23', 'uuid' => '44444444-4444-4444-8444-444444444444'],
+        ['ID' => '23', 'uuid' => '55555555-5555-4555-8555-555555555555'],
+    ],
+] as $label => $rows) {
+    try {
+        $indexEnvironmentItems->invoke($menuMaterializer, $rows, 'main');
+        $check(false, "$label refuses before choosing an owner");
+    } catch (RuntimeException $failure) {
+        $check(
+            str_contains($failure->getMessage(), 'duo: menu main:'),
+            "$label refuses before choosing an owner"
+        );
+    }
+}
+
 if ($failures) {
     echo "\n" . count($failures) . " failure(s):\n";
     foreach ($failures as $f) {

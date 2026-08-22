@@ -44,12 +44,8 @@ final class MenuMaterializer {
              WHERE p.post_type = 'nav_menu_item'",
             $menuTt
         ), ARRAY_A) ?: [];
-        $envByUuid = [];
-        foreach ($envItems as $it) {
-            if (!empty($it['uuid'])) {
-                $envByUuid[$it['uuid']] = (int) $it['ID'];
-            }
-        }
+        $environment = $this->index_environment_items($envItems, (string) $front['slug']);
+        $envByUuid = $environment['by_uuid'];
 
         // pass 1: ensure item rows
         $idByUuid = [];
@@ -131,13 +127,37 @@ final class MenuMaterializer {
             $this->fieldMaterializer->reconcile_authored_meta($id, (array) ($item['meta'] ?? []), 'menu-item');
         }
 
-        // remove env items no longer in the file (menu-scoped ownership)
-        $keep = array_fill_keys(array_keys($idByUuid), true);
-        foreach ($envByUuid as $uuid => $id) {
-            if (!isset($keep[$uuid])) {
-                Db::delete($wpdb->term_relationships, ['object_id' => $id, 'term_taxonomy_id' => $menuTt], null, 'apply detach removed menu item');
-                Db::delete($wpdb->postmeta, ['post_id' => $id], null, 'apply delete removed menu-item meta');
-                Db::delete($wpdb->posts, ['ID' => $id], null, 'apply delete removed menu item');
+        // The menu file owns the complete item set once the menu itself is
+        // mapped or explicitly adopted. A target-created item has no
+        // _duo_uuid by definition, so filtering the observation down to
+        // uuid-bearing rows left exactly those hostile/default items behind
+        // (exact core conformance, 9bd24d51: target custom item survived an
+        // otherwise successful menu adoption and canonical recapture). Select
+        // removals by physical id, while retaining the UUID only for ledger
+        // cleanup. Refuse an item shared with another taxonomy instead of
+        // deleting a post whose ownership extends outside this menu.
+        foreach ($this->obsolete_environment_items($environment['by_id'], $idByUuid) as $id => $uuid) {
+            $wpdb->last_error = '';
+            $otherRelationships = $wpdb->get_col($wpdb->prepare(
+                "SELECT term_taxonomy_id FROM {$wpdb->term_relationships}
+                 WHERE object_id = %d AND term_taxonomy_id <> %d ORDER BY term_taxonomy_id ASC",
+                $id,
+                $menuTt
+            ));
+            if ((string) ($wpdb->last_error ?? '') !== '') {
+                throw new \RuntimeException(
+                    "duo: menu {$front['slug']}: could not verify relationship ownership for target item $id"
+                );
+            }
+            if ($otherRelationships !== []) {
+                throw new \RuntimeException(
+                    "duo: menu {$front['slug']}: target item $id has relationships outside this menu; refusing destructive reconciliation"
+                );
+            }
+            Db::delete($wpdb->term_relationships, ['object_id' => $id, 'term_taxonomy_id' => $menuTt], null, 'apply detach removed menu item');
+            Db::delete($wpdb->postmeta, ['post_id' => $id], null, 'apply delete removed menu-item meta');
+            Db::delete($wpdb->posts, ['ID' => $id], null, 'apply delete removed menu item');
+            if ($uuid !== null) {
                 Ledger::forget($uuid);
             }
         }
@@ -184,5 +204,55 @@ final class MenuMaterializer {
         // that bespoke contract explicit instead of borrowing authored-row
         // policy from state/options/core.json.
         $this->fieldMaterializer->upsert_option($name, serialize($mods), 'yes');
+    }
+
+    /**
+     * Index every physical item attached to one menu, including rows without
+     * an identity sidecar. Duplicate or contradictory sidecars are ambiguous
+     * ownership, never a reason to pick the last database row.
+     *
+     * @return array{by_uuid:array<string,int>,by_id:array<int,?string>}
+     */
+    private function index_environment_items(array $rows, string $menuSlug): array {
+        $byUuid = [];
+        $byId = [];
+        foreach ($rows as $row) {
+            $id = (int) ($row['ID'] ?? 0);
+            if ($id <= 0) {
+                throw new \RuntimeException("duo: menu $menuSlug: target item observation has no valid local id");
+            }
+            $uuid = trim((string) ($row['uuid'] ?? ''));
+            $uuid = $uuid === '' ? null : $uuid;
+            if (array_key_exists($id, $byId)
+                && $uuid !== null
+                && $byId[$id] !== null
+                && $byId[$id] !== $uuid) {
+                throw new \RuntimeException(
+                    "duo: menu $menuSlug: target item $id has contradictory identity sidecars"
+                );
+            }
+            if ($uuid !== null && isset($byUuid[$uuid]) && $byUuid[$uuid] !== $id) {
+                throw new \RuntimeException(
+                    "duo: menu $menuSlug: identity $uuid belongs to multiple target items"
+                );
+            }
+            $byId[$id] = $uuid ?? ($byId[$id] ?? null);
+            if ($uuid !== null) {
+                $byUuid[$uuid] = $id;
+            }
+        }
+        ksort($byId, SORT_NUMERIC);
+        ksort($byUuid, SORT_STRING);
+        return ['by_uuid' => $byUuid, 'by_id' => $byId];
+    }
+
+    /** @return array<int,?string> local id => optional canonical UUID */
+    private function obsolete_environment_items(array $byId, array $idByUuid): array {
+        $keepIds = array_fill_keys(array_map('intval', array_values($idByUuid)), true);
+        return array_filter(
+            $byId,
+            static fn(?string $uuid, int $id): bool => !isset($keepIds[$id]),
+            ARRAY_FILTER_USE_BOTH
+        );
     }
 }
