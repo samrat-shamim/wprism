@@ -417,7 +417,8 @@ pass "snippet deletion refuses at the exact unsupported selector and publishes n
 # empty cache; remove those product defaults, publish a new repository intent,
 # and require one forced recovery to reconstruct all mapped identities through
 # the verified provider.
-wp_conf2 eval 'Code_Snippets\Settings\update_setting("general", "enable_flat_files", true); do_action("code_snippets/settings_updated", Code_Snippets\Settings\get_settings_values()); Code_Snippets\Settings\update_setting("general", "complete_uninstall", true);' >/dev/null
+wp_conf2 eval 'Code_Snippets\Settings\update_setting("general", "enable_flat_files", true);' >/dev/null
+wp_conf2 eval 'do_action("code_snippets/settings_updated", Code_Snippets\Settings\get_settings_values()); Code_Snippets\Settings\update_setting("general", "complete_uninstall", true);' >/dev/null
 COMPLETE_BEFORE=$(observe_code_snippets conf2)
 printf '%s\n' "$COMPLETE_BEFORE" | jq -e '.flat_enabled == true and (.flat_tree | length) == 4' >/dev/null \
   || fail "Code Snippets complete-uninstall flat-tree premise did not land: $COMPLETE_BEFORE"
