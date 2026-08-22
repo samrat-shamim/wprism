@@ -84,16 +84,43 @@ sync_state() {
 }
 
 recapture_matches() {
+  local output
   clear_tree "$R2/state-check"
-  wp2 duo capture --repo=/siterepo --out=/siterepo/state-check >/dev/null
+  output=$(wp2 duo capture --repo=/siterepo --out=/siterepo/state-check 2>&1) \
+    || fail "$1: target recapture failed: $output"
+  ! grep -Fq 'Warning:' <<<"$output" \
+    || fail "$1: target recapture returned success with a warning: $output"
   diff -r "$R2/state" "$R2/state-check" >/dev/null \
     || fail "$1: target recapture differs from the source canonical tree"
   pass "$1 recaptures byte-identically"
 }
 
-zero_apply() {
+source_capture() {
   local label="$1" output
-  output=$(wp2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+  output=$(wp1 duo capture --repo=/siterepo 2>&1) \
+    || fail "$label: source capture failed: $output"
+  ! grep -Fq 'Warning:' <<<"$output" \
+    || fail "$label: source capture returned success with a warning: $output"
+}
+
+changed_apply() {
+  local label="$1" raw output
+  raw=$(wp2 duo apply --repo=/siterepo --default-author=admin --format=json 2>&1) \
+    || fail "$label: target apply failed: $raw"
+  ! grep -Fq 'Warning:' <<<"$raw" \
+    || fail "$label: target apply returned success with a warning: $raw"
+  output=$(awk 'NF { line=$0 } END { print line }' <<<"$raw")
+  jq -e '.canary == "clean"' <<<"$output" >/dev/null \
+    || fail "$label: target apply lacked a clean machine result: $raw"
+}
+
+zero_apply() {
+  local label="$1" raw output
+  raw=$(wp2 duo apply --repo=/siterepo --default-author=admin --format=json 2>&1) \
+    || fail "$label: repeated apply failed: $raw"
+  ! grep -Fq 'Warning:' <<<"$raw" \
+    || fail "$label: repeated apply returned success with a warning: $raw"
+  output=$(awk 'NF { line=$0 } END { print line }' <<<"$raw")
   jq -e '.canary == "clean" and .actions == []' <<<"$output" >/dev/null \
     || fail "$label: repeated apply was not a clean zero-action result: $output"
   [ "$(wp2 option get _wp_session_core_lifecycle_target)" = 'target-runtime-survives' ] \
@@ -105,12 +132,16 @@ target_fingerprint() {
   wp2 eval '
     global $wpdb;
     $post = get_page_by_path("core-lifecycle", OBJECT, "post");
+    $css_id = (int) get_theme_mod("custom_css_post_id", 0);
+    $css = $css_id > 0 ? get_post($css_id) : null;
     echo wp_json_encode([
       "blogname" => get_option("blogname"),
       "blogdescription" => get_option("blogdescription"),
       "permalink_structure" => get_option("permalink_structure"),
       "post_content" => $post ? $post->post_content : null,
       "post_status" => $post ? $post->post_status : null,
+      "custom_css_id" => $css_id,
+      "custom_css" => $css ? $css->post_content : null,
       "target_runtime" => get_option("_wp_session_core_lifecycle_target"),
       "ledger_canary" => \Duo\Ledger::kv_get("core_lifecycle_canary"),
       "applied_revision" => \Duo\Ledger::kv_get("applied_revision"),
@@ -166,16 +197,29 @@ TERM1=$(wp1 term create category 'Lifecycle Category' --slug=lifecycle-category 
 POST1=$(wp1 post create --post_type=post --post_status=publish --post_name=core-lifecycle \
   --post_title='Core lifecycle' --post_content='Core lifecycle body before exact upgrade.' --porcelain)
 wp1 post term add "$POST1" category lifecycle-category --by=slug >/dev/null
+CSS1=$(wp1 eval '
+  $post = wp_update_custom_css_post("body { border-top: 3px solid #135e96; }");
+  if (is_wp_error($post) || !$post instanceof WP_Post) {
+    throw new RuntimeException("could not create the lifecycle Custom CSS post");
+  }
+  echo $post->ID;
+')
 wp2 option update _wp_session_core_lifecycle_target 'target-runtime-survives' >/dev/null
 wp2 option update blogname 'Hostile target title' >/dev/null
-wp1 duo capture --repo=/siterepo >/dev/null
+source_capture 'pre-upgrade source capture'
 sync_state
-wp2 duo apply --repo=/siterepo --default-author=admin --adopt-by-slug=posts,terms >/dev/null
+INITIAL_APPLY=$(wp2 duo apply --repo=/siterepo --default-author=admin --adopt-by-slug=posts,terms 2>&1) \
+  || fail "initial target apply failed: $INITIAL_APPLY"
+[ "$(grep -c '^Warning:' <<<"$INITIAL_APPLY")" = 2 ] \
+  && grep -Fq 'Warning: adopted env term ' <<<"$INITIAL_APPLY" \
+  && grep -Fq 'Warning: native action fired: rewrite.flush (verified)' <<<"$INITIAL_APPLY" \
+  || fail "initial target apply did not return exactly its two expected, asserted warnings: $INITIAL_APPLY"
 wp2 eval '\Duo\Ledger::kv_set("core_lifecycle_canary", "ledger-survives-core-replacement");' >/dev/null
 recapture_matches 'pre-upgrade control'
 [ "$(wp2 option get _wp_session_core_lifecycle_target)" = 'target-runtime-survives' ] \
   || fail 'initial apply overwrote target-owned runtime state'
 [ "$TERM1" -gt 0 ] || fail 'source lifecycle term was not created'
+[ "$CSS1" -gt 0 ] || fail 'source lifecycle Custom CSS post was not created'
 pass 'WordPress 7.0.2 executes the real core capture/apply/recapture path before the transition'
 
 say "in-place exact upgrade: $OLDER_VERSION -> $CURRENT_VERSION on source and target"
@@ -183,9 +227,9 @@ replace_core 1 "$CURRENT_IMAGE" "$CURRENT_VERSION" 'source upgrade'
 replace_core 2 "$CURRENT_IMAGE" "$CURRENT_VERSION" 'target upgrade'
 wp1 option update blogdescription 'captured after exact upgrade' >/dev/null
 wp1 post update "$POST1" --post_content='Core lifecycle body after exact upgrade.' >/dev/null
-wp1 duo capture --repo=/siterepo >/dev/null
+source_capture 'post-upgrade source capture'
 sync_state
-wp2 duo apply --repo=/siterepo --default-author=admin >/dev/null
+changed_apply 'post-upgrade target apply'
 recapture_matches 'post-upgrade product path'
 zero_apply 'post-upgrade idempotence'
 assert_public_post 'post-upgrade target'
