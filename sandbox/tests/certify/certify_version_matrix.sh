@@ -719,7 +719,10 @@ normalize_version_matrix_archive_root cli2 plugin paid-memberships-pro paid-memb
 INSTALLED_2=$(wp2 plugin get paid-memberships-pro --field=version)
 require_fixture_values INSTALLED_2
 [ "$INSTALLED_2" = "$PMPRO_VERSION" ] || fail "side 2 installed version mismatch: expected $PMPRO_VERSION, got $INSTALLED_2"
-wp2 plugin is-inactive paid-memberships-pro >/dev/null || fail "PMPro target premise must begin inactive"
+if wp2 plugin is-active paid-memberships-pro >/dev/null 2>&1; then
+  fail "PMPro target premise must begin inactive"
+fi
+pass "side 2: exact PMPro artifact is installed and deliberately inactive before deploy"
 
 wp2 duo deploy --repo=/siterepo
 wp2 plugin is-active paid-memberships-pro >/dev/null || fail "deploy did not activate the admitted PMPro artifact"
