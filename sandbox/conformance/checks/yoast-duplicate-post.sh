@@ -422,8 +422,12 @@ jq -e '.delete | any(.type == "post")' <<<"$DELETE_POST_PLAN" >/dev/null \
 DELETE_POST_RC=0
 DELETE_POST_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || DELETE_POST_RC=$?
 require_duo_answered "Yoast Duplicate Post entity deletion without authorization" human "$DELETE_POST_OUT"
-[ "$DELETE_POST_RC" -ne 0 ] && grep -qi 'with-deletes' <<<"$DELETE_POST_OUT" \
-  || fail "duplicated post deletion did not require --with-deletes: $DELETE_POST_OUT"
+[ "$DELETE_POST_RC" -eq 0 ] \
+  && grep -q 'planned deletions NOT applied (1)' <<<"$DELETE_POST_OUT" \
+  && grep -qi -- '--with-deletes' <<<"$DELETE_POST_OUT" \
+  || fail "duplicated post deletion no-op did not require --with-deletes: $DELETE_POST_OUT"
+wp_conf2 post get "$TARGET_COPY" >/dev/null 2>&1 \
+  || fail "unauthorized duplicated-post deletion no-op removed the target copy"
 wp_conf2 duo apply --repo=/siterepo --with-deletes --default-author=admin --format=json >/dev/null
 if wp_conf2 post get "$TARGET_COPY" >/dev/null 2>&1; then
   fail "authorized duplicated-post deletion left the target copy present"
