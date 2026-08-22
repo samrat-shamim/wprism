@@ -43,6 +43,10 @@ fixture_code() {
     corrupt-theme) printf '%s' 'duo_boundary_corrupt_theme();' ;;
     restore-theme) printf '%s' 'duo_boundary_restore_theme();' ;;
     update-source) printf '%s' 'duo_boundary_update_source();' ;;
+    block-schema) printf '%s' 'echo wp_json_encode(duo_boundary_core_block_schema());' ;;
+    legacy-id) printf '%s' 'duo_boundary_legacy_widget("id");' ;;
+    legacy-instance) printf '%s' 'duo_boundary_legacy_widget("instance");' ;;
+    remove-legacy) printf '%s' 'duo_boundary_remove_legacy_widget();' ;;
     *) fail "unknown core data-boundary fixture mode '$1'" ;;
   esac
 }
@@ -111,6 +115,7 @@ assert_observation() { # <json> <label>
     ([paths(scalars) as $p | getpath($p) | select(type == "boolean" and . == false)] | length) == 0 and
     .options.large_title_bytes > 10000 and
     .post.body_bytes > 30000 and .post.excerpt_bytes > 9000 and .post.meta_bytes > 25000 and
+    .blocks.bytes > 1000 and
     .term.description_bytes > 30000
   ' <<<"$observation" >/dev/null \
     || fail "$label: a native value, reference, URL binding, runtime boundary, or size premise failed: $observation"
@@ -155,11 +160,31 @@ for repo_dir in "$R1" "$R2"; do
 done
 wp1 site empty --yes >/dev/null
 wp2 site empty --yes >/dev/null
+BLOCK_SCHEMA=$(fixture1 block-schema | awk 'NF { line=$0 } END { print line }')
+jq -e '
+  .id_like == [
+    "core/audio.id", "core/avatar.userId", "core/block.ref", "core/cover.id",
+    "core/file.fileId", "core/file.id", "core/gallery.ids", "core/image.id",
+    "core/legacy-widget.id", "core/media-text.mediaId", "core/navigation-link.id",
+    "core/navigation-submenu.id", "core/navigation.ref", "core/page-list-item.id",
+    "core/page-list.parentPageID", "core/query.queryId", "core/video.id"
+  ] and
+  .url_like == [
+    "core/audio.src", "core/button.url", "core/cover.poster", "core/cover.url",
+    "core/embed.url", "core/file.href", "core/file.textLinkHref", "core/image.href",
+    "core/image.url", "core/media-text.href", "core/media-text.mediaUrl",
+    "core/navigation-link.url", "core/navigation-submenu.url", "core/page-list-item.link",
+    "core/rss.feedURL", "core/social-link.url", "core/video.poster", "core/video.src",
+    "core/video.tracks"
+  ]
+' <<<"$BLOCK_SCHEMA" >/dev/null \
+  || fail "WordPress $WORDPRESS_VERSION core block attribute inventory drifted: $BLOCK_SCHEMA"
+pass 'exact registered core block id and URL attribute inventory matches the reviewed manifest boundary'
 SOURCE_IDS=$(fixture1 seed-source | awk 'NF { line=$0 } END { print line }')
 TARGET_SEED=$(fixture2 seed-target | awk 'NF { line=$0 } END { print line }')
-jq -e '.attachment > 0 and .post > 0 and .term > 0 and .menu > 0 and .menu_item > 0 and .custom_css > 0' \
+jq -e '.attachment > 0 and .post > 0 and .page > 0 and .user > 0 and .term > 0 and .menu > 0 and .menu_item > 0 and .custom_css > 0' \
   <<<"$SOURCE_IDS" >/dev/null || fail "source boundary seed returned malformed identities: $SOURCE_IDS"
-jq -e '.hostile_front > 0' <<<"$TARGET_SEED" >/dev/null \
+jq -e '.hostile_front > 0 and .user > 0' <<<"$TARGET_SEED" >/dev/null \
   || fail "target boundary seed returned malformed identities: $TARGET_SEED"
 pass 'real WordPress APIs persisted every core entity family plus hostile target option/runtime state'
 
@@ -169,10 +194,12 @@ sync_state
 changed_apply 'initial difficult-value apply'
 TARGET_OBS=$(fixture2 observe | awk 'NF { line=$0 } END { print line }')
 assert_observation "$TARGET_OBS" 'initial target observation'
-for kind in post attachment term menu menu_item; do
+for kind in post page attachment term menu menu_item; do
   [ "$(jq -r --arg key "$kind" '.[$key]' <<<"$SOURCE_IDS")" != "$(jq -r --arg key "$kind" '.ids[$key]' <<<"$TARGET_OBS")" ] \
     || fail "$kind source/target ids did not deliberately diverge"
 done
+[ "$(jq -r '.user' <<<"$SOURCE_IDS")" != "$(jq -r '.ids.user' <<<"$TARGET_OBS")" ] \
+  || fail 'source/target user ids did not deliberately diverge'
 [ "$(wp2 option get page_on_front)" = 0 ] \
   && [ "$(wp2 option get page_for_posts)" = 0 ] \
   && [ "$(wp2 option get wp_page_for_privacy_policy)" = 0 ] \
@@ -204,6 +231,14 @@ say 'malformed serialized theme state refuses before publication'
 fixture1 corrupt-theme >/dev/null
 assert_capture_refusal 'malformed theme-mod serialization' 'trailing or noncanonical PHP-serialized data'
 fixture1 restore-theme >/dev/null
+
+say 'environment-bound legacy widget block forms refuse before publication'
+fixture1 legacy-id >/dev/null
+assert_capture_refusal 'stored legacy widget reference' "attribute 'id' is explicitly unsupported"
+fixture1 remove-legacy >/dev/null
+fixture1 legacy-instance >/dev/null
+assert_capture_refusal 'salted embedded legacy widget instance' "attribute 'idBase' is explicitly unsupported"
+fixture1 remove-legacy >/dev/null
 
 say 'source schema drift refuses before lossy SELECT-star projection'
 SCHEMA_BASE=$(tree_fingerprint "$R1/state")

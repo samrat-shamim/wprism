@@ -57,7 +57,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 - **Operations:** apply, capture, compile, delete, deploy, plan, promote, recapture, render-api
 - **Lifecycle phases:** verify
 - **Declared entities:** `tables` (2: commentmeta, comments), `widgets` (3: block, nav_menu, text)
-- **Declared fields:** `options` (26 keys), `option_patterns` (3 rules), `dynamic_options` (1: theme_mods), `post_meta` (27 keys), `term_meta` (1: _duo_uuid), `menu_fields` (1: locations), `block_attrs` (9 keys), `shortcode_attrs` (1: gallery)
+- **Declared fields:** `options` (26 keys), `option_patterns` (3 rules), `dynamic_options` (1: theme_mods), `post_meta` (27 keys), `term_meta` (1: _duo_uuid), `menu_fields` (1: locations), `block_attrs` (20 keys), `shortcode_attrs` (1: gallery)
 - **Adapter hooks:** 1 structured action
 - **Deletions supported:** `menu:nav_menu`, `post:attachment`, `post:page`, `post:post`, `term:category`, `term:post_tag`
 - **Deletions unsupported:** undeclared post types and taxonomies
@@ -66,6 +66,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 
 **Unsupported, explicitly.**
 
+- `block_attrs.core/legacy-widget` / `capture` — core/legacy-widget has two environment-bound forms that the generic block codec cannot yet preserve: id addresses a widget instance whose local number diverges, while instance.hash is derived from environment salts. The core data-boundary inventory keeps this limitation explicit until one codec resolves the widget ledger form and re-signs embedded instances with verified target behavior.
 - `multisite` / `all` — The v1 contract refuses WordPress multisite before policy load or mutation.
 - `unclassified.*` / `capture` — Unknown whole-entity and field surfaces remain loud pending items.
 

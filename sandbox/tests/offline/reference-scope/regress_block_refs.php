@@ -77,6 +77,7 @@ final class FakeWpdb {
     public $posts = 'wp_posts';
     public $terms = 'wp_terms';
     public $term_taxonomy = 'wp_term_taxonomy';
+    public $users = 'wp_users';
 
     /** @var array<string, array<int, string>> id_kind => [local_id => uuid] */
     public $identity = [];
@@ -84,6 +85,8 @@ final class FakeWpdb {
     public $postsById = [];
     /** @var array<int, array{name:string, taxonomy:string}> */
     public $termsById = [];
+    /** @var array<int, string> */
+    public $usersById = [];
 
     public function prepare($query, ...$args) {
         if (count($args) === 1 && is_array($args[0])) {
@@ -127,6 +130,14 @@ final class FakeWpdb {
         if (str_contains($sql, 'SELECT taxonomy FROM') && str_contains($sql, $this->term_taxonomy)) {
             $id = (int) $args[0];
             return $this->termsById[$id]['taxonomy'] ?? null;
+        }
+        if (str_contains($sql, 'SELECT user_login FROM') && str_contains($sql, $this->users)) {
+            return $this->usersById[(int) $args[0]] ?? null;
+        }
+        if (str_contains($sql, 'SELECT ID FROM') && str_contains($sql, $this->users)) {
+            $login = (string) $args[0];
+            $id = array_search($login, $this->usersById, true);
+            return $id === false ? null : $id;
         }
         throw new \RuntimeException("FakeWpdb::get_var: unrecognized query shape: $sql");
     }
@@ -202,11 +213,13 @@ use Duo\OptionState;
 
 const MAPPED_UUID = '01980000-0001-7000-8000-000000000001';
 const MAPPED_ID = 501;
+const MAPPED_USER_ID = 77;
 const UNMAPPED_ID = 999; // never in $wpdb->identity, never in $wpdb->postsById -> genuinely DANGLING
 const UNSCOPED_ID = 888; // never in $wpdb->identity, but a REAL row of an out-of-scope type -> UNSCOPED
 const UNMINTED_ID = 444; // never in $wpdb->identity, but a REAL row of an IN-scope type -> neither (false-positive guard)
 
 $wpdb->identity['post'] = [MAPPED_ID => MAPPED_UUID];
+$wpdb->usersById[MAPPED_USER_ID] = 'boundary-author';
 // A real, resolvable post for the UNREGISTERED-attr regression case (L4) —
 // deliberately DOES resolve, contrasting with UNMAPPED_ID (deliberately
 // does NOT resolve) so both branches of "fires regardless of whether the
@@ -228,8 +241,18 @@ $wpdb->postsById[UNMINTED_ID] = ['post_type' => 'page', 'post_title' => 'A Real 
 $policy = new Policy();
 $policy->manifests = [[
     'block_attrs' => [
-        'core/image'   => [['kind' => 'post', 'path' => 'id', 'type' => 'int']],
+        'core/image'   => [
+            ['kind' => 'post', 'path' => 'id', 'type' => 'int'],
+            ['path' => 'url', 'tokenize' => 'text'],
+        ],
+        'core/legacy-widget' => [[
+            'path' => 'id',
+            'unsupported' => 'widget ids are environment-local',
+        ]],
         'core/gallery' => [['kind' => 'post', 'path' => 'ids', 'type' => 'int[]']],
+        'core/video'   => [['path' => 'tracks', 'tokenize' => 'text']],
+        'core/avatar'  => [['kind' => 'user', 'path' => 'userId', 'type' => 'int']],
+        'core/page-list' => [['kind' => 'post', 'path' => 'parentPageID', 'type' => 'int']],
         'core/query'   => [['lint_ok' => true, 'path' => 'queryId']],
     ],
     'post_meta' => [
@@ -292,6 +315,99 @@ check(($b1blocks[0]['attrs']['id'] ?? null) === '{{post:' . MAPPED_UUID . '}}', 
 check(str_contains($b1out, 'wp-image-{{post:' . MAPPED_UUID . '}}'), 'B1: wp-image-N class ALSO rewritten (same ledger entry, independent mechanism)');
 check($tokens->warnings === [], 'B1: no warnings on a clean mapped capture (got: ' . json_encode($tokens->warnings) . ')');
 
+$b1url = parse_blocks(Blocks::capture_rewrite(
+    '<!-- wp:image {"url":"http://example.test/wp-content/uploads/cat.jpg"} /-->',
+    $policy,
+    $tokens
+));
+check(
+    ($b1url[0]['attrs']['url'] ?? null) === '{{uploads}}/cat.jpg',
+    'B1a: a declared scalar block URL is tokenized even though parsed attributes are outside innerHTML'
+);
+$b1tracks = parse_blocks(Blocks::capture_rewrite(
+    '<!-- wp:video {"tracks":[{"src":"http://example.test/wp-content/uploads/captions.vtt","label":"বাংলা"}]} /-->',
+    $policy,
+    $tokens
+));
+check(
+    ($b1tracks[0]['attrs']['tracks'] ?? null) === [[
+        'src' => '{{uploads}}/captions.vtt',
+        'label' => 'বাংলা',
+    ]],
+    'B1b: tokenize=text recursively rewrites URL leaves in core/video tracks without changing sibling text'
+);
+$b1tracksApply = parse_blocks(Blocks::apply_rewrite(serialize_blocks($b1tracks), $policy, $tokens));
+check(
+    ($b1tracksApply[0]['attrs']['tracks'][0]['src'] ?? null)
+        === 'http://example.test/wp-content/uploads/captions.vtt',
+    'B1c: recursive block attribute URL tokenization restores the target-bound value on apply'
+);
+$b1user = parse_blocks(Blocks::capture_rewrite(
+    '<!-- wp:avatar {"userId":' . MAPPED_USER_ID . '} /-->',
+    $policy,
+    $tokens
+));
+check(
+    ($b1user[0]['attrs']['userId'] ?? null) === 'user:boundary-author',
+    'B1d: a declared core/avatar user id captures as an environment-independent login token'
+);
+$b1userApply = parse_blocks(Blocks::apply_rewrite(serialize_blocks($b1user), $policy, $tokens));
+check(
+    ($b1userApply[0]['attrs']['userId'] ?? null) === MAPPED_USER_ID,
+    'B1e: an avatar login token resolves back through the target user table'
+);
+$tokens->warnings = [];
+$b1missingUser = parse_blocks(Blocks::capture_rewrite(
+    '<!-- wp:avatar {"userId":999} /-->',
+    $policy,
+    $tokens
+));
+check(
+    !array_key_exists('userId', $b1missingUser[0]['attrs'])
+        && $tokens->warnings === ['user id 999 not found (env-local user gone)'],
+    'B1e2: an absent avatar user drops with the user codec\'s one exact warning and no ledger-scope duplicate'
+);
+$tokens->warnings = [];
+$b1zero = parse_blocks(Blocks::capture_rewrite(
+    '<!-- wp:page-list {"parentPageID":0} /-->',
+    $policy,
+    $tokens
+));
+check(
+    !array_key_exists('parentPageID', $b1zero[0]['attrs']) && $tokens->warnings === [],
+    'B1f: a declared scalar block reference zero normalizes silently to the equivalent absent default'
+);
+$legacyRefused = null;
+try {
+    Blocks::capture_rewrite('<!-- wp:legacy-widget {"id":"text-2"} /-->', $policy, $tokens);
+} catch (RuntimeException $e) {
+    $legacyRefused = $e->getMessage();
+}
+check(
+    $legacyRefused === "duo: block 'core/legacy-widget' attribute 'id' is explicitly unsupported: "
+        . 'widget ids are environment-local',
+    'B1g: an explicit unsupported block attribute refuses during structural capture rather than leaking unchanged'
+);
+$legacyApplyRefused = null;
+try {
+    Blocks::apply_rewrite('<!-- wp:legacy-widget {"id":"text-2"} /-->', $policy, $tokens);
+} catch (RuntimeException $e) {
+    $legacyApplyRefused = $e->getMessage();
+}
+check(
+    $legacyApplyRefused === $legacyRefused,
+    'B1h: explicit unsupported state also refuses apply, so hand-edited canonical bytes cannot bypass capture'
+);
+$b1listZero = parse_blocks(Blocks::capture_rewrite(
+    '<!-- wp:gallery {"ids":[501,0]} /-->',
+    $policy,
+    $tokens
+));
+check(
+    ($b1listZero[0]['attrs']['ids'] ?? null) === ['{{post:' . MAPPED_UUID . '}}'] && $tokens->warnings === [],
+    'B1i: a zero inside a declared reference list drops silently while mapped siblings survive'
+);
+
 // B2 — unmapped scalar: must DROP the attribute key entirely (the fix),
 // not keep raw int 999 the way `?? (int) $v` used to.
 $b2in = '<!-- wp:image {"id":999} --><figure class="wp-block-image"></figure><!-- /wp:image -->';
@@ -334,6 +450,85 @@ check(str_contains($b4blocks[0]['innerHTML'], 'class=""'), 'B4: class attribute 
 $w = implode(' | ', $tokens->warnings);
 check(str_contains($w, 'wp-image-999') && str_contains($w, 'core/image'), "B4: a warning names the dropped wp-image-999 class and its block (got: $w)");
 check($tokens->unscopedBlockRefs === [], 'B4: id 999 is genuinely dangling (no row anywhere) -- neither drop queues an unscoped violation (got: ' . json_encode($tokens->unscopedBlockRefs) . ')');
+
+$coreManifest = json_decode(
+    (string) file_get_contents(__DIR__ . '/../../../../manifests/core.json'),
+    true,
+    512,
+    JSON_THROW_ON_ERROR
+);
+$coreRules = [];
+foreach ($coreManifest['block_attrs'] as $blockName => $rules) {
+    foreach ($rules as $rule) {
+        $coreRules[$blockName . '.' . $rule['path']] = $rule;
+    }
+}
+$expectedCoreRefs = [
+    'core/audio.id' => 'post',
+    'core/avatar.userId' => 'user',
+    'core/block.ref' => 'post',
+    'core/cover.id' => 'post',
+    'core/file.id' => 'post',
+    'core/gallery.ids' => 'post',
+    'core/image.id' => 'post',
+    'core/media-text.mediaId' => 'post',
+    'core/navigation.ref' => 'post',
+    'core/page-list-item.id' => 'post',
+    'core/page-list.parentPageID' => 'post',
+    'core/video.id' => 'post',
+];
+$coreRefActual = [];
+foreach ($expectedCoreRefs as $locator => $kind) {
+    $coreRefActual[$locator] = $coreRules[$locator]['kind'] ?? null;
+}
+check(
+    $coreRefActual === $expectedCoreRefs,
+    'B4a: shipped core media/page/user static id inventory has an exact portable ref rule (got: '
+        . json_encode($coreRefActual) . ')'
+);
+$expectedCoreUrls = [
+    'core/audio.src',
+    'core/button.url',
+    'core/cover.poster',
+    'core/cover.url',
+    'core/embed.url',
+    'core/file.href',
+    'core/file.textLinkHref',
+    'core/image.href',
+    'core/image.url',
+    'core/media-text.href',
+    'core/media-text.mediaUrl',
+    'core/navigation-link.url',
+    'core/navigation-submenu.url',
+    'core/page-list-item.link',
+    'core/rss.feedURL',
+    'core/social-link.url',
+    'core/video.poster',
+    'core/video.src',
+    'core/video.tracks',
+];
+$coreUrlActual = [];
+foreach ($expectedCoreUrls as $locator) {
+    if (($coreRules[$locator]['tokenize'] ?? null) === 'text') {
+        $coreUrlActual[] = $locator;
+    }
+}
+check(
+    $coreUrlActual === $expectedCoreUrls,
+    'B4b: shipped core registered URL/href/src/poster/tracks inventory routes through recursive text tokenization (got: '
+        . json_encode($coreUrlActual) . ')'
+);
+check(
+    ($coreRules['core/file.fileId']['lint_ok'] ?? null) === true
+        && isset($coreManifest['block_attrs']['core/legacy-widget'])
+        && array_column($coreManifest['block_attrs']['core/legacy-widget'], 'path') === ['id', 'idBase', 'instance']
+        && count(array_filter(
+            $coreManifest['block_attrs']['core/legacy-widget'],
+            static fn(array $rule): bool => is_string($rule['unsupported'] ?? null)
+                && $rule['unsupported'] !== ''
+        )) === 3,
+    'B4c: core/file.fileId is the reviewed DOM id while both legacy-widget forms carry explicit blocking dispositions'
+);
 
 // B7 — UNSCOPED scalar ref: id_to_token() fails the SAME way a dangling
 // ref does (attrs.id still drops, uniform treatment, matching task #73's

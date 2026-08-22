@@ -563,11 +563,13 @@ refuse_pair(
     'a structured-value ref kind is checked with the same vocabulary, and the refusal names its exact path'
 );
 load_pair(manifest_b(['options' => ['acme_b_user' => ['class' => 'authored', 'autoload' => 'yes', 'ref' => 'user']]]));
-check(true, "the classification vocabulary keeps 'user' (a login-serialized reference), which the token vocabulary deliberately does not — duo_map has no user keyspace");
+check(true, "the classification vocabulary keeps 'user' as a login-serialized reference even though duo_map has no user keyspace");
+load_pair(manifest_b(['block_attrs' => ['acme/b' => [['kind' => 'user', 'path' => 'id', 'type' => 'int']]]]));
+check(true, "block_attrs alone also accepts 'user' because Blocks owns the same id/login codec needed by core/avatar");
 refuse_pair(
-    manifest_b(['block_attrs' => ['acme/b' => [['kind' => 'user', 'path' => 'id', 'type' => 'int']]]]),
+    manifest_b(['shortcode_attrs' => ['acme_b' => [['kind' => 'user', 'path' => 'id']]]]),
     'token kind vocabulary is closed',
-    "'user' is refused as a block-attribute kind for that same reason — two vocabularies, because they answer different questions"
+    "shortcode_attrs still refuses 'user' because its rewriter has no user-login codec"
 );
 
 echo "\n== post-type switches: closed vocabularies with a named owner ==\n";
@@ -862,8 +864,30 @@ refuse_pair(
 );
 refuse_pair(
     manifest_b(['block_attrs' => ['acme/b' => [['path' => 'id', 'type' => 'int']]]]),
-    'declares none of kind, kind_from, tokenize, or lint_ok',
+    'declares none of kind, kind_from, tokenize, unsupported, or lint_ok',
     'a block attribute rule with no disposition is refused here instead of throwing mid-capture on whichever post carried the block first'
+);
+refuse_pair(
+    manifest_b(['block_attrs' => ['acme/b' => [['path' => 'id', 'unsupported' => '']]]]),
+    'unsupported must be a non-empty reviewed reason',
+    'an unsupported block boundary requires a bounded reviewer-facing reason'
+);
+refuse_pair(
+    manifest_b(['block_attrs' => ['acme/b' => [[
+        'path' => 'id',
+        'kind' => 'post',
+        'unsupported' => 'not yet portable',
+    ]]]]),
+    'must declare exactly one disposition',
+    'unsupported cannot accompany a rewrite disposition that would make the same value both accepted and refused'
+);
+refuse_pair(
+    manifest_b(['shortcode_attrs' => ['acme_b' => [[
+        'path' => 'id',
+        'unsupported' => 'not yet portable',
+    ]]]]),
+    'unsupported is supported only for block_attrs',
+    'unsupported is refused on shortcode rules until the byte-splicing shortcode engine implements that disposition'
 );
 refuse_pair(
     manifest_b(['block_attrs' => ['acme/b' => [['kind' => 'post', 'path' => 'ids', 'type' => 'array']]]]),

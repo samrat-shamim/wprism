@@ -32,9 +32,15 @@ $rules = [
         ['kind' => 'post', 'path' => 'id'],
         ['lint_ok' => true, 'path' => 'queryId'],
         ['tokenize' => 'text', 'path' => 'opaque'],
+        ['tokenize' => 'text', 'path' => 'tracks'],
     ],
     'core/gallery' => [
         ['cast' => 'csv', 'kind' => 'post', 'path' => 'ids'],
+    ],
+    'core/legacy-widget' => [
+        ['path' => 'id', 'unsupported' => 'widget ids are environment-local'],
+        ['path' => 'idBase', 'unsupported' => 'embedded widget ids are environment-local'],
+        ['path' => 'instance', 'unsupported' => 'embedded widget settings are environment-bound'],
     ],
 ];
 $match = ['kind' => 'post', 'id' => 7, 'title' => 'Known post', 'post_type' => 'post'];
@@ -48,6 +54,10 @@ $findings = BlockReferenceScanner::scan([
             'formID' => 8,
             'queryId' => 9,
             'opaque' => 10,
+            'tracks' => [[
+                'src' => $home . '/captions.vtt',
+                'label' => 'বাংলা',
+            ]],
             'source' => $longHome,
             'grid' => 11,
         ],
@@ -65,6 +75,19 @@ $findings = BlockReferenceScanner::scan([
         'attrs' => ['ref' => 13],
         'innerBlocks' => [],
     ],
+    [
+        'blockName' => 'core/legacy-widget',
+        'attrs' => ['id' => 'text-2'],
+        'innerBlocks' => [],
+    ],
+    [
+        'blockName' => 'core/legacy-widget',
+        'attrs' => [
+            'idBase' => 'text',
+            'instance' => ['encoded' => 'opaque', 'hash' => 'environment-bound'],
+        ],
+        'innerBlocks' => [],
+    ],
 ], $rules, 'posts/post/example.md', $home, $resolve);
 
 check(
@@ -76,12 +99,16 @@ check(
     ], $findings) === [
         ['unrewritten_registered_ref', 'blocks.core/image.attrs.id', 7, 7],
         ['unregistered_block_attr', 'blocks.core/image.attrs.formID', 8, null],
+        ['unrewritten_registered_text', 'blocks.core/image.attrs.tracks[0][src]', $home . '/captions.vtt', null],
         ['unregistered_block_attr', 'blocks.core/image.attrs.source', substr($longHome, 0, 200) . '…(truncated)', null],
         ['unrewritten_registered_ref', 'blocks.core/gallery.attrs.ids[1]', 12, null],
         ['unregistered_block_attr', 'blocks.core/gallery.attrs.href', $home . '/inside', null],
         ['unregistered_block_attr', 'blocks.acme/widget.attrs.ref', 13, null],
+        ['unsupported_block_attr', 'blocks.core/legacy-widget.attrs.id', 'text-2', null],
+        ['unsupported_block_attr', 'blocks.core/legacy-widget.attrs.idBase', 'text', null],
+        ['unsupported_block_attr', 'blocks.core/legacy-widget.attrs.instance', '<structured-array>', null],
     ],
-    'scanner preserves declared/unregistered gates, resolver shape, attr and inner-block order, csv locators, home leak truncation, lint_ok/tokenize exemptions, and safe id-key heuristic'
+    'scanner preserves declared/unregistered gates, resolver shape, attr and inner-block order, csv/nested locators, URL leak truncation, unsupported structured values, lint_ok exemptions, and safe id-key heuristic'
 );
 
 $lintSource = (string) file_get_contents(__DIR__ . '/../../../../agent/src/Review/Lint.php');

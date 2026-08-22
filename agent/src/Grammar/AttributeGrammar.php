@@ -31,12 +31,13 @@ final class AttributeGrammar {
      * defaults to 'int', so 'array' or 'int[] ' quietly truncated a gallery's
      * id list to one dropped attribute.
      *
-     * Every rule must carry exactly one disposition, because the four are
+     * Every rule must carry exactly one disposition, because these are
      * mutually exclusive dispatch branches in Blocks.php, not composable
      * flags: `lint_ok` (declared non-ref, nothing to rewrite),
-     * `tokenize: "text"` (a URL-bearing string attribute), `kind` (a static
-     * ref kind), or `kind_from` (a ref kind dispatched from a sibling
-     * attribute's value). A rule with none of them reaches
+     * `tokenize: "text"` (the URL-bearing string leaves of an attribute),
+     * `unsupported` (a reviewed blocking boundary), `kind` (a static ref
+     * kind), or `kind_from` (a ref kind dispatched from a sibling attribute's
+     * value). A rule with none of them reaches
      * Blocks::resolve_kind()'s own throw at REWRITE time, mid-capture, on
      * whichever post happened to contain that block first.
      */
@@ -89,7 +90,7 @@ final class AttributeGrammar {
 
     /** The closed `block_attrs`/`shortcode_attrs` `type` vocabulary. */
     private const ATTR_VALUE_TYPES = ['int', 'int[]'];
-    /** The closed attribute `tokenize` codec vocabulary (the home/uploads URL pass). */
+    /** The closed attribute `tokenize` codec vocabulary (recursive home/uploads URL pass). */
     private const ATTR_TOKENIZE_CODECS = ['text'];
 
     /** One `block_attrs`/`shortcode_attrs` entry. @see validate_attr_rules() */
@@ -188,6 +189,16 @@ final class AttributeGrammar {
                 . ' but the only supported codec for an attribute is "text" (the ordinary home/uploads URL pass)'
             );
         }
+        if (array_key_exists('unsupported', $rule)
+            && (!is_string($rule['unsupported']) || trim($rule['unsupported']) === ''
+                || strlen($rule['unsupported']) > 512)) {
+            throw new \RuntimeException(
+                "duo: $where.unsupported must be a non-empty reviewed reason of at most 512 bytes"
+            );
+        }
+        if ($section !== 'block_attrs' && array_key_exists('unsupported', $rule)) {
+            throw new \RuntimeException("duo: $where.unsupported is supported only for block_attrs");
+        }
         if (array_key_exists('kind_from', $rule)) {
             $from = $rule['kind_from'];
             if (!is_array($from) || !is_string($from['attr'] ?? null) || ($from['attr'] ?? '') === ''
@@ -207,15 +218,21 @@ final class AttributeGrammar {
         $dispositions = array_filter([
             'lint_ok' => !empty($rule['lint_ok']),
             'tokenize' => array_key_exists('tokenize', $rule),
+            'unsupported' => array_key_exists('unsupported', $rule),
             'kind' => array_key_exists('kind', $rule),
             'kind_from' => array_key_exists('kind_from', $rule),
         ]);
         if ($dispositions === []) {
             throw new \RuntimeException(
-                "duo: $where declares none of kind, kind_from, tokenize, or lint_ok — every "
+                "duo: $where declares none of kind, kind_from, tokenize, unsupported, or lint_ok — every "
                 . ($section === 'block_attrs' ? 'block' : 'shortcode') . ' attribute rule must say what the '
                 . 'engine should do with the value it names; a rule with no disposition is refused here rather '
                 . 'than reaching its throw mid-capture, on whichever entity happened to carry it first'
+            );
+        }
+        if (count($dispositions) !== 1) {
+            throw new \RuntimeException(
+                "duo: $where must declare exactly one disposition (kind, kind_from, tokenize, unsupported, or lint_ok)"
             );
         }
     }

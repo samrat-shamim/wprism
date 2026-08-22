@@ -1,10 +1,40 @@
 {
   "block_attrs": {
+    "core/audio": [
+      {"kind": "post", "path": "id", "type": "int"},
+      {"path": "src", "tokenize": "text"}
+    ],
+    "core/avatar": [{"kind": "user", "path": "userId", "type": "int"}],
     "core/block": [{"kind": "post", "path": "ref", "type": "int"}],
-    "core/cover": [{"kind": "post", "path": "id", "type": "int"}],
+    "core/button": [{"path": "url", "tokenize": "text"}],
+    "core/cover": [
+      {"kind": "post", "path": "id", "type": "int"},
+      {"path": "poster", "tokenize": "text"},
+      {"path": "url", "tokenize": "text"}
+    ],
+    "core/embed": [{"path": "url", "tokenize": "text"}],
+    "core/file": [
+      {"path": "fileId", "lint_ok": true},
+      {"path": "href", "tokenize": "text"},
+      {"kind": "post", "path": "id", "type": "int"},
+      {"path": "textLinkHref", "tokenize": "text"}
+    ],
     "core/gallery": [{"kind": "post", "path": "ids", "type": "int[]"}],
-    "core/image": [{"kind": "post", "path": "id", "type": "int"}],
-    "core/media-text": [{"kind": "post", "path": "mediaId", "type": "int"}],
+    "core/image": [
+      {"path": "href", "tokenize": "text"},
+      {"kind": "post", "path": "id", "type": "int"},
+      {"path": "url", "tokenize": "text"}
+    ],
+    "core/legacy-widget": [
+      {"path": "id", "unsupported": "stored widget ids contain target-local instance numbers and require a widget-ledger block codec"},
+      {"path": "idBase", "unsupported": "embedded legacy widget instances carry an environment-salted hash and require verified decode, portable settings rewrite, and target re-signing"},
+      {"path": "instance", "unsupported": "embedded legacy widget instances carry an environment-salted hash and require verified decode, portable settings rewrite, and target re-signing"}
+    ],
+    "core/media-text": [
+      {"path": "href", "tokenize": "text"},
+      {"kind": "post", "path": "mediaId", "type": "int"},
+      {"path": "mediaUrl", "tokenize": "text"}
+    ],
     "core/navigation": [{"kind": "post", "path": "ref", "type": "int"}],
     "core/navigation-link": [
       {
@@ -22,6 +52,19 @@
         "type": "int"
       },
       {"path": "url", "tokenize": "text"}
+    ],
+    "core/page-list": [{"kind": "post", "path": "parentPageID", "type": "int"}],
+    "core/page-list-item": [
+      {"kind": "post", "path": "id", "type": "int"},
+      {"path": "link", "tokenize": "text"}
+    ],
+    "core/rss": [{"path": "feedURL", "tokenize": "text"}],
+    "core/social-link": [{"path": "url", "tokenize": "text"}],
+    "core/video": [
+      {"kind": "post", "path": "id", "type": "int"},
+      {"path": "poster", "tokenize": "text"},
+      {"path": "src", "tokenize": "text"},
+      {"path": "tracks", "tokenize": "text"}
     ]
   },
   "shortcode_attrs": {
@@ -99,6 +142,7 @@
     }
   ],
   "notes": [
+    "core block attribute portability (core data-boundary exact-image audit): WordPress 7.0.3's registered core block schemas were enumerated from WP_Block_Type_Registry rather than inferred from attribute names. The declared media ids (audio, cover, file, image, media-text, video), page-list ids, reusable/navigation ids, and avatar userId now cross environments through the post ledger or an exact user:<login> token; scalar/list zero is WordPress's unset convention and normalizes to absence without a dangling warning. Every registered core URL/href/src/poster field, page-list-item.link, and every string leaf of video.tracks routes through tokenize:text, because parse_blocks() exposes comment JSON separately from innerHTML and the generic body tokenizer cannot see those bytes. core/file.fileId is explicitly lint_ok: its registered schema sources the DOM element id attribute and WordPress never resolves it as an entity id. sandbox/tests/live/regress_core_data_boundary.sh binds the inventory and round-trip to the exact WordPress image and exercises divergent post, attachment, page, and user ids. core/legacy-widget is deliberately not papered over: its id points into the widget-instance ledger and its alternate instance.hash is salted per environment; all three attributes carry explicit unsupported dispositions, so either real form refuses before publication until a generic codec can rebind the ledger form and re-sign embedded settings with verified target behavior.",
     "DUO-3509 fresh-process correction (live core conformance, exact candidate 7aeb89cea74dd77c7b8f9cecdd7720c43484b004): the permalink note below describes the first offline-green implementation when it says the loaded runtime is reinitialized; that sentence is superseded by this evidence. A real dirty target proved WP_Rewrite::init() late in apply retained category/tag permastructs registered under the old front while clearing other registration buckets; its immediate receipt and post routes looked green but a fresh process generated different ordered rules. NativeActions now launches one fixed engine-owned `wp eval` child (no manifest-controlled command or argument) which boots WordPress after the authored row commits, performs `flush_rules(false)`, compares its generated rules with a checked raw database read, and returns only a closed hash/count/type envelope. The parent validates that envelope and independently re-reads the durable row; arbitrary child stderr is never reflected, and any warning is a refusal. This is the same necessary process boundary as post-apply canonical verification: replaying `init` hooks would duplicate arbitrary plugin side effects, while hand-reconstructing post-type/taxonomy/plugin registrations would silently guess at extension semantics. An absent permalink row still stays absent because the child writes only rewrite_rules. The live gate additionally compares the stored array with a non-writing fresh-process generation, including category/tag front changes, public HTTP routing, a filtered write veto, exact retry, and zero-change idempotence.",
     "options.active_plugins/template/stylesheet (task #39, docs/code-half.md §3.1): the cross-partition invariant DESIGN.md §3.4 names (active_plugins ⊆ plugins in code/) needs these captured, but applying them via direct SQL is actively wrong — activate_plugin()/switch_theme() do real one-time setup in register_activation_hook/switch_theme/after_switch_theme that a raw UPDATE wp_options would skip while leaving WordPress believing the plugin/theme is active. Classified managed (the same class _menu_item_* and _wp_attached_file already use for 'authored-domain fact, bespoke capture/apply handling'): Capture::build_options() reads them with bespoke code alongside (not through) the authored-options whitelist loop; Apply::apply_options() excludes them from the generic direct-SQL upsert loop; only agent/src/Promotion/Deploy.php's `wp duo deploy` reconciles them, via real WP APIs, deliberately outside Canary::arm()/disarm() — activation hooks must fire there, and apply's canary requires the opposite. Values are plain portable strings (plugin file paths, theme directory slugs) — no ref-tokenization, since that stability across environments IS the invariant.",
     "post_meta.wp_pattern_sync_status (task #31): Site-Editor-only flag on wp_block posts, verified empirically on a running install (e1, WP core 7.0.2, wp-includes/post.php's wp_create_initial_post_meta() — no plugin involved, registered unconditionally regardless of active theme). register_post_meta('wp_block', 'wp_pattern_sync_status', ['type'=>'string','single'=>true,'sanitize_callback'=>'sanitize_text_field','show_in_rest'=>['schema'=>['type'=>'string','enum'=>['partial','unsynced']]]]). Confirmed by direct DB read: a fresh wp_block post carries ZERO postmeta rows at all — the default 'fully synced' pattern state is the KEY'S ABSENCE, not a value like 'full'/'synced' (there is no such value in the enum). Once set, the value is a plain, non-serialized scalar string ('unsynced' or 'partial') sitting directly in wp_postmeta.meta_value — confirmed both via direct meta (`wp post meta update`) and via the REST route (WP_REST_Blocks_Controller::filter_response_by_context() promotes meta.wp_pattern_sync_status to a top-level response property and strips it from the meta sub-object on READ, but WRITES still go through the ordinary meta sub-object — verified empirically with an authenticated rest_do_request() POST carrying {\"meta\":{\"wp_pattern_sync_status\":\"partial\"}}, which persisted to the same postmeta row read back via get_post_meta()). Classified authored, plain (no ref — it's a flag, not an id) — the existing generic no-ref post_meta path (tokenize_text() on a scalar string, a no-op here since 'unsynced'/'partial' contain no env-bound substring) already round-trips it correctly with zero new engine code, exactly like _wp_page_template.",

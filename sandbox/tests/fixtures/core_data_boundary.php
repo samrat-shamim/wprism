@@ -65,6 +65,83 @@ function duo_boundary_body(int $attachmentId, string $attachmentUrl, bool $inclu
         . duo_boundary_pattern('CORE-BODY', 420);
 }
 
+function duo_boundary_block_catalog(
+    int $attachmentId,
+    string $attachmentUrl,
+    int $pageId,
+    int $userId
+): string {
+    $pageUrl = (string) get_permalink($pageId);
+    $home = home_url('/block-boundary');
+    $block = static fn(string $name, array $attrs): array => [
+        'blockName' => $name,
+        'attrs' => $attrs,
+        'innerBlocks' => [],
+        'innerHTML' => '',
+        'innerContent' => [],
+    ];
+    return serialize_blocks([
+        $block('core/audio', ['id' => $attachmentId, 'src' => $attachmentUrl]),
+        $block('core/avatar', ['userId' => $userId, 'size' => 48]),
+        $block('core/button', ['url' => $home . '/button?asset=' . rawurlencode($attachmentUrl)]),
+        $block('core/cover', ['id' => $attachmentId, 'url' => $attachmentUrl, 'poster' => $attachmentUrl]),
+        $block('core/embed', ['url' => $home . '/embed']),
+        $block('core/file', [
+            'id' => $attachmentId,
+            'href' => $attachmentUrl,
+            'fileId' => 'wp-block-file--media-boundary-42',
+            'textLinkHref' => $attachmentUrl,
+        ]),
+        $block('core/gallery', ['ids' => [$attachmentId]]),
+        $block('core/image', ['id' => $attachmentId, 'url' => $attachmentUrl, 'href' => $pageUrl]),
+        $block('core/media-text', ['mediaId' => $attachmentId, 'mediaUrl' => $attachmentUrl, 'href' => $pageUrl]),
+        $block('core/page-list', ['parentPageID' => $pageId]),
+        $block('core/page-list-item', ['id' => $pageId, 'link' => $pageUrl, 'label' => 'Boundary page']),
+        $block('core/rss', ['feedURL' => home_url('/feed/')]),
+        $block('core/social-link', ['service' => 'wordpress', 'url' => $home . '/social']),
+        $block('core/video', [
+            'id' => $attachmentId,
+            'poster' => $attachmentUrl,
+            'src' => $attachmentUrl,
+            'tracks' => [[
+                'src' => wp_upload_dir()['baseurl'] . '/boundary-captions.vtt',
+                'kind' => 'subtitles',
+                'srcLang' => 'bn',
+                'label' => 'বাংলা|captions',
+            ]],
+        ]),
+    ]);
+}
+
+/** @return array{id_like:list<string>,url_like:list<string>} */
+function duo_boundary_core_block_schema(): array {
+    $idLike = [];
+    $urlLike = [];
+    foreach (WP_Block_Type_Registry::get_instance()->get_all_registered() as $name => $type) {
+        if (!str_starts_with((string) $name, 'core/')) {
+            continue;
+        }
+        foreach ((array) $type->attributes as $key => $schema) {
+            $key = (string) $key;
+            if (in_array($key, ['id', 'ids', 'ref'], true) || preg_match('/(Id|ID)s?$/', $key)) {
+                $idLike[] = "$name.$key";
+            }
+            $attribute = strtolower((string) ($schema['attribute'] ?? ''));
+            $lower = strtolower($key);
+            if (in_array($attribute, ['href', 'src', 'poster'], true)
+                || str_contains($lower, 'url') || str_contains($lower, 'href')
+                || str_contains($lower, 'src') || str_contains($lower, 'poster')
+                || ($name === 'core/page-list-item' && $key === 'link')
+                || ($name === 'core/video' && $key === 'tracks')) {
+                $urlLike[] = "$name.$key";
+            }
+        }
+    }
+    sort($idLike, SORT_STRING);
+    sort($urlLike, SORT_STRING);
+    return ['id_like' => $idLike, 'url_like' => $urlLike];
+}
+
 /** @return array<string,mixed> */
 function duo_boundary_ids(): array {
     $ids = get_option('duo_boundary_ids', []);
@@ -191,6 +268,11 @@ function duo_boundary_widgets(int $menuId, int $attachmentId, string $attachment
 }
 
 function duo_boundary_seed_source(): void {
+    $userId = wp_create_user('boundary-author', 'duo-boundary-password', 'boundary-author@example.invalid');
+    if (is_wp_error($userId) || (int) $userId <= 0) {
+        throw new RuntimeException('core boundary source user creation failed');
+    }
+    $userId = (int) $userId;
     $attachmentId = duo_boundary_attachment();
     $attachmentUrl = (string) wp_get_attachment_url($attachmentId);
     $defaultCategory = (int) get_option('default_category');
@@ -204,6 +286,25 @@ function duo_boundary_seed_source(): void {
     }
     $termId = (int) $term['term_id'];
 
+    $pageId = wp_insert_post([
+        'post_type' => 'page',
+        'post_status' => 'draft',
+        'post_name' => 'core-block-boundary',
+        'post_title' => 'Core block attribute boundary',
+        'post_author' => $userId,
+    ], true);
+    if (is_wp_error($pageId) || (int) $pageId <= 0) {
+        throw new RuntimeException('core boundary block catalog page creation failed');
+    }
+    $pageId = (int) $pageId;
+    $updatedPage = wp_update_post([
+        'ID' => $pageId,
+        'post_content' => duo_boundary_block_catalog($attachmentId, $attachmentUrl, $pageId, $userId),
+    ], true);
+    if (is_wp_error($updatedPage)) {
+        throw new RuntimeException('core boundary block catalog page update failed');
+    }
+
     $postId = wp_insert_post([
         'post_type' => 'post',
         'post_status' => 'publish',
@@ -213,6 +314,7 @@ function duo_boundary_seed_source(): void {
         'post_excerpt' => duo_boundary_excerpt(),
         'comment_status' => 'closed',
         'ping_status' => 'closed',
+        'post_author' => $userId,
     ], true);
     if (is_wp_error($postId) || (int) $postId <= 0) {
         throw new RuntimeException('core boundary post creation failed');
@@ -259,11 +361,21 @@ function duo_boundary_seed_source(): void {
         'menu' => $menu['menu'],
         'menu_item' => $menu['item'],
         'custom_css' => (int) $css->ID,
+        'page' => $pageId,
+        'user' => $userId,
     ], false);
     echo wp_json_encode(duo_boundary_ids());
 }
 
 function duo_boundary_seed_target(): void {
+    $fillerUser = wp_create_user('boundary-filler', 'duo-boundary-password', 'boundary-filler@example.invalid');
+    if (is_wp_error($fillerUser) || (int) $fillerUser <= 0) {
+        throw new RuntimeException('core boundary target filler user creation failed');
+    }
+    $userId = wp_create_user('boundary-author', 'duo-boundary-password', 'boundary-author@example.invalid');
+    if (is_wp_error($userId) || (int) $userId <= 0) {
+        throw new RuntimeException('core boundary target user creation failed');
+    }
     for ($i = 0; $i < 6; $i++) {
         $id = wp_insert_post([
             'post_type' => 'post',
@@ -287,7 +399,10 @@ function duo_boundary_seed_target(): void {
     update_option('wp_page_for_privacy_policy', (string) $frontId, true);
     update_option('sticky_posts', [(int) $frontId], true);
     update_option('_wp_session_core_boundary_target', 'target-runtime-survives', false);
-    update_option('duo_boundary_ids', ['hostile_front' => (int) $frontId], false);
+    update_option('duo_boundary_ids', [
+        'hostile_front' => (int) $frontId,
+        'user' => (int) $userId,
+    ], false);
     global $wpdb;
     $name = 'theme_mods_' . get_option('stylesheet');
     $runtimeWire = serialize([
@@ -316,9 +431,12 @@ function duo_boundary_seed_target(): void {
 /** @return array<string,mixed> */
 function duo_boundary_observe(bool $updated): array {
     $post = get_page_by_path('core-boundary', OBJECT, 'post');
+    $page = get_page_by_path('core-block-boundary', OBJECT, 'page');
     $term = get_term_by('slug', 'core-boundary-category', 'category');
     $menu = wp_get_nav_menu_object('Core Boundary Menu');
-    if (!$post instanceof WP_Post || !$term instanceof WP_Term || !$menu instanceof WP_Term) {
+    $user = get_user_by('login', 'boundary-author');
+    if (!$post instanceof WP_Post || !$page instanceof WP_Post || !$term instanceof WP_Term
+        || !$menu instanceof WP_Term || !$user instanceof WP_User) {
         throw new RuntimeException('core boundary observation cannot find the applied core entities');
     }
     $attachmentId = (int) get_post_meta($post->ID, '_thumbnail_id', true);
@@ -351,6 +469,8 @@ function duo_boundary_observe(bool $updated): array {
             'term' => (int) $term->term_id,
             'menu' => (int) $menu->term_id,
             'menu_item' => (int) $item->ID,
+            'page' => (int) $page->ID,
+            'user' => (int) $user->ID,
         ],
         'options' => [
             'blogname' => get_option('blogname') === duo_boundary_pattern('CORE-OPTION-TITLE', 160),
@@ -371,9 +491,16 @@ function duo_boundary_observe(bool $updated): array {
             'origin' => get_post_meta($post->ID, 'origin', true) === duo_boundary_origin(),
             'template' => get_post_meta($post->ID, '_wp_page_template', true) === 'templates/界|quoted".php',
             'thumbnail' => $attachmentId > 0,
+            'author' => (int) $post->post_author === (int) $user->ID,
             'body_bytes' => strlen($post->post_content),
             'excerpt_bytes' => strlen($post->post_excerpt),
             'meta_bytes' => strlen((string) get_post_meta($post->ID, 'origin', true)),
+        ],
+        'blocks' => [
+            'catalog' => $page->post_content
+                === duo_boundary_block_catalog($attachmentId, $attachmentUrl, (int) $page->ID, (int) $user->ID),
+            'author' => (int) $page->post_author === (int) $user->ID,
+            'bytes' => strlen($page->post_content),
         ],
         'term' => [
             'name' => $term->name === duo_boundary_term_name(),
@@ -450,6 +577,52 @@ function duo_boundary_restore_theme(): void {
         false,
         (int) $ids['custom_css']
     );
+}
+
+function duo_boundary_legacy_widget(string $form): void {
+    if ($form === 'id') {
+        $attrs = ['id' => 'text-2'];
+    } elseif ($form === 'instance') {
+        $serialized = serialize([
+            'title' => 'Embedded legacy boundary',
+            'text' => home_url('/legacy-widget'),
+            'filter' => false,
+            'visual' => true,
+        ]);
+        $attrs = [
+            'idBase' => 'text',
+            'instance' => [
+                'encoded' => base64_encode($serialized),
+                'hash' => wp_hash($serialized),
+            ],
+        ];
+    } else {
+        throw new RuntimeException("unknown legacy widget form '$form'");
+    }
+    $content = serialize_blocks([[
+        'blockName' => 'core/legacy-widget',
+        'attrs' => $attrs,
+        'innerBlocks' => [],
+        'innerHTML' => '',
+        'innerContent' => [],
+    ]]);
+    $id = wp_insert_post([
+        'post_type' => 'page',
+        'post_status' => 'draft',
+        'post_name' => 'core-legacy-widget-boundary',
+        'post_title' => 'Core legacy widget boundary',
+        'post_content' => $content,
+    ], true);
+    if (is_wp_error($id) || (int) $id <= 0) {
+        throw new RuntimeException('core legacy widget boundary post creation failed');
+    }
+}
+
+function duo_boundary_remove_legacy_widget(): void {
+    $post = get_page_by_path('core-legacy-widget-boundary', OBJECT, 'page');
+    if ($post instanceof WP_Post) {
+        wp_delete_post((int) $post->ID, true);
+    }
 }
 
 function duo_boundary_update_source(): void {

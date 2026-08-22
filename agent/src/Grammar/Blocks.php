@@ -21,12 +21,14 @@ require_once __DIR__ . '/../Kernel/ReferenceScopeClassifier.php';
  *   or term ref depending on its own "kind" attribute ("post-type"/"taxonomy"/
  *   "custom"/"post-type-archive"); dispatch resolving to no kind (no map hit,
  *   no default) leaves that attribute untouched rather than guessing.
- * - a string tokenizer: {"path": ..., "tokenize": "text"} — routes a plain
- *   string attribute value through the same {{home}}/{{uploads}} substitution
- *   as body text. Attribute values are otherwise invisible to the innerHTML/
- *   innerContent pass below (self-closing blocks like core/navigation-link
- *   carry no inner content at all), so this is the only way a URL-shaped
- *   attribute gets rebound across environments.
+ * - a text tokenizer: {"path": ..., "tokenize": "text"} — routes every
+ *   string leaf of the attribute value through the same {{home}}/{{uploads}}
+ *   substitution as body text. The recursive shape covers core/video's
+ *   tracks array; scalar URL attributes remain the common case. Attribute
+ *   values are otherwise invisible to the innerHTML/innerContent pass below
+ *   (self-closing blocks like core/navigation-link carry no inner content at
+ *   all), so this is the only way a URL-shaped attribute gets rebound across
+ *   environments.
  *
  * A "kind"/"kind_from" ref's id_to_token() failing is either DANGLING (no
  * ledger row for that id at all — deleted target, or never existed) or
@@ -113,10 +115,14 @@ final class Blocks {
                 continue;
             }
 
+            if (array_key_exists('unsupported', $rule)) {
+                throw new \RuntimeException(
+                    "duo: block '$name' attribute '$path' is explicitly unsupported: " . $rule['unsupported']
+                );
+            }
+
             if (($rule['tokenize'] ?? null) === 'text') {
-                if (is_string($v)) {
-                    $block['attrs'][$path] = $capture ? $tokens->tokenize_text($v) : $tokens->detokenize_text($v);
-                }
+                $block['attrs'][$path] = self::rewrite_text_value($v, $tokens, $capture);
                 continue;
             }
 
@@ -144,28 +150,47 @@ final class Blocks {
                 if ($isArray) {
                     $kept = [];
                     foreach ((array) $v as $i => $id) {
-                        $tok = $tokens->id_to_token((int) $id, $kind);
+                        if ((int) $id === 0) {
+                            continue; // declared unset convention, never a dangling id
+                        }
+                        $tok = $kind === 'user'
+                            ? $tokens->user_id_to_token((int) $id)
+                            : $tokens->id_to_token((int) $id, $kind);
                         if ($tok === null) {
-                            $tokens->warnings[] = "block '$name' attribute '$path" . "[$i]': unmapped $kind id "
-                                . (int) $id . ' dropped (dangling reference)';
-                            self::queue_unscoped(
-                                $tokens, $policy, $forceUnresolvedRefs, $postLabel,
-                                $name, "$path" . "[$i]", $kind, (int) $id
-                            );
+                            // user_id_to_token() owns its env-local warning;
+                            // users never participate in duo_map scope triage.
+                            if ($kind !== 'user') {
+                                $tokens->warnings[] = "block '$name' attribute '$path" . "[$i]': unmapped $kind id "
+                                    . (int) $id . ' dropped (dangling reference)';
+                                self::queue_unscoped(
+                                    $tokens, $policy, $forceUnresolvedRefs, $postLabel,
+                                    $name, "$path" . "[$i]", $kind, (int) $id
+                                );
+                            }
                             continue;
                         }
                         $kept[] = $tok;
                     }
                     $block['attrs'][$path] = $kept;
                 } else {
-                    $tok = $tokens->id_to_token((int) $v, $kind);
+                    if ((int) $v === 0) {
+                        unset($block['attrs'][$path]); // absence restores WordPress's scalar default
+                        continue;
+                    }
+                    $tok = $kind === 'user'
+                        ? $tokens->user_id_to_token((int) $v)
+                        : $tokens->id_to_token((int) $v, $kind);
                     if ($tok === null) {
-                        $tokens->warnings[] = "block '$name' attribute '$path': unmapped $kind id " . (int) $v
-                            . ' dropped (dangling reference)';
-                        self::queue_unscoped(
-                            $tokens, $policy, $forceUnresolvedRefs, $postLabel,
-                            $name, $path, $kind, (int) $v
-                        );
+                        // user_id_to_token() owns its env-local warning;
+                        // users never participate in duo_map scope triage.
+                        if ($kind !== 'user') {
+                            $tokens->warnings[] = "block '$name' attribute '$path': unmapped $kind id " . (int) $v
+                                . ' dropped (dangling reference)';
+                            self::queue_unscoped(
+                                $tokens, $policy, $forceUnresolvedRefs, $postLabel,
+                                $name, $path, $kind, (int) $v
+                            );
+                        }
                         unset($block['attrs'][$path]);
                     } else {
                         $block['attrs'][$path] = $tok;
@@ -174,13 +199,17 @@ final class Blocks {
             } else {
                 if ($isArray) {
                     $block['attrs'][$path] = array_map(
-                        fn($t) => is_string($t) && str_starts_with($t, '{{') ? $tokens->token_to_id($t) : (int) $t,
+                        fn($t) => $kind === 'user' && is_string($t) && str_starts_with($t, 'user:')
+                            ? $tokens->user_token_to_id($t)
+                            : (is_string($t) && str_starts_with($t, '{{')
+                                ? $tokens->token_to_id($t)
+                                : (int) $t),
                         (array) $v
                     );
                 } else {
-                    $block['attrs'][$path] = is_string($v) && str_starts_with($v, '{{')
-                        ? $tokens->token_to_id($v)
-                        : (int) $v;
+                    $block['attrs'][$path] = $kind === 'user' && is_string($v) && str_starts_with($v, 'user:')
+                        ? $tokens->user_token_to_id($v)
+                        : (is_string($v) && str_starts_with($v, '{{') ? $tokens->token_to_id($v) : (int) $v);
                 }
             }
         }
@@ -290,6 +319,18 @@ final class Blocks {
             );
         }
         return $block;
+    }
+
+    private static function rewrite_text_value($value, Tokens $tokens, bool $capture) {
+        if (is_string($value)) {
+            return $capture ? $tokens->tokenize_text($value) : $tokens->detokenize_text($value);
+        }
+        if (is_array($value)) {
+            foreach ($value as $key => $item) {
+                $value[$key] = self::rewrite_text_value($item, $tokens, $capture);
+            }
+        }
+        return $value;
     }
 
     /**

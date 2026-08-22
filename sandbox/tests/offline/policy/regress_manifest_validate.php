@@ -1381,17 +1381,17 @@ refuses(
     'an attribute value type outside the published set is refused with the published set printed back'
 );
 
-// --- attribute_tokenize_codecs: the one codec an id-bearing attribute value
-// may declare for the ordinary home/uploads URL pass.
+// --- attribute_tokenize_codecs: the one codec a block/shortcode attribute
+// may declare for the recursive home/uploads URL pass.
 $covered['attribute_tokenize_codecs'] = true;
 foreach ($vocabularies['attribute_tokenize_codecs'] as $codec) {
     accepts(
-        solo_b(['block_attrs' => ['acme/b' => [['kind' => 'post', 'path' => 'id', 'type' => 'int', 'tokenize' => $codec]]]]),
+        solo_b(['block_attrs' => ['acme/b' => [['path' => 'url', 'tokenize' => $codec]]]]),
         "attribute tokenize codec '$codec' is published as legal and loads"
     );
 }
 refuses(
-    solo_b(['block_attrs' => ['acme/b' => [['kind' => 'post', 'path' => 'id', 'type' => 'int', 'tokenize' => 'markdown']]]]),
+    solo_b(['block_attrs' => ['acme/b' => [['path' => 'url', 'tokenize' => 'markdown']]]]),
     'the only supported codec for an attribute is "' . implode('", "', $vocabularies['attribute_tokenize_codecs']) . '"',
     'a tokenize codec outside the published set is refused with the published set printed back'
 );

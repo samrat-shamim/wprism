@@ -132,9 +132,12 @@ final class ReferenceKindGrammar {
      * Two vocabularies, not one, because they answer different questions. A
      * classification rule's `ref` may name `user` and may carry the `[]`
      * plural suffix. A TOKEN kind — a table's `refs[]`, a `block_attrs`/
-     * `shortcode_attrs` rule, a `json_refs`/`key_refs` entry — is resolved
-     * through duo_map, which has no user keyspace, and carries its plurality
-     * in a separate `type`/`cast` field rather than in the kind name.
+     * `shortcode_attrs` rule, a `json_refs`/`key_refs` entry — is normally
+     * resolved through duo_map, which has no user keyspace, and carries its
+     * plurality in a separate `type`/`cast` field rather than in the kind
+     * name. `block_attrs` alone may name `user`: Blocks owns the explicit
+     * user-id <-> user:<login> codec used by core/avatar, while none of the
+     * other token-shaped channels implements that login form.
      *
      * The three ENGINE_* consts declared above are the engine-owned BASE of
      * each vocabulary — the part that is a fixed fact about this engine
@@ -175,8 +178,12 @@ final class ReferenceKindGrammar {
             $claims = [];
             self::collect_ref_kind_claims($source, '', $claims);
             self::validate_attr_kind_claims($source, $claims);
-            foreach ($claims as [$path, $value, $token]) {
+            foreach ($claims as [$path, $value, $token, $blockUser]) {
                 $legal = $token ? $tokenKinds : $refKinds;
+                if ($blockUser) {
+                    $legal[] = 'user';
+                    sort($legal, SORT_STRING);
+                }
                 $bare = (!$token && is_string($value) && str_ends_with($value, '[]'))
                     ? substr($value, 0, -2)
                     : $value;
@@ -187,7 +194,8 @@ final class ReferenceKindGrammar {
                     "duo: $label declares $path=" . var_export($value, true) . ' but the '
                     . ($token ? 'token' : 'reference') . ' kind vocabulary is closed ('
                     . implode(', ', $legal) . ($token ? '' : ', each optionally suffixed with [] for a list')
-                    . '). post/term/tt' . ($token ? '' : '/user') . ' are engine-owned; every other kind is an '
+                    . '). post/term/tt' . (!$token || $blockUser ? '/user' : '')
+                    . ' are engine-owned; every other kind is an '
                     . 'id_kind a pinned manifest declared for a table it owns, which is the only way to extend '
                     . 'this vocabulary — declare the table, then name its id_kind'
                 );
@@ -197,7 +205,7 @@ final class ReferenceKindGrammar {
 
     /**
      * Every ref-kind claim reachable from a manifest's classification
-     * sections, as [path, value, isTokenKind] triples.
+     * sections, as [path, value, isTokenKind, blockUserCodec] tuples.
      *
      * Four top-level channels are skipped rather than walked: `notes` is
      * free-form human prose keyed by arbitrary strings, `actions`/`providers`
@@ -220,7 +228,7 @@ final class ReferenceKindGrammar {
      * depth counter to this one alone would claim a threat model the rest of
      * the engine does not share.
      *
-     * @param list<array{0:string,1:mixed,2:bool}> $out
+     * @param list<array{0:string,1:mixed,2:bool,3:bool}> $out
      */
     private static function collect_ref_kind_claims(mixed $node, string $path, array &$out): void {
         if (!is_array($node)) {
@@ -232,13 +240,13 @@ final class ReferenceKindGrammar {
                 continue;
             }
             if ($key === 'ref') {
-                $out[] = [$childPath, $value, false];
+                $out[] = [$childPath, $value, false, false];
                 continue;
             }
             if ($key === 'refs' && is_array($value) && array_is_list($value)) {
                 foreach ($value as $i => $entry) {
                     if (is_array($entry) && array_key_exists('kind', $entry)) {
-                        $out[] = [$childPath . "[$i].kind", $entry['kind'], true];
+                        $out[] = [$childPath . "[$i].kind", $entry['kind'], true, false];
                     }
                 }
                 continue;
@@ -246,13 +254,13 @@ final class ReferenceKindGrammar {
             if ($key === 'json_refs' && is_array($value)) {
                 foreach ($value as $i => $entry) {
                     if (is_array($entry) && array_key_exists('kind', $entry)) {
-                        $out[] = [$childPath . "[$i].kind", $entry['kind'], true];
+                        $out[] = [$childPath . "[$i].kind", $entry['kind'], true, false];
                     }
                 }
                 continue;
             }
             if ($key === 'key_refs' && is_array($value) && array_key_exists('kind', $value)) {
-                $out[] = ["$childPath.kind", $value['kind'], true];
+                $out[] = ["$childPath.kind", $value['kind'], true, false];
                 continue;
             }
             self::collect_ref_kind_claims($value, $childPath, $out);
@@ -265,7 +273,7 @@ final class ReferenceKindGrammar {
      * different channels (an effect's `kind` is a reversibility category, not
      * a keyspace) — so these two are read by their exact declared location.
      *
-     * @param list<array{0:string,1:mixed,2:bool}> $out
+     * @param list<array{0:string,1:mixed,2:bool,3:bool}> $out
      */
     private static function validate_attr_kind_claims(array $source, array &$out): void {
         foreach (['block_attrs', 'shortcode_attrs'] as $section) {
@@ -276,17 +284,27 @@ final class ReferenceKindGrammar {
                     }
                     $at = $section . '.' . $subject . '[' . $i . ']';
                     if (array_key_exists('kind', $rule)) {
-                        $out[] = ["$at.kind", $rule['kind'], true];
+                        $out[] = ["$at.kind", $rule['kind'], true, $section === 'block_attrs'];
                     }
                     $from = $rule['kind_from'] ?? null;
                     if (!is_array($from)) {
                         continue;
                     }
                     foreach ((array) ($from['map'] ?? []) as $attrValue => $kind) {
-                        $out[] = ["$at.kind_from.map.$attrValue", $kind, true];
+                        $out[] = [
+                            "$at.kind_from.map.$attrValue",
+                            $kind,
+                            true,
+                            $section === 'block_attrs',
+                        ];
                     }
                     if (array_key_exists('default', $from)) {
-                        $out[] = ["$at.kind_from.default", $from['default'], true];
+                        $out[] = [
+                            "$at.kind_from.default",
+                            $from['default'],
+                            true,
+                            $section === 'block_attrs',
+                        ];
                     }
                 }
             }
