@@ -944,7 +944,7 @@ EOF
   wp2 duo deploy --repo=/siterepo
   prepare_code_snippets_boundary_target
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
   grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
     || fail "apply canary not clean at code-snippets $CODE_SNIPPETS_VERSION"
   grep -q 'provider capability fired: code-snippets-state@1.0.0 rebuild_snippet_state' "$VMATRIX_APPLY_LOG" \
