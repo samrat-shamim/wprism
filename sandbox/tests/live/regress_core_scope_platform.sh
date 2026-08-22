@@ -211,19 +211,29 @@ TARGET_POST=$(wp2 post list --post_type=post --name=core-platform-exact --field=
 TARGET_CONTENT=$(wp2 post get "$TARGET_POST" --field=post_content)
 [ "$TARGET_CONTENT" = 'Exact platform content — বাংলা — delimiter | value' ] \
   || fail 'supported core round trip changed native UTF-8 content'
+TARGET_ONLY_POST=$(wp2 post list --post_type=post --name=target-only-platform --field=ID | awk 'NF { print; exit }')
+[ -n "$TARGET_ONLY_POST" ] && [ "$(wp2 post get "$TARGET_ONLY_POST" --field=post_content)" = 'must survive' ] \
+  || fail 'supported apply overwrote target-only core state'
 RECAPTURE=$(duo_json wp2 'supported target recapture' capture \
   --repo=/siterepo --out=/siterepo/state-check)
 jq -e '
-  .counts.post == 1 and .counts.term == 1 and .counts.options == 1 and
+  .counts.post == 2 and .counts.term == 1 and .counts.options == 1 and
   .media == 0 and .notes == [] and .warnings == [] and
   .initial_publication_cleanup == "not-applicable"
 ' <<<"$RECAPTURE" >/dev/null \
   || fail "supported target recapture reported unexpected coverage: $RECAPTURE"
-diff -r "$R2/state" "$R2/state-check" >/dev/null \
-  || fail 'supported core recapture is not byte-identical'
-TARGET_ONLY_POST=$(wp2 post list --post_type=post --name=target-only-platform --field=ID | awk 'NF { print; exit }')
-[ -n "$TARGET_ONLY_POST" ] && [ "$(wp2 post get "$TARGET_ONLY_POST" --field=post_content)" = 'must survive' ] \
-  || fail 'supported apply overwrote target-only core state'
+while IFS= read -r state_file; do
+  [ -f "$R2/state-check/$state_file" ] \
+    || fail "supported recapture dropped managed state file $state_file"
+  cmp "$R2/state/$state_file" "$R2/state-check/$state_file" >/dev/null \
+    || fail "supported recapture changed managed state bytes in $state_file"
+done < <(cd "$R2/state" && find . -type f -print | LC_ALL=C sort)
+EXTRA_STATE=$(comm -13 \
+  <(cd "$R2/state" && find . -type f -print | LC_ALL=C sort) \
+  <(cd "$R2/state-check" && find . -type f -print | LC_ALL=C sort))
+[ "$(awk 'NF { count++ } END { print count + 0 }' <<<"$EXTRA_STATE")" -eq 1 ] \
+  && [[ "$EXTRA_STATE" =~ ^\./posts/post/[0-9a-f-]+--target-only-platform\.md$ ]] \
+  || fail "supported recapture did not add exactly the surviving target-only post: $EXTRA_STATE"
 
 DOCTOR_OUT=$(php ../cli/duo doctor "${PAIR}1" --envs-file="$ENVS_FILE" 2>&1) \
   || fail "supported host doctor refused: $DOCTOR_OUT"
@@ -231,7 +241,7 @@ grep -q '\[PASS\] PHP version (8\.3\.' <<<"$DOCTOR_OUT" \
   && grep -q '\[PASS\] database (mariadb 11\.' <<<"$DOCTOR_OUT" \
   && grep -q '\[PASS\] WordPress core (7\.0\.3)' <<<"$DOCTOR_OUT" \
   || fail "supported host doctor did not pass every platform axis: $DOCTOR_OUT"
-pass 'supported exact platform round-trips, repeats idempotently, recaptures byte-identically, and passes doctor'
+pass 'supported exact platform round-trips, repeats idempotently, preserves target-only state, recaptures managed bytes identically, and passes doctor'
 
 say 'real adjacent WordPress version refuses before mutation'
 STATE_BEFORE=$(tree_fingerprint "$R1/state")
