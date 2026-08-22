@@ -977,7 +977,7 @@ EOF
     wp2 duo deploy --repo=/siterepo >/dev/null
     UPGRADE_PLAN=$(wp2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
     require_duo_answered "Code Snippets 3.9.5 to 3.9.6 target plan" json "$UPGRADE_PLAN"
-    jq -e '([.create,.update,.conflict,.collision,.delete] | map(length) | add) == 0' <<<"$UPGRADE_PLAN" >/dev/null \
+    jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$UPGRADE_PLAN" >/dev/null \
       || fail "Code Snippets supported in-place upgrade invented authored work: $UPGRADE_PLAN"
     [ "$(wp1 eval 'global $wpdb; echo hash("sha256", wp_json_encode($wpdb->get_results("SELECT name,description,code,tags,scope,priority,active FROM {$wpdb->prefix}snippets ORDER BY id", ARRAY_A), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));')" = "$UPGRADE_BEFORE_1" ] \
       && [ "$(wp2 eval 'global $wpdb; echo hash("sha256", wp_json_encode($wpdb->get_results("SELECT name,description,code,tags,scope,priority,active FROM {$wpdb->prefix}snippets ORDER BY id", ARRAY_A), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));')" = "$UPGRADE_BEFORE_2" ] \

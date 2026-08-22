@@ -237,20 +237,30 @@ require_duo_answered "Code Snippets schema-drift plan" human "$SCHEMA_OUT"
 [ "$(wp_conf2 db query 'SELECT COUNT(*) FROM wp_snippets' --skip-column-names | tr -d '[:space:]')" = "$SCHEMA_BEFORE" ] \
   || fail "Code Snippets schema refusal partially changed row count"
 wp_conf2 eval 'Code_Snippets\code_snippets()->db->create_or_upgrade_tables();' >/dev/null
-wp_conf2 db query "UPDATE wp_snippets SET description='Portable state restored after schema probe' WHERE name='Duo portable content 東京 🚀'" >/dev/null
-# Restore the repository-authored description without guessing it from shell
-# quoting: the next forced branch update below rewrites only the runtime row;
-# content is restored from the canonical JSON value before any plan.
-CONTENT_FILE=$(find "$CONF_REPO2/state/tables/snippets" -name '*--duo-portable-content-*.json' -print -quit)
-[ -n "$CONTENT_FILE" ] || fail "Code Snippets canonical content row is absent after schema probe"
-CONTENT_DESC=$(jq -r '.columns.description' "$CONTENT_FILE")
-DESC_FILE="${CONF_REPO2:-siterepo/conf2}/.tmp-code-snippets-description.txt"
-printf '%s' "$CONTENT_DESC" > "$DESC_FILE"
-wp_conf2 eval '$s=file_get_contents("/siterepo/.tmp-code-snippets-description.txt"); global $wpdb; $wpdb->update($wpdb->prefix."snippets", ["description"=>$s], ["name"=>"Duo portable content 東京 🚀"]); Code_Snippets\clean_snippets_cache($wpdb->prefix."snippets");' >/dev/null
+# dbDelta recreates the dropped column empty on every row. Restore all three
+# repository descriptions from canonical JSON, using a file so the >40KB
+# UTF-8/delimiter value never crosses shell or SQL quoting.
+DESC_FILE="${CONF_REPO2:-siterepo/conf2}/.tmp-code-snippets-descriptions.json"
+jq -s '
+  if length != 3 then error("expected three canonical snippet rows")
+  else map({key:.columns.name,value:.columns.description}) | from_entries
+  end
+' "$CONF_REPO2"/state/tables/snippets/*.json > "$DESC_FILE"
+wp_conf2 eval '
+  $descriptions=json_decode(file_get_contents("/siterepo/.tmp-code-snippets-descriptions.json"), true, 512, JSON_THROW_ON_ERROR);
+  global $wpdb; $changed=0;
+  foreach ($descriptions as $name => $description) {
+    $result=$wpdb->update($wpdb->prefix . "snippets", ["description"=>$description], ["name"=>$name]);
+    if (false === $result) { throw new RuntimeException($wpdb->last_error); }
+    $changed += $result;
+  }
+  if (3 !== count($descriptions) || 3 !== $changed) { throw new RuntimeException("did not restore all snippet descriptions"); }
+  Code_Snippets\clean_snippets_cache($wpdb->prefix . "snippets");
+' >/dev/null
 rm -f "$DESC_FILE"
 SCHEMA_RECOVERED=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 require_duo_answered "Code Snippets plan after plugin schema repair" json "$SCHEMA_RECOVERED"
-jq -e '([.create,.update,.conflict,.collision] | map(length) | add) == 0' <<<"$SCHEMA_RECOVERED" >/dev/null \
+jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$SCHEMA_RECOVERED" >/dev/null \
   || fail "Code Snippets plugin schema repair did not return to the synced base: $SCHEMA_RECOVERED"
 pass "missing-column drift refuses before partial mutation and the exact plugin schema repair restores a clean plan"
 
@@ -271,6 +281,13 @@ TARGET_ONLY_ID=$(wp_conf2 eval '
   ])); echo (int)$s->id;
 ')
 require_fixture_ids TARGET_ONLY_ID
+# A populated mapped row without an identity must refuse. Model the supported
+# target-local authoring workflow explicitly: capture once into disposable
+# output to mint the row's local identity, without publishing target state or
+# changing the repository branch that the conflict exercise compares.
+TARGET_IDENTITY_CAPTURE=$(wp_conf2 duo capture --repo=/siterepo --out=/siterepo/.tmp-code-snippets-target-identity 2>&1)
+require_duo_answered "Code Snippets target-only identity capture" human "$TARGET_IDENTITY_CAPTURE"
+rm -rf "${CONF_REPO2:-siterepo/conf2}/.tmp-code-snippets-target-identity"
 wp_conf2 eval 'Code_Snippets\Settings\update_setting("general", "enable_flat_files", false); do_action("code_snippets/settings_updated", Code_Snippets\Settings\get_settings_values());' >/dev/null
 wp_conf2 eval 'echo Code_Snippets\Snippet_Files::is_active() ? "on" : "off";' | grep -qx off \
   || fail "Code Snippets flat-file-disabled conflict premise did not land"
@@ -320,8 +337,7 @@ printf '%s\n' "$CONVERGED" | jq -e --argjson target_only "$TARGET_ONLY_ID" '
 ZERO_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 require_duo_answered "Code Snippets zero-change plan" json "$ZERO_PLAN"
 jq -e '
-  (.create | length) == 0 and (.update | length) == 0 and
-  (.conflict | length) == 0 and (.collision | length) == 0
+  ([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0
 ' <<<"$ZERO_PLAN" >/dev/null || fail "Code Snippets retry retained repository work: $ZERO_PLAN"
 ZERO_APPLY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
 require_duo_answered "Code Snippets zero-change apply" json "$ZERO_APPLY"
@@ -444,6 +460,6 @@ printf '%s\n' "$COMPLETE_RECOVERED" | jq -e '
 ' >/dev/null || fail "Code Snippets complete-uninstall recovery did not restore exact native state: $COMPLETE_RECOVERED"
 COMPLETE_RETRY=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 require_duo_answered "Code Snippets plan retry after complete-uninstall recovery" json "$COMPLETE_RETRY"
-jq -e '([.create,.update,.conflict,.collision] | map(length) | add) == 0' <<<"$COMPLETE_RETRY" >/dev/null \
+jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$COMPLETE_RETRY" >/dev/null \
   || fail "Code Snippets complete-uninstall recovery was not idempotent: $COMPLETE_RETRY"
 pass "opt-in complete uninstall removes table/settings/files; exact reinstall, sample cleanup, forced identity recovery, provider verification, and retry restore the repository state"

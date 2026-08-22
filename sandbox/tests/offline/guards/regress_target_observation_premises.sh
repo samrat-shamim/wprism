@@ -36,6 +36,7 @@ OBSERVATIONS=(
   'conformance/checks/code-snippets.sh|require_duo_answered "Code Snippets schema-drift plan" human'
   'conformance/checks/code-snippets.sh|require_duo_answered "Code Snippets plan after plugin schema repair" json'
   'conformance/checks/code-snippets.sh|require_duo_answered "Code Snippets competing-row plan" json'
+  'conformance/checks/code-snippets.sh|require_duo_answered "Code Snippets target-only identity capture" human'
   'conformance/checks/code-snippets.sh|require_duo_answered "Code Snippets unforced competing-row apply" human'
   'conformance/checks/code-snippets.sh|require_duo_answered "Code Snippets forced competing-row apply" json'
   'conformance/checks/code-snippets.sh|require_duo_answered "Code Snippets zero-change plan" json'
