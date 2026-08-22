@@ -84,10 +84,12 @@ wp_conf2 plugin uninstall classic-editor --deactivate >/dev/null
 if wp_conf2 plugin is-installed classic-editor >/dev/null 2>&1; then
   fail "Classic Editor uninstall left plugin code installed"
 fi
-UNINSTALL_RESIDUE=$(wp_conf2 db query "SELECT CONCAT(option_name, '=', option_value) FROM wp_options WHERE option_name IN ('classic-editor-replace','classic-editor-allow-users') ORDER BY option_name" --skip-column-names | paste -sd '|' -)
-require_observed_nonempty "Classic Editor owned residue after uninstall" "$UNINSTALL_RESIDUE"
-[ "$UNINSTALL_RESIDUE" = "classic-editor-allow-users=disallow|classic-editor-replace=block" ] \
-  || fail "Classic Editor exact uninstall residue changed unexpectedly: $UNINSTALL_RESIDUE"
+UNINSTALL_ALLOW=$(wp_conf2 option get classic-editor-allow-users)
+UNINSTALL_REPLACE=$(wp_conf2 option get classic-editor-replace)
+require_observed_nonempty "Classic Editor user-choice residue after uninstall" "$UNINSTALL_ALLOW"
+require_observed_nonempty "Classic Editor default-editor residue after uninstall" "$UNINSTALL_REPLACE"
+[ "$UNINSTALL_ALLOW" = "disallow" ] && [ "$UNINSTALL_REPLACE" = "block" ] \
+  || fail "Classic Editor exact uninstall residue changed unexpectedly: allow=$UNINSTALL_ALLOW replace=$UNINSTALL_REPLACE"
 NEIGHBOR_AFTER_UNINSTALL=$(wp_conf2 option get classic-editor-target-runtime-probe)
 require_observed_nonempty "Classic Editor target-only neighbor after uninstall" "$NEIGHBOR_AFTER_UNINSTALL"
 [ "$NEIGHBOR_AFTER_UNINSTALL" = "target-only-neighbor" ] \
