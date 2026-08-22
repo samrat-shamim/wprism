@@ -187,8 +187,10 @@ LOGIN_LOCATION=$(awk 'BEGIN { IGNORECASE=1 } /^Location:/ { sub(/\r$/, ""); prin
 [ "$LOGIN_CODE" = 302 ] && [ "$LOGIN_LOCATION" = "http://localhost:${CONF2_PORT}/wp-admin/" ] \
   && grep -q 'wordpress_logged_in' "$COOKIE_JAR" \
   || fail "valid credentials through the custom route did not establish an authenticated WordPress session"
-AUTH_ADMIN_CODE=$(curl --max-time 20 -sS -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' "http://localhost:${CONF2_PORT}/wp-admin/")
-[ "$AUTH_ADMIN_CODE" = 200 ] || fail "authenticated wp-admin request was not admitted (status=$AUTH_ADMIN_CODE)"
+AUTH_ADMIN_CODE=$(curl --max-time 20 -sS -L -b "$COOKIE_JAR" -o "$LOGIN_BODY" -w '%{http_code}' "http://localhost:${CONF2_PORT}/wp-admin/")
+[ "$AUTH_ADMIN_CODE" = 200 ] && grep -Fq 'id="dashboard-widgets-wrap"' "$LOGIN_BODY" \
+  && ! grep -Fq 'id="loginform"' "$LOGIN_BODY" \
+  || fail "authenticated wp-admin request did not reach the dashboard after core canonical redirects (status=$AUTH_ADMIN_CODE)"
 rm -f "$COOKIE_JAR" "$LOGIN_HEADERS" "$LOGIN_BODY"
 pass "custom-path authentication succeeds and authenticated wp-admin remains reachable"
 
