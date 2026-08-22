@@ -193,7 +193,7 @@ echo hash("sha256", wp_json_encode([
 ]));
 ')
 require_fixture_state "core dirty-target refusal target digest" "$DIRTY_BEFORE" "$DIRTY_AFTER"
-[ "$(wp_conf2 eval 'echo null === \\Duo\\Ledger::kv_get("apply_in_progress") ? "clear" : "retained";')" = clear ] \
+[ "$(wp_conf2 eval 'echo null === \Duo\Ledger::kv_get("apply_in_progress") ? "clear" : "retained";')" = clear ] \
   || fail "pre-mutation collision refusal retained apply_in_progress"
 
 # DUO-3278: unrelated target defaults deliberately reuse every source
