@@ -269,7 +269,13 @@ final class OptionsCapture {
     }
 
     /** @return array{included:bool,value:mixed} */
-    private function capture_value(string $ctx, $v, array $rule, bool $forceUnresolvedRefs): array {
+    private function capture_value(
+        string $ctx,
+        $v,
+        array $rule,
+        bool $forceUnresolvedRefs,
+        bool $omitUnsetScalarRef = false
+    ): array {
         if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
             $decoded = StructuredValue::decode($v, $rule, "option $ctx");
             return ['included' => true, 'value' => $this->tokens->struct_capture(
@@ -279,7 +285,13 @@ final class OptionsCapture {
             )];
         }
         if (!empty($rule['ref'])) {
-            $captured = $this->option_ref_tokens($ctx, $v, $rule['ref'], $forceUnresolvedRefs);
+            $captured = $this->option_ref_tokens(
+                $ctx,
+                $v,
+                $rule['ref'],
+                $forceUnresolvedRefs,
+                $omitUnsetScalarRef
+            );
             return ['included' => $captured !== null, 'value' => $captured];
         }
         if (is_string($v)) {
@@ -333,7 +345,7 @@ final class OptionsCapture {
                     );
                 }
             }
-            $capturedValue = $this->capture_value($ctx, $subVal, $subRule, $forceUnresolvedRefs);
+            $capturedValue = $this->capture_value($ctx, $subVal, $subRule, $forceUnresolvedRefs, true);
             if ($capturedValue['included']) {
                 $captured[$subKey] = $capturedValue['value'];
             }
@@ -368,7 +380,13 @@ final class OptionsCapture {
         return $out;
     }
 
-    private function option_ref_tokens(string $name, $value, string $ref, bool $forceUnresolvedRefs = false) {
+    private function option_ref_tokens(
+        string $name,
+        $value,
+        string $ref,
+        bool $forceUnresolvedRefs = false,
+        bool $omitUnsetScalar = false
+    ) {
         if (str_ends_with($ref, '[]')) {
             $kind = substr($ref, 0, -2);
             $ok = [];
@@ -390,7 +408,13 @@ final class OptionsCapture {
         }
         $id = (int) $value;
         if ($id === 0) {
-            return null;
+            // A whole authored scalar option uses 0 as durable "unset"
+            // state (page_on_front/page_for_posts/privacy policy). Returning
+            // null used to turn that into OptionState::absent, which means
+            // "no intent" and left a hostile target's old page id untouched.
+            // Sub-key refs retain their established deletion semantics: a
+            // zero theme-mod pointer means the authored key is gone.
+            return $omitUnsetScalar ? null : 0;
         }
         $tok = $this->tokens->id_to_token($id, $ref);
         if ($tok === null) {

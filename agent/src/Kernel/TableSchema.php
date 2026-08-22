@@ -19,6 +19,95 @@ final class TableSchema {
     private const MAX_ENTITY_TYPE_LEN = 64;
 
     /**
+     * Columns read by the core candidate builder before it can publish one
+     * coherent WordPress snapshot. `SELECT *` is not a schema contract: a
+     * renamed column still returns a successful row and PHP then turns the
+     * missing property into null/empty with only a warning. The live
+     * regression renames wp_posts.post_excerpt and proves that exact shape
+     * used to publish a lossy tree, so every projected property is named.
+     *
+     * Extra columns remain valid. Plugins commonly add them to core tables;
+     * capture simply has no authority to interpret those bytes.
+     *
+     * @return array<string,list<string>> wpdb property => required columns
+     */
+    public static function core_capture_required_columns(): array {
+        return [
+            'posts' => [
+                'ID', 'post_author', 'post_date', 'post_date_gmt', 'post_content', 'post_title',
+                'post_excerpt', 'post_status', 'comment_status', 'ping_status', 'post_password',
+                'post_name', 'post_modified', 'post_modified_gmt', 'post_parent', 'menu_order',
+                'post_type', 'post_mime_type',
+            ],
+            'postmeta' => ['meta_id', 'post_id', 'meta_key', 'meta_value'],
+            'terms' => ['term_id', 'name', 'slug'],
+            'term_taxonomy' => [
+                'term_taxonomy_id', 'term_id', 'taxonomy', 'description', 'parent',
+            ],
+            'term_relationships' => ['object_id', 'term_taxonomy_id', 'term_order'],
+            'termmeta' => ['meta_id', 'term_id', 'meta_key', 'meta_value'],
+            'options' => ['option_id', 'option_name', 'option_value', 'autoload'],
+            'users' => ['ID', 'user_login'],
+            'usermeta' => ['umeta_id', 'user_id', 'meta_key', 'meta_value'],
+        ];
+    }
+
+    /** Refuse missing/renamed core columns before identity minting or publication. */
+    public static function assert_core_capture_schema(): void {
+        global $wpdb;
+        $requiredByProperty = self::core_capture_required_columns();
+        $requiredByTable = [];
+        foreach ($requiredByProperty as $property => $columns) {
+            $table = isset($wpdb->$property) ? (string) $wpdb->$property : '';
+            if ($table === '') {
+                throw new \RuntimeException(
+                    "duo: core capture schema is unavailable — wpdb has no '$property' table binding"
+                );
+            }
+            $requiredByTable[$table] = $columns;
+        }
+
+        $tables = array_keys($requiredByTable);
+        $placeholders = implode(',', array_fill(0, count($tables), '%s'));
+        $wpdb->last_error = '';
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS\n"
+            . 'WHERE TABLE_SCHEMA = DATABASE() '
+            . "AND TABLE_NAME IN ($placeholders)",
+            ...$tables
+        ), ARRAY_A);
+        if (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '') {
+            throw new \RuntimeException(
+                'duo: core capture schema inventory could not be read; refusing to infer an empty schema'
+            );
+        }
+
+        $live = [];
+        foreach ($rows as $row) {
+            $table = (string) ($row['TABLE_NAME'] ?? '');
+            $column = (string) ($row['COLUMN_NAME'] ?? '');
+            if ($table !== '' && $column !== '') {
+                $live[$table][$column] = true;
+            }
+        }
+        $missing = [];
+        foreach ($requiredByTable as $table => $columns) {
+            foreach ($columns as $column) {
+                if (!isset($live[$table][$column])) {
+                    $missing[] = "$table.$column";
+                }
+            }
+        }
+        if ($missing !== []) {
+            sort($missing, SORT_STRING);
+            throw new \RuntimeException(
+                'duo: core capture schema drift — required WordPress table/column(s) are missing or renamed: '
+                . implode(', ', $missing)
+            );
+        }
+    }
+
+    /**
      * @return ?array<string,string> live column name => live MySQL type,
      *   or null if the table does not exist on this environment
      */

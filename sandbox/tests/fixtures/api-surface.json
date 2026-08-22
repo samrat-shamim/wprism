@@ -51916,6 +51916,14 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "assert_core_capture_schema": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "assert_entity_type_width": {
                     "abstract": false,
                     "final": false,
@@ -52037,6 +52045,14 @@
                         }
                     ],
                     "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "core_capture_required_columns": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
                     "static": true,
                     "visibility": "public"
                 },

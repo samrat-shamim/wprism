@@ -251,6 +251,20 @@ final class CaptureAtomicityFakeWpdb {
 
     public function get_results(string $sql, $output = null): array {
         $this->last_error = '';
+        if (stripos($sql, 'information_schema.COLUMNS') !== false
+            && stripos($sql, 'TABLE_NAME, COLUMN_NAME') !== false) {
+            $rows = [];
+            foreach (Duo\TableSchema::core_capture_required_columns() as $property => $columns) {
+                $table = (string) $this->$property;
+                if (!str_contains($sql, "'" . $table . "'")) {
+                    continue;
+                }
+                foreach ($columns as $column) {
+                    $rows[] = ['TABLE_NAME' => $table, 'COLUMN_NAME' => $column];
+                }
+            }
+            return $rows;
+        }
         if (stripos($sql, 'information_schema.TABLES') !== false) {
             $rows = [];
             foreach ($this->tableEngines as $table => $engine) {
