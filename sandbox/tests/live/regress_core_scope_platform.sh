@@ -178,7 +178,8 @@ wp2 post create --post_type=post --post_status=publish --post_title='Target-only
 CAPTURE=$(duo_json wp1 'supported source capture' capture --repo=/siterepo)
 jq -e '
   .counts.post == 1 and .counts.term == 1 and .counts.options == 1 and
-  .media == 0 and .skipped == [] and .code == null
+  .media == 0 and .notes == [] and .warnings == [] and
+  .initial_publication_cleanup == "not-applicable"
 ' <<<"$CAPTURE" >/dev/null \
   || fail "supported source capture reported unexpected coverage: $CAPTURE"
 cp -R "$R1/state" "$R2/state"
@@ -214,7 +215,8 @@ RECAPTURE=$(duo_json wp2 'supported target recapture' capture \
   --repo=/siterepo --out=/siterepo/state-check)
 jq -e '
   .counts.post == 1 and .counts.term == 1 and .counts.options == 1 and
-  .media == 0 and .skipped == [] and .code == null
+  .media == 0 and .notes == [] and .warnings == [] and
+  .initial_publication_cleanup == "not-applicable"
 ' <<<"$RECAPTURE" >/dev/null \
   || fail "supported target recapture reported unexpected coverage: $RECAPTURE"
 diff -r "$R2/state" "$R2/state-check" >/dev/null \
