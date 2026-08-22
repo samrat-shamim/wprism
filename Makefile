@@ -1556,12 +1556,11 @@ regress-promotion-abort-reason:
 regress-recovery-protocol:
 	php sandbox/tests/offline/recovery/regress_recovery_protocol.php
 
-# DUO-3223 (concurrency-scenario arm): a real `wp duo capture` lock holder
-# plus simultaneous contenders racing for that destination -- the SAME release-gate idiom
-# DUO-3217 established for live PromotionLock races, applied to the capture
-# lock instead. Complements regress_promotion_lock.sh (concurrent
-# PROMOTION, already comprehensive) with the still-uncovered concurrent
-# CAPTURE axis.
+# DUO-3223: real target-wide capture/apply/delete contention. Same-destination
+# publishers refuse at the filesystem lock; different destinations and apply
+# cross-races refuse at the shared target-writer fence. One winning apply
+# verifies rewrite regeneration, one winning delete removes the mapping once,
+# and both product paths prove zero-action retries.
 regress-capture-concurrency:
 	bash sandbox/tests/live/regress_capture_concurrency.sh
 

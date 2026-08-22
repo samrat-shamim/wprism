@@ -3,6 +3,8 @@ namespace Duo;
 
 require_once __DIR__ . '/../Review/Canary.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
+require_once __DIR__ . '/../Kernel/CommandRefusal.php';
+require_once __DIR__ . '/../Kernel/ProcessFence.php';
 require_once __DIR__ . '/CaptureCandidateBuilder.php';
 require_once __DIR__ . '/CapturePublicationRecovery.php';
 require_once __DIR__ . '/CaptureTransaction.php';
@@ -31,7 +33,8 @@ require_once __DIR__ . '/../Repository/Snapshot.php';
  * Candidate construction, strict initial ownership, scoped-contract
  * association, transaction replay safety, and commit recovery are delegated
  * to focused collaborators. This class owns their ordering under one
- * destination lock and produces the stable capture summary.
+ * destination lock and one target-writer fence, and produces the stable
+ * capture summary.
  */
 final class CapturePublicationWorkflow {
     /**
@@ -114,6 +117,7 @@ final class CapturePublicationWorkflow {
         // exists to rule out.
         $ownsLock = $publicationLock === null;
         $lock = $publicationLock ?? Publish::lock($stateDir);
+        $ownsTargetFence = false;
         $testPhaseMarked = false;
         $publicationPhase = ['initial_baseline' => $initialBaseline];
         $initialPublicationCleanup = $initialBaseline ? 'pending' : 'not-applicable';
@@ -141,9 +145,15 @@ final class CapturePublicationWorkflow {
                 $publicationPhase['media_manifest'] = Publish::tree_ownership_manifest($repoPath . '/media');
                 $publicationPhase['state_manifest'] = Publish::tree_ownership_manifest($stateDir);
             }
-            // The destination lock is deliberately acquired BEFORE even
-            // Ledger::ensure(): schema migration and every row mutation below
-            // belong to the same destination's serialized publication.
+            // DUO-3217's promotion fence is target-wide because the ledger,
+            // embedded identity, and plugin-visible state are shared even
+            // when two captures publish into DIFFERENT directories. Claim it
+            // before Ledger::ensure(): schema migration and every row
+            // mutation below are target writes. The destination lock remains
+            // necessary for filesystem recovery/publication, but it cannot
+            // serialize a second destination or an apply process.
+            $ownsTargetFence = self::acquireTargetWriterFence();
+            self::assertNoPromotionSessionIfLedgerExists();
             if ($scopeRequest === null) {
                 Ledger::ensure();
             } else {
@@ -151,6 +161,7 @@ final class CapturePublicationWorkflow {
                 // schema. Existing durable identity is a precondition.
                 Ledger::assert_read_only_schema();
             }
+            self::assertNoPromotionSession();
             $c = new CaptureCandidateBuilder($repo, $policy);
             CaptureTransaction::assert_engine_support($policy);
 
@@ -904,8 +915,14 @@ final class CapturePublicationWorkflow {
                     // fail after the tree and authoritative ledger commit.
                 }
             }
-            if ($ownsLock) {
-                Publish::unlock($lock);
+            try {
+                if ($ownsLock) {
+                    Publish::unlock($lock);
+                }
+            } finally {
+                if ($ownsTargetFence) {
+                    ProcessFence::release();
+                }
             }
         }
 
@@ -938,6 +955,71 @@ final class CapturePublicationWorkflow {
             $summary['scope'] = $build['_scope'];
         }
         return $summary;
+    }
+
+    /** Fence every capture mutation against other live target writers. */
+    private static function acquireTargetWriterFence(): bool {
+        $alreadyHeld = ProcessFence::isContinuous();
+        try {
+            ProcessFence::acquire();
+        } catch (\Throwable $failure) {
+            throw self::targetWriterRefusal(
+                'duo: capture refused because another live target process owns the target-writer fence',
+                $failure
+            );
+        }
+        return !$alreadyHeld;
+    }
+
+    /**
+     * Reject an externally checkpointed promotion between its short-lived
+     * WP-CLI processes. The already-held advisory fence closes the check/
+     * acquire race. An expired row is still recovery authority, not
+     * permission for capture to rewrite its ledger underneath it.
+     */
+    private static function assertNoPromotionSession(): void {
+        if (Ledger::kv_get('promotion_lock') !== null) {
+            throw self::targetWriterRefusal(
+                'duo: capture refused because the target retains a promotion lock'
+            );
+        }
+    }
+
+    /**
+     * Established targets must refuse before even idempotent schema repair;
+     * a first capture has no duo_kv table (and therefore cannot have a
+     * promotion session), so it proceeds to Ledger::ensure() and the
+     * unconditional post-ensure check above.
+     */
+    private static function assertNoPromotionSessionIfLedgerExists(): void {
+        global $wpdb;
+        $wpdb->last_error = '';
+        $table = $wpdb->prefix . 'duo_kv';
+        $found = $wpdb->get_var($wpdb->prepare(
+            'SELECT TABLE_NAME FROM information_schema.TABLES '
+            . 'WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s',
+            $table
+        ));
+        if ($found === false || (string) ($wpdb->last_error ?? '') !== '') {
+            throw new \RuntimeException('duo: capture could not inspect the target ledger boundary');
+        }
+        if (is_string($found) && hash_equals($table, $found)) {
+            self::assertNoPromotionSession();
+        }
+    }
+
+    private static function targetWriterRefusal(
+        string $operatorMessage,
+        ?\Throwable $previous = null
+    ): CommandRefusalException {
+        return new CommandRefusalException(
+            'capture_target_writer_active',
+            'capture refused because another Duo target writer or promotion session is active',
+            'wait for the active writer to finish; if none is running, inspect and recover or abort the retained promotion session before retrying capture',
+            [],
+            $operatorMessage,
+            $previous
+        );
     }
 
     private static function runInConsistentSnapshot(
