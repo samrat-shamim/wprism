@@ -53,6 +53,8 @@ final class CaptureAtomicityFakeWpdb {
     public ?string $commitCheckpointError = null;
     /** @var array<string,string> table name -> storage engine */
     public array $tableEngines = [];
+    /** @var list<string> logical wpdb-property.column locations hidden from schema inventory */
+    public array $missingCoreColumns = [];
     /** @var ?array{map:array,state:array,kv:array} */
     private ?array $transactionSnapshot = null;
 
@@ -260,6 +262,9 @@ final class CaptureAtomicityFakeWpdb {
                     continue;
                 }
                 foreach ($columns as $column) {
+                    if (in_array("$property.$column", $this->missingCoreColumns, true)) {
+                        continue;
+                    }
                     $rows[] = ['TABLE_NAME' => $table, 'COLUMN_NAME' => $column];
                 }
             }
@@ -516,6 +521,33 @@ assert_capture_atomicity(
     'storage-engine refusal happens before START and before candidate execution'
 );
 $wpdb->tableEngines = [];
+
+$wpdb->missingCoreColumns = ['posts.post_excerpt'];
+$wpdb->starts = $wpdb->commits = $wpdb->rollbacks = 0;
+$callbackRuns = 0;
+$schemaFailure = null;
+try {
+    CaptureTransaction::run($transactionPolicy, static function () use (&$callbackRuns): array {
+        $callbackRuns++;
+        return [];
+    });
+} catch (Throwable $failure) {
+    $schemaFailure = $failure;
+}
+$schemaPayload = $schemaFailure instanceof CommandRefusalException ? $schemaFailure->payload() : [];
+assert_capture_atomicity(
+    ($schemaPayload['error'] ?? null) === 'capture_schema_unsupported'
+        && ($schemaPayload['diagnostics'][0]['missing'] ?? null) === [[
+            'table' => 'posts',
+            'column' => 'post_excerpt',
+        ]],
+    'schema refusal publishes the fixed logical table/column location while retaining the typed reason code'
+);
+assert_capture_atomicity(
+    $wpdb->starts === 0 && $callbackRuns === 0,
+    'schema refusal happens before START and before candidate execution'
+);
+$wpdb->missingCoreColumns = [];
 
 // A retry opens a new snapshot against database state that may have changed
 // since the first attempt. Revalidate engines on every attempt rather than

@@ -282,10 +282,14 @@ TARGET_REVISION_BEFORE=$(wp2 eval 'echo (string) \Duo\Ledger::kv_get("applied_re
 wp2 db query 'ALTER TABLE wp_posts CHANGE post_excerpt post_excerpt_hold text NOT NULL' >/dev/null
 APPLY_SCHEMA_RC=0
 APPLY_SCHEMA_OUT=$(wp2 duo apply --repo=/siterepo --default-author=admin --format=json 2>&1) || APPLY_SCHEMA_RC=$?
-[ "$APPLY_SCHEMA_RC" -ne 0 ] \
-  && grep -Fq 'capture_schema_unsupported' <<<"$APPLY_SCHEMA_OUT" \
-  && grep -Fq 'wp_posts.post_excerpt' <<<"$APPLY_SCHEMA_OUT" \
-  || fail "target schema drift did not refuse the pending apply: $APPLY_SCHEMA_OUT"
+APPLY_SCHEMA_JSON=$(awk 'NF { line=$0 } END { print line }' <<<"$APPLY_SCHEMA_OUT")
+[ "$APPLY_SCHEMA_RC" -ne 0 ] && jq -e '
+  .error == "capture_schema_unsupported" and
+  .reason_code == "capture_schema_unsupported" and
+  .diagnostics[0].code == "core_schema_drift" and
+  .diagnostics[0].missing == [{"table":"posts","column":"post_excerpt"}]
+' <<<"$APPLY_SCHEMA_JSON" >/dev/null \
+  || fail "target schema drift did not refuse with its exact logical column: $APPLY_SCHEMA_OUT"
 [ "$(wp2 post get "$(jq -r '.ids.post' <<<"$TARGET_OBS")" --field=title)" = "$TARGET_TITLE_BEFORE" ] \
   || fail 'schema-refused apply partially changed the target post'
 [ "$(wp2 eval 'echo (string) \Duo\Ledger::kv_get("applied_revision");')" = "$TARGET_REVISION_BEFORE" ] \

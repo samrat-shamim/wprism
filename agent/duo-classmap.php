@@ -66,6 +66,7 @@ return [
     'Duo\\CompiledRepository' => 'src/Repository/CompiledArtifact.php',
     'Duo\\ContentAttributeRuleResolver' => 'src/Grammar/ContentAttributeRuleResolver.php',
     'Duo\\ConvergenceVerifier' => 'src/Review/ConvergenceVerifier.php',
+    'Duo\\CoreCaptureSchemaException' => 'src/Kernel/TableSchema.php',
     'Duo\\Coverage' => 'src/Review/Coverage.php',
     'Duo\\CrossManifestGuards' => 'src/Policy/CrossManifestGuards.php',
     'Duo\\DatabaseMutationException' => 'src/Kernel/Db.php',

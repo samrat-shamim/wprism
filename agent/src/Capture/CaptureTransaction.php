@@ -165,15 +165,22 @@ final class CaptureTransaction {
     }
 
     private static function schema_refusal(\Throwable $failure): CommandRefusalException {
+        $diagnostic = [
+            'code' => 'core_schema_drift',
+            'message' => 'required WordPress core table or column evidence is unavailable',
+            'remediation' => 'repair the WordPress database schema and retry from an unchanged repository revision',
+        ];
+        if ($failure instanceof CoreCaptureSchemaException) {
+            // Logical wpdb binding names and fixed core column names are safe,
+            // actionable contract locations. Never publish the physical table
+            // prefix or the database driver's arbitrary error text.
+            $diagnostic['missing'] = $failure->missing;
+        }
         return new CommandRefusalException(
             'capture_schema_unsupported',
             'capture refused because the WordPress core schema cannot satisfy the adapter contract',
             'restore the required WordPress core table schema before another capture, plan, or apply',
-            [[
-                'code' => 'core_schema_drift',
-                'message' => 'required WordPress core table or column evidence is unavailable',
-                'remediation' => 'repair the WordPress database schema and retry from an unchanged repository revision',
-            ]],
+            [$diagnostic],
             $failure->getMessage(),
             $failure
         );

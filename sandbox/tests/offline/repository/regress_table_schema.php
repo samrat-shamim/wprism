@@ -18,6 +18,7 @@ require_once __DIR__ . '/../../../../agent/src/Kernel/TableSchema.php';
 use Duo\Ledger;
 use Duo\Policy;
 use Duo\Snapshot;
+use Duo\CoreCaptureSchemaException;
 use Duo\TableGraph;
 use Duo\TableSchema;
 
@@ -132,6 +133,17 @@ foreach (TableSchema::core_capture_required_columns() as $property => $columns) 
 TableSchema::assert_core_capture_schema();
 $check(true, 'the complete WordPress core capture read schema passes one batched live inventory');
 unset($wpdb->tables['posts']['post_excerpt']);
+$schemaFailure = null;
+try {
+    TableSchema::assert_core_capture_schema();
+} catch (Throwable $failure) {
+    $schemaFailure = $failure;
+}
+$check(
+    $schemaFailure instanceof CoreCaptureSchemaException
+        && $schemaFailure->missing === [['table' => 'posts', 'column' => 'post_excerpt']],
+    'core schema refusal carries one stable logical table/column location without exposing the physical prefix'
+);
 $throws(
     static fn() => TableSchema::assert_core_capture_schema(),
     'wp_posts.post_excerpt',

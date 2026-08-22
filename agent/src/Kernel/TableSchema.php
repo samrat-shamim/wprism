@@ -3,6 +3,14 @@ namespace Duo;
 
 require_once __DIR__ . '/TableGraph.php';
 
+/** Typed carrier for the fixed, non-sensitive core schema locations that are absent. */
+final class CoreCaptureSchemaException extends \RuntimeException {
+    /** @param list<array{table:string,column:?string}> $missing */
+    public function __construct(public array $missing, string $message) {
+        parent::__construct($message);
+    }
+}
+
 /**
  * Live schema boundary for authored typed tables (DUO-3349).
  *
@@ -60,7 +68,8 @@ final class TableSchema {
         foreach ($requiredByProperty as $property => $columns) {
             $table = isset($wpdb->$property) ? (string) $wpdb->$property : '';
             if ($table === '') {
-                throw new \RuntimeException(
+                throw new CoreCaptureSchemaException(
+                    [['table' => $property, 'column' => null]],
                     "duo: core capture schema is unavailable — wpdb has no '$property' table binding"
                 );
             }
@@ -91,18 +100,27 @@ final class TableSchema {
             }
         }
         $missing = [];
-        foreach ($requiredByTable as $table => $columns) {
+        $missingPhysical = [];
+        foreach ($requiredByProperty as $property => $columns) {
+            $table = (string) $wpdb->$property;
             foreach ($columns as $column) {
                 if (!isset($live[$table][$column])) {
-                    $missing[] = "$table.$column";
+                    $missing[] = ['table' => $property, 'column' => $column];
+                    $missingPhysical[] = "$table.$column";
                 }
             }
         }
         if ($missing !== []) {
-            sort($missing, SORT_STRING);
-            throw new \RuntimeException(
+            usort($missing, static fn(array $left, array $right): int => [
+                $left['table'], (string) $left['column'],
+            ] <=> [
+                $right['table'], (string) $right['column'],
+            ]);
+            sort($missingPhysical, SORT_STRING);
+            throw new CoreCaptureSchemaException(
+                $missing,
                 'duo: core capture schema drift — required WordPress table/column(s) are missing or renamed: '
-                . implode(', ', $missing)
+                . implode(', ', $missingPhysical)
             );
         }
     }
