@@ -35,7 +35,8 @@
 #   PART 2 — target serialization, DIFFERENT destinations: a second capture
 #     owns an independent filesystem destination but shares the target ledger
 #     and embedded identities. It must refuse at the target-writer boundary,
-#     publish nothing, retain no lock artifact, and succeed on retry.
+#     publish no candidate artifacts, retain only Publish's documented inert
+#     lock file, and succeed through that same lock on retry.
 #   PART 3 — capture/apply cross-races: capture-held apply refusal and
 #     apply-held capture refusal both preserve the old target. The winning
 #     apply performs one content update and one verified rewrite rebuild;
@@ -477,11 +478,13 @@ require_compose_framing_only "$LOG_D_ERR" "different-destination machine refusal
 for artifact in \
   "$HOST_REPO1/.tmp-concurrency-other" \
   "$HOST_REPO1/.tmp-concurrency-other.capture-staging" \
-  "$HOST_REPO1/.tmp-concurrency-other.capture-backup" \
-  "$HOST_REPO1/.tmp-concurrency-other.capture.lock"; do
+  "$HOST_REPO1/.tmp-concurrency-other.capture-backup"; do
   { [ ! -e "$artifact" ] && [ ! -L "$artifact" ]; } \
     || fail "different-destination refusal leaked publication artifact $artifact"
 done
+[ -f "$HOST_REPO1/.tmp-concurrency-other.capture.lock" ] \
+  && [ ! -L "$HOST_REPO1/.tmp-concurrency-other.capture.lock" ] \
+  || fail "different-destination refusal did not retain exactly the documented regular lock file"
 read_capture_phase \
   || fail "could not prove capture C still held its fence after the different-destination refusal: $(tail -3 "$PHASE_ERR")"
 [ "$PHASE" = "locked" ] \
@@ -558,12 +561,14 @@ require_compose_framing_only "$LOG_APPLY_HELD_CAPTURE_ERR" "apply-held capture m
 for artifact in \
   "$HOST_REPO1/.tmp-apply-held-capture" \
   "$HOST_REPO1/.tmp-apply-held-capture.capture-staging" \
-  "$HOST_REPO1/.tmp-apply-held-capture.capture-backup" \
-  "$HOST_REPO1/.tmp-apply-held-capture.capture.lock"; do
+  "$HOST_REPO1/.tmp-apply-held-capture.capture-backup"; do
   { [ ! -e "$artifact" ] && [ ! -L "$artifact" ]; } \
     || fail "apply-held capture leaked publication artifact $artifact"
 done
-pass "apply-held capture refused without filesystem or target mutation"
+[ -f "$HOST_REPO1/.tmp-apply-held-capture.capture.lock" ] \
+  && [ ! -L "$HOST_REPO1/.tmp-apply-held-capture.capture.lock" ] \
+  || fail "apply-held capture did not retain exactly the documented regular lock file"
+pass "apply-held capture refused without candidate publication or target mutation"
 
 wait "$PID_APPLY" || { tail -80 "$LOG_APPLY_HOLDER"; fail "the target-writer apply holder failed"; }
 PID_APPLY=""
