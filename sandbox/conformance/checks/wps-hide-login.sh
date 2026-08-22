@@ -192,7 +192,15 @@ AUTH_ADMIN_CODE=$(curl --max-time 20 -sS -L -b "$COOKIE_JAR" -o "$LOGIN_BODY" -w
   && grep -Fq 'id="wpadminbar"' "$LOGIN_BODY" && ! grep -Fq 'id="loginform"' "$LOGIN_BODY" \
   || fail "authenticated wp-admin request did not reach a native admin screen after core canonical redirects (status=$AUTH_ADMIN_CODE)"
 rm -f "$COOKIE_JAR" "$LOGIN_HEADERS" "$LOGIN_BODY"
-pass "custom-path authentication succeeds and authenticated wp-admin remains reachable"
+if wp_conf2 option get whl_redirect >/dev/null 2>&1; then
+  fail "WPS Hide Login's first authenticated admin request did not consume its legacy one-shot whl_redirect marker"
+fi
+[ "$(wp_conf2 option get wps-hide-login-target-runtime-probe)" = target-only-neighbor ] \
+  || fail "WPS Hide Login legacy-marker cleanup mutated the undeclared neighbor"
+POST_ADMIN_REWRITE=$(wp_conf2 eval 'echo hash("sha256", maybe_serialize(get_option("rewrite_rules")));')
+[ "$POST_ADMIN_REWRITE" = "$(jq -r '.rewrite_hash' <<<"$INITIAL")" ] \
+  || fail "WPS Hide Login legacy-marker cleanup changed rewrite bytes"
+pass "custom-path authentication succeeds, authenticated wp-admin remains reachable, and the plugin consumes only its legacy one-shot marker"
 
 BEFORE_DEACTIVATE=$(observe_wps_hide_login conf2)
 wp_conf2 plugin deactivate wps-hide-login >/dev/null
@@ -216,9 +224,11 @@ fi
 if wp_conf2 option get whl_page >/dev/null 2>&1 || wp_conf2 option get whl_redirect_admin >/dev/null 2>&1; then
   fail "WPS Hide Login uninstall did not delete both plugin-owned route options"
 fi
-[ "$(wp_conf2 option get whl_redirect)" = "target-only-runtime-marker" ] \
-  && [ "$(wp_conf2 option get wps-hide-login-target-runtime-probe)" = "target-only-neighbor" ] \
-  || fail "WPS Hide Login uninstall mutated legacy runtime or undeclared neighboring state"
+if wp_conf2 option get whl_redirect >/dev/null 2>&1; then
+  fail "WPS Hide Login uninstall recreated its already-consumed legacy runtime marker"
+fi
+[ "$(wp_conf2 option get wps-hide-login-target-runtime-probe)" = "target-only-neighbor" ] \
+  || fail "WPS Hide Login uninstall mutated undeclared neighboring state"
 UNINSTALL_REWRITE_HASH=$(wp_conf2 eval 'echo hash("sha256", maybe_serialize(get_option("rewrite_rules")));')
 require_observed_nonempty "WPS Hide Login rewrite hash after uninstall" "$UNINSTALL_REWRITE_HASH"
 
@@ -285,7 +295,7 @@ jq -e '.warnings | any(contains("FORCED conflict options/core"))' <<<"$REINSTALL
 RECOVERED=$(observe_wps_hide_login conf2)
 printf '%s\n' "$RECOVERED" | jq -e '
   .login == "recovered-login" and .redirect == "recovered-missing" and
-  .runtime == "target-only-runtime-marker" and .neighbor == "target-only-neighbor" and
+  .runtime == null and .neighbor == "target-only-neighbor" and
   .sentinel == true and .rewrite_hash == .rewrite_probe_hash
 ' >/dev/null || fail "WPS Hide Login exact reinstall/apply did not recover source behavior without rewrite mutation: $RECOVERED"
 assert_wps_routes recovered-login recovered-missing
@@ -319,7 +329,7 @@ jq -e '.warnings | any(contains("FORCED conflict options/core"))' <<<"$FORCED" >
 BRANCH=$(observe_wps_hide_login conf2)
 printf '%s\n' "$BRANCH" | jq -e '
   .login == "branch-login" and .redirect == "branch-missing" and
-  .runtime == "target-only-runtime-marker" and .neighbor == "target-only-neighbor" and
+  .runtime == null and .neighbor == "target-only-neighbor" and
   .sentinel == true and .rewrite_hash == .rewrite_probe_hash
 ' >/dev/null || fail "forced WPS Hide Login conflict did not converge without collateral mutation: $BRANCH"
 assert_wps_routes branch-login branch-missing
@@ -354,9 +364,11 @@ if wp_conf2 option get whl_redirect_admin >/dev/null 2>&1; then
   fail "authorized WPS Hide Login redirect deletion left the row present"
 fi
 [ "$(wp_conf2 option get whl_page)" = branch-login ] \
-  && [ "$(wp_conf2 option get whl_redirect)" = target-only-runtime-marker ] \
   && [ "$(wp_conf2 option get wps-hide-login-target-runtime-probe)" = target-only-neighbor ] \
   || fail "authorized WPS Hide Login deletion mutated its sibling, runtime row, or undeclared neighbor"
+if wp_conf2 option get whl_redirect >/dev/null 2>&1; then
+  fail "authorized WPS Hide Login deletion recreated the consumed legacy runtime marker"
+fi
 wps_request GET '/wp-admin/'
 [ "$WPS_CODE" = 302 ] && [ "$WPS_LOCATION" = "http://localhost:${CONF2_PORT}/404/" ] \
   || fail "deleted redirect option did not expose WPS Hide Login's native /404/ fallback"
