@@ -20,7 +20,9 @@ $table = Code_Snippets\code_snippets()->db->get_table_name(false);
 $raw = $wpdb->get_results("SELECT id,name,description,code,tags,scope,condition_id,priority,active FROM `$table` ORDER BY id", ARRAY_A);
 $api = Code_Snippets\get_snippets();
 $byName = [];
+$idsByName = [];
 foreach ($api as $snippet) {
+    $idsByName[$snippet->name][] = (int) $snippet->id;
     $byName[$snippet->name] = [
         'active' => (bool) $snippet->active,
         'code_hash' => hash('sha256', (string) $snippet->code),
@@ -30,6 +32,10 @@ foreach ($api as $snippet) {
         'scope' => (string) $snippet->scope,
     ];
 }
+foreach ($idsByName as &$ids) {
+    sort($ids, SORT_NUMERIC);
+}
+unset($ids);
 $content = $byName['Duo portable content 東京 🚀']['id'] ?? 0;
 $page = get_page_by_path('code-snippets-reference-matrix', OBJECT, 'page');
 $pageContent = $page ? (string) $page->post_content : '';
@@ -57,7 +63,8 @@ echo wp_json_encode([
     'content_marker' => str_contains($contentById, 'duo-code-snippet-marker'),
     'content_unicode' => str_contains($contentById, '東京 🚀'),
     'flat_enabled' => Code_Snippets\Snippet_Files::is_active(),
-    'flat_tree' => $tree,
+    'flat_tree' => (object) $tree,
+    'ids_by_name' => $idsByName,
     'neighbor' => get_option('code_snippets_target_neighbor', null),
     'page_content' => $pageContent,
     'raw_count' => count($raw),
@@ -67,6 +74,7 @@ echo wp_json_encode([
     'source_alias_hash' => hash('sha256', $sourceByAlias),
     'source_hash' => hash('sha256', $sourceById),
     'source_marker' => str_contains($sourceById, 'duo-code-snippet-marker'),
+    'target_only_value' => apply_filters('duo_target_only_snippet', 'absent'),
 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 PHPEOF
   file="$repo_var/.tmp-code-snippets-observe.php"
@@ -328,10 +336,12 @@ if grep -Fq 'target-runtime-v2' <<<"$FORCED" || grep -Fq 'repository-runtime-v2'
 fi
 CONVERGED=$(observe_code_snippets conf2)
 printf '%s\n' "$CONVERGED" | jq -e --argjson target_only "$TARGET_ONLY_ID" '
-  .runtime_value == "base|repository-runtime-v2" and
+  .raw_count == 4 and .api_count == 4 and
+  .runtime_value == "base|repository-runtime-v2" and .target_only_value == "preserved" and
   .flat_enabled == false and .flat_tree == {} and
   .neighbor == "target-only-neighbor" and
-  ([.by_name[] | select(.id == $target_only)] | length) == 1
+  (.ids_by_name["Duo runtime filter"] | length) == 2 and
+  (.ids_by_name["Duo runtime filter"] | index($target_only)) != null
 ' >/dev/null || fail "Code Snippets forced conflict did not converge while preserving the target-only same-name row: $CONVERGED"
 
 ZERO_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
