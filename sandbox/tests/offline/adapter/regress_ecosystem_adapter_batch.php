@@ -4,8 +4,8 @@ declare(strict_types=1);
 /**
  * Offline product-path contract for the five exact-artifact adapters added by
  * the 2026-08-22 ecosystem probe, including the independently certified
- * Advanced Editor Tools, Classic Editor, Code Snippets, and WPS Hide Login
- * subjects. The assertions load the shipped manifests and disposition registry
+ * Advanced Editor Tools, Classic Editor, Code Snippets, WPS Hide Login, and
+ * Yoast Duplicate Post subjects. The assertions load the shipped manifests and disposition registry
  * through Policy::load(); fixtures would
  * miss the byte set that managed sites actually pin.
  *
@@ -53,6 +53,7 @@ $standaloneEntries = [
     'classic-editor' => Canon::decode(Canon::read_file($root . '/sandbox/conformance/entries/classic-editor.json')),
     'code-snippets' => Canon::decode(Canon::read_file($root . '/sandbox/conformance/entries/code-snippets.json')),
     'wps-hide-login' => Canon::decode(Canon::read_file($root . '/sandbox/conformance/entries/wps-hide-login.json')),
+    'yoast-duplicate-post' => Canon::decode(Canon::read_file($root . '/sandbox/conformance/entries/yoast-duplicate-post.json')),
 ];
 $artifactLock = Canon::decode(Canon::read_file($root . '/sandbox/conformance/artifacts.lock.json'));
 
@@ -91,7 +92,7 @@ $artifacts = [
 ];
 
 $effectiveRanges = $policy->version_ranges();
-$certified = ['advanced-editor-tools', 'classic-editor', 'code-snippets', 'wps-hide-login'];
+$certified = ['advanced-editor-tools', 'classic-editor', 'code-snippets', 'wps-hide-login', 'yoast-duplicate-post'];
 foreach ($artifacts as $name => $artifact) {
     $manifest = $manifests[$name];
     duo_check_same($artifact['plugin'], $manifest['plugin'] ?? null, "$name pins the observed plugin basename");
@@ -198,6 +199,10 @@ $refusalArtifacts = [
         'version' => '1.9.18',
         'sha256' => 'c150d7d5892e96d272f7768913ecd79d645c074aabe9092c0ef892224c392a15',
     ],
+    'duplicate-post' => [
+        'version' => '4.6',
+        'sha256' => 'd7a954adc571fd200e68c13d7f1a19d2b65b83cbdf1cc38c39c011d296e46123',
+    ],
 ];
 foreach ($refusalArtifacts as $slug => $artifact) {
     $locked = $artifactLock['plugins'][$slug][$artifact['version']] ?? null;
@@ -279,6 +284,25 @@ foreach ($duplicateOptions as $option) {
     duo_check_same('authored', $policy->option_rule($option)['class'] ?? null, "options.$option is portable authored policy");
 }
 duo_check_same('runtime', $policy->option_rule('duplicate_post_version')['class'] ?? null, 'options.duplicate_post_version remains an environment-local upgrade gate');
+$duplicateRoleActions = array_values(array_filter(
+    $policy->actions_for(['option:duplicate_post_roles']),
+    static fn(array $action): bool => ($action['provider'] ?? null) === 'yoast-duplicate-post-role-capabilities'
+));
+duo_check_same(1, count($duplicateRoleActions), 'Yoast Duplicate Post role policy schedules exactly one bounded provider');
+duo_check_same(
+    'reconcile_role_capabilities',
+    $duplicateRoleActions[0]['capability'] ?? null,
+    'Yoast Duplicate Post invokes the exact role-capability projection capability'
+);
+duo_check_same(
+    [['id' => 'yoast-duplicate-post-role-capability-map', 'kind' => 'database', 'mode' => 'restorable', 'selector' => ['scope' => 'database_checkpoint', 'type' => 'table', 'value' => 'options']]],
+    $duplicateRoleActions[0]['effects'] ?? null,
+    'Yoast Duplicate Post checkpoints the prefix-dependent merged role map before mutation'
+);
+duo_check(
+    is_file($root . '/manifests/providers/yoast-duplicate-post-role-capabilities.php'),
+    'the shipped Yoast Duplicate Post role provider source exists beside its manifest identity'
+);
 
 foreach ([
     'tadv_future_setting',
@@ -375,7 +399,7 @@ $blockerNames = array_values(array_unique(array_column($policy->certification_re
 sort($blockerNames, SORT_STRING);
 $sortedNames = array_values(array_diff($names, $certified));
 sort($sortedNames, SORT_STRING);
-duo_check_same($sortedNames, $blockerNames, 'only the still-experimental adapter blocks promotion through the capability registry');
+duo_check_same($sortedNames, $blockerNames, 'the independently certified adapters add no promotion blocker to the capability registry');
 
 $limitations = (string) file_get_contents($root . '/docs/guides/adapter-authoring-limitations.md');
 foreach ([

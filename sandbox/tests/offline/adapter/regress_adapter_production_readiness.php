@@ -114,9 +114,9 @@ $readyAdapters = array_keys(array_filter(
 ));
 sort($readyAdapters, SORT_STRING);
 duo_check_same(
-    ['advanced-editor-tools', 'classic-editor', 'code-snippets', 'wps-hide-login'],
+    ['advanced-editor-tools', 'classic-editor', 'code-snippets', 'wps-hide-login', 'yoast-duplicate-post'],
     $readyAdapters,
-    'only the four adapters with complete isolated adversarial and exact-version evidence are production-ready'
+    'only the five adapters with complete isolated adversarial and exact-version evidence are production-ready'
 );
 
 duo_check_summary('adapter production-readiness ledger');

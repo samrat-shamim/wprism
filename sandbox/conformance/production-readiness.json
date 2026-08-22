@@ -312,25 +312,24 @@
       "not_applicable": {}
     },
     "yoast-duplicate-post": {
-      "readiness": "unready",
-      "covered": {},
-      "gaps": {
-        "contract-dependency": "One exact exercise artifact exists, but no supported-boundary plus out-of-range refusal matrix exists.",
-        "clean-target": "The shared profile stops before deploy/apply.",
-        "dirty-target": "No same-slug original/copy, managed divergence, or target-only rewrite-and-republish workflow matrix exists.",
-        "identity-references": "The source reference is tokenized, but no target-ID divergence round-trip proves _dp_original materialization.",
-        "native-behavior": "The clone/original-link/settings behavior is checked only on the source.",
-        "deletion": "Duplicated-post deletion/refusal and reverse-reference behavior are not exercised.",
-        "failure-recovery": "No partial original/copy apply and retry/recovery exercise exists.",
-        "concurrency-idempotence": "No competing clone/reference/settings apply exercise exists.",
-        "lifecycle": "Activation, upgrade, downgrade refusal, deactivate/reactivate, workflow residue, and reinstall are untested.",
-        "data-boundary": "Long/UTF-8 affixes, large original IDs, malformed workflow meta, secrets, and schema drift lack a matrix.",
-        "scope-platform": "Optional post types/roles and the shared platform boundary are not exercised per adapter."
+      "readiness": "ready",
+      "covered": {
+        "contract-dependency": ["manifests/yoast-duplicate-post.json", "sandbox/conformance/entries/yoast-duplicate-post.json", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "clean-target": ["sandbox/conformance/seeds/yoast-duplicate-post.sh", "sandbox/conformance/checks/yoast-duplicate-post.sh"],
+        "dirty-target": ["sandbox/conformance/postdeploy/yoast-duplicate-post.sh", "sandbox/conformance/checks/yoast-duplicate-post.sh"],
+        "identity-references": ["sandbox/conformance/seeds/yoast-duplicate-post.sh", "sandbox/conformance/postdeploy/yoast-duplicate-post.sh", "sandbox/conformance/checks/yoast-duplicate-post.sh"],
+        "native-behavior": ["sandbox/conformance/seeds/yoast-duplicate-post.sh", "sandbox/conformance/checks/yoast-duplicate-post.sh"],
+        "derived-state": ["manifests/providers/yoast-duplicate-post-role-capabilities.php", "sandbox/tests/offline/adapter/regress_yoast_duplicate_post_role_provider.php", "sandbox/conformance/checks/yoast-duplicate-post.sh"],
+        "deletion": ["sandbox/conformance/checks/yoast-duplicate-post.sh"],
+        "failure-recovery": ["sandbox/tests/offline/adapter/regress_yoast_duplicate_post_role_provider.php", "sandbox/conformance/checks/yoast-duplicate-post.sh"],
+        "concurrency-idempotence": ["sandbox/conformance/checks/yoast-duplicate-post.sh"],
+        "lifecycle": ["sandbox/conformance/checks/yoast-duplicate-post.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "data-boundary": ["sandbox/conformance/seeds/yoast-duplicate-post.sh", "sandbox/conformance/postdeploy/yoast-duplicate-post.sh", "sandbox/conformance/checks/yoast-duplicate-post.sh"],
+        "scope-platform": ["sandbox/tests/offline/adapter/regress_yoast_duplicate_post_role_provider.php", "sandbox/tests/certify/certify_version_matrix.sh"]
       },
+      "gaps": {},
       "blocked": {},
-      "not_applicable": {
-        "derived-state": "The durable declared surface has no cache/index/rewrite provider; in-progress Rewrite & Republish state remains runtime-local."
-      }
+      "not_applicable": {}
     }
   }
 }

@@ -46,7 +46,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 | [woocommerce](#woocommerce) | certified | `woocommerce/woocommerce.php` | >=11.0.0 <12.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [wps-hide-login](#wps-hide-login) | certified | `wps-hide-login/wps-hide-login.php` | >=1.9.19 <1.9.20 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [yoast](#yoast) | certified | `wordpress-seo/wp-seo.php` | >=28.0 <29.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
-| [yoast-duplicate-post](#yoast-duplicate-post) | experimental | `duplicate-post/duplicate-post.php` | >=4.7 <4.8 | capture, compile, plan, recapture |
+| [yoast-duplicate-post](#yoast-duplicate-post) | certified | `duplicate-post/duplicate-post.php` | >=4.7 <4.8 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 
 ## core
 
@@ -355,24 +355,24 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 
 ## yoast-duplicate-post
 
-**Status: experimental.** Experimental exact-artifact draft: the closed settings registry and durable original-post reference are classified, with offline ref and boundary coverage but no clean-target clone/render conformance.
+**Status: certified.** Certified for exact Yoast Duplicate Post 4.7 on single-site WordPress with all 28 authored settings, native clone/taxonomy/meta behavior, large divergent post identities, durable _dp_original rewriting and plugin-native removal, settings/row-action/post-state/metabox rendering, a verified role-capability provider over hostile and missing-role targets, target-sovereign Rewrite & Republish residue, option and duplicated-post deletion authorization, conflict/force/idempotence, failure/retry, lifecycle residue and exact reinstall, credential-shaped-setting refusal, and official 4.6 refusal evidence.
 
 - **Plugin:** `duplicate-post/duplicate-post.php`
 - **Version range:** >=4.7 <4.8
-- **Operations:** capture, compile, plan, recapture
-- **Lifecycle phases:** none declared
+- **Operations:** apply, capture, compile, deploy, plan, promote, recapture, render-api
+- **Lifecycle phases:** retire, activate, verify
 - **Declared entities:** none
 - **Declared fields:** `options` (29 keys), `post_meta` (5: _dp_creation_date_gmt, _dp_has_been_republished, _dp_has_rewrite_republish_copy, _dp_is_rewrite_republish_copy, _dp_original)
+- **Adapter hooks:** 1 provider, 1 structured action
 - **Deletions supported:** none
-- **Deletions unsupported:** plugin-specific deletes
-- **Exercised by:** `conformance-ecosystem-adapter-batch`
+- **Deletions unsupported:** Rewrite & Republish workflow orchestration
+- **Exercised by:** `conformance-yoast-duplicate-post`, `exact-artifact-version-matrix`
 
 **Unsupported, explicitly.**
 
-- `deletions.*` / `delete` — No plugin-specific duplicated-post deletion semantics are declared.
-- `options.*|post_meta._dp_original` / `apply` — No clean-target clone/reference/settings round-trip has established hook-free option and post-meta apply for this exact artifact.
-- `post_meta._dp_is_rewrite_republish_copy|_dp_has_rewrite_republish_copy|_dp_has_been_republished|_dp_creation_date_gmt` / `apply` — In-progress Rewrite & Republish workflow state is runtime-sovereign and is not migrated.
-- `production` / `promote` — No exact-artifact clean-target clone, original-link, and settings-render evidence exists.
+- `post_meta._dp_is_rewrite_republish_copy|_dp_has_rewrite_republish_copy|_dp_has_been_republished|_dp_creation_date_gmt` / `apply` — In-progress Rewrite & Republish workflow state is target-sovereign and is neither migrated nor cleaned when a separately-authored duplicated post is deleted; the exact conformance profile proves those bytes remain untouched, including malformed and dangling values.
+- `rewrite-and-republish` / `delete` — Duo can remove authored provenance and ordinary duplicated-post entities, but it does not invoke the plugin's republish/delete-copy workflow or synthesize cleanup for an active Rewrite & Republish session.
+- `multisite` / `all` — Duo v1 and the role-capability provider refuse multisite; network role maps and network activation state are outside this adapter.
 
 ## Profiles
 
