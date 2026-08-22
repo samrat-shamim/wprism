@@ -1642,8 +1642,9 @@ check(
 putenv('DUO_MANIFESTS_DIR');
 
 foreach (NativeActions::vocabulary() as $action) {
+    $args = $action === 'transient.delete' ? ['name' => 'acme_b'] : [];
     accepts(
-        solo_b(['actions' => [['kind' => 'native', 'action' => $action, 'args' => ['name' => 'acme_b']]]]),
+        solo_b(['actions' => [['kind' => 'native', 'action' => $action, 'args' => $args]]]),
         "published native action '$action' is accepted by the runtime validator"
     );
 }

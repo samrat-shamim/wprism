@@ -1,0 +1,440 @@
+<?php
+declare(strict_types=1);
+
+/**
+ * Core permalink regeneration through the real NativeActions public boundary.
+ *
+ * Apply materializes authored options with direct SQL. WordPress therefore
+ * does not run Settings -> Permalinks' flush, and a non-empty target
+ * rewrite_rules row continues serving the old grammar. This fixture models
+ * the exact WordPress 7.0.3 WP_Rewrite contract the engine calls: init reads
+ * permalink_structure, a soft flush regenerates and persists ordered rules,
+ * and wp_rewrite_rules reads them back. Hostile storage/runtime states and
+ * dropped writes prove the checked receipt, not a command return, is the gate.
+ */
+
+require_once __DIR__ . '/../../lib/check.php';
+
+define('DUO_SPEC_VERSION', 2);
+
+$GLOBALS['core_rewrite_filters'] = [];
+$GLOBALS['core_rewrite_filter_calls'] = [];
+$GLOBALS['core_rewrite_action_calls'] = [];
+$GLOBALS['core_rewrite_wp_loaded'] = 1;
+$GLOBALS['core_rewrite_drop_write'] = false;
+$GLOBALS['core_rewrite_mutate_structure'] = false;
+
+function did_action(string $hook): int {
+    return $hook === 'wp_loaded' ? (int) $GLOBALS['core_rewrite_wp_loaded'] : 0;
+}
+
+function add_filter(string $hook, callable $callback, int $priority = 10, int $acceptedArgs = 1): bool {
+    $GLOBALS['core_rewrite_filters'][$hook][$priority][] = $callback;
+    ksort($GLOBALS['core_rewrite_filters'][$hook], SORT_NUMERIC);
+    return true;
+}
+
+function remove_filter(string $hook, callable $callback, int $priority = 10): bool {
+    foreach (($GLOBALS['core_rewrite_filters'][$hook][$priority] ?? []) as $index => $candidate) {
+        if ($candidate === $callback) {
+            unset($GLOBALS['core_rewrite_filters'][$hook][$priority][$index]);
+            return true;
+        }
+    }
+    return false;
+}
+
+function apply_filters(string $hook, mixed $value, mixed ...$args): mixed {
+    $GLOBALS['core_rewrite_filter_calls'][] = $hook;
+    foreach (($GLOBALS['core_rewrite_filters'][$hook] ?? []) as $callbacks) {
+        foreach ($callbacks as $callback) {
+            $value = $callback($value, ...$args);
+        }
+    }
+    return $value;
+}
+
+function do_action(string $hook, mixed ...$args): void {
+    $GLOBALS['core_rewrite_action_calls'][] = $hook;
+}
+
+function maybe_unserialize(mixed $value): mixed {
+    if (!is_string($value) || !preg_match('/^(?:a|O|s|b|i|d|N):/', $value)) {
+        return $value;
+    }
+    $decoded = @unserialize($value, ['allowed_classes' => false]);
+    return $decoded === false && $value !== 'b:0;' ? $value : $decoded;
+}
+
+function core_rewrite_serialize(mixed $value): string {
+    return is_array($value) || is_object($value) || is_bool($value) || is_int($value) || is_float($value)
+        ? serialize($value)
+        : (string) $value;
+}
+
+final class CoreRewriteFakeWpdb {
+    public string $options = 'wp_options';
+    public string $last_error = '';
+    /** @var array<string,string> */
+    public array $optionRows = [];
+    /** @var array<string,int> */
+    public array $failReads = [];
+    /** @var list<string> */
+    public array $readNames = [];
+
+    public function prepare(string $query, mixed ...$args): string {
+        foreach ($args as $arg) {
+            $query = preg_replace('/%s/', "'" . addslashes((string) $arg) . "'", $query, 1) ?? $query;
+        }
+        return $query;
+    }
+
+    public function get_var(string $query): string|false|null {
+        if (!preg_match(
+            "/SELECT option_(?:name|value) FROM wp_options WHERE option_name = '((?:[^'\\\\]|\\\\.)*)' LIMIT 1/",
+            $query,
+            $match
+        )) {
+            throw new RuntimeException("unexpected core rewrite option query: $query");
+        }
+        $name = stripslashes($match[1]);
+        $this->readNames[] = $name;
+        if (($this->failReads[$name] ?? 0) > 0) {
+            $this->failReads[$name]--;
+            $this->last_error = 'injected database detail which must not escape';
+            return false;
+        }
+        $this->last_error = '';
+        if (!array_key_exists($name, $this->optionRows)) {
+            return null;
+        }
+        return str_starts_with($query, 'SELECT option_name') ? $name : $this->optionRows[$name];
+    }
+}
+
+function get_option(string $name, mixed $default = false): mixed {
+    global $wpdb;
+    $pre = apply_filters("pre_option_$name", false, $name, $default);
+    $pre = apply_filters('pre_option', $pre, $name, $default);
+    if ($pre !== false) {
+        return $pre;
+    }
+    if (!array_key_exists($name, $wpdb->optionRows)) {
+        return apply_filters("default_option_$name", $default, $name, false);
+    }
+    return apply_filters("option_$name", maybe_unserialize($wpdb->optionRows[$name]), $name);
+}
+
+function update_option(string $name, mixed $value): bool {
+    global $wpdb;
+    $old = get_option($name, null);
+    $value = apply_filters("pre_update_option_$name", $value, $old, $name);
+    $value = apply_filters('pre_update_option', $value, $name, $old);
+    if ($old === $value) {
+        return false;
+    }
+    do_action('update_option', $name, $old, $value);
+    if ($GLOBALS['core_rewrite_drop_write'] && $name === 'rewrite_rules') {
+        return false;
+    }
+    $wpdb->optionRows[$name] = core_rewrite_serialize($value);
+    do_action("update_option_$name", $old, $value, $name);
+    do_action('updated_option', $name, $old, $value);
+    return true;
+}
+
+final class CoreRewriteRuntime {
+    public mixed $permalink_structure = '/target-old/%post_id%/';
+    public mixed $rules = ['^target-old/([0-9]+)/?$' => 'index.php?p=$matches[1]'];
+    public int $initCalls = 0;
+    public int $flushCalls = 0;
+    public int $hardFlushes = 0;
+
+    public function init(): void {
+        $this->initCalls++;
+        $this->permalink_structure = get_option('permalink_structure', false);
+    }
+
+    /** @return array<string,string> */
+    private function generated_rules(): array {
+        $structure = $this->permalink_structure === false ? '' : (string) $this->permalink_structure;
+        $rules = ['^wp-json/?$' => 'index.php?rest_route=/'];
+        if ($structure === '') {
+            $rules['^index\.php$'] = 'index.php';
+            return $rules;
+        }
+        $fingerprint = substr(hash('sha256', $structure), 0, 16);
+        $rules['^portable/([^/]+)/?$'] = 'index.php?name=$matches[1]&grammar=' . $fingerprint;
+        $rules['^portable/page/([0-9]+)/?$'] = 'index.php?paged=$matches[1]&grammar=' . $fingerprint;
+        return $rules;
+    }
+
+    public function flush_rules(bool $hard = true): void {
+        $this->flushCalls++;
+        if ($hard) {
+            $this->hardFlushes++;
+        }
+        if (!did_action('wp_loaded')) {
+            return;
+        }
+        $this->rules = apply_filters('rewrite_rules_array', $this->generated_rules());
+        update_option('rewrite_rules', $this->rules);
+        if ($GLOBALS['core_rewrite_mutate_structure']) {
+            $GLOBALS['wpdb']->optionRows['permalink_structure'] = '/raced/%postname%/';
+        }
+    }
+
+    public function wp_rewrite_rules(): mixed {
+        $this->rules = get_option('rewrite_rules');
+        if (empty($this->rules)) {
+            $this->flush_rules(false);
+        }
+        return $this->rules;
+    }
+}
+
+/** Reset one dirty target after Apply has already written the source grammar. */
+function core_rewrite_reset(string|false $structure = '/source/%postname%/'): void {
+    global $wpdb, $wp_rewrite;
+    $wpdb = new CoreRewriteFakeWpdb();
+    if ($structure !== false) {
+        $wpdb->optionRows['permalink_structure'] = $structure;
+    }
+    $wpdb->optionRows['rewrite_rules'] = serialize([
+        '^target-old/([0-9]+)/?$' => 'index.php?p=$matches[1]',
+    ]);
+    $wp_rewrite = new CoreRewriteRuntime();
+    $GLOBALS['core_rewrite_filters'] = [];
+    $GLOBALS['core_rewrite_filter_calls'] = [];
+    $GLOBALS['core_rewrite_action_calls'] = [];
+    $GLOBALS['core_rewrite_wp_loaded'] = 1;
+    $GLOBALS['core_rewrite_drop_write'] = false;
+    $GLOBALS['core_rewrite_mutate_structure'] = false;
+}
+
+/** @param callable():mixed $callback */
+function core_rewrite_refuses(callable $callback, string $needle, string $message): void {
+    try {
+        $callback();
+        duo_check(false, "$message (expected refusal containing '$needle')");
+    } catch (RuntimeException $e) {
+        duo_check(
+            str_contains($e->getMessage(), $needle),
+            "$message ({$e->getMessage()})"
+        );
+    }
+}
+
+$root = dirname(__DIR__, 4);
+require_once $root . '/agent/src/Policy/Policy.php';
+
+putenv('DUO_MANIFESTS_DIR=' . $root . '/manifests');
+$policy = Duo\Policy::load(null, ['core']);
+$selected = $policy->actions_for(['option:permalink_structure']);
+duo_check_same(1, count($selected), 'core selects exactly one action for the permalink surface');
+duo_check_same('rewrite.flush', $selected[0]['action'] ?? null, 'core selects the closed rewrite.flush operation');
+duo_check_same([], $selected[0]['args'] ?? null, 'rewrite.flush has no manifest-controlled payload');
+duo_check_same(
+    [],
+    $policy->actions_for(['option:blogname']),
+    'unrelated authored options never cause a blanket rewrite flush'
+);
+duo_check_same([], $policy->actions_for([]), 'a read-only apply never fires rewrite.flush');
+$effects = array_column($selected[0]['effects'] ?? [], 'id');
+duo_check_same(
+    [
+        'core-rewrite-rules',
+        'core-rewrite-rules-cache',
+        'core-permalink-pre-option-filter',
+        'core-permalink-pre-option-generic-filter',
+        'core-permalink-option-filter',
+        'core-permalink-default-option-filter',
+        'core-rewrite-rules-array-filter',
+        'core-rewrite-pre-update-filter',
+        'core-rewrite-pre-update-generic-filter',
+        'core-rewrite-update-option-hook',
+        'core-rewrite-update-specific-hook',
+        'core-rewrite-updated-option-hook',
+    ],
+    $effects,
+    'core inventories the database, cache, filters, and hooks reached by the native path'
+);
+
+duo_check_same(
+    ['transient.delete', 'rewrite.flush'],
+    Duo\NativeActions::vocabulary(),
+    'the native vocabulary stays closed at its two reviewed WordPress-core operations'
+);
+duo_check_same([], Duo\NativeActions::arg_schemas()['rewrite.flush'] ?? null, 'rewrite.flush publishes an empty argument schema');
+Duo\NativeActions::validate('rewrite.flush', [], 'core.actions[0]');
+core_rewrite_refuses(
+    static fn() => Duo\NativeActions::validate('rewrite.flush', ['hard' => true], 'core.actions[0]'),
+    'unknown key(s)',
+    'a manifest cannot turn the soft flush into a filesystem-writing hard flush'
+);
+
+core_rewrite_reset();
+$first = Duo\NativeActions::execute('rewrite.flush', []);
+duo_check(($first['verified'] ?? null) === true, 'dirty target rewrite regeneration returns only after verified readback');
+duo_check_same('rewrite.flush', $first['action'] ?? null, 'receipt names the exact closed action');
+duo_check_same([], $first['args'] ?? null, 'receipt carries no attacker-controlled action arguments');
+duo_check_same(1, $wp_rewrite->initCalls, 'the loaded runtime is reinitialized from the just-applied permalink row');
+duo_check_same(1, $wp_rewrite->flushCalls, 'the dirty target is flushed exactly once');
+duo_check_same(0, $wp_rewrite->hardFlushes, 'rewrite.flush never writes target-owned web-server configuration');
+duo_check_same('/source/%postname%/', get_option('permalink_structure'), 'the authored permalink grammar remains exact');
+duo_check(is_array(get_option('rewrite_rules')), 'stale target rules are replaced by an array-valued native projection');
+duo_check(
+    !array_key_exists('^target-old/([0-9]+)/?$', get_option('rewrite_rules')),
+    'the old target URL grammar no longer survives as a non-empty cache row'
+);
+duo_check(
+    ($first['before']['runtime_permalink_matches'] ?? null) === false
+        && ($first['after']['runtime_permalink_matches'] ?? null) === true,
+    'receipt proves the hostile in-process rewrite runtime converged too'
+);
+$publicReceipt = json_encode($first, JSON_THROW_ON_ERROR);
+duo_check(
+    !str_contains($publicReceipt, '/source/%postname%/')
+        && !str_contains($publicReceipt, 'target-old')
+        && !str_contains($publicReceipt, 'portable'),
+    'receipt publishes hashes, counts, and types without permalink or rule plaintext'
+);
+duo_check(
+    in_array('rewrite_rules_array', $GLOBALS['core_rewrite_filter_calls'], true)
+        && in_array('pre_update_option_rewrite_rules', $GLOBALS['core_rewrite_filter_calls'], true)
+        && in_array('update_option_rewrite_rules', $GLOBALS['core_rewrite_action_calls'], true)
+        && in_array('updated_option', $GLOBALS['core_rewrite_action_calls'], true),
+    'the fake observes the exact native rewrite/update extension points inventoried by core.json'
+);
+
+$stableRows = $wpdb->optionRows;
+$second = Duo\NativeActions::execute('rewrite.flush', []);
+duo_check_same($stableRows, $wpdb->optionRows, 'an immediate retry is byte-idempotent in persistent storage');
+duo_check_same($first['after'], $second['before'], 'retry begins from the exact previously verified postcondition');
+duo_check_same($first['after'], $second['after'], 'retry preserves the exact verified rewrite evidence');
+
+foreach (['', '/archives/%post_id%/', '/東京/%category%/%postname%/', str_repeat('/segment', 512) . '/%postname%/'] as $structure) {
+    core_rewrite_reset($structure);
+    $receipt = Duo\NativeActions::execute('rewrite.flush', []);
+    duo_check_same($structure, get_option('permalink_structure'), "permalink boundary round-trips exact source bytes (length " . strlen($structure) . ')');
+    duo_check(
+        ($receipt['after']['rules_count'] ?? 0) >= 2
+            && ($receipt['after']['rules_hash'] ?? null) === ($receipt['after']['runtime_rules_hash'] ?? null),
+        "permalink boundary regenerates ordered rules with database/runtime hash parity (length " . strlen($structure) . ')'
+    );
+}
+
+core_rewrite_reset(false);
+$absent = Duo\NativeActions::execute('rewrite.flush', []);
+duo_check(!array_key_exists('permalink_structure', $wpdb->optionRows), 'explicit authored option deletion stays deleted after regeneration');
+duo_check(($absent['after']['permalink_present'] ?? null) === false, 'deletion receipt distinguishes absence from an empty stored string');
+duo_check_same('', $wp_rewrite->permalink_structure, 'absent row initializes WordPress to semantic plain-permalink state');
+duo_check(
+    ($GLOBALS['core_rewrite_filters']['default_option_permalink_structure'][PHP_INT_MAX] ?? []) === [],
+    'the temporary absent-row default filter is removed before the action returns'
+);
+
+core_rewrite_reset();
+$GLOBALS['core_rewrite_wp_loaded'] = 0;
+$before = $wpdb->optionRows;
+core_rewrite_refuses(
+    static fn() => Duo\NativeActions::execute('rewrite.flush', []),
+    'refused before wp_loaded',
+    'an incomplete WordPress bootstrap refuses instead of scheduling an unreceipted later mutation'
+);
+duo_check_same($before, $wpdb->optionRows, 'pre-wp_loaded refusal mutates no persistent state');
+duo_check_same(0, $wp_rewrite->initCalls, 'pre-wp_loaded refusal occurs before runtime reinitialization');
+
+core_rewrite_reset();
+$wpdb->failReads['permalink_structure'] = 1;
+core_rewrite_refuses(
+    static fn() => Duo\NativeActions::execute('rewrite.flush', []),
+    "checked option read failed for 'permalink_structure'",
+    'permalink database failure is not mistaken for option absence'
+);
+duo_check_same(0, $wp_rewrite->flushCalls, 'permalink checked-read failure refuses before the native flush');
+
+core_rewrite_reset();
+$wpdb->failReads['rewrite_rules'] = 1;
+core_rewrite_refuses(
+    static fn() => Duo\NativeActions::execute('rewrite.flush', []),
+    "checked option read failed for 'rewrite_rules'",
+    'rewrite database failure is not mistaken for stale-but-repairable state'
+);
+duo_check_same(0, $wp_rewrite->flushCalls, 'rewrite checked-read failure refuses before the native flush');
+
+core_rewrite_reset();
+$wpdb->optionRows['permalink_structure'] = serialize(['not' => 'a string']);
+core_rewrite_refuses(
+    static fn() => Duo\NativeActions::execute('rewrite.flush', []),
+    'plain string',
+    'malformed structured permalink data refuses before WordPress consumes it'
+);
+duo_check_same(0, $wp_rewrite->flushCalls, 'malformed permalink data reaches no rewrite mutation');
+
+core_rewrite_reset();
+add_filter(
+    'pre_option_permalink_structure',
+    static fn($pre): string => '/filtered/%post_id%/'
+);
+core_rewrite_refuses(
+    static fn() => Duo\NativeActions::execute('rewrite.flush', []),
+    'could not initialize the loaded rewrite runtime',
+    'an extension override that contradicts the checked permalink row refuses before rule regeneration'
+);
+duo_check_same(0, $wp_rewrite->flushCalls, 'contradictory permalink filter reaches no rewrite mutation');
+
+core_rewrite_reset();
+$wpdb->optionRows['rewrite_rules'] = 'hostile non-array residue';
+$repaired = Duo\NativeActions::execute('rewrite.flush', []);
+duo_check(
+    ($repaired['before']['rules_type'] ?? null) === 'string'
+        && ($repaired['after']['rules_type'] ?? null) === 'array',
+    'non-array target rewrite residue is observable by type and repaired to the native shape'
+);
+
+core_rewrite_reset();
+add_filter('rewrite_rules_array', static fn(array $rules): string => 'malformed filtered rules');
+core_rewrite_refuses(
+    static fn() => Duo\NativeActions::execute('rewrite.flush', []),
+    'did not generate an array-valued rewrite runtime',
+    'a malformed extension rewrite projection cannot produce a verified native-action receipt'
+);
+duo_check_same(
+    'malformed filtered rules',
+    maybe_unserialize($wpdb->optionRows['rewrite_rules']),
+    'malformed generated rewrite residue remains visible for checkpoint recovery after refusal'
+);
+
+core_rewrite_reset();
+$GLOBALS['core_rewrite_drop_write'] = true;
+core_rewrite_refuses(
+    static fn() => Duo\NativeActions::execute('rewrite.flush', []),
+    'generated rewrite rules disagree',
+    'a dropped rewrite_rules write cannot produce a command-success receipt'
+);
+duo_check_same(
+    ['^target-old/([0-9]+)/?$' => 'index.php?p=$matches[1]'],
+    maybe_unserialize($wpdb->optionRows['rewrite_rules']),
+    'dropped-write refusal leaves the hostile persistent row visible for recovery'
+);
+
+core_rewrite_reset();
+$GLOBALS['core_rewrite_mutate_structure'] = true;
+core_rewrite_refuses(
+    static fn() => Duo\NativeActions::execute('rewrite.flush', []),
+    'loaded permalink structure disagrees',
+    'a concurrent permalink change during regeneration is detected as recovery-required drift'
+);
+
+core_rewrite_reset();
+$savedRuntime = $wp_rewrite;
+$wp_rewrite = null;
+core_rewrite_refuses(
+    static fn() => Duo\NativeActions::execute('rewrite.flush', []),
+    'loaded WordPress rewrite runtime',
+    'missing WordPress rewrite runtime refuses with an actionable boundary message'
+);
+$wp_rewrite = $savedRuntime;
+
+duo_check_summary('core rewrite native action');

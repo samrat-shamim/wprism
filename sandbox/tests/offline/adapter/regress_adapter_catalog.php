@@ -364,9 +364,9 @@ check(
 
 $core = row_named($listReport, 'core');
 check(
-    is_array($core) && $core['trust_tier'] === 'declarative_manifest'
-    && str_contains((string) $core['tier_basis'], 'no interpreter, regenerator, provider, or native action'),
-    'a data-only adapter reports the lowest tier and says explicitly that nothing executable is declared'
+    is_array($core) && $core['trust_tier'] === 'native_action'
+    && $core['tier_basis'] === 'actions[0] kind "native" (action \'rewrite.flush\')',
+    'the core adapter reports its native-action tier and the exact declaration that grants it executable authority'
 );
 $agency = row_named($listReport, 'duo-agency-cpt');
 check(

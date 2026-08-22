@@ -6,6 +6,139 @@ set -euo pipefail
 # used at the DUO-3345 explain slice below (sourced like _retry_helper.sh).
 source "$(dirname "${BASH_SOURCE[0]}")/_explain_registry.sh"
 
+# DUO-3509: the initial apply must run core's native rewrite repair, publish a
+# bounded receipt, and leave both WordPress's API and the public HTTP route on
+# the source grammar. Canonical byte equality cannot see rewrite_rules because
+# that row is deliberately derived, so this is the independent behavior gate.
+require_observed_nonempty "initial core apply JSON" "${APPLY_JSON:-}"
+jq -e '
+  .canary == "clean" and
+  (.warnings | any(. == "native action fired: rewrite.flush (verified)")) and
+  ([.actions[]? | select(
+    .manifest == "core" and .source == "native:rewrite.flush" and
+    .kind == "native" and .verified == true and
+    .before.permalink_present == true and .after.permalink_present == true and
+    (.after.permalink_hash | test("^[a-f0-9]{64}$")) and
+    (.after.rules_hash | test("^[a-f0-9]{64}$")) and
+    .after.rules_hash == .after.runtime_rules_hash and
+    .after.runtime_permalink_matches == true and .after.rules_count > 0
+  )] | length) == 1
+' <<<"$APPLY_JSON" >/dev/null \
+  || fail "initial core apply lacked its one verified hash/count-only rewrite.flush receipt: $APPLY_JSON"
+! grep -Fq '/journal/%postname%/' <<<"$APPLY_JSON" \
+  && ! grep -Fq '/target/%post_id%/' <<<"$APPLY_JSON" \
+  || fail "rewrite.flush receipt leaked source or target permalink plaintext: $APPLY_JSON"
+
+CORE_REWRITE_STATE=$(wp_conf2 eval '
+global $wp_rewrite;
+$stored = get_option("rewrite_rules");
+$wp_rewrite->init();
+$generated = $wp_rewrite->rewrite_rules();
+$post = get_page_by_path("hello-conformance", OBJECT, "post");
+echo wp_json_encode([
+  "structure" => get_option("permalink_structure"),
+  "stored_type" => get_debug_type($stored),
+  "stored_count" => is_array($stored) ? count($stored) : -1,
+  "rules_match" => is_array($stored) && $stored === $generated,
+  "post_id" => $post ? (int) $post->ID : 0,
+  "permalink" => $post ? get_permalink($post) : "",
+  "resolved_id" => $post ? url_to_postid(get_permalink($post)) : 0,
+]);
+')
+require_duo_answered "conf2 core rewrite state" json "$CORE_REWRITE_STATE"
+jq -e --arg port "$CONF2_PORT" '
+  .structure == "/journal/%postname%/" and
+  .stored_type == "array" and .stored_count > 0 and .rules_match == true and
+  .post_id > 0 and .resolved_id == .post_id and
+  .permalink == ("http://localhost:" + $port + "/journal/hello-conformance/")
+' <<<"$CORE_REWRITE_STATE" >/dev/null \
+  || fail "core rewrite state did not converge through WordPress APIs: $CORE_REWRITE_STATE"
+CORE_JOURNAL_BODY=$(curl -fsSL "http://localhost:${CONF2_PORT}/journal/hello-conformance/") \
+  || fail "source permalink route did not return HTTP success after apply"
+grep -Fq 'Hello from the core conformance seed.' <<<"$CORE_JOURNAL_BODY" \
+  || fail "source permalink route did not render the applied post"
+CORE_OLD_CODE=$(curl -sS -o /dev/null -w '%{http_code}' "http://localhost:${CONF2_PORT}/target/$(jq -r '.post_id' <<<"$CORE_REWRITE_STATE")/")
+[ "$CORE_OLD_CODE" != 200 ] \
+  || fail "old target permalink grammar still served the post after rewrite regeneration"
+pass "dirty target permalink_structure + non-empty rewrite_rules converge through one verified soft action; API resolution and HTTP behavior use only the source grammar"
+
+# The same exact action must fail after the authored commit when WordPress
+# refuses the derived-row write, retain retry authority, and recover without a
+# second source edit. The MU filter models a real extension/object-store write
+# veto at WordPress's public option boundary; the action's generated-vs-stored
+# hash comparison is the gate that catches it.
+wp_conf1 eval '
+global $wp_rewrite;
+$wp_rewrite->set_permalink_structure("/dispatch/%postname%/");
+$wp_rewrite->flush_rules(false);
+' >/dev/null
+wp_conf1 duo capture --repo=/siterepo >/dev/null
+git -C "$CONF_REPO1" add -A
+git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 'conformance: core permalink retry intent'
+git -C "$CONF_REPO1" push -q origin main
+git -C "$CONF_REPO2" pull -q origin main
+
+CORE_REWRITE_MU_MAY_EXIST=1
+remove_core_rewrite_fault() {
+  $COMPOSE exec -T --user root wp2 rm -f -- /var/www/html/wp-content/mu-plugins/duo-core-rewrite-fault.php >/dev/null 2>&1
+}
+cleanup_core_rewrite_fault() {
+  local status=$?
+  trap - EXIT
+  if [ "${CORE_REWRITE_MU_MAY_EXIST:-0}" -eq 1 ]; then
+    remove_core_rewrite_fault || true
+  fi
+  exit "$status"
+}
+trap cleanup_core_rewrite_fault EXIT
+$COMPOSE exec -T --user root wp2 sh -c \
+  'printf "%s\n" "<?php" "add_filter(\"pre_update_option_rewrite_rules\", static function (\$new, \$old) { return \$old; }, PHP_INT_MAX, 2);" > /var/www/html/wp-content/mu-plugins/duo-core-rewrite-fault.php'
+[ "$(wp_conf2 eval 'echo has_filter("pre_update_option_rewrite_rules") ? "registered" : "missing";')" = registered ] \
+  || fail "core rewrite dropped-write fault filter was not registered"
+CORE_REWRITE_REV_BEFORE=$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')
+require_observed_nonempty "conf2 applied revision before rewrite fault" "$CORE_REWRITE_REV_BEFORE"
+CORE_REWRITE_FAIL_RC=0
+CORE_REWRITE_FAIL=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || CORE_REWRITE_FAIL_RC=$?
+require_duo_answered "conf2 core rewrite dropped-write apply" human "$CORE_REWRITE_FAIL"
+[ "$CORE_REWRITE_FAIL_RC" -ne 0 ] \
+  && grep -Fq "required manifest action 'native:rewrite.flush' failed" <<<"$CORE_REWRITE_FAIL" \
+  && grep -Fq 'generated rewrite rules disagree with the checked database row; recovery_required' <<<"$CORE_REWRITE_FAIL" \
+  || fail "dropped rewrite write did not fail through the exact required action: $CORE_REWRITE_FAIL"
+! grep -Fq '/dispatch/%postname%/' <<<"$CORE_REWRITE_FAIL" \
+  && ! grep -Fq '/journal/%postname%/' <<<"$CORE_REWRITE_FAIL" \
+  || fail "rewrite failure diagnostic leaked source or previous permalink plaintext: $CORE_REWRITE_FAIL"
+[ "$(wp_conf2 option get permalink_structure)" = '/dispatch/%postname%/' ] \
+  || fail "rewrite failure did not reach the post-commit authored state needed for retry"
+[ "$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')" = "$CORE_REWRITE_REV_BEFORE" ] \
+  || fail "failed required rewrite action advanced applied_revision"
+[ "$(wp_conf2 eval 'echo null === \Duo\Ledger::kv_get("apply_in_progress") ? "missing" : "retained";')" = retained ] \
+  || fail "failed required rewrite action did not retain apply_in_progress retry authority"
+
+remove_core_rewrite_fault
+CORE_REWRITE_MU_MAY_EXIST=0
+trap - EXIT
+CORE_REWRITE_RETRY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered "conf2 core rewrite retry" json "$CORE_REWRITE_RETRY"
+jq -e '
+  .canary == "clean" and
+  (.warnings | any(. == "native action fired: rewrite.flush (verified)")) and
+  ([.actions[]? | select(.source == "native:rewrite.flush" and .verified == true and .after.rules_hash == .after.runtime_rules_hash)] | length) == 1
+' <<<"$CORE_REWRITE_RETRY" >/dev/null \
+  || fail "core rewrite retry did not converge with one verified action receipt: $CORE_REWRITE_RETRY"
+[ "$(wp_conf2 eval 'echo null === \Duo\Ledger::kv_get("apply_in_progress") ? "cleared" : "retained";')" = cleared ] \
+  || fail "successful core rewrite retry retained apply_in_progress"
+CORE_DISPATCH_URL=$(wp_conf2 eval '$p=get_page_by_path("hello-conformance", OBJECT, "post"); echo $p ? get_permalink($p) : "";')
+require_observed_nonempty "conf2 dispatch permalink after rewrite retry" "$CORE_DISPATCH_URL"
+[ "$CORE_DISPATCH_URL" = "http://localhost:${CONF2_PORT}/dispatch/hello-conformance/" ] \
+  || fail "rewrite retry did not change the public permalink: $CORE_DISPATCH_URL"
+curl -fsSL "$CORE_DISPATCH_URL" | grep -Fq 'Hello from the core conformance seed.' \
+  || fail "rewrite retry route did not resolve and render the repository post"
+CORE_REWRITE_ZERO=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered "conf2 core rewrite zero-change retry" json "$CORE_REWRITE_ZERO"
+jq -e '.canary == "clean" and .actions == []' <<<"$CORE_REWRITE_ZERO" >/dev/null \
+  || fail "zero-change core retry fired rewrite.flush or dirtied the canary: $CORE_REWRITE_ZERO"
+pass "dropped native rewrite write fails after commit with redacted evidence, retains retry authority, then exact retry converges and a zero-change apply fires nothing"
+
 # DUO-3264: dynamic_options.theme_mods -- proof beyond the generic
 # byte-diff already run above in run.sh (which only proves conf1's
 # captured tokens equal conf2's captured tokens; it can't see whether the

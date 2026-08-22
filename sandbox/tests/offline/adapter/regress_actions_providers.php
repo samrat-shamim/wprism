@@ -322,7 +322,10 @@ check(true, 'an argument-free action stays expressible as {} (an empty array is 
 
 echo "\n== actions: native entries are bound to the closed engine vocabulary ==\n";
 
-check(NativeActions::vocabulary() === ['transient.delete'], 'the v1 native vocabulary is exactly transient.delete');
+check(
+    NativeActions::vocabulary() === ['transient.delete', 'rewrite.flush'],
+    'the v1 native vocabulary is exactly transient.delete and rewrite.flush'
+);
 $m = probe_manifest();
 $m['actions'][0]['action'] = ['transient.delete'];
 refuse_probe($m, '.action must be a string', 'a non-string native action name is refused');
@@ -904,7 +907,7 @@ check(
 
 echo "\n== purely declarative adapters keep the pre-change behavior exactly ==\n";
 
-foreach (['acf', 'core', 'contact-form-7'] as $name) {
+foreach (['acf', 'contact-form-7'] as $name) {
     $declarative = $shippedPolicies[$name] ?? null;
     check($declarative !== null, "purely declarative manifest '$name' loads");
     if ($declarative === null) {
@@ -925,6 +928,21 @@ foreach (['acf', 'core', 'contact-form-7'] as $name) {
         "'$name' still projects its engine-owned and lifecycle effects unchanged"
     );
 }
+
+$corePolicy = $shippedPolicies['core'];
+$coreActions = $corePolicy->actions_for(['option:permalink_structure']);
+check(
+    count($coreActions) === 1
+        && ($coreActions[0]['kind'] ?? null) === 'native'
+        && ($coreActions[0]['action'] ?? null) === 'rewrite.flush'
+        && ($coreActions[0]['args'] ?? null) === [],
+    'core selects its argument-free native rewrite flush only for the authored permalink surface'
+);
+check(
+    $corePolicy->provider_declarations() === []
+        && $corePolicy->actions_for(['option:blogname']) === [],
+    'core needs no plugin provider and unrelated authored options select no action'
+);
 
 // ======================================================================
 echo "\n== digest binding: manifest-shipped provider bytes are part of the adapter's identity ==\n";

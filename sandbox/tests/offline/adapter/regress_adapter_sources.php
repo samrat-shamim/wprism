@@ -1677,8 +1677,8 @@ if (preg_match_all('/  trust_tier: ([a-z_]+)\n/', $allText, $tierMatches) > 0) {
     sort($allTiers, SORT_STRING);
 }
 check(
-    $allTiers === ['compatibility_shim', 'declarative_manifest', 'plugin_provider'],
-    'the shipped library really does span three tiers, so "every row says shipped/declarative" would be a visibly '
+    $allTiers === ['compatibility_shim', 'declarative_manifest', 'native_action', 'plugin_provider'],
+    'the shipped library really does span four tiers, so "every row says shipped/declarative" would be a visibly '
     . 'wrong answer here (found: ' . implode(', ', $allTiers) . ')'
 );
 
