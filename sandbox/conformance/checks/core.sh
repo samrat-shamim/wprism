@@ -131,8 +131,10 @@ CORE_DISPATCH_URL=$(wp_conf2 eval '$p=get_page_by_path("hello-conformance", OBJE
 require_observed_nonempty "conf2 dispatch permalink after rewrite retry" "$CORE_DISPATCH_URL"
 [ "$CORE_DISPATCH_URL" = "http://localhost:${CONF2_PORT}/dispatch/hello-conformance/" ] \
   || fail "rewrite retry did not change the public permalink: $CORE_DISPATCH_URL"
-curl -fsSL "$CORE_DISPATCH_URL" | grep -Fq 'Hello from the core conformance seed.' \
-  || fail "rewrite retry route did not resolve and render the repository post"
+CORE_DISPATCH_BODY=$(curl -fsSL "$CORE_DISPATCH_URL") \
+  || fail "rewrite retry route did not return HTTP success"
+grep -Fq 'Hello from the core conformance seed.' <<<"$CORE_DISPATCH_BODY" \
+  || fail "rewrite retry route did not render the repository post"
 CORE_REWRITE_ZERO=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
 require_duo_answered "conf2 core rewrite zero-change retry" json "$CORE_REWRITE_ZERO"
 jq -e '.canary == "clean" and .actions == []' <<<"$CORE_REWRITE_ZERO" >/dev/null \
