@@ -589,7 +589,7 @@ jq -e '
 RULE_PARITY=$(wp1 eval '
 global $wp_rewrite;
 $stored = get_option("rewrite_rules");
-$wp_rewrite->rules = "";
+$wp_rewrite->matches = "matches";
 $generated = $wp_rewrite->rewrite_rules();
 echo wp_json_encode([
   "stored_nonempty" => is_array($stored) && $stored !== [],
