@@ -52,13 +52,16 @@ function duo_boundary_menu_url(): string {
         . '&pipe=one%7Ctwo&quote=%22';
 }
 
-function duo_boundary_body(int $attachmentId, string $attachmentUrl): string {
+function duo_boundary_body(int $attachmentId, string $attachmentUrl, bool $includeReviewSecret = true): string {
+    $secret = $includeReviewSecret
+        ? 'A review-only credential example: sk_live_DUOBOUNDARY1234567890' . "\n"
+        : '';
     return '<!-- wp:image {"id":' . $attachmentId . ',"url":"' . $attachmentUrl . '"} -->'
         . '<figure class="wp-block-image"><img src="' . $attachmentUrl . '" class="wp-image-'
         . $attachmentId . '"/></figure><!-- /wp:image -->' . "\n"
         . '[gallery ids="' . $attachmentId . '"]' . "\n"
         . home_url('/body/?asset=' . rawurlencode($attachmentUrl)) . "\n"
-        . 'A review-only credential example: sk_live_DUOBOUNDARY1234567890' . "\n"
+        . $secret
         . duo_boundary_pattern('CORE-BODY', 420);
 }
 
@@ -173,7 +176,7 @@ function duo_boundary_widgets(int $menuId, int $attachmentId, string $attachment
         '_multiwidget' => 1,
     ], true);
     update_option('widget_block', [
-        2 => ['content' => duo_boundary_body($attachmentId, $attachmentUrl)],
+        2 => ['content' => duo_boundary_body($attachmentId, $attachmentUrl, false)],
         '_multiwidget' => 1,
     ], true);
     update_option('widget_nav_menu', [
@@ -398,7 +401,7 @@ function duo_boundary_observe(bool $updated): array {
                 && array_key_exists('filter', $widgets['text']) && $widgets['text']['filter'] === null
                 && ($widgets['text']['visual'] ?? null) === true,
             'block' => is_array($widgets['block'] ?? null)
-                && ($widgets['block']['content'] ?? null) === duo_boundary_body($attachmentId, $attachmentUrl),
+                && ($widgets['block']['content'] ?? null) === duo_boundary_body($attachmentId, $attachmentUrl, false),
             'nav_menu' => is_array($widgets['nav_menu'] ?? null)
                 && (int) ($widgets['nav_menu']['nav_menu'] ?? 0) === (int) $menu->term_id,
         ],
