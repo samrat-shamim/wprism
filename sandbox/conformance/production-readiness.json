@@ -1,0 +1,339 @@
+{
+  "format": "duo-adapter-production-readiness/v1",
+  "scenario_families": [
+    "contract-dependency",
+    "clean-target",
+    "dirty-target",
+    "identity-references",
+    "native-behavior",
+    "derived-state",
+    "deletion",
+    "failure-recovery",
+    "concurrency-idempotence",
+    "lifecycle",
+    "data-boundary",
+    "scope-platform"
+  ],
+  "adapters": {
+    "acf": {
+      "readiness": "unready",
+      "covered": {
+        "contract-dependency": ["manifests/acf.json", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "clean-target": ["sandbox/conformance/entries/acf.json", "sandbox/conformance/seeds/acf.sh", "sandbox/conformance/checks/acf.sh"],
+        "identity-references": ["sandbox/conformance/seeds/acf.sh", "sandbox/conformance/checks/acf.sh"],
+        "native-behavior": ["sandbox/conformance/checks/acf.sh"]
+      },
+      "gaps": {
+        "dirty-target": "No adapter-owned activation-default, unmanaged-collision, managed-divergence, and target-runtime sovereignty matrix exists.",
+        "deletion": "The unsupported ACF entity-delete boundary lacks a live no-partial-mutation refusal matrix.",
+        "failure-recovery": "No ACF-specific apply fault, durable-intent retry, and recovery exercise exists.",
+        "concurrency-idempotence": "No competing ACF capture/apply exercise exists.",
+        "lifecycle": "The exact-artifact matrix resets between versions and therefore does not prove an in-place upgrade or reinstall.",
+        "data-boundary": "No manifest-path long UTF-8, malformed serialized field value, secret-shaped value, or schema-drift matrix exists.",
+        "scope-platform": "The bounded claim has no adapter-owned platform/optional-feature matrix beyond the shared platform refusal paths."
+      },
+      "blocked": {},
+      "not_applicable": {
+        "derived-state": "The declared ACF surface has no adapter-owned cache, index, CSS, rewrite, lookup, or flat-file postcondition."
+      }
+    },
+    "advanced-editor-tools": {
+      "readiness": "unready",
+      "covered": {},
+      "gaps": {
+        "contract-dependency": "One exact exercise artifact exists, but no supported-boundary plus out-of-range refusal matrix exists.",
+        "clean-target": "The shared profile stops before deploy/apply and performs only a second source capture.",
+        "dirty-target": "No target settings/default collision matrix exists.",
+        "native-behavior": "Only source-side editor filters consume the setting; target editor behavior is untested.",
+        "deletion": "The no-entity boundary is documented but not exercised as a no-partial-mutation refusal.",
+        "failure-recovery": "No target apply fault/retry exercise exists.",
+        "concurrency-idempotence": "No competing settings capture/apply exercise exists.",
+        "lifecycle": "Activation, upgrade, deactivation, uninstall residue, and reinstall are untested.",
+        "data-boundary": "Toolbar edge values, unknown button/plugin names, long UTF-8, and malformed imported settings are untested.",
+        "scope-platform": "Optional editor modes and platform boundaries have not been exercised on the target."
+      },
+      "blocked": {},
+      "not_applicable": {
+        "identity-references": "The adapter declares only stable option values and no local identity reference.",
+        "derived-state": "The inspected exact artifact declares no separately persisted derived-state postcondition for these settings."
+      }
+    },
+    "classic-editor": {
+      "readiness": "unready",
+      "covered": {},
+      "gaps": {
+        "contract-dependency": "One exact exercise artifact exists, but no supported-boundary plus out-of-range refusal matrix exists.",
+        "clean-target": "The shared profile stops before deploy/apply and performs only a second source capture.",
+        "dirty-target": "No opposite target policy/default convergence matrix exists.",
+        "native-behavior": "Only the source-side editor-selection filter is checked.",
+        "deletion": "The no-entity boundary is documented but not exercised as a no-partial-mutation refusal.",
+        "failure-recovery": "No target apply fault/retry exercise exists.",
+        "concurrency-idempotence": "No competing settings capture/apply exercise exists.",
+        "lifecycle": "Activation, upgrade, deactivation, network residue, and reinstall are untested.",
+        "data-boundary": "Invalid and legacy option values are not exercised through capture/apply/refusal.",
+        "scope-platform": "The single-site boundary is declared, but target behavior and multisite refusal are not adapter-owned evidence."
+      },
+      "blocked": {},
+      "not_applicable": {
+        "identity-references": "The adapter declares two enum-like options and no local identity reference.",
+        "derived-state": "Classic Editor reads these options through filters and declares no derived-state store."
+      }
+    },
+    "code-snippets": {
+      "readiness": "unready",
+      "covered": {},
+      "gaps": {
+        "contract-dependency": "One exact exercise artifact exists, but no supported-boundary plus out-of-range refusal matrix exists.",
+        "clean-target": "The shared profile stops before deploy/apply.",
+        "dirty-target": "No same-name snippet, packaged-default, target-only row, or conflict matrix exists.",
+        "identity-references": "Source IDs diverge from one, but no target-ID divergence round-trip exists for either shortcode alias.",
+        "native-behavior": "Both shortcodes render only on the source side.",
+        "deletion": "Snippet deletion and shortcode reverse-reference behavior are unimplemented and untested.",
+        "failure-recovery": "No cache/flat-file failure-after-intent and retry exercise exists.",
+        "concurrency-idempotence": "No competing snippet apply/cache rebuild exercise exists.",
+        "lifecycle": "Activation, supported upgrade, downgrade refusal, uninstall residue, and reinstall are untested.",
+        "data-boundary": "Executable PHP, long UTF-8, delimiter hazards, credential-shaped code, invalid code, and large priorities are untested on the manifest path.",
+        "scope-platform": "Optional safe mode, multisite, and flat-file feature boundaries are not exercised."
+      },
+      "blocked": {
+        "derived-state": "Raw table materialization bypasses clean_snippets_cache() and the optional executable flat-file rebuild; no verified provider exists."
+      },
+      "not_applicable": {}
+    },
+    "contact-form-7": {
+      "readiness": "unready",
+      "covered": {
+        "contract-dependency": ["manifests/contact-form-7.json", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "clean-target": ["sandbox/conformance/entries/contact-form-7.json", "sandbox/conformance/seeds/contact-form-7.sh", "sandbox/conformance/checks/contact-form-7.sh"],
+        "identity-references": ["sandbox/conformance/seeds/contact-form-7.sh", "sandbox/conformance/checks/contact-form-7.sh"],
+        "native-behavior": ["sandbox/conformance/checks/contact-form-7.sh"]
+      },
+      "gaps": {
+        "dirty-target": "No unmanaged same-title form, target-only mail/runtime state, or managed divergence matrix exists.",
+        "deletion": "The unsupported form-delete boundary lacks a live refusal/no-partial-mutation exercise.",
+        "failure-recovery": "No CF7-specific mid-apply fault and retry/recovery exercise exists.",
+        "concurrency-idempotence": "No competing form capture/apply exercise exists.",
+        "lifecycle": "No in-place supported upgrade, deactivate/reactivate, uninstall residue, and reinstall exercise exists.",
+        "data-boundary": "Long mail templates, UTF-8, malformed form-tags, secret-shaped recipients, and legacy meta shapes lack a manifest-path matrix.",
+        "scope-platform": "Optional integrations and the shared platform range are not exercised per adapter."
+      },
+      "blocked": {},
+      "not_applicable": {
+        "derived-state": "The declared CF7 surface has no separately repaired adapter-owned derived-state store."
+      }
+    },
+    "core": {
+      "readiness": "unready",
+      "covered": {
+        "contract-dependency": ["manifests/core.json", "manifests/capabilities/platform.json", "sandbox/tests/live/regress_multisite_refusal.sh"],
+        "clean-target": ["sandbox/conformance/entries/core.json", "sandbox/conformance/seeds/core.sh", "sandbox/conformance/checks/core.sh"],
+        "identity-references": ["sandbox/conformance/checks/core.sh"],
+        "native-behavior": ["sandbox/conformance/checks/core.sh"],
+        "deletion": ["sandbox/conformance/checks/core.sh"],
+        "failure-recovery": ["sandbox/conformance/checks/core.sh"]
+      },
+      "gaps": {
+        "dirty-target": "Core has deep conflict cases, but no systematic activation-default, unmanaged-key, target-runtime, and adoption matrix for every claimed entity kind.",
+        "concurrency-idempotence": "Generic locks exist, but no full core content capture/apply/delete concurrency matrix exists.",
+        "lifecycle": "Theme transitions are exercised; WordPress in-place upgrade, downgrade refusal, deactivate/reactivate, and reinstall/residue are not a closed matrix.",
+        "data-boundary": "No exhaustive per-entity UTF-8, size, malformed structured value, secret, and schema-drift matrix exists.",
+        "scope-platform": "Multisite refuses, but the declared PHP/database/WordPress boundary has not been exercised as an adapter-level matrix."
+      },
+      "blocked": {},
+      "not_applicable": {
+        "derived-state": "Core's declared adapter surface names no plugin-owned cache/index/CSS/rewrite provider postcondition."
+      }
+    },
+    "elementor": {
+      "readiness": "unready",
+      "covered": {
+        "contract-dependency": ["manifests/elementor.json", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "clean-target": ["sandbox/conformance/entries/elementor.json", "sandbox/conformance/seeds/elementor.sh", "sandbox/conformance/checks/elementor.sh"],
+        "identity-references": ["sandbox/conformance/seeds/elementor.sh", "sandbox/conformance/checks/elementor.sh"],
+        "native-behavior": ["sandbox/conformance/checks/elementor.sh"],
+        "derived-state": ["manifests/providers/elementor-css.php", "sandbox/conformance/checks/elementor.sh"]
+      },
+      "gaps": {
+        "dirty-target": "No conflicting active kit/library, stale target CSS, activation-default, and unmanaged-key matrix exists.",
+        "deletion": "The unsupported Elementor entity-delete boundary lacks a live no-partial-mutation refusal exercise.",
+        "failure-recovery": "The real CSS provider lacks injected throw/bad-receipt/crash-after-intent and retry evidence.",
+        "concurrency-idempotence": "No competing document apply/CSS regeneration exercise exists.",
+        "lifecycle": "The version matrix resets state and does not prove in-place upgrade, deactivate/reactivate, or residue/reinstall behavior.",
+        "data-boundary": "Large documents, malformed element JSON, unusual URLs/IDs, secret-shaped settings, and schema drift are not a closed manifest-path matrix.",
+        "scope-platform": "Optional Elementor features and the shared platform boundary are not exercised per adapter."
+      },
+      "blocked": {},
+      "not_applicable": {}
+    },
+    "ninja-forms": {
+      "readiness": "unready",
+      "covered": {
+        "contract-dependency": ["manifests/ninja-forms.json", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "clean-target": ["sandbox/conformance/entries/ninja-forms.json", "sandbox/conformance/seeds/ninja-forms.sh", "sandbox/conformance/checks/ninja-forms.sh"],
+        "identity-references": ["sandbox/conformance/checks/ninja-forms.sh"],
+        "native-behavior": ["sandbox/conformance/checks/ninja-forms.sh"],
+        "derived-state": ["manifests/providers/ninja-forms-form-cache.php", "sandbox/conformance/checks/ninja-forms.sh"]
+      },
+      "gaps": {
+        "dirty-target": "Activation-default cleanup exists, but unmanaged same-title, managed divergence, and target-only submission/cache state are not a complete matrix.",
+        "deletion": "Parent refusal is exercised, but no positive live child-delete rollback/retry proof covers the certified action/field deletion claim.",
+        "failure-recovery": "Mapped-identity recovery is strong; the real cache provider still lacks injected failure-after-intent and retry evidence.",
+        "concurrency-idempotence": "No competing form graph apply/delete/cache repair exercise exists.",
+        "lifecycle": "No in-place supported upgrade, downgrade handling, deactivate/reactivate, uninstall residue, and reinstall exercise exists.",
+        "data-boundary": "Large forms, malformed serialized settings, zero/large IDs, secrets, and table-schema drift lack a manifest-path matrix.",
+        "scope-platform": "Optional add-ons, multisite, and the shared platform boundary are not exercised per adapter."
+      },
+      "blocked": {},
+      "not_applicable": {}
+    },
+    "paid-memberships-pro": {
+      "readiness": "unready",
+      "covered": {
+        "clean-target": ["sandbox/conformance/entries/paid-memberships-pro.json", "sandbox/conformance/seeds/paid-memberships-pro.sh", "sandbox/conformance/checks/paid-memberships-pro.sh"],
+        "identity-references": ["sandbox/tests/live/regress_pmpro_composite_ref.sh"]
+      },
+      "gaps": {
+        "dirty-target": "No unmanaged level/page relation, managed divergence, target-only member/order state, and conflict matrix exists.",
+        "native-behavior": "Representative level/page API behavior is checked, but untested authored discount/group/category surfaces prevent a closed native-behavior claim.",
+        "derived-state": "No audited post-apply cache/rule effect inventory and value-level postcondition exists.",
+        "deletion": "Composite relation deletion is exercised separately, but the proof is not bound to a reviewed exact artifact and all authored-table delete boundaries are not closed.",
+        "failure-recovery": "No PMPro-specific table graph fault/retry/recovery exercise exists.",
+        "concurrency-idempotence": "No competing level/relation apply/delete exercise exists.",
+        "lifecycle": "No supported range exists, so upgrade/downgrade/deactivate/reinstall behavior cannot yet be certified.",
+        "data-boundary": "Prices, durations, UTF-8 names, zero/large IDs, serialized option shapes, secrets, and schema drift lack a manifest-path matrix.",
+        "scope-platform": "Optional add-ons and runtime tables are listed, but no exact platform/feature refusal matrix exists."
+      },
+      "blocked": {
+        "contract-dependency": "The shipped manifest has no plugin basename or version range; the 3.8.3 exercise artifact cannot enforce target identity."
+      },
+      "not_applicable": {}
+    },
+    "polylang": {
+      "readiness": "unready",
+      "covered": {
+        "contract-dependency": ["manifests/polylang.json", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "clean-target": ["sandbox/conformance/entries/polylang.json", "sandbox/conformance/seeds/polylang.sh", "sandbox/conformance/checks/polylang.sh"],
+        "identity-references": ["sandbox/conformance/checks/polylang.sh"],
+        "native-behavior": ["sandbox/conformance/checks/polylang.sh"],
+        "derived-state": ["manifests/providers/polylang-nav-menus.php", "sandbox/conformance/checks/polylang.sh"]
+      },
+      "gaps": {
+        "dirty-target": "No conflicting language/translation graph, existing menu mapping, and target-runtime matrix exists.",
+        "deletion": "The unsupported translation-graph delete boundary lacks a live no-partial-mutation refusal exercise.",
+        "failure-recovery": "The real menu provider lacks injected throw/bad-receipt/crash-after-intent and retry evidence.",
+        "concurrency-idempotence": "No competing translation graph/menu repair exercise exists.",
+        "lifecycle": "No in-place supported upgrade, downgrade handling, deactivate/reactivate, residue, and reinstall exercise exists.",
+        "data-boundary": "UTF-8/RTL language values, malformed serialized relations, huge IDs, and schema drift lack a closed matrix.",
+        "scope-platform": "Optional language modes, multisite, and the shared platform boundary are not exercised per adapter."
+      },
+      "blocked": {},
+      "not_applicable": {}
+    },
+    "the-events-calendar": {
+      "readiness": "unready",
+      "covered": {
+        "clean-target": ["sandbox/conformance/entries/the-events-calendar.json", "sandbox/conformance/seeds/the-events-calendar.sh", "sandbox/conformance/postdeploy/the-events-calendar.sh", "sandbox/conformance/checks/the-events-calendar.sh"],
+        "identity-references": ["sandbox/conformance/postdeploy/the-events-calendar.sh", "sandbox/conformance/checks/the-events-calendar.sh"],
+        "native-behavior": ["sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/live/regress_tec_regen.sh"],
+        "derived-state": ["manifests/regenerators/the-events-calendar.php", "sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/live/regress_tec_regen.sh"],
+        "failure-recovery": ["sandbox/tests/live/regress_tec_regen.sh"]
+      },
+      "gaps": {
+        "contract-dependency": "The exact 6.17.2 digest and enforceable one-patch manifest range are pinned, but missing/inactive and out-of-range refusal artifacts are not yet one closed matrix.",
+        "dirty-target": "No conflicting event/occurrence/cache, activation-default, and unmanaged-key matrix exists.",
+        "deletion": "Event delete, occurrence/cache cascade, rollback, retry, and unsupported-surface refusals are not closed.",
+        "concurrency-idempotence": "No competing event apply/occurrence regeneration exercise exists.",
+        "lifecycle": "No enforceable range exists, so upgrade/downgrade/deactivate/reinstall behavior cannot be certified.",
+        "data-boundary": "Recurrence/time-zone edges, long UTF-8, malformed metadata, zero/large IDs, secrets, and schema drift lack a matrix.",
+        "scope-platform": "Optional TEC modules and the shared platform boundary are not exercised as exact-artifact refusals."
+      },
+      "blocked": {},
+      "not_applicable": {}
+    },
+    "woocommerce": {
+      "readiness": "unready",
+      "covered": {
+        "contract-dependency": ["manifests/woocommerce.json", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "clean-target": ["sandbox/conformance/entries/woocommerce.json", "sandbox/conformance/seeds/woocommerce.sh", "sandbox/conformance/checks/woocommerce.sh"],
+        "identity-references": ["sandbox/conformance/checks/woocommerce.sh"],
+        "native-behavior": ["sandbox/conformance/checks/woocommerce.sh"],
+        "derived-state": ["manifests/providers/woocommerce-cache.php", "manifests/providers/woocommerce-product-lookups.php", "sandbox/conformance/checks/woocommerce.sh"]
+      },
+      "gaps": {
+        "dirty-target": "Activation defaults are handled, but unmanaged products/attributes/zones, managed divergence, and target-only runtime/order state are not a complete matrix.",
+        "deletion": "Several deletion surfaces remain unsupported and lack one unified refusal/no-partial-state matrix; supported core-entity interactions also need rollback/retry evidence.",
+        "failure-recovery": "Provider primitives are tested generically, but the real cache/lookup providers lack injected failure-after-intent and retry coverage.",
+        "concurrency-idempotence": "No competing product/attribute/lookup apply and repair matrix exists.",
+        "lifecycle": "Only one in-range 11.x artifact is exercised; in-place upgrade, downgrade handling, deactivate/reactivate, HPOS residue, and reinstall are open.",
+        "data-boundary": "Price precision, long UTF-8, malformed attributes, huge IDs, secret-shaped settings, HPOS/schema drift, and optional tables lack a closed matrix.",
+        "scope-platform": "Optional extensions/storage modes and the shared platform boundary are not fully exercised per adapter."
+      },
+      "blocked": {},
+      "not_applicable": {}
+    },
+    "wps-hide-login": {
+      "readiness": "unready",
+      "covered": {},
+      "gaps": {
+        "contract-dependency": "One exact exercise artifact exists, but no supported-boundary plus out-of-range refusal matrix exists.",
+        "clean-target": "The shared profile stops before deploy/apply.",
+        "dirty-target": "No conflicting route slugs, stale rewrite state, or target-only runtime route matrix exists.",
+        "native-behavior": "Only source login URL generation is checked; target HTTP login/old-login/admin redirect behavior is untested.",
+        "deletion": "The no-entity boundary is documented but not exercised as a no-partial-mutation refusal.",
+        "failure-recovery": "No rewrite repair failure-after-intent and retry exercise exists.",
+        "concurrency-idempotence": "No competing route apply/rewrite repair exercise exists.",
+        "lifecycle": "Activation, upgrade, downgrade refusal, deactivate/reactivate, uninstall residue, and reinstall are untested.",
+        "data-boundary": "Empty, reserved, encoded, UTF-8, very long, and collision-prone slugs are untested on the target.",
+        "scope-platform": "Single-site is declared; multisite and web-server/permalink variants are not adapter-owned evidence."
+      },
+      "blocked": {
+        "derived-state": "The plugin save path flushes rewrites; no bounded provider and request-level verified postcondition exists."
+      },
+      "not_applicable": {
+        "identity-references": "Route slugs are stable names rather than local database identities."
+      }
+    },
+    "yoast": {
+      "readiness": "unready",
+      "covered": {
+        "contract-dependency": ["manifests/yoast.json", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "clean-target": ["sandbox/conformance/entries/yoast.json", "sandbox/conformance/seeds/yoast.sh", "sandbox/conformance/checks/yoast.sh"],
+        "identity-references": ["sandbox/conformance/checks/yoast.sh"],
+        "native-behavior": ["sandbox/conformance/checks/yoast.sh"],
+        "derived-state": ["manifests/providers/yoast-index.php", "sandbox/conformance/checks/yoast.sh"]
+      },
+      "gaps": {
+        "dirty-target": "No conflicting primary terms, stale index rows, activation-default, and target-only runtime matrix exists.",
+        "deletion": "The unsupported Yoast-specific delete boundary lacks a live no-partial-mutation refusal exercise.",
+        "failure-recovery": "The real index provider lacks injected throw/bad-receipt/crash-after-intent and retry evidence.",
+        "concurrency-idempotence": "No competing SEO metadata apply/index repair exercise exists.",
+        "lifecycle": "The exact-artifact matrix resets state and does not prove in-place upgrade, deactivate/reactivate, residue, and reinstall.",
+        "data-boundary": "Long titles/descriptions, Unicode, malformed schema/serialized values, huge IDs, secrets, and schema drift lack a closed matrix.",
+        "scope-platform": "Optional Yoast modules and the shared platform boundary are not exercised per adapter."
+      },
+      "blocked": {},
+      "not_applicable": {}
+    },
+    "yoast-duplicate-post": {
+      "readiness": "unready",
+      "covered": {},
+      "gaps": {
+        "contract-dependency": "One exact exercise artifact exists, but no supported-boundary plus out-of-range refusal matrix exists.",
+        "clean-target": "The shared profile stops before deploy/apply.",
+        "dirty-target": "No same-slug original/copy, managed divergence, or target-only rewrite-and-republish workflow matrix exists.",
+        "identity-references": "The source reference is tokenized, but no target-ID divergence round-trip proves _dp_original materialization.",
+        "native-behavior": "The clone/original-link/settings behavior is checked only on the source.",
+        "deletion": "Duplicated-post deletion/refusal and reverse-reference behavior are not exercised.",
+        "failure-recovery": "No partial original/copy apply and retry/recovery exercise exists.",
+        "concurrency-idempotence": "No competing clone/reference/settings apply exercise exists.",
+        "lifecycle": "Activation, upgrade, downgrade refusal, deactivate/reactivate, workflow residue, and reinstall are untested.",
+        "data-boundary": "Long/UTF-8 affixes, large original IDs, malformed workflow meta, secrets, and schema drift lack a matrix.",
+        "scope-platform": "Optional post types/roles and the shared platform boundary are not exercised per adapter."
+      },
+      "blocked": {},
+      "not_applicable": {
+        "derived-state": "The durable declared surface has no cache/index/rewrite provider; in-progress Rewrite & Republish state remains runtime-local."
+      }
+    }
+  }
+}

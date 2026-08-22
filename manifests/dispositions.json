@@ -182,12 +182,16 @@
       "unsupported": [{"operation": "delete", "reason": "No Polylang deletion selector is declared.", "surface": "deletions.*"}]
     },
     "the-events-calendar": {
-      "capabilities": {"deletion_semantics": {"supported": [], "unsupported": ["plugin-specific deletes"]}, "entity_sections": ["post_types", "tables"], "field_sections": ["options", "post_meta"], "lifecycle_phases": [], "operations": ["capture", "compile", "plan", "apply", "recapture"]},
+      "capabilities": {"deletion_semantics": {"supported": [], "unsupported": ["plugin-specific deletes"]}, "entity_sections": ["post_types", "tables"], "field_sections": ["options", "post_meta"], "lifecycle_phases": [], "operations": ["capture", "compile", "plan", "deploy", "apply", "recapture", "render-api"]},
       "default_authored_keyspaces": [],
-      "reason": "Experimental: grind evidence exists, but there is no conformance entry, plugin version contract, or current certification bundle.",
+      "evidence": {"bundle_schema": "duo-subject-certification-bundle/v1", "tests": ["conformance-the-events-calendar", "regress-tec-regen"]},
+      "reason": "Experimental exact-artifact target round-trip and hard regeneration-dependency recovery proof; dirty-target, deletion, lifecycle, concurrency, and difficult-value matrices remain open.",
       "status": "experimental",
-      "supported_versions": {"plugin": "unbound", "range": null},
-      "unsupported": [{"operation": "promote", "reason": "No exact version/evidence contract exists.", "surface": "production"}]
+      "supported_versions": {"plugin": "the-events-calendar/the-events-calendar.php", "range": {"max": "6.17.3", "min": "6.17.2"}},
+      "unsupported": [
+        {"operation": "delete", "reason": "Event/venue/organizer deletion, occurrence cleanup, reverse-reference guards, rollback, and retry are not certified.", "surface": "deletions.*"},
+        {"operation": "promote", "reason": "Dirty-target, lifecycle, concurrency, and difficult-value production-readiness scenarios remain open.", "surface": "production"}
+      ]
     },
     "woocommerce": {
       "capabilities": {

@@ -121,6 +121,13 @@
         "role": "exercise-fixture"
       }
     },
+    "the-events-calendar": {
+      "6.17.2": {
+        "url": "https://downloads.wordpress.org/plugin/the-events-calendar.6.17.2.zip",
+        "sha256": "f67f2668fc777505a6e0f2cc8c7c39db869a1b186b2444f9d5e138d32bcaabaa",
+        "role": "exercise-fixture"
+      }
+    },
     "woocommerce": {
       "10.9.4": {
         "url": "https://downloads.wordpress.org/plugin/woocommerce.10.9.4.zip",

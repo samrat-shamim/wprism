@@ -634,6 +634,12 @@ regress-adapter-catalog:
 regress-ecosystem-adapter-batch:
 	php sandbox/tests/offline/adapter/regress_ecosystem_adapter_batch.php
 
+# The hand-reviewed production-readiness work ledger: exact shipped-adapter
+# coverage, all twelve hostile scenario families, grounded evidence paths, and
+# a hard refusal to spell `ready` while an applicable family is still open.
+regress-adapter-production-readiness:
+	php sandbox/tests/offline/adapter/regress_adapter_production_readiness.php
+
 # DUO-3340: one target-owned, value-redacted AdapterSources/pending/journal
 # observation plus strict host transport/hash/create-only validation. Offline:
 # fake wpdb/WP hooks only; this intentionally does not claim the separate
@@ -2066,10 +2072,10 @@ regress-user-meta:
 # closed signed SSH crash-matrix evidence verifier.
 regress-offline-all:
 	@bash sandbox/tests/offline_diagnostics_guard.sh "$(MAKE)" --no-print-directory regress-offline-corpus
-	@echo "regress-offline-all: 269 offline suites green"
+	@echo "regress-offline-all: 270 offline suites green"
 
 regress-offline-corpus: code-half-unit \
-	regress-adopt-rollback regress-local-bootstrap regress-capture-publish regress-adapter-contract regress-adapter-sources regress-site-adapter-certification regress-ecosystem-adapter-batch regress-manifest-dispositions regress-interpreter-policy regress-proof-legacy-pair \
+	regress-adopt-rollback regress-local-bootstrap regress-capture-publish regress-adapter-contract regress-adapter-sources regress-site-adapter-certification regress-ecosystem-adapter-batch regress-adapter-production-readiness regress-manifest-dispositions regress-interpreter-policy regress-proof-legacy-pair \
 	regress-acf-meta-interpreter regress-fatal-mutations-unit regress-capture-secret-scan regress-user-meta-capture regress-entity-meta-capture regress-menu-capture regress-media-capture regress-options-capture regress-reference-scope-classifier regress-capture-safety-gates regress-capture-gate-scanner regress-capture-refactor-boundaries \
 	regress-order-preserving regress-canonical-json-parity regress-assess-projection regress-assess-inventory regress-contract-shape regress-contract-projection regress-assess-composition regress-assess-bounds regress-contract-accept regress-contract-multi-env regress-authorization-plan regress-release-containment-gate regress-recover-claim regress-verify-oracles regress-rehearse-provider regress-release-next-action regress-release-ref-binding regress-recover-ordering regress-mup-leak-audit regress-adapter-certify \
 	regress-block-refs regress-identity-token-codec regress-text-tokenizer regress-structured-reference-codec regress-url-query-reference-codec regress-lint-primitives regress-block-reference-scanner regress-menu-reference-scanner regress-serialized-term-description-scanner regress-shortcode-reference-scanner regress-composite-ref regress-doctor-env-values regress-environment-driver regress-environment-lifecycle regress-environment-command regress-environment-materializer regress-environment-materializer-ssh regress-environment-materializer-recovery regress-frozen-materialization-promotion regress-docker-exec-mode regress-pending-queue-ownership \
@@ -2087,7 +2093,7 @@ regress-offline-corpus: code-half-unit \
 	regress-manifest-validate regress-adapter-draft regress-scope-closure regress-adapter-catalog regress-adapter-observation regress-plan-contract-trust regress-scope-contract regress-conformance-asserts regress-scope-command regress-refresh-command regress-rebase-command regress-adopt-command regress-init-command \
 	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-elementor-dead-guard regress-elementor-matrix-reset regress-grind-r1c-manifest-preserve regress-observation-guards regress-live-exit-code-contract regress-target-observation-premises regress-bound-helper regress-control-plane-seams regress-recovery-protocol regress-scoped-apply-session regress-scoped-apply-live-cleanup regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-ssh-adopt-evidence-retention regress-scope-wire regress-manifest-grammar regress-compiled-artifact regress-code-descriptor-compiler regress-code-config-grammar regress-menu-materializer regress-adapter-registry regress-agent-src-requires regress-user-meta-materializer regress-pin-resolver regress-term-materializer regress-action-provider-grammar regress-options-materializer regress-cross-manifest-guards regress-relationship-materializer regress-attachment-materializer regress-post-materializer regress-sub-key-grammar regress-delete-executor regress-delete-guard-value-codec regress-delete-guard-evaluator regress-scope-discovery regress-table-graph regress-table-schema regress-snapshot-identity regress-typed-table-capture regress-typed-table-materializer regress-snapshot-pruner regress-taxonomy-grammar regress-option-reference-grammar regress-post-type-grammar regress-discovery-grammar regress-reference-keyspace-grammar regress-reference-kind-grammar regress-offline-diagnostics regress-promotion-abort-reason regress-delete-authorization-receipt \
 	regress-code-source-lock regress-code-lock-compile-gate regress-init-code-split regress-code-classify regress-code-resolve
-	@echo "regress-offline-corpus: 269 offline suites green"
+	@echo "regress-offline-corpus: 270 offline suites green"
 
 regress-offline-diagnostics:
 	bash sandbox/tests/offline/guards/regress_offline_diagnostics.sh

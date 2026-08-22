@@ -117,6 +117,26 @@ check(
         && ($data['manifests']['the-events-calendar']['status'] ?? null) === 'experimental',
     'PMPro and The Events Calendar remain explicitly experimental'
 );
+$tecManifest = $manifestsByName['the-events-calendar'];
+$tecDisposition = $data['manifests']['the-events-calendar'];
+check(
+    ($tecManifest['plugin'] ?? null) === 'the-events-calendar/the-events-calendar.php'
+        && ($tecManifest['version_range'] ?? null) === ['min' => '6.17.2', 'max' => '6.17.3'],
+    'The Events Calendar is bound to the one exact artifact its regenerator was reviewed against'
+);
+check(
+    ($tecDisposition['supported_versions'] ?? null) === [
+        'plugin' => 'the-events-calendar/the-events-calendar.php',
+        'range' => ['max' => '6.17.3', 'min' => '6.17.2'],
+    ],
+    'The Events Calendar disposition repeats the enforceable plugin identity instead of an unbound placeholder'
+);
+check(
+    ($tecDisposition['evidence']['tests'] ?? null) === ['conformance-the-events-calendar', 'regress-tec-regen']
+        && in_array('deploy', $tecDisposition['capabilities']['operations'] ?? [], true)
+        && in_array('render-api', $tecDisposition['capabilities']['operations'] ?? [], true),
+    'The Events Calendar names both its exact target round-trip and injected regeneration-recovery exercise'
+);
 check(($data['profiles']['fse']['status'] ?? null) === 'certified', 'FSE is a named certified profile of core');
 foreach ($data['manifests'] as $name => $entry) {
     check(isset($entry['supported_versions'], $entry['capabilities']['entity_sections'], $entry['capabilities']['field_sections']), "$name names versions, entities, and fields");
