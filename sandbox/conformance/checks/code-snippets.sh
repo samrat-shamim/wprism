@@ -389,7 +389,7 @@ pass "credential-shaped executable code refuses atomically and the public diagno
 INVALID_ID=$(jq -r '.by_name["Duo invalid inactive PHP"].id' <<<"$(observe_code_snippets conf1)")
 require_fixture_ids INVALID_ID
 BACKUP_FILE="${CONF_REPO1:-siterepo/conf1}/.tmp-code-snippets-row.json"
-wp_conf1 eval "global \\$wpdb; echo wp_json_encode(\\$wpdb->get_row(\\$wpdb->prepare('SELECT * FROM ' . \\$wpdb->prefix . 'snippets WHERE id=%d', $INVALID_ID), ARRAY_A));" > "$BACKUP_FILE"
+wp_conf1 eval "global \$wpdb; echo wp_json_encode(\$wpdb->get_row(\$wpdb->prepare('SELECT * FROM ' . \$wpdb->prefix . 'snippets WHERE id=%d', $INVALID_ID), ARRAY_A));" > "$BACKUP_FILE"
 wp_conf1 eval "Code_Snippets\\delete_snippet($INVALID_ID);" >/dev/null
 DELETE_STATUS_BEFORE=$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)
 DELETE_RC=0
