@@ -57,7 +57,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 - **Operations:** apply, capture, compile, delete, deploy, plan, promote, recapture, render-api
 - **Lifecycle phases:** verify
 - **Declared entities:** `tables` (2: commentmeta, comments), `widgets` (3: block, nav_menu, text)
-- **Declared fields:** `options` (26 keys), `option_patterns` (3 rules), `dynamic_options` (1: theme_mods), `post_meta` (27 keys), `term_meta` (1: _duo_uuid), `menu_fields` (1: locations), `block_attrs` (20 keys), `shortcode_attrs` (1: gallery)
+- **Declared fields:** `options` (26 keys), `option_patterns` (3 rules), `dynamic_options` (1: theme_mods), `post_meta` (27 keys), `post_meta_patterns` (1 rules), `term_meta` (1: _duo_uuid), `menu_fields` (1: locations), `block_attrs` (20 keys), `shortcode_attrs` (1: gallery)
 - **Adapter hooks:** 1 structured action
 - **Deletions supported:** `menu:nav_menu`, `post:attachment`, `post:page`, `post:post`, `term:category`, `term:post_tag`
 - **Deletions unsupported:** undeclared post types and taxonomies

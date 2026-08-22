@@ -214,8 +214,10 @@ not migrate. Do not copy that deletion declaration into a product adapter.
 - **A non-core manifest outranks `core`.** The loader keeps scanning past a
   `core` match specifically so a plugin's own declaration takes it — a
   reclassification of a core option by a plugin manifest is legal and loud.
-- **Patterns are the last resort.** `option_patterns`, `meta_patterns`, and
-  their kin are consulted only after every exact rule has missed.
+- **Patterns are the last resort.** `option_patterns`, `post_meta_patterns`,
+  `meta_patterns`, and their kin are consulted only after every exact rule has
+  missed. Prefer `post_meta_patterns` for a family proved only in
+  `wp_postmeta`; legacy `meta_patterns` deliberately reaches term metadata too.
 - **Anything still unmatched is unclassified**, which is a loud abort, not a
   default.
 

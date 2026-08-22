@@ -529,6 +529,33 @@ check(
         )) === 3,
     'B4c: core/file.fileId is the reviewed DOM id while both legacy-widget forms carry explicit blocking dispositions'
 );
+$shippedCorePolicy = new Policy();
+$shippedCorePolicy->manifests = [$coreManifest];
+$oembedDigest = str_repeat('a', 32);
+foreach (["_oembed_$oembedDigest", "_oembed_time_$oembedDigest"] as $key) {
+    $details = $shippedCorePolicy->post_meta_rule_details($key);
+    check(
+        ($details['rule']['class'] ?? null) === 'derived' && ($details['source'] ?? null) === 'core',
+        "B4d: shipped core policy classifies exact WordPress cache key $key as derived post meta"
+    );
+    check(
+        $shippedCorePolicy->term_meta_rule($key) === null,
+        "B4d: the exact WordPress cache key $key does not widen onto term meta"
+    );
+}
+foreach ([
+    '_oembed_custom',
+    '_oembed_' . str_repeat('a', 31),
+    '_oembed_' . str_repeat('a', 33),
+    '_oembed_' . str_repeat('A', 32),
+    '_oembed_time_' . $oembedDigest . '_authored',
+    "_oembed_$oembedDigest\n",
+] as $key) {
+    check(
+        $shippedCorePolicy->post_meta_rule_details($key) === ['rule' => null, 'source' => null],
+        'B4e: malformed/custom oEmbed lookalike stays loud and unclassified: ' . json_encode($key)
+    );
+}
 
 // B7 — UNSCOPED scalar ref: id_to_token() fails the SAME way a dangling
 // ref does (attrs.id still drops, uniform treatment, matching task #73's

@@ -63,6 +63,7 @@ $manifests = [
         'post_meta' => ['core_meta' => ['class' => 'authored']],
         'term_meta' => ['term_meta' => ['class' => 'env']],
         'option_patterns' => [['match' => '^option_pattern_', 'class' => 'env']],
+        'post_meta_patterns' => [['match' => '^post_only_pattern_', 'class' => 'derived']],
         'meta_patterns' => [['match' => '^meta_pattern_', 'class' => 'runtime']],
     ],
     [
@@ -102,17 +103,22 @@ $check(
             'rule' => ['class' => 'runtime'],
             'source' => 'core',
         ]
+        && $resolver->details('post_meta', 'post_only_pattern_example') === [
+            'rule' => ['class' => 'derived'],
+            'source' => 'core',
+        ]
+        && $resolver->details('term_meta', 'post_only_pattern_example') === ['rule' => null, 'source' => null]
         && $resolver->details('term_meta', 'meta_pattern_example') === [
             'rule' => ['class' => 'runtime'],
             'source' => 'core',
         ]
         && $resolver->details('user_meta', 'meta_pattern_example') === ['rule' => null, 'source' => null]
         && PolicyRuleResolver::pattern_keys() === [
-            'options' => 'option_patterns',
-            'post_meta' => 'meta_patterns',
-            'term_meta' => 'meta_patterns',
+            'options' => ['option_patterns'],
+            'post_meta' => ['post_meta_patterns', 'meta_patterns'],
+            'term_meta' => ['meta_patterns'],
         ],
-    'pattern fallback strips match, preserves first-manifest order, classifies only its three sections, and retains the published key map'
+    'pattern fallback strips match, preserves first-manifest order, keeps post-only patterns off term meta, and retains the published key map'
 );
 
 require_once "$root/agent/src/Kernel/Canon.php";

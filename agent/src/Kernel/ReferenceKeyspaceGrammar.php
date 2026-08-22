@@ -52,7 +52,7 @@ final class ReferenceKeyspaceGrammar {
                     }
                 }
             }
-            foreach (['option_patterns', 'meta_patterns', 'option_name_refs'] as $section) {
+            foreach (['option_patterns', 'post_meta_patterns', 'meta_patterns', 'option_name_refs'] as $section) {
                 foreach (($source[$section] ?? []) as $i => $rule) {
                     if (is_array($rule) && !array_is_list($rule)) {
                         self::assert_reference_rule_keyspaces($rule, $allowed, "$label.{$section}[$i]");

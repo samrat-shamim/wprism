@@ -1608,35 +1608,52 @@ check(
 // a routing decision can be: by observing that the engine routes that way.
 $covered['pattern_keys'] = true;
 $patternDir = fixtures(['b' => solo_b([
-    'option_patterns' => [['match' => '^acme_b_pat_', 'class' => 'authored', 'autoload' => 'yes']],
-    'meta_patterns' => [['match' => '^acme_b_pat_', 'class' => 'authored']],
+    'option_patterns' => [['match' => '^acme_b_option_pat_', 'class' => 'authored', 'autoload' => 'yes']],
+    'post_meta_patterns' => [['match' => '^acme_b_post_pat_', 'class' => 'authored']],
+    'meta_patterns' => [['match' => '^acme_b_shared_meta_pat_', 'class' => 'authored']],
 ])]);
 putenv('DUO_MANIFESTS_DIR=' . $patternDir);
 $patternPolicy = Policy::load(null, ['b']);
 $resolvers = [
-    'options' => static fn(): ?array => $patternPolicy->option_rule('acme_b_pat_1'),
-    'post_meta' => static fn(): ?array => $patternPolicy->meta_rule_for_post('acme_b_pat_1', []),
-    'term_meta' => static fn(): ?array => $patternPolicy->meta_rule_for_term('acme_b_pat_1', []),
-    'user_meta' => static fn(): ?array => $patternPolicy->meta_rule_for_user('acme_b_pat_1', []),
+    'options' => static fn(string $name): ?array => $patternPolicy->option_rule($name),
+    'post_meta' => static fn(string $name): ?array => $patternPolicy->meta_rule_for_post($name, []),
+    'term_meta' => static fn(string $name): ?array => $patternPolicy->meta_rule_for_term($name, []),
+    'user_meta' => static fn(string $name): ?array => $patternPolicy->meta_rule_for_user($name, []),
+];
+$patternProbes = [
+    'option_patterns' => 'acme_b_option_pat_1',
+    'post_meta_patterns' => 'acme_b_post_pat_1',
+    'meta_patterns' => 'acme_b_shared_meta_pat_1',
 ];
 foreach ($vocabularies['classification_sections'] as $section) {
-    $published = $vocabularies['pattern_keys'][$section] ?? null;
-    $resolved = $resolvers[$section]();
-    check(
-        $published === null ? $resolved === null : $resolved !== null,
-        $published === null
-            ? "section '$section' publishes NO pattern key, and the engine really does refuse to pattern-match it"
-            : "section '$section' publishes pattern key '$published', and a rule declared under exactly that key really does resolve a matching name"
-    );
+    $published = $vocabularies['pattern_keys'][$section] ?? [];
+    if ($published === []) {
+        check(
+            $resolvers[$section]('acme_b_shared_meta_pat_1') === null,
+            "section '$section' publishes NO pattern key, and the engine really does refuse to pattern-match it"
+        );
+        continue;
+    }
+    foreach ($published as $patternKey) {
+        check(
+            $resolvers[$section]($patternProbes[$patternKey]) !== null,
+            "section '$section' publishes pattern key '$patternKey', and a rule declared under exactly that key really does resolve a matching name"
+        );
+    }
 }
+check(
+    $patternPolicy->meta_rule_for_term('acme_b_post_pat_1', []) === null,
+    'post_meta_patterns is surface-specific: the identical term-meta key remains unclassified'
+);
 $swappedDir = fixtures(['b' => solo_b([
     // The option pattern moved under the meta key, and nothing else changed.
-    'meta_patterns' => [['match' => '^acme_b_pat_', 'class' => 'authored']],
+    'meta_patterns' => [['match' => '^acme_b_option_pat_', 'class' => 'authored']],
 ])]);
 putenv('DUO_MANIFESTS_DIR=' . $swappedDir);
 $swappedPolicy = Policy::load(null, ['b']);
 check(
-    $swappedPolicy->option_rule('acme_b_pat_1') === null && $swappedPolicy->meta_rule_for_post('acme_b_pat_1', []) !== null,
+    $swappedPolicy->option_rule('acme_b_option_pat_1') === null
+        && $swappedPolicy->meta_rule_for_post('acme_b_option_pat_1', []) !== null,
     'and the published mapping is the WHOLE mapping: the same pattern under the other section\'s key resolves for that section and not for this one'
 );
 putenv('DUO_MANIFESTS_DIR');

@@ -92,7 +92,7 @@
       "capabilities": {
         "deletion_semantics": {"supported": ["menu:nav_menu", "post:attachment", "post:page", "post:post", "term:category", "term:post_tag"], "unsupported": ["undeclared post types and taxonomies"]},
         "entity_sections": ["tables", "widgets"],
-        "field_sections": ["options", "option_patterns", "dynamic_options", "post_meta", "term_meta", "menu_fields", "block_attrs", "shortcode_attrs"],
+        "field_sections": ["options", "option_patterns", "dynamic_options", "post_meta", "post_meta_patterns", "term_meta", "menu_fields", "block_attrs", "shortcode_attrs"],
         "lifecycle_phases": ["verify"],
         "operations": ["capture", "compile", "plan", "deploy", "apply", "delete", "recapture", "render-api"]
       },

@@ -96,7 +96,8 @@ final class AdapterCertification {
     private const ENTITY_SECTIONS = ['post_types', 'tables', 'taxonomies', 'taxonomy_patterns', 'widgets'];
     private const FIELD_SECTIONS = [
         'block_attrs', 'dynamic_options', 'interpreter', 'menu_fields', 'meta_patterns', 'option_name_refs',
-        'option_namespaces', 'option_patterns', 'options', 'post_meta', 'shortcode_attrs', 'term_meta', 'user_meta',
+        'option_namespaces', 'option_patterns', 'options', 'post_meta', 'post_meta_patterns', 'shortcode_attrs',
+        'term_meta', 'user_meta',
     ];
     /** Manifest keys that declare no branchable state surface of their own. */
     private const NON_SURFACE_KEYS = [

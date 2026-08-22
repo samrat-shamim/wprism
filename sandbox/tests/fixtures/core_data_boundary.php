@@ -142,6 +142,54 @@ function duo_boundary_core_block_schema(): array {
     return ['id_like' => $idLike, 'url_like' => $urlLike];
 }
 
+/** @return array{count:int,cache_count:int,time_count:int,unknown_count:int,all_exact:bool,keys:list<string>} */
+function duo_boundary_oembed_cache_observation(): array {
+    $page = get_page_by_path('core-block-boundary', OBJECT, 'page');
+    if (!$page instanceof WP_Post) {
+        throw new RuntimeException('core boundary oEmbed observation cannot find the block catalog page');
+    }
+    global $wpdb;
+    $rows = $wpdb->get_results($wpdb->prepare(
+        "SELECT meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id = %d ORDER BY meta_key",
+        $page->ID
+    ), ARRAY_A);
+    if (!is_array($rows)) {
+        throw new RuntimeException('core boundary oEmbed observation could not read post metadata');
+    }
+    $keys = [];
+    $cacheCount = 0;
+    $timeCount = 0;
+    $unknownCount = 0;
+    $allExact = true;
+    foreach ($rows as $row) {
+        $key = (string) ($row['meta_key'] ?? '');
+        if (!str_starts_with($key, '_oembed_')) {
+            continue;
+        }
+        $keys[] = $key;
+        if (preg_match('/^_oembed_(time_)?[a-f0-9]{32}$/D', $key, $match) !== 1) {
+            $allExact = false;
+            continue;
+        }
+        if (($match[1] ?? '') === 'time_') {
+            $timeCount++;
+        } else {
+            $cacheCount++;
+            if (($row['meta_value'] ?? null) === '{{unknown}}') {
+                $unknownCount++;
+            }
+        }
+    }
+    return [
+        'count' => count($keys),
+        'cache_count' => $cacheCount,
+        'time_count' => $timeCount,
+        'unknown_count' => $unknownCount,
+        'all_exact' => $allExact,
+        'keys' => $keys,
+    ];
+}
+
 /** @return array<string,mixed> */
 function duo_boundary_ids(): array {
     $ids = get_option('duo_boundary_ids', []);
@@ -288,7 +336,7 @@ function duo_boundary_seed_source(): void {
 
     $pageId = wp_insert_post([
         'post_type' => 'page',
-        'post_status' => 'draft',
+        'post_status' => 'publish',
         'post_name' => 'core-block-boundary',
         'post_title' => 'Core block attribute boundary',
         'post_author' => $userId,

@@ -13,18 +13,21 @@ final class PolicyRuleResolver {
     /**
      * Pattern-fallback declaration arrays keyed by their classified section.
      *
-     * `option_patterns` predates this map; `meta_patterns` serves both post
-     * and term meta. Exact meta rules have never been post-type-scoped, so a
-     * fallback cannot introduce that new axis: a key name is either safe to
-     * classify everywhere it occurs, or it is not. Taxonomy patterns remain a
-     * different scope-discovery contract, not a key-classification fallback.
+     * `option_patterns` predates this map; legacy `meta_patterns` serves both
+     * post and term meta. `post_meta_patterns` is the narrower fallback for a
+     * family whose ownership is proved only in wp_postmeta (WordPress core's
+     * `_oembed_<md5>` cache is the first shipped case). It runs before the
+     * legacy shared fallback so a future post-only refinement can be stated
+     * without silently classifying an identically named term-meta key.
+     * Taxonomy patterns remain a different scope-discovery contract, not a
+     * key-classification fallback.
      *
-     * @var array<string,string>
+     * @var array<string,list<string>>
      */
     private const PATTERN_KEYS = [
-        'options' => 'option_patterns',
-        'post_meta' => 'meta_patterns',
-        'term_meta' => 'meta_patterns',
+        'options' => ['option_patterns'],
+        'post_meta' => ['post_meta_patterns', 'meta_patterns'],
+        'term_meta' => ['meta_patterns'],
     ];
 
     /**
@@ -38,7 +41,7 @@ final class PolicyRuleResolver {
         private \Closure $withOptionAutoload
     ) {}
 
-    /** @return array<string,string> */
+    /** @return array<string,list<string>> */
     public static function pattern_keys(): array {
         return self::PATTERN_KEYS;
     }
@@ -86,17 +89,19 @@ final class PolicyRuleResolver {
         if ($coreMatch !== null) {
             return $coreMatch;
         }
-        $patternKey = self::PATTERN_KEYS[$section] ?? null;
-        if ($patternKey !== null) {
+        $patternKeys = self::PATTERN_KEYS[$section] ?? [];
+        if ($patternKeys !== []) {
             foreach ($this->manifests as $manifest) {
-                foreach ($manifest[$patternKey] ?? [] as $pattern) {
-                    if (preg_match('/' . $pattern['match'] . '/', $name)) {
-                        return [
-                            'rule' => $section === 'options'
-                                ? ($this->withOptionAutoload)(array_diff_key($pattern, ['match' => true]), $manifest)
-                                : array_diff_key($pattern, ['match' => true]),
-                            'source' => (string) ($manifest['name'] ?? '?'),
-                        ];
+                foreach ($patternKeys as $patternKey) {
+                    foreach ($manifest[$patternKey] ?? [] as $pattern) {
+                        if (preg_match('/' . $pattern['match'] . '/', $name)) {
+                            return [
+                                'rule' => $section === 'options'
+                                    ? ($this->withOptionAutoload)(array_diff_key($pattern, ['match' => true]), $manifest)
+                                    : array_diff_key($pattern, ['match' => true]),
+                                'source' => (string) ($manifest['name'] ?? '?'),
+                            ];
+                        }
                     }
                 }
             }

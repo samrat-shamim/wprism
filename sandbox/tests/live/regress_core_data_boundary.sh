@@ -44,6 +44,7 @@ fixture_code() {
     restore-theme) printf '%s' 'duo_boundary_restore_theme();' ;;
     update-source) printf '%s' 'duo_boundary_update_source();' ;;
     block-schema) printf '%s' 'echo wp_json_encode(duo_boundary_core_block_schema());' ;;
+    observe-oembed) printf '%s' 'echo wp_json_encode(duo_boundary_oembed_cache_observation());' ;;
     legacy-id) printf '%s' 'duo_boundary_legacy_widget("id");' ;;
     legacy-instance) printf '%s' 'duo_boundary_legacy_widget("instance");' ;;
     remove-legacy) printf '%s' 'duo_boundary_remove_legacy_widget();' ;;
@@ -186,6 +187,10 @@ jq -e '.attachment > 0 and .post > 0 and .page > 0 and .user > 0 and .term > 0 a
   <<<"$SOURCE_IDS" >/dev/null || fail "source boundary seed returned malformed identities: $SOURCE_IDS"
 jq -e '.hostile_front > 0 and .user > 0' <<<"$TARGET_SEED" >/dev/null \
   || fail "target boundary seed returned malformed identities: $TARGET_SEED"
+SOURCE_OEMBED=$(fixture1 observe-oembed | awk 'NF { line=$0 } END { print line }')
+jq -e '.count == 0 and .cache_count == 0 and .time_count == 0 and .unknown_count == 0 and .all_exact' \
+  <<<"$SOURCE_OEMBED" >/dev/null \
+  || fail "source unexpectedly generated an oEmbed cache before capture: $SOURCE_OEMBED"
 pass 'real WordPress APIs persisted every core entity family plus hostile target option/runtime state'
 
 say 'long UTF-8, delimiters, environment URLs, null/empty, and hostile reference values'
@@ -212,6 +217,19 @@ PUBLIC_BODY=$(curl -fsSL "$TARGET_POST_URL") \
   || fail 'target difficult-value post did not render through HTTP'
 grep -Fq 'CORE-BODY' <<<"$PUBLIC_BODY" && grep -Fq 'বাংলা' <<<"$PUBLIC_BODY" \
   || fail 'public response did not render the long UTF-8 body'
+TARGET_BLOCK_URL=$(wp2 eval '$p=get_page_by_path("core-block-boundary", OBJECT, "page"); echo $p ? get_permalink($p) : "";')
+[ -n "$TARGET_BLOCK_URL" ] || fail 'target block-catalog page has no permalink'
+BLOCK_PUBLIC_BODY=$(curl -fsSL "$TARGET_BLOCK_URL") \
+  || fail 'target block-catalog page did not render through HTTP'
+grep -Fq 'Core block attribute boundary' <<<"$BLOCK_PUBLIC_BODY" \
+  || fail 'public block-catalog response did not render the intended page'
+TARGET_OEMBED=$(fixture2 observe-oembed | awk 'NF { line=$0 } END { print line }')
+jq -e '
+  .count == 1 and .cache_count == 1 and .time_count == 0 and .unknown_count == 1 and
+  .all_exact and (.keys[0] | test("^_oembed_[a-f0-9]{32}$"))
+' <<<"$TARGET_OEMBED" >/dev/null \
+  || fail "frontend render did not generate the exact WordPress oEmbed failure-cache shape: $TARGET_OEMBED"
+pass 'frontend render generated target-only oEmbed post-meta cache bytes from the portable embed block'
 HOSTILE_FRONT=$(jq -r '.hostile_front' <<<"$TARGET_SEED")
 wp2 post delete "$HOSTILE_FRONT" --force >/dev/null
 UNCATEGORIZED=$(wp2 term list category --slug=uncategorized --field=term_id 2>/dev/null || true)
