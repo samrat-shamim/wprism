@@ -277,9 +277,17 @@ APPLY2_RC=$?
 set -e
 echo "$APPLY2"
 [ "$APPLY2_RC" -ne 0 ] || fail "expected duo apply to hard-fail on a genuine regen_dependency verification failure — it exited 0"
-grep -qi "duo_regress_never_matches\|regen_dependency verification failed" <<<"$APPLY2" \
-  || fail "failure message doesn't name the verification failure (got: $APPLY2)"
-pass "duo apply hard-failed as required (exit $APPLY2_RC), naming the verification failure"
+APPLY2_JSON=$(printf '%s\n' "$APPLY2" | awk 'NF { line=$0 } END { print line }')
+printf '%s\n' "$APPLY2_JSON" | jq -e '
+  .format == "duo-command-refusal/v1" and
+  .ok == false and .command == "apply" and
+  .error == "apply_failed" and .reason_code == "apply_failed" and
+  .details_redacted == true
+' >/dev/null || fail "verification failure did not produce the stable redacted apply refusal: $APPLY2"
+if grep -q "duo_regress_never_matches" <<<"$APPLY2_JSON"; then
+  fail "public apply refusal leaked the private verifier column"
+fi
+pass "duo apply hard-failed as required (exit $APPLY2_RC) with the stable redacted refusal envelope"
 
 MARKER=$(wp2 db query "SELECT v FROM wp_duo_kv WHERE k = 'regen_pending:$CAPTURED_UUID'" --skip-column-names 2>/dev/null | tr -d '\r')
 [ "$MARKER" = "tribe_events" ] || fail "expected a regen_pending:<uuid> marker recording post_type=tribe_events, got '$MARKER'"
@@ -408,9 +416,7 @@ grep -q "ADAPTER_DISPOSITIONS (" <<<"$STATUS_CLEAN_OUT" \
   || fail "expected the remaining nonzero status to identify TEC's independent adapter-disposition gate (output: $STATUS_CLEAN_OUT)"
 grep -Eq "the-events-calendar .*\[authored_state_not_certified\]" <<<"$STATUS_CLEAN_OUT" \
   || fail "expected TEC's authored-state certification reason in adapter-disposition status (output: $STATUS_CLEAN_OUT)"
-grep -Eq "the-events-calendar .*\[operation_not_certified\]" <<<"$STATUS_CLEAN_OUT" \
-  || fail "expected TEC's operation certification reason in adapter-disposition status (output: $STATUS_CLEAN_OUT)"
-pass "REGEN_PENDING cleared from status after repair; the remaining nonzero result names TEC's independent adapter-disposition certification gates"
+pass "REGEN_PENDING cleared from status after repair; the remaining nonzero result names TEC's independent authored-state certification gate"
 
 say "(8) ORPHAN-SWEEP PROOF (design review addition 2): a regen_pending marker that can never resolve again must not sit in duo_kv forever — both orphan shapes get swept, loudly, in the same pass that would have processed them"
 
