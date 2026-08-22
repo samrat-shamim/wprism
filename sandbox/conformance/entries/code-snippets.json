@@ -1,0 +1,11 @@
+{
+  "entry": {
+    "pin": ["core", "code-snippets"],
+    "plugins": [
+      {"slug": "code-snippets", "version": "3.9.6"}
+    ],
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "manifest": "code-snippets"
+}

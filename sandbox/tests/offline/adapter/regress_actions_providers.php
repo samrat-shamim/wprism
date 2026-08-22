@@ -833,7 +833,7 @@ foreach ($shippedPolicies as $name => $shippedPolicy) {
         }
     }
 }
-check($providerCount === 6, "all six shipped manifest-sourced providers were exercised (found $providerCount)");
+check($providerCount === 7, "all seven shipped manifest-sourced providers were exercised (found $providerCount)");
 
 // ======================================================================
 echo "\n== the two identity implementations agree over the REAL shipped library ==\n";
