@@ -323,8 +323,20 @@ wp_conf2 eval 'if (get_role("duo_source_only")) remove_role("duo_source_only");'
 FAILURE_RC=0
 FAILURE_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || FAILURE_RC=$?
 require_duo_answered "Yoast Duplicate Post missing-role provider failure" human "$FAILURE_OUT"
-[ "$FAILURE_RC" -ne 0 ] && grep -q "selected role 'duo_source_only' is not registered" <<<"$FAILURE_OUT" \
-  || fail "Yoast Duplicate Post missing target role did not fail through the provider: $FAILURE_OUT"
+[ "$FAILURE_RC" -ne 0 ] \
+  && grep -q "required manifest action 'provider:yoast-duplicate-post-role-capabilities/reconcile_role_capabilities' failed" <<<"$FAILURE_OUT" \
+  && ! grep -q 'duo_source_only' <<<"$FAILURE_OUT" \
+  || fail "Yoast Duplicate Post missing target role did not fail through the redacted provider boundary: $FAILURE_OUT"
+PRE_RETRY_CAPS=$(wp_conf2 eval '
+  $out=[];
+  foreach (["administrator","duo_source_only","editor"] as $name) {
+    $role=get_role($name); $out[$name]=$role ? $role->has_cap("copy_posts") : null;
+  }
+  echo wp_json_encode($out);
+')
+require_observed_nonempty "Yoast Duplicate Post failed-provider capability state" "$PRE_RETRY_CAPS"
+jq -e '.administrator == true and .duo_source_only == null and .editor == true' <<<"$PRE_RETRY_CAPS" >/dev/null \
+  || fail "Yoast Duplicate Post missing-role refusal partially mutated role capabilities: $PRE_RETRY_CAPS"
 wp_conf2 eval 'add_role("duo_source_only", "Duo Source Only", ["read"=>true,"edit_posts"=>true]);' >/dev/null
 RETRY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
 require_duo_answered "Yoast Duplicate Post provider retry" json "$RETRY"
