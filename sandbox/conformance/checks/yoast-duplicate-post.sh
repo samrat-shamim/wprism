@@ -137,10 +137,10 @@ set_ydp_branch() { # <conf1|conf2> <repository|target>
     conf2) repo="${CONF_REPO2:-siterepo/conf2}" ;;
     *) fail "invalid Yoast Duplicate Post branch side: $side" ;;
   esac
-  read -r -d '' BRANCH_PHP <<PHPEOF || true
+  read -r -d '' BRANCH_PHP <<'PHPEOF' || true
 <?php
 wp_set_current_user(1);
-$profile = '$profile';
+$profile = '__DUO_YDP_PROFILE__';
 $copy = get_page_by_path('duo-duplicate-copy', OBJECT, 'post');
 if (!$copy) { throw new RuntimeException('mapped duplicate is absent'); }
 if ($profile === 'repository') {
@@ -168,6 +168,7 @@ $page->register_capabilities();
 unset($_GET['settings-updated']);
 echo $copy->ID;
 PHPEOF
+  BRANCH_PHP="${BRANCH_PHP/__DUO_YDP_PROFILE__/$profile}"
   file="$repo/.tmp-yoast-duplicate-post-branch.php"
   printf '%s' "$BRANCH_PHP" > "$file"
   if [ "$side" = conf1 ]; then
