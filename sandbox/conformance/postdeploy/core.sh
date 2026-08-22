@@ -134,7 +134,7 @@ require_fixture_values TARGET_ATTACHMENT_HASH
 # Authored state must converge while runtime/derived/env-local state stays on
 # the target. These sentinels cover option, postmeta, and comments-table
 # sovereignty on rows that the same apply will otherwise update.
-wp_conf2 post meta update "$A" _wp_page_template 'target-template.php' >/dev/null
+wp_conf2 post meta update "$A" _wp_page_template 'default' >/dev/null
 wp_conf2 post meta update "$A" _edit_lock 'target-lock:77' >/dev/null
 wp_conf2 post meta update "$A" _wp_old_slug 'target-old-branch-a' >/dev/null
 wp_conf2 post meta update "$TARGET_HELLO" _edit_last '424242' >/dev/null

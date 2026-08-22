@@ -42,7 +42,7 @@ require_fixture_ids NEWS_ID TOPIC_ID HOME_ID ACTIVATION_HELLO_ID ACTIVATION_SAMP
 CHILD_A=$(wp_conf1 post create --post_type=page --post_title='Child A' --post_name=shared-child --post_parent="$BRANCH_A" --post_status=publish --porcelain)
 CHILD_B=$(wp_conf1 post create --post_type=page --post_title='Child B' --post_name=shared-child --post_parent="$BRANCH_B" --post_status=publish --porcelain)
 require_fixture_ids CHILD_A CHILD_B
-wp_conf1 post meta update "$BRANCH_A" _wp_page_template 'source-template.php' >/dev/null
+wp_conf1 post meta update "$BRANCH_A" _wp_page_template 'page-no-title' >/dev/null
 
 # Same-filename re-import across pair.sh resets gets WordPress's collision
 # suffix (uploads persist in the webroot volume; the reset only drops the

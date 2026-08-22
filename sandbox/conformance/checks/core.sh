@@ -195,7 +195,7 @@ jq -e --argjson news "$TARGET_NEWS" '
   (.hello_content | contains("Welcome to WordPress")) and
   .sample_title == "Sample Page" and
   (.sample_content | contains("This is an example page")) and
-  .branch_template == "source-template.php" and
+  .branch_template == "page-no-title" and
   .news_description == "Conformance news" and
   .topic_description == "Conformance topic" and
   .default_category == $news and
