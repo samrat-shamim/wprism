@@ -53,24 +53,6 @@ if (1 !== $wpdb->query($wpdb->prepare("DELETE FROM `$table` WHERE id = %d", (int
 }
 update_option('code_snippets_target_neighbor', 'target-only-neighbor');
 
-if (!is_dir(WPMU_PLUGIN_DIR) && !wp_mkdir_p(WPMU_PLUGIN_DIR)) {
-    throw new RuntimeException('could not create target MU plugin directory');
-}
-$primer = <<<'PHP'
-<?php
-if (file_exists('/siterepo/.code-snippets-safe-mode')) {
-    define('CODE_SNIPPETS_SAFE_MODE', true);
-}
-add_action('plugins_loaded', static function () {
-    if (function_exists('Code_Snippets\\get_snippets')) {
-        Code_Snippets\get_snippets();
-    }
-}, PHP_INT_MAX);
-PHP;
-if (false === file_put_contents(WPMU_PLUGIN_DIR . '/duo-code-snippets-cache-primer.php', $primer)) {
-    throw new RuntimeException('could not install the target cache-primer fixture');
-}
-
 echo wp_json_encode([
     'flat_enabled' => Code_Snippets\Snippet_Files::is_active(),
     'next_id_floor' => (int) $stale->id,
@@ -95,4 +77,28 @@ printf '%s\n' "$HOSTILE_JSON" | jq -e '
   .runtime_value == "base|target-stale-runtime" and .stale_file == true
 ' >/dev/null || fail "Code Snippets hostile target cache/flat-file premise did not land: $HOSTILE_JSON"
 rm -f "$HOSTILE_FILE"
+
+# The persistent webroot is root-owned. Stage the reviewed MU fixture through
+# the world-writable site-repo mount, then install it into the exact pair-owned
+# web container as root (the same ownership boundary checks/core.sh uses).
+read -r -d '' PRIMER_PHP <<'PHPEOF' || true
+<?php
+define('DUO_CODE_SNIPPETS_CACHE_PRIMER', true);
+if (file_exists('/siterepo/.code-snippets-safe-mode')) {
+    define('CODE_SNIPPETS_SAFE_MODE', true);
+}
+add_action('plugins_loaded', static function () {
+    if (function_exists('Code_Snippets\\get_snippets')) {
+        Code_Snippets\get_snippets();
+    }
+}, PHP_INT_MAX);
+PHPEOF
+PRIMER_FILE="${CONF_REPO2:-siterepo/conf2}/.tmp-code-snippets-cache-primer.php"
+printf '%s' "$PRIMER_PHP" > "$PRIMER_FILE"
+$COMPOSE exec -T --user root wp2 install -D -m 0644 \
+  /siterepo/.tmp-code-snippets-cache-primer.php \
+  /var/www/html/wp-content/mu-plugins/duo-code-snippets-cache-primer.php
+rm -f "$PRIMER_FILE"
+[ "$(wp_conf2 eval 'echo defined("DUO_CODE_SNIPPETS_CACHE_PRIMER") ? "registered" : "missing";')" = registered ] \
+  || fail "Code Snippets target cache-primer MU fixture was not registered"
 pass "Code Snippets target starts with divergent IDs, an empty primed API cache, a stale executable projection, flat mode, and an undeclared neighbor"
