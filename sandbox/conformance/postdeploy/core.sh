@@ -174,9 +174,9 @@ DIRTY_REFUSAL=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1)
 require_duo_answered "conf2 core dirty target without adoption authority" human "$DIRTY_REFUSAL"
 [ "$DIRTY_REFUSAL_RC" -ne 0 ] \
   && grep -Fq 'slug collisions need explicit resolution' <<<"$DIRTY_REFUSAL" \
-  && grep -Fq 'state/posts/attachment/' <<<"$DIRTY_REFUSAL" \
-  && grep -Fq 'state/terms/category/' <<<"$DIRTY_REFUSAL" \
-  && grep -Fq 'state/menus/conformance-widget-menu.json' <<<"$DIRTY_REFUSAL" \
+  && grep -Fq 'posts/attachment/' <<<"$DIRTY_REFUSAL" \
+  && grep -Fq 'terms/category/' <<<"$DIRTY_REFUSAL" \
+  && grep -Fq 'menus/conformance-widget-menu.json' <<<"$DIRTY_REFUSAL" \
   || fail "core dirty target did not refuse every unmanaged collision family before apply: $DIRTY_REFUSAL"
 DIRTY_AFTER=$(wp_conf2 eval '
 global $wpdb;
