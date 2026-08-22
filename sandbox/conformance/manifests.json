@@ -5,6 +5,18 @@
     "post_types": ["post", "page", "attachment", "acf-field-group", "acf-field"],
     "taxonomies": ["category", "post_tag"]
   },
+  "advanced-editor-tools": {
+    "pin": ["core", "advanced-editor-tools"],
+    "plugins": [{"slug": "tinymce-advanced", "version": "5.9.2"}],
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "classic-editor": {
+    "pin": ["core", "classic-editor"],
+    "plugins": [{"slug": "classic-editor", "version": "1.7.0"}],
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  },
   "contact-form-7": {
     "pin": ["core", "contact-form-7"],
     "plugins": [{"slug": "contact-form-7", "version": "6.1.6"}],

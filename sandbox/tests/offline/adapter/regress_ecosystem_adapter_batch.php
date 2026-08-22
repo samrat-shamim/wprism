@@ -46,6 +46,10 @@ foreach ($names as $name) {
 }
 $dispositions = Canon::decode(Canon::read_file($root . '/manifests/dispositions.json'));
 $conformanceEntry = Canon::decode(Canon::read_file($root . '/sandbox/conformance/entries/ecosystem-adapter-batch.json'));
+$standaloneEntries = [
+    'advanced-editor-tools' => Canon::decode(Canon::read_file($root . '/sandbox/conformance/entries/advanced-editor-tools.json')),
+    'classic-editor' => Canon::decode(Canon::read_file($root . '/sandbox/conformance/entries/classic-editor.json')),
+];
 $artifactLock = Canon::decode(Canon::read_file($root . '/sandbox/conformance/artifacts.lock.json'));
 
 $priorManifestDir = getenv('DUO_MANIFESTS_DIR');
@@ -132,6 +136,34 @@ foreach ($artifacts as $artifact) {
     $locked = $artifactLock['plugins'][$slug][$version] ?? null;
     duo_check_same($artifact['sha256'], $locked['sha256'] ?? null, "$slug $version live evidence is locked to the researched artifact digest");
     duo_check_same('exercise-fixture', $locked['role'] ?? null, "$slug $version is labeled evidence, not a certified boundary");
+}
+
+foreach ($standaloneEntries as $name => $fixture) {
+    duo_check_same($name, $fixture['manifest'] ?? null, "$name has an independently runnable live profile");
+    duo_check(!isset($fixture['entry']['mode']), "$name standalone evidence uses the complete roundtrip path");
+    duo_check_same(['core', $name], $fixture['entry']['pin'] ?? null, "$name live profile isolates core plus one adapter");
+    foreach (['seeds', 'postdeploy', 'checks'] as $phase) {
+        duo_check(
+            is_file($root . "/sandbox/conformance/$phase/$name.sh"),
+            "$name live profile has a separately diagnosable $phase hook"
+        );
+    }
+}
+
+$refusalArtifacts = [
+    'tinymce-advanced' => [
+        'version' => '5.9.0',
+        'sha256' => '6940ab196194ad7f1c99a8242ed390f77ddd526f49c205d128e42c3802e0d7d8',
+    ],
+    'classic-editor' => [
+        'version' => '1.6.7',
+        'sha256' => '4b2b45b19c61f627ff8730222692a691023dea3435b35b8db95a2418b45ece65',
+    ],
+];
+foreach ($refusalArtifacts as $slug => $artifact) {
+    $locked = $artifactLock['plugins'][$slug][$artifact['version']] ?? null;
+    duo_check_same($artifact['sha256'], $locked['sha256'] ?? null, "$slug adjacent official refusal artifact is digest-pinned");
+    duo_check_same('refusal-fixture', $locked['role'] ?? null, "$slug adjacent official release can never be credited as admitted evidence");
 }
 
 $expectedOptions = [

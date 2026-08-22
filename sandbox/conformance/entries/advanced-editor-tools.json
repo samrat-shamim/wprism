@@ -1,0 +1,11 @@
+{
+  "entry": {
+    "pin": ["core", "advanced-editor-tools"],
+    "plugins": [
+      {"slug": "tinymce-advanced", "version": "5.9.2"}
+    ],
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "manifest": "advanced-editor-tools"
+}

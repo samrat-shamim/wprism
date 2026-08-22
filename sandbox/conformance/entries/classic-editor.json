@@ -1,0 +1,11 @@
+{
+  "entry": {
+    "pin": ["core", "classic-editor"],
+    "plugins": [
+      {"slug": "classic-editor", "version": "1.7.0"}
+    ],
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "manifest": "classic-editor"
+}

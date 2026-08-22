@@ -35,6 +35,11 @@
       }
     },
     "classic-editor": {
+      "1.6.7": {
+        "url": "https://downloads.wordpress.org/plugin/classic-editor.1.6.7.zip",
+        "sha256": "4b2b45b19c61f627ff8730222692a691023dea3435b35b8db95a2418b45ece65",
+        "role": "refusal-fixture"
+      },
       "1.7.0": {
         "url": "https://downloads.wordpress.org/plugin/classic-editor.1.7.0.zip",
         "sha256": "7cc7799b0b7d820fbb7528dbff8027c736e52513992416cb37279f44d3d9dd77",
@@ -127,6 +132,11 @@
       }
     },
     "tinymce-advanced": {
+      "5.9.0": {
+        "url": "https://downloads.wordpress.org/plugin/tinymce-advanced.5.9.0.zip",
+        "sha256": "6940ab196194ad7f1c99a8242ed390f77ddd526f49c205d128e42c3802e0d7d8",
+        "role": "refusal-fixture"
+      },
       "5.9.2": {
         "url": "https://downloads.wordpress.org/plugin/tinymce-advanced.5.9.2.zip",
         "sha256": "ec4c6635dc9d0f9c27d0256d7b83b3655b5904c936748604c698d256fbfd69c7",
