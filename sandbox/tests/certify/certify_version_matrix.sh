@@ -80,6 +80,19 @@ GIT1=(git -C "siterepo/${PAIR}1" -c user.name=duo-vmatrix1 -c user.email=vmatrix
 
 . bin/fetch-artifact.sh
 
+normalize_version_matrix_archive_root() { # <service> <plugin|theme> <slug> <archive-root>
+  local service="$1" kind="$2" slug="$3" archive_root="$4" base
+  [ "$archive_root" != "$slug" ] || return 0
+  case "$kind" in
+    plugin) base=/var/www/html/wp-content/plugins ;;
+    theme) base=/var/www/html/wp-content/themes ;;
+    *) fail "invalid version-matrix extension kind for archive-root normalization" ;;
+  esac
+  "${PAIR_COMPOSE[@]}" run --rm -T "$service" sh /duo-harness/artifact-archive-root.sh \
+    "$base" "$archive_root" "$slug" \
+    || fail "could not normalize pinned $kind archive root $archive_root to $slug on $service"
+}
+
 # Every boundary replaces both host-side Git working trees while the pair's
 # CLI processes run as uid 33.  The roots are live bind mounts, so removing a
 # root lets Docker recreate it as root:0755 before the next CLI call.  Preserve
@@ -662,7 +675,9 @@ ARTIFACT_1=$(fetch_artifact paid-memberships-pro "$PMPRO_VERSION" cli1)
 ARTIFACT_2=$(fetch_artifact paid-memberships-pro "$PMPRO_VERSION" cli2)
 pass "verified sha256-pinned upstream artifact resolved for both sides: $ARTIFACT_1"
 
-wp1 plugin install "$ARTIFACT_1" --activate >/dev/null
+wp1 plugin install "$ARTIFACT_1" >/dev/null
+normalize_version_matrix_archive_root cli1 plugin paid-memberships-pro paid-memberships-pro-3.8.3
+wp1 plugin activate paid-memberships-pro >/dev/null
 INSTALLED_1=$(wp1 plugin get paid-memberships-pro --field=version)
 [ "$INSTALLED_1" = "$PMPRO_VERSION" ] || fail "side 1 installed version mismatch: expected $PMPRO_VERSION, got $INSTALLED_1"
 pass "side 1: paid-memberships-pro $PMPRO_VERSION installed from verified artifact, active"
@@ -700,6 +715,7 @@ clone_case_target
 # Target starts with the exact plugin present but inactive. Deploy must both
 # accept its basename/version and perform the declared activation lifecycle.
 wp2 plugin install "$ARTIFACT_2" >/dev/null
+normalize_version_matrix_archive_root cli2 plugin paid-memberships-pro paid-memberships-pro-3.8.3
 INSTALLED_2=$(wp2 plugin get paid-memberships-pro --field=version)
 require_fixture_values INSTALLED_2
 [ "$INSTALLED_2" = "$PMPRO_VERSION" ] || fail "side 2 installed version mismatch: expected $PMPRO_VERSION, got $INSTALLED_2"
@@ -1358,7 +1374,9 @@ reset_case_repositories
 # installed plugin. Both refusals therefore exercise Deploy::code_mismatch()
 # against real PMPro table/reference content rather than an empty repository.
 IN_RANGE_ARTIFACT=$(fetch_artifact paid-memberships-pro 3.8.3 cli1)
-wp1 plugin install "$IN_RANGE_ARTIFACT" --activate >/dev/null
+wp1 plugin install "$IN_RANGE_ARTIFACT" >/dev/null
+normalize_version_matrix_archive_root cli1 plugin paid-memberships-pro paid-memberships-pro-3.8.3
+wp1 plugin activate paid-memberships-pro >/dev/null
 NEGATIVE_INSTALLED=$(wp1 plugin get paid-memberships-pro --field=version)
 require_fixture_values NEGATIVE_INSTALLED
 [ "$NEGATIVE_INSTALLED" = "3.8.3" ] \
@@ -1392,6 +1410,7 @@ for OUT_OF_RANGE_VERSION in 3.8.2 3.8.4; do
   wp1 plugin delete paid-memberships-pro >/dev/null
   OUT_OF_RANGE_ARTIFACT=$(fetch_artifact paid-memberships-pro "$OUT_OF_RANGE_VERSION" cli1)
   wp1 plugin install "$OUT_OF_RANGE_ARTIFACT" >/dev/null
+  normalize_version_matrix_archive_root cli1 plugin paid-memberships-pro "paid-memberships-pro-$OUT_OF_RANGE_VERSION"
   INSTALLED_OOR=$(wp1 plugin get paid-memberships-pro --field=version)
   [ "$INSTALLED_OOR" = "$OUT_OF_RANGE_VERSION" ] \
     || fail "negative control: expected paid-memberships-pro $OUT_OF_RANGE_VERSION installed, got $INSTALLED_OOR"
