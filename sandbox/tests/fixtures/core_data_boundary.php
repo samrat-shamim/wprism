@@ -2,8 +2,8 @@
 /**
  * Real WordPress fixture for the core adapter's difficult-value boundary.
  *
- * Invoked by regress_core_data_boundary.sh through `wp eval-file` with one
- * mode argument. All large values are regenerated from small deterministic
+ * Loaded by regress_core_data_boundary.sh through WP-CLI's `--require`; the
+ * harness then invokes one named function. All large values are regenerated from small deterministic
  * recipes, so observations compare the plugin-visible values rather than a
  * second checked-in state tree.
  */
@@ -455,37 +455,4 @@ function duo_boundary_update_source(): void {
         'ID' => (int) $ids['post'],
         'post_title' => duo_boundary_title() . '|UPDATED',
     ]);
-}
-
-$mode = (string) ($args[0] ?? '');
-switch ($mode) {
-    case 'seed-source':
-        duo_boundary_seed_source();
-        break;
-    case 'seed-target':
-        duo_boundary_seed_target();
-        break;
-    case 'observe':
-        echo wp_json_encode(duo_boundary_observe(false));
-        break;
-    case 'observe-updated':
-        echo wp_json_encode(duo_boundary_observe(true));
-        break;
-    case 'secret-meta':
-        duo_boundary_secret_meta();
-        break;
-    case 'restore-meta':
-        duo_boundary_restore_meta();
-        break;
-    case 'corrupt-theme':
-        duo_boundary_corrupt_theme();
-        break;
-    case 'restore-theme':
-        duo_boundary_restore_theme();
-        break;
-    case 'update-source':
-        duo_boundary_update_source();
-        break;
-    default:
-        throw new InvalidArgumentException("unknown core data-boundary fixture mode '$mode'");
 }

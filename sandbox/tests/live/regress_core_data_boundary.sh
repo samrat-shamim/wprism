@@ -31,8 +31,23 @@ R1="siterepo/${PAIR}1"
 R2="siterepo/${PAIR}2"
 wp1() { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
 wp2() { "${COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
-fixture1() { wp1 eval-file /siterepo/core_data_boundary.php "$1"; }
-fixture2() { wp2 eval-file /siterepo/core_data_boundary.php "$1"; }
+
+fixture_code() {
+  case "$1" in
+    seed-source) printf '%s' 'duo_boundary_seed_source();' ;;
+    seed-target) printf '%s' 'duo_boundary_seed_target();' ;;
+    observe) printf '%s' 'echo wp_json_encode(duo_boundary_observe(false));' ;;
+    observe-updated) printf '%s' 'echo wp_json_encode(duo_boundary_observe(true));' ;;
+    secret-meta) printf '%s' 'duo_boundary_secret_meta();' ;;
+    restore-meta) printf '%s' 'duo_boundary_restore_meta();' ;;
+    corrupt-theme) printf '%s' 'duo_boundary_corrupt_theme();' ;;
+    restore-theme) printf '%s' 'duo_boundary_restore_theme();' ;;
+    update-source) printf '%s' 'duo_boundary_update_source();' ;;
+    *) fail "unknown core data-boundary fixture mode '$1'" ;;
+  esac
+}
+fixture1() { wp1 --require=/siterepo/core_data_boundary.php eval "$(fixture_code "$1")"; }
+fixture2() { wp2 --require=/siterepo/core_data_boundary.php eval "$(fixture_code "$1")"; }
 
 clear_tree() {
   [ ! -e "$1" ] || find "$1" -depth -delete
