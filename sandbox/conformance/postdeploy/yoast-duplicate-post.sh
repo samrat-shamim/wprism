@@ -50,7 +50,6 @@ if (is_wp_error($original) || !$original || is_wp_error($copy) || !$copy) {
 wp_set_object_terms((int) $original, [(int) $category['term_id']], 'category');
 wp_set_object_terms((int) $copy, [(int) $tag['term_id']], 'post_tag');
 update_post_meta((int) $copy, '_dp_original', (int) $copy);
-update_post_meta((int) $copy, '_duo_copy_me', 'target-hostile-meta');
 
 // Runtime state is deliberately malformed/hostile but target-sovereign. The
 // authored apply must neither capture nor rewrite these bytes.

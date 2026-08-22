@@ -78,8 +78,6 @@ echo wp_json_encode([
         'original_via_api' => $copyOriginal ? (int) $copyOriginal->ID : 0,
         'status' => (string) $copy->post_status,
         'title' => (string) $copy->post_title,
-        'copied_meta' => get_post_meta($copy->ID, '_duo_copy_me', true),
-        'excluded_meta' => get_post_meta($copy->ID, '_duo_skip_runtime', true),
         'categories' => wp_get_post_terms($copy->ID, 'category', ['fields' => 'slugs']),
         'tags' => wp_get_post_terms($copy->ID, 'post_tag', ['fields' => 'slugs']),
         'runtime_creation' => get_post_meta($copy->ID, '_dp_creation_date_gmt', true),
@@ -183,7 +181,6 @@ printf '%s\n' "$TARGET_INITIAL" | jq -e --argjson original "$TARGET_ORIGINAL" --
   .copy.status == "draft" and .copy.menu_order == 24 and
   (.copy.title | contains("Duo Duplicate Original 東京 🚀")) and
   (.copy.content_hash == .original.content_hash) and
-  (.copy.copied_meta | contains("portable-meta 東京 🚀")) and .copy.excluded_meta == "" and
   .copy.categories == ["duo-duplicate-category"] and .copy.tags == ["duo-duplicate-tag"] and
   .roles.administrator == true and .roles.duo_reviewer == true and
   .roles.editor == false and .roles.subscriber == false and

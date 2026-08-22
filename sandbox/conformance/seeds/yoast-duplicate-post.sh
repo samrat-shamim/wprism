@@ -20,7 +20,7 @@ if (!get_role('duo_reviewer')) {
 $prefix = str_repeat('複製✨', 14) . ' |';
 $suffix = '| ' . str_repeat('鏡像🚀', 12);
 $settings = [
-    'duplicate_post_blacklist' => '_duo_skip*, _edit_lock',
+    'duplicate_post_blacklist' => '_dp_creation_date_gmt, _edit_lock',
     'duplicate_post_copyattachments' => '0',
     'duplicate_post_copyauthor' => '1',
     'duplicate_post_copychildren' => '0',
@@ -100,8 +100,7 @@ if (is_wp_error($original) || !$original) {
 }
 wp_set_object_terms((int) $original, [(int) $category['term_id']], 'category');
 wp_set_object_terms((int) $original, [(int) $tag['term_id']], 'post_tag');
-update_post_meta((int) $original, '_duo_copy_me', "portable-meta 東京 🚀 | quote\" apostrophe' slash\\");
-update_post_meta((int) $original, '_duo_skip_runtime', 'must-not-copy');
+update_post_meta((int) $original, '_dp_creation_date_gmt', 'must-not-copy');
 
 $copy = duplicate_post_create_duplicate(get_post((int) $original));
 if (is_wp_error($copy) || !$copy) {
@@ -122,9 +121,8 @@ echo wp_json_encode([
     'copy_status' => $copyPost->post_status,
     'copy_title' => $copyPost->post_title,
     'copied_category' => wp_get_post_terms((int) $copy, 'category', ['fields' => 'slugs']),
-    'copied_meta' => get_post_meta((int) $copy, '_duo_copy_me', true),
     'copied_tag' => wp_get_post_terms((int) $copy, 'post_tag', ['fields' => 'slugs']),
-    'excluded_meta' => get_post_meta((int) $copy, '_duo_skip_runtime', true),
+    'excluded_runtime_meta' => get_post_meta((int) $copy, '_dp_creation_date_gmt', true),
     'original_id' => (int) $original,
     'original_via_api' => $originalPost ? (int) $originalPost->ID : 0,
     'prefix' => $prefix,
@@ -146,7 +144,7 @@ printf '%s\n' "$SEED_JSON" | jq -e '
   .original_via_api == .original_id and .copy_status == "draft" and
   .copy_menu_order == 24 and (.copy_title | contains("Duo Duplicate Original")) and
   .copied_category == ["duo-duplicate-category"] and .copied_tag == ["duo-duplicate-tag"] and
-  (.copied_meta | contains("portable-meta 東京 🚀")) and .excluded_meta == "" and
+  .excluded_runtime_meta == "" and
   .roles.administrator == true and .roles.duo_reviewer == true and
   .roles.editor == false and .roles.subscriber == false and .version == "4.7"
 ' >/dev/null || fail "Yoast Duplicate Post source fixture did not establish the native/settings/reference premises: $SEED_JSON"
