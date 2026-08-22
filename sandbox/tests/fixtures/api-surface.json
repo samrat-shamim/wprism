@@ -22272,6 +22272,14 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "hostRepoPath": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "rawCommand": {
                     "abstract": false,
                     "final": false,
@@ -24332,6 +24340,14 @@
                     "final": false,
                     "parameters": [],
                     "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "hostRepoPath": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?string",
                     "static": false,
                     "visibility": "public"
                 },
@@ -30484,6 +30500,14 @@
                     "return_type": "string",
                     "static": true,
                     "visibility": "protected"
+                },
+                "hostRepoPath": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
                 },
                 "make": {
                     "abstract": false,

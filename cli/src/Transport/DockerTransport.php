@@ -88,6 +88,61 @@ final class DockerTransport extends Transport {
         return "docker compose_file={$this->composeFile}{$profile}{$mode} service={$this->service} repo_path={$this->repoPath}";
     }
 
+    /**
+     * The HOST directory this environment's `repo_path` is bind-mounted from,
+     * or null when the host cannot write it.
+     *
+     * ## Why the transport owns this and not the caller
+     *
+     * A docker environment's defining property is that its repository IS on
+     * this filesystem — the bind mount is how `pair.sh` and `duo deploy` from
+     * inside a checkout already work. But only the compose file knows WHERE:
+     * `repo_path` is the CONTAINER path (`/siterepo` for both sides of a
+     * pair), so two environments of one pair are indistinguishable by config
+     * alone. Before DUO-3526 the host guessed with
+     * `CodeResolver::locateSiteRepo(getcwd())`, which answers for the
+     * directory the operator happens to stand in — the SOURCE repository
+     * during a rehearse, not the target — so a resolve could report success
+     * against a repository nobody asked about while the target stayed empty.
+     * The compose service knows the answer exactly; ask it.
+     *
+     * `config` is used rather than `inspect` deliberately: it resolves the
+     * same file, profile and interpolation environment this transport itself
+     * runs with, and needs no container to exist yet.
+     *
+     * Null — never a guess — when the answer is not a writable host directory:
+     * the mount is a named volume, it is read-only, the service or the mount
+     * is absent, or compose cannot be read. Every caller treats null as "the
+     * host cannot materialize here" and refuses with the reviewed message.
+     */
+    public function hostRepoPath(): ?string {
+        $tokens = array_merge($this->baseTokens(), ['config', '--format', 'json']);
+        $result = self::runCapturing(self::tokens($tokens));
+        if (($result['exit'] ?? 1) !== 0) {
+            return null;
+        }
+        $config = json_decode((string) ($result['stdout'] ?? ''), true);
+        $volumes = $config['services'][$this->service]['volumes'] ?? null;
+        if (!is_array($volumes)) {
+            return null;
+        }
+        $want = rtrim($this->repoPath, '/');
+        foreach ($volumes as $volume) {
+            if (!is_array($volume) || rtrim((string) ($volume['target'] ?? ''), '/') !== $want) {
+                continue;
+            }
+            // A named volume holds the bytes inside docker where this host has
+            // no path to write, and a read-only bind refuses the write anyway;
+            // both are "ask the target instead", not "try harder".
+            if (($volume['type'] ?? null) !== 'bind' || ($volume['read_only'] ?? false) === true) {
+                return null;
+            }
+            $source = (string) ($volume['source'] ?? '');
+            return $source !== '' && is_dir($source) ? $source : null;
+        }
+        return null;
+    }
+
     private function baseTokens(): array {
         $t = ['docker', 'compose', '-f', $this->composeFile];
         if ($this->profile !== null) {

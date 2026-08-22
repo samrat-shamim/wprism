@@ -554,7 +554,7 @@ Verbs:
                           checkout. A fresh clone then needs the materialization
                           step in docs/guides/code-updates.md before it compiles.
   code-resolve <env>      Materialize every component code/duo-code.lock.json
-    [--dry-run]           declares, on THIS host, into the local checkout's
+    [--dry-run]           declares, on THIS host, into that environment's own
     [--offline]           code/wp-content. Reads the content-addressed release
     [--cache-dir=<path>]  cache first and fetches only on a miss; verifies
                           archive_sha256 before unpacking and tree_sha256

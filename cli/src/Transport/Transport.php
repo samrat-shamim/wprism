@@ -168,6 +168,20 @@ abstract class Transport implements EnvironmentDriver {
         return self::runCapturing($this->rawCommand($script));
     }
 
+    /**
+     * The HOST directory this environment's repository is on, or null when the
+     * host cannot write it (DUO-3526).
+     *
+     * Null is the honest default and the safe one: a transport that keeps its
+     * repository on the far side of itself — ssh today — cannot be resolved
+     * from here, and every caller reads null as "ask the target instead"
+     * rather than as "guess". Only LocalTransport (its repo_path IS a host
+     * path) and DockerTransport (the host side of its bind mount) can answer.
+     */
+    public function hostRepoPath(): ?string {
+        return null;
+    }
+
     /** @return array{exit:int, stdout:string, stderr:string} */
     protected static function runCapturing(string $fullCommand): array {
         $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];

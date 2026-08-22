@@ -136,6 +136,7 @@ final class CodeResolveCommand {
             }
             echo "$verb phase: code-resolve\n";
             $rows = self::resolver(false, null)->resolve($repo, $lock['components'], false);
+            self::assertTargetHoldsLock($transport, $lock['components']);
             self::render($lock['path'], $rows, false, $verb);
             return null;
         } catch (CommandRefusalException $refusal) {
@@ -157,11 +158,75 @@ final class CodeResolveCommand {
      * ssh arm and a docker invocation from outside the checkout both need.
      */
     private static function hostRepo(EnvironmentDriver $transport): ?string {
-        return match ($transport->driverId()) {
-            'local' => rtrim($transport->repoPath(), '/'),
-            'docker' => CodeResolver::locateSiteRepo(getcwd() ?: '.'),
-            default => null,
-        };
+        // One question, asked of the driver, for every transport (DUO-3526).
+        //
+        // Before this the docker arm inferred the answer from
+        // `CodeResolver::locateSiteRepo(getcwd())` — the directory the operator
+        // happened to stand in. `repo_path` is a CONTAINER path and both sides
+        // of a pair mount their own repository at `/siterepo`, so cwd answered
+        // for the wrong environment whenever the two differed: during a
+        // rehearse it named the SOURCE repository, which resolved cleanly and
+        // reported "unchanged" while the target the compile would read stayed
+        // empty (grind_adapter_walk.sh S1, "branch candidate did not compile on
+        // the target").
+        //
+        // `instanceof Transport` rather than a driverId match: hostRepoPath()
+        // is declared on the driver base with a null default and overridden by
+        // the two transports that can answer, so this needs no per-driver
+        // knowledge here and no `require` of any transport file — naming
+        // DockerTransport directly cannot be done from this file at all
+        // (DockerTransport.php does not require its own base class, so a
+        // require_once of it here fatals under cli/duo's load order). A fake
+        // driver that implements only the interface returns null and falls to
+        // the read-only target arm, which is the correct answer for a driver
+        // that exposes no host repository.
+        return $transport instanceof Transport ? $transport->hostRepoPath() : null;
+    }
+
+    /**
+     * Prove, through the TARGET, that the host wrote where the target reads.
+     *
+     * This is what makes a derived host path safe to trust. The path comes
+     * from compose rather than from the operator's cwd, but a derivation can
+     * still be wrong — a stale compose file, an edited mount — and a resolve
+     * that wrote somewhere harmless would otherwise report success and leave
+     * the compile one phase later to fail with `code_source_missing` and no
+     * explanation. Asking the target for its own inventory closes that: if the
+     * bytes did not land where the target reads, the components are still
+     * reported absent here, by name, before anything is compiled.
+     *
+     * It reuses the same `wp duo code-inventory` read the read-only arm uses,
+     * so there is one notion of "what the target holds".
+     *
+     * @param list<array<string,mixed>> $components
+     */
+    private static function assertTargetHoldsLock(EnvironmentDriver $transport, array $components): void {
+        if ($transport->driverId() !== 'docker') {
+            // `local` needs no proof: repoPath() IS the directory the target
+            // reads, so there is no derivation that could be wrong, and this
+            // would only add a wp call to every local deploy.
+            return;
+        }
+        $inventory = self::targetInventory($transport, rtrim($transport->repoPath(), '/'));
+        $missing = [];
+        foreach ($components as $entry) {
+            $key = $entry['root'] . '/' . $entry['component'];
+            $actual = $inventory[$key] ?? '';
+            if (!hash_equals((string) $entry['tree_sha256'], $actual)) {
+                $missing[] = $key . ' ' . $entry['version']
+                    . ($actual === '' ? ' (absent)' : ' (present at ' . $actual . ')');
+            }
+        }
+        if ($missing !== []) {
+            throw new CommandRefusalException(
+                CodeResolver::REASON_TREE_DIGEST_MISMATCH,
+                'the host resolved this environment\'s locked components, but the target does not report them '
+                . 'at the locked digest',
+                'confirm the compose service mounts this environment\'s repository at its repo_path, then rerun',
+                [],
+                'duo: after resolving, the target still does not hold: ' . implode(', ', $missing)
+            );
+        }
     }
 
     private static function resolver(bool $offline, ?string $cacheDir): CodeResolver {
@@ -281,14 +346,19 @@ final class CodeResolveCommand {
 
     private static function unresolvableTransport(EnvironmentDriver $transport): CommandRefusalException {
         if ($transport->driverId() === 'docker') {
+            // Reworded with the mechanism it now describes (DUO-3526). The
+            // previous text sent the operator to run from inside a checkout,
+            // which was the cwd inference this issue removed; leaving it would
+            // name a remedy that no longer affects the outcome.
             return new CommandRefusalException(
                 self::REASON_TRANSPORT_UNSUPPORTED,
-                'a docker environment is resolved through the host side of its bind mount, and this command was '
-                . 'not run from inside a site repository',
-                'run duo code-resolve from inside the checkout the docker environment mounts as its repo_path',
+                'a docker environment is resolved through the host side of its bind mount, and this service does '
+                . 'not bind its repo_path to a writable host directory',
+                'mount the environment\'s repository into the service at its repo_path as a writable bind mount, '
+                . 'then rerun',
                 [],
-                'duo: no site.duo.json was found at or above the working directory, so the host side of the '
-                . "docker environment's repository could not be identified"
+                'duo: the compose service for this environment exposes no writable bind mount at its repo_path, '
+                . 'so the host side of its repository could not be identified'
             );
         }
         return self::sshRefusal(
