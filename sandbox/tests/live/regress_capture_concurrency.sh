@@ -152,7 +152,7 @@ wp1() { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
 wp2() { "${COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
 wp1_test() { "${COMPOSE[@]}" run --rm -T -e DUO_TEST_MODE=1 -e DUO_TEST_CAPTURE_WAIT_FOR_RELEASE=1 cli1 wp "$@"; }
 wp1_apply_test() { "${COMPOSE[@]}" run --rm -T -e DUO_TEST_MODE=1 -e DUO_TEST_PROMOTION_PAUSE_MS=10000 cli1 wp "$@"; }
-require_compose_framing_only() {
+assert_compose_framing_only() {
   local file="$1" what="$2" unexpected=""
   unexpected=$(sed -E \
     -e "/^ Container duo-${PAIR}-cli[12]-run-[[:alnum:]]+ (Creating|Created) $/d" \
@@ -349,7 +349,7 @@ jq -e -s '
 ! grep -Eqi 'duo-command-refusal/v1|capture_lock_held|(^|[[:space:]])duo:|capture refused|another (capture|publisher)|already publishing|lock held:|DUO-3213|/siterepo/state' \
     <<<"$CAPTURE_B_JSON_ERR" \
   || fail "capture B's machine invocation leaked operator or refusal evidence on stderr: $CAPTURE_B_JSON_ERR"
-require_compose_framing_only "$LOG_B_JSON_ERR" "capture B's machine invocation"
+assert_compose_framing_only "$LOG_B_JSON_ERR" "capture B's machine invocation"
 pass "capture B refused immediately through the typed, path-redacted machine contract"
 
 say "PART 1 — human mode retains operator-only lock and destination evidence"
@@ -474,7 +474,7 @@ jq -e -s '
   }
 ' "$LOG_D_OUT" >/dev/null \
   || fail "different-destination capture did not return the exact target-writer contract: $CAPTURE_D_JSON"
-require_compose_framing_only "$LOG_D_ERR" "different-destination machine refusal"
+assert_compose_framing_only "$LOG_D_ERR" "different-destination machine refusal"
 for artifact in \
   "$HOST_REPO1/.tmp-concurrency-other" \
   "$HOST_REPO1/.tmp-concurrency-other.capture-staging" \
@@ -557,7 +557,7 @@ jq -e '
   .message == "capture refused because another Duo target writer or promotion session is active"
 ' <<<"$APPLY_HELD_CAPTURE_JSON" >/dev/null \
   || fail "apply-held capture did not return the typed target-writer refusal: $APPLY_HELD_CAPTURE_JSON"
-require_compose_framing_only "$LOG_APPLY_HELD_CAPTURE_ERR" "apply-held capture machine refusal"
+assert_compose_framing_only "$LOG_APPLY_HELD_CAPTURE_ERR" "apply-held capture machine refusal"
 for artifact in \
   "$HOST_REPO1/.tmp-apply-held-capture" \
   "$HOST_REPO1/.tmp-apply-held-capture.capture-staging" \
