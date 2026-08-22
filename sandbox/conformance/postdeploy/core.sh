@@ -64,15 +64,12 @@ wp_conf2 post delete "$DUP" --force >/dev/null
 
 # Production dirty-target matrix: force every core natural-identity family
 # through a target-local row before the harness's explicit adoption apply.
-# Fresh WordPress installs normally give source and target the same low ids,
-# which can make a broken source-id copy look correct. Recreate the activation
-# defaults only on conf2, after the hierarchy above consumed ids, so the
-# post/page/category mappings can pass only by retaining the target-local ids.
-TARGET_HELLO_OLD=$(wp_conf2 post list --post_type=post --name=hello-world --field=ID | tr -d '[:space:]')
-TARGET_SAMPLE_OLD=$(wp_conf2 post list --post_type=page --name=sample-page --field=ID | tr -d '[:space:]')
+# conformance/run.sh removes starter posts before both adapter hooks. Author
+# hostile versions of WordPress's activation-default keys only on conf2 after
+# the hierarchy above consumed ids, so post/page adoption can pass only by
+# retaining these target-local ids and replacing their values.
 TARGET_UNCAT_OLD=$(wp_conf2 term get category uncategorized --by=slug --field=term_id | tr -d '[:space:]')
-require_fixture_ids TARGET_HELLO_OLD TARGET_SAMPLE_OLD TARGET_UNCAT_OLD
-wp_conf2 post delete "$TARGET_HELLO_OLD" "$TARGET_SAMPLE_OLD" --force >/dev/null
+require_fixture_ids TARGET_UNCAT_OLD
 TARGET_HELLO=$(wp_conf2 post create --post_type=post --post_status=publish --post_name=hello-world \
   --post_title='Hostile target hello' --post_content='Target activation default must not win.' --porcelain)
 TARGET_SAMPLE=$(wp_conf2 post create --post_type=page --post_status=publish --post_name=sample-page \

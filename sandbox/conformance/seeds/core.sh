@@ -12,6 +12,20 @@ TOPIC_ID=$(wp_conf1 term create post_tag 'Core Topic' --slug=core-topic --descri
 HOME_ID=$(wp_conf1 post create --post_type=page --post_title=Home --post_name=home --post_status=publish \
   --post_content='<!-- wp:paragraph --><p>Welcome to the conformance home page.</p><!-- /wp:paragraph -->' --porcelain)
 
+# conformance/run.sh deliberately empties starter posts before adapter seeds,
+# so reproduce the two WordPress activation-default natural keys explicitly.
+# The target hook authors hostile same-key rows later, after consuming a
+# different id sequence; this keeps the activation-default adoption proof
+# real instead of depending on fresh installs coincidentally allocating id 1.
+ACTIVATION_HELLO_ID=$(wp_conf1 post create --post_type=post --post_status=publish \
+  --post_name=hello-world --post_title='Hello world!' \
+  --post_content='<!-- wp:paragraph --><p>Welcome to WordPress. This is your first post. Edit or delete it, then start writing!</p><!-- /wp:paragraph -->' \
+  --porcelain)
+ACTIVATION_SAMPLE_ID=$(wp_conf1 post create --post_type=page --post_status=publish \
+  --post_name=sample-page --post_title='Sample Page' \
+  --post_content='<!-- wp:paragraph --><p>This is an example page. It is different from a blog post because it will stay in one place and will show up in your site navigation.</p><!-- /wp:paragraph -->' \
+  --porcelain)
+
 # DUO-3209: the portable adoption key for hierarchical posts is
 # (post_type, slug, parent identity), never slug alone. Two siblings in
 # different branches deliberately share the same slug.
@@ -24,7 +38,7 @@ BRANCH_B=$(wp_conf1 post create --post_type=page --post_title='Branch B' --post_
 # be created successfully, in the wrong place, and this manifest's own
 # hierarchy assertions (postdeploy/core.sh's ambiguous-key refusal,
 # checks/core.sh's shared-child guard) would then read as engine failures.
-require_fixture_ids NEWS_ID TOPIC_ID HOME_ID BRANCH_A BRANCH_B
+require_fixture_ids NEWS_ID TOPIC_ID HOME_ID ACTIVATION_HELLO_ID ACTIVATION_SAMPLE_ID BRANCH_A BRANCH_B
 CHILD_A=$(wp_conf1 post create --post_type=page --post_title='Child A' --post_name=shared-child --post_parent="$BRANCH_A" --post_status=publish --porcelain)
 CHILD_B=$(wp_conf1 post create --post_type=page --post_title='Child B' --post_name=shared-child --post_parent="$BRANCH_B" --post_status=publish --porcelain)
 require_fixture_ids CHILD_A CHILD_B
