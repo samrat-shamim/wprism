@@ -33,6 +33,9 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 |---|---|---|---|---|
 | [core](#core) | certified | WordPress core | WordPress 7.0.3 (last verified) | apply, capture, compile, delete, deploy, plan, promote, recapture, render-api |
 | [acf](#acf) | certified | `advanced-custom-fields/acf.php` | >=6.0.0 <7.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
+| [advanced-editor-tools](#advanced-editor-tools) | experimental | `tinymce-advanced/tinymce-advanced.php` | >=5.9.2 <5.9.3 | capture, compile, plan, recapture |
+| [classic-editor](#classic-editor) | experimental | `classic-editor/classic-editor.php` | >=1.7.0 <1.7.1 | capture, compile, plan, recapture |
+| [code-snippets](#code-snippets) | experimental | `code-snippets/code-snippets.php` | >=3.9.6 <3.9.7 | capture, compile, plan, recapture |
 | [contact-form-7](#contact-form-7) | certified | `contact-form-7/wp-contact-form-7.php` | >=6.0.0 <7.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [duo-agency-cpt](#duo-agency-cpt) | excluded | none declared | fixture only | test-only |
 | [elementor](#elementor) | certified | `elementor/elementor.php` | >=4.0.0 <5.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
@@ -41,7 +44,9 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 | [polylang](#polylang) | certified | `polylang/polylang.php` | >=3.5 <4.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [the-events-calendar](#the-events-calendar) | experimental | unbound | unbound | apply, capture, compile, plan, recapture |
 | [woocommerce](#woocommerce) | certified | `woocommerce/woocommerce.php` | >=11.0.0 <12.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
+| [wps-hide-login](#wps-hide-login) | experimental | `wps-hide-login/wps-hide-login.php` | >=1.9.19 <1.9.20 | capture, compile, plan, recapture |
 | [yoast](#yoast) | certified | `wordpress-seo/wp-seo.php` | >=28.0 <29.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
+| [yoast-duplicate-post](#yoast-duplicate-post) | experimental | `duplicate-post/duplicate-post.php` | >=4.7 <4.8 | capture, compile, plan, recapture |
 
 ## core
 
@@ -81,6 +86,67 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 **Unsupported, explicitly.**
 
 - `deletions.*` / `delete` — No ACF-specific deletion selector is declared.
+
+## advanced-editor-tools
+
+**Status: experimental.** Experimental exact-artifact draft: the current editor settings and upgrade residue are classified, with offline grammar and cross-adapter coverage but no clean-target editor/render conformance.
+
+- **Plugin:** `tinymce-advanced/tinymce-advanced.php`
+- **Version range:** >=5.9.2 <5.9.3
+- **Operations:** capture, compile, plan, recapture
+- **Lifecycle phases:** none declared
+- **Declared entities:** none
+- **Declared fields:** `options` (11 keys)
+- **Deletions supported:** none
+- **Deletions unsupported:** plugin-specific deletes
+- **Exercised by:** `conformance-ecosystem-adapter-batch`
+
+**Unsupported, explicitly.**
+
+- `options.tadv_admin_settings|tadv_settings` / `apply` — No clean-target editor and settings round-trip has established hook-free option apply for this exact artifact.
+- `production` / `promote` — No exact-artifact clean-target editor and settings round-trip evidence exists.
+- `deletions.*` / `delete` — The adapter declares settings only and owns no plugin-specific entity deletion selector.
+
+## classic-editor
+
+**Status: experimental.** Experimental exact-artifact draft: both single-site editor policy options are classified, with offline grammar coverage but no clean-target editor-selection conformance.
+
+- **Plugin:** `classic-editor/classic-editor.php`
+- **Version range:** >=1.7.0 <1.7.1
+- **Operations:** capture, compile, plan, recapture
+- **Lifecycle phases:** none declared
+- **Declared entities:** none
+- **Declared fields:** `options` (2: classic-editor-allow-users, classic-editor-replace)
+- **Deletions supported:** none
+- **Deletions unsupported:** plugin-specific deletes
+- **Exercised by:** `conformance-ecosystem-adapter-batch`
+
+**Unsupported, explicitly.**
+
+- `options.classic-editor-allow-users|classic-editor-replace` / `apply` — No clean-target editor-selection round-trip has established hook-free option apply for this exact artifact.
+- `production` / `promote` — No exact-artifact clean-target editor-selection evidence exists.
+- `multisite` / `all` — Duo v1 refuses multisite, so Classic Editor's network option is outside this adapter.
+
+## code-snippets
+
+**Status: experimental.** Experimental exact-artifact draft: the single-site snippet table and shortcode references are classified, but apply lacks a verified cache and optional flat-file rebuild provider.
+
+- **Plugin:** `code-snippets/code-snippets.php`
+- **Version range:** >=3.9.6 <3.9.7
+- **Operations:** capture, compile, plan, recapture
+- **Lifecycle phases:** none declared
+- **Declared entities:** `tables` (1: snippets)
+- **Declared fields:** `options` (2: code_snippets_settings, code_snippets_version), `shortcode_attrs` (2: code_snippet, code_snippet_source)
+- **Deletions supported:** none
+- **Deletions unsupported:** table:snippets
+- **Exercised by:** `conformance-ecosystem-adapter-batch`
+
+**Unsupported, explicitly.**
+
+- `tables.snippets` / `apply` — Raw typed-table writes bypass clean_snippets_cache() and the optional code_snippets/settings_updated flat-file rebuild; no bounded verified provider is shipped.
+- `tables.snippets` / `delete` — No race-safe snippet deletion selector or flat-file cleanup contract is declared.
+- `block_attrs.code-snippets/source` / `capture` — The packaged free artifact checks for a code-snippets/source block but exposes no exact registered block attribute schema to declare.
+- `production` / `promote` — No exact-artifact clean-target execution, shortcode render, cache, or flat-file evidence exists.
 
 ## contact-form-7
 
@@ -251,6 +317,26 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 - `derived.wc_product_attributes_lookup` / `apply` — WooCommerce 11.0.0 exposes no stable bounded expected-output or independent value-verification API for product-attribute lookup rows, so the verified provider does not mutate this table; operators must run and verify WooCommerce's regeneration explicitly.
 - `tables.runtime` / `capture` — Orders, customers, sessions, stock reservations, and Action Scheduler rows remain runtime-sovereign.
 
+## wps-hide-login
+
+**Status: experimental.** Experimental exact-artifact draft: both single-site route slugs are classified, but the plugin's settings path flushes rewrites and no clean-target routing matrix has established the raw-apply postcondition.
+
+- **Plugin:** `wps-hide-login/wps-hide-login.php`
+- **Version range:** >=1.9.19 <1.9.20
+- **Operations:** capture, compile, plan, recapture
+- **Lifecycle phases:** none declared
+- **Declared entities:** none
+- **Declared fields:** `options` (3: whl_page, whl_redirect, whl_redirect_admin)
+- **Deletions supported:** none
+- **Deletions unsupported:** plugin-specific deletes
+- **Exercised by:** `conformance-ecosystem-adapter-batch`
+
+**Unsupported, explicitly.**
+
+- `options.whl_page|whl_redirect_admin` / `apply` — The plugin's own save path flushes rewrite rules; Duo has no verified adapter provider proving and restoring the request-routing postcondition after a raw option write.
+- `production` / `promote` — No exact-artifact clean-target login, old-login refusal, and redirect routing matrix exists.
+- `multisite` / `all` — Duo v1 refuses multisite, so network-default route slugs are outside this adapter.
+
 ## yoast
 
 **Status: certified.** Certified authored option/meta refs, target-local derived indexables, API/frontend behavior, and exact artifact boundaries.
@@ -269,6 +355,27 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 **Unsupported, explicitly.**
 
 - `deletions.*` / `delete` — No Yoast-specific deletion selector is declared.
+
+## yoast-duplicate-post
+
+**Status: experimental.** Experimental exact-artifact draft: the closed settings registry and durable original-post reference are classified, with offline ref and boundary coverage but no clean-target clone/render conformance.
+
+- **Plugin:** `duplicate-post/duplicate-post.php`
+- **Version range:** >=4.7 <4.8
+- **Operations:** capture, compile, plan, recapture
+- **Lifecycle phases:** none declared
+- **Declared entities:** none
+- **Declared fields:** `options` (29 keys), `post_meta` (5: _dp_creation_date_gmt, _dp_has_been_republished, _dp_has_rewrite_republish_copy, _dp_is_rewrite_republish_copy, _dp_original)
+- **Deletions supported:** none
+- **Deletions unsupported:** plugin-specific deletes
+- **Exercised by:** `conformance-ecosystem-adapter-batch`
+
+**Unsupported, explicitly.**
+
+- `deletions.*` / `delete` — No plugin-specific duplicated-post deletion semantics are declared.
+- `options.*|post_meta._dp_original` / `apply` — No clean-target clone/reference/settings round-trip has established hook-free option and post-meta apply for this exact artifact.
+- `post_meta._dp_is_rewrite_republish_copy|_dp_has_rewrite_republish_copy|_dp_has_been_republished|_dp_creation_date_gmt` / `apply` — In-progress Rewrite & Republish workflow state is runtime-sovereign and is not migrated.
+- `production` / `promote` — No exact-artifact clean-target clone, original-link, and settings-render evidence exists.
 
 ## Profiles
 

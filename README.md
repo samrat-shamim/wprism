@@ -7,6 +7,9 @@
 |---|---|---|---|
 | core | certified | WordPress core | WordPress 7.0.3 (last verified) |
 | acf | certified | `advanced-custom-fields/acf.php` | >=6.0.0 <7.0.0 |
+| advanced-editor-tools | experimental | `tinymce-advanced/tinymce-advanced.php` | >=5.9.2 <5.9.3 |
+| classic-editor | experimental | `classic-editor/classic-editor.php` | >=1.7.0 <1.7.1 |
+| code-snippets | experimental | `code-snippets/code-snippets.php` | >=3.9.6 <3.9.7 |
 | contact-form-7 | certified | `contact-form-7/wp-contact-form-7.php` | >=6.0.0 <7.0.0 |
 | elementor | certified | `elementor/elementor.php` | >=4.0.0 <5.0.0 |
 | ninja-forms | certified | `ninja-forms/ninja-forms.php` | >=3.4.34.2 <4.0.0 |
@@ -14,7 +17,9 @@
 | polylang | certified | `polylang/polylang.php` | >=3.5 <4.0.0 |
 | the-events-calendar | experimental | unbound | unbound |
 | woocommerce | certified | `woocommerce/woocommerce.php` | >=11.0.0 <12.0.0 |
+| wps-hide-login | experimental | `wps-hide-login/wps-hide-login.php` | >=1.9.19 <1.9.20 |
 | yoast | certified | `wordpress-seo/wp-seo.php` | >=28.0 <29.0.0 |
+| yoast-duplicate-post | experimental | `duplicate-post/duplicate-post.php` | >=4.7 <4.8 |
 
 Every claim above is declared by the adapter's own manifest, reviewed into `manifests/dispositions.json` with a written reason, and exercised by named conformance suites against a live WordPress pair — a reviewed, tested declaration rather than an attestation sealed to a content-addressed evidence bundle. Outside a declared surface, version range, or operation Duo refuses by default instead of guessing; the exact surfaces, operations, and explicit unsupported boundaries are in [the generated capability document](docs/capabilities.md), and plugins always run unmodified. One excluded fixture manifest (duo-agency-cpt) ships with the agent for regression use only and carries no product claim.
 <!-- END GENERATED CAPABILITY SUMMARY -->

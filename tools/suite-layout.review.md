@@ -38,7 +38,7 @@ under 25 files.
 
 | domain | n | what it means |
 | --- | --- | --- |
-| `adapter` | 20 | `agent/src/Adapter/*` — sources, catalog, registry, providers/actions, certification, the adapter-authoring draft path |
+| `adapter` | 21 | `agent/src/Adapter/*` — sources, catalog, registry, providers/actions, certification, the adapter-authoring draft path, and shipped ecosystem adapter boundaries |
 | `apply` | 17 | `agent/src/Apply/*` and `agent/src/Delete/*` — the DUO-3347 materializer/planner extractions, conflict/convergence, the checked-write boundary |
 | `assess-contract` | 17 | the round-3 MUP vocabulary: `assess`, `contract`, `release`, `verify`, `recover`, `rehearse` |
 | `capture` | 17 | `agent/src/Capture/*` and `agent/src/Publication/*` — the read side and its durable tree publication |

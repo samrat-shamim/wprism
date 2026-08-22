@@ -1,0 +1,16 @@
+{
+  "spec_version": 2,
+  "name": "classic-editor",
+  "option_autoload": "preserve",
+  "plugin": "classic-editor/classic-editor.php",
+  "version_range": {"min": "1.7.0", "max": "1.7.1"},
+  "notes": [
+    "Adapter-authoring probe 2026-08-22: inspected the official WordPress.org Classic Editor 1.7.0 artifact (SHA-256 7cc7799b0b7d820fbb7528dbff8027c736e52513992416cb37279f44d3d9dd77). The patch-bounded range admits only the observed artifact line.",
+    "classic-editor.php activate(), register_settings(), get_settings(), and settings() agree on exactly two single-site settings: classic-editor-replace is classic|block and classic-editor-allow-users is allow|disallow. Both are site-builder choices read directly on every request; neither is an id, secret, cache, or version marker.",
+    "The plugin also uses a network option in multisite. Duo's v1 contract refuses multisite before policy load, so this single-site adapter neither captures nor claims the network setting. The adapter remains experimental until the exact artifact is exercised on a clean target."
+  ],
+  "options": {
+    "classic-editor-allow-users": {"class": "authored"},
+    "classic-editor-replace": {"class": "authored"}
+  }
+}

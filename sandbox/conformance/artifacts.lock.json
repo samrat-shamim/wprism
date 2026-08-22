@@ -34,6 +34,20 @@
         "role": "certified-boundary"
       }
     },
+    "classic-editor": {
+      "1.7.0": {
+        "url": "https://downloads.wordpress.org/plugin/classic-editor.1.7.0.zip",
+        "sha256": "7cc7799b0b7d820fbb7528dbff8027c736e52513992416cb37279f44d3d9dd77",
+        "role": "exercise-fixture"
+      }
+    },
+    "code-snippets": {
+      "3.9.6": {
+        "url": "https://downloads.wordpress.org/plugin/code-snippets.3.9.6.zip",
+        "sha256": "ab5822db426858b43d7c010481a87d0eaffb056cc483e93e057d96f6e6fdd4f4",
+        "role": "exercise-fixture"
+      }
+    },
     "elementor": {
       "3.35.9": {
         "url": "https://downloads.wordpress.org/plugin/elementor.3.35.9.zip",
@@ -68,6 +82,13 @@
         "role": "certified-boundary"
       }
     },
+    "duplicate-post": {
+      "4.7": {
+        "url": "https://downloads.wordpress.org/plugin/duplicate-post.4.7.zip",
+        "sha256": "8cbeebf7c2ee982d2ae33833088ba8ac2391cc316a4dd71800a07f5fa128b418",
+        "role": "exercise-fixture"
+      }
+    },
     "paid-memberships-pro": {
       "3.8.3": {
         "url": "https://github.com/strangerstudios/paid-memberships-pro/archive/refs/tags/3.8.3.zip",
@@ -91,6 +112,13 @@
         "url": "https://downloads.wordpress.org/plugin/polylang.3.8.6.zip",
         "sha256": "dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa",
         "role": "certified-boundary"
+      }
+    },
+    "tinymce-advanced": {
+      "5.9.2": {
+        "url": "https://downloads.wordpress.org/plugin/tinymce-advanced.5.9.2.zip",
+        "sha256": "ec4c6635dc9d0f9c27d0256d7b83b3655b5904c936748604c698d256fbfd69c7",
+        "role": "exercise-fixture"
       }
     },
     "woocommerce": {
@@ -126,6 +154,13 @@
       "2.0.0.4": {
         "url": "https://downloads.wordpress.org/plugin/wpforms-lite.2.0.0.4.zip",
         "sha256": "3deaa115c6ed18fe3ef21f327239cf9573f78f97b1f4cc8204abfaf910689608",
+        "role": "exercise-fixture"
+      }
+    },
+    "wps-hide-login": {
+      "1.9.19": {
+        "url": "https://downloads.wordpress.org/plugin/wps-hide-login.1.9.19.zip",
+        "sha256": "34e99ee6032f5863b278aef690ebbfdb00290beb4eacbdae3ab931eb719b3a58",
         "role": "exercise-fixture"
       }
     }

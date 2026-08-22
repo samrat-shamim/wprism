@@ -27,6 +27,19 @@
     "post_types": ["post", "page", "attachment", "elementor_library"],
     "taxonomies": ["category", "post_tag"]
   },
+  "ecosystem-adapter-batch": {
+    "mode": "capture-plan",
+    "pin": ["core", "advanced-editor-tools", "classic-editor", "code-snippets", "wps-hide-login", "yoast-duplicate-post"],
+    "plugins": [
+      {"slug": "tinymce-advanced", "version": "5.9.2"},
+      {"slug": "classic-editor", "version": "1.7.0"},
+      {"slug": "code-snippets", "version": "3.9.6"},
+      {"slug": "wps-hide-login", "version": "1.9.19"},
+      {"slug": "duplicate-post", "version": "4.7"}
+    ],
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  },
   "fse": {
     "pin": ["core"],
     "plugins": [],

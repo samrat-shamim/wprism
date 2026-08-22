@@ -29,6 +29,18 @@
 #                                       seed time and conf2 isn't.
 #   conformance/checks/<name>.sh       conf2 only, after apply: render-level
 #                                       acceptance a byte-diff can't see.
+#   conformance/capture-checks/<name>.sh
+#                                     conf1 only, after deterministic capture:
+#                                       plugin/API and canonical-shape checks
+#                                       for a reviewed capture-plan profile.
+#
+# Entries default to `mode: roundtrip`. `mode: capture-plan` is the bounded
+# evidence path for an experimental adapter that deliberately does not claim
+# apply: it still boots an exact-artifact pair, seeds through plugin APIs,
+# captures twice, lints, runs the real plan/capability paths, and invokes its
+# source-side checks, then stops before deploy/apply. Treating an unsupported
+# apply as a failed round-trip would pressure authors to overclaim merely to
+# make the harness green.
 #
 # Env provider: sandbox/bin/pair.sh (task #74's sandbox redesign), not a
 # per-manifest docker-compose profile. `pair.sh reset conf` + `pair.sh up
@@ -117,6 +129,11 @@ jq -e '
 mapfile -t PLUGINS < <(echo "$ENTRY" | jq -c '.plugins[]')
 mapfile -t THEMES < <(echo "$ENTRY" | jq -c '.themes[]?')
 SETUP=$(echo "$ENTRY" | jq -r '.setup // ""')
+MODE=$(echo "$ENTRY" | jq -r '.mode // "roundtrip"')
+case "$MODE" in
+  roundtrip|capture-plan) ;;
+  *) fail "unknown conformance mode '$MODE' for manifest '$MANIFEST' (expected roundtrip|capture-plan)" ;;
+esac
 
 # Prefer the legacy docker-compose.yml conf1/conf2 ports (8806/8807) so
 # conformance/checks/*.sh and seeds/elementor.sh — which read CONF1_PORT/
@@ -362,6 +379,38 @@ wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-state2 >/dev/null
 diff -r "$R1"/state "$R1"/.tmp-state2 || fail "capture is not deterministic"
 rm -rf "$R1"/.tmp-state2
 pass "capture-twice diff is empty"
+
+# A capture-plan profile makes claims only about the source-side capture,
+# compilation, plan, and recapture paths. Its hook verifies plugin APIs and
+# the canonical bytes those operations produced before this harness decides
+# whether the target-facing round-trip is in scope.
+CAPTURE_CHECK="conformance/capture-checks/$MANIFEST.sh"
+if [ -f "$CAPTURE_CHECK" ]; then
+  say "manifest-specific capture acceptance (conformance/capture-checks/$MANIFEST.sh)"
+  bash "$CAPTURE_CHECK"
+fi
+
+if [ "$MODE" = "capture-plan" ]; then
+  say "capture-plan acceptance: reviewed operations are reachable without claiming apply"
+  CAPABILITY_JSON=$(wp_conf1 duo capabilities --repo=/siterepo --operation=capture --format=json | awk 'NF { line=$0 } END { print line }')
+  require_duo_answered "conf1 duo capabilities --operation=capture" json "$CAPABILITY_JSON"
+  printf '%s\n' "$CAPABILITY_JSON" | jq -e '
+    (.manifests | type == "array" and length > 0) and
+    all(.manifests[]; (.operations | index("capture")) != null)
+  ' >/dev/null || fail "capture capability report does not expose capture for every pinned adapter"
+
+  PLAN_JSON=$(wp_conf1 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+  require_duo_answered "conf1 duo plan after deterministic capture" json "$PLAN_JSON"
+  printf '%s\n' "$PLAN_JSON" | jq -e '
+    type == "object" and
+    (.create | type == "array") and
+    (.update | type == "array") and
+    (.conflict | type == "array")
+  ' >/dev/null || fail "capture-plan profile did not reach the real structured plan result"
+  pass "capture, compile, plan, and recapture paths are exercised; deploy/apply remain explicitly outside this profile"
+  printf '\n\033[1;32m✔ CONFORMANCE PASSED (%s; capture-plan)\033[0m\n' "$MANIFEST"
+  exit 0
+fi
 
 say "clone the repo for conf2"
 git clone -q "$ORIGIN" "$R2"

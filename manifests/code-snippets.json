@@ -1,0 +1,49 @@
+{
+  "spec_version": 2,
+  "name": "code-snippets",
+  "option_autoload": "preserve",
+  "plugin": "code-snippets/code-snippets.php",
+  "version_range": {"min": "3.9.6", "max": "3.9.7"},
+  "notes": [
+    "Adapter-authoring probe 2026-08-22: inspected the official WordPress.org Code Snippets 3.9.6 artifact (SHA-256 ab5822db426858b43d7c010481a87d0eaffb056cc483e93e057d96f6e6fdd4f4). php/class-db.php supplies the complete 12-column single-site snippets schema used below; the multisite-only ms_snippets table is outside Duo's single-site contract.",
+    "Snippet rows use mapped identity because the plugin has no stable unique natural key: names are editable and not uniqueness-constrained. name/description/code/tags/scope/priority/active are the portable snippet definition. modified and revision are write-history state, cloud_id binds optional cloud provenance, and condition_id belongs to the plugin's condition subsystem rather than a declared single-site snippet entity graph.",
+    "The code_snippet and code_snippet_source shortcodes each accept both id and snippet_id aliases; both point at snippets.id and therefore require the code_snippet token kind. The packaged free 3.9.6 source contains a string check for a code-snippets/source block but no block registration or exact attribute schema, so no block_attrs rule is guessed.",
+    "code_snippets_settings mixes portable editor preferences with version-switch controls and enable_flat_files. The current option grammar cannot carry selected nested keys while also proving the plugin's generated flat-file execution tree was rebuilt, so the whole settings row stays environment-owned. Apply is promotion-blocked until a bounded provider invokes clean_snippets_cache() and, when Snippet_Files::is_active(), the plugin's code_snippets/settings_updated rebuild path with an independently verified receipt."
+  ],
+  "options": {
+    "code_snippets_settings": {"class": "env", "required": false},
+    "code_snippets_version": {"class": "runtime"}
+  },
+  "shortcode_attrs": {
+    "code_snippet": [
+      {"kind": "code_snippet", "path": "id"},
+      {"kind": "code_snippet", "path": "snippet_id"}
+    ],
+    "code_snippet_source": [
+      {"kind": "code_snippet", "path": "id"},
+      {"kind": "code_snippet", "path": "snippet_id"}
+    ]
+  },
+  "tables": {
+    "snippets": {
+      "class": "authored_snapshot",
+      "columns": {
+        "active": {"class": "authored", "lint_ok": true},
+        "cloud_id": {"class": "env"},
+        "code": {"class": "authored"},
+        "condition_id": {"class": "runtime"},
+        "description": {"class": "authored"},
+        "modified": {"class": "runtime"},
+        "name": {"class": "authored"},
+        "priority": {"class": "authored", "lint_ok": true},
+        "revision": {"class": "runtime"},
+        "scope": {"class": "authored"},
+        "tags": {"class": "authored"}
+      },
+      "id_kind": "code_snippet",
+      "pk": "id",
+      "refs": [],
+      "slug_column": "name"
+    }
+  }
+}

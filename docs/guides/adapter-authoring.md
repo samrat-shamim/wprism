@@ -186,7 +186,7 @@ it:
 
 ```json
 "deletions": {
-  "post:wpforms": {
+  "post:acme_record": {
     "cascades": ["postmeta", "post_revisions", "term_relationships"],
     "guards": []
   }
@@ -199,13 +199,13 @@ term_relationships; `menu`: those plus menu_items); `guards` lists the
 reverse references that must be empty before a delete is allowed (`{table,
 column, id_kind, reason}` — `manifests/core.json`'s `post:attachment` shows a
 comments guard and a child-posts guard). An empty guard list is a claim that
-nothing references the row: make it only when it is true. The T6 walk — the
-four-scenario operator-authored adapter grind narrated in
-[docs/grind/adapter-walk.md](../grind/adapter-walk.md), whose S2 is "an operator
-authors and certifies an adapter for a plugin the platform never reviewed" —
-gives its WPForms adapter exactly the block above, because a WPForms Lite form
-is referenced by nothing Duo manages; without it S2 stopped at the first
-target-side capture after a form was deleted.
+nothing references the row: make it only when it is true. The T6 walk in
+[docs/grind/adapter-walk.md](../grind/adapter-walk.md) still exercises this
+grammar with a site-local WPForms fixture, but its manifest is an authoring-flow
+fixture, not a reusable WPForms capability claim. The adversarial review in
+[the limitation ledger](adapter-authoring-limitations.md#wpforms-lite-2004--2005)
+found local ids inside the form body and block attributes that the fixture does
+not migrate. Do not copy that deletion declaration into a product adapter.
 
 ## Precedence, in one sentence each
 
@@ -600,6 +600,42 @@ vocabularies publish only their base. Build on it, but build knowing that a
 document-clean manifest can still be refused by a rule the document does not
 describe — which is what running the validator itself is for.
 
+## Adversarial preflight
+
+Run this before ratifying any draft. Grammar-valid JSON is only proof that the
+engine understands the declaration, not that the declaration describes the
+plugin faithfully.
+
+1. Create the same semantic fixture on two environments whose post, term, and
+   custom-table ids deliberately differ. A symmetric pair with matching ids
+   cannot expose a missing reference codec.
+2. Inspect every persisted scalar and every nested JSON, PHP-serialized, block,
+   shortcode, option-name, and custom-table payload. Search for self ids as
+   well as foreign ids; plugins often copy their own row id into a body blob.
+3. Preserve the stored type. A reference written as JSON `"12"` is not
+   equivalent to JSON `12`; reject the adapter when the available codec changes
+   that distinction.
+4. Put a source-home URL inside every portable string-bearing container. A
+   token replacement inside opaque PHP serialization can invalidate its length
+   prefixes, while a nested array with no structural rule may receive no URL
+   tokenization at all.
+5. Exercise activation, one real admin save, one front-end read, an update, and
+   a deletion before declaring the option/table inventory complete. Compare the
+   plugin's own import/export allowlist when it has one; it is strong evidence
+   for portable subkeys, not proof of every other surface.
+6. Trace the plugin hooks skipped by Duo's direct writes. Cache invalidation,
+   generated files, rewrite flushes, index tables, and type registration need a
+   bounded provider with value-level verification or an explicit unsupported
+   disposition.
+7. Mutate the proposed manifest in tests: remove a ref, broaden a namespace,
+   switch a runtime field to authored, and create a conflicting second owner.
+   Each false claim must fail for the reason the production path would fail.
+
+When any step cannot be represented, keep the adapter experimental or reject
+it. Do not disguise a missing codec as `verbatim`, `runtime`, a broad option
+pattern, or a compatibility fallback. Record the required generic primitive in
+[the limitation ledger](adapter-authoring-limitations.md).
+
 ## The authoring loop
 
 ### 1. Observe
@@ -762,6 +798,15 @@ are plan-time signals, not proof of corruption; each carries its own caveat
 note, because small ids legitimately coincide with counts, versions, and
 ordering indexes.
 
+An experimental adapter that deliberately excludes `apply` uses the narrower
+`mode: "capture-plan"` conformance profile instead. It still boots a fresh
+exact-artifact pair, authors state through the plugin's own APIs, runs capture,
+lint, deterministic recapture, capability reporting, and the real structured
+plan path, plus a convention-named `conformance/capture-checks/<name>.sh`.
+It then stops before deploy/apply. This is evidence only for the operations the
+disposition lists; it is not a partial round-trip and cannot justify adding
+`apply`, `deploy`, or `promote` to that list.
+
 Real worked examples, with the empirical grounding for each decision, are the
 grind rounds themselves: `make grind-r1a` (forms — Contact Form 7 + Ninja
 Forms) and `make grind-r1c` (the agency stack — Elementor + ACF + a
@@ -799,7 +844,7 @@ same rule so the document cannot describe a library the agent would reject).
 | Status | What it says |
 |---|---|
 | `certified` | Declared by the manifest, reviewed by a human who wrote the `reason` down, and exercised by the conformance suites the entry's `evidence.tests` name. It does **not** mean a bundle digest seals the claim to a run or an artifact set. |
-| `experimental` | Reviewed, and deliberately not production-authorizing. The projection reads `Experimental`, which `duo release` refuses on before it freezes anything — including through a conditional path. |
+| `experimental` | Reviewed, exercised only to the boundary its cited suite names, and deliberately not production-authorizing. A capture-plan suite may support capture/compile/plan/recapture while apply stays explicitly unsupported. The projection reads `Experimental`, which `duo release` refuses on before it freezes anything — including through a conditional path. |
 | `excluded` | Reviewed as carrying no product claim. The generated document prints these as shipping "for regression use only"; the claim reports `authored_state.status: unsupported`. `duo-agency-cpt` is the one shipped example. |
 | `uncovered` | **Runtime-synthesized only.** A disposition may never declare it — `validate_entry()` refuses that — and the agent emits it for a manifest with no reviewed entry, with the reason `no reviewed disposition entry — a manifest cannot certify itself merely by existing beside the agent`. It is a blocker, never a skip. |
 
