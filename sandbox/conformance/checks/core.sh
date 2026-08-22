@@ -62,6 +62,192 @@ CORE_OLD_CODE=$(curl -sS -o /dev/null -w '%{http_code}' "http://localhost:${CONF
   || fail "old target permalink grammar still served the post after rewrite regeneration"
 pass "dirty target permalink_structure + non-empty rewrite_rules converge through one verified soft action; API resolution and HTTP behavior use only the source grammar"
 
+# The post-deploy hook manufactured collisions across every core
+# natural-identity family and proved that omitting adoption authority refuses
+# before mutation. The successful harness apply then supplied posts, terms,
+# and menus explicitly. Verify it claimed the existing target-local rows
+# instead of deleting/recreating them or copying source ids.
+DIRTY_TARGET_FILE="$CONF_REPO2/.tmp-core-dirty-target.json"
+[ -f "$DIRTY_TARGET_FILE" ] || fail "core dirty-target identity evidence is missing"
+
+core_markdown_uuid() {
+  local type="$1" slug="$2" candidate="" count="" base=""
+  candidate=$(find "$CONF_REPO1/state/posts/$type" -maxdepth 1 -type f \
+    -name "*--${slug}.md" -print)
+  count=$(printf '%s\n' "$candidate" | awk 'NF { n++ } END { print n + 0 }')
+  [ "$count" = 1 ] || fail "expected one canonical $type/$slug record, found $count"
+  base=${candidate##*/}
+  printf '%s\n' "${base%%--*}"
+}
+
+core_json_uuid() {
+  local directory="$1" slug="$2" candidate="" count=""
+  candidate=$(find "$CONF_REPO1/state/$directory" -maxdepth 1 -type f \
+    -name "*--${slug}.json" -print)
+  count=$(printf '%s\n' "$candidate" | awk 'NF { n++ } END { print n + 0 }')
+  [ "$count" = 1 ] || fail "expected one canonical $directory/$slug record, found $count"
+  jq -er '.uuid | select(test("^[0-9a-f-]{36}$"))' "$candidate"
+}
+
+core_assert_adopted() {
+  local uuid="$1" kind="$2" expected_target="$3" label="$4" source_local="" target_local=""
+  source_local=$(wp_conf1 eval "echo (\\Duo\\Ledger::id_for('$uuid', '$kind') ?? '__duo_missing__');")
+  target_local=$(wp_conf2 eval "echo (\\Duo\\Ledger::id_for('$uuid', '$kind') ?? '__duo_missing__');")
+  require_fixture_values source_local target_local
+  [ "$source_local" != '__duo_missing__' ] && [ "$target_local" != '__duo_missing__' ] \
+    || fail "$label identity was not installed in both ledgers"
+  [ "$target_local" = "$expected_target" ] \
+    || fail "$label was recreated/copied as local id $target_local instead of adopting target id $expected_target"
+  [ "$source_local" != "$target_local" ] \
+    || fail "$label source and target ids did not diverge; the adoption proof is vacuous ($source_local)"
+}
+
+TARGET_BRANCH_A=$(jq -r '.branch_a' "$DIRTY_TARGET_FILE")
+TARGET_HELLO=$(jq -r '.hello' "$DIRTY_TARGET_FILE")
+TARGET_SAMPLE=$(jq -r '.sample' "$DIRTY_TARGET_FILE")
+TARGET_UNCAT=$(jq -r '.uncategorized' "$DIRTY_TARGET_FILE")
+TARGET_NEWS=$(jq -r '.news' "$DIRTY_TARGET_FILE")
+TARGET_TOPIC=$(jq -r '.topic' "$DIRTY_TARGET_FILE")
+TARGET_MENU=$(jq -r '.menu' "$DIRTY_TARGET_FILE")
+TARGET_ATTACHMENT=$(jq -r '.attachment' "$DIRTY_TARGET_FILE")
+TARGET_CUSTOM_CSS=$(jq -r '.custom_css' "$DIRTY_TARGET_FILE")
+TARGET_COMMENT=$(jq -r '.comment' "$DIRTY_TARGET_FILE")
+TARGET_ATTACHMENT_HASH_BEFORE=$(jq -r '.attachment_hash' "$DIRTY_TARGET_FILE")
+require_fixture_ids TARGET_BRANCH_A TARGET_HELLO TARGET_SAMPLE TARGET_UNCAT TARGET_NEWS \
+  TARGET_TOPIC TARGET_MENU TARGET_ATTACHMENT TARGET_CUSTOM_CSS TARGET_COMMENT
+require_fixture_values TARGET_ATTACHMENT_HASH_BEFORE
+
+UUID_BRANCH_A=$(core_markdown_uuid page branch-a)
+UUID_HELLO=$(core_markdown_uuid post hello-world)
+UUID_SAMPLE=$(core_markdown_uuid page sample-page)
+UUID_ATTACHMENT=$(core_markdown_uuid attachment conformance-logo)
+UUID_CUSTOM_CSS=$(core_markdown_uuid custom_css twentytwentyfive)
+UUID_UNCAT=$(core_json_uuid terms/category uncategorized)
+UUID_NEWS=$(core_json_uuid terms/category news)
+UUID_TOPIC=$(core_json_uuid terms/post_tag core-topic)
+UUID_MENU=$(jq -er '.uuid | select(test("^[0-9a-f-]{36}$"))' \
+  "$CONF_REPO1/state/menus/conformance-widget-menu.json")
+
+core_assert_adopted "$UUID_BRANCH_A" post "$TARGET_BRANCH_A" 'hierarchical page'
+core_assert_adopted "$UUID_HELLO" post "$TARGET_HELLO" 'Hello World activation default'
+core_assert_adopted "$UUID_SAMPLE" post "$TARGET_SAMPLE" 'Sample Page activation default'
+core_assert_adopted "$UUID_ATTACHMENT" post "$TARGET_ATTACHMENT" 'attachment'
+core_assert_adopted "$UUID_CUSTOM_CSS" post "$TARGET_CUSTOM_CSS" 'custom CSS post'
+core_assert_adopted "$UUID_UNCAT" term "$TARGET_UNCAT" 'Uncategorized activation default'
+core_assert_adopted "$UUID_NEWS" term "$TARGET_NEWS" 'category'
+core_assert_adopted "$UUID_TOPIC" term "$TARGET_TOPIC" 'post tag'
+core_assert_adopted "$UUID_MENU" term "$TARGET_MENU" 'navigation menu'
+
+DIRTY_COUNTS=$(wp_conf2 eval '
+global $wpdb;
+$counts = [];
+foreach ([
+    ["posts", "post_name", "hello-world", "post_type", "post"],
+    ["posts", "post_name", "sample-page", "post_type", "page"],
+    ["posts", "post_name", "conformance-logo", "post_type", "attachment"],
+    ["posts", "post_name", "twentytwentyfive", "post_type", "custom_css"],
+] as [$table, $key, $value, $type_key, $type_value]) {
+    $counts[] = (int) $wpdb->get_var($wpdb->prepare(
+        "SELECT COUNT(*) FROM {$wpdb->$table} WHERE {$key}=%s AND {$type_key}=%s",
+        $value,
+        $type_value
+    ));
+}
+foreach ([["uncategorized", "category"], ["news", "category"], ["core-topic", "post_tag"], ["conformance-widget-menu", "nav_menu"]] as [$slug, $taxonomy]) {
+    $counts[] = (int) $wpdb->get_var($wpdb->prepare(
+        "SELECT COUNT(*) FROM {$wpdb->terms} t JOIN {$wpdb->term_taxonomy} tt ON tt.term_id=t.term_id WHERE t.slug=%s AND tt.taxonomy=%s",
+        $slug,
+        $taxonomy
+    ));
+}
+echo implode(",", $counts);
+')
+require_fixture_state "core adopted natural-key cardinalities" '1,1,1,1,1,1,1,1' "$DIRTY_COUNTS"
+
+DIRTY_AUTHORED=$(wp_conf2 eval "
+\$hello = get_post($TARGET_HELLO);
+\$sample = get_post($TARGET_SAMPLE);
+\$branch = get_post($TARGET_BRANCH_A);
+\$news = get_term($TARGET_NEWS, 'category');
+\$topic = get_term($TARGET_TOPIC, 'post_tag');
+\$css = get_post($TARGET_CUSTOM_CSS);
+\$items = wp_get_nav_menu_items($TARGET_MENU);
+echo wp_json_encode([
+  'hello_title' => \$hello ? \$hello->post_title : null,
+  'hello_content' => \$hello ? \$hello->post_content : null,
+  'sample_title' => \$sample ? \$sample->post_title : null,
+  'sample_content' => \$sample ? \$sample->post_content : null,
+  'branch_template' => \$branch ? get_post_meta(\$branch->ID, '_wp_page_template', true) : null,
+  'news_description' => is_wp_error(\$news) ? null : \$news->description,
+  'topic_description' => is_wp_error(\$topic) ? null : \$topic->description,
+  'default_category' => (int) get_option('default_category'),
+  'blogname' => get_option('blogname'),
+  'custom_css' => \$css ? \$css->post_content : null,
+  'menu_items' => array_map(static fn(\$item) => [
+    'title' => \$item->title, 'type' => \$item->type,
+    'object' => \$item->object, 'object_id' => (int) \$item->object_id,
+  ], is_array(\$items) ? \$items : []),
+]);
+")
+require_duo_answered "conf2 core adopted authored values" json "$DIRTY_AUTHORED"
+jq -e --argjson uncategorized "$TARGET_UNCAT" '
+  .hello_title == "Hello world!" and
+  (.hello_content | contains("Welcome to WordPress")) and
+  .sample_title == "Sample Page" and
+  (.sample_content | contains("This is an example page")) and
+  .branch_template == "source-template.php" and
+  .news_description == "Conformance news" and
+  .topic_description == "Conformance topic" and
+  .default_category == $uncategorized and
+  .blogname == "Duo Conformance" and
+  .custom_css == "body { background: #3c8c3c; }" and
+  (.menu_items | length) == 1 and
+  .menu_items[0].title == "Home" and .menu_items[0].type == "post_type" and
+  .menu_items[0].object == "page" and .menu_items[0].object_id > 0
+' <<<"$DIRTY_AUTHORED" >/dev/null \
+  || fail "explicit adoption retained hostile target-authored values: $DIRTY_AUTHORED"
+
+SOURCE_ATTACHMENT_HASH=$(wp_conf1 eval "echo hash_file('sha256', get_attached_file(\\Duo\\Ledger::id_for('$UUID_ATTACHMENT', 'post')));")
+TARGET_ATTACHMENT_HASH_AFTER=$(wp_conf2 eval "echo hash_file('sha256', get_attached_file($TARGET_ATTACHMENT));")
+require_fixture_values SOURCE_ATTACHMENT_HASH TARGET_ATTACHMENT_HASH_AFTER
+[ "$TARGET_ATTACHMENT_HASH_AFTER" = "$SOURCE_ATTACHMENT_HASH" ] \
+  || fail "adopted attachment bytes did not converge to the source upload"
+[ "$TARGET_ATTACHMENT_HASH_AFTER" != "$TARGET_ATTACHMENT_HASH_BEFORE" ] \
+  || fail "adopted attachment retained the hostile target upload bytes"
+[ "$(wp_conf2 post meta get "$TARGET_ATTACHMENT" _wp_attachment_image_alt)" = 'Conformance logo' ] \
+  || fail "adopted attachment retained the hostile target alt text"
+pass "explicit adoption keeps divergent target ids while source values replace activation defaults and hostile post/page/attachment/custom-CSS/category/tag/menu rows"
+
+DIRTY_RUNTIME=$(wp_conf2 eval "
+global \$wpdb;
+\$comment = \$wpdb->get_row(\$wpdb->prepare(
+  \"SELECT comment_ID,comment_post_ID,comment_content FROM {\$wpdb->comments} WHERE comment_ID=%d\",
+  $TARGET_COMMENT
+), ARRAY_A);
+echo wp_json_encode([
+  'branch_lock' => get_post_meta($TARGET_BRANCH_A, '_edit_lock', true),
+  'branch_old_slug' => get_post_meta($TARGET_BRANCH_A, '_wp_old_slug', true),
+  'hello_edit_last' => get_post_meta($TARGET_HELLO, '_edit_last', true),
+  'recently_edited' => get_option('recently_edited'),
+  'session' => get_option('_wp_session_core_dirty'),
+  'comment' => \$comment,
+]);
+")
+require_duo_answered "conf2 core target-runtime sovereignty" json "$DIRTY_RUNTIME"
+jq -e --argjson hello "$TARGET_HELLO" --argjson comment "$TARGET_COMMENT" '
+  .branch_lock == "target-lock:77" and
+  .branch_old_slug == "target-old-branch-a" and
+  .hello_edit_last == "424242" and
+  .recently_edited == ["target-only-runtime-entry"] and
+  .session == "target-only-session-secret" and
+  (.comment.comment_ID | tonumber) == $comment and
+  (.comment.comment_post_ID | tonumber) == $hello and
+  .comment.comment_content == "Target-only operational comment"
+' <<<"$DIRTY_RUNTIME" >/dev/null \
+  || fail "core apply overwrote target-owned runtime/derived state: $DIRTY_RUNTIME"
+rm "$DIRTY_TARGET_FILE"
+pass "target-owned runtime option, session, postmeta, derived residue, and operational comment survive adoption without entering canonical state"
+
 # The same exact action must fail after the authored commit when WordPress
 # refuses the derived-row write, retain retry authority, and recover without a
 # second source edit. The MU filter models a real extension/object-store write
