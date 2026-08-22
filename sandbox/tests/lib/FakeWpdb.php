@@ -74,7 +74,7 @@
  *          [LIMIT n [OFFSET m] | LIMIT m, n]
  *     items: * | alias.* | COUNT(*) | <literal> | [alias.]col | LENGTH(col)
  *            | GET_LOCK(..) | RELEASE_LOCK(..) | IS_USED_LOCK(..)
- *            | CONNECTION_ID()                  , each with an optional AS alias
+ *            | CONNECTION_ID() | VERSION()      , each with an optional AS alias
  *     cond:  AND / OR / parentheses over
  *            <operand> = != <> < <= > >= <operand>
  *            <operand> [NOT] IN (<values>)
@@ -243,6 +243,9 @@ final class FakeWpdb {
      */
     private int $connectionId = 1;
 
+    /** Full server banner returned by SELECT VERSION(). */
+    private string $serverVersion = '8.0.36';
+
     /** @var array<string,int> lock name => holding connection id */
     private array $heldLocks = [];
 
@@ -374,6 +377,15 @@ final class FakeWpdb {
     public function setConnectionId(int $id): self {
         $this->connectionId = $id;
         $this->heldLocks = [];
+        return $this;
+    }
+
+    /** Configure the real server banner shared by VERSION() and db_version(). */
+    public function setServerVersion(string $banner): self {
+        if (preg_match('/^\s*\d+(?:\.\d+){1,3}/', $banner) !== 1) {
+            throw new \InvalidArgumentException('FakeWpdb: server version must begin with a numeric version');
+        }
+        $this->serverVersion = $banner;
         return $this;
     }
 
@@ -528,7 +540,8 @@ final class FakeWpdb {
     }
 
     public function db_version(): string {
-        return '8.0.36';
+        preg_match('/^\s*(\d+(?:\.\d+){1,3})/', $this->serverVersion, $match);
+        return $match[1];
     }
 
     public function check_connection(bool $allow_bail = true): bool {
@@ -1592,7 +1605,7 @@ final class FakeWpdb {
             $name,
             [
                 'LENGTH', 'CHAR_LENGTH', 'GET_LOCK', 'RELEASE_LOCK', 'IS_FREE_LOCK',
-                'IS_USED_LOCK', 'CONNECTION_ID',
+                'IS_USED_LOCK', 'CONNECTION_ID', 'VERSION',
             ],
             true
         )) {
@@ -1832,6 +1845,7 @@ final class FakeWpdb {
             // ProcessFence::isContinuous() tests.
             'IS_USED_LOCK' => $this->heldLocks[(string) ($args[0] ?? '')] ?? null,
             'CONNECTION_ID' => $this->connectionId,
+            'VERSION' => $this->serverVersion,
             default => throw $this->unsupported('SQL function ' . $node['name']),
         };
     }

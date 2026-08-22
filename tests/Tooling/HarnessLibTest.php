@@ -396,6 +396,19 @@ final class HarnessLibTest extends TestCase
         self::assertSame(1, $db->rows_affected);
     }
 
+    public function testServerVersionProbeSharesTheConfiguredWpdbBanner(): void
+    {
+        $db = FakeWpdb::install();
+        self::assertSame('8.0.36', $db->get_var('SELECT VERSION()'));
+        self::assertSame('8.0.36', $db->db_version());
+
+        $banner = '11.8.8-MariaDB-1:11.8.8+maria~ubu2404';
+        $db->setServerVersion($banner);
+        self::assertSame($banner, $db->get_var('SELECT VERSION()'));
+        self::assertSame('11.8.8', $db->db_version());
+        self::assertSame(['SELECT VERSION()', 'SELECT VERSION()'], $db->queries());
+    }
+
     /**
      * wpdb::flush() runs at the TOP of every query and clears rows_affected
      * and last_query as well as last_error/num_rows, so a read really does

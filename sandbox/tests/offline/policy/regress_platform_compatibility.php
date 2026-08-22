@@ -23,6 +23,9 @@ if (!defined('DUO_SPEC_VERSION')) {
 if (!defined('ABSPATH')) {
     define('ABSPATH', $root . '/');
 }
+if (!defined('WPINC')) {
+    define('WPINC', 'wp-includes');
+}
 
 $GLOBALS['platform_wordpress_version'] = '7.0.3';
 $GLOBALS['platform_multisite'] = false;

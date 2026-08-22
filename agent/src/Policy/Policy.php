@@ -276,11 +276,11 @@ final class Policy {
 
     /** Refuse unexercised runtime versions before any policy/repository read. */
     private static function assert_supported_platform(): void {
-        // Pure manifest/compiler contexts intentionally have no WordPress
-        // runtime. The product path defines both before any wp-cli command is
-        // dispatched, so this guard separates offline validation from a live
-        // target instead of treating absent facts as compatible defaults.
-        if (!defined('ABSPATH') || !function_exists('get_bloginfo')) {
+        // Pure manifest/compiler contexts and the shared offline WP stubs may
+        // expose path helpers without loading WordPress core. A real loaded
+        // target defines WPINC as well as ABSPATH before wp-cli dispatch, so
+        // all three facts are required to distinguish it from those fixtures.
+        if (!defined('ABSPATH') || !defined('WPINC') || !function_exists('get_bloginfo')) {
             return;
         }
         PlatformCompatibility::assert_supported(ManifestDispositions::platform_boundary());

@@ -105,7 +105,7 @@ final class AdoptCommandFakeTransport implements AdoptionTransport, EnvironmentD
                 'php' => '8.3.33',
                 'db_version' => '11.8.8',
                 'db_engine' => 'mariadb',
-                'wp' => '7.0.2',
+                'wp' => '7.0.3',
             ]) . "\n", 'stderr' => ''];
         }
         return ['exit' => 99, 'stdout' => '', 'stderr' => 'unexpected WordPress probe'];

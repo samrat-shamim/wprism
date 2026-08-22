@@ -274,7 +274,7 @@ $sunkDb->factsResult = ['exit' => 0, 'stdout' => (string) json_encode([
     'php' => '8.3.33',
     'db_version' => null,
     'db_engine' => null,
-    'wp' => '7.0.2',
+    'wp' => '7.0.3',
 ]) . "\n", 'stderr' => ''];
 ob_start();
 $sunkDbExit = DoctorCommand::run($sunkDb);
