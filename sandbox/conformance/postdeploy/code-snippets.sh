@@ -40,6 +40,10 @@ $stale = Code_Snippets\save_snippet(new Code_Snippets\Snippet([
 if (!$stale) {
     throw new RuntimeException('could not create the stale target projection');
 }
+// 3.9.6 does not create a flat file merely because a new snippet is saved
+// after the setting was enabled. The settings action is the plugin's public
+// bulk-rebuild boundary and is the same path the shipped provider delegates.
+do_action('code_snippets/settings_updated', Code_Snippets\Settings\get_settings_values());
 $table = Code_Snippets\code_snippets()->db->get_table_name(false);
 $hash = Code_Snippets\Snippet_Files::get_hashed_table_name($table);
 $directory = Code_Snippets\Snippet_Files::get_base_dir($hash);
