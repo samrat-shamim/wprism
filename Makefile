@@ -7,6 +7,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-assess-projection regress-assess-inventory regress-contract-shape regress-contract-projection regress-assess-composition regress-assess-bounds regress-contract-accept regress-contract-multi-env
 .PHONY: regress-offline-all regress-offline-corpus regress-offline-diagnostics
 .PHONY: regress-lifecycle-options-snapshot
+.PHONY: regress-core-lifecycle
 .PHONY: regress-cli-json-refusals regress-agent-subcommand-names regress-command-output regress-environment-command-preflight regress-environment-command regress-passthrough-command regress-environment-command-options regress-driver-capabilities-command regress-environment-list-command regress-doctor-command regress-adopt-command regress-pending-command regress-classify-command regress-capture-command regress-deploy-command regress-promote-command regress-status-command regress-scope-command regress-refresh-command regress-rebase-command
 .PHONY: regress-plan-explain
 .PHONY: regress-plan-category-summary regress-plan-category-summary-live regress-plugin-adapter-source regress-scoped-apply-live regress-scoped-apply-live-cleanup regress-scope-chain-stability
@@ -292,6 +293,13 @@ regress-discovery-completeness:
 
 regress-core-semantics:
 	bash sandbox/tests/live/regress_core_semantics.sh
+
+# Core is host-integrated rather than an activatable plugin. Two exact
+# WordPress image digests exercise upgrade, rollback/restore, same-version
+# reinstall, residue pruning, preserved operator content/config/ledger state,
+# real apply/recapture, and HTTP behavior. Requires an exact clean candidate.
+regress-core-lifecycle:
+	bash sandbox/tests/live/regress_core_lifecycle.sh
 
 regress-attachment-portability:
 	bash sandbox/tests/live/regress_attachment_portability.sh
@@ -2140,6 +2148,7 @@ regress-live-list:
 	@echo "  regress-option-reconciliation             pair codexmac3211"
 	@echo "  regress-discovery-completeness            pair codexmac3205 8900/8901"
 	@echo "  regress-core-semantics                    pair codexmac3207 8900/8901"
+	@echo "  regress-core-lifecycle                    own disposable pair (parameterized: CORE_LIFECYCLE_PAIR/PORT1/PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate; exact offline WordPress 7.0.2 -> 7.0.3 -> rollback/reinstall)"
 	@echo "  regress-attachment-portability            pair codexmac3265 8964/8965"
 	@echo "  regress-fatal-mutations-live              pair codexmaca3206 9210/..."
 	@echo "  regress-multisite-refusal                 own disposable pair (parameterized: MULTISITE_PAIR/PORT1/PORT2)"
