@@ -189,11 +189,11 @@
     "paid-memberships-pro": {
       "readiness": "unready",
       "covered": {
+        "contract-dependency": ["manifests/paid-memberships-pro.json", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh"],
         "clean-target": ["sandbox/conformance/entries/paid-memberships-pro.json", "sandbox/conformance/seeds/paid-memberships-pro.sh", "sandbox/conformance/checks/paid-memberships-pro.sh"],
         "identity-references": ["sandbox/tests/live/regress_pmpro_composite_ref.sh"]
       },
       "gaps": {
-        "contract-dependency": "Exact 3.8.3 positive/inactive-target and real 3.8.2/3.8.4 version refusals are covered; missing, wrong-basename, and unreadable-plugin refusals still need exact adapter-bound evidence.",
         "dirty-target": "No unmanaged level/page relation, managed divergence, target-only member/order state, and conflict matrix exists.",
         "native-behavior": "Representative level/page API behavior is checked, but untested authored discount/group/category surfaces prevent a closed native-behavior claim.",
         "derived-state": "No audited post-apply cache/rule effect inventory and value-level postcondition exists.",
