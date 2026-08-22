@@ -126,6 +126,7 @@
       "covered": {
         "contract-dependency": ["manifests/core.json", "manifests/capabilities/platform.json", "sandbox/tests/live/regress_multisite_refusal.sh"],
         "clean-target": ["sandbox/conformance/entries/core.json", "sandbox/conformance/seeds/core.sh", "sandbox/conformance/checks/core.sh"],
+        "dirty-target": ["agent/src/Apply/MenuMaterializer.php", "sandbox/tests/offline/apply/regress_menu_materializer.php", "sandbox/conformance/postdeploy/core.sh", "sandbox/conformance/checks/core.sh"],
         "identity-references": ["sandbox/conformance/checks/core.sh"],
         "native-behavior": ["sandbox/conformance/checks/core.sh"],
         "deletion": ["sandbox/conformance/checks/core.sh"],
@@ -134,7 +135,6 @@
         "concurrency-idempotence": ["sandbox/tests/offline/capture/regress_capture_atomicity.php", "sandbox/tests/live/regress_capture_concurrency.sh"]
       },
       "gaps": {
-        "dirty-target": "Permalink grammar and stale rewrite residue now have exact dirty-target evidence; no systematic activation-default, unmanaged-key, target-runtime, and adoption matrix exists for every other claimed entity kind.",
         "lifecycle": "Theme transitions are exercised; WordPress in-place upgrade, downgrade refusal, deactivate/reactivate, and reinstall/residue are not a closed matrix.",
         "data-boundary": "No exhaustive per-entity UTF-8, size, malformed structured value, secret, and schema-drift matrix exists.",
         "scope-platform": "Multisite refuses, but the declared PHP/database/WordPress boundary has not been exercised as an adapter-level matrix."
