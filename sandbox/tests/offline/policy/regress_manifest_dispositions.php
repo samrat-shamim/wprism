@@ -137,6 +137,24 @@ check(
         && in_array('render-api', $tecDisposition['capabilities']['operations'] ?? [], true),
     'The Events Calendar names both its exact target round-trip and injected regeneration-recovery exercise'
 );
+$pmproManifest = $manifestsByName['paid-memberships-pro'];
+$pmproDisposition = $data['manifests']['paid-memberships-pro'];
+check(
+    ($pmproManifest['plugin'] ?? null) === 'paid-memberships-pro/paid-memberships-pro.php'
+        && ($pmproManifest['version_range'] ?? null) === ['min' => '3.8.3', 'max' => '3.8.4'],
+    'Paid Memberships Pro is bound to the one exact upstream artifact its table/reference evidence exercises'
+);
+check(
+    ($pmproDisposition['supported_versions'] ?? null) === [
+        'plugin' => 'paid-memberships-pro/paid-memberships-pro.php',
+        'range' => ['max' => '3.8.4', 'min' => '3.8.3'],
+    ]
+        && ($pmproDisposition['evidence']['tests'] ?? null) === [
+            'conformance-paid-memberships-pro',
+            'exact-artifact-version-matrix',
+        ],
+    'Paid Memberships Pro repeats the enforceable exact range and names its adjacent-tag refusal evidence'
+);
 check(($data['profiles']['fse']['status'] ?? null) === 'certified', 'FSE is a named certified profile of core');
 foreach ($data['manifests'] as $name => $entry) {
     check(isset($entry['supported_versions'], $entry['capabilities']['entity_sections'], $entry['capabilities']['field_sections']), "$name names versions, entities, and fields");
@@ -192,8 +210,11 @@ check(
     'FSE cites its named live conformance evidence'
 );
 check(
-    ($data['manifests']['paid-memberships-pro']['evidence']['tests'] ?? null) === ['conformance-paid-memberships-pro'],
-    'PMPro conformance is bundle-bound while its disposition remains experimental'
+    ($data['manifests']['paid-memberships-pro']['evidence']['tests'] ?? null) === [
+        'conformance-paid-memberships-pro',
+        'exact-artifact-version-matrix',
+    ],
+    'PMPro conformance and exact-boundary matrix are bundle-bound while its disposition remains experimental'
 );
 $unsafeTestClaim = $data['manifests']['core'];
 $unsafeTestClaim['evidence']['tests'] = ['../escape'];

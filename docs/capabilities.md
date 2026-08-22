@@ -40,7 +40,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 | [duo-agency-cpt](#duo-agency-cpt) | excluded | none declared | fixture only | test-only |
 | [elementor](#elementor) | certified | `elementor/elementor.php` | >=4.0.0 <5.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [ninja-forms](#ninja-forms) | certified | `ninja-forms/ninja-forms.php` | >=3.4.34.2 <4.0.0 | apply, capture, compile, delete, deploy, plan, promote, recapture, render-api |
-| [paid-memberships-pro](#paid-memberships-pro) | experimental | unbound | unbound | apply, capture, compile, delete, plan, recapture |
+| [paid-memberships-pro](#paid-memberships-pro) | experimental | `paid-memberships-pro/paid-memberships-pro.php` | >=3.8.3 <3.8.4 | apply, capture, compile, delete, plan, recapture |
 | [polylang](#polylang) | certified | `polylang/polylang.php` | >=3.5 <4.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [the-events-calendar](#the-events-calendar) | experimental | `the-events-calendar/the-events-calendar.php` | >=6.17.2 <6.17.3 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [woocommerce](#woocommerce) | certified | `woocommerce/woocommerce.php` | >=11.0.0 <12.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
@@ -231,17 +231,17 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 
 ## paid-memberships-pro
 
-**Status: experimental.** Experimental: conformance exists, but the manifest has no plugin identity/version range and no exact-artifact certification bundle.
+**Status: experimental.** Experimental: exact 3.8.3 artifact and version-boundary evidence exist, but intent-only authored tables and an unbounded default metadata keyspace remain promotion-blocking.
 
-- **Plugin:** unbound
-- **Version range:** unbound
+- **Plugin:** `paid-memberships-pro/paid-memberships-pro.php`
+- **Version range:** >=3.8.3 <3.8.4
 - **Operations:** apply, capture, compile, delete, plan, recapture
 - **Lifecycle phases:** none declared
 - **Declared entities:** `tables` (15 keys)
 - **Declared fields:** `options` (33 keys), `post_meta` (0 rules)
 - **Deletions supported:** `table:pmpro_memberships_pages`
 - **Deletions unsupported:** intent-only composite tables
-- **Exercised by:** `conformance-paid-memberships-pro`
+- **Exercised by:** `conformance-paid-memberships-pro`, `exact-artifact-version-matrix`
 
 **Default-authored keyspaces.** A table whose unlisted keys default to authored needs its own review; each is recorded with the verdict a reviewer reached.
 
@@ -254,7 +254,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 - `tables.pmpro_groups` / `capture` — Intent marker only; no implemented typed snapshot contract.
 - `tables.pmpro_membership_levels_groups` / `capture` — Intent marker only; no implemented typed snapshot contract.
 - `tables.pmpro_memberships_categories` / `capture` — Intent marker only; no implemented typed snapshot contract.
-- `production` / `promote` — No exact version/evidence contract exists.
+- `production` / `promote` — Intent-only authored tables and an unbounded default metadata keyspace prevent a closed production claim.
 
 ## polylang
 

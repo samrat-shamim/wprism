@@ -193,19 +193,18 @@
         "identity-references": ["sandbox/tests/live/regress_pmpro_composite_ref.sh"]
       },
       "gaps": {
+        "contract-dependency": "Exact 3.8.3 positive/inactive-target and real 3.8.2/3.8.4 version refusals are covered; missing, wrong-basename, and unreadable-plugin refusals still need exact adapter-bound evidence.",
         "dirty-target": "No unmanaged level/page relation, managed divergence, target-only member/order state, and conflict matrix exists.",
         "native-behavior": "Representative level/page API behavior is checked, but untested authored discount/group/category surfaces prevent a closed native-behavior claim.",
         "derived-state": "No audited post-apply cache/rule effect inventory and value-level postcondition exists.",
         "deletion": "Composite relation deletion is exercised separately, but the proof is not bound to a reviewed exact artifact and all authored-table delete boundaries are not closed.",
         "failure-recovery": "No PMPro-specific table graph fault/retry/recovery exercise exists.",
         "concurrency-idempotence": "No competing level/relation apply/delete exercise exists.",
-        "lifecycle": "No supported range exists, so upgrade/downgrade/deactivate/reinstall behavior cannot yet be certified.",
+        "lifecycle": "The exact 3.8.3 range is enforceable, but deactivate/reactivate, reinstall/residue, and in-place upgrade behavior are not yet exercised.",
         "data-boundary": "Prices, durations, UTF-8 names, zero/large IDs, serialized option shapes, secrets, and schema drift lack a manifest-path matrix.",
         "scope-platform": "Optional add-ons and runtime tables are listed, but no exact platform/feature refusal matrix exists."
       },
-      "blocked": {
-        "contract-dependency": "The shipped manifest has no plugin basename or version range; the 3.8.3 exercise artifact cannot enforce target identity."
-      },
+      "blocked": {},
       "not_applicable": {}
     },
     "polylang": {

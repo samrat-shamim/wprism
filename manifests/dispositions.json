@@ -159,17 +159,17 @@
     "paid-memberships-pro": {
       "capabilities": {"deletion_semantics": {"supported": ["table:pmpro_memberships_pages"], "unsupported": ["intent-only composite tables"]}, "entity_sections": ["tables"], "field_sections": ["options", "post_meta"], "lifecycle_phases": [], "operations": ["capture", "compile", "plan", "apply", "delete", "recapture"]},
       "default_authored_keyspaces": [{"reason": "No version-pinned evidence bounds the default metadata keyspace; the whole adapter remains promotion-blocking.", "status": "unsupported", "table": "pmpro_membership_levelmeta"}],
-      "evidence": {"bundle_schema": "duo-subject-certification-bundle/v1", "tests": ["conformance-paid-memberships-pro"]},
-      "reason": "Experimental: conformance exists, but the manifest has no plugin identity/version range and no exact-artifact certification bundle.",
+      "evidence": {"bundle_schema": "duo-subject-certification-bundle/v1", "tests": ["conformance-paid-memberships-pro", "exact-artifact-version-matrix"]},
+      "reason": "Experimental: exact 3.8.3 artifact and version-boundary evidence exist, but intent-only authored tables and an unbounded default metadata keyspace remain promotion-blocking.",
       "status": "experimental",
-      "supported_versions": {"plugin": "unbound", "range": null},
+      "supported_versions": {"plugin": "paid-memberships-pro/paid-memberships-pro.php", "range": {"max": "3.8.4", "min": "3.8.3"}},
       "unsupported": [
         {"operation": "capture", "reason": "Intent marker only; no implemented typed snapshot contract.", "surface": "tables.pmpro_discount_codes"},
         {"operation": "capture", "reason": "Intent marker only; no implemented typed snapshot contract.", "surface": "tables.pmpro_discount_codes_levels"},
         {"operation": "capture", "reason": "Intent marker only; no implemented typed snapshot contract.", "surface": "tables.pmpro_groups"},
         {"operation": "capture", "reason": "Intent marker only; no implemented typed snapshot contract.", "surface": "tables.pmpro_membership_levels_groups"},
         {"operation": "capture", "reason": "Intent marker only; no implemented typed snapshot contract.", "surface": "tables.pmpro_memberships_categories"},
-        {"operation": "promote", "reason": "No exact version/evidence contract exists.", "surface": "production"}
+        {"operation": "promote", "reason": "Intent-only authored tables and an unbounded default metadata keyspace prevent a closed production claim.", "surface": "production"}
       ]
     },
     "polylang": {
