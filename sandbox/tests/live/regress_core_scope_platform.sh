@@ -38,13 +38,31 @@ SOURCE_SHA=$(git rev-parse --verify 'HEAD^{commit}') || fail 'platform evidence 
   || fail "platform evidence checkout is dirty; commit the exact candidate $SOURCE_SHA first"
 
 export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2"
+export DUO_ARTIFACT_OFFLINE=1
 R1="siterepo/${PAIR}1"
 R2="siterepo/${PAIR}2"
 ORIGIN="siterepo/origin-${PAIR}.git"
 ENVS_FILE=$(mktemp "${TMPDIR:-/tmp}/duo-core-platform.${PAIR}.XXXXXX")
-COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml)
+COMPOSE=(
+  docker compose -p "duo-$PAIR"
+  -f pair.yml
+  -f pair.artifacts.yml
+  -f pair.wordpress-offline.yml
+)
 wp1() { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
 wp2() { "${COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
+
+duo_json() { # <wp-runner> <label> <duo arguments...>
+  local runner="$1" label="$2" output payload
+  shift 2
+  if ! output=$("$runner" duo "$@" --format=json 2>&1); then
+    fail "$label failed: $output"
+  fi
+  payload=$(awk 'NF { line=$0 } END { print line }' <<<"$output")
+  jq -e 'type == "object"' <<<"$payload" >/dev/null \
+    || fail "$label did not return a JSON object: $output"
+  printf '%s\n' "$payload"
+}
 
 remove_owned_path() {
   local owned="$1"
@@ -143,7 +161,7 @@ pass 'all WordPress/PHP artifacts and declared platform values are exact before 
 say 'supported exact platform: real core round trip and doctor'
 destroy_owned_pair
 export DUO_WP_IMAGE="$WP83_IMAGE" DUO_CLI_IMAGE="$CLI83_IMAGE"
-bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --headless
+bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --headless --artifacts --wordpress-offline
 prepare_repo
 FACTS=$(wp1 eval 'echo wp_json_encode(\Duo\PlatformCompatibility::current_facts());' | awk 'NF { line=$0 } END { print line }')
 jq -e '
@@ -157,17 +175,48 @@ SOURCE_POST=$(wp1 post create --post_type=post --post_status=publish \
   --post_content='Exact platform content — বাংলা — delimiter | value' --porcelain)
 wp2 post create --post_type=post --post_status=publish --post_title='Target-only platform row' \
   --post_name=target-only-platform --post_content='must survive' --porcelain >/dev/null
-wp1 duo capture --repo=/siterepo --format=json >/dev/null
+CAPTURE=$(duo_json wp1 'supported source capture' capture --repo=/siterepo)
+jq -e '
+  .counts.post == 1 and .counts.term == 1 and .counts.options == 1 and
+  .media == 0 and .skipped == [] and .code == null
+' <<<"$CAPTURE" >/dev/null \
+  || fail "supported source capture reported unexpected coverage: $CAPTURE"
 cp -R "$R1/state" "$R2/state"
-wp2 duo apply --repo=/siterepo --default-author=admin --format=json >/dev/null
-wp2 duo apply --repo=/siterepo --default-author=admin --format=json >/dev/null
+FIRST_APPLY=$(duo_json wp2 'supported initial apply' apply --repo=/siterepo \
+  --default-author=admin --adopt-by-slug=terms)
+jq -e '
+  .plan.create == 1 and .plan.update == 2 and .plan.adopt == 1 and
+  .plan.collision == 0 and .plan.conflict == 0 and .applied == 4 and
+  .canary == "clean" and .verification.result == "pass" and
+  .verification.live_entities == 4 and .promotion_lock.released == true and
+  (.warnings | length) == 1 and
+  (.warnings[0] | startswith("adopted env term 1 as ")) and
+  (.warnings[0] | endswith("--uncategorized.json)"))
+' <<<"$FIRST_APPLY" >/dev/null \
+  || fail "supported initial apply did not prove explicit default-term adoption: $FIRST_APPLY"
+SECOND_APPLY=$(duo_json wp2 'supported idempotent apply' apply --repo=/siterepo \
+  --default-author=admin --adopt-by-slug=terms)
+jq -e '
+  .plan.create == 0 and .plan.update == 0 and .plan.unchanged == 4 and
+  .plan.adopt == 0 and .plan.collision == 0 and .plan.conflict == 0 and
+  .applied == 0 and .warnings == [] and .canary == "clean" and
+  .verification.result == "pass" and .verification.live_entities == 4 and
+  .promotion_lock.released == true
+' <<<"$SECOND_APPLY" >/dev/null \
+  || fail "supported repeat apply was not a verified zero-write result: $SECOND_APPLY"
 TARGET_POST=$(wp2 post list --post_type=post --name=core-platform-exact --field=ID | awk 'NF { print; exit }')
 [ -n "$TARGET_POST" ] && [ "$TARGET_POST" != "$SOURCE_POST" ] \
   || fail 'supported core round trip did not force and preserve divergent post identities'
 TARGET_CONTENT=$(wp2 post get "$TARGET_POST" --field=post_content)
 [ "$TARGET_CONTENT" = 'Exact platform content — বাংলা — delimiter | value' ] \
   || fail 'supported core round trip changed native UTF-8 content'
-wp2 duo capture --repo=/siterepo --out=/siterepo/state-check --format=json >/dev/null
+RECAPTURE=$(duo_json wp2 'supported target recapture' capture \
+  --repo=/siterepo --out=/siterepo/state-check)
+jq -e '
+  .counts.post == 1 and .counts.term == 1 and .counts.options == 1 and
+  .media == 0 and .skipped == [] and .code == null
+' <<<"$RECAPTURE" >/dev/null \
+  || fail "supported target recapture reported unexpected coverage: $RECAPTURE"
 diff -r "$R2/state" "$R2/state-check" >/dev/null \
   || fail 'supported core recapture is not byte-identical'
 TARGET_ONLY_POST=$(wp2 post list --post_type=post --name=target-only-platform --field=ID | awk 'NF { print; exit }')
@@ -205,7 +254,7 @@ pass 'real adjacent WordPress artifact is rejected by agent and doctor with zero
 say 'real PHP exclusive-maximum runtime refuses before first publication'
 destroy_owned_pair
 export DUO_WP_IMAGE="$WP84_IMAGE" DUO_CLI_IMAGE="$CLI84_IMAGE"
-bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --headless
+bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --headless --artifacts --wordpress-offline
 prepare_repo
 PHP84=$(wp1 eval 'echo PHP_VERSION;' | awk 'NF { line=$0 } END { print line }')
 [[ "$PHP84" == 8.4.* ]] || fail "refusal pair did not boot PHP 8.4: $PHP84"
