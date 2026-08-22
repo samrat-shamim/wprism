@@ -121,6 +121,7 @@ namespace {
     $policy->descriptionRules = ['category' => ['json_refs' => [['path' => '$.term', 'kind' => 'term']]]];
     $policy->optionRules = [
         'plain' => ['ref' => 'post'],
+        'unset' => ['ref' => 'post'],
         'subkeyed' => ['sub_keys' => ['author' => ['class' => 'authored', 'ref' => 'user']]],
     ];
     $policy->canonicalOptionRules = ["choice-{{post:$post}}" => ['ref' => 'post']];
@@ -229,6 +230,7 @@ namespace {
         'term' => ['type' => 'term', 'path' => 'terms/category/valid.json', 'data' => ['taxonomy' => 'category', 'description' => ['term' => "{{term:$term}}"], 'meta' => ['related' => "{{term:$term}}"]]],
         'options' => ['type' => 'options', 'path' => 'options/valid.json', 'data' => ['records' => [
             'plain' => ['state' => 'present', 'value' => "{{post:$post}}"],
+            'unset' => ['state' => 'present', 'value' => 0],
             'subkeyed' => ['state' => 'present', 'value' => ['author' => 'user:alice']],
             "choice-{{post:$post}}" => ['state' => 'present', 'value' => "{{post:$post}}"],
         ]]],
@@ -237,7 +239,46 @@ namespace {
         'table' => ['type' => 'booking', 'path' => 'tables/booking/valid.json', 'data' => ['columns' => ['post_id' => "{{post:$post}}"], 'meta' => ['related' => "{{term:$term}}"]]],
     ];
     $validator->validate($validTree);
-    $check($diagnostics === [], 'canonical tokens and declared unset structured leaves remain accepted across every dispatch branch');
+    $check(
+        $diagnostics === [],
+        'canonical tokens, a whole-option scalar zero, and declared unset structured leaves remain accepted across every dispatch branch'
+    );
+
+    $diagnostics = [];
+    $invalidUnsetTree = [[
+        'type' => 'options',
+        'path' => 'options/unset-shapes.json',
+        'data' => ['records' => [
+            'plain' => ['state' => 'present', 'value' => -7],
+            'unset' => ['state' => 'present', 'value' => '0'],
+        ]],
+    ]];
+    $validator->validate($invalidUnsetTree);
+    $check(
+        array_map(
+            static fn(array $diagnostic): array => [
+                $diagnostic['code'],
+                $diagnostic['path'],
+                $diagnostic['locator'],
+                $diagnostic['message'],
+            ],
+            $diagnostics
+        ) === [
+            [
+                'nonportable_reference',
+                'options/unset-shapes.json',
+                'options.plain',
+                'declared post reference must be a canonical token, never a raw target id',
+            ],
+            [
+                'nonportable_reference',
+                'options/unset-shapes.json',
+                'options.unset',
+                'declared post reference must be a canonical token, never a raw target id',
+            ],
+        ],
+        'whole-option scalar unset accepts only integer zero while negative ids and string zero remain nonportable'
+    );
 
     $compiler = (string) file_get_contents("$root/agent/src/Repository/RepositoryCompiler.php");
     $source = (string) file_get_contents($validatorPath);
