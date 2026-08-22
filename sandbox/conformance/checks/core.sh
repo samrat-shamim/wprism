@@ -190,7 +190,7 @@ echo wp_json_encode([
 ]);
 ")
 require_duo_answered "conf2 core adopted authored values" json "$DIRTY_AUTHORED"
-jq -e --argjson uncategorized "$TARGET_UNCAT" '
+jq -e --argjson news "$TARGET_NEWS" '
   .hello_title == "Hello world!" and
   (.hello_content | contains("Welcome to WordPress")) and
   .sample_title == "Sample Page" and
@@ -198,7 +198,7 @@ jq -e --argjson uncategorized "$TARGET_UNCAT" '
   .branch_template == "source-template.php" and
   .news_description == "Conformance news" and
   .topic_description == "Conformance topic" and
-  .default_category == $uncategorized and
+  .default_category == $news and
   .blogname == "Duo Conformance" and
   .custom_css == "body { background: #3c8c3c; }" and
   (.menu_items | length) == 1 and
