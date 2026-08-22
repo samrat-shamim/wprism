@@ -39,6 +39,10 @@ if (is_wp_error($control) || !$control) {
     throw new RuntimeException('WPS Hide Login public route control was not persisted');
 }
 
+// Core can cache -1 while probing the Customizer post. It is runtime residue,
+// and capture reports it as "unmanaged post id -1" unless the fixture clears it.
+remove_theme_mod('custom_css_post_id');
+
 echo wp_json_encode([
     'control' => (int) $control,
     'login' => get_option('whl_page'),

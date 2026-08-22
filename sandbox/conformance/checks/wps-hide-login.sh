@@ -372,6 +372,9 @@ fi
 wps_request GET '/wp-admin/'
 [ "$WPS_CODE" = 302 ] && [ "$WPS_LOCATION" = "http://localhost:${CONF2_PORT}/404/" ] \
   || fail "deleted redirect option did not expose WPS Hide Login's native /404/ fallback"
+# The authenticated admin journey above can leave core's transient Customizer
+# sentinel at -1; it is not adapter state and would make capture warn here.
+wp_conf2 eval "remove_theme_mod('custom_css_post_id');" >/dev/null
 wp_conf2 duo capture --repo=/siterepo --out=/siterepo/.tmp-wps-hide-login-delete-state >/dev/null
 diff -r "$CONF_REPO1/state" "$CONF_REPO2/.tmp-wps-hide-login-delete-state" \
   || fail "WPS Hide Login authorized deletion did not recapture byte-identically"

@@ -827,6 +827,9 @@ cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
 
 seed_wps_hide_login_content
 check_wps_hide_login_boundary_content wp1 "$PORT1" source
+# Real login requests can leave core's transient Customizer sentinel at -1;
+# remove it so exact recapture has no "unmanaged post id -1" warning.
+wp1 eval 'remove_theme_mod("custom_css_post_id");' >/dev/null
 wp1 duo capture --repo=/siterepo
 wp1 duo lint --repo=/siterepo
 "${GIT1[@]}" add -A
@@ -846,6 +849,7 @@ grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
   || fail "apply canary not clean at wps-hide-login $WPS_VERSION"
 check_wps_hide_login_boundary_content wp2 "$PORT2" target
 
+wp2 eval 'remove_theme_mod("custom_css_post_id");' >/dev/null
 wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-final
 WPS_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
 rm -rf "siterepo/${PAIR}2/.tmp-final"
