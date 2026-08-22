@@ -32,7 +32,7 @@ jq -e '
 CORE_REWRITE_STATE=$(wp_conf2 eval '
 global $wp_rewrite;
 $stored = get_option("rewrite_rules");
-$wp_rewrite->init();
+$wp_rewrite->matches = "matches";
 $generated = $wp_rewrite->rewrite_rules();
 $post = get_page_by_path("hello-conformance", OBJECT, "post");
 echo wp_json_encode([

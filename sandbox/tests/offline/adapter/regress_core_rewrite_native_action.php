@@ -7,10 +7,11 @@ declare(strict_types=1);
  * Apply materializes authored options with direct SQL. WordPress therefore
  * does not run Settings -> Permalinks' flush, and a non-empty target
  * rewrite_rules row continues serving the old grammar. This fixture models
- * the exact WordPress 7.0.3 WP_Rewrite contract the engine calls: init reads
- * permalink_structure, a soft flush regenerates and persists ordered rules,
- * and wp_rewrite_rules reads them back. Hostile storage/runtime states and
- * dropped writes prove the checked receipt, not a command return, is the gate.
+ * the exact WordPress 7.0.3 WP_Rewrite contract the engine calls: a fresh
+ * process boots against permalink_structure, a soft flush regenerates and
+ * persists ordered rules, and wp_rewrite_rules reads them back. Hostile
+ * storage/runtime states and dropped writes prove the checked receipt, not a
+ * child-process return code, is the gate.
  */
 
 require_once __DIR__ . '/../../lib/check.php';
@@ -23,6 +24,9 @@ $GLOBALS['core_rewrite_action_calls'] = [];
 $GLOBALS['core_rewrite_wp_loaded'] = 1;
 $GLOBALS['core_rewrite_drop_write'] = false;
 $GLOBALS['core_rewrite_mutate_structure'] = false;
+$GLOBALS['core_rewrite_child_launches'] = 0;
+$GLOBALS['core_rewrite_child_flushes'] = 0;
+$GLOBALS['core_rewrite_child_hard_flushes'] = 0;
 
 function did_action(string $hook): int {
     return $hook === 'wp_loaded' ? (int) $GLOBALS['core_rewrite_wp_loaded'] : 0;
@@ -193,6 +197,46 @@ final class CoreRewriteRuntime {
     }
 }
 
+final class WP_CLI {
+    /** @param array<string,mixed> $args */
+    public static function runcommand(string $command, array $args): object {
+        global $wp_rewrite;
+        if (!str_contains($command, 'NativeActions::execute("rewrite.flush", [])')
+            || $args !== ['launch' => true, 'return' => 'all', 'exit_error' => false]) {
+            throw new RuntimeException('unexpected rewrite child-process command');
+        }
+        $GLOBALS['core_rewrite_child_launches']++;
+        $parentRuntime = $wp_rewrite;
+        $freshRuntime = new CoreRewriteRuntime();
+        $freshRuntime->permalink_structure = get_option('permalink_structure', false);
+        $freshRuntime->rules = null;
+        $wp_rewrite = $freshRuntime;
+        try {
+            $method = new ReflectionMethod(Duo\NativeActions::class, 'flush_rewrite_in_fresh_process');
+            $receipt = $method->invoke(null);
+            $report = [
+                'format' => 'duo-rewrite-flush-fresh/v1',
+                'after' => $receipt['after'],
+            ];
+            return (object) [
+                'return_code' => 0,
+                'stdout' => json_encode($report, JSON_THROW_ON_ERROR),
+                'stderr' => '',
+            ];
+        } catch (Throwable $failure) {
+            return (object) [
+                'return_code' => 1,
+                'stdout' => '',
+                'stderr' => $failure->getMessage(),
+            ];
+        } finally {
+            $GLOBALS['core_rewrite_child_flushes'] += $freshRuntime->flushCalls;
+            $GLOBALS['core_rewrite_child_hard_flushes'] += $freshRuntime->hardFlushes;
+            $wp_rewrite = $parentRuntime;
+        }
+    }
+}
+
 /** Reset one dirty target after Apply has already written the source grammar. */
 function core_rewrite_reset(string|false $structure = '/source/%postname%/'): void {
     global $wpdb, $wp_rewrite;
@@ -210,6 +254,9 @@ function core_rewrite_reset(string|false $structure = '/source/%postname%/'): vo
     $GLOBALS['core_rewrite_wp_loaded'] = 1;
     $GLOBALS['core_rewrite_drop_write'] = false;
     $GLOBALS['core_rewrite_mutate_structure'] = false;
+    $GLOBALS['core_rewrite_child_launches'] = 0;
+    $GLOBALS['core_rewrite_child_flushes'] = 0;
+    $GLOBALS['core_rewrite_child_hard_flushes'] = 0;
 }
 
 /** @param callable():mixed $callback */
@@ -278,9 +325,10 @@ $first = Duo\NativeActions::execute('rewrite.flush', []);
 duo_check(($first['verified'] ?? null) === true, 'dirty target rewrite regeneration returns only after verified readback');
 duo_check_same('rewrite.flush', $first['action'] ?? null, 'receipt names the exact closed action');
 duo_check_same([], $first['args'] ?? null, 'receipt carries no attacker-controlled action arguments');
-duo_check_same(1, $wp_rewrite->initCalls, 'the loaded runtime is reinitialized from the just-applied permalink row');
-duo_check_same(1, $wp_rewrite->flushCalls, 'the dirty target is flushed exactly once');
-duo_check_same(0, $wp_rewrite->hardFlushes, 'rewrite.flush never writes target-owned web-server configuration');
+duo_check_same(1, $GLOBALS['core_rewrite_child_launches'], 'the action launches exactly one fresh WordPress process');
+duo_check_same(0, $wp_rewrite->initCalls, 'the stale apply runtime is never destructively reinitialized');
+duo_check_same(1, $GLOBALS['core_rewrite_child_flushes'], 'the dirty target is flushed exactly once in the fresh process');
+duo_check_same(0, $GLOBALS['core_rewrite_child_hard_flushes'], 'rewrite.flush never writes target-owned web-server configuration');
 duo_check_same('/source/%postname%/', get_option('permalink_structure'), 'the authored permalink grammar remains exact');
 duo_check(is_array(get_option('rewrite_rules')), 'stale target rules are replaced by an array-valued native projection');
 duo_check(
@@ -328,11 +376,7 @@ core_rewrite_reset(false);
 $absent = Duo\NativeActions::execute('rewrite.flush', []);
 duo_check(!array_key_exists('permalink_structure', $wpdb->optionRows), 'explicit authored option deletion stays deleted after regeneration');
 duo_check(($absent['after']['permalink_present'] ?? null) === false, 'deletion receipt distinguishes absence from an empty stored string');
-duo_check_same('', $wp_rewrite->permalink_structure, 'absent row initializes WordPress to semantic plain-permalink state');
-duo_check(
-    ($GLOBALS['core_rewrite_filters']['default_option_permalink_structure'][PHP_INT_MAX] ?? []) === [],
-    'the temporary absent-row default filter is removed before the action returns'
-);
+duo_check_same(false, $wp_rewrite->permalink_structure, 'parent readback reflects WordPress semantic plain-permalink state without recreating the row');
 
 core_rewrite_reset();
 $GLOBALS['core_rewrite_wp_loaded'] = 0;
@@ -352,7 +396,7 @@ core_rewrite_refuses(
     "checked option read failed for 'permalink_structure'",
     'permalink database failure is not mistaken for option absence'
 );
-duo_check_same(0, $wp_rewrite->flushCalls, 'permalink checked-read failure refuses before the native flush');
+duo_check_same(0, $GLOBALS['core_rewrite_child_launches'], 'permalink checked-read failure refuses before launching the native flush');
 
 core_rewrite_reset();
 $wpdb->failReads['rewrite_rules'] = 1;
@@ -361,7 +405,7 @@ core_rewrite_refuses(
     "checked option read failed for 'rewrite_rules'",
     'rewrite database failure is not mistaken for stale-but-repairable state'
 );
-duo_check_same(0, $wp_rewrite->flushCalls, 'rewrite checked-read failure refuses before the native flush');
+duo_check_same(0, $GLOBALS['core_rewrite_child_launches'], 'rewrite checked-read failure refuses before launching the native flush');
 
 core_rewrite_reset();
 $wpdb->optionRows['permalink_structure'] = serialize(['not' => 'a string']);
@@ -370,7 +414,7 @@ core_rewrite_refuses(
     'plain string',
     'malformed structured permalink data refuses before WordPress consumes it'
 );
-duo_check_same(0, $wp_rewrite->flushCalls, 'malformed permalink data reaches no rewrite mutation');
+duo_check_same(0, $GLOBALS['core_rewrite_child_launches'], 'malformed permalink data reaches no rewrite process or mutation');
 
 core_rewrite_reset();
 add_filter(
@@ -379,10 +423,10 @@ add_filter(
 );
 core_rewrite_refuses(
     static fn() => Duo\NativeActions::execute('rewrite.flush', []),
-    'could not initialize the loaded rewrite runtime',
+    'fresh WordPress process loaded a permalink runtime',
     'an extension override that contradicts the checked permalink row refuses before rule regeneration'
 );
-duo_check_same(0, $wp_rewrite->flushCalls, 'contradictory permalink filter reaches no rewrite mutation');
+duo_check_same(0, $GLOBALS['core_rewrite_child_flushes'], 'contradictory permalink filter reaches no rewrite mutation');
 
 core_rewrite_reset();
 $wpdb->optionRows['rewrite_rules'] = 'hostile non-array residue';
@@ -432,7 +476,7 @@ $savedRuntime = $wp_rewrite;
 $wp_rewrite = null;
 core_rewrite_refuses(
     static fn() => Duo\NativeActions::execute('rewrite.flush', []),
-    'loaded WordPress rewrite runtime',
+    'loaded WordPress/WP-CLI rewrite runtime',
     'missing WordPress rewrite runtime refuses with an actionable boundary message'
 );
 $wp_rewrite = $savedRuntime;

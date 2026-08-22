@@ -49,6 +49,7 @@ $GLOBALS['wpdb'] = new DuoScopedEffectFakeWpdb();
 $GLOBALS['duo_scoped_effect_cache'] = ['transient' => []];
 $GLOBALS['duo_scoped_effect_deletes'] = 0;
 $GLOBALS['duo_scoped_effect_filters'] = [];
+$GLOBALS['duo_scoped_rewrite_child_flushes'] = 0;
 
 function add_option(string $name, mixed $value, mixed $deprecated = '', mixed $autoload = 'yes'): bool {
     global $wpdb;
@@ -137,6 +138,43 @@ final class DuoScopedRewriteRuntime {
     public function wp_rewrite_rules(): array {
         $this->rules = get_option('rewrite_rules');
         return $this->rules;
+    }
+}
+
+final class WP_CLI {
+    /** @param array<string,mixed> $args */
+    public static function runcommand(string $command, array $args): object {
+        global $wp_rewrite;
+        if (!str_contains($command, 'NativeActions::execute("rewrite.flush", [])')
+            || $args !== ['launch' => true, 'return' => 'all', 'exit_error' => false]) {
+            throw new RuntimeException('unexpected scoped rewrite child command');
+        }
+        $parentRuntime = $wp_rewrite;
+        $freshRuntime = new DuoScopedRewriteRuntime();
+        $freshRuntime->permalink_structure = get_option('permalink_structure', false);
+        $wp_rewrite = $freshRuntime;
+        try {
+            $method = new ReflectionMethod(Duo\NativeActions::class, 'flush_rewrite_in_fresh_process');
+            $receipt = $method->invoke(null);
+            $report = [
+                'format' => 'duo-rewrite-flush-fresh/v1',
+                'after' => $receipt['after'],
+            ];
+            return (object) [
+                'return_code' => 0,
+                'stdout' => json_encode($report, JSON_THROW_ON_ERROR),
+                'stderr' => '',
+            ];
+        } catch (Throwable $failure) {
+            return (object) [
+                'return_code' => 1,
+                'stdout' => '',
+                'stderr' => $failure->getMessage(),
+            ];
+        } finally {
+            $GLOBALS['duo_scoped_rewrite_child_flushes'] += $freshRuntime->flushes;
+            $wp_rewrite = $parentRuntime;
+        }
     }
 }
 
@@ -374,7 +412,7 @@ $GLOBALS['wp_rewrite'] = new DuoScopedRewriteRuntime();
 $rewriteOp = $operation(NativeActions::scoped_input_hash('rewrite.flush', []), 'operation.0005');
 $rewriteNotStarted = NativeActions::reconcile_scoped('rewrite.flush', [], $rewriteOp);
 $check(
-    $rewriteNotStarted['status'] === 'not_started' && $GLOBALS['wp_rewrite']->flushes === 0,
+    $rewriteNotStarted['status'] === 'not_started' && $GLOBALS['duo_scoped_rewrite_child_flushes'] === 0,
     'scoped rewrite reconciliation requires a durable receipt and never infers execution from target state'
 );
 $rewriteReceipt = NativeActions::invoke_scoped('rewrite.flush', [], $rewriteOp);
@@ -384,7 +422,7 @@ $check(
         && $rewriteRecovered['status'] === 'verified'
         && $rewriteRecovered['after_hash'] === $rewriteReceipt['after_hash']
         && $rewriteReceipt['capability_digest'] === NativeActions::scoped_action_digest('rewrite.flush')
-        && $GLOBALS['wp_rewrite']->flushes === 1,
+        && $GLOBALS['duo_scoped_rewrite_child_flushes'] === 1,
     'scoped rewrite recovery checks the persisted/runtime grammar against hash-only evidence without a second flush'
 );
 $GLOBALS['wpdb']->optionRows['rewrite_rules'] = serialize([
@@ -396,7 +434,7 @@ $throws(
     'scoped rewrite recovery refuses post-receipt rule drift instead of reinvoking the flush'
 );
 $check(
-    $GLOBALS['wp_rewrite']->flushes === 1,
+    $GLOBALS['duo_scoped_rewrite_child_flushes'] === 1,
     'a mismatched scoped rewrite readback never invokes the filesystem-or-database effect again'
 );
 

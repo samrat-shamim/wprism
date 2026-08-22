@@ -104,8 +104,11 @@ if (get_option("permalink_structure") !== "/journal/%postname%/" || !is_array($r
 # run.sh installed both exact theme ZIPs from the digest-addressed cache
 # before any seed code ran. Activation must therefore stay a local operation:
 # a bare `theme install <slug>` would reopen the WordPress.org catalog path
-# and make a warm-cache certification depend on the network again.
-wp_conf1 theme activate twentytwentyone >/dev/null
+# and make a warm-cache certification depend on the network again. pair.sh's
+# generic bootstrap currently starts on this theme; avoid asking WP-CLI to
+# activate an already-active theme because its warning is not green evidence.
+wp_conf1 theme is-active twentytwentyone >/dev/null \
+  || wp_conf1 theme activate twentytwentyone >/dev/null
 wp_conf1 eval "set_theme_mod('background_color', 'aa3333'); set_theme_mod('custom_logo', $ATT_ID);" >/dev/null
 wp_conf1 theme activate twentytwentyfive >/dev/null
 wp_conf1 eval "set_theme_mod('background_color', '3c8c3c'); set_theme_mod('custom_logo', $ATT_ID); set_theme_mod('header_image', '$UP_URL'); set_theme_mod('header_image_data', array('attachment_id' => $ATT_ID, 'url' => '$UP_URL', 'thumbnail_url' => '$UP_URL', 'height' => 48, 'width' => 64)); wp_update_custom_css_post('body { background: #3c8c3c; }');" >/dev/null
