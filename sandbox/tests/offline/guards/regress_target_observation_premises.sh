@@ -233,10 +233,10 @@ grep -Fq 'SELECT uuid FROM wp_duo_map WHERE uuid' tests/certify/certify_adversar
 grep -Fq 'git -C siterepo/certmatrix1 status --porcelain -- state' tests/certify/certify_adversarial_matrix.sh \
   || fail "the adversarial clean-repository observation exemption lost its direct git status evidence"
 version_matrix="tests/certify/certify_version_matrix.sh"
-[ "$(grep -Fc 'require_fixture_values INSTALLED_2' "$version_matrix")" -eq 7 ] \
-  || fail "version-matrix target plugin-version premises must cover all seven certified plugin loops"
-[ "$(grep -Fc 'require_fixture_values NEGATIVE_INSTALLED' "$version_matrix")" -eq 4 ] \
-  || fail "version-matrix negative-control plugin-version premises must cover all four below-range controls"
+[ "$(grep -Fc 'require_fixture_values INSTALLED_2' "$version_matrix")" -eq 8 ] \
+  || fail "version-matrix target plugin-version premises must cover all eight certified plugin loops"
+[ "$(grep -Fc 'require_fixture_values NEGATIVE_INSTALLED' "$version_matrix")" -eq 5 ] \
+  || fail "version-matrix negative-control plugin-version premises must cover all five bounded-version controls"
 pass "expected-empty absence/clean-repository predicates remain explicitly inventoried rather than falsely premise-guarded"
 
 echo "REGRESS_TARGET_OBSERVATION_PREMISES PASSED"
