@@ -76,10 +76,10 @@ pass "Classic Editor deactivation preserves authored state and deploy reactivati
 # Classic Editor registers its uninstall callback from init_actions(), which
 # runs on plugins_loaded. WordPress activation includes an inactive plugin
 # after that action has already fired, so the exact 1.7.0 artifact leaves the
-# two options as uninstall residue. Make that residue hostile before uninstall:
-# missing-code refusal must preserve it, then exact reinstall/apply must repair
-# it rather than assuming uninstall or activation supplied clean defaults.
-wp_conf2 eval "update_option('classic-editor-replace', Classic_Editor::validate_option_editor('block')); update_option('classic-editor-allow-users', Classic_Editor::validate_option_allow_users('disallow'));" >/dev/null
+# two source-equal options as uninstall residue. Missing-code refusal and exact
+# reinstall must preserve those bytes; the later competing-branch exercise is
+# the separate hostile-drift recovery proof (ordinary drift is capture-first,
+# never silently overwritten by apply).
 wp_conf2 plugin uninstall classic-editor --deactivate >/dev/null
 if wp_conf2 plugin is-installed classic-editor >/dev/null 2>&1; then
   fail "Classic Editor uninstall left plugin code installed"
@@ -88,7 +88,7 @@ UNINSTALL_ALLOW=$(wp_conf2 option get classic-editor-allow-users)
 UNINSTALL_REPLACE=$(wp_conf2 option get classic-editor-replace)
 require_observed_nonempty "Classic Editor user-choice residue after uninstall" "$UNINSTALL_ALLOW"
 require_observed_nonempty "Classic Editor default-editor residue after uninstall" "$UNINSTALL_REPLACE"
-[ "$UNINSTALL_ALLOW" = "disallow" ] && [ "$UNINSTALL_REPLACE" = "block" ] \
+[ "$UNINSTALL_ALLOW" = "allow" ] && [ "$UNINSTALL_REPLACE" = "classic" ] \
   || fail "Classic Editor exact uninstall residue changed unexpectedly: allow=$UNINSTALL_ALLOW replace=$UNINSTALL_REPLACE"
 NEIGHBOR_AFTER_UNINSTALL=$(wp_conf2 option get classic-editor-target-runtime-probe)
 require_observed_nonempty "Classic Editor target-only neighbor after uninstall" "$NEIGHBOR_AFTER_UNINSTALL"
@@ -105,9 +105,9 @@ if wp_conf2 plugin is-installed classic-editor >/dev/null 2>&1; then
 fi
 [ "$(wp_conf2 option get classic-editor-target-runtime-probe)" = "target-only-neighbor" ] \
   || fail "missing-code refusal partially mutated the target"
-[ "$(wp_conf2 option get classic-editor-replace)" = "block" ] \
-  && [ "$(wp_conf2 option get classic-editor-allow-users)" = "disallow" ] \
-  || fail "missing-code refusal changed Classic Editor's hostile uninstall residue"
+[ "$(wp_conf2 option get classic-editor-replace)" = "classic" ] \
+  && [ "$(wp_conf2 option get classic-editor-allow-users)" = "allow" ] \
+  || fail "missing-code refusal changed Classic Editor's source-equal uninstall residue"
 
 CLASSIC_SHA=7cc7799b0b7d820fbb7528dbff8027c736e52513992416cb37279f44d3d9dd77
 CLASSIC_ARTIFACT="/artifacts-cache/plugin-classic-editor-1.7.0-${CLASSIC_SHA}.zip"
@@ -130,7 +130,7 @@ printf '%s\n' "$RECOVERED" | jq -e '
   .plain_post_uses_blocks == false and .block_post_uses_blocks == true and
   .neighbor == "target-only-neighbor"
 ' >/dev/null || fail "Classic Editor exact reinstall/apply did not recover source behavior: $RECOVERED"
-pass "Classic Editor hostile uninstall residue, absent-code refusal, exact reinstall, deploy, and apply retry recover without partial neighbor mutation"
+pass "Classic Editor uninstall residue, absent-code refusal, exact reinstall, deploy, and apply retry preserve source bytes without partial neighbor mutation"
 
 wp_conf1 eval "update_option('classic-editor-replace', Classic_Editor::validate_option_editor('block')); update_option('classic-editor-allow-users', Classic_Editor::validate_option_allow_users('disallow'));" >/dev/null
 wp_conf1 duo capture --repo=/siterepo >/dev/null
