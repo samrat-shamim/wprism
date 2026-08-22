@@ -112,6 +112,14 @@ PHP
 TARGET_ATTACHMENT=$($COMPOSE run --rm -T cli2 bash -c \
   "wp eval-file /siterepo/.tmp-core-target-image.php >/dev/null && wp media import /tmp/conf-core-logo.png --title='Conformance Logo' --alt='Hostile target logo' --porcelain")
 rm "$CONF_REPO2/.tmp-core-target-image.php"
+# Source and target had each allocated custom_css at post id 10 in the first
+# live dirty-target run, making the retained-target-id assertion vacuous even
+# though adoption succeeded. Burn one target-local id through WordPress's
+# public post API, then remove the row so the final fixture shape is unchanged.
+TARGET_CUSTOM_CSS_ID_GAP=$(wp_conf2 post create --post_type=post --post_status=draft \
+  --post_title='Target custom CSS id gap' --porcelain)
+require_fixture_ids TARGET_CUSTOM_CSS_ID_GAP
+wp_conf2 post delete "$TARGET_CUSTOM_CSS_ID_GAP" --force >/dev/null
 TARGET_CUSTOM_CSS=$(wp_conf2 eval '
 $post = wp_update_custom_css_post("body { background: #ff00ff; }");
 if (is_wp_error($post) || !$post instanceof WP_Post) {
