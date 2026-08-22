@@ -197,6 +197,7 @@ FIXTURES=(
   'conformance/checks/contact-form-7.sh|require_fixture_ids CONF1_WPCF7_ID'
   'conformance/checks/contact-form-7.sh|require_fixture_values LEGACY_CONF2_OLD_ID'
   'conformance/checks/code-snippets.sh|require_fixture_ids SOURCE_CONTENT_ID TARGET_CONTENT_ID'
+  'conformance/checks/code-snippets.sh|require_fixture_ids out'
   'conformance/checks/code-snippets.sh|require_fixture_ids TARGET_ONLY_ID'
   'conformance/checks/code-snippets.sh|require_fixture_ids SECRET_ID'
   'conformance/checks/code-snippets.sh|require_fixture_ids INVALID_ID'

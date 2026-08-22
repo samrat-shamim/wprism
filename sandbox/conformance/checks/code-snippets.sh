@@ -130,7 +130,7 @@ PHPEOF
     out=$(wp_conf2 eval-file /siterepo/.tmp-code-snippets-save.php)
   fi
   rm -f "$file"
-  require_fixture_ids "$out"
+  require_fixture_ids out
 }
 
 TARGET_INITIAL=$(observe_code_snippets conf2)
