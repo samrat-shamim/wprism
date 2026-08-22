@@ -51,7 +51,7 @@ function post_type_children_refusal(array $manifest): string {
 }
 
 post_type_check(
-    PostTypeGrammar::bodyModes() === ['blocks', 'verbatim'],
+    PostTypeGrammar::bodyModes() === ['blocks', 'verbatim', 'serialized'],
     'the body vocabulary is published in its original order'
 );
 post_type_check(
@@ -122,7 +122,7 @@ $bodyMessage = post_type_refusal([
 ]);
 post_type_check(
     str_contains($bodyMessage, "post_types.acme_definition.body='verbatm'")
-        && str_contains($bodyMessage, 'blocks, verbatim'),
+        && str_contains($bodyMessage, 'blocks, verbatim, serialized'),
     'an invalid body mode refuses with its exact path and vocabulary'
 );
 

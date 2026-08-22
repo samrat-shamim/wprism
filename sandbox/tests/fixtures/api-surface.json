@@ -32702,6 +32702,31 @@
                     "return_type": null,
                     "static": true,
                     "visibility": "public"
+                },
+                "decode_serialized": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "raw",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "ctx",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": null,
+                    "static": true,
+                    "visibility": "public"
                 }
             },
             "parent": null,
@@ -53068,6 +53093,40 @@
                             "has_default": false,
                             "name": "rule",
                             "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": null,
+                    "static": false,
+                    "visibility": "public"
+                },
+                "plain_data_apply": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": null,
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": null,
+                    "static": false,
+                    "visibility": "public"
+                },
+                "plain_data_capture": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": null,
                             "variadic": false
                         }
                     ],

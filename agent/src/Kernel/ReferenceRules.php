@@ -60,15 +60,21 @@ final class ReferenceRules {
             && (!is_string($rule['cast']) || !in_array($rule['cast'], ['string', 'csv'], true))) {
             throw new \RuntimeException("duo: $where.cast must be 'string' or 'csv'");
         }
-        foreach (['allow_secret', 'order_preserving'] as $booleanField) {
+        foreach (['allow_secret', 'order_preserving', 'plain_data'] as $booleanField) {
             if (array_key_exists($booleanField, $rule) && !is_bool($rule[$booleanField])) {
                 throw new \RuntimeException("duo: $where.$booleanField must be a boolean");
             }
         }
+        if (!empty($rule['plain_data'])
+            && (array_key_exists('cast', $rule) || array_key_exists('json_encoded', $rule))) {
+            throw new \RuntimeException(
+                "duo: $where plain_data cannot combine with cast or json_encoded; it preserves native PHP plain data"
+            );
+        }
         if (array_key_exists('ref', $rule)) {
-            if ($structured) {
+            if ($structured || !empty($rule['plain_data'])) {
                 throw new \RuntimeException(
-                    "duo: $where cannot combine scalar ref with json_refs/key_refs; the ownership is ambiguous"
+                    "duo: $where cannot combine scalar ref with json_refs/key_refs or plain_data; the ownership is ambiguous"
                 );
             }
             $ref = $rule['ref'];
@@ -79,6 +85,11 @@ final class ReferenceRules {
             self::assert_kind($kind, "$where.ref");
         }
         if ($structured) {
+            if (!empty($rule['plain_data'])) {
+                throw new \RuntimeException(
+                    "duo: $where cannot combine json_refs/key_refs with plain_data; the ownership is ambiguous"
+                );
+            }
             self::validate_structured($rule, $where, true);
             if (array_key_exists('cast', $rule)) {
                 throw new \RuntimeException(

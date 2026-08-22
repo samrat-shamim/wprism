@@ -22,6 +22,12 @@ if (!class_exists(ReferenceRules::class, false)) {
 if (!class_exists(JsonRefs::class, false)) {
     require_once __DIR__ . '/../Kernel/JsonRefs.php';
 }
+if (!class_exists(PlainData::class, false)) {
+    require_once __DIR__ . '/../Kernel/PlainData.php';
+}
+if (!class_exists(Secrets::class, false)) {
+    require_once __DIR__ . '/../Kernel/Secrets.php';
+}
 
 final class RepositoryPortableShapeValidator {
     private Policy $policy;
@@ -52,8 +58,13 @@ final class RepositoryPortableShapeValidator {
             $d = $entity['data'];
             if ($entity['type'] === 'post') {
                 if (($d['author'] ?? null) !== null
-                    && (!is_string($d['author']) || !str_starts_with($d['author'], 'user:'))) {
+                    && (!is_string($d['author']) || !str_starts_with($d['author'], 'user:')
+                        || strlen($d['author']) === 5)) {
                     $this->add('nonportable_reference', $path, 'author', 'post author must be a user:<login> token');
+                }
+                if (method_exists($this->policy, 'body_mode')
+                    && $this->policy->body_mode((string) ($d['type'] ?? '')) === 'serialized') {
+                    $this->validate_serialized_body((string) ($entity['body'] ?? ''), $path);
                 }
                 if (($d['parent'] ?? null) !== null) {
                     $this->validate_declared_ref($d['parent'], 'post', $path, 'parent');
@@ -291,10 +302,33 @@ final class RepositoryPortableShapeValidator {
             return;
         }
         $valid = $kind === 'user'
-            ? is_string($value) && str_starts_with($value, 'user:')
+            ? is_string($value) && str_starts_with($value, 'user:') && strlen($value) > 5
             : is_string($value) && preg_match('/^\{\{' . preg_quote($kind, '/') . ':[0-9a-f-]{36}\}\}$/', $value);
         if (!$valid) {
             $this->add('nonportable_reference', $path, $locator, "declared $kind reference must be a canonical token, never a raw target id");
+        }
+    }
+
+    private function validate_serialized_body(string $body, string $path): void {
+        try {
+            $decoded = PlainData::decode_serialized($body, "$path body");
+        } catch (\Throwable $_invalid) {
+            $this->add(
+                'schema_content_mismatch',
+                $path,
+                'body',
+                'serialized post body must be canonical, bounded, class-free PHP plain data'
+            );
+            return;
+        }
+        $secret = Secrets::hard_match_deep($decoded);
+        if ($secret !== null) {
+            $this->add(
+                'repository_serialized_body_secret_not_allowed',
+                $path,
+                'body',
+                "serialized authored configuration contains a $secret"
+            );
         }
     }
 

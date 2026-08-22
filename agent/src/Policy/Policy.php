@@ -1999,9 +1999,10 @@ final class Policy {
     }
 
     /**
-     * 'blocks' (default: block-parser rewriting + URL tokenization) or
-     * 'verbatim' (byte-preserved — for post types whose content is serialized
-     * data, e.g. acf-field, where URL substitution would corrupt lengths).
+     * 'blocks' (default: block-parser rewriting + URL tokenization),
+     * 'verbatim' (byte-preserved opaque content), or 'serialized' (strict,
+     * class-free PHP plain data whose string leaves are URL-tokenized and
+     * re-serialized so embedded byte lengths remain correct).
      */
     public function body_mode(string $postType): string {
         foreach ($this->manifests as $m) {

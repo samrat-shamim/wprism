@@ -617,10 +617,11 @@ plugin faithfully.
 3. Preserve the stored type. A reference written as JSON `"12"` is not
    equivalent to JSON `12`; reject the adapter when the available codec changes
    that distinction.
-4. Put a source-home URL inside every portable string-bearing container. A
-   token replacement inside opaque PHP serialization can invalidate its length
-   prefixes, while a nested array with no structural rule may receive no URL
-   tokenization at all.
+4. Put a source-home URL inside every portable string-bearing container. Use
+   `body: serialized` for serialized post bodies and `plain_data: true` for a
+   decoded scalar/array rule with nested strings but no id positions. Both
+   re-serialize after tokenization so PHP length prefixes remain correct;
+   opaque `verbatim` bytes deliberately do not re-bind.
 5. Exercise activation, one real admin save, one front-end read, an update, and
    a deletion before declaring the option/table inventory complete. Compare the
    plugin's own import/export allowlist when it has one; it is strong evidence

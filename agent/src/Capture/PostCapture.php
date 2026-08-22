@@ -3,6 +3,7 @@ namespace Duo;
 
 require_once __DIR__ . '/../Grammar/Blocks.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
+require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/EntityMetaCapture.php';
 require_once __DIR__ . '/../Repository/Ledger.php';
 require_once __DIR__ . '/MediaCapture.php';
@@ -138,19 +139,29 @@ final class PostCapture {
             $mediaRef = $attachment['media_ref'];
         }
 
-        $secretLabel = Secrets::hard_match((string) $post->post_content);
-        if ($secretLabel !== null) {
-            $this->tokens->warnings[] =
-                "{$post->post_type} '{$post->post_name}' body looks like it contains a $secretLabel — review before committing (not blocked: bodies may legitimately discuss credentials)";
-        }
-
-        if ($this->policy->body_mode($post->post_type) === 'verbatim') {
+        $bodyMode = $this->policy->body_mode($post->post_type);
+        if ($bodyMode === 'serialized') {
+            $context = "{$post->post_type} '{$post->post_name}' body";
+            $decoded = PlainData::decode_serialized((string) $post->post_content, $context);
+            $secretLabel = Secrets::hard_match_deep($decoded);
+            if ($secretLabel !== null) {
+                throw new \RuntimeException(
+                    "duo: $context contains a $secretLabel; refusing to capture serialized authored configuration"
+                );
+            }
+            $body = serialize($this->tokens->plain_data_capture($decoded));
+        } elseif ($bodyMode === 'verbatim') {
             $body = (string) $post->post_content;
             if ($body !== '' && str_contains($body, $this->tokens->home())) {
                 $this->tokens->warnings[] =
                     "verbatim body of {$post->post_type} '{$post->post_name}' contains this environment's home URL — it will NOT be re-bound on apply";
             }
         } else {
+            $secretLabel = Secrets::hard_match((string) $post->post_content);
+            if ($secretLabel !== null) {
+                $this->tokens->warnings[] =
+                    "{$post->post_type} '{$post->post_name}' body looks like it contains a $secretLabel — review before committing (not blocked: bodies may legitimately discuss credentials)";
+            }
             $body = Blocks::capture_rewrite(
                 (string) $post->post_content,
                 $this->policy,

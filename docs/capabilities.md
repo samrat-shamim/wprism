@@ -72,7 +72,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 
 ## acf
 
-**Status: certified.** Certified at both admitted artifact boundaries with schema-driven ACF field evidence.
+**Status: certified.** Certified for exact ACF 6.0.0 and 6.8.7 on single-site WordPress with strict serialized schema bodies, schema-driven post/term/exact-login-user/options/menu-item fields, divergent local post/term/user identities, every admitted built-in id-bearing field shape, nested URL rebinding, long UTF-8/delimiter data, hostile same-slug schema/content convergence, target runtime sovereignty, native get_field() verification, local PHP/JSON collision refusal, malformed/secret schema refusal and redaction, unsupported native UI scope and entity-delete atomicity, late database-failure rollback and retry, competing-apply serialization, deactivate/reactivate and digest-bound reinstall recovery, an in-place 6.0.0 to 6.8.7 upgrade, and adjacent official 5.12.6 refusal evidence.
 
 - **Plugin:** `advanced-custom-fields/acf.php`
 - **Version range:** >=6.0.0 <7.0.0
@@ -87,7 +87,14 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 
 **Unsupported, explicitly.**
 
-- `deletions.*` / `delete` — No ACF-specific deletion selector is declared.
+- `post:acf-field|post:acf-field-group` / `delete` — No ACF-specific post deletion selector declares the plugin cascades and reverse-reference guards required for field or field-group removal, so capture refuses before publishing a tombstone.
+- `field_type:password` / `capture` — Password fields are credential-shaped by definition and are refused rather than stored in canonical state.
+- `field_type:pro|custom|unknown` / `capture` — The free exact artifacts do not provide evidence for PRO-only gallery, repeater, flexible-content, clone, or other unregistered/custom field storage shapes; unknown types refuse instead of guessing.
+- `field_type:page_link.allow_archives` / `capture` — A page_link with archive choices is a mixed post-id/archive-URL union and has no unambiguous scalar/list reference codec.
+- `field_group.location:comment|widget|nav_menu|custom` / `compile` — Comment, widget, and nav-menu-term location owners are outside the declared post/term/exact-login-user value stores; custom or malformed location parameters also refuse.
+- `acf_local_schema:field|field-group` / `compile` — Local PHP/JSON field or group definitions can override database schemas at runtime, so any key collision with repository-owned schema refuses before mutation.
+- `post_type:acf-post-type|acf-taxonomy` / `capture` — ACF 6.1+ UI-created post-type and taxonomy definitions use acf-post-type/acf-taxonomy entities outside this adapter's bounded schema claim and trigger the ordinary incomplete-policy-scope refusal.
+- `multisite` / `all` — Duo v1 refuses multisite; ACF network/global behavior is outside this single-site adapter.
 
 ## advanced-editor-tools
 

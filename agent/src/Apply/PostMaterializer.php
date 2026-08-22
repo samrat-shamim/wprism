@@ -3,6 +3,7 @@ namespace Duo;
 
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Grammar/Tokens.php';
+require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/ApplyFieldMaterializer.php';
 require_once __DIR__ . '/RelationshipMaterializer.php';
 require_once __DIR__ . '/AttachmentMaterializer.php';
@@ -152,9 +153,14 @@ final class PostMaterializer {
             }
         }
 
-        $content = $this->policy->body_mode($front['type']) === 'verbatim'
-            ? $body
-            : Blocks::apply_rewrite($body, $this->policy, $this->tokens);
+        $bodyMode = $this->policy->body_mode($front['type']);
+        $content = match ($bodyMode) {
+            'verbatim' => $body,
+            'serialized' => serialize($this->tokens->plain_data_apply(
+                PlainData::decode_serialized($body, "{$front['type']} '{$front['slug']}' repository body")
+            )),
+            default => Blocks::apply_rewrite($body, $this->policy, $this->tokens),
+        };
         $fields = [
             'post_author' => $authorId,
             'post_date' => $front['date'],

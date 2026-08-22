@@ -1,35 +1,69 @@
 #!/usr/bin/env bash
-# ACF manifest conformance seed: one field group (group_duo_demo) with an
-# image field (field_duo_hero) and a relationship field (field_duo_related),
-# plus the content they're attached to — the same scenario spike E already
-# proved end to end (sandbox/tests/spike/spike_e_acf.sh), trimmed for the generic
-# byte-for-byte round-trip check the conformance gate runs. Invoked by
-# conformance/run.sh with wp_conf1/wp_conf2/$COMPOSE already exported.
-#
-# Also seeds the taxonomy/user field branches (task #16 — these were
-# implemented by inspection but never exercised end to end): a multi-value
-# taxonomy field (checkbox, 2 terms) and a single-value one (radio, 1 term)
-# on the owned "category" taxonomy, plus a single-value user field pointing
-# at admin. Deliberately NOT seeded: a user that exists on only one of
-# conf1/conf2 — Tokens::user_token_to_id()'s default-author fallback would
-# legitimately produce different ids per env for such a ref (DESIGN.md
-# §3.2 — users are env-local by design), which would fail the byte-for-byte
-# canonical-JSON round trip for a reason that isn't a bug. admin exists
-# identically on both conf envs (both `core install --admin_user=admin`),
-# so the single-value user field here round-trips through user:admin without
-# exercising that fallback path at all.
+# Exact ACF 6.8.7 source fixture. Every value is authored through ACF's public
+# APIs so the proof covers the plugin's real storage shapes rather than a
+# hand-built approximation of its post/meta/options records.
 set -euo pipefail
 
-cat > "${CONF_REPO1:-siterepo/conf1}"/.tmp-seed-acf.php <<'PHPEOF'
+SEED_FILE="${CONF_REPO1:-siterepo/conf1}/.tmp-seed-acf.php"
+cat > "$SEED_FILE" <<'PHPEOF'
 <?php
 if (!function_exists('acf_update_field_group')) {
-    fwrite(STDERR, "ACF functions not available\n");
-    exit(1);
+    throw new RuntimeException('ACF functions not available');
 }
 
-acf_update_field_group([
-    'key' => 'group_duo_demo',
-    'title' => 'Duo Demo',
+function duo_acf_group(array $group): int {
+    acf_update_field_group($group);
+    $posts = get_posts([
+        'post_type' => 'acf-field-group',
+        'name' => $group['key'],
+        'posts_per_page' => 1,
+        'fields' => 'ids',
+        'post_status' => 'any',
+    ]);
+    if (!$posts) {
+        throw new RuntimeException("ACF field group {$group['key']} was not created");
+    }
+    return (int) $posts[0];
+}
+
+function duo_acf_field(int $parent, array $field): void {
+    $field['parent'] = $parent;
+    acf_update_field($field);
+    if (!acf_get_field($field['key'])) {
+        throw new RuntimeException("ACF field {$field['key']} was not created");
+    }
+}
+
+function duo_acf_attachment(string $basename, string $title, array $rgb): int {
+    require_once ABSPATH . 'wp-admin/includes/image.php';
+    require_once ABSPATH . 'wp-admin/includes/file.php';
+    require_once ABSPATH . 'wp-admin/includes/media.php';
+    $upload = wp_upload_dir();
+    $filename = trailingslashit($upload['path']) . $basename;
+    $image = imagecreatetruecolor(64, 48);
+    imagefilledrectangle($image, 0, 0, 63, 47, imagecolorallocate($image, ...$rgb));
+    imagepng($image, $filename);
+    imagedestroy($image);
+    $filetype = wp_check_filetype(basename($filename), null);
+    $id = wp_insert_attachment([
+        'post_mime_type' => $filetype['type'],
+        'post_title' => $title,
+        'post_content' => '',
+        'post_status' => 'inherit',
+    ], $filename, 0, true);
+    if (is_wp_error($id) || !$id) {
+        throw new RuntimeException("ACF attachment $title was not created");
+    }
+    update_post_meta($id, '_wp_attachment_image_alt', "$title 東京 🚀");
+    wp_update_attachment_metadata($id, wp_generate_attachment_metadata($id, $filename));
+    return (int) $id;
+}
+
+$sourceHome = home_url('/');
+$longInstruction = str_repeat("ACF schema 東京 🚀 | delimiter :: $sourceHome\n", 1200);
+$postGroup = duo_acf_group([
+    'key' => 'group_duo_post',
+    'title' => 'Duo Post Fields 東京 🚀',
     'fields' => [],
     'location' => [[['param' => 'post_type', 'operator' => '==', 'value' => 'post']]],
     'menu_order' => 0,
@@ -39,131 +73,235 @@ acf_update_field_group([
     'instruction_placement' => 'label',
     'active' => true,
 ]);
-$group_posts = get_posts([
-    'post_type' => 'acf-field-group', 'name' => 'group_duo_demo',
-    'posts_per_page' => 1, 'fields' => 'ids', 'post_status' => 'any',
-]);
-$group_id = $group_posts ? (int) $group_posts[0] : 0;
-if (!$group_id) {
-    fwrite(STDERR, "field group not created\n");
-    exit(1);
-}
 
-acf_update_field([
+duo_acf_field($postGroup, [
     'key' => 'field_duo_hero', 'label' => 'Hero Image', 'name' => 'duo_hero',
-    'type' => 'image', 'parent' => $group_id, 'return_format' => 'id',
+    'type' => 'image', 'return_format' => 'id', 'instructions' => $longInstruction,
 ]);
-acf_update_field([
+duo_acf_field($postGroup, [
     'key' => 'field_duo_related', 'label' => 'Related', 'name' => 'duo_related',
-    'type' => 'relationship', 'parent' => $group_id, 'post_type' => ['post'], 'return_format' => 'id',
+    'type' => 'relationship', 'post_type' => ['post'], 'return_format' => 'id',
 ]);
-// field_type "checkbox" = multi-value; "add_term"/"save_terms"/"load_terms"
-// off so this is purely an ACF postmeta ref, decoupled from the post's real
-// term relationships (verified via the interpreter's empirical probe: a
-// taxonomy field with save_terms=0 leaves term_relationships untouched).
-acf_update_field([
+duo_acf_field($postGroup, [
+    'key' => 'field_duo_feature', 'label' => 'Feature', 'name' => 'duo_feature',
+    'type' => 'post_object', 'post_type' => ['post'], 'multiple' => 0, 'return_format' => 'id',
+]);
+duo_acf_field($postGroup, [
+    'key' => 'field_duo_features', 'label' => 'Features', 'name' => 'duo_features',
+    'type' => 'post_object', 'post_type' => ['post'], 'multiple' => 1, 'return_format' => 'id',
+]);
+duo_acf_field($postGroup, [
+    'key' => 'field_duo_page', 'label' => 'Page Link', 'name' => 'duo_page',
+    'type' => 'page_link', 'post_type' => ['page'], 'multiple' => 0, 'allow_archives' => 0,
+]);
+duo_acf_field($postGroup, [
+    'key' => 'field_duo_pages', 'label' => 'Page Links', 'name' => 'duo_pages',
+    'type' => 'page_link', 'post_type' => ['page'], 'multiple' => 1, 'allow_archives' => 0,
+]);
+duo_acf_field($postGroup, [
     'key' => 'field_duo_cats', 'label' => 'Categories', 'name' => 'duo_cats',
-    'type' => 'taxonomy', 'parent' => $group_id,
-    'taxonomy' => 'category', 'field_type' => 'checkbox',
+    'type' => 'taxonomy', 'taxonomy' => 'category', 'field_type' => 'checkbox',
     'add_term' => 0, 'save_terms' => 0, 'load_terms' => 0, 'return_format' => 'id',
 ]);
-// field_type "radio" = single-value.
-acf_update_field([
+duo_acf_field($postGroup, [
     'key' => 'field_duo_cat', 'label' => 'Primary Category', 'name' => 'duo_cat',
-    'type' => 'taxonomy', 'parent' => $group_id,
-    'taxonomy' => 'category', 'field_type' => 'radio',
+    'type' => 'taxonomy', 'taxonomy' => 'category', 'field_type' => 'radio',
     'add_term' => 0, 'save_terms' => 0, 'load_terms' => 0, 'return_format' => 'id',
 ]);
-// "multiple" off = single-value user field.
-acf_update_field([
+duo_acf_field($postGroup, [
     'key' => 'field_duo_owner', 'label' => 'Owner', 'name' => 'duo_owner',
-    'type' => 'user', 'parent' => $group_id,
-    'role' => '', 'multiple' => 0, 'return_format' => 'id',
+    'type' => 'user', 'role' => '', 'multiple' => 0, 'return_format' => 'id',
+]);
+duo_acf_field($postGroup, [
+    'key' => 'field_duo_owners', 'label' => 'Owners', 'name' => 'duo_owners',
+    'type' => 'user', 'role' => '', 'multiple' => 1, 'return_format' => 'id',
+]);
+duo_acf_field($postGroup, [
+    'key' => 'field_duo_link', 'label' => 'Portable Link', 'name' => 'duo_link',
+    'type' => 'link', 'return_format' => 'array',
+]);
+duo_acf_field($postGroup, [
+    'key' => 'field_duo_icon', 'label' => 'Media Icon', 'name' => 'duo_icon',
+    'type' => 'icon_picker', 'tabs' => ['media_library'], 'return_format' => 'array',
+]);
+// This unused field is removed later to prove the unsupported delete boundary.
+duo_acf_field($postGroup, [
+    'key' => 'field_duo_delete_probe', 'label' => 'Delete Probe', 'name' => 'duo_delete_probe',
+    'type' => 'text',
 ]);
 
-require_once ABSPATH . 'wp-admin/includes/image.php';
-require_once ABSPATH . 'wp-admin/includes/file.php';
-require_once ABSPATH . 'wp-admin/includes/media.php';
+$termGroup = duo_acf_group([
+    'key' => 'group_duo_term', 'title' => 'Duo Term Fields', 'fields' => [],
+    'location' => [[['param' => 'taxonomy', 'operator' => '==', 'value' => 'category']]],
+    'active' => true,
+]);
+duo_acf_field($termGroup, [
+    'key' => 'field_duo_term_note', 'label' => 'Term Note', 'name' => 'duo_term_note', 'type' => 'textarea',
+]);
+duo_acf_field($termGroup, [
+    'key' => 'field_duo_term_image', 'label' => 'Term Image', 'name' => 'duo_term_image',
+    'type' => 'image', 'return_format' => 'id',
+]);
 
-$upload_dir = wp_upload_dir();
-$filename = trailingslashit($upload_dir['path']) . 'conf-acf-logo.png';
-$im = imagecreatetruecolor(64, 48);
-imagefilledrectangle($im, 0, 0, 63, 47, imagecolorallocate($im, 90, 60, 200));
-imagepng($im, $filename);
-imagedestroy($im);
+$userGroup = duo_acf_group([
+    'key' => 'group_duo_user', 'title' => 'Duo User Fields', 'fields' => [],
+    'location' => [[['param' => 'user_form', 'operator' => '==', 'value' => 'all']]],
+    'active' => true,
+]);
+duo_acf_field($userGroup, [
+    'key' => 'field_duo_user_note', 'label' => 'User Note', 'name' => 'duo_user_note', 'type' => 'text',
+]);
+duo_acf_field($userGroup, [
+    'key' => 'field_duo_user_image', 'label' => 'User Image', 'name' => 'duo_user_image',
+    'type' => 'image', 'return_format' => 'id',
+]);
 
-$filetype = wp_check_filetype(basename($filename), null);
-$att_id = wp_insert_attachment([
-    'post_mime_type' => $filetype['type'], 'post_title' => 'Conformance ACF Logo',
-    'post_content' => '', 'post_status' => 'inherit',
-], $filename);
-if (is_wp_error($att_id) || !$att_id) {
-    fwrite(STDERR, "attachment insert failed\n");
-    exit(1);
+$optionsGroup = duo_acf_group([
+    'key' => 'group_duo_options', 'title' => 'Duo Options Fields', 'fields' => [],
+    'location' => [[['param' => 'post_type', 'operator' => '==', 'value' => 'post']]],
+    'active' => true,
+]);
+duo_acf_field($optionsGroup, [
+    'key' => 'field_duo_option_note', 'label' => 'Option Note', 'name' => 'duo_option_note', 'type' => 'text',
+]);
+duo_acf_field($optionsGroup, [
+    'key' => 'field_duo_option_image', 'label' => 'Option Image', 'name' => 'duo_option_image',
+    'type' => 'image', 'return_format' => 'id',
+]);
+
+$menuGroup = duo_acf_group([
+    'key' => 'group_duo_menu', 'title' => 'Duo Menu Item Fields', 'fields' => [],
+    'location' => [[['param' => 'nav_menu_item', 'operator' => '==', 'value' => 'all']]],
+    'active' => true,
+]);
+duo_acf_field($menuGroup, [
+    'key' => 'field_duo_menu_image', 'label' => 'Menu Image', 'name' => 'duo_menu_image',
+    'type' => 'image', 'return_format' => 'id',
+]);
+
+$hero = duo_acf_attachment('conf-acf-hero.png', 'Conformance ACF Hero', [90, 60, 200]);
+$secondary = duo_acf_attachment('conf-acf-secondary.png', 'Conformance ACF Secondary', [20, 150, 90]);
+
+$targets = [];
+foreach (['One', 'Two'] as $suffix) {
+    $id = wp_insert_post([
+        'post_type' => 'post', 'post_status' => 'publish',
+        'post_title' => "Conformance Related Target $suffix",
+        'post_name' => 'conf-related-target-' . strtolower($suffix),
+        'post_content' => "<!-- wp:paragraph -->\n<p>Relationship target $suffix.</p>\n<!-- /wp:paragraph -->",
+    ], true);
+    if (is_wp_error($id)) {
+        throw new RuntimeException($id->get_error_message());
+    }
+    $targets[] = (int) $id;
 }
-update_post_meta($att_id, '_wp_attachment_image_alt', 'Conformance ACF logo');
-wp_update_attachment_metadata($att_id, wp_generate_attachment_metadata($att_id, $filename));
-
-$target1 = wp_insert_post([
-    'post_type' => 'post', 'post_status' => 'publish',
-    'post_title' => 'Conformance Related Target One', 'post_name' => 'conf-related-target-one',
-    'post_content' => "<!-- wp:paragraph -->\n<p>Relationship target one.</p>\n<!-- /wp:paragraph -->",
-], true);
-$target2 = wp_insert_post([
-    'post_type' => 'post', 'post_status' => 'publish',
-    'post_title' => 'Conformance Related Target Two', 'post_name' => 'conf-related-target-two',
-    'post_content' => "<!-- wp:paragraph -->\n<p>Relationship target two.</p>\n<!-- /wp:paragraph -->",
-], true);
-if (is_wp_error($target1) || is_wp_error($target2)) {
-    fwrite(STDERR, "target post insert failed\n");
-    exit(1);
+$pages = [];
+foreach (['One', 'Two'] as $suffix) {
+    $id = wp_insert_post([
+        'post_type' => 'page', 'post_status' => 'publish',
+        'post_title' => "Conformance Linked Page $suffix",
+        'post_name' => 'conf-linked-page-' . strtolower($suffix),
+        'post_content' => "<!-- wp:paragraph -->\n<p>Page link target $suffix.</p>\n<!-- /wp:paragraph -->",
+    ], true);
+    if (is_wp_error($id)) {
+        throw new RuntimeException($id->get_error_message());
+    }
+    $pages[] = (int) $id;
 }
-
-$content_id = wp_insert_post([
+$content = wp_insert_post([
     'post_type' => 'post', 'post_status' => 'publish',
     'post_title' => 'Conformance ACF Content', 'post_name' => 'conf-acf-content',
     'post_content' => "<!-- wp:paragraph -->\n<p>Carries ACF fields.</p>\n<!-- /wp:paragraph -->",
 ], true);
-if (is_wp_error($content_id)) {
-    fwrite(STDERR, "content post insert failed\n");
-    exit(1);
+if (is_wp_error($content)) {
+    throw new RuntimeException($content->get_error_message());
+}
+$content = (int) $content;
+
+$terms = [];
+foreach (['One', 'Two', 'Three'] as $suffix) {
+    $term = wp_insert_term("Conformance Category $suffix", 'category', [
+        'slug' => 'conf-cat-' . strtolower($suffix),
+    ]);
+    if (is_wp_error($term)) {
+        throw new RuntimeException($term->get_error_message());
+    }
+    $terms[] = (int) $term['term_id'];
 }
 
-// category is an owned taxonomy (conformance/manifests.json's acf entry
-// taxonomies list) so these mint _duo_uuid termmeta + ledger rows on capture
-// just like any other in-scope term — the ACF taxonomy field's stored ids
-// are refs into the very same term ledger post-term relationships use.
-$cat_one = wp_insert_term('Conformance Category One', 'category', ['slug' => 'conf-cat-one']);
-$cat_two = wp_insert_term('Conformance Category Two', 'category', ['slug' => 'conf-cat-two']);
-$cat_three = wp_insert_term('Conformance Category Three', 'category', ['slug' => 'conf-cat-three']);
-if (is_wp_error($cat_one) || is_wp_error($cat_two) || is_wp_error($cat_three)) {
-    fwrite(STDERR, "category term insert failed\n");
-    exit(1);
+$editorId = wp_insert_user([
+    'user_login' => 'acf-editor',
+    'user_pass' => wp_generate_password(32, true, true),
+    'user_email' => 'acf-editor-source@example.test',
+    'role' => 'editor',
+]);
+if (is_wp_error($editorId)) {
+    throw new RuntimeException($editorId->get_error_message());
 }
-$cat_one_id = (int) $cat_one['term_id'];
-$cat_two_id = (int) $cat_two['term_id'];
-$cat_three_id = (int) $cat_three['term_id'];
-
 $admin = get_user_by('login', 'admin');
 if (!$admin) {
-    fwrite(STDERR, "admin user not found\n");
-    exit(1);
+    throw new RuntimeException('admin user not found');
 }
 
-update_field('duo_hero', $att_id, $content_id);
-update_field('duo_related', [$target1, $target2], $content_id);
-update_field('duo_cats', [$cat_one_id, $cat_two_id], $content_id);
-update_field('duo_cat', $cat_three_id, $content_id);
-update_field('duo_owner', $admin->ID, $content_id);
+$menuId = wp_create_nav_menu('Conformance ACF Menu');
+if (is_wp_error($menuId)) {
+    throw new RuntimeException($menuId->get_error_message());
+}
+$menuItem = wp_update_nav_menu_item((int) $menuId, 0, [
+    'menu-item-title' => 'Conformance ACF Menu Item',
+    'menu-item-url' => home_url('/conf-acf-content/'),
+    'menu-item-status' => 'publish',
+]);
+if (is_wp_error($menuItem)) {
+    throw new RuntimeException($menuItem->get_error_message());
+}
 
-echo json_encode([
-    'group' => $group_id, 'attachment' => $att_id,
-    'target1' => $target1, 'target2' => $target2, 'content' => $content_id,
-    'cat_one' => $cat_one_id, 'cat_two' => $cat_two_id, 'cat_three' => $cat_three_id,
-    'admin' => $admin->ID,
-]) . "\n";
+update_field('field_duo_hero', $hero, $content);
+update_field('field_duo_related', $targets, $content);
+update_field('field_duo_feature', $targets[0], $content);
+update_field('field_duo_features', $targets, $content);
+update_field('field_duo_page', $pages[0], $content);
+update_field('field_duo_pages', $pages, $content);
+update_field('field_duo_cats', [$terms[0], $terms[1]], $content);
+update_field('field_duo_cat', $terms[2], $content);
+update_field('field_duo_owner', (int) $admin->ID, $content);
+update_field('field_duo_owners', [(int) $admin->ID, (int) $editorId], $content);
+update_field('field_duo_link', [
+    'title' => 'Portable source link 東京 🚀',
+    'url' => home_url('/conf-linked-page-one/?from=acf&mode=real-world'),
+    'target' => '_blank',
+], $content);
+update_field('field_duo_icon', ['type' => 'media_library', 'value' => $secondary], $content);
+update_field('field_duo_term_note', "Term 東京 🚀 $sourceHome", 'category_' . $terms[0]);
+update_field('field_duo_term_image', $secondary, 'category_' . $terms[0]);
+update_field('field_duo_user_note', "User 東京 🚀 $sourceHome", 'user_' . (int) $editorId);
+update_field('field_duo_user_image', $hero, 'user_' . (int) $editorId);
+update_field('field_duo_option_note', "Option 東京 🚀 $sourceHome", 'option');
+update_field('field_duo_option_image', $secondary, 'option');
+update_field('field_duo_menu_image', $hero, (int) $menuItem);
+
+echo wp_json_encode([
+    'admin' => (int) $admin->ID,
+    'content' => $content,
+    'editor' => (int) $editorId,
+    'group' => $postGroup,
+    'hero' => $hero,
+    'menu_item' => (int) $menuItem,
+    'pages' => $pages,
+    'secondary' => $secondary,
+    'targets' => $targets,
+    'terms' => $terms,
+], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
 PHPEOF
-SEED_JSON=$(wp_conf1 eval-file /siterepo/.tmp-seed-acf.php)
-rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-seed-acf.php
-require_observed_nonempty "conf1 ACF seed output" "$SEED_JSON"
+
+SEED_OUT=$(wp_conf1 eval-file /siterepo/.tmp-seed-acf.php)
+rm -f "$SEED_FILE"
+require_observed_nonempty "conf1 ACF seed output" "$SEED_OUT"
+SEED_JSON=$(printf '%s\n' "$SEED_OUT" | awk 'NF { line=$0 } END { print line }')
+printf '%s\n' "$SEED_JSON" | jq -e '
+  .admin > 0 and .content > 0 and .editor > 0 and .group > 0 and
+  .hero > 0 and .menu_item > 0 and .secondary > 0 and
+  (.pages | length) == 2 and (.targets | length) == 2 and (.terms | length) == 3
+' >/dev/null || fail "ACF source fixture was incomplete: $SEED_JSON"
+printf '%s\n' "$SEED_JSON" > "${CONF_REPO1:-siterepo/conf1}/.tmp-acf-source.json"
 echo "acf seed: $SEED_JSON"

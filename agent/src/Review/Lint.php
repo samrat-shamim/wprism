@@ -337,7 +337,7 @@ final class Lint {
         // block or shortcode content at all — Capture::build_post() itself
         // skips Blocks::capture_rewrite() for them, so nothing would ever
         // have rewritten a shortcode ref there either; same gate both scans share).
-        if ($body !== '' && $policy->body_mode($postType) !== 'verbatim') {
+        if ($body !== '' && $policy->body_mode($postType) === 'blocks') {
             self::scan_blocks(parse_blocks($body), $blockRules, $rel, $home, $findings);
             self::scan_shortcodes($body, $shortcodeRules, $rel, $findings);
         }

@@ -43,6 +43,8 @@ final class ApplyFieldMaterializer {
             if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
                 $v = $this->tokens->struct_apply($v, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
                 $v = StructuredValue::encode($v, $rule, "$ownerLabel meta $key");
+            } elseif (!empty($rule['plain_data'])) {
+                $v = $this->tokens->plain_data_apply($v);
             } elseif (!empty($rule['ref'])) {
                 $v = $this->tokens->meta_tokens_to_value($v, $rule);
             } elseif (is_string($v)) {
@@ -82,6 +84,8 @@ final class ApplyFieldMaterializer {
             if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
                 $value = $this->tokens->struct_apply($value, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
                 $value = StructuredValue::encode($value, $rule, "term meta $key");
+            } elseif (!empty($rule['plain_data'])) {
+                $value = $this->tokens->plain_data_apply($value);
             } elseif (!empty($rule['ref'])) {
                 $value = $this->tokens->meta_tokens_to_value($value, $rule);
             } elseif (is_string($value)) {

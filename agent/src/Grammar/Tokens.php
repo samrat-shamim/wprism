@@ -409,6 +409,9 @@ final class Tokens {
 
     /** "user:<login>" -> id (apply), falling back to the configured default. */
     public function user_token_to_id(string $token): int {
+        if (!str_starts_with($token, 'user:') || strlen($token) === 5) {
+            throw new \RuntimeException('duo: malformed user reference token (expected user:<non-empty-login>)');
+        }
         $login = substr($token, 5);
         if (!isset($this->userIds[$login])) {
             global $wpdb;
@@ -564,6 +567,34 @@ final class Tokens {
             $keyRefs,
             fn(string $token): int => $this->token_to_id($token)
         );
+    }
+
+    /** Tokenize URL-bearing strings inside strict serialized plain data. */
+    public function plain_data_capture($value) {
+        $this->rewrite_serialized_body_leaves($value, true);
+        return $value;
+    }
+
+    /** Rebind URL-bearing strings inside strict serialized plain data. */
+    public function plain_data_apply($value) {
+        $this->rewrite_serialized_body_leaves($value, false);
+        return $value;
+    }
+
+    /** Serialized configuration is not block/shortcode syntax; only the
+     * environment URL/query-reference text codec is valid for its leaves. */
+    private function rewrite_serialized_body_leaves(&$value, bool $capture): void {
+        if (is_string($value)) {
+            $value = $capture ? $this->tokenize_text($value) : $this->detokenize_text($value);
+            return;
+        }
+        if (!is_array($value)) {
+            return;
+        }
+        foreach ($value as &$child) {
+            $this->rewrite_serialized_body_leaves($child, $capture);
+        }
+        unset($child);
     }
 
     /** Recursively tokenize_text()/detokenize_text() every string leaf of

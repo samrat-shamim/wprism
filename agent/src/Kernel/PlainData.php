@@ -71,6 +71,24 @@ final class PlainData {
         return $decoded;
     }
 
+    /** Decode a value whose storage contract requires canonical serialization. */
+    public static function decode_serialized(string $raw, string $ctx) {
+        $decoded = self::decode($raw, $ctx);
+        try {
+            $encoded = serialize($decoded);
+        } catch (\Throwable $e) {
+            throw new \RuntimeException(
+                "duo: $ctx must be canonical PHP-serialized plain data",
+                0,
+                $e
+            );
+        }
+        if ($encoded !== trim($raw)) {
+            throw new \RuntimeException("duo: $ctx must be canonical PHP-serialized plain data");
+        }
+        return $decoded;
+    }
+
     /** Assert that a native value contains only bounded, acyclic plain data. */
     public static function assert($value, string $ctx): void {
         self::assert_depth($value, $ctx, 0);
