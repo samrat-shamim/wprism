@@ -692,9 +692,30 @@ final class ResolveFixtureTransport extends \Duo\Orchestrator\Transport {
         string $transport,
         string $repoPath,
         private array $rawAnswers = [],
-        private ?array $inventory = null
+        private ?array $inventory = null,
+        private ?string $hostRepo = null
     ) {
         parent::__construct($transport . '-fixture', ['repo_path' => $repoPath, 'transport' => $transport]);
+    }
+
+    /**
+     * What the REAL driver of this transport would answer (DUO-3526).
+     *
+     * LocalTransport returns its repo_path; DockerTransport derives the host
+     * side of its bind mount from `docker compose config`; SshTransport, and
+     * any docker service whose repo_path is a named volume or a read-only
+     * mount, answer null. A fixture states that answer directly instead of
+     * running docker, which is what makes these cases offline.
+     */
+    public function hostRepoPath(): ?string {
+        if ($this->hostRepo !== null) {
+            return $this->hostRepo;
+        }
+        // The default each real driver already gives: LocalTransport returns
+        // its repo_path (a host path by definition), everything else null. A
+        // docker fixture states its bind source explicitly, because deriving
+        // it for real would need docker and these cases are offline.
+        return $this->driverId() === 'local' ? rtrim($this->repoPath(), '/') : null;
     }
 
     public function describe(): string { return 'code resolve fixture'; }
@@ -731,7 +752,8 @@ $driver = new ResolveFixtureTransport(
     (string) $spec['transport'],
     (string) $spec['repo_path'],
     (array) ($spec['raw'] ?? []),
-    $spec['inventory'] ?? null
+    $spec['inventory'] ?? null,
+    isset($spec['host_repo']) ? (string) $spec['host_repo'] : null
 );
 $phase = null;
 if (($spec['mode'] ?? 'verb') === 'verb') {
@@ -814,22 +836,48 @@ duo_check(
 );
 duo_check_same(0, $result['raw'] + $result['wp'], 'and reaches the target zero times: resolution is host work');
 
-// K2. docker: the host side is the checkout the CLI stands in, not repo_path.
+// K2. docker: the host side is THIS environment's bind mount, derived from
+// the compose service — not the checkout the CLI happens to stand in
+// (DUO-3526). `repo_path` stays a container path and is never treated as one
+// on the host.
 $dockerRepo = resolve_make_repo($scratch, $repoSeq, $lockRows, $vendored);
+$dockerElsewhere = resolve_make_repo($scratch, $repoSeq, $lockRows, $vendored);
 $result = resolve_run($runnerFile, $scratch, [
     'mode' => 'verb',
     'transport' => 'docker',
     'repo_path' => '/var/www/site-repo',
+    'host_repo' => $dockerRepo,
     'extra' => ['--cache-dir=' . $cache],
-], $dockerRepo . '/code');
+], $dockerElsewhere . '/code');
 duo_check_same(0, $result['exit'], 'duo code-resolve succeeds on a docker environment');
 duo_check(
     is_dir($dockerRepo . '/code/wp-content/plugins/woocommerce'),
-    'and materializes into the LOCAL checkout, found by walking up from the working directory'
+    'and materializes into the host side of the environment\'s OWN bind mount'
+);
+duo_check(
+    !is_dir($dockerElsewhere . '/code/wp-content/plugins/woocommerce'),
+    'THE HAZARD, pinned: the working directory is inside a DIFFERENT site repository and that one is left '
+    . 'untouched — before DUO-3526 cwd chose the repository, so a rehearse resolved the source and reported '
+    . 'success while the target the compile reads stayed empty'
 );
 duo_check(
     !is_dir('/var/www/site-repo'),
     'never treating the container-side repo_path as a host path'
+);
+// A service whose repo_path is a named volume (or a read-only bind, or an
+// unreadable compose file) answers null, and the host says so rather than
+// guessing at a directory.
+$namedVolume = resolve_run($runnerFile, $scratch, [
+    'mode' => 'verb',
+    'transport' => 'docker',
+    'repo_path' => '/siterepo',
+    'extra' => ['--cache-dir=' . $cache],
+], $dockerElsewhere . '/code');
+duo_check_same(1, $namedVolume['exit'], 'a docker environment with no writable bind at its repo_path refuses, with the same exit code every host-side resolve refusal uses');
+duo_check(
+    str_contains($namedVolume['stdout'] . $namedVolume['stderr'], 'does not bind its repo_path to a writable host directory'),
+    'and the refusal names the condition rather than the old "run from inside the checkout" remedy, which this '
+    . 'change made inert'
 );
 
 // K3. ssh: the verb refuses and names the DUO-3514 runbook.
@@ -915,6 +963,66 @@ duo_check(
     str_contains($result['stderr'], 'refusing before compile'),
     'and stating that it stopped before compile, so no lease and no checkpoint exist to compensate'
 );
+
+// K4b. The deploy phase on DOCKER (DUO-3526): the host materializes into the
+// derived bind source, and then PROVES through the target that the bytes
+// landed where the target reads. That proof is what makes a derived path safe
+// to act on — a stale compose file or an edited mount would otherwise resolve
+// somewhere harmless and leave the compile one phase later to fail with
+// `code_source_missing` and no explanation.
+$dockerPhaseRepo = resolve_make_repo($scratch, $repoSeq, $lockRows, []);
+$dockerPhase = resolve_run($runnerFile, $scratch, [
+    'mode' => 'phase',
+    'verb' => 'env materialize',
+    'transport' => 'docker',
+    'repo_path' => '/siterepo',
+    'host_repo' => $dockerPhaseRepo,
+    'inventory' => ['exit' => 0, 'stdout' => json_encode([
+        'format' => 'duo-code-inventory/v1',
+        'source' => CodeSourceLock::SOURCE,
+        'components' => [
+            $inventoryRow('plugins', 'woocommerce', '11.0.0', $wooTreeDigest),
+            $inventoryRow('themes', 'storefront', '4.6.0', $themeTreeDigest),
+        ],
+    ], JSON_UNESCAPED_SLASHES), 'stderr' => ''],
+// deployPhase() passes no --cache-dir (an unattended phase has no flags), so
+// the child needs a writable XDG cache of its own rather than the developer's.
+], null, ['XDG_CACHE_HOME' => $scratch . '/xdg']);
+duo_check_same('continue', $dockerPhase['phase'], 'the docker phase proceeds once the host has resolved and the target confirms the digests');
+duo_check(
+    is_dir($dockerPhaseRepo . '/code/wp-content/plugins/woocommerce')
+        && is_dir($dockerPhaseRepo . '/code/wp-content/themes/storefront'),
+    'and the components are on disk in the host side of the target\'s bind mount, before anything is compiled'
+);
+duo_check(
+    str_contains($dockerPhase['stdout'], "env materialize phase: code-resolve\n")
+        && str_contains($dockerPhase['stdout'], 'env materialize: 2 materialized, 0 unchanged.'),
+    'reported with the verb it ran under, in the vocabulary duo code-resolve already prints'
+);
+
+// The same resolve, but the target does not report the digests: the host wrote
+// somewhere the target does not read, and that must refuse BEFORE the compile
+// rather than surface as an unexplained compile failure.
+$dockerStrayRepo = resolve_make_repo($scratch, $repoSeq, $lockRows, []);
+$dockerStray = resolve_run($runnerFile, $scratch, [
+    'mode' => 'phase',
+    'verb' => 'env materialize',
+    'transport' => 'docker',
+    'repo_path' => '/siterepo',
+    'host_repo' => $dockerStrayRepo,
+    'inventory' => ['exit' => 0, 'stdout' => json_encode([
+        'format' => 'duo-code-inventory/v1',
+        'source' => CodeSourceLock::SOURCE,
+        'components' => [],
+    ], JSON_UNESCAPED_SLASHES), 'stderr' => ''],
+], null, ['XDG_CACHE_HOME' => $scratch . '/xdg']);
+duo_check_same(1, $dockerStray['phase'], 'a derived path the target does not read refuses the phase');
+duo_check(
+    str_contains($dockerStray['stdout'] . $dockerStray['stderr'], 'the target does not report them at the locked digest')
+        && str_contains($dockerStray['stdout'] . $dockerStray['stderr'], 'plugins/woocommerce 11.0.0 (absent)'),
+    'naming every component the target still lacks, with a typed reason code, before any compile happens'
+);
+
 
 // K5. A repository with no lock produces no phase output at all. This is the
 // rule-8 assertion: every format-1 deploy prints exactly the bytes it always

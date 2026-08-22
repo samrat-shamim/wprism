@@ -1246,6 +1246,20 @@ final class EnvironmentMaterializer {
             if ($compiledPhase === null) {
                 $mkdir = $targetDriver->captureRaw('mkdir -p ' . escapeshellarg(dirname($artifactPath)));
                 if (($mkdir['exit'] ?? 1) !== 0) throw new \RuntimeException('could not create target materialization artifact directory');
+                // DUO-3526: `repository-materialize` above put the candidate
+                // BRANCH in the target repository, and on a split repository
+                // (DUO-3499 code.format 2) Git carries none of the locked
+                // component bytes — so the compile below refused
+                // `code_source_missing` and reported only "did not compile on
+                // the target" (grind_adapter_walk.sh S1). This is the same
+                // host-side resolve phase `duo deploy` already runs before its
+                // own compile, against this environment; it prints nothing and
+                // does nothing for a format-1 repository, and a refusal here
+                // returns before any compile, staging or promotion.
+                $resolveExit = CodeResolveCommand::deployPhase($targetDriver, 'env materialize');
+                if ($resolveExit !== null) {
+                    throw new \RuntimeException('branch candidate code could not be resolved on the target');
+                }
                 $compiled = CodeDeploy::compile($targetDriver, $targetDriver->repoPath(), $artifactPath);
                 if (($compiled['exit'] ?? 1) !== 0 || !is_array($compiled['summary'] ?? null)) throw new \RuntimeException('branch candidate did not compile on the target');
                 $release = self::releaseIdentity($compiled['summary']);

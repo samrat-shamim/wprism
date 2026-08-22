@@ -432,10 +432,21 @@ registry — that is what `code_release_provider`'s probe attests
 running `duo` must be able to write the repository the compile will hash:
 
 - **`local`** — `repo_path` is a host path by definition. Resolved in place.
-- **`docker`** — `repo_path` is the path *inside* the container; the host side
-  of that bind mount is the checkout you are standing in, which is also where
-  `duo` found the environment registry. Run `duo code-resolve` from inside
-  that checkout.
+- **`docker`** — `repo_path` is the path *inside* the container, so it says
+  nothing about where the bytes are on this machine: both sides of a pair
+  mount their own repository at the same container path. The host side is
+  derived from the environment's own compose service (`docker compose config`,
+  the `bind` mount whose target is `repo_path`), so resolution writes **that
+  environment's** repository wherever you run the command from. A service
+  whose `repo_path` is a named volume, or a read-only mount, exposes no
+  writable host directory and refuses with
+  `code_resolve_transport_unsupported` rather than guessing.
+
+  Before DUO-3526 the host side was inferred from the working directory
+  instead. That answered for whichever repository you happened to be standing
+  in, which is the wrong one whenever the command targets another environment
+  — a rehearse resolved the *source* repository and reported success while the
+  target the compile reads stayed empty.
 - **`ssh`** — the repository is on the far side of the network boundary and
   this host cannot write it. The verb refuses with
   `code_resolve_transport_unsupported`. Host-to-target push is tracked as

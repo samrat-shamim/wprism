@@ -5,6 +5,11 @@ namespace Duo\Orchestrator;
 
 /** Runs wp-cli directly on this machine: `wp --path=<wp_path> …`. */
 final class LocalTransport extends Transport implements AdoptionTransport {
+    /** A local environment's `repo_path` IS a host path; nothing is derived. */
+    public function hostRepoPath(): ?string {
+        return rtrim($this->repoPath, '/');
+    }
+
     public const BOOTSTRAP_FORMAT = 'duo-local-control-plane/v1';
 
     private string $wpPath;
