@@ -100,7 +100,10 @@ final class Blocks {
         bool $forceUnresolvedRefs,
         string $postLabel
     ): array {
-        $name = $block['blockName'];
+        // parse_blocks() represents whitespace and classic/freeform chunks as
+        // null-name nodes. PHP 8.4 deprecates null array offsets, so normalize
+        // only the dispatch key; the block itself stays byte-faithful.
+        $name = is_string($block['blockName'] ?? null) ? $block['blockName'] : '';
         foreach ($rules[$name] ?? [] as $rule) {
             $path = $rule['path'];
             if (!isset($block['attrs'][$path])) {

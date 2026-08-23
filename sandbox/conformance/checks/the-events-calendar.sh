@@ -113,6 +113,29 @@ foreach ([
         'type' => $args['type'] ?? null,
     ];
 }
+$editing_fields = apply_filters('tribe_general_settings_editing_section', [
+    'disable_metabox_custom_fields' => ['type' => 'checkbox_bool'],
+]);
+$toggle_field = $editing_fields['toggle_blocks_editor'] ?? [];
+$organizer_block_type = WP_Block_Type_Registry::get_instance()->get_registered('tribe/event-organizer');
+$organizer_renderer = $organizer_block_type instanceof WP_Block_Type
+    ? $organizer_block_type->render_callback
+    : null;
+$organizer_blocks = static function (WP_Post $post): array {
+    $ids = [];
+    $walk = static function (array $blocks) use (&$walk, &$ids): void {
+        foreach ($blocks as $block) {
+            if (($block['blockName'] ?? null) === 'tribe/event-organizer') {
+                $ids[] = $block['attrs']['organizer'] ?? null;
+            }
+            if (!empty($block['innerBlocks'])) {
+                $walk($block['innerBlocks']);
+            }
+        }
+    };
+    $walk(parse_blocks($post->post_content));
+    return $ids;
+};
 $map_meta = static function (WP_Post $post): array {
     $values = [];
     foreach (['_EventShowMap', '_EventShowMapLink', '_VenueShowMap', '_VenueShowMapLink'] as $key) {
@@ -177,6 +200,7 @@ echo wp_json_encode([
         'editor_meta' => $optional_editor_meta($all_day),
         'occurrence' => $all_day_occurrence,
         'organizer' => get_post_meta($all_day->ID, '_EventOrganizerID', true),
+        'organizer_blocks' => $organizer_blocks($all_day),
         'map' => $map_meta($all_day),
         'permalink' => get_permalink($all_day),
         'start' => get_post_meta($all_day->ID, '_EventStartDate', true),
@@ -209,11 +233,27 @@ echo wp_json_encode([
             : null,
         'hidden_native' => in_array((int) $delete_probe->ID, $hidden_event_ids, true),
         'id' => (int) $delete_probe->ID,
+        'organizer_blocks' => $organizer_blocks($delete_probe),
         'permalink' => get_permalink($delete_probe),
         'status' => $status_meta($delete_probe),
     ],
     'delete_probe_map' => $map_meta($delete_probe),
     'editor_meta_contract' => $registered_contract,
+    'editor_native_contract' => [
+        'block' => [
+            'registered' => $organizer_block_type instanceof WP_Block_Type,
+            'renderer' => is_array($organizer_renderer)
+                ? get_class($organizer_renderer[0]) . '::' . $organizer_renderer[1]
+                : get_debug_type($organizer_renderer),
+        ],
+        'setting' => [
+            'default' => $toggle_field['default'] ?? null,
+            'key' => Tribe__Events__Editor__Compatibility::$blocks_editor_key,
+            'runtime' => tribe('events.editor.compatibility')->is_blocks_editor_toggled_on(),
+            'type' => $toggle_field['type'] ?? null,
+            'validation' => $toggle_field['validation_type'] ?? null,
+        ],
+    ],
     'event' => [
         'category_ids' => array_map('intval', wp_get_post_terms($event->ID, 'tribe_events_cat', ['fields' => 'ids'])),
         'content' => $event->post_content,
@@ -241,6 +281,7 @@ echo wp_json_encode([
             static fn($id): string => get_the_title((int) $id),
             tribe_get_organizer_ids($event->ID)
         ),
+        'organizer_blocks' => $organizer_blocks($event),
         'organizer_rows' => array_map('intval', get_post_meta($event->ID, '_EventOrganizerID', false)),
         'permalink' => get_permalink($event),
         'phone' => get_post_meta($event->ID, '_EventPhone', true),
@@ -286,6 +327,7 @@ echo wp_json_encode([
     'options' => [
         'after' => $option['tribeEventsAfterHTML'] ?? null,
         'before' => $option['tribeEventsBeforeHTML'] ?? null,
+        'blocks_editor' => $option['toggle_blocks_editor'] ?? null,
         'category_frontend' => $option['category-color-enable-frontend'] ?? null,
         'category_show_hidden' => $option['category-color-show-hidden-categories'] ?? null,
         'currency_code' => $option['defaultCurrencyCode'] ?? null,
@@ -385,6 +427,28 @@ printf '%s\n' "$TEC_SOURCE_EVENT_JSON" | jq -e '
   (.meta | has("_preview_organizers") | not) and
   (.meta | has("_preview_venues") | not)
 ' >/dev/null || fail "TEC canonical source did not carry exact ordered organizers/status or retained runtime previews"
+TEC_CANON_ORGANIZER_BLOCKS=$(TEC_STATE_PATH="$TEC_SOURCE_EVENT_STATE" php -r '
+  require "agent/src/Kernel/Canon.php";
+  require "sandbox/tests/support/wp-block-parser-stub.php";
+  [, $body] = Duo\Canon::parse_post_file((string) file_get_contents((string) getenv("TEC_STATE_PATH")));
+  $ids = [];
+  $walk = static function (array $blocks) use (&$walk, &$ids): void {
+      foreach ($blocks as $block) {
+          if (($block["blockName"] ?? null) === "tribe/event-organizer") {
+              $ids[] = $block["attrs"]["organizer"] ?? null;
+          }
+          if (!empty($block["innerBlocks"])) {
+              $walk($block["innerBlocks"]);
+          }
+      }
+  };
+  $walk(parse_blocks($body));
+  echo json_encode($ids, JSON_UNESCAPED_SLASHES);
+')
+printf '%s\n' "$TEC_CANON_ORGANIZER_BLOCKS" | jq -e --argjson front "$TEC_SOURCE_EVENT_JSON" '
+  . == $front.meta._EventOrganizerID and
+  length == 3 and all(.[]; test("^\\{\\{post:[0-9a-f-]{36}\\}\\}$"))
+' >/dev/null || fail "TEC canonical organizer blocks did not retain exact ordered post tokens: $TEC_CANON_ORGANIZER_BLOCKS"
 TEC_SOURCE_OPTIONS="${CONF_REPO1:-siterepo/conf1}/state/options/core.json"
 jq -e '
   .records.tribe_events_calendar_options.value as $o |
@@ -404,6 +468,13 @@ TEC_EXPECTED_VERSION="${TEC_EXPECTED_VERSION:-6.17.3}"
 printf '%s\n' "$SOURCE" | jq -e '
   .event.all_day == null and .event.all_day_native == false and
   .event.hide_from_upcoming == null and .event.hidden_native == false and
+  .event.organizer_blocks == (.organizers | map(.id)) and
+  .all_day.organizer_blocks == [null] and .delete_probe.organizer_blocks == [] and
+  .options.blocks_editor == true and
+  .editor_native_contract == {
+    block:{registered:true,renderer:"Tribe__Events__Editor__Blocks__Event_Organizer::render"},
+    setting:{default:false,key:"toggle_blocks_editor",runtime:true,type:"checkbox_bool",validation:"boolean"}
+  } and
   .all_day.all_day == "1" and .all_day.all_day_native == true and
   .all_day.hide_from_upcoming == "yes" and .all_day.hidden_native == true and
   .delete_probe.all_day == "" and .delete_probe.all_day_native == false and
@@ -429,6 +500,7 @@ printf '%s\n' "$TARGET" | jq -e \
   .event.repository_id == .event.id and .event.venue == .venue.id and
   (.organizers | map(.id)) == $dirty.organizers and
   .event.organizer == .organizer.id and .event.organizer_rows == ($dirty.organizers) and
+  .event.organizer_blocks == ($dirty.organizers) and
   .event.organizer_helper == ($dirty.organizers) and .event.rest.organizers == ($dirty.organizers) and
   .event.organizer_names == ["Duo Readiness Team 東京","Duo Accessibility Guild বাংলা","Duo Night Crew مرحبا"] and
   .event.preview_organizers == [$dirty.organizers[2],$dirty.organizers[0],$dirty.organizers[1]] and
@@ -484,6 +556,7 @@ printf '%s\n' "$TARGET" | jq -e \
   .all_day.all_day == "1" and .all_day.all_day_native == true and
   .all_day.hide_from_upcoming == "yes" and .all_day.hidden_native == true and
   .all_day.venue == "" and .all_day.organizer == "" and
+  .all_day.organizer_blocks == [null] and .delete_probe.organizer_blocks == [] and
   .all_day.status.raw_status == "postponed" and .all_day.status.model_status == "postponed" and
   .all_day.status.raw_reason == "" and .all_day.status.model_reason == "" and
   .all_day.status.rest.status == "postponed" and .all_day.status.rest.status_reason == "" and
@@ -506,11 +579,15 @@ printf '%s\n' "$TARGET" | jq -e \
     _tribe_events_status:{callback:"null",rest:true,single:true,type:"string"},
     _tribe_events_status_reason:{callback:"null",rest:true,single:true,type:"string"}
   } and
+  .editor_native_contract == {
+    block:{registered:true,renderer:"Tribe__Events__Editor__Blocks__Event_Organizer::render"},
+    setting:{default:false,key:"toggle_blocks_editor",runtime:true,type:"checkbox_bool",validation:"boolean"}
+  } and
   .options.events_slug == "calendar-readiness" and .options.single_slug == "readiness-event" and
   .options.views == ["list","month"] and .options.currency_code == "NPR" and
   .options.default_venue == .venue.id and .options.default_organizer == .organizer.id and
   .options.category_frontend == true and .options.seo_behavior == "soft_noindex" and
-  .options.category_show_hidden == false and
+  .options.category_show_hidden == false and .options.blocks_editor == true and
   .options.timezone_mode == "event" and
   .options.debug == false and .options.month_cache == true and
   .options.trash_past == 12 and .options.delete_past == 24 and
@@ -722,6 +799,38 @@ wp_conf1 eval '
   if(get_post_meta($p->ID,"_EventOrganizerID",false)!==$b["organizers"])throw new RuntimeException("organizer order restore failed");
 ' >/dev/null
 rm -rf "$ORGANIZER_DUP_DIR"
+
+ORGANIZER_BLOCK_DIR="${CONF_REPO1:-siterepo/conf1}/.tmp-tec-organizer-block-owner"
+rm -rf "$ORGANIZER_BLOCK_DIR"
+wp_conf1 eval '
+  global $wpdb;
+  $b=json_decode(file_get_contents("/siterepo/.tmp-tec-schema-backup.json"),true,512,JSON_THROW_ON_ERROR);
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  $v=get_posts(["post_type"=>"tribe_venue","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Readiness Hall 東京"])[0];
+  $needle="\"organizer\":".(int)$b["organizers"][0];
+  $replacement="\"organizer\":".(int)$v->ID;
+  $content=preg_replace("/".preg_quote($needle,"/")."/",$replacement,$b["content"],1,$count);
+  if($count!==1||$wpdb->update($wpdb->posts,["post_content"=>$content],["ID"=>$p->ID])===false){
+    throw new RuntimeException("organizer block wrong-owner premise failed");
+  }
+' >/dev/null
+ORGANIZER_BLOCK_RC=0
+ORGANIZER_BLOCK_OUT=$(wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-tec-organizer-block-owner 2>&1) \
+  || ORGANIZER_BLOCK_RC=$?
+require_duo_answered "TEC wrong-owner organizer block capture" human "$ORGANIZER_BLOCK_OUT"
+[ "$ORGANIZER_BLOCK_RC" -ne 0 ] \
+  && grep -Fq 'organizer block must resolve to post type tribe_organizer, not tribe_venue' <<<"$ORGANIZER_BLOCK_OUT" \
+  || fail "TEC wrong-owner organizer block did not refuse through capture/token/interpreter paths: $ORGANIZER_BLOCK_OUT"
+[ ! -e "$ORGANIZER_BLOCK_DIR" ] || fail "TEC wrong-owner organizer block refusal published isolated output"
+wp_conf1 eval '
+  global $wpdb;
+  $b=json_decode(file_get_contents("/siterepo/.tmp-tec-schema-backup.json"),true,512,JSON_THROW_ON_ERROR);
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  if($wpdb->update($wpdb->posts,["post_content"=>$b["content"]],["ID"=>$p->ID])===false){
+    throw new RuntimeException("organizer block content restore failed");
+  }
+' >/dev/null
+rm -rf "$ORGANIZER_BLOCK_DIR"
 
 STATUS_BAD_DIR="${CONF_REPO1:-siterepo/conf1}/.tmp-tec-status-malformed"
 rm -rf "$STATUS_BAD_DIR"

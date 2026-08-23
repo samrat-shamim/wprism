@@ -8,6 +8,7 @@ if (!defined('DUO_SPEC_VERSION')) {
 }
 
 require_once __DIR__ . '/../../lib/check.php';
+require_once __DIR__ . '/../../support/wp-block-parser-stub.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/../../../../agent/src/Adapter/Providers.php';
@@ -129,7 +130,13 @@ function tec_readiness_meta(): array {
 }
 
 /** @return array<string,mixed> */
-function tec_readiness_post(string $uuid, string $type, array $meta = [], string $slug = ''): array {
+function tec_readiness_post(
+    string $uuid,
+    string $type,
+    array $meta = [],
+    string $slug = '',
+    ?string $body = null
+): array {
     return [
         'type' => 'post',
         'path' => "state/posts/$type/$uuid--" . ($slug !== '' ? $slug : $type) . '.md',
@@ -139,7 +146,7 @@ function tec_readiness_post(string $uuid, string $type, array $meta = [], string
             'slug' => $slug !== '' ? $slug : $type,
             'meta' => $meta,
         ],
-        'body' => str_repeat('Long UTF-8 event boundary — বাংলা — こんにちは. ', 600),
+        'body' => $body ?? str_repeat('Long UTF-8 event boundary — বাংলা — こんにちは. ', 600),
     ];
 }
 
@@ -159,9 +166,20 @@ function tec_readiness_term(array $meta): array {
 }
 
 /** @return list<array<string,mixed>> */
-function tec_readiness_tree(?array $meta = null, ?array $termMeta = null, ?array $venueMeta = null): array {
+function tec_readiness_tree(
+    ?array $meta = null,
+    ?array $termMeta = null,
+    ?array $venueMeta = null,
+    ?string $eventBody = null
+): array {
     return [
-        tec_readiness_post(TEC_EVENT_UUID, 'tribe_events', $meta ?? tec_readiness_meta(), 'production-readiness-event'),
+        tec_readiness_post(
+            TEC_EVENT_UUID,
+            'tribe_events',
+            $meta ?? tec_readiness_meta(),
+            'production-readiness-event',
+            $eventBody
+        ),
         tec_readiness_post(TEC_VENUE_UUID, 'tribe_venue', $venueMeta ?? [
             '_EventShowMap' => 'false',
             '_EventShowMapLink' => 'false',
@@ -178,6 +196,17 @@ function tec_readiness_tree(?array $meta = null, ?array $termMeta = null, ?array
             'tec-events-cat-colors-hidden' => '0',
         ]),
     ];
+}
+
+/** @param list<string> $tokens */
+function tec_readiness_organizer_blocks(array $tokens, bool $prependEmpty = false): string {
+    $blocks = $prependEmpty ? ['<!-- wp:tribe/event-organizer /-->'] : [];
+    foreach ($tokens as $token) {
+        $blocks[] = '<!-- wp:tribe/event-organizer '
+            . json_encode(['organizer' => $token], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)
+            . ' /-->';
+    }
+    return implode("\n", $blocks);
 }
 
 /** @return list<string> */
@@ -229,7 +258,16 @@ duo_check_same(
 $policy = Policy::load(null, ['the-events-calendar']);
 $interpreter = $policy->interpreters()['the-events-calendar'];
 duo_check($interpreter instanceof TheEventsCalendar, 'the manifest resolves its digest-bound TEC interpreter');
-duo_check_same([], $interpreter->repository_diagnostics(tec_readiness_tree()), 'a long UTF-8 timed event graph and category colors are schema-clean');
+duo_check_same(
+    [['kind' => 'post', 'path' => 'organizer', 'type' => 'int']],
+    $policy->block_attr_rules()['tribe/event-organizer'] ?? null,
+    'the shipped TEC policy declares the registered scalar organizer block reference exactly'
+);
+duo_check_same(
+    [],
+    $interpreter->repository_diagnostics(tec_readiness_tree()),
+    'a classic-editor long UTF-8 timed event graph without organizer blocks remains schema-clean'
+);
 
 $unlinked = tec_readiness_meta();
 unset($unlinked['_EventVenueID'], $unlinked['_EventOrganizerID']);
@@ -239,15 +277,156 @@ $singleOrganizer = tec_readiness_meta();
 $singleOrganizer['_EventOrganizerID'] = ['{{post:' . TEC_ORGANIZER_UUID . '}}'];
 duo_check_same(
     [],
-    $interpreter->repository_diagnostics(tec_readiness_tree($singleOrganizer)),
-    'one organizer remains a one-row canonical list rather than collapsing to scalar storage'
+    $interpreter->repository_diagnostics(tec_readiness_tree(
+        $singleOrganizer,
+        null,
+        null,
+        tec_readiness_organizer_blocks($singleOrganizer['_EventOrganizerID'])
+    )),
+    'one Gutenberg organizer block matches its one-row canonical metadata list'
 );
 $reorderedOrganizers = tec_readiness_meta();
 $reorderedOrganizers['_EventOrganizerID'] = array_reverse($reorderedOrganizers['_EventOrganizerID']);
 duo_check_same(
     [],
-    $interpreter->repository_diagnostics(tec_readiness_tree($reorderedOrganizers)),
-    'multiple unique organizer rows preserve either native physical order as authored intent'
+    $interpreter->repository_diagnostics(tec_readiness_tree(
+        $reorderedOrganizers,
+        null,
+        null,
+        tec_readiness_organizer_blocks($reorderedOrganizers['_EventOrganizerID'], true)
+    )),
+    'multiple unique organizer blocks preserve native physical order while an empty editor placeholder is harmless'
+);
+$emptyOrganizerMeta = tec_readiness_meta();
+unset($emptyOrganizerMeta['_EventOrganizerID']);
+duo_check_same(
+    [],
+    $interpreter->repository_diagnostics(tec_readiness_tree(
+        $emptyOrganizerMeta,
+        null,
+        null,
+        '<!-- wp:tribe/event-organizer /-->'
+    )),
+    'the registered empty Gutenberg organizer placeholder matches absent organizer metadata'
+);
+foreach ([
+    'A literal wp:tribe/event-organizer marker is ordinary classic/freeform text.',
+    '<!-- wp:code --><pre class="wp-block-code"><code>&lt;!-- wp:tribe/event-organizer /--&gt;</code></pre><!-- /wp:code -->',
+    '<!-- wp:tribe/event-organizer-preview {"organizer":7000000001} /-->',
+    '<!-- wp:block {"ref":"{{post:' . TEC_ORGANIZER_UUID . '}}"} /-->',
+] as $nonOrganizerBody) {
+    duo_check_same(
+        [],
+        $interpreter->repository_diagnostics(tec_readiness_tree(null, null, null, $nonOrganizerBody)),
+        'literal/code, prefix-named, and reusable blocks are not mistaken for exact TEC organizer blocks'
+    );
+}
+$nestedOrganizerBody = '<!-- wp:group --><div class="wp-block-group">'
+    . tec_readiness_organizer_blocks(tec_readiness_meta()['_EventOrganizerID'])
+    . '</div><!-- /wp:group -->';
+duo_check_same(
+    [],
+    $interpreter->repository_diagnostics(tec_readiness_tree(null, null, null, $nestedOrganizerBody)),
+    'organizer blocks nested in a group retain the same exact ordered grammar'
+);
+
+$emptyBlockWithMeta = '<!-- wp:tribe/event-organizer /-->';
+tec_readiness_refuses(
+    $interpreter,
+    tec_readiness_tree(null, null, null, $emptyBlockWithMeta),
+    'must exactly match _EventOrganizerID row order',
+    'an empty-only organizer placeholder refuses when populated metadata would render differently'
+);
+$missingOrganizerUuid = '66666666-6666-4666-8666-666666666666';
+$missingOrganizerMeta = tec_readiness_meta();
+$missingOrganizerMeta['_EventOrganizerID'] = ['{{post:' . $missingOrganizerUuid . '}}'];
+tec_readiness_refuses(
+    $interpreter,
+    tec_readiness_tree(
+        $missingOrganizerMeta,
+        null,
+        null,
+        tec_readiness_organizer_blocks($missingOrganizerMeta['_EventOrganizerID'])
+    ),
+    'UUID must resolve to one captured tribe_organizer post',
+    'an organizer block UUID absent from the captured graph refuses'
+);
+tec_readiness_refuses(
+    $interpreter,
+    tec_readiness_tree(
+        null,
+        null,
+        null,
+        '<!-- wp:tribe/event-organizer {"organizer":"{{post:' . TEC_ORGANIZER_UUID . '}}"}'
+    ),
+    'markup must parse as exact registered blocks',
+    'a malformed exact organizer comment dropped by parse_blocks refuses rather than becoming freeform content'
+);
+
+$blockBoundaryCases = [
+    [
+        '<!-- wp:tribe/event-organizer {"organizer":0} /-->',
+        tec_readiness_meta(),
+        'canonical post UUID token',
+        'a raw zero organizer default refuses because canonical capture must remove the attribute',
+    ],
+    [
+        '<!-- wp:tribe/event-organizer {"organizer":7000000001} /-->',
+        tec_readiness_meta(),
+        'canonical post UUID token',
+        'a huge raw local organizer block ID refuses after structural capture should have tokenized it',
+    ],
+    [
+        '<!-- wp:tribe/event-organizer {"organizer":{"id":"{{post:' . TEC_ORGANIZER_UUID . '}}"}} /-->',
+        tec_readiness_meta(),
+        'canonical post UUID token',
+        'a nested organizer attribute shape refuses rather than being cast to a local ID',
+    ],
+    [
+        '<!-- wp:tribe/event-organizer {"organizers":["{{post:' . TEC_ORGANIZER_UUID . '}}"]} /-->',
+        tec_readiness_meta(),
+        'meta-sourced and must not be serialized',
+        'the registered meta-sourced organizers list cannot leak into block content',
+    ],
+    [
+        tec_readiness_organizer_blocks([
+            '{{post:' . TEC_ORGANIZER_UUID . '}}',
+            '{{post:' . TEC_ORGANIZER_UUID . '}}',
+        ]),
+        tec_readiness_meta(),
+        'must be unique in editor order',
+        'duplicate populated organizer blocks refuse before native array_unique can hide the defect',
+    ],
+    [
+        tec_readiness_organizer_blocks(array_reverse(tec_readiness_meta()['_EventOrganizerID'])),
+        tec_readiness_meta(),
+        'must exactly match _EventOrganizerID row order',
+        'reordered organizer blocks refuse when the repeated metadata order disagrees',
+    ],
+    [
+        '<!-- wp:tribe/event-organizer {"organizer":"{{post:' . TEC_ORGANIZER_UUID . '}}"} -->'
+            . '<!-- wp:paragraph --><p>not native organizer content</p><!-- /wp:paragraph -->'
+            . '<!-- /wp:tribe/event-organizer -->',
+        tec_readiness_meta(),
+        'must not carry nested blocks',
+        'nested content in the dynamic organizer block refuses',
+    ],
+];
+foreach ($blockBoundaryCases as [$body, $meta, $needle, $message]) {
+    tec_readiness_refuses($interpreter, tec_readiness_tree($meta, null, null, $body), $needle, $message);
+}
+$wrongBlockOwner = tec_readiness_meta();
+$wrongBlockOwner['_EventOrganizerID'] = ['{{post:' . TEC_VENUE_UUID . '}}'];
+tec_readiness_refuses(
+    $interpreter,
+    tec_readiness_tree(
+        $wrongBlockOwner,
+        null,
+        null,
+        tec_readiness_organizer_blocks($wrongBlockOwner['_EventOrganizerID'])
+    ),
+    'organizer block must resolve to post type tribe_organizer',
+    'an organizer block resolving to a venue refuses independently of scalar token validity'
 );
 
 foreach ([

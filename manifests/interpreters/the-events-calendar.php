@@ -195,6 +195,9 @@ final class TheEventsCalendar {
                     }
                 }
             }
+            foreach ($this->organizer_block_diagnostics($entity, $meta, $posts, $path) as $diagnostic) {
+                $out[] = $diagnostic;
+            }
 
             $hasStatus = array_key_exists('_tribe_events_status', $meta);
             $hasStatusReason = array_key_exists('_tribe_events_status_reason', $meta);
@@ -441,6 +444,146 @@ final class TheEventsCalendar {
             return $entity['data'];
         }
         return Canon::parse_post_file((string) ($entity['content'] ?? ''))[0];
+    }
+
+    private function post_body(array $entity): string {
+        if (is_string($entity['body'] ?? null)) {
+            return $entity['body'];
+        }
+        return Canon::parse_post_file((string) ($entity['content'] ?? ''))[1];
+    }
+
+    /**
+     * @param array<string,mixed> $meta
+     * @param array<string,string> $posts
+     * @return list<array{code:string,path:string,locator:string,message:string}>
+     */
+    private function organizer_block_diagnostics(array $entity, array $meta, array $posts, string $path): array {
+        $body = $this->post_body($entity);
+        $markerCount = preg_match_all(
+            '/<!--\s+wp:tribe\/event-organizer(?=[\s\/])/D',
+            $body
+        );
+        if ($markerCount === false) {
+            $markerCount = 0;
+        }
+        if ($markerCount === 0) {
+            // Classic-editor events own organizer rows without block markup.
+            return [];
+        }
+        if (!function_exists('parse_blocks')) {
+            return [$this->diagnostic(
+                $path,
+                'body.tribe/event-organizer',
+                'The Events Calendar organizer block contract requires the native WordPress block parser'
+            )];
+        }
+
+        $organizerBlocks = [];
+        $walk = static function (array $blocks) use (&$walk, &$organizerBlocks): void {
+            foreach ($blocks as $block) {
+                if (($block['blockName'] ?? null) === 'tribe/event-organizer') {
+                    $organizerBlocks[] = $block;
+                }
+                if (is_array($block['innerBlocks'] ?? null) && $block['innerBlocks'] !== []) {
+                    $walk($block['innerBlocks']);
+                }
+            }
+        };
+        $walk(parse_blocks($body));
+
+        $out = [];
+        if (count($organizerBlocks) !== $markerCount) {
+            $out[] = $this->diagnostic(
+                $path,
+                'body.tribe/event-organizer',
+                'The Events Calendar organizer block markup must parse as exact registered blocks'
+            );
+            return $out;
+        }
+
+        $populated = [];
+        $seen = [];
+        $shapeClean = true;
+        foreach ($organizerBlocks as $i => $block) {
+            $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : [];
+            if (array_key_exists('organizers', $attrs)) {
+                $shapeClean = false;
+                $out[] = $this->diagnostic(
+                    $path,
+                    "body.tribe/event-organizer[$i].organizers",
+                    'The Events Calendar organizers list is meta-sourced and must not be serialized into block content'
+                );
+            }
+            if (($block['innerBlocks'] ?? []) !== [] || trim((string) ($block['innerHTML'] ?? '')) !== '') {
+                $shapeClean = false;
+                $out[] = $this->diagnostic(
+                    $path,
+                    "body.tribe/event-organizer[$i]",
+                    'The Events Calendar dynamic organizer block must not carry nested blocks or authored inner HTML'
+                );
+            }
+            if (!array_key_exists('organizer', $attrs)) {
+                // The registered default is null; an empty editor placeholder
+                // serializes without the attribute and renders no organizer.
+                continue;
+            }
+
+            $token = $attrs['organizer'];
+            if (!is_string($token)
+                || preg_match('/^\{\{post:([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\}\}$/D', $token, $m) !== 1) {
+                $shapeClean = false;
+                $out[] = $this->diagnostic(
+                    $path,
+                    "body.tribe/event-organizer[$i].organizer",
+                    'The Events Calendar populated organizer block must contain one canonical post UUID token'
+                );
+                continue;
+            }
+            if (isset($seen[$token])) {
+                $shapeClean = false;
+                $out[] = $this->diagnostic(
+                    $path,
+                    "body.tribe/event-organizer[$i].organizer",
+                    'The Events Calendar populated organizer blocks must be unique in editor order'
+                );
+            }
+            $seen[$token] = true;
+            $populated[] = $token;
+            if (!isset($posts[$m[1]])) {
+                $shapeClean = false;
+                $out[] = $this->diagnostic(
+                    $path,
+                    "body.tribe/event-organizer[$i].organizer",
+                    'The Events Calendar organizer block UUID must resolve to one captured tribe_organizer post'
+                );
+            } elseif ($posts[$m[1]] !== 'tribe_organizer') {
+                $shapeClean = false;
+                $out[] = $this->diagnostic(
+                    $path,
+                    "body.tribe/event-organizer[$i].organizer",
+                    "The Events Calendar organizer block must resolve to post type tribe_organizer, not {$posts[$m[1]]}"
+                );
+            }
+        }
+
+        $expected = $meta['_EventOrganizerID'] ?? [];
+        $expectedClean = is_array($expected) && array_is_list($expected);
+        foreach ($expectedClean ? $expected : [] as $token) {
+            if (!is_string($token)
+                || preg_match('/^\{\{post:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\}\}$/D', $token) !== 1) {
+                $expectedClean = false;
+                break;
+            }
+        }
+        if ($shapeClean && $expectedClean && $populated !== $expected) {
+            $out[] = $this->diagnostic(
+                $path,
+                'body.tribe/event-organizer',
+                'The Events Calendar populated organizer block order must exactly match _EventOrganizerID row order'
+            );
+        }
+        return $out;
     }
 
     private function timezone(mixed $value): ?\DateTimeZone {

@@ -160,6 +160,7 @@ foreach ([
     'defaultCurrencyCode' => 'USD',
     'eventsDefaultVenueID' => (int) $venue->ID,
     'eventsDefaultOrganizerID' => (int) $organizer->ID,
+    'toggle_blocks_editor' => false,
     'debugEvents' => false,
     'enable_month_view_cache' => true,
     'trash-past-events' => 12,

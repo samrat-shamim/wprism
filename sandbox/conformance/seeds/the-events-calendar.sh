@@ -96,6 +96,11 @@ $body = str_repeat('Portable long event body — বাংলা — 日本語 �
     . "\nNative source URL: " . home_url('/events/portable-source/')
     . "\n<!-- wp:tribe/event-datetime /-->"
     . "\n<!-- wp:tribe/event-price {\"costDescription\":\"$cost_description\"} /-->";
+foreach ($organizer_ids as $organizer_id) {
+    $body .= "\n<!-- wp:tribe/event-organizer "
+        . wp_json_encode(['organizer' => $organizer_id], JSON_UNESCAPED_SLASHES)
+        . ' /-->';
+}
 $event = tribe_events()->set_args([
     'title' => 'Duo Production Readiness Event 東京',
     'status' => 'publish',
@@ -141,7 +146,7 @@ if (is_wp_error($terms) || is_wp_error($tags)) {
 $all_day = tribe_events()->set_args([
     'title' => 'Duo All Day Boundary Event',
     'status' => 'publish',
-    'description' => 'All-day portable event with no venue or organizer.',
+    'description' => "All-day portable event with no venue or organizer.\n<!-- wp:tribe/event-organizer /-->",
     'start_date' => '2026-10-11 00:00:00',
     'end_date' => '2026-10-11 23:59:59',
     'timezone' => 'Asia/Kathmandu',
@@ -284,6 +289,7 @@ foreach ([
     'tec_seo_disabled_view_404' => true,
     'eventsDefaultVenueID' => (int) $venue->ID,
     'eventsDefaultOrganizerID' => (int) $organizer->ID,
+    'toggle_blocks_editor' => true,
     'debugEvents' => true,
     'enable_month_view_cache' => false,
     'trash-past-events' => 3,
@@ -297,6 +303,18 @@ foreach ([
             throw new RuntimeException("TEC source option $key did not persist");
         }
     }
+}
+
+$editing_fields = apply_filters('tribe_general_settings_editing_section', [
+    'disable_metabox_custom_fields' => ['type' => 'checkbox_bool'],
+]);
+$toggle_field = $editing_fields['toggle_blocks_editor'] ?? null;
+if (!is_array($toggle_field)
+    || ($toggle_field['type'] ?? null) !== 'checkbox_bool'
+    || ($toggle_field['default'] ?? null) !== false
+    || ($toggle_field['validation_type'] ?? null) !== 'boolean'
+    || Tribe__Events__Editor__Compatibility::$blocks_editor_key !== 'toggle_blocks_editor') {
+    throw new RuntimeException('TEC native settings registry lost the portable Block Editor toggle contract');
 }
 
 // Event_Category_Meta::save() deliberately does not run the wp-admin hook
