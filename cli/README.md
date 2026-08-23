@@ -393,19 +393,26 @@ are rejected when the registry is loaded.
   deleted and nothing is cached), `code_resolve_tree_digest_mismatch`,
   `code_resolve_offline_miss` — each name their own remedy.
 
-  **`local` and `docker` only.** Resolution is host work because the target
-  never reaches a registry, so the host must be able to write the repository
-  the compile will hash: a local environment's `repo_path` IS that path, and a
-  docker environment's host side is the checkout you run the command from. An
-  `ssh` environment refuses with `code_resolve_transport_unsupported`;
-  host-to-target push is DUO-3514.
+  **Resolution is always host work**, because the target never reaches a
+  registry. On `local` the environment's `repo_path` IS the host path; on
+  `docker` the host side of the bind mount is derived from the environment's
+  own compose service. On `ssh` the host resolves into a throwaway staging
+  worktree and **pushes** (DUO-3514): one tar, unpacked into a staging
+  directory under `<repo_path>/.duo/code-push/`, verified there against the
+  lock's `tree_sha256` through the target's own `wp duo code-inventory` before
+  anything is renamed into `code/wp-content`, then re-verified afterwards. A
+  component the target holds at a different digest refuses
+  `code_resolve_component_drifted` before anything is transferred; a failed
+  transfer refuses `code_resolve_push_failed` with the target unchanged. A
+  transport with neither a writable host path nor a push mechanism still
+  refuses `code_resolve_transport_unsupported`.
 
   `duo deploy` and `duo promote` run this same resolver automatically as
   `<verb> phase: code-resolve`, before `compile` and outside every promotion
   lease. The phase is silent for a repository with no lock. On `ssh` with a
-  lock present it cannot resolve, so it asks the target for its own
-  `wp duo code-inventory` and proceeds only when every locked component already
-  hashes correctly there — otherwise it refuses before compile.
+  lock present it reads the target's own `wp duo code-inventory` first,
+  transfers nothing for the components already at their declared digest, and
+  pushes only the missing ones — refusing before compile if any is drifted.
   See [docs/guides/code-updates.md](../docs/guides/code-updates.md).
 
 - **`duo status <env>`** — runs `wp duo plan --repo=<repo_path>

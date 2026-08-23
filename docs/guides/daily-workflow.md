@@ -474,6 +474,15 @@ internals — `duo` never needs you to type them, and running them directly is
 outside the supported workflow. The complete narrative is
 [recovery.md](recovery.md).
 
+Those retained checkpoints are whole-database dumps and **nothing removes them
+on its own** — Duo has no automatic retention anywhere. Periodic housekeeping
+is an explicit verb: `duo recover <env> --prune-retained=<keep-n>` prints what
+it would delete and deletes nothing, and the same command with
+`--confirm-prune` removes exactly those rows. It keeps the newest `keep-n` of
+each verb, so the most recent before-image is never deletable, and it removes
+only the `.sql` — the compiled artifact and the frozen plan beside it stay.
+See ["Pruning retained checkpoints"](recovery.md#pruning-retained-checkpoints).
+
 Forced overrides, where they exist at all, disclose their consequences and
 always leave an exit path through `duo` — never through operator SQL.
 

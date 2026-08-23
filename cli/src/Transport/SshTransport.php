@@ -4,11 +4,12 @@ declare(strict_types=1);
 namespace Duo\Orchestrator;
 
 require_once __DIR__ . '/Transport.php';
+require_once __DIR__ . '/CodePushTransport.php';
 require_once __DIR__ . '/RecoveryTransport.php';
 require_once __DIR__ . '/RecoveryConfig.php';
 
 /** Runs wp-cli over ssh: `ssh -T <host> 'cd <wp_path> && wp …'`. */
-final class SshTransport extends Transport implements AdoptionTransport, RecoveryTransport {
+final class SshTransport extends Transport implements AdoptionTransport, CodePushTransport, RecoveryTransport {
     private string $host;
     private string $wpPath;
     private ?string $configFile;
@@ -131,6 +132,33 @@ final class SshTransport extends Transport implements AdoptionTransport, Recover
 
     /** @return array{exit:int, stdout:string, stderr:string} */
     public function removeControlInput(string $targetPath): array {
+        return $this->captureRaw('rm -f ' . escapeshellarg($targetPath));
+    }
+
+    /**
+     * The code-push archive path (DUO-3514), named with the same shape and
+     * the same label validation as the rollback handoff above.
+     *
+     * A distinct `duo-code-push-` prefix rather than a shared one, for the
+     * reason the `input`/`request` split already established: the live ssh
+     * fixture asserts that a run which transfers nothing leaves no
+     * `/tmp/duo-code-push-*` behind, and a prefix shared with the rollback
+     * handoff would make that assertion answer for two protocols.
+     */
+    public function allocateCodePushInput(string $label): string {
+        if (preg_match('/^[a-z][a-z0-9-]*$/D', $label) !== 1) {
+            throw new \RuntimeException('duo code-resolve: invalid code push label');
+        }
+        return '/tmp/duo-code-push-' . $label . '-' . bin2hex(random_bytes(16)) . '.tar';
+    }
+
+    /** @return array{exit:int, stdout:string, stderr:string} */
+    public function putCodePushInput(string $localPath, string $targetPath): array {
+        return $this->uploadFile($localPath, $targetPath);
+    }
+
+    /** @return array{exit:int, stdout:string, stderr:string} */
+    public function removeCodePushInput(string $targetPath): array {
         return $this->captureRaw('rm -f ' . escapeshellarg($targetPath));
     }
 

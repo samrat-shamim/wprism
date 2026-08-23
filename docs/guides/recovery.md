@@ -105,6 +105,67 @@ by this command. Both rows restore identically: the prefix names which verb
 wrote the dump and nothing else, and the four ordered steps below are the same
 four steps for either.
 
+### Pruning retained checkpoints
+
+Every promote and every standalone deploy leaves one more whole-database dump
+under `.duo/checkpoints`, and **nothing removes one on its own**. Duo has no
+automatic retention anywhere: a `.sql` on a target's disk carries no expiry, so
+`retention_until` on a retained row is `null` rather than a number the file
+does not actually promise. Removing them is an explicit operator verb, and it
+is the only thing in the product that deletes a checkpoint.
+
+It is two steps, because the first one deletes nothing:
+
+```console
+$ duo recover prod --prune-retained=3
+prune retained checkpoints on prod: keep 3 per verb
+  WOULD-PRUNE deploy-20260702-104500-ab12cd34ab12cd34ab12cd34ab12cd34  2026-07-02T10:45:00Z
+  WOULD-PRUNE promote-20260628-091402-0123456789abcdef0123456789abcdef  2026-06-28T09:14:02Z
+would prune 2, keep 6
+nothing was removed: re-run with --confirm-prune to remove exactly the rows above
+note: Duo prunes nothing on its own: retained checkpoints are removed only by this explicit operator verb
+note: the newest retained checkpoints are never deletable: the keep count applies separately to the promote and deploy files, so the most recent before-image of each verb survives every prune
+note: only the retained .sql under .duo/checkpoints is removed; the sibling .duo/artifacts/<stem>.json and the frozen authorization plan under .duo/releases are kept, because those are what the code-first gate reads for the checkpoints this prune left in place
+```
+
+Read those rows against the `--list` you just took — they are literally the
+same catalog — and then remove exactly them:
+
+```console
+$ duo recover prod --prune-retained=3 --confirm-prune
+prune retained checkpoints on prod: keep 3 per verb
+  REMOVED deploy-20260702-104500-ab12cd34ab12cd34ab12cd34ab12cd34  2026-07-02T10:45:00Z
+  REMOVED promote-20260628-091402-0123456789abcdef0123456789abcdef  2026-06-28T09:14:02Z
+pruned 2, kept 6
+```
+
+`REMOVED` means the file was there and is gone; `ABSENT` means it was already
+gone (someone else's `rm`, a restored backup) and is reported rather than
+silently counted as a removal.
+
+Five things it refuses or will not do, and why:
+
+1. **`--prune-retained=0` is not expressible.** The range is `1..50`, so the
+   newest checkpoint of a verb is never a candidate — it is unreachable by
+   grammar, not guarded against by a check.
+2. **The keep count is per verb.** `promote-` and `deploy-` files are counted
+   separately, so a month of deploys can never age out your last promote.
+3. **Signed receipts are never touched.** A receipt lives in the rollback
+   authority, not in `.duo/checkpoints`, and its id is a receipt id rather
+   than a file name.
+4. **It refuses entirely while a signed generation is nonterminal**
+   (`checkpoint_prune_generation_active`). Pruning mid-rollback is pruning
+   during a release; finish or roll the generation back first.
+5. **It does not accept `--writers-excluded`.** That flag asserts one exact
+   fact — that a maintenance window excludes every writer for a whole-database
+   import. A prune imports nothing and takes no lease, so passing it is
+   `invalid_arguments` rather than an accepted no-op.
+
+Only the `.sql` is removed. The sibling `.duo/artifacts/<stem>.json` and the
+frozen plan under `.duo/releases/` stay, because those are what the code-first
+gate reads for the checkpoints that **remain** — deleting them would quietly
+degrade recovery for the rows you just chose to keep.
+
 Two things need an adopted target with a **configured rollback authority**,
 and say so rather than improvise: reading the **signed** catalog (the rollback
 authority runtime the adoption installed) and driving a **signed** rollback.

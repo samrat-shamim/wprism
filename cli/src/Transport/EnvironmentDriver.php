@@ -189,12 +189,17 @@ final class DriverCapabilityReport {
     private static function requirements(string $operation): array {
         $requirements = match ($operation) {
             'attach' => [DriverCapability::ATTACH],
-            // DUO-3500. `code-resolve` writes the HOST's own checkout and runs
-            // no command on the target at all on the transports it supports
-            // (local, docker), so attach is the whole of its demand. Requiring
+            // DUO-3500. `code-resolve` resolves on the HOST — always, on every
+            // transport — so attach is the whole of its demand. Requiring
             // WP-CLI or raw control would refuse a resolution on a target that
-            // is merely asleep — and the bytes this verb materializes are on
-            // the host either way.
+            // is merely asleep, and on local and docker the bytes never leave
+            // the host at all. DUO-3514 added the ssh arm, which does contact
+            // the target to push and to verify; that stays out of this
+            // requirement set on purpose. The requirements are the driver's
+            // DECLARED capabilities, and an ssh driver declares raw and WP
+            // control unconditionally, so listing them here would refuse
+            // nothing new while moving every driver's capability report
+            // digest.
             'code-resolve' => [DriverCapability::ATTACH],
             'doctor' => [
                 DriverCapability::ATTACH, DriverCapability::RAW_CONTROL, DriverCapability::WP_CONTROL,

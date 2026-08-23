@@ -1,5 +1,5 @@
 {
-    "class_count": 352,
+    "class_count": 354,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -20490,6 +20490,167 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\Orchestrator\\CheckpointPrune": {
+            "abstract": false,
+            "constants": {
+                "DISCLOSURE_ARTIFACTS_KEPT": {
+                    "value_repr": "only the retained .sql under .duo/checkpoints is removed; the sibling .duo/artifacts/<stem>.json and the frozen authorization plan under .duo/releases are kept, because those are what the code-first gate reads for the checkpoints this prune left in place"
+                },
+                "DISCLOSURE_NEVER_AUTOMATIC": {
+                    "value_repr": "Duo prunes nothing on its own: retained checkpoints are removed only by this explicit operator verb"
+                },
+                "DISCLOSURE_NEWEST_KEPT": {
+                    "value_repr": "the newest retained checkpoints are never deletable: the keep count applies separately to the promote and deploy files, so the most recent before-image of each verb survives every prune"
+                },
+                "FORMAT": {
+                    "value_repr": "duo-checkpoint-prune/v1"
+                },
+                "KEEP_MAX": {
+                    "value_repr": 50
+                },
+                "KEEP_MIN": {
+                    "value_repr": 1
+                },
+                "REASON_GENERATION_ACTIVE": {
+                    "value_repr": "checkpoint_prune_generation_active"
+                },
+                "REASON_MALFORMED": {
+                    "value_repr": "checkpoint_prune_malformed"
+                },
+                "REASON_UNAVAILABLE": {
+                    "value_repr": "checkpoint_prune_unavailable"
+                },
+                "STATUS_ABSENT": {
+                    "value_repr": "absent"
+                },
+                "STATUS_FAILED": {
+                    "value_repr": "failed"
+                },
+                "STATUS_REMOVED": {
+                    "value_repr": "removed"
+                },
+                "STATUS_WOULD_PRUNE": {
+                    "value_repr": "would-prune"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "assertKeep": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "keep",
+                            "type": "int",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "parse": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "stdout",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "plan": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "catalog",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "keep",
+                            "type": "int",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "prune": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "Duo\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rows",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "script": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repoPath",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rows",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\Orchestrator\\ClassificationBatch": {
             "abstract": false,
             "constants": {
@@ -21533,9 +21694,88 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\Orchestrator\\CodePushTransport": {
+            "abstract": true,
+            "constants": [],
+            "final": false,
+            "interfaces": [
+                "Duo\\Orchestrator\\EnvironmentDriver"
+            ],
+            "kind": "interface",
+            "methods": {
+                "allocateCodePushInput": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "label",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "putCodePushInput": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "localPath",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "targetPath",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "removeCodePushInput": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "targetPath",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\Orchestrator\\CodeResolveCommand": {
             "abstract": false,
             "constants": {
+                "PUSH_STAGING": {
+                    "value_repr": ".duo/code-push"
+                },
+                "REASON_PUSH_FAILED": {
+                    "value_repr": "code_resolve_push_failed"
+                },
                 "REASON_TRANSPORT_UNSUPPORTED": {
                     "value_repr": "code_resolve_transport_unsupported"
                 }
@@ -26706,6 +26946,9 @@
                 "CODE_COVERAGE": {
                     "value_repr": "code release"
                 },
+                "CONFIRM_PRUNE_FLAG": {
+                    "value_repr": "--confirm-prune"
+                },
                 "ORDERED_STEPS": {
                     "value_repr": [
                         "abort",
@@ -26713,6 +26956,9 @@
                         "import",
                         "final-abort"
                     ]
+                },
+                "PRUNE_RETAINED_FLAG": {
+                    "value_repr": "--prune-retained"
                 },
                 "SOURCE_NONE": {
                     "value_repr": "unpublished"
@@ -31141,6 +31387,7 @@
             "final": true,
             "interfaces": [
                 "Duo\\Orchestrator\\AdoptionTransport",
+                "Duo\\Orchestrator\\CodePushTransport",
                 "Duo\\Orchestrator\\EnvironmentDriver",
                 "Duo\\Orchestrator\\RecoveryTransport"
             ],
@@ -31168,6 +31415,23 @@
                         }
                     ],
                     "return_type": null,
+                    "static": false,
+                    "visibility": "public"
+                },
+                "allocateCodePushInput": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "label",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
                     "static": false,
                     "visibility": "public"
                 },
@@ -31236,6 +31500,31 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "putCodePushInput": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "localPath",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "targetPath",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "putControlInput": {
                     "abstract": false,
                     "final": false,
@@ -31291,6 +31580,23 @@
                     "final": false,
                     "parameters": [],
                     "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "removeCodePushInput": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "targetPath",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": false,
                     "visibility": "public"
                 },
