@@ -144,6 +144,26 @@ $fieldId = (int) $field->get_id();
 if ($fieldId <= 0) {
     throw new RuntimeException('Ninja Forms native extended field save returned no id');
 }
+$form = Ninja_Forms()->form($formId)->get();
+$formContent = $form->get_setting('formContentData');
+if (!is_array($formContent)) {
+    throw new RuntimeException('Ninja Forms native form layout is not an array');
+}
+$formContent = array_values(array_filter(
+    $formContent,
+    static function ($key): bool {
+        return (string) $key !== 'duo_disposable_child';
+    }
+));
+$insertAt = count($formContent);
+foreach ($formContent as $offset => $key) {
+    if (strpos((string) $key, 'submit_') === 0) {
+        $insertAt = $offset;
+        break;
+    }
+}
+array_splice($formContent, $insertAt, 0, ['duo_disposable_child']);
+$form->update_setting('formContentData', $formContent)->save();
 $action = Ninja_Forms()->form($formId)->action()->get();
 $action
     ->update_setting('type', 'successmessage')

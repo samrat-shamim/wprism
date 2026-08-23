@@ -60,6 +60,17 @@ $formIds = array_values(array_map('intval', $wpdb->get_col(
 )));
 $fieldIds = $ids('nf3_fields', $formId);
 $actionIds = $ids('nf3_actions', $formId);
+$fieldKeys = array_values(array_map('strval', (array) $wpdb->get_col($wpdb->prepare(
+    "SELECT `key` FROM {$wpdb->prefix}nf3_fields WHERE parent_id=%d ORDER BY id",
+    $formId
+))));
+$formContent = $form->get_setting('formContentData');
+$layoutKeys = is_array($formContent) ? array_values(array_map('strval', $formContent)) : [];
+$sortedFieldKeys = $fieldKeys;
+$sortedLayoutKeys = $layoutKeys;
+sort($sortedFieldKeys, SORT_STRING);
+sort($sortedLayoutKeys, SORT_STRING);
+$layoutMatchesFields = $sortedLayoutKeys === $sortedFieldKeys;
 $disposableField = (int) $wpdb->get_var($wpdb->prepare(
     "SELECT id FROM {$wpdb->prefix}nf3_fields WHERE parent_id=%d AND `key`='duo_disposable_child'",
     $formId
@@ -164,6 +175,9 @@ echo wp_json_encode([
         'large_bytes' => $largeBytes,
         'serialized_valid' => $serializedValid,
         'serialized_url' => $serializedUrl,
+        'layout_fields' => count($layoutKeys),
+        'layout_has_disposable' => in_array('duo_disposable_child', $layoutKeys, true),
+        'layout_matches_fields' => $layoutMatchesFields,
     ],
     'cache' => [
         'form_ids' => $formIds,
@@ -202,6 +216,8 @@ jq -e --arg version "$NINJA_EXPECTED_VERSION" --arg target_home "http://localhos
   .form.disposable_field > 0 and .form.disposable_action > 0 and
   .form.large_bytes > 100000 and .form.serialized_valid == true and
   .form.serialized_url == ($target_home + "/conformance-careers/?from=ninja") and
+  .form.layout_fields == 24 and .form.layout_has_disposable == true and
+  .form.layout_matches_fields == true and
   .cache.form_ids == [.form.id] and .cache.cache_ids == [.form.id] and
   .cache.invalid == 0 and .cache.missing == [] and .cache.orphan == [] and .cache.legacy == [] and
   .meta_mirror_mismatch == 0 and
@@ -565,6 +581,18 @@ $fieldId = (int) getenv('NF_FIELD_ID');
 $actionId = (int) getenv('NF_ACTION_ID');
 Ninja_Forms()->form($formId)->field($fieldId)->get()->delete();
 Ninja_Forms()->form($formId)->action($actionId)->get()->delete();
+$form = Ninja_Forms()->form($formId)->get();
+$formContent = $form->get_setting('formContentData');
+if (!is_array($formContent)) {
+    throw new RuntimeException('Ninja Forms source child deletion found an invalid native layout');
+}
+$formContent = array_values(array_filter(
+    $formContent,
+    static function ($key): bool {
+        return (string) $key !== 'duo_disposable_child';
+    }
+));
+$form->update_setting('formContentData', $formContent)->save();
 WPN_Helper::delete_nf_cache($formId);
 $cache = WPN_Helper::build_nf_cache($formId);
 if (count((array) ($cache['fields'] ?? [])) !== 23
@@ -600,6 +628,8 @@ DELETE_OBSERVED=$(observe_ninja_forms conf2)
 jq -e '
   .form.native_fields == 23 and .form.native_actions == 3 and
   .form.disposable_field == 0 and .form.disposable_action == 0 and
+  .form.layout_fields == 23 and .form.layout_has_disposable == false and
+  .form.layout_matches_fields == true and
   .runtime.submission_marker == "target-submission-survives" and
   .cache.invalid == 0 and .cache.missing == [] and .cache.orphan == []
 ' <<<"$DELETE_OBSERVED" >/dev/null || fail "Ninja Forms child deletion left invalid native/cache/runtime state: $DELETE_OBSERVED"
