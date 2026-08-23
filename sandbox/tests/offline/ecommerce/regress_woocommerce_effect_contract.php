@@ -576,7 +576,6 @@ woo_effect_check(
                     'add_filter',
                     'remove_filter',
                     'get_post_meta',
-                    'maybe_unserialize',
                     'delete_post_meta',
                     'add_post_meta',
                     'wc_maybe_schedule_product_sale_events',
@@ -771,7 +770,7 @@ foreach (['product', 'product_variation'] as $postType) {
                 'type' => 'provider_resource',
                 'value' => 'woocommerce-product-cache-event:v1:cache_group=pa_尺寸_relationships;key=42',
             ]),
-        "$postType aggregate matcher reconciles a valid multibyte WooCommerce 11.0.0 attribute slug"
+        "$postType aggregate matcher reconciles a valid multibyte WooCommerce 11.0.x attribute slug"
     );
     woo_effect_check(
         // Case-lacking multibyte scripts (CJK, Arabic, Hebrew, ...) stay

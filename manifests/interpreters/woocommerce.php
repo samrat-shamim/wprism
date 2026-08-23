@@ -213,7 +213,7 @@ final class Woocommerce {
             }
             if (($row['is_taxonomy'] ?? null) === 1) {
                 if (($row['name'] ?? null) !== $attributeKey
-                    || preg_match('/^pa_[a-z0-9_-]+$/D', $attributeKey) !== 1) {
+                    || !$this->is_global_attribute_name($attributeKey)) {
                     $out[] = $this->diagnostic(
                         $path,
                         "$locator.name",
@@ -230,6 +230,18 @@ final class Woocommerce {
             }
         }
         return $out;
+    }
+
+    /**
+     * WordPress rejects taxonomy names over 32 bytes, while Woo prefixes the
+     * stored attribute slug with `pa_`. Lowercase/caseless Unicode letters
+     * and decimal digits are the multibyte counterpart of the prior ASCII
+     * grammar; uppercase, symbols, number-letters, invalid UTF-8, and an empty
+     * slug remain outside the reviewed boundary.
+     */
+    private function is_global_attribute_name(string $name): bool {
+        return strlen($name) <= 32
+            && preg_match('/^pa_[\p{Ll}\p{Lo}\p{Nd}][\p{Ll}\p{Lo}\p{Nd}_-]*$/uD', $name) === 1;
     }
 
     /** @return array{code:string,path:string,locator:string,message:string} */

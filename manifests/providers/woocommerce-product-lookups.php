@@ -141,12 +141,11 @@ final class WoocommerceProductLookups {
      * authority because Woo exposes no independent bounded value oracle; its
      * apply surface is explicitly unsupported in the manifest disposition.
      *
-     * before/after are observed row cardinalities in the supported product
-     * meta lookup over exactly the ids this invocation was handed — a cheap,
-     * value-level statement about what changed. They are deliberately NOT the
-     * verification: a count is not proof that a row holds what WooCommerce
-     * derives. The exact-state pass verifies the supported product-meta and
-     * sale-schedule surfaces only.
+     * before/after bind every selected product-meta lookup value, scheduled
+     * sale timestamp, and downloadable-file locator into non-disclosing
+     * fingerprints. The exact-state pass still proves what WooCommerce
+     * derives during invocation; the fingerprints let scoped recovery prove
+     * that same-count post-invocation drift did not replace those values.
      *
      * @param array<string,mixed> $args
      * @return array{before:array, after:array, verified:true}
@@ -380,34 +379,123 @@ final class WoocommerceProductLookups {
     }
 
     /**
-     * Row cardinality in the supported product-meta lookup for a bounded id set.
-     *
-     * Batched into `IN (...)` chunks rather than two COUNTs per id (independent
-     * review, F7): a receipt is observation, and observation must not cost
-     * 4 × |batch| round trips on a catalog-sized apply. The chunk bound keeps
-     * the statement well inside any placeholder limit while staying one query
-     * per chunk per side. Nothing branches on this observation; exact
-     * verification remains the separate gate below.
+     * Bind exact lookup rows for a bounded id set without placing merchant
+     * values in a receipt. The requested ids enter the fingerprint even when
+     * no row exists, so absence and scope changes are distinct states. One
+     * ordered SELECT per 200 products keeps recovery observation bounded.
      *
      * @param array<int,int> $ids
-     * @return array{scoped_products:int, meta_lookup_rows:int}
+     * @return array{scoped_products:int, meta_lookup_rows:int, lookup_scope_sha256:string}
      */
     private function observe_lookup_state(array $ids): array {
         global $wpdb;
-        $ids = array_values(array_filter(array_map('intval', $ids), static fn(int $id): bool => $id > 0));
-        $metaRows = 0;
+        $ids = array_values(array_unique(array_filter(
+            array_map('intval', $ids),
+            static fn(int $id): bool => $id > 0
+        )));
+        sort($ids, SORT_NUMERIC);
+        $rowsById = [];
         foreach (array_chunk($ids, 200) as $chunk) {
             $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
-            $metaRows += (int) \Duo\ProviderSdk::checked_get_var($wpdb->prepare(
-                "SELECT COUNT(*) FROM {$wpdb->prefix}" . self::META_LOOKUP
-                . " WHERE product_id IN ($placeholders)",
+            $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+                "SELECT * FROM `{$wpdb->prefix}" . self::META_LOOKUP . "` "
+                . "WHERE product_id IN ($placeholders) ORDER BY product_id ASC",
                 ...$chunk
             ), 'product lookup receipt observation');
+            foreach ($rows as $row) {
+                $productId = (int) ($row['product_id'] ?? 0);
+                if ($productId <= 0 || !in_array($productId, $chunk, true)) {
+                    throw new \RuntimeException(
+                        'duo: WooCommerce product lookup receipt read returned an out-of-scope owner'
+                    );
+                }
+                if (isset($rowsById[$productId])) {
+                    throw new \RuntimeException(
+                        "duo: WooCommerce product lookup receipt read returned multiple rows for product $productId"
+                    );
+                }
+                $normalized = [];
+                foreach ($row as $column => $value) {
+                    if (!is_string($column) || $column === '' || (!is_string($value) && $value !== null)) {
+                        throw new \RuntimeException(
+                            "duo: WooCommerce product lookup receipt read returned non-scalar state for product $productId"
+                        );
+                    }
+                    $normalized[$column] = $value;
+                }
+                ksort($normalized, SORT_STRING);
+                $rowsById[$productId] = $normalized;
+            }
+        }
+
+        $fingerprint = hash_init('sha256');
+        foreach ($ids as $id) {
+            $this->fingerprint_part($fingerprint, (string) $id);
+            $row = $rowsById[$id] ?? null;
+            $this->fingerprint_part($fingerprint, $row === null ? 'absent' : 'present');
+            if ($row === null) {
+                continue;
+            }
+            foreach ($row as $column => $value) {
+                $this->fingerprint_part($fingerprint, $column);
+                $this->fingerprint_part($fingerprint, $value === null ? 'null' : 'string');
+                if ($value !== null) {
+                    $this->fingerprint_part($fingerprint, $value);
+                }
+            }
         }
         return [
             'scoped_products' => count($ids),
-            'meta_lookup_rows' => $metaRows,
+            'meta_lookup_rows' => count($rowsById),
+            'lookup_scope_sha256' => hash_final($fingerprint),
         ];
+    }
+
+    /**
+     * Bind the exact presence and timestamp of both Woo scheduled-sale hooks
+     * for every observed product. Counts alone cannot distinguish a replaced
+     * timestamp, which would otherwise let scoped recovery retire stale work.
+     *
+     * @param list<int> $ids
+     * @return array{sale_schedule_products:int,sale_schedule_actions:int,sale_schedule_scope_sha256:string}
+     */
+    private function observe_sale_schedule_state(array $ids): array {
+        $ids = array_values(array_unique(array_filter(
+            array_map('intval', $ids),
+            static fn(int $id): bool => $id > 0
+        )));
+        sort($ids, SORT_NUMERIC);
+        $fingerprint = hash_init('sha256');
+        $actions = 0;
+        foreach ($ids as $id) {
+            $this->fingerprint_part($fingerprint, (string) $id);
+            foreach (['wc_product_start_scheduled_sale', 'wc_product_end_scheduled_sale'] as $hook) {
+                $this->fingerprint_part($fingerprint, $hook);
+                $actual = \as_next_scheduled_action($hook, ['product_id' => $id], 'woocommerce-sales');
+                if ($actual === false || $actual === null) {
+                    $this->fingerprint_part($fingerprint, 'absent');
+                    continue;
+                }
+                if (!is_int($actual) || $actual <= 0) {
+                    throw new \RuntimeException(
+                        "duo: WooCommerce sale schedule receipt returned an unusable timestamp for product $id ($hook)"
+                    );
+                }
+                $actions++;
+                $this->fingerprint_part($fingerprint, 'present');
+                $this->fingerprint_part($fingerprint, (string) $actual);
+            }
+        }
+        return [
+            'sale_schedule_products' => count($ids),
+            'sale_schedule_actions' => $actions,
+            'sale_schedule_scope_sha256' => hash_final($fingerprint),
+        ];
+    }
+
+    /** @param resource|\HashContext $fingerprint */
+    private function fingerprint_part($fingerprint, string $part): void {
+        hash_update($fingerprint, strlen($part) . ':' . $part . ';');
     }
 
     /**
@@ -422,6 +510,7 @@ final class WoocommerceProductLookups {
     private function observe_provider_state(array $lookupIds, array $liveIds, bool $verifyNative): array {
         return array_merge(
             $this->observe_lookup_state($lookupIds),
+            $this->observe_sale_schedule_state($lookupIds),
             $this->download_directory_state($liveIds, $verifyNative)
         );
     }
@@ -528,7 +617,10 @@ final class WoocommerceProductLookups {
                     );
                 }
                 $seenProducts[$productId] = true;
-                $decoded = maybe_unserialize((string) ($row['meta_value'] ?? ''));
+                $decoded = \Duo\PlainData::decode_serialized(
+                    (string) ($row['meta_value'] ?? ''),
+                    "WooCommerce product $productId downloadable-file metadata"
+                );
                 if (!is_array($decoded) || ($decoded !== [] && array_is_list($decoded))) {
                     throw new \RuntimeException(
                         "duo: WooCommerce product $productId has malformed downloadable-file metadata"
@@ -1487,7 +1579,7 @@ final class WoocommerceProductLookups {
      * plugin init. WooCommerce itself registers pa_* taxonomies during init
      * from wc_get_attribute_taxonomies(); Duo's typed-table apply can land a
      * new definition later in the same request. The public cache invalidators
-     * plus WooCommerce 11.0.0's own derived register_taxonomy() arguments and
+     * plus WooCommerce 11.0.x's own derived register_taxonomy() arguments and
      * filters restore the same product/cache/visibility contract for the
      * remainder of this bounded product repair. This is deliberately kept in
      * the version-pinned manifest provider rather than generic engine code.
@@ -1506,7 +1598,7 @@ final class WoocommerceProductLookups {
 
         // wc_get_permalink_structure() normalizes and persists the whole
         // woocommerce_permalinks option when defaults are missing. This
-        // post-apply registry repair only needs Woo 11.0.0's derived
+        // post-apply registry repair only needs Woo 11.0.x's derived
         // attribute rewrite base, so reproduce that option-write-free projection without
         // turning taxonomy registration into an unrelated option write.
         $savedPermalinks = (array) get_option('woocommerce_permalinks', []);
@@ -1535,7 +1627,7 @@ final class WoocommerceProductLookups {
 
             // Keep this derivation byte-for-byte aligned with the dynamic
             // attribute block in WC_Post_Types::register_taxonomies() for the
-            // certified WooCommerce 11.0.0 surface. In particular, omitted
+            // certified WooCommerce 11.0.x surface. In particular, omitted
             // register_taxonomy() defaults are public/queryable/rewriteable;
             // every visibility field must therefore be explicit here.
             $attribute->attribute_public = absint(

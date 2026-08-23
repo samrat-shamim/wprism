@@ -68,7 +68,6 @@ $expectedRequires = [
         'add_filter',
         'remove_filter',
         'get_post_meta',
-        'maybe_unserialize',
         'delete_post_meta',
         'add_post_meta',
         'wc_maybe_schedule_product_sale_events',
@@ -154,6 +153,9 @@ check(count($allCheckedReads[0] ?? []) > 0
 check(!preg_match('/\\$this\\s*->\\s*checked_get_(?:var|col|row|results)\\s*\\(/', $code)
     && !preg_match('/\\$wpdb\\s*->\\s*get_(?:var|col|row|results)\\s*\\(/', $code),
     'Woo provider has no private or direct wpdb checked-read call sites left');
+check(str_contains($code, '\\Duo\\PlainData::decode_serialized(')
+    && !str_contains($code, 'maybe_unserialize('),
+    'raw downloadable metadata crosses the shared class-disabled plain-data boundary before native product hooks');
 $needles = [
     'refresh_product_lookup_table' => 'public product meta lookup refresh API is used',
     'sync_price' => 'variable roots use Woo variable data-store price sync',
@@ -177,7 +179,7 @@ $needles = [
     'woocommerce_taxonomy_args_{$taxonomy}' => 'Woo taxonomy args remain filterable by taxonomy',
     'woocommerce_attribute_show_in_nav_menus' => 'public Woo attributes retain the nav-menu filter seam',
     "get_option('woocommerce_permalinks', [])" => 'public Woo attributes read the reviewed permalink setting without persisting defaults',
-    'wp_parse_args' => 'the option-write-free projection applies Woo 11.0.0 permalink defaults',
+    'wp_parse_args' => 'the option-write-free projection applies exact Woo 11.0.x permalink defaults',
     'untrailingslashit' => 'the attribute rewrite base mirrors Woo permalink normalization',
     'sanitize_title' => 'public Woo attribute rewrites use Woo slug sanitization',
     'trailingslashit' => 'public Woo attribute rewrites preserve Woo trailing-slash composition',

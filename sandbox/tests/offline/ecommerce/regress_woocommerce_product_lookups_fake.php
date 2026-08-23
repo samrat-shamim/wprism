@@ -225,10 +225,16 @@ namespace {
         define('ARRAY_A', 'ARRAY_A');
     }
 
+    final class FakeDownloadWakeupCanary {
+        public function __wakeup(): void {
+            $GLOBALS['fakeDownloadWakeups']++;
+        }
+    }
+
     final class FakeWpdb {
         /**
          * wc_product_meta_lookup's real column types, verbatim from
-         * WooCommerce 11.0.0 (class-wc-install.php:1977): every column but
+         * WooCommerce 11.0.x (class-wc-install.php:1977): every column but
          * product_id is NULLable, prices are decimal(19,4) default NULL,
          * stock_quantity is double default NULL, total_sales is bigint(20)
          * default 0, average_rating is decimal(3,2) default 0.00, the flags
@@ -415,7 +421,7 @@ namespace {
         }
 
         public function get_results(string $query, $output = null): array {
-            global $fakeAttrLookup, $fakeMeta, $fakeDownloadMetaRows;
+            global $fakeAttrLookup, $fakeMeta, $fakeMetaLookup, $fakeDownloadMetaRows;
             if ($this->failReadContaining !== null && str_contains($query, $this->failReadContaining)) {
                 $this->last_error = 'simulated read failure';
                 return [];
@@ -437,6 +443,24 @@ namespace {
                             'meta_value' => (string) $value,
                         ];
                     }
+                }
+                return $rows;
+            }
+            if (preg_match(
+                '/SELECT \\* FROM `wp_wc_product_meta_lookup` WHERE product_id IN \\(([0-9, ]+)\\) ORDER BY product_id ASC/',
+                $query,
+                $match
+            )) {
+                $ids = array_map('intval', preg_split('/\\s*,\\s*/', trim($match[1])) ?: []);
+                $rows = [];
+                foreach ($ids as $id) {
+                    if (!isset($fakeMetaLookup[$id])) {
+                        continue;
+                    }
+                    $rows[] = array_map(
+                        static fn($value) => $value === null ? null : (string) $value,
+                        $fakeMetaLookup[$id]
+                    );
                 }
                 return $rows;
             }
@@ -1389,6 +1413,7 @@ namespace {
     }
 
     require dirname(__DIR__, 4) . '/agent/src/Kernel/Canon.php';
+    require dirname(__DIR__, 4) . '/agent/src/Kernel/PlainData.php';
     require dirname(__DIR__, 4) . '/agent/src/Kernel/OptionState.php';
     require dirname(__DIR__, 4) . '/agent/src/Policy/Policy.php';
     require dirname(__DIR__, 4) . '/agent/src/Adapter/ProviderSdk.php';
@@ -1544,6 +1569,32 @@ namespace {
     $check($duplicateFailure,
         'duplicate raw download metadata rows refuse instead of selecting an arbitrary value');
 
+    $downloadScopeArgs = [
+        'entities' => [
+            'entities' => [['kind' => 'post:product', 'id' => 17]],
+            'always_on_write' => true,
+            'deletions' => [],
+            'reparents' => [],
+            'retry' => true,
+        ],
+    ];
+    $scopeOperation = ['fixture' => 'woocommerce-scoped-recovery'];
+    $fakeDownloadWakeups = 0;
+    $fakeMeta[17]['_downloadable_files'] = [serialize(new FakeDownloadWakeupCanary())];
+    $approvalAddsBeforeObject = $register->adds;
+    $objectFailure = '';
+    try {
+        $adapter->reconcile_scoped('rebuild_product_lookups', $downloadScopeArgs, $scopeOperation);
+    } catch (\Throwable $failure) {
+        $objectFailure = $failure->getMessage();
+    }
+    $check($fakeDownloadWakeups === 0
+        && $register->adds === $approvalAddsBeforeObject
+        && str_contains($objectFailure, 'non-plain serialized data')
+        && str_contains($objectFailure, 'downloadable-file metadata'),
+        'scoped recovery rejects serialized download objects before __wakeup or approved-directory hooks execute');
+    $fakeMeta[17]['_downloadable_files'] = [$downloadRow($downloadFile)];
+
     $lookupBeforeReadFailure = $fakeMetaLookup[17];
     $wpdb->failReadContaining = "meta_key = '_downloadable_files'";
     $readFailure = false;
@@ -1569,9 +1620,36 @@ namespace {
     $receiptBytes = serialize($receipt);
     $check(($receipt['after']['download_files'] ?? null) === 1
         && ($receipt['after']['usable_download_files'] ?? null) === 1
+        && preg_match('/^[a-f0-9]{64}$/D', (string) ($receipt['after']['lookup_scope_sha256'] ?? '')) === 1
+        && preg_match('/^[a-f0-9]{64}$/D', (string) ($receipt['after']['sale_schedule_scope_sha256'] ?? '')) === 1
         && preg_match('/^[a-f0-9]{64}$/D', (string) ($receipt['after']['download_scope_sha256'] ?? '')) === 1
         && !str_contains($receiptBytes, 'target.example') && !str_contains($receiptBytes, 'catalog.pdf'),
-        'verified receipts stay bounded and bind the download scope without exposing authored URLs');
+        'verified receipts stay bounded and bind exact lookup, sale, and download state without exposing authored values');
+
+    $downloadScoped = $adapter->invoke_scoped(
+        'rebuild_product_lookups',
+        $downloadScopeArgs,
+        $scopeOperation
+    );
+    $fakeMeta[17]['_downloadable_files'] = [$downloadRow($downloadFile . '&revision=2')];
+    $downloadDrift = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $downloadScopeArgs,
+        $scopeOperation
+    );
+    $check(($downloadDrift['after']['download_files'] ?? null)
+            === ($downloadScoped['after']['download_files'] ?? null)
+        && ($downloadDrift['after']['download_scope_sha256'] ?? null)
+            !== ($downloadScoped['after']['download_scope_sha256'] ?? null),
+        'same-count downloadable-file drift cannot match the saved scoped postcondition');
+    $fakeMeta[17]['_downloadable_files'] = [$downloadRow($downloadFile)];
+    $downloadRecovered = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $downloadScopeArgs,
+        $scopeOperation
+    );
+    $check(($downloadRecovered['after'] ?? null) === ($downloadScoped['after'] ?? null),
+        'restoring the exact downloadable-file state makes scoped recovery deterministic and retryable');
 
     // Woo publishes the uncoerced PHP price in its derivation cache while
     // MySQL assigns that value into DECIMAL(19,4). The verifier must accept
@@ -1625,6 +1703,61 @@ namespace {
     $adapter->regenerate_batch([13], []);
     $check(($fakeSaleSchedules['wc_product_end_scheduled_sale'][13] ?? null) === $futureSale,
         'sale scheduling retry restores the exact future action after a verification failure');
+
+    $productScopeArgs = [
+        'entities' => [
+            'entities' => [['kind' => 'post:product', 'id' => 13]],
+            'always_on_write' => true,
+            'deletions' => [],
+            'reparents' => [],
+            'retry' => true,
+        ],
+    ];
+    $productScoped = $adapter->invoke_scoped(
+        'rebuild_product_lookups',
+        $productScopeArgs,
+        $scopeOperation
+    );
+    $exactLookupRow = $fakeMetaLookup[13];
+    $fakeMetaLookup[13]['min_price'] = 'same-count-drift';
+    $lookupDrift = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $productScopeArgs,
+        $scopeOperation
+    );
+    $check(($lookupDrift['after']['meta_lookup_rows'] ?? null)
+            === ($productScoped['after']['meta_lookup_rows'] ?? null)
+        && ($lookupDrift['after']['lookup_scope_sha256'] ?? null)
+            !== ($productScoped['after']['lookup_scope_sha256'] ?? null),
+        'same-count lookup-value drift cannot match the saved scoped postcondition');
+    $fakeMetaLookup[13] = $exactLookupRow;
+    $lookupRecovered = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $productScopeArgs,
+        $scopeOperation
+    );
+    $check(($lookupRecovered['after'] ?? null) === ($productScoped['after'] ?? null),
+        'restoring every lookup value recovers the exact scoped postcondition');
+
+    $fakeSaleSchedules['wc_product_end_scheduled_sale'][13] = $futureSale + 1;
+    $saleDrift = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $productScopeArgs,
+        $scopeOperation
+    );
+    $check(($saleDrift['after']['sale_schedule_actions'] ?? null)
+            === ($productScoped['after']['sale_schedule_actions'] ?? null)
+        && ($saleDrift['after']['sale_schedule_scope_sha256'] ?? null)
+            !== ($productScoped['after']['sale_schedule_scope_sha256'] ?? null),
+        'same-count scheduled-sale timestamp drift cannot match the saved scoped postcondition');
+    $fakeSaleSchedules['wc_product_end_scheduled_sale'][13] = $futureSale;
+    $saleRecovered = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $productScopeArgs,
+        $scopeOperation
+    );
+    $check(($saleRecovered['after'] ?? null) === ($productScoped['after'] ?? null),
+        'restoring exact scheduled-sale timestamps recovers the saved scoped postcondition');
 
     $groupedDiscovery = new \ReflectionMethod($adapter, 'find_grouped_parent_ids');
     $wpdb->failReadContaining = "meta_key = '_children'";

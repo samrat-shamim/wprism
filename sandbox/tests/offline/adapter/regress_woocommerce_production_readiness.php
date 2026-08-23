@@ -101,6 +101,12 @@ duo_check_same(null, $interpreter->post_meta_rule('_sku', []), 'unrelated WooCom
 
 $global = ['pa_duo-size' => woo_readiness_attribute()];
 duo_check_same([], woo_readiness_diagnostics($interpreter, $global), 'the exact WooCommerce 11.x global-attribute row is clean');
+$multibyteGlobal = ['pa_尺寸' => woo_readiness_attribute(['name' => 'pa_尺寸'])];
+duo_check_same(
+    [],
+    woo_readiness_diagnostics($interpreter, $multibyteGlobal),
+    'the exact pa_尺寸 Woo-native multibyte global-attribute taxonomy survives interpreter readiness'
+);
 duo_check_same([], woo_readiness_diagnostics($interpreter, []), 'the native empty attribute map remains valid');
 duo_check_same(
     [],
@@ -134,6 +140,22 @@ woo_readiness_reports($interpreter, ['pa_duo-size' => woo_readiness_attribute(['
 woo_readiness_reports($interpreter, ['pa_duo-size' => woo_readiness_attribute(['is_taxonomy' => -1])], 'is_taxonomy must be integer 0 or 1');
 woo_readiness_reports($interpreter, ['pa_duo-size' => woo_readiness_attribute(['name' => 'pa_other'])], 'must equal its pa_* object key');
 woo_readiness_reports($interpreter, ['PA_DUO_SIZE' => woo_readiness_attribute(['name' => 'PA_DUO_SIZE'])], 'must equal its pa_* object key');
+woo_readiness_reports($interpreter, ['pa_Pa色' => woo_readiness_attribute(['name' => 'pa_Pa色'])], 'must equal its pa_* object key');
+woo_readiness_reports($interpreter, ['pa_★' => woo_readiness_attribute(['name' => 'pa_★'])], 'must equal its pa_* object key');
+woo_readiness_reports($interpreter, ['pa_Ⅷ' => woo_readiness_attribute(['name' => 'pa_Ⅷ'])], 'must equal its pa_* object key');
+woo_readiness_reports($interpreter, ['pa_-color' => woo_readiness_attribute(['name' => 'pa_-color'])], 'must equal its pa_* object key');
+$overlongTaxonomy = 'pa_' . str_repeat('尺', 10);
+woo_readiness_reports(
+    $interpreter,
+    [$overlongTaxonomy => woo_readiness_attribute(['name' => $overlongTaxonomy])],
+    'must equal its pa_* object key'
+);
+$invalidUtf8Taxonomy = "pa_\xFF";
+woo_readiness_reports(
+    $interpreter,
+    [$invalidUtf8Taxonomy => woo_readiness_attribute(['name' => $invalidUtf8Taxonomy])],
+    'must equal its pa_* object key'
+);
 woo_readiness_reports($interpreter, ['pa_duo-size' => woo_readiness_attribute(['value' => 'source-local option'])], 'global attribute value must be empty');
 woo_readiness_reports($interpreter, $global, 'valid only on product entities', 'product_variation');
 
