@@ -1,6 +1,65 @@
 <?php
 declare(strict_types=1);
 
+namespace TEC\Events\Category_Colors\CSS {
+    final class Controller {
+        public function generate_css(): void {
+            $GLOBALS['tec_readiness_category_color_generator']->generate_and_save_css();
+            $GLOBALS['tec_readiness_category_color_dropdown']->bust_dropdown_categories_cache();
+        }
+    }
+
+    final class Generator {
+        public function generate_and_save_css(): string {
+            ++$GLOBALS['tec_readiness_color_controller_calls'];
+            \tec_readiness_set_css($GLOBALS['tec_readiness_generated_css']);
+            $mode = $GLOBALS['tec_readiness_color_controller_mode'] ?? '';
+            if ($mode === 'throw_after_css') {
+                $GLOBALS['tec_readiness_color_controller_mode'] = '';
+                throw new \RuntimeException('injected native Category Colors failure after CSS write');
+            }
+            return $GLOBALS['tec_readiness_generated_css'];
+        }
+    }
+}
+
+namespace TEC\Events\Category_Colors\Repositories {
+    final class Category_Color_Dropdown_Provider {
+        public const CACHE_KEY = 'tec_category_colors_dropdown_categories';
+
+        /** @return mixed */
+        public function get_dropdown_categories(): mixed {
+            ++$GLOBALS['tec_readiness_dropdown_get_calls'];
+            if ($GLOBALS['tec_readiness_dropdown_rows'] === false) {
+                $GLOBALS['tec_readiness_dropdown_rows'] = $GLOBALS['tec_readiness_generated_dropdown_rows'];
+                ++$GLOBALS['tec_readiness_cache_sets'];
+            }
+            return $GLOBALS['tec_readiness_dropdown_rows'];
+        }
+
+        public function bust_dropdown_categories_cache(): void {
+            ++$GLOBALS['tec_readiness_cache_busts'];
+            if (($GLOBALS['tec_readiness_color_controller_mode'] ?? '') === 'cache_delete_noop') {
+                $GLOBALS['tec_readiness_color_controller_mode'] = '';
+                return;
+            }
+            $GLOBALS['tec_readiness_dropdown_rows'] = false;
+            if (($GLOBALS['tec_readiness_color_controller_mode'] ?? '') === 'throw_after_cache_bust') {
+                $GLOBALS['tec_readiness_color_controller_mode'] = '';
+                throw new \RuntimeException('injected native Category Colors failure after cache bust');
+            }
+        }
+    }
+}
+
+namespace {
+final class Tribe__Cache {
+    public function get(string $id): mixed {
+        ++$GLOBALS['tec_readiness_cache_reads'];
+        return $GLOBALS['tec_readiness_dropdown_rows'];
+    }
+}
+
 /** Exact TEC 6.17.2/6.17.3 schema, identity, and refusal boundary. */
 
 if (!defined('DUO_SPEC_VERSION')) {
@@ -40,33 +99,6 @@ final class TecReadinessNativeColor {
 
     public function get_hex_with_hash(): string {
         return strtolower($this->value);
-    }
-}
-
-final class TecReadinessNativeMarker {}
-
-final class TecReadinessCategoryColorController {
-    public function generate_css(): void {
-        ++$GLOBALS['tec_readiness_color_controller_calls'];
-        tec_readiness_set_css($GLOBALS['tec_readiness_generated_css']);
-        $mode = $GLOBALS['tec_readiness_color_controller_mode'] ?? '';
-        if ($mode === 'throw_after_css') {
-            $GLOBALS['tec_readiness_color_controller_mode'] = '';
-            throw new RuntimeException('injected native Category Colors failure after CSS write');
-        }
-        $GLOBALS['tec_readiness_dropdown_rows'] = $GLOBALS['tec_readiness_generated_dropdown_rows'];
-        ++$GLOBALS['tec_readiness_cache_busts'];
-        if ($mode === 'throw_after_cache_bust') {
-            $GLOBALS['tec_readiness_color_controller_mode'] = '';
-            throw new RuntimeException('injected native Category Colors failure after cache bust');
-        }
-    }
-}
-
-final class TecReadinessCategoryColorDropdown {
-    /** @return mixed */
-    public function get_dropdown_categories(): mixed {
-        return $GLOBALS['tec_readiness_dropdown_rows'];
     }
 }
 
@@ -252,13 +284,6 @@ final class TecReadinessOccurrenceSaver {
 }
 
 class_alias(TecReadinessNativeColor::class, 'Tribe__Utils__Color');
-foreach ([
-    'TEC\\Events\\Category_Colors\\CSS\\Controller',
-    'TEC\\Events\\Category_Colors\\CSS\\Generator',
-    'TEC\\Events\\Category_Colors\\Repositories\\Category_Color_Dropdown_Provider',
-] as $tecReadinessNativeClass) {
-    class_alias(TecReadinessNativeMarker::class, $tecReadinessNativeClass);
-}
 class_alias(TecReadinessEventModel::class, 'TEC\Events\Custom_Tables\V1\Models\Event');
 
 /** @return mixed */
@@ -282,6 +307,7 @@ function get_terms(array $args = []): array {
 }
 
 function has_filter(string $hookName, callable|false $callback = false): bool|int {
+    $GLOBALS['tec_readiness_has_filter_calls'][] = $hookName;
     return in_array($hookName, $GLOBALS['tec_readiness_filters'] ?? [], true);
 }
 
@@ -298,13 +324,25 @@ function sanitize_title(string $title): string {
 }
 
 function tribe(string $class): object {
-    return $class === 'TEC\\Events\\Category_Colors\\Repositories\\Category_Color_Dropdown_Provider'
-        ? $GLOBALS['tec_readiness_category_color_dropdown']
-        : $GLOBALS['tec_readiness_category_color_controller'];
+    return match ($class) {
+        'TEC\\Events\\Category_Colors\\CSS\\Generator' =>
+            $GLOBALS['tec_readiness_category_color_generator'],
+        'TEC\\Events\\Category_Colors\\Repositories\\Category_Color_Dropdown_Provider' =>
+            $GLOBALS['tec_readiness_category_color_dropdown'],
+        default => $GLOBALS['tec_readiness_category_color_controller'],
+    };
+}
+
+function tribe_cache(): object {
+    return $GLOBALS['tec_readiness_category_color_cache'];
 }
 
 function tribe_get_option(string $name, mixed $default = false): mixed {
     return $GLOBALS['tec_readiness_tribe_options'][$name] ?? $default;
+}
+
+function wp_using_ext_object_cache(): bool {
+    return $GLOBALS['tec_readiness_external_object_cache'] ?? false;
 }
 
 function tec_readiness_set_css(string $css): void {
@@ -1534,17 +1572,32 @@ duo_check_same(
             'sanitize_html_class',
             'sanitize_title',
             'tribe',
+            'tribe_cache',
             'tribe_get_option',
+            'wp_using_ext_object_cache',
         ],
         'classes' => [
             'TEC\\Events\\Category_Colors\\CSS\\Controller',
             'TEC\\Events\\Category_Colors\\CSS\\Generator',
             'TEC\\Events\\Category_Colors\\Repositories\\Category_Color_Dropdown_Provider',
+            'Tribe__Cache',
             'Tribe__Utils__Color',
         ],
     ],
     $colorDeclaration['requires'] ?? null,
     'provider negotiation refuses before mutation when the exact 6.17.x native CSS path disappears'
+);
+$colorProviderSource = (string) file_get_contents(
+    $root . '/manifests/providers/the-events-calendar-category-colors.php'
+);
+$nativeGenerateOffset = strpos($colorProviderSource, '$generator->generate_and_save_css();');
+$nativeBustOffset = strpos($colorProviderSource, '$dropdown->bust_dropdown_categories_cache();');
+duo_check(
+    is_int($nativeGenerateOffset)
+        && is_int($nativeBustOffset)
+        && $nativeGenerateOffset < $nativeBustOffset
+        && !str_contains($colorProviderSource, '$controller->generate_css();'),
+    'the shipped provider honestly declares the direct exact Generator-then-dropdown contract instead of claiming controller dispatch'
 );
 
 $GLOBALS['tec_readiness_options'] = ['tec_events_category_color_css' => '.tribe_events_cat-readiness{--tec-color-category-primary:#000000}'];
@@ -1582,11 +1635,18 @@ $GLOBALS['tec_readiness_dropdown_rows'] = [[
 ]];
 $GLOBALS['tec_readiness_tribe_options'] = ['category-color-show-hidden-categories' => false];
 $GLOBALS['tec_readiness_filters'] = [];
+$GLOBALS['tec_readiness_has_filter_calls'] = [];
+$GLOBALS['tec_readiness_external_object_cache'] = false;
 $GLOBALS['tec_readiness_cache_busts'] = 0;
+$GLOBALS['tec_readiness_cache_reads'] = 0;
+$GLOBALS['tec_readiness_cache_sets'] = 0;
+$GLOBALS['tec_readiness_dropdown_get_calls'] = 0;
 $GLOBALS['tec_readiness_color_controller_calls'] = 0;
 $GLOBALS['tec_readiness_color_controller_mode'] = '';
-$GLOBALS['tec_readiness_category_color_controller'] = new TecReadinessCategoryColorController();
-$GLOBALS['tec_readiness_category_color_dropdown'] = new TecReadinessCategoryColorDropdown();
+$GLOBALS['tec_readiness_category_color_controller'] = new \TEC\Events\Category_Colors\CSS\Controller();
+$GLOBALS['tec_readiness_category_color_generator'] = new \TEC\Events\Category_Colors\CSS\Generator();
+$GLOBALS['tec_readiness_category_color_dropdown'] = new \TEC\Events\Category_Colors\Repositories\Category_Color_Dropdown_Provider();
+$GLOBALS['tec_readiness_category_color_cache'] = new Tribe__Cache();
 $colorDb = FakeWpdb::install();
 tec_readiness_sync_color_db();
 
@@ -1604,16 +1664,207 @@ $colorCapability = $colorProvider->capabilities()['regenerate_css'] ?? null;
 duo_check_same('site', $colorCapability['scope'] ?? null, 'native CSS regeneration is honestly site-scoped');
 duo_check_same(true, $colorCapability['idempotent'] ?? null, 'native CSS regeneration declares idempotence');
 duo_check_same(120, $colorCapability['timeout_seconds'] ?? null, 'the native CSS/category scan has a bounded large-taxonomy timeout claim');
+duo_check_same(
+    ['option:tec_events_category_color_css', 'entity:tec-category-colors-dropdown-cache'],
+    $colorCapability['writes'] ?? null,
+    'capability negotiation declares both the durable CSS row and exact native object-cache entity'
+);
+duo_check_same(
+    [
+        'term:tribe_events_cat',
+        'option:tec_events_category_color_css',
+        'option:tribe_events_calendar_options',
+        'entity:tec-category-colors-dropdown-cache',
+    ],
+    $colorCapability['reads'] ?? null,
+    'capability negotiation declares the transient cache observation as well as every durable input'
+);
+$colorCapabilityDigest = \Duo\Providers::scoped_capability_digest(
+    'the-events-calendar-category-colors',
+    'regenerate_css',
+    $colorCapability
+);
+duo_check_same(
+    'c9520f2c4f79439396c46b152c2ee385407d9d3e02948b05ccd9025c48248622',
+    $colorCapabilityDigest,
+    'the provider capability digest binds both declared native effects'
+);
+$cssOnlyCapability = $colorCapability;
+$cssOnlyCapability['writes'] = ['option:tec_events_category_color_css'];
+duo_check(
+    preg_match('/^[a-f0-9]{64}$/D', $colorCapabilityDigest) === 1
+        && !hash_equals(
+            $colorCapabilityDigest,
+            \Duo\Providers::scoped_capability_digest(
+                'the-events-calendar-category-colors',
+                'regenerate_css',
+                $cssOnlyCapability
+            )
+        ),
+    'the scoped capability digest changes if the dropdown-cache write is omitted'
+);
+$exactGenerator = $GLOBALS['tec_readiness_category_color_generator'];
+$exactDropdown = $GLOBALS['tec_readiness_category_color_dropdown'];
+$exactCache = $GLOBALS['tec_readiness_category_color_cache'];
+$serviceRefusalControllerCalls = $GLOBALS['tec_readiness_color_controller_calls'];
+$serviceRefusalCacheBusts = $GLOBALS['tec_readiness_cache_busts'];
+$GLOBALS['tec_readiness_category_color_generator'] = new stdClass();
+duo_check_throws(
+    static fn() => $colorProvider->invoke('regenerate_css', []),
+    RuntimeException::class,
+    'a controller-container override cannot substitute an unreviewed native CSS generator',
+    'identity is unavailable or overridden'
+);
+$GLOBALS['tec_readiness_category_color_generator'] = $exactGenerator;
+$GLOBALS['tec_readiness_category_color_dropdown'] = new stdClass();
+duo_check_throws(
+    static fn() => $colorProvider->invoke('regenerate_css', []),
+    RuntimeException::class,
+    'a container override cannot substitute an unreviewed callable for the exact native dropdown provider',
+    'identity is unavailable or overridden'
+);
+$GLOBALS['tec_readiness_category_color_dropdown'] = $exactDropdown;
+$GLOBALS['tec_readiness_category_color_cache'] = new stdClass();
+duo_check_throws(
+    static fn() => $colorProvider->invoke('regenerate_css', []),
+    RuntimeException::class,
+    'an overridden TEC cache service refuses before native CSS or cache mutation',
+    'cache identity is unavailable or overridden'
+);
+$GLOBALS['tec_readiness_category_color_cache'] = $exactCache;
+$GLOBALS['tec_readiness_external_object_cache'] = true;
+duo_check_throws(
+    static fn() => $colorProvider->invoke('regenerate_css', []),
+    RuntimeException::class,
+    'an external object-cache topology refuses before an unfenced irreversible cache mutation',
+    'does not admit an external object-cache topology'
+);
+$GLOBALS['tec_readiness_external_object_cache'] = false;
+duo_check_same(
+    $serviceRefusalControllerCalls,
+    $GLOBALS['tec_readiness_color_controller_calls'],
+    'all native service and cache-topology refusals happen before generator execution'
+);
+duo_check_same(
+    $serviceRefusalCacheBusts,
+    $GLOBALS['tec_readiness_cache_busts'],
+    'all native service and cache-topology refusals happen before dropdown-cache mutation'
+);
 $firstColorReceipt = $colorProvider->invoke('regenerate_css', []);
 duo_check_same(true, $firstColorReceipt['verified'] ?? null, 'native CSS regeneration returns a verified structured receipt');
 duo_check_same(1, $GLOBALS['tec_readiness_cache_busts'], 'the provider invokes TEC native controller semantics including cache busting');
+$optionHookFixture = json_decode(
+    (string) file_get_contents($root . '/sandbox/tests/fixtures/the-events-calendar-wordpress-option-hooks.json'),
+    true,
+    512,
+    JSON_THROW_ON_ERROR
+);
+duo_check_same(
+    ['6.9.2', '7.0.3', '7.1'],
+    array_keys($optionHookFixture['source_files'] ?? []),
+    'the CSS option topology is source-bound to every exact admitted WordPress core artifact'
+);
+duo_check_same(
+    'php sandbox/tests/support/verify-tec-wordpress-option-hooks.php '
+        . '--wordpress-root=/usr/src/wordpress --version=<version>',
+    $optionHookFixture['reproduce'] ?? null,
+    'the reviewed WordPress option topology carries its deterministic exact-source verifier command'
+);
+$optionHookVerifier = (string) file_get_contents(
+    $root . '/sandbox/tests/support/verify-tec-wordpress-option-hooks.php'
+);
+foreach (['get_option', 'wp_load_alloptions', 'update_option', 'add_option', 'sanitize_option'] as $function) {
+    duo_check(
+        str_contains($optionHookVerifier, "tec_option_function_body(\$option, '$function')")
+            || str_contains($optionHookVerifier, "tec_option_function_body(\$formatting, '$function')"),
+        "the exact-source verifier derives hook topology from WordPress function $function"
+    );
+}
+duo_check_same(
+    $optionHookFixture['tec_service_sources']['6.17.2'] ?? null,
+    $optionHookFixture['tec_service_sources']['6.17.3'] ?? null,
+    'the exact TEC Controller/Generator/dropdown/cache source union is byte-identical across both pins'
+);
+duo_check_same(
+    [
+        'common/src/Tribe/Cache.php',
+        'src/Events/Category_Colors/CSS/Controller.php',
+        'src/Events/Category_Colors/CSS/Generator.php',
+        'src/Events/Category_Colors/Repositories/Category_Color_Dropdown_Provider.php',
+    ],
+    array_keys($optionHookFixture['tec_service_sources']['6.17.3'] ?? []),
+    'the source fixture binds every exact native service on the two-call CSS/cache path'
+);
+$cssOptionHookTopology = [];
+foreach (($optionHookFixture['shared_paths'] ?? []) as $pathHooks) {
+    foreach ($pathHooks as $pathHook) {
+        $cssOptionHookTopology[$pathHook] = $pathHook;
+    }
+}
+$cssOptionHookTopology = array_values($cssOptionHookTopology);
+foreach ($cssOptionHookTopology as $cssOptionHook) {
+    duo_check(
+        in_array($cssOptionHook, $GLOBALS['tec_readiness_has_filter_calls'], true),
+        "the provider preflights exact WordPress CSS option hook $cssOptionHook"
+    );
+}
+foreach (($optionHookFixture['proved_absent'] ?? []) as $absentOptionHook) {
+    duo_check(
+        !in_array($absentOptionHook, $GLOBALS['tec_readiness_has_filter_calls'], true),
+        "the exact pinned-core fixture does not invent unreachable CSS option hook $absentOptionHook"
+    );
+}
+$hookRefusalControllerCalls = $GLOBALS['tec_readiness_color_controller_calls'];
+$hookRefusalCacheBusts = $GLOBALS['tec_readiness_cache_busts'];
+foreach (['existing update row' => true, 'absent add row' => false] as $optionBranch => $optionExists) {
+    if ($optionExists) {
+        tec_readiness_seed_color_options();
+    } else {
+        $colorDb->seedTable($colorDb->options, []);
+    }
+    foreach ($cssOptionHookTopology as $cssOptionHook) {
+        $GLOBALS['tec_readiness_filters'] = [$cssOptionHook];
+        duo_check_throws(
+            static fn() => $colorProvider->invoke('regenerate_css', []),
+            RuntimeException::class,
+            "an active CSS option hook $cssOptionHook refuses on the $optionBranch before side effects",
+            'does not admit filter'
+        );
+    }
+}
+$GLOBALS['tec_readiness_filters'] = [];
+tec_readiness_seed_color_options();
+duo_check_same(
+    $hookRefusalControllerCalls,
+    $GLOBALS['tec_readiness_color_controller_calls'],
+    'every CSS option hook topology refusal happens before native controller execution'
+);
+duo_check_same(
+    $hookRefusalCacheBusts,
+    $GLOBALS['tec_readiness_cache_busts'],
+    'every CSS option hook topology refusal happens before dropdown-cache mutation'
+);
 duo_check_same(0, $firstColorReceipt['after']['css_selector_mismatch_count'] ?? null, 'readback rejects missing or orphan native selectors');
 duo_check_same(0, $firstColorReceipt['after']['css_value_mismatch_count'] ?? null, 'readback carries every native selector color value');
-duo_check_same(0, $firstColorReceipt['after']['dropdown_mismatch_count'] ?? null, 'readback proves the native dropdown cache matches live category metadata');
 duo_check_same(
-    $firstColorReceipt['after']['dropdown_expected_sha256'] ?? null,
-    $firstColorReceipt['after']['dropdown_actual_sha256'] ?? null,
-    'the native dropdown projection has an exact digest-level postcondition'
+    false,
+    $firstColorReceipt['after']['dropdown_cache_present'] ?? null,
+    'the immediate native postcondition is an absent dropdown cache after the reviewed bust'
+);
+duo_check_same(
+    1,
+    $firstColorReceipt['after']['dropdown_expected_count'] ?? null,
+    'the durable receipt binds the canonical future dropdown projection without populating it'
+);
+duo_check_same(
+    0,
+    $GLOBALS['tec_readiness_dropdown_get_calls'],
+    'verification never calls the cache-populating native dropdown getter'
+);
+duo_check_same(
+    0,
+    $GLOBALS['tec_readiness_cache_sets'],
+    'verification never publishes a dropdown cache value of its own'
 );
 duo_check_same(1, $firstColorReceipt['after']['colored_category_count'] ?? null, 'the receipt is bounded to counts and digests, not authored payload');
 duo_check(
@@ -1665,13 +1916,19 @@ duo_check_same(
 $afterCssRetry = $colorProvider->invoke('regenerate_css', []);
 duo_check_same(true, $afterCssRetry['verified'] ?? null, 'same-process retry after the partial CSS write converges');
 duo_check_same(
-    $GLOBALS['tec_readiness_generated_dropdown_rows'],
+    false,
     $GLOBALS['tec_readiness_dropdown_rows'],
-    'same-process retry after the partial CSS write repairs the native dropdown projection'
+    'same-process retry after the partial CSS write completes the native dropdown-cache bust'
 );
 
 tec_readiness_set_css('.tribe_events_cat-readiness{--tec-color-category-primary:#000000}');
-$GLOBALS['tec_readiness_dropdown_rows'][0]['primary'] = '#000000';
+$GLOBALS['tec_readiness_dropdown_rows'] = [[
+    'slug' => 'readiness',
+    'name' => 'Readiness',
+    'priority' => 99,
+    'primary' => '#000000',
+    'hidden' => false,
+]];
 $GLOBALS['tec_readiness_color_controller_mode'] = 'throw_after_cache_bust';
 duo_check_throws(
     static fn() => $colorProvider->invoke('regenerate_css', []),
@@ -1685,15 +1942,40 @@ duo_check_same(
     'the second native failure witness contains the completed CSS write'
 );
 duo_check_same(
-    $GLOBALS['tec_readiness_generated_dropdown_rows'],
+    false,
     $GLOBALS['tec_readiness_dropdown_rows'],
     'the second native failure witness contains the completed dropdown-cache bust'
 );
 $afterCacheBustRetry = $colorProvider->invoke('regenerate_css', []);
 duo_check_same(true, $afterCacheBustRetry['verified'] ?? null, 'same-process retry after both native writes remains idempotent');
+$GLOBALS['tec_readiness_dropdown_rows'] = [[
+    'slug' => 'readiness',
+    'name' => 'Readiness',
+    'priority' => 99,
+    'primary' => '#000000',
+    'hidden' => false,
+]];
+$GLOBALS['tec_readiness_color_controller_mode'] = 'cache_delete_noop';
+duo_check_throws(
+    static fn() => $colorProvider->invoke('regenerate_css', []),
+    RuntimeException::class,
+    'a native cache delete no-op cannot earn a verified provider receipt',
+    'cache remains populated after the native bust'
+);
+duo_check_same(
+    '#000000',
+    $GLOBALS['tec_readiness_dropdown_rows'][0]['primary'] ?? null,
+    'the cache-delete failure retains one exact stale-cache witness'
+);
+$afterCacheDeleteRetry = $colorProvider->invoke('regenerate_css', []);
+duo_check_same(
+    false,
+    $afterCacheDeleteRetry['after']['dropdown_cache_present'] ?? null,
+    'same-process retry after cache-delete failure proves the native key absent'
+);
 $cacheBustsAfterPartialRetries = $GLOBALS['tec_readiness_cache_busts'];
-duo_check_same(5, $cacheBustsAfterPartialRetries, 'only completed native dropdown-cache busts are counted across both retries');
-duo_check_same(6, $GLOBALS['tec_readiness_color_controller_calls'], 'both partial attempts and both retries crossed the native controller boundary');
+duo_check_same(7, $cacheBustsAfterPartialRetries, 'every attempted native cache bust is counted across all partial failures and retries');
+duo_check_same(8, $GLOBALS['tec_readiness_color_controller_calls'], 'all partial attempts and retries crossed the exact native generator boundary');
 
 $operation = ['format' => 'duo-provider-operation/v1', 'id' => 'tec-offline-reconcile'];
 $reconciled = $colorProvider->reconcile_scoped('regenerate_css', [], $operation);
@@ -1934,50 +2216,114 @@ duo_check_same(
     'multiple selectors verify only in native priority and per-property byte order'
 );
 $GLOBALS['tec_readiness_term_meta'][72] = [];
-$GLOBALS['tec_readiness_dropdown_rows'] = $GLOBALS['tec_readiness_generated_dropdown_rows'];
 tec_readiness_sync_color_db();
 tec_readiness_set_css($GLOBALS['tec_readiness_generated_css']);
-$GLOBALS['tec_readiness_dropdown_rows'] = [];
-duo_check_throws(
-    static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
-    RuntimeException::class,
-    'reconciliation refuses a missing native dropdown row',
-    'dropdown readback'
+$GLOBALS['tec_readiness_dropdown_rows'] = false;
+$nativeDropdownGetsBeforePopulate = $GLOBALS['tec_readiness_dropdown_get_calls'];
+$nativeCacheSetsBeforePopulate = $GLOBALS['tec_readiness_cache_sets'];
+$nativeRepopulatedCache = $GLOBALS['tec_readiness_category_color_dropdown']->get_dropdown_categories();
+duo_check_same(
+    $GLOBALS['tec_readiness_generated_dropdown_rows'],
+    $nativeRepopulatedCache,
+    'the exact fake native getter demonstrates that a cache miss deliberately repopulates the dropdown entry'
 );
-$GLOBALS['tec_readiness_dropdown_rows'] = $GLOBALS['tec_readiness_generated_dropdown_rows'];
-$GLOBALS['tec_readiness_dropdown_rows'][0]['primary'] = '#000000';
-duo_check_throws(
-    static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
-    RuntimeException::class,
-    'reconciliation refuses a stale native dropdown color',
-    'dropdown readback'
+duo_check_same(
+    $nativeDropdownGetsBeforePopulate + 1,
+    $GLOBALS['tec_readiness_dropdown_get_calls'],
+    'the native cache-miss fixture crosses the dropdown getter exactly once'
 );
-$GLOBALS['tec_readiness_dropdown_rows'] = $GLOBALS['tec_readiness_generated_dropdown_rows'];
-$GLOBALS['tec_readiness_dropdown_rows'][] = [
-    'slug' => 'orphan',
-    'name' => 'Orphan',
-    'priority' => 9,
-    'primary' => '#111111',
-    'hidden' => false,
-];
-duo_check_throws(
-    static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
-    RuntimeException::class,
-    'reconciliation refuses an orphan native dropdown row',
-    'dropdown readback'
+duo_check_same(
+    $nativeCacheSetsBeforePopulate + 1,
+    $GLOBALS['tec_readiness_cache_sets'],
+    'the native cache-miss fixture publishes exactly one dropdown entry before reconciliation'
 );
-$GLOBALS['tec_readiness_dropdown_rows'] = array_fill(
-    0,
-    10001,
-    $GLOBALS['tec_readiness_generated_dropdown_rows'][0]
+$reconcileCacheReads = $GLOBALS['tec_readiness_cache_reads'];
+$reconcileDropdownGets = $GLOBALS['tec_readiness_dropdown_get_calls'];
+$reconcileCacheSets = $GLOBALS['tec_readiness_cache_sets'];
+$reconcileGeneratorCalls = $GLOBALS['tec_readiness_color_controller_calls'];
+foreach ([
+    'native repopulated cache' => $nativeRepopulatedCache,
+    'natural expiry' => false,
+    'populated empty cache' => [],
+    'stale populated cache' => [[
+        'slug' => 'readiness',
+        'name' => 'Readiness',
+        'priority' => 99,
+        'primary' => '#000000',
+        'hidden' => false,
+    ]],
+    'orphan populated cache' => [[
+        'slug' => 'orphan',
+        'name' => 'Orphan',
+        'priority' => 9,
+        'primary' => '#111111',
+        'hidden' => false,
+    ]],
+    'oversized populated cache' => array_fill(
+        0,
+        10001,
+        $GLOBALS['tec_readiness_generated_dropdown_rows'][0]
+    ),
+] as $cacheStateLabel => $cacheState) {
+    $GLOBALS['tec_readiness_dropdown_rows'] = $cacheState;
+    $cacheStateHash = hash('sha256', serialize($cacheState));
+    $firstReconcile = $colorProvider->reconcile_scoped('regenerate_css', [], $operation);
+    $secondReconcile = $colorProvider->reconcile_scoped('regenerate_css', [], $operation);
+    duo_check_same(
+        $reconciled['after'] ?? null,
+        $firstReconcile['after'] ?? null,
+        "read-only reconciliation ignores $cacheStateLabel while binding durable CSS semantics"
+    );
+    duo_check_same(
+        $firstReconcile['after'] ?? null,
+        $secondReconcile['after'] ?? null,
+        "repeated reconciliation remains idempotent across $cacheStateLabel"
+    );
+    duo_check_same(
+        $cacheStateHash,
+        hash('sha256', serialize($GLOBALS['tec_readiness_dropdown_rows'])),
+        "reconciliation does not mutate $cacheStateLabel"
+    );
+}
+duo_check_same(
+    $reconcileCacheReads,
+    $GLOBALS['tec_readiness_cache_reads'],
+    'reconciliation never reads the transient dropdown entry or turns a miss into a write'
 );
+duo_check_same(
+    $reconcileDropdownGets,
+    $GLOBALS['tec_readiness_dropdown_get_calls'],
+    'reconciliation never calls the native cache-populating dropdown provider'
+);
+duo_check_same(
+    $reconcileCacheSets,
+    $GLOBALS['tec_readiness_cache_sets'],
+    'reconciliation never publishes a new dropdown cache value'
+);
+duo_check_same(
+    $reconcileGeneratorCalls,
+    $GLOBALS['tec_readiness_color_controller_calls'],
+    'reconciliation never calls the native CSS generator'
+);
+$cacheFrontierGeneratorCalls = $GLOBALS['tec_readiness_color_controller_calls'];
+$cacheFrontierBusts = $GLOBALS['tec_readiness_cache_busts'];
 duo_check_throws(
-    static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
+    static fn() => $colorProvider->invoke('regenerate_css', []),
     RuntimeException::class,
-    'an oversized native dropdown refuses at its hard row frontier',
+    'an oversized preexisting dropdown cache refuses at its hard row frontier before native mutation',
     'exceeds the bounded row frontier'
 );
-$GLOBALS['tec_readiness_dropdown_rows'] = $GLOBALS['tec_readiness_generated_dropdown_rows'];
+duo_check_same(
+    $cacheFrontierGeneratorCalls,
+    $GLOBALS['tec_readiness_color_controller_calls'],
+    'the oversized cache refusal happens before the native generator'
+);
+duo_check_same(
+    $cacheFrontierBusts,
+    $GLOBALS['tec_readiness_cache_busts'],
+    'the oversized cache refusal happens before the native cache bust'
+);
+$GLOBALS['tec_readiness_dropdown_rows'] = false;
 duo_check_same(
     $cacheBustsAfterPartialRetries,
     $GLOBALS['tec_readiness_cache_busts'],
@@ -2048,6 +2394,54 @@ duo_check_throws(
 );
 unset($taxonomyFlood);
 tec_readiness_sync_color_db();
+$generatorFrontierTerms = $GLOBALS['tec_readiness_terms'];
+$generatorFrontierMeta = $GLOBALS['tec_readiness_term_meta'];
+$generatorFrontierCss = $GLOBALS['tec_readiness_generated_css'];
+$generatorFrontierDropdown = $GLOBALS['tec_readiness_generated_dropdown_rows'];
+$GLOBALS['tec_readiness_terms'] = [];
+$GLOBALS['tec_readiness_term_meta'] = [];
+for ($categoryOffset = 0; $categoryOffset < 101; ++$categoryOffset) {
+    $termId = 1000 + $categoryOffset;
+    $GLOBALS['tec_readiness_terms'][] = (object) [
+        'term_id' => $termId,
+        'slug' => 'frontier-' . $categoryOffset,
+        'name' => 'Frontier ' . $categoryOffset,
+    ];
+    $GLOBALS['tec_readiness_term_meta'][$termId] = [
+        'tec-events-cat-colors-primary' => '#123ABC',
+        'tec-events-cat-colors-secondary' => '#fedcba',
+        'tec-events-cat-colors-text' => '#ffffff',
+        'tec-events-cat-colors-priority' => (string) $categoryOffset,
+        'tec-events-cat-colors-hidden' => '0',
+    ];
+}
+$GLOBALS['tec_readiness_dropdown_rows'] = false;
+tec_readiness_sync_color_db();
+$generatorFrontierCalls = $GLOBALS['tec_readiness_color_controller_calls'];
+$generatorFrontierBusts = $GLOBALS['tec_readiness_cache_busts'];
+duo_check_throws(
+    static fn() => $colorProvider->invoke('regenerate_css', []),
+    RuntimeException::class,
+    '501 relevant native category-meta rows refuse before the unordered Generator enters a second populated page',
+    'safe one-page metadata frontier'
+);
+duo_check_same(
+    $generatorFrontierCalls,
+    $GLOBALS['tec_readiness_color_controller_calls'],
+    'the unsafe second-page refusal happens before native CSS generation'
+);
+duo_check_same(
+    $generatorFrontierBusts,
+    $GLOBALS['tec_readiness_cache_busts'],
+    'the unsafe second-page refusal happens before native cache mutation'
+);
+$GLOBALS['tec_readiness_terms'] = $generatorFrontierTerms;
+$GLOBALS['tec_readiness_term_meta'] = $generatorFrontierMeta;
+$GLOBALS['tec_readiness_generated_css'] = $generatorFrontierCss;
+$GLOBALS['tec_readiness_generated_dropdown_rows'] = $generatorFrontierDropdown;
+$GLOBALS['tec_readiness_dropdown_rows'] = false;
+tec_readiness_sync_color_db();
+tec_readiness_set_css($generatorFrontierCss);
 $taxonomyReadCount = 0;
 $colorDb->onQuery(static function (string $sql, string $method, FakeWpdb $db) use (&$taxonomyReadCount): null {
     if ($method !== 'get_results' || !str_contains($sql, 'FROM wp_term_taxonomy')) {
@@ -2077,6 +2471,88 @@ duo_check_throws(
 $colorDb->onQuery(null);
 tec_readiness_sync_color_db();
 
+$singleCategoryCss = $GLOBALS['tec_readiness_generated_css'];
+$singleCategoryDropdown = $GLOBALS['tec_readiness_generated_dropdown_rows'];
+$GLOBALS['tec_readiness_term_meta'][72] = [
+    'tec-events-cat-colors-primary' => '#ABCDEF',
+    'tec-events-cat-colors-priority' => '17',
+    'tec-events-cat-colors-hidden' => '0',
+];
+$plainCategoryCss = '.tribe_events_cat-plain-category{--tec-color-category-primary:#abcdef}';
+$plainCategoryDropdown = [
+    'slug' => 'plain-category',
+    'name' => 'Plain Category',
+    'priority' => 17,
+    'primary' => '#ABCDEF',
+    'hidden' => false,
+];
+$GLOBALS['tec_readiness_generated_css'] = $singleCategoryCss . $plainCategoryCss;
+$GLOBALS['tec_readiness_generated_dropdown_rows'] = [
+    $singleCategoryDropdown[0],
+    $plainCategoryDropdown,
+];
+tec_readiness_sync_color_db();
+$equalPriorityOperation = ['format' => 'duo-provider-operation/v1', 'id' => 'tec-equal-priority'];
+$equalPriorityFirst = $colorProvider->invoke_scoped(
+    'regenerate_css',
+    [],
+    $equalPriorityOperation
+);
+$equalPriorityFirstRaw = get_option('tec_events_category_color_css');
+duo_check_same(
+    true,
+    $equalPriorityFirst['verified'] ?? null,
+    'the first native equal-priority generation produces a verified semantic scoped receipt'
+);
+duo_check(
+    !array_key_exists('css_sha256', $equalPriorityFirst['before'] ?? [])
+        && !array_key_exists('css_sha256', $equalPriorityFirst['after'] ?? []),
+    'scoped recovery evidence excludes order-unstable raw CSS bytes while retaining canonical projections'
+);
+$GLOBALS['tec_readiness_generated_css'] = $plainCategoryCss . $singleCategoryCss;
+$GLOBALS['tec_readiness_generated_dropdown_rows'] = [
+    $plainCategoryDropdown,
+    $singleCategoryDropdown[0],
+];
+$equalPrioritySecond = $colorProvider->invoke_scoped(
+    'regenerate_css',
+    [],
+    $equalPriorityOperation
+);
+$equalPrioritySecondRaw = get_option('tec_events_category_color_css');
+duo_check(
+    is_string($equalPriorityFirstRaw)
+        && is_string($equalPrioritySecondRaw)
+        && !hash_equals($equalPriorityFirstRaw, $equalPrioritySecondRaw),
+    'the fake native boundary exercises both byte permutations inside one equal-priority bucket'
+);
+duo_check_same(
+    $equalPriorityFirst['after'] ?? null,
+    $equalPrioritySecond['after'] ?? null,
+    'equal-priority native byte permutations retain one exact semantic scoped postcondition'
+);
+duo_check_same(
+    $equalPrioritySecond['after'] ?? null,
+    $colorProvider->reconcile_scoped(
+        'regenerate_css',
+        [],
+        $equalPriorityOperation
+    )['after'] ?? null,
+    'read-only recovery recognizes the second equal-priority native permutation without replaying it'
+);
+$cacheBustsAfterEqualPriority = $GLOBALS['tec_readiness_cache_busts'];
+duo_check_same(
+    $cacheBustsAfterPartialRetries + 2,
+    $cacheBustsAfterEqualPriority,
+    'only the two explicit equal-priority invocations crossed the native mutation boundary'
+);
+$GLOBALS['tec_readiness_term_meta'][72] = [];
+$GLOBALS['tec_readiness_generated_css'] = $singleCategoryCss;
+$GLOBALS['tec_readiness_generated_dropdown_rows'] = $singleCategoryDropdown;
+$GLOBALS['tec_readiness_dropdown_rows'] = $singleCategoryDropdown;
+tec_readiness_sync_color_db();
+tec_readiness_set_css($singleCategoryCss);
+
 $GLOBALS['tec_readiness_terms'] = [];
 $GLOBALS['tec_readiness_term_meta'] = [];
 tec_readiness_set_css('.tribe_events_cat-orphan{--tec-color-category-primary:#111111}');
@@ -2094,7 +2570,7 @@ $emptyColorReceipt = $colorProvider->invoke('regenerate_css', []);
 duo_check_same(true, $emptyColorReceipt['verified'] ?? null, 'zero event categories converge through the native empty CSS/dropdown path');
 duo_check_same(0, $emptyColorReceipt['after']['colored_category_count'] ?? null, 'zero-category receipt stays bounded at zero colored categories');
 duo_check_same(0, $emptyColorReceipt['after']['css_selector_count'] ?? null, 'zero categories store TEC native empty CSS without a synthetic selector');
-duo_check_same(0, $emptyColorReceipt['after']['dropdown_actual_count'] ?? null, 'zero categories store TEC native empty dropdown projection');
+duo_check_same(false, $emptyColorReceipt['after']['dropdown_cache_present'] ?? null, 'zero categories finish with the native dropdown cache absent');
 duo_check_same(
     true,
     $colorProvider->reconcile_scoped('regenerate_css', [], $operation)['verified'] ?? null,
@@ -2107,9 +2583,9 @@ tec_readiness_sync_color_db();
 $plainColorReceipt = $colorProvider->invoke('regenerate_css', []);
 duo_check_same(true, $plainColorReceipt['verified'] ?? null, 'categories with no color metadata converge through native empty generated state');
 duo_check_same(0, $plainColorReceipt['after']['colored_category_count'] ?? null, 'an uncolored native category is not invented as a colored selector');
-duo_check_same(0, $plainColorReceipt['after']['dropdown_actual_count'] ?? null, 'an uncolored native category is absent from the color dropdown cache');
+duo_check_same(false, $plainColorReceipt['after']['dropdown_cache_present'] ?? null, 'an uncolored native category finishes with the dropdown cache absent');
 duo_check_same(
-    $cacheBustsAfterPartialRetries + 2,
+    $cacheBustsAfterEqualPriority + 2,
     $GLOBALS['tec_readiness_cache_busts'],
     'only explicit provider invocations replayed native cache mutation'
 );
@@ -2170,6 +2646,25 @@ foreach ([
         "the exact live matrix binds event-data filter recovery evidence $filterRecoveryEvidence"
     );
 }
+foreach ([
+    'duo-equal-priority-alpha',
+    'repeated reconciliation repopulated a naturally absent dropdown cache',
+    'native_one_page_rows',
+    "\$onePageCount === 500",
+    "\$relevantCount() === 501",
+    'safe one-page metadata frontier',
+    'the exact 501-row refusal mutated CSS or the populated dropdown cache',
+] as $categoryColorsBoundaryEvidence) {
+    duo_check(
+        str_contains($deletionCheck, $categoryColorsBoundaryEvidence),
+        "the exact live matrix binds Category Colors boundary evidence $categoryColorsBoundaryEvidence"
+    );
+}
+duo_check(
+    strpos($deletionCheck, 'duo-equal-priority-alpha')
+        < strpos($deletionCheck, 'if [ "${TEC_BOUNDARY_ONLY:-0}" = 1 ]'),
+    'both exact TEC boundary artifacts execute Category Colors equal-priority/cache/pagination evidence'
+);
 
 $regenerator = new TheEventsCalendarRegenerator($policy);
 duo_check_throws(
@@ -2675,3 +3170,4 @@ duo_check_same(
 );
 
 duo_check_summary('The Events Calendar production-readiness contract');
+}

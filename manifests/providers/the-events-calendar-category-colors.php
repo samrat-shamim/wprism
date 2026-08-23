@@ -12,9 +12,10 @@ use Duo\Policy;
  * `tec_events_category_color_css` option only from its wp-admin save hook.
  * Duo materializes term metadata directly, so that hook is unreachable and a
  * target otherwise keeps its old colors indefinitely. The native CSS
- * controller remains the sole generator here; this provider supplies the
- * structured invocation and verifies every generated selector/value against
- * the same term metadata and color utility used by TEC 6.17.2/6.17.3.
+ * generator remains the sole CSS writer here. The provider executes the exact
+ * two-service body audited from Controller::generate_css() in both pins, then
+ * verifies every selector/value and the cache-bust postcondition against the
+ * same native identities used by TEC 6.17.2/6.17.3.
  */
 final class TheEventsCalendarCategoryColors {
     private Policy $policy;
@@ -34,6 +35,9 @@ final class TheEventsCalendarCategoryColors {
     ];
     private const HIDDEN_META = 'tec-events-cat-colors-hidden';
     private const PRIORITY_META = 'tec-events-cat-colors-priority';
+    private const PROJECTION_BEFORE = 'before';
+    private const PROJECTION_AFTER_INVOKE = 'after_invoke';
+    private const PROJECTION_RECONCILE = 'reconcile';
 
     // TEC's native generator walks the complete taxonomy and its native
     // dropdown primes term-meta caches. Bound the physical frontier before
@@ -46,6 +50,10 @@ final class TheEventsCalendarCategoryColors {
     private const MAX_TERM_META_BYTES = 33554432;
     private const MAX_TERM_META_ROWS = 100000;
     private const MAX_TERM_TEXT_BYTES = 1024;
+    // Generator::fetch_category_meta() uses an unordered LIMIT/OFFSET walk in
+    // 500-row pages. One complete page is deterministic; a second populated
+    // page can skip or duplicate rows even on an otherwise valid large site.
+    private const MAX_NATIVE_GENERATOR_META_ROWS = 500;
 
     /** @var list<string> */
     private const OUTPUT_FILTER_HOOKS = [
@@ -63,6 +71,27 @@ final class TheEventsCalendarCategoryColors {
         'tribe_get_option',
         'tribe_get_option_category-color-show-hidden-categories',
         'tribe_get_single_option',
+        // Generator::save_css() crosses WordPress's complete option hook
+        // topology. Any callback can rewrite the stored receipt or add an
+        // undeclared effect, so exact free-plugin regeneration refuses before
+        // the controller when one is populated.
+        'default_option_tec_events_category_color_css',
+        'alloptions',
+        'pre_cache_alloptions',
+        'pre_option',
+        'pre_option_tec_events_category_color_css',
+        'pre_wp_load_alloptions',
+        'option_tec_events_category_color_css',
+        'pre_update_option_tec_events_category_color_css',
+        'sanitize_option_tec_events_category_color_css',
+        'update_option_tec_events_category_color_css',
+        'add_option_tec_events_category_color_css',
+        'pre_update_option',
+        'update_option',
+        'updated_option',
+        'add_option',
+        'added_option',
+        'wp_autoload_values_to_autoload',
     ];
 
     public function __construct(Policy $policy) {
@@ -87,8 +116,12 @@ final class TheEventsCalendarCategoryColors {
                     'term:tribe_events_cat',
                     'option:tec_events_category_color_css',
                     'option:tribe_events_calendar_options',
+                    'entity:tec-category-colors-dropdown-cache',
                 ],
-                'writes' => ['option:tec_events_category_color_css'],
+                'writes' => [
+                    'option:tec_events_category_color_css',
+                    'entity:tec-category-colors-dropdown-cache',
+                ],
                 'scope' => 'site',
                 'idempotent' => true,
                 // Native generation and both exact projections walk every
@@ -118,8 +151,8 @@ final class TheEventsCalendarCategoryColors {
         $receipt = $this->invoke($capability, $args);
         return [
             'operation' => $operation,
-            'before' => $receipt['before'],
-            'after' => $receipt['after'],
+            'before' => $this->scoped_projection($receipt['before']),
+            'after' => $this->scoped_projection($receipt['after']),
             'verified' => true,
         ];
     }
@@ -133,32 +166,41 @@ final class TheEventsCalendarCategoryColors {
         }
         return [
             'operation' => $operation,
-            'after' => $this->projection(true),
+            'after' => $this->scoped_projection($this->projection(self::PROJECTION_RECONCILE)),
             'verified' => true,
         ];
     }
 
     /** @return array{before:array<string,mixed>,after:array<string,mixed>,verified:true} */
     private function regenerate_css(): array {
-        $this->assert_runtime_contract();
-        $before = $this->projection(false);
+        $this->assert_runtime_contract(true);
+        $before = $this->projection(self::PROJECTION_BEFORE);
 
-        $controller = tribe(\TEC\Events\Category_Colors\CSS\Controller::class);
-        if (!is_object($controller) || !is_callable([$controller, 'generate_css'])) {
-            throw new \RuntimeException(
-                'duo: The Events Calendar 6.17.x Category Colors CSS controller is unavailable'
-            );
-        }
-        $controller->generate_css();
+        $generator = $this->native_service(
+            \TEC\Events\Category_Colors\CSS\Generator::class,
+            'generate_and_save_css',
+            'CSS generator'
+        );
+        $dropdown = $this->native_service(
+            \TEC\Events\Category_Colors\Repositories\Category_Color_Dropdown_Provider::class,
+            'bust_dropdown_categories_cache',
+            'dropdown provider'
+        );
+        // This is the exact two-call body of Controller::generate_css() in
+        // both pinned artifacts. Resolving each reviewed native service here
+        // prevents a container override hidden behind Controller::$container
+        // from executing an unreviewed Generator implementation.
+        $generator->generate_and_save_css();
+        $dropdown->bust_dropdown_categories_cache();
 
         return [
             'before' => $before,
-            'after' => $this->projection(true),
+            'after' => $this->projection(self::PROJECTION_AFTER_INVOKE),
             'verified' => true,
         ];
     }
 
-    private function assert_runtime_contract(): void {
+    private function assert_runtime_contract(bool $invokeServices): void {
         foreach ([
             'get_option',
             'get_term_meta',
@@ -168,13 +210,33 @@ final class TheEventsCalendarCategoryColors {
             'sanitize_html_class',
             'sanitize_title',
             'tribe',
+            'tribe_cache',
             'tribe_get_option',
+            'wp_using_ext_object_cache',
         ] as $required) {
             if (!function_exists($required)) {
                 throw new \RuntimeException(
                     "duo: The Events Calendar Category Colors regeneration requires $required()"
                 );
             }
+        }
+        if ($invokeServices) {
+            $this->native_service(
+                \TEC\Events\Category_Colors\CSS\Generator::class,
+                'generate_and_save_css',
+                'CSS generator'
+            );
+            $this->native_service(
+                \TEC\Events\Category_Colors\Repositories\Category_Color_Dropdown_Provider::class,
+                'bust_dropdown_categories_cache',
+                'dropdown provider'
+            );
+            $this->native_cache();
+        }
+        if (wp_using_ext_object_cache()) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar Category Colors regeneration does not admit an external object-cache topology'
+            );
         }
         global $wpdb;
         if (!is_object($wpdb)
@@ -196,6 +258,7 @@ final class TheEventsCalendarCategoryColors {
             \TEC\Events\Category_Colors\CSS\Controller::class,
             \TEC\Events\Category_Colors\CSS\Generator::class,
             \TEC\Events\Category_Colors\Repositories\Category_Color_Dropdown_Provider::class,
+            \Tribe__Cache::class,
             \Tribe__Utils__Color::class,
         ] as $required) {
             if (!class_exists($required)) {
@@ -207,8 +270,16 @@ final class TheEventsCalendarCategoryColors {
     }
 
     /** @return array<string,mixed> */
-    private function projection(bool $verify): array {
-        $this->assert_runtime_contract();
+    private function projection(string $mode): array {
+        if (!in_array($mode, [
+            self::PROJECTION_BEFORE,
+            self::PROJECTION_AFTER_INVOKE,
+            self::PROJECTION_RECONCILE,
+        ], true)) {
+            throw new \LogicException('duo: invalid Category Colors projection mode');
+        }
+        $verify = $mode !== self::PROJECTION_BEFORE;
+        $this->assert_runtime_contract(false);
         $inventory = $this->category_inventory();
         $rawStored = $this->raw_css_option();
         if ($rawStored === null) {
@@ -226,17 +297,14 @@ final class TheEventsCalendarCategoryColors {
         $expectedDropdown = $inventory['dropdown'];
         [$actualCss, $selectorMismatchCount, $valueMismatchCount, $orderMismatchCount, $exactMismatchCount] =
             $this->css_projection($stored, $expected);
-        [$actualDropdown, $dropdownMalformedCount, $dropdownReadError, $dropdownOrderMismatchCount] =
-            $this->dropdown_projection($verify);
-        $dropdownMismatchCount = $dropdownMalformedCount + $dropdownOrderMismatchCount;
-        foreach ($expectedDropdown as $slug => $row) {
-            if (!isset($actualDropdown[$slug]) || $actualDropdown[$slug] !== $row) {
-                ++$dropdownMismatchCount;
-            }
-        }
-        $dropdownMismatchCount += count(array_diff_key($actualDropdown, $expectedDropdown));
+        $cacheProjection = $mode === self::PROJECTION_RECONCILE
+            ? []
+            : $this->dropdown_cache_projection(
+                $expectedDropdown,
+                $mode === self::PROJECTION_AFTER_INVOKE
+            );
 
-        // Native generation and dropdown reads happen outside a lock owned by
+        // Native generation and the cache bust happen outside a lock owned by
         // this provider. Re-read both physical inputs and output after those
         // calls: a target-side race may force a retry, but can never certify a
         // CSS/cache projection assembled from two different generations.
@@ -261,16 +329,7 @@ final class TheEventsCalendarCategoryColors {
                 . $exactMismatchCount . ' exact-byte grammar mismatch(es); recovery_required'
             );
         }
-        if ($verify && ($dropdownReadError || $dropdownMismatchCount > 0)) {
-            throw new \RuntimeException(
-                'duo: The Events Calendar Category Colors dropdown readback has '
-                . $dropdownMismatchCount . ' row mismatch(es)'
-                . ($dropdownReadError ? ' and an unreadable native result' : '')
-                . '; recovery_required'
-            );
-        }
-
-        return [
+        return array_merge([
             'category_count' => $inventory['category_count'],
             'colored_category_count' => count($expected),
             'css_bytes' => strlen($stored),
@@ -284,50 +343,56 @@ final class TheEventsCalendarCategoryColors {
             'css_exact_byte_mismatch_count' => $exactMismatchCount,
             'css_option_present' => $rawStored !== null,
             'dropdown_expected_count' => count($expectedDropdown),
-            'dropdown_actual_count' => count($actualDropdown),
             'dropdown_expected_sha256' => $this->rows_digest($expectedDropdown),
-            'dropdown_actual_sha256' => $this->rows_digest($actualDropdown),
-            'dropdown_mismatch_count' => $dropdownMismatchCount,
-            'dropdown_order_mismatch_count' => $dropdownOrderMismatchCount,
-            'dropdown_read_error' => $dropdownReadError,
-        ];
+        ], $cacheProjection);
     }
 
-    /** @return array{0:array<string,array<string,mixed>>,1:int,2:bool,3:int} */
-    private function dropdown_projection(bool $verify): array {
-        $provider = tribe(
-            \TEC\Events\Category_Colors\Repositories\Category_Color_Dropdown_Provider::class
-        );
-        if (!is_object($provider) || !is_callable([$provider, 'get_dropdown_categories'])) {
-            if ($verify) {
-                throw new \RuntimeException(
-                    'duo: The Events Calendar Category Colors dropdown provider is unavailable; '
-                    . 'recovery_required'
-                );
-            }
-            return [[], 1, true, 0];
-        }
+    /**
+     * Observe TEC's cache entry without calling get_dropdown_categories(),
+     * whose cache-miss path writes. Native Controller::generate_css() ends by
+     * deleting this entry; later frontend reads may repopulate or naturally
+     * expire it, so only the immediate invoke postcondition requires absence.
+     * Reconciliation omits this transient observation entirely.
+     *
+     * @param array<string,array<string,mixed>> $expected
+     * @return array<string,mixed>
+     */
+    private function dropdown_cache_projection(array $expected, bool $requireAbsent): array {
+        $cache = $this->native_cache();
         try {
-            $rows = $provider->get_dropdown_categories();
+            $rows = $cache->get(
+                \TEC\Events\Category_Colors\Repositories\Category_Color_Dropdown_Provider::CACHE_KEY
+            );
         } catch (\Throwable $failure) {
-            if ($verify) {
-                throw new \RuntimeException(
-                    'duo: The Events Calendar Category Colors dropdown provider failed readback; '
-                    . 'recovery_required',
-                    0,
-                    $failure
-                );
-            }
-            return [[], 1, true, 0];
+            throw new \RuntimeException(
+                'duo: The Events Calendar Category Colors dropdown cache is unreadable',
+                0,
+                $failure
+            );
+        }
+        if ($rows === false) {
+            return [
+                'dropdown_cache_present' => false,
+                'dropdown_cache_actual_count' => 0,
+                'dropdown_cache_actual_sha256' => $this->rows_digest([]),
+                'dropdown_cache_mismatch_count' => 0,
+                'dropdown_cache_malformed_count' => 0,
+            ];
+        }
+        if ($requireAbsent) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar Category Colors dropdown cache remains populated after the native bust; '
+                . 'recovery_required'
+            );
         }
         if (!is_array($rows)) {
-            if ($verify) {
-                throw new \RuntimeException(
-                    'duo: The Events Calendar Category Colors dropdown provider returned a non-list; '
-                    . 'recovery_required'
-                );
-            }
-            return [[], 1, true, 0];
+            return [
+                'dropdown_cache_present' => true,
+                'dropdown_cache_actual_count' => 0,
+                'dropdown_cache_actual_sha256' => $this->rows_digest([]),
+                'dropdown_cache_mismatch_count' => count($expected) + 1,
+                'dropdown_cache_malformed_count' => 1,
+            ];
         }
         if (count($rows) > self::MAX_DROPDOWN_ROWS) {
             throw new \RuntimeException(
@@ -370,7 +435,20 @@ final class TheEventsCalendarCategoryColors {
             $previousPriority = $row['priority'];
         }
         ksort($normalized, SORT_STRING);
-        return [$normalized, $malformed, false, $orderMismatch];
+        $mismatch = $malformed + $orderMismatch;
+        foreach ($expected as $slug => $row) {
+            if (!isset($normalized[$slug]) || $normalized[$slug] !== $row) {
+                ++$mismatch;
+            }
+        }
+        $mismatch += count(array_diff_key($normalized, $expected));
+        return [
+            'dropdown_cache_present' => true,
+            'dropdown_cache_actual_count' => count($normalized),
+            'dropdown_cache_actual_sha256' => $this->rows_digest($normalized),
+            'dropdown_cache_mismatch_count' => $mismatch,
+            'dropdown_cache_malformed_count' => $malformed,
+        ];
     }
 
     /**
@@ -577,7 +655,8 @@ final class TheEventsCalendarCategoryColors {
         $metaKeys = array_merge(array_values(self::COLOR_META), [self::PRIORITY_META, self::HIDDEN_META]);
         $metaKeyPlaceholders = implode(',', array_fill(0, count($metaKeys), '%s'));
         $metaValueLimit = self::MAX_RELEVANT_META_VALUE_BYTES + 1;
-        $relevantRowLimit = count($idList) * count($metaKeys) + 1;
+        $uniqueRowFrontier = count($idList) * count($metaKeys) + 1;
+        $relevantRowLimit = min($uniqueRowFrontier, self::MAX_NATIVE_GENERATOR_META_ROWS + 1);
         $relevantRows = $this->checked_rows(
             $wpdb->prepare(
                 "SELECT meta_id, term_id, meta_key, LENGTH(meta_value) AS value_bytes, "
@@ -588,7 +667,12 @@ final class TheEventsCalendarCategoryColors {
             ),
             'category color metadata'
         );
-        if (count($relevantRows) >= $relevantRowLimit) {
+        if (count($relevantRows) > self::MAX_NATIVE_GENERATOR_META_ROWS) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar native Category Colors Generator exceeds its safe one-page metadata frontier'
+            );
+        }
+        if (count($relevantRows) >= $uniqueRowFrontier) {
             throw new \RuntimeException(
                 'duo: The Events Calendar Category Colors native metadata exceeds its unique-row frontier'
             );
@@ -809,6 +893,49 @@ final class TheEventsCalendarCategoryColors {
     /** @param array<string,array<string,mixed>> $rows */
     private function rows_digest(array $rows): string {
         return hash('sha256', (string) json_encode(array_values($rows), JSON_UNESCAPED_SLASHES));
+    }
+
+    /** @param array<string,mixed> $projection @return array<string,mixed> */
+    private function scoped_projection(array $projection): array {
+        // Generator::fetch_category_meta() has no SQL ORDER BY and its stable
+        // priority-only usort therefore permits byte permutations inside an
+        // equal-priority bucket. Selectors are disjoint, so the canonical
+        // projection hashes above are the exact semantic postcondition; a raw
+        // storage hash would turn an equivalent native reorder into permanent
+        // scoped recovery_required debt.
+        unset(
+            $projection['css_sha256'],
+            $projection['dropdown_cache_present'],
+            $projection['dropdown_cache_actual_count'],
+            $projection['dropdown_cache_actual_sha256'],
+            $projection['dropdown_cache_mismatch_count'],
+            $projection['dropdown_cache_malformed_count']
+        );
+        return $projection;
+    }
+
+    private function native_service(string $class, string $method, string $label): object {
+        $service = tribe($class);
+        if (!is_object($service)
+            || get_class($service) !== $class
+            || !is_callable([$service, $method])) {
+            throw new \RuntimeException(
+                "duo: The Events Calendar 6.17.x Category Colors $label identity is unavailable or overridden"
+            );
+        }
+        return $service;
+    }
+
+    private function native_cache(): \Tribe__Cache {
+        $cache = tribe_cache();
+        if (!is_object($cache)
+            || get_class($cache) !== \Tribe__Cache::class
+            || !is_callable([$cache, 'get'])) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar 6.17.x Category Colors cache identity is unavailable or overridden'
+            );
+        }
+        return $cache;
     }
 
     private function native_hex(mixed $value): string {

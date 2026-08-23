@@ -658,6 +658,246 @@ grep -qF '.tribe_events_cat-duo-readiness-category{' <<<"$ARCHIVE" \
 grep -qF '#123abc' <<<"$ARCHIVE" || fail "TEC archive did not carry the authored primary category color"
 pass "native Gutenberg editor meta, ordered organizers, canceled/postponed/scheduled statuses, and Category Colors render exactly"
 
+# Exercise the exact native Category Colors services on every artifact in the
+# boundary matrix. Generator::fetch_category_meta() has no ORDER BY, uses an
+# OFFSET page size of 500, and usort() compares priority only. The provider
+# therefore binds equal-priority output semantically and admits exactly one
+# complete native page, while reconciliation must never repopulate the cache
+# that the native second service deliberately deletes.
+TEC_COLOR_BOUNDARY_FILE="${CONF_REPO2:-siterepo/conf2}/.tmp-tec-category-colors-boundary.php"
+read -r -d '' TEC_COLOR_BOUNDARY_PHP <<'PHPEOF' || true
+<?php
+wp_set_current_user(1);
+global $wpdb;
+
+$assert = static function (bool $condition, string $message): void {
+    if (!$condition) {
+        throw new RuntimeException($message);
+    }
+};
+$pluginRoot = WP_PLUGIN_DIR . '/the-events-calendar';
+foreach ([
+    'common/src/Tribe/Cache.php' => '13122d8dd94a4a0b8f43cefcea7b5f61d3c00bc11b98fb282ac73076ed3eb457',
+    'src/Events/Category_Colors/CSS/Controller.php' => '16f8bbacefaf7ebe41292f49a6e5a22a21752b4be96ef46316d306d7ba03f949',
+    'src/Events/Category_Colors/CSS/Generator.php' => 'e4b400e98736faeed5f2df6f054ba63012e7159962a6ddc53021a94cfbf038d0',
+    'src/Events/Category_Colors/Repositories/Category_Color_Dropdown_Provider.php' => 'db1c758c197c08c0c7f70754408fa077a62abf335110a309f540f6644edc3372',
+] as $relative => $expectedSha256) {
+    $path = $pluginRoot . '/' . $relative;
+    $assert(is_file($path) && hash_file('sha256', $path) === $expectedSha256,
+        "exact Category Colors service source disagrees: $relative");
+}
+$provider = new \Duo\Providers\TheEventsCalendarCategoryColors(
+    \Duo\Policy::load('/siterepo')
+);
+$operation = [
+    'format' => 'duo-provider-operation/v1',
+    'id' => 'tec-exact-category-colors-boundary',
+];
+$cacheKey = \TEC\Events\Category_Colors\Repositories\Category_Color_Dropdown_Provider::CACHE_KEY;
+$created = [];
+$deleteCreated = static function () use (&$created): void {
+    foreach (array_reverse($created) as $termId) {
+        wp_delete_term($termId, Tribe__Events__Main::TAXONOMY);
+    }
+    $created = [];
+};
+$createCategory = static function (string $slug, array $meta) use (&$created): int {
+    $inserted = wp_insert_term($slug, Tribe__Events__Main::TAXONOMY, [
+        'slug' => $slug,
+        'description' => 'Duo exact Category Colors boundary fixture.',
+    ]);
+    if (is_wp_error($inserted)) {
+        throw new RuntimeException('could not create exact Category Colors fixture: ' . $inserted->get_error_message());
+    }
+    $termId = (int) $inserted['term_id'];
+    $created[] = $termId;
+    $nativeMeta = tribe(\TEC\Events\Category_Colors\Event_Category_Meta::class)->set_term($termId);
+    foreach ($meta as $key => $value) {
+        $nativeMeta->set($key, $value);
+    }
+    $nativeMeta->save();
+    return $termId;
+};
+$rawCss = static function () use ($wpdb): string {
+    $rows = $wpdb->get_col($wpdb->prepare(
+        "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 2",
+        'tec_events_category_color_css'
+    ));
+    if (!is_array($rows) || count($rows) !== 1 || !is_string($rows[0])) {
+        throw new RuntimeException('exact Category Colors CSS option row is absent, duplicated, or malformed');
+    }
+    return $rows[0];
+};
+$relevantCount = static function () use ($wpdb): int {
+    $keys = [
+        'tec-events-cat-colors-primary',
+        'tec-events-cat-colors-secondary',
+        'tec-events-cat-colors-text',
+        'tec-events-cat-colors-priority',
+        'tec-events-cat-colors-hidden',
+    ];
+    $placeholders = implode(',', array_fill(0, count($keys), '%s'));
+    $sql = $wpdb->prepare(
+        "SELECT COUNT(*) FROM {$wpdb->termmeta} tm "
+            . "INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = tm.term_id "
+            . "WHERE tt.taxonomy = %s AND tm.meta_key IN ($placeholders)",
+        ...array_merge([Tribe__Events__Main::TAXONOMY], $keys)
+    );
+    $wpdb->last_error = '';
+    $value = $wpdb->get_var($sql);
+    if ($wpdb->last_error !== '' || !is_string($value) || preg_match('/^[0-9]+$/D', $value) !== 1) {
+        throw new RuntimeException('could not count exact Category Colors native metadata rows');
+    }
+    return (int) $value;
+};
+
+$equalPriorityAfter = null;
+$onePageCount = null;
+try {
+    $equal = [
+        'tec-events-cat-colors-priority' => '41',
+        'tec-events-cat-colors-hidden' => '0',
+    ];
+    $createCategory('duo-equal-priority-alpha', $equal + [
+        'tec-events-cat-colors-primary' => '#102030',
+    ]);
+    $createCategory('duo-equal-priority-beta', $equal + [
+        'tec-events-cat-colors-primary' => '#405060',
+    ]);
+
+    $first = $provider->invoke_scoped('regenerate_css', [], $operation);
+    $firstCss = $rawCss();
+    $second = $provider->invoke_scoped('regenerate_css', [], $operation);
+    $secondCss = $rawCss();
+    $assert(($first['verified'] ?? null) === true && ($second['verified'] ?? null) === true,
+        'exact equal-priority Category Colors generation was not verified');
+    $assert(($first['after'] ?? null) === ($second['after'] ?? null),
+        'equal-priority native generations changed the semantic scoped receipt');
+    $assert(!array_key_exists('css_sha256', $first['after'] ?? []),
+        'equal-priority scoped evidence incorrectly bound unstable raw CSS order');
+    foreach (['duo-equal-priority-alpha', 'duo-equal-priority-beta'] as $slug) {
+        $selector = '.tribe_events_cat-' . $slug . '{';
+        $assert(substr_count($firstCss, $selector) === 1 && substr_count($secondCss, $selector) === 1,
+            "exact equal-priority CSS lost or duplicated selector $slug");
+    }
+    $equalPriorityAfter = $first['after'];
+
+    $cache = tribe_cache();
+    $assert($cache->get($cacheKey) === false,
+        'native Category Colors invocation did not finish with the dropdown cache absent');
+    $dropdown = tribe(
+        \TEC\Events\Category_Colors\Repositories\Category_Color_Dropdown_Provider::class
+    );
+    $rows = $dropdown->get_dropdown_categories();
+    $bySlug = [];
+    foreach ($rows as $row) {
+        if (is_array($row) && isset($row['slug'])) {
+            $bySlug[(string) $row['slug']] = $row;
+        }
+    }
+    $assert(($bySlug['duo-equal-priority-alpha']['primary'] ?? null) === '#102030'
+        && ($bySlug['duo-equal-priority-alpha']['priority'] ?? null) === 41
+        && ($bySlug['duo-equal-priority-beta']['primary'] ?? null) === '#405060'
+        && ($bySlug['duo-equal-priority-beta']['priority'] ?? null) === 41,
+        'native dropdown repopulation lost equal-priority semantic rows');
+    $populatedCache = $cache->get($cacheKey);
+    $assert(is_array($populatedCache), 'native dropdown did not repopulate its exact cache entry');
+    $populatedBytes = serialize($populatedCache);
+    $reconcileOne = $provider->reconcile_scoped('regenerate_css', [], $operation);
+    $reconcileTwo = $provider->reconcile_scoped('regenerate_css', [], $operation);
+    $assert(($reconcileOne['after'] ?? null) === $equalPriorityAfter
+        && ($reconcileTwo['after'] ?? null) === $equalPriorityAfter,
+        'read-only reconciliation did not recognize equal-priority semantic output');
+    $assert(serialize($cache->get($cacheKey)) === $populatedBytes,
+        'reconciliation mutated or repopulated an already populated dropdown cache');
+
+    $cache->delete($cacheKey);
+    $assert($cache->get($cacheKey) === false, 'exact cache-expiry premise did not land');
+    $expiryOne = $provider->reconcile_scoped('regenerate_css', [], $operation);
+    $expiryTwo = $provider->reconcile_scoped('regenerate_css', [], $operation);
+    $assert(($expiryOne['after'] ?? null) === $equalPriorityAfter
+        && ($expiryTwo['after'] ?? null) === $equalPriorityAfter
+        && $cache->get($cacheKey) === false,
+        'repeated reconciliation repopulated a naturally absent dropdown cache');
+
+    $deleteCreated();
+    $provider->invoke('regenerate_css', []);
+
+    $baseCount = $relevantCount();
+    $assert($baseCount >= 0 && $baseCount <= 500,
+        'canonical target already exceeds the native one-page Category Colors frontier');
+    $remaining = 500 - $baseCount;
+    $values = [
+        'tec-events-cat-colors-primary' => '#112233',
+        'tec-events-cat-colors-secondary' => '#445566',
+        'tec-events-cat-colors-text' => '#ffffff',
+        'tec-events-cat-colors-priority' => '73',
+        'tec-events-cat-colors-hidden' => '0',
+    ];
+    $fixtureNumber = 0;
+    $lastColoredSlug = null;
+    while ($remaining > 0) {
+        $slug = sprintf('duo-one-page-%03d', $fixtureNumber++);
+        $termMeta = array_slice($values, 0, min(5, $remaining), true);
+        $createCategory($slug, $termMeta);
+        if (isset($termMeta['tec-events-cat-colors-primary'])) {
+            $lastColoredSlug = $slug;
+        }
+        $remaining -= count($termMeta);
+    }
+    $onePageCount = $relevantCount();
+    $assert($onePageCount === 500 && is_string($lastColoredSlug),
+        'exact native one-page Category Colors fixture did not reach 500 rows');
+    $onePage = $provider->invoke('regenerate_css', []);
+    $onePageCss = $rawCss();
+    $assert(($onePage['verified'] ?? null) === true
+        && substr_count($onePageCss, '.tribe_events_cat-' . $lastColoredSlug . '{') === 1,
+        'the exact native Generator did not consume its complete 500-row query page');
+
+    $dropdown->get_dropdown_categories();
+    $cssBeforeOverflow = $rawCss();
+    $cacheBeforeOverflow = tribe_cache()->get($cacheKey);
+    $createCategory('duo-second-page-refusal', [
+        'tec-events-cat-colors-primary' => '#abcdef',
+    ]);
+    $assert($relevantCount() === 501, 'exact native second-page fixture did not reach 501 rows');
+    $refused = false;
+    try {
+        $provider->invoke('regenerate_css', []);
+    } catch (RuntimeException $failure) {
+        $refused = str_contains($failure->getMessage(), 'safe one-page metadata frontier');
+    }
+    $assert($refused, 'the exact native 501-row Category Colors query did not refuse before mutation');
+    $assert($rawCss() === $cssBeforeOverflow
+        && serialize(tribe_cache()->get($cacheKey)) === serialize($cacheBeforeOverflow),
+        'the exact 501-row refusal mutated CSS or the populated dropdown cache');
+} finally {
+    $deleteCreated();
+    $provider->invoke('regenerate_css', []);
+}
+
+echo wp_json_encode([
+    'cache_postcondition' => 'absent_after_invoke_observational_during_reconcile',
+    'equal_priority_after_sha256' => hash('sha256', wp_json_encode($equalPriorityAfter)),
+    'native_one_page_rows' => $onePageCount,
+    'native_second_page_refused' => true,
+], JSON_UNESCAPED_SLASHES) . "\n";
+PHPEOF
+printf '%s' "$TEC_COLOR_BOUNDARY_PHP" > "$TEC_COLOR_BOUNDARY_FILE"
+TEC_COLOR_BOUNDARY_RC=0
+TEC_COLOR_BOUNDARY_OUT=$(wp_conf2 eval-file /siterepo/.tmp-tec-category-colors-boundary.php 2>&1) \
+  || TEC_COLOR_BOUNDARY_RC=$?
+rm -f "$TEC_COLOR_BOUNDARY_FILE"
+[ "$TEC_COLOR_BOUNDARY_RC" -eq 0 ] \
+  || fail "TEC exact Category Colors equal-priority/cache/pagination boundary failed: $TEC_COLOR_BOUNDARY_OUT"
+TEC_COLOR_BOUNDARY_JSON=$(printf '%s\n' "$TEC_COLOR_BOUNDARY_OUT" | awk 'NF { line=$0 } END { print line }')
+printf '%s\n' "$TEC_COLOR_BOUNDARY_JSON" | jq -e '
+  .cache_postcondition == "absent_after_invoke_observational_during_reconcile" and
+  (.equal_priority_after_sha256 | test("^[0-9a-f]{64}$")) and
+  .native_one_page_rows == 500 and .native_second_page_refused == true
+' >/dev/null || fail "TEC exact Category Colors boundary returned malformed evidence: $TEC_COLOR_BOUNDARY_OUT"
+pass "exact Category Colors services bind equal-priority semantics, read-only cache recovery, and the native 500/501 query frontier"
+
 if [ "${TEC_BOUNDARY_ONLY:-0}" = 1 ]; then
   pass "TEC exact-boundary native round trip is clean"
   return 0 2>/dev/null || exit 0

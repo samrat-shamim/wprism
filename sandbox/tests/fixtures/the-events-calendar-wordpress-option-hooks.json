@@ -1,0 +1,81 @@
+{
+  "format": "duo-tec-wordpress-option-topology/v1",
+  "reproduce": "php sandbox/tests/support/verify-tec-wordpress-option-hooks.php --wordpress-root=/usr/src/wordpress --version=<version>",
+  "source_files": {
+    "6.9.2": {
+      "option_php_sha256": "cde15dc93f943de5884c87b26f0786011c6e43b93440cde1792428029ced9e37",
+      "formatting_php_sha256": "fe6f3c7a4b312f257b3cebee374d8c07d5c3f4df4203d58ee42fd8ae8320b1ce",
+      "cache_php_sha256": "a219c2b57cc9990b560c6b497c877db443b7e29239645a6a79b2d76839c46e19",
+      "object_cache_php_sha256": "1857b774bd9cfbafbd50a1b1424f7df637d202cf3f2253cda9798d4ad56f3cf0"
+    },
+    "7.0.3": {
+      "option_php_sha256": "d1daad9a1d19ee438eb6e3b6698b42a3682f6f7ab9626be02f2157a238ea3e2f",
+      "formatting_php_sha256": "4e6d1740465e06fc2bbf6deaf666792e60f8c71964d5e5f7b9a6400261144a79",
+      "cache_php_sha256": "a219c2b57cc9990b560c6b497c877db443b7e29239645a6a79b2d76839c46e19",
+      "object_cache_php_sha256": "1857b774bd9cfbafbd50a1b1424f7df637d202cf3f2253cda9798d4ad56f3cf0"
+    },
+    "7.1": {
+      "option_php_sha256": "fe3f0b7e115b2a50c31162ed6428abe4088c080b0f71b9678d84806168fe90d0",
+      "formatting_php_sha256": "69b5e5acd15fc70582e7edd09c6e201ffdd7f5ab4c5a0b481a9963a0acd604f8",
+      "cache_php_sha256": "a219c2b57cc9990b560c6b497c877db443b7e29239645a6a79b2d76839c46e19",
+      "object_cache_php_sha256": "1857b774bd9cfbafbd50a1b1424f7df637d202cf3f2253cda9798d4ad56f3cf0"
+    }
+  },
+  "shared_paths": {
+    "get_option": [
+      "pre_option_tec_events_category_color_css",
+      "pre_option",
+      "pre_wp_load_alloptions",
+      "pre_cache_alloptions",
+      "alloptions",
+      "default_option_tec_events_category_color_css",
+      "option_tec_events_category_color_css"
+    ],
+    "sanitize": [
+      "sanitize_option_tec_events_category_color_css"
+    ],
+    "update_existing": [
+      "pre_update_option_tec_events_category_color_css",
+      "pre_update_option",
+      "update_option",
+      "wp_autoload_values_to_autoload",
+      "update_option_tec_events_category_color_css",
+      "updated_option"
+    ],
+    "add_absent": [
+      "add_option",
+      "wp_autoload_values_to_autoload",
+      "add_option_tec_events_category_color_css",
+      "added_option"
+    ]
+  },
+  "proved_absent": [
+    "default_option",
+    "pre_add_option",
+    "pre_add_option_tec_events_category_color_css",
+    "updated_option_tec_events_category_color_css",
+    "added_option_tec_events_category_color_css",
+    "wp_default_autoload_value",
+    "wp_max_autoloaded_option_size"
+  ],
+  "tec_service_sources": {
+    "6.17.2": {
+      "common/src/Tribe/Cache.php": "13122d8dd94a4a0b8f43cefcea7b5f61d3c00bc11b98fb282ac73076ed3eb457",
+      "src/Events/Category_Colors/CSS/Controller.php": "16f8bbacefaf7ebe41292f49a6e5a22a21752b4be96ef46316d306d7ba03f949",
+      "src/Events/Category_Colors/CSS/Generator.php": "e4b400e98736faeed5f2df6f054ba63012e7159962a6ddc53021a94cfbf038d0",
+      "src/Events/Category_Colors/Repositories/Category_Color_Dropdown_Provider.php": "db1c758c197c08c0c7f70754408fa077a62abf335110a309f540f6644edc3372"
+    },
+    "6.17.3": {
+      "common/src/Tribe/Cache.php": "13122d8dd94a4a0b8f43cefcea7b5f61d3c00bc11b98fb282ac73076ed3eb457",
+      "src/Events/Category_Colors/CSS/Controller.php": "16f8bbacefaf7ebe41292f49a6e5a22a21752b4be96ef46316d306d7ba03f949",
+      "src/Events/Category_Colors/CSS/Generator.php": "e4b400e98736faeed5f2df6f054ba63012e7159962a6ddc53021a94cfbf038d0",
+      "src/Events/Category_Colors/Repositories/Category_Color_Dropdown_Provider.php": "db1c758c197c08c0c7f70754408fa077a62abf335110a309f540f6644edc3372"
+    }
+  },
+  "notes": [
+    "The three pinned cores expose the same call topology for update_option(name, value, true), including update_option's absent-row delegation into add_option.",
+    "wp_default_autoload_value and wp_max_autoloaded_option_size are present in core but unreachable because TEC passes explicit autoload=true.",
+    "The stock cache.php and class-wp-object-cache.php bytes are identical across all three pins and expose no callback hook around wp_cache_get/set/delete; external object-cache drop-ins are refused before invocation.",
+    "The exact TEC 6.17.2 and 6.17.3 Controller, Generator, Dropdown Provider, and Tribe__Cache bytes are identical; Tribe__Cache::delete delegates directly to the stock wp_cache_delete path."
+  ]
+}
