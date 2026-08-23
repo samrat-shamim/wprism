@@ -2,9 +2,12 @@
 namespace Duo;
 
 require_once __DIR__ . '/../Policy/Policy.php';
-require_once __DIR__ . '/../Repository/Ledger.php';
 require_once __DIR__ . '/Shortcodes.php';
 require_once __DIR__ . '/Tokens.php';
+
+if (!class_exists(Ledger::class, false)) {
+    require_once __DIR__ . '/../Repository/Ledger.php';
+}
 
 /** Builds and preflights declared shortcode alternate identities for one apply. */
 final class ShortcodeAlternateRegistrar {
