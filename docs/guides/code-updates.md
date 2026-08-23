@@ -509,12 +509,42 @@ running `duo` must be able to write the repository the compile will hash:
   in, which is the wrong one whenever the command targets another environment
   — a rehearse resolved the *source* repository and reported success while the
   target the compile reads stayed empty.
-- **`ssh`** — the repository is on the far side of the network boundary and
-  this host cannot write it. The verb refuses with
-  `code_resolve_transport_unsupported`. Host-to-target push is tracked as
-  **DUO-3514** and is not implemented; until it lands, materialize the locked
-  components on the target itself (the same three verification steps, by hand
-  or from your own build) and deploy from there.
+- **`ssh`** — the repository is on the far side of the network boundary, so
+  the host resolves and then **pushes** (DUO-3514). Nothing about the egress
+  rule moves: the fetching and both digest checks still happen on the host,
+  and the target still never reaches a registry.
+
+  The order, which is the whole safety argument:
+
+  1. The lock is read from the **target**, never from the directory you are
+     standing in. There is no host checkout of the site to be wrong about.
+  2. The target's own `wp duo code-inventory` says which components it is
+     missing. Only those are pushed.
+  3. The missing components are resolved into a throwaway staging worktree on
+     this host — `archive_sha256` verified before unpacking, `tree_sha256`
+     after, exactly as on `local`.
+  4. The verified trees travel as **one** tar (scp) and are unpacked into
+     `<repo_path>/.duo/code-push/<token>/code/wp-content` — a staging
+     directory, not the live tree.
+  5. `wp duo code-inventory` is run against that staging directory. Every
+     pushed tree must hash to the `tree_sha256` the lock declares **before a
+     single byte reaches `code/wp-content`.** A mismatch refuses with
+     `code_resolve_tree_digest_mismatch`, removes the staging directory, and
+     leaves the target exactly as it was.
+  6. Each verified tree is renamed into place, and the target's inventory is
+     read once more as the post-condition.
+
+  The refusals: a component the target holds at a **different** digest refuses
+  `code_resolve_component_drifted` before anything is fetched or transferred —
+  the same "nothing overwrites a tree Git does not carry" rule as on the host,
+  and nothing is pushed, not even the absent siblings. A transfer or a
+  target-side command that fails refuses `code_resolve_push_failed` with the
+  target unchanged. A transport that exposes neither a writable host path nor
+  a push mechanism still refuses `code_resolve_transport_unsupported`.
+
+  What the target has to provide: an ssh account that can write its
+  `repo_path` and `/tmp`, plus `tar` and `wp`. No Git, no composer, no
+  registry egress, and no build toolchain.
 
 ### `duo deploy` and `duo promote` resolve for you
 
@@ -525,11 +555,14 @@ taken and nothing to compensate if it refuses. It is completely silent for a
 repository that declares no lock (a legacy format-1 repository, or a state-only
 one), so such a deploy prints exactly the phase lines it always did.
 
-On **ssh with a lock present**, deploy cannot resolve, so it verifies instead:
-it asks the target for its own `wp duo code-inventory` and proceeds only when
-**every** locked component already hashes to its declared `tree_sha256` there.
-If any does not, it refuses with `code_resolve_transport_unsupported` before
-compile, naming the components that are missing or drifted.
+On **ssh with a lock present**, the phase reads the target's inventory first
+and then does the least it can: every component already at its declared
+`tree_sha256` is reported `UNCHANGED` and nothing is transferred at all; the
+missing ones are resolved on this host and pushed through the six steps above,
+with the target-side digest check in front of every rename. A drifted
+component refuses before compile, naming it. Because the phase runs before
+`compile` and therefore before `promotion-begin`, a refusal here is a deploy
+that never started: no lease, no checkpoint, nothing to compensate.
 
 The practical consequence, restated for the split: **resolution still happens
 on the host and never on the target.** What changed is that you no longer have

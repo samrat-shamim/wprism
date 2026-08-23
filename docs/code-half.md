@@ -741,16 +741,25 @@ would have been easy:
   earth; re-materializing over them would destroy the only copy of whatever
   the operator actually has. Remove the directory to re-materialize, or
   `duo code-classify` to re-lock what is there.
-- **`local` and `docker` only, and `ssh` says so by name.** The egress
-  constraint above is absolute — the target never fetches — so resolution
-  needs a host that can WRITE the repository the compile will hash. A local
-  environment's `repo_path` is that path; a docker environment's host side is
-  the checkout `duo` is standing in. An ssh target's repository is on the far
-  side of the transport, so the verb refuses with
-  `code_resolve_transport_unsupported` naming DUO-3514 (host→target push), and
-  the automatic deploy phase refuses too — unless it can PROVE the point is
-  moot by asking the target for its own `wp duo code-inventory` and finding
-  every locked component already at its declared digest.
+- **Resolution is host work on every transport; ssh resolves then pushes.**
+  The egress constraint above is absolute — the target never fetches — so the
+  bytes are always fetched and verified on the host. A local environment's
+  `repo_path` is a host path; a docker environment's host side is derived from
+  its own compose service. An ssh target's repository is on the far side of
+  the transport, so DUO-3514 ships the push half of §2.2's design: resolve
+  into a throwaway host staging worktree from the TARGET's own lock, ship one
+  tar, unpack it into `<repo_path>/.duo/code-push/<token>/code/wp-content`,
+  and verify those staged trees against `tree_sha256` through the target's own
+  `wp duo code-inventory` BEFORE anything is renamed into place; then re-read
+  the inventory as the post-condition. A component present at another digest
+  refuses `code_resolve_component_drifted` before anything is transferred.
+
+  §2.2's rsync-plus-`releases/<rev>`-symlink refinement was NOT taken. A
+  symlink flip moves where `wp_path` points, which is a deploy-topology change
+  rather than a materialization one, and rsync would add a target-side
+  dependency the tar path does not. `code_resolve_transport_unsupported`
+  survives for what it is still true of: a transport with neither a writable
+  host path nor a push mechanism.
 
 ---
 
@@ -821,7 +830,8 @@ What did NOT change: the egress rule (nothing fetches on a target; the agent is
 never told a registry or a store exists), the compile gate's non-forceability,
 the "migration is free" property (`duo code-classify` still moves no byte and
 compiles to the identical `code_revision`), format 1 as a readable legacy
-shape, and `ssh` resolution (DUO-3514). The `duo code-import` verb is
+shape, and the egress rule on `ssh` (DUO-3514 pushes verified bytes; it does
+not teach the target to fetch). The `duo code-import` verb is
 host-only and takes no `<env>`, like `manifest-validate`: the cache is a
 property of the host, not of a site, and the import has to be possible before
 the `duo init` that classifies the component.

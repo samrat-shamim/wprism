@@ -768,6 +768,17 @@ regress-code-classify:
 regress-code-resolve:
 	php sandbox/tests/offline/code-half/regress_code_resolve.php
 
+# DUO-3514, the host->target half `duo code-resolve` refused before: an ssh
+# environment resolves on the HOST into a throwaway staging worktree, ships one
+# tar, and verifies the trees TARGET-SIDE in .duo/code-push against the lock's
+# tree_sha256 before anything is renamed into code/wp-content. The fixture
+# transport runs the target-side scripts through sh and answers code-inventory
+# with the agent's own component_inventory(), so the ordering, the tar members
+# and the digests are the real ones. Against the prior build the ssh arm
+# refuses code_resolve_transport_unsupported and nothing is pushed at all.
+regress-code-resolve-push:
+	php sandbox/tests/offline/code-half/regress_code_resolve_push.php
+
 # The host verb that makes a component with no wp.org release lockable instead
 # of carried in Git: `duo code-import <archive.zip>` puts the operator's
 # archive into the host's content-addressed cache and prints the digests the
@@ -1372,6 +1383,16 @@ regress-deploy-command:
 # checkpoint_listing_malformed. Pure fakes; no target contact.
 regress-deploy-checkpoint:
 	php sandbox/tests/offline/recovery/regress_deploy_checkpoint.php
+
+# DUO-3514's retention half: promote and deploy each retain an unbounded
+# whole-DB dump under .duo/checkpoints and nothing ever removed one.
+# `duo recover <env> --prune-retained=<keep-n>` is the only verb that does,
+# it plans unless --confirm-prune is given, it keeps the newest N of EACH verb
+# so the last before-image is never deletable, it never considers a signed
+# receipt, and it refuses while a generation is nonterminal. Pure fakes; the
+# removal script and its parse are byte-pinned.
+regress-checkpoint-prune:
+	php sandbox/tests/offline/recovery/regress_checkpoint_prune.php
 
 # DUO-3351 slice 19: the public promotion router owns only scoped-versus-
 # ordinary selection; the target promotion state machines remain unchanged.
@@ -2180,7 +2201,7 @@ regress-user-meta:
 # closed signed SSH crash-matrix evidence verifier.
 regress-offline-all:
 	@bash sandbox/tests/offline_diagnostics_guard.sh "$(MAKE)" --no-print-directory regress-offline-corpus
-	@echo "regress-offline-all: 286 offline suites green"
+	@echo "regress-offline-all: 288 offline suites green"
 
 regress-offline-corpus: code-half-unit \
 	regress-adopt-rollback regress-local-bootstrap regress-capture-publish regress-adapter-contract regress-adapter-sources regress-site-adapter-certification regress-ecosystem-adapter-batch regress-code-snippets-state-provider regress-yoast-duplicate-post-role-provider regress-yoast-index-provider regress-elementor-css-provider regress-adapter-production-readiness regress-manifest-dispositions regress-platform-compatibility regress-topology-gate regress-interpreter-policy regress-proof-legacy-pair \
@@ -2200,9 +2221,9 @@ regress-offline-corpus: code-half-unit \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-init-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-convergence-verifier regress-apply-drift-convergence regress-apply-planner regress-apply-field-materializer regress-path-safety regress-deploy-planner regress-lifecycle-planner regress-capture-code-baseline regress-state-handoff-verifier regress-lifecycle-executor regress-cli-json-refusals regress-agent-subcommand-names regress-command-output regress-environment-command-preflight regress-passthrough-command regress-environment-command-options regress-driver-capabilities-command regress-environment-list-command regress-doctor-command regress-pending-command regress-classify-command regress-capture-command regress-status-command regress-plan-explain regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
 	regress-manifest-validate regress-adapter-draft regress-scope-closure regress-adapter-catalog regress-adapter-observation regress-plan-contract-trust regress-scope-contract regress-conformance-asserts regress-scope-command regress-refresh-command regress-rebase-command regress-adopt-command regress-init-command \
 	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-elementor-dead-guard regress-elementor-matrix-reset regress-grind-r1c-manifest-preserve regress-observation-guards regress-live-exit-code-contract regress-target-observation-premises regress-bound-helper regress-control-plane-seams regress-recovery-protocol regress-scoped-apply-session regress-scoped-apply-live-cleanup regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-ssh-adopt-evidence-retention regress-scope-wire regress-manifest-grammar regress-compiled-artifact regress-code-descriptor-compiler regress-code-config-grammar regress-menu-materializer regress-adapter-registry regress-agent-src-requires regress-user-meta-materializer regress-pin-resolver regress-term-materializer regress-action-provider-grammar regress-options-materializer regress-cross-manifest-guards regress-relationship-materializer regress-attachment-materializer regress-post-materializer regress-sub-key-grammar regress-delete-executor regress-delete-guard-value-codec regress-delete-guard-evaluator regress-scope-discovery regress-table-graph regress-table-schema regress-snapshot-identity regress-typed-table-capture regress-typed-table-materializer regress-snapshot-pruner regress-taxonomy-grammar regress-option-reference-grammar regress-post-type-grammar regress-discovery-grammar regress-reference-keyspace-grammar regress-reference-kind-grammar regress-offline-diagnostics regress-promotion-abort-reason regress-delete-authorization-receipt \
-	regress-code-source-lock regress-code-lock-compile-gate regress-init-code-split regress-code-classify regress-code-resolve \
-	regress-code-import
-	@echo "regress-offline-corpus: 285 offline suites green"
+	regress-code-source-lock regress-code-lock-compile-gate regress-init-code-split regress-code-classify regress-code-resolve regress-code-resolve-push \
+	regress-code-import regress-checkpoint-prune
+	@echo "regress-offline-corpus: 288 offline suites green"
 
 regress-offline-diagnostics:
 	bash sandbox/tests/offline/guards/regress_offline_diagnostics.sh

@@ -118,8 +118,14 @@ launch gate passes.
   dependency resolution … no target Git history or registry credentials") true
   for a site using both. Resolution itself shipped as DUO-3500 (`duo
   code-resolve`, and the automatic `<verb> phase: code-resolve` inside deploy
-  and promote) for `local` and `docker`; host-to-target push over ssh is
-  DUO-3514.
+  and promote) for `local` and `docker`; host-to-target push over ssh shipped
+  as DUO-3514 — the host resolves into a throwaway staging worktree from the
+  TARGET's own lock, ships one tar, and the trees are verified target-side
+  against `tree_sha256` in a staging directory before anything is renamed into
+  `code/wp-content`. DUO-3514 also shipped the retention half:
+  `duo recover <env> --prune-retained=<keep-n> [--confirm-prune]` is the only
+  verb that removes a retained release checkpoint, and nothing prunes
+  automatically.
 - Git never carries third-party code (owner ruling, 2026-08-23). There is no
   vendoring mode: every plugin and theme component is LOCKED — against its
   wp.org release, or against an archive the operator imported on the host with

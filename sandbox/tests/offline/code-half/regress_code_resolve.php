@@ -30,10 +30,18 @@
  *   I. `--dry-run` reports and writes nothing — not even a cache entry;
  *   J. after resolving, the 3499 compile gate passes and `code_revision` is
  *      byte-identical to the same tree compiled with no lock at all;
- *   K. the transport arms: local and docker materialize on the host, ssh
- *      refuses with `code_resolve_transport_unsupported` naming DUO-3514
- *      unless the target already hashes correctly, and a repository with no
+ *   K. the transport arms: local and docker materialize on the host; a driver
+ *      that exposes NEITHER a host-side repository NOR a push capability
+ *      refuses with `code_resolve_transport_unsupported`, naming DUO-3514,
+ *      unless the target already hashes correctly; and a repository with no
  *      lock produces NO phase output whatsoever.
+ *
+ * K3 and K4 changed MEANING, not bytes, when DUO-3514 landed the host→target
+ * push. `ResolveFixtureTransport` is not a `CodePushTransport`, so it is
+ * exactly the un-pushable driver those refusals are still correct for; the ssh
+ * transport that CAN be pushed to is pinned end to end in
+ * `regress_code_resolve_push.php`, which owns the ordered push sequence, the
+ * target-side digest gate and the drift refusal.
  *
  * The registry is a local `file://` fixture and every archive is built in this
  * process: the offline corpus contacts no network. `DUO_CODE_ARTIFACT_BASE`
@@ -918,13 +926,17 @@ duo_check(
     . 'change made inert'
 );
 
-// K3. ssh: the verb refuses and names the DUO-3514 runbook.
+// K3. A driver with no host repository AND no push capability: the verb
+// refuses and names the DUO-3514 runbook. Since DUO-3514 that is a claim about
+// the CAPABILITY, not about the word "ssh" — a real SshTransport implements
+// CodePushTransport and resolves-then-pushes (regress_code_resolve_push.php).
+// The bytes below are unchanged precisely because this fixture does not.
 $result = resolve_run($runnerFile, $scratch, [
     'mode' => 'verb',
     'transport' => 'ssh',
     'repo_path' => '/srv/site-repo',
 ]);
-duo_check_same(1, $result['exit'], 'duo code-resolve refuses on an ssh environment');
+duo_check_same(1, $result['exit'], 'duo code-resolve refuses on a driver that can neither write nor push');
 duo_check(
     str_contains($result['stderr'], '[' . CodeResolveCommand::REASON_TRANSPORT_UNSUPPORTED . ']'),
     'with the reason code the docs and the deploy phase both name'
@@ -939,8 +951,9 @@ duo_check(
 );
 duo_check_same(0, $result['raw'] + $result['wp'], 'the verb refuses before contacting the target at all');
 
-// K4. The deploy phase on ssh: proceeds only when the target already hashes
-// correctly, and refuses by name when it does not.
+// K4. The deploy phase on an un-pushable driver: proceeds only when the target
+// already hashes correctly, and refuses by name when it does not. (A pushable
+// one resolves and pushes instead; regress_code_resolve_push.php pins that.)
 $targetSite = json_encode(['code' => RESOLVE_FORMAT_2, 'format' => 1], JSON_UNESCAPED_SLASHES);
 $targetLock = CodeSourceLock::encode($lockRows);
 $targetRaw = [
@@ -966,7 +979,7 @@ $result = resolve_run($runnerFile, $scratch, [
         ],
     ], JSON_UNESCAPED_SLASHES), 'stderr' => ''],
 ]);
-duo_check_same('continue', $result['phase'], 'deploy proceeds on ssh when every locked component already hashes correctly there');
+duo_check_same('continue', $result['phase'], 'deploy proceeds when every locked component already hashes correctly on the target');
 duo_check(
     str_contains($result['stdout'], "deploy phase: code-resolve\n"),
     'and says so with its own phase line'
@@ -988,7 +1001,7 @@ $result = resolve_run($runnerFile, $scratch, [
         'components' => [$inventoryRow('plugins', 'woocommerce', '11.0.0', $wooTreeDigest)],
     ], JSON_UNESCAPED_SLASHES), 'stderr' => ''],
 ]);
-duo_check_same(1, $result['exit'], 'deploy refuses on ssh when a locked component is not already correct on the target');
+duo_check_same(1, $result['exit'], 'deploy refuses on an un-pushable driver when a locked component is not already correct on the target');
 duo_check(
     str_contains($result['stderr'], '[' . CodeResolveCommand::REASON_TRANSPORT_UNSUPPORTED . ']'),
     'with the same reason code the verb raises'
