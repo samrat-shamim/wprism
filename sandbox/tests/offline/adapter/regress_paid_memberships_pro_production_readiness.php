@@ -129,6 +129,39 @@ namespace {
 
     $manifestPath = __DIR__ . '/../../../../manifests/paid-memberships-pro.json';
     $manifest = json_decode((string) file_get_contents($manifestPath), true, 512, JSON_THROW_ON_ERROR);
+    $dispositions = json_decode(
+        (string) file_get_contents(__DIR__ . '/../../../../manifests/dispositions.json'),
+        true,
+        512,
+        JSON_THROW_ON_ERROR
+    );
+    $disposition = $dispositions['manifests']['paid-memberships-pro'] ?? [];
+    duo_check(
+        ($disposition['status'] ?? null) === 'certified'
+            && ($disposition['capabilities']['lifecycle_phases'] ?? null) === ['retire', 'activate', 'verify']
+            && in_array('deploy', $disposition['capabilities']['operations'] ?? [], true)
+            && in_array('render-api', $disposition['capabilities']['operations'] ?? [], true),
+        'the reviewed disposition certifies the exact lifecycle and native product paths'
+    );
+    $unsupported = array_fill_keys(array_column($disposition['unsupported'] ?? [], 'surface'), true);
+    duo_check(
+        isset($unsupported['runtime.action-scheduler-deactivation-cleanup']),
+        'the pinned upstream deactivation defect remains an explicit unsupported runtime surface'
+    );
+    $readiness = json_decode(
+        (string) file_get_contents(__DIR__ . '/../../../conformance/production-readiness.json'),
+        true,
+        512,
+        JSON_THROW_ON_ERROR
+    );
+    $readiness = $readiness['adapters']['paid-memberships-pro'] ?? [];
+    duo_check(
+        ($readiness['readiness'] ?? null) === 'ready'
+            && ($readiness['gaps'] ?? null) === []
+            && ($readiness['blocked'] ?? null) === []
+            && count($readiness['covered'] ?? []) === 12,
+        'the readiness ledger closes all twelve scenario families without hiding a gap'
+    );
     $matrix = (string) file_get_contents(__DIR__ . '/../../certify/certify_version_matrix.sh');
     duo_check(
         str_contains($matrix, 'wp_delete_user((int) $user_id, (int) $admin->ID)'),

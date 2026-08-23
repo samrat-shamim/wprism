@@ -113,9 +113,9 @@ check(
     'every shipped manifest has a closed reviewed disposition'
 );
 check(
-    ($data['manifests']['paid-memberships-pro']['status'] ?? null) === 'experimental'
+    ($data['manifests']['paid-memberships-pro']['status'] ?? null) === 'certified'
         && ($data['manifests']['the-events-calendar']['status'] ?? null) === 'experimental',
-    'PMPro and The Events Calendar remain explicitly experimental'
+    'PMPro is certified while The Events Calendar remains explicitly experimental'
 );
 $tecManifest = $manifestsByName['the-events-calendar'];
 $tecDisposition = $data['manifests']['the-events-calendar'];
@@ -149,11 +149,15 @@ check(
         'plugin' => 'paid-memberships-pro/paid-memberships-pro.php',
         'range' => ['max' => '3.8.4', 'min' => '3.8.2'],
     ]
+        && ($pmproDisposition['status'] ?? null) === 'certified'
         && ($pmproDisposition['evidence']['tests'] ?? null) === [
             'conformance-paid-memberships-pro',
             'exact-artifact-version-matrix',
-        ],
-    'Paid Memberships Pro repeats the enforceable exact range and names its adjacent-tag refusal evidence'
+        ]
+        && ($pmproDisposition['capabilities']['lifecycle_phases'] ?? null) === ['retire', 'activate', 'verify']
+        && in_array('deploy', $pmproDisposition['capabilities']['operations'] ?? [], true)
+        && in_array('render-api', $pmproDisposition['capabilities']['operations'] ?? [], true),
+    'Paid Memberships Pro binds its exact range to adversarial, lifecycle, native, and adjacent-tag evidence'
 );
 foreach ([
     'advanced-editor-tools' => ['plugin' => 'tinymce-advanced/tinymce-advanced.php', 'min' => '5.9.2', 'max' => '5.9.3'],
@@ -196,8 +200,8 @@ function subject_test_is_discoverable(string $repo, string $test, string $name):
     // That whole directory went with the certification-evidence apparatus, so
     // the fallback could only ever return false — it read as a real lookup
     // while being an unconditional refusal, which is the trap this deletes.
-    // The two arms above answer every id the certified set cites today: 11
-    // `conformance-*` ids (ten manifests plus the FSE profile), 9 exact-
+    // The two arms above answer every id the certified set cites today: 15
+    // `conformance-*` ids (fourteen manifests plus the FSE profile), 13 exact-
     // version ids, and core's `multisite-refusal`. A new KIND of id is
     // undiscoverable until this function learns where that kind lives, and
     // the callers below say so by name rather than the suite quietly passing
@@ -237,7 +241,7 @@ check(
         'conformance-paid-memberships-pro',
         'exact-artifact-version-matrix',
     ],
-    'PMPro conformance and exact-boundary matrix are bundle-bound while its disposition remains experimental'
+    'PMPro conformance and exact-boundary matrix are the reviewed certification evidence'
 );
 $unsafeTestClaim = $data['manifests']['core'];
 $unsafeTestClaim['evidence']['tests'] = ['../escape'];
@@ -304,12 +308,15 @@ check(
 );
 $pmproPolicy = Policy::load(null, ['paid-memberships-pro']);
 $pmproBlockers = $pmproPolicy->adapter_readiness_blockers();
-$pmproAuthoredBlocker = array_values(array_filter(
-    $pmproBlockers,
-    fn(array $row): bool => ($row['code'] ?? null) === 'authored_state_not_certified'
-));
-check(($pmproAuthoredBlocker[0]['name'] ?? null) === 'paid-memberships-pro', 'an experimental pin is a structured readiness blocker');
-check($pmproPolicy->capability_report()['ready'] === false, 'experimental capability output can never report ready');
+check($pmproBlockers === [], 'the certified PMPro pin contributes no readiness blocker');
+check($pmproPolicy->capability_report()['ready'] === true, 'certified PMPro capability output reports ready');
+$tecPolicy = Policy::load(null, ['the-events-calendar']);
+$tecBlockers = $tecPolicy->adapter_readiness_blockers();
+check(
+    ($tecBlockers[0]['name'] ?? null) === 'the-events-calendar'
+        && ($tecBlockers[0]['code'] ?? null) === 'authored_state_not_certified',
+    'the remaining experimental pin is a structured readiness blocker'
+);
 
 echo "\n== typed table identities, closed keyspaces, and parent-delete limits are explicit ==\n";
 $pmproUnsupported = array_fill_keys(array_column($data['manifests']['paid-memberships-pro']['unsupported'], 'surface'), true);
@@ -401,7 +408,7 @@ check(
     'CLI capability output addresses the exact checked-in reviewed bytes, under the report wire version that '
     . 'announces it carries no generated digest, subject record, or bound evidence status'
 );
-$summary = PlanSummary::render(['adapter_dispositions' => $pmproBlockers]);
+$summary = PlanSummary::render(['adapter_dispositions' => $tecBlockers]);
 check($summary['ok'] === false && str_contains(implode("\n", $summary['lines']), 'ADAPTER_DISPOSITIONS'), 'host status is non-green and explains the experimental adapter');
 // DUO-3485: the host's section label and the agent's own plan warning report
 // the same $plan['adapter_dispositions'] rows, so they must name the same
@@ -414,8 +421,8 @@ check(
     && !str_contains($agentCliSource, 'capability registry blocker'),
     "the agent's plan warning over those same rows names adapter dispositions too, never the deleted capability registry"
 );
-$hostBlockers = CodeDeploy::dispositionBlockers(['resolved_adapters' => RepositoryCompiler::resolved_adapters($pmproPolicy)]);
-check(($hostBlockers[0]['name'] ?? null) === 'paid-memberships-pro', 'host promotion gate refuses the same experimental disposition');
+$hostBlockers = CodeDeploy::dispositionBlockers(['resolved_adapters' => RepositoryCompiler::resolved_adapters($tecPolicy)]);
+check(($hostBlockers[0]['name'] ?? null) === 'the-events-calendar', 'host promotion gate refuses the same experimental disposition');
 
 // DUO-3372: blockers()/report() are unreachable on the live path (load()'s
 // one-for-one coverage check refuses an uncovered manifest first), so they are

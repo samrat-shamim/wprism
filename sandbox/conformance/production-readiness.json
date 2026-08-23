@@ -181,23 +181,22 @@
       "not_applicable": {}
     },
     "paid-memberships-pro": {
-      "readiness": "unready",
+      "readiness": "ready",
       "covered": {
-        "contract-dependency": ["manifests/paid-memberships-pro.json", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh"],
-        "clean-target": ["sandbox/conformance/entries/paid-memberships-pro.json", "sandbox/conformance/seeds/paid-memberships-pro.sh", "sandbox/conformance/checks/paid-memberships-pro.sh"],
-        "identity-references": ["sandbox/tests/live/regress_pmpro_composite_ref.sh"]
+        "contract-dependency": ["manifests/paid-memberships-pro.json", "manifests/providers/paid-memberships-pro-cache.php", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/offline/adapter/regress_paid_memberships_pro_production_readiness.php"],
+        "clean-target": ["sandbox/conformance/entries/paid-memberships-pro.json", "sandbox/conformance/seeds/paid-memberships-pro.sh", "sandbox/conformance/postdeploy/paid-memberships-pro.sh", "sandbox/conformance/checks/paid-memberships-pro.sh"],
+        "dirty-target": ["sandbox/conformance/postdeploy/paid-memberships-pro.sh", "sandbox/conformance/checks/paid-memberships-pro.sh"],
+        "identity-references": ["manifests/paid-memberships-pro.json", "sandbox/conformance/checks/paid-memberships-pro.sh", "sandbox/tests/offline/repository/regress_composite_ref.php"],
+        "native-behavior": ["sandbox/conformance/seeds/paid-memberships-pro.sh", "sandbox/conformance/checks/paid-memberships-pro.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "derived-state": ["manifests/providers/paid-memberships-pro-cache.php", "sandbox/conformance/checks/paid-memberships-pro.sh", "sandbox/tests/offline/adapter/regress_paid_memberships_pro_production_readiness.php"],
+        "deletion": ["manifests/paid-memberships-pro.json", "sandbox/conformance/checks/paid-memberships-pro.sh", "sandbox/tests/offline/adapter/regress_paid_memberships_pro_production_readiness.php"],
+        "failure-recovery": ["sandbox/conformance/checks/paid-memberships-pro.sh", "sandbox/tests/offline/repository/regress_snapshot_pruner.php", "sandbox/tests/offline/adapter/regress_paid_memberships_pro_production_readiness.php"],
+        "concurrency-idempotence": ["sandbox/conformance/checks/paid-memberships-pro.sh"],
+        "lifecycle": ["sandbox/conformance/checks/paid-memberships-pro.sh", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/offline/repository/regress_snapshot_pruner.php"],
+        "data-boundary": ["sandbox/conformance/seeds/paid-memberships-pro.sh", "sandbox/conformance/checks/paid-memberships-pro.sh", "sandbox/tests/offline/adapter/regress_paid_memberships_pro_production_readiness.php"],
+        "scope-platform": ["manifests/paid-memberships-pro.json", "manifests/providers/paid-memberships-pro-cache.php", "sandbox/conformance/checks/paid-memberships-pro.sh", "sandbox/tests/live/regress_multisite_refusal.sh"]
       },
-      "gaps": {
-        "dirty-target": "No unmanaged level/page relation, managed divergence, target-only member/order state, and conflict matrix exists.",
-        "native-behavior": "Representative level/page API behavior is checked, but untested authored discount/group/category surfaces prevent a closed native-behavior claim.",
-        "derived-state": "No audited post-apply cache/rule effect inventory and value-level postcondition exists.",
-        "deletion": "Composite relation deletion is exercised separately, but the proof is not bound to a reviewed exact artifact and all authored-table delete boundaries are not closed.",
-        "failure-recovery": "No PMPro-specific table graph fault/retry/recovery exercise exists.",
-        "concurrency-idempotence": "No competing level/relation apply/delete exercise exists.",
-        "lifecycle": "The exact 3.8.3 range is enforceable, but deactivate/reactivate, reinstall/residue, and in-place upgrade behavior are not yet exercised.",
-        "data-boundary": "Prices, durations, UTF-8 names, zero/large IDs, serialized option shapes, secrets, and schema drift lack a manifest-path matrix.",
-        "scope-platform": "Optional add-ons and runtime tables are listed, but no exact platform/feature refusal matrix exists."
-      },
+      "gaps": {},
       "blocked": {},
       "not_applicable": {}
     },

@@ -171,11 +171,11 @@
       ]
     },
     "paid-memberships-pro": {
-      "capabilities": {"deletion_semantics": {"supported": ["table:pmpro_discount_codes_levels", "table:pmpro_membership_levels_groups", "table:pmpro_memberships_categories", "table:pmpro_memberships_pages"], "unsupported": ["table:pmpro_membership_levels", "table:pmpro_discount_codes", "table:pmpro_groups", "runtime membership/payment state"]}, "entity_sections": ["tables"], "field_sections": ["options", "option_patterns"], "lifecycle_phases": [], "operations": ["capture", "compile", "plan", "apply", "delete", "recapture"]},
+      "capabilities": {"deletion_semantics": {"supported": ["table:pmpro_discount_codes_levels", "table:pmpro_membership_levels_groups", "table:pmpro_memberships_categories", "table:pmpro_memberships_pages"], "unsupported": ["table:pmpro_membership_levels", "table:pmpro_discount_codes", "table:pmpro_groups", "runtime membership/payment state"]}, "entity_sections": ["tables"], "field_sections": ["options", "option_namespaces", "option_patterns"], "lifecycle_phases": ["retire", "activate", "verify"], "operations": ["capture", "compile", "plan", "deploy", "apply", "delete", "recapture", "render-api"]},
       "default_authored_keyspaces": [],
       "evidence": {"bundle_schema": "duo-subject-certification-bundle/v1", "tests": ["conformance-paid-memberships-pro", "exact-artifact-version-matrix"]},
-      "reason": "Experimental while the expanded 3.8.2/3.8.3 exact-artifact adversarial and lifecycle matrix is being completed; the typed contract itself is closed and no longer carries intent-only or default-authored surfaces.",
-      "status": "experimental",
+      "reason": "Certified for exact Paid Memberships Pro 3.8.2 and 3.8.3 on single-site WordPress with the complete free-plugin authored level, discount, group, relationship, option, and closed levelmeta graph; divergent mapped/natural/composite identities; PMPro API and frontend access verification; target-owned payment, integration, membership, order, and subscription state; verified native cache reconstruction; large UTF-8 and serialized plain data; unknown add-on/object/secret/schema refusal and redaction; four authorized relationship deletions plus loud parent refusal; hostile duplicate names and competing edits; injected transaction rollback/retry; concurrent apply serialization; deactivate/redeploy and destructive uninstall/exact-reinstall recovery; a populated 3.8.2 to 3.8.3 upgrade; and adjacent official 3.8.1/3.8.4 refusal evidence.",
+      "status": "certified",
       "supported_versions": {"plugin": "paid-memberships-pro/paid-memberships-pro.php", "range": {"max": "3.8.4", "min": "3.8.2"}},
       "unsupported": [
         {"operation": "delete", "reason": "Membership levels may be referenced by runtime memberships/orders and extension-owned tables, discount codes by use/order state, and groups by extension-owned relationships; without a closed reverse-reference boundary only their pure authored relationship rows have deletion authority.", "surface": "tables.pmpro_membership_levels|pmpro_discount_codes|pmpro_groups"},
@@ -185,7 +185,7 @@
         {"operation": "capture", "reason": "Memberships, orders, subscriptions, discount uses, order metadata, and email logs are target runtime state and never enter the authored repository.", "surface": "runtime-membership-and-payment-state"},
         {"operation": "all", "reason": "Paid Memberships Pro releases before 3.8.2 and 3.8.4 or later are outside the source-audited range and are blocked until a new exact-artifact review extends the manifest.", "surface": "version:<3.8.2|>=3.8.4"},
         {"operation": "all", "reason": "Duo v1 refuses multisite; PMPro network tables, network activation, and blog-prefix behavior are outside this single-site adapter.", "surface": "multisite"},
-        {"operation": "promote", "reason": "The expanded exact-artifact adversarial and lifecycle evidence matrix must be green before the disposition can become certified.", "surface": "production"}
+        {"operation": "all", "reason": "PMPro 3.8.2/3.8.3 remove_recurring_hooks() requests ARRAY_A records from its bundled Action Scheduler, receives empty protected-property arrays, and warns while leaving pending recurring actions. Duo certifies authored-state recovery across deactivate/redeploy and destructive uninstall/reinstall, but does not claim or repair the plugin's runtime scheduler cleanup.", "surface": "runtime.action-scheduler-deactivation-cleanup"}
       ]
     },
     "polylang": {
