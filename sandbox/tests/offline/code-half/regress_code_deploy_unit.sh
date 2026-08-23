@@ -51,6 +51,16 @@ if [ "$first:$second" = duo:code-preflight ]; then
   printf '%s\n' '{"format":"duo-code-runtime/v1","enabled":true,"compatible":true,"code_revision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","target":{"php":"8.3.0","wordpress":"6.8.2","source":"target-control-plane"},"requirements":[],"diagnostics":[]}'
   exit 0
 fi
+if [ "$first:$second" = db:export ]; then
+  # `wp db export <path> --porcelain`, the one primitive both promote
+  # (cli/duo:2387) and deploy use. Write the file as well as report the call, so
+  # the suite can assert the checkpoint LANDED at the path deploy chose and
+  # shares a stem with the artifact — not merely that an export was attempted.
+  [ "${FAKE_EXPORT_FAIL:-0}" = 1 ] && exit 23
+  printf -- '-- fixture dump\n' > "$3"
+  printf '%s\n' "$3"
+  exit 0
+fi
 if [ "$first:$second" = duo:promotion-begin ]; then exit 0; fi
 if [ "$first:$second" = duo:promotion-abort ]; then exit 0; fi
 if [ "$first:$second" = duo:code-stage ]; then [ "$FAKE_STAGE_FAIL" = 1 ] && exit 8; exit 0; fi
@@ -89,15 +99,19 @@ assert_runtime_call() {
     && "$call" != *"--skip-themes"* ]] \
     || fail "$label incorrectly skipped the WordPress runtime it must reconcile"
 }
+# Extra public deploy flags for the next invoke(); reset by invoke() itself so
+# one --no-checkpoint case cannot silently leak into the runs after it.
+DEPLOY_EXTRA=""
 invoke() {
   mode=$1
   shift
   : > "$LOG"
-  if OUT="$(FAKE_CODE_ENABLED="$mode" FAKE_COMPILE_FAIL=0 FAKE_PREFLIGHT_FAIL=0 FAKE_STAGE_FAIL=0 FAKE_RETIRE_FAIL=0 FAKE_ACTIVATE_FAIL=0 FAKE_FINALIZE_FAIL=0 "$@" "$DUO" --envs-file="$ENVS" deploy unit --force-code-mismatch --force-code-drift 2>&1)"; then
+  if OUT="$(FAKE_CODE_ENABLED="$mode" FAKE_COMPILE_FAIL=0 FAKE_PREFLIGHT_FAIL=0 FAKE_STAGE_FAIL=0 FAKE_RETIRE_FAIL=0 FAKE_ACTIVATE_FAIL=0 FAKE_FINALIZE_FAIL=0 FAKE_EXPORT_FAIL=0 "$@" "$DUO" --envs-file="$ENVS" deploy unit --force-code-mismatch --force-code-drift $DEPLOY_EXTRA 2>&1)"; then
     CODE=0
   else
     CODE=$?
   fi
+  DEPLOY_EXTRA=""
 }
 
 # --exec itself runs before wp-config.php. Prove the control bootstrap defers
@@ -196,14 +210,18 @@ PHP
 pass "control bootstrap disables the target's cron spawn for the whole control-plane window"
 
 # No descriptor preserves lifecycle-only deploy and never receives code flags.
+# It still checkpoints: the deactivation/activation hooks it fires are the
+# mutation the before-image exists for, descriptor or no descriptor.
 invoke 0 env
 [ "$CODE" -eq 0 ] || fail "legacy deploy failed: $OUT"
-[ "$(calls)" = 4 ] || fail "legacy path expected four wp calls"
+[ "$(calls)" = 5 ] || fail "legacy path expected five wp calls"
 ONE="$(line 1)"
 TWO="$(line 2)"
-THREE="$(line 3)"
-FOUR="$(line 4)"
+CKPT="$(line 3)"
+THREE="$(line 4)"
+FOUR="$(line 5)"
 [[ "$ONE" == *"duo compile"* && "$TWO" == *"duo promotion-begin"* \
+  && "$CKPT" == *"db export"*"--porcelain"* \
   && "$THREE" == *"duo deploy"*"--lifecycle-phase=retire"* \
   && "$FOUR" == *"duo deploy"*"--lifecycle-phase=activate"* ]] || fail "legacy phase order wrong"
 assert_control_call "$ONE" "legacy compile"
@@ -221,22 +239,28 @@ assert_runtime_call "$FOUR" "legacy activation"
 [ "$(arg "$TWO" '--promotion-owner=[^ ]*')" = "$(arg "$THREE" '--promotion-owner=[^ ]*')" ] || fail "legacy begin/lifecycle owner changed"
 [ "$(arg "$TWO" '--artifact-hash=[^ ]*')" = "$(arg "$THREE" '--artifact-hash=[^ ]*')" ] || fail "legacy begin/lifecycle hash changed"
 grep -q 'deploy complete: lifecycle-retire -> lifecycle-activate (no code descriptor)' <<<"$OUT" || fail "legacy completion missing"
-pass "legacy artifact keeps lifecycle-only deploy"
+grep -q 'database checkpoint retained: ' <<<"$OUT" || fail "legacy completion did not report a retained checkpoint"
+pass "legacy artifact keeps lifecycle-only deploy, with its own checkpoint"
 
 # Descriptor turns on exactly stage, lifecycle, finalize. All use one artifact
-# and owner; only lifecycle gets hold/materializing-code; no DB checkpoint.
+# and owner; only lifecycle gets hold/materializing-code. The DB checkpoint sits
+# under the lease between promotion-begin and code-stage — before it the dump
+# would carry no lease row for `duo recover`'s four steps to re-take
+# (cli/duo:3289-3297), after it the dump would already describe mutated code.
 invoke 1 env
 [ "$CODE" -eq 0 ] || fail "code deploy failed: $OUT"
-[ "$(calls)" = 7 ] || fail "code path expected seven wp calls"
+[ "$(calls)" = 8 ] || fail "code path expected eight wp calls"
 ONE="$(line 1)"
 TWO="$(line 2)"
 THREE="$(line 3)"
-FOUR="$(line 4)"
-FIVE="$(line 5)"
-SIX="$(line 6)"
-SEVEN="$(line 7)"
+CKPT="$(line 4)"
+FOUR="$(line 5)"
+FIVE="$(line 6)"
+SIX="$(line 7)"
+SEVEN="$(line 8)"
 [[ "$ONE" == *"duo compile"* && "$TWO" == *"duo code-preflight"* \
-  && "$THREE" == *"duo promotion-begin"* && "$FOUR" == *"duo code-stage"* \
+  && "$THREE" == *"duo promotion-begin"* && "$CKPT" == *"db export"* \
+  && "$FOUR" == *"duo code-stage"* \
   && "$FIVE" == *"duo deploy"*"--lifecycle-phase=retire"* \
   && "$SIX" == *"duo deploy"*"--lifecycle-phase=activate"* \
   && "$SEVEN" == *"duo code-finalize"* ]] || fail "code phase order wrong"
@@ -266,36 +290,99 @@ ART="$(printf '%s' "$A" | sed 's/^--compiled=//')"
 [[ "$ART" == "$SITE/.duo/artifacts/deploy-"*.json ]] || fail "artifact outside target .duo/artifacts"
 [ -f "$ART" ] || fail "artifact not retained"
 grep -q 'deploy complete: code-stage -> lifecycle-retire -> lifecycle-activate -> code-finalize' <<<"$OUT" || fail "code completion missing"
-pass "code deploy stages/lifecycle-deploys/finalizes one frozen artifact"
+
+# The checkpoint's file name is what makes it recoverable: RetainedCheckpoints
+# reads the lease identity out of the SIBLING artifacts/<same-stem>.json, so a
+# checkpoint whose stem differs from the artifact's lists with an empty
+# artifact_hash and then refuses checkpoint_identity_unknown at --restore time.
+CKPT_PATH="$(printf '%s' "$CKPT" | tr ' ' '\n' | grep -- "$SITE/.duo/checkpoints/" || true)"
+[[ "$CKPT_PATH" == "$SITE/.duo/checkpoints/deploy-"*.sql ]] \
+  || fail "checkpoint outside target .duo/checkpoints, or not named deploy-<owner>.sql: $CKPT_PATH"
+[ -s "$CKPT_PATH" ] || fail "checkpoint not retained on the target"
+[ "$(basename "$CKPT_PATH" .sql)" = "$(basename "$ART" .json)" ] \
+  || fail "checkpoint and artifact do not share a stem, so the lease identity cannot be read back"
+grep -q "database checkpoint retained: $CKPT_PATH" <<<"$OUT" \
+  || fail "the retained checkpoint line did not accompany the completion line"
+pass "code deploy stages/lifecycle-deploys/finalizes one frozen artifact, checkpointed under its lease"
+
+# --no-checkpoint is the pre-change world, byte for byte: today's call counts,
+# today's phase order and today's stdout.
+DEPLOY_EXTRA="--no-checkpoint"
+invoke 1 env
+[ "$CODE" -eq 0 ] || fail "--no-checkpoint deploy failed: $OUT"
+[ "$(calls)" = 7 ] || fail "--no-checkpoint path expected seven wp calls"
+[[ "$(line 1)" == *"duo compile"* && "$(line 2)" == *"duo code-preflight"* \
+  && "$(line 3)" == *"duo promotion-begin"* && "$(line 4)" == *"duo code-stage"* \
+  && "$(line 5)" == *"duo deploy"*"--lifecycle-phase=retire"* \
+  && "$(line 6)" == *"duo deploy"*"--lifecycle-phase=activate"* \
+  && "$(line 7)" == *"duo code-finalize"* ]] || fail "--no-checkpoint phase order wrong"
+grep -q 'db export' "$LOG" && fail "--no-checkpoint still exported the database"
+EXPECTED_NO_CKPT="deploy phase: compile
+deploy phase: code-preflight
+deploy phase: promotion-begin
+deploy phase: code-stage
+deploy phase: lifecycle-retire
+deploy phase: lifecycle-activate
+deploy phase: code-finalize
+deploy complete: code-stage -> lifecycle-retire -> lifecycle-activate -> code-finalize"
+[ "$OUT" = "$EXPECTED_NO_CKPT" ] || fail "--no-checkpoint output moved:
+$OUT"
+DEPLOY_EXTRA="--no-checkpoint"
+invoke 0 env
+[ "$(calls)" = 4 ] || fail "--no-checkpoint legacy path expected four wp calls"
+grep -q 'db export' "$LOG" && fail "--no-checkpoint legacy path still exported the database"
+pass "--no-checkpoint reproduces the pre-change call sequence and output"
+
+# A failed export aborts its lease and starts no code or lifecycle phase.
+invoke 1 env FAKE_EXPORT_FAIL=1
+[ "$CODE" -eq 23 ] || fail "checkpoint export exit not propagated"
+[ "$(calls)" = 5 ] || fail "code/lifecycle ran after a failed checkpoint"
+[[ "$(line 4)" == *"db export"* && "$(line 5)" == *"duo promotion-abort"* ]] \
+  || fail "a failed checkpoint did not clean the begun session"
+assert_control_call "$(line 5)" "checkpoint-failure promotion-abort"
+grep -q 'database checkpoint failed; code and lifecycle phases were not started' <<<"$OUT" \
+  || fail "the checkpoint failure did not name its boundary"
+grep -q 'no usable checkpoint was produced' <<<"$OUT" \
+  || fail "a confirmed cleanup did not say there is no usable checkpoint"
+pass "a failed checkpoint aborts the lease before any code or lifecycle mutation"
 
 # Stop-on-first-failure boundaries.
 invoke 1 env FAKE_STAGE_FAIL=1
 [ "$CODE" -eq 8 ] || fail "stage exit not propagated"
-[ "$(calls)" = 5 ] || fail "later phases or cleanup were wrong after stage failure"
-[[ "$(line 5)" == *"duo promotion-abort"* ]] || fail "stage failure did not clean begun session"
-assert_control_call "$(line 5)" "stage-failure promotion-abort"
+[ "$(calls)" = 6 ] || fail "later phases or cleanup were wrong after stage failure"
+[[ "$(line 6)" == *"duo promotion-abort"* ]] || fail "stage failure did not clean begun session"
+assert_control_call "$(line 6)" "stage-failure promotion-abort"
 grep -q 'code-stage failed.*were not run' <<<"$OUT" || fail "stage stop wording missing"
-pass "stage failure stops lifecycle/finalize"
+# A checkpoint an operator is never told how to use is not a recovery story:
+# the four numbered steps are print_promotion_recovery()'s own, verb-substituted.
+grep -q 'promotion lease cleanup confirmed' <<<"$OUT" || fail "the abort result was discarded"
+grep -q 'this checkpoint contains its temporary promotion lease row' <<<"$OUT" \
+  || fail "a post-checkpoint failure printed no recovery guidance"
+grep -q 'duo: deploy: run step 4 even if the database import fails' <<<"$OUT" \
+  || fail "the recovery guidance was not attributed to deploy"
+grep -q 'duo: deploy: code may be staged or partially finalized' <<<"$OUT" \
+  || fail "a stage failure did not announce the code-first ordering"
+pass "stage failure stops lifecycle/finalize and guides recovery of its own checkpoint"
 
 invoke 1 env FAKE_RETIRE_FAIL=1
 [ "$CODE" -eq 7 ] || fail "lifecycle exit not propagated"
-[ "$(calls)" = 6 ] || fail "finalize/cleanup calls wrong after lifecycle failure"
-[[ "$(line 6)" == *"duo promotion-abort"* ]] || fail "lifecycle failure did not clean begun session"
-assert_control_call "$(line 6)" "retirement-failure promotion-abort"
+[ "$(calls)" = 7 ] || fail "finalize/cleanup calls wrong after lifecycle failure"
+[[ "$(line 7)" == *"duo promotion-abort"* ]] || fail "lifecycle failure did not clean begun session"
+assert_control_call "$(line 7)" "retirement-failure promotion-abort"
 pass "retirement failure stops activation/finalize"
 
 invoke 1 env FAKE_ACTIVATE_FAIL=1
 [ "$CODE" -eq 13 ] || fail "activation exit not propagated"
-[ "$(calls)" = 7 ] || fail "finalize/cleanup calls wrong after activation failure"
-[[ "$(line 7)" == *"duo promotion-abort"* ]] || fail "activation failure did not clean begun session"
-assert_control_call "$(line 7)" "activation-failure promotion-abort"
+[ "$(calls)" = 8 ] || fail "finalize/cleanup calls wrong after activation failure"
+[[ "$(line 8)" == *"duo promotion-abort"* ]] || fail "activation failure did not clean begun session"
+assert_control_call "$(line 8)" "activation-failure promotion-abort"
 pass "activation failure stops finalize"
 
 invoke 1 env FAKE_FINALIZE_FAIL=1
 [ "$CODE" -eq 9 ] || fail "finalize exit not propagated"
-[ "$(calls)" = 8 ] || fail "wrong calls after finalize failure"
-[[ "$(line 8)" == *"duo promotion-abort"* ]] || fail "finalize failure did not clean begun session"
-assert_control_call "$(line 8)" "finalize-failure promotion-abort"
+[ "$(calls)" = 9 ] || fail "wrong calls after finalize failure"
+[[ "$(line 9)" == *"duo promotion-abort"* ]] || fail "finalize failure did not clean begun session"
+assert_control_call "$(line 9)" "finalize-failure promotion-abort"
 pass "finalize failure is non-successful"
 
 invoke 1 env FAKE_COMPILE_FAIL=1
@@ -320,7 +407,7 @@ pass "target-runtime incompatibility refuses before begin with no cleanup fictio
 # Public deploy owns its repo/artifact/lease flags and exposes only the two
 # force flags. A second --repo would otherwise make the lifecycle command's
 # target differ from the immutable artifact's source repo.
-for bad in --repo=/tmp/forged --compiled=/tmp/fake.json --artifact-hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --promotion-owner=intruder --promotion-hold --materializing-code --state-handoff --lifecycle-phase=activate --force-unresolved-refs --with-deletes; do
+for bad in --repo=/tmp/forged --compiled=/tmp/fake.json --artifact-hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --promotion-owner=intruder --promotion-hold --materializing-code --state-handoff --lifecycle-phase=activate --force-unresolved-refs --with-deletes --no-checkpoint=false; do
   : > "$LOG"
   if FAKE_CODE_ENABLED=1 "$DUO" --envs-file="$ENVS" deploy unit "$bad" >/dev/null 2>&1; then
     fail "deploy accepted $bad"

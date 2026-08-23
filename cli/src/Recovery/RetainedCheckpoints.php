@@ -31,12 +31,27 @@ use Duo\CommandRefusalException;
  * operator-directed path already drives (abort → begin → isolated import →
  * mandatory final abort), with the same lease identity the release used.
  *
+ * `duo deploy <env>` is the second writer. It takes its checkpoint at the
+ * position promote takes its own — under the `promotion-begin` lease and
+ * before code-stage (`DeployCommand::run()`) — and retains it as
+ * `deploy-<owner>.sql` beside the `deploy-<owner>.json` artifact the same
+ * deploy compiled. The identity derivation below is unchanged precisely
+ * because those two file names share a stem: nothing here had to learn a
+ * second way to find an artifact, only a second prefix to glob.
+ *
+ * That prefix set is CLOSED on purpose. `materialize-<operation_id>.sql`
+ * (cli/duo:2126-2127, :2576-2577) is the environment materializer's working
+ * dump, not a release's before-image, and a bare `*.sql` glob would list it
+ * here as a restorable release checkpoint. Two named prefixes; never a
+ * wildcard.
+ *
  * ## Where the identity comes from
  *
  * The lease `promotion-begin` binds is `(owner, artifact_hash)`. The owner
- * is the checkpoint's own file name (`promote-<owner>.sql`); the artifact
- * hash is read from the sibling `<repo>/.duo/artifacts/promote-<owner>.json`
- * that the same promotion compiled — a content-addressed artifact whose
+ * is the checkpoint's own file name (`promote-<owner>.sql`, or deploy's
+ * `deploy-<owner>.sql`); the artifact hash is read from the sibling
+ * `<repo>/.duo/artifacts/<same-stem>.json`
+ * that the same release compiled — a content-addressed artifact whose
  * top-level `artifact_hash` is the identity the lease row in the checkpoint
  * itself carries. Nothing here invents an identity: a checkpoint whose
  * artifact is gone is listed with an empty `artifact_hash` and refuses to
@@ -62,15 +77,35 @@ final class RetainedCheckpoints {
      */
     public const STATE = 'retained';
 
-    /** `--restore` ids and file names share this prefix, as promote wrote them. */
+    /**
+     * `--restore` ids and file names share this prefix, as promote wrote them.
+     *
+     * It stays the DEFAULT rather than becoming one member of a set, because
+     * `RecoverCommand::checkpointPath()` calls `checkpointPath()` for the
+     * signed-receipt source too, and a receipt row's `id` is a receipt id, not
+     * a file name — only promote's prefix can be derived from it.
+     */
     public const ID_PREFIX = 'promote-';
+
+    /** The same, for the checkpoint `duo deploy` retains under its own lease. */
+    public const DEPLOY_ID_PREFIX = 'deploy-';
+
+    /**
+     * Every prefix this catalog claims, and nothing else. `script()` derives
+     * its globs from this constant and `parse()` accepts exactly these, so the
+     * bytes sent to the target and the names read back can never disagree.
+     *
+     * @var list<string>
+     */
+    public const ID_PREFIXES = [self::ID_PREFIX, self::DEPLOY_ID_PREFIX];
 
     /** The owner grammar `RecoverCommand` and `PromotionLease` both accept. */
     public const OWNER_PATTERN = '/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/D';
 
     public const DISCLOSURE_RETAINED =
-        'retained release checkpoints are the plain database checkpoints promote kept under .duo/checkpoints; '
-        . 'restoring one drives the operator-directed path (abort, begin, isolated import, final abort)';
+        'retained release checkpoints are the plain database checkpoints promote and deploy kept under '
+        . '.duo/checkpoints; restoring one drives the operator-directed path (abort, begin, isolated import, '
+        . 'final abort)';
 
     /**
      * Supersession is a fact only the TARGET holds. The durable
@@ -117,7 +152,10 @@ final class RetainedCheckpoints {
      *
      * POSIX sh only (docker runs it under `bash -c`, ssh under the remote
      * login shell, local under the system shell): for every non-empty
-     * `promote-*.sql`, one line of `<basename>\t<artifact_hash>\t<mtime>`.
+     * `promote-*.sql` and `deploy-*.sql`, one line of
+     * `<basename>\t<artifact_hash>\t<mtime>`. The glob list is built from
+     * `ID_PREFIXES` rather than written out, so a prefix this class accepts in
+     * `parse()` but never asked the target for is not expressible.
      * The artifact hash is `grep`ped out of the sibling artifact rather than
      * parsed by a language runtime, because `grep`, `stat`, `sed` and
      * `basename` are the only tools every target already proved it has by
@@ -130,9 +168,13 @@ final class RetainedCheckpoints {
     public static function script(string $repoPath): string {
         $duo = rtrim($repoPath, '/') . '/.duo';
         $q = escapeshellarg($duo);
+        $globs = [];
+        foreach (self::ID_PREFIXES as $prefix) {
+            $globs[] = '"$d"/checkpoints/' . $prefix . '*.sql';
+        }
 
         return 'd=' . $q . '; '
-            . 'for f in "$d"/checkpoints/' . self::ID_PREFIX . '*.sql; do '
+            . 'for f in ' . implode(' ', $globs) . '; do '
             . '[ -s "$f" ] || continue; '
             . 'b=$(basename "$f" .sql); '
             . 'h=$(grep -o \'"artifact_hash": *"[a-f0-9]\{64\}"\' "$d/artifacts/$b.json" 2>/dev/null | head -n 1 | sed \'s/.*"\([a-f0-9]\{64\}\)"$/\1/\'); '
@@ -162,10 +204,17 @@ final class RetainedCheckpoints {
                 throw self::malformed('a retained checkpoint line did not carry exactly three fields');
             }
             [$basename, $hash, $mtime] = $parts;
-            if (!str_starts_with($basename, self::ID_PREFIX)) {
-                throw self::malformed('a retained checkpoint name does not carry the promote- prefix');
+            $prefix = null;
+            foreach (self::ID_PREFIXES as $candidate) {
+                if (str_starts_with($basename, $candidate)) {
+                    $prefix = $candidate;
+                    break;
+                }
             }
-            $owner = substr($basename, strlen(self::ID_PREFIX));
+            if ($prefix === null) {
+                throw self::malformed('a retained checkpoint name carries neither the promote- nor the deploy- prefix');
+            }
+            $owner = substr($basename, strlen($prefix));
             if (preg_match(self::OWNER_PATTERN, $owner) !== 1) {
                 throw self::malformed('a retained checkpoint names an owner this build will not turn into a lease');
             }
@@ -175,7 +224,7 @@ final class RetainedCheckpoints {
             if (preg_match('/^[0-9]{1,12}$/D', $mtime) !== 1) {
                 throw self::malformed('a retained checkpoint modification time is not a positive integer');
             }
-            $rows[] = self::row($owner, $hash, (int) $mtime, $now);
+            $rows[] = self::row($owner, $hash, (int) $mtime, $now, $prefix);
         }
         usort($rows, static function (array $a, array $b): int {
             $byTime = strcmp((string) $b['created_at'], (string) $a['created_at']);
@@ -197,9 +246,22 @@ final class RetainedCheckpoints {
      * retained file is in progress. `covers` is the one resource the
      * operator-directed claim names.
      *
+     * `$prefix` selects which verb's file name the `id` reproduces and is the
+     * ONLY place the two verbs differ. It is deliberately not a row key:
+     * `regress_recover_claim.php` pins that a retained row carries exactly
+     * the key set `CheckpointCatalog::row()` produces, and an extra `verb` or
+     * `prefix` key would break that honest-inventory contract. `id` already
+     * carries the fact, and `prefixForRow()` reads it back.
+     *
      * @return array<string,mixed>
      */
-    public static function row(string $owner, string $artifactHash, int $mtime, string $now): array {
+    public static function row(
+        string $owner,
+        string $artifactHash,
+        int $mtime,
+        string $now,
+        string $prefix = self::ID_PREFIX
+    ): array {
         $createdAt = $mtime > 0 ? gmdate('Y-m-d\TH:i:s\Z', $mtime) : null;
         $age = null;
         if ($createdAt !== null) {
@@ -222,7 +284,7 @@ final class RetainedCheckpoints {
             'created_at' => $createdAt,
             'event_chain_sha256' => null,
             'generation' => 0,
-            'id' => self::ID_PREFIX . $owner,
+            'id' => $prefix . $owner,
             'kind' => self::KIND,
             'owner' => $owner,
             'retention_until' => null,
@@ -237,12 +299,37 @@ final class RetainedCheckpoints {
     }
 
     /**
-     * The target path of a retained row's checkpoint. Pure; the caller
-     * probes existence.
+     * Which file-name prefix a catalog row's checkpoint was written under.
+     * Pure.
+     *
+     * BOTH halves of the condition are load-bearing. `isRetained()` is what
+     * keeps a signed receipt out: a receipt row's `id` is a receipt id chosen
+     * by the rollback authority, not a file name, so a receipt that ever began
+     * with `deploy-` would otherwise resolve to a path promote never wrote.
+     * And the `id` test is what distinguishes the two retained writers, since
+     * the row carries no `verb` key (see `row()`).
      *
      * @param array<string,mixed> $row
      */
-    public static function checkpointPath(string $repoPath, array $row): string {
+    public static function prefixForRow(array $row): string {
+        if (self::isRetained($row) && str_starts_with((string) ($row['id'] ?? ''), self::DEPLOY_ID_PREFIX)) {
+            return self::DEPLOY_ID_PREFIX;
+        }
+
+        return self::ID_PREFIX;
+    }
+
+    /**
+     * The target path of a retained row's checkpoint. Pure; the caller
+     * probes existence.
+     *
+     * `$prefix` defaults to promote's, so every call site that predates
+     * deploy's checkpoint keeps its exact behaviour; `prefixForRow()` is what
+     * a caller holding a catalog row passes.
+     *
+     * @param array<string,mixed> $row
+     */
+    public static function checkpointPath(string $repoPath, array $row, string $prefix = self::ID_PREFIX): string {
         $owner = (string) ($row['owner'] ?? '');
         if (preg_match(self::OWNER_PATTERN, $owner) !== 1) {
             throw new CommandRefusalException(
@@ -252,7 +339,7 @@ final class RetainedCheckpoints {
             );
         }
 
-        return rtrim($repoPath, '/') . '/.duo/checkpoints/' . self::ID_PREFIX . $owner . '.sql';
+        return rtrim($repoPath, '/') . '/.duo/checkpoints/' . $prefix . $owner . '.sql';
     }
 
     private static function malformed(string $detail): CommandRefusalException {

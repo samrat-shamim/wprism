@@ -74,28 +74,36 @@ consumes them — and stay in `--format=json`.
 ### Retained release checkpoints — the rows every target has
 
 The signed receipt above is one source of rows. The other is the plain
-database checkpoint every operator-directed release **retained**: `promote`
+database checkpoint a release **retained**: `promote`
 exports the pre-release database to `.duo/checkpoints/promote-<owner>.sql`
 right after taking its lease and prints `database checkpoint retained: …` on
-success. That file is what the frozen authorization plan's `operator-directed`
+success. A standalone `duo deploy` does the same under its own lease, at
+`.duo/checkpoints/deploy-<owner>.sql` (`duo deploy --no-checkpoint` opts out).
+That file is what the frozen authorization plan's `operator-directed`
 claim (`restores: database checkpoint`) refers to, so `duo recover` lists it
 and restores it on **every** transport — local, docker and SSH alike:
 
 ```text
-checkpoints: 1
+checkpoints: 2
   promote-20260817-091402-0123456789abcdef0123456789abcdef  retained  retained-release-checkpoint  600s old
     covers: database checkpoint
+  deploy-20260817-085500-abcdefabcdefabcdefabcdefabcdefab  retained  retained-release-checkpoint  3200s old
+    covers: database checkpoint
 note: this transport carries no rollback authority runtime, so only the database checkpoints its releases retained are listed
-note: retained release checkpoints are the plain database checkpoints promote kept under .duo/checkpoints; restoring one drives the operator-directed path (abort, begin, isolated import, final abort)
+note: retained release checkpoints are the plain database checkpoints promote and deploy kept under .duo/checkpoints; restoring one drives the operator-directed path (abort, begin, isolated import, final abort)
 note: a retained checkpoint older than the target's latest begun promotion session is refused at step 1 with promotion_abort_session_superseded; an obsolete checkpoint is not a safe recovery source, so recover that release through the provider that owns the target's backups instead
 ```
 
-The id is the file name promote wrote, and it is what `--restore=<id>` takes.
-A retained checkpoint prints no generation because it has none: it is a file,
-not a signed receipt. Its lease identity — the owner and the artifact hash the
-release used — is read from the retained compiled artifact beside it
-(`.duo/artifacts/promote-<owner>.json`); a checkpoint whose artifact is gone is
-still listed, with a note that it cannot be restored by this command.
+The id is the file name the release verb wrote, and it is what
+`--restore=<id>` takes. A retained checkpoint prints no generation because it
+has none: it is a file, not a signed receipt. Its lease identity — the owner
+and the artifact hash the release used — is read from the retained compiled
+artifact beside it, the file that shares its stem
+(`.duo/artifacts/promote-<owner>.json`, or `deploy-<owner>.json`); a checkpoint
+whose artifact is gone is still listed, with a note that it cannot be restored
+by this command. Both rows restore identically: the prefix names which verb
+wrote the dump and nothing else, and the four ordered steps below are the same
+four steps for either.
 
 Two things only an SSH-adopted target can do remain SSH-only, and say so
 rather than improvise: reading the **signed** catalog (the rollback authority

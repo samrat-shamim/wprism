@@ -588,7 +588,14 @@ duo_check(
 // one script and parsed into rows of the SAME key set, on every transport.
 $script = RetainedCheckpoints::script('/srv/site');
 duo_check(str_contains($script, "'/srv/site/.duo'"), 'the listing script is rooted at the repository .duo directory, quoted');
-duo_check(str_contains($script, 'checkpoints/promote-*.sql'), 'the listing script enumerates exactly the promote-*.sql checkpoints');
+duo_check(
+    str_contains($script, 'checkpoints/promote-*.sql') && str_contains($script, 'checkpoints/deploy-*.sql'),
+    'the listing script enumerates exactly the promote-*.sql and deploy-*.sql checkpoints'
+);
+duo_check(
+    !preg_match('~checkpoints/\*\.sql~', $script),
+    'the prefix set stays closed: no bare *.sql glob sweeps in materialize-<operation_id>.sql (cli/duo:2126, :2576)'
+);
 duo_check(str_contains($script, 'artifacts/$b.json'), 'the listing script reads the sibling compiled artifact for the lease identity');
 duo_check(str_contains($script, 'stat -c %Y') && str_contains($script, 'stat -f %m'), 'both stat dialects are tried');
 duo_check(!str_contains($script, 'php '), 'the listing script needs no language runtime on the target: grep, stat, sed, basename');
@@ -596,15 +603,20 @@ duo_check(!str_contains($script, 'rm ') && !str_contains($script, '> "'), 'the l
 
 $older = 'promote-20260817-091402-0123456789abcdef0123456789abcdef';
 $newer = 'promote-20260817-101010-fedcba9876543210fedcba9876543210';
+// The second writer: `duo deploy` retains deploy-<owner>.sql beside its own
+// deploy-<owner>.json artifact, so the identity derivation is unchanged and
+// only the prefix moves.
+$deployed = 'deploy-20260817-095500-abcdefabcdefabcdefabcdefabcdefab';
 $stdout = $older . "\t" . str_repeat('9', 64) . "\t1786958042\n"
     . $newer . "\t" . str_repeat('8', 64) . "\t1786961410\n"
+    . $deployed . "\t" . str_repeat('7', 64) . "\t1786960000\n"
     . "promote-orphan\t\t1786950000\n";
 $retained = RetainedCheckpoints::parse($stdout, '2026-08-17T10:20:10Z');
-duo_check_same(3, count($retained), 'every non-empty checkpoint line becomes a row, including one with no artifact');
+duo_check_same(4, count($retained), 'every non-empty checkpoint line becomes a row, including one with no artifact');
 duo_check_same(
-    [$newer, $older, 'promote-orphan'],
+    [$newer, $deployed, $older, 'promote-orphan'],
     array_map(static fn (array $row): string => (string) $row['id'], $retained),
-    'retained rows list newest first'
+    'retained rows list newest first, promote and deploy rows in one order'
 );
 duo_check_same(
     array_keys($catalog['rows'][0]),
@@ -621,11 +633,43 @@ duo_check_same([RecoveryClaim::RESOURCE_DATABASE_CHECKPOINT], $retained[0]['cove
 duo_check_same(0, $retained[0]['generation'], 'a retained checkpoint has no signed generation');
 duo_check_same(null, $retained[0]['event_chain_sha256'], 'a retained checkpoint has no event chain');
 duo_check_same(true, $retained[0]['terminal'], 'nothing about a retained file is in progress');
-duo_check_same('', $retained[2]['artifact_hash'], 'a checkpoint whose artifact is gone is listed with an empty identity, never dropped');
+duo_check_same('', $retained[3]['artifact_hash'], 'a checkpoint whose artifact is gone is listed with an empty identity, never dropped');
 duo_check_same(
     '/srv/site/.duo/checkpoints/' . $newer . '.sql',
     RetainedCheckpoints::checkpointPath('/srv/site/', $retained[0]),
     'the restore path is the file promote wrote'
+);
+
+// The deploy row: same kind, same key set, its own prefix — and a path that
+// resolves. `prefix` is deliberately NOT a row key (the key-set assertion
+// above is what forbids it), so the id is what carries the fact.
+$deployRow = $retained[1];
+duo_check_same(RetainedCheckpoints::KIND, $deployRow['kind'], 'a deploy checkpoint is the same catalog kind');
+duo_check_same(
+    array_keys($catalog['rows'][0]),
+    array_keys($deployRow),
+    'a retained deploy row carries exactly the key set an authority row carries'
+);
+duo_check_same(
+    '20260817-095500-abcdefabcdefabcdefabcdefabcdefab',
+    $deployRow['owner'],
+    'the owner is the deploy file name without prefix and suffix — the lease owner deploy used'
+);
+duo_check_same(str_repeat('7', 64), $deployRow['artifact_hash'], 'the deploy lease identity comes from its sibling artifact');
+duo_check_same(
+    RetainedCheckpoints::DEPLOY_ID_PREFIX,
+    RetainedCheckpoints::prefixForRow($deployRow),
+    'prefixForRow reads the deploy prefix back off the retained row id'
+);
+duo_check_same(
+    '/srv/site/.duo/checkpoints/' . $deployed . '.sql',
+    RetainedCheckpoints::checkpointPath('/srv/site/', $deployRow, RetainedCheckpoints::prefixForRow($deployRow)),
+    'the restore path is the file deploy wrote'
+);
+duo_check_same(
+    RetainedCheckpoints::ID_PREFIX,
+    RetainedCheckpoints::prefixForRow($catalog['rows'][0]),
+    'a signed receipt row still resolves through promote\'s prefix: its id is a receipt id, not a file name'
 );
 duo_check_refuses(
     static fn () => RetainedCheckpoints::parse("promote-x\tnothex\t1\n", '2026-08-17T10:20:10Z'),
@@ -635,7 +679,12 @@ duo_check_refuses(
 duo_check_refuses(
     static fn () => RetainedCheckpoints::parse("checkpoint-x\t\t1\n", '2026-08-17T10:20:10Z'),
     'checkpoint_listing_malformed',
-    'a name without the promote- prefix refuses'
+    'a name carrying neither the promote- nor the deploy- prefix refuses'
+);
+duo_check_refuses(
+    static fn () => RetainedCheckpoints::parse("materialize-abc123\t\t1\n", '2026-08-17T10:20:10Z'),
+    'checkpoint_listing_malformed',
+    'the environment materializer\'s own dump (cli/duo:2126, :2576) is refused by name rather than inventoried as restorable'
 );
 duo_check_refuses(
     static fn () => RetainedCheckpoints::parse("promote-a/b\t\t1\n", '2026-08-17T10:20:10Z'),
@@ -645,11 +694,18 @@ duo_check_refuses(
 duo_check_same([], RetainedCheckpoints::parse("\n\n", '2026-08-17T10:20:10Z'), 'blank output is an empty listing');
 
 $merged = CheckpointCatalog::withRetained($catalog, $retained);
-duo_check_same(4, count($merged['rows']), 'authority rows and retained rows are merged into one catalog');
+duo_check_same(5, count($merged['rows']), 'authority rows and retained rows are merged into one catalog');
 duo_check_same('receipt-0012', $merged['rows'][0]['id'], 'the signed, in-progress facts stay first');
 duo_check(
     in_array(RetainedCheckpoints::DISCLOSURE_RETAINED, $merged['disclosures'], true),
     'the merged catalog says what a retained checkpoint is and how it is restored'
+);
+duo_check_same(
+    'retained release checkpoints are the plain database checkpoints promote and deploy kept under '
+        . '.duo/checkpoints; restoring one drives the operator-directed path (abort, begin, isolated import, '
+        . 'final abort)',
+    RetainedCheckpoints::DISCLOSURE_RETAINED,
+    'the disclosure names both verbs, so no listed row is mislabelled by the sentence that defines its kind'
 );
 duo_check(
     in_array(RetainedCheckpoints::DISCLOSURE_NO_IDENTITY, $merged['disclosures'], true),

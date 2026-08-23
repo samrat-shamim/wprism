@@ -415,8 +415,9 @@ intends. Everywhere else, `duo release` gives you the same mutation plus the
 frozen plan and the verification, and the frozen plan is what makes recovery's
 claim literal later.
 
-For a lifecycle-and-code move with no database checkpoint and no state apply,
-`duo deploy <env>` is the standalone path; see
+For a lifecycle-and-code move with no state apply, `duo deploy <env>` is the
+standalone path; it takes and retains its own database checkpoint under the
+same lease, and `--no-checkpoint` skips it. See
 [code-updates.md](code-updates.md).
 
 ## Recover

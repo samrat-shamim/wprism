@@ -573,7 +573,12 @@ final class RecoverCommand {
      *
      * `cli/duo`'s `cmd_promote_internal()` writes it at
      * `<repo>/.duo/checkpoints/promote-<owner>.sql`, and the receipt names the
-     * owner, so the path is derived rather than guessed. Its presence and
+     * owner, so the path is derived rather than guessed. `DeployCommand::run()`
+     * is the second writer, at `<repo>/.duo/checkpoints/deploy-<owner>.sql`;
+     * `RetainedCheckpoints::prefixForRow()` reads which of the two a catalog
+     * row came from off the row's own id and returns promote's prefix for a
+     * signed receipt, so the verified path resolves to exactly the string it
+     * always did. Its presence and
      * non-emptiness are proved before the import: an empty checkpoint is
      * evidence of an interrupted export, not a checkpoint.
      */
@@ -586,9 +591,13 @@ final class RecoverCommand {
                 'inspect private operator evidence for this target before recovering'
             );
         }
-        // Both sources agree on the path: promote wrote it, and the signed
-        // receipt's owner names the same file.
-        $path = RetainedCheckpoints::checkpointPath($transport->repoPath(), $row);
+        // Both sources agree on the path: the release verb wrote it, and the
+        // signed receipt's owner names the same file.
+        $path = RetainedCheckpoints::checkpointPath(
+            $transport->repoPath(),
+            $row,
+            RetainedCheckpoints::prefixForRow($row)
+        );
         $probe = $transport->captureRaw('test -s ' . escapeshellarg($path));
         if (($probe['exit'] ?? 1) !== 0) {
             throw new CommandRefusalException(

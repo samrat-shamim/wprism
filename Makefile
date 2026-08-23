@@ -9,7 +9,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-lifecycle-options-snapshot
 .PHONY: regress-core-lifecycle regress-core-data-boundary regress-core-scope-platform
 .PHONY: regress-platform-compatibility
-.PHONY: regress-cli-json-refusals regress-agent-subcommand-names regress-command-output regress-environment-command-preflight regress-environment-command regress-passthrough-command regress-environment-command-options regress-driver-capabilities-command regress-environment-list-command regress-doctor-command regress-adopt-command regress-pending-command regress-classify-command regress-capture-command regress-deploy-command regress-promote-command regress-status-command regress-scope-command regress-refresh-command regress-rebase-command
+.PHONY: regress-cli-json-refusals regress-agent-subcommand-names regress-command-output regress-environment-command-preflight regress-environment-command regress-passthrough-command regress-environment-command-options regress-driver-capabilities-command regress-environment-list-command regress-doctor-command regress-adopt-command regress-pending-command regress-classify-command regress-capture-command regress-deploy-command regress-deploy-checkpoint regress-promote-command regress-status-command regress-scope-command regress-refresh-command regress-rebase-command
 .PHONY: regress-plan-explain
 .PHONY: regress-plan-category-summary regress-plan-category-summary-live regress-plugin-adapter-source regress-scoped-apply-live regress-scoped-apply-live-cleanup regress-scope-chain-stability
 .PHONY: regress-init-command regress-init-contract regress-duo-init regress-bound-helper
@@ -1356,6 +1356,14 @@ regress-code-deploy-unit:
 regress-deploy-command:
 	php sandbox/tests/offline/cli/regress_deploy_command.php
 
+# The deploy checkpoint and its recoverability: the export sits under the
+# lease exactly where promote's does (cli/duo:2385-2388), and the
+# deploy-<runId>.sql it writes is the file RetainedCheckpoints globs and
+# RecoverCommand rebuilds. Against the prior build the round trip throws
+# checkpoint_listing_malformed. Pure fakes; no target contact.
+regress-deploy-checkpoint:
+	php sandbox/tests/offline/recovery/regress_deploy_checkpoint.php
+
 # DUO-3351 slice 19: the public promotion router owns only scoped-versus-
 # ordinary selection; the target promotion state machines remain unchanged.
 regress-promote-command:
@@ -2151,7 +2159,7 @@ regress-user-meta:
 # closed signed SSH crash-matrix evidence verifier.
 regress-offline-all:
 	@bash sandbox/tests/offline_diagnostics_guard.sh "$(MAKE)" --no-print-directory regress-offline-corpus
-	@echo "regress-offline-all: 282 offline suites green"
+	@echo "regress-offline-all: 283 offline suites green"
 
 regress-offline-corpus: code-half-unit \
 	regress-adopt-rollback regress-local-bootstrap regress-capture-publish regress-adapter-contract regress-adapter-sources regress-site-adapter-certification regress-ecosystem-adapter-batch regress-code-snippets-state-provider regress-yoast-duplicate-post-role-provider regress-yoast-index-provider regress-elementor-css-provider regress-adapter-production-readiness regress-manifest-dispositions regress-platform-compatibility regress-interpreter-policy regress-proof-legacy-pair \
@@ -2163,7 +2171,7 @@ regress-offline-corpus: code-half-unit \
 	regress-regen-dependency-policy regress-shortcode-refs regress-term-meta regress-url-query-refs \
 	regress-option-name-refs-wiring regress-natural-key-rename regress-classification-batch regress-refresh-orchestration regress-refresh-compile-refs regress-refresh-rebase regress-refresh-field-diff \
 	regress-coverage-offline regress-bundle-coverage regress-suite-wiring regress-fixture-makers regress-rollback-authority \
-	regress-recovery-executor regress-checkpoint-bundle regress-code-release regress-upload-bundle \
+	regress-recovery-executor regress-checkpoint-bundle regress-deploy-checkpoint regress-code-release regress-upload-bundle \
 	regress-effect-bundle regress-woocommerce-effect-contract regress-woocommerce-product-lookups \
 	regress-woocommerce-product-lookups-fake regress-woocommerce-deletion-authority \
 	regress-woocommerce-regen-engine regress-action-scope regress-actions-providers regress-core-rewrite-native-action regress-pair-budget-lock regress-pair-compose-unit regress-pair-bootstrap-unit regress-pair-candidate-source \
@@ -2173,7 +2181,7 @@ regress-offline-corpus: code-half-unit \
 	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-elementor-dead-guard regress-elementor-matrix-reset regress-grind-r1c-manifest-preserve regress-observation-guards regress-live-exit-code-contract regress-target-observation-premises regress-bound-helper regress-control-plane-seams regress-recovery-protocol regress-scoped-apply-session regress-scoped-apply-live-cleanup regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-ssh-adopt-evidence-retention regress-scope-wire regress-manifest-grammar regress-compiled-artifact regress-code-descriptor-compiler regress-code-config-grammar regress-menu-materializer regress-adapter-registry regress-agent-src-requires regress-user-meta-materializer regress-pin-resolver regress-term-materializer regress-action-provider-grammar regress-options-materializer regress-cross-manifest-guards regress-relationship-materializer regress-attachment-materializer regress-post-materializer regress-sub-key-grammar regress-delete-executor regress-delete-guard-value-codec regress-delete-guard-evaluator regress-scope-discovery regress-table-graph regress-table-schema regress-snapshot-identity regress-typed-table-capture regress-typed-table-materializer regress-snapshot-pruner regress-taxonomy-grammar regress-option-reference-grammar regress-post-type-grammar regress-discovery-grammar regress-reference-keyspace-grammar regress-reference-kind-grammar regress-offline-diagnostics regress-promotion-abort-reason regress-delete-authorization-receipt \
 	regress-code-source-lock regress-code-lock-compile-gate regress-init-code-split regress-code-classify regress-code-resolve \
 	regress-code-import
-	@echo "regress-offline-corpus: 281 offline suites green"
+	@echo "regress-offline-corpus: 282 offline suites green"
 
 regress-offline-diagnostics:
 	bash sandbox/tests/offline/guards/regress_offline_diagnostics.sh
