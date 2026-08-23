@@ -83,6 +83,16 @@
         },
         {
             "operation": "capture",
+            "reason": "Block Email Editor posts contain merchant-authored block content and versioned merge metadata for which no portable update/rebase contract is certified; populated rows fail closed with count-only scope evidence.",
+            "surface": "post_types.woo_email"
+        },
+        {
+            "operation": "capture",
+            "reason": "Block Email Editor mapping options embed target-local woo_email post ids and remain discovery-owned until the post/content merge contract is supported.",
+            "surface": "options.woocommerce_email_templates_*_post_id"
+        },
+        {
+            "operation": "capture",
             "reason": "Orders, customers, sessions, stock reservations, and Action Scheduler rows remain runtime-sovereign.",
             "surface": "tables.runtime"
         }

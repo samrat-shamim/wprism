@@ -42,7 +42,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-menu-field-reclassification-policy regress-regen-dependency-policy regress-shortcode-refs \
 	regress-woocommerce-product-lookups regress-woocommerce-product-lookups-fake regress-woocommerce-hierarchy-lookups regress-woocommerce-fulfillment-prerequisites regress-woocommerce-deletion-authority \
 	regress-woocommerce-regen-engine regress-action-scope regress-provider-contract regress-actions-providers regress-ninja-forms-form-cache-provider regress-yoast-index-provider regress-core-rewrite-native-action regress-provider-contract-live regress-ecommerce-developer-static regress-ecommerce-extension-migration regress-capture-atomicity \
-	regress-term-meta regress-url-query-refs regress-acf-term-options-fields regress-acf-production-readiness regress-contact-form-7-production-readiness regress-paid-memberships-pro-production-readiness regress-ninja-forms-production-readiness regress-the-events-calendar-production-readiness regress-collision \
+	regress-term-meta regress-url-query-refs regress-acf-term-options-fields regress-acf-production-readiness regress-contact-form-7-production-readiness regress-paid-memberships-pro-production-readiness regress-ninja-forms-production-readiness regress-the-events-calendar-production-readiness regress-woocommerce-production-readiness regress-woocommerce-optional-core regress-collision \
 	regress-entity-type-width regress-env-set regress-option-ref-scope regress-pmpro-composite-ref \
 	regress-repository-authorization regress-repository-compiler-integration regress-scope-gate \
 	regress-snapshot-meta regress-generic-reference-shapes regress-ssh-adopt regress-tec-regen regress-user-meta \
@@ -2394,6 +2394,9 @@ regress-woocommerce-hierarchy-lookups:
 
 regress-woocommerce-fulfillment-prerequisites:
 	php sandbox/tests/offline/ecommerce/regress_woocommerce_fulfillment_prerequisites.php
+
+regress-woocommerce-optional-core:
+	php sandbox/tests/offline/adapter/regress_woocommerce_optional_core.php
 
 regress-woocommerce-deletion-authority:
 	php sandbox/tests/offline/ecommerce/regress_woocommerce_deletion_authority.php

@@ -1,0 +1,251 @@
+<?php
+/** Exact WooCommerce 11.0.0/11.0.1 optional-core storage boundary. */
+declare(strict_types=1);
+
+if (!defined('DUO_SPEC_VERSION')) {
+    define('DUO_SPEC_VERSION', 2);
+}
+
+if (!function_exists('get_current_blog_id')) {
+    function get_current_blog_id(): int {
+        return (int) ($GLOBALS['wooOptionalBlogId'] ?? 1);
+    }
+}
+
+if (!function_exists('get_taxonomies')) {
+    /** @return array<string,string> */
+    function get_taxonomies(array|string $args = [], string $output = 'names', string $operator = 'and'): array {
+        return [];
+    }
+}
+
+if (!function_exists('get_taxonomy')) {
+    function get_taxonomy(string $taxonomy): false {
+        return false;
+    }
+}
+
+require_once __DIR__ . '/../../lib/check.php';
+require_once __DIR__ . '/../../lib/wp_stubs.php';
+require_once __DIR__ . '/../../lib/FakeWpdb.php';
+require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
+require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/../../../../agent/src/Policy/ScopeDiscovery.php';
+require_once __DIR__ . '/../../../../agent/src/Grammar/Tokens.php';
+require_once __DIR__ . '/../../../../agent/src/Capture/OptionsCapture.php';
+
+use Duo\OptionsCapture;
+use Duo\Policy;
+use Duo\ScopeDiscovery;
+use Duo\Tokens;
+use DuoTest\FakeWpdb;
+use DuoTest\WpStore;
+
+$root = dirname(__DIR__, 4);
+$manifest = json_decode(
+    (string) file_get_contents($root . '/manifests/woocommerce.json'),
+    true,
+    flags: JSON_THROW_ON_ERROR
+);
+$dispositions = json_decode(
+    (string) file_get_contents($root . '/manifests/dispositions.json'),
+    true,
+    flags: JSON_THROW_ON_ERROR
+);
+$inventory = json_decode(
+    (string) file_get_contents($root . '/sandbox/tests/fixtures/woocommerce-core-11.0-optional.json'),
+    true,
+    flags: JSON_THROW_ON_ERROR
+);
+$artifactLock = json_decode(
+    (string) file_get_contents($root . '/sandbox/conformance/artifacts.lock.json'),
+    true,
+    flags: JSON_THROW_ON_ERROR
+);
+
+duo_check_same(
+    'duo-woocommerce-optional-core-inventory/v1',
+    $inventory['format'] ?? null,
+    'the optional-core source union has one explicit schema'
+);
+duo_check_same(
+    ['11.0.0', '11.0.1'],
+    array_keys((array) ($inventory['artifacts'] ?? [])),
+    'the optional-core inventory admits only the two exact reviewed artifacts'
+);
+foreach ((array) ($inventory['artifacts'] ?? []) as $version => $sha256) {
+    duo_check_same(
+        $sha256,
+        $artifactLock['plugins']['woocommerce'][$version]['sha256'] ?? null,
+        "optional-core source evidence is pinned to the official WooCommerce $version artifact"
+    );
+}
+duo_check_same(
+    24,
+    count((array) ($inventory['source_files'] ?? [])),
+    'the inventory binds all 24 exact optional-core storage writers and registries'
+);
+foreach ((array) ($inventory['source_files'] ?? []) as $path => $sha256) {
+    duo_check(
+        is_string($path) && $path !== ''
+            && is_string($sha256) && preg_match('/^[0-9a-f]{64}$/D', $sha256) === 1,
+        "$path carries one reviewed byte-identical 11.0.0/11.0.1 source digest"
+    );
+}
+duo_check_same(
+    [
+        'block_email_editor',
+        'cli_migrator',
+        'customer_stock_notifications',
+        'email_unsubscribes',
+        'fulfillments',
+        'push_notifications',
+        'variation_gallery',
+    ],
+    array_keys((array) ($inventory['families'] ?? [])),
+    'every source-audited optional-core persistence family is machine-enumerated'
+);
+
+$policy = Policy::load(null, ['woocommerce']);
+
+foreach (['wc_email_sync_backfill_completed_tracked', 'woocommerce_email_template_sync_backfill_complete'] as $name) {
+    duo_check_same('runtime', $policy->option_rule($name)['class'] ?? null, "$name is target-local sync state");
+}
+foreach (['wc_migrator_analytics', 'wc_migrator_products_count'] as $name) {
+    duo_check_same('runtime', $policy->option_rule($name)['class'] ?? null, "$name is target-local migration progress");
+}
+foreach (['shopify', 'webflow', 'partner_extension'] as $platform) {
+    duo_check_same(
+        'env',
+        $policy->option_rule("wc_migrator_credentials_$platform")['class'] ?? null,
+        "filtered migrator platform $platform keeps its credential record target-sovereign"
+    );
+}
+foreach ([
+    'wc_migrator_credentials_',
+    'wc_migrator_credentials_Bad',
+    'wc_migrator_credentials_bad/slash',
+    'wc_migrator_credentials_' . str_repeat('x', 65),
+] as $nearMiss) {
+    duo_check_same(null, $policy->option_rule($nearMiss), "$nearMiss cannot widen the closed credential family");
+}
+duo_check_same('runtime', $manifest['post_types']['import_session']['class'] ?? null,
+    'CLI import sessions and their source/progress metadata are explicitly runtime');
+duo_check_same('runtime', $manifest['post_types']['wc_push_token']['class'] ?? null,
+    'push-token posts and device secrets/PII are explicitly runtime');
+duo_check(!array_key_exists('woo_email', $manifest['post_types'] ?? []),
+    'Block Email Editor posts remain outside portable scope instead of silently dropping merchant content');
+foreach (['woocommerce_email_templates_new_order_post_id', 'woocommerce_email_templates_addon_gateway_post_id'] as $name) {
+    duo_check_same(null, $policy->option_rule($name), "$name remains an explicit unsupported post-reference boundary");
+    duo_check_same('woocommerce', $policy->option_namespace($name)['owner'] ?? null,
+        "$name remains discovery-owned and therefore fails loudly when populated");
+}
+
+$unsupported = [];
+foreach ((array) ($dispositions['manifests']['woocommerce']['unsupported'] ?? []) as $row) {
+    $unsupported[(string) ($row['surface'] ?? '')] = (string) ($row['operation'] ?? '');
+}
+duo_check_same('capture', $unsupported['post_types.woo_email'] ?? null,
+    'the reviewed disposition names the populated Block Email Editor post boundary');
+duo_check_same('capture', $unsupported['options.woocommerce_email_templates_*_post_id'] ?? null,
+    'the reviewed disposition names the target-local Block Email Editor mapping boundary');
+
+foreach ((array) ($inventory['families']['fulfillments']['runtime_tables'] ?? []) as $table) {
+    duo_check_same('runtime', $manifest['tables'][$table]['class'] ?? null, "$table remains runtime fulfillment state");
+}
+foreach ((array) ($inventory['families']['customer_stock_notifications']['runtime_tables'] ?? []) as $table) {
+    duo_check_same('runtime', $manifest['tables'][$table]['class'] ?? null, "$table remains subscriber runtime/PII state");
+}
+foreach ((array) ($inventory['families']['email_unsubscribes']['runtime_tables'] ?? []) as $table) {
+    duo_check_same('runtime', $manifest['tables'][$table]['class'] ?? null, "$table remains email-recipient runtime state");
+}
+$GLOBALS['wpdb'] = new class {
+    public function get_blog_prefix(int $blogId): string {
+        return $blogId === 1 ? 'wp_' : "wp_{$blogId}_";
+    }
+};
+duo_check_same(
+    ['class' => 'runtime'],
+    $policy->meta_rule_for_user('wc_push_notification_preferences_wp', []),
+    'push preferences resolve only for the exact current-site suffix'
+);
+foreach (['wc_push_notification_preferences', 'wp_wc_push_notification_preferences', 'wc_push_notification_preferences_wp_2'] as $nearMiss) {
+    duo_check_same(null, $policy->meta_rule_for_user($nearMiss, []), "$nearMiss cannot widen push-preference ownership");
+}
+
+$store = WpStore::reset()
+    ->seedOptions(['home' => 'https://optional.example.test'])
+    ->seedPostType('woo_email', ['public' => false, '_builtin' => false])
+    ->seedPostType('wc_push_token', ['public' => false, '_builtin' => false]);
+$wpdb = FakeWpdb::install();
+$contentMarker = 'merchant_email_content_DO_NOT_ECHO';
+$wpdb->seedTable('wp_posts', [
+    ['ID' => 811, 'post_type' => 'woo_email', 'post_status' => 'publish', 'post_content' => $contentMarker],
+    ['ID' => 812, 'post_type' => 'woo_email', 'post_status' => 'draft', 'post_content' => 'customized blocks'],
+    ['ID' => 813, 'post_type' => 'woo_email', 'post_status' => 'trash', 'post_content' => 'deleted template'],
+    ['ID' => 814, 'post_type' => 'wc_push_token', 'post_status' => 'private', 'post_content' => 'device secret'],
+    ['ID' => 815, 'post_type' => 'import_session', 'post_status' => 'publish', 'post_content' => 'source URL'],
+]);
+$wpdb->seedTable('wp_term_taxonomy', []);
+
+$gaps = (new ScopeDiscovery($policy))->gaps();
+duo_check_same(
+    ['post_type:woo_email' => ['entities' => 2]],
+    $gaps,
+    'customized and uncustomized live Block Email Editor posts fail the real scope gate while trash and runtime entities do not'
+);
+duo_check(!str_contains((string) json_encode($gaps), $contentMarker),
+    'the Block Email Editor scope refusal exposes only a bounded row count, never merchant block content');
+
+$wpdb->seedTable('wp_posts', [
+    ['ID' => 814, 'post_type' => 'wc_push_token', 'post_status' => 'private', 'post_content' => 'device secret'],
+    ['ID' => 815, 'post_type' => 'import_session', 'post_status' => 'publish', 'post_content' => 'source URL'],
+]);
+duo_check_same([], (new ScopeDiscovery($policy))->gaps(),
+    'feature-disabled/no-template state stays clean while push and import runtime state remains local');
+
+$mappingMarker = 'mapping_value_secret_DO_NOT_ECHO';
+$credentialMarker = 'migration_api_secret_DO_NOT_ECHO';
+$wpdb->seedTable('wp_options', [
+    ['option_id' => 1, 'option_name' => 'woocommerce_email_templates_new_order_post_id', 'option_value' => $mappingMarker, 'autoload' => 'yes'],
+    ['option_id' => 2, 'option_name' => 'woocommerce_email_templates_addon_gateway_post_id', 'option_value' => '999', 'autoload' => 'yes'],
+    ['option_id' => 3, 'option_name' => 'wc_email_sync_backfill_completed_tracked', 'option_value' => 'yes', 'autoload' => 'no'],
+    ['option_id' => 4, 'option_name' => 'woocommerce_email_template_sync_backfill_complete', 'option_value' => 'yes', 'autoload' => 'yes'],
+    ['option_id' => 5, 'option_name' => 'wc_migrator_analytics', 'option_value' => serialize(['sessions' => 7]), 'autoload' => 'no'],
+    ['option_id' => 6, 'option_name' => 'wc_migrator_products_count', 'option_value' => '42', 'autoload' => 'yes'],
+    ['option_id' => 7, 'option_name' => 'wc_migrator_credentials_shopify', 'option_value' => json_encode(['token' => $credentialMarker]), 'autoload' => 'yes'],
+    ['option_id' => 8, 'option_name' => 'wc_migrator_credentials_partner_extension', 'option_value' => json_encode(['token' => $credentialMarker]), 'autoload' => 'yes'],
+    ['option_id' => 9, 'option_name' => 'wc_migrator_credentials_bad/slash', 'option_value' => 'near-miss', 'autoload' => 'yes'],
+]);
+
+$tokens = new Tokens();
+$tokens->policy = $policy;
+$secretCalls = [];
+$capture = new OptionsCapture(
+    $policy,
+    $tokens,
+    static function (string $section, string $key, mixed $value, array $rule) use (&$secretCalls): void {
+        $secretCalls[] = [$section, $key, $value, $rule['class'] ?? null];
+    },
+    static fn(int $id, string $kind, bool $force): ?string => null,
+    static fn(Policy $candidatePolicy, string $kind, int $id): bool => false
+);
+$captureResult = $capture->capture(false, false, null, [], false, true);
+$pending = $captureResult['unclassified'];
+sort($pending, SORT_STRING);
+duo_check_same([
+    'options:wc_migrator_credentials_bad/slash (owner candidate woocommerce; namespace matched without a classification)',
+    'options:woocommerce_email_templates_addon_gateway_post_id (owner candidate woocommerce; namespace matched without a classification)',
+    'options:woocommerce_email_templates_new_order_post_id (owner candidate woocommerce; namespace matched without a classification)',
+], $pending, 'real option capture refuses core/orphan/add-on email mappings and malformed credential near-misses');
+$captureEvidence = json_encode($captureResult, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+duo_check(
+    is_string($captureEvidence)
+        && !str_contains($captureEvidence, $mappingMarker)
+        && !str_contains($captureEvidence, $credentialMarker),
+    'capture refusal and repository output never echo mapping values or migrator credentials'
+);
+duo_check_same([], $secretCalls,
+    'runtime, environment-secret, and fail-closed optional state never enters the authored secret/capture callback');
+
+duo_check_summary('WooCommerce optional-core inventory');

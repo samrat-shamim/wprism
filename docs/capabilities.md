@@ -330,8 +330,8 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 - **Version range:** >=11.0.0 <11.0.2
 - **Operations:** apply, capture, compile, deploy, plan, promote, recapture, render-api
 - **Lifecycle phases:** retire, activate, verify
-- **Declared entities:** `post_types` (8 keys), `tables` (43 keys), `taxonomies` (8 keys), `taxonomy_patterns` (1 rules)
-- **Declared fields:** `options` (75 keys), `option_patterns` (7 rules), `option_name_refs` (1 rules), `post_meta` (72 keys), `meta_patterns` (1 rules), `term_meta` (8 keys), `block_attrs` (1: woocommerce/product-collection)
+- **Declared entities:** `post_types` (9 keys), `tables` (43 keys), `taxonomies` (8 keys), `taxonomy_patterns` (1 rules)
+- **Declared fields:** `options` (79 keys), `option_patterns` (8 rules), `option_name_refs` (1 rules), `post_meta` (72 keys), `meta_patterns` (1 rules), `term_meta` (8 keys), `block_attrs` (1: woocommerce/product-collection)
 - **Adapter hooks:** 4 providers, 6 structured actions, interpreter `woocommerce`
 - **Deletions supported:** none
 - **Deletions unsupported:** post:product, post:product_variation, table:woocommerce_attribute_taxonomies, table:woocommerce_shipping_zone_locations, table:woocommerce_shipping_zone_methods, table:woocommerce_shipping_zones, table:woocommerce_tax_rate_locations, table:woocommerce_tax_rates
@@ -343,6 +343,8 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 - `post_types.product_variation` / `delete` — Variation reverse references and parent/group relationships share the same open WooCommerce extension boundary as products.
 - `tables.woocommerce_attribute_taxonomies` / `delete` — The v1 guard/cascade grammar cannot express WooCommerce global-attribute semantic deletion.
 - `tables.woocommerce_shipping_zone_locations|woocommerce_shipping_zone_methods|woocommerce_shipping_zones|woocommerce_tax_rate_locations|woocommerce_tax_rates` / `delete` — Shipping-zone and tax-rate rows require version-pinned WooCommerce API, cache, child-row, and option-name effects that are not a closed semantic delete contract.
+- `post_types.woo_email` / `capture` — Block Email Editor posts contain merchant-authored block content and versioned merge metadata for which no portable update/rebase contract is certified; populated rows fail closed with count-only scope evidence.
+- `options.woocommerce_email_templates_*_post_id` / `capture` — Block Email Editor mapping options embed target-local woo_email post ids and remain discovery-owned until the post/content merge contract is supported.
 - `tables.runtime` / `capture` — Orders, customers, sessions, stock reservations, and Action Scheduler rows remain runtime-sovereign.
 
 ## wps-hide-login
