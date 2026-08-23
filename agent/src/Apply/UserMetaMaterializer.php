@@ -75,6 +75,8 @@ final class UserMetaMaterializer {
                     $rule['key_refs'] ?? null
                 );
                 $value = StructuredValue::encode($value, $rule, "user '$login' meta $key");
+            } elseif (!empty($rule['plain_data'])) {
+                $value = $this->tokens->plain_data_apply($value);
             } elseif (!empty($rule['ref'])) {
                 // User refs need the meta decoder: unlike option refs it
                 // understands user:<login>, arrays, and storage casts.

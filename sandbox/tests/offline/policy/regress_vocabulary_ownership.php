@@ -576,7 +576,7 @@ echo "\n== post-type switches: closed vocabularies with a named owner ==\n";
 
 refuse_pair(
     manifest_b(['post_types' => ['acme_widget' => ['class' => 'authored', 'body' => 'verbatm']]]),
-    "post_types.acme_widget.body='verbatm' but the vocabulary is closed (blocks, verbatim)",
+    "post_types.acme_widget.body='verbatm' but the vocabulary is closed (blocks, verbatim, serialized)",
     'a misspelled body mode is refused instead of silently meaning "blocks" and corrupting the serialized bodies the declaration exists to protect'
 );
 refuse_pair(

@@ -140,6 +140,8 @@ final class UserMetaCapture {
                 $rule['json_refs'] ?? [],
                 $rule['key_refs'] ?? null
             );
+        } elseif (!empty($rule['plain_data'])) {
+            $value = $this->tokens->plain_data_capture($value);
         } elseif (!empty($rule['ref'])) {
             $value = $this->tokens->meta_value_to_tokens($value, $rule);
             if ($value === null) {

@@ -284,6 +284,9 @@ final class OptionsCapture {
                 $rule['key_refs'] ?? null
             )];
         }
+        if (!empty($rule['plain_data'])) {
+            return ['included' => true, 'value' => $this->tokens->plain_data_capture($v)];
+        }
         if (!empty($rule['ref'])) {
             $captured = $this->option_ref_tokens(
                 $ctx,

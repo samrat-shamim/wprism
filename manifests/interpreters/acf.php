@@ -20,15 +20,15 @@ use Duo\PlainData;
  *     but the handful of properties promoted to real post columns — key,
  *     label/title, menu_order, parent) is a serialize()'d PHP array in
  *     post_content; post_name is the key (e.g. "field_duo_hero"). Consumed
- *     verbatim by the acf manifest's body:"verbatim" post_types entries —
- *     re-serializing through canonical JSON would corrupt the byte lengths
- *     serialize() embeds.
- *   - image / file / post_object: the referenced post id, stored as a lone
- *     scalar meta_value. meta_value is a TEXT column, so there is no
+ *     decoded through the acf manifest's body:"serialized" contract,
+ *     tokenized only at string leaves, and re-serialized so embedded string
+ *     byte lengths remain correct on every environment.
+ *   - image / file and single-value post_object: the referenced post id,
+ *     stored as a lone scalar meta_value. meta_value is a TEXT column, so there is no
  *     int-vs-string distinction at the byte level for a lone scalar — the
  *     "cast":"string" declared below is a no-op for these three today, but
  *     is declared anyway for consistency with the shape that *does* matter:
- *   - relationship / gallery: a serialize()'d array of id strings, e.g.
+ *   - relationship and multi-value post_object: a serialize()'d array of id strings, e.g.
  *     a:2:{i:0;s:2:"12";i:1;s:2:"34";} — ACF's own field-type update_value()
  *     casts each element to a string before saving, so reproducing that
  *     exact serialized byte sequence on apply requires round-tripping the
@@ -38,7 +38,7 @@ use Duo\PlainData;
  *     ("field_type": checkbox/multi_select selects vs. radio/select single),
  *     so the ref kind is picked from that setting. Verified: multi-value is
  *     a serialize()'d array of id INTEGERS, a:2:{i:0;i:2;i:1;i:3;} — no
- *     strval, unlike relationship/gallery above — so no "cast" is declared;
+ *     strval, unlike relationship/post_object above — so no "cast" is declared;
  *     single-value is a bare scalar (same no-op-cast case as image/file/
  *     post_object). Getting this wrong doesn't break the byte-for-byte
  *     canonical-JSON round trip (token ids are (int)-cast either way going
@@ -46,12 +46,61 @@ use Duo\PlainData;
  *     $one closure) so a wrong cast here is silent until something diffs the
  *     raw DB row or a stricter reader cares about the element type.
  *   - user: single- vs multi-value storage is the boolean "multiple" field
- *     setting. Verified: multi-value IS strval'd like relationship/gallery,
+ *     setting. Verified: multi-value IS strval'd like relationship/post_object,
  *     a:2:{i:0;s:1:"1";i:1;s:1:"2";} — "cast":"string" is correct here;
  *     single-value is a bare scalar (no-op either way).
  */
 final class Acf {
     private const FIELD_KEY_PATTERN = '/^field_[A-Za-z0-9_]+$/';
+    private const GROUP_KEY_PATTERN = '/^group_[A-Za-z0-9_]+$/';
+    /** Every built-in 6.8.7 location whose value owner is a managed post,
+     * term, or exact-login user. Unknown/custom locations are not guessed. */
+    private const SUPPORTED_LOCATION_PARAMS = [
+        'attachment',
+        'current_user',
+        'current_user_role',
+        'nav_menu_item',
+        'page',
+        'page_parent',
+        'page_template',
+        'page_type',
+        'post',
+        'post_category',
+        'post_format',
+        'post_status',
+        'post_taxonomy',
+        'post_template',
+        'post_type',
+        'taxonomy',
+        'user_form',
+        'user_role',
+    ];
+    /** Built-in 6.8.7 scalar/array types with no environment-local ids. */
+    private const PLAIN_FIELD_TYPES = [
+        'text',
+        'textarea',
+        'number',
+        'range',
+        'email',
+        'url',
+        'wysiwyg',
+        'oembed',
+        'select',
+        'checkbox',
+        'radio',
+        'button_group',
+        'true_false',
+        'link',
+        'google_map',
+        'date_picker',
+        'date_time_picker',
+        'time_picker',
+        'color_picker',
+        'message',
+        'accordion',
+        'tab',
+        'group',
+    ];
     /**
      * DUO-3263: options-page field storage prefix, empirically confirmed
      * (fresh ACF 6.8.7, free plugin — sandbox/tests/spike/spike_e_acf.sh's sibling
@@ -88,6 +137,12 @@ final class Acf {
     private array $fieldDefs = [];
     /** @var array<string,string> field key -> canonical source path */
     private array $fieldDefPaths = [];
+    /** @var array<string, array|null> group key -> unserialized post_content */
+    private array $groupDefs = [];
+    /** @var array<string,string> group key -> canonical source path */
+    private array $groupDefPaths = [];
+    /** @var list<array<string,mixed>> diagnostics discovered while priming */
+    private array $primingDiagnostics = [];
     private bool $repositoryPrimed = false;
 
     public function __construct(Policy $policy) {
@@ -100,12 +155,17 @@ final class Acf {
     /**
      * Prime field definitions from the immutable repository rather than the
      * target database. An acf-field post is deliberately captured with a
-     * verbatim serialized body; using that same body for authorization makes
+     * strict serialized body; using that same body for authorization makes
      * the result target-independent (fresh targets do not have these rows
      * until apply phase 1/2, while mapped targets already do).
      */
     public function prime_repository(array $tree): void {
         $this->repositoryPrimed = true;
+        $this->fieldDefs = [];
+        $this->fieldDefPaths = [];
+        $this->groupDefs = [];
+        $this->groupDefPaths = [];
+        $this->primingDiagnostics = [];
         foreach ($tree as $entity) {
             if (($entity['type'] ?? '') !== 'post') {
                 continue;
@@ -116,16 +176,34 @@ final class Acf {
             } else {
                 [$front, $body] = \Duo\Canon::parse_post_file((string) $entity['content']);
             }
-            if (($front['type'] ?? '') !== 'acf-field') {
+            $postType = (string) ($front['type'] ?? '');
+            if (!in_array($postType, ['acf-field', 'acf-field-group'], true)) {
                 continue;
             }
-            $fieldKey = (string) ($front['slug'] ?? '');
-            if (!preg_match(self::FIELD_KEY_PATTERN, $fieldKey)) {
+            $key = (string) ($front['slug'] ?? '');
+            $pattern = $postType === 'acf-field' ? self::FIELD_KEY_PATTERN : self::GROUP_KEY_PATTERN;
+            if (!preg_match($pattern, $key)) {
                 continue;
             }
-            $decoded = @unserialize($body, ['allowed_classes' => false]);
-            $this->fieldDefs[$fieldKey] = is_array($decoded) ? $decoded : null;
-            $this->fieldDefPaths[$fieldKey] = (string) ($entity['path'] ?? '');
+            $path = (string) ($entity['path'] ?? '');
+            try {
+                $decoded = PlainData::decode_serialized($body, "$postType '$key' body");
+            } catch (\Throwable $_invalid) {
+                $decoded = null;
+            }
+            if ($postType === 'acf-field') {
+                $this->fieldDefs[$key] = is_array($decoded) ? $decoded : null;
+                $this->fieldDefPaths[$key] = $path;
+                if (function_exists('acf_is_local_field') && acf_is_local_field($key)) {
+                    $this->primingDiagnostics[] = $this->local_schema_diagnostic($path, $key, 'field');
+                }
+                continue;
+            }
+            $this->groupDefs[$key] = is_array($decoded) ? $decoded : null;
+            $this->groupDefPaths[$key] = $path;
+            if (function_exists('acf_is_local_field_group') && acf_is_local_field_group($key)) {
+                $this->primingDiagnostics[] = $this->local_schema_diagnostic($path, $key, 'field group');
+            }
         }
     }
 
@@ -140,17 +218,51 @@ final class Acf {
      * @return array<int,array<string,mixed>>
      */
     public function repository_diagnostics(array $tree): array {
-        $out = [];
+        $out = $this->primingDiagnostics;
         foreach ($this->fieldDefs as $key => $def) {
-            if ($def !== null && is_string($def['type'] ?? null) && $def['type'] !== '') {
+            $type = is_array($def) ? ($def['type'] ?? null) : null;
+            if (!is_string($type) || $type === '') {
+                $out[] = [
+                    'code' => 'adapter_schema_content_mismatch',
+                    'path' => $this->fieldDefPaths[$key] ?? '',
+                    'locator' => 'body',
+                    'message' => "ACF field definition '$key' is not a serialized field schema with a type",
+                ];
                 continue;
             }
-            $out[] = [
-                'code' => 'adapter_schema_content_mismatch',
-                'path' => $this->fieldDefPaths[$key] ?? '',
-                'locator' => 'body',
-                'message' => "ACF field definition '$key' is not a serialized field schema with a type",
-            ];
+            try {
+                $this->rule_for_type($type, $def, null);
+            } catch (\Throwable $unsupported) {
+                $out[] = [
+                    'code' => 'acf_field_type_unsupported',
+                    'path' => $this->fieldDefPaths[$key] ?? '',
+                    'locator' => 'body.type',
+                    'message' => $unsupported->getMessage(),
+                ];
+            }
+        }
+        foreach ($this->groupDefs as $key => $def) {
+            if (!is_array($def) || !is_array($def['location'] ?? null)) {
+                $out[] = [
+                    'code' => 'adapter_schema_content_mismatch',
+                    'path' => $this->groupDefPaths[$key] ?? '',
+                    'locator' => 'body.location',
+                    'message' => "ACF field group '$key' has no serialized location rule matrix",
+                ];
+                continue;
+            }
+            foreach ($def['location'] as $orIndex => $andRules) {
+                if (!is_array($andRules)) {
+                    $out[] = $this->invalid_location_diagnostic($key, $orIndex, null);
+                    continue;
+                }
+                foreach ($andRules as $andIndex => $location) {
+                    $param = is_array($location) ? ($location['param'] ?? null) : null;
+                    if (!is_string($param) || !in_array($param, self::SUPPORTED_LOCATION_PARAMS, true)) {
+                        $out[] = $this->invalid_location_diagnostic($key, $orIndex, $andIndex, $param);
+                    }
+                }
+            }
         }
         foreach ($tree as $entity) {
             if (($entity['type'] ?? '') !== 'post') {
@@ -177,7 +289,17 @@ final class Acf {
                     ];
                     continue;
                 }
-                $rule = $this->rule_for_type((string) ($def['type'] ?? ''), $def);
+                try {
+                    $rule = $this->rule_for_type((string) ($def['type'] ?? ''), $def, $meta[$name]);
+                } catch (\Throwable $unsupported) {
+                    $out[] = [
+                        'code' => 'acf_field_type_unsupported',
+                        'path' => (string) $entity['path'],
+                        'locator' => "meta.$name",
+                        'message' => $unsupported->getMessage(),
+                    ];
+                    continue;
+                }
                 $ref = (string) ($rule['ref'] ?? '');
                 if ($ref === '') {
                     continue;
@@ -197,7 +319,7 @@ final class Acf {
                 }
                 foreach ($values as $i => $v) {
                     $valid = $v === null || ($kind === 'user'
-                        ? is_string($v) && str_starts_with($v, 'user:')
+                        ? is_string($v) && str_starts_with($v, 'user:') && strlen($v) > 5
                         : is_string($v) && preg_match('/^\{\{' . preg_quote($kind, '/') . ':[0-9a-f-]{36}\}\}$/', $v));
                     if (!$valid) {
                         $out[] = [
@@ -238,6 +360,11 @@ final class Acf {
         return $this->shadow_keyed_rule($key, $allMeta);
     }
 
+    /** User-attached fields use the same value/shadow pair in wp_usermeta. */
+    public function user_meta_rule(string $key, array $allMeta): ?array {
+        return $this->shadow_keyed_rule($key, $allMeta);
+    }
+
     /**
      * DUO-3263: ACF options-page fields (manifests/interpreters/acf.php's
      * own class docblock has the full empirical grounding for the
@@ -266,7 +393,7 @@ final class Acf {
             // gate, same posture as post_meta_rule()'s identical branch.
             return null;
         }
-        return $this->rule_for_type((string) ($def['type'] ?? ''), $def);
+        return $this->rule_for_type((string) ($def['type'] ?? ''), $def, $allOptions[$name] ?? null);
     }
 
     /** The field-key pointer meta itself ("_<key>" => "field_..."): a plain authored string. */
@@ -295,7 +422,7 @@ final class Acf {
             // rules, and from there to the loud unclassified gate.
             return null;
         }
-        return $this->rule_for_type((string) ($def['type'] ?? ''), $def);
+        return $this->rule_for_type((string) ($def['type'] ?? ''), $def, $allMeta[$key] ?? null);
     }
 
     /**
@@ -314,12 +441,19 @@ final class Acf {
         return null;
     }
 
-    private function rule_for_type(string $type, array $def): array {
+    private function rule_for_type(string $type, array $def, $storedValue): array {
         return match ($type) {
-            'image', 'file', 'post_object' => ['class' => 'authored', 'ref' => 'post', 'cast' => 'string'],
-            'relationship', 'gallery' => ['class' => 'authored', 'ref' => 'post[]', 'cast' => 'string'],
+            'image', 'file' => ['class' => 'authored', 'ref' => 'post', 'cast' => 'string'],
+            'relationship' => ['class' => 'authored', 'ref' => 'post[]', 'cast' => 'string'],
+            'post_object' => [
+                'class' => 'authored',
+                'ref' => empty($def['multiple']) ? 'post' : 'post[]',
+                'cast' => 'string',
+            ],
+            'page_link' => $this->page_link_rule($def),
+            'icon_picker' => $this->icon_picker_rule($storedValue),
             // Empirically verified (sandbox/conformance/seeds/acf.sh, task
-            // #16): unlike relationship/gallery, ACF's taxonomy field-type
+            // #16): unlike relationship/post_object, ACF's taxonomy field-type
             // update_value() does NOT strval its ids — a multi-value
             // (checkbox/multi_select) meta_value is a:N:{i:0;i:<id>;...}
             // (int elements), so no 'cast' here (single-value is a bare
@@ -336,11 +470,67 @@ final class Acf {
                 'ref' => empty($def['multiple']) ? 'user' : 'user[]',
                 'cast' => 'string',
             ],
-            // text/textarea/wysiwyg/true_false/select/number/...: a plain
-            // authored value. The default (non-ref) capture path already
-            // URL-tokenizes strings, which is exactly right for wysiwyg.
-            default => ['class' => 'authored'],
+            'password' => throw new \RuntimeException(
+                'ACF password fields are not portable authored state; credential-shaped values must remain environment-local'
+            ),
+            default => in_array($type, self::PLAIN_FIELD_TYPES, true)
+                ? ['class' => 'authored', 'plain_data' => true]
+                : throw new \RuntimeException(
+                    "ACF field type '$type' is outside the exact free-plugin field contract; refusing to guess its storage shape"
+                ),
         };
+    }
+
+    private function page_link_rule(array $def): array {
+        if (!empty($def['allow_archives'])) {
+            throw new \RuntimeException(
+                'ACF page_link with allow_archives mixes post ids and archive strings; this storage union is unsupported'
+            );
+        }
+        return [
+            'class' => 'authored',
+            'ref' => empty($def['multiple']) ? 'post' : 'post[]',
+            'cast' => 'string',
+        ];
+    }
+
+    private function icon_picker_rule($storedValue): array {
+        $value = PlainData::decode($storedValue, 'ACF icon_picker value');
+        if (is_array($value) && ($value['type'] ?? null) === 'media_library') {
+            if (!array_key_exists('value', $value)) {
+                throw new \RuntimeException('ACF media-library icon_picker value has no attachment id');
+            }
+            return [
+                'class' => 'authored',
+                'json_refs' => [['path' => '$.value', 'kind' => 'post']],
+            ];
+        }
+        return ['class' => 'authored', 'plain_data' => true];
+    }
+
+    private function local_schema_diagnostic(string $path, string $key, string $kind): array {
+        return [
+            'code' => 'acf_local_schema_collision',
+            'path' => $path,
+            'locator' => 'slug',
+            'message' => "ACF local PHP/JSON $kind '$key' overrides repository DB schema; remove the local definition or keep this adapter disabled",
+        ];
+    }
+
+    private function invalid_location_diagnostic(
+        string $groupKey,
+        int|string $orIndex,
+        int|string|null $andIndex,
+        $param = null
+    ): array {
+        $locator = "body.location[$orIndex]" . ($andIndex === null ? '' : "[$andIndex].param");
+        $name = is_string($param) && $param !== '' ? $param : '<malformed>';
+        return [
+            'code' => 'acf_field_location_unsupported',
+            'path' => $this->groupDefPaths[$groupKey] ?? '',
+            'locator' => $locator,
+            'message' => "ACF field group '$groupKey' uses location '$name', whose value owner is not in the adapter contract",
+        ];
     }
 
     /** @return ?array unserialized post_content of the acf-field post named by $fieldKey, or null if absent. */
@@ -353,6 +543,11 @@ final class Acf {
             // a mapped target's DB here would let that target authorize a
             // stale/incomplete tree which a fresh target correctly refuses.
             return null;
+        }
+        if (function_exists('acf_is_local_field') && acf_is_local_field($fieldKey)) {
+            throw new \RuntimeException(
+                "duo: ACF local PHP/JSON field '$fieldKey' overrides DB schema; refusing schema-dependent capture"
+            );
         }
         global $wpdb;
         $raw = $wpdb->get_var($wpdb->prepare(

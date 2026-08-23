@@ -143,8 +143,8 @@ check(
 );
 check(
     $acf->term_meta_rule('bio_text', ['_bio_text' => 'field_bio_text', 'bio_text' => 'hello'])
-        === ['class' => 'authored'],
-    'term-attached plain text field is a bare authored value'
+        === ['class' => 'authored', 'plain_data' => true],
+    'term-attached plain text field uses the recursive portable text codec'
 );
 check(
     $acf->term_meta_rule('related_terms', ['_related_terms' => 'field_related_terms', 'related_terms' => 'a:1:{i:0;i:2;}'])
@@ -173,8 +173,8 @@ $allOptions = [
     '_options_site_logo' => 'field_site_logo',
 ];
 check(
-    $acf2->option_rule('options_site_tagline', $allOptions) === ['class' => 'authored'],
-    'a plain options-page field resolves to a bare authored value'
+    $acf2->option_rule('options_site_tagline', $allOptions) === ['class' => 'authored', 'plain_data' => true],
+    'a plain options-page field resolves through the recursive portable text codec'
 );
 check(
     $acf2->option_rule('_options_site_tagline', $allOptions)

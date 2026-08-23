@@ -17,7 +17,7 @@
     "acf_site_health": {"class": "runtime"}
   },
   "post_types": {
-    "acf-field": {"body": "verbatim", "class": "authored", "phase": "early"},
-    "acf-field-group": {"body": "verbatim", "class": "authored", "phase": "early"}
+    "acf-field": {"body": "serialized", "class": "authored", "phase": "early"},
+    "acf-field-group": {"body": "serialized", "class": "authored", "phase": "early"}
   }
 }

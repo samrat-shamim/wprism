@@ -178,7 +178,7 @@ final class PostTypeGrammar {
     }
 
     /** The closed `post_types.<type>.body` vocabulary. */
-    private const BODY_MODES = ['blocks', 'verbatim'];
+    private const BODY_MODES = ['blocks', 'verbatim', 'serialized'];
 
     /** The closed `post_types.<type>.phase` vocabulary. */
     private const POST_TYPE_PHASES = ['normal', 'early'];

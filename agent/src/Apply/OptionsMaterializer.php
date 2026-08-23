@@ -283,6 +283,9 @@ final class OptionsMaterializer {
             $v = $this->tokens->struct_apply($v, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
             return StructuredValue::encode($v, $rule, $ctx);
         }
+        if (!empty($rule['plain_data'])) {
+            return $this->tokens->plain_data_apply($v);
+        }
         if (!empty($rule['ref'])) {
             return $this->tokens->tokens_to_value($v, $rule['ref']);
         }

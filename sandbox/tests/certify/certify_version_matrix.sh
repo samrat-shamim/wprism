@@ -1288,6 +1288,51 @@ EOF
   rm -rf "siterepo/${PAIR}2/.tmp-final"
   [ -z "$DIFF_OUT" ] || fail "byte-identity broken at acf $ACF_VERSION: $DIFF_OUT"
   pass "byte-identical recapture at acf $ACF_VERSION — the manifest's own declared version_range boundary is proven, not just its currently-installed version"
+
+  if [ "$ACF_VERSION" = 6.0.0 ]; then
+    say "in-place lifecycle: acf 6.0.0 authored state -> exact 6.8.7 on both environments"
+    UPGRADE_ARTIFACT_1=$(fetch_artifact advanced-custom-fields 6.8.7 cli1)
+    UPGRADE_ARTIFACT_2=$(fetch_artifact advanced-custom-fields 6.8.7 cli2)
+    wp1 plugin install "$UPGRADE_ARTIFACT_1" --force >/dev/null
+    wp2 plugin install "$UPGRADE_ARTIFACT_2" --force >/dev/null
+    [ "$(wp1 plugin get advanced-custom-fields --field=version)" = 6.8.7 ] \
+      && [ "$(wp2 plugin get advanced-custom-fields --field=version)" = 6.8.7 ] \
+      || fail "ACF in-place upgrade did not install exact 6.8.7 on both environments"
+
+    # Deploy reasserts the repository's active-code intent after the exact
+    # replacement, then source recapture publishes any real plugin migration
+    # of authored bytes instead of assuming the two releases store them alike.
+    wp1 duo deploy --repo=/siterepo --force-code-drift >/dev/null
+    wp2 duo deploy --repo=/siterepo --force-code-drift >/dev/null
+    wp1 duo capture --repo=/siterepo
+    wp1 duo lint --repo=/siterepo
+    if ! git -C "siterepo/${PAIR}1" diff --quiet -- state; then
+      "${GIT1[@]}" add -A
+      "${GIT1[@]}" commit -qm "capture: ACF in-place 6.0.0 to 6.8.7 migration"
+      "${GIT1[@]}" push -q origin main
+      git -C "siterepo/${PAIR}2" pull -q origin main
+    fi
+    UPGRADE_REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
+    wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$UPGRADE_REV" \
+      2>&1 | tee "$VMATRIX_APPLY_LOG"
+    grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
+      || fail "ACF in-place 6.0.0 -> 6.8.7 apply canary was not clean"
+
+    UPGRADE_NATIVE=$(wp2 eval '
+      $content=get_page_by_path("vmatrix-acf-content", OBJECT, "post");
+      $related=$content ? get_field("duo_related", $content->ID) : [];
+      $target=$related ? get_post((int)$related[0]) : null;
+      echo $target ? $target->post_title : "";
+    ')
+    [ "$UPGRADE_NATIVE" = 'Version Matrix Related Target' ] \
+      || fail "ACF 6.8.7 did not resolve the relationship authored under 6.0.0: $UPGRADE_NATIVE"
+    wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-acf-upgrade-final
+    UPGRADE_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-acf-upgrade-final" || true)
+    rm -rf "siterepo/${PAIR}2/.tmp-acf-upgrade-final"
+    [ -z "$UPGRADE_DIFF" ] \
+      || fail "ACF in-place 6.0.0 -> 6.8.7 recapture was not byte-identical: $UPGRADE_DIFF"
+    pass "ACF state authored under exact 6.0.0 upgrades in place to exact 6.8.7, remains plugin-visible, applies cleanly, and recaptures byte-identically"
+  fi
 done
 fi
 
