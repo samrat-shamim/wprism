@@ -48,8 +48,7 @@ final class TecReadinessNativeMarker {}
 final class TecReadinessCategoryColorController {
     public function generate_css(): void {
         ++$GLOBALS['tec_readiness_cache_busts'];
-        $GLOBALS['tec_readiness_options']['tec_events_category_color_css'] =
-            $GLOBALS['tec_readiness_generated_css'];
+        tec_readiness_set_css($GLOBALS['tec_readiness_generated_css']);
         $GLOBALS['tec_readiness_dropdown_rows'] = $GLOBALS['tec_readiness_generated_dropdown_rows'];
     }
 }
@@ -216,6 +215,8 @@ final class TecReadinessOccurrenceSaver {
             $row['event_id'] = (int) $row['event_id'] + 1;
         } elseif ($mode === 'invalid_occurrence_id') {
             $row['occurrence_id'] = 0;
+        } elseif ($mode === 'oversized_occurrence_id') {
+            $row['occurrence_id'] = '18446744073709551616';
         } elseif ($mode === 'invalid_occurrence_updated_at') {
             $row['updated_at'] = '2026-02-31 25:99:99';
         } elseif ($mode === 'save_throw') {
@@ -267,6 +268,10 @@ function get_terms(array $args = []): array {
     return $GLOBALS['tec_readiness_terms'];
 }
 
+function has_filter(string $hookName, callable|false $callback = false): bool|int {
+    return in_array($hookName, $GLOBALS['tec_readiness_filters'] ?? [], true);
+}
+
 function is_wp_error(mixed $value): bool {
     return false;
 }
@@ -287,6 +292,71 @@ function tribe(string $class): object {
 
 function tribe_get_option(string $name, mixed $default = false): mixed {
     return $GLOBALS['tec_readiness_tribe_options'][$name] ?? $default;
+}
+
+function tec_readiness_set_css(string $css): void {
+    $GLOBALS['tec_readiness_options']['tec_events_category_color_css'] = $css;
+    $wpdb = $GLOBALS['wpdb'] ?? null;
+    if ($wpdb instanceof FakeWpdb && $wpdb->hasTable($wpdb->options)) {
+        $updated = $wpdb->update(
+            $wpdb->options,
+            ['option_value' => $css],
+            ['option_name' => 'tec_events_category_color_css']
+        );
+        if ($updated === false) {
+            throw new RuntimeException('offline Category Colors CSS row update failed');
+        }
+    }
+}
+
+/** @param list<array<string,mixed>> $extraRows */
+function tec_readiness_seed_color_options(array $extraRows = []): void {
+    $wpdb = $GLOBALS['wpdb'] ?? null;
+    if (!$wpdb instanceof FakeWpdb) {
+        throw new RuntimeException('offline Category Colors database is unavailable');
+    }
+    $wpdb->seedTable($wpdb->options, array_merge([[
+        'option_id' => 1,
+        'option_name' => 'tec_events_category_color_css',
+        'option_value' => (string) ($GLOBALS['tec_readiness_options']['tec_events_category_color_css'] ?? ''),
+        'autoload' => 'on',
+    ]], $extraRows));
+}
+
+function tec_readiness_sync_color_db(): void {
+    $wpdb = $GLOBALS['wpdb'] ?? null;
+    if (!$wpdb instanceof FakeWpdb) {
+        throw new RuntimeException('offline Category Colors database is unavailable');
+    }
+    $terms = [];
+    $taxonomy = [];
+    $meta = [];
+    $metaId = 1;
+    foreach ($GLOBALS['tec_readiness_terms'] ?? [] as $term) {
+        $termId = (int) ($term->term_id ?? 0);
+        $terms[] = [
+            'term_id' => $termId,
+            'slug' => (string) ($term->slug ?? ''),
+            'name' => (string) ($term->name ?? ''),
+        ];
+        $taxonomy[] = [
+            'term_taxonomy_id' => $termId,
+            'term_id' => $termId,
+            'taxonomy' => 'tribe_events_cat',
+        ];
+        foreach (($GLOBALS['tec_readiness_term_meta'][$termId] ?? []) as $key => $value) {
+            $meta[] = [
+                'meta_id' => $metaId++,
+                'term_id' => $termId,
+                'meta_key' => (string) $key,
+                'meta_value' => (string) $value,
+            ];
+        }
+    }
+    $wpdb->seedTable($wpdb->terms, $terms);
+    $wpdb->seedTable($wpdb->term_taxonomy, $taxonomy);
+    $wpdb->seedTable($wpdb->termmeta, $meta);
+    tec_readiness_seed_color_options();
 }
 
 /** @return array<string,mixed> */
@@ -1436,6 +1506,7 @@ duo_check_same(
             'get_option',
             'get_term_meta',
             'get_terms',
+            'has_filter',
             'is_wp_error',
             'sanitize_html_class',
             'sanitize_title',
@@ -1455,8 +1526,8 @@ duo_check_same(
 
 $GLOBALS['tec_readiness_options'] = ['tec_events_category_color_css' => '.tribe_events_cat-readiness{--tec-color-category-primary:#000000}'];
 $GLOBALS['tec_readiness_terms'] = [
-    (object) ['term_id' => 71, 'slug' => 'readiness'],
-    (object) ['term_id' => 72, 'slug' => 'plain-category'],
+    (object) ['term_id' => 71, 'slug' => 'readiness', 'name' => 'Readiness'],
+    (object) ['term_id' => 72, 'slug' => 'plain-category', 'name' => 'Plain Category'],
 ];
 $GLOBALS['tec_readiness_term_meta'] = [
     71 => [
@@ -1487,9 +1558,12 @@ $GLOBALS['tec_readiness_dropdown_rows'] = [[
     'hidden' => false,
 ]];
 $GLOBALS['tec_readiness_tribe_options'] = ['category-color-show-hidden-categories' => false];
+$GLOBALS['tec_readiness_filters'] = [];
 $GLOBALS['tec_readiness_cache_busts'] = 0;
 $GLOBALS['tec_readiness_category_color_controller'] = new TecReadinessCategoryColorController();
 $GLOBALS['tec_readiness_category_color_dropdown'] = new TecReadinessCategoryColorDropdown();
+$colorDb = FakeWpdb::install();
+tec_readiness_sync_color_db();
 
 $colorProvider = new TheEventsCalendarCategoryColors($policy);
 duo_check_same(
@@ -1536,16 +1610,128 @@ $operation = ['format' => 'duo-provider-operation/v1', 'id' => 'tec-offline-reco
 $reconciled = $colorProvider->reconcile_scoped('regenerate_css', [], $operation);
 duo_check_same($operation, $reconciled['operation'] ?? null, 'reconciliation binds its caller-supplied operation envelope');
 duo_check_same(true, $reconciled['verified'] ?? null, 'reconciliation verifies without replaying the native write');
-$GLOBALS['tec_readiness_options']['tec_events_category_color_css'] =
-    '.tribe_events_cat-readiness{--tec-color-category-primary:#123abc}';
+$settingsOptionRow = static fn(int $id, string $name, string $value): array => [
+    'option_id' => $id,
+    'option_name' => $name,
+    'option_value' => $value,
+    'autoload' => 'on',
+];
+tec_readiness_seed_color_options([
+    $settingsOptionRow(2, 'tribe_events_calendar_options', serialize([
+        'category-color-show-hidden-categories' => false,
+    ])),
+]);
+duo_check_same(
+    true,
+    $colorProvider->reconcile_scoped('regenerate_css', [], $operation)['verified'] ?? null,
+    'the exact bounded serialized main settings row agrees with native show-hidden behavior'
+);
+tec_readiness_seed_color_options([
+    $settingsOptionRow(2, 'tribe_events_calendar_options', serialize([])),
+    $settingsOptionRow(3, 'tribe_events_calendar_options', serialize([])),
+]);
+duo_check_throws(
+    static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
+    RuntimeException::class,
+    'a duplicate physical main settings identity refuses before native category traversal',
+    'identity is duplicated'
+);
+tec_readiness_seed_color_options();
+$colorDb->returnNextGetResultsAs([[
+    'option_id' => '2',
+    'option_name' => 'TRIBE_EVENTS_CALENDAR_OPTIONS',
+    'value_bytes' => '6',
+    'value_prefix' => 'a:0:{}',
+]]);
+duo_check_throws(
+    static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
+    RuntimeException::class,
+    'a collation-equivalent but byte-aliased main settings identity refuses',
+    'malformed or aliased'
+);
+tec_readiness_seed_color_options([
+    $settingsOptionRow(
+        2,
+        'tribe_events_calendar_options',
+        "not-serialized-AKIAABCDEFGHIJKLMNOP\0" . str_repeat('x', 256)
+    ),
+]);
+$malformedSettingsRefusal = '';
+try {
+    $colorProvider->reconcile_scoped('regenerate_css', [], $operation);
+} catch (RuntimeException $e) {
+    $malformedSettingsRefusal = $e->getMessage();
+}
+duo_check(
+    str_contains($malformedSettingsRefusal, 'must be canonical PHP-serialized plain data')
+        && !str_contains($malformedSettingsRefusal, 'AKIA')
+        && strlen($malformedSettingsRefusal) < 300,
+    'malformed main settings bytes refuse with one bounded secret-safe diagnostic'
+);
+tec_readiness_seed_color_options([
+    $settingsOptionRow(2, 'tribe_events_calendar_options', str_repeat('x', 1048577)),
+]);
+duo_check_throws(
+    static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
+    RuntimeException::class,
+    'an oversized main settings blob refuses after only a bounded prefix transfer',
+    'exceeds the bounded byte frontier'
+);
+tec_readiness_seed_color_options([
+    $settingsOptionRow(2, 'tribe_events_calendar_options', serialize([
+        'category-color-show-hidden-categories' => '1',
+    ])),
+]);
+duo_check_throws(
+    static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
+    RuntimeException::class,
+    'a non-boolean stored show-hidden setting refuses before native truthiness can drift',
+    'not a native boolean'
+);
+tec_readiness_seed_color_options([
+    $settingsOptionRow(2, 'tribe_events_calendar_options', serialize([
+        'category-color-show-hidden-categories' => true,
+    ])),
+]);
+duo_check_throws(
+    static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
+    RuntimeException::class,
+    'a stale native settings cache refuses even when the bounded raw row is valid',
+    'disagrees with bounded raw storage'
+);
+tec_readiness_seed_color_options();
+$colorDb->returnNextGetResultsAs(false);
+duo_check_throws(
+    static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
+    RuntimeException::class,
+    'a false main settings read from a non-core compatible driver refuses before native traversal',
+    'main settings option value is unreadable'
+);
+$cacheBustsBeforeFilterRefusal = $GLOBALS['tec_readiness_cache_busts'];
+$GLOBALS['tec_readiness_filters'] = ['tec_events_category_color_generator_final_css'];
+duo_check_throws(
+    static fn() => $colorProvider->invoke('regenerate_css', []),
+    RuntimeException::class,
+    'a native final-CSS output filter refuses before controller or dropdown-cache mutation',
+    'does not admit filter'
+);
+duo_check_same(
+    $cacheBustsBeforeFilterRefusal,
+    $GLOBALS['tec_readiness_cache_busts'],
+    'output-filter refusal happens before every native Category Colors side effect'
+);
+$GLOBALS['tec_readiness_filters'] = [];
+tec_readiness_seed_color_options();
+tec_readiness_set_css('.tribe_events_cat-readiness{--tec-color-category-primary:#123abc}');
 duo_check_throws(
     static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
     RuntimeException::class,
     'reconciliation refuses stale partial native CSS rather than certifying an ambiguous effect',
     'recovery_required'
 );
-$GLOBALS['tec_readiness_options']['tec_events_category_color_css'] = $GLOBALS['tec_readiness_generated_css'];
 $GLOBALS['tec_readiness_term_meta'][71]['tec-events-cat-colors-secondary'] = '';
+tec_readiness_sync_color_db();
+tec_readiness_set_css($GLOBALS['tec_readiness_generated_css']);
 duo_check_throws(
     static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
     RuntimeException::class,
@@ -1553,37 +1739,115 @@ duo_check_throws(
     'value mismatch'
 );
 $GLOBALS['tec_readiness_term_meta'][71]['tec-events-cat-colors-secondary'] = '#fedcba';
-$GLOBALS['tec_readiness_options']['tec_events_category_color_css'] = str_replace(
+tec_readiness_sync_color_db();
+tec_readiness_set_css(str_replace(
     '--tec-color-category-secondary:',
     '--tec-color-category-primary:#123abc;--tec-color-category-secondary:',
     $GLOBALS['tec_readiness_generated_css']
-);
+));
 duo_check_throws(
     static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
     RuntimeException::class,
     'reconciliation refuses a duplicate recognized property even when both values are current',
     'value mismatch'
 );
-$GLOBALS['tec_readiness_options']['tec_events_category_color_css'] = str_replace(
+tec_readiness_set_css(str_replace(
     '}',
     ';background-color:transparent}',
     $GLOBALS['tec_readiness_generated_css']
+));
+duo_check_throws(
+    static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
+    RuntimeException::class,
+    'reconciliation refuses a filter-injected declaration outside the exact native CSS bytes',
+    'exact-byte grammar mismatch'
 );
-duo_check_same(
-    true,
-    $colorProvider->reconcile_scoped('regenerate_css', [], $operation)['verified'] ?? null,
-    'reconciliation preserves unrelated CSS declarations outside TEC category color properties'
+tec_readiness_set_css('/* injected */' . $GLOBALS['tec_readiness_generated_css']);
+duo_check_throws(
+    static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
+    RuntimeException::class,
+    'reconciliation refuses a filter-injected CSS comment before the native selector stream',
+    'exact-byte grammar mismatch'
 );
-$GLOBALS['tec_readiness_options']['tec_events_category_color_css'] = $GLOBALS['tec_readiness_generated_css'];
-$GLOBALS['tec_readiness_options']['tec_events_category_color_css'] .=
-    '.tribe_events_cat-orphan{--tec-color-category-primary:#111111}';
+tec_readiness_set_css(
+    $GLOBALS['tec_readiness_generated_css']
+        . '.foreign-selector{display:block}'
+);
+duo_check_throws(
+    static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
+    RuntimeException::class,
+    'reconciliation refuses an arbitrary extra selector outside the native output grammar',
+    'exact-byte grammar mismatch'
+);
+tec_readiness_set_css(
+    '.tribe_events_cat-readiness{'
+        . '--tec-color-category-secondary:#fedcba;'
+        . '--tec-color-category-primary:#123abc;'
+        . '--tec-color-category-text:#ffffff}'
+);
+duo_check_throws(
+    static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
+    RuntimeException::class,
+    'reconciliation refuses reordered properties that the exact native generator cannot emit',
+    'value mismatch'
+);
+tec_readiness_set_css(
+    $GLOBALS['tec_readiness_generated_css']
+        . '.tribe_events_cat-orphan{--tec-color-category-primary:#111111}'
+);
 duo_check_throws(
     static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
     RuntimeException::class,
     'reconciliation refuses an orphan generated CSS selector',
     'selector-set mismatch'
 );
-$GLOBALS['tec_readiness_options']['tec_events_category_color_css'] = $GLOBALS['tec_readiness_generated_css'];
+tec_readiness_set_css(str_repeat('x', 8388609));
+duo_check_throws(
+    static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
+    RuntimeException::class,
+    'an oversized CSS option refuses after a bounded single-statement prefix read',
+    'CSS option exceeds the bounded byte frontier'
+);
+tec_readiness_set_css($GLOBALS['tec_readiness_generated_css']);
+$GLOBALS['tec_readiness_term_meta'][72] = [
+    'tec-events-cat-colors-primary' => '#ABCDEF',
+    'tec-events-cat-colors-priority' => '5',
+    'tec-events-cat-colors-hidden' => '0',
+];
+$GLOBALS['tec_readiness_dropdown_rows'] = [
+    $GLOBALS['tec_readiness_generated_dropdown_rows'][0],
+    [
+        'slug' => 'plain-category',
+        'name' => 'Plain Category',
+        'priority' => 5,
+        'primary' => '#ABCDEF',
+        'hidden' => false,
+    ],
+];
+tec_readiness_sync_color_db();
+tec_readiness_set_css(
+    $GLOBALS['tec_readiness_generated_css']
+        . '.tribe_events_cat-plain-category{--tec-color-category-primary:#abcdef}'
+);
+duo_check_throws(
+    static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
+    RuntimeException::class,
+    'reconciliation refuses selectors emitted against native ascending priority order',
+    'priority-order mismatch'
+);
+tec_readiness_set_css(
+    '.tribe_events_cat-plain-category{--tec-color-category-primary:#abcdef}'
+        . $GLOBALS['tec_readiness_generated_css']
+);
+duo_check_same(
+    true,
+    $colorProvider->reconcile_scoped('regenerate_css', [], $operation)['verified'] ?? null,
+    'multiple selectors verify only in native priority and per-property byte order'
+);
+$GLOBALS['tec_readiness_term_meta'][72] = [];
+$GLOBALS['tec_readiness_dropdown_rows'] = $GLOBALS['tec_readiness_generated_dropdown_rows'];
+tec_readiness_sync_color_db();
+tec_readiness_set_css($GLOBALS['tec_readiness_generated_css']);
 $GLOBALS['tec_readiness_dropdown_rows'] = [];
 duo_check_throws(
     static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
@@ -1613,6 +1877,17 @@ duo_check_throws(
     'reconciliation refuses an orphan native dropdown row',
     'dropdown readback'
 );
+$GLOBALS['tec_readiness_dropdown_rows'] = array_fill(
+    0,
+    10001,
+    $GLOBALS['tec_readiness_generated_dropdown_rows'][0]
+);
+duo_check_throws(
+    static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
+    RuntimeException::class,
+    'an oversized native dropdown refuses at its hard row frontier',
+    'exceeds the bounded row frontier'
+);
 $GLOBALS['tec_readiness_dropdown_rows'] = $GLOBALS['tec_readiness_generated_dropdown_rows'];
 duo_check_same(2, $GLOBALS['tec_readiness_cache_busts'], 'reconciliation probes never replay the native mutation');
 duo_check_throws(
@@ -1622,10 +1897,96 @@ duo_check_throws(
     'does not implement capability'
 );
 
+$GLOBALS['tec_readiness_term_meta'][71]['tec-events-cat-colors-primary'] = str_repeat('a', 1025);
+tec_readiness_sync_color_db();
+duo_check_throws(
+    static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
+    RuntimeException::class,
+    'an oversized relevant term-meta value refuses after a bounded prefix witness',
+    'malformed or oversized'
+);
+$GLOBALS['tec_readiness_term_meta'][71]['tec-events-cat-colors-primary'] = '#123ABC';
+tec_readiness_sync_color_db();
+$colorDb->insert($colorDb->termmeta, [
+    'term_id' => 71,
+    'meta_key' => 'tec-events-cat-colors-primary',
+    'meta_value' => '#123ABC',
+]);
+duo_check_throws(
+    static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
+    RuntimeException::class,
+    'duplicate physical category-color metadata refuses before last-row-wins native behavior',
+    'duplicated or ownerless'
+);
+tec_readiness_sync_color_db();
+$colorDb->failNextQuery(
+    'injected taxonomy read failure AKIAABCDEFGHIJKLMNOP',
+    'FROM wp_term_taxonomy'
+);
+$categoryReadRefusal = '';
+try {
+    $colorProvider->reconcile_scoped('regenerate_css', [], $operation);
+} catch (RuntimeException $e) {
+    $categoryReadRefusal = $e->getMessage();
+}
+duo_check(
+    str_contains($categoryReadRefusal, 'taxonomy identities is unreadable')
+        && !str_contains($categoryReadRefusal, 'AKIA')
+        && strlen($categoryReadRefusal) < 300,
+    'a category identity driver failure refuses with a bounded redacted diagnostic'
+);
+$taxonomyFlood = [];
+for ($termId = 1; $termId <= 10001; ++$termId) {
+    $taxonomyFlood[] = [
+        'term_taxonomy_id' => $termId,
+        'term_id' => $termId,
+        'taxonomy' => 'tribe_events_cat',
+    ];
+}
+$colorDb->seedTable($colorDb->term_taxonomy, $taxonomyFlood);
+$colorDb->seedTable($colorDb->terms, []);
+$colorDb->seedTable($colorDb->termmeta, []);
+tec_readiness_seed_color_options();
+duo_check_throws(
+    static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
+    RuntimeException::class,
+    'a hostile category taxonomy refuses before native get_terms or metadata traversal',
+    'exceeds the bounded category frontier'
+);
+unset($taxonomyFlood);
+tec_readiness_sync_color_db();
+$taxonomyReadCount = 0;
+$colorDb->onQuery(static function (string $sql, string $method, FakeWpdb $db) use (&$taxonomyReadCount): null {
+    if ($method !== 'get_results' || !str_contains($sql, 'FROM wp_term_taxonomy')) {
+        return null;
+    }
+    ++$taxonomyReadCount;
+    if ($taxonomyReadCount !== 2) {
+        return null;
+    }
+    $rows = $db->rows($db->termmeta);
+    foreach ($rows as &$row) {
+        if (($row['term_id'] ?? null) === 71
+            && ($row['meta_key'] ?? null) === 'tec-events-cat-colors-primary') {
+            $row['meta_value'] = '#654321';
+        }
+    }
+    unset($row);
+    $db->seedTable($db->termmeta, $rows);
+    return null;
+});
+duo_check_throws(
+    static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
+    RuntimeException::class,
+    'a concurrent category-color change between fresh witnesses refuses instead of blessing mixed generations',
+    'changed during verification'
+);
+$colorDb->onQuery(null);
+tec_readiness_sync_color_db();
+
 $GLOBALS['tec_readiness_terms'] = [];
 $GLOBALS['tec_readiness_term_meta'] = [];
-$GLOBALS['tec_readiness_options']['tec_events_category_color_css'] =
-    '.tribe_events_cat-orphan{--tec-color-category-primary:#111111}';
+tec_readiness_set_css('.tribe_events_cat-orphan{--tec-color-category-primary:#111111}');
 $GLOBALS['tec_readiness_dropdown_rows'] = [[
     'slug' => 'orphan',
     'name' => 'Orphan',
@@ -1635,6 +1996,7 @@ $GLOBALS['tec_readiness_dropdown_rows'] = [[
 ]];
 $GLOBALS['tec_readiness_generated_css'] = '';
 $GLOBALS['tec_readiness_generated_dropdown_rows'] = [];
+tec_readiness_sync_color_db();
 $emptyColorReceipt = $colorProvider->invoke('regenerate_css', []);
 duo_check_same(true, $emptyColorReceipt['verified'] ?? null, 'zero event categories converge through the native empty CSS/dropdown path');
 duo_check_same(0, $emptyColorReceipt['after']['colored_category_count'] ?? null, 'zero-category receipt stays bounded at zero colored categories');
@@ -1646,8 +2008,9 @@ duo_check_same(
     'zero-category reconciliation verifies the native empty state without mutation'
 );
 
-$GLOBALS['tec_readiness_terms'] = [(object) ['term_id' => 72, 'slug' => 'plain-category']];
+$GLOBALS['tec_readiness_terms'] = [(object) ['term_id' => 72, 'slug' => 'plain-category', 'name' => 'Plain Category']];
 $GLOBALS['tec_readiness_term_meta'] = [72 => []];
+tec_readiness_sync_color_db();
 $plainColorReceipt = $colorProvider->invoke('regenerate_css', []);
 duo_check_same(true, $plainColorReceipt['verified'] ?? null, 'categories with no color metadata converge through native empty generated state');
 duo_check_same(0, $plainColorReceipt['after']['colored_category_count'] ?? null, 'an uncolored native category is not invented as a colored selector');
@@ -1770,6 +2133,7 @@ $resetTecDerived = static function () use ($tecDb, $eventTable, $occurrenceTable
         ],
     ]);
     $tecDb->onQuery(null);
+    $tecDb->resetLog();
     $GLOBALS['tec_readiness_regen_mode'] = 'ok';
     $GLOBALS['tec_readiness_regen_calls'] = [];
 };
@@ -1785,6 +2149,16 @@ $tecFailure = static function (callable $call): string {
 
 $resetTecDerived();
 $regenerator->regenerate($tecEventId);
+$boundedVerificationQueries = array_values(array_filter(
+    $tecDb->queries(),
+    static fn(string $sql): bool => str_contains($sql, 'WHERE post_id = 6100000001 OR event_id = 7000000001')
+));
+duo_check(
+    count($boundedVerificationQueries) === 2
+        && str_ends_with($boundedVerificationQueries[0], 'ORDER BY event_id LIMIT 3')
+        && str_ends_with($boundedVerificationQueries[1], 'ORDER BY occurrence_id LIMIT 3'),
+    'both exact custom-table verification reads have a three-row proof limit before transfer'
+);
 $expectedOccurrenceHash = sha1(implode(':', [
     (string) $tecEventId,
     '2026-11-02 18:30:00',
@@ -1927,6 +2301,14 @@ duo_check_same(
 );
 
 $resetTecDerived();
+$GLOBALS['tec_readiness_regen_mode'] = 'oversized_occurrence_id';
+duo_check_same(
+    'duo: TEC derived-state verification failed for tec_occurrences fields: occurrence_id',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'an occurrence identity above the exact unsigned bigint frontier refuses'
+);
+
+$resetTecDerived();
 $GLOBALS['tec_readiness_regen_mode'] = 'invalid_occurrence_updated_at';
 duo_check_same(
     'duo: TEC derived-state verification failed for tec_occurrences fields: updated_at',
@@ -1934,16 +2316,7 @@ duo_check_same(
     'an invalid generated occurrence update timestamp refuses without copying it'
 );
 
-$resetTecDerived();
-$tecDb->returnNextGetResultsAs(null);
-duo_check_same(
-    'duo: TEC derived-state verification query returned a non-array for tec_events',
-    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
-    'a null event read from a non-core wpdb-compatible driver refuses explicitly'
-);
-
-$resetTecDerived();
-$tecDb->returnNextGetResultsAs([[
+$validEventDriverRow = [
     'event_id' => '7000000001',
     'post_id' => (string) $tecEventId,
     'start_date' => '2026-11-02 18:30:00',
@@ -1954,11 +2327,68 @@ $tecDb->returnNextGetResultsAs([[
     'duration' => '9000',
     'updated_at' => '2026-08-24 00:00:00',
     'hash' => '',
-]])->returnNextGetResultsAs(false);
+];
+$resetTecDerived();
+$tecDb->returnNextGetResultsAs(null);
+duo_check_same(
+    'duo: TEC derived-state verification query returned a non-array for tec_events',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'a null event read from a non-core wpdb-compatible driver refuses explicitly'
+);
+
+$resetTecDerived();
+$tecDb->returnNextGetResultsAs([7 => $validEventDriverRow]);
+duo_check_same(
+    'duo: TEC derived-state verification query returned a non-list for tec_events',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'an associative compatible-driver result refuses before event value verification'
+);
+
+$resetTecDerived();
+$tecDb->returnNextGetResultsAs([array_diff_key($validEventDriverRow, ['hash' => true])]);
+duo_check_same(
+    'duo: TEC derived-state verification query returned a malformed driver row for tec_events',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'an incomplete event driver row refuses before missing fields can be conflated with empty values'
+);
+
+$resetTecDerived();
+$nonStringEventDriverRow = $validEventDriverRow;
+$nonStringEventDriverRow['event_id'] = 7000000001;
+$tecDb->returnNextGetResultsAs([$nonStringEventDriverRow]);
+duo_check_same(
+    'duo: TEC derived-state verification query returned a non-string driver value for tec_events',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'a native-integer compatible-driver value refuses outside mysqli text-protocol evidence'
+);
+
+$resetTecDerived();
+$tecDb->returnNextGetResultsAs([$validEventDriverRow])->returnNextGetResultsAs(false);
 duo_check_same(
     'duo: TEC derived-state verification query returned a non-array for tec_occurrences',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'a false occurrence read from a non-core wpdb-compatible driver refuses explicitly'
+);
+
+$resetTecDerived();
+$tecDb->returnNextGetResultsAs([$validEventDriverRow])->returnNextGetResultsAs([
+    9 => [
+        'occurrence_id' => '8000000001',
+        'event_id' => '7000000001',
+        'post_id' => (string) $tecEventId,
+        'start_date' => '2026-11-02 18:30:00',
+        'end_date' => '2026-11-02 21:00:00',
+        'start_date_utc' => '2026-11-02 12:45:00',
+        'end_date_utc' => '2026-11-02 15:15:00',
+        'duration' => '9000',
+        'updated_at' => '2026-08-24 00:00:01',
+        'hash' => $expectedOccurrenceHash,
+    ],
+]);
+duo_check_same(
+    'duo: TEC derived-state verification query returned a non-list for tec_occurrences',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'an associative occurrence result refuses before generated-row verification'
 );
 
 $resetTecDerived();
@@ -1985,6 +2415,28 @@ duo_check_same(
     'duo: TEC derived-state verification failed for tec_occurrences fields: event_id',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'an occurrence linked to the wrong native event row refuses'
+);
+
+$resetTecDerived();
+$occurrenceFlood = $tecDb->rows($occurrenceTable);
+$occurrencePrototype = $occurrenceFlood[0];
+for ($index = 0; $index < 1000; ++$index) {
+    $extraOccurrence = $occurrencePrototype;
+    $extraOccurrence['occurrence_id'] = 8100000000 + $index;
+    $extraOccurrence['event_id'] = 7000000001;
+    $extraOccurrence['post_id'] = 6200000000 + $index;
+    $occurrenceFlood[] = $extraOccurrence;
+}
+$tecDb->seedTable($occurrenceTable, $occurrenceFlood);
+unset($occurrenceFlood, $occurrencePrototype, $extraOccurrence);
+duo_check_same(
+    'duo: TEC derived-state verification failed for tec_occurrences fields: row_count',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'a hostile cross-linked occurrence flood refuses without transferring its complete result set'
+);
+duo_check(
+    $tecDb->num_rows === 3 && str_ends_with($tecDb->last_query, 'ORDER BY occurrence_id LIMIT 3'),
+    'the hostile occurrence flood transfers only the three-row proof witness'
 );
 
 $resetTecDerived();

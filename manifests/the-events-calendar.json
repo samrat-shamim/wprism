@@ -47,7 +47,7 @@
       "source": "manifest",
       "plugin": "the-events-calendar/the-events-calendar.php",
       "requires": {
-        "functions": ["get_option", "get_term_meta", "get_terms", "is_wp_error", "sanitize_html_class", "sanitize_title", "tribe", "tribe_get_option"],
+        "functions": ["get_option", "get_term_meta", "get_terms", "has_filter", "is_wp_error", "sanitize_html_class", "sanitize_title", "tribe", "tribe_get_option"],
         "classes": ["TEC\\Events\\Category_Colors\\CSS\\Controller", "TEC\\Events\\Category_Colors\\CSS\\Generator", "TEC\\Events\\Category_Colors\\Repositories\\Category_Color_Dropdown_Provider", "Tribe__Utils__Color"]
       },
       "capabilities": ["regenerate_css"]

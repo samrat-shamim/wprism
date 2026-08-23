@@ -76,6 +76,7 @@
  *          [WHERE <cond>] [GROUP BY <cols>] [ORDER BY <cols> [ASC|DESC]]
  *          [LIMIT n [OFFSET m] | LIMIT m, n]
  *     items: * | alias.* | COUNT(*) | <literal> | [alias.]col | LENGTH(col)
+ *            | LEFT(<operand>, <length>)
  *            | GET_LOCK(..) | RELEASE_LOCK(..) | IS_USED_LOCK(..)
  *            | CONNECTION_ID() | VERSION()      , each with an optional AS alias
  *     cond:  AND / OR / parentheses over

@@ -954,11 +954,13 @@ check(
     'TEC implements the batch callable selected by its refresh declaration'
 );
 check(
-    str_contains($tecRegeneratorSource, "get_post_meta(\$localId, '_EventStartDate', true)")
-        && str_contains($tecRegeneratorSource, "get_post_meta(\$localId, '_EventEndDate', true)")
-        && str_contains($tecRegeneratorSource, 'SELECT start_date, end_date')
+    str_contains($tecRegeneratorSource, "postMetaString(\$localId, '_EventStartDate')")
+        && str_contains($tecRegeneratorSource, "postMetaString(\$localId, '_EventEndDate')")
+        && str_contains($tecRegeneratorSource, 'SELECT occurrence_id, event_id, post_id, start_date, end_date')
+        && str_contains($tecRegeneratorSource, 'ORDER BY occurrence_id LIMIT 3')
+        && str_contains($tecRegeneratorSource, 'checkedDriverRows(')
         && str_contains($tecRegeneratorSource, 'count($rows) !== 1'),
-    'TEC verifies exact occurrence values and cardinality after repair, never row existence alone'
+    'TEC verifies bounded exact occurrence values, driver shape, and cardinality after repair'
 );
 
 echo "\n== purely declarative adapters keep the pre-change behavior exactly ==\n";

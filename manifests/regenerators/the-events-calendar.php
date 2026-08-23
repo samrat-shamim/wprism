@@ -43,6 +43,31 @@ use Duo\Policy;
 final class TheEventsCalendar {
     private Policy $policy;
 
+    private const EVENT_ROW_FIELDS = [
+        'event_id',
+        'post_id',
+        'start_date',
+        'end_date',
+        'start_date_utc',
+        'end_date_utc',
+        'timezone',
+        'duration',
+        'updated_at',
+        'hash',
+    ];
+    private const OCCURRENCE_ROW_FIELDS = [
+        'occurrence_id',
+        'event_id',
+        'post_id',
+        'start_date',
+        'end_date',
+        'start_date_utc',
+        'end_date_utc',
+        'duration',
+        'updated_at',
+        'hash',
+    ];
+
     public function __construct(Policy $policy) {
         $this->policy = $policy;
     }
@@ -98,7 +123,7 @@ final class TheEventsCalendar {
             $wpdb->prepare(
                 "SELECT event_id, post_id, start_date, end_date, start_date_utc, end_date_utc, "
                 . "timezone, duration, updated_at, hash FROM `$eventTable` "
-                . 'WHERE post_id = %d OR event_id = %d ORDER BY event_id',
+                . 'WHERE post_id = %d OR event_id = %d ORDER BY event_id LIMIT 3',
                 $localId,
                 $eventId
             ),
@@ -114,6 +139,7 @@ final class TheEventsCalendar {
                 'duo: TEC derived-state verification query returned a non-array for tec_events'
             );
         }
+        $eventRows = $this->checkedDriverRows($eventRows, self::EVENT_ROW_FIELDS, 'tec_events');
         $expectedDuration = $this->expectedDuration($localId);
         $expectedEvent = [
             'event_id' => (string) $eventId,
@@ -145,7 +171,7 @@ final class TheEventsCalendar {
             $wpdb->prepare(
                 "SELECT occurrence_id, event_id, post_id, start_date, end_date, start_date_utc, "
                 . "end_date_utc, duration, updated_at, hash FROM `$occurrenceTable` "
-                . 'WHERE post_id = %d OR event_id = %d ORDER BY occurrence_id',
+                . 'WHERE post_id = %d OR event_id = %d ORDER BY occurrence_id LIMIT 3',
                 $localId,
                 $eventId
             ),
@@ -161,6 +187,11 @@ final class TheEventsCalendar {
                 'duo: TEC derived-state verification query returned a non-array for tec_occurrences'
             );
         }
+        $occurrenceRows = $this->checkedDriverRows(
+            $occurrenceRows,
+            self::OCCURRENCE_ROW_FIELDS,
+            'tec_occurrences'
+        );
         $expectedOccurrence = $expectedEvent;
         unset($expectedOccurrence['timezone']);
         $expectedOccurrence['hash'] = sha1(implode(':', [
@@ -225,7 +256,10 @@ final class TheEventsCalendar {
     }
 
     private function validPositiveDatabaseId(mixed $value): bool {
-        return is_string($value) && preg_match('/^[1-9][0-9]*$/D', $value) === 1;
+        return is_string($value)
+            && preg_match('/^[1-9][0-9]*$/D', $value) === 1
+            && (strlen($value) < 20
+                || strlen($value) === 20 && strcmp($value, '18446744073709551615') <= 0);
     }
 
     private function validDatabaseTimestamp(mixed $value): bool {
@@ -249,11 +283,44 @@ final class TheEventsCalendar {
         $mismatches = [];
         foreach ($expected as $field => $expectedValue) {
             $actual = $rows[0][$field] ?? null;
-            if (!is_scalar($actual) || (string) $actual !== $expectedValue) {
+            if (!is_string($actual) || !hash_equals($expectedValue, $actual)) {
                 $mismatches[] = $field;
             }
         }
         return $mismatches;
+    }
+
+    /**
+     * mysqli's text protocol returns a zero-based list of ARRAY_A rows whose
+     * selected non-NULL values are strings. Prove that exact bounded driver
+     * surface before value-level verification so a compatible-driver shape
+     * drift cannot be confused with a missing derived row.
+     *
+     * @param array<array-key,mixed> $rows
+     * @param list<string> $fields
+     * @return list<array<string,string>>
+     */
+    private function checkedDriverRows(array $rows, array $fields, string $table): array {
+        if (!array_is_list($rows)) {
+            throw new \RuntimeException(
+                "duo: TEC derived-state verification query returned a non-list for $table"
+            );
+        }
+        foreach ($rows as $row) {
+            if (!is_array($row) || array_keys($row) !== $fields) {
+                throw new \RuntimeException(
+                    "duo: TEC derived-state verification query returned a malformed driver row for $table"
+                );
+            }
+            foreach ($row as $value) {
+                if (!is_string($value)) {
+                    throw new \RuntimeException(
+                        "duo: TEC derived-state verification query returned a non-string driver value for $table"
+                    );
+                }
+            }
+        }
+        return $rows;
     }
 
     /**
