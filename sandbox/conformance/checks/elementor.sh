@@ -444,6 +444,9 @@ pass 'malformed documents, credential-shaped kit data, and unsupported template 
 # be a pure refusal; explicit repository authority must converge the builder
 # document while target-owned runtime options remain untouched.
 wp_conf1 eval '
+  $admins=get_users(["role"=>"administrator","number"=>1]);
+  if (!$admins) throw new RuntimeException("source Elementor conflict save needs an administrator");
+  wp_set_current_user($admins[0]->ID);
   $post=get_page_by_path("duo-conformance-elementor-page",OBJECT,"page");
   $data=json_decode((string)get_post_meta($post->ID,"_elementor_data",true),true,512,JSON_THROW_ON_ERROR);
   $data[0]["elements"][1]["elements"][1]["settings"]["title"]="Repository competing Elementor heading 東京 🚀";
@@ -452,6 +455,9 @@ wp_conf1 eval '
 ' >/dev/null
 commit_elementor_source 'conformance: competing Elementor document intent'
 wp_conf2 eval '
+  $admins=get_users(["role"=>"administrator","number"=>1]);
+  if (!$admins) throw new RuntimeException("target Elementor conflict save needs an administrator");
+  wp_set_current_user($admins[0]->ID);
   $post=get_page_by_path("duo-conformance-elementor-page",OBJECT,"page");
   $data=json_decode((string)get_post_meta($post->ID,"_elementor_data",true),true,512,JSON_THROW_ON_ERROR);
   $data[0]["elements"][1]["elements"][1]["settings"]["title"]="Target competing Elementor heading";
