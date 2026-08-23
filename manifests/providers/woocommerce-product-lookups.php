@@ -8,8 +8,9 @@ use Duo\Policy;
  *
  * Duo writes product posts and postmeta with SQL, intentionally bypassing the
  * save hooks Woo normally uses to maintain derived product state. This
- * adapter is the manifest-owned boundary for the product-meta lookup, price,
- * and sale-schedule surfaces that have independent synchronous verification.
+ * adapter is the manifest-owned boundary for the product-meta and product-
+ * attribute lookups, price, and sale-schedule surfaces that have independent
+ * synchronous verification.
  * It deliberately does not call on_product_changed():
  * Woo's public hook-facing method schedules Action Scheduler work by default,
  * which would leave a successful Duo apply with a pending, non-deterministic
@@ -42,6 +43,7 @@ final class WoocommerceProductLookups {
     private ?array $lookupColumnCasts = null;
 
     private const META_LOOKUP = 'wc_product_meta_lookup';
+    private const ATTRIBUTE_LOOKUP = 'wc_product_attributes_lookup';
     private const CAPABILITY = 'rebuild_product_lookups';
 
     public function __construct(Policy $policy) {
@@ -61,8 +63,10 @@ final class WoocommerceProductLookups {
      * `reads`/`writes` are the capability-level summary in the canonical
      * surface vocabulary; the precise restorable/irreversible inventory of one
      * invocation is the declaring action's own `effects` list in
-     * manifests/woocommerce.json — the migrated set minus the two attribute
-     * lookup writes DUO-3411 made explicitly unsupported.
+     * manifests/woocommerce.json. Attribute lookup rows are now included:
+     * exact Woo 11.0.0/11.0.1 expose the public synchronous
+     * LookupDataStore::create_data_for_product() writer plus a checked raw SQL
+     * readback whose exact scoped bytes are bound into the receipt.
      *
      * `context` names every channel this repair actually consumes, and each
      * one is load-bearing rather than aspirational:
@@ -113,11 +117,13 @@ final class WoocommerceProductLookups {
                     'table:postmeta',
                     'table:posts',
                     'table:term_relationships',
+                    'table:wc_product_attributes_lookup',
                     'table:wc_product_download_directories',
                 ],
                 'writes' => [
                     'table:actionscheduler_actions',
                     'table:postmeta',
+                    'table:wc_product_attributes_lookup',
                     'table:wc_product_download_directories',
                     'table:wc_product_meta_lookup',
                 ],
@@ -137,9 +143,9 @@ final class WoocommerceProductLookups {
      * Map the engine batch envelope onto the batch entry point below, run it,
      * and return a receipt whose `verified` is true only because
      * verify_exact_state()/verify_sale_schedules() proved every supported
-     * value surface. The attribute lookup table is outside this provider's
-     * authority because Woo exposes no independent bounded value oracle; its
-     * apply surface is explicitly unsupported in the manifest disposition.
+     * value surface. Attribute lookup synthesis delegates to Woo's public
+     * scoped writer and verification reads the exact scoped rows directly
+     * from the table; recovery therefore rejects equal-count row drift.
      *
      * before/after bind every selected product-meta lookup value, scheduled
      * sale timestamp, and downloadable-file locator into non-disclosing
@@ -452,6 +458,141 @@ final class WoocommerceProductLookups {
     }
 
     /**
+     * Bind every exact attribute-lookup row owned by the bounded product/root
+     * set. A variation id expands to its parent through one checked posts-table
+     * read so a root regeneration cannot corrupt an unobserved sibling and
+     * still retire recovery. Rows contain no merchant prose or credentials,
+     * but receipts retain only their SHA-256 fingerprint and cardinality.
+     *
+     * @param list<int> $ids
+     * @return array{attribute_lookup_products:int,attribute_lookup_rows:int,attribute_lookup_scope_sha256:string}
+     */
+    private function observe_attribute_lookup_state(array $ids): array {
+        global $wpdb;
+        $scope = $this->expand_attribute_scope_ids($ids);
+        $rows = [];
+        foreach (array_chunk($scope, 200) as $chunk) {
+            $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
+            $chunkRows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+                "SELECT product_id, product_or_parent_id, taxonomy, term_id, is_variation_attribute, in_stock "
+                . "FROM `{$wpdb->prefix}" . self::ATTRIBUTE_LOOKUP . "` "
+                . "WHERE product_or_parent_id IN ($placeholders) "
+                . 'ORDER BY product_or_parent_id ASC, product_id ASC, taxonomy ASC, term_id ASC, '
+                . 'is_variation_attribute ASC, in_stock ASC',
+                ...$chunk
+            ), 'product attribute lookup receipt observation');
+            foreach ($chunkRows as $row) {
+                $normalized = $this->normalize_attribute_lookup_row($row, $chunk);
+                $key = implode("\0", $normalized);
+                if (isset($rows[$key])) {
+                    throw new \RuntimeException(
+                        'duo: WooCommerce product attribute lookup receipt read returned duplicate scoped rows'
+                    );
+                }
+                $rows[$key] = $normalized;
+            }
+        }
+        ksort($rows, SORT_STRING);
+
+        $fingerprint = hash_init('sha256');
+        foreach ($scope as $id) {
+            $this->fingerprint_part($fingerprint, 'scope:' . $id);
+        }
+        foreach ($rows as $row) {
+            foreach ($row as $value) {
+                $this->fingerprint_part($fingerprint, $value);
+            }
+        }
+        return [
+            'attribute_lookup_products' => count($scope),
+            'attribute_lookup_rows' => count($rows),
+            'attribute_lookup_scope_sha256' => hash_final($fingerprint),
+        ];
+    }
+
+    /** @param list<int> $ids @return list<int> */
+    private function expand_attribute_scope_ids(array $ids): array {
+        global $wpdb;
+        $scope = [];
+        foreach ($ids as $id) {
+            $id = (int) $id;
+            if ($id > 0) {
+                $scope[$id] = $id;
+            }
+        }
+        foreach (array_chunk(array_values($scope), 200) as $chunk) {
+            $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
+            $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+                "SELECT ID, post_parent FROM {$wpdb->posts} WHERE ID IN ($placeholders) ORDER BY ID ASC",
+                ...$chunk
+            ), 'product attribute lookup owner expansion');
+            foreach ($rows as $row) {
+                $id = (int) ($row['ID'] ?? 0);
+                $parent = (int) ($row['post_parent'] ?? 0);
+                if ($id <= 0 || !isset($scope[$id])) {
+                    throw new \RuntimeException(
+                        'duo: WooCommerce product attribute lookup owner expansion returned an out-of-scope row'
+                    );
+                }
+                if ($parent > 0) {
+                    $scope[$parent] = $parent;
+                }
+            }
+        }
+        $scope = array_values($scope);
+        sort($scope, SORT_NUMERIC);
+        return $scope;
+    }
+
+    /** @param array<string,mixed> $row @param list<int> $scope @return list<string> */
+    private function normalize_attribute_lookup_row(array $row, array $scope): array {
+        $productId = $this->strict_attribute_lookup_uint($row['product_id'] ?? null, 'product_id');
+        $rootId = $this->strict_attribute_lookup_uint($row['product_or_parent_id'] ?? null, 'product_or_parent_id');
+        $termId = $this->strict_attribute_lookup_uint($row['term_id'] ?? null, 'term_id');
+        if (!in_array($rootId, $scope, true)) {
+            throw new \RuntimeException(
+                'duo: WooCommerce product attribute lookup receipt read returned an out-of-scope owner'
+            );
+        }
+        $taxonomy = $row['taxonomy'] ?? null;
+        if (!is_string($taxonomy) || $taxonomy === '' || strlen($taxonomy) > 32) {
+            throw new \RuntimeException(
+                'duo: WooCommerce product attribute lookup receipt read returned an invalid taxonomy identity'
+            );
+        }
+        $variation = $this->strict_attribute_lookup_flag($row['is_variation_attribute'] ?? null, 'is_variation_attribute');
+        $stock = $this->strict_attribute_lookup_flag($row['in_stock'] ?? null, 'in_stock');
+        return [
+            (string) $productId,
+            (string) $rootId,
+            $taxonomy,
+            (string) $termId,
+            (string) $variation,
+            (string) $stock,
+        ];
+    }
+
+    private function strict_attribute_lookup_uint(mixed $value, string $column): int {
+        if ((!is_int($value) && !is_string($value))
+            || !preg_match('/^[1-9][0-9]*$/D', (string) $value)
+            || (int) $value <= 0) {
+            throw new \RuntimeException(
+                "duo: WooCommerce product attribute lookup receipt read returned invalid $column state"
+            );
+        }
+        return (int) $value;
+    }
+
+    private function strict_attribute_lookup_flag(mixed $value, string $column): int {
+        if ((!is_int($value) && !is_string($value)) || !in_array((string) $value, ['0', '1'], true)) {
+            throw new \RuntimeException(
+                "duo: WooCommerce product attribute lookup receipt read returned invalid $column state"
+            );
+        }
+        return (int) $value;
+    }
+
+    /**
      * Bind the exact active cardinality and next state of both Woo scheduled-
      * sale hooks for every observed product. Woo 11.0.0/11.0.1's public next
      * helper returns only one action, so the bounded two-row status queries
@@ -552,6 +693,7 @@ final class WoocommerceProductLookups {
     private function observe_provider_state(array $lookupIds, array $liveIds, bool $verifyNative): array {
         return array_merge(
             $this->observe_lookup_state($lookupIds),
+            $this->observe_attribute_lookup_state($lookupIds),
             $this->observe_sale_schedule_state($lookupIds),
             $this->download_directory_state($liveIds, $verifyNative)
         );
@@ -1008,6 +1150,7 @@ final class WoocommerceProductLookups {
                 $this->delete_meta_lookup($productStore, $id);
                 $this->heartbeat($heartbeat);
             }
+            $this->delete_attribute_lookup_rows(array_values($deletionIds), $heartbeat);
         }
 
         // Invalidate all objects before reading authored prices/attributes.
@@ -1297,6 +1440,15 @@ final class WoocommerceProductLookups {
             $this->heartbeat($heartbeat);
         }
 
+        // Woo's public lookup writer synchronously deletes and recreates the
+        // complete scoped root (including variable children). Its own failure
+        // flag is load-bearing because core catches insert exceptions; a
+        // partial table must fail the apply and remain retryable. The exact
+        // raw-table observation below proves the writer's bytes landed and is
+        // also the receipt basis used by scoped recovery.
+        $this->rebuild_attribute_lookups($attributeRoots, $heartbeat);
+        $this->observe_attribute_lookup_state(array_map('intval', array_keys($attributeRoots)));
+
         // Sale actions are operational state derived from the exact sale-date
         // inputs on the affected products. Woo's public helper is
         // product-scoped and idempotently clears/recreates the two Action
@@ -1325,6 +1477,76 @@ final class WoocommerceProductLookups {
         );
         $this->verify_sale_schedules(array_values($saleIds), $deletionIds, $saleProducts, $heartbeat);
         $this->download_directory_state($liveIds, true);
+    }
+
+    /** @param array<int,object> $roots */
+    private function rebuild_attribute_lookups(array $roots, ?callable $heartbeat = null): void {
+        $class = '\\Automattic\\WooCommerce\\Internal\\ProductAttributesLookup\\LookupDataStore';
+        $container = wc_get_container();
+        if (!is_object($container) || !is_callable([$container, 'get'])) {
+            throw new \RuntimeException(
+                'duo: WooCommerce dependency container is unavailable for product attribute lookup repair'
+            );
+        }
+        $store = $container->get($class);
+        foreach (['create_data_for_product', 'get_last_create_operation_failed'] as $method) {
+            if (!is_object($store) || !is_callable([$store, $method])) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce product attribute lookup store lacks public $method(); "
+                    . 'the installed WooCommerce version is outside the adapter contract'
+                );
+            }
+        }
+        ksort($roots, SORT_NUMERIC);
+        foreach ($roots as $rootId => $root) {
+            $rootId = (int) $rootId;
+            if ($rootId <= 0 || !is_object($root) || !is_callable([$root, 'get_id'])
+                || (int) $root->get_id() !== $rootId) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce product attribute lookup repair received an invalid scoped root'
+                );
+            }
+            $this->heartbeat($heartbeat);
+            $store->create_data_for_product($root, false);
+            if ($store->get_last_create_operation_failed() !== false) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce product attribute lookup regeneration failed for product $rootId; recovery_required"
+                );
+            }
+            $this->heartbeat($heartbeat);
+        }
+    }
+
+    /**
+     * Woo's public deletion callback schedules its internal ACTION_DELETE and
+     * therefore cannot close a synchronous promotion. Delete only rows whose
+     * exact product/root ids are present in the engine's bounded tombstone
+     * inventory, then let any still-live parent root regenerate natively.
+     *
+     * @param list<int> $ids
+     */
+    private function delete_attribute_lookup_rows(array $ids, ?callable $heartbeat = null): void {
+        global $wpdb;
+        $ids = array_values(array_unique(array_filter(
+            array_map('intval', $ids),
+            static fn(int $id): bool => $id > 0
+        )));
+        sort($ids, SORT_NUMERIC);
+        foreach (array_chunk($ids, 200) as $chunk) {
+            $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
+            $result = $wpdb->query($wpdb->prepare(
+                "DELETE FROM `{$wpdb->prefix}" . self::ATTRIBUTE_LOOKUP . "` "
+                . "WHERE product_id IN ($placeholders) OR product_or_parent_id IN ($placeholders)",
+                ...array_merge($chunk, $chunk)
+            ));
+            if ($result === false) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce product attribute lookup deletion failed for the bounded tombstone batch; '
+                    . 'recovery_required'
+                );
+            }
+            $this->heartbeat($heartbeat);
+        }
     }
 
     /**

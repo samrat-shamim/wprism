@@ -51,7 +51,7 @@
             "exact-artifact-version-matrix"
         ]
     },
-    "reason": "Certified exact WooCommerce 11.0.0 and 11.0.1 product/catalog creation and update, including a populated in-place 11.0.0-to-11.0.1 upgrade, bounded product-meta/price/sale/download repair with exact scoped recovery evidence, typed-table configuration, option-name reference, HPOS runtime-sovereignty, lifecycle, and explicit fail-closed attribute/category lookup and deletion boundaries.",
+    "reason": "Certified exact WooCommerce 11.0.0 and 11.0.1 product/catalog creation and update, including a populated in-place 11.0.0-to-11.0.1 upgrade, bounded product-meta/price/sale/download/product-attribute repair with exact scoped recovery evidence, typed-table configuration, option-name reference, HPOS runtime-sovereignty, lifecycle, and explicit fail-closed category-lookup and deletion boundaries.",
     "status": "certified",
     "supported_versions": {
         "plugin": "woocommerce/woocommerce.php",
@@ -85,11 +85,6 @@
             "operation": "apply",
             "reason": "Exact WooCommerce 11.0.0 and 11.0.1 expose only a public whole-catalog category lookup rebuild; automatic bounded repair and verification are unavailable, so operators must repair this derived table explicitly.",
             "surface": "derived.wc_category_lookup"
-        },
-        {
-            "operation": "apply",
-            "reason": "Exact WooCommerce 11.0.0 and 11.0.1 expose no stable bounded expected-output or independent value-verification API for product-attribute lookup rows, so the verified provider does not mutate this table; operators must run and verify WooCommerce's regeneration explicitly.",
-            "surface": "derived.wc_product_attributes_lookup"
         },
         {
             "operation": "capture",

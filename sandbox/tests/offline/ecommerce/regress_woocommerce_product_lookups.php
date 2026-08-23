@@ -80,6 +80,7 @@ $expectedRequires = [
     ],
     'classes' => [
         'Automattic\\WooCommerce\\Internal\\ProductDownloads\\ApprovedDirectories\\Register',
+        'Automattic\\WooCommerce\\Internal\\ProductAttributesLookup\\LookupDataStore',
         'Automattic\\WooCommerce\\Internal\\Utilities\\URL',
         'WC_Data_Store',
         'WC_Product_Variable',
@@ -226,6 +227,9 @@ $needles = [
     // would be one this verification had just written. The sibling-variation
     // case below covers the separate DUO-3373 finite-set decision.
     'read_lookup_row($table, $id)' => 'the stored-row read has a single named boundary',
+    'create_data_for_product($root, false)' => 'attribute rows use Woo public synchronous scoped synthesis',
+    'get_last_create_operation_failed' => 'Woo native attribute insert failures remain loud and retryable',
+    'observe_attribute_lookup_state' => 'exact scoped attribute rows are independently read and receipt-bound',
 ];
 foreach ($needles as $needle => $message) {
     check(is_string($source) && str_contains($source, $needle), $message);
@@ -254,10 +258,6 @@ $retired = [
     'expected_attribute_rows' => 'no Duo-authored attribute lookup row synthesis',
     'append_attribute_rows' => 'no Duo-authored attribute lookup row builder',
     'term_slug_ids' => 'no Duo-authored variation term fallback map',
-    'create_data_for_product' => 'unsupported attribute lookup rows are not written by the verified provider',
-    'ProductAttributesLookup\\LookupDataStore' => 'provider claims no private/internal attribute lookup store contract',
-    'attribute_lookup_rows' => 'verified receipt does not observe or imply the unsupported attribute table',
-    'table:wc_product_attributes_lookup' => 'provider capability declares no unsupported attribute-table write',
 ];
 foreach ($retired as $needle => $message) {
     check(is_string($source) && !str_contains($source, $needle), $message);
@@ -292,11 +292,11 @@ $lookupAction = $actions[2] ?? [];
 check(($lookupAction['triggers'] ?? null) === ['post:product', 'post:product_variation'],
     'the lookup action is narrowed to exactly the two post types the regen_dependency declarations covered');
 $effectIds = array_map(static fn(array $e): string => (string) $e['id'], (array) ($lookupAction['effects'] ?? []));
-check(count($effectIds) === 120 && count(array_unique($effectIds)) === 120,
-    'both post types\' supported effect lists remain distinct (60 + 60), including approved-directory repair, bounded late taxonomy registration filters, and permalink reads — the manifest note '
+check(count($effectIds) === 122 && count(array_unique($effectIds)) === 122,
+    'both post types\' supported effect lists remain distinct (61 + 61), including attribute lookup, approved-directory repair, bounded late taxonomy registration filters, and permalink reads — the manifest note '
         . 'records why product and variation ids stay separate even where they name the same resource');
-check(count(array_filter($effectIds, static fn(string $id): bool => str_starts_with($id, 'woocommerce-product-'))) === 60
-    && count(array_filter($effectIds, static fn(string $id): bool => str_starts_with($id, 'woocommerce-variation-'))) === 60,
+check(count(array_filter($effectIds, static fn(string $id): bool => str_starts_with($id, 'woocommerce-product-'))) === 61
+    && count(array_filter($effectIds, static fn(string $id): bool => str_starts_with($id, 'woocommerce-variation-'))) === 61,
     'and neither half was dropped or renamed on the way');
 $registrationFilterSelector = [
     'scope' => 'external',
@@ -332,7 +332,7 @@ check(array_filter($inventory, static fn(array $row): bool =>
     'the effects inventory now carries them under the rebuild phase of the declaring action, with no '
     . 'orphaned regenerator-phase rows left behind');
 check(count(array_filter($inventory, static fn(array $row): bool =>
-    $row['source'] === 'provider:woocommerce-product-lookups/rebuild_product_lookups')) === 120,
+    $row['source'] === 'provider:woocommerce-product-lookups/rebuild_product_lookups')) === 122,
     'every one of them is attributed to the exact provider capability a recovery operator would re-run');
 
 if ($failures > 0) {

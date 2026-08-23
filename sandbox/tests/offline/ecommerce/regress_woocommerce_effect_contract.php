@@ -275,6 +275,7 @@ function woo_effect_product_regenerator(string $postType): array {
         woo_effect_db_table($prefix . '-postmeta', 'postmeta'),
         woo_effect_db_table($prefix . '-download-directories', 'wc_product_download_directories'),
         woo_effect_db_table($prefix . '-meta-lookup', 'wc_product_meta_lookup'),
+        woo_effect_db_table($prefix . '-attributes-lookup', 'wc_product_attributes_lookup'),
         woo_effect_db_table($prefix . '-sale-actions', 'actionscheduler_actions'),
         woo_effect_db_table($prefix . '-sale-action-groups', 'actionscheduler_groups'),
         woo_effect_db_table($prefix . '-sale-action-logs', 'actionscheduler_logs'),
@@ -412,8 +413,9 @@ foreach (woo_effect_shipping_tax_action() as $effect) {
         'effect' => $effect,
     ];
 }
-// DUO-3342: these effects moved with the dispatch; DUO-3411 then removed the
-// two unsupported attribute-lookup table writes from the verified capability.
+// DUO-3342: these effects moved with the dispatch. Exact Woo 11.0.0/11.0.1's
+// public scoped attribute writer and raw readback now close the two attribute-
+// lookup table writes as verified capability effects.
 // post_types.<type>.regen_dependency.effects lists, inventoried under the
 // `regenerator` phase and sourced by post type; they are now one action's
 // effects list, inventoried under `rebuild` and sourced by the exact provider
@@ -437,9 +439,9 @@ usort($expectedWooRows, static fn(array $a, array $b): int => strcmp(
 ));
 woo_effect_check($wooRows === $expectedWooRows, 'Woo manifest compiles the exact lifecycle, rebuild, and regenerator inventory');
 woo_effect_check(
-    count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'restorable')) === 42
+    count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'restorable')) === 44
         && count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'irreversible')) === 97
-        && count(array_unique(array_map(static fn(array $row): string => (string) ($row['effect']['id'] ?? ''), $wooRows))) === 139,
+        && count(array_unique(array_map(static fn(array $row): string => (string) ($row['effect']['id'] ?? ''), $wooRows))) === 141,
     'Woo inventory exposes exact transient/version, bounded sale-action, and Action Scheduler hook boundaries, keeps every unproven boundary irreversible, and uses unique effect IDs'
 );
 $cacheProviderSource = (string) file_get_contents(dirname(__DIR__, 4) . '/manifests/providers/woocommerce-cache.php');
@@ -588,6 +590,7 @@ woo_effect_check(
                 ],
                 'classes' => [
                     'Automattic\\WooCommerce\\Internal\\ProductDownloads\\ApprovedDirectories\\Register',
+                    'Automattic\\WooCommerce\\Internal\\ProductAttributesLookup\\LookupDataStore',
                     'Automattic\\WooCommerce\\Internal\\Utilities\\URL',
                     'WC_Data_Store',
                     'WC_Product_Variable',
@@ -609,8 +612,8 @@ woo_effect_check(
     'the manifest-shipped cache provider keeps the version-pinned public boundary and its fresh-read persistence proof'
 );
 woo_effect_check(
-    str_contains((string) ($wooManifest['notes']['category lookup boundary (WooCommerce 11.0.0)'] ?? ''), 'outside the automatic convergence guarantee')
-        && !str_contains((string) ($wooManifest['notes']['category lookup boundary (WooCommerce 11.0.0)'] ?? ''), 'automatic Duo repair'),
+    str_contains((string) ($wooManifest['notes']['category lookup boundary (WooCommerce 11.0.x)'] ?? ''), 'outside the automatic convergence guarantee')
+        && !str_contains((string) ($wooManifest['notes']['category lookup boundary (WooCommerce 11.0.x)'] ?? ''), 'automatic Duo repair'),
     'Woo manifest states category lookup as an explicit manual boundary rather than automatic authority'
 );
 foreach (['product', 'product_variation'] as $postType) {

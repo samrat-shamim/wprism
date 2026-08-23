@@ -5,10 +5,10 @@
  * This intentionally models only the public Woo APIs the shipped adapter is
  * allowed to call.  It proves stale _price repair, variable-root dedupe,
  * deletion context (including the parent id), runtime stock preservation, and
- * exact product-meta lookup verification without Docker. Attribute lookup is
- * a deliberate unsupported boundary and is characterized as untouched, while
- * the separate post-init taxonomy refresh is checked against WooCommerce's
- * public registration contract for both private and public attributes.
+ * exact product-meta and product-attribute lookup verification without
+ * Docker. Attribute rows are synthesized through Woo's public scoped writer,
+ * read back from SQL, and receipt-bound; the separate post-init taxonomy
+ * refresh is checked for both private and public attributes.
  */
 
 namespace Automattic\WooCommerce\Internal\ProductAttributesLookup {
@@ -16,12 +16,14 @@ namespace Automattic\WooCommerce\Internal\ProductAttributesLookup {
         public const ACTION_DELETE = 3;
         public static ?self $instance = null;
         public bool $failed = false;
+        public int $failNextCreates = 0;
         public int $createCalls = 0;
         public int $deleteCalls = 0;
 
         public function create_data_for_product($product, $optimized = false): void {
             global $fakeProducts, $fakeAttrLookup;
             $this->createCalls++;
+            $this->failed = false;
             $rootId = (int) (is_object($product) ? $product->get_id() : $product);
             $root = is_object($product) ? $product : \wc_get_product($rootId);
             if (!$root) {
@@ -94,6 +96,11 @@ namespace Automattic\WooCommerce\Internal\ProductAttributesLookup {
                 if ((int) ($_row['product_or_parent_id'] ?? 0) === $rootId) {
                     unset($fakeAttrLookup[$key]);
                 }
+            }
+            if ($this->failNextCreates > 0) {
+                $this->failNextCreates--;
+                $this->failed = true;
+                return;
             }
             foreach ($rows as $row) {
                 $fakeAttrLookup[] = $row;
@@ -302,6 +309,7 @@ namespace {
         public string $posts = 'wp_posts';
         public string $last_error = '';
         public ?string $failReadContaining = null;
+        public bool $failAttributeDelete = false;
         public bool $nullTransactionStateRead = false;
         private bool $transactionActive = false;
         private array $transactionMeta = [];
@@ -362,6 +370,24 @@ namespace {
                 $fakeMeta[$id]['_price'] = [];
                 return 1;
             }
+            if (preg_match(
+                '/DELETE FROM `wp_wc_product_attributes_lookup` WHERE product_id IN \\(([0-9, ]+)\\) OR product_or_parent_id IN \\(([0-9, ]+)\\)/',
+                $query,
+                $match
+            )) {
+                if ($this->failAttributeDelete) {
+                    $this->last_error = 'simulated secret=do-not-leak';
+                    return false;
+                }
+                $ids = array_map('intval', preg_split('/\\s*,\\s*/', trim($match[1])) ?: []);
+                $roots = array_map('intval', preg_split('/\\s*,\\s*/', trim($match[2])) ?: []);
+                $before = count($fakeAttrLookup);
+                $fakeAttrLookup = array_values(array_filter($fakeAttrLookup, static fn(array $row): bool =>
+                    !in_array((int) $row['product_id'], $ids, true)
+                    && !in_array((int) $row['product_or_parent_id'], $roots, true)
+                ));
+                return $before - count($fakeAttrLookup);
+            }
             return 0;
         }
 
@@ -421,7 +447,7 @@ namespace {
         }
 
         public function get_results(string $query, $output = null): array {
-            global $fakeAttrLookup, $fakeMeta, $fakeMetaLookup, $fakeDownloadMetaRows;
+            global $fakeAttrLookup, $fakeMeta, $fakeMetaLookup, $fakeDownloadMetaRows, $fakeProducts;
             if ($this->failReadContaining !== null && str_contains($query, $this->failReadContaining)) {
                 $this->last_error = 'simulated read failure';
                 return [];
@@ -443,6 +469,21 @@ namespace {
                             'meta_value' => (string) $value,
                         ];
                     }
+                }
+                return $rows;
+            }
+            if (preg_match('/SELECT ID, post_parent FROM wp_posts WHERE ID IN \(([0-9, ]+)\) ORDER BY ID ASC/', $query, $match)) {
+                $ids = array_map('intval', preg_split('/\s*,\s*/', trim($match[1])) ?: []);
+                $rows = [];
+                foreach ($ids as $id) {
+                    $product = $fakeProducts[$id] ?? null;
+                    if (!$product) {
+                        continue;
+                    }
+                    $rows[] = [
+                        'ID' => (string) $id,
+                        'post_parent' => (string) (int) $product->get_parent_id('edit'),
+                    ];
                 }
                 return $rows;
             }
@@ -471,12 +512,26 @@ namespace {
                     array_values(self::LOOKUP_COLUMN_DECLARATIONS)
                 );
             }
-            if (str_contains($query, 'wc_product_attributes_lookup')) {
-                preg_match('/product_or_parent_id = (\\d+) OR product_id = (\\d+)/', $query, $m);
-                $root = (int) ($m[1] ?? 0);
-                return array_values(array_filter($fakeAttrLookup, static fn(array $row): bool =>
-                    (int) $row['product_or_parent_id'] === $root || (int) $row['product_id'] === $root
+            if (preg_match(
+                '/FROM `wp_wc_product_attributes_lookup` WHERE product_or_parent_id IN \\(([0-9, ]+)\\)/',
+                $query,
+                $match
+            )) {
+                $roots = array_map('intval', preg_split('/\\s*,\\s*/', trim($match[1])) ?: []);
+                $rows = array_values(array_filter($fakeAttrLookup, static fn(array $row): bool =>
+                    in_array((int) $row['product_or_parent_id'], $roots, true)
                 ));
+                usort($rows, static fn(array $a, array $b): int => [
+                    (int) $a['product_or_parent_id'], (int) $a['product_id'], (string) $a['taxonomy'],
+                    (int) $a['term_id'], (int) $a['is_variation_attribute'], (int) $a['in_stock'],
+                ] <=> [
+                    (int) $b['product_or_parent_id'], (int) $b['product_id'], (string) $b['taxonomy'],
+                    (int) $b['term_id'], (int) $b['is_variation_attribute'], (int) $b['in_stock'],
+                ]);
+                return array_map(
+                    static fn(array $row): array => array_map('strval', $row),
+                    $rows
+                );
             }
             return [];
         }
@@ -1085,7 +1140,7 @@ namespace {
         'is_variation_attribute' => 0,
         'in_stock' => 1,
     ]];
-    $unsupportedAttributeRows = $fakeAttrLookup;
+    $unrelatedAttributeRow = $fakeAttrLookup[0];
     $wpdb = new FakeWpdb();
     $fakeRegisteredTaxonomies = [];
     /** @var list<array{taxonomy:string,object_types:list<string>,args:array}> */
@@ -1689,10 +1744,11 @@ namespace {
     $check(($receipt['after']['download_files'] ?? null) === 1
         && ($receipt['after']['usable_download_files'] ?? null) === 1
         && preg_match('/^[a-f0-9]{64}$/D', (string) ($receipt['after']['lookup_scope_sha256'] ?? '')) === 1
+        && preg_match('/^[a-f0-9]{64}$/D', (string) ($receipt['after']['attribute_lookup_scope_sha256'] ?? '')) === 1
         && preg_match('/^[a-f0-9]{64}$/D', (string) ($receipt['after']['sale_schedule_scope_sha256'] ?? '')) === 1
         && preg_match('/^[a-f0-9]{64}$/D', (string) ($receipt['after']['download_scope_sha256'] ?? '')) === 1
         && !str_contains($receiptBytes, 'target.example') && !str_contains($receiptBytes, 'catalog.pdf'),
-        'verified receipts stay bounded and bind exact lookup, sale, and download state without exposing authored values');
+        'verified receipts stay bounded and bind exact meta/attribute lookup, sale, and download state without exposing authored values');
 
     $downloadScoped = $adapter->invoke_scoped(
         'rebuild_product_lookups',
@@ -1843,11 +1899,33 @@ namespace {
             'retry' => true,
         ],
     ];
+    $fakeProducts[13]->set_attributes([
+        'pa_color' => new FakeProductAttribute(13, [101], false),
+    ]);
+    unset($fakeProductCache[13]);
+    $attributeStoreForRetry = wc_get_container()->get(
+        \Automattic\WooCommerce\Internal\ProductAttributesLookup\LookupDataStore::class
+    );
+    $attributeStoreForRetry->failNextCreates = 1;
+    $attributeFailure = false;
+    try {
+        $adapter->invoke_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+    } catch (\Throwable $failure) {
+        $attributeFailure = str_contains($failure->getMessage(), 'attribute lookup regeneration failed')
+            && str_contains($failure->getMessage(), 'recovery_required');
+    }
+    $check($attributeFailure && !array_filter(
+        $fakeAttrLookup,
+        static fn(array $row): bool => (int) $row['product_or_parent_id'] === 13
+    ), 'a partial native attribute lookup failure is loud and leaves retry authority active');
     $productScoped = $adapter->invoke_scoped(
         'rebuild_product_lookups',
         $productScopeArgs,
         $scopeOperation
     );
+    $check(($productScoped['after']['attribute_lookup_rows'] ?? null) === 1
+        && preg_match('/^[a-f0-9]{64}$/D', (string) ($productScoped['after']['attribute_lookup_scope_sha256'] ?? '')) === 1,
+        'attribute lookup retry writes and receipt-binds the exact native scoped row');
     $exactLookupRow = $fakeMetaLookup[13];
     $fakeMetaLookup[13]['min_price'] = 'same-count-drift';
     $lookupDrift = $adapter->reconcile_scoped(
@@ -1868,6 +1946,86 @@ namespace {
     );
     $check(($lookupRecovered['after'] ?? null) === ($productScoped['after'] ?? null),
         'restoring every lookup value recovers the exact scoped postcondition');
+
+    $attributeRowKey = array_key_first(array_filter(
+        $fakeAttrLookup,
+        static fn(array $row): bool => (int) $row['product_or_parent_id'] === 13
+    ));
+    $exactAttributeRow = $attributeRowKey === null ? null : $fakeAttrLookup[$attributeRowKey];
+    if ($attributeRowKey !== null) {
+        $fakeAttrLookup[$attributeRowKey]['term_id'] = 102;
+    }
+    $attributeDrift = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $productScopeArgs,
+        $scopeOperation
+    );
+    $check($exactAttributeRow !== null
+        && ($attributeDrift['after']['attribute_lookup_rows'] ?? null)
+            === ($productScoped['after']['attribute_lookup_rows'] ?? null)
+        && ($attributeDrift['after']['attribute_lookup_scope_sha256'] ?? null)
+            !== ($productScoped['after']['attribute_lookup_scope_sha256'] ?? null),
+        'same-count product attribute lookup drift cannot match the saved scoped postcondition');
+    if ($attributeRowKey !== null && is_array($exactAttributeRow)) {
+        $fakeAttrLookup[$attributeRowKey] = $exactAttributeRow;
+    }
+    $attributeRecovered = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $productScopeArgs,
+        $scopeOperation
+    );
+    $check(($attributeRecovered['after'] ?? null) === ($productScoped['after'] ?? null),
+        'restoring exact attribute lookup rows recovers the scoped postcondition');
+
+    $duplicateAttributeRow = $fakeAttrLookup[$attributeRowKey] ?? null;
+    if (is_array($duplicateAttributeRow)) {
+        $fakeAttrLookup[] = $duplicateAttributeRow;
+    }
+    $duplicateAttributeRefused = false;
+    try {
+        $adapter->reconcile_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+    } catch (\Throwable $failure) {
+        $duplicateAttributeRefused = str_contains($failure->getMessage(), 'duplicate scoped rows');
+    }
+    if (is_array($duplicateAttributeRow)) {
+        array_pop($fakeAttrLookup);
+    }
+    $check($duplicateAttributeRefused,
+        'impossible duplicate native attribute rows refuse instead of collapsing into one receipt row');
+
+    // Chunk by root ownership, not by a product/root OR query. With 205 roots
+    // followed by 205 high-id children, the old query returned the first 195
+    // variation rows once by root in chunk one and again by product in chunk
+    // two, falsely diagnosing duplicate database rows.
+    $largeAttributeScope = [];
+    for ($i = 0; $i < 205; $i++) {
+        $rootId = 10000 + $i;
+        $childId = 20000 + $i;
+        $fakeProducts[$rootId] = new FakeProduct($rootId, 'variable', 0, [$childId], [], true);
+        $fakeProducts[$childId] = new FakeProduct($childId, 'variation', $rootId, [], [], true);
+        $largeAttributeScope[] = $rootId;
+        $largeAttributeScope[] = $childId;
+        $fakeAttrLookup[] = [
+            'product_id' => $childId,
+            'product_or_parent_id' => $rootId,
+            'taxonomy' => 'pa_color',
+            'term_id' => 101,
+            'is_variation_attribute' => 1,
+            'in_stock' => 1,
+        ];
+    }
+    $observeAttributes = new \ReflectionMethod($adapter, 'observe_attribute_lookup_state');
+    $largeAttributeState = $observeAttributes->invoke($adapter, $largeAttributeScope);
+    $check(($largeAttributeState['attribute_lookup_products'] ?? null) === 410
+        && ($largeAttributeState['attribute_lookup_rows'] ?? null) === 205,
+        'attribute receipt observation crosses the 200-id boundary without query-overlap duplicates');
+    $fakeAttrLookup = array_values(array_filter(
+        $fakeAttrLookup,
+        static fn(array $row): bool => (int) $row['product_or_parent_id'] < 10000
+    ));
+    foreach ($largeAttributeScope as $id) {
+        unset($fakeProducts[$id], $fakeProductCache[$id]);
+    }
 
     $fakeSaleSchedules['wc_product_end_scheduled_sale'][13] = $futureSale + 1;
     $saleDrift = $adapter->reconcile_scoped(
@@ -1957,8 +2115,8 @@ namespace {
     $attributeStoreProbe = wc_get_container()->get(
         \Automattic\WooCommerce\Internal\ProductAttributesLookup\LookupDataStore::class
     );
-    $check($attributeStoreProbe->createCalls === 0 && $attributeStoreProbe->deleteCalls === 0,
-        'verified product repair never invokes the unsupported attribute lookup writer or delete path');
+    $check($attributeStoreProbe->createCalls > 0 && $attributeStoreProbe->deleteCalls === 0,
+        'verified product repair invokes Woo public scoped attribute synthesis, never its internal delete callback');
 
     $check($fakeMeta[11]['_price'] === ['18'], 'stale child _price is recomputed from regular/sale inputs');
     $check($fakeMeta[10]['_price'] === ['18', '21'], 'variable parent _price is synchronized from distinct child prices');
@@ -1968,9 +2126,9 @@ namespace {
     $check($fakeMetaLookup[11]['min_price'] === '18', 'existing stale wc_product_meta_lookup row is refreshed');
     $check($fakeMetaLookup[11]['onsale'] === 1, 'onsale follows Woo sale-price/effective-price equality');
     $check($fakeMeta[11]['_stock'] === ['5'], 'target-local runtime stock meta is preserved');
-    $check($fakeAttrLookup === $unsupportedAttributeRows,
-        'unsupported attribute lookup rows remain byte-for-byte outside provider authority');
-    $check($fakeTermQueries === [], 'verified provider performs no attribute lookup term derivation');
+    $check(in_array($unrelatedAttributeRow, $fakeAttrLookup, true),
+        'scoped attribute lookup repair preserves an unrelated target-only row byte-for-byte');
+    $check($fakeTermQueries !== [], 'verified provider delegates attribute term derivation to Woo native lookup synthesis');
     $remainingTermFilters = array_filter(
         $fakeFilters['get_terms_args'][1] ?? [],
         static fn(array $entry): bool => isset($entry[0])
@@ -2665,6 +2823,52 @@ namespace {
     ]]);
     $check(in_array('wc_layered_nav_counts_pa_grind-size', $fakeDeletedTransients, true),
         'deleted simple product invalidates the concrete registered layered-nav fallback key');
+    $check(!array_filter($fakeAttrLookup, static fn(array $row): bool =>
+        (int) $row['product_id'] === 15 || (int) $row['product_or_parent_id'] === 15),
+        'deleted simple product removes its exact native attribute lookup rows synchronously');
+
+    $fakeAttrLookup[] = [
+        'product_id' => 501, 'product_or_parent_id' => 500, 'taxonomy' => 'pa_color',
+        'term_id' => 101, 'is_variation_attribute' => 1, 'in_stock' => 1,
+    ];
+    $adapter->regenerate_batch([], [[
+        'uuid' => 'variable-root-attribute-delete', 'id' => 500, 'post_type' => 'product',
+        'parent_id' => 0, 'child_ids' => [501],
+    ]]);
+    $check(!array_filter($fakeAttrLookup, static fn(array $row): bool =>
+        (int) $row['product_id'] === 500 || (int) $row['product_id'] === 501
+            || (int) $row['product_or_parent_id'] === 500),
+        'deleted variable root removes its complete bounded child attribute projection');
+
+    $fakeAttrLookup[] = [
+        'product_id' => 600, 'product_or_parent_id' => 600, 'taxonomy' => 'pa_color',
+        'term_id' => 101, 'is_variation_attribute' => 0, 'in_stock' => 1,
+    ];
+    $wpdb->failAttributeDelete = true;
+    $attributeDeleteFailure = '';
+    try {
+        $adapter->regenerate_batch([], [[
+            'uuid' => 'simple-attribute-delete-failure', 'id' => 600, 'post_type' => 'product',
+            'parent_id' => 0, 'child_ids' => [],
+        ]]);
+    } catch (\Throwable $failure) {
+        $attributeDeleteFailure = $failure->getMessage();
+    }
+    $wpdb->failAttributeDelete = false;
+    $wpdb->last_error = '';
+    $check(str_contains($attributeDeleteFailure, 'attribute lookup deletion failed')
+        && str_contains($attributeDeleteFailure, 'recovery_required')
+        && !str_contains($attributeDeleteFailure, 'do-not-leak')
+        && (bool) array_filter($fakeAttrLookup, static fn(array $row): bool =>
+            (int) $row['product_or_parent_id'] === 600),
+        'bounded attribute deletion failure is redacted, loud, and leaves exact retry work');
+    $adapter->regenerate_batch([], [[
+        'uuid' => 'simple-attribute-delete-failure', 'id' => 600, 'post_type' => 'product',
+        'parent_id' => 0, 'child_ids' => [],
+    ]]);
+    $check(!array_filter($fakeAttrLookup, static fn(array $row): bool =>
+        (int) $row['product_or_parent_id'] === 600),
+        'retry deterministically clears the failed bounded attribute tombstone');
 
     // On a fresh target the derived product_type relationship is absent, so
     // Woo's ordinary factory reports the root as simple. Put lower-id
@@ -2915,10 +3119,10 @@ namespace {
         && ($receipt['before']['meta_lookup_rows'] ?? null) === 2
         && ($receipt['after']['meta_lookup_rows'] ?? null) === 1,
         'the receipt observes the ids it was handed on both sides, and records the deleted row disappearing');
-    $check($fakeAttrLookup === $unsupportedAttributeRows
-        && $attributeStoreProbe->createCalls === 0
+    $check(in_array($unrelatedAttributeRow, $fakeAttrLookup, true)
+        && $attributeStoreProbe->createCalls > 0
         && $attributeStoreProbe->deleteCalls === 0,
-        'all product, reparent, deletion, retry, and invoke paths preserve the unsupported attribute table exactly');
+        'product, reparent, retry, and invoke paths repair scoped attributes while preserving unrelated rows');
     $check(!isset($fakeMetaLookup[11]),
         'and the envelope really reached the deletion path — the deleted lookup row is gone');
     $unknownCapabilityCaught = false;
