@@ -120,21 +120,25 @@ $tecManifest = $manifestsByName['the-events-calendar'];
 $tecDisposition = $data['manifests']['the-events-calendar'];
 check(
     ($tecManifest['plugin'] ?? null) === 'the-events-calendar/the-events-calendar.php'
-        && ($tecManifest['version_range'] ?? null) === ['min' => '6.17.2', 'max' => '6.17.3'],
-    'The Events Calendar is bound to the one exact artifact its regenerator was reviewed against'
+        // Widened 2026-08-24 from the one-release [6.17.2, 6.17.3): 6.17.3 is
+        // the schema-identical upstream release the manifest's own widening
+        // note byte-probes (Custom_Tables/V1 identical, SCHEMA_VERSIONs
+        // unchanged), exercised at both edges by the version matrix.
+        && ($tecManifest['version_range'] ?? null) === ['min' => '6.17.2', 'max' => '6.17.4'],
+    'The Events Calendar is bound to the two schema-probed artifacts its regenerator evidence exercises'
 );
 check(
     ($tecDisposition['supported_versions'] ?? null) === [
         'plugin' => 'the-events-calendar/the-events-calendar.php',
-        'range' => ['max' => '6.17.3', 'min' => '6.17.2'],
+        'range' => ['max' => '6.17.4', 'min' => '6.17.2'],
     ],
     'The Events Calendar disposition repeats the enforceable plugin identity instead of an unbound placeholder'
 );
 check(
-    ($tecDisposition['evidence']['tests'] ?? null) === ['conformance-the-events-calendar', 'regress-tec-regen']
+    ($tecDisposition['evidence']['tests'] ?? null) === ['conformance-the-events-calendar', 'exact-artifact-version-matrix', 'regress-tec-regen']
         && in_array('deploy', $tecDisposition['capabilities']['operations'] ?? [], true)
         && in_array('render-api', $tecDisposition['capabilities']['operations'] ?? [], true),
-    'The Events Calendar names both its exact target round-trip and injected regeneration-recovery exercise'
+    'The Events Calendar names its exact round-trip, boundary-matrix, and injected regeneration-recovery exercises'
 );
 $pmproManifest = $manifestsByName['paid-memberships-pro'];
 $pmproDisposition = $data['manifests']['paid-memberships-pro'];

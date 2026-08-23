@@ -42,7 +42,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 | [ninja-forms](#ninja-forms) | certified | `ninja-forms/ninja-forms.php` | >=3.4.34.2 <4.0.0 | apply, capture, compile, delete, deploy, plan, promote, recapture, render-api |
 | [paid-memberships-pro](#paid-memberships-pro) | certified | `paid-memberships-pro/paid-memberships-pro.php` | >=3.8.2 <3.8.4 | apply, capture, compile, delete, deploy, plan, promote, recapture, render-api |
 | [polylang](#polylang) | certified | `polylang/polylang.php` | >=3.5 <4.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
-| [the-events-calendar](#the-events-calendar) | experimental | `the-events-calendar/the-events-calendar.php` | >=6.17.2 <6.17.3 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
+| [the-events-calendar](#the-events-calendar) | experimental | `the-events-calendar/the-events-calendar.php` | >=6.17.2 <6.17.4 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [woocommerce](#woocommerce) | certified | `woocommerce/woocommerce.php` | >=11.0.0 <12.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [wps-hide-login](#wps-hide-login) | certified | `wps-hide-login/wps-hide-login.php` | >=1.9.19 <1.9.20 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [yoast](#yoast) | certified | `wordpress-seo/wp-seo.php` | >=28.0 <29.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
@@ -297,14 +297,14 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 **Status: experimental.** Experimental exact-artifact target round-trip and hard regeneration-dependency recovery proof; dirty-target, deletion, lifecycle, concurrency, and difficult-value matrices remain open.
 
 - **Plugin:** `the-events-calendar/the-events-calendar.php`
-- **Version range:** >=6.17.2 <6.17.3
+- **Version range:** >=6.17.2 <6.17.4
 - **Operations:** apply, capture, compile, deploy, plan, promote, recapture, render-api
 - **Lifecycle phases:** none declared
 - **Declared entities:** `post_types` (1: tribe_events), `tables` (3: tec_events, tec_kv_cache, tec_occurrences)
 - **Declared fields:** `options` (13 keys), `post_meta` (23 keys)
 - **Deletions supported:** none
 - **Deletions unsupported:** plugin-specific deletes
-- **Exercised by:** `conformance-the-events-calendar`, `regress-tec-regen`
+- **Exercised by:** `conformance-the-events-calendar`, `exact-artifact-version-matrix`, `regress-tec-regen`
 
 **Unsupported, explicitly.**
 

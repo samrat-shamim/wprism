@@ -15,7 +15,7 @@
 | ninja-forms | certified | `ninja-forms/ninja-forms.php` | >=3.4.34.2 <4.0.0 |
 | paid-memberships-pro | certified | `paid-memberships-pro/paid-memberships-pro.php` | >=3.8.2 <3.8.4 |
 | polylang | certified | `polylang/polylang.php` | >=3.5 <4.0.0 |
-| the-events-calendar | experimental | `the-events-calendar/the-events-calendar.php` | >=6.17.2 <6.17.3 |
+| the-events-calendar | experimental | `the-events-calendar/the-events-calendar.php` | >=6.17.2 <6.17.4 |
 | woocommerce | certified | `woocommerce/woocommerce.php` | >=11.0.0 <12.0.0 |
 | wps-hide-login | certified | `wps-hide-login/wps-hide-login.php` | >=1.9.19 <1.9.20 |
 | yoast | certified | `wordpress-seo/wp-seo.php` | >=28.0 <29.0.0 |
