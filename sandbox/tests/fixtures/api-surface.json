@@ -1,5 +1,5 @@
 {
-    "class_count": 349,
+    "class_count": 350,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -49499,6 +49499,26 @@
                             "variadic": false
                         }
                     ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\SiteTopology": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "assert_single_site": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
                     "return_type": "void",
                     "static": true,
                     "visibility": "public"

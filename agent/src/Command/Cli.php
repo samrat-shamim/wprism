@@ -2,6 +2,11 @@
 namespace Duo;
 
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
+// The topology gate the Policy-free verbs below call directly. Required here
+// rather than left to agent/duo.php's bootstrap order, exactly like
+// CommandRefusal.php above: the offline refusal suites load this file against
+// pre-declared \Duo stubs and never run that bootstrap.
+require_once __DIR__ . '/../Kernel/SiteTopology.php';
 require_once __DIR__ . '/../Review/PlanExplanation.php';
 require_once __DIR__ . '/../Review/PlanCategorySummary.php';
 require_once __DIR__ . '/../Review/PlanView.php';
@@ -599,6 +604,16 @@ final class Cli {
      */
     public function promotion_begin($args, $assoc) {
         try {
+            // FIRST, before the argument gates and before Ledger::ensure():
+            // the lease row is written to `{$wpdb->prefix}duo_kv`
+            // (agent/src/Promotion/PromotionLease.php:372) and Ledger::ensure() CREATEs four tables on
+            // whatever blog wp-cli happened to bootstrap
+            // (agent/src/Repository/Ledger.php:81-105), so on a network both land
+            // on an ambiently-selected sub-site and no rollback in this tree
+            // removes them (there is no DROP TABLE anywhere in the shipped
+            // tree; Adopt::rollbackScript() restores filesystem paths only).
+            // The other three lease verbs carry the same first statement.
+            SiteTopology::assert_single_site();
             // Both lease selectors gate this command's advertised JSON
             // contract, so both refuse inside the structured boundary: an
             // orchestrator asking for --format=json read human stderr and no
@@ -640,6 +655,9 @@ final class Cli {
      */
     public function promotion_begin_scoped($args, $assoc) {
         try {
+            // Ahead of the argument gates and Ledger::ensure(), for the reason
+            // promotion_begin() states.
+            SiteTopology::assert_single_site();
             $owner = $assoc['promotion-owner']
                 ?? throw CommandRefusalException::invalidArgument('promotion-begin-scoped', '--promotion-owner');
             $artifactHash = $assoc['artifact-hash']
@@ -697,6 +715,9 @@ final class Cli {
      */
     public function promotion_complete_scoped($args, $assoc) {
         try {
+            // Ahead of the argument gates and Ledger::ensure(), for the reason
+            // promotion_begin() states.
+            SiteTopology::assert_single_site();
             $owner = $assoc['promotion-owner']
                 ?? throw CommandRefusalException::invalidArgument('promotion-complete-scoped', '--promotion-owner');
             $artifactHash = $assoc['artifact-hash']
@@ -751,6 +772,15 @@ final class Cli {
      */
     public function promotion_abort($args, $assoc) {
         try {
+            // Gated like the other three, deliberately, even though this is the
+            // compensating verb: writing `{$wpdb->prefix}duo_kv` on a network
+            // writes it on whichever blog wp-cli bootstrapped, which may be the
+            // wrong ledger entirely. A lease taken before a conversion is not
+            // stranded forever -- it clears by its own TTL
+            // (agent/src/Promotion/PromotionLease.php:93, 300s default) -- and an expired lease
+            // cannot be revived (:408), so a network is simply
+            // no longer a surface duo may write to, even to clean up.
+            SiteTopology::assert_single_site();
             $owner = $assoc['promotion-owner'] ?? throw CommandRefusalException::invalidArgument('promotion-abort', '--promotion-owner');
             $artifactHash = $assoc['artifact-hash'] ?? throw CommandRefusalException::invalidArgument('promotion-abort', '--artifact-hash');
             Ledger::ensure();
@@ -2172,6 +2202,18 @@ final class Cli {
      */
     public function journal_reset($args, $assoc) {
         global $wpdb;
+        try {
+            // Before Ledger::ensure() and before the TRUNCATE below: on a
+            // network this verb created four `wp_N_duo_*` tables on whichever
+            // blog wp-cli bootstrapped and then emptied that blog's journal,
+            // with no gate at any layer. The try/catch is what makes the
+            // refusal machine-readable; every WP_CLI string in this method is
+            // unchanged (rule 8).
+            SiteTopology::assert_single_site();
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'journal-reset');
+            WP_CLI::error($t->getMessage());
+        }
         Ledger::ensure();
         // DUO-3497: options outside a claimed adapter namespace are visible
         // ONLY through the journal — capture whitelists options, so nothing
@@ -2566,6 +2608,12 @@ final class Cli {
     public function classify($args, $assoc) {
         $written = [];
         try {
+            // First, before the selector gates: --set reads LIVE values,
+            // including network-global `$wpdb->usermeta`
+            // (agent/src/Review/Pending.php:231), and writes site.duo.json from
+            // them. A network reading is not a classification of the site the
+            // repository describes.
+            SiteTopology::assert_single_site();
             // Both selectors refuse inside the boundary. --set carries an
             // example in its operator prose, which stays byte-identical; the
             // machine record names the flag and repeats the example in

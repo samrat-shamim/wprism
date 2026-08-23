@@ -269,6 +269,17 @@ namespace {
     require __DIR__ . '/../../../../agent/src/Repository/RepositoryCompiler.php';
     require __DIR__ . '/../../../../agent/src/Command/Cli.php';
 
+    // The topology fixture. Declared here because SiteTopology's guard is
+    // `function_exists('is_multisite') && is_multisite()`, evaluated per call,
+    // so every assertion above runs against the single-site default and the
+    // topology section below flips one global. Same name as
+    // sandbox/tests/offline/policy/regress_topology_gate.php, which explains in
+    // its header why it is a third name beside the two pre-existing ones.
+    $GLOBALS['duo_topology_multisite'] = false;
+    function is_multisite(): bool {
+        return (bool) $GLOBALS['duo_topology_multisite'];
+    }
+
     // This suite certifies public failure output. A PHP warning is itself an
     // unclassified output channel, so it must make the regression non-green.
     set_error_handler(
@@ -1514,6 +1525,96 @@ namespace {
     $serialization = invoke_json(static fn() => $cli->plan([], ['repo' => '/fixture', 'format' => 'json']));
     check(($serialization['error'] ?? null) === 'refusal_serialization_failed', 'serialization fallback has a stable reason code');
     check(($serialization['details_redacted'] ?? null) === true, 'serialization fallback refuses diagnostic details');
+
+    echo "\n== the topology gate names itself in JSON and keeps its bytes in human mode ==\n";
+    // Before the gate moved to Kernel and became typed, every one of these
+    // answered a machine caller with `<command>_failed` /
+    // "refused at an unclassified safety gate" / `details_redacted: true` --
+    // the word "multisite" never reached JSON at all.
+    $topologySentence = 'duo: multisite is unsupported by the certified v1 contract; '
+        . 'this command is single-site only and refuses before loading policy or mutating state';
+    $GLOBALS['duo_topology_multisite'] = true;
+    // capture builds a Policy, which is stubbed here, so its gate is reached
+    // the way every other backend refusal in this suite is: by making the real
+    // handler cross its catch boundary with the REAL refusal object the Kernel
+    // gate throws.
+    try {
+        \Duo\SiteTopology::assert_single_site();
+        $topologyRefusal = null;
+    } catch (\Duo\CommandRefusalException $refusal) {
+        $topologyRefusal = $refusal;
+    }
+    check($topologyRefusal !== null, 'the Kernel topology gate throws a CommandRefusalException on a network');
+    \Duo\Capture::$failure = $topologyRefusal;
+
+    $topologyCases = [
+        // command       => handler invocation
+        'capture' => static fn() => $cli->capture([], ['repo' => '/fixture', 'format' => 'json']),
+        // journal-reset gained its boundary with the gate: it had no try/catch
+        // at all, so a machine caller got human stderr and zero records.
+        'journal-reset' => static fn() => $cli->journal_reset([], ['format' => 'json']),
+        // Deliberately invoked with BOTH required selectors present: the gate
+        // has to precede the argument checks AND Ledger::ensure(). Neither
+        // \Duo\Ledger nor \Duo\PromotionLock is stubbed in this process, so a
+        // gate that ran late would surface as an Error and a
+        // `promotion_begin_failed` envelope instead of the code asserted below.
+        'promotion-begin' => static fn() => $cli->promotion_begin([], [
+            'promotion-owner' => 'topology-fixture-owner',
+            'artifact-hash' => str_repeat('ab', 32),
+            'format' => 'json',
+        ]),
+    ];
+    foreach ($topologyCases as $command => $invoke) {
+        $payload = invoke_json($invoke);
+        check(($payload['format'] ?? null) === 'duo-command-refusal/v1', "$command topology refusal names the versioned format");
+        check(($payload['command'] ?? null) === $command, "$command topology refusal names the public command");
+        check(
+            ($payload['error'] ?? null) === 'multisite_unsupported'
+                && ($payload['reason_code'] ?? null) === 'multisite_unsupported',
+            "$command topology refusal carries the finite reason code, not " . str_replace('-', '_', $command) . '_failed'
+        );
+        check(
+            !array_key_exists('details_redacted', $payload),
+            "$command topology refusal is NOT redacted — the reason is public, so no evidence file is written for it"
+        );
+        check(
+            str_contains((string) ($payload['message'] ?? ''), 'multisite is unsupported by the certified v1 contract')
+                && str_contains((string) ($payload['message'] ?? ''), 'single-site only'),
+            "$command topology refusal states the boundary in its public message"
+        );
+        check(
+            !str_starts_with((string) ($payload['message'] ?? ''), 'duo: '),
+            "$command topology refusal keeps the `duo: ` human convention out of the machine record"
+        );
+        check(
+            is_string($payload['remediation'] ?? null) && str_contains((string) $payload['remediation'], 'single-site'),
+            "$command topology refusal carries an actionable remediation"
+        );
+    }
+
+    foreach ($topologyCases as $command => $_) {
+        WP_CLI::reset();
+        $human = match ($command) {
+            'capture' => static fn() => $cli->capture([], ['repo' => '/fixture']),
+            'journal-reset' => static fn() => $cli->journal_reset([], []),
+            default => static fn() => $cli->promotion_begin([], [
+                'promotion-owner' => 'topology-fixture-owner',
+                'artifact-hash' => str_repeat('ab', 32),
+            ]),
+        };
+        try {
+            $human();
+            check(false, "$command human topology refusal exits through WP_CLI::error");
+        } catch (CliJsonHumanError $e) {
+            check(
+                $e->getMessage() === $topologySentence,
+                "$command human mode prints the byte-identical sentence Policy.php printed before the gate moved"
+            );
+        }
+        check(WP_CLI::$lines === [], "$command human topology refusal emits no JSON record");
+    }
+    $GLOBALS['duo_topology_multisite'] = false;
+    \Duo\Capture::$failure = null;
 
     echo "\n== human mode remains human and unchanged ==\n";
     WP_CLI::reset();

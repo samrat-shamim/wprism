@@ -326,6 +326,16 @@ case " $* " in
   *" duo promotion-begin "*) exit "${DUO_BEGIN_EXIT:-0}" ;;
   *" db import "*) exit "${DUO_IMPORT_EXIT:-0}" ;;
   *" core is-installed "*) exit 0 ;;
+  *is_multisite*)
+    # RecoverCommand's host-side topology probe, asked before step 1.
+    # DUO_TOPOLOGY_EXIT drives the fail-closed "cannot answer" case; the
+    # answer itself is printed exactly as `wp eval` would.
+    if [ "${DUO_TOPOLOGY_EXIT:-0}" != 0 ]; then
+      exit "${DUO_TOPOLOGY_EXIT}"
+    fi
+    printf '%s' "${DUO_TOPOLOGY:-single-site}"
+    exit 0
+    ;;
 esac
 echo "fake wp: unhandled invocation: $*" >&2
 exit 90

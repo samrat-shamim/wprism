@@ -21,6 +21,11 @@ require_once __DIR__ . '/src/Kernel/Db.php';
 require_once __DIR__ . '/src/Adapter/ProviderSdk.php';
 require_once __DIR__ . '/src/Kernel/Secrets.php';
 require_once __DIR__ . '/src/Kernel/CommandRefusal.php';
+// Beside CommandRefusal because that is its one dependency, and ahead of every
+// verb: the topology gate has to be loaded for the Policy-free doors
+// (journal-reset, the promotion-lease verbs, classify) that never reach
+// src/Policy/Policy.php.
+require_once __DIR__ . '/src/Kernel/SiteTopology.php';
 require_once __DIR__ . '/src/Kernel/PersonalData.php';
 require_once __DIR__ . '/src/Policy/ManifestDispositions.php';
 require_once __DIR__ . '/src/Policy/PlatformCompatibility.php';

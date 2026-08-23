@@ -175,6 +175,32 @@ final class AssessCommand {
 
         $composition[] = 'doctor';
         $doctor = Doctor::run($driver);
+        // Topology is answered by NAME, ahead of the generic gate. Doctor gained
+        // a blocking `site topology (<mode>)` row, and without this branch a
+        // network would reach the operator as `assess_target_unreachable` with a
+        // doctor_check_failed diagnostic — "repair every failing check" as the
+        // remediation for a boundary no repair can move. The refusal below is
+        // the same one §2.1's inventory gate raises further down; this is where
+        // it lands when doctor sees the network first.
+        //
+        // A KNOWN non-single-site answer only. `site topology (unknown)` is
+        // what an unreachable or uninstalled target produces, and that is a
+        // reachability problem with a real repair — it must keep falling
+        // through to assess_target_unreachable below.
+        $topologyCheck = array_values(array_filter(
+            is_array($doctor['checks'] ?? null) ? $doctor['checks'] : [],
+            static fn ($check): bool => is_array($check)
+                && ($check['ok'] ?? false) !== true
+                && str_starts_with((string) ($check['label'] ?? ''), 'site topology (')
+                && (string) ($check['label'] ?? '') !== 'site topology (unknown)'
+        ));
+        if ($topologyCheck !== []) {
+            throw new CommandRefusalException(
+                'assess_topology_unsupported',
+                'this profile assesses single-site installations only',
+                'assess a single-site installation; multisite support is outside the certified boundary'
+            );
+        }
         if (($doctor['ok'] ?? false) !== true) {
             throw new CommandRefusalException(
                 'assess_target_unreachable',
@@ -224,8 +250,14 @@ final class AssessCommand {
             // authored against single-site installations only, and nothing
             // downstream re-states that per surface — the agent stopped
             // reporting a multisite boundary per row when the generated
-            // evidence record that measured one was removed — so this is the
-            // one place the topology is judged, once, out loud.
+            // evidence record that measured one was removed — so the topology
+            // is judged by this command, out loud, and by nothing downstream.
+            // It is judged at TWO points inside this command, not one: doctor
+            // now carries a blocking `site topology (<mode>)` row and runs
+            // first, so a target that answers there raises this same refusal
+            // above. This gate stays because it reads a different fact —
+            // StackInventory's site_mode, from the agent's own inventory
+            // document — and still answers when doctor's row said `unknown`.
             throw new CommandRefusalException(
                 'assess_topology_unsupported',
                 'this profile assesses single-site installations only',

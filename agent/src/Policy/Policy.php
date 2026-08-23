@@ -21,6 +21,10 @@ require_once __DIR__ . '/../Adapter/AdapterRegistry.php';
 // Runtime platform compatibility is a pre-policy gate: direct `wp duo`
 // mutations must not be able to bypass the host-side doctor boundary.
 require_once __DIR__ . '/PlatformCompatibility.php';
+// The topology gate assert_single_site() delegates to. Required here for the
+// same "loads alone" reason as its neighbors: the offline policy harnesses
+// include this file directly, never agent/duo.php's bootstrap.
+require_once __DIR__ . '/../Kernel/SiteTopology.php';
 // DUO-3348 slice 5: manifest-pin normalization/validation, required here for
 // the same "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/PinResolver.php';
@@ -264,14 +268,22 @@ final class Policy {
      * surface and no command can publish a partial single-blog projection.
      * The function guard keeps the pure offline policy validators usable
      * outside WordPress while the real product path always has is_multisite().
+     *
+     * The throw itself moved to agent/src/Kernel/SiteTopology.php so the
+     * Policy-free verbs can ask the same question with the same answer:
+     * journal-reset (Cli.php:2203-2237), the four promotion-lease verbs
+     * (:605-802) and classify (:2608) never build a Policy, so on a network
+     * they reached `Ledger::ensure()`'s four CREATE TABLEs and `PromotionLock`
+     * with no gate at any layer. The answer is also TYPED now
+     * (CommandRefusalException, reason code `multisite_unsupported`): a bare
+     * RuntimeException is not in `Cli::PUBLIC_REFUSAL_CLASSES` (:397-399), so
+     * `--format=json` collapsed it to `<command>_failed` with
+     * `details_redacted: true` (:84-85, :98) and never said "multisite".
+     * getMessage() is unchanged (CommandRefusal.php:52 takes the operator
+     * message), so human mode prints the same bytes.
      */
     private static function assert_single_site(): void {
-        if (function_exists('is_multisite') && is_multisite()) {
-            throw new \RuntimeException(
-                'duo: multisite is unsupported by the certified v1 contract; '
-                . 'this command is single-site only and refuses before loading policy or mutating state'
-            );
-        }
+        SiteTopology::assert_single_site();
     }
 
     /** Refuse unexercised runtime versions before any policy/repository read. */

@@ -61,7 +61,12 @@ final class AdoptDoubleFailureTransport implements AdoptionTransport {
         if ($this->wpCalls === 2 && $wpArgs === ['eval', 'echo WPMU_PLUGIN_DIR;']) {
             return ['exit' => 0, 'stdout' => "/fixture/mu-plugins\n", 'stderr' => ''];
         }
-        if ($this->wpCalls === 3) {
+        // Call 3 is the PRE-swap topology probe. Answered single-site so this
+        // fixture still reaches the post-swap failure it exists to exercise.
+        if ($this->wpCalls === 3 && str_contains((string) ($wpArgs[1] ?? ''), 'duo-single-site')) {
+            return ['exit' => 0, 'stdout' => "duo-single-site\n", 'stderr' => ''];
+        }
+        if ($this->wpCalls === 4) {
             throw new \RuntimeException('post-swap verification exploded');
         }
         return ['exit' => 92, 'stdout' => '', 'stderr' => 'unexpected wp fixture command'];
@@ -93,11 +98,14 @@ final class AdoptCommittedCleanupFailureTransport implements AdoptionTransport {
     }
     public function captureWp(array $wpArgs): array {
         $this->wpCalls++;
+        // Call 3 is the pre-swap topology probe; the version and policy probes
+        // shift one place behind it.
         return match ($this->wpCalls) {
             1 => ['exit' => 0, 'stdout' => '', 'stderr' => ''],
             2 => ['exit' => 0, 'stdout' => "/fixture/mu-plugins\n", 'stderr' => ''],
-            3 => ['exit' => 0, 'stdout' => "0.5.0\n", 'stderr' => ''],
-            4 => ['exit' => 0, 'stdout' => "duo-policy-ok\n", 'stderr' => ''],
+            3 => ['exit' => 0, 'stdout' => "duo-single-site\n", 'stderr' => ''],
+            4 => ['exit' => 0, 'stdout' => "0.5.0\n", 'stderr' => ''],
+            5 => ['exit' => 0, 'stdout' => "duo-policy-ok\n", 'stderr' => ''],
             default => ['exit' => 94, 'stdout' => '', 'stderr' => 'unexpected wp fixture call'],
         };
     }
@@ -245,6 +253,12 @@ final class AdoptFilesystemTransactionTransport implements AdoptionTransport {
             return ['exit' => 0, 'stdout' => $this->muDir . "\n", 'stderr' => ''];
         }
         $code = $wpArgs[1] ?? '';
+        // The pre-swap topology probe. Plain `wp eval` in BOTH branches, never
+        // CodeDeploy::controlArgs(): that bootstrap requires the installed
+        // agent, which does not exist yet at this point.
+        if (($wpArgs[0] ?? '') === 'eval' && is_string($code) && str_contains($code, 'duo-single-site')) {
+            return ['exit' => 0, 'stdout' => "duo-single-site\n", 'stderr' => ''];
+        }
         if (($wpArgs[0] ?? '') === 'eval' && is_string($code) && str_contains($code, 'DUO_AGENT_VERSION')) {
             return ['exit' => 0, 'stdout' => $this->version . "\n", 'stderr' => ''];
         }

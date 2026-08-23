@@ -63,6 +63,7 @@
           "Db",
           "OptionState",
           "CommandRefusal",
+          "SiteTopology",
           "Secrets",
           "PlainData",
           "StructuredValue",
@@ -109,7 +110,7 @@
             ]
           }
         ],
-        "file_count": 28,
+        "file_count": 29,
         "files": [
           "Canon.php",
           "CommandRefusal.php",
@@ -130,6 +131,7 @@
           "ReferenceScopeClassifier.php",
           "ReferenceShapeGrammar.php",
           "Secrets.php",
+          "SiteTopology.php",
           "StructuredReferenceCodec.php",
           "StructuredValue.php",
           "TableGraph.php",

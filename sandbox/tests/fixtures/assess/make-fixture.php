@@ -407,7 +407,14 @@ case " $* " in
       # three narrower patterns it replaced -- a *class_exists* case would have
       # matched the composed snippet too and answered "duo-ok", which Doctor
       # cannot decode, so there is deliberately no such case left to shadow it.
-      printf '%s\n' '{"agent":"duo-ok","file_mods":"duo-set","php":"8.3.33","db_version":"11.8.8","db_engine":"mariadb","wp":"7.0.3"}'
+      # site_mode joins the same composed payload and honours DUO_MULTISITE,
+      # so a fixture that tells assess-inventory it is a network does not tell
+      # doctor it is a single site.
+      if [ "${DUO_MULTISITE:-0}" = 1 ]; then
+        printf '%s\n' '{"agent":"duo-ok","file_mods":"duo-set","php":"8.3.33","db_version":"11.8.8","db_engine":"mariadb","wp":"7.0.3","site_mode":"multisite"}'
+      else
+        printf '%s\n' '{"agent":"duo-ok","file_mods":"duo-set","php":"8.3.33","db_version":"11.8.8","db_engine":"mariadb","wp":"7.0.3","site_mode":"single-site"}'
+      fi
       exit 0 ;;
   *" duo assess-inventory "*)
       if [ "${DUO_MULTISITE:-0}" = 1 ]; then

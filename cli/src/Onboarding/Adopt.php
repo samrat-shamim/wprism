@@ -116,6 +116,34 @@ final class Adopt {
         $interrupted = null;
 
         try {
+            // Asked BEFORE the swap, because the swap is what makes the
+            // question unanswerable safely. mu-plugins are network-wide, so the
+            // window between the install script below and the post-swap Policy
+            // probe loads the drop-in on every blog of every request; on a
+            // DUO_JOURNAL target that window created per-blog `wp_N_duo_*`
+            // tables that rollbackScript() cannot remove (it restores
+            // filesystem paths only, and the shipped tree has no DROP TABLE).
+            // Refusing here leaves $swapped false: nothing installed, nothing
+            // to roll back, no journal residue possible.
+            //
+            // Plain `wp eval` in BOTH branches, unlike the post-swap probes
+            // below: CodeDeploy::CONTROL_BOOTSTRAP requires the installed agent
+            // at wp-content/mu-plugins/duo/duo.php and throws "could not find
+            // the protected agent" without it
+            // (cli/src/Transport/CodeDeploy.php:77-78, reached from
+            // controlArgs() at :403-410), so controlArgs() cannot answer a
+            // pre-swap question at all.
+            $topologyArgs = ['eval', 'echo is_multisite() ? "duo-multisite" : "duo-single-site";'];
+            $topology = $transport->captureWp($topologyArgs);
+            if ($topology['exit'] !== 0 || trim($topology['stdout']) !== 'duo-single-site') {
+                // Fail closed on an unreadable answer: an adoption that cannot
+                // establish the topology is an adoption that must not swap.
+                $topology['stderr'] .= ($topology['stderr'] !== '' ? "\n" : '')
+                    . 'duo: multisite is unsupported by the certified v1 contract; this command is single-site '
+                    . 'only and refuses before loading policy or mutating state';
+                return self::fromTransport('topology probe', $topology, $version);
+            }
+
             $archive = self::runLocal(
                 'tar -C ' . escapeshellarg(rtrim($sourceRoot, '/'))
                 . ' -cf ' . escapeshellarg($localArchive) . ' agent manifests recovery'

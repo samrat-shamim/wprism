@@ -180,6 +180,46 @@ $check(
     "calling AdapterRegistry::capability_report() directly matches Policy's own facade result exactly"
 );
 
+// === Topology is a WHOLE-REPORT fact, never a per-surface reason.
+// report() appends one `{name: platform, code: site_mode_unsupported}` blocker
+// when the probe says multisite (which flips `ready`, since that is
+// `$blockers === []`), and target_reasons() must stay silent about topology:
+// SurfaceCatalog::registryFacts() reads `report()['manifests'][]['verdict']
+// ['reasons']` and hands those codes to ProjectionVocabulary::project(), which
+// deliberately retired `multisite_unsupported` from its blocker vocabulary
+// (cli/src/Contract/ProjectionVocabulary.php:219-235). A topology reason on a
+// surface row would be a code that projection has no entry for.
+//
+// The end-to-end report comparison (one extra blocker, byte-identical manifest
+// rows, ready flipped) lives in sandbox/tests/offline/policy/regress_topology_gate.php:
+// this fixture deliberately defines DUO_SPEC_VERSION as 0, and
+// ManifestDispositions::platform_boundary() refuses any value that disagrees
+// with manifests/capabilities/platform.json, so report()'s static path cannot
+// be entered from here without breaking the unreviewed-path fixture above.
+$targetReasons = new ReflectionMethod(AdapterRegistry::class, 'target_reasons');
+foreach ([true, false] as $multisite) {
+    $reasons = $targetReasons->invoke(null, ['supported_versions' => []], [
+        'multisite' => $multisite,
+        'plugins' => [],
+    ]);
+    $check(
+        $reasons === [],
+        'target_reasons() reports no topology reason for a multisite=' . var_export($multisite, true)
+            . ' target — the registry answers topology once, at report level, and never contaminates a surface row'
+    );
+}
+$registrySource = file_get_contents(__DIR__ . '/../../../../agent/src/Adapter/AdapterRegistry.php');
+$check(
+    str_contains($registrySource, "'code' => 'site_mode_unsupported',")
+        && str_contains($registrySource, "'name' => 'platform',"),
+    "report() carries the whole-report topology blocker under name 'platform' with code site_mode_unsupported"
+);
+$check(
+    !str_contains($registrySource, "self::reason('site_mode_unsupported'")
+        && !str_contains($registrySource, "self::reason('multisite_unsupported'"),
+    'and neither code is ever minted as a per-surface reason() — the shape ProjectionVocabulary cannot project'
+);
+
 $policySource = file_get_contents(__DIR__ . '/../../../../agent/src/Policy/Policy.php');
 $check(
     !str_contains($policySource, '$this->capabilityRegistry'),
