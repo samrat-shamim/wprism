@@ -503,4 +503,63 @@ assert_true(
 );
 pass('duo envs is byte-identical for every environment that never opted in, and names the authority for those that did');
 
+// Transport::runCapturing() must drain stdout and stderr concurrently. The
+// sequential form (stream_get_contents(stdout) then stderr) deadlocked the
+// moment a child filled the ~64KB stderr pipe buffer before closing stdout —
+// measured 2026-08-24: the SSH rollback certification's adopt install script
+// hung exactly there on two consecutive runs (idle sshd-session on the
+// target, live mux client on the host, zero remote processes), and a
+// 200KB-stderr child reproduces it in isolation. The capture runs in a child
+// PHP process under a watchdog so a regression fails as a named timeout
+// instead of hanging the offline corpus.
+$captureProbe = <<<'PHP'
+require $argv[1] . '/cli/src/Transport/EnvironmentDriver.php';
+require $argv[1] . '/cli/src/Transport/Transport.php';
+require $argv[1] . '/cli/src/Transport/LocalTransport.php';
+$t = new Duo\Orchestrator\LocalTransport('pipe-proof', [
+    'transport' => 'local', 'wp_path' => '/wordpress', 'repo_path' => '/repo',
+]);
+$r = $t->captureRaw(
+    'php -r ' . escapeshellarg(
+        'fwrite(STDERR, str_repeat("e", 200000));'
+        . ' fwrite(STDOUT, str_repeat("o", 200000));'
+        . ' fwrite(STDERR, "!"); exit(7);'
+    )
+);
+echo $r['exit'], ' ', strlen($r['stdout']), ' ', strlen($r['stderr']), "\n";
+PHP;
+$probeProc = proc_open(
+    escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($captureProbe) . ' ' . escapeshellarg(dirname(__DIR__, 4)),
+    [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+    $probePipes
+);
+if (!is_resource($probeProc)) {
+    fail('could not start the pipe-drain probe');
+}
+fclose($probePipes[0]);
+stream_set_blocking($probePipes[1], false);
+stream_set_blocking($probePipes[2], false);
+$probeOut = '';
+$deadline = microtime(true) + 20.0;
+while (true) {
+    $status = proc_get_status($probeProc);
+    $probeOut .= (string) stream_get_contents($probePipes[1]);
+    if (!$status['running']) {
+        break;
+    }
+    if (microtime(true) > $deadline) {
+        proc_terminate($probeProc, 9);
+        fail('captureRaw deadlocked on a 200KB-stderr child: sequential pipe reads are back');
+    }
+    usleep(50000);
+}
+$probeOut .= (string) stream_get_contents($probePipes[1]);
+fclose($probePipes[1]);
+fclose($probePipes[2]);
+proc_close($probeProc);
+if (trim($probeOut) !== '7 200000 200001') {
+    fail("captureRaw lost bytes or the exit code on a chatty child: got '" . trim($probeOut) . "', want '7 200000 200001'");
+}
+pass('captureRaw drains interleaved 200KB stdout/stderr without deadlock and loses neither bytes nor the exit code');
+
 echo "REGRESS_ENVIRONMENT_DRIVER PASSED\n";
