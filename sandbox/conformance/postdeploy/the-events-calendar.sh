@@ -98,6 +98,7 @@ foreach ([
     'eventsDefaultVenueID' => (int) $venue->ID,
     'eventsDefaultOrganizerID' => (int) $organizer->ID,
     'category-color-enable-frontend' => false,
+    'category-color-show-hidden-categories' => true,
     'tec_seo_out_of_range_behavior' => 'hard_404',
     'google_maps_js_api_key' => 'target-maps-key-preserved',
     'eb_security_key' => 'target-event-aggregator-secret-preserved',

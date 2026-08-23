@@ -123,6 +123,7 @@ echo wp_json_encode([
         'after' => $option['tribeEventsAfterHTML'] ?? null,
         'before' => $option['tribeEventsBeforeHTML'] ?? null,
         'category_frontend' => $option['category-color-enable-frontend'] ?? null,
+        'category_show_hidden' => $option['category-color-show-hidden-categories'] ?? null,
         'currency_code' => $option['defaultCurrencyCode'] ?? null,
         'default_organizer' => (int) ($option['eventsDefaultOrganizerID'] ?? 0),
         'default_venue' => (int) ($option['eventsDefaultVenueID'] ?? 0),
@@ -239,6 +240,7 @@ printf '%s\n' "$TARGET" | jq -e \
   .options.views == ["list","month"] and .options.currency_code == "NPR" and
   .options.default_venue == .venue.id and .options.default_organizer == .organizer.id and
   .options.category_frontend == true and .options.seo_behavior == "soft_noindex" and
+  .options.category_show_hidden == false and
   .options.timezone_mode == "event" and
   .options.maps_key == "target-maps-key-preserved" and
   .options.eb_secret == "target-event-aggregator-secret-preserved" and

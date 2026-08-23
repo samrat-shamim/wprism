@@ -120,6 +120,7 @@ foreach ([
     'category-color-enable-frontend' => true,
     'category-color-legend-show' => ['list', 'month'],
     'category-color-legend-superpowers' => true,
+    'category-color-show-hidden-categories' => false,
     'tec_seo_out_of_range_behavior' => 'soft_noindex',
     'tec_seo_noindex_dated_list_urls' => true,
     'tec_seo_disabled_view_404' => true,
