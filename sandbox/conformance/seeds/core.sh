@@ -8,8 +8,23 @@
 set -euo pipefail
 
 NEWS_ID=$(wp_conf1 term create category News --slug=news --description="Conformance news" --porcelain)
+TOPIC_ID=$(wp_conf1 term create post_tag 'Core Topic' --slug=core-topic --description="Conformance topic" --porcelain)
 HOME_ID=$(wp_conf1 post create --post_type=page --post_title=Home --post_name=home --post_status=publish \
   --post_content='<!-- wp:paragraph --><p>Welcome to the conformance home page.</p><!-- /wp:paragraph -->' --porcelain)
+
+# conformance/run.sh deliberately empties starter posts before adapter seeds,
+# so reproduce the two WordPress activation-default natural keys explicitly.
+# The target hook authors hostile same-key rows later, after consuming a
+# different id sequence; this keeps the activation-default adoption proof
+# real instead of depending on fresh installs coincidentally allocating id 1.
+ACTIVATION_HELLO_ID=$(wp_conf1 post create --post_type=post --post_status=publish \
+  --post_name=hello-world --post_title='Hello world!' \
+  --post_content='<!-- wp:paragraph --><p>Welcome to WordPress. This is your first post. Edit or delete it, then start writing!</p><!-- /wp:paragraph -->' \
+  --porcelain)
+ACTIVATION_SAMPLE_ID=$(wp_conf1 post create --post_type=page --post_status=publish \
+  --post_name=sample-page --post_title='Sample Page' \
+  --post_content='<!-- wp:paragraph --><p>This is an example page. It is different from a blog post because it will stay in one place and will show up in your site navigation.</p><!-- /wp:paragraph -->' \
+  --porcelain)
 
 # DUO-3209: the portable adoption key for hierarchical posts is
 # (post_type, slug, parent identity), never slug alone. Two siblings in
@@ -23,10 +38,11 @@ BRANCH_B=$(wp_conf1 post create --post_type=page --post_title='Branch B' --post_
 # be created successfully, in the wrong place, and this manifest's own
 # hierarchy assertions (postdeploy/core.sh's ambiguous-key refusal,
 # checks/core.sh's shared-child guard) would then read as engine failures.
-require_fixture_ids NEWS_ID HOME_ID BRANCH_A BRANCH_B
+require_fixture_ids NEWS_ID TOPIC_ID HOME_ID ACTIVATION_HELLO_ID ACTIVATION_SAMPLE_ID BRANCH_A BRANCH_B
 CHILD_A=$(wp_conf1 post create --post_type=page --post_title='Child A' --post_name=shared-child --post_parent="$BRANCH_A" --post_status=publish --porcelain)
 CHILD_B=$(wp_conf1 post create --post_type=page --post_title='Child B' --post_name=shared-child --post_parent="$BRANCH_B" --post_status=publish --porcelain)
 require_fixture_ids CHILD_A CHILD_B
+wp_conf1 post meta update "$BRANCH_A" _wp_page_template 'page-no-title' >/dev/null
 
 # Same-filename re-import across pair.sh resets gets WordPress's collision
 # suffix (uploads persist in the webroot volume; the reset only drops the
@@ -68,6 +84,8 @@ HELLO_ID=$(wp_conf1 post create --post_type=post --post_title='Hello Conformance
 # empty id here would be captured as authored state rather than refused
 # (DUO-3381).
 require_fixture_ids HELLO_ID
+wp_conf1 post term add "$HELLO_ID" post_tag "$TOPIC_ID" --by=id >/dev/null
+wp_conf1 post meta update "$HELLO_ID" origin 'source-authored-origin' >/dev/null
 
 wp_conf1 option update blogname 'Duo Conformance' >/dev/null
 wp_conf1 option update show_on_front page >/dev/null
@@ -135,4 +153,4 @@ update_option('sidebars_widgets', [
 ]);
 " >/dev/null
 
-echo "core seed: news=$NEWS_ID home=$HOME_ID att=$ATT_ID hello=$HELLO_ID widget-menu=$WIDGET_MENU_ID hierarchy=$BRANCH_A/$CHILD_A,$BRANCH_B/$CHILD_B permalink=/journal/%postname%/ theme_mods: twentytwentyone(residue)+twentytwentyfive(active)"
+echo "core seed: news=$NEWS_ID topic=$TOPIC_ID home=$HOME_ID att=$ATT_ID hello=$HELLO_ID widget-menu=$WIDGET_MENU_ID hierarchy=$BRANCH_A/$CHILD_A,$BRANCH_B/$CHILD_B permalink=/journal/%postname%/ theme_mods: twentytwentyone(residue)+twentytwentyfive(active)"

@@ -498,7 +498,14 @@ say "apply conf2 (content only — activation/theme were deploy's job, above)"
 # has) and posts (plugins like WooCommerce auto-create their own default
 # pages — Shop/Cart/Checkout/... — on activation, independently on conf1 and
 # conf2, so first apply always meets an unmanaged same-slug row for those).
-APPLY_JSON=$(wp_conf2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" --json | tail -1)
+# Core's dirty-target matrix additionally manufactures an exact nav-menu
+# collision; menu adoption is explicit only for that adapter so unrelated
+# conformance entries do not gain broader collision authority by accident.
+ADOPT_BY_SLUG=terms,posts
+if [ "$MANIFEST" = core ]; then
+  ADOPT_BY_SLUG=terms,posts,menus
+fi
+APPLY_JSON=$(wp_conf2 duo apply --repo=/siterepo --adopt-by-slug="$ADOPT_BY_SLUG" --default-author=admin --revision="$REV" --json | tail -1)
 export APPLY_JSON
 echo "$APPLY_JSON" | jq .
 [ "$(echo "$APPLY_JSON" | jq -r '.canary')" = "clean" ] || fail "side-effect canary was not clean during apply"
