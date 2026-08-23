@@ -773,6 +773,8 @@ wp_conf1 db query "
 " >/dev/null
 STATE_STATUS_BEFORE=$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)
 [ -z "$STATE_STATUS_BEFORE" ] || fail "source canonical state was dirty before parent-deletion refusal: $STATE_STATUS_BEFORE"
+DELETION_INVENTORY_BEFORE=$(find "$CONF_REPO1/state/deletions" -type f -name '*.json' \
+  -exec shasum -a 256 {} \; | LC_ALL=C sort)
 CAPTURE_DELETE_RC=0
 # The command's versioned record is stdout. Compose writes container lifecycle
 # progress to stderr even for a healthy `run --rm`; folding both streams would
@@ -794,7 +796,8 @@ jq -se '
 STATE_STATUS_AFTER=$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)
 [ "$STATE_STATUS_AFTER" = "$STATE_STATUS_BEFORE" ] \
   || fail "failed parent-deletion capture changed canonical state: $STATE_STATUS_AFTER"
-[ ! -d "$CONF_REPO1/state/deletions" ] \
-  || [ -z "$(find "$CONF_REPO1/state/deletions" -type f -name '*.json' -print -quit)" ] \
-  || fail "failed parent-deletion capture published a partial tombstone"
+DELETION_INVENTORY_AFTER=$(find "$CONF_REPO1/state/deletions" -type f -name '*.json' \
+  -exec shasum -a 256 {} \; | LC_ALL=C sort)
+[ "$DELETION_INVENTORY_AFTER" = "$DELETION_INVENTORY_BEFORE" ] \
+  || fail "failed parent-deletion capture changed the committed child tombstone inventory"
 pass "unmodified Ninja Forms loudly refuses table:nf3_forms deletion during capture and publishes no partial child tombstones"
