@@ -367,6 +367,8 @@ seed_yoast_content() {
 
 check_yoast_content() {
   local COMPOSE="$PAIR_COMPOSE_STRING"
+  local CONF_REPO1="siterepo/${PAIR}1"
+  local CONF_REPO2="siterepo/${PAIR}2"
   local CONF1_PORT="$PORT1"
   local CONF2_PORT="$PORT2"
   local YOAST_EXPECTED_VERSION="$YOAST_VERSION"
