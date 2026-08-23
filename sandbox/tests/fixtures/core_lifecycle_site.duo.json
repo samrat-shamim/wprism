@@ -1,0 +1,11 @@
+{
+  "manifests": ["core"],
+  "policy": {
+    "options": {},
+    "post_meta": {},
+    "term_meta": {},
+    "post_types": ["post", "page", "attachment", "custom_css"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "spec_version": 2
+}

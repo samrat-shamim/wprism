@@ -28,7 +28,7 @@ the truth of a product claim.
 | `deletion` | Supported deletes prove guards, cascades, mid-delete rollback, and retry. Unsupported deletes prove a loud refusal with no partial publication or target mutation. |
 | `failure-recovery` | Provider/action timeout, throw, crash-after-intent, bad receipt, retry, recovery, sidecar/map persistence, and tamper refusal are exercised where applicable. |
 | `concurrency-idempotence` | Competing capture/apply/repair operations respect locks; repeated apply and recovery retry yield one correct result. |
-| `lifecycle` | Activation, deactivation, reactivation, same-range upgrade, downgrade/out-of-range refusal, uninstall residue, and reinstall are bounded. |
+| `lifecycle` | Every structurally applicable activation, deactivation, reactivation, same-range upgrade, downgrade handling or out-of-range refusal, uninstall residue, and reinstall path is bounded. A host-integrated adapter with no activatable or uninstallable package must ground that fact in its manifest and exercise the equivalent host replacement/residue boundary. |
 | `data-boundary` | Empty/null, long UTF-8, delimiter/serialization hazards, zero/negative/large IDs, malformed payloads, secrets, environment paths/URLs, and schema drift are exercised. |
 | `scope-platform` | Single-site/multisite, PHP/database/WordPress boundaries, optional plugin features, unavailable APIs, and every unsupported surface remain explicit and fail closed. |
 

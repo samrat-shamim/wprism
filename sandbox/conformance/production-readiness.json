@@ -132,10 +132,10 @@
         "deletion": ["sandbox/conformance/checks/core.sh"],
         "failure-recovery": ["sandbox/conformance/checks/core.sh", "sandbox/tests/offline/adapter/regress_core_rewrite_native_action.php"],
         "derived-state": ["manifests/core.json", "sandbox/tests/offline/adapter/regress_core_rewrite_native_action.php", "sandbox/conformance/checks/core.sh"],
-        "concurrency-idempotence": ["sandbox/tests/offline/capture/regress_capture_atomicity.php", "sandbox/tests/live/regress_capture_concurrency.sh"]
+        "concurrency-idempotence": ["sandbox/tests/offline/capture/regress_capture_atomicity.php", "sandbox/tests/live/regress_capture_concurrency.sh"],
+        "lifecycle": ["manifests/core.json", "sandbox/conformance/run.sh", "sandbox/tests/live/regress_core_lifecycle.sh"]
       },
       "gaps": {
-        "lifecycle": "Theme transitions are exercised; WordPress in-place upgrade, downgrade refusal, deactivate/reactivate, and reinstall/residue are not a closed matrix.",
         "data-boundary": "No exhaustive per-entity UTF-8, size, malformed structured value, secret, and schema-drift matrix exists.",
         "scope-platform": "Multisite refuses, but the declared PHP/database/WordPress boundary has not been exercised as an adapter-level matrix."
       },
