@@ -250,5 +250,9 @@ duo_check(
     str_contains($versionMatrix, "'wps-hide-login-target-runtime-probe',\n      'wpcf7'"),
     'exact version-matrix resets delete the CF7 activation marker before each source and target case'
 );
+duo_check(
+    str_contains($versionMatrix, 'require_observed_nonempty "CF7 6.1.7 upgraded native form" "$UPGRADE_NATIVE"'),
+    'exact in-place upgrade evidence refuses an empty native CF7 observation through a defined harness assertion'
+);
 
 duo_check_summary('Contact Form 7 production readiness');

@@ -1746,7 +1746,7 @@ EOF
         "recipient"=>(string)($mail["recipient"] ?? ""),
       ]);
     ')
-    require_observed_json "CF7 6.1.7 upgraded native form" "$UPGRADE_NATIVE"
+    require_observed_nonempty "CF7 6.1.7 upgraded native form" "$UPGRADE_NATIVE"
     jq -e '
       .version == "6.1.7" and .id > 0 and .recipient == "vmatrix@example.test" and
       (.hash | test("^([0-9a-f]{40}|[0-9a-f]{64})$")) and
