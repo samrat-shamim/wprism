@@ -601,7 +601,15 @@ foreach (['_preview_organizers', '_preview_venues'] as $key) {
 foreach (['_VenueURL', '_VenueProvince', '_VenueShowMap', '_VenueShowMapLink', '_OrganizerWebsite'] as $key) {
     duo_check_same('authored', $policy->post_meta_rule($key)['class'] ?? null, "$key closes the free venue/organizer API surface");
 }
-foreach (['_EventShowMap', '_EventShowMapLink', '_tribe_featured', '_VenueShowMap', '_VenueShowMapLink'] as $key) {
+foreach ([
+    '_EventAllDay',
+    '_EventHideFromUpcoming',
+    '_EventShowMap',
+    '_EventShowMapLink',
+    '_tribe_featured',
+    '_VenueShowMap',
+    '_VenueShowMapLink',
+] as $key) {
     duo_check_same(
         true,
         $policy->post_meta_rule($key)['lint_ok'] ?? null,

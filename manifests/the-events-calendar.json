@@ -161,7 +161,7 @@
     "tribe_venue": {}
   },
   "post_meta": {
-    "_EventAllDay": {"class": "authored"},
+    "_EventAllDay": {"class": "authored", "lint_ok": true},
     "_EventCost": {"class": "authored"},
     "_EventCostDescription": {"class": "authored"},
     "_EventCostMax": {"class": "authored"},
@@ -173,7 +173,7 @@
     "_EventDuration": {"class": "authored"},
     "_EventEndDate": {"class": "authored"},
     "_EventEndDateUTC": {"class": "authored"},
-    "_EventHideFromUpcoming": {"class": "authored"},
+    "_EventHideFromUpcoming": {"class": "authored", "lint_ok": true},
     "_EventOrganizerID": {
       "cast": "string",
       "class": "authored",
