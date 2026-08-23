@@ -144,6 +144,11 @@ namespace {
         $manifest['actions'] ?? null,
         'the manifest invokes the narrowly-scoped native cache verifier'
     );
+    duo_check_same(
+        [['match' => '^pmpro_']],
+        $manifest['option_namespaces'] ?? null,
+        'the complete PMPro option namespace is discoverable so an add-on or future core key refuses loudly'
+    );
 
     $expectedModes = [
         'pmpro_discount_codes' => 'natural_key',

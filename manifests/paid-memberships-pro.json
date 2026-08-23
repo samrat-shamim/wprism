@@ -176,6 +176,9 @@
     "pmpro_wizard_redirect": {"class": "runtime"},
     "pmpro_wizard_step": {"class": "runtime"}
   },
+  "option_namespaces": [
+    {"match": "^pmpro_"}
+  ],
   "option_patterns": [
     {"class": "authored", "match": "^pmpro_email_(?:default|footer|header|admin_change|admin_change_admin|billing|billing_admin|billing_failure|billing_failure_admin|cancel|cancel_admin|cancel_on_next_payment_date|cancel_on_next_payment_date_admin|checkout_check|checkout_check_admin|checkout_free|checkout_free_admin|checkout_paid|checkout_paid_admin|credit_card_expiring|invoice|membership_expired|membership_expiring|membership_recurring|payment_action|payment_action_admin|refund|refund_admin)_(?:body|disabled|subject)$"},
     {"class": "env", "match": "^pmpro_email_(?:default|footer|header|admin_change|admin_change_admin|billing|billing_admin|billing_failure|billing_failure_admin|cancel|cancel_admin|cancel_on_next_payment_date|cancel_on_next_payment_date_admin|checkout_check|checkout_check_admin|checkout_free|checkout_free_admin|checkout_paid|checkout_paid_admin|credit_card_expiring|invoice|membership_expired|membership_expiring|membership_recurring|payment_action|payment_action_admin|refund|refund_admin)_(?:bcc|cc|to)$"},
