@@ -415,8 +415,9 @@ intends. Everywhere else, `duo release` gives you the same mutation plus the
 frozen plan and the verification, and the frozen plan is what makes recovery's
 claim literal later.
 
-For a lifecycle-and-code move with no database checkpoint and no state apply,
-`duo deploy <env>` is the standalone path; see
+For a lifecycle-and-code move with no state apply, `duo deploy <env>` is the
+standalone path; it takes and retains its own database checkpoint under the
+same lease, and `--no-checkpoint` skips it. See
 [code-updates.md](code-updates.md).
 
 ## Recover
@@ -464,14 +465,23 @@ is restoring the exact pre-lifecycle database checkpoint, which is what
 `duo recover` does.
 
 `duo recover` lists two sources: the signed receipt of the adopted rollback
-authority, which only an SSH-adopted target has, and the plain database
-checkpoint every operator-directed release retained under `.duo/checkpoints/`,
-which every target has — restored through the same four ordered steps. Only a
-signed rollback stays SSH-only; elsewhere it says so and stops rather than
-improvising. The raw runtime actions it drives are named in [internals.md](internals.md) as
+authority, which an adopted target has once its rollback authority is
+configured, and the plain database checkpoint every operator-directed release
+retained under `.duo/checkpoints/`, which every target has — restored through
+the same four ordered steps. A signed rollback needs that configured authority;
+without one it says so and stops rather than improvising. The raw runtime actions it drives are named in [internals.md](internals.md) as
 internals — `duo` never needs you to type them, and running them directly is
 outside the supported workflow. The complete narrative is
 [recovery.md](recovery.md).
+
+Those retained checkpoints are whole-database dumps and **nothing removes them
+on its own** — Duo has no automatic retention anywhere. Periodic housekeeping
+is an explicit verb: `duo recover <env> --prune-retained=<keep-n>` prints what
+it would delete and deletes nothing, and the same command with
+`--confirm-prune` removes exactly those rows. It keeps the newest `keep-n` of
+each verb, so the most recent before-image is never deletable, and it removes
+only the `.sql` — the compiled artifact and the frozen plan beside it stay.
+See ["Pruning retained checkpoints"](recovery.md#pruning-retained-checkpoints).
 
 Forced overrides, where they exist at all, disclose their consequences and
 always leave an exit path through `duo` — never through operator SQL.

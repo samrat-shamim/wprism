@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Duo\Orchestrator;
 
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
+require_once __DIR__ . '/../Transport/CodePushTransport.php';
 require_once __DIR__ . '/../Code/CodeResolver.php';
 require_once __DIR__ . '/../Code/WpOrgReleases.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Code/CodeSourceLock.php';
@@ -35,19 +36,49 @@ use Duo\CommandRefusalException;
  *   already anchored there: the environment registry itself is found by
  *   walking up from the working directory, so the `<env>` being resolved and
  *   the checkout being written come from one place.
- * - **ssh** — the repository is on the far side of a network boundary and the
- *   host cannot write it at all. Host→target push is DUO-3514. Until it lands
- *   the verb refuses with `code_resolve_transport_unsupported`, and the
- *   automatic deploy phase refuses too — UNLESS every locked component already
- *   hashes correctly on the target, which it proves by asking rather than
- *   assuming. That asymmetry is deliberate: the verb's contract is "make these
- *   bytes present HERE", which it cannot honour; the phase's contract is "the
- *   bytes the compile is about to hash are the declared ones", which on ssh
- *   only the target can answer.
+ * - **ssh** — the repository is on the far side of a network boundary, so the
+ *   host resolves and then PUSHES (DUO-3514). The lock is read from the
+ *   TARGET, never from the operator's cwd (which is DUO-3526's ruling applied
+ *   to the transport that has no host repository at all); resolution happens
+ *   in a throwaway host staging worktree, so no checkout of the site is
+ *   needed; the resolved trees travel as ONE tar through
+ *   `CodePushTransport`; and they are verified TARGET-SIDE, in a staging
+ *   directory under `.duo/code-push/`, against the lock's `tree_sha256`
+ *   BEFORE anything is renamed into place. A component the target already
+ *   holds at a different digest refuses `code_resolve_component_drifted`
+ *   rather than being overwritten — CodeResolver's own doctrine, "nothing
+ *   overwrites a tree Git does not carry" (CodeResolver.php:207-220), applied
+ *   unchanged across a transport. The push arm is gated on
+ *   `instanceof CodePushTransport`, so a docker service with no writable bind
+ *   and every hand-rolled driver keep the `code_resolve_transport_unsupported`
+ *   refusal they had, byte for byte.
+ *
+ * Rejected on the way here: resolving ON the target (docs/code-half.md:241
+ * rejects it — production would need registry egress, and
+ * `code_release_provider`'s probe attests it does not have it), and rsync plus
+ * a `releases/<rev>` symlink flip (§2.2's refinement), which moves where
+ * `wp_path` points and is a deploy-topology change rather than a
+ * materialization one.
  */
 final class CodeResolveCommand {
     /** The host cannot materialize into this environment's repository. */
     public const REASON_TRANSPORT_UNSUPPORTED = 'code_resolve_transport_unsupported';
+
+    /** The host→target push could not be completed; the target was not changed. */
+    public const REASON_PUSH_FAILED = 'code_resolve_push_failed';
+
+    /** Target-side staging root for a push, under the repository's own `.duo/`. */
+    public const PUSH_STAGING = '.duo/code-push';
+
+    /**
+     * Which inventory proof is being taken. Not decoration: each one may state
+     * a different thing about what the target currently holds, and saying the
+     * wrong one is how an operator ends up trusting "nothing was published"
+     * after something was.
+     */
+    private const PROOF_DOCKER = 'docker-bind';
+    private const PROOF_STAGED = 'staged';
+    private const PROOF_POST_PUSH = 'post-push';
 
     /** @param list<string> $extra */
     public static function run(EnvironmentDriver $transport, array $extra): int {
@@ -81,7 +112,16 @@ final class CodeResolveCommand {
         try {
             $repo = self::hostRepo($transport);
             if ($repo === null) {
-                throw self::unresolvableTransport($transport);
+                if (!$transport instanceof CodePushTransport) {
+                    throw self::unresolvableTransport($transport);
+                }
+
+                // DUO-3514. The verb's contract — "make these bytes present
+                // where this environment reads them" — is honoured on ssh by
+                // resolving here and pushing, so it no longer refuses. The
+                // empty verb selects the verb's own render prefix; the phase
+                // passes its verb name instead.
+                return self::targetResolve($transport, '', $dryRun, $offline, $cacheDir) ?? 0;
             }
             $lock = CodeResolver::declaredLock($repo);
             if ($lock === null) {
@@ -128,7 +168,7 @@ final class CodeResolveCommand {
         try {
             $repo = self::hostRepo($transport);
             if ($repo === null) {
-                return self::targetPhase($transport, $verb);
+                return self::targetResolve($transport, $verb, false, false, null);
             }
             $lock = CodeResolver::declaredLock($repo);
             if ($lock === null) {
@@ -207,7 +247,34 @@ final class CodeResolveCommand {
             // would only add a wp call to every local deploy.
             return;
         }
-        $inventory = self::targetInventory($transport, rtrim($transport->repoPath(), '/'));
+        self::assertInventory($transport, rtrim($transport->repoPath(), '/'), $components, self::PROOF_DOCKER);
+    }
+
+    /**
+     * Ask one repository ON THE TARGET for its digests and compare them
+     * against the lock.
+     *
+     * Shared by the docker proof above and by the ssh push, which needs the
+     * identical comparison twice: once against the STAGING repository, before
+     * anything is renamed into place, and once against the real repository
+     * afterwards as the post-condition.
+     *
+     * `$proof` selects only the reviewed remediation, and the three are NOT
+     * interchangeable: the docker arm's public message, remediation and
+     * operator line stay byte-identical to what they were before the push
+     * existed (AGENTS.md rule 8); the staged proof may say nothing was
+     * published, because nothing has been; and the post-push proof may not say
+     * that, because by then it has.
+     *
+     * @param list<array<string,mixed>> $components
+     */
+    private static function assertInventory(
+        EnvironmentDriver $transport,
+        string $repo,
+        array $components,
+        string $proof
+    ): void {
+        $inventory = self::targetInventory($transport, rtrim($repo, '/'), $proof !== self::PROOF_DOCKER);
         $missing = [];
         foreach ($components as $entry) {
             $key = $entry['root'] . '/' . $entry['component'];
@@ -217,16 +284,42 @@ final class CodeResolveCommand {
                     . ($actual === '' ? ' (absent)' : ' (present at ' . $actual . ')');
             }
         }
-        if ($missing !== []) {
+        if ($missing === []) {
+            return;
+        }
+        if ($proof === self::PROOF_STAGED) {
             throw new CommandRefusalException(
                 CodeResolver::REASON_TREE_DIGEST_MISMATCH,
-                'the host resolved this environment\'s locked components, but the target does not report them '
-                . 'at the locked digest',
-                'confirm the compose service mounts this environment\'s repository at its repo_path, then rerun',
+                'the trees pushed to the target do not hash to the digests the lock declares',
+                're-lock the components with duo code-classify if the releases were legitimately re-packaged; '
+                . 'nothing was published into the target\'s code/wp-content and its staging directory was removed',
                 [],
-                'duo: after resolving, the target still does not hold: ' . implode(', ', $missing)
+                'duo: the target does not report the locked digest for staged: ' . implode(', ', $missing)
             );
         }
+        if ($proof === self::PROOF_POST_PUSH) {
+            // Reached only after verified trees were renamed into place, so
+            // this may NOT claim the target is unchanged. Something moved
+            // between the staged proof and this read; the operator is owed
+            // that fact rather than a reassurance.
+            throw new CommandRefusalException(
+                CodeResolver::REASON_TREE_DIGEST_MISMATCH,
+                'the target does not report the locked digests after the verified trees were published there',
+                'inspect the target repository: the trees verified in staging and were renamed into place, so '
+                . 'something changed code/wp-content between those two reads; do not compile this target until '
+                . 'duo code-resolve reports every component at its locked digest',
+                [],
+                'duo: after publishing, the target does not hold: ' . implode(', ', $missing)
+            );
+        }
+        throw new CommandRefusalException(
+            CodeResolver::REASON_TREE_DIGEST_MISMATCH,
+            'the host resolved this environment\'s locked components, but the target does not report them '
+            . 'at the locked digest',
+            'confirm the compose service mounts this environment\'s repository at its repo_path, then rerun',
+            [],
+            'duo: after resolving, the target still does not hold: ' . implode(', ', $missing)
+        );
     }
 
     private static function resolver(bool $offline, ?string $cacheDir): CodeResolver {
@@ -234,30 +327,45 @@ final class CodeResolveCommand {
     }
 
     /**
-     * The ssh arm (and docker-from-outside-the-checkout): the host cannot
-     * write this repository, so the only question left is whether it already
-     * holds the declared bytes.
+     * The target-side arm: ssh (which now resolves and pushes, DUO-3514) and
+     * docker-from-outside-the-checkout (which still only asks).
      *
-     * Everything here is read-only and target-side. It asks the target for its
-     * own `site.duo.json`, its own lock, and its own component inventory — the
-     * same `wp duo code-inventory` read `duo code-classify` uses to prove a
-     * checkout and a target agree (cli/src/Command/CodeClassifyCommand.php:231-265).
+     * The reads are unchanged and stay first, because they are the pre-push
+     * half of docs/code-half.md:241-242's design and they are what makes the
+     * push safe: the target's own `site.duo.json`, the target's own lock, and
+     * the target's own `wp duo code-inventory` — the same read
+     * `duo code-classify` uses to prove a checkout and a target agree
+     * (cli/src/Command/CodeClassifyCommand.php:231-265). Nothing is fetched or
+     * transferred until they say which components are missing.
+     *
+     * `$verb === ''` selects the VERB's rendering (no phase line, "duo:
+     * code-resolve" prefix, exit code returned); any other value is the
+     * automatic phase, which prints its phase line and returns null to
+     * continue.
      */
-    private static function targetPhase(EnvironmentDriver $transport, string $verb): ?int {
+    private static function targetResolve(
+        EnvironmentDriver $transport,
+        string $verb,
+        bool $dryRun,
+        bool $offline,
+        ?string $cacheDir
+    ): ?int {
         $repo = rtrim($transport->repoPath(), '/');
         $site = $transport->captureRaw('cat ' . escapeshellarg($repo . '/site.duo.json'));
         if ($site['exit'] !== 0) {
             // Not a silent skip: compile reads the same file one phase later
             // and refuses by name if it is missing, so nothing unresolved can
             // slip past this return.
-            return null;
+            return self::targetUnlocked($verb);
         }
         $document = json_decode(trim($site['stdout']), true);
         $code = is_array($document) ? ($document['code'] ?? null) : null;
         if (!is_array($code) || ($code['format'] ?? null) !== 2) {
-            return null;
+            return self::targetUnlocked($verb);
         }
-        echo "$verb phase: code-resolve\n";
+        if ($verb !== '') {
+            echo "$verb phase: code-resolve\n";
+        }
         $relative = is_string($code['lock'] ?? null) ? (string) $code['lock'] : CodeSourceLock::PATH;
         $lockRead = $transport->captureRaw('cat ' . escapeshellarg($repo . '/' . $relative));
         if ($lockRead['exit'] !== 0) {
@@ -270,33 +378,300 @@ final class CodeResolveCommand {
             );
         }
         $lock = CodeSourceLock::parse(trim($lockRead['stdout']));
-        $inventory = self::targetInventory($transport, $repo);
+        $components = array_values((array) $lock['components']);
+        $pushing = $transport instanceof CodePushTransport;
+        $inventory = self::targetInventory($transport, $repo, $pushing);
+
         $pending = [];
-        $rows = [];
-        foreach ((array) $lock['components'] as $entry) {
+        $absent = [];
+        $drifted = [];
+        $unchanged = [];
+        foreach ($components as $entry) {
             $key = $entry['root'] . '/' . $entry['component'];
             $actual = $inventory[$key] ?? '';
             if (hash_equals((string) $entry['tree_sha256'], $actual)) {
-                $rows[] = [
-                    'root' => (string) $entry['root'],
-                    'component' => (string) $entry['component'],
-                    'version' => (string) $entry['version'],
-                    'state' => 'unchanged',
-                    'detail' => 'already present on the target at the locked digest',
-                ];
+                $unchanged[$key] = true;
                 continue;
             }
+            // Built in lock order and used verbatim by the refusal below, so a
+            // transport that cannot be pushed to says exactly what it said
+            // before this issue existed.
             $pending[] = $key . ' ' . $entry['version']
                 . ($actual === '' ? ' (absent)' : ' (present at ' . $actual . ')');
+            if ($actual === '') {
+                $absent[] = $entry;
+                continue;
+            }
+            $drifted[] = $key . ' ' . $entry['version'] . ' (target holds ' . $actual
+                . ', the lock declares ' . (string) $entry['tree_sha256'] . ')';
         }
+
+        $pushed = [];
         if ($pending !== []) {
-            throw self::sshRefusal(
-                'duo: the host cannot materialize into an ssh target, and these locked component(s) are not '
-                . 'already correct there: ' . implode(', ', $pending)
+            if (!$pushing) {
+                throw self::pushUnsupported(
+                    'duo: the host cannot materialize into an ssh target, and these locked component(s) are not '
+                    . 'already correct there: ' . implode(', ', $pending)
+                );
+            }
+            if ($drifted !== []) {
+                // Decided BEFORE anything is fetched or transferred, and
+                // refusing the whole run rather than pushing the absent
+                // remainder: a repository half at the lock and half at
+                // something else is the state nobody can reason about
+                // afterwards, and it is the same all-or-nothing rule
+                // CodeResolver::resolve() already applies on the host.
+                throw new CommandRefusalException(
+                    CodeResolver::REASON_DRIFTED,
+                    'a locked component is present on the target with bytes other than the ones the lock declares',
+                    'remove the component directory on the target and rerun to push the locked release, or '
+                    . 're-lock it with duo code-classify if the present bytes are the intended ones; '
+                    . 'nothing overwrites a tree Git does not carry',
+                    [],
+                    'duo: the target holds locked component(s) at a different digest: ' . implode(', ', $drifted)
+                    . '; nothing was transferred'
+                );
+            }
+            $pushed = self::push($transport, $repo, $components, $absent, $dryRun, $offline, $cacheDir);
+        }
+
+        // Rebuilt in LOCK order rather than in classification order, so the
+        // report reads the same on every transport.
+        $rows = [];
+        foreach ($components as $entry) {
+            $key = $entry['root'] . '/' . $entry['component'];
+            $outcome = isset($unchanged[$key])
+                ? ['state' => 'unchanged', 'detail' => 'already present on the target at the locked digest']
+                : $pushed[$key];
+            $rows[] = [
+                'root' => (string) $entry['root'],
+                'component' => (string) $entry['component'],
+                'version' => (string) $entry['version'],
+                'state' => $outcome['state'],
+                'detail' => $outcome['detail'],
+            ];
+        }
+        self::render($relative, $rows, $dryRun, $verb);
+
+        return $verb === '' ? 0 : null;
+    }
+
+    /**
+     * What a target with no code lock means, per caller.
+     *
+     * The phase returns null and prints nothing, which is what keeps every
+     * format-1 deploy byte-identical. The verb prints the same sentence the
+     * host-side arm prints for a repository that declares no lock, because it
+     * is the same conclusion about the same question.
+     */
+    private static function targetUnlocked(string $verb): ?int {
+        if ($verb !== '') {
+            return null;
+        }
+        echo 'duo: this repository declares no code lock (site.duo.json code format 1, or no code half); '
+            . "nothing to resolve.\n";
+
+        return 0;
+    }
+
+    /**
+     * Resolve on the host, ship one tar, verify target-side, then rename into
+     * place (DUO-3514).
+     *
+     * The ORDER is the contract, and it is the same order
+     * `CodeResolver::materialize()` uses on the host (:326-336), lifted across
+     * a transport:
+     *
+     *  1. resolve into a THROWAWAY host staging worktree, so the operator
+     *     needs no checkout of the site and `CodeResolver` still verifies
+     *     `archive_sha256` before unpacking and `tree_sha256` after;
+     *  2. build ONE tar of exactly the resolved component paths. Per-file scp
+     *     was rejected: it multiplies round trips and cannot be made atomic
+     *     per component;
+     *  3. place it through `CodePushTransport`, inside a `try/finally` that
+     *     removes it on every observed exit including a partial upload;
+     *  4. extract into `<repo>/.duo/code-push/<token>/code/wp-content` — a
+     *     directory laid out as a REPOSITORY, so the target's own
+     *     `wp duo code-inventory --repo=<staging>` reports the staged trees'
+     *     digests (agent/src/Command/Cli.php:948-960 reads only
+     *     `<repo>/code/wp-content`);
+     *  5. compare those against the lock BEFORE a single byte reaches
+     *     `code/wp-content`. A mismatch refuses with the target untouched;
+     *  6. `mv` each verified tree into place, refusing rather than
+     *     overwriting anything that appeared meanwhile;
+     *  7. re-read the target's inventory as the post-condition — the ssh twin
+     *     of `assertTargetHoldsLock()`.
+     *
+     * @param list<array<string,mixed>> $components every locked component
+     * @param list<array<string,mixed>> $absent the ones the target does not hold
+     * @return array<string,array{state:string,detail:string}> keyed `root/component`
+     */
+    private static function push(
+        CodePushTransport $transport,
+        string $repo,
+        array $components,
+        array $absent,
+        bool $dryRun,
+        bool $offline,
+        ?string $cacheDir
+    ): array {
+        $out = [];
+        if ($dryRun) {
+            foreach ($absent as $entry) {
+                $out[$entry['root'] . '/' . $entry['component']] = [
+                    'state' => 'would-resolve',
+                    'detail' => 'would resolve on this host and push the verified tree to the target',
+                ];
+            }
+
+            return $out;
+        }
+
+        $stage = self::hostStage();
+        $localTar = $stage . '/code-push.tar';
+        $stagingRoot = $repo . '/' . self::PUSH_STAGING . '/' . bin2hex(random_bytes(8));
+        $stagedSource = $stagingRoot . '/' . CodeSourceLock::SOURCE;
+        $targetTar = $transport->allocateCodePushInput('tree');
+        try {
+            self::resolver($offline, $cacheDir)->resolve($stage, $absent, false);
+
+            $members = [];
+            foreach ($absent as $entry) {
+                $members[] = escapeshellarg($entry['root'] . '/' . $entry['component']);
+            }
+            $tar = self::runLocal(
+                'tar -C ' . escapeshellarg($stage . '/' . CodeSourceLock::SOURCE)
+                . ' -cf ' . escapeshellarg($localTar) . ' ' . implode(' ', $members)
+            );
+            if ($tar['exit'] !== 0) {
+                throw self::pushFailed('duo: the host could not archive the resolved component trees', $tar);
+            }
+
+            $put = $transport->putCodePushInput($localTar, $targetTar);
+            if ($put['exit'] !== 0) {
+                throw self::pushFailed(
+                    'duo: the resolved component archive could not be placed on the target',
+                    $put
+                );
+            }
+
+            $extract = $transport->captureRaw(
+                'mkdir -p ' . escapeshellarg($stagedSource)
+                . ' && tar --no-same-owner -xf ' . escapeshellarg($targetTar)
+                . ' -C ' . escapeshellarg($stagedSource)
+            );
+            if ($extract['exit'] !== 0) {
+                throw self::pushFailed(
+                    'duo: the target could not unpack the resolved component archive into its staging directory',
+                    $extract
+                );
+            }
+
+            // THE gate: the target's own digests for the STAGED trees, read
+            // before anything under code/wp-content has been touched.
+            self::assertInventory($transport, $stagingRoot, $absent, self::PROOF_STAGED);
+
+            $publish = [];
+            foreach ($absent as $entry) {
+                $key = $entry['root'] . '/' . $entry['component'];
+                $source = $stagedSource . '/' . $key;
+                $destination = $repo . '/' . CodeSourceLock::SOURCE . '/' . $key;
+                $publish[] = 's=' . escapeshellarg($source) . '; d=' . escapeshellarg($destination)
+                    . '; p=' . escapeshellarg($repo . '/' . CodeSourceLock::SOURCE . '/' . $entry['root']) . '; '
+                    . '[ -d "$s" ] || { echo ' . escapeshellarg('duo: staged tree missing: ' . $key)
+                    . ' >&2; exit 1; }; '
+                    // Absence was PROVED by the inventory above; a path that
+                    // exists now appeared during the push, and overwriting it
+                    // would destroy bytes Git does not carry.
+                    . '{ [ ! -e "$d" ] && [ ! -L "$d" ]; } || { echo '
+                    . escapeshellarg('duo: target component appeared during the push: ' . $key)
+                    . ' >&2; exit 1; }; '
+                    . 'mkdir -p "$p" || exit 1; mv "$s" "$d" || exit 1; ';
+            }
+            $moved = $transport->captureRaw(implode('', $publish) . 'exit 0');
+            if ($moved['exit'] !== 0) {
+                throw self::pushFailed(
+                    'duo: the target could not publish the verified component trees into code/wp-content',
+                    $moved
+                );
+            }
+
+            // The post-condition, over EVERY locked component and not only the
+            // pushed ones: what this phase promises the compile is that the
+            // bytes it is about to hash are the declared ones.
+            self::assertInventory($transport, $repo, $components, self::PROOF_POST_PUSH);
+        } finally {
+            $transport->removeCodePushInput($targetTar);
+            self::removeTargetStaging($transport, $stagingRoot);
+            self::removeHostStage($stage);
+        }
+
+        foreach ($absent as $entry) {
+            $out[$entry['root'] . '/' . $entry['component']] = [
+                'state' => 'resolved',
+                'detail' => 'verified on the target against the locked digest, then published',
+            ];
+        }
+
+        return $out;
+    }
+
+    /** A throwaway host worktree for one push. Never inside a site repository. */
+    private static function hostStage(): string {
+        $stage = rtrim(sys_get_temp_dir(), '/') . '/duo-code-push-' . bin2hex(random_bytes(8));
+        if (!@mkdir($stage, 0700, true) && !is_dir($stage)) {
+            throw self::pushFailed(
+                'duo: the host could not create a staging worktree for the code push',
+                ['exit' => 1, 'stdout' => '', 'stderr' => "could not create $stage"]
             );
         }
-        self::render($relative, $rows, false, $verb);
-        return null;
+
+        return $stage;
+    }
+
+    /**
+     * Remove one host staging worktree this class created, and nothing else.
+     *
+     * The identity guard is the point, for exactly the reason
+     * `CodeResolver::removeStaging()` states (:424-430): this runs in a
+     * `finally` and a recursive delete with no identity check is one refactor
+     * away from being pointed at a real checkout.
+     */
+    private static function removeHostStage(string $path): void {
+        if (!str_contains($path, '/duo-code-push-') || !is_dir($path)) {
+            return;
+        }
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($path, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::CHILD_FIRST
+        );
+        foreach ($iterator as $item) {
+            $item->isDir() && !$item->isLink() ? @rmdir($item->getPathname()) : @unlink($item->getPathname());
+        }
+        @rmdir($path);
+    }
+
+    /** The same guard, target-side: only a path this class named is removable. */
+    private static function removeTargetStaging(EnvironmentDriver $transport, string $stagingRoot): void {
+        if (!str_contains($stagingRoot, '/' . self::PUSH_STAGING . '/')) {
+            return;
+        }
+        $transport->captureRaw('rm -rf ' . escapeshellarg($stagingRoot));
+    }
+
+    /** @return array{exit:int, stdout:string, stderr:string} */
+    private static function runLocal(string $command): array {
+        $descriptors = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
+        $process = proc_open($command, $descriptors, $pipes);
+        if (!is_resource($process)) {
+            return ['exit' => 255, 'stdout' => '', 'stderr' => 'failed to start local process'];
+        }
+        $stdout = (string) stream_get_contents($pipes[1]);
+        $stderr = (string) stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+
+        return ['exit' => proc_close($process), 'stdout' => $stdout, 'stderr' => $stderr];
     }
 
     /**
@@ -304,22 +679,34 @@ final class CodeResolveCommand {
      *
      * @return array<string,string>
      */
-    private static function targetInventory(EnvironmentDriver $transport, string $repo): array {
+    private static function targetInventory(EnvironmentDriver $transport, string $repo, bool $pushing = false): array {
         $result = $transport->captureWp(['duo', 'code-inventory', '--repo=' . $repo, '--format=json']);
         if ($result['exit'] !== 0) {
-            throw self::sshRefusal(
-                'duo: the host cannot materialize into an ssh target, and the target could not report its own '
-                . 'code inventory (exit ' . $result['exit'] . '), so nothing proves the locked components are '
-                . 'already correct there'
-            );
+            throw $pushing
+                ? self::pushFailed(
+                    'duo: the target could not report the code inventory of ' . $repo
+                    . ', so nothing proves what it holds',
+                    $result
+                )
+                : self::pushUnsupported(
+                    'duo: the host cannot materialize into an ssh target, and the target could not report its own '
+                    . 'code inventory (exit ' . $result['exit'] . '), so nothing proves the locked components are '
+                    . 'already correct there'
+                );
         }
         $decoded = json_decode(trim($result['stdout']), true);
         if (!is_array($decoded) || ($decoded['format'] ?? null) !== 'duo-code-inventory/v1'
             || !is_array($decoded['components'] ?? null)) {
-            throw self::sshRefusal(
-                'duo: the host cannot materialize into an ssh target, and the target returned an unrecognized '
-                . 'code inventory, so nothing proves the locked components are already correct there'
-            );
+            throw $pushing
+                ? self::pushFailed(
+                    'duo: the target returned an unrecognized code inventory for ' . $repo
+                    . ', so nothing proves what it holds',
+                    $result
+                )
+                : self::pushUnsupported(
+                    'duo: the host cannot materialize into an ssh target, and the target returned an unrecognized '
+                    . 'code inventory, so nothing proves the locked components are already correct there'
+                );
         }
         $inventory = [];
         foreach ($decoded['components'] as $row) {
@@ -330,8 +717,18 @@ final class CodeResolveCommand {
         return $inventory;
     }
 
-    /** The one refusal that names the DUO-3514 runbook, from either arm. */
-    private static function sshRefusal(string $operatorMessage): CommandRefusalException {
+    /**
+     * The refusal for a transport this host can neither WRITE nor PUSH to.
+     *
+     * Its bytes are unchanged, deliberately. DUO-3514 landed the push for
+     * `CodePushTransport` transports, so a real ssh environment no longer
+     * reaches this sentence at all; what still does is a docker service with
+     * no writable bind at its `repo_path` and any hand-rolled driver, and for
+     * those "host-to-target push over ssh is DUO-3514 and is not implemented"
+     * remains exactly as true as it was. Rewording it would move a refusal
+     * this issue did not change the behaviour of (AGENTS.md rule 8).
+     */
+    private static function pushUnsupported(string $operatorMessage): CommandRefusalException {
         return new CommandRefusalException(
             self::REASON_TRANSPORT_UNSUPPORTED,
             'this transport cannot be resolved from the host: only local and docker environments expose the '
@@ -361,9 +758,33 @@ final class CodeResolveCommand {
                 . 'so the host side of its repository could not be identified'
             );
         }
-        return self::sshRefusal(
+        return self::pushUnsupported(
             'duo: ' . $transport->driverId() . " transport '" . $transport->name()
             . "' keeps its repository on the far side of the transport, where this host cannot write"
+        );
+    }
+
+    /**
+     * A push that started and could not be completed (DUO-3514).
+     *
+     * Separate from `pushUnsupported()` because it answers a different
+     * question: not "this transport has no mechanism" but "the mechanism ran
+     * and stopped". Every call site raises it only where the target's
+     * `code/wp-content` has NOT been written, or after the post-condition read
+     * found it wrong — so the remediation can say so without qualification.
+     *
+     * @param array{exit:int, stdout:string, stderr:string} $result
+     */
+    private static function pushFailed(string $operatorMessage, array $result): CommandRefusalException {
+        $detail = trim($result['stderr'] !== '' ? $result['stderr'] : $result['stdout']);
+
+        return new CommandRefusalException(
+            self::REASON_PUSH_FAILED,
+            'the resolved component trees could not be pushed to this target',
+            'confirm the target provides tar and an ssh account that can write its repo_path and /tmp, then '
+            . 'rerun; a failed push publishes nothing, so the target is left exactly as it was',
+            [],
+            $operatorMessage . ($detail === '' ? '' : ': ' . $detail)
         );
     }
 

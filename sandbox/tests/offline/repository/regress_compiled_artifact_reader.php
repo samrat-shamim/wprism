@@ -88,6 +88,7 @@ namespace {
     use Duo\CompiledArtifactReader;
     use Duo\CompiledRepository;
     use Duo\Policy;
+    use Duo\CommandRefusalException;
     use Duo\RepositoryCompilationException;
 
     $reader = __DIR__ . '/../../../../agent/src/Repository/CompiledArtifactReader.php';
@@ -180,9 +181,18 @@ PHP;
         file_put_contents($path, Canon::encode($artifact->export()));
         return $artifact;
     };
+    // Every gate in read_artifact() now refuses with a CommandRefusalException
+    // whose reasonCode IS the artifact code, so a machine caller reads it at
+    // the top level of the JSON envelope instead of walking diagnostics
+    // (agent/src/Repository/CompiledArtifactReader.php:86-91). The
+    // RepositoryCompilationException arm is kept because it is what a genuine
+    // compiler batch still throws, and reading diagnostics[0] the same way in
+    // both arms is what keeps every expected code below unchanged.
     $diagnostic = static function (callable $run): ?string {
         try {
             $run();
+        } catch (CommandRefusalException $e) {
+            return $e->reasonCode;
         } catch (RepositoryCompilationException $e) {
             return (string) ($e->diagnostics[0]['code'] ?? '');
         }

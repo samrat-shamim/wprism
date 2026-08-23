@@ -24,6 +24,8 @@ require __DIR__ . '/src/Command/CaptureCommand.php';
 require __DIR__ . '/src/Command/EnvironmentCommandOptions.php';
 require __DIR__ . '/src/Command/DriverCapabilitiesCommand.php';
 require __DIR__ . '/src/Transport/Transport.php';
+require __DIR__ . '/src/Transport/RecoveryTransport.php';
+require __DIR__ . '/src/Transport/RecoveryConfig.php';
 require __DIR__ . '/src/Transport/LocalTransport.php';
 require __DIR__ . '/src/Transport/DockerTransport.php';
 require __DIR__ . '/src/Transport/SshTransport.php';
@@ -278,13 +280,15 @@ Usage:
   duo verify  <env> [--plan=<digest>] [--limit=<1..200>] [--format=json]
   duo recover <env> [--list] [--restore=<checkpoint>] [--writers-excluded]
                     [--operator-directed] [--limit=<1..200>] [--format=json]
+  duo recover <env> --prune-retained=<keep-n> [--confirm-prune]
+                    [--limit=<1..200>] [--format=json]
   duo capabilities <env> [--operation=<op>] [--surface=<surface>] [--format=json]
   duo capture <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
   duo lint    <env> [extra wp-cli flags...]
   duo plan    <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
   duo explain <env> <bucket>:<entity-key> [--format=json] [plan flags...]
   duo apply   <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
-  duo deploy  <env> [--force-code-mismatch] [--force-code-drift]
+  duo deploy  <env> [--force-code-mismatch] [--force-code-drift] [--no-checkpoint]
   duo env-set <env> --name=<name> (--value=<value> | --stdin)
   duo promote <env> [--scope-contract=<local-path>] [--with-deletes] [--format=json]
   duo pending <env>
@@ -586,9 +590,24 @@ Verbs:
                           its locked digest is reported unchanged and not
                           rewritten; one present at any OTHER digest refuses
                           rather than overwriting bytes Git does not carry.
-                          `local` and `docker` only -- an ssh environment keeps
-                          its repository where this host cannot write it and
-                          refuses with code_resolve_transport_unsupported.
+                          On ssh the host cannot write the repository, so it
+                          resolves and PUSHES: the lock is read from the
+                          TARGET, resolution happens in a throwaway host
+                          staging worktree (no checkout of the site is
+                          needed), the resolved trees travel as one tar, and
+                          they are verified TARGET-SIDE in a staging directory
+                          under .duo/code-push against the lock's tree_sha256
+                          BEFORE anything is renamed into place; the target's
+                          own `wp duo code-inventory` is then re-read as the
+                          post-condition. A mismatch refuses with
+                          code_resolve_tree_digest_mismatch and publishes
+                          nothing. Only ABSENT components are pushed; one the
+                          target holds at a different digest refuses with
+                          code_resolve_component_drifted before anything is
+                          transferred. The target needs ssh, scp, tar and wp.
+                          A transport with neither a writable host path nor a
+                          push mechanism still refuses with
+                          code_resolve_transport_unsupported.
                           `duo deploy` and `duo promote` run this same resolver
                           automatically, before compile, as
                           `<verb> phase: code-resolve`.
@@ -711,6 +730,17 @@ Verbs:
                           process -> finalize code
                           under one target lease. With no code descriptor it
                           retains the established lifecycle-only deploy path.
+                          A whole-database checkpoint is taken under that same
+                          lease BEFORE staging and retained at
+                          .duo/checkpoints/deploy-<owner>.sql; `duo recover
+                          <env> --list` lists it and --restore drives the same
+                          four ordered steps (abort, begin, isolated import,
+                          final abort) a promote checkpoint gets.
+    --no-checkpoint       Skip that export. It is a full dump written to the
+                          target's disk, inside the write-exclusion window and
+                          with no retention policy, so on a large database the
+                          cost has to be refusable — but nothing is then left
+                          to restore from if a later phase fails.
   env-set <env>           `wp duo env-set --repo=<repo_path> --name=<name>
     --name=<name>         (--value=<value> | --stdin)`. Provisions one
     (--value=<v>|--stdin)   manifest-declared class="env" option on <env> —
@@ -863,14 +893,33 @@ Verbs:
                           database import until code is reconciled to the
                           pre-release revision, which the refusal names.
                           Two catalog sources: the signed receipt of the
-                          rollback authority (SSH-adopted targets only) and
-                          the plain database checkpoints every operator-
-                          directed release RETAINED under .duo/checkpoints
-                          (every transport; id promote-<owner>, restored
-                          through the same four steps under the lease
-                          identity read from the retained artifact). Only a
-                          signed rollback is SSH-only, and refuses with
+                          rollback authority (adopted targets with a
+                          configured rollback authority) and the plain
+                          database checkpoints promote and deploy
+                          RETAINED under .duo/checkpoints (every transport; id
+                          promote-<owner> or deploy-<owner>, restored through
+                          the same four steps under the lease identity read
+                          from the retained artifact). A
+                          signed rollback needs an adopted target with a
+                          configured rollback authority, and refuses with
                           recovery_authority_unavailable elsewhere.
+  recover <env>           Remove retained release checkpoints, keeping the
+    --prune-retained=     newest <keep-n> of EACH verb (promote and deploy are
+      <1..50>             counted separately, so a month of deploys can never
+    [--confirm-prune]     age out the last promote). This is the only thing in
+    [--limit=<1..200>]    Duo that deletes a checkpoint; nothing prunes
+    [--format=json]       automatically, ever. Without --confirm-prune it
+                          prints WOULD-PRUNE rows and removes nothing. It
+                          removes ONLY the .sql under .duo/checkpoints -- the
+                          sibling .duo/artifacts/<stem>.json and the frozen
+                          plan under .duo/releases are kept, because the
+                          code-first gate reads them for the checkpoints that
+                          remain. It refuses while any signed generation is
+                          nonterminal (checkpoint_prune_generation_active), it
+                          never considers a signed receipt, and it does not
+                          accept --writers-excluded: that flag asserts a
+                          maintenance window for a whole-database import and
+                          means nothing for a file removal.
   pending <env>           List the review queue (`wp duo pending --format=json`)
                           as a table: section:key, proposal, evidence, ref-hint,
                           and a prominent SECRET flag where present. Exit 0 with
@@ -1369,9 +1418,13 @@ function cmd_init(EnvironmentDriver $t, array $extra, ?string $envsFileOverride 
         static fn(): mixed => fgets(STDIN)
     );
 }
-/** Render externally verified rollback authority state for SSH targets. */
+/** Render externally verified rollback authority state for targets that carry it. */
 function render_rollback_authority_status(EnvironmentDriver $t): bool {
-    if (!$t instanceof \Duo\Orchestrator\SshTransport) {
+    // carriesRollbackAuthority() is the cheap local predicate, not a target
+    // read: SSH answers true unconditionally, so this line stays byte-identical
+    // for every SSH environment, and a transport admitted to the interface
+    // later prints nothing until its own configuration opts in.
+    if (!$t instanceof \Duo\Orchestrator\RecoveryTransport || !$t->carriesRollbackAuthority()) {
         return true;
     }
     $status = RollbackAuthority::status($t);
@@ -1399,9 +1452,9 @@ function render_rollback_authority_status(EnvironmentDriver $t): bool {
     return false;
 }
 
-/** Refuse a new SSH mutation while external authority is corrupt or nonterminal. */
+/** Refuse a new mutation while external authority is corrupt or nonterminal. */
 function rollback_authority_fence(EnvironmentDriver $t, string $verb): bool {
-    if (!$t instanceof \Duo\Orchestrator\SshTransport) {
+    if (!$t instanceof \Duo\Orchestrator\RecoveryTransport || !$t->carriesRollbackAuthority()) {
         return true;
     }
     $status = RollbackAuthority::status($t);
@@ -1567,10 +1620,23 @@ function code_runtime_preflight(
 }
 
 /**
- * Host-level code deploy. Unlike promote it deliberately does not create a
- * database checkpoint: it owns only the immutable artifact plus the code
- * stage/lifecycle/finalize sequence. Operators who need the coupled DB
- * checkpoint use `duo promote`.
+ * Host-level code deploy: the immutable artifact plus the code
+ * stage/lifecycle/finalize sequence, under one target lease.
+ *
+ * It takes a whole-database checkpoint under that lease, at the position
+ * promote takes its own — after `promotion-begin`, before `code-stage` — and
+ * retains it at `<repo>/.duo/checkpoints/deploy-<owner>.sql`, the sibling of
+ * the `deploy-<owner>.json` artifact it just compiled. `duo recover <env>
+ * --list` lists it as a `retained-release-checkpoint` and `--restore` drives
+ * the same four ordered steps a promote checkpoint gets. `--no-checkpoint`
+ * skips the export for an operator who has weighed the dump's cost on a large
+ * target; that arm reproduces the pre-checkpoint stream exactly.
+ *
+ * What deploy still does NOT do is promote's trailing state `apply` and
+ * `VerifiedRollbackProfile::select()`'s SSH verified-rollback profile. Both
+ * are product claims promote publishes into a frozen authorization plan;
+ * deploy emits no such document, so claiming them here would be a claim with
+ * nothing behind it.
  */
 function cmd_deploy(EnvironmentDriver $t, array $extra): int {
     return DeployCommand::run(
@@ -1582,7 +1648,16 @@ function cmd_deploy(EnvironmentDriver $t, array $extra): int {
         static function (EnvironmentDriver $driver, array $begin, string $owner, string $artifactHash): void {
             compensate_uncertain_begin($driver, $begin, $owner, $artifactHash, 'deploy');
         },
-        static fn(EnvironmentDriver $driver, string $owner, string $artifactHash): bool => promotion_abort($driver, $owner, $artifactHash)
+        static fn(EnvironmentDriver $driver, string $owner, string $artifactHash): bool => promotion_abort($driver, $owner, $artifactHash),
+        static function (
+            EnvironmentDriver $driver,
+            string $checkpoint,
+            bool $codeMayHaveChanged,
+            string $owner,
+            string $artifactHash
+        ): void {
+            print_promotion_recovery($driver, $checkpoint, $codeMayHaveChanged, $owner, $artifactHash, 'deploy');
+        }
     );
 }
 
@@ -1735,6 +1810,12 @@ function cmd_promote_scoped(EnvironmentDriver $t, array $extra): int {
             'generate a fresh contract with duo scope --contract and retry promote'
         );
     }
+    // Deliberately still SshTransport, not RecoveryTransport: scoped
+    // promotion is a separate protocol with forward-only seal semantics
+    // (docs/recovery-runtime.md) certified on the SSH harness alone, and its
+    // envelope below is pinned by three assertions in
+    // sandbox/tests/offline/reference-scope/regress_scope_wire.php. Widening
+    // verified rollback must not leak into it.
     if (!$t instanceof \Duo\Orchestrator\SshTransport) {
         return scope_wire_refusal(
             'promote', $extra, 'scoped_promotion_unavailable',
@@ -2228,7 +2309,7 @@ function cmd_promote_internal(EnvironmentDriver $t, array $extra, ?array $frozen
         $runtimePreflightDone = true;
     }
 
-    if ($t instanceof \Duo\Orchestrator\SshTransport) {
+    if ($t instanceof \Duo\Orchestrator\RecoveryTransport && $t->carriesRollbackAuthority()) {
         try {
             $selection = VerifiedRollbackProfile::select($t, $compile['summary']);
         } catch (\Throwable $e) {
@@ -2816,7 +2897,7 @@ function frozen_promotion_reconcile(EnvironmentDriver $driver, string $repo, arr
  * @return ?array<string,mixed>
  */
 function frozen_promotion_verified_reconcile(
-    \Duo\Orchestrator\SshTransport $driver,
+    \Duo\Orchestrator\RecoveryTransport $driver,
     string $repo,
     array &$context
 ): ?array {
@@ -2909,13 +2990,13 @@ function frozen_promotion_canonical(mixed $value): string {
     return \Duo\Orchestrator\EnvironmentLifecycleCanon::encode($value);
 }
 /**
- * Provider-backed SSH promotion. The external receipt/checkpoint is prepared
- * before the target's database lease or code pointer can change. Every failure
- * after `promoting` attempts exact signed rollback and never falls through to
- * the operator-directed database-dump path.
+ * Provider-backed promotion through the rollback authority. The external
+ * receipt/checkpoint is prepared before the target's database lease or code
+ * pointer can change. Every failure after `promoting` attempts exact signed
+ * rollback and never falls through to the operator-directed database-dump path.
  */
 function cmd_promote_verified(
-    \Duo\Orchestrator\SshTransport $t,
+    \Duo\Orchestrator\RecoveryTransport $t,
     array $plan,
     string $repo,
     string $artifact,
@@ -3226,24 +3307,34 @@ function compensate_uncertain_begin(
     promotion_abort($t, $owner, $artifactHash);
 }
 
-/** Print row repair for a dump containing its lease; external exclusion is required. */
+/**
+ * Print row repair for a dump containing its lease; external exclusion is
+ * required.
+ *
+ * `$verb` is a trailing DEFAULTED parameter so promote's bytes — pinned by
+ * `regress_promotion_unit.sh`, which the regress-promotion-unit leaf target
+ * runs — do not move, while `duo deploy`'s checkpoint gets the same four
+ * numbered instructions instead of a second, divergent copy. The `database
+ * checkpoint:` line and the four instructions are already verb-free.
+ */
 function print_promotion_recovery(
     EnvironmentDriver $t,
     string $checkpoint,
     bool $codeMayHaveChanged,
     string $owner,
-    string $artifactHash
+    string $artifactHash,
+    string $verb = 'promote'
 ): void {
     fwrite(STDERR, "database checkpoint: $checkpoint\n");
     if ($codeMayHaveChanged) {
         fwrite(
             STDERR,
-            "duo: promote: code may be staged or partially finalized; first reconcile or restore code to a known pre-promotion revision.\n"
+            "duo: $verb: code may be staged or partially finalized; first reconcile or restore code to a known pre-promotion revision.\n"
         );
     }
     fwrite(
         STDERR,
-        'duo: promote: this checkpoint contains its temporary promotion lease row. '
+        "duo: $verb: this checkpoint contains its temporary promotion lease row. "
         . 'A database import can replace that row, so first establish external maintenance/exclusion '
         . 'that prevents every Duo writer for the full recovery window. The commands below repair the row; '
         . "they are not a substitute for that exclusion. Then run in this order:\n"
@@ -3252,7 +3343,7 @@ function print_promotion_recovery(
     fwrite(STDERR, '  2. ' . $t->wpInstruction(CodeDeploy::beginArgs($owner, $artifactHash)) . "\n");
     fwrite(STDERR, '  3. ' . $t->wpInstruction(CodeDeploy::recoveryDbImportArgs($checkpoint)) . "\n");
     fwrite(STDERR, '  4. ' . $t->wpInstruction(CodeDeploy::abortArgs($owner, $artifactHash)) . "\n");
-    fwrite(STDERR, "duo: promote: run step 4 even if the database import fails.\n");
+    fwrite(STDERR, "duo: $verb: run step 4 even if the database import fails.\n");
 }
 
 function promote_failed(

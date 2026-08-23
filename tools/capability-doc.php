@@ -199,7 +199,7 @@ function capdoc_platform(string $repo): array {
     }
     foreach (['database' => ['engine', 'max', 'min', 'note'],
               'php' => ['max', 'min', 'note'],
-              'wordpress' => ['last_verified', 'note']] as $axis => $axisKeys) {
+              'wordpress' => ['last_verified', 'max', 'min', 'note', 'verified']] as $axis => $axisKeys) {
         $found = array_keys($platform['compatibility'][$axis] ?? []);
         sort($found, SORT_STRING);
         if ($found !== $axisKeys) {
@@ -341,14 +341,30 @@ function capdoc_plugin_label(string $name, array $manifest, array $supportedVers
 }
 
 /**
+ * The WordPress axis as one rendered cell: the declared bounds plus the exact
+ * patch each exercised series was proven on. Both halves are printed because
+ * both halves gate — the range alone would read as a claim over minor lines
+ * the `verified` map deliberately excludes (agent/src/Policy/
+ * PlatformCompatibility.php:wordpress_supported()).
+ */
+function capdoc_wordpress_label(array $compatibility): string {
+    $wordpress = $compatibility['wordpress'];
+    $patches = array_map('strval', array_values($wordpress['verified']));
+    usort($patches, static fn(string $a, string $b): int => version_compare($a, $b));
+
+    return '>=' . $wordpress['min'] . ' <' . $wordpress['max']
+        . ' (exercised ' . implode(', ', $patches) . ')';
+}
+
+/**
  * A supported_versions entry keyed by `wordpress` pins the claim to core
- * rather than to a plugin artifact; platform.json's last_verified is the one
- * place that number lives, so it is read from there instead of echoing the
- * disposition's own pointer at it.
+ * rather than to a plugin artifact; platform.json's wordpress axis is the one
+ * place those numbers live, so they are read from there instead of echoing
+ * the disposition's own pointer at it.
  */
 function capdoc_version_label(array $supportedVersions, array $platform): string {
     if (isset($supportedVersions['wordpress'])) {
-        return 'WordPress ' . $platform['compatibility']['wordpress']['last_verified'] . ' (exact exercised)';
+        return 'WordPress ' . capdoc_wordpress_label($platform['compatibility']);
     }
     $range = $supportedVersions['range'] ?? null;
     if (is_array($range) && isset($range['min'], $range['max'])) {
@@ -419,7 +435,7 @@ function capdoc_platform_section(array $platform): string {
     $out .= '| Site mode | ' . capdoc_cell((string) $platform['site_mode']) . " |\n";
     $out .= '| Plugin execution | ' . capdoc_cell((string) $platform['plugin_execution']) . " |\n";
     $out .= '| Branchable state | ' . capdoc_cell((string) $platform['branchable_state']) . " |\n";
-    $out .= '| WordPress | ' . capdoc_cell($compatibility['wordpress']['last_verified']) . " (exact exercised) |\n";
+    $out .= '| WordPress | ' . capdoc_cell(capdoc_wordpress_label($compatibility)) . " |\n";
     $out .= '| PHP | >=' . capdoc_cell($compatibility['php']['min']) . ' <'
         . capdoc_cell($compatibility['php']['max']) . " |\n";
     $out .= '| Database | ' . capdoc_cell($compatibility['database']['engine']) . ' >='

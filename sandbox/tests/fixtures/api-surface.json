@@ -1,5 +1,5 @@
 {
-    "class_count": 349,
+    "class_count": 354,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -20490,6 +20490,167 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\Orchestrator\\CheckpointPrune": {
+            "abstract": false,
+            "constants": {
+                "DISCLOSURE_ARTIFACTS_KEPT": {
+                    "value_repr": "only the retained .sql under .duo/checkpoints is removed; the sibling .duo/artifacts/<stem>.json and the frozen authorization plan under .duo/releases are kept, because those are what the code-first gate reads for the checkpoints this prune left in place"
+                },
+                "DISCLOSURE_NEVER_AUTOMATIC": {
+                    "value_repr": "Duo prunes nothing on its own: retained checkpoints are removed only by this explicit operator verb"
+                },
+                "DISCLOSURE_NEWEST_KEPT": {
+                    "value_repr": "the newest retained checkpoints are never deletable: the keep count applies separately to the promote and deploy files, so the most recent before-image of each verb survives every prune"
+                },
+                "FORMAT": {
+                    "value_repr": "duo-checkpoint-prune/v1"
+                },
+                "KEEP_MAX": {
+                    "value_repr": 50
+                },
+                "KEEP_MIN": {
+                    "value_repr": 1
+                },
+                "REASON_GENERATION_ACTIVE": {
+                    "value_repr": "checkpoint_prune_generation_active"
+                },
+                "REASON_MALFORMED": {
+                    "value_repr": "checkpoint_prune_malformed"
+                },
+                "REASON_UNAVAILABLE": {
+                    "value_repr": "checkpoint_prune_unavailable"
+                },
+                "STATUS_ABSENT": {
+                    "value_repr": "absent"
+                },
+                "STATUS_FAILED": {
+                    "value_repr": "failed"
+                },
+                "STATUS_REMOVED": {
+                    "value_repr": "removed"
+                },
+                "STATUS_WOULD_PRUNE": {
+                    "value_repr": "would-prune"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "assertKeep": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "keep",
+                            "type": "int",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "parse": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "stdout",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "plan": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "catalog",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "keep",
+                            "type": "int",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "prune": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "Duo\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rows",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "script": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repoPath",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rows",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\Orchestrator\\ClassificationBatch": {
             "abstract": false,
             "constants": {
@@ -21533,9 +21694,88 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\Orchestrator\\CodePushTransport": {
+            "abstract": true,
+            "constants": [],
+            "final": false,
+            "interfaces": [
+                "Duo\\Orchestrator\\EnvironmentDriver"
+            ],
+            "kind": "interface",
+            "methods": {
+                "allocateCodePushInput": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "label",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "putCodePushInput": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "localPath",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "targetPath",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "removeCodePushInput": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "targetPath",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\Orchestrator\\CodeResolveCommand": {
             "abstract": false,
             "constants": {
+                "PUSH_STAGING": {
+                    "value_repr": ".duo/code-push"
+                },
+                "REASON_PUSH_FAILED": {
+                    "value_repr": "code_resolve_push_failed"
+                },
                 "REASON_TRANSPORT_UNSUPPORTED": {
                     "value_repr": "code_resolve_transport_unsupported"
                 }
@@ -22502,6 +22742,23 @@
             "interfaces": [],
             "kind": "class",
             "methods": {
+                "checkpointRequested": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "extra",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "forceFlags": {
                     "abstract": false,
                     "final": false,
@@ -22584,6 +22841,14 @@
                             "default": null,
                             "has_default": false,
                             "name": "abort",
+                            "type": "callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "printRecovery",
                             "type": "callable",
                             "variadic": false
                         }
@@ -24901,7 +25166,8 @@
             "final": true,
             "interfaces": [
                 "Duo\\Orchestrator\\AdoptionTransport",
-                "Duo\\Orchestrator\\EnvironmentDriver"
+                "Duo\\Orchestrator\\EnvironmentDriver",
+                "Duo\\Orchestrator\\RecoveryTransport"
             ],
             "kind": "class",
             "methods": {
@@ -24930,11 +25196,44 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "allocateControlInput": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "label",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "bootstrapCapability": {
                     "abstract": false,
                     "final": false,
                     "parameters": [],
                     "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "carriesRollbackAuthority": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "checkpointConfigured": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
                     "static": false,
                     "visibility": "public"
                 },
@@ -24963,6 +25262,14 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "codeReleaseConfigured": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "describe": {
                     "abstract": false,
                     "final": false,
@@ -24971,11 +25278,44 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "effectProviderConfigured": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "hostRepoPath": {
                     "abstract": false,
                     "final": false,
                     "parameters": [],
                     "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "putControlInput": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "localPath",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "targetPath",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": false,
                     "visibility": "public"
                 },
@@ -24995,6 +25335,63 @@
                     "return_type": "string",
                     "static": false,
                     "visibility": "protected"
+                },
+                "recoveryConfig": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "recoveryConfigured": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "removeControlInput": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "targetPath",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "rollbackConfigured": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "rollbackKeyId": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "rollbackSigningKeyPath": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
                 },
                 "uploadFile": {
                     "abstract": false,
@@ -25021,6 +25418,14 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "uploadProviderConfigured": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "uploadedFileIdentity": {
                     "abstract": false,
                     "final": false,
@@ -25035,6 +25440,22 @@
                         }
                     ],
                     "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "verifiedRollbackConfig": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "verifiedRollbackConfigured": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
                     "static": false,
                     "visibility": "public"
                 },
@@ -26525,6 +26946,9 @@
                 "CODE_COVERAGE": {
                     "value_repr": "code release"
                 },
+                "CONFIRM_PRUNE_FLAG": {
+                    "value_repr": "--confirm-prune"
+                },
                 "ORDERED_STEPS": {
                     "value_repr": [
                         "abort",
@@ -26532,6 +26956,9 @@
                         "import",
                         "final-abort"
                     ]
+                },
+                "PRUNE_RETAINED_FLAG": {
+                    "value_repr": "--prune-retained"
                 },
                 "SOURCE_NONE": {
                     "value_repr": "unpublished"
@@ -26839,6 +27266,233 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\Orchestrator\\RecoveryConfig": {
+            "abstract": false,
+            "constants": {
+                "KEYS": {
+                    "value_repr": [
+                        "rollback_key_id",
+                        "rollback_recovery",
+                        "rollback_signing_key",
+                        "verified_rollback"
+                    ]
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "configured": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "declaredIn": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "cfg",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "describeSuffix": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "keyId": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "parse": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "name",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "cfg",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "dir",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "Duo\\Orchestrator\\RecoveryConfig",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "providerConfigured": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "provider",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "recovery": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "recoveryConfigured": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "signingKeyPath": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "validateCommand": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "env",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": "mixed",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "label",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validateRecoveryConfig": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "env",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "config",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validateVerifiedRollback": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "env",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "config",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "verified": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\Orchestrator\\RecoveryProfileSelection": {
             "abstract": false,
             "constants": {
@@ -26907,7 +27561,7 @@
                             "default": null,
                             "has_default": false,
                             "name": "transport",
-                            "type": "Duo\\Orchestrator\\SshTransport",
+                            "type": "Duo\\Orchestrator\\RecoveryTransport",
                             "variadic": false
                         },
                         {
@@ -26956,7 +27610,7 @@
                             "default": null,
                             "has_default": false,
                             "name": "transport",
-                            "type": "Duo\\Orchestrator\\SshTransport",
+                            "type": "Duo\\Orchestrator\\RecoveryTransport",
                             "variadic": false
                         },
                         {
@@ -26989,7 +27643,7 @@
                             "default": null,
                             "has_default": false,
                             "name": "transport",
-                            "type": "Duo\\Orchestrator\\SshTransport",
+                            "type": "Duo\\Orchestrator\\RecoveryTransport",
                             "variadic": false
                         },
                         {
@@ -27036,6 +27690,208 @@
                     ],
                     "return_type": "?string",
                     "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\RecoveryTransport": {
+            "abstract": true,
+            "constants": [],
+            "final": false,
+            "interfaces": [
+                "Duo\\Orchestrator\\EnvironmentDriver"
+            ],
+            "kind": "interface",
+            "methods": {
+                "allocateControlInput": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "label",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "captureRaw": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "script",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "carriesRollbackAuthority": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "checkpointConfigured": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "codeReleaseConfigured": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "effectProviderConfigured": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "name": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "putControlInput": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "localPath",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "targetPath",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "recoveryConfig": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "recoveryConfigured": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "removeControlInput": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "targetPath",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "repoPath": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "rollbackConfigured": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "rollbackKeyId": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "rollbackSigningKeyPath": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "uploadProviderConfigured": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "verifiedRollbackConfig": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "verifiedRollbackConfigured": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
                     "visibility": "public"
                 }
             },
@@ -29146,17 +30002,26 @@
         "Duo\\Orchestrator\\RetainedCheckpoints": {
             "abstract": false,
             "constants": {
+                "DEPLOY_ID_PREFIX": {
+                    "value_repr": "deploy-"
+                },
                 "DISCLOSURE_NO_IDENTITY": {
                     "value_repr": "a retained checkpoint whose compiled artifact is gone has no lease identity and cannot be restored by this command; recover it through the provider that owns the target's backups"
                 },
                 "DISCLOSURE_RETAINED": {
-                    "value_repr": "retained release checkpoints are the plain database checkpoints promote kept under .duo/checkpoints; restoring one drives the operator-directed path (abort, begin, isolated import, final abort)"
+                    "value_repr": "retained release checkpoints are the plain database checkpoints promote and deploy kept under .duo/checkpoints; restoring one drives the operator-directed path (abort, begin, isolated import, final abort)"
                 },
                 "DISCLOSURE_SUPERSEDED": {
                     "value_repr": "a retained checkpoint older than the target's latest begun promotion session is refused at step 1 with promotion_abort_session_superseded; an obsolete checkpoint is not a safe recovery source, so recover that release through the provider that owns the target's backups instead"
                 },
                 "ID_PREFIX": {
                     "value_repr": "promote-"
+                },
+                "ID_PREFIXES": {
+                    "value_repr": [
+                        "promote-",
+                        "deploy-"
+                    ]
                 },
                 "KIND": {
                     "value_repr": "retained-release-checkpoint"
@@ -29190,6 +30055,14 @@
                             "has_default": false,
                             "name": "row",
                             "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": "self::ID_PREFIX",
+                            "has_default": true,
+                            "name": "prefix",
+                            "type": "string",
                             "variadic": false
                         }
                     ],
@@ -29264,6 +30137,23 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "prefixForRow": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "row",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "row": {
                     "abstract": false,
                     "final": false,
@@ -29297,6 +30187,14 @@
                             "default": null,
                             "has_default": false,
                             "name": "now",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": "self::ID_PREFIX",
+                            "has_default": true,
+                            "name": "prefix",
                             "type": "string",
                             "variadic": false
                         }
@@ -29343,7 +30241,7 @@
                             "default": null,
                             "has_default": false,
                             "name": "transport",
-                            "type": "Duo\\Orchestrator\\SshTransport",
+                            "type": "Duo\\Orchestrator\\RecoveryTransport",
                             "variadic": false
                         }
                     ],
@@ -29539,7 +30437,7 @@
                             "default": null,
                             "has_default": false,
                             "name": "transport",
-                            "type": "Duo\\Orchestrator\\SshTransport",
+                            "type": "Duo\\Orchestrator\\RecoveryTransport",
                             "variadic": false
                         }
                     ],
@@ -29556,7 +30454,7 @@
                             "default": null,
                             "has_default": false,
                             "name": "transport",
-                            "type": "Duo\\Orchestrator\\SshTransport",
+                            "type": "Duo\\Orchestrator\\RecoveryTransport",
                             "variadic": false
                         }
                     ],
@@ -30109,7 +31007,7 @@
                             "default": null,
                             "has_default": false,
                             "name": "transport",
-                            "type": "Duo\\Orchestrator\\SshTransport",
+                            "type": "Duo\\Orchestrator\\RecoveryTransport",
                             "variadic": false
                         }
                     ],
@@ -30126,7 +31024,7 @@
                             "default": null,
                             "has_default": false,
                             "name": "transport",
-                            "type": "Duo\\Orchestrator\\SshTransport",
+                            "type": "Duo\\Orchestrator\\RecoveryTransport",
                             "variadic": false
                         }
                     ],
@@ -30143,7 +31041,7 @@
                             "default": null,
                             "has_default": false,
                             "name": "transport",
-                            "type": "Duo\\Orchestrator\\SshTransport",
+                            "type": "Duo\\Orchestrator\\RecoveryTransport",
                             "variadic": false
                         }
                     ],
@@ -30234,7 +31132,7 @@
                             "default": null,
                             "has_default": false,
                             "name": "transport",
-                            "type": "Duo\\Orchestrator\\SshTransport",
+                            "type": "Duo\\Orchestrator\\RecoveryTransport",
                             "variadic": false
                         }
                     ],
@@ -30422,7 +31320,7 @@
                             "default": null,
                             "has_default": false,
                             "name": "transport",
-                            "type": "Duo\\Orchestrator\\SshTransport",
+                            "type": "Duo\\Orchestrator\\RecoveryTransport",
                             "variadic": false
                         },
                         {
@@ -30489,7 +31387,9 @@
             "final": true,
             "interfaces": [
                 "Duo\\Orchestrator\\AdoptionTransport",
-                "Duo\\Orchestrator\\EnvironmentDriver"
+                "Duo\\Orchestrator\\CodePushTransport",
+                "Duo\\Orchestrator\\EnvironmentDriver",
+                "Duo\\Orchestrator\\RecoveryTransport"
             ],
             "kind": "class",
             "methods": {
@@ -30518,11 +31418,53 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "allocateCodePushInput": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "label",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "allocateControlInput": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "label",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "bootstrapCapability": {
                     "abstract": false,
                     "final": false,
                     "parameters": [],
                     "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "carriesRollbackAuthority": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
                     "static": false,
                     "visibility": "public"
                 },
@@ -30558,6 +31500,56 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "putCodePushInput": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "localPath",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "targetPath",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "putControlInput": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "localPath",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "targetPath",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "rawCommand": {
                     "abstract": false,
                     "final": false,
@@ -30588,6 +31580,40 @@
                     "final": false,
                     "parameters": [],
                     "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "removeCodePushInput": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "targetPath",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "removeControlInput": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "targetPath",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": false,
                     "visibility": "public"
                 },
@@ -31251,7 +32277,7 @@
                     ],
                     "return_type": "string",
                     "static": true,
-                    "visibility": "protected"
+                    "visibility": "public"
                 },
                 "runCapturing": {
                     "abstract": false,
@@ -31450,7 +32476,7 @@
                             "default": null,
                             "has_default": false,
                             "name": "transport",
-                            "type": "Duo\\Orchestrator\\SshTransport",
+                            "type": "Duo\\Orchestrator\\RecoveryTransport",
                             "variadic": false
                         }
                     ],
@@ -31614,7 +32640,7 @@
                             "default": null,
                             "has_default": false,
                             "name": "transport",
-                            "type": "Duo\\Orchestrator\\SshTransport",
+                            "type": "Duo\\Orchestrator\\RecoveryTransport",
                             "variadic": false
                         },
                         {
@@ -49499,6 +50525,26 @@
                             "variadic": false
                         }
                     ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\SiteTopology": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "assert_single_site": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
                     "return_type": "void",
                     "static": true,
                     "visibility": "public"

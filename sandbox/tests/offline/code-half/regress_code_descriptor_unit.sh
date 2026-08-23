@@ -30,6 +30,7 @@ use Duo\CodeCompatibility;
 use Duo\CompiledRepository;
 use Duo\OptionState;
 use Duo\Policy;
+use Duo\CommandRefusalException;
 use Duo\RepositoryCompilationException;
 use Duo\RepositoryCompiler;
 
@@ -448,10 +449,14 @@ assert_test((scandir($target) ?: []) === ['.', '..'], 'legacy child-theme refusa
 // defer a malformed current relation or a legacy child ambiguity until stage.
 $currentMismatchArtifact = $repo . '/.loader-current-mismatch.json';
 $stageCompiled->write($currentMismatchArtifact);
+// The loader's own identity gates are typed refusals now, not compiler
+// batches (agent/src/Repository/CompiledArtifactReader.php:86-91): a deployed
+// site whose artifact and policy disagree gets its own top-level reason code.
+// The diagnostic code and the operator sentence below are unchanged.
 try {
     RepositoryCompiler::read_artifact($currentMismatchArtifact, Policy::load($repo));
     fail_test('artifact loader accepted a current child Template mismatch');
-} catch (RepositoryCompilationException $e) {
+} catch (CommandRefusalException $e) {
     assert_test(
         in_array('compiled_artifact_code_state_mismatch', array_column($e->diagnostics, 'code'), true),
         'current child mismatch loader refusal was not structured'
@@ -462,7 +467,7 @@ $legacyStageCompiled->write($legacyChildArtifact);
 try {
     RepositoryCompiler::read_artifact($legacyChildArtifact, Policy::load($repo));
     fail_test('artifact loader accepted a frozen legacy child descriptor without linkage');
-} catch (RepositoryCompilationException $e) {
+} catch (CommandRefusalException $e) {
     assert_test(
         in_array('compiled_artifact_code_state_mismatch', array_column($e->diagnostics, 'code'), true),
         'legacy child loader refusal was not structured'

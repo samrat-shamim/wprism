@@ -8,6 +8,14 @@ use Duo\Recovery\RollbackControl;
 /**
  * Checkpoint-only authority for one SSH scoped state-promotion window.
  *
+ * The typehints below name `RecoveryTransport` for one reason only: this
+ * profile drives `RollbackAuthority`, and that class is now typed on the
+ * capability interface. The DISPATCH gate stays SSH-only at cli/duo:1752 and
+ * keeps its exact `scoped_promotion_unavailable` envelope — the seal
+ * semantics a scope contract carries (docs/recovery-runtime.md) are certified
+ * on the SSH harness alone, and widening them is a separate issue from
+ * widening verified rollback.
+ *
  * This is intentionally a sibling of VerifiedRollbackProfile, not a mode on
  * it.  A scope contract excludes code/lifecycle semantics, so this profile
  * admits only the externally excluded encrypted-database checkpoint needed to
@@ -18,9 +26,9 @@ use Duo\Recovery\RollbackControl;
  */
 final class ScopedRollbackProfile {
     private RollbackAuthority $authority;
-    private SshTransport $transport;
+    private RecoveryTransport $transport;
 
-    public function __construct(SshTransport $transport) {
+    public function __construct(RecoveryTransport $transport) {
         $this->transport = $transport;
         $this->authority = new RollbackAuthority($transport);
     }
@@ -31,7 +39,7 @@ final class ScopedRollbackProfile {
      * @return array{automatic:bool,reason:string,status:array<string,mixed>}
      */
     public static function select(
-        SshTransport $transport,
+        RecoveryTransport $transport,
         array $plan,
         string $scopeHash,
         bool $allowDeletes = false,

@@ -263,6 +263,15 @@ docker volume create \
 VOLUME_OWNED=1
 ssh-keygen -q -t ed25519 -N '' -f "$TMP/id_ed25519"
 pass "labeled standalone image, network, volume, and one-run SSH credential created"
+# The SSH estate installs WordPress from wp.org; without a version it floats to
+# whatever core is current that day and silently leaves the exercised platform
+# boundary (measured 2026-08-24: `wp core download` fetched 7.1 while the claim
+# still stopped at 7.1.0 — the 7.1 series has since been claimed, but a floating
+# fetch would leave the boundary again on the next release either way). Pin to
+# the newest exercised core the claim itself names, read from the shipped
+# boundary so estate and claim cannot drift apart.
+WP_CORE_VERSION="$(jq -r '.platform.compatibility.wordpress.last_verified' manifests/capabilities/platform.json)"
+[[ "$WP_CORE_VERSION" =~ ^[0-9]+(\.[0-9]+){1,3}$ ]] || fail "platform.json names no usable last_verified WordPress core"
 
 say "start an independent database and initialize WordPress core"
 docker run -d --name "$DB" --network "$NET" \
@@ -282,7 +291,7 @@ done
 docker exec "$DB" mariadb-admin ping -h 127.0.0.1 -uroot -proot-pass --silent >/dev/null 2>&1 \
   || fail "database never became ready"
 docker run --rm --user root --network "$NET" -v "$VOLUME:/var/www/html" wordpress:cli-php8.3 \
-  sh -lc 'php -d memory_limit=512M /usr/local/bin/wp core download --path=/var/www/html --allow-root --quiet && chown -R 1000:1000 /var/www/html'
+  sh -lc 'php -d memory_limit=512M /usr/local/bin/wp core download --version="'"$WP_CORE_VERSION"'" --path=/var/www/html --allow-root --quiet && chown -R 1000:1000 /var/www/html'
 pass "WordPress files initialized without sharing the Duo checkout"
 
 say "start the target and expose only its SSH port"

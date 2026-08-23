@@ -5,8 +5,10 @@ namespace Duo\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
+require_once __DIR__ . '/../Transport/RecoveryTransport.php';
 require_once __DIR__ . '/../Transport/CodeDeploy.php';
 require_once __DIR__ . '/../Recovery/CheckpointCatalog.php';
+require_once __DIR__ . '/../Recovery/CheckpointPrune.php';
 require_once __DIR__ . '/../Recovery/RecoveryClaim.php';
 require_once __DIR__ . '/../Recovery/RetainedCheckpoints.php';
 require_once __DIR__ . '/../Recovery/RollbackAuthority.php';
@@ -70,18 +72,42 @@ use Duo\CommandRefusalException;
  * ## Which targets
  *
  * Every transport. The signed catalog and the signed rollback need the
- * adopted rollback authority runtime, which only an SSH-adopted target has;
+ * adopted rollback authority runtime, which an adopted target carries only
+ * when its rollback authority is configured (`RecoveryTransport`);
  * the retained release checkpoints (`RetainedCheckpoints`) exist on every
  * target that ever ran an operator-directed promotion, and they are restored
  * through the operator-directed four steps, which need nothing but `wp`.
  * A local or docker target therefore lists and restores its retained
  * checkpoints, and the frozen plan's `operator-directed` claim on that
  * transport is a claim this verb honours — `grind_mup.sh` step 11 is that
- * property as a gate. The `recovery_authority_unavailable` refusal is kept
- * for the one thing a non-SSH target genuinely cannot do: a signed rollback.
+ * property as a gate. The `recovery_authority_unavailable` refusal is kept,
+ * byte for byte, for the one thing a target with no configured rollback
+ * authority genuinely cannot do: a signed rollback.
  *
- * Exit status: `0` a completed listing or recovery, `1` any refusal or a
- * recovery that did not reach its terminal state.
+ * ## Pruning is a verb, never a policy
+ *
+ * `--prune-retained=<keep-n>` is the only thing in the product that removes a
+ * retained release checkpoint, and nothing removes one automatically. It lives
+ * on THIS verb because `flags()` below is already the closed grammar over this
+ * catalog and `CheckpointCatalog::list()` is already the single read that
+ * names every retained row; a separate `duo checkpoints` verb would duplicate
+ * the catalog read, the `--limit` grammar and a help block in order to own an
+ * `rm`. `CheckpointPrune`'s docblock carries the five safety rules and why
+ * `retention_until` stays null; two of them matter here:
+ *
+ *  - **The default is a plan.** `--prune-retained=<n>` alone prints what it
+ *    would remove and issues no mutating call at all. Deletion needs
+ *    `--confirm-prune`. `--dry-run` was rejected as the spelling because it
+ *    would make deletion the default, which is the wrong fail direction for
+ *    the only before-image a target holds.
+ *  - **No writer exclusion.** `--writers-excluded` asserts one exact fact
+ *    about a whole-database import (rule 1 above); a prune imports nothing and
+ *    takes no lease, so combining the two is `invalid_arguments` rather than
+ *    an accepted no-op that would re-teach the flag as generic danger.
+ *
+ * Exit status: `0` a completed listing, prune or recovery, `1` any refusal, a
+ * prune the target could not complete, or a recovery that did not reach its
+ * terminal state.
  */
 final class RecoverCommand {
     /** The four ordered steps of the operator-directed path (§2.5). */
@@ -89,6 +115,12 @@ final class RecoverCommand {
 
     /** The flag that asserts a real external maintenance window. */
     public const WRITERS_EXCLUDED_FLAG = '--writers-excluded';
+
+    /** The only verb in the product that removes a retained checkpoint. */
+    public const PRUNE_RETAINED_FLAG = '--prune-retained';
+
+    /** Without it a prune prints a plan and issues no mutating call. */
+    public const CONFIRM_PRUNE_FLAG = '--confirm-prune';
 
     /**
      * What a failed step reports when the target sent no classified refusal —
@@ -130,6 +162,26 @@ final class RecoverCommand {
             return AssessCommand::renderRefusal($refusal, $json, 'recover');
         }
 
+        // Before the listing branch, because a prune is a different request
+        // over the same catalog and `flags()` has already refused the two
+        // being asked for together.
+        if ($flags['prune_retained'] !== null) {
+            try {
+                $document = self::prune($driver, $catalog, $flags);
+            } catch (CommandRefusalException $refusal) {
+                return AssessCommand::renderRefusal($refusal, $json, 'recover');
+            }
+            if ($json) {
+                echo self::encode($document);
+            } else {
+                foreach (self::pruneLines($document, $flags['limit']) as $line) {
+                    echo $line . "\n";
+                }
+            }
+
+            return $document['ok'] === true ? 0 : 1;
+        }
+
         if ($flags['restore'] === null) {
             if ($json) {
                 echo self::encode($catalog);
@@ -159,6 +211,99 @@ final class RecoverCommand {
         }
 
         return $outcome['recovered'] === true ? 0 : 1;
+    }
+
+    /**
+     * Plan, or perform, one prune of the retained release checkpoints.
+     *
+     * The decision is `CheckpointPrune::plan()`, on the catalog this
+     * invocation already read, so the rows a prune names are literally the
+     * rows `--list` would have printed. Without `--confirm-prune` this issues
+     * ZERO mutating calls — `CheckpointPrune::prune()` is not reached at all —
+     * which is what makes "the default is a plan" a property of the code path
+     * rather than of a message.
+     *
+     * @param array<string,mixed> $catalog
+     * @param array<string,mixed> $flags
+     * @return array<string,mixed> a `CheckpointPrune::FORMAT` document
+     */
+    private static function prune(EnvironmentDriver $transport, array $catalog, array $flags): array {
+        $keep = (int) $flags['prune_retained'];
+        $plan = CheckpointPrune::plan($catalog, $keep);
+        $confirmed = $flags['confirm_prune'] === true;
+
+        $outcomes = [];
+        if ($confirmed) {
+            foreach (CheckpointPrune::prune($transport, $plan['delete']) as $outcome) {
+                $outcomes[$outcome['id']] = $outcome['status'];
+            }
+        }
+
+        $ok = true;
+        $pruned = [];
+        foreach ($plan['delete'] as $row) {
+            $id = (string) $row['id'];
+            $status = $confirmed
+                ? ($outcomes[$id] ?? CheckpointPrune::STATUS_FAILED)
+                : CheckpointPrune::STATUS_WOULD_PRUNE;
+            $ok = $ok && $status !== CheckpointPrune::STATUS_FAILED;
+            $pruned[] = ['created_at' => $row['created_at'], 'id' => $id, 'status' => $status];
+        }
+        $kept = [];
+        foreach ($plan['keep'] as $row) {
+            $kept[] = ['created_at' => $row['created_at'], 'id' => (string) $row['id']];
+        }
+
+        return [
+            'confirmed' => $confirmed,
+            'disclosures' => $plan['disclosures'],
+            'environment' => $transport->name(),
+            'format' => CheckpointPrune::FORMAT,
+            'keep' => $keep,
+            'kept' => $kept,
+            'ok' => $ok,
+            'pruned' => $pruned,
+        ];
+    }
+
+    /**
+     * The human view of a prune.
+     *
+     * The row vocabulary is the outcome, uppercased, in the same shape
+     * `CheckpointCatalog::humanLines()` uses for a catalog row: two spaces of
+     * indent, the id, then the fact. Disclosures print as `note:` lines for
+     * the same reason they do there (:322-324) — the absence a prune leaves
+     * behind is printed, not implied.
+     *
+     * @param array<string,mixed> $document
+     * @return list<string>
+     */
+    private static function pruneLines(array $document, int $limit): array {
+        $pruned = (array) $document['pruned'];
+        $kept = (array) $document['kept'];
+        $confirmed = $document['confirmed'] === true;
+        $lines = ['prune retained checkpoints on ' . (string) $document['environment']
+            . ': keep ' . (string) $document['keep'] . ' per verb'];
+        foreach (array_slice($pruned, 0, $limit) as $row) {
+            $lines[] = '  ' . strtoupper((string) $row['status']) . ' ' . (string) $row['id']
+                . '  ' . (is_string($row['created_at'] ?? null) ? (string) $row['created_at'] : 'unknown');
+        }
+        if (count($pruned) > $limit) {
+            $lines[] = '  ' . (count($pruned) - $limit) . ' more (use --format=json)';
+        }
+        $lines[] = $confirmed
+            ? 'pruned ' . count($pruned) . ', kept ' . count($kept)
+            : 'would prune ' . count($pruned) . ', keep ' . count($kept);
+        if (!$confirmed) {
+            // The one line that turns a plan into a deletion, printed where
+            // the operator just read what it would remove.
+            $lines[] = 'nothing was removed: re-run with --confirm-prune to remove exactly the rows above';
+        }
+        foreach ((array) $document['disclosures'] as $disclosure) {
+            $lines[] = 'note: ' . (string) $disclosure;
+        }
+
+        return $lines;
     }
 
     /**
@@ -195,6 +340,32 @@ final class RecoverCommand {
             );
         }
 
+        // Proved BEFORE step 1, where this file's own doctrine puts every
+        // pre-condition (see operatorDirected()'s comment on the checkpoint
+        // read): refusing here drives zero steps and touches no lease. Step 3
+        // is a stock `wp db import` (CodeDeploy::recoveryDbImportArgs()), which
+        // on a network replaces every blog plus wp_users/wp_blogs/wp_sitemeta
+        // — this is the most destructive verb in the product and it was the
+        // only one with no topology gate at any layer. `--list` above stays
+        // un-gated: it is read-only.
+        $topology = $transport->captureWp(CodeDeploy::controlArgs(
+            ['eval', 'echo is_multisite() ? "multisite" : "single-site";']
+        ));
+        $observed = ($topology['exit'] ?? 1) === 0 ? trim((string) ($topology['stdout'] ?? '')) : '';
+        if ($observed !== 'single-site') {
+            // Fail closed on an unreadable answer, deliberately and with no
+            // override flag: a target too broken to say whether it is a network
+            // is too broken to import a whole database into.
+            throw new CommandRefusalException(
+                $observed === '' ? 'recover_topology_unknown' : 'recover_topology_unsupported',
+                $observed === ''
+                    ? 'the target could not answer whether it is a single-site installation, and recovery imports a whole database'
+                    : 'this recovery path restores single-site installations only',
+                'recover a single-site installation; a whole-database import on a network restores every blog and '
+                    . 'the network tables, which is outside the certified v1 contract'
+            );
+        }
+
         $resolved = self::claim($row);
         $claim = $resolved['claim'];
         // Printed BEFORE acting, always, in both channels: the operator has
@@ -219,7 +390,7 @@ final class RecoverCommand {
         // false. `--operator-directed` forces that path explicitly.
         $signed = $row['kind'] === CheckpointCatalog::KIND_VERIFIED
             && $flags['operator_directed'] !== true
-            && $transport instanceof SshTransport
+            && $transport instanceof RecoveryTransport
             && $transport->rollbackConfigured();
 
         self::assertCodeFirst($transport, $row, $signed);
@@ -252,7 +423,7 @@ final class RecoverCommand {
      *
      * @return array{recovered:bool,steps:list<array<string,mixed>>}
      */
-    private static function signedRollback(SshTransport $transport): array {
+    private static function signedRollback(RecoveryTransport $transport): array {
         $profile = new VerifiedRollbackProfile($transport);
         try {
             $status = $profile->rollback(true, true, true);
@@ -573,7 +744,12 @@ final class RecoverCommand {
      *
      * `cli/duo`'s `cmd_promote_internal()` writes it at
      * `<repo>/.duo/checkpoints/promote-<owner>.sql`, and the receipt names the
-     * owner, so the path is derived rather than guessed. Its presence and
+     * owner, so the path is derived rather than guessed. `DeployCommand::run()`
+     * is the second writer, at `<repo>/.duo/checkpoints/deploy-<owner>.sql`;
+     * `RetainedCheckpoints::prefixForRow()` reads which of the two a catalog
+     * row came from off the row's own id and returns promote's prefix for a
+     * signed receipt, so the verified path resolves to exactly the string it
+     * always did. Its presence and
      * non-emptiness are proved before the import: an empty checkpoint is
      * evidence of an interrupted export, not a checkpoint.
      */
@@ -586,9 +762,13 @@ final class RecoverCommand {
                 'inspect private operator evidence for this target before recovering'
             );
         }
-        // Both sources agree on the path: promote wrote it, and the signed
-        // receipt's owner names the same file.
-        $path = RetainedCheckpoints::checkpointPath($transport->repoPath(), $row);
+        // Both sources agree on the path: the release verb wrote it, and the
+        // signed receipt's owner names the same file.
+        $path = RetainedCheckpoints::checkpointPath(
+            $transport->repoPath(),
+            $row,
+            RetainedCheckpoints::prefixForRow($row)
+        );
         $probe = $transport->captureRaw('test -s ' . escapeshellarg($path));
         if (($probe['exit'] ?? 1) !== 0) {
             throw new CommandRefusalException(
@@ -698,13 +878,17 @@ final class RecoverCommand {
     }
 
     /**
-     * Only an SSH target carries the rollback authority runtime, which is
-     * what every action in `recovery/rollback-control.php` is reached
-     * through. It is needed for the signed rollback alone; the listing and
-     * the operator-directed restore work on every transport.
+     * Only a transport that carries the rollback authority runtime can be
+     * driven through `recovery/rollback-control.php`, which is what every
+     * signed action is reached through. It is needed for the signed rollback
+     * alone; the listing and the operator-directed restore work on every
+     * transport.
+     *
+     * The refusal below stays byte-identical: widening the type widens WHICH
+     * transports can answer, never what a transport that cannot answer says.
      */
-    private static function authorityTransport(EnvironmentDriver $driver): SshTransport {
-        if ($driver instanceof SshTransport) {
+    private static function authorityTransport(EnvironmentDriver $driver): RecoveryTransport {
+        if ($driver instanceof RecoveryTransport) {
             return $driver;
         }
         throw new CommandRefusalException(
@@ -760,9 +944,11 @@ final class RecoverCommand {
      */
     private static function flags(array $extra): array {
         $out = [
+            'confirm_prune' => false,
             'limit' => 50,
             'list' => false,
             'operator_directed' => false,
+            'prune_retained' => null,
             'restore' => null,
             'writers_excluded' => false,
         ];
@@ -789,6 +975,23 @@ final class RecoverCommand {
                 case '--operator-directed':
                     $out['operator_directed'] = true;
                     break;
+                case self::PRUNE_RETAINED_FLAG:
+                    // The bound is in the GRAMMAR, not in a later check: 0 is
+                    // not expressible, so "delete the only before-image" has
+                    // no spelling (CheckpointPrune's rule 1).
+                    if ($out['prune_retained'] !== null
+                        || $value === null
+                        || preg_match('/^(?:[1-9]|[1-4][0-9]|50)$/D', $value) !== 1) {
+                        throw self::invalidArguments(
+                            self::PRUNE_RETAINED_FLAG . ' must be a single value between '
+                                . CheckpointPrune::KEEP_MIN . ' and ' . CheckpointPrune::KEEP_MAX
+                        );
+                    }
+                    $out['prune_retained'] = (int) $value;
+                    break;
+                case self::CONFIRM_PRUNE_FLAG:
+                    $out['confirm_prune'] = true;
+                    break;
                 case '--limit':
                     if ($limitSeen
                         || $value === null
@@ -808,6 +1011,28 @@ final class RecoverCommand {
         if ($out['list'] && $out['restore'] !== null) {
             throw self::invalidArguments('--list and --restore are separate requests');
         }
+        if ($out['prune_retained'] !== null && ($out['list'] || $out['restore'] !== null)) {
+            throw self::invalidArguments(
+                self::PRUNE_RETAINED_FLAG . ', --list and --restore are separate requests'
+            );
+        }
+        if ($out['prune_retained'] !== null && $out['writers_excluded']) {
+            // Refused rather than ignored. That flag asserts one exact fact —
+            // the checkpoint carries its own promotion lease row, so the
+            // exclusion has to be external to the database being imported
+            // (restore()'s writer_exclusion_required refusal). A prune imports
+            // nothing and takes no lease; accepting the assertion here would
+            // re-teach it as a generic danger acknowledgement.
+            throw self::invalidArguments(
+                self::WRITERS_EXCLUDED_FLAG . ' asserts a maintenance window for a whole-database import and '
+                    . 'means nothing for a file removal; ' . self::PRUNE_RETAINED_FLAG . ' does not accept it'
+            );
+        }
+        if ($out['confirm_prune'] && $out['prune_retained'] === null) {
+            throw self::invalidArguments(
+                self::CONFIRM_PRUNE_FLAG . ' confirms a prune, so it requires ' . self::PRUNE_RETAINED_FLAG . '=<keep-n>'
+            );
+        }
 
         return $out;
     }
@@ -817,7 +1042,9 @@ final class RecoverCommand {
             'invalid_arguments',
             $message,
             'duo recover <env> accepts --list, --restore=<checkpoint>, ' . self::WRITERS_EXCLUDED_FLAG
-                . ', --operator-directed, --limit=<1..200> and --format=json'
+                . ', --operator-directed, ' . self::PRUNE_RETAINED_FLAG . '=<'
+                . CheckpointPrune::KEEP_MIN . '..' . CheckpointPrune::KEEP_MAX . '>, '
+                . self::CONFIRM_PRUNE_FLAG . ', --limit=<1..200> and --format=json'
         );
     }
 }

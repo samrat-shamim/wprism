@@ -190,12 +190,44 @@ abstract class Transport implements EnvironmentDriver {
             return ['exit' => 255, 'stdout' => '', 'stderr' => 'failed to start process'];
         }
         fclose($pipes[0]);
-        $stdout = stream_get_contents($pipes[1]) ?: '';
-        $stderr = stream_get_contents($pipes[2]) ?: '';
-        fclose($pipes[1]);
-        fclose($pipes[2]);
+        // Drain BOTH pipes concurrently. The previous sequential reads
+        // (stream_get_contents(stdout) then stderr) deadlocked whenever the
+        // child filled the ~64KB stderr pipe buffer before closing stdout:
+        // the child blocks writing stderr, this process blocks reading stdout,
+        // and neither ever proceeds. Measured 2026-08-24: the SSH rollback
+        // certification's `duo adopt` install script hung exactly there on two
+        // consecutive runs (an idle sshd-session on the target, a live mux
+        // client on the host, zero remote processes), and a 200KB-stderr
+        // child reproduces the hang in isolation. select-based draining is
+        // order-independent, so a chatty child can interleave its streams
+        // however it likes.
+        stream_set_blocking($pipes[1], false);
+        stream_set_blocking($pipes[2], false);
+        $buffers = [1 => '', 2 => ''];
+        $open = [1 => $pipes[1], 2 => $pipes[2]];
+        while ($open !== []) {
+            $read = array_values($open);
+            $write = null;
+            $except = null;
+            if (stream_select($read, $write, $except, null) === false) {
+                break;
+            }
+            foreach ($read as $stream) {
+                $fd = $stream === $pipes[1] ? 1 : 2;
+                $chunk = fread($stream, 65536);
+                if ($chunk === false || ($chunk === '' && feof($stream))) {
+                    fclose($stream);
+                    unset($open[$fd]);
+                    continue;
+                }
+                $buffers[$fd] .= $chunk;
+            }
+        }
+        foreach ($open as $stream) {
+            fclose($stream);
+        }
         $exit = proc_close($proc);
-        return ['exit' => $exit, 'stdout' => $stdout, 'stderr' => $stderr];
+        return ['exit' => $exit, 'stdout' => $buffers[1], 'stderr' => $buffers[2]];
     }
 
     /** @param array<string, mixed> $cfg */
@@ -208,8 +240,13 @@ abstract class Transport implements EnvironmentDriver {
         return $v;
     }
 
-    /** Resolve a possibly-relative filesystem path against the directory that defined it. */
-    protected static function resolvePath(string $dir, string $path): string {
+    /**
+     * Resolve a possibly-relative filesystem path against the directory that
+     * defined it. Public because `RecoveryConfig::parse()` resolves
+     * `rollback_signing_key` for whichever transport is parsing it, and a
+     * private copy there would be a second answer to one question.
+     */
+    public static function resolvePath(string $dir, string $path): string {
         if ($path === '' || $path[0] === '/') {
             return $path;
         }

@@ -30,6 +30,14 @@
 # prints on a local/docker target is a claim this verb honours (grind_mup.sh
 # step 11).
 #
+# A standalone `duo deploy` is the second writer, at
+# `.duo/checkpoints/deploy-<owner>.sql`. The property this suite adds is that
+# the file-name prefix is the ONLY difference that reaches `duo recover`: the
+# row lists under the same kind, --writers-excluded is required for it just the
+# same, the four ordered steps are the same steps under the lease identity read
+# from its own sibling artifact, and an absent one refuses the way an absent
+# promote checkpoint does.
+#
 # Offline: no docker, no WordPress, no network, no real ssh, no real target.
 set -uo pipefail
 
@@ -77,6 +85,18 @@ recover_plain() {
   local name="$1"; shift
   : > "$DUO_WP_CALLS"
   ( cd "$SITE" && php "$ROOT/cli/duo" --envs-file="$TMP/f/envs.json" recover plain "$@" ) \
+    > "$TMP/$name.txt" 2> "$TMP/$name.err"
+  local status=$?
+  cat "$TMP/$name.err" >> "$TMP/$name.txt"
+  return $status
+}
+# recover_configured <name> [args...] -> the same target and the same local
+# transport, but through the environment that DID configure a rollback
+# authority.
+recover_configured() {
+  local name="$1"; shift
+  : > "$DUO_WP_CALLS"
+  ( cd "$SITE" && php "$ROOT/cli/duo" --envs-file="$TMP/f/envs.json" recover configured "$@" ) \
     > "$TMP/$name.txt" 2> "$TMP/$name.err"
   local status=$?
   cat "$TMP/$name.err" >> "$TMP/$name.txt"
@@ -131,6 +151,68 @@ grep -Fq 'lease row' "$TMP/noexclusion.txt" \
 [ -s "$DUO_WP_CALLS" ] \
   && fail 'a refused restore still touched the target' \
   || pass 'a refused restore runs nothing at all — not even step 1'
+
+# ------------------------------------------------------------- topology first
+# `duo recover` is the most destructive verb in the product and was the only one
+# with no topology gate at any layer: step 3 is a stock `wp db import`
+# (CodeDeploy::recoveryDbImportArgs()), which on a network replaces every blog
+# plus wp_users/wp_blogs/wp_sitemeta. The refusal lands where this file's own
+# "Proved BEFORE step 1" doctrine puts every pre-condition: zero steps, no lease
+# touched.
+say 'a network refuses before step 1'
+DUO_RECOVER_STATUS="$TMP/f/status/database-only.json" DUO_TOPOLOGY=multisite \
+  recover "network" --restore=receipt-recover-fixture --writers-excluded --format=json
+STATUS=$?
+[ "$STATUS" = 1 ] && pass 'a multisite target refuses (exit 1)' \
+  || fail "a multisite restore exited $STATUS"
+php -r '
+$doc = json_decode((string) file_get_contents($argv[1]), true);
+if (!is_array($doc)) {
+    fwrite(STDERR, "FAIL: the multisite refusal produced no JSON document\n");
+    exit(1);
+}
+$fail = [];
+if (($doc["format"] ?? null) !== "duo-command-refusal/v1") { $fail[] = "not a duo-command-refusal/v1 envelope"; }
+if (($doc["reason_code"] ?? null) !== "recover_topology_unsupported") {
+    $fail[] = "reason_code is " . var_export($doc["reason_code"] ?? null, true);
+}
+if (!str_contains((string) ($doc["message"] ?? ""), "single-site installations only")) {
+    $fail[] = "the message does not name the single-site boundary";
+}
+if (!str_contains((string) ($doc["remediation"] ?? ""), "restores every blog and the network tables")) {
+    $fail[] = "the remediation does not say what a whole-database import does to a network";
+}
+if ($fail !== []) { fwrite(STDERR, "FAIL: " . implode(" | ", $fail) . "\n"); exit(1); }
+echo "ok: the multisite refusal is one duo-command-refusal/v1 naming recover_topology_unsupported\n";
+' "$TMP/network.txt" || fail 'the multisite refusal envelope is wrong'
+STEPS="$(wp_steps | tr '\n' ' ')"
+[ -z "${STEPS// /}" ] \
+  && pass 'a network drives ZERO steps: no abort, no begin, no db import' \
+  || fail "the multisite refusal still ran steps: $STEPS"
+
+# Fail-closed, deliberately and with no override flag: a target too broken to
+# say whether it is a network is too broken to import a whole database into.
+DUO_RECOVER_STATUS="$TMP/f/status/database-only.json" DUO_TOPOLOGY_EXIT=17 \
+  recover "unknowntopology" --restore=receipt-recover-fixture --writers-excluded --format=json
+STATUS=$?
+[ "$STATUS" = 1 ] && pass 'an unreadable topology answer refuses (exit 1)' \
+  || fail "an unreadable topology answer exited $STATUS"
+grep -Fq '"reason_code":"recover_topology_unknown"' "$TMP/unknowntopology.txt" \
+  && pass 'and gets its own reason code, distinct from a target that said multisite' \
+  || { fail 'an unreadable topology answer did not name recover_topology_unknown'; sed -n '1,10p' "$TMP/unknowntopology.txt" >&2; }
+STEPS="$(wp_steps | tr '\n' ' ')"
+[ -z "${STEPS// /}" ] \
+  && pass 'and drives zero steps as well' \
+  || fail "the unknown-topology refusal still ran steps: $STEPS"
+
+# --list is read-only, so it stays un-gated on a network.
+DUO_RECOVER_STATUS="$TMP/f/status/code.json" DUO_TOPOLOGY=multisite recover "networklist" --list
+STATUS=$?
+[ "$STATUS" = 0 ] && pass '--list stays un-gated on a network: it is read-only' \
+  || { fail "--list on a network exited $STATUS"; sed -n '1,20p' "$TMP/networklist.txt" >&2; }
+grep -Fq 'receipt-recover-fixture' "$TMP/networklist.txt" \
+  && pass 'and still prints the catalog' \
+  || fail '--list on a network printed no catalog'
 
 # --------------------------------------------------------------- code first
 say 'code-first ordering is enforced, not advised'
@@ -353,13 +435,16 @@ recover_plain "plainlist" --list
 STATUS=$?
 [ "$STATUS" = 0 ] && pass 'a local transport lists (exit 0) instead of refusing' \
   || { fail "a local transport --list exited $STATUS"; sed -n '1,20p' "$TMP/plainlist.txt" >&2; }
-grep -Fq 'checkpoints: 2' "$TMP/plainlist.txt" \
-  && pass 'both retained checkpoints are counted' \
+grep -Fq 'checkpoints: 3' "$TMP/plainlist.txt" \
+  && pass 'every retained checkpoint is counted, promote- and deploy- alike' \
   || { fail 'the retained checkpoints were not counted'; sed -n '1,12p' "$TMP/plainlist.txt" >&2; }
+grep -Fq 'deploy-recover-fixture-owner  retained  retained-release-checkpoint' "$TMP/plainlist.txt" \
+  && pass 'a deploy checkpoint lists under the same kind a promote checkpoint does' \
+  || { fail 'the deploy checkpoint was not listed'; sed -n '1,16p' "$TMP/plainlist.txt" >&2; }
 grep -Fq 'this transport carries no rollback authority runtime, so only the database checkpoints its releases retained are listed' "$TMP/plainlist.txt" \
   && pass 'the listing says which source it could not read' \
   || fail 'the listing did not disclose the missing authority source'
-grep -Fq 'retained release checkpoints are the plain database checkpoints promote kept under .duo/checkpoints' "$TMP/plainlist.txt" \
+grep -Fq 'retained release checkpoints are the plain database checkpoints promote and deploy kept under .duo/checkpoints' "$TMP/plainlist.txt" \
   && pass 'the listing says what a retained checkpoint is and how it is restored' \
   || fail 'the listing did not disclose what a retained checkpoint is'
 # DUO-3506: the listing discloses the refusal an older checkpoint can meet at
@@ -432,6 +517,67 @@ if ($missing !== []) {
 echo "ok: the retained restore prints the frozen plan claim for that artifact verbatim, restores and does-not-restore\n";
 ' "$TMP/plainrestore.txt" "$TMP/f/claim.json" || fail 'the retained restore claim is not the frozen plan claim'
 
+# The deploy checkpoint: the same four ordered steps, under the lease identity
+# read from ITS OWN sibling artifact. Only the file-name prefix differs.
+recover_plain "plaindeploynoexcl" --restore=deploy-recover-fixture-owner
+STATUS=$?
+[ "$STATUS" = 1 ] && pass 'a deploy checkpoint restore without --writers-excluded refuses (exit 1)' \
+  || fail "a deploy checkpoint restore without --writers-excluded exited $STATUS"
+grep -Fq 'writer_exclusion_required' "$TMP/plaindeploynoexcl.txt" \
+  && pass 'the deploy checkpoint refusal names writer_exclusion_required too' \
+  || fail 'the deploy checkpoint restore did not require writer exclusion'
+[ -s "$DUO_WP_CALLS" ] \
+  && fail 'a refused deploy checkpoint restore still touched the target' \
+  || pass 'a refused deploy checkpoint restore runs nothing at all'
+
+recover_plain "plaindeploy" --restore=deploy-recover-fixture-owner --writers-excluded
+STATUS=$?
+[ "$STATUS" = 0 ] && pass 'a retained deploy checkpoint restores on a local transport (exit 0)' \
+  || { fail "the deploy checkpoint restore exited $STATUS"; sed -n '1,25p' "$TMP/plaindeploy.txt" >&2; }
+ORDER="$(wp_steps | tr '\n' ' ')"
+[ "$ORDER" = "abort begin import abort " ] \
+  && pass 'a deploy checkpoint is restored through exactly abort -> begin -> import -> final abort' \
+  || fail "the deploy checkpoint restore ran: $ORDER"
+grep -Fq 'deploy-recover-fixture-owner.sql' "$DUO_WP_CALLS" \
+  && pass 'the import reads exactly the file duo deploy wrote' \
+  || fail 'the import did not name the deploy checkpoint file'
+grep -Fq -- '--artifact-hash=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1' "$DUO_WP_CALLS" \
+  && pass 'the deploy recovery lease names the hash from the sibling deploy-<owner>.json' \
+  || fail 'the deploy recovery lease did not carry its own artifact hash'
+grep -Fq 'recovery profile: operator-directed' "$TMP/plaindeploy.txt" \
+  && pass 'the deploy checkpoint restore prints the operator-directed claim before acting' \
+  || fail 'the deploy checkpoint restore did not print the claim'
+
+# The final abort is mandatory for a deploy checkpoint as well.
+DUO_IMPORT_EXIT=3 recover_plain "plaindeployimportfail" --restore=deploy-recover-fixture-owner --writers-excluded
+STATUS=$?
+[ "$STATUS" = 1 ] && pass 'a failed deploy-checkpoint import is reported as not recovered (exit 1)' \
+  || fail "a failed deploy-checkpoint import exited $STATUS"
+ORDER="$(wp_steps | tr '\n' ' ')"
+[ "$ORDER" = "abort begin import abort " ] \
+  && pass 'the final abort ran for the deploy checkpoint even though the import failed' \
+  || fail "a failed deploy-checkpoint import ran: $ORDER"
+
+# An absent deploy checkpoint refuses, and refuses for the right reason. A
+# RETAINED row IS its file (RetainedCheckpoints::script()'s `[ -s "$f" ]` skips
+# a missing or zero-byte one), so the id stops existing rather than becoming an
+# unrestorable row — which is why this is checkpoint_unknown and not the
+# checkpoint_unavailable a signed receipt gets above at the same emptiness. A
+# retained checkpoint has no source of truth other than the file.
+mv "$TMP/f/target/.duo/checkpoints/deploy-recover-fixture-owner.sql" "$TMP/deploy-checkpoint.hold"
+recover_plain "plaindeploygone" --restore=deploy-recover-fixture-owner --writers-excluded
+STATUS=$?
+[ "$STATUS" = 1 ] && pass 'an absent deploy checkpoint refuses (exit 1)' \
+  || fail "an absent deploy checkpoint exited $STATUS"
+grep -Fq 'checkpoint_unknown' "$TMP/plaindeploygone.txt" \
+  && pass 'an absent deploy checkpoint refuses by name rather than importing nothing' \
+  || { fail 'an absent deploy checkpoint did not refuse with checkpoint_unknown'; sed -n '1,12p' "$TMP/plaindeploygone.txt" >&2; }
+STEPS="$(wp_steps | tr '\n' ' ')"
+[ -z "${STEPS// /}" ] \
+  && pass 'an absent deploy checkpoint never reaches step 1' \
+  || fail "an absent deploy checkpoint ran steps: $STEPS"
+mv "$TMP/deploy-checkpoint.hold" "$TMP/f/target/.duo/checkpoints/deploy-recover-fixture-owner.sql"
+
 # Code first holds for a retained checkpoint too: the checkpoint file carries
 # no code evidence, so the question is asked of the frozen plan for that
 # artifact, which entered the code lifecycle window.
@@ -479,10 +625,32 @@ STEPS="$(wp_steps | tr '\n' ' ')"
   && pass 'a lease this command cannot name is a lease it never takes: no step ran' \
   || fail "the no-identity restore ran steps: $STEPS"
 
-# The one thing a non-SSH target genuinely cannot do keeps its typed refusal.
+# The typed refusal survives, but it is now a statement about CONFIGURATION,
+# not about SSH: the same local transport against the same target reads the
+# signed catalog once its rollback authority is configured, and reads nothing
+# but the retained checkpoints when it is not.
+say 'recovery_authority_unavailable is about a configured authority, not about SSH'
 grep -Fq "'recovery_authority_unavailable'" "$ROOT/cli/src/Command/RecoverCommand.php" \
-  && pass 'the signed rollback still refuses with recovery_authority_unavailable off SSH' \
+  && pass 'the signed rollback still refuses with recovery_authority_unavailable where no authority is configured' \
   || fail 'recovery_authority_unavailable disappeared from RecoverCommand'
+grep -Fq 'this transport carries no rollback authority runtime, so only the database checkpoints its releases retained are listed' \
+  "$TMP/plainlist.txt" \
+  && pass 'the un-configured local environment still discloses that it has no authority to read' \
+  || fail 'the un-configured disclosure disappeared'
+
+DUO_RECOVER_STATUS="$TMP/f/status/code.json" recover_configured "configuredlist" --list
+STATUS=$?
+[ "$STATUS" = 0 ] && pass 'a configured local transport lists (exit 0)' \
+  || { fail "a configured local --list exited $STATUS"; sed -n '1,20p' "$TMP/configuredlist.txt" >&2; }
+grep -Fq 'receipt-recover-fixture' "$TMP/configuredlist.txt" \
+  && pass 'a configured local transport reads the same signed receipt the SSH target reads' \
+  || { fail 'the configured local listing carried no signed receipt'; sed -n '1,20p' "$TMP/configuredlist.txt" >&2; }
+grep -Fq 'this transport carries no rollback authority runtime' "$TMP/configuredlist.txt" \
+  && fail 'a configured local transport still claimed it carries no authority runtime' \
+  || pass 'the no-authority disclosure does not fire for a configured local transport'
+[ -s "$DUO_WP_CALLS" ] \
+  && fail '--list on a configured local transport ran a recovery step' \
+  || pass '--list on a configured local transport runs no recovery step'
 
 # ------------------------------------------------------------- cli/duo wiring
 say 'cli/duo wiring'

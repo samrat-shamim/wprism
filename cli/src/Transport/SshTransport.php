@@ -3,17 +3,17 @@ declare(strict_types=1);
 
 namespace Duo\Orchestrator;
 
+require_once __DIR__ . '/Transport.php';
+require_once __DIR__ . '/CodePushTransport.php';
+require_once __DIR__ . '/RecoveryTransport.php';
+require_once __DIR__ . '/RecoveryConfig.php';
+
 /** Runs wp-cli over ssh: `ssh -T <host> 'cd <wp_path> && wp …'`. */
-final class SshTransport extends Transport implements AdoptionTransport {
+final class SshTransport extends Transport implements AdoptionTransport, CodePushTransport, RecoveryTransport {
     private string $host;
     private string $wpPath;
     private ?string $configFile;
-    private ?string $rollbackKeyId;
-    private ?string $rollbackSigningKey;
-    /** @var ?array<string,mixed> */
-    private ?array $rollbackRecovery;
-    /** @var ?array{claim_ttl_seconds:int,encryption_key_id:string,retention_seconds:int} */
-    private ?array $verifiedRollback;
+    private RecoveryConfig $recovery;
 
     public function __construct(string $name, array $cfg) {
         parent::__construct($name, $cfg);
@@ -27,57 +27,18 @@ final class SshTransport extends Transport implements AdoptionTransport {
             ? self::resolvePath((string) ($cfg['_dir'] ?? '.'), $config)
             : null;
 
-        $keyId = $cfg['rollback_key_id'] ?? null;
-        $keyPath = $cfg['rollback_signing_key'] ?? null;
-        if (($keyId === null) !== ($keyPath === null)) {
-            throw new \RuntimeException(
-                "env '$name': rollback_key_id and rollback_signing_key must be configured together"
-            );
-        }
-        if ($keyId !== null && (!is_string($keyId)
-            || strlen($keyId) < 1 || strlen($keyId) > 64
-            || preg_match('/^[A-Za-z0-9._-]+$/', $keyId) !== 1)) {
-            throw new \RuntimeException("env '$name': rollback_key_id must match [A-Za-z0-9._-]{1,64}");
-        }
-        if ($keyPath !== null && (!is_string($keyPath) || $keyPath === '')) {
-            throw new \RuntimeException("env '$name': rollback_signing_key must be a non-empty path string");
-        }
-        $this->rollbackKeyId = is_string($keyId) ? $keyId : null;
-        $this->rollbackSigningKey = is_string($keyPath)
-            ? self::resolvePath((string) ($cfg['_dir'] ?? '.'), $keyPath)
-            : null;
-
-        $recovery = $cfg['rollback_recovery'] ?? null;
-        if ($recovery !== null && !is_array($recovery)) {
-            throw new \RuntimeException("env '$name': rollback_recovery must be an object");
-        }
-        $this->rollbackRecovery = is_array($recovery)
-            ? self::validateRecoveryConfig($name, $recovery)
-            : null;
-        if ($this->rollbackRecovery !== null && !$this->rollbackConfigured()) {
-            throw new \RuntimeException(
-                "env '$name': rollback_recovery requires rollback_key_id + rollback_signing_key"
-            );
-        }
-
-        $verified = $cfg['verified_rollback'] ?? null;
-        if ($verified !== null && !is_array($verified)) {
-            throw new \RuntimeException("env '$name': verified_rollback must be an object");
-        }
-        $this->verifiedRollback = is_array($verified)
-            ? self::validateVerifiedRollback($name, $verified)
-            : null;
-        if ($this->verifiedRollback !== null && $this->rollbackRecovery === null) {
-            throw new \RuntimeException("env '$name': verified_rollback requires rollback_recovery");
-        }
+        // The four rollback-authority keys and their refusal strings moved to
+        // RecoveryConfig verbatim so a second transport accepts exactly what
+        // SSH accepts; the check order there is the order this constructor
+        // used, because an environment with several mistakes must keep
+        // reporting the same first one.
+        $this->recovery = RecoveryConfig::parse($name, $cfg, (string) ($cfg['_dir'] ?? '.'));
     }
 
     public function describe(): string {
         $config = $this->configFile !== null ? " ssh_config={$this->configFile}" : '';
-        $rollback = $this->rollbackKeyId !== null ? " rollback_key_id={$this->rollbackKeyId}" : '';
-        $recovery = $this->rollbackRecovery !== null ? ' rollback_recovery=configured' : '';
-        $verified = $this->verifiedRollback !== null ? ' verified_rollback=configured' : '';
-        return "ssh    host={$this->host} wp_path={$this->wpPath} repo_path={$this->repoPath}{$config}{$rollback}{$recovery}{$verified}";
+        $recovery = $this->recovery->describeSuffix();
+        return "ssh    host={$this->host} wp_path={$this->wpPath} repo_path={$this->repoPath}{$config}{$recovery}";
     }
 
     public function wpPath(): string {
@@ -93,54 +54,112 @@ final class SshTransport extends Transport implements AdoptionTransport {
         ];
     }
 
+    /**
+     * Adoption provisions the rollback authority runtime on every SSH target
+     * (cli/src/Onboarding/Adopt.php), and `duo status` has printed its
+     * authority line for every SSH environment since DUO-3293 whether or not
+     * this controller holds a signing key. Answering unconditionally is what
+     * keeps that output byte-identical now that the predicate exists.
+     */
+    public function carriesRollbackAuthority(): bool {
+        return true;
+    }
+
     public function rollbackConfigured(): bool {
-        return $this->rollbackKeyId !== null && $this->rollbackSigningKey !== null;
+        return $this->recovery->configured();
     }
 
     public function rollbackKeyId(): ?string {
-        return $this->rollbackKeyId;
+        return $this->recovery->keyId();
     }
 
     public function rollbackSigningKeyPath(): ?string {
-        return $this->rollbackSigningKey;
+        return $this->recovery->signingKeyPath();
     }
 
     public function recoveryConfigured(): bool {
-        return $this->rollbackRecovery !== null;
+        return $this->recovery->recoveryConfigured();
     }
 
     public function checkpointConfigured(): bool {
-        return is_array($this->rollbackRecovery)
-            && array_key_exists('checkpoint_provider', $this->rollbackRecovery);
+        return $this->recovery->providerConfigured('checkpoint_provider');
     }
 
     public function codeReleaseConfigured(): bool {
-        return is_array($this->rollbackRecovery)
-            && array_key_exists('code_release_provider', $this->rollbackRecovery);
+        return $this->recovery->providerConfigured('code_release_provider');
     }
 
     public function uploadProviderConfigured(): bool {
-        return is_array($this->rollbackRecovery)
-            && array_key_exists('upload_provider', $this->rollbackRecovery);
+        return $this->recovery->providerConfigured('upload_provider');
     }
 
     public function effectProviderConfigured(): bool {
-        return is_array($this->rollbackRecovery)
-            && array_key_exists('effect_provider', $this->rollbackRecovery);
+        return $this->recovery->providerConfigured('effect_provider');
     }
 
     public function verifiedRollbackConfigured(): bool {
-        return $this->verifiedRollback !== null;
+        return $this->recovery->verified() !== null;
     }
 
     /** @return ?array{claim_ttl_seconds:int,encryption_key_id:string,retention_seconds:int} */
     public function verifiedRollbackConfig(): ?array {
-        return $this->verifiedRollback;
+        return $this->recovery->verified();
     }
 
     /** @return ?array<string,mixed> */
     public function recoveryConfig(): ?array {
-        return $this->rollbackRecovery;
+        return $this->recovery->recovery();
+    }
+
+    /**
+     * The remote handoff path, named exactly as RollbackAuthority named it
+     * before the seam existed: an offline fixture's fake `scp` matches
+     * `/tmp/duo-rollback-request-*.json` by name
+     * (sandbox/tests/fixtures/duo3344-scoped-promote-unit.php:364), so the
+     * label is wire, not decoration.
+     */
+    public function allocateControlInput(string $label): string {
+        if (preg_match('/^[a-z][a-z0-9-]*$/D', $label) !== 1) {
+            throw new \RuntimeException('duo rollback: invalid control handoff label');
+        }
+        return '/tmp/duo-rollback-' . $label . '-' . bin2hex(random_bytes(16)) . '.json';
+    }
+
+    /** @return array{exit:int, stdout:string, stderr:string} */
+    public function putControlInput(string $localPath, string $targetPath): array {
+        return $this->uploadFile($localPath, $targetPath);
+    }
+
+    /** @return array{exit:int, stdout:string, stderr:string} */
+    public function removeControlInput(string $targetPath): array {
+        return $this->captureRaw('rm -f ' . escapeshellarg($targetPath));
+    }
+
+    /**
+     * The code-push archive path (DUO-3514), named with the same shape and
+     * the same label validation as the rollback handoff above.
+     *
+     * A distinct `duo-code-push-` prefix rather than a shared one, for the
+     * reason the `input`/`request` split already established: the live ssh
+     * fixture asserts that a run which transfers nothing leaves no
+     * `/tmp/duo-code-push-*` behind, and a prefix shared with the rollback
+     * handoff would make that assertion answer for two protocols.
+     */
+    public function allocateCodePushInput(string $label): string {
+        if (preg_match('/^[a-z][a-z0-9-]*$/D', $label) !== 1) {
+            throw new \RuntimeException('duo code-resolve: invalid code push label');
+        }
+        return '/tmp/duo-code-push-' . $label . '-' . bin2hex(random_bytes(16)) . '.tar';
+    }
+
+    /** @return array{exit:int, stdout:string, stderr:string} */
+    public function putCodePushInput(string $localPath, string $targetPath): array {
+        return $this->uploadFile($localPath, $targetPath);
+    }
+
+    /** @return array{exit:int, stdout:string, stderr:string} */
+    public function removeCodePushInput(string $targetPath): array {
+        return $this->captureRaw('rm -f ' . escapeshellarg($targetPath));
     }
 
     protected function wpCommand(array $wpArgs): string {
@@ -174,139 +193,5 @@ final class SshTransport extends Transport implements AdoptionTransport {
         // PTY allocation so a user's RequestTTY=force SSH configuration
         // cannot turn piped env-set input back into terminal-visible bytes.
         return 'ssh -T' . ($this->configFile !== null ? ' -F ' . self::esc($this->configFile) : '');
-    }
-
-    /** @param array<string,mixed> $config @return array<string,mixed> */
-    private static function validateRecoveryConfig(string $env, array $config): array {
-        $expected = ['adapters', 'exclusion_provider', 'timeout_seconds'];
-        if (array_key_exists('checkpoint_provider', $config)) {
-            $expected[] = 'checkpoint_provider';
-        }
-        if (array_key_exists('code_release_provider', $config)) {
-            $expected[] = 'code_release_provider';
-        }
-        if (array_key_exists('upload_provider', $config)) {
-            $expected[] = 'upload_provider';
-        }
-        if (array_key_exists('effect_provider', $config)) {
-            $expected[] = 'effect_provider';
-        }
-        sort($expected, SORT_STRING);
-        $actual = array_keys($config);
-        sort($actual, SORT_STRING);
-        if ($actual !== $expected) {
-            throw new \RuntimeException(
-                "env '$env': rollback_recovery requires adapters, exclusion_provider, timeout_seconds, and optional checkpoint_provider/code_release_provider/upload_provider/effect_provider"
-            );
-        }
-        $provider = self::validateCommand($env, $config['exclusion_provider'] ?? null, 'exclusion_provider');
-        $adapters = $config['adapters'] ?? null;
-        if (!is_array($adapters) || array_is_list($adapters)) {
-            throw new \RuntimeException("env '$env': rollback_recovery.adapters must be an object");
-        }
-        $required = ['code_restore', 'database_restore', 'prior_verify', 'storage_restore'];
-        $adapterNames = array_keys($adapters);
-        sort($adapterNames, SORT_STRING);
-        if ($adapterNames !== $required) {
-            throw new \RuntimeException(
-                "env '$env': rollback_recovery.adapters requires exactly " . implode(', ', $required)
-            );
-        }
-        $validated = [];
-        foreach ($required as $name) {
-            $validated[$name] = self::validateCommand($env, $adapters[$name], "adapters.$name");
-        }
-        $timeout = $config['timeout_seconds'] ?? null;
-        if (!is_int($timeout) || $timeout < 1 || $timeout > 60) {
-            throw new \RuntimeException("env '$env': rollback_recovery.timeout_seconds must be 1..60");
-        }
-        $normalized = [
-            'adapters' => $validated,
-            'exclusion_provider' => $provider,
-            'format' => 'duo-recovery-config/v1',
-            'timeout_seconds' => $timeout,
-        ];
-        if (array_key_exists('checkpoint_provider', $config)) {
-            $normalized['checkpoint_provider'] = self::validateCommand(
-                $env,
-                $config['checkpoint_provider'],
-                'checkpoint_provider'
-            );
-        }
-        if (array_key_exists('code_release_provider', $config)) {
-            $normalized['code_release_provider'] = self::validateCommand(
-                $env,
-                $config['code_release_provider'],
-                'code_release_provider'
-            );
-        }
-        if (array_key_exists('upload_provider', $config)) {
-            $normalized['upload_provider'] = self::validateCommand(
-                $env,
-                $config['upload_provider'],
-                'upload_provider'
-            );
-        }
-        if (array_key_exists('effect_provider', $config)) {
-            $normalized['effect_provider'] = self::validateCommand(
-                $env,
-                $config['effect_provider'],
-                'effect_provider'
-            );
-        }
-        return $normalized;
-    }
-
-    /**
-     * Controller-owned policy for the automatic profile. Keeping this outside
-     * rollback_recovery is deliberate: adoption copies only target provider
-     * argv, while retention and the external KMS key label remain a local
-     * promotion decision.
-     *
-     * @param array<string,mixed> $config
-     * @return array{claim_ttl_seconds:int,encryption_key_id:string,retention_seconds:int}
-     */
-    private static function validateVerifiedRollback(string $env, array $config): array {
-        $keys = array_keys($config);
-        sort($keys, SORT_STRING);
-        if ($keys !== ['claim_ttl_seconds', 'encryption_key_id', 'retention_seconds']) {
-            throw new \RuntimeException(
-                "env '$env': verified_rollback requires exactly claim_ttl_seconds, encryption_key_id, retention_seconds"
-            );
-        }
-        $ttl = $config['claim_ttl_seconds'];
-        if (!is_int($ttl) || $ttl < 30 || $ttl > 3600) {
-            throw new \RuntimeException("env '$env': verified_rollback.claim_ttl_seconds must be 30..3600");
-        }
-        $retention = $config['retention_seconds'];
-        if (!is_int($retention) || $retention < 60 || $retention > 31536000) {
-            throw new \RuntimeException("env '$env': verified_rollback.retention_seconds must be 60..31536000");
-        }
-        $key = $config['encryption_key_id'];
-        if (!is_string($key)
-            || preg_match('/^[A-Za-z0-9._:@+-]{1,128}$/', $key) !== 1) {
-            throw new \RuntimeException("env '$env': verified_rollback.encryption_key_id is invalid");
-        }
-        return [
-            'claim_ttl_seconds' => $ttl,
-            'encryption_key_id' => $key,
-            'retention_seconds' => $retention,
-        ];
-    }
-
-    /** @return list<string> */
-    private static function validateCommand(string $env, mixed $value, string $label): array {
-        if (!is_array($value) || !array_is_list($value) || $value === []) {
-            throw new \RuntimeException("env '$env': rollback_recovery.$label must be a non-empty argv array");
-        }
-        foreach ($value as $index => $arg) {
-            if (!is_string($arg) || $arg === '' || str_contains($arg, "\0")) {
-                throw new \RuntimeException("env '$env': rollback_recovery.$label argv[$index] is invalid");
-            }
-        }
-        if ($value[0][0] !== '/') {
-            throw new \RuntimeException("env '$env': rollback_recovery.$label executable must be absolute");
-        }
-        return array_values($value);
     }
 }

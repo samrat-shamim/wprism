@@ -37,8 +37,17 @@ declare(strict_types=1);
  *                     .duo/checkpoints/promote-<code-owner>.sql (+ artifact)
  *                       — a second retained checkpoint whose frozen plan
  *                         entered a code lifecycle phase, for code-first
+ *                     .duo/checkpoints/deploy-<deploy-owner>.sql (+ artifact)
+ *                       — the checkpoint a standalone `duo deploy` retains
+ *                         under its own lease. Same kind, same four ordered
+ *                         steps; only the file-name prefix differs, which is
+ *                         exactly what RetainedCheckpoints::prefixForRow()
+ *                         reads back off the row id
  *   envs.json       one `ssh` environment named `fixture`, one `local`
- *                   environment named `plain` on the same target repository
+ *                   environment named `plain`, and one `local` environment
+ *                   named `configured` that HAS a rollback authority, all on
+ *                   the same target repository
+ *   signing.key     an Ed25519 controller secret for the `configured` env
  *   bin/ssh         runs the remote command locally
  *   bin/wp          records every call and honours the injected exit codes
  *   envs.json       one `ssh` environment named `fixture`
@@ -86,6 +95,13 @@ const RECOVER_ARTIFACT = 'a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1
 /** The second retained checkpoint: a release that entered a code lifecycle phase. */
 const RECOVER_CODE_OWNER = 'recover-fixture-code';
 const RECOVER_CODE_ARTIFACT = 'b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2';
+/**
+ * The third: a standalone `duo deploy`'s own checkpoint. It reuses
+ * RECOVER_ARTIFACT so the SAME frozen plan (database-only, no lifecycle phase)
+ * governs it — the subject here is the file-name prefix reaching restore, not
+ * a second code-first scenario, which RECOVER_CODE_OWNER already covers.
+ */
+const RECOVER_DEPLOY_OWNER = 'deploy-recover-fixture-owner';
 
 foreach (['site', 'target', 'bin', 'wordpress', 'status'] as $child) {
     if (!is_dir("$dir/$child") && !mkdir("$dir/$child", 0700, true) && !is_dir("$dir/$child")) {
@@ -212,6 +228,19 @@ file_put_contents(
     "$dir/target/.duo/artifacts/promote-" . RECOVER_OWNER . '.json',
     \Duo\Canon::encode(['artifact_hash' => RECOVER_ARTIFACT, 'format' => 'duo-compiled/fixture'])
 );
+// The deploy checkpoint and its sibling artifact, stem for stem: that shared
+// stem is the whole reason RetainedCheckpoints reads the lease identity out of
+// `artifacts/<basename>.json` with no second mechanism. Dated between the two
+// promote checkpoints so the merged listing order is deterministic.
+file_put_contents(
+    "$dir/target/.duo/checkpoints/" . RECOVER_DEPLOY_OWNER . '.sql',
+    "-- fixture checkpoint (deploy)\n"
+);
+touch("$dir/target/.duo/checkpoints/" . RECOVER_DEPLOY_OWNER . '.sql', 1_750_000_000);
+file_put_contents(
+    "$dir/target/.duo/artifacts/" . RECOVER_DEPLOY_OWNER . '.json',
+    \Duo\Canon::encode(['artifact_hash' => RECOVER_ARTIFACT, 'format' => 'duo-compiled/fixture'])
+);
 // The code-phase release's pair, dated earlier so the listing order is fixed.
 file_put_contents(
     "$dir/target/.duo/checkpoints/promote-" . RECOVER_CODE_OWNER . '.sql',
@@ -326,6 +355,16 @@ case " $* " in
   *" duo promotion-begin "*) exit "${DUO_BEGIN_EXIT:-0}" ;;
   *" db import "*) exit "${DUO_IMPORT_EXIT:-0}" ;;
   *" core is-installed "*) exit 0 ;;
+  *is_multisite*)
+    # RecoverCommand's host-side topology probe, asked before step 1.
+    # DUO_TOPOLOGY_EXIT drives the fail-closed "cannot answer" case; the
+    # answer itself is printed exactly as `wp eval` would.
+    if [ "${DUO_TOPOLOGY_EXIT:-0}" != 0 ]; then
+      exit "${DUO_TOPOLOGY_EXIT}"
+    fi
+    printf '%s' "${DUO_TOPOLOGY:-single-site}"
+    exit 0
+    ;;
 esac
 echo "fake wp: unhandled invocation: $*" >&2
 exit 90
@@ -348,7 +387,22 @@ file_put_contents("$dir/envs.json", json_encode([
             'wp_path' => realpath("$dir/wordpress") ?: "$dir/wordpress",
             'repo_path' => realpath("$dir/target") ?: "$dir/target",
         ],
+        // The same target, the same transport class, the same runtime — the
+        // only difference is that this environment configured a rollback
+        // authority. It is what makes `recovery_authority_unavailable` a
+        // statement about configuration rather than about SSH.
+        'configured' => [
+            'transport' => 'local',
+            'wp_path' => realpath("$dir/wordpress") ?: "$dir/wordpress",
+            'repo_path' => realpath("$dir/target") ?: "$dir/target",
+            'rollback_key_id' => 'recover-ordering-fixture',
+            'rollback_signing_key' => "$dir/signing.key",
+        ],
     ],
 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+
+$keypair = sodium_crypto_sign_keypair();
+file_put_contents("$dir/signing.key", base64_encode(sodium_crypto_sign_secretkey($keypair)) . "\n");
+chmod("$dir/signing.key", 0600);
 
 echo "recover fixture ready: $dir\n";

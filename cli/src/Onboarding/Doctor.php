@@ -6,14 +6,15 @@ namespace Duo\Orchestrator;
 require_once __DIR__ . '/../Transport/Transport.php';
 
 /**
- * `duo doctor <env>` — ten rendered rows over exactly four target round
+ * `duo doctor <env>` — eleven rendered rows over exactly four target round
  * trips, because a row and a round trip are not the same thing.
  *
  * Two of the four are true gates: the raw reachability echo (nothing
  * downstream means anything through a broken transport) and `wp core
  * is-installed` (no WordPress-side fact is readable without it). The other
  * two are compositions. SITE_FACTS answers agent presence,
- * DISALLOW_FILE_MODS and the PHP/database/WordPress facts in ONE `wp eval`:
+ * DISALLOW_FILE_MODS, the site topology and the PHP/database/WordPress facts
+ * in ONE `wp eval`:
  * those three were never gates on each other, only siblings under the same
  * `if ($installed)`. One raw script answers the repo-path row and the
  * `.duo-env-values.json` tracked-status row that genuinely IS gated on it —
@@ -53,7 +54,7 @@ final class Doctor {
      */
     private const SITE_FACTS = 'global $wpdb; '
         . '$duo = ["agent" => null, "file_mods" => null, "php" => null, '
-        . '"db_version" => null, "db_engine" => null, "wp" => null]; '
+        . '"db_version" => null, "db_engine" => null, "wp" => null, "site_mode" => null]; '
         . 'try { $duo["agent"] = class_exists("\\Duo\\Capture") ? "duo-ok" : "duo-missing"; } '
         . 'catch (\Throwable $e) {} '
         . 'try { $duo["file_mods"] = (defined("DISALLOW_FILE_MODS") && DISALLOW_FILE_MODS) '
@@ -63,6 +64,12 @@ final class Doctor {
         . 'try { $duo["db_engine"] = stripos((string) $wpdb->db_server_info(), "mariadb") !== false '
         . '? "mariadb" : "mysql"; } catch (\Throwable $e) {} '
         . 'try { $duo["wp"] = (string) get_bloginfo("version"); } catch (\Throwable $e) {} '
+        // Its own try/catch like every sibling above, and function_exists()
+        // rather than a bare call: this snippet also runs under the isolated
+        // control bootstrap, where a caller can reach it before WordPress has
+        // defined is_multisite().
+        . 'try { $duo["site_mode"] = (function_exists("is_multisite") && is_multisite()) '
+        . '? "multisite" : "single-site"; } catch (\Throwable $e) {} '
         . 'echo json_encode($duo);';
 
     /** @return array{ok:bool, checks: list<array{label:string, ok:bool, detail:string, advisory?:bool}>} */
@@ -308,10 +315,15 @@ final class Doctor {
         // treatment above — an environment genuinely outside the tested
         // PHP/database range is exactly the "unproven behavior hidden
         // behind a broad compatibility claim" DESIGN.md's vision invariant
-        // forbids. WordPress is one exact value rather than a fabricated
-        // range: pair.yml pins 7.0.3 and the agent pre-policy gate enforces
-        // that same last_verified value, so doctor must not label another
-        // core version compatible while direct product commands refuse it.
+        // forbids. WordPress is a bounded range narrowed to the exercised
+        // series in `verified` rather than a fabricated open range, and this
+        // row reproduces the agent's predicate exactly — inside [min, max)
+        // AND the observed MAJOR.MINOR present in `verified` (agent/src/
+        // Policy/PlatformCompatibility.php:wordpress_supported()). Both
+        // halves matter here for the same reason they matter there: doctor
+        // must never label a core compatible that the direct product path
+        // refuses, and a bare range would do exactly that for a minor line
+        // inside the window that nobody exercised.
         if ($installed) {
             $baseline = self::read_baseline();
             if ($baseline === null) {
@@ -355,22 +367,61 @@ final class Doctor {
                                 . ' — docs/compatibility-baseline.json).')
                     );
                     $wordpress = $baseline['wordpress'] ?? null;
-                    $verifiedWordPress = is_array($wordpress)
-                        ? (string) ($wordpress['last_verified'] ?? '')
-                        : '';
-                    $wordpressOk = $verifiedWordPress !== '' && hash_equals($verifiedWordPress, $wpVersion);
+                    $verifiedSeries = is_array($wordpress) && is_array($wordpress['verified'] ?? null)
+                        ? array_map('strval', array_keys($wordpress['verified']))
+                        : [];
+                    usort($verifiedSeries, static fn(string $a, string $b): int => version_compare($a, $b));
+                    // The dotted-shape guard is the agent's, not decoration:
+                    // PlatformCompatibility::inside_range() requires
+                    // /^\d+(?:\.\d+){1,3}$/D of the OBSERVED value, so a
+                    // pre-release core ('7.1-alpha-59000') is refused there.
+                    // Without the same guard here version_compare would rank
+                    // it inside the window and doctor would call a core
+                    // compatible that a direct `wp duo` command refuses.
+                    $wordpressOk = is_array($wordpress)
+                        && preg_match('/^\d+(?:\.\d+){1,3}$/D', $wpVersion) === 1
+                        && self::in_range($wpVersion, (string) ($wordpress['min'] ?? ''), (string) ($wordpress['max'] ?? ''))
+                        && in_array(self::series($wpVersion), $verifiedSeries, true);
                     $checks[] = self::check(
                         "WordPress core ($wpVersion)",
                         $wordpressOk,
-                        $wordpressOk ? '' : 'outside the exact exercised core boundary ('
-                            . ($verifiedWordPress !== '' ? $verifiedWordPress : '?')
-                            . ' — docs/compatibility-baseline.json). A wider claim requires a real core-version matrix.'
+                        $wordpressOk ? '' : 'outside the exercised core matrix (>=' . ($wordpress['min'] ?? '?')
+                            . ' <' . ($wordpress['max'] ?? '?') . ', exercised series '
+                            . ($verifiedSeries === [] ? '?' : implode(', ', $verifiedSeries))
+                            . ' — docs/compatibility-baseline.json).'
                     );
                 }
             }
         } else {
             $checks[] = self::check('compatibility baseline (docs/compatibility-baseline.json)', false, 'skipped: WordPress not installed');
         }
+
+        // Deliberately OUTSIDE the `if ($installed)` and baseline nesting
+        // above: this is the row a PRE-ADOPTION target needs most, and a
+        // network must never read as an all-green screen before anything is
+        // installed. Sourced from SITE_FACTS' own key rather than from
+        // compatibility_facts(): that helper returns null if ANY of its four
+        // keys is missing and its [$php,$db,$engine,$wp] destructure is
+        // load-bearing, so a fifth key there would sink three unrelated rows.
+        //
+        // A FAIL, not an advisory, because docs/compatibility-baseline.json's
+        // own _comment already claims "the agent pre-policy gate and duo doctor
+        // block outside these values" and until now that sentence was false for
+        // topology. 'single-site' is hard-coded rather than read from that file:
+        // tools/capability-doc.php:192-199 byte-compares the baseline object
+        // against manifests/capabilities/platform.json's `compatibility` (which
+        // declares exactly database/php/wordpress, enumerated at :200-202), so a
+        // `site_mode` key there would fail `make release-gate`. The declared value lives in that platform
+        // boundary instead, as `"site_mode": "single-site"`
+        // (manifests/capabilities/platform.json:24), and the agent enforces it
+        // through SiteTopology::assert_single_site().
+        $siteMode = $facts['site_mode'] ?? null;
+        $checks[] = self::check(
+            'site topology (' . (is_string($siteMode) ? $siteMode : 'unknown') . ')',
+            $siteMode === 'single-site',
+            $siteMode === 'single-site' ? '' : 'the certified v1 contract is single-site only; the agent pre-policy '
+                . 'gate refuses every mutating command on a network (docs/compatibility-baseline.json).'
+        );
 
         // DUO-3290: surfaced, not run — doctor stays fast and never
         // triggers coverage's own table-enumeration/row-count queries on
@@ -460,17 +511,33 @@ final class Doctor {
         return $parts;
     }
 
-    /** @return ?array{php:array{min:string,max:string}, database:array{engine:string,min:string,max:string}, wordpress:array{last_verified:string}} */
+    /**
+     * The baseline, or null when it cannot state a whole boundary. The
+     * WordPress keys are required alongside PHP's and the database's for the
+     * same reason those two are: a truncated axis must sink the row into
+     * "baseline file missing or malformed" rather than let a missing min/max/
+     * verified evaluate to a silent pass for every core version.
+     *
+     * @return ?array{php:array{min:string,max:string}, database:array{engine:string,min:string,max:string}, wordpress:array{min:string,max:string,verified:array<string,string>,last_verified:string}}
+     */
     private static function read_baseline(): ?array {
         $file = dirname(__DIR__, 3) . '/docs/compatibility-baseline.json';
         if (!is_file($file)) {
             return null;
         }
         $data = json_decode((string) file_get_contents($file), true);
-        if (!is_array($data) || !isset($data['php']['min'], $data['php']['max'], $data['database']['min'], $data['database']['max'])) {
+        if (!is_array($data)
+            || !isset($data['php']['min'], $data['php']['max'], $data['database']['min'], $data['database']['max'])
+            || !isset($data['wordpress']['min'], $data['wordpress']['max'])
+            || !is_array($data['wordpress']['verified'] ?? null) || $data['wordpress']['verified'] === []) {
             return null;
         }
         return $data;
+    }
+
+    /** The MAJOR.MINOR series of a dotted version — the agent's own PlatformCompatibility::series(), kept as an independent copy here for the reason in_range() is (see below). */
+    private static function series(string $version): string {
+        return preg_match('/^(\d+\.\d+)/', $version, $match) === 1 ? $match[1] : '';
     }
 
     /** Same {min inclusive, max exclusive} + version_compare() convention as Deploy::in_range() (agent-side) — kept as an independent copy here rather than a cross-tree include: cli/ and agent/src/ are deliberately separate deployables (cli/ never ships into wp-content/), so sharing code between them would be a new coupling, not a reuse of an existing one. */

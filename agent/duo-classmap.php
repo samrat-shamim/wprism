@@ -218,6 +218,7 @@ return [
     'Duo\\Shortcodes' => 'src/Grammar/Shortcodes.php',
     'Duo\\SidebarState' => 'src/Repository/SidebarState.php',
     'Duo\\SitePolicyValidator' => 'src/Policy/SitePolicyValidator.php',
+    'Duo\\SiteTopology' => 'src/Kernel/SiteTopology.php',
     'Duo\\Snapshot' => 'src/Repository/Snapshot.php',
     'Duo\\SnapshotIdentity' => 'src/Repository/SnapshotIdentity.php',
     'Duo\\SnapshotPruner' => 'src/Repository/SnapshotPruner.php',

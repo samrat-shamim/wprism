@@ -17,21 +17,21 @@ Duo agent **0.5.0** / repo spec **2**. This document is the whole of what Duo cl
 | Site mode | single-site |
 | Plugin execution | unmodified |
 | Branchable state | only manifest-declared, disposition-reviewed surfaces and operations |
-| WordPress | 7.0.3 (exact exercised) |
+| WordPress | >=6.9.0 <7.2.0 (exercised 6.9.2, 7.0.3, 7.1) |
 | PHP | >=8.3.0 <8.4.0 |
 | Database | MariaDB >=11.0.0 <12.0.0 |
 
 Multisite is refused before policy load or mutation. Each compatibility axis carries its own reviewed note saying what pins it and what it does not claim:
 
-- **WordPress** — Pinned by the sandbox harness's exact Docker tag (wordpress:7.0.3-php8.3-apache in sandbox/pair.yml). WordPress is one exact exercised value, not a claimed range: the agent pre-policy gate and duo doctor refuse any other core version before mutation. A wider claim requires a real multi-version core matrix.
-- **PHP** — Pinned by the sandbox harness's own Docker tags (wordpress:7.0.3-php8.3-apache / wordpress:cli-php8.3 -- see sandbox/pair.yml, sandbox/db.yml, sandbox/docker-compose.yml). Verified live: PHP 8.3.33 as of this writing.
+- **WordPress** — Pinned by the sandbox harness's exact Docker tags: each key of verified is a core series, and its value is the exact patch a full live proof ran on (6.9 on wordpress:6.9.2-php8.3-apache, 7.0 on wordpress:7.0.3-php8.3-apache, 7.1 on wordpress:7.1-php8.3-apache @sha256:65919a9ca10940feb10d9400fead0d639bf86241f47c91e2b9ea4703aa8452cf -- sandbox/tests/live/regress_core_scope_platform.sh, regress_core_data_boundary.sh, conformance-core). The 7.1 value is the literal two-component string WordPress itself ships for that series' first release (wp-includes/version.php:19 reads $wp_version = '7.1'); that is what get_bloginfo('version') returns and what this gate compares, so "7.1.0" would name a WordPress that does not exist. PENDING as of this writing: the 7.1 live proof (matrix, data boundary, conformance-core) has NOT yet run -- the offline half and a source-level 7.1 audit of every assumption manifests/core.json makes are green, and the exercise cell is wired. If the live matrix fails, the remedy is to drop the 7.1 entry and restore max 7.1.0 / last_verified 7.0.3, never to widen around a failure. A core is accepted only when it is inside [6.9.0, 7.2.0) AND its MAJOR.MINOR is one of those exercised series, so an unexercised minor line inside the range is still refused rather than claimed by a bare range. Patches inside an exercised series are claimed on exactly the basis PHP 8.3.x and MariaDB 11.x already are here -- one measured runtime per line. last_verified is the newest exercised core and the one sandbox/pair.yml boots by default.
+- **PHP** — Pinned by the sandbox harness's own Docker tags (wordpress:7.1-php8.3-apache / wordpress:cli-php8.3 -- see sandbox/pair.yml, sandbox/db.yml, sandbox/docker-compose.yml). Verified live: PHP 8.3.33 as of this writing.
 - **Database** — Pinned by the sandbox harness's own Docker tag (mariadb:11 -- see sandbox/db.yml, sandbox/docker-compose.yml). Verified live: 11.8.8-MariaDB as of this writing. MySQL is not claimed or tested against; a site running MySQL instead of MariaDB is genuinely untested, not merely unpinned.
 
 ## Adapters at a glance
 
 | Manifest | Status | Plugin | Version range | Operations |
 |---|---|---|---|---|
-| [core](#core) | certified | WordPress core | WordPress 7.0.3 (exact exercised) | apply, capture, compile, delete, deploy, plan, promote, recapture, render-api |
+| [core](#core) | certified | WordPress core | WordPress >=6.9.0 <7.2.0 (exercised 6.9.2, 7.0.3, 7.1) | apply, capture, compile, delete, deploy, plan, promote, recapture, render-api |
 | [acf](#acf) | certified | `advanced-custom-fields/acf.php` | >=6.0.0 <7.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [advanced-editor-tools](#advanced-editor-tools) | certified | `tinymce-advanced/tinymce-advanced.php` | >=5.9.2 <5.9.3 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [classic-editor](#classic-editor) | certified | `classic-editor/classic-editor.php` | >=1.7.0 <1.7.1 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
@@ -42,7 +42,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 | [ninja-forms](#ninja-forms) | certified | `ninja-forms/ninja-forms.php` | >=3.4.34.2 <4.0.0 | apply, capture, compile, delete, deploy, plan, promote, recapture, render-api |
 | [paid-memberships-pro](#paid-memberships-pro) | certified | `paid-memberships-pro/paid-memberships-pro.php` | >=3.8.2 <3.8.4 | apply, capture, compile, delete, deploy, plan, promote, recapture, render-api |
 | [polylang](#polylang) | certified | `polylang/polylang.php` | >=3.5 <4.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
-| [the-events-calendar](#the-events-calendar) | experimental | `the-events-calendar/the-events-calendar.php` | >=6.17.2 <6.17.3 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
+| [the-events-calendar](#the-events-calendar) | experimental | `the-events-calendar/the-events-calendar.php` | >=6.17.2 <6.17.4 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [woocommerce](#woocommerce) | certified | `woocommerce/woocommerce.php` | >=11.0.0 <12.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [wps-hide-login](#wps-hide-login) | certified | `wps-hide-login/wps-hide-login.php` | >=1.9.19 <1.9.20 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [yoast](#yoast) | certified | `wordpress-seo/wp-seo.php` | >=28.0 <29.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
@@ -53,11 +53,11 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 **Status: certified.** Certified single-site core authored-state surface; the FSE profile is separately named below.
 
 - **Plugin:** WordPress core
-- **Version range:** WordPress 7.0.3 (exact exercised)
+- **Version range:** WordPress >=6.9.0 <7.2.0 (exercised 6.9.2, 7.0.3, 7.1)
 - **Operations:** apply, capture, compile, delete, deploy, plan, promote, recapture, render-api
 - **Lifecycle phases:** verify
 - **Declared entities:** `tables` (2: commentmeta, comments), `widgets` (3: block, nav_menu, text)
-- **Declared fields:** `options` (26 keys), `option_patterns` (3 rules), `dynamic_options` (1: theme_mods), `post_meta` (27 keys), `post_meta_patterns` (1 rules), `term_meta` (1: _duo_uuid), `menu_fields` (1: locations), `block_attrs` (20 keys), `shortcode_attrs` (1: gallery)
+- **Declared fields:** `options` (26 keys), `option_patterns` (3 rules), `dynamic_options` (1: theme_mods), `post_meta` (27 keys), `post_meta_patterns` (1 rules), `term_meta` (1: _duo_uuid), `menu_fields` (1: locations), `block_attrs` (21 keys), `shortcode_attrs` (1: gallery)
 - **Adapter hooks:** 1 structured action
 - **Deletions supported:** `menu:nav_menu`, `post:attachment`, `post:page`, `post:post`, `term:category`, `term:post_tag`
 - **Deletions unsupported:** undeclared post types and taxonomies
@@ -297,14 +297,14 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 **Status: experimental.** Experimental exact-artifact target round-trip and hard regeneration-dependency recovery proof; dirty-target, deletion, lifecycle, concurrency, and difficult-value matrices remain open.
 
 - **Plugin:** `the-events-calendar/the-events-calendar.php`
-- **Version range:** >=6.17.2 <6.17.3
+- **Version range:** >=6.17.2 <6.17.4
 - **Operations:** apply, capture, compile, deploy, plan, promote, recapture, render-api
 - **Lifecycle phases:** none declared
 - **Declared entities:** `post_types` (1: tribe_events), `tables` (3: tec_events, tec_kv_cache, tec_occurrences)
 - **Declared fields:** `options` (13 keys), `post_meta` (23 keys)
 - **Deletions supported:** none
 - **Deletions unsupported:** plugin-specific deletes
-- **Exercised by:** `conformance-the-events-calendar`, `regress-tec-regen`
+- **Exercised by:** `conformance-the-events-calendar`, `exact-artifact-version-matrix`, `regress-tec-regen`
 
 **Unsupported, explicitly.**
 
@@ -406,7 +406,7 @@ A profile is a named subset of one manifest's surface, reviewed and exercised se
 **Status: certified.** Certified core full-site-editing profile for block themes, templates, template parts, navigation, reusable blocks, and theme taxonomies.
 
 - **Manifest:** `core`
-- **Version range:** WordPress 7.0.3 (exact exercised)
+- **Version range:** WordPress >=6.9.0 <7.2.0 (exercised 6.9.2, 7.0.3, 7.1)
 - **Scope — `post_types`:** `wp_block`, `wp_navigation`, `wp_template`, `wp_template_part`
 - **Scope — `taxonomies`:** `wp_pattern_category`, `wp_template_part_area`, `wp_theme`
 - **Exercised by:** `conformance-fse`

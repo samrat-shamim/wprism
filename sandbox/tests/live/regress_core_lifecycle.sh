@@ -15,10 +15,18 @@ fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
 PAIR="${CORE_LIFECYCLE_PAIR:-corelifecycle}"
 PORT1="${CORE_LIFECYCLE_PORT1:-8992}"
 PORT2="${CORE_LIFECYCLE_PORT2:-8993}"
-OLDER_VERSION=7.0.2
-CURRENT_VERSION=7.0.3
-OLDER_IMAGE='wordpress@sha256:b2d7e3153c8a96f90305a3102fb6439335237fb1a9655b617d15c5168ce2f7a3'
-CURRENT_IMAGE='wordpress@sha256:a09147f15a882b956f67a617e9e1e053adf9322c45c797c2ff7c0e66522bf204'
+# CURRENT_VERSION is not free: :175-177 below asserts it IS
+# platform.json's last_verified, and platform.json's own note states
+# last_verified is what sandbox/pair.yml boots by default. Widening the claim
+# to the 7.1 series therefore moves this pair too, and the upgrade under test
+# becomes the 7.0.3 -> 7.1 minor step (both cores' $wp_db_version is 61833, so
+# `wp core update-db` stays the no-op it was for 7.0.2 -> 7.0.3). '7.1' is the
+# two-component string WordPress ships for a series' first release
+# (wp-includes/version.php:19), which is what `wp core version` prints.
+OLDER_VERSION=7.0.3
+CURRENT_VERSION=7.1
+OLDER_IMAGE='wordpress@sha256:a09147f15a882b956f67a617e9e1e053adf9322c45c797c2ff7c0e66522bf204'
+CURRENT_IMAGE='wordpress@sha256:65919a9ca10940feb10d9400fead0d639bf86241f47c91e2b9ea4703aa8452cf'
 
 [[ "$PAIR" =~ ^[a-z][a-z0-9]*$ ]] || fail "invalid CORE_LIFECYCLE_PAIR '$PAIR'"
 [ -n "${DUO_EXPECTED_SOURCE_SHA:-}" ] \

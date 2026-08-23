@@ -374,12 +374,29 @@ remedy: commit or stash those changes, or produce this evidence from a clean sta
   pass "mounted source is exactly $expected, clean — this run's evidence is bound to that commit" >&2
 }
 
-DB_CONTAINER=duo-shared-db
+# Which shared database server this invocation talks to. DB_CONTAINER,
+# DB_CLIENT, DB_COMPOSE and DB_LABEL come from DUO_DB_ENGINE via
+# pair_db_select_engine() (lib/pair_db.sh); its `mariadb` default reproduces
+# the exact values this block hard-coded before the MySQL evidence lane
+# existed, so no default-path byte moves. Called HERE, at load, because fail()
+# is defined at the top of this script and lib/pair_db.sh is already sourced
+# above: an unknown engine therefore refuses before ANY subcommand runs and
+# before a single docker call is made.
+pair_db_select_engine
+# The selected engine's server name travels with the WHOLE invocation, not just
+# `up`: pair_compose_configure() REWRITES sandbox/.env on every call (stop,
+# start and destroy each call it too, pair.sh:783/832/855), so exporting this
+# inside cmd_up only would let a later `pair.sh stop <mysql-pair>` overwrite
+# that file's DUO_DB_HOST with pair_compose.sh's duo-shared-db default -- and
+# the next subprocess `docker compose -f pair.yml up` from conformance/run.sh
+# or a regress_*.sh would then recreate wp1/wp2 against MariaDB while the
+# operator recorded MySQL evidence. Exported at load, beside the selection it
+# derives from, that window does not exist.
+export DUO_DB_HOST="$DB_CONTAINER"
 DB_ROOT_USER=root
 DB_ROOT_PASS=root
 APP_USER=wordpress
 APP_PASS=wordpress
-DB_COMPOSE=(docker compose -p duo-db -f db.yml)
 
 validate_name() { # validate_name <name>
   pair_identity_validate_name "$1"
@@ -610,9 +627,14 @@ cmd_up() {
   [ "$wordpress_offline" = 1 ] && overlays+=(pair.wordpress-offline.yml)
   export DUO_PAIR="$name" DUO_PORT1="$port1" DUO_PORT2="$port2" DUO_CODEBIND_PLUGIN="$codebind"
   export DUO_ARTIFACT_OFFLINE="$wordpress_offline"
+  # DUO_DB_HOST is exported at load beside pair_db_select_engine (this file's
+  # shared-db section) so every subcommand carries it, not just this one;
+  # pair.yml renders WORDPRESS_DB_HOST from it and pair_compose_configure()
+  # persists it to sandbox/.env for the many subprocess callers that make their
+  # OWN compose calls after `pair.sh up`.
   pair_compose_configure "$name" "${overlays[@]}"
 
-  say "shared infra: MariaDB (duo-db) + duo-shared network"
+  say "shared infra: $DB_LABEL + duo-shared network"
   pair_db_ensure_up
   pair_db_ensure_app_user
   pass "shared db up, healthy, wordpress user granted on wp\\_%"
@@ -884,7 +906,7 @@ cmd_list() {
     printf '%s\n' "$stopped" | sed 's/^/  - /'
   fi
 
-  say "shared db"
+  say "shared db (engine: ${DUO_DB_ENGINE:-mariadb})"
   if docker inspect "$DB_CONTAINER" >/dev/null 2>&1; then
     echo "  ${DB_CONTAINER}: $(docker inspect -f '{{.State.Status}} ({{.State.Health.Status}})' "$DB_CONTAINER")"
   else
@@ -1017,6 +1039,20 @@ Environment:
            with DUO_EXPECTED_SOURCE_SHA; ordinary persistent pairs leave it unset.
   DUO_PAIR_BUDGET_OVERRIDE=1
            bring a pair up/start it even when the host budget is exceeded.
+  DUO_DB_ENGINE=mariadb|mysql
+           which shared database server every subcommand of this invocation
+           uses. Default `mariadb` is unchanged behaviour: db.yml's
+           duo-shared-db, the `mariadb` client, project duo-db. `mysql`
+           selects the parallel evidence-lane server (db.mysql.yml's
+           duo-shared-mysql, the `mysql` client, project duo-db-mysql) and
+           exports DUO_DB_HOST so pair.yml and every subprocess compose call
+           resolve it. Any other value is refused by name, at load, before any
+           subcommand. Selecting `mysql` CLAIMS NOTHING: the shipped platform
+           contract (manifests/capabilities/platform.json) is still
+           MariaDB-only, so `wp duo ...` on such a pair refuses
+           platform_unsupported / platform_database_engine_unsupported. That
+           refusal is the lane's first datum; widening the claim needs live
+           evidence and its own commit.
 USAGE
 }
 

@@ -66,10 +66,19 @@ docker exec "$DB" mariadb-admin ping -h 127.0.0.1 -uroot -proot-pass --silent >/
   || fail "database never became ready"
 docker exec "$DB" mariadb -uroot -proot-pass -e \
   "CREATE DATABASE targetwp; GRANT ALL ON targetwp.* TO 'wordpress'@'%'; FLUSH PRIVILEGES;"
+# The SSH estate installs WordPress from wp.org; without a version it floats to
+# whatever core is current that day and silently leaves the exercised platform
+# boundary (measured 2026-08-24: `wp core download` fetched 7.1 while the claim
+# still stopped at 7.1.0 — the 7.1 series has since been claimed, but a floating
+# fetch would leave the boundary again on the next release either way). Pin to
+# the newest exercised core the claim itself names, read from the shipped
+# boundary so estate and claim cannot drift apart.
+WP_CORE_VERSION="$(jq -r '.platform.compatibility.wordpress.last_verified' manifests/capabilities/platform.json)"
+[[ "$WP_CORE_VERSION" =~ ^[0-9]+(\.[0-9]+){1,3}$ ]] || fail "platform.json names no usable last_verified WordPress core"
 
 for volume in "$SOURCE_VOLUME" "$TARGET_VOLUME"; do
   docker run --rm --user root --network "$NET" -v "$volume:/var/www/html" wordpress:cli-php8.3 \
-    sh -lc 'php -d memory_limit=512M /usr/local/bin/wp core download --path=/var/www/html --allow-root --quiet && chown -R 1000:1000 /var/www/html'
+    sh -lc 'php -d memory_limit=512M /usr/local/bin/wp core download --version="'"$WP_CORE_VERSION"'" --path=/var/www/html --allow-root --quiet && chown -R 1000:1000 /var/www/html'
 done
 
 docker run -d --name "$SOURCE" --network "$NET" -p "127.0.0.1:${SOURCE_PORT}:22" \

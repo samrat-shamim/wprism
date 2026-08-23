@@ -40,6 +40,24 @@ final class Journal {
         if (get_option('duo_journal_disabled')) {
             return;
         }
+        // The one door that DECLINES instead of refusing. boot() runs inside
+        // every front-end and admin request of every blog (the drop-in is one
+        // network-wide mu-plugin), so a refusal here has no operator to hear it
+        // and a fatal would take the site down -- a deliberate asymmetry with
+        // the verbs, which refuse loudly through
+        // SiteTopology::assert_single_site(). What declining prevents is
+        // concrete: the shutdown flush reaches Ledger::ensure() (:116) and its
+        // four `CREATE TABLE IF NOT EXISTS {$wpdb->prefix}duo_*`
+        // (agent/src/Repository/Ledger.php:81-105) against the SERVING blog's
+        // prefix, so an enabled DUO_JOURNAL seeded a `wp_N_duo_*` set on every
+        // blog that served a write -- residue no rollback removes
+        // (cli/src/Onboarding/Adopt.php's rollbackScript() restores filesystem
+        // paths only, and there is no DROP TABLE anywhere in the shipped tree).
+        // Fixed at the mechanism rather than at duo.php's opt-in condition so
+        // every caller of boot(), adapter observation included, inherits it.
+        if (function_exists('is_multisite') && is_multisite()) {
+            return;
+        }
         add_filter('query', [self::class, 'observe'], -2147483646);
         add_action('shutdown', [self::class, 'flush'], PHP_INT_MAX);
     }

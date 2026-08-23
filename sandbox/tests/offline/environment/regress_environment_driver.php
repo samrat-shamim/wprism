@@ -442,4 +442,124 @@ assert_true(
 );
 pass('every cli/duo verb reaching the driver preflight resolves through requirements()');
 
+// DUO: `duo envs` output is what an operator diffs when they wonder whether a
+// change reached their environments. Admitting LocalTransport to the recovery
+// capability interface must not move one byte of it for an environment that
+// never configured a rollback authority (AGENTS.md rule 8), so the three
+// un-configured describe() lines are asserted byte-exactly here rather than
+// left to a reviewer's eye.
+assert_true(
+    $local->describe() === 'local  wp_path=/wordpress repo_path=/repo',
+    'the un-configured local describe line moved'
+);
+assert_true(
+    $docker->describe() === 'docker compose_file=/tmp/duo-driver-compose.yml service=cli repo_path=/repo',
+    'the un-configured docker describe line moved'
+);
+assert_true(
+    $ssh->describe() === 'ssh    host=fixture.invalid wp_path=/wordpress repo_path=/repo',
+    'the un-configured ssh describe line moved'
+);
+
+// And the opted-in form is the SSH suffix set, in the SSH order, because one
+// RecoveryConfig renders it for every transport.
+$providerArgv = ['/bin/true'];
+$recoveryKeys = [
+    'rollback_key_id' => 'envs-proof-key',
+    'rollback_recovery' => [
+        'adapters' => [
+            'code_restore' => $providerArgv,
+            'database_restore' => $providerArgv,
+            'prior_verify' => $providerArgv,
+            'storage_restore' => $providerArgv,
+        ],
+        'exclusion_provider' => $providerArgv,
+        'timeout_seconds' => 5,
+    ],
+    'rollback_signing_key' => '/tmp/duo-envs-proof-signing.key',
+    'verified_rollback' => [
+        'claim_ttl_seconds' => 90,
+        'encryption_key_id' => 'kms-envs-proof',
+        'retention_seconds' => 3600,
+    ],
+];
+$configuredLocal = new LocalTransport('local-recovery-proof', [
+    '_machine_local' => true, 'transport' => 'local', 'wp_path' => '/wordpress', 'repo_path' => '/repo',
+] + $recoveryKeys);
+assert_true(
+    $configuredLocal->describe()
+        === 'local  wp_path=/wordpress repo_path=/repo'
+        . ' rollback_key_id=envs-proof-key rollback_recovery=configured verified_rollback=configured',
+    'the opted-in local describe line does not name its rollback authority the way ssh does'
+);
+$configuredSsh = new SshTransport('ssh-recovery-proof', [
+    'transport' => 'ssh', 'host' => 'fixture.invalid', 'wp_path' => '/wordpress', 'repo_path' => '/repo',
+] + $recoveryKeys);
+assert_true(
+    $configuredSsh->describe()
+        === 'ssh    host=fixture.invalid wp_path=/wordpress repo_path=/repo'
+        . ' rollback_key_id=envs-proof-key rollback_recovery=configured verified_rollback=configured',
+    'the opted-in ssh describe line moved'
+);
+pass('duo envs is byte-identical for every environment that never opted in, and names the authority for those that did');
+
+// Transport::runCapturing() must drain stdout and stderr concurrently. The
+// sequential form (stream_get_contents(stdout) then stderr) deadlocked the
+// moment a child filled the ~64KB stderr pipe buffer before closing stdout —
+// measured 2026-08-24: the SSH rollback certification's adopt install script
+// hung exactly there on two consecutive runs (idle sshd-session on the
+// target, live mux client on the host, zero remote processes), and a
+// 200KB-stderr child reproduces it in isolation. The capture runs in a child
+// PHP process under a watchdog so a regression fails as a named timeout
+// instead of hanging the offline corpus.
+$captureProbe = <<<'PHP'
+require $argv[1] . '/cli/src/Transport/EnvironmentDriver.php';
+require $argv[1] . '/cli/src/Transport/Transport.php';
+require $argv[1] . '/cli/src/Transport/LocalTransport.php';
+$t = new Duo\Orchestrator\LocalTransport('pipe-proof', [
+    'transport' => 'local', 'wp_path' => '/wordpress', 'repo_path' => '/repo',
+]);
+$r = $t->captureRaw(
+    'php -r ' . escapeshellarg(
+        'fwrite(STDERR, str_repeat("e", 200000));'
+        . ' fwrite(STDOUT, str_repeat("o", 200000));'
+        . ' fwrite(STDERR, "!"); exit(7);'
+    )
+);
+echo $r['exit'], ' ', strlen($r['stdout']), ' ', strlen($r['stderr']), "\n";
+PHP;
+$probeProc = proc_open(
+    escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($captureProbe) . ' ' . escapeshellarg(dirname(__DIR__, 4)),
+    [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+    $probePipes
+);
+if (!is_resource($probeProc)) {
+    fail('could not start the pipe-drain probe');
+}
+fclose($probePipes[0]);
+stream_set_blocking($probePipes[1], false);
+stream_set_blocking($probePipes[2], false);
+$probeOut = '';
+$deadline = microtime(true) + 20.0;
+while (true) {
+    $status = proc_get_status($probeProc);
+    $probeOut .= (string) stream_get_contents($probePipes[1]);
+    if (!$status['running']) {
+        break;
+    }
+    if (microtime(true) > $deadline) {
+        proc_terminate($probeProc, 9);
+        fail('captureRaw deadlocked on a 200KB-stderr child: sequential pipe reads are back');
+    }
+    usleep(50000);
+}
+$probeOut .= (string) stream_get_contents($probePipes[1]);
+fclose($probePipes[1]);
+fclose($probePipes[2]);
+proc_close($probeProc);
+if (trim($probeOut) !== '7 200000 200001') {
+    fail("captureRaw lost bytes or the exit code on a chatty child: got '" . trim($probeOut) . "', want '7 200000 200001'");
+}
+pass('captureRaw drains interleaved 200KB stdout/stderr without deadlock and loses neither bytes nor the exit code');
+
 echo "REGRESS_ENVIRONMENT_DRIVER PASSED\n";

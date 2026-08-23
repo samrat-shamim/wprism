@@ -398,18 +398,50 @@ class PromotionLease {
                 $heldBy = (string) ($current['owner'] ?? 'unknown');
                 $heldPhase = (string) ($current['phase'] ?? 'unknown');
                 $expires = (int) ($current['expires_at'] ?? 0);
-                throw new \RuntimeException(
+                // TYPED for the same reason the two abort refusals below are
+                // (see the DUO-3506 block at assert_abort_ownership()): a bare
+                // \RuntimeException reached `Cli::halt_json_failure()`'s
+                // catch-all (agent/src/Command/Cli.php:83-98) and an
+                // orchestrator running `promotion-begin --format=json` saw only
+                // `promotion_begin_failed` + `details_redacted: true`, which
+                // cannot be told apart from a compile or policy failure.
+                //
+                // The public half is a reviewed CONSTANT because the operator
+                // sentence is not: it interpolates the lease owner token, the
+                // phase, and an absolute expiry epoch, and MUP §5.2 admits an
+                // internal identifier into a public view only when a documented
+                // command consumes it -- nothing consumes any of the three.
+                // Passing today's exact sentence as `$operatorMessage` keeps
+                // `getMessage()` byte-identical (CommandRefusal.php:52), which
+                // is what sandbox/tests/live/regress_promotion_lock.sh:194 greps
+                // and what cli/duo:3267 str_contains() to tell a definite live
+                // contender from an uncertain begin.
+                throw new CommandRefusalException(
+                    'promotion_lease_held',
+                    'a promotion lease on this target is held by another release; concurrent target mutation was refused',
+                    'wait for the recorded promotion to finish, or release its lease through the release that holds it, before promoting this target again',
+                    [],
                     "duo: promotion lock held by '$heldBy' in phase '$heldPhase' until epoch $expires; "
                     . 'concurrent target mutation refused'
                 );
             }
             if ((int) ($current['expires_at'] ?? 0) <= $now) {
-                throw new \RuntimeException(
+                throw new CommandRefusalException(
+                    'promotion_lease_expired',
+                    'the promotion lease expired before this handoff; the promotion was refused rather than revived',
+                    'begin a new promotion instead of reviving this one; an expired owner must not resume a half-finished release',
+                    [],
                     'duo: promotion lock expired before handoff; start a new promotion rather than reviving this owner'
                 );
             }
             if (!hash_equals($artifactHash, (string) ($current['artifact_hash'] ?? ''))) {
-                throw new \RuntimeException('duo: promotion lock owner attempted to change its compiled artifact');
+                throw new CommandRefusalException(
+                    'promotion_lease_artifact_mismatch',
+                    'the promotion lease owner attempted to change its compiled artifact mid-promotion; target mutation was refused',
+                    'abort this promotion and begin a new one for the exact compiled artifact you intend to release',
+                    [],
+                    'duo: promotion lock owner attempted to change its compiled artifact'
+                );
             }
             $current['recovered'] = $before !== null
                 && (int) ($before['expires_at'] ?? 0) <= $now
@@ -475,7 +507,19 @@ class PromotionLease {
             || !hash_equals($owner, (string) ($current['owner'] ?? ''))
             || !hash_equals($artifactHash, (string) ($current['artifact_hash'] ?? ''))
             || ((int) ($current['expires_at'] ?? 0) <= $now && !$continuous)) {
-            throw new \RuntimeException('duo: promotion lock lost or expired; mutation refused');
+            // ONE public code for two internal detection points: this
+            // pre-write readback and the post-write readback at the end of
+            // heartbeat(). To an orchestrator both are the same fact -- the
+            // lease this process holds is gone -- and the same answer. The two
+            // operator sentences stay distinct so the private evidence still
+            // says which readback saw it.
+            throw new CommandRefusalException(
+                'promotion_lease_lost',
+                'the promotion lease this command holds is gone or expired; target mutation was refused',
+                'do not retry in place: abort this promotion, inspect the recorded lifecycle and recovery evidence, then begin a new promotion',
+                [],
+                'duo: promotion lock lost or expired; mutation refused'
+            );
         }
         $payload = self::payload(
             $owner,
@@ -499,7 +543,13 @@ class PromotionLease {
             || !hash_equals($owner, (string) ($after['owner'] ?? ''))
             || !hash_equals($artifactHash, (string) ($after['artifact_hash'] ?? ''))
             || (int) ($after['expires_at'] ?? 0) <= $now) {
-            throw new \RuntimeException('duo: promotion lock lost during renewal; mutation refused');
+            throw new CommandRefusalException(
+                'promotion_lease_lost',
+                'the promotion lease this command holds is gone or expired; target mutation was refused',
+                'do not retry in place: abort this promotion, inspect the recorded lifecycle and recovery evidence, then begin a new promotion',
+                [],
+                'duo: promotion lock lost during renewal; mutation refused'
+            );
         }
     }
 

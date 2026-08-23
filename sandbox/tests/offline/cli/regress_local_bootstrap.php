@@ -113,6 +113,12 @@ final class LocalBootstrapUploadCollisionTransport implements AdoptionTransport 
         if ($wpArgs === ['eval', 'echo WPMU_PLUGIN_DIR;']) {
             return ['exit' => 0, 'stdout' => "/fixture/mu\n", 'stderr' => ''];
         }
+        // The pre-swap topology probe runs ahead of the tar and the upload, so
+        // this fixture must answer it before it can reach the upload collision
+        // it exists to exercise.
+        if (str_contains((string) ($wpArgs[1] ?? ''), 'duo-single-site')) {
+            return ['exit' => 0, 'stdout' => "duo-single-site\n", 'stderr' => ''];
+        }
         return ['exit' => 90, 'stdout' => '', 'stderr' => 'unexpected wp call'];
     }
     public function uploadFile(string $localPath, string $remotePath): array {
@@ -154,6 +160,9 @@ case " $* " in
   *DUO_BOOTSTRAP_WPMU_PLUGIN_DIR*) printf '%s' "$DUO_LOCAL_BOOTSTRAP_MU"; exit 0 ;;
   *DUO_AGENT_VERSION*) printf '%s' "$DUO_LOCAL_BOOTSTRAP_VERSION"; exit 0 ;;
   *duo-policy-ok*) printf '%s' 'duo-policy-ok'; exit 0 ;;
+  # The pre-swap topology probe, matched on its own literal so it cannot
+  # shadow the version/policy probes above.
+  *duo-single-site*) printf '%s' 'duo-single-site'; exit 0 ;;
 esac
 printf '%s\n' 'unexpected fake wp invocation' >&2
 exit 91

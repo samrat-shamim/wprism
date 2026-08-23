@@ -15,7 +15,7 @@ session — the incident that motivated this redesign. New surface:
 single long-lived `mariadb:11` container (`duo-shared-db`, its own compose
 project `duo-db`) that hosts every pair's databases. `sandbox/pair.yml` is
 one generic pair template — services `wp1`, `wp2`
-(`wordpress:7.0.3-php8.3-apache` by default) and `cli1`, `cli2`
+(`wordpress:7.1-php8.3-apache` by default) and `cli1`, `cli2`
 (`wordpress:cli-php8.3`, `user: "33:33"`) — with no
 MariaDB service of its own. Each pair is brought up as its own compose
 project (`-p duo-<name>`), so any number of pairs come and go independently,
@@ -28,14 +28,16 @@ resolve correctly).
 The generic pair's WordPress core image is pinned to the exact version
 `docs/compatibility-baseline.json` records as last verified, so a floating
 registry tag cannot silently move the platform boundary a proof runs against.
+
 That file is the one project-level compatibility statement: the agent blocks
-policy load outside its PHP/database ranges or exact WordPress value,
+policy load outside its PHP/database ranges, or on a core outside its
+WordPress range or inside it but on a minor line `verified` does not name,
 `cli/src/Onboarding/Doctor.php` reports the same failures before orchestration,
 and `tools/capability-doc.php` cross-checks it against
 `manifests/capabilities/platform.json` so the two copies cannot drift.
 `DUO_WP_IMAGE` is an explicit override for exploratory local work; a
 candidate-bound run leaves it unset and therefore uses
-`wordpress:7.0.3-php8.3-apache`.
+`wordpress:7.1-php8.3-apache`.
 
 Why one server instead of one-per-pair: a clean-room reset becomes `DROP
 DATABASE` + `CREATE DATABASE` against a server that's already initialized
@@ -46,6 +48,75 @@ nothing else contending for resources (see "Measured reset time" below):
 number excludes the `docker compose rm -sf` step the real
 `sandbox/conformance/run.sh` also pays before its `docker volume rm -f`, so
 real-world old-flow resets cost more than that baseline.
+
+### The MySQL evidence lane (second shared server, no claim)
+
+`sandbox/db.mysql.yml` brings up a **second** long-lived server —
+`mysql:8.4` as `duo-shared-mysql`, its own compose project `duo-db-mysql`,
+its own volume `duo-db-mysql-data`, loopback port `127.0.0.1:3326` (distinct
+from db.yml's 3316 because both servers are up at once during a matrix run).
+It **attaches** to db.yml's `duo-shared` network with `external: true`, so
+`db.yml` must have been brought up at least once first; it never creates that
+network and never touches db.yml's container, volume, or image.
+
+Select it per invocation with `DUO_DB_ENGINE`:
+
+| `DUO_DB_ENGINE` | container | client binary | compose project |
+| --- | --- | --- | --- |
+| unset / `mariadb` (default) | `duo-shared-db` | `mariadb` | `duo-db` (`db.yml`) |
+| `mysql` | `duo-shared-mysql` | `mysql` | `duo-db-mysql` (`db.mysql.yml`) |
+
+Any other value is refused by name at pair.sh load, before any subcommand and
+before any docker call — a typo must not silently produce MariaDB evidence an
+operator would file as MySQL. The selection itself is one function,
+`pair_db_select_engine()` in `sandbox/lib/pair_db.sh`, driven offline by
+`sandbox/tests/offline/guards/regress_pair_db_engine.sh`.
+
+The client binary is the one thing the two images cannot share: `mariadb:11`
+ships only `mariadb` (it dropped the `mysql` name entirely) and `mysql:8.4`
+ships only `mysql`. The healthcheck differs for the same kind of reason —
+db.yml uses `healthcheck.sh --connect --innodb_initialized`, a script that
+exists only in MariaDB images, so db.mysql.yml runs `mysql -uroot -proot -e
+'SELECT 1'` instead. Deliberately **not** `mysqladmin ping`: ping answers as
+soon as the server accepts a connection, which is exactly the fake-readiness
+gap `--innodb_initialized` was chosen to close.
+
+`pair.sh` exports `DUO_DB_HOST="$DB_CONTAINER"` **at load**, beside the
+engine selection and therefore for every subcommand — not just `up`.
+`pair.yml` renders `WORDPRESS_DB_HOST: ${DUO_DB_HOST:-duo-shared-db}` from it,
+and `pair_compose_configure()` writes it into `sandbox/.env` as a third line
+beside `DUO_AGENT_SRC`/`DUO_MANIFESTS_SRC`. The `.env` write is load-bearing,
+not belt-and-braces: `conformance/run.sh` and every `regress_*.sh` invoke
+`pair.sh up` as a subprocess and then make their own `docker compose -f
+pair.yml` calls, which never see pair.sh's export. A MySQL pair whose
+subprocesses re-rendered the `duo-shared-db` default would run green against
+MariaDB and be recorded as MySQL evidence.
+
+The load-time export matters for the same reason: `pair_compose_configure()`
+rewrites `sandbox/.env` on *every* call, and `stop`/`start`/`destroy` all call
+it, so exporting only inside `up` would let a later `pair.sh stop
+<mysql-pair>` put `duo-shared-db` back into the file the next subprocess
+compose call reads. (Exactly the failure `DUO_AGENT_SRC` hit in DUO-3277.)
+
+**Bringing this server up claims nothing.**
+`manifests/capabilities/platform.json` still declares
+`compatibility.database.engine = "MariaDB"`, and
+`agent/src/Policy/PlatformCompatibility.php:117` still compares the probed
+engine with `!==`, so every `wp duo ...` on a pair pointed at
+`duo-shared-mysql` refuses with reason code `platform_unsupported` and
+diagnostic `platform_database_engine_unsupported`, mutating nothing. That
+refusal is the lane's first datum — it proves the harness reaches a real
+MySQL server end to end. Widening the claim requires the live matrix and its
+own commit (platform.json, `docs/compatibility-baseline.json`, the
+regenerated `docs/capabilities.md`, the live platform suite's `MariaDB`
+assertions, and a recompile + `wp duo manifest-pin` for every deployed site
+holding a compiled artifact — AGENTS.md rule 2).
+
+**Bring it down when the matrix is not running**
+(`docker compose -p duo-db-mysql -f db.mysql.yml down -v`). It adds a second
+2g / 2.0-cpu long-lived container to the same daemon accounting `db.yml:4-12`
+records as having wedged OrbStack under three concurrent stacks; never leave
+it up alongside a full conformance sweep.
 
 ### Cross-project networking
 
@@ -90,7 +161,10 @@ operations only (`CREATE`/`DROP DATABASE`), always via `docker exec
 duo-shared-db mariadb -uroot ...` from pair.sh — never over the published
 port. That port (`127.0.0.1:3316`, loopback-only) exists solely for a human
 who wants to point a GUI SQL client at the fleet directly; no tooling here
-depends on it.
+depends on it. (On the MySQL lane the same admin SQL runs as `docker exec
+duo-shared-mysql mysql -uroot ...` on port `3326`; the SQL text above is
+byte-identical for both engines pending the lane's first live
+`caching_sha2_password` probe.)
 
 Pair names are constrained to lowercase letters/digits, starting with a
 letter (`pair.sh`'s `validate_name`) — used bare as both a MySQL identifier
@@ -482,7 +556,7 @@ cross-branch plugin-version-skew scenario `certify-merge` routes away from
 itself), `certify-adversarial-matrix`,
 `certify-deletion-matrix`, `certify-version-matrix`
 (`VMATRIX_MANIFEST=<name>` names the manifest whose `version_range` edges get
-installed — `sandbox/tests/certify/certify_version_matrix.sh:52`),
+installed — `sandbox/tests/certify/certify_version_matrix.sh:57`),
 `certify-ssh-adoption-roundtrip` and `certify-ssh-rollback`. They keep the
 `certify-` prefix for their history; each is a live proof of one mechanism,
 and none of them publishes a record.

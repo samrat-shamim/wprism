@@ -3,22 +3,33 @@ declare(strict_types=1);
 
 namespace Duo\Orchestrator;
 
+require_once __DIR__ . '/../Transport/RecoveryTransport.php';
+
 use Duo\Recovery\RollbackControl;
 use Duo\Recovery\CanonicalJson;
 
 /**
  * Controller-side client for the adopted rollback authority runtime.
  *
- * Requests travel as mode-0600 uploaded canonical JSON files, never shell
- * arguments. The Ed25519 secret remains on the controller; the target sees
- * only signed receipts/events and the public key provisioned by adoption.
+ * Requests travel as mode-0600 canonical JSON handoffs, never shell arguments;
+ * where that handoff can live is a per-transport fact, which is why placing and
+ * removing it are `RecoveryTransport` members rather than inline `/tmp` paths
+ * here. The Ed25519 secret remains on the controller; the target sees only
+ * signed receipts/events and the public key provisioned by adoption.
+ *
+ * That separation is a property of the DEPLOYMENT, not of this class: on a
+ * `local` environment the controller and the target are one machine, so the
+ * signature keeps its tamper-evidence against a corrupted runtime or journal
+ * and loses it against a compromised controller. `LocalTransport` therefore
+ * arms the authority only under machine-local privilege, and
+ * docs/recovery-runtime.md states the reduction rather than papering over it.
  */
 final class RollbackAuthority {
-    private SshTransport $transport;
+    private RecoveryTransport $transport;
     private string $keyId;
     private string $secretKey;
 
-    public function __construct(SshTransport $transport) {
+    public function __construct(RecoveryTransport $transport) {
         if (!$transport->rollbackConfigured()) {
             throw new \RuntimeException(
                 "env '{$transport->name()}': rollback authority needs rollback_key_id + rollback_signing_key"
@@ -52,12 +63,12 @@ final class RollbackAuthority {
      *
      * @return array<string,mixed>
      */
-    public static function status(SshTransport $transport): array {
+    public static function status(RecoveryTransport $transport): array {
         return self::readStatus($transport, 'status');
     }
 
     /** Read signed authority even when exclusion adoption is the failing edge. */
-    public static function authorityStatus(SshTransport $transport): array {
+    public static function authorityStatus(RecoveryTransport $transport): array {
         return self::readStatus($transport, 'authority-status');
     }
 
@@ -69,7 +80,7 @@ final class RollbackAuthority {
      *
      * @return array<string,mixed>
      */
-    public static function scopedStatus(SshTransport $transport): array {
+    public static function scopedStatus(RecoveryTransport $transport): array {
         $status = self::authorityStatus($transport);
         if (($status['available'] ?? false) !== true || ($status['ok'] ?? false) !== true) {
             return $status;
@@ -88,7 +99,7 @@ final class RollbackAuthority {
      *
      * @return array<string,mixed>
      */
-    public static function scopedEvidence(SshTransport $transport): array {
+    public static function scopedEvidence(RecoveryTransport $transport): array {
         $evidence = self::readControlAction($transport, 'active-evidence');
         $receipt = $evidence['receipt'] ?? null;
         $status = $evidence['status'] ?? null;
@@ -104,12 +115,12 @@ final class RollbackAuthority {
     }
 
     /** Read canonical hash-only evidence for the complete signed chain. */
-    public static function audit(SshTransport $transport): array {
+    public static function audit(RecoveryTransport $transport): array {
         return self::readStatus($transport, 'audit');
     }
 
     /** @return array<string,mixed> */
-    private static function readStatus(SshTransport $transport, string $action): array {
+    private static function readStatus(RecoveryTransport $transport, string $action): array {
         $runtime = self::runtimePath($transport);
         $root = self::controlRoot($transport);
         $script = 'if [ ! -f ' . escapeshellarg($runtime) . ' ]; then exit 44; fi; '
@@ -149,7 +160,7 @@ final class RollbackAuthority {
     }
 
     /** @return array<string,mixed> */
-    private static function readControlAction(SshTransport $transport, string $action): array {
+    private static function readControlAction(RecoveryTransport $transport, string $action): array {
         $runtime = self::runtimePath($transport);
         $root = self::controlRoot($transport);
         $script = 'if [ ! -f ' . escapeshellarg($runtime) . ' ]; then exit 44; fi; '
@@ -882,14 +893,18 @@ final class RollbackAuthority {
         if ($local === false) {
             throw new \RuntimeException('duo rollback: could not allocate operation handoff');
         }
-        $remote = '/tmp/duo-rollback-input-' . bin2hex(random_bytes(16)) . '.json';
+        // The transport names its own handoff path (SSH: the target's /tmp,
+        // as before) and the name is taken BEFORE any write, so the finally
+        // below removes a partially placed blob on every observed exit —
+        // the edge docs/ssh-rollback-certification.md's crash matrix covers.
+        $remote = $this->transport->allocateControlInput('input');
         try {
             @chmod($local, 0600);
             $bytes = CanonicalJson::encode($input) . "\n";
             if (file_put_contents($local, $bytes, LOCK_EX) !== strlen($bytes)) {
                 throw new \RuntimeException('duo rollback: could not write operation handoff');
             }
-            $upload = $this->transport->uploadFile($local, $remote);
+            $upload = $this->transport->putControlInput($local, $remote);
             if ($upload['exit'] !== 0) {
                 throw new \RuntimeException('duo rollback: operation upload failed: ' . trim($upload['stderr']));
             }
@@ -925,7 +940,7 @@ final class RollbackAuthority {
             return $decoded;
         } finally {
             @unlink($local);
-            $this->transport->captureRaw('rm -f ' . escapeshellarg($remote));
+            $this->transport->removeControlInput($remote);
         }
     }
 
@@ -945,14 +960,14 @@ final class RollbackAuthority {
         if ($local === false) {
             throw new \RuntimeException('duo rollback: could not allocate operation handoff');
         }
-        $remote = '/tmp/duo-rollback-input-' . bin2hex(random_bytes(16)) . '.json';
+        $remote = $this->transport->allocateControlInput('input');
         try {
             @chmod($local, 0600);
             $bytes = RollbackControl::canonical($input) . "\n";
             if (file_put_contents($local, $bytes, LOCK_EX) !== strlen($bytes)) {
                 throw new \RuntimeException('duo rollback: could not write operation handoff');
             }
-            $upload = $this->transport->uploadFile($local, $remote);
+            $upload = $this->transport->putControlInput($local, $remote);
             if ($upload['exit'] !== 0) {
                 throw new \RuntimeException('duo rollback: operation upload failed: ' . trim($upload['stderr']));
             }
@@ -988,7 +1003,7 @@ final class RollbackAuthority {
             return $decoded;
         } finally {
             @unlink($local);
-            $this->transport->captureRaw('rm -f ' . escapeshellarg($remote));
+            $this->transport->removeControlInput($remote);
         }
     }
 
@@ -1346,15 +1361,14 @@ final class RollbackAuthority {
         if ($local === false) {
             throw new \RuntimeException('duo rollback: could not allocate request handoff');
         }
-        $token = bin2hex(random_bytes(16));
-        $remote = '/tmp/duo-rollback-request-' . $token . '.json';
+        $remote = $this->transport->allocateControlInput('request');
         try {
             @chmod($local, 0600);
             $bytes = CanonicalJson::encode($request) . "\n";
             if (file_put_contents($local, $bytes, LOCK_EX) !== strlen($bytes)) {
                 throw new \RuntimeException('duo rollback: could not write request handoff');
             }
-            $upload = $this->transport->uploadFile($local, $remote);
+            $upload = $this->transport->putControlInput($local, $remote);
             if ($upload['exit'] !== 0) {
                 throw new \RuntimeException('duo rollback: request upload failed: ' . trim($upload['stderr']));
             }
@@ -1379,7 +1393,7 @@ final class RollbackAuthority {
             return $decoded;
         } finally {
             @unlink($local);
-            $this->transport->captureRaw('rm -f ' . escapeshellarg($remote));
+            $this->transport->removeControlInput($remote);
         }
     }
 
@@ -1610,11 +1624,11 @@ final class RollbackAuthority {
         }
     }
 
-    private static function controlRoot(SshTransport $transport): string {
+    private static function controlRoot(RecoveryTransport $transport): string {
         return rtrim($transport->repoPath(), '/') . '/.duo/control';
     }
 
-    private static function runtimePath(SshTransport $transport): string {
+    private static function runtimePath(RecoveryTransport $transport): string {
         return self::controlRoot($transport) . '/recovery-runtime/rollback-control.php';
     }
 

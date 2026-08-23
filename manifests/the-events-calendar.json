@@ -4,7 +4,7 @@
   "plugin": "the-events-calendar/the-events-calendar.php",
   "version_range": {
     "min": "6.17.2",
-    "max": "6.17.3"
+    "max": "6.17.4"
   },
   "notes": [
     "Production-readiness audit 2026-08-22: the official WordPress.org The Events Calendar 6.17.2 artifact is pinned at SHA-256 f67f2668fc777505a6e0f2cc8c7c39db869a1b186b2444f9d5e138d32bcaabaa. The one-patch range admits only the inspected artifact; widening requires a new schema, regenerator, lifecycle, and request-behavior exercise.",
@@ -21,8 +21,9 @@
     "tribe_last_generate_rewrite_rules / tribe_last_save_post / tribe_last_updated_option: runtime — internal cache-invalidation timestamps (when various caches were last rebuilt), not content.",
     "_EventShowMap / _EventShowMapLink: declared lint_ok true, reactively, after `wp duo lint` actually flagged both on this round's own 3-event fixture (matches=post:1 'Hello world!') — both are boolean 0/1 display-toggle flags TEC sets on every event by default; reviewed and confirmed genuinely not refs, the same escape hatch as manifests/ninja-forms.json's BIT(1) columns and manifests/woocommerce.json's `queryId`.",
     "_EventOrigin / _OrganizerOrigin / _VenueOrigin: a plain string TEC stamps on every event/venue/organizer it creates ('events-calendar') identifying the creation source (vs. an import from another calendar system) — static per-entity provenance, not env-bound, not a ref: authored.",
-    "post_meta absent entirely when unset, not written empty: confirmed live — an event created with no venue/organizer (this round's 'Community Meetup' fixture) carries ZERO `_EventVenueID`/`_EventOrganizerID` postmeta rows, not empty-string rows, matching the ordinary WordPress 'absent key = unset ref' convention the engine's ref-token machinery already assumes."
-  ],
+    "post_meta absent entirely when unset, not written empty: confirmed live — an event created with no venue/organizer (this round's 'Community Meetup' fixture) carries ZERO `_EventVenueID`/`_EventOrganizerID` postmeta rows, not empty-string rows, matching the ordinary WordPress 'absent key = unset ref' convention the engine's ref-token machinery already assumes.",
+    "Version window widened 2026-08-24 from the one-release >=6.17.2 <6.17.3 to >=6.17.2 <6.17.4, on evidence, not on inertia: 6.17.3 (official wp.org artifact, SHA-256 2db436c929797bfc5311be942158c474716e61c2f289f7d05c3a08d29b2ad687) is the only release upstream has published above the previously inspected 6.17.2 artifact. The adapter surface was probed the same way manifests/code-snippets.json probed class-db.php before widening ITS window: src/Events/Custom_Tables/V1/** is byte-identical across the two artifacts, Single_Event_Migration_Strategy.php (the file the tec_events/tec_occurrences note above cites at :70-100, and the exact path manifests/regenerators/the-events-calendar.php wraps) hashes to f307a323aecb78f3004abea04d002e78d1a90d417baa7c6c22f3796db4cf3c12 in both, and Events::SCHEMA_VERSION/Occurrences::SCHEMA_VERSION stay 1.0.1/1.0.3 -- so both env-class schema-version options this manifest declares resolve unchanged. The only non-translation, non-changelog code deltas are src/Tribe/Views/V2/{Url,View,Template/Title,Widgets/Service_Provider}.php, front-end view rendering that touches no option, post_meta, table or schema call this manifest declares. Exercised at both edges by sandbox/tests/certify/certify_version_matrix.sh (VMATRIX_MANIFEST=the-events-calendar), including a populated 6.17.2 -> 6.17.3 in-place upgrade that must refuse as code_drift, redeploy under --force-code-drift, and then produce an empty plan in all seven buckets. Widening past 6.17.4 requires the same probe against the next artifact."
+    ],
   "options": {
     "stellar_schema_version_stellarwp-shepherd-tec-tasks": {"class": "env", "required": false},
     "stellar_schema_version_tec-kv-cache": {"class": "env", "required": false},

@@ -5,10 +5,16 @@ declare(strict_types=1);
  * Offline platform-boundary regression.
  *
  * Exercises the agent-owned gate with every inclusive/exclusive version edge,
- * exact WordPress semantics, engine/topology mismatches, checked live-probe
- * parsing, safe aggregate diagnostics, and Policy ordering. Before this gate,
- * a direct `wp duo` command bypassed the host doctor and reached repository
- * reads or mutation on an entirely unexercised runtime.
+ * the WordPress range-plus-exercised-series semantics, engine/topology
+ * mismatches, checked live-probe parsing, safe aggregate diagnostics, and
+ * Policy ordering. Before this gate, a direct `wp duo` command bypassed the
+ * host doctor and reached repository reads or mutation on an entirely
+ * unexercised runtime.
+ *
+ * The WordPress axis is two independent conditions, and this suite proves
+ * both separately: inside [min, max) AND the observed MAJOR.MINOR present in
+ * `verified`. A boundary with a deliberate hole (below) is what stops the
+ * series half passing merely by agreeing with the range half.
  */
 
 require_once __DIR__ . '/../../lib/check.php';
@@ -27,7 +33,7 @@ if (!defined('WPINC')) {
     define('WPINC', 'wp-includes');
 }
 
-$GLOBALS['platform_wordpress_version'] = '7.0.3';
+$GLOBALS['platform_wordpress_version'] = '7.1';
 $GLOBALS['platform_multisite'] = false;
 function get_bloginfo(string $show): string {
     return $show === 'version' ? (string) $GLOBALS['platform_wordpress_version'] : '';
@@ -72,7 +78,7 @@ $facts = static fn(
     string $php = '8.3.33',
     string $engine = 'MariaDB',
     string $database = '11.8.8',
-    string $wordpress = '7.0.3',
+    string $wordpress = '7.1',
     string $siteMode = 'single-site'
 ): array => [
     'php' => $php,
@@ -92,13 +98,43 @@ $refusal = static function (callable $operation): ?CommandRefusalException {
 };
 
 PlatformCompatibility::assert_supported($platform, $facts());
-duo_check(true, 'the exact exercised PHP/MariaDB/WordPress/single-site platform is accepted');
+duo_check(true, 'the shipped PHP/MariaDB/WordPress/single-site platform boundary accepts its own newest exercised core');
+
+// Every value of the shipped `verified` map is, by definition, a core a live
+// matrix ran end to end; the gate must accept each one. Read from the claim
+// rather than restated here so adding a series to platform.json cannot leave
+// this suite asserting the old set.
+$verifiedWordPress = $platform['compatibility']['wordpress']['verified'];
+duo_check(count($verifiedWordPress) >= 2, 'the shipped claim names more than one exercised core series');
+foreach ($verifiedWordPress as $series => $patch) {
+    $failure = $refusal(static fn() => PlatformCompatibility::assert_supported($platform, $facts(wordpress: $patch)));
+    duo_check($failure === null, "the exercised $series proof core $patch is accepted by the agent gate");
+}
 
 foreach ([
     'PHP inclusive minimum' => $facts(php: '8.3.0'),
     'PHP value below exclusive maximum' => $facts(php: '8.3.999'),
     'MariaDB inclusive minimum' => $facts(database: '11.0.0'),
     'MariaDB value below exclusive maximum' => $facts(database: '11.999.999'),
+    // Patch-level generalization inside an exercised series, the one genuine
+    // widening in this claim: it is the same basis PHP 8.3.x and MariaDB 11.x
+    // are already claimed on from one measured runtime each. Each of these
+    // refused before the matrix, under hash_equals against 7.0.3.
+    'WordPress inclusive minimum' => $facts(wordpress: '6.9.0'),
+    'WordPress patch below the 6.9 proof' => $facts(wordpress: '6.9.1'),
+    'WordPress unrun patch inside the exercised 6.9 series' => $facts(wordpress: '6.9.99'),
+    'WordPress patch below last_verified inside its exercised series' => $facts(wordpress: '7.0.2'),
+    'WordPress patch above last_verified inside its exercised series' => $facts(wordpress: '7.0.4'),
+    // WordPress ships '7.1' — two components — as the 7.1 series' first
+    // release (wp-includes/version.php:19), so the value the gate compares for
+    // a brand-new series is not MAJOR.MINOR.PATCH. version() accepts 1-3 dots
+    // and series('7.1') === '7.1', so this is a first-class claimed core, not
+    // a shape the gate tolerates by accident.
+    'WordPress two-component core string for a series first release' => $facts(wordpress: '7.1'),
+    // The patch that does not exist yet but will: 7.1.0 was the exclusive
+    // maximum — a hard refusal — until this claim widened to [6.9.0, 7.2.0).
+    'WordPress patch generalized over inside the newly exercised 7.1 series' => $facts(wordpress: '7.1.0'),
+    'WordPress later patch inside the newly exercised 7.1 series' => $facts(wordpress: '7.1.9'),
 ] as $label => $caseFacts) {
     $failure = $refusal(static fn() => PlatformCompatibility::assert_supported($platform, $caseFacts));
     duo_check($failure === null, "$label is accepted by the agent gate");
@@ -110,8 +146,16 @@ foreach ([
     'MariaDB below minimum' => [$facts(database: '10.11.0'), 'platform_database_version_unsupported'],
     'MariaDB exact exclusive maximum' => [$facts(database: '12.0.0'), 'platform_database_version_unsupported'],
     'MySQL engine' => [$facts(engine: 'MySQL', database: '8.4.3'), 'platform_database_engine_unsupported'],
-    'older WordPress' => [$facts(wordpress: '7.0.2'), 'platform_wordpress_version_unsupported'],
-    'newer WordPress' => [$facts(wordpress: '7.0.4'), 'platform_wordpress_version_unsupported'],
+    'WordPress below minimum' => [$facts(wordpress: '6.8.3'), 'platform_wordpress_version_unsupported'],
+    'WordPress exact exclusive maximum' => [$facts(wordpress: '7.2.0'), 'platform_wordpress_version_unsupported'],
+    // Inside [6.9.0, 7.2.0) by version_compare and still unexercised: 6.10 is
+    // a minor line the shipped `verified` map does not name. WordPress is not
+    // semver, so this is a case the range half cannot catch on its own.
+    'WordPress unexercised minor line inside the shipped range' => [$facts(wordpress: '6.10.0'), 'platform_wordpress_version_unsupported'],
+    // A pre-release core ranks inside the window under version_compare; the
+    // observed value must still be a plain dotted version or the gate is
+    // comparing something it never exercised.
+    'WordPress pre-release core inside an exercised series' => [$facts(wordpress: '7.0.4-alpha'), 'platform_wordpress_version_unsupported'],
     'multisite topology' => [$facts(siteMode: 'multisite'), 'platform_site_mode_unsupported'],
 ] as $label => [$caseFacts, $code]) {
     $failure = $refusal(static fn() => PlatformCompatibility::assert_supported($platform, $caseFacts));
@@ -120,9 +164,52 @@ foreach ([
     duo_check_same($code, $failure?->diagnostics[0]['code'] ?? null, "$label names its exact platform axis");
 }
 
+// The `required` value is the whole matrix — range AND exercised series, in
+// version_compare order — never one exact version. This exact string is the
+// one the live proof asserts against a real refused core
+// (sandbox/tests/live/regress_core_scope_platform.sh), so the offline and
+// live halves of the evidence cannot drift apart.
+$belowMinimum = $refusal(static fn() => PlatformCompatibility::assert_supported($platform, $facts(wordpress: '6.8.3')));
+duo_check_same(
+    '>=6.9.0 <7.2.0 exercised 6.9, 7.0, 7.1',
+    $belowMinimum?->diagnostics[0]['required'] ?? null,
+    'a refused core is told the exercised matrix, not one exact version'
+);
+
+// The case a plain [min,max) range cannot express and would silently accept.
+// The fixture leaves a deliberate hole at the 7.0 line, so a 7.0.1 target is
+// inside the declared window and still unexercised: this refusal can only
+// come from the series check, never from the range check agreeing by
+// accident. DESIGN.md's vision invariant forbids exactly this shape of
+// unproven behavior hidden behind a broad claim.
+$holed = $platform;
+$holed['compatibility']['wordpress'] = [
+    'last_verified' => '7.1.4',
+    'max' => '7.2.0',
+    'min' => '6.9.0',
+    'note' => 'fixture boundary with a deliberate 7.0 hole',
+    'verified' => ['6.9' => '6.9.2', '7.1' => '7.1.4'],
+];
+$holeFailure = $refusal(static fn() => PlatformCompatibility::assert_supported($holed, $facts(wordpress: '7.0.1')));
+duo_check_same('platform_unsupported', $holeFailure?->reasonCode, 'an unexercised minor line inside the range shares one stable command reason');
+duo_check_same(
+    'platform_wordpress_version_unsupported',
+    $holeFailure?->diagnostics[0]['code'] ?? null,
+    'an unexercised minor line inside the declared range refuses on the WordPress axis'
+);
+duo_check_same(
+    '>=6.9.0 <7.2.0 exercised 6.9, 7.1',
+    $holeFailure?->diagnostics[0]['required'] ?? null,
+    'the hole is named to the operator: the label lists exercised series, not the range endpoints alone'
+);
+duo_check(
+    $refusal(static fn() => PlatformCompatibility::assert_supported($holed, $facts(wordpress: '7.1.9'))) === null,
+    'the same holed boundary still accepts an unrun patch inside one of its exercised series'
+);
+
 $allMismatch = $refusal(static fn() => PlatformCompatibility::assert_supported(
     $platform,
-    $facts('8.4.0', 'MySQL', '8.4.3', '7.0.4', 'multisite')
+    $facts('8.4.0', 'MySQL', '8.4.3', '7.2.0', 'multisite')
 ));
 duo_check_same(
     [
@@ -147,12 +234,66 @@ $malformed['compatibility']['php']['max'] = '8.3.0';
 $invalidBoundary = $refusal(static fn() => PlatformCompatibility::assert_supported($malformed, $facts()));
 duo_check_same('platform_boundary_invalid', $invalidBoundary?->reasonCode, 'a malformed platform range refuses before comparison');
 
+// Each row is a boundary whose wordpress axis cannot be trusted to say what
+// was exercised. Every one of them fails closed on the SAME existing
+// platform_boundary_invalid refusal — there is no dual-shape acceptance path,
+// including for the pre-matrix {last_verified, note} axis (AGENTS.md rule 9:
+// no compat shim). Without these invariants a single typo in a series key
+// silently widens the claim past what any live run proved.
+foreach ([
+    'the pre-matrix two-key wordpress axis' => [
+        'last_verified' => '7.0.3',
+        'note' => 'the shape this claim replaced',
+    ],
+    'an empty exercised-series map' => [
+        'last_verified' => '7.0.3', 'max' => '7.1.0', 'min' => '6.9.0', 'note' => 'fixture',
+        'verified' => [],
+    ],
+    'an exercised-series map declared as a list' => [
+        'last_verified' => '7.0.3', 'max' => '7.1.0', 'min' => '6.9.0', 'note' => 'fixture',
+        'verified' => ['6.9.2', '7.0.3'],
+    ],
+    'a series key that disagrees with its own proof patch' => [
+        'last_verified' => '7.0.3', 'max' => '7.1.0', 'min' => '6.9.0', 'note' => 'fixture',
+        'verified' => ['6.9' => '7.0.1', '7.0' => '7.0.3'],
+    ],
+    'an exercised patch outside the declared range' => [
+        'last_verified' => '7.1.0', 'max' => '7.1.0', 'min' => '6.9.0', 'note' => 'fixture',
+        'verified' => ['6.9' => '6.9.2', '7.1' => '7.1.0'],
+    ],
+    'a last_verified no exercised series names' => [
+        'last_verified' => '7.0.4', 'max' => '7.1.0', 'min' => '6.9.0', 'note' => 'fixture',
+        'verified' => ['6.9' => '6.9.2', '7.0' => '7.0.3'],
+    ],
+    // A member of `verified`, and still not the newest one: the readers that
+    // bind last_verified as a scalar (the generic pair image, every
+    // contract's expiry_and_dependencies) would point at a core the claim no
+    // longer calls newest.
+    'a last_verified older than an exercised series the same claim names' => [
+        'last_verified' => '6.9.2', 'max' => '7.1.0', 'min' => '6.9.0', 'note' => 'fixture',
+        'verified' => ['6.9' => '6.9.2', '7.0' => '7.0.3'],
+    ],
+    'a wordpress range whose minimum is not below its maximum' => [
+        'last_verified' => '7.0.3', 'max' => '6.9.0', 'min' => '7.1.0', 'note' => 'fixture',
+        'verified' => ['7.0' => '7.0.3'],
+    ],
+] as $label => $axis) {
+    $shape = $platform;
+    $shape['compatibility']['wordpress'] = $axis;
+    $shapeFailure = $refusal(static fn() => PlatformCompatibility::assert_supported($shape, $facts()));
+    duo_check_same(
+        'platform_boundary_invalid',
+        $shapeFailure?->reasonCode,
+        "$label refuses fail-closed before any platform comparison"
+    );
+}
+
 $liveFacts = PlatformCompatibility::current_facts();
 duo_check_same(
     [
         'php' => PHP_VERSION,
         'database' => ['engine' => 'MariaDB', 'version' => '11.8.8'],
-        'wordpress' => '7.0.3',
+        'wordpress' => '7.1',
         'site_mode' => 'single-site',
     ],
     $liveFacts,

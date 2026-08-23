@@ -73,6 +73,124 @@ grep -qF 'single-site only' <<<"$CAPTURE_OUT" \
   || fail "multisite refusal mutated authored WordPress state"
 pass "multisite is an actionable non-zero refusal with zero repository/authored-state mutation"
 
+# (a) The JSON half of the same refusal. Before the gate became a typed
+# CommandRefusalException, --format=json collapsed it to `capture_failed` /
+# "capture refused at an unclassified safety gate" with details_redacted:true
+# (agent/src/Command/Cli.php:84-85,:98), so the word "multisite" never reached
+# a machine caller at all.
+say "the same refusal, in the machine channel"
+set +e
+CAPTURE_JSON=$(wp1 duo capture --repo=/siterepo --format=json 2>/dev/null)
+CAPTURE_JSON_RC=$?
+set -e
+[ "$CAPTURE_JSON_RC" -ne 0 ] || fail "multisite capture --format=json returned success"
+printf '%s\n' "$CAPTURE_JSON" | jq -e '
+  .format == "duo-command-refusal/v1"
+  and .ok == false
+  and .command == "capture"
+  and .reason_code == "multisite_unsupported"
+  and .error == "multisite_unsupported"
+  and (has("details_redacted") | not)
+  and (.message | contains("multisite is unsupported by the certified v1 contract"))
+  and (.message | contains("single-site only"))
+  and (.remediation | contains("single-site"))
+' >/dev/null || { printf '%s\n' "$CAPTURE_JSON"; fail "the JSON refusal is not a named, unredacted duo-command-refusal/v1"; }
+pass "wp duo capture --format=json names multisite_unsupported and redacts nothing"
+
+# (b) journal-reset is Policy-free: it called Ledger::ensure() (four CREATE
+# TABLEs on the serving blog's prefix) and then TRUNCATEd, with no gate at any
+# layer. The table check is the load-bearing half -- the refusal must happen
+# BEFORE the DDL, and no rollback in the shipped tree removes a duo table.
+say "journal-reset refuses before it can create or truncate anything"
+set +e
+JOURNAL_OUT=$(wp1 duo journal-reset 2>&1)
+JOURNAL_RC=$?
+set -e
+printf '%s\n' "$JOURNAL_OUT"
+[ "$JOURNAL_RC" -ne 0 ] || fail "multisite journal-reset returned success"
+grep -qF 'multisite is unsupported by the certified v1 contract' <<<"$JOURNAL_OUT" \
+  || fail "journal-reset did not print the byte-identical multisite sentence"
+grep -qF 'single-site only' <<<"$JOURNAL_OUT" \
+  || fail "journal-reset refusal did not name the supported single-site boundary"
+DUO_TABLES=$(wp1 db query "SHOW TABLES LIKE '%duo\\_%'" --skip-column-names 2>/dev/null || true)
+[ -z "$(printf '%s' "$DUO_TABLES" | tr -d '[:space:]')" ] \
+  || fail "journal-reset created duo tables on a network: $DUO_TABLES"
+pass "journal-reset refuses with the same sentence and creates no duo_* table"
+
+# (c) The promotion lease verbs, same property: the lease row lives in
+# {prefix}duo_kv, and Ledger::ensure() would have created it.
+say "promotion-begin refuses before taking a lease"
+set +e
+PROMOTION_JSON=$(wp1 duo promotion-begin \
+  --promotion-owner=multisite-refusal-probe \
+  --artifact-hash=$(printf 'ab%.0s' $(seq 1 32)) \
+  --format=json 2>/dev/null)
+PROMOTION_RC=$?
+set -e
+[ "$PROMOTION_RC" -ne 0 ] || fail "multisite promotion-begin returned success"
+printf '%s\n' "$PROMOTION_JSON" | jq -e '
+  .command == "promotion-begin"
+  and .reason_code == "multisite_unsupported"
+  and (has("details_redacted") | not)
+' >/dev/null || { printf '%s\n' "$PROMOTION_JSON"; fail "promotion-begin did not refuse with multisite_unsupported"; }
+KV_TABLES=$(wp1 db query "SHOW TABLES LIKE '%duo\\_kv'" --skip-column-names 2>/dev/null || true)
+[ -z "$(printf '%s' "$KV_TABLES" | tr -d '[:space:]')" ] \
+  || fail "promotion-begin created a duo_kv table on a network: $KV_TABLES"
+pass "promotion-begin refuses with the same reason code and creates no duo_kv"
+
+# (d) The host-side gate on the most destructive verb there is: step 3 of
+# `duo recover` is a stock `wp db import`, which on a network replaces every
+# blog plus wp_users/wp_blogs/wp_sitemeta. Refused before step 1, so the
+# target's checkpoint and lease state is untouched.
+say "duo recover refuses on the host, before step 1"
+RECOVER_ENV="${MULTISITE_RECOVER_ENV:-}"
+RECOVER_ID="${MULTISITE_RECOVER_ID:-}"
+if [ -n "$RECOVER_ENV" ] && [ -n "$RECOVER_ID" ]; then
+  CHECKPOINTS_BEFORE=$(wp1 eval 'echo (int) is_dir(ABSPATH . "../.duo/checkpoints");' 2>/dev/null || echo 0)
+  set +e
+  RECOVER_JSON=$(php ../cli/duo recover "$RECOVER_ENV" \
+    --restore="$RECOVER_ID" --writers-excluded --format=json 2>/dev/null)
+  RECOVER_RC=$?
+  set -e
+  [ "$RECOVER_RC" -ne 0 ] || fail "duo recover returned success against a network"
+  printf '%s\n' "$RECOVER_JSON" | jq -e '
+    .format == "duo-command-refusal/v1"
+    and .command == "recover"
+    and .reason_code == "recover_topology_unsupported"
+  ' >/dev/null || { printf '%s\n' "$RECOVER_JSON"; fail "duo recover did not refuse with recover_topology_unsupported"; }
+  CHECKPOINTS_AFTER=$(wp1 eval 'echo (int) is_dir(ABSPATH . "../.duo/checkpoints");' 2>/dev/null || echo 0)
+  [ "$CHECKPOINTS_BEFORE" = "$CHECKPOINTS_AFTER" ] \
+    || fail "the refused recovery changed the target's checkpoint state"
+  KV_AFTER=$(wp1 db query "SHOW TABLES LIKE '%duo\\_kv'" --skip-column-names 2>/dev/null || true)
+  [ -z "$(printf '%s' "$KV_AFTER" | tr -d '[:space:]')" ] \
+    || fail "the refused recovery took a lease on a network"
+  pass "duo recover refuses with recover_topology_unsupported and drives zero steps"
+else
+  # This pair has no promotion checkpoint to name, and MANUFACTURING one would
+  # mean running a full release against a network -- exactly the mutation this
+  # suite exists to prove never happens. The offline half
+  # (sandbox/tests/offline/assess-contract/regress_recover_ordering.sh) drives
+  # both reason codes and asserts zero steps against a recorded wp call log.
+  pass "duo recover host gate: covered offline; set MULTISITE_RECOVER_ENV/_ID to exercise it here"
+fi
+
+# (e) The pre-swap adoption proof is NOT drivable from a pair: `duo adopt`
+# reaches DockerTransport's driver preflight first, which refuses with
+# "driver 'docker' does not implement 'environment.bootstrap'; no emulation
+# is permitted" (cli/src/Transport/DockerTransport.php is not an
+# AdoptionTransport — measured on this estate 2026-08-24), so no docker
+# environment can ever reach Adopt::install()'s topology probe, let alone the
+# swap. The ordering claim — the probe precedes the tar, the upload and the
+# install script, and a network leaves $swapped false with nothing to roll back
+# — is owned offline by sandbox/tests/offline/cli/regress_adopt_command.php,
+# which drives Adopt::install() through the product path with a transport that
+# answers multisite and asserts no command after the probe ever ran. A live
+# pre-swap proof needs an adoptable transport (ssh: regress_ssh_adopt.sh's
+# estate; local: regress_local_bootstrap_live.sh's controller container), which
+# is a separate, heavier estate than this one-pair refusal suite.
+say "duo adopt pre-swap topology probe"
+pass "adopt pre-swap ordering: covered offline (regress_adopt_command.php); a pair target is not adoptable over the docker driver"
+
 printf '\n\033[1;32m✔ REGRESS_MULTISITE_REFUSAL PASSED\033[0m\n'
 
 say "cleanup: destroy own disposable pair"

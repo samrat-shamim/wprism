@@ -46,6 +46,7 @@ use Duo\OptionState;
 use Duo\CompiledRepository;
 use Duo\Capture;
 use Duo\Policy;
+use Duo\CommandRefusalException;
 use Duo\RepositoryCompilationException;
 use Duo\RepositoryCompiler;
 use Duo\RepositoryAuthorizationException;
@@ -245,30 +246,37 @@ if (($legacyTableArtifact->tree()[$tableUuid]['hash'] ?? null) !== ($portableTab
 }
 ok('legacy numeric and portable --record typed-snapshot paths both compile to the same UUID/content semantics');
 
+// The six read_artifact() gates below catch CommandRefusalException, not
+// RepositoryCompilationException like the compile_*() gates elsewhere in this
+// file: artifact IDENTITY refusals fire on a deployed site whose pins moved,
+// not on a repository that failed to compile, so they now carry their own
+// top-level reason code (agent/src/Repository/CompiledArtifactReader.php:86-91).
+// The expected codes and needs() assertions are unchanged, and $e->payload()
+// still exposes them under 'diagnostics'.
 $tampered = $one->export(); $tampered['revision_hash'] = str_repeat('0', 64);
 put("$tmp/tampered.json", Canon::encode($tampered));
 try { RepositoryCompiler::read_artifact("$tmp/tampered.json", Policy::load($a)); fail('tampered artifact was accepted'); }
-catch (RepositoryCompilationException $e) { needs($e->payload(), 'compiled_artifact_invalid'); }
+catch (CommandRefusalException $e) { needs($e->payload(), 'compiled_artifact_invalid'); }
 $mismatchedUploads = $one->export();
 $mismatchedUploads['uploads_inventory'][0]['original_path'] = 'foreign.txt';
 unset($mismatchedUploads['artifact_hash']);
 $mismatchedUploads['artifact_hash'] = hash('sha256', Canon::encode($mismatchedUploads));
 put("$tmp/mismatched-uploads.json", Canon::encode($mismatchedUploads));
 try { RepositoryCompiler::read_artifact("$tmp/mismatched-uploads.json", Policy::load($a)); fail('self-hashed artifact with a foreign upload inventory was accepted'); }
-catch (RepositoryCompilationException $e) { needs($e->payload(), 'compiled_artifact_invalid'); }
+catch (CommandRefusalException $e) { needs($e->payload(), 'compiled_artifact_invalid'); }
 $mismatchedEffects = $one->export();
 $mismatchedEffects['effects_inventory'][0]['effect']['selector']['value'] = 'foreign-runtime-effect';
 unset($mismatchedEffects['artifact_hash']);
 $mismatchedEffects['artifact_hash'] = hash('sha256', Canon::encode($mismatchedEffects));
 put("$tmp/mismatched-effects.json", Canon::encode($mismatchedEffects));
 try { RepositoryCompiler::read_artifact("$tmp/mismatched-effects.json", Policy::load($a)); fail('self-hashed artifact with a foreign effect inventory was accepted'); }
-catch (RepositoryCompilationException $e) { needs($e->payload(), 'compiled_artifact_invalid'); }
+catch (CommandRefusalException $e) { needs($e->payload(), 'compiled_artifact_invalid'); }
 $siteBytes = file_get_contents("$a/site.duo.json");
 $site = Canon::decode($siteBytes);
 $site['policy']['options']['blogname'] = ['class'=>'runtime'];
 put("$a/site.duo.json", Canon::encode($site));
 try { RepositoryCompiler::read_artifact($artifactPath, Policy::load($a)); fail('artifact under changed policy was accepted'); }
-catch (RepositoryCompilationException $e) { needs($e->payload(), 'compiled_artifact_policy_mismatch'); }
+catch (CommandRefusalException $e) { needs($e->payload(), 'compiled_artifact_policy_mismatch'); }
 put("$a/site.duo.json", $siteBytes);
 ok('artifact tampering and active-policy mismatch fail with structured compiler diagnostics');
 
@@ -297,7 +305,7 @@ $descriptorless->write($descriptorlessPath);
 try {
     RepositoryCompiler::read_artifact($descriptorlessPath, Policy::load($codeRepo));
     fail('descriptorless artifact was accepted under a code-enabled policy');
-} catch (RepositoryCompilationException $e) {
+} catch (CommandRefusalException $e) {
     needs($e->payload(), 'compiled_artifact_code_mismatch');
 }
 ok('code-enabled policy rejects a self-verifying pre-code artifact before target contact');
@@ -671,7 +679,7 @@ $tamperedPolicySnapshot['site']['policy']['options']['blogname']['class'] = 'run
 try {
     RepositoryCompiler::read_artifact($path, Policy::from_snapshot($tamperedPolicySnapshot));
     fail('tampered frozen policy snapshot was accepted for the compiled artifact');
-} catch (RepositoryCompilationException $e) {
+} catch (CommandRefusalException $e) {
     needs($e->payload(), 'compiled_artifact_policy_mismatch');
 }
 $pagePath = "$mutable/state/posts/page/{$m['page']}--about.md";

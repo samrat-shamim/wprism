@@ -63,6 +63,7 @@
           "Db",
           "OptionState",
           "CommandRefusal",
+          "SiteTopology",
           "Secrets",
           "PlainData",
           "StructuredValue",
@@ -109,7 +110,7 @@
             ]
           }
         ],
-        "file_count": 28,
+        "file_count": 29,
         "files": [
           "Canon.php",
           "CommandRefusal.php",
@@ -130,6 +131,7 @@
           "ReferenceScopeClassifier.php",
           "ReferenceShapeGrammar.php",
           "Secrets.php",
+          "SiteTopology.php",
           "StructuredReferenceCodec.php",
           "StructuredValue.php",
           "TableGraph.php",
@@ -1237,18 +1239,23 @@
           "Transport",
           "CodeDeploy",
           "SshTransport",
-          "LocalTransport"
+          "LocalTransport",
+          "RecoveryTransport",
+          "CodePushTransport"
         ],
         "depends_on": [
           "Transport"
         ],
         "exceptions": [],
-        "file_count": 6,
+        "file_count": 9,
         "files": [
           "CodeDeploy.php",
+          "CodePushTransport.php",
           "DockerTransport.php",
           "EnvironmentDriver.php",
           "LocalTransport.php",
+          "RecoveryConfig.php",
+          "RecoveryTransport.php",
           "SshTransport.php",
           "Transport.php"
         ]
@@ -1322,14 +1329,15 @@
       },
       "Recovery": {
         "layer": "engine",
-        "purpose": "Rollback authority and the verified/scoped rollback profiles that prove a target can be returned to a known state, plus (round 3) profile selection, the checkpoint catalog and the recovery claim the authorization plan embeds. Round-3 T5 adds the retained release checkpoints (RetainedCheckpoints), the second catalog source every transport has.",
+        "purpose": "Rollback authority and the verified/scoped rollback profiles that prove a target can be returned to a known state, plus (round 3) profile selection, the checkpoint catalog and the recovery claim the authorization plan embeds. Round-3 T5 adds the retained release checkpoints (RetainedCheckpoints), the second catalog source every transport has. DUO-3514 adds CheckpointPrune, the pure decision behind the one operator verb that REMOVES a retained checkpoint; nothing here prunes automatically.",
         "status": "populated",
         "entry_points": [
           "RollbackAuthority",
           "RecoveryProfileSelection",
           "RecoveryClaim",
           "CheckpointCatalog",
-          "RetainedCheckpoints"
+          "RetainedCheckpoints",
+          "CheckpointPrune"
         ],
         "depends_on": [
           "Recovery",
@@ -1337,9 +1345,10 @@
           "agent:Kernel"
         ],
         "exceptions": [],
-        "file_count": 7,
+        "file_count": 8,
         "files": [
           "CheckpointCatalog.php",
+          "CheckpointPrune.php",
           "RecoveryClaim.php",
           "RecoveryProfileSelection.php",
           "RetainedCheckpoints.php",

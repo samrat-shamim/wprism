@@ -191,8 +191,25 @@ grep -Fq 'assert_eq retail "$(target_db_scalar' "$SCRIPT" || fail 'checkpoint re
 # The generic pair is the candidate-bound live harness.  Keep its WordPress
 # image tied to the one project-level evidence boundary instead of allowing a
 # floating registry tag to change the target core version underneath a proof.
-EXPECTED_WORDPRESS_VERSION="$(jq -er '.wordpress.last_verified | select(type == "string" and test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))' ../docs/compatibility-baseline.json)" \
+# Exactly PlatformCompatibility::version()'s own accepted shape
+# (agent/src/Policy/PlatformCompatibility.php:307, /^\d+(?:\.\d+){1,3}$/D)
+# rather than a stricter three-component rule of this suite's own: WordPress
+# ships a TWO-component $wp_version for a series' first release
+# (wp-includes/version.php:19 of WordPress 7.1 reads $wp_version = '7.1'), so
+# demanding MAJOR.MINOR.PATCH here would reject a core the shipped claim, the
+# agent gate and doctor all accept.
+EXPECTED_WORDPRESS_VERSION="$(jq -er '.wordpress.last_verified | select(type == "string" and test("^[0-9]+(\\.[0-9]+){1,3}$"))' ../docs/compatibility-baseline.json)" \
   || fail 'compatibility baseline does not expose one valid WordPress evidence version'
+# The core claim is now a series matrix, and last_verified is its newest
+# exercised member (the agent enforces that membership in
+# PlatformCompatibility::valid_wordpress_axis()).  Assert the ordering half
+# here too: without it the claim could gain a newer proven series while the
+# generic pair kept booting an older core, and every proof built on this pair
+# would silently be evidence about a core that is no longer the newest claimed.
+GREATEST_VERIFIED_WORDPRESS="$(jq -er '.wordpress.verified | select(type == "object" and length > 0) | [.[]] | sort_by(split(".") | map(tonumber)) | last' ../docs/compatibility-baseline.json)" \
+  || fail 'compatibility baseline does not expose a non-empty exercised WordPress series map'
+[ "$GREATEST_VERIFIED_WORDPRESS" = "$EXPECTED_WORDPRESS_VERSION" ] \
+  || fail "compatibility baseline last_verified ($EXPECTED_WORDPRESS_VERSION) is not the newest exercised core ($GREATEST_VERIFIED_WORDPRESS)"
 EXPECTED_WORDPRESS_IMAGE="wordpress:${EXPECTED_WORDPRESS_VERSION}-php8.3-apache"
 EXPECTED_PAIR_WORDPRESS_IMAGE="\${DUO_WP_IMAGE:-${EXPECTED_WORDPRESS_IMAGE}}"
 pair_service_image() {

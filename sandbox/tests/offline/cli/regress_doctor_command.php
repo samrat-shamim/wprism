@@ -1,7 +1,20 @@
 <?php
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../../../cli/src/Command/DoctorCommand.php';
+/**
+ * Doctor::read_baseline() resolves docs/compatibility-baseline.json from
+ * dirname(__DIR__, 3) of cli/src/Onboarding/Doctor.php and has no injection
+ * seam — cli/ ships as one tree, not as a path-configurable library, and
+ * adding a seam to the production path just to test it is not a change this
+ * boundary needs. So the truncated-baseline case at the bottom of this file
+ * re-invokes THIS suite against a COPY of cli/ whose baseline is deliberately
+ * incomplete; DUO_DOCTOR_BASELINE_PROBE_ROOT is that copy's root and is set
+ * only by this file. Re-entering the same file is what lets the probe reuse
+ * the drivers below instead of a second fixture that could agree with a
+ * broken Doctor.
+ */
+$doctorCommandRoot = (string) (getenv('DUO_DOCTOR_BASELINE_PROBE_ROOT') ?: dirname(__DIR__, 4));
+require_once $doctorCommandRoot . '/cli/src/Command/DoctorCommand.php';
 
 use Duo\Orchestrator\AdoptionTransport;
 use Duo\Orchestrator\DriverCapability;
@@ -97,6 +110,7 @@ class HealthyDoctorDriver implements EnvironmentDriver {
                 'db_version' => '11.8.8',
                 'db_engine' => 'mariadb',
                 'wp' => '7.0.3',
+                'site_mode' => 'single-site',
             ]) . "\n", 'stderr' => ''];
         }
         return ['exit' => 99, 'stdout' => '', 'stderr' => 'unexpected WordPress probe'];
@@ -149,6 +163,12 @@ class AdoptableDoctorDriver extends HealthyDoctorDriver implements AdoptionTrans
     }
 }
 
+// Probe mode: one healthy run against the copied tree, nothing else. The exit
+// status and rendered rows are the product answer the parent process asserts.
+if (getenv('DUO_DOCTOR_BASELINE_PROBE_ROOT') !== false) {
+    exit(DoctorCommand::run(new HealthyDoctorDriver()));
+}
+
 $driver = new UnreachableDoctorDriver();
 ob_start();
 $exit = DoctorCommand::run($driver);
@@ -183,6 +203,7 @@ $compatibilityCase = static function (array $override): array {
         'db_version' => '11.8.8',
         'db_engine' => 'mariadb',
         'wp' => '7.0.3',
+        'site_mode' => 'single-site',
     ];
     foreach ($override as $key => $value) {
         $facts[$key] = $value;
@@ -198,14 +219,35 @@ $compatibilityCase = static function (array $override): array {
     return ['exit' => $exit, 'output' => (string) ob_get_clean(), 'driver' => $driver];
 };
 
+// Doctor's WordPress predicate is an independent host-side copy of the
+// agent's (Doctor.php's own read_baseline()/in_range() comment records why
+// cli/ and agent/src/ do not share code), so it needs its own coverage of the
+// same two conditions or the two halves drift silently: a core doctor calls
+// compatible that the direct product path refuses is the exact failure the
+// DUO-3222 rationale comment above the check forbids.
 foreach ([
-    'PHP inclusive minimum' => ['php' => '8.3.0'],
-    'PHP value below the exclusive maximum' => ['php' => '8.3.99'],
-    'MariaDB inclusive minimum' => ['db_version' => '11.0.0'],
-    'MariaDB value below the exclusive maximum' => ['db_version' => '11.99.99'],
-] as $label => $override) {
+    'PHP inclusive minimum' => [['php' => '8.3.0'], ''],
+    'PHP value below the exclusive maximum' => [['php' => '8.3.99'], ''],
+    'MariaDB inclusive minimum' => [['db_version' => '11.0.0'], ''],
+    'MariaDB value below the exclusive maximum' => [['db_version' => '11.99.99'], ''],
+    'WordPress older exercised series' => [['wp' => '6.9.2'], '[PASS] WordPress core (6.9.2)'],
+    'WordPress inclusive minimum' => [['wp' => '6.9.0'], '[PASS] WordPress core (6.9.0)'],
+    'WordPress unrun patch inside an exercised series' => [['wp' => '7.0.4'], '[PASS] WordPress core (7.0.4)'],
+    'WordPress patch below last_verified inside its series' => [['wp' => '7.0.2'], '[PASS] WordPress core (7.0.2)'],
+    // The two-component core string WordPress ships for a series' first
+    // release (wp-includes/version.php:19 of 7.1 reads $wp_version = '7.1').
+    // Doctor's own dotted-shape guard is /^\d+(?:\.\d+){1,3}$/D, the agent's
+    // regex exactly, so both halves must call this compatible or the host
+    // screen and the product path disagree about the newest claimed core.
+    'WordPress two-component core for a series first release' => [['wp' => '7.1'], '[PASS] WordPress core (7.1)'],
+    'WordPress unrun patch inside the newly exercised 7.1 series' => [['wp' => '7.1.0'], '[PASS] WordPress core (7.1.0)'],
+] as $label => [$override, $needle]) {
     $case = $compatibilityCase($override);
     assert_doctor_command($case['exit'] === 0, "$label remains inside the declared platform boundary");
+    assert_doctor_command(
+        $needle === '' || str_contains($case['output'], $needle),
+        "$label renders its exact passing platform row"
+    );
 }
 
 foreach ([
@@ -214,8 +256,17 @@ foreach ([
     'MariaDB below minimum' => [['db_version' => '10.11.0'], '[FAIL] database (mariadb 10.11.0)'],
     'MariaDB exact exclusive maximum' => [['db_version' => '12.0.0'], '[FAIL] database (mariadb 12.0.0)'],
     'different database engine' => [['db_engine' => 'mysql'], '[FAIL] database (mysql 11.8.8)'],
-    'older WordPress core' => [['wp' => '7.0.2'], '[FAIL] WordPress core (7.0.2)'],
-    'newer WordPress core' => [['wp' => '7.0.4'], '[FAIL] WordPress core (7.0.4)'],
+    'WordPress below minimum' => [['wp' => '6.8.3'], '[FAIL] WordPress core (6.8.3)'],
+    'WordPress exact exclusive maximum' => [['wp' => '7.2.0'], '[FAIL] WordPress core (7.2.0)'],
+    // Inside [min, max) and still unexercised: 6.10 is a minor line the
+    // claim's `verified` map does not name, so the range half alone would
+    // wrongly pass it here while the agent gate refuses it.
+    'WordPress unexercised minor line inside the range' => [['wp' => '6.10.0'], '[FAIL] WordPress core (6.10.0)'],
+    // A pre-release core version_compare ranks inside the window: the agent
+    // refuses it on the observed value's dotted shape
+    // (PlatformCompatibility::inside_range()), so doctor must too or it would
+    // label a core compatible that direct product commands refuse.
+    'WordPress pre-release core inside an exercised series' => [['wp' => '7.0.4-alpha'], '[FAIL] WordPress core (7.0.4-alpha)'],
 ] as $label => [$override, $needle]) {
     $case = $compatibilityCase($override);
     assert_doctor_command($case['exit'] === 1, "$label is a blocking platform refusal");
@@ -225,6 +276,141 @@ foreach ([
         "$label uses the composed four-round-trip doctor path"
     );
 }
+
+// The certified v1 contract is single-site only, and until this row existed a
+// network read as an all-green pre-adoption screen while
+// docs/compatibility-baseline.json already claimed "the agent pre-policy gate
+// and duo doctor block outside these values". A FAIL, not an advisory.
+$multisiteCase = $compatibilityCase(['site_mode' => 'multisite']);
+assert_doctor_command($multisiteCase['exit'] === 1, 'a network is a blocking doctor failure');
+assert_doctor_command(
+    str_contains($multisiteCase['output'], '[FAIL] site topology (multisite)'),
+    'the site-topology row names the observed topology in its label'
+);
+assert_doctor_command(
+    str_contains($multisiteCase['output'], 'the certified v1 contract is single-site only; the agent pre-policy gate refuses every mutating command on a network'),
+    'and states the blocking reason rather than an advisory hint'
+);
+assert_doctor_command(
+    !str_contains($multisiteCase['output'], '[WARN] site topology'),
+    'the row is never rendered as an advisory warning'
+);
+assert_doctor_command(
+    str_contains($multisiteCase['output'], '[PASS] PHP version (8.3.33)')
+        && str_contains($multisiteCase['output'], '[PASS] WordPress core (7.0.3)'),
+    'and a network sinks only its own row: the compatibility rows still answer independently'
+);
+
+// The row is sourced from SITE_FACTS' own key, so a target that could not
+// answer at all reports `unknown` and still fails — fail-closed, like every
+// other blocking row here.
+$unknownTopology = $compatibilityCase([]);
+assert_doctor_command(
+    str_contains($unknownTopology['output'], '[PASS] site topology (single-site)'),
+    'a single-site target passes the topology row'
+);
+$noTopologyDriver = new HealthyDoctorDriver();
+$noTopologyDriver->factsResult = ['exit' => 0, 'stdout' => (string) json_encode([
+    'agent' => 'duo-ok',
+    'file_mods' => 'duo-set',
+    'php' => '8.3.33',
+    'db_version' => '11.8.8',
+    'db_engine' => 'mariadb',
+    'wp' => '7.0.3',
+    'site_mode' => null,
+]) . "\n", 'stderr' => ''];
+ob_start();
+$noTopologyExit = DoctorCommand::run($noTopologyDriver);
+$noTopologyOutput = (string) ob_get_clean();
+assert_doctor_command($noTopologyExit === 1, 'a target-side throw that sank the topology fact is a blocking failure');
+assert_doctor_command(
+    str_contains($noTopologyOutput, '[FAIL] site topology (unknown)'),
+    'and the unreadable answer is labelled unknown rather than guessed single-site'
+);
+
+// The FAIL detail names the whole matrix the operator has to move onto — the
+// range AND the exercised series — mirroring the agent diagnostic's `required`
+// label (>=6.9.0 <7.2.0 exercised 6.9, 7.0, 7.1). The sentence this replaced said
+// 'A wider claim requires a real core-version matrix'; this claim is that
+// matrix, so the sentence must not survive anywhere in doctor's output.
+$unclaimedCore = $compatibilityCase(['wp' => '6.8.3']);
+assert_doctor_command(str_contains(
+    $unclaimedCore['output'],
+    '[FAIL] WordPress core (6.8.3) — outside the exercised core matrix (>=6.9.0 <7.2.0, exercised series 6.9, 7.0, 7.1'
+        . ' — docs/compatibility-baseline.json).'
+), 'the WordPress FAIL detail names the declared range and every exercised series');
+assert_doctor_command(
+    !str_contains($unclaimedCore['output'], 'A wider claim requires a real core-version matrix'),
+    'doctor no longer tells an operator the core matrix does not exist'
+);
+
+// A baseline whose wordpress axis cannot state the matrix must sink the whole
+// compatibility block into "baseline file missing or malformed" — the widened
+// read_baseline() guard's only job. Without it a missing min/max/verified
+// evaluates to a version_compare against '' plus an empty series list, which
+// is a silent answer about a core nothing exercised, on the host half of a
+// boundary whose agent half refuses fail-closed
+// (PlatformCompatibility::valid_wordpress_axis()). Proven through
+// DoctorCommand::run against a copy of cli/, per the note at the top of this
+// file; scratch lives under sandbox/tmp/ (AGENTS.md rule 3).
+// One stable scratch path, cleared before use rather than made unique per
+// run: an assertion failure below exits before the cleanup, and a per-pid name
+// would leave a new copied tree behind on every red run.
+$probeRoot = dirname(__DIR__, 3) . '/tmp/doctor-baseline-probe';
+$repoRoot = dirname(__DIR__, 4);
+$removeProbeRoot = static function () use ($probeRoot): void {
+    exec('rm -rf ' . escapeshellarg($probeRoot));
+};
+$removeProbeRoot();
+assert_doctor_command(mkdir($probeRoot . '/docs', 0o777, true), 'the baseline probe root is created under sandbox/tmp');
+exec('cp -R ' . escapeshellarg($repoRoot . '/cli') . ' ' . escapeshellarg($probeRoot . '/cli'), $copyOut, $copyStatus);
+assert_doctor_command($copyStatus === 0, 'the baseline probe root carries its own copy of cli/');
+
+/** @return array{exit:int,output:string} */
+$baselineProbe = static function (array $baseline) use ($probeRoot): array {
+    file_put_contents($probeRoot . '/docs/compatibility-baseline.json', (string) json_encode($baseline));
+    $lines = [];
+    $status = 0;
+    exec(
+        'DUO_DOCTOR_BASELINE_PROBE_ROOT=' . escapeshellarg($probeRoot) . ' '
+            . escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__FILE__) . ' 2>&1',
+        $lines,
+        $status
+    );
+    return ['exit' => $status, 'output' => implode("\n", $lines) . "\n"];
+};
+
+$shippedBaseline = json_decode((string) file_get_contents($repoRoot . '/docs/compatibility-baseline.json'), true);
+assert_doctor_command(is_array($shippedBaseline), 'the shipped compatibility baseline decodes');
+// The control leg: the same copied tree with the WHOLE baseline still passes,
+// so the truncated leg below cannot pass merely because the copy is broken.
+$intactProbe = $baselineProbe($shippedBaseline);
+assert_doctor_command($intactProbe['exit'] === 0, 'the copied tree with an intact baseline still passes doctor: ' . $intactProbe['output']);
+assert_doctor_command(
+    str_contains($intactProbe['output'], '[PASS] WordPress core (7.0.3)'),
+    'the copied tree answers the WordPress row from its own baseline copy'
+);
+
+$truncatedBaseline = $shippedBaseline;
+unset(
+    $truncatedBaseline['wordpress']['min'],
+    $truncatedBaseline['wordpress']['max'],
+    $truncatedBaseline['wordpress']['verified']
+);
+$truncatedProbe = $baselineProbe($truncatedBaseline);
+assert_doctor_command($truncatedProbe['exit'] === 1, 'a baseline that cannot state the core matrix is a blocking doctor failure');
+assert_doctor_command(
+    str_contains(
+        $truncatedProbe['output'],
+        '[FAIL] compatibility baseline (docs/compatibility-baseline.json) — baseline file missing or malformed'
+    ),
+    'a wordpress axis without min/max/verified is malformed, not a silent pass: ' . $truncatedProbe['output']
+);
+assert_doctor_command(
+    !str_contains($truncatedProbe['output'], 'WordPress core ('),
+    'no core version is judged at all against a baseline that cannot state the matrix'
+);
+$removeProbeRoot();
 
 $missingAgent = new AdoptableDoctorDriver(false);
 ob_start();
@@ -275,6 +461,7 @@ $sunkDb->factsResult = ['exit' => 0, 'stdout' => (string) json_encode([
     'db_version' => null,
     'db_engine' => null,
     'wp' => '7.0.3',
+    'site_mode' => 'single-site',
 ]) . "\n", 'stderr' => ''];
 ob_start();
 $sunkDbExit = DoctorCommand::run($sunkDb);
@@ -360,5 +547,14 @@ assert_doctor_command(($facts['php'] ?? null) === PHP_VERSION, 'a throwing $wpdb
 assert_doctor_command(($facts['wp'] ?? null) === '7.0.3', 'a throwing $wpdb sank the WordPress version field');
 assert_doctor_command(array_key_exists('db_version', $facts) && $facts['db_version'] === null, 'the thrown field did not leave its own null sentinel');
 assert_doctor_command(($facts['db_engine'] ?? null) === 'mariadb', 'the sibling database field did not answer independently of the thrown one');
+// The topology field is computed with function_exists() rather than a bare
+// call: this snippet also runs under the isolated control bootstrap, where
+// is_multisite() may not be defined yet. A bare call would be an Error, and
+// Error is not \Throwable's only subtype the per-field catch sees -- but a
+// snippet that fataled here would sink the whole payload, not one field.
+assert_doctor_command(
+    ($facts['site_mode'] ?? null) === 'single-site',
+    'a throwing $wpdb sank the site-topology field, and an undefined is_multisite() is answered single-site rather than fataling'
+);
 
 echo "PASS: doctor command\n";

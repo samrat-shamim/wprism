@@ -15,12 +15,15 @@ The commands are documented in
 
 `duo deploy <env>` runs these phases, stopping at the first non-zero one:
 
-1. **flag validation** — `duo deploy` accepts exactly `--force-code-mismatch`
-   and `--force-code-drift`; anything else, including the orchestrator's own
-   internal artifact and lease flags, is refused by name.
+1. **flag validation** — `duo deploy` accepts exactly `--force-code-mismatch`,
+   `--force-code-drift` and `--no-checkpoint`; anything else, including the
+   orchestrator's own internal artifact and lease flags, is refused by name.
+   `--no-checkpoint` is consumed here and never forwarded to the lifecycle
+   phases, which own no checkpoint.
 2. **rollback-authority fence** — target mutation is refused while the external
    rollback authority is invalid or in a nonterminal state.
-3. **artifact directory** — created under the target's operational `.duo/`.
+3. **artifact and checkpoint directories** — created under the target's
+   operational `.duo/` (the checkpoint directory only when one will be taken).
 4. **code-resolve** — host-side, and only for a repository that declares
    `code/duo-code.lock.json`; silent for every other repository. See
    [`duo deploy` and `duo promote` resolve for you](#duo-deploy-and-duo-promote-resolve-for-you)
@@ -31,20 +34,33 @@ The commands are documented in
 6. **adapter disposition gate** — an experimental or unsupported adapter
    claim refuses here, *before* any lease exists.
 7. **promotion-begin** — an exact owner/artifact session on the target.
-8. **code-stage** — the new bytes land beside the live tree.
-9. **lifecycle retire** — deactivation hooks fire.
-10. **lifecycle activate** — in a *fresh process*, so the new code is what
+8. **checkpoint** — a whole-database export under that same lease, retained at
+   `<repo>/.duo/checkpoints/deploy-<owner>.sql` beside the
+   `deploy-<owner>.json` artifact of step 5. It sits here, not earlier, because
+   the dump has to contain the promotion lease row it was taken under — that is
+   what makes `duo recover`'s abort → begin → import → final abort sequence
+   valid for it. An export failure aborts the lease and stops before any code
+   or lifecycle mutation. `duo deploy --no-checkpoint` skips this step: the
+   export is a full dump written to the target's disk, inside the
+   write-exclusion window and with no retention policy, so on a large database
+   the cost has to be refusable — at the price of having nothing to restore
+   from if a later phase fails.
+9. **code-stage** — the new bytes land beside the live tree.
+10. **lifecycle retire** — deactivation hooks fire.
+11. **lifecycle activate** — in a *fresh process*, so the new code is what
     boots and its own updater notices the version change deterministically.
-11. **code-finalize** — requires both lifecycle receipts, so a merely staged
+12. **code-finalize** — requires both lifecycle receipts, so a merely staged
     payload can never be promoted into a completed `code_revision` by skipping
     the WordPress lifecycle.
 
-`duo promote <env>` is this same sequence with a database checkpoint taken
-after the lease and before code staging, and a state `apply` appended at the
+`duo promote <env>` is this same sequence with a state `apply` appended at the
 end. That trailing position is the entire point: apply is hook-free and
 canary-armed, and it must write into a schema the running code already
 understands. Deploy is the window where hooks fire; apply is the window where
-they must not.
+they must not. On a production SSH target with the complete `verified_rollback`
+capability promote also selects a signed rollback profile; deploy never does.
+Those two — the trailing apply and the profile selection — are what remain
+promote's alone. The database checkpoint is now taken by both verbs.
 
 The host sequences the halves. It does not interpret the code descriptor's
 fields or mutate files itself — those checks and mutations belong to the target
@@ -493,12 +509,42 @@ running `duo` must be able to write the repository the compile will hash:
   in, which is the wrong one whenever the command targets another environment
   — a rehearse resolved the *source* repository and reported success while the
   target the compile reads stayed empty.
-- **`ssh`** — the repository is on the far side of the network boundary and
-  this host cannot write it. The verb refuses with
-  `code_resolve_transport_unsupported`. Host-to-target push is tracked as
-  **DUO-3514** and is not implemented; until it lands, materialize the locked
-  components on the target itself (the same three verification steps, by hand
-  or from your own build) and deploy from there.
+- **`ssh`** — the repository is on the far side of the network boundary, so
+  the host resolves and then **pushes** (DUO-3514). Nothing about the egress
+  rule moves: the fetching and both digest checks still happen on the host,
+  and the target still never reaches a registry.
+
+  The order, which is the whole safety argument:
+
+  1. The lock is read from the **target**, never from the directory you are
+     standing in. There is no host checkout of the site to be wrong about.
+  2. The target's own `wp duo code-inventory` says which components it is
+     missing. Only those are pushed.
+  3. The missing components are resolved into a throwaway staging worktree on
+     this host — `archive_sha256` verified before unpacking, `tree_sha256`
+     after, exactly as on `local`.
+  4. The verified trees travel as **one** tar (scp) and are unpacked into
+     `<repo_path>/.duo/code-push/<token>/code/wp-content` — a staging
+     directory, not the live tree.
+  5. `wp duo code-inventory` is run against that staging directory. Every
+     pushed tree must hash to the `tree_sha256` the lock declares **before a
+     single byte reaches `code/wp-content`.** A mismatch refuses with
+     `code_resolve_tree_digest_mismatch`, removes the staging directory, and
+     leaves the target exactly as it was.
+  6. Each verified tree is renamed into place, and the target's inventory is
+     read once more as the post-condition.
+
+  The refusals: a component the target holds at a **different** digest refuses
+  `code_resolve_component_drifted` before anything is fetched or transferred —
+  the same "nothing overwrites a tree Git does not carry" rule as on the host,
+  and nothing is pushed, not even the absent siblings. A transfer or a
+  target-side command that fails refuses `code_resolve_push_failed` with the
+  target unchanged. A transport that exposes neither a writable host path nor
+  a push mechanism still refuses `code_resolve_transport_unsupported`.
+
+  What the target has to provide: an ssh account that can write its
+  `repo_path` and `/tmp`, plus `tar` and `wp`. No Git, no composer, no
+  registry egress, and no build toolchain.
 
 ### `duo deploy` and `duo promote` resolve for you
 
@@ -509,11 +555,14 @@ taken and nothing to compensate if it refuses. It is completely silent for a
 repository that declares no lock (a legacy format-1 repository, or a state-only
 one), so such a deploy prints exactly the phase lines it always did.
 
-On **ssh with a lock present**, deploy cannot resolve, so it verifies instead:
-it asks the target for its own `wp duo code-inventory` and proceeds only when
-**every** locked component already hashes to its declared `tree_sha256` there.
-If any does not, it refuses with `code_resolve_transport_unsupported` before
-compile, naming the components that are missing or drifted.
+On **ssh with a lock present**, the phase reads the target's inventory first
+and then does the least it can: every component already at its declared
+`tree_sha256` is reported `UNCHANGED` and nothing is transferred at all; the
+missing ones are resolved on this host and pushed through the six steps above,
+with the target-side digest check in front of every rename. A drifted
+component refuses before compile, naming it. Because the phase runs before
+`compile` and therefore before `promotion-begin`, a refusal here is a deploy
+that never started: no lease, no checkpoint, nothing to compensate.
 
 The practical consequence, restated for the split: **resolution still happens
 on the host and never on the target.** What changed is that you no longer have

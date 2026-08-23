@@ -6,7 +6,8 @@ namespace Duo\Orchestrator;
 use Duo\Recovery\RollbackControl;
 
 /**
- * Plan-to-claim and signed-state orchestration for production SSH promotion.
+ * Plan-to-claim and signed-state orchestration for production promotion on
+ * any transport that carries the rollback authority (`RecoveryTransport`).
  *
  * The profile is selected only from registry/runtime capabilities. It never
  * examines a target filesystem to guess whether a provider might exist. The
@@ -15,9 +16,9 @@ use Duo\Recovery\RollbackControl;
  */
 final class VerifiedRollbackProfile {
     private RollbackAuthority $authority;
-    private SshTransport $transport;
+    private RecoveryTransport $transport;
 
-    public function __construct(SshTransport $transport) {
+    public function __construct(RecoveryTransport $transport) {
         $this->transport = $transport;
         $this->authority = new RollbackAuthority($transport);
     }
@@ -27,7 +28,7 @@ final class VerifiedRollbackProfile {
      * @param ?array<string,mixed> $status
      * @return array{automatic:bool,reason:string,status:array<string,mixed>}
      */
-    public static function select(SshTransport $transport, array $plan, ?array $status = null): array {
+    public static function select(RecoveryTransport $transport, array $plan, ?array $status = null): array {
         $missing = [];
         if (!$transport->rollbackConfigured()) $missing[] = 'rollback signing key';
         if (!$transport->recoveryConfigured()) $missing[] = 'recovery executor';

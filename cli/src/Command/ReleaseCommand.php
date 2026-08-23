@@ -514,7 +514,7 @@ final class ReleaseCommand {
         if (($plan['incomplete_apply'] ?? []) !== []) {
             return 'incomplete_apply';
         }
-        if ($driver instanceof SshTransport) {
+        if ($driver instanceof RecoveryTransport && $driver->carriesRollbackAuthority()) {
             $status = RollbackAuthority::status($driver);
             if (($status['available'] ?? false) === true && ($status['ok'] ?? false) !== true) {
                 return 'checkpoint_unavailable';
@@ -1008,7 +1008,12 @@ final class ReleaseCommand {
             'declared_external_effects' => self::declaredExternalEffects($contract),
             'requested_profile' => $flags['profile'],
         ];
-        if ($driver instanceof SshTransport) {
+        // The claim in the frozen authorization plan and the profile
+        // `duo promote` selects must be one answer: promote's dispatch tests
+        // exactly this pair (cli/duo), so testing SshTransport here would let
+        // a configured local target read `operator-directed` in the document
+        // it authorizes and then run the verified path.
+        if ($driver instanceof RecoveryTransport && $driver->carriesRollbackAuthority()) {
             try {
                 $proof = RecoveryProfileSelection::proveVerified($driver, $plan);
             } catch (\Throwable $unprovable) {

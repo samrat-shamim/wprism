@@ -45,18 +45,32 @@ name: duo-${DUO_PAIR}
 #                    with DUO_MANIFESTS_DIR below, the CONTAINER-side path
 #                    manifests/ is mounted TO — that one is fixed and
 #                    unaffected by any of this.)
+#   DUO_DB_HOST      which shared database server this pair's four services
+#                    resolve. Defaults below to duo-shared-db — db.yml's own
+#                    container_name — so a caller that sets nothing renders
+#                    byte-identically to before this variable existed. It is
+#                    set to duo-shared-mysql only by pair.sh's MySQL evidence
+#                    lane (DUO_DB_ENGINE=mysql, see pair.sh's usage), whose
+#                    server is sandbox/db.mysql.yml. Selecting that engine
+#                    claims nothing: the shipped platform contract is still
+#                    MariaDB-only (manifests/capabilities/platform.json), so
+#                    the agent refuses platform_unsupported on such a pair.
 #
-# DUO_AGENT_SRC/DUO_MANIFESTS_SRC reach compose two ways at once, deliberately:
+# DUO_AGENT_SRC/DUO_MANIFESTS_SRC/DUO_DB_HOST reach compose two ways at once, deliberately:
 # pair.sh's own subcommands get them via plain `export` (pair_compose_configure()),
 # but any OTHER script that invokes `pair.sh up` as a subprocess and then
 # makes its own separate `docker compose -f pair.yml ...` calls afterward
 # (sandbox/conformance/run.sh, every regress_*.sh/grind_*.sh — this is most
 # callers, not an edge case) never sees that export; a process boundary
-# stops it cold. pair.sh also writes sandbox/.env with the same two values
+# stops it cold. pair.sh also writes sandbox/.env with the same three values
 # every time it runs, which compose auto-loads from the CWD with no export
 # needed by the caller — every script here already `cd`s into sandbox/
 # before touching compose, so this covers all of them for free. See
-# pair_compose_configure()'s own comment for the live verification.
+# pair_compose_configure()'s own comment for the live verification. DUO_DB_HOST
+# rides the same channel for the same reason and with a sharper failure mode:
+# a MySQL-lane pair whose subsequent subprocess compose calls re-rendered the
+# duo-shared-db default would run green against the WRONG engine and silently
+# claim MySQL evidence it never produced.
 #
 # Optional overrides, layered with additional -f flags (never edited into
 # this file):
@@ -77,7 +91,7 @@ networks:
 x-wp-env-base: &wp-env-base
   WORDPRESS_DB_USER: wordpress
   WORDPRESS_DB_PASSWORD: wordpress
-  WORDPRESS_DB_HOST: duo-shared-db
+  WORDPRESS_DB_HOST: ${DUO_DB_HOST:-duo-shared-db}
   DUO_MANIFESTS_DIR: /duo-manifests
   # The sandbox deliberately shares this one exact bind root between the host
   # fixture process and uid 33 in the WordPress/CLI containers. Git otherwise
@@ -96,7 +110,7 @@ volumes:
 
 services:
   wp1:
-    image: ${DUO_WP_IMAGE:-wordpress:7.0.3-php8.3-apache}
+    image: ${DUO_WP_IMAGE:-wordpress:7.1-php8.3-apache}
     networks: [duo-shared]
     environment:
       <<: *wp-env-base
@@ -122,7 +136,7 @@ services:
     cpus: "0.75"
 
   wp2:
-    image: ${DUO_WP_IMAGE:-wordpress:7.0.3-php8.3-apache}
+    image: ${DUO_WP_IMAGE:-wordpress:7.1-php8.3-apache}
     networks: [duo-shared]
     environment:
       <<: *wp-env-base

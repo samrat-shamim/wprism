@@ -132,7 +132,17 @@ function duo_boundary_core_block_schema(): array {
                 || str_contains($lower, 'url') || str_contains($lower, 'href')
                 || str_contains($lower, 'src') || str_contains($lower, 'poster')
                 || ($name === 'core/page-list-item' && $key === 'link')
-                || ($name === 'core/video' && $key === 'tracks')) {
+                || ($name === 'core/video' && $key === 'tracks')
+                // WordPress 7.1's core/playlist-track.image is an absolute
+                // artwork URL esc_url()'d into an <img src>
+                // (wp-includes/blocks/playlist-track.php:39), but its name
+                // carries none of the url/href/src/poster substrings this
+                // heuristic keys on and block.json gives it no `attribute`
+                // binding. Named here for the same reason page-list-item.link
+                // and video.tracks are: the blind spot is recorded in the
+                // pinned inventory instead of silently shrinking it below what
+                // manifests/core.json declares.
+                || ($name === 'core/playlist-track' && $key === 'image')) {
                 $urlLike[] = "$name.$key";
             }
         }

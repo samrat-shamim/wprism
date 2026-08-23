@@ -9,10 +9,12 @@ require dirname(__DIR__, 4) . '/recovery/rollback-control.php';
 require dirname(__DIR__, 4) . '/agent/src/Kernel/Canon.php';
 require dirname(__DIR__, 4) . '/cli/src/Transport/Transport.php';
 require dirname(__DIR__, 4) . '/cli/src/Transport/SshTransport.php';
+require dirname(__DIR__, 4) . '/cli/src/Transport/LocalTransport.php';
 require dirname(__DIR__, 4) . '/cli/src/Recovery/RollbackAuthority.php';
 require dirname(__DIR__, 4) . '/cli/src/Recovery/VerifiedRollbackProfile.php';
 
 use Duo\Canon;
+use Duo\Orchestrator\LocalTransport;
 use Duo\Orchestrator\RollbackAuthority;
 use Duo\Orchestrator\SshTransport;
 use Duo\Orchestrator\VerifiedRollbackProfile;
@@ -480,6 +482,65 @@ try {
         $selection['automatic'] === true,
         'automatic profile selection is capability-based when every provider and policy is ready'
     );
+    // DUO: the same seven-predicate selection off SSH. The profile is chosen
+    // from declared capability, so a local environment carrying the identical
+    // provider set and policy must reach the identical answer — that is the
+    // whole claim of the RecoveryTransport seam.
+    $localAutomaticConfig = [
+        '_machine_local' => true,
+        'repo_path' => $tmp . '/local-site',
+        'rollback_key_id' => 'offline-key',
+        'rollback_recovery' => [
+            'adapters' => [
+                'code_restore' => $providerCommand,
+                'database_restore' => $providerCommand,
+                'prior_verify' => $providerCommand,
+                'storage_restore' => $providerCommand,
+            ],
+            'checkpoint_provider' => $providerCommand,
+            'code_release_provider' => $providerCommand,
+            'effect_provider' => $providerCommand,
+            'exclusion_provider' => $providerCommand,
+            'timeout_seconds' => 5,
+            'upload_provider' => $providerCommand,
+        ],
+        'rollback_signing_key' => '/tmp/offline-signing-key',
+        'transport' => 'local',
+        'verified_rollback' => [
+            'claim_ttl_seconds' => 90,
+            'encryption_key_id' => 'kms-plan',
+            'retention_seconds' => 3600,
+        ],
+        'wp_path' => $tmp . '/local-wordpress',
+    ];
+    $localAutomatic = new LocalTransport('automatic-local-test', $localAutomaticConfig);
+    $localSelection = VerifiedRollbackProfile::select(
+        $localAutomatic,
+        $compiledPlan,
+        ['available' => true, 'ok' => true, 'recovery_ready' => true]
+    );
+    ok_test(
+        $localSelection === $selection,
+        'a machine-local environment with the same provider set reaches the byte-identical automatic selection'
+    );
+    // The privilege gate, not just the capability: the same configuration with
+    // no machine-local provenance is a loud refusal at construction, because on
+    // a local target the Ed25519 secret and the control root share a machine.
+    $localUnauthorizedConfig = $localAutomaticConfig;
+    unset($localUnauthorizedConfig['_machine_local']);
+    refuses(
+        fn() => new LocalTransport('unauthorized-local-test', $localUnauthorizedConfig),
+        'a local rollback authority without machine-local authorization refuses to arm its keys'
+    );
+    ok_test(
+        (new LocalTransport('bare-local-test', [
+            'repo_path' => $tmp . '/local-site',
+            'transport' => 'local',
+            'wp_path' => $tmp . '/local-wordpress',
+        ]))->carriesRollbackAuthority() === false,
+        'a local environment that never opted in carries no rollback authority to read or fence on'
+    );
+
     $manualTransport = new SshTransport('manual-test', [
         'host' => 'fixture-host',
         'repo_path' => '/srv/site',
