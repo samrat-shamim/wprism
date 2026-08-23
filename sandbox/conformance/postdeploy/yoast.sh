@@ -14,14 +14,6 @@ $wpdb->query("ALTER TABLE {$wpdb->posts} AUTO_INCREMENT = 9100001");
 $wpdb->query("ALTER TABLE {$wpdb->terms} AUTO_INCREMENT = 9200001");
 $wpdb->query("ALTER TABLE {$wpdb->term_taxonomy} AUTO_INCREMENT = 9300001");
 
-if (!is_dir(WPMU_PLUGIN_DIR) && !wp_mkdir_p(WPMU_PLUGIN_DIR)) {
-    throw new RuntimeException('could not create target MU-plugin directory');
-}
-$fixture = "<?php\nadd_filter(\"Yoast\\\\WP\\\\SEO\\\\should_index_indexables\", \"__return_true\", 999);\n";
-if (file_put_contents(WPMU_PLUGIN_DIR . '/duo-yoast-index-fixture.php', $fixture) === false) {
-    throw new RuntimeException('could not install target Yoast index fixture');
-}
-
 $term = static function (string $taxonomy, string $name, string $slug): int {
     $created = wp_insert_term($name, $taxonomy, ['slug' => $slug]);
     if (is_wp_error($created)) {
@@ -111,6 +103,9 @@ $ids['cat_b'] = $secondary;
 $ids['tag'] = $tag;
 echo wp_json_encode($ids, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
 PHPEOF
+
+$COMPOSE exec -T --user root wp2 sh -c \
+  'printf "%s\n" "<?php" "add_filter(\"Yoast\\\\WP\\\\SEO\\\\should_index_indexables\", \"__return_true\", 999);" > /var/www/html/wp-content/mu-plugins/duo-yoast-index-fixture.php'
 
 HOSTILE_OUT=$(wp_conf2 eval-file /siterepo/.tmp-yoast-hostile.php)
 rm -f "$HOSTILE_FILE"

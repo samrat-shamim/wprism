@@ -14,14 +14,9 @@ global $wpdb;
 $wpdb->query("ALTER TABLE {$wpdb->posts} AUTO_INCREMENT = 3100001");
 $wpdb->query("ALTER TABLE {$wpdb->terms} AUTO_INCREMENT = 3200001");
 $wpdb->query("ALTER TABLE {$wpdb->term_taxonomy} AUTO_INCREMENT = 3300001");
-if (!is_dir(WPMU_PLUGIN_DIR) && !wp_mkdir_p(WPMU_PLUGIN_DIR)) {
-    throw new RuntimeException("could not create source MU-plugin directory");
-}
-$fixture = "<?php\nadd_filter(\"Yoast\\\\WP\\\\SEO\\\\should_index_indexables\", \"__return_true\", 999);\n";
-if (file_put_contents(WPMU_PLUGIN_DIR . "/duo-yoast-index-fixture.php", $fixture) === false) {
-    throw new RuntimeException("could not install source Yoast index fixture");
-}
 ' >/dev/null
+$COMPOSE exec -T --user root wp1 sh -c \
+  'printf "%s\n" "<?php" "add_filter(\"Yoast\\\\WP\\\\SEO\\\\should_index_indexables\", \"__return_true\", 999);" > /var/www/html/wp-content/mu-plugins/duo-yoast-index-fixture.php'
 
 CAT_A=$(wp_conf1 term create category 'Conformance Primary 東京 🚀' --slug=conformance-primary --porcelain)
 CAT_B=$(wp_conf1 term create category 'Conformance Secondary' --slug=conformance-secondary --porcelain)
