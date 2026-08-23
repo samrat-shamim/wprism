@@ -68,7 +68,7 @@ final class ShortcodeAlternateRegistrar {
                 );
             }
             $token = '{{post:' . $uuid . '}}';
-            $targetId = $this->tokens->token_to_id($token);
+            $targetId = $this->tokens->bound_token_id($token);
             $prefix = Shortcodes::assert_named_alternate_target_available(
                 $targetId,
                 $lookup,

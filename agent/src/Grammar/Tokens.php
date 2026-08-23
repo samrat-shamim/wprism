@@ -331,13 +331,18 @@ final class Tokens {
 
     /** "{{<kind>:uuid}}" -> id (apply direction). Throws when unresolvable. */
     public function token_to_id(string $token): int {
-        $decoded = IdentityTokenCodec::decode($token);
-        $kind = self::ledger_kind($decoded['kind']);
-        $id = Ledger::id_for($decoded['uuid'], $kind);
+        $id = $this->bound_token_id($token);
         if ($id === null) {
             throw new \RuntimeException("duo: unresolvable ref $token (entity not in this environment)");
         }
         return $id;
+    }
+
+    /** Returns the current local binding without weakening token_to_id()'s strict apply contract. */
+    public function bound_token_id(string $token): ?int {
+        $decoded = IdentityTokenCodec::decode($token);
+        $kind = self::ledger_kind($decoded['kind']);
+        return Ledger::id_for($decoded['uuid'], $kind);
     }
 
     public function register_shortcode_alternate(string $token, string $metaKey, string $postType, string $value): void {

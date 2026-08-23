@@ -53040,6 +53040,23 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "bound_token_id": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "token",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?int",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "detokenize_text": {
                     "abstract": false,
                     "final": false,

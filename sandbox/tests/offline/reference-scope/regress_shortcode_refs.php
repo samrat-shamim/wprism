@@ -594,6 +594,27 @@ check(
     Shortcodes::apply_rewrite_text($modernCanonical, $policy, $canonicalNamedTokens) === $modern,
     'S1e: Apply registrar restores the canonical source prefix before the target hash is updated'
 );
+$boundIdentity = $wpdb->identity['post'][MAPPED_ID];
+unset($wpdb->identity['post'][MAPPED_ID]);
+$cleanTargetTokens = new Tokens();
+$cleanTargetTokens->policy = $policy;
+(new \Duo\ShortcodeAlternateRegistrar($policy, $cleanTargetTokens))->register([[
+    'type' => 'post',
+    'data' => [
+        'type' => 'wpcf7_contact_form',
+        'uuid' => MAPPED_UUID,
+        'meta' => ['_hash' => $hashA, '_old_cf7_unit_id' => '77'],
+    ],
+]]);
+check(
+    $cleanTargetTokens->shortcode_alternate(
+        '{{post:' . MAPPED_UUID . '}}',
+        '_hash',
+        'wpcf7_contact_form'
+    ) === 'aaaaaaa',
+    'S1e: Apply registrar preflights and seals a canonical named witness before a clean target has a local binding'
+);
+$wpdb->identity['post'][MAPPED_ID] = $boundIdentity;
 $wpdb->postMetaById[MAPPED_ID]['_hash'] = [$hashA];
 $sealedNamedTokens = new Tokens();
 $sealedNamedTokens->policy = $policy;
