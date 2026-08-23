@@ -392,6 +392,31 @@ namespace {
     duo_check_same($firstFingerprint, $reconciled['after']['cache_fingerprint'] ?? null, 'reconciliation observes the same exact cache projection');
 
     $provider = nf_provider_reset();
+    nf_provider_rebuild();
+    $rows = $GLOBALS['wpdb']->rows('nf3_upgrades');
+    foreach ($rows as &$row) {
+        $row['maintenance'] = "\0";
+    }
+    unset($row);
+    $GLOBALS['wpdb']->seedTable('nf3_upgrades', $rows);
+    $binaryZero = $provider->reconcile_scoped('rebuild_form_caches', [], nf_provider_operation());
+    duo_check_same(
+        0,
+        $binaryZero['after']['maintenance_form_caches'] ?? null,
+        'MariaDB BIT(1) binary zero is read as an exact non-maintenance flag'
+    );
+
+    $rows = $GLOBALS['wpdb']->rows('nf3_upgrades');
+    $rows[0]['maintenance'] = "\1";
+    $GLOBALS['wpdb']->seedTable('nf3_upgrades', $rows);
+    duo_check_throws(
+        static fn(): array => $provider->reconcile_scoped('rebuild_form_caches', [], nf_provider_operation()),
+        \RuntimeException::class,
+        'MariaDB BIT(1) binary one blocks recovery reconciliation',
+        'maintenance_form_caches'
+    );
+
+    $provider = nf_provider_reset();
     $GLOBALS['nf_provider_multisite'] = true;
     duo_check_throws(
         static fn(): array => $provider->invoke('rebuild_form_caches', []),

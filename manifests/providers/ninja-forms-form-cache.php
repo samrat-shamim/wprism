@@ -363,7 +363,10 @@ PHP;
             $cacheIds[$id] = true;
             $raw = $row['cache'] ?? null;
             $stage = (int) ($row['stage'] ?? -1);
-            $maintenanceMode = (int) ($row['maintenance'] ?? -1);
+            $maintenanceMode = $this->bit_flag(
+                $row['maintenance'] ?? null,
+                'cache maintenance'
+            );
             if ($maintenanceMode !== 0) {
                 $maintenance++;
             }
@@ -562,5 +565,18 @@ PHP;
             throw new \RuntimeException('duo: Ninja Forms database prefix is unavailable or unsafe');
         }
         return $prefix . $suffix;
+    }
+
+    /** MariaDB returns BIT(1) as a one-byte binary string through wpdb. */
+    private function bit_flag(mixed $value, string $label): int {
+        if ($value === 0 || $value === '0' || $value === "\0") {
+            return 0;
+        }
+        if ($value === 1 || $value === '1' || $value === "\1") {
+            return 1;
+        }
+        throw new \RuntimeException(
+            "duo: Ninja Forms $label flag is not an exact BIT(1) value; recovery_required"
+        );
     }
 }

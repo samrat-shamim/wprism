@@ -119,7 +119,7 @@ if ($wpdb->insert($wpdb->prefix . 'nf3_upgrades', [
     'cache' => $orphan,
     'stage' => 1,
     'maintenance' => 0,
-]) === false) {
+], ['%d', '%s', '%d', '%d']) === false) {
     throw new RuntimeException('Ninja Forms orphan table cache fixture failed');
 }
 update_option('nf_form_777777', $orphan, false);
@@ -127,6 +127,9 @@ update_option('nf_form_777777', $orphan, false);
 echo 'submission_id=' . (int) $submission . "\n";
 echo 'orphan_table_cache=' . (int) $wpdb->get_var(
     "SELECT COUNT(*) FROM {$wpdb->prefix}nf3_upgrades WHERE id=777777"
+) . "\n";
+echo 'orphan_maintenance=' . (int) $wpdb->get_var(
+    "SELECT maintenance+0 FROM {$wpdb->prefix}nf3_upgrades WHERE id=777777"
 ) . "\n";
 echo 'orphan_legacy_cache=' . (get_option('nf_form_777777', null) === null ? 0 : 1) . "\n";
 PHPEOF
@@ -138,5 +141,7 @@ NF_SUBMISSION_ID=$(grep -o 'submission_id=[0-9]*' <<<"$NF_HOSTILE" | grep -o '[0
 require_fixture_ids NF_SUBMISSION_ID
 require_fixture_state "conf2 orphan Ninja Forms table cache exists before apply" \
   "orphan_table_cache=1" "$(grep -o 'orphan_table_cache=[0-9]*' <<<"$NF_HOSTILE" | tail -1)"
+require_fixture_state "conf2 orphan Ninja Forms cache is not in plugin maintenance mode" \
+  "orphan_maintenance=0" "$(grep -o 'orphan_maintenance=[0-9]*' <<<"$NF_HOSTILE" | tail -1)"
 require_fixture_state "conf2 orphan Ninja Forms legacy cache exists before apply" \
   "orphan_legacy_cache=1" "$(grep -o 'orphan_legacy_cache=[0-9]*' <<<"$NF_HOSTILE" | tail -1)"
