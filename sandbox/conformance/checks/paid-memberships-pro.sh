@@ -396,15 +396,16 @@ DIRTY_IDS=$(wp_conf2 eval '
 require_observed_nonempty 'PMPro hostile duplicate-name ids' "$DIRTY_IDS"
 DIRTY_PLAN_RC=0
 DIRTY_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json 2>&1) || DIRTY_PLAN_RC=$?
-require_duo_answered 'PMPro hostile duplicate-name plan' json "$DIRTY_PLAN"
+DIRTY_PLAN_JSON=$(awk 'NF { line=$0 } END { print line }' <<<"$DIRTY_PLAN")
+require_duo_answered 'PMPro hostile duplicate-name plan' json "$DIRTY_PLAN_JSON"
 if [ "$DIRTY_PLAN_RC" -eq 0 ]; then
-  jq -e '([.collision,.conflict,.drift] | map(length) | add) > 0' <<<"$DIRTY_PLAN" >/dev/null \
+  jq -e '([.collision,.conflict,.drift] | map(length) | add) > 0' <<<"$DIRTY_PLAN_JSON" >/dev/null \
     || fail "PMPro target-only duplicate names produced a falsely clean plan: $DIRTY_PLAN"
 else
   jq -e '
     .format == "duo-command-refusal/v1" and .reason_code == "plan_failed" and
     .details_redacted == true
-  ' <<<"$DIRTY_PLAN" >/dev/null \
+  ' <<<"$DIRTY_PLAN_JSON" >/dev/null \
     || fail "PMPro duplicate-name machine refusal did not preserve the redacted public envelope: $DIRTY_PLAN"
   DIRTY_HUMAN_RC=0
   DIRTY_HUMAN=$(wp_conf2 duo plan --repo=/siterepo 2>&1) || DIRTY_HUMAN_RC=$?
