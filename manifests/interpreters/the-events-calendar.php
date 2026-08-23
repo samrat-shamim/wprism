@@ -35,6 +35,7 @@ final class TheEventsCalendar {
     public function repository_diagnostics(array $tree): array {
         $posts = [];
         $events = [];
+        $linkedPosts = [];
         $terms = [];
         foreach ($tree as $entity) {
             if (($entity['type'] ?? '') === 'post') {
@@ -45,6 +46,8 @@ final class TheEventsCalendar {
                 }
                 if (($front['type'] ?? '') === 'tribe_events') {
                     $events[] = [$entity, $front];
+                } elseif (in_array(($front['type'] ?? ''), ['tribe_venue', 'tribe_organizer'], true)) {
+                    $linkedPosts[] = [$entity, $front];
                 }
                 continue;
             }
@@ -199,6 +202,41 @@ final class TheEventsCalendar {
                         $path,
                         "meta.$key",
                         'The Events Calendar Pro recurrence state is outside the free-plugin adapter contract'
+                    );
+                }
+            }
+            foreach ([
+                '_EventCost', '_EventCostMax', '_EventCostMin', '_EventCurrencyCode',
+                '_EventCurrencyPosition', '_EventCurrencySymbol', '_EventOrigin', '_EventPhone',
+                '_EventTimezoneAbbr', '_EventURL',
+            ] as $key) {
+                if (array_key_exists($key, $meta) && !is_string($meta[$key])) {
+                    $out[] = $this->diagnostic(
+                        $path,
+                        "meta.$key",
+                        "The Events Calendar $key must remain one scalar string, not structured or serialized data"
+                    );
+                }
+            }
+        }
+
+        $linkedStringMeta = [
+            'tribe_venue' => [
+                '_VenueAddress', '_VenueCity', '_VenueCountry', '_VenueOrigin', '_VenuePhone',
+                '_VenueProvince', '_VenueShowMap', '_VenueShowMapLink', '_VenueState',
+                '_VenueStateProvince', '_VenueURL', '_VenueZip',
+            ],
+            'tribe_organizer' => ['_OrganizerEmail', '_OrganizerOrigin', '_OrganizerPhone', '_OrganizerWebsite'],
+        ];
+        foreach ($linkedPosts as [$entity, $front]) {
+            $path = (string) ($entity['path'] ?? '');
+            $meta = (array) ($front['meta'] ?? []);
+            foreach ($linkedStringMeta[(string) $front['type']] as $key) {
+                if (array_key_exists($key, $meta) && !is_string($meta[$key])) {
+                    $out[] = $this->diagnostic(
+                        $path,
+                        "meta.$key",
+                        "The Events Calendar $key must remain one scalar string, not structured or serialized data"
                     );
                 }
             }

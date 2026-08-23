@@ -454,6 +454,39 @@ postdeploy_pmpro_content() {
   unset -f wp_conf2
 }
 
+seed_the_events_calendar_content() {
+  # The standalone fixture uses TEC's repositories, Category Colors API, and
+  # settings API. Reusing it here keeps the exact-version proof on the same
+  # native graph and difficult-value surface as the isolated conformance run.
+  wp_conf1() { wp1 "$@"; }
+  local CONF_REPO1="siterepo/${PAIR}1"
+  local COMPOSE="$PAIR_COMPOSE_STRING"
+  . conformance/seeds/the-events-calendar.sh
+  unset -f wp_conf1
+}
+
+postdeploy_the_events_calendar_content() {
+  wp_conf2() { wp2 "$@"; }
+  local CONF_REPO2="siterepo/${PAIR}2"
+  local COMPOSE="$PAIR_COMPOSE_STRING"
+  . conformance/postdeploy/the-events-calendar.sh
+  unset -f wp_conf2
+}
+
+check_the_events_calendar_boundary_content() {
+  wp_conf1() { wp1 "$@"; }
+  wp_conf2() { wp2 "$@"; }
+  local CONF_REPO1="siterepo/${PAIR}1"
+  local CONF_REPO2="siterepo/${PAIR}2"
+  local CONF1_PORT="$PORT1"
+  local CONF2_PORT="$PORT2"
+  local COMPOSE="$PAIR_COMPOSE_STRING"
+  local TEC_EXPECTED_VERSION="${TEC_VERSION:-6.17.3}"
+  local TEC_BOUNDARY_ONLY=1
+  . conformance/checks/the-events-calendar.sh
+  unset -f wp_conf1 wp_conf2
+}
+
 seed_advanced_editor_tools_content() {
   wp_conf1() { wp1 "$@"; }
   local CONF_REPO1="siterepo/${PAIR}1"
@@ -992,6 +1025,18 @@ reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
     }
     $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '\''pmpro_%'\'' OR option_name LIKE '\''_transient_pmpro_%'\'' OR option_name LIKE '\''_site_transient_pmpro_%'\''");
   ' >/dev/null
+  # TEC retains authored rows, its Custom Tables V1 projections, and almost
+  # all setup/runtime options when code is deleted. Reset those disposable
+  # matrix residues so each admitted release runs its own installer and no
+  # 6.17.2 schema or cached migration marker can make 6.17.3 look healthy.
+  "$cli" db query "
+    DROP TABLE IF EXISTS wp_tec_events, wp_tec_occurrences, wp_tec_kv_cache;
+    DELETE FROM wp_options
+      WHERE option_name LIKE 'tribe_%'
+         OR option_name LIKE 'tec_%'
+         OR option_name LIKE 'stellarwp_%'
+         OR option_name LIKE 'stellar_schema_version_%';
+  " >/dev/null
   # WooCommerce intentionally preserves its schema and setup/runtime options
   # on ordinary plugin deletion. A boundary case must exercise the selected
   # release's own installer, not inherit the preceding release's tables.
@@ -1960,6 +2005,116 @@ EOF
 done
 fi
 
+if [ "$VMATRIX_MANIFEST" = the-events-calendar ]; then
+VMATRIX_CASES=$((VMATRIX_CASES + 1))
+for TEC_VERSION in 6.17.2 6.17.3; do
+  say "boundary: the-events-calendar $TEC_VERSION"
+
+  reset_env wp1
+  reset_env wp2
+  reset_case_repositories
+
+  say "fetch + verify the-events-calendar $TEC_VERSION (digest-checked artifact only)"
+  TEC_ARTIFACT_1=$(fetch_artifact the-events-calendar "$TEC_VERSION" cli1)
+  TEC_ARTIFACT_2=$(fetch_artifact the-events-calendar "$TEC_VERSION" cli2)
+  wp1 plugin install "$TEC_ARTIFACT_1" --activate >/dev/null
+  TEC_INSTALLED_1=$(wp1 plugin get the-events-calendar --field=version)
+  [ "$TEC_INSTALLED_1" = "$TEC_VERSION" ] \
+    || fail "side 1 installed version mismatch: expected $TEC_VERSION, got $TEC_INSTALLED_1"
+  pass "side 1: the-events-calendar $TEC_VERSION installed from verified artifact, active"
+
+  cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+{
+  "manifests": ["core", "the-events-calendar"],
+  "policy": {
+    "options": {},
+    "post_meta": {},
+    "post_types": ["post", "page", "attachment", "tribe_events", "tribe_venue", "tribe_organizer"],
+    "taxonomies": ["category", "post_tag", "tribe_events_cat"]
+  },
+  "spec_version": 2
+}
+EOF
+  cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
+  "${GIT1[@]}" init -q -b main
+  "${GIT1[@]}" remote add origin "../origin-$PAIR.git"
+  "${GIT1[@]}" add -A
+  "${GIT1[@]}" commit -qm "policy: The Events Calendar $TEC_VERSION exact-boundary certification"
+  "${GIT1[@]}" push -qu origin main
+
+  seed_the_events_calendar_content
+  wp1 duo capture --repo=/siterepo
+  wp1 duo lint --repo=/siterepo
+  "${GIT1[@]}" add -A
+  "${GIT1[@]}" commit -qm "capture: The Events Calendar $TEC_VERSION native graph"
+  "${GIT1[@]}" push -q origin main
+
+  clone_case_target
+  wp2 plugin install "$TEC_ARTIFACT_2" >/dev/null
+  TEC_INSTALLED_2=$(wp2 plugin get the-events-calendar --field=version)
+  require_fixture_values TEC_INSTALLED_2
+  [ "$TEC_INSTALLED_2" = "$TEC_VERSION" ] \
+    || fail "side 2 installed version mismatch: expected $TEC_VERSION, got $TEC_INSTALLED_2"
+  wp2 plugin is-active the-events-calendar >/dev/null 2>&1 \
+    && fail "TEC $TEC_VERSION target premise must begin inactive"
+
+  wp2 duo deploy --repo=/siterepo
+  wp2 plugin is-active the-events-calendar >/dev/null \
+    || fail "deploy did not activate the admitted TEC $TEC_VERSION artifact"
+  postdeploy_the_events_calendar_content
+  REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
+  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
+  grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
+    || fail "apply canary not clean at the-events-calendar $TEC_VERSION"
+  check_the_events_calendar_boundary_content
+
+  wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-final
+  TEC_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
+  rm -rf "siterepo/${PAIR}2/.tmp-final"
+  [ -z "$TEC_DIFF" ] \
+    || fail "byte-identity broken at the-events-calendar $TEC_VERSION: $TEC_DIFF"
+  pass "The Events Calendar $TEC_VERSION deploys, adopts hostile identities, repairs projections, renders natively, and recaptures byte-identically"
+
+  if [ "$TEC_VERSION" = 6.17.2 ]; then
+    # Both admitted artifacts carry byte-identical Custom Tables V1 code, but
+    # the populated in-place path still owns installer/migration and code-
+    # baseline behavior that two fresh installs cannot prove.
+    TEC_UPGRADE_1=$(fetch_artifact the-events-calendar 6.17.3 cli1)
+    TEC_UPGRADE_2=$(fetch_artifact the-events-calendar 6.17.3 cli2)
+    wp1 plugin install "$TEC_UPGRADE_1" --force --activate >/dev/null
+    wp2 plugin install "$TEC_UPGRADE_2" --force --activate >/dev/null
+    [ "$(wp1 plugin get the-events-calendar --field=version)" = 6.17.3 ] \
+      && [ "$(wp2 plugin get the-events-calendar --field=version)" = 6.17.3 ] \
+      || fail "TEC supported in-place upgrade did not install 6.17.3 on both populated sides"
+
+    TEC_UPGRADE_DEPLOY_RC=0
+    TEC_UPGRADE_DEPLOY_OUT=$(wp2 duo deploy --repo=/siterepo 2>&1) || TEC_UPGRADE_DEPLOY_RC=$?
+    require_duo_answered "TEC out-of-band 6.17.2 to 6.17.3 upgrade refusal" human "$TEC_UPGRADE_DEPLOY_OUT"
+    [ "$TEC_UPGRADE_DEPLOY_RC" -ne 0 ] \
+      && grep -q 'deploy refused — code_drift' <<<"$TEC_UPGRADE_DEPLOY_OUT" \
+      && grep -q 'recorded 6.17.2' <<<"$TEC_UPGRADE_DEPLOY_OUT" \
+      && grep -q 'is 6.17.3 on this environment' <<<"$TEC_UPGRADE_DEPLOY_OUT" \
+      || fail "TEC out-of-band upgrade did not refuse at the exact code-drift boundary: $TEC_UPGRADE_DEPLOY_OUT"
+    wp2 duo deploy --repo=/siterepo --force-code-drift >/dev/null
+    TEC_UPGRADE_PLAN=$(wp2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+    require_duo_answered "TEC 6.17.2 to 6.17.3 target plan" json "$TEC_UPGRADE_PLAN"
+    jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$TEC_UPGRADE_PLAN" >/dev/null \
+      || fail "TEC supported in-place upgrade invented authored work: $TEC_UPGRADE_PLAN"
+
+    TEC_VERSION=6.17.3 check_the_events_calendar_boundary_content
+    wp1 duo capture --repo=/siterepo --out=/siterepo/.tmp-tec-upgrade-source
+    wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-tec-upgrade-target
+    TEC_UPGRADE_SOURCE_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}1/.tmp-tec-upgrade-source" || true)
+    TEC_UPGRADE_TARGET_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-tec-upgrade-target" || true)
+    rm -rf "siterepo/${PAIR}1/.tmp-tec-upgrade-source" "siterepo/${PAIR}2/.tmp-tec-upgrade-target"
+    [ -z "$TEC_UPGRADE_SOURCE_DIFF" ] && [ -z "$TEC_UPGRADE_TARGET_DIFF" ] \
+      || fail "TEC populated in-place upgrade changed canonical state: source=$TEC_UPGRADE_SOURCE_DIFF target=$TEC_UPGRADE_TARGET_DIFF"
+    pass "TEC populated 6.17.2 sites upgrade in place to 6.17.3 with exact native behavior, no authored drift, and explicit code-baseline authority"
+    TEC_VERSION=6.17.2
+  fi
+done
+fi
+
 if [ "$VMATRIX_MANIFEST" = elementor ]; then
 VMATRIX_CASES=$((VMATRIX_CASES + 1))
 for ELEMENTOR_VERSION in 4.0.0 4.2.3; do
@@ -2275,6 +2430,66 @@ EOF
     pass "CF7 state authored under exact 6.0 upgrades in place to exact 6.1.7, remains natively visible, applies cleanly, and recaptures byte-identically"
   fi
 done
+fi
+
+if [ "$VMATRIX_MANIFEST" = the-events-calendar ]; then
+say "negative control: official The Events Calendar 6.17.1 is below the reviewed 6.17.2 floor and must refuse before activation"
+reset_env wp1
+reset_case_repositories
+
+# Capture a native graph under admitted 6.17.3 bytes, then replace only the
+# installed code. The refusal therefore exercises the compatibility boundary
+# against representative TEC references/settings rather than an empty repo.
+TEC_IN_RANGE_ARTIFACT=$(fetch_artifact the-events-calendar 6.17.3 cli1)
+wp1 plugin install "$TEC_IN_RANGE_ARTIFACT" --activate >/dev/null
+[ "$(wp1 plugin get the-events-calendar --field=version)" = 6.17.3 ] \
+  || fail "TEC negative-control premise did not install exact 6.17.3 bytes"
+cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+{
+  "manifests": ["core", "the-events-calendar"],
+  "policy": {
+    "options": {},
+    "post_meta": {},
+    "post_types": ["post", "page", "attachment", "tribe_events", "tribe_venue", "tribe_organizer"],
+    "taxonomies": ["category", "post_tag", "tribe_events_cat"]
+  },
+  "spec_version": 2
+}
+EOF
+cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
+"${GIT1[@]}" init -q -b main
+"${GIT1[@]}" remote add origin "../origin-$PAIR.git"
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "policy: The Events Calendar adjacent-version refusal"
+"${GIT1[@]}" push -qu origin main
+seed_the_events_calendar_content
+wp1 duo capture --repo=/siterepo
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "capture: valid TEC graph for adjacent-version refusal"
+"${GIT1[@]}" push -q origin main
+
+wp1 plugin deactivate the-events-calendar >/dev/null
+wp1 plugin delete the-events-calendar >/dev/null
+TEC_OUT_OF_RANGE_ARTIFACT=$(fetch_artifact the-events-calendar 6.17.1 cli1)
+wp1 plugin install "$TEC_OUT_OF_RANGE_ARTIFACT" >/dev/null
+TEC_INSTALLED_OOR=$(wp1 plugin get the-events-calendar --field=version)
+[ "$TEC_INSTALLED_OOR" = 6.17.1 ] \
+  || fail "negative control: expected the-events-calendar 6.17.1 installed, got $TEC_INSTALLED_OOR"
+
+TEC_REFUSAL_RC=0
+TEC_REFUSAL_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1) || TEC_REFUSAL_RC=$?
+[ "$TEC_REFUSAL_RC" -ne 0 ] \
+  || fail "expected deploy to refuse the-events-calendar 6.17.1, but it exited 0: $TEC_REFUSAL_OUT"
+grep -Eq "outside_version_range|outside the '.*' manifest's declared version_range" <<<"$TEC_REFUSAL_OUT" \
+  || fail "TEC 6.17.1 refused outside the version gate: $TEC_REFUSAL_OUT"
+grep -q 'the-events-calendar/the-events-calendar.php' <<<"$TEC_REFUSAL_OUT" \
+  || fail "TEC adjacent-version refusal did not name the exact plugin basename: $TEC_REFUSAL_OUT"
+grep -q '6.17.1' <<<"$TEC_REFUSAL_OUT" \
+  || fail "TEC adjacent-version refusal did not name installed version 6.17.1: $TEC_REFUSAL_OUT"
+wp1 plugin is-active the-events-calendar >/dev/null 2>&1 \
+  && fail "outside-range TEC 6.17.1 was activated before deploy refused"
+printf '%s\n' "$TEC_REFUSAL_OUT"
+pass "official TEC 6.17.1 is loudly refused and remains inactive below >=6.17.2 <6.17.3.1"
 fi
 
 if [ "$VMATRIX_MANIFEST" = polylang ]; then

@@ -30,6 +30,30 @@
     "TEC 6.17.2/6.17.3 free ships Category Colors as a native feature. tribe_events_cat and its five exact tec-events-cat-colors-* term-meta keys are authored state; the interpreter rejects malformed colors, priorities, and flags before compilation. Events Calendar Pro recurrence, Event Tickets state, Event Aggregator records and credentials, legacy Category Colors plugin residue, third-party add-ons, and multisite remain outside this contract and refuse rather than receiving inferred authority.",
     "Event, venue, and organizer deletion remains deliberately unsupported. Duo's generic post deletion is hook-free while TEC and optional add-ons own occurrence cleanup and reverse-reference behavior; the batch regenerator refuses any deletion context before mutation, and conformance proves no tombstone or partial target change is produced."
   ],
+  "actions": [
+    {
+      "kind": "native",
+      "action": "rewrite.flush",
+      "args": {},
+      "triggers": ["option:tribe_events_calendar_options"],
+      "effects": [
+        {"id": "tec-rewrite-rules", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "option", "value": "rewrite_rules"}},
+        {"id": "tec-rewrite-rules-cache", "kind": "cache", "mode": "irreversible", "selector": {"scope": "external", "type": "provider_resource", "value": "wordpress-option:v1:rewrite_rules"}},
+        {"id": "tec-permalink-pre-option-filter", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "pre_option_permalink_structure"}},
+        {"id": "tec-permalink-pre-option-generic-filter", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "pre_option"}},
+        {"id": "tec-permalink-option-filter", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "option_permalink_structure"}},
+        {"id": "tec-permalink-default-option-filter", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "default_option_permalink_structure"}},
+        {"id": "tec-rewrite-rules-array-filter", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "rewrite_rules_array"}},
+        {"id": "tec-rewrite-sanitize-filter", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "sanitize_option_rewrite_rules"}},
+        {"id": "tec-rewrite-option-filter", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "option_rewrite_rules"}},
+        {"id": "tec-rewrite-pre-update-filter", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "pre_update_option_rewrite_rules"}},
+        {"id": "tec-rewrite-pre-update-generic-filter", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "pre_update_option"}},
+        {"id": "tec-rewrite-update-option-hook", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "update_option"}},
+        {"id": "tec-rewrite-update-specific-hook", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "update_option_rewrite_rules"}},
+        {"id": "tec-rewrite-updated-option-hook", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "hook", "value": "updated_option"}}
+      ]
+    }
+  ],
   "options": {
     "stellar_schema_version_stellarwp-shepherd-tec-tasks": {"class": "env", "required": false},
     "stellar_schema_version_tec-kv-cache": {"class": "env", "required": false},

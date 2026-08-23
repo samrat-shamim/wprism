@@ -221,23 +221,22 @@
       "not_applicable": {}
     },
     "the-events-calendar": {
-      "readiness": "unready",
+      "readiness": "ready",
       "covered": {
-        "clean-target": ["sandbox/conformance/entries/the-events-calendar.json", "sandbox/conformance/seeds/the-events-calendar.sh", "sandbox/conformance/postdeploy/the-events-calendar.sh", "sandbox/conformance/checks/the-events-calendar.sh"],
-        "identity-references": ["sandbox/conformance/postdeploy/the-events-calendar.sh", "sandbox/conformance/checks/the-events-calendar.sh"],
-        "native-behavior": ["sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/live/regress_tec_regen.sh"],
+        "contract-dependency": ["manifests/the-events-calendar.json", "manifests/interpreters/the-events-calendar.php", "manifests/regenerators/the-events-calendar.php", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php"],
+        "clean-target": ["sandbox/conformance/entries/the-events-calendar.json", "sandbox/conformance/seeds/the-events-calendar.sh", "sandbox/conformance/checks/the-events-calendar.sh"],
+        "dirty-target": ["sandbox/conformance/postdeploy/the-events-calendar.sh", "sandbox/conformance/checks/the-events-calendar.sh"],
+        "identity-references": ["manifests/the-events-calendar.json", "sandbox/conformance/seeds/the-events-calendar.sh", "sandbox/conformance/postdeploy/the-events-calendar.sh", "sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "native-behavior": ["sandbox/conformance/seeds/the-events-calendar.sh", "sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
         "derived-state": ["manifests/regenerators/the-events-calendar.php", "sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/live/regress_tec_regen.sh"],
-        "failure-recovery": ["sandbox/tests/live/regress_tec_regen.sh"]
+        "deletion": ["sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php"],
+        "failure-recovery": ["sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/live/regress_tec_regen.sh", "sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php"],
+        "concurrency-idempotence": ["sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/live/regress_capture_concurrency.sh"],
+        "lifecycle": ["sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "data-boundary": ["manifests/interpreters/the-events-calendar.php", "sandbox/conformance/seeds/the-events-calendar.sh", "sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php"],
+        "scope-platform": ["manifests/the-events-calendar.json", "sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/live/regress_multisite_refusal.sh"]
       },
-      "gaps": {
-        "contract-dependency": "The exact 6.17.2 digest and enforceable one-patch manifest range are pinned, but missing/inactive and out-of-range refusal artifacts are not yet one closed matrix.",
-        "dirty-target": "Same-slug adoption, stale occurrence repair, divergent referenced IDs, and target-only runtime cache preservation are covered; managed conflict authority, activation-default collisions, and the broader unmanaged-key matrix remain open.",
-        "deletion": "Event delete, occurrence/cache cascade, rollback, retry, and unsupported-surface refusals are not closed.",
-        "concurrency-idempotence": "No competing event apply/occurrence regeneration exercise exists.",
-        "lifecycle": "The exact 6.17.2 range is enforceable, but upgrade/downgrade refusal, deactivate/reactivate, reinstall, and residue behavior are not yet exercised.",
-        "data-boundary": "Recurrence/time-zone edges, long UTF-8, malformed metadata, zero/large IDs, secrets, and schema drift lack a matrix.",
-        "scope-platform": "Optional TEC modules and the shared platform boundary are not exercised as exact-artifact refusals."
-      },
+      "gaps": {},
       "blocked": {},
       "not_applicable": {}
     },

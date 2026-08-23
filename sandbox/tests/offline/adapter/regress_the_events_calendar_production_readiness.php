@@ -206,6 +206,12 @@ tec_readiness_refuses($interpreter, tec_readiness_tree($bad), 'prefix or postfix
 $bad = tec_readiness_meta();
 $bad['_EventRecurrence'] = ['rules' => [['type' => 'Every Week']]];
 tec_readiness_refuses($interpreter, tec_readiness_tree($bad), 'Pro recurrence state', 'free-adapter recurrence state refuses before deploy');
+$bad = tec_readiness_meta();
+$bad['_EventCost'] = ['serialized' => 'future schema'];
+tec_readiness_refuses($interpreter, tec_readiness_tree($bad), 'one scalar string', 'structured event cost refuses instead of being serialized into native meta');
+$linkedTree = tec_readiness_tree();
+$linkedTree[1]['data']['meta']['_VenueURL'] = (object) ['url' => 'https://invalid.example.test'];
+tec_readiness_refuses($interpreter, $linkedTree, 'one scalar string', 'structured venue metadata refuses before native code consumes it');
 
 foreach ([
     ['tec-events-cat-colors-primary', 'red', 'six-digit hex color'],
@@ -249,6 +255,10 @@ duo_check_same('post', $options['sub_keys']['eventsDefaultOrganizerID']['ref'] ?
 foreach (['google_maps_js_api_key', 'eb_security_key', 'meetup_api_key', 'fb_token', 'schema-version', 'earliest_date', 'trash-past-events'] as $key) {
     duo_check(!isset($options['sub_keys'][$key]), "$key remains target-owned rather than leaking or replaying integration/runtime state");
 }
+$rewriteActions = $policy->actions_for(['option:tribe_events_calendar_options']);
+duo_check_same(1, count($rewriteActions), 'changing portable TEC settings selects one bounded rewrite repair');
+duo_check_same('rewrite.flush', $rewriteActions[0]['action'] ?? null, 'TEC uses the closed engine-owned soft rewrite flush');
+duo_check_same([], $policy->actions_for(['post:tribe_events']), 'event-only writes do not trigger an unrelated global rewrite flush');
 
 duo_check(in_array('tribe_events', $policy->declared_post_types(), true), 'events are in adapter post scope');
 duo_check(in_array('tribe_venue', $policy->declared_post_types(), true), 'venues are in adapter post scope');
