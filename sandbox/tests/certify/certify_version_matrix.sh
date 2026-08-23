@@ -2007,6 +2007,7 @@ EOF
     wp1 plugin install "$UPGRADE_ARTIFACT_1" --force --activate >/dev/null
     [ "$(wp1 plugin get wordpress-seo --field=version)" = 28.3 ] \
       || fail 'Yoast source in-place upgrade did not install exact 28.3'
+    wp1 duo deploy --repo=/siterepo --force-code-drift >/dev/null
     UPGRADE_POST=$(wp1 post list --post_type=post --name=conformance-yoast-post --field=ID)
     require_fixture_ids UPGRADE_POST
     wp1 post meta update "$UPGRADE_POST" _yoast_wpseo_twitter-title 'Yoast 28.0 to 28.3 upgrade 東京 🚀' >/dev/null
@@ -2020,7 +2021,7 @@ EOF
     wp2 plugin install "$UPGRADE_ARTIFACT_2" --force --activate >/dev/null
     [ "$(wp2 plugin get wordpress-seo --field=version)" = 28.3 ] \
       || fail 'Yoast target in-place upgrade did not install exact 28.3'
-    wp2 duo deploy --repo=/siterepo
+    wp2 duo deploy --repo=/siterepo --force-code-drift
     REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
     wp2 duo apply --repo=/siterepo --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
     grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
