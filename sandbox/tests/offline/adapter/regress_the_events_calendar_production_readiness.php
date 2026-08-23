@@ -338,6 +338,63 @@ tec_readiness_refuses(
     'must exactly match _EventOrganizerID row order',
     'nested organizer blocks are inspected recursively and refuse when physical metadata order diverges'
 );
+$markerCounter = new ReflectionMethod($interpreter, 'organizer_block_marker_count');
+$markerFloodCount = 2048;
+$markerFlood = str_repeat('<!-- wp:tribe/event-organizer /-->', $markerFloodCount)
+    . '<!-- wp:tribe/event-organizer literal incomplete tail '
+    . str_repeat('x', 1024 * 1024);
+$oldBacktrackLimit = ini_set('pcre.backtrack_limit', '1');
+try {
+    duo_check_same(
+        $markerFloodCount,
+        $markerCounter->invoke($interpreter, $markerFlood),
+        'the exact linear marker counter handles many complete comments and a huge incomplete tail independently of PCRE limits'
+    );
+} finally {
+    if ($oldBacktrackLimit !== false) {
+        ini_set('pcre.backtrack_limit', $oldBacktrackLimit);
+    }
+}
+$manyEmptyMeta = tec_readiness_meta();
+unset($manyEmptyMeta['_EventOrganizerID']);
+duo_check_same(
+    [],
+    $interpreter->repository_diagnostics(tec_readiness_tree(
+        $manyEmptyMeta,
+        null,
+        null,
+        str_repeat('<!-- wp:tribe/event-organizer /-->', 512)
+    )),
+    'very many complete empty organizer placeholders traverse the real parser without false mismatch or diagnostics'
+);
+$manyMalformed = $interpreter->repository_diagnostics(tec_readiness_tree(
+    null,
+    null,
+    null,
+    str_repeat('<!-- wp:tribe/event-organizer ??? -->', 512)
+));
+duo_check(
+    count($manyMalformed) === 1
+        && strlen((string) ($manyMalformed[0]['message'] ?? '')) < 160,
+    'a hostile flood of malformed exact comments produces one bounded schema diagnostic'
+);
+$hostileParent = 'hostile/' . str_repeat('p', 8192);
+$hostileNestedBody = '<!-- wp:' . $hostileParent . ' -->'
+    . '<!-- wp:tribe/event-organizer {"organizer":0} /-->'
+    . '<!-- /wp:' . $hostileParent . ' -->'
+    . "\xc3\x28";
+$hostileNestedDiagnostics = $interpreter->repository_diagnostics(tec_readiness_tree(
+    null,
+    null,
+    null,
+    $hostileNestedBody
+));
+duo_check(
+    $hostileNestedDiagnostics !== []
+        && !str_contains(json_encode($hostileNestedDiagnostics, JSON_THROW_ON_ERROR), $hostileParent)
+        && strlen((string) ($hostileNestedDiagnostics[0]['locator'] ?? '')) < 128,
+    'nested diagnostics use a fixed locator and never expose a huge authored parent name or invalid UTF-8 body bytes'
+);
 
 $emptyBlockWithMeta = '<!-- wp:tribe/event-organizer /-->';
 tec_readiness_refuses(

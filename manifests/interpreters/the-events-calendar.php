@@ -460,13 +460,7 @@ final class TheEventsCalendar {
      */
     private function organizer_block_diagnostics(array $entity, array $meta, array $posts, string $path): array {
         $body = $this->post_body($entity);
-        $markerCount = preg_match_all(
-            '/<!--\s+wp:tribe\/event-organizer(?=[\s\/])(?:(?!-->).)*-->/s',
-            $body
-        );
-        if ($markerCount === false) {
-            $markerCount = 0;
-        }
+        $markerCount = $this->organizer_block_marker_count($body);
         if ($markerCount === 0) {
             // Classic-editor events own organizer rows without block markup.
             return [];
@@ -521,7 +515,7 @@ final class TheEventsCalendar {
             // their canonical attributes and authoritative repeated rows agree;
             // retaining depth here makes that reviewed limitation explicit.
             $blockLocator = "body.tribe/event-organizer[$i]"
-                . ($record['depth'] > 0 ? ".nested-under-{$record['parent']}" : '');
+                . ($record['depth'] > 0 ? '.nested' : '');
             $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : [];
             if (array_key_exists('organizers', $attrs)) {
                 $shapeClean = false;
@@ -600,6 +594,39 @@ final class TheEventsCalendar {
             );
         }
         return $out;
+    }
+
+    /**
+     * Count complete exact organizer opening comments without a regex resource
+     * failure becoming the indistinguishable classic-editor zero-block case.
+     */
+    private function organizer_block_marker_count(string $body): int {
+        $opening = '<!--';
+        $name = 'wp:tribe/event-organizer';
+        $whitespace = " \t\r\n\f\v";
+        $offset = 0;
+        $count = 0;
+        $length = strlen($body);
+        while ($offset < $length && ($start = strpos($body, $opening, $offset)) !== false) {
+            $end = strpos($body, '-->', $start + strlen($opening));
+            if ($end === false) {
+                break;
+            }
+            $cursor = $start + strlen($opening);
+            if ($cursor < $end && str_contains($whitespace, $body[$cursor])) {
+                $cursor += strspn($body, $whitespace, $cursor, $end - $cursor);
+                if ($cursor + strlen($name) <= $end
+                    && substr_compare($body, $name, $cursor, strlen($name)) === 0) {
+                    $cursor += strlen($name);
+                    if ($cursor < $end
+                        && ($body[$cursor] === '/' || str_contains($whitespace, $body[$cursor]))) {
+                        ++$count;
+                    }
+                }
+            }
+            $offset = $end + 3;
+        }
+        return $count;
     }
 
     private function timezone(mixed $value): ?\DateTimeZone {
