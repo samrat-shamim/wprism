@@ -752,6 +752,22 @@ reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
       }
     }
   ' >/dev/null
+  # `wp site empty` intentionally retains users. Reusing this dedicated pair
+  # after conformance otherwise leaves pmpro_source_member/target_member in
+  # place, so the 3.8.2 native seed short-circuits at wp_create_user() before
+  # exercising its exact artifact. A version boundary owns no prior fixture
+  # principals; delete every non-admin user through WordPress before plugin
+  # teardown so user and plugin cleanup hooks see a coherent live runtime.
+  "$cli" eval '
+    require_once ABSPATH . "wp-admin/includes/user.php";
+    $admin = get_user_by("login", "admin");
+    if (!$admin) { throw new RuntimeException("version-matrix reset could not resolve admin"); }
+    foreach (get_users(["fields" => "ids", "exclude" => [(int) $admin->ID]]) as $user_id) {
+      if (!wp_delete_user((int) $user_id, (int) $admin->ID)) {
+        throw new RuntimeException("version-matrix reset could not delete user " . (int) $user_id);
+      }
+    }
+  ' >/dev/null
   local plugin
   for plugin in advanced-custom-fields classic-editor code-snippets contact-form-7 duplicate-post elementor ninja-forms paid-memberships-pro polylang tinymce-advanced woocommerce wordpress-seo wps-hide-login; do
     "$cli" plugin deactivate "$plugin" >/dev/null 2>&1 || true

@@ -129,6 +129,11 @@ namespace {
 
     $manifestPath = __DIR__ . '/../../../../manifests/paid-memberships-pro.json';
     $manifest = json_decode((string) file_get_contents($manifestPath), true, 512, JSON_THROW_ON_ERROR);
+    $matrix = (string) file_get_contents(__DIR__ . '/../../certify/certify_version_matrix.sh');
+    duo_check(
+        str_contains($matrix, 'wp_delete_user((int) $user_id, (int) $admin->ID)'),
+        'the exact matrix removes retained conformance users before each PMPro boundary'
+    );
     duo_check_same(
         ['min' => '3.8.2', 'max' => '3.8.4'],
         $manifest['version_range'] ?? null,
