@@ -186,6 +186,24 @@ commit_pmpro_source() { # <message>
   git -C "$CONF_REPO2" pull -q origin main
 }
 
+deactivate_pmpro() { # <premise label>
+  local label="$1" out rc=0 diagnostics unexpected
+  out=$(wp_conf2 plugin deactivate paid-memberships-pro 2>&1) || rc=$?
+  [ "$rc" -eq 0 ] || fail "$label failed: $out"
+  grep -q "Plugin 'paid-memberships-pro' deactivated" <<<"$out" \
+    || fail "$label did not report the exact plugin transition: $out"
+
+  # PMPro 3.8.3 asks its bundled Action Scheduler for ARRAY_A records, whose
+  # protected action fields become empty arrays, then reads ['hook'] at the
+  # pinned class-pmpro-action-scheduler.php:518. Characterize and quarantine
+  # that upstream diagnostic so no unrelated warning can hide in lifecycle
+  # evidence; the disposition records scheduled-action cleanup as unsupported.
+  diagnostics=$(grep -E 'PHP (Warning|Notice|Deprecated|Fatal error)|^Warning:' <<<"$out" || true)
+  [ -n "$diagnostics" ] || fail "$label did not exercise the pinned PMPro Action Scheduler defect"
+  unexpected=$(grep -Ev 'Undefined array key "hook" in .*/paid-memberships-pro/classes/class-pmpro-action-scheduler\.php on line 518$' <<<"$diagnostics" || true)
+  [ -z "$unexpected" ] || fail "$label emitted an unreviewed PHP diagnostic: $unexpected"
+}
+
 # The target runtime user was created before canonical levels existed. Enroll
 # it now through PMPro's real API, after the runner's first verified apply, and
 # create a payment row that later authored operations must never copy/delete.
@@ -205,6 +223,7 @@ wp_conf2 eval '
 
 SOURCE=$(observe_pmpro conf1)
 TARGET=$(observe_pmpro conf2)
+require_observed_nonempty "conf2 PMPro runtime observation" "$TARGET"
 SOURCE_IDS=$(cat "$CONF_REPO1/.tmp-pmpro-source.json")
 TARGET_IDS=$(cat "$CONF_REPO2/.tmp-pmpro-target.json")
 
@@ -538,13 +557,16 @@ pass 'competing PMPro applies serialize and leave one exact idempotent native re
 # destructive: tables, PMPro options, and generated pages disappear. Missing
 # code must refuse; exact digest reinstall plus target env reprovisioning and
 # explicit repository authority reconstructs only authored state.
-wp_conf2 plugin deactivate paid-memberships-pro >/dev/null
+deactivate_pmpro 'PMPro ordinary deactivation'
 wp_conf2 plugin is-active paid-memberships-pro >/dev/null 2>&1 && fail 'PMPro deactivation premise did not land'
-REACTIVATE=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+REACTIVATE_RC=0
+REACTIVATE_OUT=$(wp_conf2 duo deploy --repo=/siterepo --format=json 2>&1) || REACTIVATE_RC=$?
+REACTIVATE=$(awk 'NF { line=$0 } END { print line }' <<<"$REACTIVATE_OUT")
 require_duo_answered 'PMPro deploy after deactivation' json "$REACTIVATE"
+[ "$REACTIVATE_RC" -eq 0 ] || fail "PMPro deploy after deactivation failed: $REACTIVATE_OUT"
 wp_conf2 plugin is-active paid-memberships-pro >/dev/null || fail 'Duo deploy did not reactivate exact PMPro code'
 wp_conf2 option update pmpro_uninstall 1 >/dev/null
-wp_conf2 plugin deactivate paid-memberships-pro >/dev/null
+deactivate_pmpro 'PMPro destructive-uninstall deactivation'
 wp_conf2 plugin uninstall paid-memberships-pro >/dev/null
 wp_conf2 plugin is-installed paid-memberships-pro >/dev/null 2>&1 && fail 'PMPro destructive uninstall left plugin code installed'
 [ -z "$(wp_conf2 db query "SHOW TABLES LIKE 'wp_pmpro_membership_levels'" --skip-column-names | tr -d '[:space:]')" ] \
@@ -564,14 +586,20 @@ wp_conf2 plugin install "$PMPRO_ARTIFACT" --force >/dev/null
 $COMPOSE run --rm -T cli2 sh /duo-harness/artifact-archive-root.sh \
   /var/www/html/wp-content/plugins paid-memberships-pro-3.8.3 paid-memberships-pro >/dev/null
 [ "$(wp_conf2 plugin get paid-memberships-pro --field=version)" = 3.8.3 ] || fail 'PMPro exact reinstall reported wrong version'
-REINSTALL_DEPLOY=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+REINSTALL_DEPLOY_RC=0
+REINSTALL_DEPLOY_OUT=$(wp_conf2 duo deploy --repo=/siterepo --format=json 2>&1) || REINSTALL_DEPLOY_RC=$?
+REINSTALL_DEPLOY=$(awk 'NF { line=$0 } END { print line }' <<<"$REINSTALL_DEPLOY_OUT")
 require_duo_answered 'PMPro deploy after exact reinstall' json "$REINSTALL_DEPLOY"
+[ "$REINSTALL_DEPLOY_RC" -eq 0 ] || fail "PMPro deploy after exact reinstall failed: $REINSTALL_DEPLOY_OUT"
 foreach_pair='pmpro_gateway=check pmpro_gateway_environment=sandbox pmpro_stripe_secretkey=sk_test_TARGET_SECRET_b84c pmpro_stripe_publishablekey=pk_test_TARGET_MARKER pmpro_cloudflare_turnstile_secret_key=turnstile_TARGET_SECRET pmpro_license_key=license_TARGET_SECRET pmpro_email_checkout_paid_to=target-recipient@example.test pmpro_use_ssl=0'
 for assignment in $foreach_pair; do
   name=${assignment%%=*}; value=${assignment#*=}; wp_conf2 option update "$name" "$value" >/dev/null
 done
-RECOVERY=$(wp_conf2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+RECOVERY_RC=0
+RECOVERY_OUT=$(wp_conf2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --force-theirs --default-author=admin --format=json 2>&1) || RECOVERY_RC=$?
+RECOVERY=$(awk 'NF { line=$0 } END { print line }' <<<"$RECOVERY_OUT")
 require_duo_answered 'PMPro recovery apply after destructive uninstall' json "$RECOVERY"
+[ "$RECOVERY_RC" -eq 0 ] || fail "PMPro recovery apply after destructive uninstall failed: $RECOVERY_OUT"
 jq -e '.canary == "clean" and .verification.result == "pass" and .applied > 0' <<<"$RECOVERY" >/dev/null \
   || fail "PMPro destructive-uninstall recovery did not converge: $RECOVERY"
 RECOVERED=$(observe_pmpro conf2)
