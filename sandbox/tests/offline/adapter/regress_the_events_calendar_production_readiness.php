@@ -44,6 +44,14 @@ final class TecReadinessCategoryColorController {
         ++$GLOBALS['tec_readiness_cache_busts'];
         $GLOBALS['tec_readiness_options']['tec_events_category_color_css'] =
             $GLOBALS['tec_readiness_generated_css'];
+        $GLOBALS['tec_readiness_dropdown_rows'] = $GLOBALS['tec_readiness_generated_dropdown_rows'];
+    }
+}
+
+final class TecReadinessCategoryColorDropdown {
+    /** @return mixed */
+    public function get_dropdown_categories(): mixed {
+        return $GLOBALS['tec_readiness_dropdown_rows'];
     }
 }
 
@@ -79,8 +87,18 @@ function sanitize_html_class(string $class): string {
     return preg_replace('/[^A-Za-z0-9_-]/', '', $class) ?? '';
 }
 
+function sanitize_title(string $title): string {
+    return strtolower($title);
+}
+
 function tribe(string $class): object {
-    return $GLOBALS['tec_readiness_category_color_controller'];
+    return $class === 'TEC\\Events\\Category_Colors\\Repositories\\Category_Color_Dropdown_Provider'
+        ? $GLOBALS['tec_readiness_category_color_dropdown']
+        : $GLOBALS['tec_readiness_category_color_controller'];
+}
+
+function tribe_get_option(string $name, mixed $default = false): mixed {
+    return $GLOBALS['tec_readiness_tribe_options'][$name] ?? $default;
 }
 
 /** @return array<string,mixed> */
@@ -329,8 +347,23 @@ duo_check_same(
     'native Category Colors CSS is regenerated rather than captured as authored state'
 );
 $rewriteActions = $policy->actions_for(['option:tribe_events_calendar_options']);
-duo_check_same(1, count($rewriteActions), 'changing portable TEC settings selects one bounded rewrite repair');
-duo_check_same('rewrite.flush', $rewriteActions[0]['action'] ?? null, 'TEC uses the closed engine-owned soft rewrite flush');
+duo_check_same(2, count($rewriteActions), 'changing portable TEC settings selects rewrite and dropdown-cache repairs');
+$nativeRewriteActions = array_values(array_filter(
+    $rewriteActions,
+    static fn(array $action): bool => ($action['kind'] ?? null) === 'native'
+));
+$optionColorActions = array_values(array_filter(
+    $rewriteActions,
+    static fn(array $action): bool => ($action['kind'] ?? null) === 'provider'
+));
+duo_check_same(1, count($nativeRewriteActions), 'portable TEC settings select exactly one native rewrite action');
+duo_check_same('rewrite.flush', $nativeRewriteActions[0]['action'] ?? null, 'TEC uses the closed engine-owned soft rewrite flush');
+duo_check_same(1, count($optionColorActions), 'portable TEC settings select exactly one Category Colors cache repair');
+duo_check_same(
+    'the-events-calendar-category-colors',
+    $optionColorActions[0]['provider'] ?? null,
+    'the portable show-hidden setting cannot leave the native dropdown cache stale'
+);
 duo_check_same([], $policy->actions_for(['post:tribe_events']), 'event-only writes do not trigger an unrelated global rewrite flush');
 $colorActions = $policy->actions_for(['term:tribe_events_cat']);
 duo_check_same(1, count($colorActions), 'an event-category write selects one bounded native CSS repair');
@@ -359,7 +392,16 @@ $providerDeclarations = $policy->provider_declarations();
 $colorDeclaration = $providerDeclarations['the-events-calendar-category-colors'] ?? null;
 duo_check_same(
     [
-        'functions' => ['get_option', 'get_term_meta', 'get_terms', 'is_wp_error', 'sanitize_html_class', 'tribe'],
+        'functions' => [
+            'get_option',
+            'get_term_meta',
+            'get_terms',
+            'is_wp_error',
+            'sanitize_html_class',
+            'sanitize_title',
+            'tribe',
+            'tribe_get_option',
+        ],
         'classes' => [
             'TEC\\Events\\Category_Colors\\CSS\\Controller',
             'TEC\\Events\\Category_Colors\\CSS\\Generator',
@@ -381,6 +423,8 @@ $GLOBALS['tec_readiness_term_meta'] = [
         'tec-events-cat-colors-primary' => '#123ABC',
         'tec-events-cat-colors-secondary' => '#fedcba',
         'tec-events-cat-colors-text' => '#ffffff',
+        'tec-events-cat-colors-priority' => '17',
+        'tec-events-cat-colors-hidden' => '0',
     ],
     72 => [],
 ];
@@ -388,8 +432,24 @@ $GLOBALS['tec_readiness_generated_css'] = '.tribe_events_cat-readiness{'
     . '--tec-color-category-primary:#123abc;'
     . '--tec-color-category-secondary:#fedcba;'
     . '--tec-color-category-text:#ffffff}';
+$GLOBALS['tec_readiness_generated_dropdown_rows'] = [[
+    'slug' => 'readiness',
+    'name' => 'Readiness',
+    'priority' => 17,
+    'primary' => '#123ABC',
+    'hidden' => false,
+]];
+$GLOBALS['tec_readiness_dropdown_rows'] = [[
+    'slug' => 'readiness',
+    'name' => 'Readiness',
+    'priority' => 99,
+    'primary' => '#000000',
+    'hidden' => false,
+]];
+$GLOBALS['tec_readiness_tribe_options'] = ['category-color-show-hidden-categories' => false];
 $GLOBALS['tec_readiness_cache_busts'] = 0;
 $GLOBALS['tec_readiness_category_color_controller'] = new TecReadinessCategoryColorController();
+$GLOBALS['tec_readiness_category_color_dropdown'] = new TecReadinessCategoryColorDropdown();
 
 $colorProvider = new TheEventsCalendarCategoryColors($policy);
 duo_check_same(
@@ -404,12 +464,24 @@ duo_check_same(
 $colorCapability = $colorProvider->capabilities()['regenerate_css'] ?? null;
 duo_check_same('site', $colorCapability['scope'] ?? null, 'native CSS regeneration is honestly site-scoped');
 duo_check_same(true, $colorCapability['idempotent'] ?? null, 'native CSS regeneration declares idempotence');
-duo_check_same(30, $colorCapability['timeout_seconds'] ?? null, 'the bounded native CSS query/write path has a tight timeout claim');
+duo_check_same(120, $colorCapability['timeout_seconds'] ?? null, 'the native CSS/category scan has a bounded large-taxonomy timeout claim');
 $firstColorReceipt = $colorProvider->invoke('regenerate_css', []);
 duo_check_same(true, $firstColorReceipt['verified'] ?? null, 'native CSS regeneration returns a verified structured receipt');
 duo_check_same(1, $GLOBALS['tec_readiness_cache_busts'], 'the provider invokes TEC native controller semantics including cache busting');
-duo_check_same(0, $firstColorReceipt['after']['missing_projection_count'] ?? null, 'readback carries every native selector and color value');
+duo_check_same(0, $firstColorReceipt['after']['css_selector_mismatch_count'] ?? null, 'readback rejects missing or orphan native selectors');
+duo_check_same(0, $firstColorReceipt['after']['css_value_mismatch_count'] ?? null, 'readback carries every native selector color value');
+duo_check_same(0, $firstColorReceipt['after']['dropdown_mismatch_count'] ?? null, 'readback proves the native dropdown cache matches live category metadata');
+duo_check_same(
+    $firstColorReceipt['after']['dropdown_expected_sha256'] ?? null,
+    $firstColorReceipt['after']['dropdown_actual_sha256'] ?? null,
+    'the native dropdown projection has an exact digest-level postcondition'
+);
 duo_check_same(1, $firstColorReceipt['after']['colored_category_count'] ?? null, 'the receipt is bounded to counts and digests, not authored payload');
+duo_check(
+    !str_contains(json_encode($firstColorReceipt, JSON_UNESCAPED_SLASHES), 'readiness')
+        && !str_contains(json_encode($firstColorReceipt, JSON_UNESCAPED_SLASHES), '#123'),
+    'the provider receipt contains no authored slug or color payload'
+);
 duo_check(
     ($firstColorReceipt['before']['css_sha256'] ?? null) !== ($firstColorReceipt['after']['css_sha256'] ?? null),
     'a hostile stale generated option visibly converges in the receipt'
@@ -433,6 +505,46 @@ duo_check_throws(
     'recovery_required'
 );
 $GLOBALS['tec_readiness_options']['tec_events_category_color_css'] = $GLOBALS['tec_readiness_generated_css'];
+$GLOBALS['tec_readiness_options']['tec_events_category_color_css'] .=
+    '.tribe_events_cat-orphan{--tec-color-category-primary:#111111}';
+duo_check_throws(
+    static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
+    RuntimeException::class,
+    'reconciliation refuses an orphan generated CSS selector',
+    'selector-set mismatch'
+);
+$GLOBALS['tec_readiness_options']['tec_events_category_color_css'] = $GLOBALS['tec_readiness_generated_css'];
+$GLOBALS['tec_readiness_dropdown_rows'] = [];
+duo_check_throws(
+    static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
+    RuntimeException::class,
+    'reconciliation refuses a missing native dropdown row',
+    'dropdown readback'
+);
+$GLOBALS['tec_readiness_dropdown_rows'] = $GLOBALS['tec_readiness_generated_dropdown_rows'];
+$GLOBALS['tec_readiness_dropdown_rows'][0]['primary'] = '#000000';
+duo_check_throws(
+    static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
+    RuntimeException::class,
+    'reconciliation refuses a stale native dropdown color',
+    'dropdown readback'
+);
+$GLOBALS['tec_readiness_dropdown_rows'] = $GLOBALS['tec_readiness_generated_dropdown_rows'];
+$GLOBALS['tec_readiness_dropdown_rows'][] = [
+    'slug' => 'orphan',
+    'name' => 'Orphan',
+    'priority' => 9,
+    'primary' => '#111111',
+    'hidden' => false,
+];
+duo_check_throws(
+    static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
+    RuntimeException::class,
+    'reconciliation refuses an orphan native dropdown row',
+    'dropdown readback'
+);
+$GLOBALS['tec_readiness_dropdown_rows'] = $GLOBALS['tec_readiness_generated_dropdown_rows'];
+duo_check_same(2, $GLOBALS['tec_readiness_cache_busts'], 'reconciliation probes never replay the native mutation');
 duo_check_throws(
     static fn() => $colorProvider->invoke('invented_capability', []),
     RuntimeException::class,
