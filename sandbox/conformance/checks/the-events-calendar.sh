@@ -272,9 +272,10 @@ if [ "${TEC_BOUNDARY_ONLY:-0}" = 1 ]; then
   return 0 2>/dev/null || exit 0
 fi
 
-# Category metadata lands before the native provider action. Reject the
-# provider's option write after those authored rows move, then prove the one
-# apply transaction restores both layers and a retry repairs CSS + plugin cache.
+# Category metadata commits before required actions (the same recovery boundary
+# core rewrite, Elementor, and Yoast conformance exercise). Reject the provider
+# option write after that commit, then prove the revision stays unapplied and a
+# retry consumes the retained intent while repairing CSS + plugin cache.
 wp_conf1 eval '
   $term=get_term_by("slug","duo-readiness-category","tribe_events_cat");
   if(!$term instanceof WP_Term) throw new RuntimeException("TEC source category disappeared");
@@ -287,7 +288,13 @@ wp_conf1 eval '
   if(!is_string($css)||!str_contains($css,"#654321")) throw new RuntimeException("TEC source CSS update failed");
 ' >/dev/null
 commit_tec_source 'conformance: native TEC Category Colors intent'
-COLOR_FAULT_BEFORE=$(tec_target_hash)
+COLOR_FAULT_BEFORE=$(observe_tec conf2)
+printf '%s\n' "$COLOR_FAULT_BEFORE" | jq -e '
+  .category.meta.primary == "#123abc" and .category.dropdown.primary == "#123abc" and
+  (.category_css | contains("--tec-color-category-primary:#123abc"))
+' >/dev/null || fail "TEC Category Colors failure premise is not at the prior projection: $COLOR_FAULT_BEFORE"
+COLOR_FAULT_REV_BEFORE=$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')
+require_observed_nonempty "TEC applied revision before Category Colors fault" "$COLOR_FAULT_REV_BEFORE"
 wp_conf2 db query 'ALTER TABLE wp_options DROP CONSTRAINT IF EXISTS duo_tec_fail_category_css' >/dev/null
 wp_conf2 db query '
   ALTER TABLE wp_options ADD CONSTRAINT duo_tec_fail_category_css
@@ -300,8 +307,14 @@ require_duo_answered "TEC injected Category Colors provider failure" human "$COL
   && grep -Fq "required manifest action 'provider:the-events-calendar-category-colors/regenerate_css' failed" <<<"$COLOR_FAULT_OUT" \
   && grep -Fq "provider 'the-events-calendar-category-colors' capability 'regenerate_css' failed" <<<"$COLOR_FAULT_OUT" \
   || fail "TEC injected Category Colors option failure did not surface through the provider: $COLOR_FAULT_OUT"
-[ "$(tec_target_hash)" = "$COLOR_FAULT_BEFORE" ] \
-  || fail "TEC failed Category Colors provider action left partial term-meta/CSS writes"
+COLOR_FAULT_AFTER=$(observe_tec conf2)
+COLOR_FAULT_EXPECTED=$(printf '%s\n' "$COLOR_FAULT_BEFORE" | jq -Sc '
+  .category.meta.primary = "#654321" | .category.dropdown.primary = "#654321"
+')
+[ "$(printf '%s\n' "$COLOR_FAULT_AFTER" | jq -Sc .)" = "$COLOR_FAULT_EXPECTED" ] \
+  || fail "TEC failed Category Colors provider action crossed its post-commit intent/CSS boundary: $COLOR_FAULT_AFTER"
+[ "$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')" = "$COLOR_FAULT_REV_BEFORE" ] \
+  || fail "TEC failed Category Colors provider action advanced applied_revision"
 [ "$(wp_conf2 eval 'echo null === \Duo\Ledger::kv_get("apply_in_progress") ? "clear" : "retained";')" = retained ] \
   || fail "TEC failed Category Colors provider action did not retain retry authority"
 wp_conf2 db query 'ALTER TABLE wp_options DROP CONSTRAINT duo_tec_fail_category_css' >/dev/null
@@ -309,13 +322,15 @@ COLOR_RETRY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --forma
 require_duo_answered "TEC Category Colors retry" json "$COLOR_RETRY"
 jq -e '.canary == "clean" and .verification.result == "pass" and .applied >= 1' <<<"$COLOR_RETRY" >/dev/null \
   || fail "TEC Category Colors retry did not converge: $COLOR_RETRY"
+[ "$(wp_conf2 eval 'echo null === \Duo\Ledger::kv_get("apply_in_progress") ? "cleared" : "retained";')" = cleared ] \
+  || fail "TEC successful Category Colors retry retained apply_in_progress"
 COLOR_RECOVERED=$(observe_tec conf2)
 printf '%s\n' "$COLOR_RECOVERED" | jq -e '
   .category.meta.primary == "#654321" and .category.dropdown.primary == "#654321" and
   (.category_css | contains("--tec-color-category-primary:#654321")) and
   (.category_css | contains("--tec-color-category-secondary:#fedcba"))
 ' >/dev/null || fail "TEC Category Colors retry did not repair native CSS/dropdown projections: $COLOR_RECOVERED"
-pass "native Category Colors option failure rolls back authored metadata and retries CSS/cache repair cleanly"
+pass "native Category Colors option failure retains post-commit intent and retries CSS/cache repair cleanly"
 
 # Capture-time schema/secret probes restore exact live bytes and require every
 # refusal to leave the committed repository untouched.
