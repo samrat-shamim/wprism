@@ -245,5 +245,10 @@ duo_check_same(true, $manifest['post_meta']['_messages']['plain_data'], 'message
 duo_check_same('hex-prefix', $manifest['shortcode_attrs']['contact-form-7'][0]['lookup']['codec'], 'modern CF7 shortcode declares its real hash-prefix identity');
 duo_check_same([40, 64], $manifest['shortcode_attrs']['contact-form-7'][0]['lookup']['stored_lengths'], 'modern CF7 shortcode admits exactly the native SHA-1 and SHA-256 storage widths');
 duo_check_same(true, $manifest['shortcode_attrs']['contact-form-7'][0]['required'], 'modern CF7 shortcode refuses mutable title-only fallback');
+$versionMatrix = (string) file_get_contents(__DIR__ . '/../../certify/certify_version_matrix.sh');
+duo_check(
+    str_contains($versionMatrix, "'wps-hide-login-target-runtime-probe',\n      'wpcf7'"),
+    'exact version-matrix resets delete the CF7 activation marker before each source and target case'
+);
 
 duo_check_summary('Contact Form 7 production readiness');

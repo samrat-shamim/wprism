@@ -715,11 +715,13 @@ reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
     "$cli" plugin deactivate "$plugin" >/dev/null 2>&1 || true
     "$cli" plugin delete "$plugin" >/dev/null 2>&1 || true
   done
-# The editor and hidden-login adapters are option-only. Classic Editor's exact WP-CLI
+  # The editor and hidden-login adapters are option-only. Classic Editor's exact WP-CLI
   # activation/uninstall lifecycle retains its settings, while Advanced
   # Editor Tools can retain legacy rows when code is removed without its
   # uninstall hook. Clear the complete reviewed ownership sets so a later
   # exact boundary cannot inherit another case's authored or migration state.
+  # CF7 creates its initial form only when `wpcf7` is absent; retaining that
+  # option after `site empty` makes repeated source/target runs asymmetrical.
   "$cli" db query "
     DELETE FROM wp_options WHERE option_name IN (
       'classic-editor-allow-users', 'classic-editor-replace',
@@ -727,7 +729,8 @@ reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
       'tadv_btns3', 'tadv_btns4', 'tadv_options', 'tadv_plugins',
       'tadv_settings', 'tadv_toolbars', 'tadv_version',
       'whl_page', 'whl_redirect', 'whl_redirect_admin',
-      'wps-hide-login-target-rewrite-hash', 'wps-hide-login-target-runtime-probe'
+      'wps-hide-login-target-rewrite-hash', 'wps-hide-login-target-runtime-probe',
+      'wpcf7'
     );
   " >/dev/null
   # Yoast Duplicate Post retains its settings, original-link meta, and role
