@@ -14,7 +14,9 @@
  * silently reaching back into Apply or carrying a second copy. Full
  * behavioral coverage (plain/tokenized/managed/sub_keys option reconciliation)
  * already exists in regress_lifecycle_options_snapshot.php and every live
- * conformance manifest sweep, unchanged by this extraction.
+ * conformance manifest sweep. The narrow CSV-ref assertion below is the one
+ * exception: it exercises the public write path because PMPro exposed a wire-
+ * shape regression inside this collaborator's private value dispatch.
  */
 declare(strict_types=1);
 
@@ -48,7 +50,7 @@ use Duo\OptionsMaterializer;
 use Duo\Policy;
 use Duo\Tokens;
 
-final class OptionsMaterializerAcfFakeWpdb {
+final class OptionsMaterializerFakeWpdb {
     public string $prefix = 'wp_';
     public string $options = 'wp_options';
     public string $last_error = '';
@@ -183,7 +185,7 @@ $acfFullDocument = \Duo\OptionState::document([
 $acfSelectedDocument = \Duo\OptionState::document([
     'options_scoped_tagline' => \Duo\OptionState::present('Scoped ACF tagline', 'yes'),
 ]);
-$GLOBALS['wpdb'] = new OptionsMaterializerAcfFakeWpdb();
+$GLOBALS['wpdb'] = new OptionsMaterializerFakeWpdb();
 $acfWarnings = [];
 $missingCompanionRefused = false;
 try {
@@ -223,7 +225,7 @@ $csvMaterializer = new OptionsMaterializer(
     $csvTokens,
     new ApplyFieldMaterializer($csvPolicy, $csvTokens)
 );
-$csvDb = new OptionsMaterializerAcfFakeWpdb();
+$csvDb = new OptionsMaterializerFakeWpdb();
 $csvDb->localIds = [
     $firstLevelUuid . ':pmpro_level' => 701,
     $secondLevelUuid . ':pmpro_level' => 902,

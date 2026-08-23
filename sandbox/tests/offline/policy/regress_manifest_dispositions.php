@@ -113,9 +113,8 @@ check(
     'every shipped manifest has a closed reviewed disposition'
 );
 check(
-    ($data['manifests']['paid-memberships-pro']['status'] ?? null) === 'certified'
-        && ($data['manifests']['the-events-calendar']['status'] ?? null) === 'experimental',
-    'PMPro is certified while The Events Calendar remains explicitly experimental'
+    ($data['manifests']['paid-memberships-pro']['status'] ?? null) === 'certified',
+    'PMPro is explicitly certified after its isolated readiness closure'
 );
 $tecManifest = $manifestsByName['the-events-calendar'];
 $tecDisposition = $data['manifests']['the-events-calendar'];
@@ -200,12 +199,10 @@ function subject_test_is_discoverable(string $repo, string $test, string $name):
     // That whole directory went with the certification-evidence apparatus, so
     // the fallback could only ever return false — it read as a real lookup
     // while being an unconditional refusal, which is the trap this deletes.
-    // The two arms above answer every id the certified set cites today: 15
-    // `conformance-*` ids (fourteen manifests plus the FSE profile), 13 exact-
-    // version ids, and core's `multisite-refusal`. A new KIND of id is
-    // undiscoverable until this function learns where that kind lives, and
-    // the callers below say so by name rather than the suite quietly passing
-    // on a path nobody maintains.
+    // The two arms above answer every evidence kind the certified set cites
+    // today. A new KIND of id is undiscoverable until this function learns
+    // where that kind lives, and the callers below say so by name rather than
+    // the suite quietly passing on a path nobody maintains.
     return false;
 }
 foreach ($data['manifests'] as $name => $entry) {
@@ -310,13 +307,6 @@ $pmproPolicy = Policy::load(null, ['paid-memberships-pro']);
 $pmproBlockers = $pmproPolicy->adapter_readiness_blockers();
 check($pmproBlockers === [], 'the certified PMPro pin contributes no readiness blocker');
 check($pmproPolicy->capability_report()['ready'] === true, 'certified PMPro capability output reports ready');
-$tecPolicy = Policy::load(null, ['the-events-calendar']);
-$tecBlockers = $tecPolicy->adapter_readiness_blockers();
-check(
-    ($tecBlockers[0]['name'] ?? null) === 'the-events-calendar'
-        && ($tecBlockers[0]['code'] ?? null) === 'authored_state_not_certified',
-    'the remaining experimental pin is a structured readiness blocker'
-);
 
 echo "\n== typed table identities, closed keyspaces, and parent-delete limits are explicit ==\n";
 $pmproUnsupported = array_fill_keys(array_column($data['manifests']['paid-memberships-pro']['unsupported'], 'surface'), true);
@@ -361,8 +351,23 @@ copy($manifestDir . '/capabilities/platform.json', $fixture . '/capabilities/pla
 $coreRegistry = $data;
 $coreRegistry['manifests'] = ['core' => $data['manifests']['core']];
 $coreRegistry['profiles'] = [];
-Canon::write_file($fixture . '/dispositions.json', Canon::encode($coreRegistry));
+$experimentalRegistry = $coreRegistry;
+$experimentalRegistry['manifests']['core']['status'] = 'experimental';
+$experimentalRegistry['manifests']['core']['reason'] = 'Synthetic experimental disposition for blocker-path evidence.';
+Canon::write_file($fixture . '/dispositions.json', Canon::encode($experimentalRegistry));
 putenv("DUO_MANIFESTS_DIR=$fixture");
+$experimentalPolicy = Policy::load(null, ['core']);
+$experimentalBlockers = $experimentalPolicy->adapter_readiness_blockers();
+check(
+    ($experimentalBlockers[0]['name'] ?? null) === 'core'
+        && ($experimentalBlockers[0]['code'] ?? null) === 'authored_state_not_certified',
+    'a synthetic experimental disposition is a structured readiness blocker'
+);
+check(
+    $experimentalPolicy->capability_report()['ready'] === false,
+    'synthetic experimental capability output can never report ready'
+);
+Canon::write_file($fixture . '/dispositions.json', Canon::encode($coreRegistry));
 $before = RepositoryCompiler::resolved_adapters(Policy::load(null, ['core']))[0]['digest'];
 $beforeSha = ManifestDispositions::load($fixture)->sha256();
 // One document to edit now. The former version of this check had to rewrite
@@ -408,7 +413,7 @@ check(
     'CLI capability output addresses the exact checked-in reviewed bytes, under the report wire version that '
     . 'announces it carries no generated digest, subject record, or bound evidence status'
 );
-$summary = PlanSummary::render(['adapter_dispositions' => $tecBlockers]);
+$summary = PlanSummary::render(['adapter_dispositions' => $experimentalBlockers]);
 check($summary['ok'] === false && str_contains(implode("\n", $summary['lines']), 'ADAPTER_DISPOSITIONS'), 'host status is non-green and explains the experimental adapter');
 // DUO-3485: the host's section label and the agent's own plan warning report
 // the same $plan['adapter_dispositions'] rows, so they must name the same
@@ -421,8 +426,10 @@ check(
     && !str_contains($agentCliSource, 'capability registry blocker'),
     "the agent's plan warning over those same rows names adapter dispositions too, never the deleted capability registry"
 );
-$hostBlockers = CodeDeploy::dispositionBlockers(['resolved_adapters' => RepositoryCompiler::resolved_adapters($tecPolicy)]);
-check(($hostBlockers[0]['name'] ?? null) === 'the-events-calendar', 'host promotion gate refuses the same experimental disposition');
+$hostBlockers = CodeDeploy::dispositionBlockers([
+    'resolved_adapters' => RepositoryCompiler::resolved_adapters($experimentalPolicy),
+]);
+check(($hostBlockers[0]['name'] ?? null) === 'core', 'host promotion gate refuses the same synthetic experimental disposition');
 
 // DUO-3372: blockers()/report() are unreachable on the live path (load()'s
 // one-for-one coverage check refuses an uncovered manifest first), so they are

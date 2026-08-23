@@ -297,7 +297,7 @@ jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] |
   || fail "PMPro initial apply is not idempotent: $ZERO_PLAN"
 
 if [ "${PMPRO_BOUNDARY_ONLY:-0}" = 1 ]; then
-  pass "PMPro $PMPRO_EXPECTED_VERSION boundary fixture passes native APIs, frontend, identities, provider receipt, sovereignty, and idempotence"
+  pass "PMPro $PMPRO_EXPECTED_VERSION boundary fixture passes native APIs, identities, provider receipt, sovereignty, and idempotence"
   return 0 2>/dev/null || exit 0
 fi
 
