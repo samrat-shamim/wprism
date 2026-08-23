@@ -137,6 +137,11 @@ $attachmentExists = [];
 foreach ($attachmentIds as $id) {
     $attachmentExists[(string) $id] = get_post($id) instanceof WP_Post;
 }
+$checklist = get_option('elementor_checklist', null);
+if (is_string($checklist)) {
+    $decodedChecklist = json_decode($checklist, true);
+    $checklist = is_array($decodedChecklist) ? $decodedChecklist : $checklist;
+}
 
 echo wp_json_encode([
     'atomic' => [
@@ -180,7 +185,7 @@ echo wp_json_encode([
     'media_exist' => $attachmentExists,
     'runtime' => [
         'atomic_cache' => get_option('elementor_atomic_cache_validity__global', null),
-        'checklist' => get_option('elementor_checklist', null),
+        'checklist' => $checklist,
         'connect_key' => get_option('elementor_connect_site_key', null),
         'experiment' => get_option('elementor_experiment-e_atomic_elements', null),
         'neighbor' => get_option('elementor_target_undeclared_neighbor', null),

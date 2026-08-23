@@ -139,7 +139,7 @@ $kit->update_settings([
 update_post_meta($classic, '_elementor_element_cache', '<div>stale rendered target secret</div>');
 update_post_meta($classic, '_elementor_page_assets', ['stale-target-asset']);
 update_option('elementor_connect_site_key', 'target-connect-site-key-preserved');
-update_option('elementor_checklist', ['completed' => ['target-runtime-marker']]);
+update_option('elementor_checklist', wp_json_encode(['completed' => ['target-runtime-marker']]));
 update_option('elementor_atomic_cache_validity__global', 'target-atomic-cache-marker');
 update_option('elementor_experiment-e_atomic_elements', 'target-experiment-marker');
 update_option('elementor_target_undeclared_neighbor', 'target-neighbor-preserved');
