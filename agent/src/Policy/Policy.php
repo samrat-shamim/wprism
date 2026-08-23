@@ -25,6 +25,11 @@ require_once __DIR__ . '/PlatformCompatibility.php';
 // same "loads alone" reason as its neighbors: the offline policy harnesses
 // include this file directly, never agent/duo.php's bootstrap.
 require_once __DIR__ . '/../Kernel/SiteTopology.php';
+// The typed refusal the missing-site.duo.json gates below throw. SiteTopology
+// loads it too, but the direct-require contract
+// (sandbox/tests/offline/guards/regress_agent_src_requires.php) is that every
+// engine class a file NAMES is loaded by that file, not by a neighbour.
+require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 // DUO-3348 slice 5: manifest-pin normalization/validation, required here for
 // the same "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/PinResolver.php';
@@ -325,6 +330,37 @@ final class Policy {
         ];
     }
 
+    /**
+     * "This directory is not a duo repository" is the first thing an
+     * orchestrator meets on a mistyped --repo, and it was a bare
+     * \RuntimeException: `Cli::halt_json_failure()` classified it through its
+     * catch-all (agent/src/Command/Cli.php:83-98), so `--format=json` returned
+     * `plan_failed` / `capture_failed` / … plus `details_redacted: true` and
+     * the caller could not distinguish a wrong path from a real repository
+     * defect. It is one FACT reached from three places (load(), and set_rule()'s
+     * two write gates), so it is one code minted in one place rather than three
+     * hand-copied constructions that could drift.
+     *
+     * The public half MUST NOT carry $siteFile. The path is absolute, and on any
+     * developer or shared-host layout it matches
+     * `CommandRefusalException::containsSensitivePublicDetail()`'s ~/(?:Users|home)/~
+     * screen (agent/src/Kernel/CommandRefusal.php:199) — which would redact the
+     * WHOLE payload, replacing the reason code's guidance with the generic
+     * "structured refusal details were redacted" (:44-48). The path stays in the
+     * operator sentence, which `parent::__construct` (CommandRefusal.php:52)
+     * keeps byte-identical to what `WP_CLI::error($t->getMessage())` has always
+     * printed.
+     */
+    private static function repository_missing(string $siteFile): CommandRefusalException {
+        return new CommandRefusalException(
+            'repository_missing',
+            'the given repository path is not a duo site repository: it has no site.duo.json',
+            'point --repo at an initialized duo site repository, or run duo init against that directory first',
+            [],
+            "duo: $siteFile not found (not a duo site repo?)"
+        );
+    }
+
     public static function load(
         ?string $repo,
         ?array $manifestNames = null,
@@ -339,7 +375,7 @@ final class Policy {
         if ($repo !== null) {
             $siteFile = rtrim($repo, '/') . '/site.duo.json';
             if (!is_file($siteFile)) {
-                throw new \RuntimeException("duo: $siteFile not found (not a duo site repo?)");
+                throw self::repository_missing($siteFile);
             }
             $p->site = Canon::decode(Canon::read_file($siteFile));
             SitePolicyValidator::validate(
@@ -2865,7 +2901,7 @@ final class Policy {
             }
             $siteFile = rtrim($repo, '/') . '/site.duo.json';
             if (!is_file($siteFile)) {
-                throw new \RuntimeException("duo: $siteFile not found (not a duo site repo?)");
+                throw self::repository_missing($siteFile);
             }
             $site = Canon::decode(Canon::read_file($siteFile));
             $site['policy']['scope'][$m[1]][$m[2]] = $rule;
@@ -2910,7 +2946,7 @@ final class Policy {
 
         $siteFile = rtrim($repo, '/') . '/site.duo.json';
         if (!is_file($siteFile)) {
-            throw new \RuntimeException("duo: $siteFile not found (not a duo site repo?)");
+            throw self::repository_missing($siteFile);
         }
         $site = Canon::decode(Canon::read_file($siteFile));
         if ($section === 'options') {
