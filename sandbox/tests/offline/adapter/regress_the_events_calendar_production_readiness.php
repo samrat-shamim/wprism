@@ -505,6 +505,36 @@ duo_check_throws(
     'recovery_required'
 );
 $GLOBALS['tec_readiness_options']['tec_events_category_color_css'] = $GLOBALS['tec_readiness_generated_css'];
+$GLOBALS['tec_readiness_term_meta'][71]['tec-events-cat-colors-secondary'] = '';
+duo_check_throws(
+    static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
+    RuntimeException::class,
+    'reconciliation refuses a stale recognized property removed from live category metadata',
+    'value mismatch'
+);
+$GLOBALS['tec_readiness_term_meta'][71]['tec-events-cat-colors-secondary'] = '#fedcba';
+$GLOBALS['tec_readiness_options']['tec_events_category_color_css'] = str_replace(
+    '--tec-color-category-secondary:',
+    '--tec-color-category-primary:#123abc;--tec-color-category-secondary:',
+    $GLOBALS['tec_readiness_generated_css']
+);
+duo_check_throws(
+    static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
+    RuntimeException::class,
+    'reconciliation refuses a duplicate recognized property even when both values are current',
+    'value mismatch'
+);
+$GLOBALS['tec_readiness_options']['tec_events_category_color_css'] = str_replace(
+    '}',
+    ';background-color:transparent}',
+    $GLOBALS['tec_readiness_generated_css']
+);
+duo_check_same(
+    true,
+    $colorProvider->reconcile_scoped('regenerate_css', [], $operation)['verified'] ?? null,
+    'reconciliation preserves unrelated CSS declarations outside TEC category color properties'
+);
+$GLOBALS['tec_readiness_options']['tec_events_category_color_css'] = $GLOBALS['tec_readiness_generated_css'];
 $GLOBALS['tec_readiness_options']['tec_events_category_color_css'] .=
     '.tribe_events_cat-orphan{--tec-color-category-primary:#111111}';
 duo_check_throws(

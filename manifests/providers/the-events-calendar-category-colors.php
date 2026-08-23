@@ -252,8 +252,25 @@ final class TheEventsCalendarCategoryColors {
             if ($matched !== 1) {
                 continue;
             }
-            foreach ($properties as $property => $hex) {
-                if (!str_contains($block[1], strtolower($property . ':' . $hex))) {
+            preg_match_all(
+                '/(?:^|;)\s*(--tec-color-category-(?:primary|secondary|text))\s*:\s*([^;}]*)(?=;|$)/',
+                $block[1],
+                $propertyMatches,
+                PREG_SET_ORDER
+            );
+            $actualProperties = [];
+            foreach ($propertyMatches as $propertyMatch) {
+                $property = $propertyMatch[1];
+                if (array_key_exists($property, $actualProperties)) {
+                    ++$valueMismatchCount;
+                    continue;
+                }
+                $actualProperties[$property] = trim($propertyMatch[2]);
+            }
+            $valueMismatchCount += count(array_diff_key($properties, $actualProperties));
+            $valueMismatchCount += count(array_diff_key($actualProperties, $properties));
+            foreach (array_intersect_key($properties, $actualProperties) as $property => $hex) {
+                if ($actualProperties[$property] !== strtolower($hex)) {
                     ++$valueMismatchCount;
                 }
             }
