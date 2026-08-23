@@ -129,7 +129,11 @@ echo wp_json_encode([
 PHPEOF
   out=$($COMPOSE run --rm -T "$service" wp eval-file /siterepo/.tmp-yoast-observe.php)
   rm -f "$file"
-  require_observed_nonempty "$side Yoast native observation" "$out"
+  if [ "$side" = "conf2" ]; then
+    require_observed_nonempty "conf2 Yoast runtime observation" "$out"
+  else
+    require_observed_nonempty "conf1 Yoast native observation" "$out"
+  fi
   printf '%s\n' "$out" | awk 'NF { line=$0 } END { print line }'
 }
 
@@ -223,7 +227,7 @@ $COMPOSE run --rm -T cli2 wp eval '
   update_post_meta($post->ID,"_yoast_wpseo_redirect",home_url("/conformance-yoast-child/?from=seo"));
 ' >/dev/null
 [ "$FRONT_RC" -eq 0 ] || fail 'conf2 conformance-yoast-post did not return 200 with its redirect temporarily isolated'
-require_observed_nonempty 'conf2 Yoast rendered response' "$FRONT"
+require_observed_nonempty "conf2 Yoast rendered response" "$FRONT"
 [ "${#FRONT}" -ge 1000 ] || fail "conf2 Yoast response was suspiciously short (${#FRONT} bytes)"
 grep -qiE 'fatal error|uncaught' <<<"$FRONT" && fail 'conf2 Yoast response contains a fatal marker'
 grep -Fq 'Conformance Yoast Post 東京 🚀' <<<"$FRONT" || fail 'rendered title did not consume authored Yoast title'

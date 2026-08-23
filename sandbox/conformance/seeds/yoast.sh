@@ -154,7 +154,7 @@ jq -e --argjson about "$ABOUT_ID" --argjson contact "$CONTACT_ID" --argjson prim
 
 YOAST_FRONT=$(curl -fsSL "http://localhost:${CONF1_PORT:-8806}/conformance-yoast-post/") \
   || fail 'conf1 front-end render of the seeded Yoast post failed'
-require_observed_nonempty 'conf1 Yoast seed rendered response' "$YOAST_FRONT"
+require_observed_nonempty "conf1 Yoast seed rendered response" "$YOAST_FRONT"
 [ "${#YOAST_FRONT}" -ge 1000 ] || fail "conf1 seeded Yoast response was suspiciously short (${#YOAST_FRONT} bytes)"
 grep -qiE 'fatal error|uncaught' <<<"$YOAST_FRONT" && fail 'conf1 seeded Yoast response contains a fatal marker'
 
