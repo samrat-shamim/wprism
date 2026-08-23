@@ -1988,7 +1988,7 @@ EOF
   wp2 duo deploy --repo=/siterepo
   postdeploy_yoast_content
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
   grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at wordpress-seo $YOAST_VERSION"
   pass "deploy + apply succeeded on side 2 (wordpress-seo $YOAST_VERSION, canary clean)"
 
@@ -2022,7 +2022,7 @@ EOF
       || fail 'Yoast target in-place upgrade did not install exact 28.3'
     wp2 duo deploy --repo=/siterepo
     REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-    wp2 duo apply --repo=/siterepo --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+    wp2 duo apply --repo=/siterepo --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
     grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
       || fail 'apply canary not clean after wordpress-seo 28.0 to 28.3 in-place upgrade'
     SAVED_YOAST_VERSION="$YOAST_VERSION"
