@@ -1,0 +1,11 @@
+{
+  "entry": {
+    "pin": ["core", "wps-hide-login"],
+    "plugins": [
+      {"slug": "wps-hide-login", "version": "1.9.19"}
+    ],
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "manifest": "wps-hide-login"
+}

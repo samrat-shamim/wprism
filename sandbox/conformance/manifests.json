@@ -91,6 +91,12 @@
     "setup": "hpos",
     "taxonomies": ["category", "post_tag", "product_cat", "product_type"]
   },
+  "wps-hide-login": {
+    "pin": ["core", "wps-hide-login"],
+    "plugins": [{"slug": "wps-hide-login", "version": "1.9.19"}],
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  },
   "yoast": {
     "pin": ["core", "yoast"],
     "plugins": [{"slug": "wordpress-seo", "version": "28.2"}],

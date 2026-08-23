@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * Offline product-path contract for the five exact-artifact adapters added by
  * the 2026-08-22 ecosystem probe, including the independently certified
- * Advanced Editor Tools and Classic Editor subjects. The assertions load the shipped
+ * Advanced Editor Tools, Classic Editor, and WPS Hide Login subjects. The assertions load the shipped
  * manifests and disposition registry through Policy::load(); fixtures would
  * miss the byte set that managed sites actually pin.
  *
@@ -50,6 +50,7 @@ $conformanceEntry = Canon::decode(Canon::read_file($root . '/sandbox/conformance
 $standaloneEntries = [
     'advanced-editor-tools' => Canon::decode(Canon::read_file($root . '/sandbox/conformance/entries/advanced-editor-tools.json')),
     'classic-editor' => Canon::decode(Canon::read_file($root . '/sandbox/conformance/entries/classic-editor.json')),
+    'wps-hide-login' => Canon::decode(Canon::read_file($root . '/sandbox/conformance/entries/wps-hide-login.json')),
 ];
 $artifactLock = Canon::decode(Canon::read_file($root . '/sandbox/conformance/artifacts.lock.json'));
 
@@ -88,7 +89,7 @@ $artifacts = [
 ];
 
 $effectiveRanges = $policy->version_ranges();
-$certified = ['advanced-editor-tools', 'classic-editor'];
+$certified = ['advanced-editor-tools', 'classic-editor', 'wps-hide-login'];
 foreach ($artifacts as $name => $artifact) {
     $manifest = $manifests[$name];
     duo_check_same($artifact['plugin'], $manifest['plugin'] ?? null, "$name pins the observed plugin basename");
@@ -176,6 +177,10 @@ $refusalArtifacts = [
     'classic-editor' => [
         'version' => '1.6.7',
         'sha256' => '4b2b45b19c61f627ff8730222692a691023dea3435b35b8db95a2418b45ece65',
+    ],
+    'wps-hide-login' => [
+        'version' => '1.9.18',
+        'sha256' => 'c150d7d5892e96d272f7768913ecd79d645c074aabe9092c0ef892224c392a15',
     ],
 ];
 foreach ($refusalArtifacts as $slug => $artifact) {
@@ -342,7 +347,7 @@ $blockerNames = array_values(array_unique(array_column($policy->certification_re
 sort($blockerNames, SORT_STRING);
 $sortedNames = array_values(array_diff($names, $certified));
 sort($sortedNames, SORT_STRING);
-duo_check_same($sortedNames, $blockerNames, 'only the three still-experimental adapters block promotion through the capability registry');
+duo_check_same($sortedNames, $blockerNames, 'only the two still-experimental adapters block promotion through the capability registry');
 
 $limitations = (string) file_get_contents($root . '/docs/guides/adapter-authoring-limitations.md');
 foreach ([

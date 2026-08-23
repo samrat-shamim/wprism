@@ -271,25 +271,24 @@
       "not_applicable": {}
     },
     "wps-hide-login": {
-      "readiness": "unready",
-      "covered": {},
-      "gaps": {
-        "contract-dependency": "One exact exercise artifact exists, but no supported-boundary plus out-of-range refusal matrix exists.",
-        "clean-target": "The shared profile stops before deploy/apply.",
-        "dirty-target": "No conflicting route slugs, stale rewrite state, or target-only runtime route matrix exists.",
-        "native-behavior": "Only source login URL generation is checked; target HTTP login/old-login/admin redirect behavior is untested.",
-        "deletion": "The no-entity boundary is documented but not exercised as a no-partial-mutation refusal.",
-        "failure-recovery": "No rewrite repair failure-after-intent and retry exercise exists.",
-        "concurrency-idempotence": "No competing route apply/rewrite repair exercise exists.",
-        "lifecycle": "Activation, upgrade, downgrade refusal, deactivate/reactivate, uninstall residue, and reinstall are untested.",
-        "data-boundary": "Empty, reserved, encoded, UTF-8, very long, and collision-prone slugs are untested on the target.",
-        "scope-platform": "Single-site is declared; multisite and web-server/permalink variants are not adapter-owned evidence."
+      "readiness": "ready",
+      "covered": {
+        "contract-dependency": ["manifests/wps-hide-login.json", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "clean-target": ["sandbox/conformance/entries/wps-hide-login.json", "sandbox/conformance/seeds/wps-hide-login.sh", "sandbox/conformance/checks/wps-hide-login.sh"],
+        "dirty-target": ["sandbox/conformance/postdeploy/wps-hide-login.sh", "sandbox/conformance/checks/wps-hide-login.sh"],
+        "native-behavior": ["sandbox/conformance/seeds/wps-hide-login.sh", "sandbox/conformance/checks/wps-hide-login.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "deletion": ["sandbox/conformance/checks/wps-hide-login.sh", "sandbox/tests/offline/apply/regress_delete_authorization_receipt.php"],
+        "failure-recovery": ["sandbox/conformance/checks/wps-hide-login.sh", "sandbox/tests/offline/apply/regress_fatal_mutations.php", "sandbox/tests/offline/apply/regress_options_materializer.php"],
+        "concurrency-idempotence": ["sandbox/conformance/checks/wps-hide-login.sh", "sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php"],
+        "lifecycle": ["sandbox/conformance/checks/wps-hide-login.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "data-boundary": ["sandbox/conformance/seeds/wps-hide-login.sh", "sandbox/conformance/checks/wps-hide-login.sh"],
+        "scope-platform": ["sandbox/conformance/checks/wps-hide-login.sh", "sandbox/tests/live/regress_multisite_refusal.sh"]
       },
-      "blocked": {
-        "derived-state": "The plugin save path flushes rewrites; no bounded provider and request-level verified postcondition exists."
-      },
+      "gaps": {},
+      "blocked": {},
       "not_applicable": {
-        "identity-references": "Route slugs are stable names rather than local database identities."
+        "identity-references": "Route slugs are stable names rather than local database identities.",
+        "derived-state": "Exact 1.9.19 registers no rewrite rule or route projection; it reads the two options on every request, and the stale-rewrite HTTP matrix proves raw option apply needs no repair provider."
       }
     },
     "yoast": {

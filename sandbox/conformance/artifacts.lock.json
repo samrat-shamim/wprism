@@ -187,10 +187,15 @@
       }
     },
     "wps-hide-login": {
+      "1.9.18": {
+        "url": "https://downloads.wordpress.org/plugin/wps-hide-login.1.9.18.zip",
+        "sha256": "c150d7d5892e96d272f7768913ecd79d645c074aabe9092c0ef892224c392a15",
+        "role": "refusal-fixture"
+      },
       "1.9.19": {
         "url": "https://downloads.wordpress.org/plugin/wps-hide-login.1.9.19.zip",
         "sha256": "34e99ee6032f5863b278aef690ebbfdb00290beb4eacbdae3ab931eb719b3a58",
-        "role": "exercise-fixture"
+        "role": "certified-boundary"
       }
     }
   },

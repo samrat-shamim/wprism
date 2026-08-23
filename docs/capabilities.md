@@ -44,7 +44,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 | [polylang](#polylang) | certified | `polylang/polylang.php` | >=3.5 <4.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [the-events-calendar](#the-events-calendar) | experimental | `the-events-calendar/the-events-calendar.php` | >=6.17.2 <6.17.3 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [woocommerce](#woocommerce) | certified | `woocommerce/woocommerce.php` | >=11.0.0 <12.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
-| [wps-hide-login](#wps-hide-login) | experimental | `wps-hide-login/wps-hide-login.php` | >=1.9.19 <1.9.20 | capture, compile, plan, recapture |
+| [wps-hide-login](#wps-hide-login) | certified | `wps-hide-login/wps-hide-login.php` | >=1.9.19 <1.9.20 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [yoast](#yoast) | certified | `wordpress-seo/wp-seo.php` | >=28.0 <29.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [yoast-duplicate-post](#yoast-duplicate-post) | experimental | `duplicate-post/duplicate-post.php` | >=4.7 <4.8 | capture, compile, plan, recapture |
 
@@ -317,22 +317,21 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 
 ## wps-hide-login
 
-**Status: experimental.** Experimental exact-artifact draft: both single-site route slugs are classified, but the plugin's settings path flushes rewrites and no clean-target routing matrix has established the raw-apply postcondition.
+**Status: certified.** Certified for exact WPS Hide Login 1.9.19 on single-site WordPress with option-driven GET/POST/authenticated routing, direct and encoded old-login refusal, stale rewrite independence, pretty/plain permalinks, hostile target convergence, option deletion, lifecycle recovery, conflict/idempotence, and official 1.9.18 refusal evidence.
 
 - **Plugin:** `wps-hide-login/wps-hide-login.php`
 - **Version range:** >=1.9.19 <1.9.20
-- **Operations:** capture, compile, plan, recapture
-- **Lifecycle phases:** none declared
+- **Operations:** apply, capture, compile, deploy, plan, promote, recapture, render-api
+- **Lifecycle phases:** retire, activate, verify
 - **Declared entities:** none
 - **Declared fields:** `options` (3: whl_page, whl_redirect, whl_redirect_admin)
 - **Deletions supported:** none
-- **Deletions unsupported:** plugin-specific deletes
-- **Exercised by:** `conformance-ecosystem-adapter-batch`
+- **Deletions unsupported:** plugin-specific entity deletes
+- **Exercised by:** `conformance-wps-hide-login`, `exact-artifact-version-matrix`
 
 **Unsupported, explicitly.**
 
-- `options.whl_page|whl_redirect_admin` / `apply` — The plugin's own save path flushes rewrite rules; Duo has no verified adapter provider proving and restoring the request-routing postcondition after a raw option write.
-- `production` / `promote` — No exact-artifact clean-target login, old-login refusal, and redirect routing matrix exists.
+- `deletions.*` / `delete` — The adapter owns option state only; no WPS Hide Login entity deletion selector exists beyond generic authored-option deletion through apply --with-deletes.
 - `multisite` / `all` — Duo v1 refuses multisite, so network-default route slugs are outside this adapter.
 
 ## yoast
