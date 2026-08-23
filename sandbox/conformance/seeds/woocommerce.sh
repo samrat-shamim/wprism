@@ -114,9 +114,13 @@ wp_conf1 eval "
 \$download->set_id(md5('duo-woocommerce-portable-download'));
 \$download->set_name('Portable catalog 日本語 🚀.png');
 \$download->set_file(wp_get_attachment_url($THUMB_ID) . '?download=1&label=' . rawurlencode('東京 🚀'));
+\$admin = get_user_by('login', 'admin');
+wp_set_current_user(\$admin ? (int) \$admin->ID : 0);
+add_filter('woocommerce_downloadable_file_exists', '__return_true');
 \$product->set_attributes([\$attribute]);
 \$product->set_downloadable(true);
 \$product->set_downloads([\$download]);
+remove_filter('woocommerce_downloadable_file_exists', '__return_true');
 \$product->set_purchase_note(str_repeat('Portable purchase note 東京 🚀 |%| {{literal}} — ', 128));
 \$product->set_description(str_repeat('Long catalog body مرحبا こんにちは 🚀. ', 512));
 \$product->set_category_ids([$CAT_ID]);
