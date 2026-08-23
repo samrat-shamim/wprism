@@ -387,7 +387,11 @@ target_sh '
 # site has" on an installed-but-inactive probe, measured 2026-08-24), so it is
 # activated before the proposal is built.
 target_wp plugin activate duo-promotion-probe >/dev/null || fail "could not activate the promotion probe before init"
-run_controller "init" init local --yes --first-party=plugins/duo-promotion-probe
+# --allow-unmanaged-plugins: the probe has no adapter, so init otherwise blocks on
+# active_plugin_without_adapter before evaluating --first-party (init readiness
+# is all-or-nothing; the flag leaves the probe unmanaged, which is exactly what
+# a regression-only plugin is).
+run_controller "init" init local --yes --allow-unmanaged-plugins --first-party=plugins/duo-promotion-probe
 [ "$CODE" -eq 0 ] || fail "init failed after local adoption"
 grep -Fq 'Initialized canonical state baseline' <<<"$OUT" || fail "init omitted its canonical baseline result"
 pass "canonical baseline established"
