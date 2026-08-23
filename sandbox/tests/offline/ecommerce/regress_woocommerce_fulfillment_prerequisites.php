@@ -292,8 +292,14 @@ namespace {
         $queries,
         static fn(string $sql): bool => str_contains($sql, 'BINARY option_name = BINARY')
             && str_contains($sql, 'AND LENGTH(option_value) =')
-    )) === 4,
-        'both prerequisite options use compact witnesses followed by exact size-bound payload fetches');
+    )) === 8,
+        'both prerequisite options use compact witnesses followed by two exact size-bound payload fetches');
+    duo_check(count(array_filter(
+        $queries,
+        static fn(string $sql): bool => str_contains($sql, 'information_schema.COLUMNS')
+            || str_contains($sql, 'information_schema.STATISTICS')
+    )) === 8,
+        'both fulfillment schemas use compact column/index cardinality witnesses before SHOW transfer');
     duo_check_same($beforeRows, [
         'options' => $wpdb->rows('options'),
         'term_taxonomy' => $wpdb->rows('term_taxonomy'),
@@ -484,6 +490,30 @@ namespace {
     duo_check($grewDuringRead,
         'the fulfillment size race is injected between witness and payload fetch');
 
+    $wpdb = woo_fulfillment_ready_target();
+    $sameLengthPayloadReads = 0;
+    $wpdb->onQuery(static function (string $sql, string $_method, FakeWpdb $db) use (&$sameLengthPayloadReads): null {
+        if (str_contains(
+            $sql,
+            "BINARY option_name = BINARY 'woocommerce_feature_fulfillments_enabled'"
+        ) && ++$sameLengthPayloadReads === 2) {
+            $db->onQuery(null);
+            $db->update('options', ['option_value' => 'no!'], [
+                'option_name' => 'woocommerce_feature_fulfillments_enabled',
+            ]);
+        }
+        return null;
+    });
+    duo_check_throws(
+        static fn() => $provider->invoke('verify_fulfillment_prerequisites', []),
+        RuntimeException::class,
+        'same-length fulfillment option replacement cannot cross the confirming payload read',
+        'changed during bounded readback'
+    );
+    duo_check_same(2, $sameLengthPayloadReads,
+        'the same-length race is injected between the first and confirming bounded payload reads');
+
+    $wpdb = woo_fulfillment_ready_target();
     foreach ([
         'name' => 'wc_fulfillment_shipping_provider_hijack',
         'object_type' => ['product'],
@@ -567,8 +597,17 @@ namespace {
         ];
     }
     $wpdb->setColumnDefinitions('wc_order_fulfillments', $columns);
+    $wpdb->resetLog();
     duo_check_same([], $provider->capabilities(),
         'a hostile schema inventory beyond the explicit MySQL column ceiling fails closed');
+    $oversizedColumnQueries = $wpdb->queries();
+    duo_check((bool) array_filter(
+        $oversizedColumnQueries,
+        static fn(string $sql): bool => str_contains($sql, 'information_schema.COLUMNS')
+    ) && !array_filter(
+        $oversizedColumnQueries,
+        static fn(string $sql): bool => str_contains($sql, 'SHOW FULL COLUMNS FROM `wp_wc_order_fulfillments`')
+    ), 'oversized fulfillment columns refuse from compact cardinality before SHOW transfers schema rows');
 
     $wpdb = woo_fulfillment_ready_target();
     $indexes = woo_fulfillment_indexes('wc_order_fulfillments');
@@ -611,8 +650,17 @@ namespace {
         ];
     }
     $wpdb->setIndexes('wc_order_fulfillments', $indexes);
+    $wpdb->resetLog();
     duo_check_same([], $provider->capabilities(),
         'a hostile index inventory beyond the explicit MySQL index ceiling fails closed');
+    $oversizedIndexQueries = $wpdb->queries();
+    duo_check((bool) array_filter(
+        $oversizedIndexQueries,
+        static fn(string $sql): bool => str_contains($sql, 'information_schema.STATISTICS')
+    ) && !array_filter(
+        $oversizedIndexQueries,
+        static fn(string $sql): bool => str_contains($sql, 'SHOW INDEX FROM `wp_wc_order_fulfillments`')
+    ), 'oversized fulfillment indexes refuse from compact cardinality before SHOW transfers index rows');
 
     foreach ([
         ['field' => 'Non_unique', 'value' => '00', 'label' => 'noncanonical Non_unique'],

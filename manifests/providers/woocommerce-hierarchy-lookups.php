@@ -363,13 +363,23 @@ final class WoocommerceHierarchyLookups {
                 'duo: WooCommerce category lookup table identity is outside the adapter contract'
             );
         }
+        $columnCount = self::strict_uint(\Duo\ProviderSdk::checked_get_var($wpdb->prepare(
+            'SELECT COUNT(*) FROM information_schema.COLUMNS '
+            . 'WHERE TABLE_SCHEMA = DATABASE() AND BINARY TABLE_NAME = BINARY %s',
+            $table
+        ), 'WooCommerce category lookup schema cardinality witness'), true, 'category lookup column count');
+        if ($columnCount > self::MAX_TABLE_COLUMNS) {
+            throw new \RuntimeException(
+                'duo: WooCommerce category lookup schema returned an oversized column inventory'
+            );
+        }
         $columns = \Duo\ProviderSdk::checked_get_results(
             "SHOW COLUMNS FROM `$table`",
             'WooCommerce category lookup schema'
         );
-        if (count($columns) > self::MAX_TABLE_COLUMNS) {
+        if (count($columns) !== $columnCount) {
             throw new \RuntimeException(
-                'duo: WooCommerce category lookup schema returned an oversized column inventory'
+                'duo: WooCommerce category lookup schema changed after its cardinality witness'
             );
         }
         $actual = [];
@@ -646,7 +656,6 @@ final class WoocommerceHierarchyLookups {
         int $maxBytes = self::MAX_OPTION_BYTES,
         bool $allowMissing = false
     ): ?string {
-        global $wpdb;
         $witness = self::option_witness($name);
         if ($witness === null) {
             if ($verify && !$allowMissing) {
@@ -666,8 +675,35 @@ final class WoocommerceHierarchyLookups {
         }
 
         // The witness prevents a dirty 16 MiB+ LONGTEXT value from crossing
-        // the PHP boundary. Requiring the same length in the exact-id fetch
-        // also turns a concurrent size change into a loud retryable mismatch.
+        // the PHP boundary. Two exact-id/length reads bind the payload bytes
+        // too, so a same-length concurrent rewrite cannot inherit the first
+        // witness and become a falsely stable receipt.
+        $value = self::option_payload($name, $witness);
+        if ($value === null) {
+            if ($verify) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce $name option changed during bounded readback; recovery_required"
+                );
+            }
+            return null;
+        }
+        $valueHash = hash('sha256', $value);
+        unset($value);
+        $confirmed = self::option_payload($name, $witness);
+        if ($confirmed === null || !hash_equals($valueHash, hash('sha256', $confirmed))) {
+            if ($verify) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce $name option changed during bounded readback; recovery_required"
+                );
+            }
+            return null;
+        }
+        return $confirmed;
+    }
+
+    /** @param array{id:int,bytes:int} $witness */
+    private static function option_payload(string $name, array $witness): ?string {
+        global $wpdb;
         $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
             "SELECT option_id, BINARY option_name AS option_name, option_value, "
             . "LENGTH(option_value) AS option_bytes FROM {$wpdb->options} "
@@ -683,11 +719,6 @@ final class WoocommerceHierarchyLookups {
             || ($rows[0]['option_bytes'] ?? null) !== (string) $witness['bytes']
             || !is_string($rows[0]['option_value'] ?? null)
             || strlen($rows[0]['option_value']) !== $witness['bytes']) {
-            if ($verify) {
-                throw new \RuntimeException(
-                    "duo: WooCommerce $name option changed during bounded readback; recovery_required"
-                );
-            }
             return null;
         }
         return $rows[0]['option_value'];

@@ -548,6 +548,41 @@ woo_hierarchy_test_set_option(
     woo_hierarchy_test_children(woo_hierarchy_test_parent_map('product_cat'))
 );
 
+$sameLengthPayloadReads = 0;
+$currentChildrenRaw = (string) array_values(array_filter(
+    $wpdb->rows('wp_options'),
+    static fn(array $row): bool => ($row['option_name'] ?? null) === 'product_cat_children'
+))[0]['option_value'];
+$sameLengthChildrenRaw = str_replace('9000000002', '9000000003', $currentChildrenRaw);
+duo_check(strlen($sameLengthChildrenRaw) === strlen($currentChildrenRaw)
+    && $sameLengthChildrenRaw !== $currentChildrenRaw,
+    'same-length hierarchy race fixture changes bytes without changing the compact size witness');
+$wpdb->onQuery(static function (string $sql, string $_method, FakeWpdb $db) use (
+    &$sameLengthPayloadReads,
+    $sameLengthChildrenRaw
+): null {
+    if (str_contains($sql, "BINARY option_name = BINARY 'product_cat_children'")
+        && ++$sameLengthPayloadReads === 2) {
+        $db->onQuery(null);
+        $db->update('wp_options', ['option_value' => $sameLengthChildrenRaw], [
+            'option_name' => 'product_cat_children',
+        ]);
+    }
+    return null;
+});
+duo_check_throws(
+    static fn() => $rawOption->invoke(null, 'product_cat_children', true),
+    RuntimeException::class,
+    'same-length hierarchy option replacement cannot cross the confirming payload read',
+    'changed during bounded readback'
+);
+duo_check_same(2, $sameLengthPayloadReads,
+    'same-length hierarchy mutation occurs between first and confirming bounded payload reads');
+woo_hierarchy_test_set_option(
+    'product_cat_children',
+    woo_hierarchy_test_children(woo_hierarchy_test_parent_map('product_cat'))
+);
+
 $wpdb->failNextQuery('secret=HIERARCHY_OPTION_DRIVER', 'LENGTH(option_value) AS option_bytes');
 $optionFailure = '';
 try {
@@ -582,12 +617,20 @@ $wpdb->setColumns('wp_wc_category_lookup', array_merge(
         range(1, 4095)
     ), 'longtext')
 ));
+$wpdb->resetLog();
 duo_check_throws(
     static fn() => $provider->invoke('rebuild_hierarchy_lookups', $hierarchyArgs),
     RuntimeException::class,
     'a hostile schema inventory beyond the explicit MySQL column ceiling refuses before repair',
     'oversized column inventory'
 );
+$oversizedSchemaQueries = $wpdb->queries();
+duo_check(count($oversizedSchemaQueries) === 1
+    && str_contains($oversizedSchemaQueries[0], 'information_schema.COLUMNS')
+    && !array_filter(
+        $oversizedSchemaQueries,
+        static fn(string $sql): bool => str_contains($sql, 'SHOW COLUMNS')
+    ), 'oversized category schema refuses from the compact count before SHOW transfers any column rows');
 $wpdb->setColumns('wp_wc_category_lookup', [
     'category_tree_id' => 'bigint(20) unsigned',
     'category_id' => 'bigint(20) unsigned',

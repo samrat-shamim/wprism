@@ -108,11 +108,14 @@
  * projection lets the menu mutation regression prove post/term id-keyspace
  * separation without teaching this fake a general relational planner.
  *
- * Schema-qualified reads (information_schema.COLUMNS / .STATISTICS) remain
- * unsupported -- parseTableRef() refuses the `db.table` form outright. SHOW
- * schema probes are supported only from explicit setColumnDefinitions(),
- * setIndexes(), and setTableEngine() fixtures; no schema fact is inferred from
- * stored rows. Concretely it means
+ * Schema-qualified row inventories (information_schema.COLUMNS /
+ * .STATISTICS) remain unsupported -- parseTableRef() refuses the `db.table`
+ * form outright. The one narrow exception is an exact COUNT(*)/binary table
+ * identity query against either inventory: providers use that compact witness
+ * solely to bound a following SHOW transfer, whose rows still come from
+ * setColumns()/setColumnDefinitions()/setIndexes(). SHOW schema probes are
+ * otherwise supported only from explicit fixtures; no schema fact is inferred
+ * from stored rows. Concretely it means
  * Ledger::assert_read_only_schema(), Ledger::prune_dead_table_map() (a
  * multi-table DELETE) and Snapshot::assert_all_mapped_rows_managed() (a LEFT
  * JOIN) cannot be migrated to this fake; they stay live-certification paths.
@@ -1753,6 +1756,12 @@ final class FakeWpdb {
             }
             return ['kind' => 'ok'];
         }
+        if ($head === 'SELECT') {
+            $schemaCount = $this->boundedSchemaCount($trimmed);
+            if ($schemaCount !== null) {
+                return ['kind' => 'rows', 'rows' => [['COUNT(*)' => $schemaCount]]];
+            }
+        }
         switch ($head) {
             case 'CREATE':
             case 'ALTER':
@@ -1795,6 +1804,26 @@ final class FakeWpdb {
             'SHOW' => $this->execShow(),
             default => throw $this->unsupported('statement type ' . ($head === '' ? '(none)' : $head)),
         };
+    }
+
+    /** Exact compact witness used before a bounded SHOW schema transfer. */
+    private function boundedSchemaCount(string $sql): ?int {
+        if (preg_match(
+            '/^SELECT COUNT\(\*\) FROM information_schema\.(COLUMNS|STATISTICS) '
+            . "WHERE TABLE_SCHEMA = DATABASE\(\) AND BINARY TABLE_NAME = BINARY '([A-Za-z0-9_]{1,64})'$/D",
+            $sql,
+            $matches
+        ) !== 1) {
+            return null;
+        }
+        $table = $this->requireTable($matches[2]);
+        if ($matches[1] === 'STATISTICS') {
+            return count($this->indexes[$table] ?? []);
+        }
+        if (isset($this->columnDefinitions[$table])) {
+            return count($this->columnDefinitions[$table]);
+        }
+        return count($this->columnTypes[$table] ?? []);
     }
 
     private function unsupported(string $what): \LogicException {

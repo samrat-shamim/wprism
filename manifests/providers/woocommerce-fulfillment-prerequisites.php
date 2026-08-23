@@ -245,8 +245,27 @@ final class WoocommerceFulfillmentPrerequisites {
         }
 
         // Bind the payload fetch to the witnessed row, exact binary identity,
-        // and safe size. A concurrent growth/change therefore yields no row
-        // instead of transferring an unbounded LONGTEXT value.
+        // and safe size. The confirming read also binds payload bytes, so a
+        // same-length concurrent rewrite cannot inherit the first witness.
+        $value = self::option_payload($name, $optionId, $optionBytes);
+        if ($value === null) {
+            throw new \RuntimeException(
+                'duo: WooCommerce fulfillment prerequisite option changed during bounded readback'
+            );
+        }
+        $valueHash = hash('sha256', $value);
+        unset($value);
+        $confirmed = self::option_payload($name, $optionId, $optionBytes);
+        if ($confirmed === null || !hash_equals($valueHash, hash('sha256', $confirmed))) {
+            throw new \RuntimeException(
+                'duo: WooCommerce fulfillment prerequisite option changed during bounded readback'
+            );
+        }
+        return $confirmed;
+    }
+
+    private static function option_payload(string $name, int $optionId, int $optionBytes): ?string {
+        global $wpdb;
         $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
             "SELECT option_id, BINARY option_name AS option_name, option_value, "
             . "LENGTH(option_value) AS option_bytes FROM {$wpdb->options} "
@@ -262,9 +281,7 @@ final class WoocommerceFulfillmentPrerequisites {
             || ($rows[0]['option_bytes'] ?? null) !== (string) $optionBytes
             || !is_string($rows[0]['option_value'] ?? null)
             || strlen($rows[0]['option_value']) !== $optionBytes) {
-            throw new \RuntimeException(
-                'duo: WooCommerce fulfillment prerequisite option changed during bounded readback'
-            );
+            return null;
         }
         return $rows[0]['option_value'];
     }
@@ -380,13 +397,23 @@ final class WoocommerceFulfillmentPrerequisites {
             );
         }
 
+        $columnCount = self::db_uint(\Duo\ProviderSdk::checked_get_var($wpdb->prepare(
+            'SELECT COUNT(*) FROM information_schema.COLUMNS '
+            . 'WHERE TABLE_SCHEMA = DATABASE() AND BINARY TABLE_NAME = BINARY %s',
+            $table
+        ), 'WooCommerce fulfillment table schema cardinality witness'), 'column count');
+        if ($columnCount > self::MAX_TABLE_COLUMNS) {
+            throw new \RuntimeException(
+                'duo: WooCommerce fulfillment table returned an oversized column inventory'
+            );
+        }
         $rows = \Duo\ProviderSdk::checked_get_results(
             "SHOW FULL COLUMNS FROM `$table`",
             'WooCommerce fulfillment table schema'
         );
-        if (count($rows) > self::MAX_TABLE_COLUMNS) {
+        if (count($rows) !== $columnCount) {
             throw new \RuntimeException(
-                'duo: WooCommerce fulfillment table returned an oversized column inventory'
+                'duo: WooCommerce fulfillment table schema changed after its cardinality witness'
             );
         }
         $actual = [];
@@ -416,13 +443,23 @@ final class WoocommerceFulfillmentPrerequisites {
             );
         }
 
+        $indexCount = self::db_uint(\Duo\ProviderSdk::checked_get_var($wpdb->prepare(
+            'SELECT COUNT(*) FROM information_schema.STATISTICS '
+            . 'WHERE TABLE_SCHEMA = DATABASE() AND BINARY TABLE_NAME = BINARY %s',
+            $table
+        ), 'WooCommerce fulfillment table index cardinality witness'), 'index row count');
+        if ($indexCount > self::MAX_TABLE_INDEX_ROWS) {
+            throw new \RuntimeException(
+                'duo: WooCommerce fulfillment table returned an oversized index inventory'
+            );
+        }
         $indexRows = \Duo\ProviderSdk::checked_get_results(
             "SHOW INDEX FROM `$table`",
             'WooCommerce fulfillment table indexes'
         );
-        if (count($indexRows) > self::MAX_TABLE_INDEX_ROWS) {
+        if (count($indexRows) !== $indexCount) {
             throw new \RuntimeException(
-                'duo: WooCommerce fulfillment table returned an oversized index inventory'
+                'duo: WooCommerce fulfillment table indexes changed after their cardinality witness'
             );
         }
         $indexes = [];
