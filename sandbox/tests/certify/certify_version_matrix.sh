@@ -17,7 +17,7 @@
 #
 # For EACH boundary version (ACF 6.0.0/6.8.7; Advanced Editor Tools 5.9.2;
 # Classic Editor 1.7.0; Code Snippets 3.9.5/3.9.6; CF7 6.0/6.1.7; Elementor 4.0.0/4.2.3; Ninja Forms
-# 3.4.34.2/3.14.11; PMPro 3.8.3 (with adjacent official-tag refusals);
+# 3.4.34.2/3.14.11; PMPro 3.8.2/3.8.3 (with adjacent official-tag refusals);
 # Polylang 3.5/3.8.6;
 # WooCommerce 11.0.0 (the only stable in-range 11.x release); Yoast SEO
 # 28.0/28.3 — all real
@@ -409,7 +409,22 @@ seed_pmpro_content() {
 
 check_pmpro_content() {
   local COMPOSE="$PAIR_COMPOSE_STRING"
+  local CONF_REPO1="siterepo/${PAIR}1"
+  local CONF_REPO2="siterepo/${PAIR}2"
+  local CONF1_PORT="$PORT1"
+  local CONF2_PORT="$PORT2"
+  local PMPRO_EXPECTED_VERSION="${PMPRO_CHECK_VERSION:-$PMPRO_VERSION}"
+  local PMPRO_BOUNDARY_ONLY=1
+  local PMPRO_SKIP_FRONTEND=1
   . conformance/checks/paid-memberships-pro.sh
+}
+
+postdeploy_pmpro_content() {
+  wp_conf2() { wp2 "$@"; }
+  local CONF_REPO2="siterepo/${PAIR}2"
+  local COMPOSE="$PAIR_COMPOSE_STRING"
+  . conformance/postdeploy/paid-memberships-pro.sh
+  unset -f wp_conf2
 }
 
 seed_advanced_editor_tools_content() {
@@ -1437,32 +1452,31 @@ EOF
 done
 fi
 
-# PMPro is no longer distributed through wp.org. Its supported interval is
-# intentionally one exact upstream GitHub tag: 3.8.3 <= version < 3.8.4.
-# Certifying that tag once is the complete positive boundary; the two adjacent
-# real tags are exercised as separate refusal controls below.
+# PMPro is no longer distributed through wp.org. Both admitted official tags
+# are digest-pinned boundaries; populated 3.8.2 sites additionally upgrade in
+# place to 3.8.3. The adjacent official 3.8.1/3.8.4 tags refuse below.
 if [ "$VMATRIX_MANIFEST" = paid-memberships-pro ]; then
-VMATRIX_CASES=$((VMATRIX_CASES + 1))
-PMPRO_VERSION=3.8.3
-say "boundary: paid-memberships-pro $PMPRO_VERSION (single admitted upstream tag)"
+VMATRIX_CASES=$((VMATRIX_CASES + 2))
+for PMPRO_VERSION in 3.8.2 3.8.3; do
+  say "boundary: paid-memberships-pro $PMPRO_VERSION"
 
-reset_env wp1
-reset_env wp2
-reset_case_repositories
+  reset_env wp1
+  reset_env wp2
+  reset_case_repositories
 
-say "fetch + verify paid-memberships-pro $PMPRO_VERSION from the official upstream tag"
-ARTIFACT_1=$(fetch_artifact paid-memberships-pro "$PMPRO_VERSION" cli1)
-ARTIFACT_2=$(fetch_artifact paid-memberships-pro "$PMPRO_VERSION" cli2)
-pass "verified sha256-pinned upstream artifact resolved for both sides: $ARTIFACT_1"
+  say "fetch + verify paid-memberships-pro $PMPRO_VERSION from the official upstream tag"
+  ARTIFACT_1=$(fetch_artifact paid-memberships-pro "$PMPRO_VERSION" cli1)
+  ARTIFACT_2=$(fetch_artifact paid-memberships-pro "$PMPRO_VERSION" cli2)
+  pass "verified sha256-pinned upstream artifact resolved for both sides: $ARTIFACT_1"
 
-wp1 plugin install "$ARTIFACT_1" >/dev/null
-normalize_version_matrix_archive_root cli1 plugin paid-memberships-pro paid-memberships-pro-3.8.3
-wp1 plugin activate paid-memberships-pro >/dev/null
-INSTALLED_1=$(wp1 plugin get paid-memberships-pro --field=version)
-[ "$INSTALLED_1" = "$PMPRO_VERSION" ] || fail "side 1 installed version mismatch: expected $PMPRO_VERSION, got $INSTALLED_1"
-pass "side 1: paid-memberships-pro $PMPRO_VERSION installed from verified artifact, active"
+  wp1 plugin install "$ARTIFACT_1" >/dev/null
+  normalize_version_matrix_archive_root cli1 plugin paid-memberships-pro "paid-memberships-pro-$PMPRO_VERSION"
+  wp1 plugin activate paid-memberships-pro >/dev/null
+  INSTALLED_1=$(wp1 plugin get paid-memberships-pro --field=version)
+  [ "$INSTALLED_1" = "$PMPRO_VERSION" ] || fail "side 1 installed version mismatch: expected $PMPRO_VERSION, got $INSTALLED_1"
+  pass "side 1: paid-memberships-pro $PMPRO_VERSION installed from verified artifact, active"
 
-cat > "siterepo/${PAIR}1/site.duo.json" <<EOF
+  cat > "siterepo/${PAIR}1/site.duo.json" <<EOF
 {
   "manifests": ["core", "paid-memberships-pro"],
   "policy": {
@@ -1474,50 +1488,82 @@ cat > "siterepo/${PAIR}1/site.duo.json" <<EOF
   "spec_version": 2
 }
 EOF
-cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
-"${GIT1[@]}" init -q -b main
-"${GIT1[@]}" remote add origin "../origin-$PAIR.git"
-"${GIT1[@]}" add -A
-"${GIT1[@]}" commit -qm "policy: paid-memberships-pro $PMPRO_VERSION exact-boundary certification"
-"${GIT1[@]}" push -qu origin main
+  cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
+  "${GIT1[@]}" init -q -b main
+  "${GIT1[@]}" remote add origin "../origin-$PAIR.git"
+  "${GIT1[@]}" add -A
+  "${GIT1[@]}" commit -qm "policy: paid-memberships-pro $PMPRO_VERSION exact-boundary certification"
+  "${GIT1[@]}" push -qu origin main
 
-seed_pmpro_content
-wp1 duo capture --repo=/siterepo
-pass "captured on side 1 (paid-memberships-pro $PMPRO_VERSION)"
-wp1 duo lint --repo=/siterepo
-pass "lint: 0 findings"
+  seed_pmpro_content
+  wp1 duo capture --repo=/siterepo
+  pass "captured on side 1 (paid-memberships-pro $PMPRO_VERSION)"
+  wp1 duo lint --repo=/siterepo
+  pass "lint: 0 findings"
 
-"${GIT1[@]}" add -A
-"${GIT1[@]}" commit -qm "capture: paid-memberships-pro $PMPRO_VERSION content"
-"${GIT1[@]}" push -q origin main
+  "${GIT1[@]}" add -A
+  "${GIT1[@]}" commit -qm "capture: paid-memberships-pro $PMPRO_VERSION content"
+  "${GIT1[@]}" push -q origin main
 
-clone_case_target
-# Target starts with the exact plugin present but inactive. Deploy must both
-# accept its basename/version and perform the declared activation lifecycle.
-wp2 plugin install "$ARTIFACT_2" >/dev/null
-normalize_version_matrix_archive_root cli2 plugin paid-memberships-pro paid-memberships-pro-3.8.3
-INSTALLED_2=$(wp2 plugin get paid-memberships-pro --field=version)
-require_fixture_values INSTALLED_2
-[ "$INSTALLED_2" = "$PMPRO_VERSION" ] || fail "side 2 installed version mismatch: expected $PMPRO_VERSION, got $INSTALLED_2"
-if wp2 plugin is-active paid-memberships-pro >/dev/null 2>&1; then
-  fail "PMPro target premise must begin inactive"
-fi
-pass "side 2: exact PMPro artifact is installed and deliberately inactive before deploy"
+  clone_case_target
+  wp2 plugin install "$ARTIFACT_2" >/dev/null
+  normalize_version_matrix_archive_root cli2 plugin paid-memberships-pro "paid-memberships-pro-$PMPRO_VERSION"
+  INSTALLED_2=$(wp2 plugin get paid-memberships-pro --field=version)
+  require_fixture_values INSTALLED_2
+  [ "$INSTALLED_2" = "$PMPRO_VERSION" ] || fail "side 2 installed version mismatch: expected $PMPRO_VERSION, got $INSTALLED_2"
+  wp2 plugin is-active paid-memberships-pro >/dev/null 2>&1 && fail "PMPro target premise must begin inactive"
 
-wp2 duo deploy --repo=/siterepo
-wp2 plugin is-active paid-memberships-pro >/dev/null || fail "deploy did not activate the admitted PMPro artifact"
-REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
-grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at paid-memberships-pro $PMPRO_VERSION"
-pass "deploy + apply succeeded on side 2 (paid-memberships-pro $PMPRO_VERSION, inactive-to-active lifecycle, canary clean)"
+  wp2 duo deploy --repo=/siterepo
+  wp2 plugin is-active paid-memberships-pro >/dev/null || fail "deploy did not activate the admitted PMPro artifact"
+  postdeploy_pmpro_content
+  REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
+  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+  grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at paid-memberships-pro $PMPRO_VERSION"
+  pass "deploy + apply succeeded on side 2 (paid-memberships-pro $PMPRO_VERSION, hostile target, canary clean)"
 
-check_pmpro_content
+  check_pmpro_content
 
-wp2 duo capture --repo=/siterepo --out="/siterepo/.tmp-final"
-DIFF_OUT=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
-rm -rf "siterepo/${PAIR}2/.tmp-final"
-[ -z "$DIFF_OUT" ] || fail "byte-identity broken at paid-memberships-pro $PMPRO_VERSION: $DIFF_OUT"
-pass "byte-identical recapture at paid-memberships-pro $PMPRO_VERSION — exact upstream artifact, lifecycle, table references, and plugin API are bound together"
+  wp2 duo capture --repo=/siterepo --out="/siterepo/.tmp-final"
+  DIFF_OUT=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
+  rm -rf "siterepo/${PAIR}2/.tmp-final"
+  [ -z "$DIFF_OUT" ] || fail "byte-identity broken at paid-memberships-pro $PMPRO_VERSION: $DIFF_OUT"
+  pass "byte-identical recapture at paid-memberships-pro $PMPRO_VERSION — all authored tables and native APIs are bound to exact upstream bytes"
+
+  if [ "$PMPRO_VERSION" = 3.8.2 ]; then
+    say 'in-place lifecycle: paid-memberships-pro 3.8.2 authored state -> exact 3.8.3 on both environments'
+    UPGRADE_ARTIFACT_1=$(fetch_artifact paid-memberships-pro 3.8.3 cli1)
+    UPGRADE_ARTIFACT_2=$(fetch_artifact paid-memberships-pro 3.8.3 cli2)
+    wp1 plugin install "$UPGRADE_ARTIFACT_1" --force >/dev/null
+    wp2 plugin install "$UPGRADE_ARTIFACT_2" --force >/dev/null
+    normalize_version_matrix_archive_root cli1 plugin paid-memberships-pro paid-memberships-pro-3.8.3
+    normalize_version_matrix_archive_root cli2 plugin paid-memberships-pro paid-memberships-pro-3.8.3
+    [ "$(wp1 plugin get paid-memberships-pro --field=version)" = 3.8.3 ] \
+      && [ "$(wp2 plugin get paid-memberships-pro --field=version)" = 3.8.3 ] \
+      || fail 'PMPro in-place upgrade did not install exact 3.8.3 on both populated environments'
+    wp1 duo deploy --repo=/siterepo --force-code-drift >/dev/null
+    wp2 duo deploy --repo=/siterepo --force-code-drift >/dev/null
+    wp1 eval '
+      global $wpdb; $id=(int)$wpdb->get_var("SELECT id FROM {$wpdb->pmpro_membership_levels} WHERE name=\"Builder 東京 🚀\" AND initial_payment=19.95");
+      update_pmpro_membership_level_meta($id,"membership_account_message","PMPro 3.8.2 to 3.8.3 upgrade 東京 🚀");
+    ' >/dev/null
+    wp1 duo capture --repo=/siterepo
+    wp1 duo lint --repo=/siterepo
+    "${GIT1[@]}" add -A
+    "${GIT1[@]}" commit -qm 'capture: PMPro 3.8.2 to 3.8.3 in-place upgrade'
+    "${GIT1[@]}" push -q origin main
+    git -C "siterepo/${PAIR}2" pull -q origin main
+    UPGRADE_REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
+    wp2 duo apply --repo=/siterepo --default-author=admin --revision="$UPGRADE_REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
+    grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail 'PMPro 3.8.2 -> 3.8.3 upgrade apply canary was not clean'
+    PMPRO_CHECK_VERSION=3.8.3 check_pmpro_content
+    unset PMPRO_CHECK_VERSION
+    wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-pmpro-upgrade-final
+    UPGRADE_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-pmpro-upgrade-final" || true)
+    rm -rf "siterepo/${PAIR}2/.tmp-pmpro-upgrade-final"
+    [ -z "$UPGRADE_DIFF" ] || fail "PMPro 3.8.2 -> 3.8.3 in-place upgrade lost byte identity: $UPGRADE_DIFF"
+    pass 'PMPro 3.8.2 authored graph upgrades in place to 3.8.3 with native API, cache, identities, and byte identity intact'
+  fi
+done
 fi
 
 if [ "$VMATRIX_MANIFEST" = elementor ]; then
@@ -2670,7 +2716,7 @@ pass "confirmed: ninja-forms 3.3.21.4 (real, installed, genuinely below the corr
 fi
 
 if [ "$VMATRIX_MANIFEST" = paid-memberships-pro ]; then
-say "negative controls: adjacent official PMPro tags 3.8.2 and 3.8.4 must both be refused by the exact 3.8.3 contract"
+say "negative controls: adjacent official PMPro tags 3.8.1 and 3.8.4 must both be refused by the audited 3.8.2/3.8.3 contract"
 reset_env wp1
 reset_case_repositories
 
@@ -2768,7 +2814,7 @@ fi
 pass "confirmed: unreadable PMPro main-file metadata refuses and remains inactive"
 wp1 plugin delete paid-memberships-pro >/dev/null
 
-for OUT_OF_RANGE_VERSION in 3.8.2 3.8.4; do
+for OUT_OF_RANGE_VERSION in 3.8.1 3.8.4; do
   wp1 plugin deactivate paid-memberships-pro >/dev/null 2>&1 || true
   wp1 plugin delete paid-memberships-pro >/dev/null
   OUT_OF_RANGE_ARTIFACT=$(fetch_artifact paid-memberships-pro "$OUT_OF_RANGE_VERSION" cli1)
@@ -2794,7 +2840,7 @@ for OUT_OF_RANGE_VERSION in 3.8.2 3.8.4; do
     fail "outside-range PMPro $OUT_OF_RANGE_VERSION was activated before deploy refused"
   fi
   printf '%s\n' "$DEPLOY_OUT"
-  pass "confirmed: official PMPro $OUT_OF_RANGE_VERSION is loudly refused and remains inactive outside exact range >=3.8.3 <3.8.4"
+  pass "confirmed: official PMPro $OUT_OF_RANGE_VERSION is loudly refused and remains inactive outside exact range >=3.8.2 <3.8.4"
 done
 fi
 

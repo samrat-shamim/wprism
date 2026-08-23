@@ -110,10 +110,16 @@
       }
     },
     "paid-memberships-pro": {
+      "3.8.1": {
+        "url": "https://github.com/strangerstudios/paid-memberships-pro/archive/refs/tags/3.8.1.zip",
+        "sha256": "341e9cd6e8f3da7b3163c9f7480e9e0c0fd8ef1afb8d23e24d6603e57eaf4dd4",
+        "role": "refusal-fixture",
+        "archive_root": "paid-memberships-pro-3.8.1"
+      },
       "3.8.2": {
         "url": "https://github.com/strangerstudios/paid-memberships-pro/archive/refs/tags/3.8.2.zip",
         "sha256": "3394676b0b2bb786cc9e445ffe4d01a8ce79b7372a7211ec2a8bed797675bf48",
-        "role": "refusal-fixture",
+        "role": "certified-boundary",
         "archive_root": "paid-memberships-pro-3.8.2"
       },
       "3.8.3": {
