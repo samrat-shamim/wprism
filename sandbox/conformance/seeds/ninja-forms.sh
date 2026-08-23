@@ -121,7 +121,7 @@ if ($formId <= 0) {
 }
 $field = Ninja_Forms()->form($formId)->field()->get();
 $field
-    ->update_setting('type', 'textarea')
+    ->update_setting('type', 'listselect')
     ->update_setting('parent_id', $formId)
     ->update_setting('label', 'Duo Disposable Child — 界')
     ->update_setting('key', 'duo_disposable_child')
@@ -129,10 +129,16 @@ $field
     ->update_setting('required', 0)
     ->update_setting('default_value', '')
     ->update_setting('instructions', str_repeat('Large UTF-8 — مرحبا — こんにちは — ', 4096))
-    ->update_setting('duo_serialized_options', serialize([
-        'choices' => [['label' => '東京', 'value' => 0], ['label' => 'Dhaka', 'value' => true]],
-        'url' => home_url('/conformance-careers/?from=ninja'),
-    ]))
+    ->update_setting('options', [
+        [
+            'label' => '東京',
+            'value' => home_url('/conformance-careers/?from=ninja'),
+            'calc' => '',
+            'selected' => 0,
+            'order' => 0,
+        ],
+        ['label' => 'Dhaka', 'value' => '0', 'calc' => '', 'selected' => 0, 'order' => 1],
+    ])
     ->save();
 $fieldId = (int) $field->get_id();
 if ($fieldId <= 0) {

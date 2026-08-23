@@ -108,26 +108,56 @@ duo_check_same(
 );
 
 $longUtf8 = str_repeat('Long UTF-8 — مرحبا — こんにちは — ', 50000);
-$validSerialized = [
-    'null' => serialize(null),
-    'false' => serialize(false),
-    'integer' => serialize(PHP_INT_MAX),
-    'float' => serialize(12345.678),
-    'string' => serialize($longUtf8),
-    'nested' => serialize([
+$validPlainData = [
+    'scalars' => [null, false, PHP_INT_MAX, 12345.678, $longUtf8],
+    'nested' => [
         'choices' => [['label' => 'A', 'value' => 0], ['label' => '界', 'value' => true]],
         'empty' => [],
         'url' => 'https://source.example.test/ninja?form=1',
-    ]),
+    ],
 ];
 duo_check_same(
     [],
-    ninja_readiness_diagnostics($interpreter, [ninja_readiness_entity(
-        'nf3_fields',
-        ['type' => 'listselect', 'default_value' => $validSerialized['nested']],
-        $validSerialized
-    )]),
-    'bounded scalar, nested, large UTF-8 and serialized column/meta values compile without coercion'
+    ninja_readiness_diagnostics($interpreter, [
+        ninja_readiness_entity(
+            'nf3_fields',
+            ['type' => 'listselect'],
+            ['options' => $validPlainData, 'image_options' => [], 'shipping_options' => []]
+        ),
+        ninja_readiness_entity(
+            'nf3_forms',
+            ['title' => 'Plain arrays'],
+            ['calculations' => [], 'formContentData' => ['field_key']],
+            '33333333-3333-4333-8333-333333333333'
+        ),
+        ninja_readiness_entity(
+            'nf3_actions',
+            ['type' => 'save'],
+            ['exception_fields' => [['form_field' => 'email']]],
+            '44444444-4444-4444-8444-444444444444'
+        ),
+    ]),
+    'all source-reviewed core array keys admit bounded native scalar, nested and large UTF-8 plain data'
+);
+$rawCanonical = ninja_readiness_one_problem(
+    $interpreter,
+    'nf3_fields',
+    ['type' => 'listselect'],
+    ['options' => serialize($validPlainData)]
+);
+duo_check(
+    str_contains((string) $rawCanonical['message'], 'raw PHP serialization'),
+    'canonical state refuses valid storage serialization that escaped the manifest plain-data codec'
+);
+$unknownArray = ninja_readiness_one_problem(
+    $interpreter,
+    'nf3_fields',
+    ['type' => 'textbox'],
+    ['vendor_options' => ['url' => 'https://source.example.test']]
+);
+duo_check(
+    str_contains((string) $unknownArray['message'], 'optional add-on metadata'),
+    'an undeclared structured add-on setting stays outside the built-in adapter'
 );
 duo_check_same(
     [],
@@ -273,6 +303,21 @@ duo_check_same(
 duo_check(!isset($manifest['deletions']['table:nf3_forms']), 'unsupported parent form deletion stays absent and loud');
 duo_check_same('runtime', $manifest['post_types']['nf_sub']['class'] ?? null, 'visitor submissions remain target-runtime sovereign');
 duo_check_same('env', $manifest['tables']['nf3_upgrades']['class'] ?? null, 'derived cache table never enters canonical authored state');
+duo_check_same(
+    [
+        'nf3_action_meta' => ['exception_fields'],
+        'nf3_field_meta' => ['image_options', 'options', 'shipping_options'],
+        'nf3_form_meta' => ['calculations', 'formContentData'],
+    ],
+    array_map(
+        static fn(string $table): array => array_values(array_keys(array_filter(
+            $manifest['tables'][$table]['keys'] ?? [],
+            static fn(array $rule): bool => ($rule['plain_data'] ?? false) === true
+        ))),
+        ['nf3_action_meta' => 'nf3_action_meta', 'nf3_field_meta' => 'nf3_field_meta', 'nf3_form_meta' => 'nf3_form_meta']
+    ),
+    'every source-reviewed core serialized-array key binds the typed-table plain-data codec'
+);
 duo_check_same('2.0.0', $manifest['providers'][0]['version'] ?? null, 'manifest requires the strengthened provider identity');
 duo_check_same(
     ['Ninja_Forms'],

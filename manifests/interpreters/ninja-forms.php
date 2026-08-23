@@ -38,6 +38,13 @@ final class NinjaForms {
 
     private const MAX_SERIALIZED_NODES = 200000;
 
+    /** Core 3.x settings whose model contract is an array serialized at rest. */
+    private const PLAIN_DATA_META_KEYS = [
+        'nf3_forms' => ['calculations', 'formContentData'],
+        'nf3_fields' => ['image_options', 'options', 'shipping_options'],
+        'nf3_actions' => ['exception_fields'],
+    ];
+
     public function __construct(Policy $policy) {
         // The contract is the exact built-in 3.x vocabulary above. Runtime
         // registry readback below only narrows that vocabulary for the active
@@ -84,17 +91,40 @@ final class NinjaForms {
 
             foreach (['columns' => $columns, 'meta' => $meta] as $section => $values) {
                 foreach ($values as $key => $value) {
+                    $locator = $section . '.' . (string) $key;
+                    $plainData = $section === 'meta'
+                        && in_array(
+                            (string) $key,
+                            self::PLAIN_DATA_META_KEYS[$table] ?? [],
+                            true
+                        );
+                    if ($plainData) {
+                        $problem = $this->plain_data_problem($value);
+                        if ($problem !== null) {
+                            $out[] = $this->diagnostic($path, $locator, $problem);
+                        }
+                        continue;
+                    }
+
+                    if ($section === 'meta' && is_array($value)) {
+                        $out[] = $this->diagnostic(
+                            $path,
+                            $locator,
+                            "Ninja Forms structured setting '$key' is not a certified core 3.x plain-data key; "
+                            . 'optional add-on metadata is outside this adapter'
+                        );
+                        continue;
+                    }
                     if (!is_string($value) || !$this->looks_serialized($value)) {
                         continue;
                     }
                     $problem = $this->serialized_problem($value);
-                    if ($problem !== null) {
-                        $out[] = $this->diagnostic(
-                            $path,
-                            $section . '.' . (string) $key,
-                            $problem
-                        );
-                    }
+                    $out[] = $this->diagnostic(
+                        $path,
+                        $locator,
+                        $problem ?? "Ninja Forms serialized setting '$key' is not a certified core 3.x "
+                            . 'plain-data key; optional add-on metadata is outside this adapter'
+                    );
                 }
             }
         }
@@ -141,6 +171,32 @@ final class NinjaForms {
         }
         if (serialize($decoded) !== $value) {
             return 'Ninja Forms serialized setting is noncanonical or has trailing bytes';
+        }
+        return null;
+    }
+
+    private function plain_data_problem(mixed $value): ?string {
+        if (is_string($value) && $this->looks_serialized($value)) {
+            $problem = $this->serialized_problem($value);
+            return $problem
+                ?? 'Ninja Forms core array setting contains raw PHP serialization in canonical state; '
+                    . 'the manifest plain-data codec must decode storage bytes before compilation';
+        }
+        if (!is_array($value)) {
+            return 'Ninja Forms core array setting must be canonical native plain data';
+        }
+        $nodes = 0;
+        if (!$this->plain_serialized_value($value, 0, $nodes)) {
+            return 'Ninja Forms plain-data setting contains an object, resource, reference, excessive depth, '
+                . 'or excessive node count';
+        }
+        try {
+            $encoded = serialize($value);
+        } catch (\Throwable) {
+            return 'Ninja Forms plain-data setting cannot be serialized canonically';
+        }
+        if (strlen($encoded) > self::MAX_SERIALIZED_BYTES) {
+            return 'Ninja Forms plain-data setting exceeds the reviewed 16 MiB per-value boundary';
         }
         return null;
     }

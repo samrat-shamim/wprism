@@ -284,6 +284,13 @@ final class TypedTableMaterializer {
                     "table '$metaTable' key '$key'"
                 );
                 $desiredRaw[$key] = ($this->serializeValue)($encoded);
+            } elseif (!empty($rule['plain_data'])) {
+                // The injected serializer is WordPress' maybe_serialize() in
+                // production, so native arrays regain canonical storage only
+                // after every nested URL has been rebound for this target.
+                $desiredRaw[$key] = ($this->serializeValue)(
+                    $tokens->plain_data_apply($value)
+                );
             } elseif (!empty($rule['ref'])) {
                 $desiredRaw[$key] = $value === null ? '0' : (string) $tokens->token_to_id((string) $value);
             } elseif (is_string($value)) {

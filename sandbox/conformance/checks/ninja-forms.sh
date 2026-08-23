@@ -73,15 +73,17 @@ $largeBytes = $disposableField > 0 ? (int) $wpdb->get_var($wpdb->prepare(
     $disposableField
 )) : 0;
 $serialized = $disposableField > 0 ? $wpdb->get_var($wpdb->prepare(
-    "SELECT meta_value FROM {$wpdb->prefix}nf3_field_meta WHERE parent_id=%d AND meta_key='duo_serialized_options'",
+    "SELECT meta_value FROM {$wpdb->prefix}nf3_field_meta WHERE parent_id=%d AND meta_key='options'",
     $disposableField
 )) : null;
 $serializedValid = false;
+$serializedUrl = null;
 if (is_string($serialized)) {
     $decoded = @unserialize($serialized, ['allowed_classes' => false, 'max_depth' => 64]);
     $serializedValid = is_array($decoded)
-        && ($decoded['choices'][0]['label'] ?? null) === '東京'
+        && ($decoded[0]['label'] ?? null) === '東京'
         && serialize($decoded) === $serialized;
+    $serializedUrl = is_array($decoded) ? ($decoded[0]['value'] ?? null) : null;
 }
 
 $cacheRows = $wpdb->get_results(
@@ -161,6 +163,7 @@ echo wp_json_encode([
         'disposable_action' => $disposableAction,
         'large_bytes' => $largeBytes,
         'serialized_valid' => $serializedValid,
+        'serialized_url' => $serializedUrl,
     ],
     'cache' => [
         'form_ids' => $formIds,
@@ -193,11 +196,12 @@ ninja_target_hash() {
 SOURCE=$(observe_ninja_forms conf1)
 TARGET=$(observe_ninja_forms conf2)
 require_observed_nonempty "conf2 Ninja Forms API observation" "$TARGET"
-jq -e --arg version "$NINJA_EXPECTED_VERSION" '
+jq -e --arg version "$NINJA_EXPECTED_VERSION" --arg target_home "http://localhost:${CONF2_PORT}" '
   .version == $version and .form.title == "Job Application" and
   .form.native_fields == 24 and .form.native_actions == 4 and
   .form.disposable_field > 0 and .form.disposable_action > 0 and
   .form.large_bytes > 100000 and .form.serialized_valid == true and
+  .form.serialized_url == ($target_home + "/conformance-careers/?from=ninja") and
   .cache.form_ids == [.form.id] and .cache.cache_ids == [.form.id] and
   .cache.invalid == 0 and .cache.missing == [] and .cache.orphan == [] and .cache.legacy == [] and
   .meta_mirror_mismatch == 0 and
@@ -390,7 +394,7 @@ PHPEOF
 SOURCE_DISPOSABLE_FIELD=$(jq -r '.form.disposable_field' <<<"$SOURCE")
 require_fixture_ids SOURCE_DISPOSABLE_FIELD
 SOURCE_META_BACKUP=$(wp_conf1 db query \
-  "SELECT HEX(meta_value) FROM wp_nf3_field_meta WHERE parent_id=$SOURCE_DISPOSABLE_FIELD AND meta_key='duo_serialized_options'" \
+  "SELECT HEX(meta_value) FROM wp_nf3_field_meta WHERE parent_id=$SOURCE_DISPOSABLE_FIELD AND meta_key='options'" \
   --skip-column-names | tr -d '[:space:]')
 require_observed_nonempty 'Ninja Forms serialized setting backup' "$SOURCE_META_BACKUP"
 CAPTURE_BASELINE=$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)
@@ -398,7 +402,7 @@ CAPTURE_BASELINE=$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all
 
 MALFORMED_HEX=$(php -r 'echo bin2hex("a:1:{i:0;s:7:\"truncated\";");')
 wp_conf1 db query \
-  "UPDATE wp_nf3_field_meta SET value=UNHEX('$MALFORMED_HEX'),meta_value=UNHEX('$MALFORMED_HEX') WHERE parent_id=$SOURCE_DISPOSABLE_FIELD AND meta_key='duo_serialized_options'" >/dev/null
+  "UPDATE wp_nf3_field_meta SET value=UNHEX('$MALFORMED_HEX'),meta_value=UNHEX('$MALFORMED_HEX') WHERE parent_id=$SOURCE_DISPOSABLE_FIELD AND meta_key='options'" >/dev/null
 MALFORMED_RC=0
 MALFORMED_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || MALFORMED_RC=$?
 require_duo_answered 'Ninja Forms malformed serialized capture' human "$MALFORMED_OUT"
@@ -408,11 +412,11 @@ require_duo_answered 'Ninja Forms malformed serialized capture' human "$MALFORME
   || fail 'Ninja Forms malformed serialized refusal partially published canonical state'
 
 wp_conf1 db query \
-  "UPDATE wp_nf3_field_meta SET value=UNHEX('$SOURCE_META_BACKUP'),meta_value=UNHEX('$SOURCE_META_BACKUP') WHERE parent_id=$SOURCE_DISPOSABLE_FIELD AND meta_key='duo_serialized_options'" >/dev/null
+  "UPDATE wp_nf3_field_meta SET value=UNHEX('$SOURCE_META_BACKUP'),meta_value=UNHEX('$SOURCE_META_BACKUP') WHERE parent_id=$SOURCE_DISPOSABLE_FIELD AND meta_key='options'" >/dev/null
 FAKE_SECRET='sk_live_1234567890ABCDEFGHIJ'
 SECRET_HEX=$(php -r 'echo bin2hex("sk_live_1234567890ABCDEFGHIJ");')
 wp_conf1 db query \
-  "UPDATE wp_nf3_field_meta SET value=UNHEX('$SECRET_HEX'),meta_value=UNHEX('$SECRET_HEX') WHERE parent_id=$SOURCE_DISPOSABLE_FIELD AND meta_key='duo_serialized_options'" >/dev/null
+  "UPDATE wp_nf3_field_meta SET value=UNHEX('$SECRET_HEX'),meta_value=UNHEX('$SECRET_HEX') WHERE parent_id=$SOURCE_DISPOSABLE_FIELD AND meta_key='options'" >/dev/null
 SECRET_RC=0
 SECRET_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || SECRET_RC=$?
 require_duo_answered 'Ninja Forms credential-shaped setting capture' human "$SECRET_OUT"
@@ -423,7 +427,7 @@ require_duo_answered 'Ninja Forms credential-shaped setting capture' human "$SEC
   || fail 'Ninja Forms secret refusal partially published canonical state'
 
 wp_conf1 db query \
-  "UPDATE wp_nf3_field_meta SET value=UNHEX('$SOURCE_META_BACKUP'),meta_value=UNHEX('$SOURCE_META_BACKUP') WHERE parent_id=$SOURCE_DISPOSABLE_FIELD AND meta_key='duo_serialized_options'; UPDATE wp_nf3_fields SET type='file_upload' WHERE id=$SOURCE_DISPOSABLE_FIELD" >/dev/null
+  "UPDATE wp_nf3_field_meta SET value=UNHEX('$SOURCE_META_BACKUP'),meta_value=UNHEX('$SOURCE_META_BACKUP') WHERE parent_id=$SOURCE_DISPOSABLE_FIELD AND meta_key='options'; UPDATE wp_nf3_fields SET type='file_upload' WHERE id=$SOURCE_DISPOSABLE_FIELD" >/dev/null
 ADDON_RC=0
 ADDON_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || ADDON_RC=$?
 require_duo_answered 'Ninja Forms optional add-on type capture' human "$ADDON_OUT"
@@ -431,7 +435,7 @@ require_duo_answered 'Ninja Forms optional add-on type capture' human "$ADDON_OU
   || fail "Ninja Forms optional add-on field type did not refuse: $ADDON_OUT"
 [ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$CAPTURE_BASELINE" ] \
   || fail 'Ninja Forms add-on refusal partially published canonical state'
-wp_conf1 db query "UPDATE wp_nf3_fields SET type='textarea' WHERE id=$SOURCE_DISPOSABLE_FIELD" >/dev/null
+wp_conf1 db query "UPDATE wp_nf3_fields SET type='listselect' WHERE id=$SOURCE_DISPOSABLE_FIELD" >/dev/null
 wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-ninja-hostile-restored >/dev/null
 diff -r "$CONF_REPO1/state" "$CONF_REPO1/.tmp-ninja-hostile-restored" \
   || fail 'Ninja Forms source did not restore byte-identically after malformed/secret/add-on probes'

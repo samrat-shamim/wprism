@@ -272,6 +272,15 @@ final class TypedTableCapture {
                 $out[$key] = !empty($rule['order_preserving'])
                     ? new OrderPreserved($captured)
                     : $captured;
+            } elseif (!empty($rule['plain_data'])) {
+                // Tokenizing serialized storage bytes directly corrupts PHP's
+                // byte-count prefixes when a nested URL changes length. Decode
+                // first, then rewrite only native string leaves, matching the
+                // post/term/options plain-data path.
+                $plain = PlainData::decode($value, $context);
+                PlainData::assert($plain, $context);
+                self::guard_secret($plain, !empty($rule['allow_secret']), $context);
+                $out[$key] = $tokens->plain_data_capture($plain);
             } elseif (!empty($rule['ref'])) {
                 self::guard_secret($value, !empty($rule['allow_secret']), $context);
                 $localId = (int) $value;
