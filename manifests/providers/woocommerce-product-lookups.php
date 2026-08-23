@@ -452,9 +452,11 @@ final class WoocommerceProductLookups {
     }
 
     /**
-     * Bind the exact presence and timestamp of both Woo scheduled-sale hooks
-     * for every observed product. Counts alone cannot distinguish a replaced
-     * timestamp, which would otherwise let scoped recovery retire stale work.
+     * Bind the exact active cardinality and next state of both Woo scheduled-
+     * sale hooks for every observed product. Woo 11.0.0/11.0.1's public next
+     * helper returns only one action, so the bounded two-row status queries
+     * are what distinguish the valid 0/1 states from duplicate work without
+     * exposing action ids in a receipt.
      *
      * @param list<int> $ids
      * @return array{sale_schedule_products:int,sale_schedule_actions:int,sale_schedule_scope_sha256:string}
@@ -471,19 +473,10 @@ final class WoocommerceProductLookups {
             $this->fingerprint_part($fingerprint, (string) $id);
             foreach (['wc_product_start_scheduled_sale', 'wc_product_end_scheduled_sale'] as $hook) {
                 $this->fingerprint_part($fingerprint, $hook);
-                $actual = \as_next_scheduled_action($hook, ['product_id' => $id], 'woocommerce-sales');
-                if ($actual === false || $actual === null) {
-                    $this->fingerprint_part($fingerprint, 'absent');
-                    continue;
-                }
-                if (!is_int($actual) || $actual <= 0) {
-                    throw new \RuntimeException(
-                        "duo: WooCommerce sale schedule receipt returned an unusable timestamp for product $id ($hook)"
-                    );
-                }
-                $actions++;
-                $this->fingerprint_part($fingerprint, 'present');
-                $this->fingerprint_part($fingerprint, (string) $actual);
+                $state = $this->sale_action_state($id, $hook);
+                $actions += $state['count'];
+                $this->fingerprint_part($fingerprint, (string) $state['count']);
+                $this->fingerprint_part($fingerprint, $state['next']);
             }
         }
         return [
@@ -491,6 +484,55 @@ final class WoocommerceProductLookups {
             'sale_schedule_actions' => $actions,
             'sale_schedule_scope_sha256' => hash_final($fingerprint),
         ];
+    }
+
+    /** @return array{count:int,next:string} */
+    private function sale_action_state(int $id, string $hook): array {
+        $args = ['product_id' => $id];
+        $count = 0;
+        foreach (['pending', 'in-progress'] as $status) {
+            $ids = \as_get_scheduled_actions([
+                'hook' => $hook,
+                'args' => $args,
+                'group' => 'woocommerce-sales',
+                'status' => $status,
+                'per_page' => 2,
+                'orderby' => 'none',
+            ], 'ids');
+            if (!is_array($ids) || count($ids) > 2) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce sale schedule cardinality read failed for product $id ($hook)"
+                );
+            }
+            foreach ($ids as $actionId) {
+                if ((!is_int($actionId) && !is_string($actionId))
+                    || (int) $actionId <= 0 || (string) (int) $actionId !== (string) $actionId) {
+                    throw new \RuntimeException(
+                        "duo: WooCommerce sale schedule cardinality read returned an unusable identity for product $id ($hook)"
+                    );
+                }
+            }
+            $count += count($ids);
+        }
+
+        $next = \as_next_scheduled_action($hook, $args, 'woocommerce-sales');
+        if ($next === false) {
+            $nextState = 'absent';
+        } elseif ($next === true) {
+            $nextState = 'in-progress';
+        } elseif (is_int($next) && $next > 0) {
+            $nextState = 'timestamp:' . $next;
+        } else {
+            throw new \RuntimeException(
+                "duo: WooCommerce sale schedule receipt returned an unusable next state for product $id ($hook)"
+            );
+        }
+        if (($count === 0) !== ($next === false)) {
+            throw new \RuntimeException(
+                "duo: WooCommerce sale schedule APIs disagreed for product $id ($hook)"
+            );
+        }
+        return ['count' => $count, 'next' => $nextState];
     }
 
     /** @param resource|\HashContext $fingerprint */
@@ -580,7 +622,13 @@ final class WoocommerceProductLookups {
      * approval of an unreviewed locator.
      *
      * @param list<int> $ids
-     * @return list<array{product_id:int,download_id:string,file:string}>
+     * Exact Woo 11.0.0/11.0.1 writers persist the four WC_Product_Download
+     * data keys; their reader also accepts legacy name/file-only rows and
+     * derives id/enabled from the map key and approval check. Extension
+     * `extra_data` keys are deliberately refused because no core semantic can
+     * independently verify them.
+     *
+     * @return list<array{product_id:int,download_id:string,name:string,file:string,enabled:bool}>
      */
     private function authored_downloads(array $ids): array {
         global $wpdb;
@@ -627,12 +675,18 @@ final class WoocommerceProductLookups {
                     );
                 }
                 foreach ($decoded as $downloadId => $value) {
+                    $unknown = is_array($value)
+                        ? array_diff(array_keys($value), ['id', 'name', 'file', 'enabled'])
+                        : [];
                     if (!is_string($downloadId) || $downloadId === ''
                         || !is_array($value) || array_is_list($value)
+                        || $unknown !== []
                         || !is_string($value['name'] ?? null)
                         || !is_string($value['file'] ?? null) || $value['file'] === ''
-                        || (array_key_exists('id', $value) && $value['id'] !== $downloadId)
-                        || (array_key_exists('enabled', $value) && $value['enabled'] !== true)) {
+                        || (array_key_exists('id', $value)
+                            && (!is_string($value['id']) || $value['id'] !== $downloadId))
+                        || (array_key_exists('enabled', $value)
+                            && (!is_bool($value['enabled']) || $value['enabled'] !== true))) {
                         throw new \RuntimeException(
                             "duo: WooCommerce product $productId has an unsupported downloadable-file row"
                         );
@@ -647,15 +701,17 @@ final class WoocommerceProductLookups {
                     $out[] = [
                         'product_id' => $productId,
                         'download_id' => $downloadId,
+                        'name' => $value['name'],
                         'file' => $file,
+                        'enabled' => true,
                     ];
                 }
             }
         }
         usort($out, static fn(array $left, array $right): int => [
-            $left['product_id'], $left['download_id'], $left['file'],
+            $left['product_id'], $left['download_id'], $left['name'], $left['file'],
         ] <=> [
-            $right['product_id'], $right['download_id'], $right['file'],
+            $right['product_id'], $right['download_id'], $right['name'], $right['file'],
         ]);
         return $out;
     }
@@ -684,7 +740,7 @@ final class WoocommerceProductLookups {
         return $register;
     }
 
-    /** @param array{product_id:int,download_id:string,file:string} $download */
+    /** @param array{product_id:int,download_id:string,name:string,file:string,enabled:bool} $download */
     private function download_parent_url(array $download): string {
         $class = '\\Automattic\\WooCommerce\\Internal\\Utilities\\URL';
         if (!class_exists($class)) {
@@ -704,7 +760,7 @@ final class WoocommerceProductLookups {
         return $parent;
     }
 
-    /** @param array{product_id:int,download_id:string,file:string} $download */
+    /** @param array{product_id:int,download_id:string,name:string,file:string,enabled:bool} $download */
     private function download_path_is_valid(object $register, array $download): bool {
         try {
             return $register->is_valid_path($download['file']) === true;
@@ -716,7 +772,7 @@ final class WoocommerceProductLookups {
         }
     }
 
-    /** @param array{product_id:int,download_id:string,file:string} $download */
+    /** @param array{product_id:int,download_id:string,name:string,file:string,enabled:bool} $download */
     private function download_label(array $download): string {
         return substr(hash('sha256', $download['product_id'] . "\0" . $download['download_id']), 0, 12);
     }
@@ -726,14 +782,31 @@ final class WoocommerceProductLookups {
      * @return array{download_files:int,download_directories:int,usable_download_files:int,directory_mode:string,download_scope_sha256:string}
      */
     private function download_directory_state(array $ids, bool $verifyNative): array {
+        $ids = array_values(array_unique(array_filter(
+            array_map('intval', $ids),
+            static fn(int $id): bool => $id > 0
+        )));
+        sort($ids, SORT_NUMERIC);
         $downloads = $this->authored_downloads($ids);
         $fingerprint = hash_init('sha256');
+        foreach ($ids as $id) {
+            $this->fingerprint_part($fingerprint, 'product:' . $id);
+        }
         foreach ($downloads as $download) {
-            foreach ([(string) $download['product_id'], $download['download_id'], $download['file']] as $part) {
-                hash_update($fingerprint, strlen($part) . ':' . $part . ';');
+            foreach ([
+                (string) $download['product_id'],
+                $download['download_id'],
+                $download['name'],
+                $download['file'],
+                $download['enabled'] ? 'enabled' : 'disabled',
+            ] as $part) {
+                $this->fingerprint_part($fingerprint, $part);
             }
         }
         if ($downloads === []) {
+            if ($verifyNative) {
+                $this->verify_native_downloads($ids, []);
+            }
             return [
                 'download_files' => 0,
                 'download_directories' => 0,
@@ -768,7 +841,7 @@ final class WoocommerceProductLookups {
             );
         }
         if ($verifyNative) {
-            $this->verify_native_downloads($downloads);
+            $this->verify_native_downloads($ids, $downloads);
         }
         return [
             'download_files' => count($downloads),
@@ -779,9 +852,15 @@ final class WoocommerceProductLookups {
         ];
     }
 
-    /** @param list<array{product_id:int,download_id:string,file:string}> $downloads */
-    private function verify_native_downloads(array $downloads): void {
+    /**
+     * @param list<int> $productIds
+     * @param list<array{product_id:int,download_id:string,name:string,file:string,enabled:bool}> $downloads
+     */
+    private function verify_native_downloads(array $productIds, array $downloads): void {
         $byProduct = [];
+        foreach ($productIds as $productId) {
+            $byProduct[(int) $productId] = [];
+        }
         foreach ($downloads as $download) {
             $byProduct[$download['product_id']][$download['download_id']] = $download;
         }
@@ -798,13 +877,37 @@ final class WoocommerceProductLookups {
                     "duo: WooCommerce product $productId returned an unreadable native download collection"
                 );
             }
+            $expectedIds = array_keys($expected);
+            sort($expectedIds, SORT_STRING);
+            $nativeIds = array_keys($native);
+            if (count(array_filter($nativeIds, 'is_string')) !== count($nativeIds)) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce product $productId returned non-string native download identities; recovery_required"
+                );
+            }
+            sort($nativeIds, SORT_STRING);
+            if ($nativeIds !== $expectedIds) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce native download cardinality or identity verification failed for product $productId; "
+                    . 'recovery_required'
+                );
+            }
             foreach ($expected as $downloadId => $download) {
-                $value = $native[$downloadId] ?? null;
+                $value = $native[$downloadId];
+                $expectedName = $download['name'];
+                if ($expectedName === '') {
+                    $expectedName = \wc_get_filename_from_url($download['file']);
+                }
                 if (!is_object($value)
+                    || !is_callable([$value, 'get_id'])
+                    || !is_callable([$value, 'get_name'])
                     || !is_callable([$value, 'get_file'])
                     || !is_callable([$value, 'get_enabled'])
+                    || !is_string($expectedName)
+                    || !hash_equals($downloadId, (string) $value->get_id())
+                    || !hash_equals($expectedName, (string) $value->get_name())
                     || !hash_equals($download['file'], (string) $value->get_file())
-                    || $value->get_enabled() !== true) {
+                    || $value->get_enabled() !== $download['enabled']) {
                     throw new \RuntimeException(
                         "duo: WooCommerce native download verification failed for product $productId download "
                         . $this->download_label($download) . '; recovery_required'
@@ -1378,20 +1481,19 @@ final class WoocommerceProductLookups {
             }
 
             foreach ($expected as $hook => $timestamp) {
-                $actual = \as_next_scheduled_action($hook, ['product_id' => $id], 'woocommerce-sales');
+                $actual = $this->sale_action_state($id, $hook);
                 $this->heartbeat($heartbeat);
-                $hasActual = $actual !== false && $actual !== null;
                 if ($timestamp === null) {
-                    if ($hasActual) {
+                    if ($actual['count'] !== 0 || $actual['next'] !== 'absent') {
                         throw new \RuntimeException(
-                            "duo: WooCommerce sale schedule verification found unexpected $hook for product $id"
+                            "duo: WooCommerce sale schedule verification found unexpected or duplicate $hook for product $id"
                         );
                     }
                     continue;
                 }
-                if (!$hasActual || (int) $actual !== $timestamp) {
+                if ($actual['count'] !== 1 || $actual['next'] !== 'timestamp:' . $timestamp) {
                     throw new \RuntimeException(
-                        "duo: WooCommerce sale schedule verification mismatch for product $id ($hook)"
+                        "duo: WooCommerce sale schedule verification cardinality or timestamp mismatch for product $id ($hook)"
                     );
                 }
             }
@@ -2183,11 +2285,34 @@ final class WoocommerceProductLookups {
         if ((int) $matches === 1) {
             return;
         }
+        $columns = array_keys($expected);
+        sort($columns, SORT_STRING);
         throw new \RuntimeException(
             "duo: WooCommerce product lookup verification mismatch for product $id — $failure "
-            . '(expected ' . var_export($expected, true)
-            . ', stored ' . var_export($stored, true) . ')'
+            . '(columns=' . count($columns)
+            . '; expected_sha256=' . $this->lookup_value_digest($expected, $columns)
+            . '; stored_sha256=' . $this->lookup_value_digest($stored, $columns) . ')'
         );
+    }
+
+    /** @param array<string,mixed> $values @param list<string> $columns */
+    private function lookup_value_digest(array $values, array $columns): string {
+        $fingerprint = hash_init('sha256');
+        foreach ($columns as $column) {
+            $this->fingerprint_part($fingerprint, $column);
+            if (!array_key_exists($column, $values)) {
+                $this->fingerprint_part($fingerprint, 'absent');
+                continue;
+            }
+            $value = $values[$column];
+            if ($value === null) {
+                $this->fingerprint_part($fingerprint, 'null');
+                continue;
+            }
+            $this->fingerprint_part($fingerprint, get_debug_type($value));
+            $this->fingerprint_part($fingerprint, is_scalar($value) ? (string) $value : 'non-scalar');
+        }
+        return hash_final($fingerprint);
     }
 
     /**

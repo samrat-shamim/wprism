@@ -59,6 +59,7 @@ check(is_array($declaration)
 $expectedRequires = [
     'functions' => [
         'wc_get_product',
+        'wc_get_filename_from_url',
         'wc_get_container',
         'wc_get_attribute_taxonomies',
         'wc_attribute_taxonomy_name',
@@ -72,6 +73,7 @@ $expectedRequires = [
         'add_post_meta',
         'wc_maybe_schedule_product_sale_events',
         'as_unschedule_all_actions',
+        'as_get_scheduled_actions',
         'as_next_scheduled_action',
         'wp_cache_get',
         'wp_cache_delete',
@@ -201,6 +203,7 @@ $needles = [
     "query('ROLLBACK')" => 'a throwing parent sync rolls back its partial derived-price mutation',
     'wc_maybe_schedule_product_sale_events' => 'sale actions use Woo public per-product scheduling',
     'as_unschedule_all_actions' => 'deleted sale actions use bounded public unscheduling',
+    'as_get_scheduled_actions' => 'sale action verification detects duplicate active rows with bounded public queries',
     'as_next_scheduled_action' => 'sale actions have exact Action Scheduler readback',
     'verify_sale_schedules' => 'sale schedule verification is explicit and separate from lookup verification',
     // DUO-3342: meta-lookup verification is WooCommerce's own derivation read

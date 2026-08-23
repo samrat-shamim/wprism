@@ -11,8 +11,10 @@ use Duo\Policy;
  * six-field row map.
  * Its native reader silently drops a non-array value and fills missing row
  * fields with defaults, so canonical JSON can otherwise be valid while the
- * promoted catalog loses merchant-authored attributes. Keep extension-owned
- * extra fields portable, but reject corruption of the core row contract.
+ * promoted catalog loses merchant-authored attributes. Both native attribute
+ * and download writers merge extension `extra_data` into postmeta, so unknown
+ * row fields are addon-owned schema and must refuse rather than inherit this
+ * core adapter's production claim.
  */
 final class Woocommerce {
     private const REQUIRED_FIELDS = [
@@ -22,6 +24,13 @@ final class Woocommerce {
         'is_visible',
         'is_variation',
         'is_taxonomy',
+    ];
+
+    private const DOWNLOAD_FIELDS = [
+        'id',
+        'name',
+        'file',
+        'enabled',
     ];
 
     public function __construct(private readonly Policy $policy) {}
@@ -101,6 +110,15 @@ final class Woocommerce {
             if (!is_array($row) || array_is_list($row)) {
                 $out[] = $this->diagnostic($path, $locator, 'WooCommerce downloadable-file rows must be named objects');
                 continue;
+            }
+            $unknown = array_values(array_diff(array_keys($row), self::DOWNLOAD_FIELDS));
+            if ($unknown !== []) {
+                $out[] = $this->diagnostic(
+                    $path,
+                    $locator,
+                    'WooCommerce downloadable-file row has unsupported addon-owned field(s): '
+                    . implode(', ', array_map('strval', $unknown))
+                );
             }
             foreach (['name', 'file'] as $field) {
                 if (!array_key_exists($field, $row) || !is_string($row[$field])) {
@@ -197,6 +215,15 @@ final class Woocommerce {
                     'WooCommerce product attribute row is missing required field(s): ' . implode(', ', $missing)
                 );
                 continue;
+            }
+            $unknown = array_values(array_diff(array_keys($row), self::REQUIRED_FIELDS));
+            if ($unknown !== []) {
+                $out[] = $this->diagnostic(
+                    $path,
+                    $locator,
+                    'WooCommerce product attribute row has unsupported addon-owned field(s): '
+                    . implode(', ', array_map('strval', $unknown))
+                );
             }
             if (!is_string($row['name']) || $row['name'] === '') {
                 $out[] = $this->diagnostic($path, "$locator.name", 'WooCommerce product attribute name must be a non-empty string');

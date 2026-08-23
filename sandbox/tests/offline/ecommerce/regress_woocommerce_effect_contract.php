@@ -567,6 +567,7 @@ woo_effect_check(
             'requires' => [
                 'functions' => [
                     'wc_get_product',
+                    'wc_get_filename_from_url',
                     'wc_get_container',
                     'wc_get_attribute_taxonomies',
                     'wc_attribute_taxonomy_name',
@@ -580,6 +581,7 @@ woo_effect_check(
                     'add_post_meta',
                     'wc_maybe_schedule_product_sale_events',
                     'as_unschedule_all_actions',
+                    'as_get_scheduled_actions',
                     'as_next_scheduled_action',
                     'wp_cache_get',
                     'wp_cache_delete',

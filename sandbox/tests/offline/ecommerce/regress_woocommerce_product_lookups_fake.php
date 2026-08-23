@@ -609,7 +609,14 @@ namespace {
     }
 
     final class FakeProductDownload {
-        public function __construct(private string $file, private bool $enabled) {}
+        public function __construct(
+            private string $id,
+            private string $name,
+            private string $file,
+            private bool $enabled
+        ) {}
+        public function get_id(): string { return $this->id; }
+        public function get_name(): string { return $this->name; }
         public function get_file(): string { return $this->file; }
         public function get_enabled(): bool { return $this->enabled; }
     }
@@ -671,7 +678,10 @@ namespace {
         }
         public function get_attributes(): array { return $this->attributes; }
         public function get_downloads(): array {
-            global $fakeMeta;
+            global $fakeMeta, $fakeNativeDownloadOverrides;
+            if (array_key_exists($this->id, $fakeNativeDownloadOverrides)) {
+                return $fakeNativeDownloadOverrides[$this->id];
+            }
             $raw = maybe_unserialize((string) ($fakeMeta[$this->id]['_downloadable_files'][0] ?? 'a:0:{}'));
             if (!is_array($raw)) {
                 return [];
@@ -685,7 +695,11 @@ namespace {
                 }
                 $enabled = $register->mode === $register::MODE_DISABLED
                     || $register->is_valid_path($row['file']);
-                $out[(string) $id] = new FakeProductDownload($row['file'], $enabled);
+                $name = (string) ($row['name'] ?? '');
+                if ($name === '') {
+                    $name = wc_get_filename_from_url($row['file']);
+                }
+                $out[(string) $id] = new FakeProductDownload((string) $id, $name, $row['file'], $enabled);
             }
             return $out;
         }
@@ -1087,7 +1101,12 @@ namespace {
     $fakeSyncFailures = ['variable' => [], 'grouped' => []];
     $fakeMetaRestoreFailures = [];
     $fakeDownloadMetaRows = [];
+    $fakeNativeDownloadOverrides = [];
     $fakeSaleSchedules = [
+        'wc_product_start_scheduled_sale' => [],
+        'wc_product_end_scheduled_sale' => [],
+    ];
+    $fakeSaleScheduleDuplicates = [
         'wc_product_start_scheduled_sale' => [],
         'wc_product_end_scheduled_sale' => [],
     ];
@@ -1127,17 +1146,22 @@ namespace {
         }
         return $fakeProductCache[$id] = $product;
     }
+    function wc_get_filename_from_url(string $file): string {
+        $path = (string) (parse_url($file, PHP_URL_PATH) ?? '');
+        return basename($path);
+    }
     function fake_sale_date(int $id, string $key): ?FakeSaleDate {
         global $fakeMeta;
         $value = (string) ($fakeMeta[$id][$key][0] ?? '');
         return $value === '' || (int) $value <= 0 ? null : new FakeSaleDate((int) $value);
     }
     function wc_maybe_schedule_product_sale_events($id, $product = null): void {
-        global $fakeSaleSchedules, $fakeSaleScheduleCalls;
+        global $fakeSaleSchedules, $fakeSaleScheduleCalls, $fakeSaleScheduleDuplicates;
         $id = (int) $id;
         $fakeSaleScheduleCalls[] = $id;
         foreach (array_keys($fakeSaleSchedules) as $hook) {
             unset($fakeSaleSchedules[$hook][$id]);
+            unset($fakeSaleScheduleDuplicates[$hook][$id]);
         }
         if (!is_object($product)) {
             $product = wc_get_product($id);
@@ -1156,12 +1180,34 @@ namespace {
         }
     }
     function as_unschedule_all_actions(string $hook, array $args = [], string $group = ''): int {
-        global $fakeSaleSchedules, $fakeSaleUnscheduleCalls;
+        global $fakeSaleSchedules, $fakeSaleUnscheduleCalls, $fakeSaleScheduleDuplicates;
         $id = (int) ($args['product_id'] ?? 0);
         $fakeSaleUnscheduleCalls[] = $id;
-        $had = isset($fakeSaleSchedules[$hook][$id]);
+        $removed = isset($fakeSaleSchedules[$hook][$id]) ? 1 : 0;
+        $removed += (int) ($fakeSaleScheduleDuplicates[$hook][$id] ?? 0);
         unset($fakeSaleSchedules[$hook][$id]);
-        return $had ? 1 : 0;
+        unset($fakeSaleScheduleDuplicates[$hook][$id]);
+        return $removed;
+    }
+    function as_get_scheduled_actions(array $query = [], string $returnFormat = 'OBJECT'): array {
+        global $fakeSaleSchedules, $fakeSaleScheduleDuplicates;
+        if ($returnFormat !== 'ids'
+            || ($query['group'] ?? '') !== 'woocommerce-sales'
+            || ($query['status'] ?? '') !== 'pending') {
+            return [];
+        }
+        $hook = (string) ($query['hook'] ?? '');
+        $id = (int) (($query['args']['product_id'] ?? 0));
+        if (!isset($fakeSaleSchedules[$hook][$id])) {
+            return [];
+        }
+        $base = $id * 1000 + ($hook === 'wc_product_start_scheduled_sale' ? 100 : 200);
+        $ids = [$base];
+        $duplicates = (int) ($fakeSaleScheduleDuplicates[$hook][$id] ?? 0);
+        for ($index = 1; $index <= $duplicates; $index++) {
+            $ids[] = $base + $index;
+        }
+        return array_slice($ids, 0, (int) ($query['per_page'] ?? 5));
     }
     function as_next_scheduled_action(string $hook, array $args = [], string $group = ''): int|false {
         global $fakeSaleSchedules, $fakeSaleVerificationFailure;
@@ -1462,14 +1508,21 @@ namespace {
     // the same provider entry point a real apply invokes.
     $downloadId = '0123456789abcdef0123456789abcdef';
     $downloadFile = 'https://target.example/uploads/2030/01/catalog.pdf?download=1&label=tokyo';
-    $downloadRow = static fn(string $file, bool $enabled = true): string => serialize([
-        $downloadId => [
+    $downloadRow = static function (
+        string $file,
+        bool $enabled = true,
+        string $name = 'Portable catalog 東京.pdf',
+        array $extra = []
+    ) use ($downloadId): string {
+        return serialize([
+            $downloadId => array_merge([
             'id' => $downloadId,
-            'name' => 'Portable catalog 東京.pdf',
+            'name' => $name,
             'file' => $file,
             'enabled' => $enabled,
-        ],
-    ]);
+            ], $extra),
+        ]);
+    };
     $fakeMeta[17] = $fakeMeta[13];
     $fakeMeta[17]['_downloadable'] = ['yes'];
     $fakeMeta[17]['_downloadable_files'] = [$downloadRow($downloadFile)];
@@ -1486,9 +1539,12 @@ namespace {
         'download repair adds the exact target parent through WooCommerce\'s approved-directory API');
     $check(isset($register->rules['https://unrelated.example/private/']),
         'download repair preserves unrelated target-local approved-directory rules');
-    $check($nativeDownload instanceof FakeProductDownload && $nativeDownload->get_enabled() === true
+    $check($nativeDownload instanceof FakeProductDownload
+        && $nativeDownload->get_id() === $downloadId
+        && $nativeDownload->get_name() === 'Portable catalog 東京.pdf'
+        && $nativeDownload->get_enabled() === true
         && $nativeDownload->get_file() === $downloadFile,
-        'the real provider path verifies the exact rebased file as enabled through the native product API');
+        'the real provider path verifies exact native download identity, name, file, and enabled state');
     $addCount = $register->adds;
     $adapter->regenerate_batch([17], []);
     $check($register->adds === $addCount,
@@ -1556,6 +1612,18 @@ namespace {
     }
     $check($disabledFailure,
         'site-local disabled download rows cannot be silently promoted as portable authored state');
+
+    $fakeMeta[17]['_downloadable_files'] = [
+        $downloadRow($downloadFile, true, 'Portable catalog 東京.pdf', ['addon_checksum' => 'unsupported']),
+    ];
+    $unknownDownloadFieldFailure = false;
+    try {
+        $adapter->regenerate_batch([17], []);
+    } catch (\Throwable $failure) {
+        $unknownDownloadFieldFailure = str_contains($failure->getMessage(), 'unsupported downloadable-file row');
+    }
+    $check($unknownDownloadFieldFailure,
+        'addon-owned downloadable-file fields refuse at the executable provider boundary');
 
     $fakeMeta[17]['_downloadable_files'] = [$downloadRow($downloadFile)];
     $fakeDownloadMetaRows[17] = [$downloadRow($downloadFile), $downloadRow($downloadFile)];
@@ -1631,6 +1699,57 @@ namespace {
         $downloadScopeArgs,
         $scopeOperation
     );
+    $nativeBaseline = wc_get_product(17)->get_downloads();
+    $nativeMismatchCases = [
+        'extra identity' => $nativeBaseline + [
+            'extra-download' => new FakeProductDownload(
+                'extra-download',
+                'Extra',
+                $downloadFile,
+                true
+            ),
+        ],
+        'missing identity' => [],
+        'same-count wrong name' => [
+            $downloadId => new FakeProductDownload($downloadId, 'Wrong name', $downloadFile, true),
+        ],
+        'same-count wrong file' => [
+            $downloadId => new FakeProductDownload(
+                $downloadId,
+                'Portable catalog 東京.pdf',
+                $downloadFile . '&native-drift=1',
+                true
+            ),
+        ],
+        'same-count wrong enabled state' => [
+            $downloadId => new FakeProductDownload(
+                $downloadId,
+                'Portable catalog 東京.pdf',
+                $downloadFile,
+                false
+            ),
+        ],
+        'same-count wrong object id' => [
+            $downloadId => new FakeProductDownload(
+                'different-object-id',
+                'Portable catalog 東京.pdf',
+                $downloadFile,
+                true
+            ),
+        ],
+    ];
+    foreach ($nativeMismatchCases as $case => $nativeOverride) {
+        $fakeNativeDownloadOverrides[17] = $nativeOverride;
+        $nativeMismatch = false;
+        try {
+            $adapter->reconcile_scoped('rebuild_product_lookups', $downloadScopeArgs, $scopeOperation);
+        } catch (\Throwable $failure) {
+            $nativeMismatch = str_contains($failure->getMessage(), 'native download');
+        }
+        unset($fakeNativeDownloadOverrides[17]);
+        $check($nativeMismatch, "native download verification refuses $case");
+    }
+
     $fakeMeta[17]['_downloadable_files'] = [$downloadRow($downloadFile . '&revision=2')];
     $downloadDrift = $adapter->reconcile_scoped(
         'rebuild_product_lookups',
@@ -1642,6 +1761,17 @@ namespace {
         && ($downloadDrift['after']['download_scope_sha256'] ?? null)
             !== ($downloadScoped['after']['download_scope_sha256'] ?? null),
         'same-count downloadable-file drift cannot match the saved scoped postcondition');
+    $fakeMeta[17]['_downloadable_files'] = [$downloadRow($downloadFile, true, 'Changed download name')];
+    $downloadNameDrift = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $downloadScopeArgs,
+        $scopeOperation
+    );
+    $check(($downloadNameDrift['after']['download_files'] ?? null)
+            === ($downloadScoped['after']['download_files'] ?? null)
+        && ($downloadNameDrift['after']['download_scope_sha256'] ?? null)
+            !== ($downloadScoped['after']['download_scope_sha256'] ?? null),
+        'same-count downloadable-file name drift cannot match the saved scoped postcondition');
     $fakeMeta[17]['_downloadable_files'] = [$downloadRow($downloadFile)];
     $downloadRecovered = $adapter->reconcile_scoped(
         'rebuild_product_lookups',
@@ -1696,7 +1826,7 @@ namespace {
     try {
         $adapter->regenerate_batch([13], []);
     } catch (\Throwable $failure) {
-        $saleVerificationFailedClosed = str_contains($failure->getMessage(), 'sale schedule verification mismatch');
+        $saleVerificationFailedClosed = str_contains($failure->getMessage(), 'sale schedule APIs disagreed');
     }
     $fakeSaleVerificationFailure = false;
     $check($saleVerificationFailedClosed, 'sale schedule verification refuses a failed Action Scheduler readback');
@@ -1758,6 +1888,35 @@ namespace {
     );
     $check(($saleRecovered['after'] ?? null) === ($productScoped['after'] ?? null),
         'restoring exact scheduled-sale timestamps recovers the saved scoped postcondition');
+
+    $fakeSaleScheduleDuplicates['wc_product_end_scheduled_sale'][13] = 1;
+    $verifySaleSchedules = new \ReflectionMethod($adapter, 'verify_sale_schedules');
+    $duplicateSaleRefused = false;
+    try {
+        $verifySaleSchedules->invoke($adapter, [13], [], [13 => wc_get_product(13)], null);
+    } catch (\Throwable $failure) {
+        $duplicateSaleRefused = str_contains($failure->getMessage(), 'cardinality or timestamp mismatch');
+    }
+    $duplicateSaleDrift = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $productScopeArgs,
+        $scopeOperation
+    );
+    $check($duplicateSaleRefused,
+        'exact sale verification refuses a duplicate action even when the earliest timestamp is correct');
+    $check(($duplicateSaleDrift['after']['sale_schedule_actions'] ?? null)
+            !== ($productScoped['after']['sale_schedule_actions'] ?? null)
+        && ($duplicateSaleDrift['after']['sale_schedule_scope_sha256'] ?? null)
+            !== ($productScoped['after']['sale_schedule_scope_sha256'] ?? null),
+        'duplicate active sale actions cannot match or retire the saved scoped postcondition');
+    unset($fakeSaleScheduleDuplicates['wc_product_end_scheduled_sale'][13]);
+    $duplicateSaleRecovered = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $productScopeArgs,
+        $scopeOperation
+    );
+    $check(($duplicateSaleRecovered['after'] ?? null) === ($productScoped['after'] ?? null),
+        'removing the duplicate action restores the exact scoped sale postcondition');
 
     $groupedDiscovery = new \ReflectionMethod($adapter, 'find_grouped_parent_ids');
     $wpdb->failReadContaining = "meta_key = '_children'";
@@ -2606,7 +2765,12 @@ namespace {
     // The other axis: Woo's write not landing what Woo derived. Real Woo
     // permits this — update_lookup_table() ignores $wpdb->replace()'s return
     // value and caches its derivation unconditionally.
-    $fakeLookupWriteFaults[13] = ['sku' => 'NOT-WHAT-WOO-DERIVED'];
+    $skuLeakMarker = 'sku_secret_marker_DO_NOT_ECHO';
+    $globalIdLeakMarker = 'global_unique_id_secret_marker_DO_NOT_ECHO';
+    $fakeLookupWriteFaults[13] = [
+        'sku' => $skuLeakMarker,
+        'global_unique_id' => $globalIdLeakMarker,
+    ];
     $skuFaultMessage = '';
     try {
         $adapter->regenerate_batch([13], []);
@@ -2616,8 +2780,11 @@ namespace {
     $fakeLookupWriteFaults = [];
     $check(str_contains($skuFaultMessage, 'product lookup verification mismatch for product 13')
         && str_contains($skuFaultMessage, 'did not land the values WooCommerce derived')
-        && str_contains($skuFaultMessage, 'NOT-WHAT-WOO-DERIVED'),
-        'a lookup write that did not land WooCommerce derived values fails closed and names both sides');
+        && str_contains($skuFaultMessage, 'columns=')
+        && substr_count($skuFaultMessage, '_sha256=') === 2
+        && !str_contains($skuFaultMessage, $skuLeakMarker)
+        && !str_contains($skuFaultMessage, $globalIdLeakMarker),
+        'lookup mismatch diagnostics are bounded digests and never echo secret-shaped SKU/global ids');
 
     // PARITY, not a caught defect: stock_quantity is the one column Woo really
     // derives as PHP null (unmanaged stock), and SQL NULL is a different row

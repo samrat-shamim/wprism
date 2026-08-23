@@ -117,10 +117,9 @@ duo_check_same(
             'position' => 2147483647,
             'is_variation' => 0,
             'is_taxonomy' => 0,
-            'extension_plain_field' => ['nested' => 'still portable'],
         ]),
     ]),
-    'local UTF-8 attributes, large positions, and extension-owned plain fields remain portable'
+    'local UTF-8 attributes and large positions remain portable inside the exact core row schema'
 );
 
 woo_readiness_reports($interpreter, 'malformed-string', 'must be an object');
@@ -131,6 +130,11 @@ woo_readiness_reports($interpreter, ['pa_duo-size' => ['name', 'value']], 'rows 
 $missing = woo_readiness_attribute();
 unset($missing['position'], $missing['is_visible']);
 woo_readiness_reports($interpreter, ['pa_duo-size' => $missing], 'missing required field(s): position, is_visible');
+woo_readiness_reports(
+    $interpreter,
+    ['pa_duo-size' => woo_readiness_attribute(['extension_plain_field' => ['addon' => true]])],
+    'unsupported addon-owned field(s): extension_plain_field'
+);
 woo_readiness_reports($interpreter, ['pa_duo-size' => woo_readiness_attribute(['name' => 7])], 'name must be a non-empty string');
 woo_readiness_reports($interpreter, ['pa_duo-size' => woo_readiness_attribute(['value' => ['not' => 'text']])], 'value must be a string');
 woo_readiness_reports($interpreter, ['pa_duo-size' => woo_readiness_attribute(['position' => -1])], 'position must be a non-negative integer');
@@ -165,7 +169,6 @@ $download = [
         'name' => 'Portable catalog 日本語.pdf',
         'file' => '{{home}}/wp-content/uploads/2030/01/catalog.pdf?download=1',
         'enabled' => true,
-        'extension_plain_field' => ['checksum' => str_repeat('f', 64)],
     ],
 ];
 duo_check_same(
@@ -193,6 +196,13 @@ woo_readiness_reports($interpreter, ['download-a' => ['name' => 'A', 'file' => '
 woo_readiness_reports($interpreter, ['download-a' => ['id' => 'download-b', 'name' => 'A', 'file' => 'a']], 'id must equal its object key', 'product', '_downloadable_files');
 woo_readiness_reports($interpreter, ['download-a' => ['name' => 'A', 'file' => 'a', 'enabled' => 1]], 'enabled must be boolean', 'product', '_downloadable_files');
 woo_readiness_reports($interpreter, ['download-a' => ['name' => 'A', 'file' => 'a', 'enabled' => false]], 'site-local approval state', 'product', '_downloadable_files');
+woo_readiness_reports(
+    $interpreter,
+    ['download-a' => ['name' => 'A', 'file' => 'a', 'addon_checksum' => str_repeat('f', 64)]],
+    'unsupported addon-owned field(s): addon_checksum',
+    'product',
+    '_downloadable_files'
+);
 woo_readiness_reports(
     $interpreter,
     $download,
