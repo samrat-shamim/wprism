@@ -30,7 +30,7 @@ else
 fi
 
 # --- images (pre-pull so first pair.sh up is not a cold multi-minute pull) --
-for img in mariadb:11 "${DUO_WP_IMAGE:-wordpress:7.0.3-php8.3-apache}" wordpress:cli-php8.3; do
+for img in mariadb:11 "${DUO_WP_IMAGE:-wordpress:7.1-php8.3-apache}" wordpress:cli-php8.3; do
     docker pull -q "$img" >/dev/null && ok "image present: $img"
 done
 

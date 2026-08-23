@@ -5,7 +5,7 @@
 
 | Manifest | Status | Plugin | Version range |
 |---|---|---|---|
-| core | certified | WordPress core | WordPress >=6.9.0 <7.1.0 (exercised 6.9.2, 7.0.3) |
+| core | certified | WordPress core | WordPress >=6.9.0 <7.2.0 (exercised 6.9.2, 7.0.3, 7.1) |
 | acf | certified | `advanced-custom-fields/acf.php` | >=6.0.0 <7.0.0 |
 | advanced-editor-tools | certified | `tinymce-advanced/tinymce-advanced.php` | >=5.9.2 <5.9.3 |
 | classic-editor | certified | `classic-editor/classic-editor.php` | >=1.7.0 <1.7.1 |

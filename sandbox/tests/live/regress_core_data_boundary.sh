@@ -20,8 +20,8 @@ PORT2="${CORE_DATA_BOUNDARY_PORT2:-8995}"
 # regress_core_scope_platform.sh names the other exercised series, and this
 # suite is re-run per series by overriding both values together with the
 # exact digest of that series' proof image (never a floating tag).
-WORDPRESS_VERSION="${CORE_DATA_BOUNDARY_WORDPRESS:-7.0.3}"
-WORDPRESS_IMAGE="${CORE_DATA_BOUNDARY_IMAGE:-wordpress@sha256:a09147f15a882b956f67a617e9e1e053adf9322c45c797c2ff7c0e66522bf204}"
+WORDPRESS_VERSION="${CORE_DATA_BOUNDARY_WORDPRESS:-7.1}"
+WORDPRESS_IMAGE="${CORE_DATA_BOUNDARY_IMAGE:-wordpress@sha256:65919a9ca10940feb10d9400fead0d639bf86241f47c91e2b9ea4703aa8452cf}"
 
 [[ "$PAIR" =~ ^[a-z][a-z0-9]*$ ]] || fail "invalid CORE_DATA_BOUNDARY_PAIR '$PAIR'"
 [ -n "${DUO_EXPECTED_SOURCE_SHA:-}" ] \
@@ -172,23 +172,57 @@ done
 wp1 site empty --yes >/dev/null
 wp2 site empty --yes >/dev/null
 BLOCK_SCHEMA=$(fixture1 block-schema | awk 'NF { line=$0 } END { print line }')
-jq -e '
-  .id_like == [
-    "core/audio.id", "core/avatar.userId", "core/block.ref", "core/cover.id",
-    "core/file.fileId", "core/file.id", "core/gallery.ids", "core/image.id",
-    "core/legacy-widget.id", "core/media-text.mediaId", "core/navigation-link.id",
-    "core/navigation-submenu.id", "core/navigation.ref", "core/page-list-item.id",
-    "core/page-list.parentPageID", "core/query.queryId", "core/video.id"
-  ] and
-  .url_like == [
-    "core/audio.src", "core/button.url", "core/cover.poster", "core/cover.url",
-    "core/embed.url", "core/file.href", "core/file.textLinkHref", "core/image.href",
-    "core/image.url", "core/media-text.href", "core/media-text.mediaUrl",
-    "core/navigation-link.url", "core/navigation-submenu.url", "core/page-list-item.link",
-    "core/rss.feedURL", "core/social-link.url", "core/video.poster", "core/video.src",
-    "core/video.tracks"
-  ]
-' <<<"$BLOCK_SCHEMA" >/dev/null \
+# The registered core block inventory is PER SERIES, not one list across the
+# whole claim: WordPress 7.1 adds six core blocks and one of them,
+# core/playlist-track, carries an attachment id plus two absolute media URLs
+# (wp-includes/blocks/playlist-track/block.json; the id is required — the
+# renderer returns '' without it, playlist-track.php:20-22). Flattening the
+# two shapes into one list would either fail on 6.9/7.0 or stop asserting the
+# 7.1 rows, so each exercised series states its own expectation and an
+# unhandled series refuses rather than defaulting to a neighbour's list.
+case "$WORDPRESS_VERSION" in
+  6.9*|7.0*)
+    EXPECTED_ID_LIKE='[
+      "core/audio.id", "core/avatar.userId", "core/block.ref", "core/cover.id",
+      "core/file.fileId", "core/file.id", "core/gallery.ids", "core/image.id",
+      "core/legacy-widget.id", "core/media-text.mediaId", "core/navigation-link.id",
+      "core/navigation-submenu.id", "core/navigation.ref", "core/page-list-item.id",
+      "core/page-list.parentPageID", "core/query.queryId", "core/video.id"
+    ]'
+    EXPECTED_URL_LIKE='[
+      "core/audio.src", "core/button.url", "core/cover.poster", "core/cover.url",
+      "core/embed.url", "core/file.href", "core/file.textLinkHref", "core/image.href",
+      "core/image.url", "core/media-text.href", "core/media-text.mediaUrl",
+      "core/navigation-link.url", "core/navigation-submenu.url", "core/page-list-item.link",
+      "core/rss.feedURL", "core/social-link.url", "core/video.poster", "core/video.src",
+      "core/video.tracks"
+    ]'
+    ;;
+  7.1*)
+    EXPECTED_ID_LIKE='[
+      "core/audio.id", "core/avatar.userId", "core/block.ref", "core/cover.id",
+      "core/file.fileId", "core/file.id", "core/gallery.ids", "core/image.id",
+      "core/legacy-widget.id", "core/media-text.mediaId", "core/navigation-link.id",
+      "core/navigation-submenu.id", "core/navigation.ref", "core/page-list-item.id",
+      "core/page-list.parentPageID", "core/playlist-track.id", "core/query.queryId",
+      "core/video.id"
+    ]'
+    EXPECTED_URL_LIKE='[
+      "core/audio.src", "core/button.url", "core/cover.poster", "core/cover.url",
+      "core/embed.url", "core/file.href", "core/file.textLinkHref", "core/image.href",
+      "core/image.url", "core/media-text.href", "core/media-text.mediaUrl",
+      "core/navigation-link.url", "core/navigation-submenu.url", "core/page-list-item.link",
+      "core/playlist-track.image", "core/playlist-track.src",
+      "core/rss.feedURL", "core/social-link.url", "core/video.poster", "core/video.src",
+      "core/video.tracks"
+    ]'
+    ;;
+  *)
+    fail "no reviewed core block attribute inventory for WordPress $WORDPRESS_VERSION"
+    ;;
+esac
+jq -e --argjson expected_id "$EXPECTED_ID_LIKE" --argjson expected_url "$EXPECTED_URL_LIKE" \
+  '.id_like == $expected_id and .url_like == $expected_url' <<<"$BLOCK_SCHEMA" >/dev/null \
   || fail "WordPress $WORDPRESS_VERSION core block attribute inventory drifted: $BLOCK_SCHEMA"
 pass 'exact registered core block id and URL attribute inventory matches the reviewed manifest boundary'
 SOURCE_IDS=$(fixture1 seed-source | awk 'NF { line=$0 } END { print line }')
