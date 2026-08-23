@@ -17,6 +17,7 @@ F=tests/certify/certify_version_matrix.sh
 
 python3 - "$F" <<'PY'
 from pathlib import Path
+import json
 import sys
 
 path = Path(sys.argv[1])
@@ -64,7 +65,13 @@ if guard < recapture:
     raise SystemExit("Elementor warning guard runs before the full boundary recapture")
 if guard >= boundary_end:
     raise SystemExit("Elementor warning guard escaped the Elementor boundary block")
+
+aggregate = json.loads(Path("conformance/manifests.json").read_text(encoding="utf-8"))["elementor"]
+entry = json.loads(Path("conformance/entries/elementor.json").read_text(encoding="utf-8"))["entry"]
+for label, declaration in (("aggregate", aggregate), ("entry", entry)):
+    if "elementor_library_type" not in declaration.get("taxonomies", []):
+        raise SystemExit(f"Elementor {label} fixture omits its native library taxonomy")
 PY
 
-pass "Elementor matrix pins machine-readable apply receipts, removes stale active-kit state, and guards boundary stderr"
+pass "Elementor fixtures pin native taxonomy scope, machine-readable receipts, reset order, and boundary stderr"
 echo "REGRESS_ELEMENTOR_MATRIX_RESET PASSED"

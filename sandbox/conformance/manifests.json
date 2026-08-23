@@ -3,7 +3,7 @@
     "pin": ["core", "acf"],
     "plugins": [{"slug": "advanced-custom-fields", "version": "6.8.7"}],
     "post_types": ["post", "page", "attachment", "acf-field-group", "acf-field"],
-    "taxonomies": ["category", "post_tag", "elementor_library_type"]
+    "taxonomies": ["category", "post_tag"]
   },
   "advanced-editor-tools": {
     "pin": ["core", "advanced-editor-tools"],
@@ -43,7 +43,7 @@
     "pin": ["core", "elementor"],
     "plugins": [{"slug": "elementor", "version": "4.2.3"}],
     "post_types": ["post", "page", "attachment", "elementor_library"],
-    "taxonomies": ["category", "post_tag"]
+    "taxonomies": ["category", "post_tag", "elementor_library_type"]
   },
   "ecosystem-adapter-batch": {
     "mode": "capture-plan",
