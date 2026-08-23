@@ -413,7 +413,13 @@ wp_conf1 eval '
   update_post_meta('"$SOURCE_KIT"',"_elementor_page_settings",$value);
 ' >/dev/null
 
-wp_conf1 post update "$SOURCE_TEMPLATE" --post_status=trash >/dev/null
+wp_conf1 eval '
+  global $wpdb;
+  if ($wpdb->update($wpdb->posts,["post_status"=>"trash"],["ID"=>'"$SOURCE_TEMPLATE"']) === false) {
+    throw new RuntimeException("Elementor template deletion probe failed");
+  }
+  clean_post_cache('"$SOURCE_TEMPLATE"');
+' >/dev/null
 DELETE_RC=0
 DELETE_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || DELETE_RC=$?
 require_duo_answered 'Elementor unsupported library-template deletion capture' human "$DELETE_OUT"
@@ -421,7 +427,13 @@ require_duo_answered 'Elementor unsupported library-template deletion capture' h
   || fail "Elementor library-template deletion did not refuse: $DELETE_OUT"
 [ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$CAPTURE_BASELINE" ] \
   || fail 'Elementor unsupported template deletion partially published canonical state'
-wp_conf1 post update "$SOURCE_TEMPLATE" --post_status=publish >/dev/null
+wp_conf1 eval '
+  global $wpdb;
+  if ($wpdb->update($wpdb->posts,["post_status"=>"publish"],["ID"=>'"$SOURCE_TEMPLATE"']) === false) {
+    throw new RuntimeException("Elementor template deletion restore failed");
+  }
+  clean_post_cache('"$SOURCE_TEMPLATE"');
+' >/dev/null
 wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-elementor-restored >/dev/null
 diff -r "$CONF_REPO1/state" "$CONF_REPO1/.tmp-elementor-restored" \
   || fail 'Elementor source did not restore byte-identically after malformed/secret/deletion probes'
