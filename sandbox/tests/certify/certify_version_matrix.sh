@@ -1615,9 +1615,16 @@ EOF
 
   CF7_OLD_ID=$(jq -r '.old_id' <<<"$CF7_SEED_OUT")
   CF7_FORM_ID=$(jq -r '.form' <<<"$CF7_SEED_OUT")
+  CF7_MODERN_SHORTCODE=$(jq -r '.shortcode' <<<"$CF7_SEED_OUT")
   CF7_LEGACY_PAGE_ID=$(jq -r '.legacy_page' <<<"$CF7_SEED_OUT")
-  [[ "$CF7_OLD_ID" =~ ^[1-9][0-9]+$ && "$CF7_FORM_ID" =~ ^[0-9]+$ && "$CF7_LEGACY_PAGE_ID" =~ ^[0-9]+$ ]] \
-    || fail "CF7 $CF7_VERSION seed did not return typed form/legacy ids"
+  CF7_SOURCE_HASH=$(wp1 post meta get "$CF7_FORM_ID" _hash)
+  require_fixture_values CF7_MODERN_SHORTCODE CF7_SOURCE_HASH
+  [[ "$CF7_OLD_ID" =~ ^[1-9][0-9]+$ && "$CF7_FORM_ID" =~ ^[0-9]+$ && "$CF7_LEGACY_PAGE_ID" =~ ^[0-9]+$ \
+    && "$CF7_SOURCE_HASH" =~ ^[0-9a-f]{64}$ \
+    && "$CF7_MODERN_SHORTCODE" =~ ^\[contact-form-7\ id=\"[0-9a-f]{7}\" ]] \
+    || fail "CF7 $CF7_VERSION seed did not return native legacy and modern identities"
+  [[ "$CF7_MODERN_SHORTCODE" == *"id=\"${CF7_SOURCE_HASH:0:7}\""* ]] \
+    || fail "CF7 $CF7_VERSION shortcode does not use the persisted _hash prefix: $CF7_MODERN_SHORTCODE"
 
   wp1 duo capture --repo=/siterepo
   pass "captured on side 1 (contact-form-7 $CF7_VERSION)"
@@ -1627,7 +1634,12 @@ EOF
   fi
   rg -n '\[contact-form[[:space:]]+\{\{post:[0-9a-f-]{36}\}\}' "siterepo/${PAIR}1/state/posts" >/dev/null 2>&1 \
     || fail "CF7 $CF7_VERSION capture did not emit a canonical positional post token"
-  pass "capture: contact-form-7 $CF7_VERSION canonicalized legacy positional shortcode $CF7_OLD_ID"
+  if rg -n "\[contact-form-7[^]]*id=\"${CF7_SOURCE_HASH:0:7}\"" "siterepo/${PAIR}1/state/posts" >/dev/null 2>&1; then
+    fail "CF7 $CF7_VERSION capture retained raw modern hash prefix ${CF7_SOURCE_HASH:0:7}"
+  fi
+  rg -n '\[contact-form-7[^]]*id="\{\{post:[0-9a-f-]{36}\}\}"' "siterepo/${PAIR}1/state/posts" >/dev/null 2>&1 \
+    || fail "CF7 $CF7_VERSION capture did not emit a canonical named post token"
+  pass "capture: contact-form-7 $CF7_VERSION canonicalized legacy decimal and modern hash-prefix identities"
 
   wp1 duo lint --repo=/siterepo
   pass "lint: 0 findings"
@@ -1652,28 +1664,104 @@ EOF
   # the deterministic authored title rather than assuming a slug that the
   # plugin is free to normalize differently across its supported versions.
   TARGET_FORM_ID=$(wp2 post list --post_type=wpcf7_contact_form --title='Version Matrix Contact Form' --format=ids)
+  TARGET_MODERN_ID=$(wp2 post list --post_type=page --name=vmatrix-contact --format=ids)
   TARGET_LEGACY_ID=$(wp2 post list --post_type=page --name=vmatrix-contact-legacy --format=ids)
   # The source and target are isolated databases, so their independently
   # created forms may legitimately receive the same numeric post ID.  The
   # target title/meta/render assertions below prove target ownership; numeric
   # inequality across databases would reject a valid deterministic fixture.
-  require_fixture_ids TARGET_FORM_ID TARGET_LEGACY_ID
+  require_fixture_ids TARGET_FORM_ID TARGET_MODERN_ID TARGET_LEGACY_ID
   [ "$TARGET_LEGACY_ID" != "" ] || fail "CF7 $CF7_VERSION target legacy page is missing"
   TARGET_OLD_ID=$(wp2 post meta get "$TARGET_FORM_ID" _old_cf7_unit_id)
-  require_fixture_values TARGET_OLD_ID
+  TARGET_HASH=$(wp2 post meta get "$TARGET_FORM_ID" _hash)
+  TARGET_MODERN_CONTENT=$(wp2 post get "$TARGET_MODERN_ID" --field=post_content)
+  require_fixture_values TARGET_OLD_ID TARGET_HASH TARGET_MODERN_CONTENT
   [ "$TARGET_OLD_ID" = "$CF7_OLD_ID" ] || fail "CF7 $CF7_VERSION target lost _old_cf7_unit_id ($TARGET_OLD_ID vs $CF7_OLD_ID)"
+  [ "$TARGET_HASH" = "$CF7_SOURCE_HASH" ] \
+    || fail "CF7 $CF7_VERSION target did not receive the repository-authored full _hash"
+  grep -Fq "[contact-form-7 id=\"${TARGET_HASH:0:7}\"" <<<"$TARGET_MODERN_CONTENT" \
+    || fail "CF7 $CF7_VERSION target page did not receive the repository-authored public hash prefix"
+  MODERN_FRONT=$(curl -fs "http://localhost:${PORT2}/vmatrix-contact/") \
+    || fail "CF7 $CF7_VERSION target modern page did not render"
   LEGACY_FRONT=$(curl -fs "http://localhost:${PORT2}/vmatrix-contact-legacy/") \
     || fail "CF7 $CF7_VERSION target legacy page did not render"
+  require_observed_nonempty "CF7 $CF7_VERSION target modern page" "$MODERN_FRONT"
   require_observed_nonempty "CF7 $CF7_VERSION target legacy page" "$LEGACY_FRONT"
+  grep -q "_wpcf7\" value=\"$TARGET_FORM_ID\"" <<<"$MODERN_FRONT" \
+    || fail "CF7 $CF7_VERSION target modern hash prefix did not resolve its own form id $TARGET_FORM_ID"
   grep -q "_wpcf7\" value=\"$TARGET_FORM_ID\"" <<<"$LEGACY_FRONT" \
     || fail "CF7 $CF7_VERSION target legacy page did not resolve its own form id $TARGET_FORM_ID"
-  pass "target: contact-form-7 $CF7_VERSION legacy positional shortcode resolves to target form $TARGET_FORM_ID"
+  pass "target: contact-form-7 $CF7_VERSION modern and legacy shortcodes resolve to target form $TARGET_FORM_ID"
 
   wp2 duo capture --repo=/siterepo --out="/siterepo/.tmp-final"
   DIFF_OUT=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
   rm -rf "siterepo/${PAIR}2/.tmp-final"
   [ -z "$DIFF_OUT" ] || fail "byte-identity broken at contact-form-7 $CF7_VERSION: $DIFF_OUT"
   pass "byte-identical recapture at contact-form-7 $CF7_VERSION — the manifest's own declared version_range boundary is proven, not just its currently-installed version"
+
+  if [ "$CF7_VERSION" = 6.0 ]; then
+    say "in-place lifecycle: contact-form-7 6.0 authored state -> exact 6.1.6 on both environments"
+    UPGRADE_ARTIFACT_1=$(fetch_artifact contact-form-7 6.1.6 cli1)
+    UPGRADE_ARTIFACT_2=$(fetch_artifact contact-form-7 6.1.6 cli2)
+    wp1 plugin install "$UPGRADE_ARTIFACT_1" --force >/dev/null
+    wp2 plugin install "$UPGRADE_ARTIFACT_2" --force >/dev/null
+    [ "$(wp1 plugin get contact-form-7 --field=version)" = 6.1.6 ] \
+      && [ "$(wp2 plugin get contact-form-7 --field=version)" = 6.1.6 ] \
+      || fail "CF7 in-place upgrade did not install exact 6.1.6 on both environments"
+
+    # Exact code replacement changes the captured code witness. Re-baseline
+    # that explicit drift, then publish only real native data migrations.
+    wp1 duo deploy --repo=/siterepo --force-code-drift >/dev/null
+    wp2 duo deploy --repo=/siterepo --force-code-drift >/dev/null
+    wp1 duo capture --repo=/siterepo
+    wp1 duo lint --repo=/siterepo
+    if ! git -C "siterepo/${PAIR}1" diff --quiet -- state; then
+      "${GIT1[@]}" add -A
+      "${GIT1[@]}" commit -qm "capture: CF7 in-place 6.0 to 6.1.6 migration"
+      "${GIT1[@]}" push -q origin main
+      git -C "siterepo/${PAIR}2" pull -q origin main
+    fi
+    UPGRADE_REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
+    wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$UPGRADE_REV" \
+      2>&1 | tee "$VMATRIX_APPLY_LOG"
+    grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
+      || fail "CF7 in-place 6.0 -> 6.1.6 apply canary was not clean"
+
+    UPGRADE_NATIVE=$(wp2 eval '
+      $forms=get_posts([
+        "post_type"=>"wpcf7_contact_form", "post_status"=>"any",
+        "title"=>"Version Matrix Contact Form", "posts_per_page"=>2,
+      ]);
+      $form=count($forms) === 1 ? $forms[0] : null;
+      $instance=$form ? WPCF7_ContactForm::get_instance($form->ID) : null;
+      $mail=$instance ? (array)$instance->prop("mail") : [];
+      echo wp_json_encode([
+        "version"=>defined("WPCF7_VERSION") ? WPCF7_VERSION : "",
+        "id"=>$form ? (int)$form->ID : 0,
+        "hash"=>$form ? (string)get_post_meta($form->ID,"_hash",true) : "",
+        "shortcode"=>$instance ? (string)$instance->shortcode() : "",
+        "recipient"=>(string)($mail["recipient"] ?? ""),
+      ]);
+    ')
+    require_observed_json "CF7 6.1.6 upgraded native form" "$UPGRADE_NATIVE"
+    jq -e '
+      .version == "6.1.6" and .id > 0 and .recipient == "vmatrix@example.test" and
+      (.hash | test("^[0-9a-f]{64}$")) and
+      (.shortcode | test("^\\[contact-form-7 id=\\\"[0-9a-f]{7}\\\""))
+    ' <<<"$UPGRADE_NATIVE" >/dev/null \
+      || fail "CF7 6.1.6 did not preserve the form authored under 6.0: $UPGRADE_NATIVE"
+    UPGRADE_FRONT=$(curl -fs "http://localhost:${PORT2}/vmatrix-contact/") \
+      || fail "CF7 6.1.6 did not render the modern page authored under 6.0"
+    UPGRADE_FORM_ID=$(jq -r '.id' <<<"$UPGRADE_NATIVE")
+    grep -q "_wpcf7\" value=\"$UPGRADE_FORM_ID\"" <<<"$UPGRADE_FRONT" \
+      || fail "CF7 6.1.6 did not resolve the modern identity authored under 6.0"
+    wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-cf7-upgrade-final
+    UPGRADE_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-cf7-upgrade-final" || true)
+    rm -rf "siterepo/${PAIR}2/.tmp-cf7-upgrade-final"
+    [ -z "$UPGRADE_DIFF" ] \
+      || fail "CF7 in-place 6.0 -> 6.1.6 recapture was not byte-identical: $UPGRADE_DIFF"
+    pass "CF7 state authored under exact 6.0 upgrades in place to exact 6.1.6, remains natively visible, applies cleanly, and recaptures byte-identically"
+  fi
 done
 fi
 

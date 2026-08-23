@@ -139,7 +139,7 @@ OBSERVATIONS=(
   'tests/certify/certify_version_matrix.sh|require_observed_nonempty "side 2 Ninja Forms model API"'
   'tests/certify/certify_version_matrix.sh|require_observed_nonempty "CF7 $CF7_VERSION target legacy page"'
   'tests/certify/certify_version_matrix.sh|require_fixture_ids form_id'
-  'tests/certify/certify_version_matrix.sh|require_fixture_ids TARGET_FORM_ID TARGET_LEGACY_ID'
+  'tests/certify/certify_version_matrix.sh|require_fixture_ids TARGET_FORM_ID TARGET_MODERN_ID TARGET_LEGACY_ID'
   'tests/certify/certify_version_matrix.sh|require_fixture_values TARGET_OLD_ID'
   'tests/certify/certify_version_matrix.sh|require_fixture_values INSTALLED_2'
   'tests/certify/certify_version_matrix.sh|require_fixture_values NEGATIVE_INSTALLED'
