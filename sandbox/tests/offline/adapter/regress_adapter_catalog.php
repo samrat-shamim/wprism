@@ -344,18 +344,20 @@ check(
 );
 
 $woo = row_named($listReport, 'woocommerce');
-// DUO-3342 retired this manifest's regenerator: the lookup repair is a
-// manifest-sourced PROVIDER now. The tier is unchanged — manifest-sourced
-// provider code loads out of the agent's own tree exactly as a regenerator
-// does — so this row still demonstrates what it was written to demonstrate,
-// and demonstrates it better: woocommerce and the-events-calendar now reach
-// one tier through two genuinely different declarations rather than through
-// the same one.
+// The structured product/download boundary is now a manifest-shipped
+// interpreter, which is the first highest-privilege surface tier_decision()
+// reports. The two providers remain independently inventoried below; a stale
+// provider basis here would hide the newly executable interpreter from the
+// operator-facing provenance receipt.
 check(
     is_array($woo) && $woo['trust_tier'] === 'compatibility_shim'
-    && str_contains((string) $woo['tier_basis'], 'providers[0] source "manifest"'),
-    'woocommerce reaches the same tier through a different declaration, and the basis says which (basis: '
-    . (is_array($woo) ? $woo['tier_basis'] : '(no row)') . ')'
+    && $woo['tier_basis'] === "interpreter 'woocommerce'",
+    'woocommerce reports the compatibility tier through its digest-bound interpreter, and the basis says which (basis: '
+        . (is_array($woo) ? $woo['tier_basis'] : '(no row)') . ')'
+);
+check(
+    is_array($woo) && ($woo['executable_surfaces']['interpreter'] ?? null) === 'woocommerce',
+    'woocommerce inventories its structured-data interpreter as an executable surface'
 );
 $wooProviders = [];
 foreach (is_array($woo) ? $woo['required_providers'] : [] as $provider) {
