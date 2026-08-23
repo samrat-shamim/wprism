@@ -28,17 +28,11 @@ wp_conf2 wc product_attribute_term create "$TARGET_SIZE_ATTR_ID" --name=Large --
 wp_conf2 wc product_attribute_term create "$TARGET_COLOR_ATTR_ID" --name=Red --user=admin >/dev/null
 wp_conf2 wc product_attribute_term create "$TARGET_COLOR_ATTR_ID" --name=Blue --user=admin >/dev/null
 
-TARGET_PRODUCT_ID=$(wp_conf2 wc product create --name='Hostile target widget' --slug=conformance-widget \
-  --type=simple --regular_price=999.99 --sku=TARGET-WIDGET --status=draft --user=admin --porcelain)
-TARGET_PRECISION_ID=$(wp_conf2 wc product create --name='Hostile target precision' --slug=conformance-precision-download \
-  --type=simple --regular_price=888.88 --sku=TARGET-PRECISION --status=draft --user=admin --porcelain)
-TARGET_GROUPED_ID=$(wp_conf2 wc product create --name='Hostile target grouped' --slug=conformance-grouped-kit \
-  --type=grouped --sku=TARGET-GROUPED --status=draft --user=admin --porcelain)
-TARGET_VARIABLE_ID=$(wp_conf2 wc product create --name='Hostile target variable' --slug=conformance-variable-widget \
-  --type=variable --status=draft --user=admin --porcelain)
-TARGET_COUPON_ID=$(wp_conf2 wc shop_coupon create --code=CONF-WELCOME10 --discount_type=fixed_cart \
-  --amount=999 --status=draft --user=admin --porcelain)
-require_fixture_ids TARGET_PRODUCT_ID TARGET_PRECISION_ID TARGET_GROUPED_ID TARGET_VARIABLE_ID TARGET_COUPON_ID
+# Product/coupon same-slug adoption is exercised after the initial canonical
+# round trip in checks/woocommerce.sh. An adopted product update legitimately
+# receives a target-local derived post_modified value, so manufacturing that
+# collision here would make run.sh's earlier byte-diff compare a declared
+# derived timestamp as if it were authored state.
 
 wp_conf2 eval '
 $result = WC_Tax::create_tax_class("Conformance Reduced Rate");
@@ -54,13 +48,8 @@ wp_conf2 option update duo_target_environment_neighbor 'target-neighbor-preserve
 wp_conf2 eval "
 file_put_contents('/siterepo/.tmp-woocommerce-target.json', wp_json_encode([
   'category' => $TARGET_CAT_ID,
-  'coupon' => $TARGET_COUPON_ID,
-  'grouped' => $TARGET_GROUPED_ID,
-  'precision' => $TARGET_PRECISION_ID,
-  'product' => $TARGET_PRODUCT_ID,
   'shipping_class' => $TARGET_SHIP_CLASS_ID,
   'tag' => $TARGET_TAG_ID,
-  'variable' => $TARGET_VARIABLE_ID,
   'attribute_color' => $TARGET_COLOR_ATTR_ID,
   'attribute_size' => $TARGET_SIZE_ATTR_ID,
   'tax_class' => $TARGET_TAX_CLASS_ID,

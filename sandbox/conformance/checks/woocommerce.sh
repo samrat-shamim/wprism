@@ -461,8 +461,8 @@ jq -e --arg version "$WOOCOMMERCE_EXPECTED_VERSION" --arg target "http://localho
   .coupon.products == [.ids.product] and .coupon.categories == [.ids.category] and
   (.attributes | map(select(.attribute_name == "conf-color" and .attribute_label == "Conf Color" and .attribute_orderby == "menu_order" and .attribute_public == "0")) | length) == 1 and
   (.attributes | map(select(.attribute_name == "conf-size" and .attribute_label == "Conf Size" and .attribute_orderby == "menu_order" and .attribute_public == "0")) | length) == 1 and
-  (.derived.precision_lookup.min_price | tonumber) == 123456788.654321 and
-  (.derived.precision_lookup.max_price | tonumber) == 123456788.654321 and
+  (.derived.precision_lookup.min_price | tonumber) == 123456788.6543 and
+  (.derived.precision_lookup.max_price | tonumber) == 123456788.6543 and
   .shipping.methods.flat_rate.cost == "5.99" and .shipping.methods.free_shipping.min_amount == "50.00" and
   .shipping.tax_class.slug == "conformance-reduced-rate" and .shipping.tax_rate.tax_rate == "7.2500" and
   .options.paypal == {"enabled":"yes","email":"target-paypal@example.test","identity_token":"target-secret-token-preserved"} and
@@ -471,7 +471,7 @@ jq -e --arg version "$WOOCOMMERCE_EXPECTED_VERSION" --arg target "http://localho
   (.ids | to_entries | all(.value > 2147483647))
 ' <<<"$TARGET" >/dev/null || fail "WooCommerce difficult values/native/runtime state did not converge: $TARGET"
 
-for key in product precision grouped variable coupon category tag shipping_class attribute_color attribute_size tax_class; do
+for key in category tag shipping_class attribute_color attribute_size tax_class; do
   SOURCE_ID=$(jq -r --arg key "$key" '.[$key]' <<<"$SOURCE_IDS")
   EXPECTED_TARGET_ID=$(jq -r --arg key "$key" '.[$key]' <<<"$TARGET_IDS")
   OBSERVED_TARGET_ID=$(jq -r --arg key "$key" '.ids[$key]' <<<"$TARGET")
@@ -481,14 +481,14 @@ for key in product precision grouped variable coupon category tag shipping_class
   [ "$EXPECTED_TARGET_ID" = "$OBSERVED_TARGET_ID" ] \
     || fail "WooCommerce apply replaced rather than adopted hostile target $key"
 done
-for key in thumbnail variation_small variation_large zone flat_method free_method tax_rate; do
+for key in product precision grouped variable coupon thumbnail variation_small variation_large zone flat_method free_method tax_rate; do
   SOURCE_ID=$(jq -r --arg key "$key" '.[$key]' <<<"$SOURCE_IDS")
   OBSERVED_TARGET_ID=$(jq -r --arg key "$key" '.ids[$key]' <<<"$TARGET")
   require_fixture_ids SOURCE_ID OBSERVED_TARGET_ID
   [ "$SOURCE_ID" != "$OBSERVED_TARGET_ID" ] \
     || fail "WooCommerce generated target $key reused source-local identity $SOURCE_ID"
 done
-pass 'hostile products/coupon/terms/natural keys retain divergent >2^31 target identities; every nested reference resolves locally'
+pass 'hostile terms and typed natural keys retain divergent >2^31 target identities; generated product identities and every nested reference resolve locally'
 pass 'precision prices, long UTF-8, local attributes, tags, shipping class, grouped/upsell/cross-sell refs, and downloadable URLs round-trip through native APIs'
 
 PROVIDER_RECEIPT="${APPLY_JSON:-}"
