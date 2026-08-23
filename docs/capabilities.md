@@ -305,7 +305,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 - **Operations:** apply, capture, compile, deploy, plan, promote, recapture, render-api
 - **Lifecycle phases:** retire, activate, verify
 - **Declared entities:** `post_types` (3: tribe_events, tribe_organizer, tribe_venue), `tables` (3: tec_events, tec_kv_cache, tec_occurrences), `taxonomies` (1: tribe_events_cat)
-- **Declared fields:** `options` (14 keys), `post_meta` (48 keys), `term_meta` (5: tec-events-cat-colors-hidden, tec-events-cat-colors-primary, tec-events-cat-colors-priority, tec-events-cat-colors-secondary, tec-events-cat-colors-text), `block_attrs` (1: tribe/event-organizer), `interpreter` (`the-events-calendar`)
+- **Declared fields:** `options` (56 keys), `post_meta` (48 keys), `term_meta` (5: tec-events-cat-colors-hidden, tec-events-cat-colors-primary, tec-events-cat-colors-priority, tec-events-cat-colors-secondary, tec-events-cat-colors-text), `block_attrs` (1: tribe/event-organizer), `interpreter` (`the-events-calendar`)
 - **Adapter hooks:** 1 provider, 2 structured actions, interpreter `the-events-calendar`
 - **Deletions supported:** none
 - **Deletions unsupported:** post:tribe_events, post:tribe_organizer, post:tribe_venue

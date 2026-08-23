@@ -13,6 +13,25 @@ use Duo\Policy;
  * to manufacture an occurrence from contradictory authored inputs.
  */
 final class TheEventsCalendar {
+    private const IMPORT_COLUMN_OPTIONS = [
+        'tribe_events_import_column_mapping',
+        'tribe_events_import_column_mapping_events',
+        'tribe_events_import_column_mapping_organizers',
+        'tribe_events_import_column_mapping_venues',
+    ];
+
+    private const POWER_AUTOMATE_ENDPOINTS = [
+        'attendees',
+        'canceled_events',
+        'checkin',
+        'create_events',
+        'new_events',
+        'orders',
+        'refunded_orders',
+        'updated_attendees',
+        'updated_events',
+    ];
+
     private const REQUIRED_EVENT_META = [
         '_EventDuration',
         '_EventEndDate',
@@ -22,12 +41,71 @@ final class TheEventsCalendar {
         '_EventTimezone',
     ];
 
+    private const ZAPIER_ENDPOINTS = [
+        'attendees',
+        'authorize',
+        'canceled_events',
+        'checkin',
+        'create_events',
+        'find_attendees',
+        'find_events',
+        'find_tickets',
+        'new_events',
+        'orders',
+        'refunded_orders',
+        'update_events',
+        'updated_attendees',
+        'updated_events',
+    ];
+
     public function __construct(Policy $policy) {
         // The complete decision is fixed by the pinned TEC schema. No live
         // plugin or site-policy state may influence repository compilation.
     }
 
     public function post_meta_rule(string $key, array $allMeta): ?array {
+        return null;
+    }
+
+    /**
+     * Exact computed option-name families bundled in free TEC/Common 6.17.x.
+     * Prefix ownership exists to make an extension-added sibling visible;
+     * only native endpoint IDs and SHA-256 connection-key shapes classify.
+     */
+    public function option_rule(string $name, array $allOptions): ?array {
+        if (str_starts_with($name, 'tribe_events_import_column_mapping')) {
+            if (in_array($name, self::IMPORT_COLUMN_OPTIONS, true)) {
+                return ['class' => 'runtime'];
+            }
+            $this->refuse_computed_option_name('CSV column-mapping', $name);
+        }
+
+        $computedFamilies = [
+            '_tec_power_automate_endpoint_details_' => ['runtime', self::POWER_AUTOMATE_ENDPOINTS],
+            '_tec_zapier_endpoint_details_' => ['runtime', self::ZAPIER_ENDPOINTS],
+        ];
+        foreach ($computedFamilies as $prefix => [$class, $suffixes]) {
+            if (!str_starts_with($name, $prefix)) {
+                continue;
+            }
+            $suffix = substr($name, strlen($prefix));
+            if (in_array($suffix, $suffixes, true)) {
+                return ['class' => $class];
+            }
+            $this->refuse_computed_option_name('Event Automator endpoint', $name);
+        }
+
+        foreach (['tec_power_automate_connection_', 'tec_zapier_api_key_'] as $prefix) {
+            if (!str_starts_with($name, $prefix)) {
+                continue;
+            }
+            $suffix = substr($name, strlen($prefix));
+            if (preg_match('/^[a-f0-9]{64}$/D', $suffix) === 1) {
+                return ['class' => 'env'];
+            }
+            $this->refuse_computed_option_name('Event Automator connection', $name);
+        }
+
         return null;
     }
 
@@ -665,6 +743,14 @@ final class TheEventsCalendar {
     private function is_sanitized_separator(string $value): bool {
         return preg_match('//u', $value) === 1
             && strip_tags(htmlspecialchars_decode($value, ENT_QUOTES)) === $value;
+    }
+
+    private function refuse_computed_option_name(string $family, string $name): never {
+        $fingerprint = 'string:' . strlen($name) . ':' . substr(hash('sha256', $name), 0, 16);
+        throw new \RuntimeException(
+            "duo: The Events Calendar encountered an unsupported $family option name ($fingerprint); "
+            . 'the exact free 6.17.2/6.17.3 computed-name registry is closed'
+        );
     }
 
     /** @return array{code:string,path:string,locator:string,message:string} */

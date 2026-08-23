@@ -1057,12 +1057,322 @@ foreach (['eventsSlug', 'tribeEnableViews', 'category-color-enable-frontend', 't
 }
 duo_check_same('post', $options['sub_keys']['eventsDefaultVenueID']['ref'] ?? null, 'the default venue setting rewrites through the post ledger');
 duo_check_same('post', $options['sub_keys']['eventsDefaultOrganizerID']['ref'] ?? null, 'the default organizer setting rewrites through the post ledger');
+$expectedMainOptionClasses = [
+    'authored' => [
+        'allow_duplicate_venues',
+        'category-color-custom-css',
+        'category-color-enable-frontend',
+        'category-color-legend-show',
+        'category-color-legend-superpowers',
+        'category-color-reset-button',
+        'category-color-show-hidden-categories',
+        'custom-fields',
+        'dateTimeSeparator',
+        'dateWithYearFormat',
+        'dateWithoutYearFormat',
+        'datepickerFormat',
+        'defaultCurrencyCode',
+        'defaultCurrencySymbol',
+        'disable_metabox_custom_fields',
+        'donate-link',
+        'embedGoogleMaps',
+        'embedGoogleMapsZoom',
+        'eventsDefaultOrganizerID',
+        'eventsDefaultVenueID',
+        'eventsSlug',
+        'front_page_event_archive',
+        'geoloc_default_unit',
+        'liveFiltersUpdate',
+        'monthAndYearFormat',
+        'monthEventAmount',
+        'multiDayCutoff',
+        'postsPerPage',
+        'posts_per_page',
+        'remove_event_end_time',
+        'reverseCurrencyPosition',
+        'showComments',
+        'showEventsInMainLoop',
+        'singleEventSlug',
+        'stylesheetOption',
+        'stylesheet_mode',
+        'tec_seo_disabled_view_404',
+        'tec_seo_noindex_dated_list_urls',
+        'tec_seo_out_of_range_behavior',
+        'timeRangeSeparator',
+        'toggle_blocks_editor',
+        'tribeDisableTribeBar',
+        'tribeEnableViews',
+        'tribeEventsAfterHTML',
+        'tribeEventsBeforeHTML',
+        'tribeEventsCountries',
+        'tribeEventsTemplate',
+        'tribe_events_timezone_mode',
+        'tribe_events_timezones_show_zone',
+        'viewOption',
+    ],
+    'derived' => [
+        'earliest_date',
+        'earliest_date_markers',
+        'latest_date',
+        'latest_date_markers',
+    ],
+    'env' => [
+        'debugEvents',
+        'delete-past-events',
+        'did_init',
+        'eb_security_key',
+        'enable_month_view_cache',
+        'event-automator-schema-version',
+        'fb_auto_frequency',
+        'fb_auto_import',
+        'fb_enable_GoogleMaps',
+        'fb_token',
+        'fb_token_expires',
+        'fb_token_scopes',
+        'fb_uids',
+        'google_maps_js_api_key',
+        'ian-notifications-opt-in',
+        'imported_post_status',
+        'latest_ecp_version',
+        'logging_class',
+        'logging_engine',
+        'logging_level',
+        'meetup_api_key',
+        'meetup_security_key',
+        'opt-in-status',
+        'opt_in_status',
+        'previous_ecp_versions',
+        'recurrenceMaxMonthsAfter',
+        'rest-v1-disabled',
+        'schema-version',
+        'tec-schema-version',
+        'tec-tickets-emails-rsvp-add-event-ics',
+        'tec-tickets-emails-rsvp-add-event-links',
+        'tec-tickets-emails-ticket-add-event-ics',
+        'tec-tickets-emails-ticket-add-event-links',
+        'tec_events_rcp_hide_on_views',
+        'trash-past-events',
+        'tribe_aggregator_default_category',
+        'tribe_aggregator_default_import_limit_number',
+        'tribe_aggregator_default_import_limit_range',
+        'tribe_aggregator_default_import_limit_type',
+        'tribe_aggregator_default_post_status',
+        'tribe_aggregator_default_show_map',
+        'tribe_aggregator_default_update_authority',
+        'tribe_aggregator_default_url_import_event',
+        'tribe_aggregator_default_url_import_range',
+        'tribe_aggregator_disable',
+        'tribe_aggregator_import_process_system',
+        'tribe_ext_tec_tweaks_remove_event_end_time',
+    ],
+    'runtime' => [
+        'imported_encoding_status',
+        'last-update-message-the-events-calendar',
+        'mobile_default_view',
+        'skip_welcome',
+        'spEventsAfterHTML',
+        'spEventsBeforeHTML',
+        'spEventsTemplate',
+        'tec_admin_page_dismissed',
+        'tec_events_onboarding_page_dismissed',
+        'tec_onboarding_wizard_visited_guided_setup',
+        'tribe_events_enable_timezones',
+        'tribe_onboarding_views',
+        'tribe_queue_sync',
+        'views_v2_enabled',
+    ],
+];
+$nativeAggregatorOrigins = ['csv', 'eventbrite', 'gcal', 'ical', 'ics', 'meetup', 'url'];
+foreach ($nativeAggregatorOrigins as $origin) {
+    foreach (['category', 'import_event_settings', 'post_status', 'show_map', 'update_authority'] as $suffix) {
+        $expectedMainOptionClasses['env'][] = "tribe_aggregator_default_{$origin}_{$suffix}";
+    }
+}
+$actualMainOptionClasses = [];
+foreach ((array) ($options['sub_keys'] ?? []) as $key => $rule) {
+    $actualMainOptionClasses[(string) ($rule['class'] ?? '')][] = (string) $key;
+}
+foreach ($expectedMainOptionClasses as $class => &$keys) {
+    sort($keys, SORT_STRING);
+    sort($actualMainOptionClasses[$class], SORT_STRING);
+    duo_check_same(
+        $keys,
+        $actualMainOptionClasses[$class],
+        "the exact 6.17.2/6.17.3 main-option $class inventory is closed and source-auditable"
+    );
+}
+unset($keys);
+duo_check_same(
+    null,
+    $options['sub_keys']['tribe_aggregator_default_webcal_post_status'] ?? null,
+    'a filter-added Event Aggregator origin is not silently blessed as one of the seven free-core origins'
+);
 foreach ([
-    'debugEvents', 'enable_month_view_cache', 'trash-past-events', 'delete-past-events',
-    'google_maps_js_api_key', 'eb_security_key', 'meetup_api_key', 'fb_token',
-    'schema-version', 'earliest_date',
+    'debugEvents',
+    'delete-past-events',
+    'eb_security_key',
+    'enable_month_view_cache',
+    'fb_token',
+    'google_maps_js_api_key',
+    'meetup_api_key',
+    'recurrenceMaxMonthsAfter',
+    'rest-v1-disabled',
+    'schema-version',
+    'trash-past-events',
 ] as $key) {
-    duo_check(!isset($options['sub_keys'][$key]), "$key remains target-owned rather than leaking or replaying integration/runtime state");
+    duo_check_same(
+        'env',
+        $options['sub_keys'][$key]['class'] ?? null,
+        "$key is explicitly classified and preserved as target operational/integration state"
+    );
+}
+foreach (['earliest_date', 'latest_date', 'earliest_date_markers', 'latest_date_markers'] as $key) {
+    duo_check_same('derived', $options['sub_keys'][$key]['class'] ?? null, "$key is exact target-derived date state");
+}
+foreach (['posts_per_page', 'stylesheetOption'] as $key) {
+    duo_check_same('authored', $options['sub_keys'][$key]['class'] ?? null, "$key preserves upgraded alias precedence");
+}
+duo_check_same(
+    true,
+    $options['sub_keys']['tribeEventsCountries']['plain_data'] ?? null,
+    'the current free country-list setting has an explicit bounded plain-data contract'
+);
+
+$expectedTopLevelOptionClasses = [
+    'derived' => ['tec_events_category_color_css'],
+    'env' => [
+        'external_updates-event-aggregator',
+        'pue_install_key_event_aggregator',
+        'stellar_schema_version_stellarwp-shepherd-tec-tasks',
+        'stellar_schema_version_tec-kv-cache',
+        'stellarwp_telemetry_user_info',
+        'tec_automator_power_automate_secret_key',
+        'tec_automator_zapier_secret_key',
+        'tec_ct1_events_table_schema_version',
+        'tec_ct1_migration_state',
+        'tec_ct1_occurrences_table_schema_version',
+        'tec_custom_tables_v1_active',
+        'tec_freemius_accounts_archive',
+        'tec_freemius_accounts_data_archive',
+        'tec_freemius_plugins_archive',
+        'tec_power_automate_connections',
+        'tec_timed_tec_custom_tables_v1_initialized',
+        'tec_timed_tribe_supports_async_process',
+        'tec_zapier_api_keys',
+        'tribe_events_calendar_options',
+        'tribe_promoter_auth_key',
+        'tribe_systeminfo_optin',
+        'wpml_tec_did_set_defaults',
+    ],
+    'runtime' => [
+        'sp_events_calendar_options',
+        'stellarwp_telemetry',
+        'stellarwp_telemetry_last_send',
+        'stellarwp_telemetry_the-events-calendar_show_optin',
+        'teccc_options',
+        'tec_category_colors_migration_data',
+        'tec_category_colors_migration_processing',
+        'tec_events_category_colors_migration_batch',
+        'tec_events_category_colors_migration_status',
+        'tec_onboarding_wizard_data',
+        'tec_timed_events_hide_from_upcoming_ids',
+        'tec_timed_events_is_rest_api_blocked',
+        'tec_timed_events_timezone_update_needed',
+        'tribe-aggregator-legacy-ical-migrated',
+        'tribe-events-importexport-ical-importer-saved-imports',
+        'tribe_events_import_column_mapping',
+        'tribe_events_import_column_mapping_events',
+        'tribe_events_import_column_mapping_organizers',
+        'tribe_events_import_column_mapping_venues',
+        'tribe_events_import_encoded_rows',
+        'tribe_events_import_failed_rows',
+        'tribe_events_import_log',
+        'tribe_events_import_type',
+        'tribe_events_importer_offset',
+        'tribe_events_pro_customizer',
+        'tribe_last_generate_rewrite_rules',
+        'tribe_last_save_post',
+        'tribe_last_updated_option',
+        'tribe_pue_key_notices',
+        'tribe_settings_errors',
+        'tribe_settings_major_error',
+        'tribe_settings_sent_data',
+        'tribe_skip_welcome',
+    ],
+];
+$manifest = json_decode((string) file_get_contents($root . '/manifests/the-events-calendar.json'), true, 512, JSON_THROW_ON_ERROR);
+$actualTopLevelOptionClasses = [];
+foreach ((array) ($manifest['options'] ?? []) as $key => $rule) {
+    $actualTopLevelOptionClasses[(string) ($rule['class'] ?? '')][] = (string) $key;
+}
+foreach ($expectedTopLevelOptionClasses as $class => $keys) {
+    sort($keys, SORT_STRING);
+    sort($actualTopLevelOptionClasses[$class], SORT_STRING);
+    duo_check_same(
+        $keys,
+        $actualTopLevelOptionClasses[$class],
+        "the exact free/Common top-level $class option inventory is explicit without claiming shared extension state"
+    );
+}
+duo_check_same(
+    [
+        '^_tec_power_automate_endpoint_details_',
+        '^_tec_zapier_endpoint_details_',
+        '^tec_power_automate_connection_',
+        '^tec_zapier_api_key_',
+        '^tribe_events_import_column_mapping(?:_|$)',
+    ],
+    array_column((array) ($manifest['option_namespaces'] ?? []), 'match'),
+    'only exact computed option families receive namespace ownership and hostile suffixes remain visible'
+);
+duo_check_same(
+    [
+        '^_tec_power_automate_endpoint_details_(?:attendees|canceled_events|checkin|create_events|new_events|orders|refunded_orders|updated_attendees|updated_events)$',
+        '^_tec_zapier_endpoint_details_(?:attendees|authorize|canceled_events|checkin|create_events|find_attendees|find_events|find_tickets|new_events|orders|refunded_orders|update_events|updated_attendees|updated_events)$',
+        '^tec_power_automate_connection_[a-f0-9]{64}$',
+        '^tec_zapier_api_key_[a-f0-9]{64}$',
+    ],
+    array_column((array) ($manifest['option_patterns'] ?? []), 'match'),
+    'computed Event Automator rows are bounded to the exact 6.17.x native IDs and hash grammar'
+);
+foreach ([
+    'tribe_events_import_column_mapping' => 'runtime',
+    'tribe_events_import_column_mapping_events' => 'runtime',
+    '_tec_power_automate_endpoint_details_updated_events' => 'runtime',
+    '_tec_zapier_endpoint_details_find_tickets' => 'runtime',
+    'tec_power_automate_connection_' . str_repeat('a', 64) => 'env',
+    'tec_zapier_api_key_' . str_repeat('f', 64) => 'env',
+] as $name => $class) {
+    duo_check_same(
+        $class,
+        $interpreter->option_rule($name, [])['class'] ?? null,
+        "$name matches one exact source-derived computed option classification"
+    );
+}
+foreach ([
+    'tribe_events_import_column_mapping_event-tickets',
+    '_tec_power_automate_endpoint_details_find_tickets',
+    '_tec_zapier_endpoint_details_find_events_extension',
+    'tec_power_automate_connection_' . str_repeat('a', 63),
+    'tec_zapier_api_key_' . str_repeat('A', 64),
+    'tec_zapier_api_key_' . str_repeat('x', 4096) . "\0AKIAABCDEFGHIJKLMNOP",
+    "_tec_zapier_endpoint_details_\xff\xfecredential-secret",
+] as $hostileName) {
+    $computedRefusal = '';
+    try {
+        $interpreter->option_rule($hostileName, []);
+    } catch (RuntimeException $e) {
+        $computedRefusal = $e->getMessage();
+    }
+    duo_check(
+        str_contains($computedRefusal, 'computed-name registry is closed')
+            && str_contains($computedRefusal, 'string:' . strlen($hostileName) . ':')
+            && strlen($computedRefusal) < 300
+            && preg_match('//u', $computedRefusal) === 1
+            && !str_contains($computedRefusal, 'AKIA')
+            && !str_contains($computedRefusal, 'credential-secret'),
+        'unknown computed option names refuse with one bounded UTF-8-safe fingerprint and no authored/secret bytes'
+    );
 }
 duo_check_same(
     'derived',
