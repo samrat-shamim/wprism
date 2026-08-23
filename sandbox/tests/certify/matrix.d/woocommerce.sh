@@ -26,5 +26,9 @@ check_woocommerce_content() {
   local COMPOSE="$PAIR_COMPOSE_STRING"
   local CONF1_PORT="$PORT1"
   local CONF2_PORT="$PORT2"
+  local CONF_REPO1="siterepo/${PAIR}1"
+  local CONF_REPO2="siterepo/${PAIR}2"
+  local WOOCOMMERCE_BOUNDARY_ONLY=1
+  local WOOCOMMERCE_EXPECTED_VERSION="$WOO_VERSION"
   . conformance/checks/woocommerce.sh
 }

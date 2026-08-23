@@ -96,7 +96,7 @@
     "plugins": [{"slug": "woocommerce", "version": "11.0.0"}],
     "post_types": ["post", "page", "attachment", "product", "product_variation", "shop_coupon"],
     "setup": "hpos",
-    "taxonomies": ["category", "post_tag", "product_cat", "product_type"]
+    "taxonomies": ["category", "post_tag", "product_cat", "product_shipping_class", "product_tag", "product_type"]
   },
   "wps-hide-login": {
     "pin": ["core", "wps-hide-login"],

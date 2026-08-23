@@ -686,6 +686,9 @@ regress-the-events-calendar-production-readiness:
 regress-polylang-production-readiness:
 	php sandbox/tests/offline/adapter/regress_polylang_production_readiness.php
 
+regress-woocommerce-production-readiness:
+	php sandbox/tests/offline/adapter/regress_woocommerce_production_readiness.php
+
 # DUO-3222's one genuinely live leg: Deploy::code_mismatch()'s new THEME
 # version_range check, called directly against a real bundled WordPress
 # theme (twentytwentyfour, zero network installs) via `wp eval` — no

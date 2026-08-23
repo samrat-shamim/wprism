@@ -14,6 +14,187 @@
 # directory; $COMPOSE/fail/pass are exported by run.sh itself (matching
 # every other checks/*.sh file's convention — see checks/ninja-forms.sh).
 set -euo pipefail
+CONF1_PORT="${CONF1_PORT:-8800}"
+CONF2_PORT="${CONF2_PORT:-8801}"
+WOOCOMMERCE_EXPECTED_VERSION="${WOOCOMMERCE_EXPECTED_VERSION:-11.0.0}"
+
+observe_woocommerce() { # <conf1|conf2>
+  local side="$1" repo service file out
+  case "$side" in
+    conf1) repo="${CONF_REPO1:-siterepo/conf1}"; service=cli1 ;;
+    conf2) repo="${CONF_REPO2:-siterepo/conf2}"; service=cli2 ;;
+    *) fail "invalid WooCommerce observation side: $side" ;;
+  esac
+  file="$repo/.tmp-woocommerce-observe.php"
+  cat > "$file" <<'PHPEOF'
+<?php
+global $wpdb;
+
+$simpleId = wc_get_product_id_by_sku('CONF-WIDGET-1');
+$precisionId = wc_get_product_id_by_sku('CONF-PRECISION-UTF8');
+$groupedId = wc_get_product_id_by_sku('CONF-GROUPED-KIT');
+$smallId = wc_get_product_id_by_sku('CONF-VAR-S-RED');
+$largeId = wc_get_product_id_by_sku('CONF-VAR-L-BLUE');
+$variableId = (int) get_post_field('post_parent', $smallId);
+$simple = wc_get_product($simpleId);
+$precision = wc_get_product($precisionId);
+$grouped = wc_get_product($groupedId);
+$variable = wc_get_product($variableId);
+$small = wc_get_product($smallId);
+$large = wc_get_product($largeId);
+$coupon = new WC_Coupon('CONF-WELCOME10');
+if (!$simple || !$precision || !$grouped || !$variable || !$small || !$large || !$coupon->get_id()) {
+    throw new RuntimeException('WooCommerce native product/coupon fixture is incomplete');
+}
+
+$localAttributes = [];
+foreach ($precision->get_attributes() as $attribute) {
+    if ($attribute instanceof WC_Product_Attribute && !$attribute->is_taxonomy()) {
+        $localAttributes[] = [
+            'name' => $attribute->get_name(),
+            'options' => array_values($attribute->get_options()),
+            'position' => $attribute->get_position(),
+            'variation' => $attribute->get_variation(),
+            'visible' => $attribute->get_visible(),
+        ];
+    }
+}
+$downloads = [];
+foreach ($precision->get_downloads() as $id => $download) {
+    $downloads[] = [
+        'enabled' => $download->get_enabled(),
+        'file' => $download->get_file(),
+        'id' => $download->get_id(),
+        'key' => (string) $id,
+        'name' => $download->get_name(),
+    ];
+}
+$termSlugs = static function (int $id, string $taxonomy): array {
+    $terms = wp_get_object_terms($id, $taxonomy, ['fields' => 'slugs']);
+    if (is_wp_error($terms)) {
+        throw new RuntimeException($terms->get_error_message());
+    }
+    sort($terms, SORT_STRING);
+    return array_values($terms);
+};
+
+$zoneId = 0;
+$zoneMethods = [];
+foreach (WC_Shipping_Zones::get_zones() as $zone) {
+    if ($zone['zone_name'] !== 'Conformance United States') {
+        continue;
+    }
+    $zoneId = (int) $zone['id'];
+    foreach ($zone['shipping_methods'] as $method) {
+        $zoneMethods[$method->id] = [
+            'cost' => (string) $method->get_option('cost'),
+            'id' => (int) $method->get_instance_id(),
+            'min_amount' => (string) $method->get_option('min_amount'),
+        ];
+    }
+}
+ksort($zoneMethods, SORT_STRING);
+$taxRate = $wpdb->get_row(
+    "SELECT tax_rate_id,tax_rate,tax_rate_class FROM {$wpdb->prefix}woocommerce_tax_rates " .
+    "WHERE tax_rate_name='Conformance CA Sales Tax'",
+    ARRAY_A
+);
+$taxClass = $wpdb->get_row(
+    "SELECT tax_rate_class_id,name,slug FROM {$wpdb->prefix}wc_tax_rate_classes " .
+    "WHERE slug='conformance-reduced-rate'",
+    ARRAY_A
+);
+$attributeRows = $wpdb->get_results(
+    "SELECT attribute_id,attribute_label,attribute_name,attribute_orderby,attribute_public " .
+    "FROM {$wpdb->prefix}woocommerce_attribute_taxonomies " .
+    "WHERE attribute_name IN ('conf-color','conf-size') ORDER BY attribute_name",
+    ARRAY_A
+);
+$lookup = $wpdb->get_row($wpdb->prepare(
+    "SELECT product_id,sku,min_price,max_price FROM {$wpdb->prefix}wc_product_meta_lookup WHERE product_id=%d",
+    $precisionId
+), ARRAY_A);
+$category = get_term_by('slug', 'conformance-widgets', 'product_cat');
+$tag = get_term_by('slug', 'portable-tokyo', 'product_tag');
+$shipping = get_term_by('slug', 'oversize-portable', 'product_shipping_class');
+$thumbnailId = $category ? (int) get_term_meta($category->term_id, 'thumbnail_id', true) : 0;
+$sourceOrders = wc_get_orders(['billing_email' => 'source-runtime@example.test', 'limit' => -1, 'return' => 'ids']);
+$targetOrders = wc_get_orders(['billing_email' => 'target-runtime@example.test', 'limit' => -1, 'return' => 'ids']);
+
+echo wp_json_encode([
+    'attributes' => $attributeRows,
+    'coupon' => [
+        'amount' => $coupon->get_amount('edit'),
+        'categories' => array_values($coupon->get_product_categories('edit')),
+        'id' => $coupon->get_id(),
+        'products' => array_values($coupon->get_product_ids('edit')),
+        'status' => $coupon->get_status('edit'),
+        'type' => $coupon->get_discount_type('edit'),
+    ],
+    'derived' => ['precision_lookup' => $lookup],
+    'grouped' => ['children' => array_values($grouped->get_children('edit'))],
+    'ids' => [
+        'attribute_color' => (int) ($attributeRows[0]['attribute_id'] ?? 0),
+        'attribute_size' => (int) ($attributeRows[1]['attribute_id'] ?? 0),
+        'category' => $category ? (int) $category->term_id : 0,
+        'coupon' => $coupon->get_id(),
+        'flat_method' => (int) ($zoneMethods['flat_rate']['id'] ?? 0),
+        'free_method' => (int) ($zoneMethods['free_shipping']['id'] ?? 0),
+        'grouped' => $groupedId,
+        'precision' => $precisionId,
+        'product' => $simpleId,
+        'shipping_class' => $shipping ? (int) $shipping->term_id : 0,
+        'tag' => $tag ? (int) $tag->term_id : 0,
+        'tax_class' => (int) ($taxClass['tax_rate_class_id'] ?? 0),
+        'tax_rate' => (int) ($taxRate['tax_rate_id'] ?? 0),
+        'thumbnail' => $thumbnailId,
+        'variable' => $variableId,
+        'variation_large' => $largeId,
+        'variation_small' => $smallId,
+        'zone' => $zoneId,
+    ],
+    'options' => [
+        'neighbor' => get_option('woocommerce_target_undeclared_neighbor', null),
+        'paypal' => get_option('woocommerce_paypal_settings', null),
+        'precision' => (string) get_option('woocommerce_price_num_decimals', ''),
+    ],
+    'precision' => [
+        'description_bytes' => strlen($precision->get_description('edit')),
+        'downloads' => $downloads,
+        'local_attributes' => $localAttributes,
+        'price' => $precision->get_price('edit'),
+        'purchase_note_bytes' => strlen($precision->get_purchase_note('edit')),
+        'regular' => $precision->get_regular_price('edit'),
+        'sale' => $precision->get_sale_price('edit'),
+        'shipping_class' => $precision->get_shipping_class(),
+        'tags' => $termSlugs($precisionId, 'product_tag'),
+        'title' => $precision->get_name('edit'),
+    ],
+    'runtime' => [
+        'hpos' => get_option('woocommerce_custom_orders_table_enabled') === 'yes',
+        'source_orders' => count($sourceOrders),
+        'source_queue' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}actionscheduler_actions WHERE hook='duo_woo_source_runtime_probe'"),
+        'source_sessions' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}woocommerce_sessions WHERE session_key='duo-source-runtime-session'"),
+        'target_orders' => count($targetOrders),
+        'target_queue' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}actionscheduler_actions WHERE hook='duo_woo_target_runtime_probe'"),
+        'target_sessions' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}woocommerce_sessions WHERE session_key='duo-target-runtime-session'"),
+    ],
+    'shipping' => ['methods' => $zoneMethods, 'tax_class' => $taxClass, 'tax_rate' => $taxRate],
+    'simple' => [
+        'cross_sells' => array_values($simple->get_cross_sell_ids('edit')),
+        'shipping_class' => $simple->get_shipping_class(),
+        'tags' => $termSlugs($simpleId, 'product_tag'),
+        'title' => $simple->get_name('edit'),
+        'upsells' => array_values($simple->get_upsell_ids('edit')),
+    ],
+    'version' => defined('WC_VERSION') ? WC_VERSION : null,
+], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
+PHPEOF
+  out=$($COMPOSE run --rm -T "$service" wp eval-file /siterepo/.tmp-woocommerce-observe.php)
+  rm -f "$file"
+  require_observed_nonempty "$side WooCommerce native observation" "$out"
+  printf '%s\n' "$out" | awk 'NF { line=$0 } END { print line }'
+}
 
 API_OUT=$($COMPOSE run --rm -T cli2 wp eval '
 $taxes = wc_get_attribute_taxonomies();
@@ -248,3 +429,96 @@ if grep -qE "localhost:${CONF1_PORT}" <<<"$FRONT"; then
   fail "conf2 product page leaks the conf1 host"
 fi
 pass "conf2 renders its own product page with no fatal marker or conf1 host leak"
+
+SOURCE_IDS=$(cat "${CONF_REPO1:-siterepo/conf1}/.tmp-woocommerce-source.json")
+TARGET_IDS=$(cat "${CONF_REPO2:-siterepo/conf2}/.tmp-woocommerce-target.json")
+TARGET=$(observe_woocommerce conf2)
+require_observed_nonempty 'WooCommerce source identity record' "$SOURCE_IDS"
+require_observed_nonempty 'WooCommerce hostile-target identity record' "$TARGET_IDS"
+
+jq -e --arg version "$WOOCOMMERCE_EXPECTED_VERSION" --arg target "http://localhost:${CONF2_PORT}" --arg source "http://localhost:${CONF1_PORT}" '
+  .version == $version and
+  .simple.title == "Conformance Widget" and
+  .precision.title == "Conformance Precision Download 東京 🚀" and
+  .precision.regular == "123456789.123456" and .precision.sale == "123456788.654321" and
+  .precision.price == "123456788.654321" and .options.precision == "6" and
+  .precision.description_bytes > 15000 and .precision.purchase_note_bytes > 5000 and
+  .precision.local_attributes == [{
+    "name":"Material 東京","options":["Cotton","Wool","麻","literal delimiter"],
+    "position":2147483647,"variation":false,"visible":true
+  }] and
+  (.precision.downloads | length) == 1 and
+  .precision.downloads[0].enabled == true and
+  .precision.downloads[0].id == .precision.downloads[0].key and
+  .precision.downloads[0].name == "Portable catalog 日本語 🚀.png" and
+  (.precision.downloads[0].file | startswith($target + "/wp-content/uploads/")) and
+  (.precision.downloads[0].file | contains($source) | not) and
+  .precision.tags == ["portable-tokyo"] and .precision.shipping_class == "oversize-portable" and
+  .simple.tags == ["portable-tokyo"] and .simple.shipping_class == "oversize-portable" and
+  .simple.upsells == [.ids.precision] and .simple.cross_sells == [.ids.grouped] and
+  .grouped.children == [.ids.product,.ids.precision] and
+  .coupon.status == "publish" and .coupon.type == "percent" and .coupon.amount == "10" and
+  .coupon.products == [.ids.product] and .coupon.categories == [.ids.category] and
+  (.attributes | map(select(.attribute_name == "conf-color" and .attribute_label == "Conf Color" and .attribute_orderby == "menu_order" and .attribute_public == "0")) | length) == 1 and
+  (.attributes | map(select(.attribute_name == "conf-size" and .attribute_label == "Conf Size" and .attribute_orderby == "menu_order" and .attribute_public == "0")) | length) == 1 and
+  (.derived.precision_lookup.min_price | tonumber) == 123456788.654321 and
+  (.derived.precision_lookup.max_price | tonumber) == 123456788.654321 and
+  .shipping.methods.flat_rate.cost == "5.99" and .shipping.methods.free_shipping.min_amount == "50.00" and
+  .shipping.tax_class.slug == "conformance-reduced-rate" and .shipping.tax_rate.tax_rate == "7.2500" and
+  .options.paypal == {"enabled":"yes","email":"target-paypal@example.test","identity_token":"target-secret-token-preserved"} and
+  .options.neighbor == "target-neighbor-preserved" and
+  .runtime == {"hpos":true,"source_orders":0,"source_queue":0,"source_sessions":0,"target_orders":1,"target_queue":1,"target_sessions":1} and
+  (.ids | to_entries | all(.value > 2147483647))
+' <<<"$TARGET" >/dev/null || fail "WooCommerce difficult values/native/runtime state did not converge: $TARGET"
+
+for key in product precision grouped variable coupon category tag shipping_class attribute_color attribute_size tax_class; do
+  SOURCE_ID=$(jq -r --arg key "$key" '.[$key]' <<<"$SOURCE_IDS")
+  EXPECTED_TARGET_ID=$(jq -r --arg key "$key" '.[$key]' <<<"$TARGET_IDS")
+  OBSERVED_TARGET_ID=$(jq -r --arg key "$key" '.ids[$key]' <<<"$TARGET")
+  require_fixture_ids SOURCE_ID EXPECTED_TARGET_ID OBSERVED_TARGET_ID
+  [ "$SOURCE_ID" != "$OBSERVED_TARGET_ID" ] \
+    || fail "WooCommerce source/target $key identity did not diverge ($SOURCE_ID)"
+  [ "$EXPECTED_TARGET_ID" = "$OBSERVED_TARGET_ID" ] \
+    || fail "WooCommerce apply replaced rather than adopted hostile target $key"
+done
+for key in thumbnail variation_small variation_large zone flat_method free_method tax_rate; do
+  SOURCE_ID=$(jq -r --arg key "$key" '.[$key]' <<<"$SOURCE_IDS")
+  OBSERVED_TARGET_ID=$(jq -r --arg key "$key" '.ids[$key]' <<<"$TARGET")
+  require_fixture_ids SOURCE_ID OBSERVED_TARGET_ID
+  [ "$SOURCE_ID" != "$OBSERVED_TARGET_ID" ] \
+    || fail "WooCommerce generated target $key reused source-local identity $SOURCE_ID"
+done
+pass 'hostile products/coupon/terms/natural keys retain divergent >2^31 target identities; every nested reference resolves locally'
+pass 'precision prices, long UTF-8, local attributes, tags, shipping class, grouped/upsell/cross-sell refs, and downloadable URLs round-trip through native APIs'
+
+PROVIDER_RECEIPT="${APPLY_JSON:-}"
+if [ -z "$PROVIDER_RECEIPT" ] && [ -n "${VMATRIX_APPLY_LOG:-}" ] && [ -f "$VMATRIX_APPLY_LOG" ]; then
+  PROVIDER_RECEIPT=$(cat "$VMATRIX_APPLY_LOG")
+fi
+grep -Eq 'woocommerce-cache@1\.0\.0 invalidate_cache_groups .*verified' <<<"$PROVIDER_RECEIPT" \
+  || fail "initial apply receipt omitted the verified WooCommerce cache provider: ${PROVIDER_RECEIPT:-<missing>}"
+grep -Eq 'woocommerce-product-lookups@1\.0\.0 rebuild_product_lookups .*verified' <<<"$PROVIDER_RECEIPT" \
+  || fail "initial apply receipt omitted the verified WooCommerce lookup provider: ${PROVIDER_RECEIPT:-<missing>}"
+if jq -e 'type == "object"' <<<"$PROVIDER_RECEIPT" >/dev/null 2>&1; then
+  jq -e '
+    any(.actions[]?; .source == "provider:woocommerce-cache/invalidate_cache_groups" and .verified == true) and
+    any(.actions[]?; .source == "provider:woocommerce-product-lookups/rebuild_product_lookups" and .verified == true)
+  ' <<<"$PROVIDER_RECEIPT" >/dev/null \
+    || fail 'WooCommerce provider JSON receipt omitted a closed verified action'
+fi
+pass 'both digest-bound WooCommerce providers identify themselves and return verified receipts'
+
+ZERO_PLAN=$($COMPOSE run --rm -T cli2 wp duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered 'WooCommerce zero-change plan' json "$ZERO_PLAN"
+jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$ZERO_PLAN" >/dev/null \
+  || fail "WooCommerce retry retained work: $ZERO_PLAN"
+ZERO_APPLY=$($COMPOSE run --rm -T cli2 wp duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered 'WooCommerce zero-change apply' json "$ZERO_APPLY"
+jq -e '.canary == "clean" and (.actions | length) == 0' <<<"$ZERO_APPLY" >/dev/null \
+  || fail "WooCommerce no-op apply was not clean and idempotent: $ZERO_APPLY"
+pass 'WooCommerce zero-change plan/apply is mutation-free and does not rerun either provider'
+
+if [ "${WOOCOMMERCE_BOUNDARY_ONLY:-0}" = 1 ]; then
+  pass "WooCommerce $WOOCOMMERCE_EXPECTED_VERSION exact boundary consumed the full portable fixture"
+  return 0 2>/dev/null || exit 0
+fi

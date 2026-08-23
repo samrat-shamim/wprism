@@ -38,7 +38,22 @@
 # conformance/run.sh with wp_conf1/wp_conf2/$COMPOSE exported.
 set -euo pipefail
 
+# Cross the signed-32-bit boundary on every identity family this fixture
+# creates. WordPress and WooCommerce use BIGINT ids here; keeping all product,
+# media, term, attribute, zone, method, tax, and tax-class references above
+# 2^31 proves the adapter never narrows them through a 32-bit cast.
+for table in \
+  wp_posts wp_terms wp_term_taxonomy \
+  wp_woocommerce_attribute_taxonomies wp_woocommerce_shipping_zones \
+  wp_woocommerce_shipping_zone_locations wp_woocommerce_shipping_zone_methods \
+  wp_wc_tax_rate_classes wp_woocommerce_tax_rates wp_woocommerce_tax_rate_locations
+do
+  wp_conf1 db query "ALTER TABLE $table AUTO_INCREMENT=2147484000" >/dev/null
+done
+
 CAT_ID=$(wp_conf1 term create product_cat "Conformance Widgets" --slug=conformance-widgets --porcelain)
+TAG_ID=$(wp_conf1 term create product_tag "Portable 東京" --slug=portable-tokyo --porcelain)
+SHIP_CLASS_ID=$(wp_conf1 term create product_shipping_class "Oversize Portable" --slug=oversize-portable --porcelain)
 
 # Real WooCommerce-authored product-category image. The stored termmeta is
 # thumbnail_id -> attachment post ID, so this exercises termmeta ref
@@ -61,7 +76,7 @@ rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-make-woo-category-image.php
 # author a termmeta ref that points nowhere — and checks/woocommerce.sh would
 # then report "thumbnail_id did not resolve to a local attachment" as an
 # engine failure.
-require_fixture_ids CAT_ID THUMB_ID
+require_fixture_ids CAT_ID TAG_ID SHIP_CLASS_ID THUMB_ID
 wp_conf1 term meta update "$CAT_ID" thumbnail_id "$THUMB_ID" >/dev/null
 
 PID=$(wp_conf1 wc product create --name='Conformance Widget' --type=simple \
@@ -72,6 +87,59 @@ PID=$(wp_conf1 wc product create --name='Conformance Widget' --type=simple \
 require_fixture_ids PID
 
 wp_conf1 post term add "$PID" product_cat conformance-widgets --by=slug
+wp_conf1 post term add "$PID" product_tag portable-tokyo --by=slug
+wp_conf1 post term add "$PID" product_shipping_class oversize-portable --by=slug
+
+# Precision, long UTF-8, local-attribute, nested-download URL, and product-ref
+# fixture. `_downloadable_files` is serialized structured data: the file URL
+# deliberately names conf1 so the target assertion can prove recursive
+# `{{home}}` rebinding rather than byte-identical source-host leakage.
+wp_conf1 option update woocommerce_price_num_decimals 6 >/dev/null
+PRECISION_ID=$(wp_conf1 wc product create --name='Conformance Precision Download 東京 🚀' \
+  --slug=conformance-precision-download --type=simple \
+  --regular_price=123456789.123456 --sale_price=123456788.654321 \
+  --sku=CONF-PRECISION-UTF8 --downloadable=true --virtual=true \
+  --status=publish --user=admin --porcelain)
+require_fixture_ids PRECISION_ID
+wp_conf1 eval "
+\$product = wc_get_product($PRECISION_ID);
+\$attribute = new WC_Product_Attribute();
+\$attribute->set_id(0);
+\$attribute->set_name('Material 東京');
+\$attribute->set_options(['Cotton', 'Wool', '麻 | literal delimiter']);
+\$attribute->set_position(2147483647);
+\$attribute->set_visible(true);
+\$attribute->set_variation(false);
+\$download = new WC_Product_Download();
+\$download->set_id(md5('duo-woocommerce-portable-download'));
+\$download->set_name('Portable catalog 日本語 🚀.png');
+\$download->set_file(wp_get_attachment_url($THUMB_ID) . '?download=1&label=' . rawurlencode('東京 🚀'));
+\$product->set_attributes([\$attribute]);
+\$product->set_downloadable(true);
+\$product->set_downloads([\$download]);
+\$product->set_purchase_note(str_repeat('Portable purchase note 東京 🚀 |%| {{literal}} — ', 128));
+\$product->set_description(str_repeat('Long catalog body مرحبا こんにちは 🚀. ', 512));
+\$product->set_category_ids([$CAT_ID]);
+\$product->set_tag_ids([$TAG_ID]);
+\$product->set_shipping_class_id($SHIP_CLASS_ID);
+\$product->save();
+" >/dev/null
+
+GROUPED_ID=$(wp_conf1 eval "
+\$group = new WC_Product_Grouped();
+\$group->set_name('Conformance Grouped Kit');
+\$group->set_slug('conformance-grouped-kit');
+\$group->set_status('publish');
+\$group->set_sku('CONF-GROUPED-KIT');
+\$group->set_children([$PID, $PRECISION_ID]);
+\$id = \$group->save();
+\$simple = wc_get_product($PID);
+\$simple->set_upsell_ids([$PRECISION_ID]);
+\$simple->set_cross_sell_ids([\$id]);
+\$simple->save();
+echo \$id;
+")
+require_fixture_ids GROUPED_ID
 
 COUPON_ID=$(wp_conf1 wc shop_coupon create --code=CONF-WELCOME10 \
   --discount_type=percent --amount=10 \
@@ -181,4 +249,27 @@ $wpdb->replace($wpdb->prefix . "woocommerce_sessions", [
 as_schedule_single_action(time() + 7200, "duo_woo_source_runtime_probe", [], "duo-woo-runtime");
 ' >/dev/null
 
-echo "woocommerce seed: category=$CAT_ID thumbnail=$THUMB_ID product=$PID coupon=$COUPON_ID variable_product=$VPID (attrs size=$SIZE_ATTR_ID color=$COLOR_ATTR_ID) zone=$ZONE_ID methods=$FLAT_INSTANCE,$FREE_INSTANCE tax_class=$TAX_CLASS_ID tax=$TAX_ID source_runtime_order=$SOURCE_ORDER_ID source_runtime_review=$SOURCE_REVIEW_ID"
+wp_conf1 eval "
+file_put_contents('/siterepo/.tmp-woocommerce-source.json', wp_json_encode([
+  'category' => $CAT_ID,
+  'coupon' => $COUPON_ID,
+  'grouped' => $GROUPED_ID,
+  'precision' => $PRECISION_ID,
+  'product' => $PID,
+  'shipping_class' => $SHIP_CLASS_ID,
+  'tag' => $TAG_ID,
+  'thumbnail' => $THUMB_ID,
+  'variable' => $VPID,
+  'variation_large' => wc_get_product_id_by_sku('CONF-VAR-L-BLUE'),
+  'variation_small' => wc_get_product_id_by_sku('CONF-VAR-S-RED'),
+  'attribute_color' => $COLOR_ATTR_ID,
+  'attribute_size' => $SIZE_ATTR_ID,
+  'zone' => $ZONE_ID,
+  'flat_method' => $FLAT_INSTANCE,
+  'free_method' => $FREE_INSTANCE,
+  'tax_class' => $TAX_CLASS_ID,
+  'tax_rate' => $TAX_ID,
+], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+" >/dev/null
+
+echo "woocommerce seed: category=$CAT_ID tag=$TAG_ID shipping_class=$SHIP_CLASS_ID thumbnail=$THUMB_ID product=$PID precision=$PRECISION_ID grouped=$GROUPED_ID coupon=$COUPON_ID variable_product=$VPID (attrs size=$SIZE_ATTR_ID color=$COLOR_ATTR_ID) zone=$ZONE_ID methods=$FLAT_INSTANCE,$FREE_INSTANCE tax_class=$TAX_CLASS_ID tax=$TAX_ID source_runtime_order=$SOURCE_ORDER_ID source_runtime_review=$SOURCE_REVIEW_ID"
