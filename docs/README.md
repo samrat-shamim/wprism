@@ -19,7 +19,7 @@ The normative wire contract is not here — it is
 
 | Path | What it is |
 |---|---|
-| [recovery-runtime.md](recovery-runtime.md) | The WordPress-independent PHP recovery runtime and its maintenance-exclusion provider contract. |
+| [recovery-runtime.md](recovery-runtime.md) | The WordPress-independent PHP recovery runtime, its maintenance-exclusion provider contract, and the two-primitive transport boundary it needs. |
 | [checkpoint-bundle.md](checkpoint-bundle.md) · [code-release-runtime.md](code-release-runtime.md) · [upload-bundle.md](upload-bundle.md) · [effect-bundle.md](effect-bundle.md) | The four provider slices of verified SSH rollback: database before-image, code before-image, uploads/media, lifecycle-and-rebuild effects. |
 | [ssh-rollback-certification.md](ssh-rollback-certification.md) | The local certification harness that gates that design. |
 | [assess-vocabulary.md](assess-vocabulary.md) | The six product words `duo assess`, `.duo/contract/projection.json`, the frozen authorization plan and a release refusal all speak. `sandbox/tests/offline/assess-contract/regress_assess_projection.php` is the gate on every cell. |

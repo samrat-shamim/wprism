@@ -1,4 +1,4 @@
-# SSH maintenance exclusion and recovery runtime
+# Maintenance exclusion and recovery runtime
 
 The recovery runtime under `<repo_path>/.duo/control/recovery-runtime/` is a
 PHP CLI that does not load WordPress. A production host supplies its own
@@ -15,6 +15,50 @@ otherwise it warns and retains the operator-directed recovery contract.
 The code provider must additionally attest plan-bound compiled-code inventory;
 automatic preparation sends that inventory through the signed v2 request and
 refuses a generation-specific descriptor whose roots or file hashes diverge.
+
+## The runtime is transport-independent by construction
+
+Nothing above is SSH. The runtime is WordPress-free PHP, every provider is an
+absolute-path argv vector invoked target-side, and the maintenance exclusion is
+reserved and released by the authority on the target itself — the controller
+holds no lock. A transport supplies exactly two things:
+
+1. process invocation — `php <control-root>/recovery-runtime/rollback-control.php
+   <action> --root=<control-root>`, which is the base transport's `captureRaw()`;
+2. one mode-`0600` canonical-JSON handoff placed where the runtime can read it,
+   and removed on every observed exit.
+
+Those two members, plus the environment's declared capability predicates, are
+the `RecoveryTransport` interface in `cli/src/Transport/RecoveryTransport.php`.
+SSH and `local` implement it today; `docker` does not, because
+`docker compose run --rm` gives every call a fresh container, so a handoff
+written in one call is gone before the next and the handoff must travel through
+the bind mount instead.
+
+### A `local` target's signing key: what it buys and what it does not
+
+On SSH the stated property is that the Ed25519 secret never leaves the
+controller: the target sees only signed receipts, signed events, and the public
+key adoption provisioned. On a `local` target the controller **is** the target,
+so the secret and the control root share a machine. The signature still gives
+tamper-evidence against a compromised recovery runtime or a corrupted journal —
+a forged receipt or a rewritten event chain still fails verification — but it
+gives **no** evidence against a compromised controller, which holds the secret.
+That is a strictly weaker property than the SSH case.
+
+Because it is weaker, arming it is privileged: `local` accepts
+`rollback_key_id`, `rollback_signing_key`, `rollback_recovery` and
+`verified_rollback` only from an environment carrying machine-local provenance,
+which only an untracked `.duo-envs.json` can supply. Without it the environment
+refuses at load with `local rollback authority is privileged and has no
+machine-local authorization`. An environment that never configures those keys is
+unchanged in every respect, including its `duo envs`, `duo status` and
+`duo promote` output.
+
+The `local` path is **not certified**. `docs/ssh-rollback-certification.md`
+records what the SSH harness certified; its crash classes include SSH loss and
+remote-command kill, which have no local analogue, so a local certificate is a
+different document with a different matrix — not a re-badge of that one.
 
 A separate SSH-only checkpoint profile serves
 `duo promote <env> --scope-contract=<path>`. It accepts only the bounded
@@ -34,8 +78,10 @@ marker. The regression harness creates it only around each injected request.
 
 ## Controller configuration
 
-Put this in the gitignored `.duo-envs.json` SSH environment beside
-`rollback_key_id` and `rollback_signing_key`:
+Put this in the gitignored `.duo-envs.json` environment beside
+`rollback_key_id` and `rollback_signing_key`. It is accepted on an `ssh`
+environment, and — with the machine-local privilege described above — on a
+`local` one:
 
 ```json
 {

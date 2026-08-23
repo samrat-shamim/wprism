@@ -301,6 +301,62 @@ check_wire(
     'scoped promote refuses non-SSH targets before contact without leaking its local contract path'
 );
 
+// DUO: widening verified rollback to the RecoveryTransport capability
+// interface must not leak into scoped promotion. This environment is the one
+// an ordinary `duo promote` now runs the signed verified profile on — same
+// transport class, full provider set, machine-local signing key — and it still
+// reaches the byte-identical scoped_promotion_unavailable envelope, because a
+// scope contract's forward-only seal semantics are certified on the SSH
+// harness alone and widening them is a separate protocol decision.
+$providerArgv = ['/bin/true'];
+$configuredEnvsPath = "$tmp/envs-configured.json";
+put_wire($configuredEnvsPath, json_encode([
+    'envs' => ['fixture' => [
+        'transport' => 'local',
+        'wp_path' => "$tmp/wordpress",
+        'repo_path' => '/target/repo',
+        'rollback_key_id' => 'scope-wire-fixture',
+        'rollback_signing_key' => "$tmp/scope-wire-signing.key",
+        'rollback_recovery' => [
+            'adapters' => [
+                'code_restore' => $providerArgv,
+                'database_restore' => $providerArgv,
+                'prior_verify' => $providerArgv,
+                'storage_restore' => $providerArgv,
+            ],
+            'checkpoint_provider' => $providerArgv,
+            'code_release_provider' => $providerArgv,
+            'effect_provider' => $providerArgv,
+            'exclusion_provider' => $providerArgv,
+            'timeout_seconds' => 5,
+            'upload_provider' => $providerArgv,
+        ],
+        'verified_rollback' => [
+            'claim_ttl_seconds' => 90,
+            'encryption_key_id' => 'kms-scope-wire',
+            'retention_seconds' => 3600,
+        ],
+    ]],
+], JSON_UNESCAPED_SLASHES));
+put_wire("$tmp/scope-wire-signing.key", "unused-by-this-refusal\n");
+$configuredPromote = invoke_wire($root, $configuredEnvsPath, $fakeBin, $argsPath, 'promote', [
+    "--scope-contract=$contractPath", '--format=json',
+]);
+$configuredEnvelope = json_decode(trim($configuredPromote['stdout']), true);
+check_wire(
+    $configuredPromote['exit'] !== 0
+        && is_array($configuredEnvelope)
+        && ($configuredEnvelope['format'] ?? null) === 'duo-command-refusal/v1'
+        && ($configuredEnvelope['reason_code'] ?? null) === 'scoped_promotion_unavailable'
+        && ($configuredEnvelope['message'] ?? null) === 'scoped promotion requires the SSH verified recovery profile'
+        && ($configuredEnvelope['remediation'] ?? null)
+            === 'use scoped apply for local/docker targets or configure an SSH target with signed checkpoint recovery'
+        && !is_file($argsPath)
+        && !str_contains($configuredPromote['stdout'], $contractPath)
+        && !str_contains($configuredPromote['stderr'], $contractPath),
+    'a local target with a fully configured rollback authority still gets the exact scoped_promotion_unavailable envelope'
+);
+
 $optionCapture = invoke_wire($root, $envsPath, $fakeBin, $argsPath, 'capture', [
     "--scope-contract=$optionContractPath", '--format=json',
 ]);

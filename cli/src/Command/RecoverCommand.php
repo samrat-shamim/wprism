@@ -5,6 +5,7 @@ namespace Duo\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
+require_once __DIR__ . '/../Transport/RecoveryTransport.php';
 require_once __DIR__ . '/../Transport/CodeDeploy.php';
 require_once __DIR__ . '/../Recovery/CheckpointCatalog.php';
 require_once __DIR__ . '/../Recovery/RecoveryClaim.php';
@@ -70,15 +71,17 @@ use Duo\CommandRefusalException;
  * ## Which targets
  *
  * Every transport. The signed catalog and the signed rollback need the
- * adopted rollback authority runtime, which only an SSH-adopted target has;
+ * adopted rollback authority runtime, which an adopted target carries only
+ * when its rollback authority is configured (`RecoveryTransport`);
  * the retained release checkpoints (`RetainedCheckpoints`) exist on every
  * target that ever ran an operator-directed promotion, and they are restored
  * through the operator-directed four steps, which need nothing but `wp`.
  * A local or docker target therefore lists and restores its retained
  * checkpoints, and the frozen plan's `operator-directed` claim on that
  * transport is a claim this verb honours — `grind_mup.sh` step 11 is that
- * property as a gate. The `recovery_authority_unavailable` refusal is kept
- * for the one thing a non-SSH target genuinely cannot do: a signed rollback.
+ * property as a gate. The `recovery_authority_unavailable` refusal is kept,
+ * byte for byte, for the one thing a target with no configured rollback
+ * authority genuinely cannot do: a signed rollback.
  *
  * Exit status: `0` a completed listing or recovery, `1` any refusal or a
  * recovery that did not reach its terminal state.
@@ -219,7 +222,7 @@ final class RecoverCommand {
         // false. `--operator-directed` forces that path explicitly.
         $signed = $row['kind'] === CheckpointCatalog::KIND_VERIFIED
             && $flags['operator_directed'] !== true
-            && $transport instanceof SshTransport
+            && $transport instanceof RecoveryTransport
             && $transport->rollbackConfigured();
 
         self::assertCodeFirst($transport, $row, $signed);
@@ -252,7 +255,7 @@ final class RecoverCommand {
      *
      * @return array{recovered:bool,steps:list<array<string,mixed>>}
      */
-    private static function signedRollback(SshTransport $transport): array {
+    private static function signedRollback(RecoveryTransport $transport): array {
         $profile = new VerifiedRollbackProfile($transport);
         try {
             $status = $profile->rollback(true, true, true);
@@ -698,13 +701,17 @@ final class RecoverCommand {
     }
 
     /**
-     * Only an SSH target carries the rollback authority runtime, which is
-     * what every action in `recovery/rollback-control.php` is reached
-     * through. It is needed for the signed rollback alone; the listing and
-     * the operator-directed restore work on every transport.
+     * Only a transport that carries the rollback authority runtime can be
+     * driven through `recovery/rollback-control.php`, which is what every
+     * signed action is reached through. It is needed for the signed rollback
+     * alone; the listing and the operator-directed restore work on every
+     * transport.
+     *
+     * The refusal below stays byte-identical: widening the type widens WHICH
+     * transports can answer, never what a transport that cannot answer says.
      */
-    private static function authorityTransport(EnvironmentDriver $driver): SshTransport {
-        if ($driver instanceof SshTransport) {
+    private static function authorityTransport(EnvironmentDriver $driver): RecoveryTransport {
+        if ($driver instanceof RecoveryTransport) {
             return $driver;
         }
         throw new CommandRefusalException(

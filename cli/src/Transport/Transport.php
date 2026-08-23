@@ -208,8 +208,13 @@ abstract class Transport implements EnvironmentDriver {
         return $v;
     }
 
-    /** Resolve a possibly-relative filesystem path against the directory that defined it. */
-    protected static function resolvePath(string $dir, string $path): string {
+    /**
+     * Resolve a possibly-relative filesystem path against the directory that
+     * defined it. Public because `RecoveryConfig::parse()` resolves
+     * `rollback_signing_key` for whichever transport is parsing it, and a
+     * private copy there would be a second answer to one question.
+     */
+    public static function resolvePath(string $dir, string $path): string {
         if ($path === '' || $path[0] === '/') {
             return $path;
         }

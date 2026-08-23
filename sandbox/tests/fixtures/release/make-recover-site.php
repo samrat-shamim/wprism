@@ -38,7 +38,10 @@ declare(strict_types=1);
  *                       — a second retained checkpoint whose frozen plan
  *                         entered a code lifecycle phase, for code-first
  *   envs.json       one `ssh` environment named `fixture`, one `local`
- *                   environment named `plain` on the same target repository
+ *                   environment named `plain`, and one `local` environment
+ *                   named `configured` that HAS a rollback authority, all on
+ *                   the same target repository
+ *   signing.key     an Ed25519 controller secret for the `configured` env
  *   bin/ssh         runs the remote command locally
  *   bin/wp          records every call and honours the injected exit codes
  *   envs.json       one `ssh` environment named `fixture`
@@ -348,7 +351,22 @@ file_put_contents("$dir/envs.json", json_encode([
             'wp_path' => realpath("$dir/wordpress") ?: "$dir/wordpress",
             'repo_path' => realpath("$dir/target") ?: "$dir/target",
         ],
+        // The same target, the same transport class, the same runtime — the
+        // only difference is that this environment configured a rollback
+        // authority. It is what makes `recovery_authority_unavailable` a
+        // statement about configuration rather than about SSH.
+        'configured' => [
+            'transport' => 'local',
+            'wp_path' => realpath("$dir/wordpress") ?: "$dir/wordpress",
+            'repo_path' => realpath("$dir/target") ?: "$dir/target",
+            'rollback_key_id' => 'recover-ordering-fixture',
+            'rollback_signing_key' => "$dir/signing.key",
+        ],
     ],
 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+
+$keypair = sodium_crypto_sign_keypair();
+file_put_contents("$dir/signing.key", base64_encode(sodium_crypto_sign_secretkey($keypair)) . "\n");
+chmod("$dir/signing.key", 0600);
 
 echo "recover fixture ready: $dir\n";

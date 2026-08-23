@@ -112,7 +112,11 @@ final class CheckpointCatalog {
      */
     public static function list(EnvironmentDriver $driver, ?string $now = null): array {
         $now ??= gmdate('Y-m-d\TH:i:s\Z');
-        if ($driver instanceof SshTransport) {
+        // Widened with the promote dispatch (cli/duo) so the listing an
+        // operator reads names the same authority `duo promote` acts on. The
+        // carriesRollbackAuthority() half keeps `duo recover --list`
+        // byte-identical for every environment that never configured one.
+        if ($driver instanceof RecoveryTransport && $driver->carriesRollbackAuthority()) {
             $status = RollbackAuthority::status($driver);
             $audit = null;
             if (($status['available'] ?? false) === true
