@@ -17,6 +17,7 @@ if (!defined('ARRAY_A')) {
 /** Minimal wpdb surface used by the real Db/Ledger calls below. */
 final class CaptureAtomicityFakeWpdb {
     public string $prefix = 'wp_';
+    public string $dbname = 'wordpress';
     public string $posts = 'wp_posts';
     public string $terms = 'wp_terms';
     public string $term_taxonomy = 'wp_term_taxonomy';
@@ -40,6 +41,12 @@ final class CaptureAtomicityFakeWpdb {
     public int $commits = 0;
     public int $rollbacks = 0;
     public int $ddlQueries = 0;
+    public int $connectionId = 41;
+    public ?int $fenceHolder = null;
+    public bool $fenceBusy = false;
+    public int $fenceAcquires = 0;
+    public int $fenceReleases = 0;
+    public bool $kvTableExists = true;
     public bool $failStartBeforeOpen = false;
     public bool $failStartAfterOpen = false;
     public ?string $engineAfterStartFailure = null;
@@ -202,6 +209,32 @@ final class CaptureAtomicityFakeWpdb {
 
     public function get_var(string $sql) {
         $this->last_error = '';
+        if (strcasecmp($sql, 'SELECT CONNECTION_ID()') === 0) {
+            return $this->connectionId;
+        }
+        if (preg_match("/SELECT GET_LOCK\('([^']+)', 0\)/i", $sql)) {
+            if ($this->fenceBusy) {
+                return 0;
+            }
+            $this->fenceHolder = $this->connectionId;
+            $this->fenceAcquires++;
+            return 1;
+        }
+        if (preg_match("/SELECT IS_USED_LOCK\('([^']+)'\)/i", $sql)) {
+            return $this->fenceHolder;
+        }
+        if (preg_match("/SELECT RELEASE_LOCK\('([^']+)'\)/i", $sql)) {
+            $released = $this->fenceHolder === $this->connectionId;
+            if ($released) {
+                $this->fenceHolder = null;
+                $this->fenceReleases++;
+            }
+            return $released ? 1 : 0;
+        }
+        if (stripos($sql, 'information_schema.TABLES') !== false
+            && stripos($sql, "TABLE_NAME = 'wp_duo_kv'") !== false) {
+            return $this->kvTableExists ? 'wp_duo_kv' : null;
+        }
         if (preg_match("/SELECT v FROM wp_duo_kv WHERE k = '([^']*)'/i", $sql, $m)) {
             return $this->kv[$m[1]] ?? null;
         }
@@ -264,6 +297,7 @@ if (!defined('DUO_SPEC_VERSION')) {
 }
 
 use Duo\Capture;
+use Duo\CapturePublicationWorkflow;
 use Duo\CaptureTransaction;
 use Duo\CommandRefusalException;
 use Duo\CompiledRepository;
@@ -271,6 +305,7 @@ use Duo\Db;
 use Duo\Deletion;
 use Duo\Ledger;
 use Duo\Policy;
+use Duo\ProcessFence;
 use Duo\Snapshot;
 
 $wpdb = new CaptureAtomicityFakeWpdb();
@@ -297,6 +332,94 @@ $transactionRun = new ReflectionMethod(CaptureTransaction::class, 'run');
 assert_capture_atomicity(
     $transactionRun->isPublic() && $transactionRun->isStatic(),
     'CaptureTransaction exposes one focused static transaction entry point'
+);
+
+// A destination lock protects one filesystem tree; the advisory fence must
+// independently serialize every capture against all other target writers.
+// Exercise the real private boundary so failure typing, durable-row refusal,
+// and exact ownership cleanup cannot drift apart from the workflow.
+$captureFence = new ReflectionMethod(CapturePublicationWorkflow::class, 'acquireTargetWriterFence');
+$ownsCaptureFence = $captureFence->invoke(null);
+assert_capture_atomicity($ownsCaptureFence === true, 'capture acquires the target-wide process fence when it owns no prior fence');
+assert_capture_atomicity($wpdb->fenceHolder === $wpdb->connectionId, 'capture process fence is held by the current database connection');
+$nestedCaptureFence = $captureFence->invoke(null);
+assert_capture_atomicity($nestedCaptureFence === false, 'same-process nested acquisition does not claim ownership of an existing continuous fence');
+ProcessFence::release();
+assert_capture_atomicity($wpdb->fenceHolder === null && $wpdb->fenceReleases === 1, 'the owned capture process fence releases exactly once');
+
+$wpdb->fenceBusy = true;
+$busyCapture = null;
+try {
+    $captureFence->invoke(null);
+} catch (ReflectionException $e) {
+    throw $e;
+} catch (Throwable $e) {
+    $busyCapture = $e;
+}
+$wpdb->fenceBusy = false;
+assert_capture_atomicity($busyCapture instanceof CommandRefusalException, 'a competing live target writer produces a reviewed capture refusal');
+assert_capture_atomicity(
+    $busyCapture instanceof CommandRefusalException
+        && ($busyCapture->payload()['error'] ?? null) === 'capture_target_writer_active',
+    'live target-writer contention has the stable capture_target_writer_active reason code'
+);
+assert_capture_atomicity($wpdb->fenceHolder === null, 'a refused busy-fence acquisition leaves no process-fence residue');
+
+$wpdb->kv['promotion_lock'] = '{"retained":"opaque"}';
+$ownsCaptureFence = $captureFence->invoke(null);
+$assertNoPromotion = new ReflectionMethod(CapturePublicationWorkflow::class, 'assertNoPromotionSession');
+$assertNoPromotionIfLedger = new ReflectionMethod(
+    CapturePublicationWorkflow::class,
+    'assertNoPromotionSessionIfLedgerExists'
+);
+$durablePromotion = null;
+try {
+    $assertNoPromotionIfLedger->invoke(null);
+} catch (ReflectionException $e) {
+    throw $e;
+} catch (Throwable $e) {
+    $durablePromotion = $e;
+}
+assert_capture_atomicity($durablePromotion instanceof CommandRefusalException, 'a retained between-process promotion lease blocks capture');
+assert_capture_atomicity(
+    $durablePromotion instanceof CommandRefusalException
+        && ($durablePromotion->payload()['error'] ?? null) === 'capture_target_writer_active',
+    'durable promotion contention shares the finite target-writer reason code'
+);
+assert_capture_atomicity($ownsCaptureFence === true && $wpdb->fenceHolder === $wpdb->connectionId, 'durable promotion check remains inside the capture-owned process fence');
+assert_capture_atomicity(isset($wpdb->kv['promotion_lock']), 'capture never consumes retained promotion recovery authority');
+ProcessFence::release();
+assert_capture_atomicity($wpdb->fenceHolder === null, 'outer capture cleanup can release the fence after durable promotion refusal');
+$wpdb->kvTableExists = false;
+$assertNoPromotionIfLedger->invoke(null);
+assert_capture_atomicity(isset($wpdb->kv['promotion_lock']), 'a first-capture target with no ledger table skips only the impossible pre-schema row read');
+$wpdb->kvTableExists = true;
+$durableAfterEnsure = null;
+try {
+    $assertNoPromotion->invoke(null);
+} catch (ReflectionException $e) {
+    throw $e;
+} catch (Throwable $e) {
+    $durableAfterEnsure = $e;
+}
+assert_capture_atomicity($durableAfterEnsure instanceof CommandRefusalException, 'the unconditional post-schema check still refuses a promotion row');
+unset($wpdb->kv['promotion_lock']);
+
+$workflowSource = (string) file_get_contents("$root/agent/src/Capture/CapturePublicationWorkflow.php");
+assert_capture_atomicity(
+    strpos($workflowSource, '$ownsTargetFence = self::acquireTargetWriterFence();')
+        < strpos($workflowSource, 'self::assertNoPromotionSessionIfLedgerExists();')
+        && strpos($workflowSource, 'self::assertNoPromotionSessionIfLedgerExists();')
+            < strpos($workflowSource, 'Ledger::ensure();')
+        && strpos($workflowSource, 'Ledger::ensure();')
+            < strpos($workflowSource, 'self::assertNoPromotionSession();'),
+    'capture fences and checks established promotion authority before ledger repair, then checks again after first-capture schema creation'
+);
+assert_capture_atomicity(
+    str_contains($workflowSource, 'Publish::unlock($lock);')
+        && str_contains($workflowSource, 'if ($ownsTargetFence) {')
+        && str_contains($workflowSource, 'ProcessFence::release();'),
+    'capture releases its target process fence on the outer publication cleanup path'
 );
 $transactionRunParameters = $transactionRun->getParameters();
 assert_capture_atomicity(

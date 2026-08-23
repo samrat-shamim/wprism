@@ -5,8 +5,10 @@ namespace Duo;
  * Connection-scoped target process fence.
  *
  * This service owns only MySQL GET_LOCK/IS_USED_LOCK/RELEASE_LOCK state.
- * PromotionLease owns owner/artifact policy and the durable lease row; a
- * caller cannot release this fence through the read-only assertion surface.
+ * PromotionLease owns owner/artifact policy and the durable lease row;
+ * capture uses the same target-wide fence while it mutates identity and
+ * state. A caller cannot release this fence through the read-only assertion
+ * surface.
  */
 final class ProcessFence {
     private static ?string $name = null;
