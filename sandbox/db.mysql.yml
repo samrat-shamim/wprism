@@ -1,0 +1,86 @@
+name: duo-db-mysql
+
+# -----------------------------------------------------------------------------
+# The MySQL 8.4 evidence lane's shared server — a SECOND long-lived database
+# server standing beside sandbox/db.yml's MariaDB, never replacing it.
+#
+# Why a separate compose project rather than a parameterized db.yml: the db
+# server is fleet-shared, not per-pair (db.yml:4-18). Retagging db.yml's image
+# would move every pair — including other agents' in-flight evidence runs —
+# onto MySQL mid-flight, and db.yml's own env/binary names are MariaDB-specific
+# anyway (MARIADB_ROOT_PASSWORD at db.yml:50, `healthcheck.sh` at db.yml:68).
+# Two projects means `docker compose -p duo-db -f db.yml` and
+# `docker compose -p duo-db-mysql -f db.mysql.yml` have disjoint blast radii,
+# and a pair selects between them with DUO_DB_ENGINE (sandbox/bin/pair.sh).
+#
+# THIS FILE CLAIMS NOTHING. manifests/capabilities/platform.json still declares
+# `compatibility.database.engine = "MariaDB"` and
+# agent/src/Policy/PlatformCompatibility.php:117 still compares the probed
+# engine with `!==`, so every `wp duo ...` invocation against a pair on this
+# server refuses with reason_code `platform_unsupported` and diagnostic code
+# `platform_database_engine_unsupported`. That refusal is the lane's FIRST
+# datum, not a defect: it proves the harness reaches a real MySQL server before
+# any contract is widened. Widening the claim requires the live matrix, and the
+# claim moves only in a commit that carries the evidence.
+#
+# Network: attach-only. db.yml:37-39 is the sole creator of `duo-shared` (it
+# declares the network WITHOUT `external: true`); every other file in this
+# redesign references it as external. So `db.yml` must have been brought up at
+# least once before this file's first `up`, exactly as sandbox/pair.yml already
+# depends on that ordering (pair.yml:16-19).
+#
+# Healthcheck: NOT `healthcheck.sh --connect --innodb_initialized` (db.yml:68) —
+# that script ships only in MariaDB's images; it does not exist in mysql:8.4,
+# and a healthcheck whose binary is missing never reports healthy, so
+# pair_db_ensure_up() (lib/pair_db.sh:23-32) would poll for 120s and then
+# refuse. NOT `mysqladmin ping` either: ping answers as soon as the server
+# accepts a connection, which is precisely the fake-readiness gap db.yml:61-66
+# records — a server that is listening but has not finished InnoDB startup
+# still refuses real queries. `mysql -uroot -proot -e 'SELECT 1'` is the
+# cheapest statement that can only succeed once the server actually executes
+# SQL, which is the property --innodb_initialized buys on the MariaDB side.
+#
+# Cost: this adds a SECOND 2g / 2.0-cpu long-lived container to the same
+# daemon accounting db.yml:4-12 records as having wedged OrbStack under three
+# concurrent stacks. Bring it down (`docker compose -p duo-db-mysql
+# -f db.mysql.yml down -v`) whenever the MySQL matrix is not running, and never
+# leave it up alongside a full conformance sweep.
+# -----------------------------------------------------------------------------
+
+networks:
+  duo-shared:
+    name: duo-shared
+    external: true
+
+volumes:
+  duo-db-mysql-data: {}
+
+services:
+  db:
+    image: mysql:8.4
+    container_name: duo-shared-mysql
+    networks: [duo-shared]
+    environment:
+      # mysql:8.4's own variable name; MARIADB_ROOT_PASSWORD (db.yml:50) is
+      # read by the MariaDB entrypoint only and would leave this server with
+      # no root credential at all.
+      MYSQL_ROOT_PASSWORD: root
+    # Loopback only, and deliberately NOT db.yml:58's 3316 — both servers are
+    # up at once during a matrix run, so a shared host port would make the
+    # second one fail to bind. Nothing in this repo's tooling reads this port;
+    # admin SQL goes through `docker exec duo-shared-mysql mysql -uroot`
+    # (lib/pair_db.sh's pair_db_sql), same as the MariaDB side.
+    ports:
+      - "127.0.0.1:3326:3306"
+    volumes:
+      - duo-db-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysql", "-uroot", "-proot", "-e", "SELECT 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    # Matched to db.yml:72-76 so a cell's timings are comparable between the
+    # two engines rather than confounded by different resource caps.
+    mem_limit: 2g
+    cpus: "2.0"
+    restart: unless-stopped
