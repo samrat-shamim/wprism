@@ -257,8 +257,8 @@ postdeploy_elementor_content() {
 seed_ninja_forms_content() {
   # Reuse the standalone conformance seed verbatim. It imports Ninja Forms'
   # own bundled Job Application template through the plugin's real admin
-  # import process, yielding a typed-table graph of 1 form, 23 fields, and
-  # 3 actions plus a page containing the real block.
+  # import process, then adds one native large/serialized disposable field
+  # and one disposable action: 1 form, 24 fields, 4 actions plus a real block.
   wp_conf1() { wp1 "$@"; }
   local CONF_REPO1="siterepo/${PAIR}1"
   local COMPOSE="$PAIR_COMPOSE_STRING"
@@ -277,8 +277,8 @@ postdeploy_ninja_forms_content() {
   unset -f wp_conf2
 }
 
-check_ninja_forms_boundary_content() {
-  local front form_id api_out
+check_ninja_forms_boundary_content() { # [expected-title]
+  local expected_title="${1:-Job Application}" front form_id api_out cache_out
   front=$(curl -fsSL "http://localhost:${PORT2}/conformance-careers/") \
     || fail "side 2 conformance-careers page did not return 200"
   require_observed_nonempty "side 2 Ninja Forms careers page" "$front"
@@ -292,16 +292,40 @@ check_ninja_forms_boundary_content() {
   grep -q 'First Name' <<<"$front" \
     || fail "side 2 rendered form is missing its own field content"
 
-  form_id=$(wp2 db query "SELECT id FROM wp_nf3_forms WHERE title='Job Application'" --skip-column-names | tr -d '[:space:]')
+  form_id=$(wp2 db query "SELECT id FROM wp_nf3_forms ORDER BY id" --skip-column-names | tr -d '[:space:]')
   require_fixture_ids form_id
   api_out=$(wp2 eval "
 \$form = Ninja_Forms()->form($form_id)->get();
 echo \$form->get_setting('title') . '|' . count(Ninja_Forms()->form($form_id)->get_fields()) . '|' . count(Ninja_Forms()->form($form_id)->get_actions());
 ")
   require_observed_nonempty "side 2 Ninja Forms model API" "$api_out"
-  [ "$api_out" = "Job Application|23|3" ] \
+  [ "$api_out" = "$expected_title|24|4" ] \
     || fail "side 2 Ninja Forms model API mismatch (got: $api_out)"
-  pass "side 2 renders the real Job Application and Ninja Forms' model API resolves 23 fields and 3 actions"
+  cache_out=$(wp2 eval '
+    global $wpdb;
+    $forms=array_values(array_map("intval",$wpdb->get_col("SELECT id FROM {$wpdb->prefix}nf3_forms ORDER BY id")));
+    $caches=array_values(array_map("intval",$wpdb->get_col("SELECT id FROM {$wpdb->prefix}nf3_upgrades ORDER BY id")));
+    $invalid=0;
+    foreach ($forms as $id) {
+      $raw=$wpdb->get_var($wpdb->prepare("SELECT cache FROM {$wpdb->prefix}nf3_upgrades WHERE id=%d",$id));
+      $cache=is_string($raw)?@unserialize($raw,["allowed_classes"=>false,"max_depth"=>64]):false;
+      $fields=array_values(array_map("intval",$wpdb->get_col($wpdb->prepare("SELECT id FROM {$wpdb->prefix}nf3_fields WHERE parent_id=%d ORDER BY id",$id))));
+      $actions=array_values(array_map("intval",$wpdb->get_col($wpdb->prepare("SELECT id FROM {$wpdb->prefix}nf3_actions WHERE parent_id=%d ORDER BY id",$id))));
+      $cachedFields=is_array($cache)?array_map(static fn($row)=>(int)($row["id"]??0),(array)($cache["fields"]??[])):[];
+      $cachedActions=is_array($cache)?array_map(static fn($row)=>(int)($row["id"]??0),(array)($cache["actions"]??[])):[];
+      sort($cachedFields,SORT_NUMERIC); sort($cachedActions,SORT_NUMERIC);
+      if (!is_array($cache)||(int)($cache["id"]??0)!==$id||$cachedFields!==$fields||$cachedActions!==$actions) $invalid++;
+    }
+    $legacy=0;
+    foreach ((array)$wpdb->get_col("SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE \"nf_form_%\"") as $name) {
+      if (is_string($name)&&preg_match("/^nf_form_[1-9][0-9]*$/D",$name)===1) $legacy++;
+    }
+    echo implode("|",[count($forms),$forms===$caches?1:0,$invalid,$legacy]);
+  ')
+  require_observed_nonempty "side 2 Ninja Forms cache projection" "$cache_out"
+  [ "$cache_out" = "1|1|0|0" ] \
+    || fail "side 2 Ninja Forms cache projection was not closed (got: $cache_out)"
+  pass "side 2 renders the real Job Application; native API resolves 24 fields/4 actions; provider cache is exact and legacy-free"
 }
 
 seed_polylang_content() {
@@ -1467,6 +1491,86 @@ EOF
   rm -rf "siterepo/${PAIR}2/.tmp-final"
   [ -z "$DIFF_OUT" ] || fail "byte-identity broken at ninja-forms $NINJA_VERSION: $DIFF_OUT"
   pass "byte-identical recapture at ninja-forms $NINJA_VERSION — the manifest's own declared version_range boundary is proven, not just its currently-installed version"
+
+  if [ "$NINJA_VERSION" = 3.4.34.2 ]; then
+    say 'in-place lifecycle: ninja-forms 3.4.34.2 authored graph -> exact 3.14.11 on both environments'
+    UPGRADE_ARTIFACT_1=$(fetch_artifact ninja-forms 3.14.11 cli1)
+    UPGRADE_ARTIFACT_2=$(fetch_artifact ninja-forms 3.14.11 cli2)
+    wp1 plugin install "$UPGRADE_ARTIFACT_1" --force --activate >/dev/null
+    wp2 plugin install "$UPGRADE_ARTIFACT_2" --force --activate >/dev/null
+    [ "$(wp1 plugin get ninja-forms --field=version)" = 3.14.11 ] \
+      && [ "$(wp2 plugin get ninja-forms --field=version)" = 3.14.11 ] \
+      || fail 'Ninja Forms in-place upgrade did not install exact 3.14.11 on both environments'
+
+    UPGRADE_DRIFT_RC=0
+    UPGRADE_DRIFT_OUT=$(wp2 duo deploy --repo=/siterepo 2>&1) || UPGRADE_DRIFT_RC=$?
+    require_duo_answered 'Ninja Forms out-of-band 3.4.34.2 to 3.14.11 upgrade refusal' human "$UPGRADE_DRIFT_OUT"
+    [ "$UPGRADE_DRIFT_RC" -ne 0 ] \
+      && grep -q 'code_drift' <<<"$UPGRADE_DRIFT_OUT" \
+      && grep -q '3.4.34.2' <<<"$UPGRADE_DRIFT_OUT" \
+      && grep -q '3.14.11' <<<"$UPGRADE_DRIFT_OUT" \
+      || fail "Ninja Forms out-of-band upgrade did not refuse at the exact code witness: $UPGRADE_DRIFT_OUT"
+
+    # Re-baseline the explicit code replacement, then publish one real native
+    # form edit under the new release so apply must exercise mapping and the
+    # fresh-process cache provider across the in-place lifecycle boundary.
+    wp1 duo deploy --repo=/siterepo --force-code-drift >/dev/null
+    wp2 duo deploy --repo=/siterepo --force-code-drift >/dev/null
+    wp1 eval '
+      global $wpdb;
+      $id=(int)$wpdb->get_var("SELECT id FROM {$wpdb->prefix}nf3_forms WHERE title=\"Job Application\"");
+      if ($id <= 0) throw new RuntimeException("Ninja Forms upgrade form is absent");
+      $form=Ninja_Forms()->form($id)->get();
+      $form->update_setting("title", "Job Application Upgrade 東京 🚀")->save();
+      WPN_Helper::delete_nf_cache($id);
+      WPN_Helper::build_nf_cache($id);
+    ' >/dev/null
+    wp1 duo capture --repo=/siterepo
+    wp1 duo lint --repo=/siterepo
+    "${GIT1[@]}" add -A
+    "${GIT1[@]}" commit -qm 'capture: Ninja Forms 3.4.34.2 to 3.14.11 in-place upgrade'
+    "${GIT1[@]}" push -q origin main
+    git -C "siterepo/${PAIR}2" pull -q origin main
+    UPGRADE_REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
+    wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$UPGRADE_REV" \
+      2>&1 | tee "$VMATRIX_APPLY_LOG"
+    grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
+      || fail 'Ninja Forms 3.4.34.2 -> 3.14.11 apply canary was not clean'
+    grep -q 'provider capability fired: ninja-forms-form-cache@2.0.0 rebuild_form_caches' "$VMATRIX_APPLY_LOG" \
+      || fail 'Ninja Forms cache provider v2 did not fire across the in-place upgrade'
+    check_ninja_forms_boundary_content 'Job Application Upgrade 東京 🚀'
+
+    wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-ninja-upgrade-final
+    UPGRADE_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-ninja-upgrade-final" || true)
+    rm -rf "siterepo/${PAIR}2/.tmp-ninja-upgrade-final"
+    [ -z "$UPGRADE_DIFF" ] \
+      || fail "Ninja Forms 3.4.34.2 -> 3.14.11 recapture was not byte-identical: $UPGRADE_DIFF"
+
+    # A downgrade is not an adapter data operation. Replacing code behind the
+    # recorded 3.14.11 witness must stay loud until an operator explicitly
+    # re-baselines it; restore the reviewed current artifact before continuing.
+    wp2 plugin install "$ARTIFACT_2" --force --activate >/dev/null
+    [ "$(wp2 plugin get ninja-forms --field=version)" = 3.4.34.2 ] \
+      || fail 'Ninja Forms downgrade probe did not install exact 3.4.34.2'
+    DOWNGRADE_RC=0
+    DOWNGRADE_OUT=$(wp2 duo deploy --repo=/siterepo 2>&1) || DOWNGRADE_RC=$?
+    require_duo_answered 'Ninja Forms out-of-band 3.14.11 to 3.4.34.2 downgrade refusal' human "$DOWNGRADE_OUT"
+    [ "$DOWNGRADE_RC" -ne 0 ] \
+      && grep -q 'code_drift' <<<"$DOWNGRADE_OUT" \
+      && grep -q '3.14.11' <<<"$DOWNGRADE_OUT" \
+      && grep -q '3.4.34.2' <<<"$DOWNGRADE_OUT" \
+      || fail "Ninja Forms out-of-band downgrade did not refuse at the exact code witness: $DOWNGRADE_OUT"
+    wp2 plugin install "$UPGRADE_ARTIFACT_2" --force --activate >/dev/null
+    [ "$(wp2 plugin get ninja-forms --field=version)" = 3.14.11 ] \
+      || fail 'Ninja Forms downgrade recovery did not restore exact 3.14.11'
+    wp2 duo deploy --repo=/siterepo --force-code-drift >/dev/null
+    DOWNGRADE_PLAN=$(wp2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+    require_duo_answered 'Ninja Forms plan after rejected downgrade recovery' json "$DOWNGRADE_PLAN"
+    jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$DOWNGRADE_PLAN" >/dev/null \
+      || fail "Ninja Forms rejected downgrade recovery invented authored work: $DOWNGRADE_PLAN"
+    check_ninja_forms_boundary_content 'Job Application Upgrade 東京 🚀'
+    pass 'Ninja Forms populated 3.4.34.2 sites upgrade in place to 3.14.11; out-of-band downgrade refuses before explicit restoration; native graph/cache and byte identity survive'
+  fi
 done
 fi
 

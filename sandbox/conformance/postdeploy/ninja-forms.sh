@@ -73,3 +73,70 @@ printf '%s\n' "$NF_CLEANUP"
 require_observed_nonempty "conf2 Ninja Forms activation cleanup observation" "$NF_CLEANUP"
 require_fixture_state "conf2's own activation-created 'Contact Me' form is gone from nf3_forms" \
   "contact_me_remaining=0" "$(grep -o 'contact_me_remaining=[0-9]*' <<<"$NF_CLEANUP" | tail -1)"
+
+# Force every mapped Ninja Forms identity family far away from the source,
+# preserve target-only submission/runtime state, and seed both generations of
+# stale cache. The first real apply must rebind block/table references to these
+# target-local ids while provider v2 removes both orphan cache stores and does
+# not cross the runtime boundary.
+cat > "${CONF_REPO2:-siterepo/conf2}"/.tmp-nf-hostile-target.php <<'PHPEOF'
+<?php
+global $wpdb;
+foreach ([
+    'nf3_forms' => 700000,
+    'nf3_form_meta' => 710000,
+    'nf3_fields' => 720000,
+    'nf3_field_meta' => 730000,
+    'nf3_actions' => 740000,
+    'nf3_action_meta' => 750000,
+] as $suffix => $next) {
+    $table = $wpdb->prefix . $suffix;
+    if ($wpdb->query("ALTER TABLE `$table` AUTO_INCREMENT = $next") === false) {
+        throw new RuntimeException("Ninja Forms target identity divergence failed for $suffix");
+    }
+}
+
+$submission = wp_insert_post([
+    'post_type' => 'nf_sub',
+    'post_status' => 'publish',
+    'post_title' => 'Target Runtime Submission',
+], true);
+if (is_wp_error($submission) || (int) $submission <= 0) {
+    throw new RuntimeException('Ninja Forms target runtime submission fixture failed');
+}
+update_post_meta((int) $submission, '_form_id', '424242');
+update_post_meta((int) $submission, '_field_999', 'target-submission-survives');
+update_option('ninja_forms_target_undeclared_neighbor', 'target-neighbor-survives', false);
+
+$orphan = serialize([
+    'id' => 777777,
+    'fields' => [['settings' => ['label' => 'stale target field'], 'id' => 888888]],
+    'actions' => [],
+    'settings' => ['title' => 'stale target cache'],
+]);
+if ($wpdb->insert($wpdb->prefix . 'nf3_upgrades', [
+    'id' => 777777,
+    'cache' => $orphan,
+    'stage' => 1,
+    'maintenance' => 0,
+]) === false) {
+    throw new RuntimeException('Ninja Forms orphan table cache fixture failed');
+}
+update_option('nf_form_777777', $orphan, false);
+
+echo 'submission_id=' . (int) $submission . "\n";
+echo 'orphan_table_cache=' . (int) $wpdb->get_var(
+    "SELECT COUNT(*) FROM {$wpdb->prefix}nf3_upgrades WHERE id=777777"
+) . "\n";
+echo 'orphan_legacy_cache=' . (get_option('nf_form_777777', null) === null ? 0 : 1) . "\n";
+PHPEOF
+NF_HOSTILE=$($COMPOSE run --rm -T cli2 wp eval-file /siterepo/.tmp-nf-hostile-target.php)
+rm -f "${CONF_REPO2:-siterepo/conf2}"/.tmp-nf-hostile-target.php
+printf '%s\n' "$NF_HOSTILE"
+require_observed_nonempty "conf2 Ninja Forms hostile-target observation" "$NF_HOSTILE"
+NF_SUBMISSION_ID=$(grep -o 'submission_id=[0-9]*' <<<"$NF_HOSTILE" | grep -o '[0-9]*')
+require_fixture_ids NF_SUBMISSION_ID
+require_fixture_state "conf2 orphan Ninja Forms table cache exists before apply" \
+  "orphan_table_cache=1" "$(grep -o 'orphan_table_cache=[0-9]*' <<<"$NF_HOSTILE" | tail -1)"
+require_fixture_state "conf2 orphan Ninja Forms legacy cache exists before apply" \
+  "orphan_legacy_cache=1" "$(grep -o 'orphan_legacy_cache=[0-9]*' <<<"$NF_HOSTILE" | tail -1)"
