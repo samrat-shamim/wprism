@@ -435,7 +435,13 @@ final class InitConfirmation {
             // verification that re-identifies the root already proves it
             // unchanged (InitRecovery.php:738-744).
             $lockRows = (array) ($proposal['code']['lock'] ?? []);
-            if ($lockRows !== []) {
+            $firstParty = (array) ($proposal['code']['first_party'] ?? []);
+            // Published whenever the proposal is the split declaration, not
+            // only when something locked: a lock with an empty `components`
+            // list and a `first_party` list is still the sourcing declaration
+            // the compile gate needs to tell "Git carries this by declaration"
+            // from "Git carries this by omission".
+            if ((($proposal['code']['declaration']['format'] ?? null) === 2)) {
                 $attemptRecord['phase'] = 'code-lock-planned';
                 $attemptPublication = InitAttemptJournal::write(
                     $repo,
@@ -455,12 +461,16 @@ final class InitConfirmation {
                 // run that found it.
                 $codeLockPath = $codeRoot . '/' . basename(CodeSourceLock::PATH);
                 InitOwnedArtifacts::assert_absent_owned_path($codeLockPath, 'code lock');
-                Canon::write_file($codeLockPath, CodeSourceLock::encode($lockRows));
+                Canon::write_file($codeLockPath, CodeSourceLock::encode($lockRows, $firstParty));
                 // Read it back through the grammar the compiler will use, so a
                 // publication that produced anything the gate would refuse
                 // fails here rather than at the operator's first compile.
                 if (Canon::encode(CodeSourceLock::parse(Canon::read_file($codeLockPath)))
-                    !== Canon::encode(['format' => CodeSourceLock::FORMAT, 'components' => CodeSourceLock::sort_components($lockRows)])) {
+                    !== Canon::encode([
+                        'format' => CodeSourceLock::FORMAT,
+                        'components' => CodeSourceLock::sort_components($lockRows),
+                        'first_party' => CodeSourceLock::sort_first_party($firstParty),
+                    ])) {
                     throw new \RuntimeException('duo: published code lock differs from its reviewed classification');
                 }
                 $attemptRecord['phase'] = 'code-lock-written';

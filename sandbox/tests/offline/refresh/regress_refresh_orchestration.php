@@ -532,8 +532,11 @@ try {
         ) . "\n");
         if ($lock !== null) {
             mkdir($source . '/code', 0700, true);
+            // A complete v2 lock: the two locked components and an empty
+            // first_party list, since the fixture carries nothing else under
+            // code/wp-content.
             file_put_contents($source . '/code/duo-code.lock.json', json_encode(
-                ['components' => $lock, 'format' => \Duo\CodeSourceLock::FORMAT],
+                ['components' => $lock, 'first_party' => [], 'format' => \Duo\CodeSourceLock::FORMAT],
                 JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
             ) . "\n");
         }

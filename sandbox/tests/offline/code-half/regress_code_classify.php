@@ -11,9 +11,13 @@
  *
  * That claim is asserted here rather than described: the suite compiles the
  * repository before and after the migration and compares the revisions, and it
- * pins the three refusals that keep the claim true — a dirty `code/` tree, a
- * target that describes different components, and a `site.duo.json` that is not
- * canonical.
+ * pins the refusals that keep the claim true — a dirty `code/` tree, a target
+ * that describes different components, a `site.duo.json` that is not
+ * canonical — plus the one the no-third-party-bytes invariant adds: a
+ * component that neither locks nor is declared first-party refuses the WHOLE
+ * run, because there is no third state for Git to hold it in. A format-2
+ * repository is re-classified rather than refused, which is how it gains a
+ * first-party declaration or a newly imported archive's lock entry.
  */
 declare(strict_types=1);
 
@@ -133,11 +137,11 @@ function tracked(string $repo): array {
 }
 
 /** @return array{0:int,1:string} exit code and the message of a refusal */
-function classify_repo(Transport $transport, string $repo, bool $dryRun = false, bool $offline = false, ?string $cacheDir = null): array {
+function classify_repo(Transport $transport, string $repo, bool $dryRun = false, bool $offline = false, ?string $cacheDir = null, array $firstParty = []): array {
     $method = new ReflectionMethod(CodeClassifyCommand::class, 'classify');
     ob_start();
     try {
-        $exit = (int) $method->invoke(null, $transport, $repo, $dryRun, $offline, $cacheDir);
+        $exit = (int) $method->invoke(null, $transport, $repo, $dryRun, $offline, $cacheDir, $firstParty);
         ob_end_clean();
         return [$exit, ''];
     } catch (\Throwable $error) {
@@ -178,7 +182,23 @@ duo_check(str_contains($message, 'no code half to classify'), 'and told it has n
 
 $already = make_site_repo($scratch, $seq, $wooFiles, $agencyFiles, false, FORMAT_2);
 [$exit, $message] = classify_repo(new ClassifyFixtureTransport(null), $already);
-duo_check(str_contains($message, 'already declares the split'), 'an already-split repository is refused rather than re-migrated');
+duo_check(
+    str_contains($message, 'code/duo-code.lock.json is not a regular file'),
+    'a format-2 repository is re-classified, not refused as "already split" — so one whose declared lock is missing refuses on the lock'
+);
+file_put_contents($already . '/code/duo-code.lock.json', CodeSourceLock::encode([[
+    'root' => 'plugins',
+    'component' => 'absent-premium',
+    'version' => '2.0.0',
+    'origin' => ['kind' => 'imported-archive', 'archive_sha256' => str_repeat('c', 64)],
+    'tree_sha256' => str_repeat('d', 64),
+]]));
+[$exit, $message] = classify_repo(new ClassifyFixtureTransport(null), $already);
+duo_check(
+    str_contains($message, 'the lock declares plugins/absent-premium but the component is not on disk')
+        && str_contains($message, 'duo code-resolve'),
+    'a locked component that is not on disk refuses the re-classification and names code-resolve: nothing is dropped from the lock by omission'
+);
 
 $noncanonical = make_site_repo($scratch, $seq, $wooFiles, $agencyFiles, false);
 file_put_contents($noncanonical . '/site.duo.json', "{\"spec_version\":2,\"code\":{\"format\":1,\"layout\":\"wp-content\",\"source\":\"code/wp-content\"}}\n");
@@ -249,9 +269,26 @@ duo_check_same(
 // ---------------------------------------------------------------------------
 
 if ($zipAvailable) {
+    // The in-house plugin has no release and no declaration yet, so the run
+    // is refused WHOLE — dry or not — and nothing is written. This is the
+    // invariant at the migration door: there is no "vendor it anyway".
+    $unsourcedTransport = new ClassifyFixtureTransport(inventory_body($localInventory));
+    [$exit, $message] = classify_repo($unsourcedTransport, $repo, false, false, $cache);
+    duo_check_same(1, $exit, 'a component that neither locks nor is declared first-party refuses the whole run');
+    duo_check(!is_file($repo . '/code/duo-code.lock.json'), 'and no lock is written');
+    duo_check_same(
+        FORMAT_1,
+        (array) json_decode((string) file_get_contents($repo . '/site.duo.json'), true)['code'],
+        'and site.duo.json still declares format 1'
+    );
+    [$exit, $message] = classify_repo(new ClassifyFixtureTransport(inventory_body($localInventory)), $repo, true, false, $cache);
+    duo_check_same(1, $exit, 'and --dry-run reports the same refusal, so a script can see it');
+    [$exit, $message] = classify_repo(new ClassifyFixtureTransport(inventory_body($localInventory)), $repo, false, false, $cache, ['plugins/ghost']);
+    duo_check(str_contains($message, 'which is not a component this site has'), 'a first-party declaration naming no component is refused before anything is written');
+
     $dryTransport = new ClassifyFixtureTransport(inventory_body($localInventory));
-    [$exit, $message] = classify_repo($dryTransport, $repo, true, false, $cache);
-    duo_check_same(0, $exit, '--dry-run succeeds');
+    [$exit, $message] = classify_repo($dryTransport, $repo, true, false, $cache, ['plugins/duo-agency']);
+    duo_check_same(0, $exit, '--dry-run with the in-house plugin declared first-party succeeds');
     duo_check(!is_file($repo . '/code/duo-code.lock.json'), 'and writes no lock');
     duo_check(!is_file($repo . '/.gitignore'), 'and writes no .gitignore');
     duo_check_same(
@@ -265,15 +302,17 @@ if ($zipAvailable) {
     // -----------------------------------------------------------------------
 
     $transport = new ClassifyFixtureTransport(inventory_body($localInventory));
-    [$exit, $message] = classify_repo($transport, $repo, false, false, $cache);
-    duo_check_same(0, $exit, 'the migration succeeds against a matching release archive');
+    [$exit, $message] = classify_repo($transport, $repo, false, false, $cache, ['plugins/duo-agency']);
+    duo_check_same(0, $exit, 'the migration succeeds against a matching release archive plus the first-party declaration');
 
     $lock = CodeSourceLock::parse((string) file_get_contents($repo . '/code/duo-code.lock.json'));
     duo_check_same(
         ['plugins/woocommerce'],
         array_keys(CodeSourceLock::index($lock)),
-        'only the component whose release hash-matched is locked; the first-party plugin stays vendored'
+        'only the component whose release hash-matched is locked'
     );
+    duo_check_same(['plugins/duo-agency'], $lock['first_party'], 'and the in-house plugin is declared first-party in the same lock');
+    duo_check_same(CodeSourceLock::FORMAT, $lock['format'], 'the lock is written in the current format');
     duo_check_same(
         '11.0.0',
         $lock['components'][0]['version'],
@@ -297,7 +336,7 @@ if ($zipAvailable) {
     );
     duo_check(
         in_array('code/wp-content/plugins/duo-agency/duo-agency.php', $trackedNow, true),
-        'and still tracks the vendored one'
+        'and still tracks the first-party one'
     );
     duo_check(
         is_file($repo . '/code/wp-content/plugins/woocommerce/woocommerce.php'),
@@ -308,6 +347,25 @@ if ($zipAvailable) {
     // artifact, pin or deployed site sees anything at all.
     $afterRevision = CodeDescriptorCompiler::compile($repo, FORMAT_2)['code_revision'];
     duo_check_same($beforeRevision, $afterRevision, 'the migrated repository compiles to the IDENTICAL code_revision');
+
+    // Re-classifying the format-2 repository is idempotent: the declaration
+    // carries forward, nothing new is untracked, the lock bytes do not move.
+    $lockBytesBefore = (string) file_get_contents($repo . '/code/duo-code.lock.json');
+    exec('git -C ' . escapeshellarg($repo) . ' add -A && git -C ' . escapeshellarg($repo) . ' commit -q -m split --no-gpg-sign 2>&1');
+    $trackedCommitted = tracked($repo);
+    duo_check(
+        !in_array('code/wp-content/plugins/woocommerce/woocommerce.php', $trackedCommitted, true),
+        'committing the declaration does not re-add the locked tree: its ignore line holds'
+    );
+    [$exit, $message] = classify_repo(new ClassifyFixtureTransport(inventory_body($localInventory)), $repo, false, false, $cache);
+    duo_check_same(0, $exit, 'a format-2 repository re-classifies without restating --first-party: the declaration carries forward');
+    duo_check_same($lockBytesBefore, (string) file_get_contents($repo . '/code/duo-code.lock.json'), 'and the lock bytes are unchanged');
+    duo_check_same($trackedCommitted, tracked($repo), 'and Git tracks exactly what it tracked before');
+    [$exit, $message] = classify_repo(new ClassifyFixtureTransport(inventory_body($localInventory)), $repo, false, false, $cache, ['plugins/woocommerce']);
+    duo_check(
+        str_contains($message, 'plugins/woocommerce is a locked component in the current lock'),
+        'a locked component cannot be flipped to first-party in the same run: Git does not carry it, and declaring it would be a lie'
+    );
 
     // And the compile gate is now live on this repository.
     rename($repo . '/code/wp-content/plugins/woocommerce', $repo . '/moved-away');

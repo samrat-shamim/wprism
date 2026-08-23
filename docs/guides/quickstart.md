@@ -190,16 +190,20 @@ digest—not a host-authored config—and refuses if any discovered fact changes
 Use `--yes` only for automation that has already preserved the rendered
 proposal.
 
-By default `duo init` also proposes a **code split**: each active plugin and
-theme whose installed bytes hash-match its own published wp.org release is
-declared in `code/duo-code.lock.json` and kept out of Git, and everything else
-is vendored wholesale as before. Classification runs on the orchestrator host,
-never on the target, and the proposal prints every component with its
-classification and the reason for it before you confirm — the classification is
-inside the digest, so a stale `--confirm` cannot apply one you did not read.
-`--code=full` keeps the fully vendored shape; `--offline` contacts no registry
-and is equivalent, with the reason stated. See
-[code-updates.md](code-updates.md#splitting-the-code-half-vendored-versus-locked).
+`duo init` also **classifies the code half**, and Git never carries third-party
+code: each active plugin and theme either LOCKS — against its published wp.org
+release when the installed bytes hash-match it, or against an archive you
+imported on this host with `duo code-import <archive.zip>` (a premium plugin,
+a vendor theme) — and is declared in `code/duo-code.lock.json` and kept out of
+Git, or is declared the site's own code with `--first-party=<root>/<slug>` and
+carried in Git by that declaration. A component that is neither blocks the
+proposal with both remedies named; there is no "vendor it anyway".
+Classification runs on the orchestrator host, never on the target, and the
+proposal prints every component with its classification and the reason for it
+before you confirm — the classification is inside the digest, so a stale
+`--confirm` cannot apply one you did not read. `--offline` contacts no
+registry: wp.org components lock only from the host cache. See
+[code-updates.md](code-updates.md#the-code-half-git-never-carries-third-party-code).
 
 Before confirming, quiesce every non-Duo writer to the repository namespace,
 including package managers, self-updaters, Git/shell automation, and processes

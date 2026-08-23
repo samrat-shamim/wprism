@@ -120,13 +120,25 @@ final class CodeDescriptorCompiler {
     }
 
     /**
-     * The three blocking, non-forceable lock diagnostics.
+     * The four blocking, non-forceable lock diagnostics.
      *
      * They are computed from the descriptor that was just built, so they see
      * exactly the bytes the artifact would carry. None of them has a force
      * flag by design: a payload that does not match its own declaration is not
      * a preference, and DESIGN.md's posture is an honest refusal over hollow
      * coverage.
+     *
+     * The fourth, `code_component_undeclared`, is the one that makes "Git
+     * never carries third-party code" a property the compile enforces rather
+     * than a convention init follows: every plugin or theme component the
+     * payload carries must be either a locked component (Git does not carry
+     * it; the lock says where it comes from) or a declared first-party one
+     * (Git carries it because the operator said it is the site's own code).
+     * A component in neither list is exactly the "vendored by omission" shape
+     * a premium plugin dropped into `code/wp-content/plugins/` would take, and
+     * it is refused by name. A legacy `duo-code-lock/v1` declares no
+     * first-party list, so a v1 repository that still carries such a
+     * component reaches this refusal and its remedy, `duo code-classify`.
      *
      * @param array<string,mixed> $lock
      * @param array<string,mixed> $descriptor
@@ -176,6 +188,37 @@ final class CodeDescriptorCompiler {
                 ".gitignore excludes $key from this repository, but the lock does not declare it, so a fresh clone "
                 . 'would carry neither its bytes nor any way to obtain them; declare the component in '
                 . CodeSourceLock::PATH . ' or remove its .gitignore line'
+            );
+        }
+        $firstParty = CodeSourceLock::first_party($lock);
+        foreach ((array) ($descriptor['owned_roots'] ?? []) as $owned) {
+            [$root, $component] = explode('/', (string) $owned, 2) + [null, null];
+            if (!in_array($root, CodeSourceLock::ROOTS, true) || !is_string($component)) {
+                // mu-plugins are the site's own by construction (a user
+                // mu-plugin is an init blocker, never a lockable component),
+                // and anything else under the payload root is refused by
+                // descriptor_from_source() before this runs.
+                continue;
+            }
+            $key = $root . '/' . $component;
+            if (isset($index[$key]) || isset($firstParty[$key])) {
+                continue;
+            }
+            if (CodeSourceLock::tree_sha256_from_descriptor($descriptor, $root, $component) === null) {
+                // An owned root with no file beneath it is not a component
+                // Git carries; component_inventory() skips it for the same
+                // reason and a lock can never name it.
+                continue;
+            }
+            self::diagnostic(
+                $diagnostics,
+                'code_component_undeclared',
+                self::SOURCE . '/' . $key,
+                '',
+                "this repository carries $key but the lock neither declares it as a locked component nor as "
+                . 'first-party, and Git must not carry third-party code; if it is the site\'s own code, declare it '
+                . 'with `duo code-classify --first-party=' . $key . '`; otherwise import its release archive on '
+                . 'the host with `duo code-import <archive.zip>` and re-lock it with `duo code-classify`'
             );
         }
         return $diagnostics;

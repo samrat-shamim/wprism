@@ -37,9 +37,10 @@ duo adapter-observe <env> [--out=<local-file>|--format=json]
 duo doctor <env>
 duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
 duo adopt  <env>
-duo init   <env> [--yes] [--allow-unmanaged-plugins] [--code=split|full] [--offline] [--cache-dir=<path>]
-duo code-classify <env> [--dry-run] [--offline] [--cache-dir=<path>]
+duo init   <env> [--yes] [--allow-unmanaged-plugins] [--first-party=<root>/<slug>[,…]] [--offline] [--cache-dir=<path>]
+duo code-classify <env> [--dry-run] [--first-party=<root>/<slug>[,…]] [--offline] [--cache-dir=<path>]
 duo code-resolve  <env> [--dry-run] [--offline] [--cache-dir=<path>]
+duo code-import <archive.zip> [--component=<slug>] [--root=plugins|themes] [--cache-dir=<path>] [--format=json]
 duo status <env> [--category=<ids>] [--action=<buckets>] [--entity=<kinds>] [--limit=<1..200>]
 duo assess <env> [--operation=<ops>] [--limit=<1..200>] [--format=json]
 duo contract <env> show|propose|accept [--format=json]
@@ -315,44 +316,69 @@ are rejected when the registry is loaded.
   use `duo adopt` first, while Docker targets must already expose the agent
   through their control plane.
 
-  Since DUO-3499 init also proposes a **code split**, on by default. It asks
-  the target for each active component's `{root, component, version,
-  tree_sha256, bytes, files}` — the target reaches no registry, ever — then
-  resolves each candidate's published wp.org release archive on THIS host into
-  a content-addressed cache, unpacks it, and locks the component only when the
-  unpacked tree is hash-identical to what is installed. Everything else is
-  vendored with its reason printed. The classification is sent back inside the
-  proposal, so it rides in the digest exactly as `--allow-unmanaged-plugins`
-  does and a stale `--confirm` cannot apply a split nobody read. On
-  confirmation the agent publishes `code/duo-code.lock.json` and the
-  root-anchored `.gitignore` lines. `--code=full` keeps the fully vendored
-  shape; `--offline` contacts nothing and is equivalent, with the reason
-  stated; `--cache-dir=<path>` overrides the default cache
-  (`$XDG_CACHE_HOME/duo/code-artifacts`, else `~/.cache/duo/code-artifacts`).
+  Init also **classifies the code half**, and Git never carries third-party
+  code. It asks the target for each active component's `{root, component,
+  version, tree_sha256, bytes, files}` — the target reaches no registry, ever
+  — then, on THIS host, LOCKS each component whose installed tree is
+  hash-identical to its published wp.org release archive (resolved into a
+  content-addressed cache and unpacked) or to an archive imported with
+  `duo code-import`; records each component named by `--first-party=<root>/<slug>`
+  as the site's own code, which Git carries by that declaration; and BLOCKS the
+  proposal on anything else (`code_component_unsourced`, naming both remedies).
+  There is no "vendor it anyway": `--code=full` no longer exists and is refused
+  by name. The classification is sent back inside the proposal, so it rides in
+  the digest exactly as `--allow-unmanaged-plugins` does and a stale
+  `--confirm` cannot apply a classification nobody read. On confirmation the
+  agent publishes `code/duo-code.lock.json` (`duo-code-lock/v2`: the locked
+  `components` and the `first_party` declarations) and the root-anchored
+  `.gitignore` lines for the locked trees. `--offline` contacts no registry, so
+  a wp.org component locks only from the host cache; `--cache-dir=<path>`
+  overrides the default cache (`$XDG_CACHE_HOME/duo/code-artifacts`, else
+  `~/.cache/duo/code-artifacts`), which also holds the imported-archive store.
 
-- **`duo code-classify <env> [--dry-run] [--offline] [--cache-dir=<path>]`** —
-  migrates an ALREADY-INITIALIZED repository to the same split. It runs from
-  inside the site repository, like `duo assess` and `duo contract`, and writes
-  only into that local checkout: `code/duo-code.lock.json`, the root-anchored
-  `.gitignore` lines, `code` format 2 in `site.duo.json`, and `git rm --cached`
-  for each locked tree. `<env>` is used for exactly one thing — asking the
-  target for its own `wp duo code-inventory` so a checkout that disagrees with
-  the target it deploys to is refused before anything is untracked.
+- **`duo code-import <archive.zip> [--component=<slug>] [--root=plugins|themes] [--cache-dir=<path>] [--format=json]`** —
+  puts a release archive you hold into THIS host's code-artifact cache, so a
+  component with no wp.org release (a premium plugin, a private theme, a vendor
+  build) can be LOCKED instead of carried in Git. No `<env>`: the cache is the
+  host's, and the import has to be possible before the `duo init` that
+  classifies the component. It reads exactly one local file, unpacks it to
+  prove it is one component directory, and prints the `archive_sha256` the
+  lock will record and the `tree_sha256` an installed component must hash to;
+  it records nothing about where the archive came from. Pass `--component`
+  when the archive's top-level directory is not named after the component.
+  Importing the same archive again is idempotent. Duo never downloads from a
+  vendor: move the archive to every host that resolves, with this command.
+
+- **`duo code-classify <env> [--dry-run] [--first-party=<root>/<slug>[,…]] [--offline] [--cache-dir=<path>]`** —
+  (re)declares an ALREADY-INITIALIZED repository's code half, format 1 or 2.
+  It runs from inside the site repository, like `duo assess` and
+  `duo contract`, and writes only into that local checkout:
+  `code/duo-code.lock.json`, the root-anchored `.gitignore` lines, `code`
+  format 2 in `site.duo.json`, and `git rm --cached` for each NEWLY locked
+  tree. `<env>` is used for exactly one thing — asking the target for its own
+  `wp duo code-inventory` so a checkout that disagrees with the target it
+  deploys to is refused before anything is untracked. A format-2 repository is
+  re-classified rather than refused — run it again after importing an archive,
+  to add a declaration, or to upgrade a v1 lock — and the declarations it
+  already holds carry forward.
 
   The bytes never leave the working tree, so **the next compile produces the
   identical `code_revision`** — asserted by the command itself before it
   untracks anything, not assumed. No re-pin, no deploy, nothing fleet-visible.
-  It refuses a repository with uncommitted changes under `code/`, one that
-  already declares format 2, and one whose `site.duo.json` is not canonical.
+  It refuses a repository with uncommitted changes under `code/`, one whose
+  `site.duo.json` is not canonical, one whose lock names a component that is
+  not on disk (run `duo code-resolve` first), and — the invariant — any run in
+  which a component is UNSOURCED: neither locked nor declared first-party.
   A fresh clone afterwards needs `duo code-resolve` below; until it runs,
   compilation refuses by name with `code_component_unresolved`.
 
 - **`duo code-resolve <env> [--dry-run] [--offline] [--cache-dir=<path>]`** —
   materializes every component `code/duo-code.lock.json` declares into
   `code/wp-content`, on THIS host. For each entry it reads the same
-  content-addressed cache `duo init` uses and fetches **only on a miss** (a
-  `vendored-archive` entry is read from the repository-relative path the lock
-  names instead), verifies `origin.archive_sha256` before unpacking and
+  content-addressed cache `duo init` uses and fetches **only on a miss** (an
+  `imported-archive` entry is read from that cache's imported store, where
+  `duo code-import` put it, and refuses `code_resolve_archive_missing` on a
+  host where it was never imported), verifies `origin.archive_sha256` before unpacking and
   `tree_sha256` after, unpacks into a staging directory under `.duo/`, and
   renames only a verified tree into place — so a component is never
   half-written. There is no latest-fallback and nothing is skipped on a miss.

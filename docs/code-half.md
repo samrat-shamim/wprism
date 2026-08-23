@@ -745,3 +745,77 @@ would have been easy:
   the automatic deploy phase refuses too — unless it can PROVE the point is
   moot by asking the target for its own `wp duo code-inventory` and finding
   every locked component already at its declared digest.
+
+---
+
+## Phase 4: Git never carries third-party code (2026-08-23)
+
+Phases 2 and 3 made the split EXPRESSIBLE and RESOLVABLE and left "vendor it"
+as the default for anything that did not lock — the implementation ruling at
+the top of this document, and §1.3's "committed wholesale" for premium and
+unknown-provenance code. Phase 4 retires that default by owner decision: **Git
+never carries third-party plugin or theme bytes.** The earlier sections stay as
+the record of how the code half got here; where they describe vendoring as a
+shape a repository may take, this section supersedes them.
+
+What changed, and why each piece is shaped the way it is:
+
+- **Two classifications and a refusal, not three shapes.** Every plugin and
+  theme component is `locked` (Git does not carry it; the lock says where its
+  bytes come from) or `first-party` (Git carries it because the operator
+  declared it the site's own code with `--first-party=<root>/<slug>`).
+  Anything else is `unsourced`, and unsourced BLOCKS: `duo init` turns it into
+  a `code_component_unsourced` row on the proposal (so the reviewed digest
+  carries the blocker and both remedies), `duo code-classify` refuses the whole
+  run, and `CodeDescriptorCompiler::lock_diagnostics()` refuses every compile
+  of a repository that carries a component in neither list
+  (`code_component_undeclared`). The last one is what makes the invariant a
+  property the compile enforces rather than a convention init follows — an
+  operator who `git add`s a premium plugin by hand hits it on the next
+  compile, by name, with the remedy.
+- **`duo-code-lock/v2`: `components` + `first_party`.** The first-party list
+  lives in the lock, not in `site.duo.json`, so the code half's sourcing
+  declaration is one file and the `code` block's grammar (and
+  `state_site_hash()`, which drops it) is untouched. A classified site is
+  ALWAYS format 2, even with zero locked components, because a
+  `first_party`-only lock is still the declaration the gate needs. v1 locks
+  still parse (their `first_party` is empty, so a v1 repository that carries a
+  component reaches `code_component_undeclared` and the remedy names
+  `duo code-classify`, which re-declares it).
+- **`imported-archive` replaces `vendored-archive`.** A premium plugin has no
+  canonical URL and a ZIP committed inside the repository is third-party bytes
+  in Git by another name. So the archive lives on the HOST: `duo code-import
+  <archive.zip>` puts the operator's file into the `imported/` store of the
+  same content-addressed code-artifact cache wp.org releases are fetched into,
+  indexed by archive digest and by the tree digest it unpacks to, and the
+  classifier locks a component whose installed tree matches. The lock records
+  `archive_sha256` alone — no URL (a vendor download link is usually
+  license-keyed) and no path (the repository carries no copy) — so nothing
+  credential-bearing and nothing byte-bearing can be written into Git even by
+  accident; the grammar has no field for either. `duo code-resolve` reads the
+  store or refuses `code_resolve_archive_missing` with the one remedy: import
+  it on this host. Duo never fetches from a vendor; the operator moves the
+  archive to each host that resolves, exactly as they would move it to each
+  server by hand today. `vendored-archive` is refused BY NAME at the reader,
+  in v1 and v2 locks alike, with that remedy.
+- **`--code=full` and `--code=split` are gone.** There is no mode: the split is
+  the only shape. `duo init` refuses `--code=` by name with the reason, so an
+  operator with it in a script reads why rather than "unsupported argument".
+  `--offline` now means only what it says — no registry is contacted; a wp.org
+  component locks from the host cache or is unsourced, an imported archive
+  works as usual.
+- **Classification is composed, not monolithic.** `WpOrgReleases` keeps the
+  wp.org leg (`verifiedRelease()`); `ImportedArchives` is the store;
+  `CodeClassifier` composes the two with the first-party declarations and is
+  the one decision `duo init` and `duo code-classify` share. wp.org is tried
+  before the import store when a component could match both: public provenance
+  beats a private copy of the same bytes.
+
+What did NOT change: the egress rule (nothing fetches on a target; the agent is
+never told a registry or a store exists), the compile gate's non-forceability,
+the "migration is free" property (`duo code-classify` still moves no byte and
+compiles to the identical `code_revision`), format 1 as a readable legacy
+shape, and `ssh` resolution (DUO-3514). The `duo code-import` verb is
+host-only and takes no `<env>`, like `manifest-validate`: the cache is a
+property of the host, not of a site, and the import has to be possible before
+the `duo init` that classifies the component.

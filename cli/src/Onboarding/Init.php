@@ -61,9 +61,9 @@ final class Init {
      *
      * The classification is a decision — it changes what the repository
      * declares and what Git carries — so it lives inside the proposal digest.
-     * A confirmation that omitted it would ask the target to re-plan a fully
-     * vendored repository and fail the digest bind, which is the right failure
-     * but a confusing one to read.
+     * A confirmation that omitted it would ask the target to re-plan an
+     * unclassified repository and fail the digest bind, which is the right
+     * failure but a confusing one to read.
      */
     public const CODE_LOCK_ARGUMENT = '--code-lock-b64';
 
@@ -209,13 +209,15 @@ final class Init {
     }
 
     /**
-     * The per-component code split (DUO-3499).
+     * The per-component code classification (DUO-3499, then the
+     * no-third-party-bytes invariant).
      *
      * Every component is named with its classification and the REASON for it,
      * because the interesting case is the one that did not lock: a plugin
-     * whose installed tree does not hash-match its own published release is a
-     * fact about this site the operator should read before confirming, not a
-     * silent omission from a shorter list.
+     * whose installed tree does not hash-match its own published release and
+     * was not imported is a fact about this site the operator has to act on —
+     * it is the row that blocks the proposal — not a silent omission from a
+     * shorter list.
      *
      * @param array<string,mixed> $code
      * @return list<string>
@@ -225,22 +227,22 @@ final class Init {
         if ($split === []) {
             return [];
         }
-        $locked = array_values(array_filter(
-            $split,
-            static fn($row): bool => is_array($row) && ($row['classification'] ?? null) === 'locked'
-        ));
+        $counts = ['locked' => 0, 'first-party' => 0, 'unsourced' => 0];
+        foreach ($split as $row) {
+            $classification = is_array($row) ? (string) ($row['classification'] ?? 'unsourced') : 'unsourced';
+            $counts[$classification] = ($counts[$classification] ?? 0) + 1;
+        }
         $lines = [
-            '    code split: ' . count($locked) . ' locked, ' . (count($split) - count($locked)) . ' vendored'
-                . ($locked === []
-                    ? ' (no component could be verified against a release; the whole payload stays in Git)'
-                    : ' (locked components are declared in ' . self::DECLARATION_SPLIT['lock']
-                        . ' and are not carried in Git)'),
+            '    code classification: ' . $counts['locked'] . ' locked, ' . $counts['first-party'] . ' first-party, '
+                . $counts['unsourced'] . ' unsourced (locked components are declared in '
+                . self::DECLARATION_SPLIT['lock'] . ' and are not carried in Git; first-party ones are carried by '
+                . 'declaration; an unsourced one blocks)',
         ];
         foreach ($split as $row) {
             if (!is_array($row)) {
                 continue;
             }
-            $lines[] = '      ' . strtoupper((string) ($row['classification'] ?? 'vendored')) . ' '
+            $lines[] = '      ' . strtoupper((string) ($row['classification'] ?? 'unsourced')) . ' '
                 . ($row['root'] ?? '?') . '/' . ($row['component'] ?? '?') . ' '
                 . (($row['version'] ?? '') !== '' ? $row['version'] : '(no version header)')
                 . ' — ' . ($row['reason'] ?? '');
@@ -281,10 +283,10 @@ final class Init {
         $gitRepo = escapeshellarg($repo);
         $envArg = escapeshellarg($env);
         $addStep = $hasLock
-            // Not a bare `git add code`: with a lock, that command adds only
-            // the vendored half, and an operator reading the old line would
-            // reasonably believe the clone in step 5 is complete. It is not --
-            // it needs the materialization step before it can compile.
+            // Not a bare `git add code`: with locked components, that command
+            // adds only the first-party half, and an operator reading the old
+            // line would reasonably believe the clone in step 5 is complete.
+            // It is not -- it needs `duo code-resolve` before it can compile.
             ? "  1. git -C $gitRepo add .gitignore site.duo.json code state media && git -C $gitRepo commit -m \"duo: initial code and state baselines\""
                 . ' # the locked components are ignored by design; code/duo-code.lock.json declares them'
             : "  1. git -C $gitRepo add .gitignore site.duo.json code state media && git -C $gitRepo commit -m \"duo: initial code and state baselines\"";
@@ -309,10 +311,11 @@ final class Init {
             'Executable code remains a separate content-addressed half under code/wp-content; review its descriptor and ownership boundary independently from state.',
         ];
         if ($hasLock) {
-            $steps[] = 'This repository declares a code lock (code/duo-code.lock.json): the components it names are on disk '
+            $steps[] = 'This repository locks third-party components (code/duo-code.lock.json): they are on disk '
                 . 'at the target but are NOT in Git, so a fresh clone carries neither their bytes nor a way to compile. '
-                . 'Run the materialization step documented in docs/guides/code-updates.md in \'YOUR_WORKSPACE\' before '
-                . 'the first compile; until then Duo refuses with code_component_unresolved and names the component.';
+                . 'Run `duo code-resolve` (documented in docs/guides/code-updates.md) in \'YOUR_WORKSPACE\' before '
+                . 'the first compile; until then Duo refuses with code_component_unresolved and names the component. '
+                . 'An imported-archive component resolves only on a host where `duo code-import` stored its archive.';
         }
         return $steps;
     }
@@ -397,11 +400,12 @@ final class Init {
                 && self::validCodeRoots($code['roots'] ?? null)
                 && self::validComponents($components)
                 && is_array($declaration)
-                // DUO-3499: exactly one of the two legal declarations. Format 2
-                // is accepted only when the split actually locked something --
-                // a repository that declares a lock and locks nothing would
-                // publish an empty lock file and gain a compile gate for no
-                // reason.
+                // Exactly one of the two legal declarations, and it follows
+                // from the classification: format 2 (the lock, even with zero
+                // locked components, because its first_party list is what
+                // the compile gate reads) whenever the host classified
+                // anything; format 1 only for a site with no lockable
+                // component, where there is nothing to declare.
                 && in_array($declaration, [self::DECLARATION_FULL, self::DECLARATION_SPLIT], true)
                 && self::validSplit($code['split'] ?? null, $declaration === self::DECLARATION_SPLIT)
                 && self::validComponentInventory($code['component_inventory'] ?? null)
@@ -522,20 +526,22 @@ final class Init {
     /**
      * The classification the operator is being asked to confirm (DUO-3499).
      *
-     * Total over the components it names, single-line reasons, and a locked
-     * entry that actually carries an origin: the host validates this even
-     * though the target already did, because the host is what renders it for
-     * review and must not render a shape it does not understand.
+     * Total over the components it names, single-line reasons, one of the
+     * three classifications, and a locked entry that actually carries an
+     * origin: the host validates this even though the target already did,
+     * because the host is what renders it for review and must not render a
+     * shape it does not understand. The split declaration requires a
+     * non-empty classification, and the full declaration an empty one — the
+     * two are the same fact stated twice, and disagreeing is a protocol error.
      */
-    private static function validSplit(mixed $split, bool $requiresLocked): bool {
+    private static function validSplit(mixed $split, bool $requiresSplit): bool {
         if (!is_array($split) || !array_is_list($split)) {
             return false;
         }
-        $locked = 0;
         $seen = [];
         foreach ($split as $row) {
             if (!is_array($row)
-                || !in_array($row['classification'] ?? null, ['locked', 'vendored'], true)
+                || !in_array($row['classification'] ?? null, ['locked', 'first-party', 'unsourced'], true)
                 || !is_string($row['root'] ?? null)
                 || !is_string($row['component'] ?? null)
                 || !is_string($row['version'] ?? null)
@@ -551,7 +557,6 @@ final class Init {
             }
             $seen[$key] = true;
             if ($row['classification'] === 'locked') {
-                $locked++;
                 if (!is_array($row['origin'] ?? null)) {
                     return false;
                 }
@@ -559,7 +564,7 @@ final class Init {
                 return false;
             }
         }
-        return $requiresLocked ? $locked > 0 : true;
+        return $requiresSplit ? $split !== [] : $split === [];
     }
 
     /** The read-only per-component identity the host classifies against. */
