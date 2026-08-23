@@ -991,16 +991,27 @@ final class WoocommerceProductLookups {
         }
         foreach (array_chunk(array_values($roots), 200) as $chunk) {
             $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
+            $limit = self::MAX_VISIBILITY_PRODUCTS + 1;
             $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
                 "SELECT ID, post_parent, post_type FROM {$wpdb->posts} "
                 . "WHERE post_parent IN ($placeholders) AND post_type = 'product_variation' "
-                . 'ORDER BY ID ASC LIMIT ' . (self::MAX_VISIBILITY_PRODUCTS + 1),
+                . "ORDER BY ID ASC LIMIT $limit",
                 ...$chunk
             ), 'WooCommerce product visibility child-scope discovery');
+            // Refuse a saturated window before tombstone filtering. Otherwise
+            // MAX excluded children can consume the bounded query while a
+            // still-live child sorts just beyond it and silently disappears
+            // from the projection this receipt certifies.
+            if (count($rows) >= $limit) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce product visibility child discovery saturated its bounded read'
+                );
+            }
+            $excludedSet = array_fill_keys($excluded, true);
             foreach ($rows as $row) {
                 $id = $this->visibility_uint($row['ID'] ?? null, 'post ID');
                 $parentId = $this->visibility_uint($row['post_parent'] ?? null, 'parent ID');
-                if (in_array($id, $excluded, true)) {
+                if (isset($excludedSet[$id])) {
                     continue;
                 }
                 if (($row['post_type'] ?? null) !== 'product_variation'

@@ -478,7 +478,7 @@ namespace {
         public function get_results(string $query, $output = null): array {
             global $fakeAttrLookup, $fakeMeta, $fakeMetaLookup, $fakeDownloadMetaRows, $fakeCogsMetaRows,
                 $fakeProducts, $fakePostTypeOverrides, $fakeVisibilityRelationships, $fakeVisibilityTerms,
-                $fakeVisibilityQueries;
+                $fakeVisibilityQueries, $fakeVisibilityChildFlood;
             $fakeVisibilityQueries[] = $query;
             if ($this->failReadContaining !== null && str_contains($query, $this->failReadContaining)) {
                 $this->last_error = 'simulated read failure';
@@ -512,6 +512,23 @@ namespace {
                 $match
             )) {
                 $parents = array_map('intval', preg_split('/\s*,\s*/', trim($match[1])) ?: []);
+                if (is_array($fakeVisibilityChildFlood)
+                    && in_array((int) ($fakeVisibilityChildFlood['parent'] ?? 0), $parents, true)) {
+                    $rows = [];
+                    $excludedCount = (int) ($fakeVisibilityChildFlood['excluded_count'] ?? 0);
+                    $total = $excludedCount + 1;
+                    $returned = min((int) $match[2], $total);
+                    for ($offset = 0; $offset < $returned; $offset++) {
+                        $rows[] = [
+                            'ID' => (string) ($offset < $excludedCount
+                                ? (int) $fakeVisibilityChildFlood['first'] + $offset
+                                : (int) $fakeVisibilityChildFlood['survivor']),
+                            'post_parent' => (string) (int) $fakeVisibilityChildFlood['parent'],
+                            'post_type' => 'product_variation',
+                        ];
+                    }
+                    return $rows;
+                }
                 $rows = [];
                 foreach ($fakeProducts as $id => $product) {
                     if ($product->get_type() !== 'variation'
@@ -1399,6 +1416,7 @@ namespace {
     $fakeVisibilityPreWriteMutations = [];
     $fakeVisibilityNativeEvents = [];
     $fakeVisibilityQueries = [];
+    $fakeVisibilityChildFlood = null;
     $fakeVisibilityRaceOnLookupRefresh = [];
     // wc_get_product() below returns a cached clone.  Mutating $fakeProducts
     // therefore leaves a deliberately stale Woo object in this cache until
@@ -2570,6 +2588,30 @@ namespace {
     fake_add_visibility_product(98, 'variation', 97);
     fake_set_visibility_relationships(97, 'pos_product_visibility', ['pos-hidden']);
     fake_set_visibility_relationships(98, 'pos_product_visibility', ['pos-hidden']);
+    $floodFirst = 100000;
+    $floodCount = 50001;
+    $fakeVisibilityChildFlood = [
+        'parent' => 97,
+        'first' => $floodFirst,
+        'excluded_count' => $floodCount,
+        'survivor' => 900000,
+    ];
+    $saturatedChildReadFailure = false;
+    try {
+        $adapter->regenerate_batch([97], [[
+            'kind' => 'delete',
+            'uuid' => 'visibility-excluded-child-flood',
+            'id' => 999999,
+            'post_type' => 'product_variation',
+            'parent_id' => 97,
+            'child_ids' => range($floodFirst, $floodFirst + $floodCount - 1),
+        ]]);
+    } catch (\Throwable $failure) {
+        $saturatedChildReadFailure = str_contains($failure->getMessage(), 'saturated its bounded read');
+    }
+    $check($saturatedChildReadFailure,
+        'excluded variation tombstones cannot consume a bounded child window and hide a later live child');
+    $fakeVisibilityChildFlood = null;
     $deletedChildWriteStart = count($fakeVisibilityWrites);
     $adapter->regenerate_batch([97], [[
         'kind' => 'delete',
