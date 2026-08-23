@@ -233,14 +233,13 @@ final class Woocommerce {
                     'WooCommerce Cost of Goods value is valid only on product or product_variation entities'
                 );
             } elseif (!is_string($meta['_cogs_total_value'])
-                || preg_match('/^-?(?:0|[1-9][0-9]{0,14})(?:\.[0-9]{1,4})?$/D', $meta['_cogs_total_value']) !== 1) {
+                || !self::cogs_meta_value_supported($meta['_cogs_total_value'])) {
                 $out[] = $this->diagnostic(
                     $path,
                     'meta._cogs_total_value',
-                    'WooCommerce Cost of Goods value must fit the native DECIMAL(19,4) lookup boundary'
+                    'WooCommerce Cost of Goods value must be a finite native numeric string whose target float conversion fits the DECIMAL(19,4) lookup boundary'
                 );
-            } elseif ($postType === 'product'
-                && preg_match('/^-?0(?:\.0+)?$/D', $meta['_cogs_total_value']) === 1) {
+            } elseif ($postType === 'product' && (float) $meta['_cogs_total_value'] === 0.0) {
                 $out[] = $this->diagnostic(
                     $path,
                     'meta._cogs_total_value',
@@ -264,6 +263,28 @@ final class Woocommerce {
             }
         }
         return $out;
+    }
+
+    private static function cogs_meta_value_supported(string $value): bool {
+        if ($value === '' || strlen($value) > 128
+            || preg_match('/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:E[+-]?(?:0|[1-9][0-9]*))?$/D', $value) !== 1) {
+            return false;
+        }
+        $number = (float) $value;
+        if (!is_finite($number)) {
+            return false;
+        }
+        $mantissa = explode('E', ltrim($value, '-'), 2)[0];
+        if ($number === 0.0 && preg_match('/[1-9]/', $mantissa) === 1) {
+            // A source float this small reaches set_cogs_value() as zero and
+            // cannot persist the exponent bytes captured in the repository.
+            return false;
+        }
+        // wpdb binds Woo's float derivation through its string form. Reparse
+        // that exact transport spelling before applying the DECIMAL bound so
+        // PHP precision that renders a near-limit value as 1.0E+15 refuses.
+        $transport = (float) (string) $number;
+        return is_finite($transport) && abs($transport) < 1000000000000000.0;
     }
 
     /** @return list<array<string,mixed>> */

@@ -780,8 +780,7 @@ final class WoocommerceProductLookups {
                     );
                 }
                 $seen[$identity] = true;
-                if (($key === '_cogs_total_value'
-                        && preg_match('/^-?(?:0|[1-9][0-9]{0,14})(?:\\.[0-9]{1,4})?$/D', $value) !== 1)
+                if (($key === '_cogs_total_value' && !self::cogs_meta_value_supported($value))
                     || ($key === '_cogs_value_is_additive' && $value !== 'yes')) {
                     throw new \RuntimeException(
                         "duo: WooCommerce product $productId has malformed authored Cost of Goods metadata"
@@ -811,6 +810,23 @@ final class WoocommerceProductLookups {
             'cogs_lookup_column_present' => $lookupColumnPresent ? 1 : 0,
             'cogs_scope_sha256' => hash_final($fingerprint),
         ];
+    }
+
+    private static function cogs_meta_value_supported(string $value): bool {
+        if ($value === '' || strlen($value) > 128
+            || preg_match('/^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:E[+-]?(?:0|[1-9][0-9]*))?$/D', $value) !== 1) {
+            return false;
+        }
+        $number = (float) $value;
+        if (!is_finite($number)) {
+            return false;
+        }
+        $mantissa = explode('E', ltrim($value, '-'), 2)[0];
+        if ($number === 0.0 && preg_match('/[1-9]/', $mantissa) === 1) {
+            return false;
+        }
+        $transport = (float) (string) $number;
+        return is_finite($transport) && abs($transport) < 1000000000000000.0;
     }
 
     /**

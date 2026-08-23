@@ -464,11 +464,11 @@ duo_check(
     'repository validation executes the native URL and text canonicalization boundaries'
 );
 
-foreach (['-0.2500', '123456789012345.9999'] as $cogsValue) {
+foreach (['-0.25', '1.23454', '1.23455', '1.234565', '-1.23455', '1.0E-7', '9.999999999999E+14'] as $cogsValue) {
     duo_check_same(
         [],
         woo_readiness_diagnostics($interpreter, $cogsValue, 'product', '_cogs_total_value'),
-        "native DECIMAL(19,4) Cost of Goods value $cogsValue is portable"
+        "native authored Cost of Goods postmeta $cogsValue is portable before lookup-column coercion"
     );
 }
 duo_check_same(
@@ -492,11 +492,16 @@ duo_check_same(
     ), woo_readiness_entity('yes', 'product_variation', '_cogs_value_is_additive')]),
     'variation Cost of Goods value and additive inheritance marker are jointly valid'
 );
-woo_readiness_reports($interpreter, '01.00', 'DECIMAL(19,4)', 'product', '_cogs_total_value');
-woo_readiness_reports($interpreter, '1e3', 'DECIMAL(19,4)', 'product', '_cogs_total_value');
-woo_readiness_reports($interpreter, '1.00000', 'DECIMAL(19,4)', 'product', '_cogs_total_value');
-woo_readiness_reports($interpreter, '1234567890123456', 'DECIMAL(19,4)', 'product', '_cogs_total_value');
-woo_readiness_reports($interpreter, 1.25, 'DECIMAL(19,4)', 'product', '_cogs_total_value');
+foreach (['01.00', '1e3', '1.0E+15', '1.0E+309', '1.0E-400', str_repeat('9', 129)] as $badCogsValue) {
+    woo_readiness_reports(
+        $interpreter,
+        $badCogsValue,
+        'finite native numeric string',
+        'product',
+        '_cogs_total_value'
+    );
+}
+woo_readiness_reports($interpreter, 1.25, 'finite native numeric string', 'product', '_cogs_total_value');
 woo_readiness_reports($interpreter, '4.00', 'valid only on product or product_variation', 'shop_coupon', '_cogs_total_value');
 woo_readiness_reports($interpreter, 'no', "must be exact 'yes'", 'product_variation', '_cogs_value_is_additive');
 woo_readiness_reports($interpreter, true, "must be exact 'yes'", 'product_variation', '_cogs_value_is_additive');

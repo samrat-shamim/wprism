@@ -995,7 +995,8 @@ namespace {
             ];
             $cogsController = \Automattic\WooCommerce\Internal\CostOfGoodsSold\CostOfGoodsSoldController::$instance;
             if ($cogsController !== null && $cogsController->enabled && $cogsController->lookupColumnPresent) {
-                $derived['cogs_total_value'] = (string) ($fakeMeta[$id]['_cogs_total_value'][0] ?? '');
+                $rawCogs = (string) ($fakeMeta[$id]['_cogs_total_value'][0] ?? '');
+                $derived['cogs_total_value'] = $rawCogs === '' ? null : (float) $rawCogs;
             }
             if ($derived === wp_cache_get('lookup_table', 'object_' . $id)) {
                 return;
@@ -1028,6 +1029,9 @@ namespace {
                     : $last);
             $stored['average_rating'] = $derived['average_rating'] === '' ? '0.00' : $derived['average_rating'];
             $stored['total_sales'] = $derived['total_sales'] === '' ? '0' : $derived['total_sales'];
+            if (array_key_exists('cogs_total_value', $derived) && $derived['cogs_total_value'] !== null) {
+                $stored['cogs_total_value'] = FakeWpdb::decimal_assignment($derived['cogs_total_value'], 4);
+            }
             $fakeMetaLookup[$id] = array_merge(
                 $stored,
                 (array) (($fakeLookupWriteFaults ?? [])[$id] ?? [])
@@ -2036,7 +2040,7 @@ namespace {
     $cogsController = wc_get_container()->get(
         \Automattic\WooCommerce\Internal\CostOfGoodsSold\CostOfGoodsSoldController::class
     );
-    $fakeMeta[13]['_cogs_total_value'] = ['7.1250'];
+    $fakeMeta[13]['_cogs_total_value'] = ['7.12555'];
     $cogsLookupBeforeRefusal = $fakeMetaLookup[13];
     $cogsDisabledMessage = '';
     try {
@@ -2046,7 +2050,7 @@ namespace {
     }
     $check(str_contains($cogsDisabledMessage, 'Cost of Goods is disabled')
         && str_contains($cogsDisabledMessage, '1 scoped authored row')
-        && !str_contains($cogsDisabledMessage, '7.1250')
+        && !str_contains($cogsDisabledMessage, '7.12555')
         && $fakeMetaLookup[13] === $cogsLookupBeforeRefusal,
         'authored COGS refuses before provider mutation when the target native feature is disabled');
 
@@ -2059,7 +2063,7 @@ namespace {
     }
     $check(str_contains($cogsMissingColumnMessage, 'lookup column is absent')
         && str_contains($cogsMissingColumnMessage, 'native WooCommerce COGS column tool')
-        && !str_contains($cogsMissingColumnMessage, '7.1250')
+        && !str_contains($cogsMissingColumnMessage, '7.12555')
         && $fakeMetaLookup[13] === $cogsLookupBeforeRefusal,
         'authored COGS refuses without an exact native lookup-column boundary and names the recovery path');
 
@@ -2069,15 +2073,15 @@ namespace {
         $productScopeArgs,
         $scopeOperation
     );
-    $check((float) ($fakeMetaLookup[13]['cogs_total_value'] ?? -1) === 7.125
+    $check(($fakeMetaLookup[13]['cogs_total_value'] ?? null) === '7.1256'
         && ($cogsScoped['after']['cogs_authored_rows'] ?? null) === 1
         && ($cogsScoped['after']['cogs_feature_enabled'] ?? null) === 1
         && ($cogsScoped['after']['cogs_lookup_column_present'] ?? null) === 1
         && preg_match('/^[a-f0-9]{64}$/D', (string) ($cogsScoped['after']['cogs_scope_sha256'] ?? '')) === 1
-        && !str_contains(serialize($cogsScoped), '7.1250'),
-        'enabled COGS runs through Woo lookup derivation and binds redacted exact scoped evidence');
+        && !str_contains(serialize($cogsScoped), '7.12555'),
+        'enabled COGS delegates five-decimal rounding to Woo/MySQL and binds redacted exact scoped evidence');
 
-    $fakeMeta[13]['_cogs_total_value'] = ['8.1250'];
+    $fakeMeta[13]['_cogs_total_value'] = ['8.12555'];
     $cogsDrift = $adapter->reconcile_scoped(
         'rebuild_product_lookups',
         $productScopeArgs,
@@ -2088,7 +2092,7 @@ namespace {
         && ($cogsDrift['after']['cogs_scope_sha256'] ?? null)
             !== ($cogsScoped['after']['cogs_scope_sha256'] ?? null),
         'same-count COGS drift cannot match the saved scoped postcondition');
-    $fakeMeta[13]['_cogs_total_value'] = ['7.1250'];
+    $fakeMeta[13]['_cogs_total_value'] = ['7.12555'];
     $cogsRecovered = $adapter->reconcile_scoped(
         'rebuild_product_lookups',
         $productScopeArgs,
@@ -2097,7 +2101,56 @@ namespace {
     $check(($cogsRecovered['after'] ?? null) === ($cogsScoped['after'] ?? null),
         'restoring exact authored COGS recovers the complete scoped postcondition');
 
-    $fakeCogsMetaRows[13]['_cogs_total_value'] = ['7.1250', '7.1250'];
+    foreach ([
+        '1.23454' => '1.2345',
+        '1.23455' => '1.2346',
+        '-1.23455' => '-1.2346',
+        '1.234565' => '1.2346',
+        '1.0E-7' => '0.0000',
+        '9.999999999999E+14' => '999999999999900.0000',
+    ] as $rawCogs => $lookupCogs) {
+        $fakeMeta[13]['_cogs_total_value'] = [$rawCogs];
+        $adapter->invoke_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+        $check(($fakeMetaLookup[13]['cogs_total_value'] ?? null) === $lookupCogs,
+            "native COGS postmeta $rawCogs reaches exact DECIMAL(19,4) lookup value $lookupCogs");
+    }
+    $fakeMeta[13]['_cogs_total_value'] = ['7.12555'];
+    $adapter->invoke_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+
+    $fakeLookupWriteFaults[13] = ['cogs_total_value' => '9.9999'];
+    $cogsWriteFailure = '';
+    try {
+        $adapter->invoke_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+    } catch (\Throwable $failure) {
+        $cogsWriteFailure = $failure->getMessage();
+    }
+    unset($fakeLookupWriteFaults[13]);
+    $check(str_contains($cogsWriteFailure, 'product lookup verification mismatch')
+        && !str_contains($cogsWriteFailure, '7.12555'),
+        'a failed rounded COGS lookup write refuses with bounded digests and leaves retry authority');
+    $adapter->invoke_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+    $check(($fakeMetaLookup[13]['cogs_total_value'] ?? null) === '7.1256',
+        'rounded COGS lookup retry converges after the injected write failure');
+
+    $cogsController->enabled = false;
+    $cogsDisabledAgain = '';
+    try {
+        $adapter->reconcile_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+    } catch (\Throwable $failure) {
+        $cogsDisabledAgain = $failure->getMessage();
+    }
+    $cogsController->enabled = true;
+    $cogsReenabled = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $productScopeArgs,
+        $scopeOperation
+    );
+    $check(str_contains($cogsDisabledAgain, 'Cost of Goods is disabled')
+        && ($cogsReenabled['after']['cogs_scope_sha256'] ?? null)
+            === ($cogsScoped['after']['cogs_scope_sha256'] ?? null),
+        'target feature disable is loud and re-enable recovers the exact authored COGS receipt');
+
+    $fakeCogsMetaRows[13]['_cogs_total_value'] = ['7.12555', '7.12555'];
     $duplicateCogsMessage = '';
     try {
         $adapter->reconcile_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
@@ -2106,8 +2159,20 @@ namespace {
     }
     unset($fakeCogsMetaRows[13]);
     $check(str_contains($duplicateCogsMessage, 'multiple _cogs_total_value rows')
-        && !str_contains($duplicateCogsMessage, '7.1250'),
+        && !str_contains($duplicateCogsMessage, '7.12555'),
         'duplicate COGS rows refuse without choosing or disclosing a value');
+
+    $fakeCogsMetaRows[13]['_cogs_total_value'] = ['1.0E+15'];
+    $overflowCogsMessage = '';
+    try {
+        $adapter->reconcile_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+    } catch (\Throwable $failure) {
+        $overflowCogsMessage = $failure->getMessage();
+    }
+    unset($fakeCogsMetaRows[13]);
+    $check(str_contains($overflowCogsMessage, 'malformed authored Cost of Goods metadata')
+        && !str_contains($overflowCogsMessage, '1.0E+15'),
+        'a target-float value that would overflow DECIMAL(19,4) refuses without disclosure');
 
     $fakeCogsMetaRows[13]['_cogs_total_value'] = ['cogs_secret_marker_DO_NOT_ECHO'];
     $malformedCogsMessage = '';
