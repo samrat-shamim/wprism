@@ -408,6 +408,8 @@ seed_pmpro_content() {
 }
 
 check_pmpro_content() {
+  wp_conf1() { wp1 "$@"; }
+  wp_conf2() { wp2 "$@"; }
   local COMPOSE="$PAIR_COMPOSE_STRING"
   local CONF_REPO1="siterepo/${PAIR}1"
   local CONF_REPO2="siterepo/${PAIR}2"

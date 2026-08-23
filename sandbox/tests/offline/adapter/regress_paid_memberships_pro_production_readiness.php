@@ -134,6 +134,10 @@ namespace {
         str_contains($matrix, 'wp_delete_user((int) $user_id, (int) $admin->ID)'),
         'the exact matrix removes retained conformance users before each PMPro boundary'
     );
+    duo_check(
+        preg_match('/check_pmpro_content\(\) \{.*?wp_conf1\(\).*?wp_conf2\(\)/s', $matrix) === 1,
+        'the exact matrix binds both PMPro conformance environments to its dedicated pair'
+    );
     duo_check_same(
         ['min' => '3.8.2', 'max' => '3.8.4'],
         $manifest['version_range'] ?? null,
