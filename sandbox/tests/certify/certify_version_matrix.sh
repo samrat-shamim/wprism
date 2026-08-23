@@ -234,9 +234,23 @@ seed_elementor_content() {
 
 check_elementor_content() {
   wp_conf2() { wp2 "$@"; }
+  local CONF_REPO1="siterepo/${PAIR}1"
+  local CONF_REPO2="siterepo/${PAIR}2"
   local CONF1_PORT="$PORT1"
   local CONF2_PORT="$PORT2"
+  local COMPOSE="$PAIR_COMPOSE_STRING"
+  local ELEMENTOR_EXPECTED_VERSION="${ELEMENTOR_VERSION:-4.2.3}"
+  local ELEMENTOR_BOUNDARY_ONLY=1
   . conformance/checks/elementor.sh
+  unset -f wp_conf2
+}
+
+postdeploy_elementor_content() {
+  wp_conf2() { wp2 "$@"; }
+  local CONF_REPO1="siterepo/${PAIR}1"
+  local CONF_REPO2="siterepo/${PAIR}2"
+  local COMPOSE="$PAIR_COMPOSE_STRING"
+  . conformance/postdeploy/elementor.sh
   unset -f wp_conf2
 }
 
@@ -1508,7 +1522,7 @@ fi
 
 if [ "$VMATRIX_MANIFEST" = elementor ]; then
 VMATRIX_CASES=$((VMATRIX_CASES + 1))
-for ELEMENTOR_VERSION in 4.0.0 4.2.2; do
+for ELEMENTOR_VERSION in 4.0.0 4.2.3; do
   say "boundary: elementor $ELEMENTOR_VERSION"
   ELEMENTOR_STDERR_LOG=$(mktemp "${TMPDIR:-/tmp}/duo-vmatrix-elementor.XXXXXX")
 
@@ -1564,6 +1578,7 @@ EOF
   [ "$INSTALLED_2" = "$ELEMENTOR_VERSION" ] || fail "side 2 installed version mismatch: expected $ELEMENTOR_VERSION, got $INSTALLED_2"
 
   run_elementor_command wp2 duo deploy --repo=/siterepo
+  run_elementor_command postdeploy_elementor_content
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
   run_elementor_command wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
   grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at elementor $ELEMENTOR_VERSION"

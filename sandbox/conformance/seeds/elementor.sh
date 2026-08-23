@@ -1,179 +1,298 @@
 #!/usr/bin/env bash
-# Elementor manifest conformance seed: reproduces the Elementor frontier
-# exploration's exact verified fixture (an "image" widget referencing an
-# attachment by id, a "button" widget with an internal link entered as a
-# plain URL — carrying NO id at all, which is why Elementor itself does not
-# know the link is internal) and extends it with the two
-# additional media-control shapes task #11 wave 2 empirically verified
-# beyond it (section "background_image", gallery widget
-# "wp_gallery" — an ARRAY of the same {id,url} shape) so all three declared
-# json_refs paths in manifests/elementor.json are actually exercised, plus
-# elementor_active_kit (the option-ref case the report found already works).
-#
-# Seeded via Elementor's OWN save pipeline
-# (\Elementor\Plugin::$instance->documents->get($id)->save(['elements'=>...]))
-# — the same code path the editor itself calls — per the report's own
-# method, not a hand-written approximation of _elementor_data's shape.
-# Document::save() checks is_editable_by_current_user(), which a bare
-# wp-cli/eval context (user id 0) always fails silently (returns false, no
-# exception) — wp_set_current_user() to an administrator first (found
-# empirically this session; not mentioned in the original report's prose).
-#
-# Invoked by conformance/run.sh with wp_conf1/$COMPOSE already exported;
-# runs from the sandbox/ directory. CONF1_PORT is set by run.sh (default
-# below matches the legacy docker-compose.yml conf1 port for any standalone
-# invocation).
+# Exact-artifact Elementor source estate. Every authored structure is created
+# through WordPress/Elementor APIs, including classic and Atomic documents,
+# a saved library template, a custom active kit, media controls, a plain-link
+# URL, and a large UTF-8 document. High post identities make accidental raw-id
+# survival visible when the target starts in a different numeric range.
 set -euo pipefail
 CONF1_PORT="${CONF1_PORT:-8806}"
+SOURCE_REPO="${CONF_REPO1:-siterepo/conf1}"
+SEED_FILE="$SOURCE_REPO/.tmp-elementor-seed.php"
 
-TARGET_ID=$(wp_conf1 post create --post_type=page --post_title='Duo Elementor Target' --post_name=duo-elementor-target \
-  --post_status=publish --post_content='<!-- wp:paragraph --><p>The link target.</p><!-- /wp:paragraph -->' --porcelain)
-# DUO-3381: assert the premise before anything consumes it — this page's own
-# permalink is the button widget's link, and checks/elementor.sh asserts
-# conf2 rebinds exactly that URL. A load-starved `docker compose run` can
-# return an empty --porcelain capture without a non-zero exit (see run.sh's
-# require_fixture_ids), which would leave the engine answering for a fixture
-# that never landed.
-require_fixture_ids TARGET_ID
-TARGET_URL=$(wp_conf1 post get "$TARGET_ID" --field=url)
-require_fixture_values TARGET_URL
-
-cat > "${CONF_REPO1:-siterepo/conf1}"/.tmp-elementor-seed.php <<PHP
+cat > "$SEED_FILE" <<'PHPEOF'
 <?php
 error_reporting(E_ALL & ~E_DEPRECATED);
+global $wpdb;
 
-// Document::save() refuses to run for no current user (id 0, the default
-// in a wp eval-file context) — is_editable_by_current_user() always fails
-// silently otherwise (save() returns false, no exception).
-\$admins = get_users(['role' => 'administrator', 'number' => 1]);
-if (\$admins) {
-    wp_set_current_user(\$admins[0]->ID);
+$admins = get_users(['role' => 'administrator', 'number' => 1]);
+if (!$admins) {
+    throw new RuntimeException('Elementor seed requires an administrator');
+}
+wp_set_current_user($admins[0]->ID);
+$wpdb->query("ALTER TABLE {$wpdb->posts} AUTO_INCREMENT = 4100001");
+if ($wpdb->last_error !== '') {
+    throw new RuntimeException('Elementor seed could not establish the high-ID premise');
 }
 
-function duo_conf_make_img(\$path, \$r, \$g, \$b) {
-    \$im = imagecreatetruecolor(64, 48);
-    imagefilledrectangle(\$im, 0, 0, 63, 47, imagecolorallocate(\$im, \$r, \$g, \$b));
-    imagepng(\$im, \$path);
-}
-duo_conf_make_img('/tmp/duo-conf-elementor-hero.png', 140, 60, 160);
-duo_conf_make_img('/tmp/duo-conf-elementor-gallery-a.png', 60, 140, 90);
-duo_conf_make_img('/tmp/duo-conf-elementor-gallery-b.png', 60, 90, 140);
-duo_conf_make_img('/tmp/duo-conf-elementor-bg.png', 160, 140, 60);
-
-function duo_conf_import(\$path, \$title) {
-    \$id = media_handle_sideload(['name' => basename(\$path), 'tmp_name' => \$path], 0, \$title);
-    if (is_wp_error(\$id)) {
-        fwrite(STDERR, 'attachment import failed: ' . \$id->get_error_message() . "\n");
-        exit(1);
+function duo_elementor_image(string $path, int $red, int $green, int $blue): void {
+    $image = imagecreatetruecolor(96, 72);
+    if (!$image) {
+        throw new RuntimeException('Elementor seed could not allocate an image');
     }
-    return (int) \$id;
+    imagefilledrectangle($image, 0, 0, 95, 71, imagecolorallocate($image, $red, $green, $blue));
+    imagepng($image, $path);
+    imagedestroy($image);
 }
-\$hero = duo_conf_import('/tmp/duo-conf-elementor-hero.png', 'Duo Conformance Elementor Hero');
-\$galA = duo_conf_import('/tmp/duo-conf-elementor-gallery-a.png', 'Duo Conformance Elementor Gallery A');
-\$galB = duo_conf_import('/tmp/duo-conf-elementor-gallery-b.png', 'Duo Conformance Elementor Gallery B');
-\$bg   = duo_conf_import('/tmp/duo-conf-elementor-bg.png', 'Duo Conformance Elementor BG');
-\$heroUrl = wp_get_attachment_url(\$hero);
-\$galAUrl = wp_get_attachment_url(\$galA);
-\$galBUrl = wp_get_attachment_url(\$galB);
-\$bgUrl   = wp_get_attachment_url(\$bg);
 
-\$page_id = wp_insert_post([
-    'post_type' => 'page',
-    'post_title' => 'Duo Conformance Elementor Page',
-    'post_name' => 'duo-conformance-elementor-page',
-    'post_status' => 'publish',
-    'post_content' => '',
-]);
-update_post_meta(\$page_id, '_elementor_edit_mode', 'builder');
-update_post_meta(\$page_id, '_elementor_template_type', 'wp-page');
+function duo_elementor_import(string $path, string $title): int {
+    $id = media_handle_sideload(['name' => basename($path), 'tmp_name' => $path], 0, $title);
+    if (is_wp_error($id)) {
+        throw new RuntimeException('Elementor attachment import failed');
+    }
+    return (int) $id;
+}
 
-\$elements = [
-    [
-        'id' => 'ceelsec01',
-        'elType' => 'section',
-        // section-level background image (Group_Control_Background,
-        // name="background" -> "background_image" sub-key) — verified
-        // shape task #11 wave 2, same {id,url} as every media control.
+function duo_elementor_post(string $type, string $title, string $slug, string $content = ''): int {
+    $id = wp_insert_post([
+        'post_type' => $type,
+        'post_title' => $title,
+        'post_name' => $slug,
+        'post_status' => 'publish',
+        'post_content' => $content,
+    ], true);
+    if (is_wp_error($id)) {
+        throw new RuntimeException('Elementor post creation failed');
+    }
+    return (int) $id;
+}
+
+function duo_elementor_save(int $id, string $templateType, array $elements): void {
+    update_post_meta($id, '_elementor_edit_mode', 'builder');
+    update_post_meta($id, '_elementor_template_type', $templateType);
+    $document = \Elementor\Plugin::$instance->documents->get($id);
+    if (!$document || $document->save(['elements' => $elements]) === false) {
+        throw new RuntimeException("Elementor Document::save() failed for $id");
+    }
+}
+
+duo_elementor_image('/tmp/duo-conf-elementor-hero.png', 140, 60, 160);
+duo_elementor_image('/tmp/duo-conf-elementor-gallery-a.png', 60, 140, 90);
+duo_elementor_image('/tmp/duo-conf-elementor-gallery-b.png', 60, 90, 140);
+duo_elementor_image('/tmp/duo-conf-elementor-bg.png', 160, 140, 60);
+$hero = duo_elementor_import('/tmp/duo-conf-elementor-hero.png', 'Duo Conformance Elementor Hero');
+$galleryA = duo_elementor_import('/tmp/duo-conf-elementor-gallery-a.png', 'Duo Conformance Elementor Gallery A');
+$galleryB = duo_elementor_import('/tmp/duo-conf-elementor-gallery-b.png', 'Duo Conformance Elementor Gallery B');
+$background = duo_elementor_import('/tmp/duo-conf-elementor-bg.png', 'Duo Conformance Elementor BG');
+$media = [];
+foreach (['hero' => $hero, 'gallery_a' => $galleryA, 'gallery_b' => $galleryB, 'background' => $background] as $key => $id) {
+    $url = wp_get_attachment_url($id);
+    if (!is_string($url) || $url === '') {
+        throw new RuntimeException("Elementor attachment URL missing for $key");
+    }
+    $media[$key] = ['id' => $id, 'url' => $url, 'size' => 'full'];
+}
+
+$target = duo_elementor_post(
+    'page',
+    'Duo Elementor Target',
+    'duo-elementor-target',
+    '<!-- wp:paragraph --><p>The portable link target 東京 🚀.</p><!-- /wp:paragraph -->'
+);
+$targetUrl = get_permalink($target);
+if (!is_string($targetUrl) || $targetUrl === '') {
+    throw new RuntimeException('Elementor link target URL missing');
+}
+
+$largeWidgets = [];
+for ($i = 0; $i < 128; $i++) {
+    $largeWidgets[] = [
+        'id' => sprintf('lg%06x', $i),
+        'elType' => 'widget',
+        'widgetType' => 'heading',
         'settings' => [
-            'background_background' => 'classic',
-            'background_image' => ['id' => \$bg, 'url' => \$bgUrl],
+            'title' => sprintf('Portable nested heading %03d 東京 🚀 delimiter |%%| {{literal}}', $i),
+            'header_size' => $i % 2 === 0 ? 'h3' : 'h4',
         ],
-        'elements' => [
-            [
-                'id' => 'ceelcol01',
-                'elType' => 'column',
-                'settings' => ['_column_size' => 50],
-                'elements' => [
-                    // the report's exact verified shape: image widget (id
-                    // ref) + button widget with a plain-URL internal link
-                    // (NO id at all — Elementor doesn't know it's internal
-                    // unless authored via Dynamic Tags, not exercised here,
-                    // matching the report's own honest scope).
-                    [
-                        'id' => 'ceelimg01',
-                        'elType' => 'widget',
-                        'widgetType' => 'image',
-                        'settings' => ['image' => ['id' => \$hero, 'url' => \$heroUrl]],
-                        'elements' => [],
+        'elements' => [],
+    ];
+}
+
+$classic = duo_elementor_post('page', 'Duo Conformance Elementor Page', 'duo-conformance-elementor-page');
+$classicElements = [[
+    'id' => 'ceelsec1',
+    'elType' => 'section',
+    'settings' => [
+        'background_background' => 'classic',
+        'background_image' => $media['background'],
+    ],
+    'elements' => [
+        [
+            'id' => 'ceelcol1',
+            'elType' => 'column',
+            'settings' => ['_column_size' => 50],
+            'elements' => [
+                [
+                    'id' => 'ceelimg1',
+                    'elType' => 'widget',
+                    'widgetType' => 'image',
+                    'settings' => ['image' => $media['hero']],
+                    'elements' => [],
+                ],
+                [
+                    'id' => 'ceelbtn1',
+                    'elType' => 'widget',
+                    'widgetType' => 'button',
+                    'settings' => [
+                        'text' => 'Learn more 東京 🚀',
+                        'link' => ['url' => $targetUrl . '?from=elementor&encoded=a%2Fb'],
                     ],
-                    [
-                        'id' => 'ceelbtn01',
-                        'elType' => 'widget',
-                        'widgetType' => 'button',
-                        'settings' => [
-                            'text' => 'Learn more',
-                            'link' => ['url' => '$TARGET_URL'],
-                        ],
-                        'elements' => [],
-                    ],
+                    'elements' => [],
                 ],
             ],
-            [
-                'id' => 'ceelcol02',
-                'elType' => 'column',
-                'settings' => ['_column_size' => 50],
-                'elements' => [
-                    // gallery widget: wp_gallery is an ARRAY of the same
-                    // {id,url} shape — exercises JsonRefs' array
-                    // transparency (task #11 wave 2 verified shape).
-                    [
-                        'id' => 'ceelgal01',
-                        'elType' => 'widget',
-                        'widgetType' => 'image-gallery',
-                        'settings' => [
-                            'wp_gallery' => [
-                                ['id' => \$galA, 'url' => \$galAUrl],
-                                ['id' => \$galB, 'url' => \$galBUrl],
-                            ],
-                        ],
-                        'elements' => [],
-                    ],
-                ],
-            ],
+        ],
+        [
+            'id' => 'ceelcol2',
+            'elType' => 'column',
+            'settings' => ['_column_size' => 50],
+            'elements' => array_merge([[
+                'id' => 'ceelgal1',
+                'elType' => 'widget',
+                'widgetType' => 'image-gallery',
+                'settings' => ['wp_gallery' => [$media['gallery_a'], $media['gallery_b']]],
+                'elements' => [],
+            ]], $largeWidgets),
         ],
     ],
-];
+]];
+duo_elementor_save($classic, 'wp-page', $classicElements);
 
-\$doc = \Elementor\Plugin::\$instance->documents->get(\$page_id);
-\$result = \$doc->save(['elements' => \$elements]);
-if (\$result === false) {
-    fwrite(STDERR, "Elementor Document::save() returned false\n");
-    exit(1);
+$template = duo_elementor_post('elementor_library', 'Duo Portable Section', 'duo-portable-section');
+duo_elementor_save($template, 'section', [[
+    'id' => 'tplsect1',
+    'elType' => 'section',
+    'settings' => [],
+    'elements' => [[
+        'id' => 'tplcol01',
+        'elType' => 'column',
+        'settings' => ['_column_size' => 100],
+        'elements' => [[
+            'id' => 'tplimg01',
+            'elType' => 'widget',
+            'widgetType' => 'image',
+            'settings' => ['image' => $media['gallery_a']],
+            'elements' => [],
+        ]],
+    ]],
+]]);
+
+$atomic = 0;
+$atomicSupported = class_exists('\Elementor\Modules\AtomicWidgets\PropTypes\Html_V3_Prop_Type')
+    && class_exists('\Elementor\Modules\AtomicWidgets\PropTypes\Image_Prop_Type')
+    && class_exists('\Elementor\Modules\AtomicWidgets\PropTypes\Image_Src_Prop_Type')
+    && class_exists('\Elementor\Modules\AtomicWidgets\PropTypes\Image_Attachment_Id_Prop_Type')
+    && class_exists('\Elementor\Modules\AtomicWidgets\PropTypes\Primitives\String_Prop_Type');
+if ($atomicSupported) {
+    $stringType = '\Elementor\Modules\AtomicWidgets\PropTypes\Primitives\String_Prop_Type';
+    $htmlType = '\Elementor\Modules\AtomicWidgets\PropTypes\Html_V3_Prop_Type';
+    $attachmentType = '\Elementor\Modules\AtomicWidgets\PropTypes\Image_Attachment_Id_Prop_Type';
+    $imageSourceType = '\Elementor\Modules\AtomicWidgets\PropTypes\Image_Src_Prop_Type';
+    $imageType = '\Elementor\Modules\AtomicWidgets\PropTypes\Image_Prop_Type';
+    $atomic = duo_elementor_post('page', 'Duo Atomic Elementor Page', 'duo-atomic-elementor-page');
+    duo_elementor_save($atomic, 'wp-page', [[
+        'id' => 'atcont01',
+        'elType' => 'container',
+        'settings' => [],
+        'elements' => [
+            [
+                'id' => 'athead01',
+                'elType' => 'widget',
+                'widgetType' => 'e-heading',
+                'settings' => [
+                    'title' => $htmlType::generate([
+                        'content' => $stringType::generate('Atomic portable heading 東京 🚀'),
+                        'children' => [],
+                    ]),
+                ],
+                'elements' => [],
+            ],
+            [
+                'id' => 'atimg001',
+                'elType' => 'widget',
+                'widgetType' => 'e-image',
+                'settings' => [
+                    'image' => $imageType::generate([
+                        'src' => $imageSourceType::generate([
+                            'id' => $attachmentType::generate($hero),
+                        ]),
+                        'size' => $stringType::generate('full'),
+                    ]),
+                ],
+                'elements' => [],
+            ],
+        ],
+    ]]);
+    $atomicRaw = json_decode((string) get_post_meta($atomic, '_elementor_data', true), true);
+    $atomicId = $atomicRaw[0]['elements'][1]['settings']['image']['value']['src']['value']['id']['value'] ?? null;
+    if ((int) $atomicId !== $hero) {
+        throw new RuntimeException('Elementor Atomic attachment envelope was not persisted at the certified path');
+    }
 }
 
-echo "elementor seed: target=$TARGET_ID page=\$page_id hero=\$hero galA=\$galA galB=\$galB bg=\$bg\n";
-PHP
-$COMPOSE run --rm -T cli1 wp eval-file /siterepo/.tmp-elementor-seed.php
-rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-elementor-seed.php
+$kitId = (int) \Elementor\Plugin::$instance->kits_manager->create_new_kit('Duo Portable Kit', [], true);
+$kit = \Elementor\Plugin::$instance->documents->get($kitId);
+if (!$kit instanceof \Elementor\Core\Kits\Documents\Kit) {
+    throw new RuntimeException('Elementor custom kit creation failed');
+}
+$kit->update_settings([
+    'system_colors' => [
+        ['_id' => 'primary', 'title' => 'Duo Primary', 'color' => '#123456'],
+        ['_id' => 'secondary', 'title' => 'Duo Secondary', 'color' => '#654321'],
+    ],
+    'custom_colors' => [
+        ['_id' => 'duocustom', 'title' => 'Duo Custom 東京 🚀', 'color' => '#abcdef'],
+    ],
+    'default_generic_fonts' => 'Inter, Arial, sans-serif',
+    'site_logo' => $media['hero'],
+    'site_favicon' => $media['gallery_a'],
+    'background_image' => $media['background'],
+    'background_slideshow_gallery' => [$media['gallery_a'], $media['gallery_b']],
+]);
+$kitSettings = get_post_meta($kitId, '_elementor_page_settings', true);
+if (!is_array($kitSettings)
+    || (int) ($kitSettings['site_logo']['id'] ?? 0) !== $hero
+    || (int) ($kitSettings['site_favicon']['id'] ?? 0) !== $galleryA
+    || (int) ($kitSettings['background_image']['id'] ?? 0) !== $background
+    || (int) ($kitSettings['background_slideshow_gallery'][1]['id'] ?? 0) !== $galleryB
+    || (int) get_option('elementor_active_kit') !== $kitId) {
+    throw new RuntimeException('Elementor custom kit settings were not persisted through Kit::update_settings()');
+}
 
-# The Elementor frontier finding, reproduced independently this
-# session on fx1/fx2: _elementor_css / _elementor_element_cache / a
-# versioned _elementor_migrations_state_<hash> are created lazily on the
-# page's FIRST front-end render, not at save time — a capture taken before
-# any render never sees them, which would let this seed silently exercise
-# only 7 of the 10 real loud-gate keys and falsely look complete. Render
-# conf1's own page now, before conformance/run.sh's first capture.
+$ids = [
+    'atomic' => $atomic,
+    'atomic_supported' => $atomicSupported,
+    'background' => $background,
+    'classic' => $classic,
+    'gallery_a' => $galleryA,
+    'gallery_b' => $galleryB,
+    'hero' => $hero,
+    'kit' => $kitId,
+    'target' => $target,
+    'template' => $template,
+];
+foreach (['background', 'classic', 'gallery_a', 'gallery_b', 'hero', 'kit', 'target', 'template'] as $key) {
+    if ($ids[$key] < 4100001) {
+        throw new RuntimeException("Elementor high-ID premise failed for $key");
+    }
+}
+echo wp_json_encode($ids, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
+PHPEOF
+
+SEED_OUT=$($COMPOSE run --rm -T cli1 wp eval-file /siterepo/.tmp-elementor-seed.php)
+rm -f "$SEED_FILE"
+require_observed_nonempty 'conf1 Elementor source fixture output' "$SEED_OUT"
+SOURCE_JSON=$(printf '%s\n' "$SEED_OUT" | awk 'NF { line=$0 } END { print line }')
+jq -e '
+  .classic >= 4100001 and .target >= 4100001 and .template >= 4100001 and
+  .kit >= 4100001 and .hero >= 4100001 and .background >= 4100001 and
+  (.atomic_supported == false or .atomic >= 4100001)
+' <<<"$SOURCE_JSON" >/dev/null || fail "Elementor source fixture premise was incomplete: $SOURCE_JSON"
+printf '%s\n' "$SOURCE_JSON" > "$SOURCE_REPO/.tmp-elementor-source.json"
+
 curl -fs "http://localhost:${CONF1_PORT}/duo-conformance-elementor-page/" >/dev/null \
-  || fail "conf1 front-end render of the seeded elementor page failed"
+  || fail 'conf1 classic Elementor page did not render before capture'
+if [ "$(jq -r '.atomic_supported' <<<"$SOURCE_JSON")" = true ]; then
+  curl -fs "http://localhost:${CONF1_PORT}/duo-atomic-elementor-page/" >/dev/null \
+    || fail 'conf1 Atomic Elementor page did not render before capture'
+fi
 
-echo "elementor seed: target page + hero/gallery/background images + kit (elementor_active_kit already set by activation), rendered once on conf1"
+pass 'Elementor source has classic/Atomic documents, library/kit entities, large UTF-8 data, media refs, and lazy render state at high identities'
