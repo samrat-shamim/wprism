@@ -74,6 +74,19 @@ wp_conf1 option update show_on_front page >/dev/null
 wp_conf1 option update page_on_front "$HOME_ID" >/dev/null
 wp_conf1 option update default_category "$NEWS_ID" >/dev/null
 wp_conf1 option update sticky_posts "[$HELLO_ID]" --format=json >/dev/null
+# Apply writes permalink_structure through direct SQL, so seed through the
+# native WordPress API and persist a non-empty source grammar. postdeploy/core
+# gives conf2 a different non-empty grammar; the initial conformance apply must
+# replace both the authored option and the derived rewrite_rules projection.
+wp_conf1 eval '
+global $wp_rewrite;
+$wp_rewrite->set_permalink_structure("/journal/%postname%/");
+$wp_rewrite->flush_rules(false);
+$rules = get_option("rewrite_rules");
+if (get_option("permalink_structure") !== "/journal/%postname%/" || !is_array($rules) || count($rules) < 1) {
+    throw new RuntimeException("source permalink fixture did not reach native WordPress state");
+}
+' >/dev/null
 
 # DUO-3264: dynamic_options.theme_mods (fork A of the owner ruling, issue
 # comment 9fd882a6) — a representative theme_mods_<stylesheet> sweep,
@@ -91,8 +104,11 @@ wp_conf1 option update sticky_posts "[$HELLO_ID]" --format=json >/dev/null
 # run.sh installed both exact theme ZIPs from the digest-addressed cache
 # before any seed code ran. Activation must therefore stay a local operation:
 # a bare `theme install <slug>` would reopen the WordPress.org catalog path
-# and make a warm-cache certification depend on the network again.
-wp_conf1 theme activate twentytwentyone >/dev/null
+# and make a warm-cache certification depend on the network again. pair.sh's
+# generic bootstrap currently starts on this theme; avoid asking WP-CLI to
+# activate an already-active theme because its warning is not green evidence.
+wp_conf1 theme is-active twentytwentyone >/dev/null \
+  || wp_conf1 theme activate twentytwentyone >/dev/null
 wp_conf1 eval "set_theme_mod('background_color', 'aa3333'); set_theme_mod('custom_logo', $ATT_ID);" >/dev/null
 wp_conf1 theme activate twentytwentyfive >/dev/null
 wp_conf1 eval "set_theme_mod('background_color', '3c8c3c'); set_theme_mod('custom_logo', $ATT_ID); set_theme_mod('header_image', '$UP_URL'); set_theme_mod('header_image_data', array('attachment_id' => $ATT_ID, 'url' => '$UP_URL', 'thumbnail_url' => '$UP_URL', 'height' => 48, 'width' => 64)); wp_update_custom_css_post('body { background: #3c8c3c; }');" >/dev/null
@@ -119,4 +135,4 @@ update_option('sidebars_widgets', [
 ]);
 " >/dev/null
 
-echo "core seed: news=$NEWS_ID home=$HOME_ID att=$ATT_ID hello=$HELLO_ID widget-menu=$WIDGET_MENU_ID hierarchy=$BRANCH_A/$CHILD_A,$BRANCH_B/$CHILD_B theme_mods: twentytwentyone(residue)+twentytwentyfive(active)"
+echo "core seed: news=$NEWS_ID home=$HOME_ID att=$ATT_ID hello=$HELLO_ID widget-menu=$WIDGET_MENU_ID hierarchy=$BRANCH_A/$CHILD_A,$BRANCH_B/$CHILD_B permalink=/journal/%postname%/ theme_mods: twentytwentyone(residue)+twentytwentyfive(active)"

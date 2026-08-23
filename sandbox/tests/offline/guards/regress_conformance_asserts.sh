@@ -42,6 +42,15 @@ DUPES=$(grep -rlE '^require_[a-z_]+\(\) \{' conformance/ tests/ | grep -v "^$FRA
 [ -z "$DUPES" ] || fail "helper definitions exist outside the fragment (one owner per grammar):$DUPES"
 pass "the fragment is the single definition home"
 
+# A successful HTTP body can exceed the pipe buffer. Under pipefail, piping
+# curl directly into grep -q lets grep close early after a match; curl then
+# reports EPIPE (exit 23) and the live check falsely fails a working route.
+# Buffering the body also keeps transport success separate from body content.
+EARLY_CLOSE_CURL=$(grep -En '^[^#]*curl[^#|]*\|[^#]*grep[^#]*-[[:alpha:]]*q' conformance/checks/*.sh || true)
+[ -z "$EARLY_CLOSE_CURL" ] \
+  || fail "conformance check streams curl into early-closing grep -q under pipefail; capture the body first: $EARLY_CLOSE_CURL"
+pass "conformance checks separate HTTP transport success from body matching (no curl | grep -q EPIPE false negatives)"
+
 # A capture-plan profile exists so an experimental adapter can provide live
 # evidence for the operations it actually claims without the harness forcing
 # an unsupported target apply. Pin all three seams: closed mode vocabulary,

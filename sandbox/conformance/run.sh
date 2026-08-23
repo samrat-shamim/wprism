@@ -499,6 +499,7 @@ say "apply conf2 (content only — activation/theme were deploy's job, above)"
 # pages — Shop/Cart/Checkout/... — on activation, independently on conf1 and
 # conf2, so first apply always meets an unmanaged same-slug row for those).
 APPLY_JSON=$(wp_conf2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" --json | tail -1)
+export APPLY_JSON
 echo "$APPLY_JSON" | jq .
 [ "$(echo "$APPLY_JSON" | jq -r '.canary')" = "clean" ] || fail "side-effect canary was not clean during apply"
 pass "apply succeeded, side-effect canary clean"

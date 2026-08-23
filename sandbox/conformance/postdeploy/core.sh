@@ -2,6 +2,19 @@
 # DUO-3209: parent-aware adoption and ambiguous full-key refusal.
 set -euo pipefail
 
+# Dirty-target rewrite premise: a real, non-empty target-native rule set for a
+# different grammar. A direct SQL apply used to change permalink_structure
+# while this row survived untouched, so the site continued serving /target/N/.
+wp_conf2 eval '
+global $wp_rewrite;
+$wp_rewrite->set_permalink_structure("/target/%post_id%/");
+$wp_rewrite->flush_rules(false);
+$rules = get_option("rewrite_rules");
+if (get_option("permalink_structure") !== "/target/%post_id%/" || !is_array($rules) || count($rules) < 1) {
+    throw new RuntimeException("target permalink fixture did not reach native WordPress state");
+}
+' >/dev/null
+
 # Reverse creation order from the source so a slug-only LIMIT 1 lookup is
 # guaranteed to choose the wrong branch for at least one child.
 B=$(wp_conf2 post create --post_type=page --post_title='Branch B' --post_name=branch-b --post_status=publish --porcelain)
@@ -74,4 +87,4 @@ echo implode(",", (array) (get_option("sidebars_widgets")["sidebar-1"] ?? [])) .
 require_fixture_state "conf2's colliding widget defaults at counter 21 (DUO-3278)" \
   "block-21,text-21,nav_menu-21|3" "$WIDGET_DEFAULTS"
 
-echo "target hierarchy and colliding widget defaults seeded; ambiguous-key refusal verified"
+echo "target hierarchy, /target/%post_id%/ rewrite state, and colliding widget defaults seeded; ambiguous-key refusal verified"

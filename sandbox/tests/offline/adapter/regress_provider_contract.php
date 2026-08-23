@@ -463,8 +463,8 @@ $reset = static function (): void {
 };
 
 echo "\n== closed native-action vocabulary ==\n";
-$check(\Duo\NativeActions::vocabulary() === ['transient.delete'],
-    'v1 vocabulary is exactly transient.delete — a plugin cannot mint an action name');
+$check(\Duo\NativeActions::vocabulary() === ['transient.delete', 'rewrite.flush'],
+    'v1 vocabulary is exactly transient.delete and rewrite.flush — a plugin cannot mint an action name');
 $expectMessage = static function (callable $body, string $needle, string $label) use ($check): void {
     try {
         $body();

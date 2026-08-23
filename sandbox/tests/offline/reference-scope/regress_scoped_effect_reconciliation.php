@@ -48,6 +48,8 @@ final class DuoScopedEffectFakeWpdb {
 $GLOBALS['wpdb'] = new DuoScopedEffectFakeWpdb();
 $GLOBALS['duo_scoped_effect_cache'] = ['transient' => []];
 $GLOBALS['duo_scoped_effect_deletes'] = 0;
+$GLOBALS['duo_scoped_effect_filters'] = [];
+$GLOBALS['duo_scoped_rewrite_child_flushes'] = 0;
 
 function add_option(string $name, mixed $value, mixed $deprecated = '', mixed $autoload = 'yes'): bool {
     global $wpdb;
@@ -61,8 +63,44 @@ function add_option(string $name, mixed $value, mixed $deprecated = '', mixed $a
 function update_option(string $name, mixed $value, mixed $autoload = null): bool {
     global $wpdb;
     $old = $wpdb->optionRows[$name] ?? null;
-    $wpdb->optionRows[$name] = (string) $value;
+    $wpdb->optionRows[$name] = is_array($value) || is_object($value) || is_bool($value)
+        ? serialize($value)
+        : (string) $value;
     return $old !== $wpdb->optionRows[$name];
+}
+
+function maybe_unserialize(mixed $value): mixed {
+    if (!is_string($value) || preg_match('/^(?:a|O|s|b|i|d|N):/', $value) !== 1) {
+        return $value;
+    }
+    $decoded = @unserialize($value, ['allowed_classes' => false]);
+    return $decoded === false && $value !== 'b:0;' ? $value : $decoded;
+}
+
+function get_option(string $name, mixed $default = false): mixed {
+    global $wpdb;
+    return array_key_exists($name, $wpdb->optionRows)
+        ? maybe_unserialize($wpdb->optionRows[$name])
+        : $default;
+}
+
+function did_action(string $hook): int {
+    return $hook === 'wp_loaded' ? 1 : 0;
+}
+
+function add_filter(string $hook, callable $callback, int $priority = 10): bool {
+    $GLOBALS['duo_scoped_effect_filters'][$hook][$priority][] = $callback;
+    return true;
+}
+
+function remove_filter(string $hook, callable $callback, int $priority = 10): bool {
+    foreach (($GLOBALS['duo_scoped_effect_filters'][$hook][$priority] ?? []) as $index => $candidate) {
+        if ($candidate === $callback) {
+            unset($GLOBALS['duo_scoped_effect_filters'][$hook][$priority][$index]);
+            return true;
+        }
+    }
+    return false;
 }
 
 function wp_cache_get(string $key, string $group = '', bool $force = false, mixed &$found = null): mixed {
@@ -77,6 +115,67 @@ function delete_transient(string $name): bool {
     unset($wpdb->optionRows['_transient_timeout_' . $name]);
     unset($GLOBALS['duo_scoped_effect_cache']['transient'][$name]);
     return true;
+}
+
+final class DuoScopedRewriteRuntime {
+    public string|false $permalink_structure = '/old/%post_id%/';
+    /** @var array<string,string> */
+    public array $rules = ['^old/([0-9]+)/?$' => 'index.php?p=$matches[1]'];
+    public int $flushes = 0;
+
+    public function init(): void {
+        $this->permalink_structure = get_option('permalink_structure', false);
+    }
+
+    public function flush_rules(bool $hard = true): void {
+        $this->flushes++;
+        $fingerprint = substr(hash('sha256', (string) $this->permalink_structure), 0, 12);
+        $this->rules = ['^scoped/([^/]+)/?$' => 'index.php?name=$matches[1]&grammar=' . $fingerprint];
+        update_option('rewrite_rules', $this->rules);
+    }
+
+    /** @return array<string,string> */
+    public function wp_rewrite_rules(): array {
+        $this->rules = get_option('rewrite_rules');
+        return $this->rules;
+    }
+}
+
+final class WP_CLI {
+    /** @param array<string,mixed> $args */
+    public static function runcommand(string $command, array $args): object {
+        global $wp_rewrite;
+        if (!str_contains($command, 'NativeActions::execute("rewrite.flush", [])')
+            || $args !== ['launch' => true, 'return' => 'all', 'exit_error' => false]) {
+            throw new RuntimeException('unexpected scoped rewrite child command');
+        }
+        $parentRuntime = $wp_rewrite;
+        $freshRuntime = new DuoScopedRewriteRuntime();
+        $freshRuntime->permalink_structure = get_option('permalink_structure', false);
+        $wp_rewrite = $freshRuntime;
+        try {
+            $method = new ReflectionMethod(Duo\NativeActions::class, 'flush_rewrite_in_fresh_process');
+            $receipt = $method->invoke(null);
+            $report = [
+                'format' => 'duo-rewrite-flush-fresh/v1',
+                'after' => $receipt['after'],
+            ];
+            return (object) [
+                'return_code' => 0,
+                'stdout' => json_encode($report, JSON_THROW_ON_ERROR),
+                'stderr' => '',
+            ];
+        } catch (Throwable $failure) {
+            return (object) [
+                'return_code' => 1,
+                'stdout' => '',
+                'stderr' => $failure->getMessage(),
+            ];
+        } finally {
+            $GLOBALS['duo_scoped_rewrite_child_flushes'] += $freshRuntime->flushes;
+            $wp_rewrite = $parentRuntime;
+        }
+    }
 }
 
 require $root . '/agent/src/Kernel/Canon.php';
@@ -303,6 +402,40 @@ $throws(
     static fn() => NativeActions::reconcile_scoped('transient.delete', $nativeArgs, $wrongOp),
     'input_hash',
     'a scoped native operation with a mismatched input witness is refused before any read/delete effect'
+);
+
+$GLOBALS['wpdb']->optionRows['permalink_structure'] = '/scoped/%postname%/';
+$GLOBALS['wpdb']->optionRows['rewrite_rules'] = serialize([
+    '^old/([0-9]+)/?$' => 'index.php?p=$matches[1]',
+]);
+$GLOBALS['wp_rewrite'] = new DuoScopedRewriteRuntime();
+$rewriteOp = $operation(NativeActions::scoped_input_hash('rewrite.flush', []), 'operation.0005');
+$rewriteNotStarted = NativeActions::reconcile_scoped('rewrite.flush', [], $rewriteOp);
+$check(
+    $rewriteNotStarted['status'] === 'not_started' && $GLOBALS['duo_scoped_rewrite_child_flushes'] === 0,
+    'scoped rewrite reconciliation requires a durable receipt and never infers execution from target state'
+);
+$rewriteReceipt = NativeActions::invoke_scoped('rewrite.flush', [], $rewriteOp);
+$rewriteRecovered = NativeActions::reconcile_scoped('rewrite.flush', [], $rewriteOp);
+$check(
+    $rewriteReceipt['status'] === 'verified'
+        && $rewriteRecovered['status'] === 'verified'
+        && $rewriteRecovered['after_hash'] === $rewriteReceipt['after_hash']
+        && $rewriteReceipt['capability_digest'] === NativeActions::scoped_action_digest('rewrite.flush')
+        && $GLOBALS['duo_scoped_rewrite_child_flushes'] === 1,
+    'scoped rewrite recovery checks the persisted/runtime grammar against hash-only evidence without a second flush'
+);
+$GLOBALS['wpdb']->optionRows['rewrite_rules'] = serialize([
+    '^drifted/?$' => 'index.php?drifted=1',
+]);
+$throws(
+    static fn() => NativeActions::reconcile_scoped('rewrite.flush', [], $rewriteOp),
+    'recovery_required',
+    'scoped rewrite recovery refuses post-receipt rule drift instead of reinvoking the flush'
+);
+$check(
+    $GLOBALS['duo_scoped_rewrite_child_flushes'] === 1,
+    'a mismatched scoped rewrite readback never invokes the filesystem-or-database effect again'
 );
 
 if ($failures !== 0) {

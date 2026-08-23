@@ -25,10 +25,12 @@ namespace Duo;
  */
 final class NativeActions {
     private const SCOPED_OWNER = 'native-actions';
+    private const REWRITE_FRESH_FORMAT = 'duo-rewrite-flush-fresh/v1';
+    private const REWRITE_FRESH_COMMAND = 'eval \'define("DUO_REWRITE_FLUSH_FRESH_PROCESS", true); $receipt = \\Duo\\NativeActions::execute("rewrite.flush", []); echo json_encode(["format" => "duo-rewrite-flush-fresh/v1", "after" => $receipt["after"]], JSON_THROW_ON_ERROR);\'';
     /**
      * action name => argument schema (key => {type, required, pattern?}).
      *
-     * v1 is exactly one action. `transient.delete` earns native status because
+     * v1 has two actions. `transient.delete` earns native status because
      * a WordPress transient's storage contract — the `_transient_<name>` and
      * `_transient_timeout_<name>` option rows, or the `transient` cache group
      * under an external object cache — is core's, identical for every plugin
@@ -48,6 +50,13 @@ final class NativeActions {
                 'pattern' => '/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,170}$/D',
             ],
         ],
+        // Apply writes authored options through direct SQL, so changing core's
+        // URL grammar cannot rely on Settings -> Permalinks to rebuild the
+        // derived rewrite_rules row (WordPress 7.0.3
+        // WP_Rewrite::refresh_rewrite_rules()). The operation has no manifest
+        // input: it always reads the just-applied core option and performs a
+        // soft database-only flush through the loaded WP_Rewrite instance.
+        'rewrite.flush' => [],
     ];
 
     /** @return list<string> */
@@ -160,6 +169,7 @@ final class NativeActions {
         self::validate($action, $args, "native action '$action'");
         return match ($action) {
             'transient.delete' => self::delete_transient_action($args),
+            'rewrite.flush' => self::flush_rewrite_action(),
         };
     }
 
@@ -257,6 +267,7 @@ final class NativeActions {
         }
         $after = match ($action) {
             'transient.delete' => self::reconcile_deleted_transient((string) $args['name']),
+            'rewrite.flush' => self::rewrite_state(true),
         };
         if (!hash_equals($stored['after_hash'], Providers::scoped_evidence_digest($after))) {
             throw new \RuntimeException(
@@ -335,6 +346,343 @@ final class NativeActions {
         if (!class_exists(Providers::class, false)) {
             require_once __DIR__ . '/../Adapter/Providers.php';
         }
+    }
+
+    /**
+     * Rebuild WordPress core's persisted rewrite grammar after Apply changed
+     * permalink_structure without hooks. Rewrite registrations are assembled
+     * while WordPress boots: calling WP_Rewrite::init() late clears some
+     * extension rules while retaining taxonomy/post-type permastructs built
+     * under the old grammar. A fixed engine-owned WP-CLI child therefore boots
+     * against the applied row, performs the soft flush, and returns hash-only
+     * evidence which this process checks against raw durable storage.
+     *
+     * The command is constant engine code, never manifest input. `false` is
+     * passed to flush_rules(), so `.htaccess`/web.config remain target-owned.
+     * An absent permalink_structure remains absent: the fresh runtime reads
+     * WordPress's semantic false/empty default but this action writes only the
+     * derived rewrite_rules row.
+     *
+     * @return array{action:string,args:array{},before:array,after:array,verified:true}
+     */
+    private static function flush_rewrite_action(): array {
+        global $wp_rewrite;
+        if (defined('DUO_REWRITE_FLUSH_FRESH_PROCESS')
+            && constant('DUO_REWRITE_FLUSH_FRESH_PROCESS') === true) {
+            return self::flush_rewrite_in_fresh_process();
+        }
+        if (!class_exists('\WP_CLI')
+            || !is_callable(['\WP_CLI', 'runcommand'])
+            || !function_exists('maybe_unserialize')
+            || !is_object($wp_rewrite)) {
+            throw new \RuntimeException(
+                "duo: native action 'rewrite.flush' requires a loaded WordPress/WP-CLI rewrite runtime; "
+                . 'run it through the ordinary apply path'
+            );
+        }
+
+        $before = self::rewrite_state(false);
+        $structure = self::permalink_structure_state();
+        try {
+            $result = \WP_CLI::runcommand(self::REWRITE_FRESH_COMMAND, [
+                'launch' => true,
+                'return' => 'all',
+                'exit_error' => false,
+            ]);
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException(
+                "duo: native action 'rewrite.flush' could not launch its fresh WordPress process; recovery_required"
+            );
+        }
+
+        $stdout = trim((string) ($result->stdout ?? ''));
+        $stderr = trim((string) ($result->stderr ?? ''));
+        if ((int) ($result->return_code ?? 1) !== 0) {
+            self::throw_known_rewrite_child_failure($stdout . "\n" . $stderr);
+            throw new \RuntimeException(
+                "duo: native action 'rewrite.flush' fresh WordPress process exited "
+                . (int) ($result->return_code ?? 1) . '; recovery_required'
+            );
+        }
+        if ($stderr !== '') {
+            throw new \RuntimeException(
+                "duo: native action 'rewrite.flush' fresh WordPress process emitted a warning; recovery_required"
+            );
+        }
+        $lines = preg_split('/\R/', $stdout) ?: [];
+        $json = (string) end($lines);
+        try {
+            $fresh = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException(
+                "duo: native action 'rewrite.flush' fresh WordPress process returned malformed evidence; "
+                . 'recovery_required'
+            );
+        }
+        if (!is_array($fresh)
+            || ($fresh['format'] ?? null) !== self::REWRITE_FRESH_FORMAT
+            || !is_array($fresh['after'] ?? null)) {
+            throw new \RuntimeException(
+                "duo: native action 'rewrite.flush' fresh WordPress process returned the wrong evidence envelope; "
+                . 'recovery_required'
+            );
+        }
+        $after = self::validated_rewrite_evidence($fresh['after']);
+        $desiredHash = hash('sha256', $structure['present'] ? $structure['value'] : '');
+        $storedStructure = self::permalink_structure_state();
+        $storedRules = self::raw_option_state('rewrite_rules');
+        if (!hash_equals($desiredHash, $after['permalink_hash'])
+            || $storedStructure['present'] !== $after['permalink_present']
+            || !hash_equals(
+                hash('sha256', $storedStructure['present'] ? $storedStructure['value'] : ''),
+                $after['permalink_hash']
+            )
+            || !$storedRules['present']
+            || !is_array($storedRules['value'])
+            || count($storedRules['value']) !== $after['rules_count']
+            || !hash_equals(self::rewrite_rules_hash($storedRules['value']), $after['rules_hash'])) {
+            throw new \RuntimeException(
+                "duo: native action 'rewrite.flush' fresh-process evidence disagrees with checked durable storage; "
+                . 'recovery_required'
+            );
+        }
+
+        // This process was booted under the old grammar and must never be used
+        // to regenerate rules, but keeping its two directly-read surfaces in
+        // sync prevents later read-only consumers from serving the stale row.
+        $wp_rewrite->permalink_structure = $storedStructure['present'] ? $storedStructure['value'] : false;
+        $wp_rewrite->rules = $storedRules['value'];
+        return [
+            'action' => 'rewrite.flush',
+            'args' => [],
+            'before' => $before,
+            'after' => $after,
+            'verified' => true,
+        ];
+    }
+
+    /** @return array{action:string,args:array{},before:array,after:array,verified:true} */
+    private static function flush_rewrite_in_fresh_process(): array {
+        global $wp_rewrite;
+        if (!function_exists('did_action')
+            || !function_exists('maybe_unserialize')
+            || !is_object($wp_rewrite)
+            || !method_exists($wp_rewrite, 'flush_rules')
+            || !method_exists($wp_rewrite, 'wp_rewrite_rules')) {
+            throw new \RuntimeException(
+                "duo: native action 'rewrite.flush' requires a loaded WordPress rewrite runtime in its fresh process"
+            );
+        }
+        if ((int) did_action('wp_loaded') < 1) {
+            throw new \RuntimeException(
+                "duo: native action 'rewrite.flush' refused before wp_loaded; WordPress would defer "
+                . 'the rewrite mutation beyond the verified apply boundary'
+            );
+        }
+
+        $before = self::rewrite_state(false);
+        $structure = self::permalink_structure_state();
+        if (!self::runtime_structure_matches($wp_rewrite->permalink_structure ?? null, $structure)) {
+            throw new \RuntimeException(
+                "duo: native action 'rewrite.flush' fresh WordPress process loaded a permalink runtime "
+                . 'which disagrees with the checked database row; recovery_required'
+            );
+        }
+        $wp_rewrite->flush_rules(false);
+        $generatedRules = $wp_rewrite->rules ?? null;
+        if (!is_array($generatedRules)) {
+            throw new \RuntimeException(
+                "duo: native action 'rewrite.flush' did not generate an array-valued rewrite runtime; "
+                . 'recovery_required'
+            );
+        }
+        $after = self::rewrite_state(true, $generatedRules);
+        $desired = $structure['present'] ? $structure['value'] : '';
+        if (!hash_equals(hash('sha256', $desired), $after['permalink_hash'])) {
+            throw new \RuntimeException(
+                "duo: native action 'rewrite.flush' permalink readback changed during regeneration; "
+                . 'recovery_required'
+            );
+        }
+        return [
+            'action' => 'rewrite.flush',
+            'args' => [],
+            'before' => $before,
+            'after' => $after,
+            'verified' => true,
+        ];
+    }
+
+    /** @param array<string,mixed> $after @return array<string,mixed> */
+    private static function validated_rewrite_evidence(array $after): array {
+        $keys = [
+            'permalink_present',
+            'permalink_hash',
+            'runtime_permalink_matches',
+            'rules_present',
+            'rules_type',
+            'rules_count',
+            'rules_hash',
+            'runtime_rules_type',
+            'runtime_rules_count',
+            'runtime_rules_hash',
+        ];
+        if (array_keys($after) !== $keys
+            || !is_bool($after['permalink_present'] ?? null)
+            || !is_string($after['permalink_hash'] ?? null)
+            || preg_match('/^[a-f0-9]{64}$/D', $after['permalink_hash']) !== 1
+            || ($after['runtime_permalink_matches'] ?? null) !== true
+            || ($after['rules_present'] ?? null) !== true
+            || ($after['rules_type'] ?? null) !== 'array'
+            || !is_int($after['rules_count'] ?? null)
+            || $after['rules_count'] < 0
+            || !is_string($after['rules_hash'] ?? null)
+            || preg_match('/^[a-f0-9]{64}$/D', $after['rules_hash']) !== 1
+            || ($after['runtime_rules_type'] ?? null) !== 'array'
+            || !is_int($after['runtime_rules_count'] ?? null)
+            || $after['runtime_rules_count'] !== $after['rules_count']
+            || !is_string($after['runtime_rules_hash'] ?? null)
+            || !hash_equals($after['rules_hash'], $after['runtime_rules_hash'])) {
+            throw new \RuntimeException(
+                "duo: native action 'rewrite.flush' fresh WordPress process returned invalid hash/count evidence; "
+                . 'recovery_required'
+            );
+        }
+        return $after;
+    }
+
+    /** Re-emit only reviewed child diagnostics; arbitrary stderr stays private. */
+    private static function throw_known_rewrite_child_failure(string $output): void {
+        $known = [
+            "duo: native action 'rewrite.flush' requires a loaded WordPress rewrite runtime in its fresh process",
+            "duo: native action 'rewrite.flush' refused before wp_loaded; WordPress would defer the rewrite mutation beyond the verified apply boundary",
+            "duo: native action 'rewrite.flush' fresh WordPress process loaded a permalink runtime which disagrees with the checked database row; recovery_required",
+            "duo: native action 'rewrite.flush' did not generate an array-valued rewrite runtime; recovery_required",
+            "duo: native action 'rewrite.flush' generated rewrite rules disagree with the checked database row; recovery_required",
+            "duo: native action 'rewrite.flush' did not persist an array-valued rewrite_rules postcondition; recovery_required",
+            "duo: native action 'rewrite.flush' loaded rewrite rules disagree with the checked database row; recovery_required",
+            "duo: native action 'rewrite.flush' loaded permalink structure disagrees with the checked database row; recovery_required",
+            "duo: native action 'rewrite.flush' permalink readback changed during regeneration; recovery_required",
+        ];
+        foreach ($known as $message) {
+            if (str_contains($output, $message)) {
+                throw new \RuntimeException($message);
+            }
+        }
+    }
+
+    /**
+     * Hash-only rewrite evidence. The permalink grammar and regular-expression
+     * rules can contain site paths supplied by extensions, so receipts expose
+     * only presence, types, counts, and SHA-256 digests.
+     *
+     * @return array{permalink_present:bool,permalink_hash:string,runtime_permalink_matches:bool,rules_present:bool,rules_type:string,rules_count:?int,rules_hash:?string,runtime_rules_type:string,runtime_rules_count:?int,runtime_rules_hash:?string}
+     */
+    private static function rewrite_state(bool $strict, ?array $expectedRules = null): array {
+        global $wp_rewrite;
+        $structure = self::permalink_structure_state();
+        $rules = self::raw_option_state('rewrite_rules');
+        $runtimeRules = $wp_rewrite->rules ?? null;
+        if ($strict) {
+            if ($expectedRules !== null
+                && (!is_array($rules['value'])
+                    || !hash_equals(
+                        self::rewrite_rules_hash($expectedRules),
+                        self::rewrite_rules_hash($rules['value'])
+                    ))) {
+                throw new \RuntimeException(
+                    "duo: native action 'rewrite.flush' generated rewrite rules disagree with the checked "
+                    . 'database row; recovery_required'
+                );
+            }
+            $runtimeRules = $wp_rewrite->wp_rewrite_rules();
+            if (!$rules['present'] || !is_array($rules['value']) || !is_array($runtimeRules)) {
+                throw new \RuntimeException(
+                    "duo: native action 'rewrite.flush' did not persist an array-valued rewrite_rules "
+                    . 'postcondition; recovery_required'
+                );
+            }
+            if (!hash_equals(self::rewrite_rules_hash($rules['value']), self::rewrite_rules_hash($runtimeRules))) {
+                throw new \RuntimeException(
+                    "duo: native action 'rewrite.flush' loaded rewrite rules disagree with the checked "
+                    . 'database row; recovery_required'
+                );
+            }
+            if (!self::runtime_structure_matches($wp_rewrite->permalink_structure ?? null, $structure)) {
+                throw new \RuntimeException(
+                    "duo: native action 'rewrite.flush' loaded permalink structure disagrees with the "
+                    . 'checked database row; recovery_required'
+                );
+            }
+        }
+        $ruleValue = $rules['value'];
+        return [
+            'permalink_present' => $structure['present'],
+            'permalink_hash' => hash('sha256', $structure['present'] ? $structure['value'] : ''),
+            'runtime_permalink_matches' => self::runtime_structure_matches(
+                $wp_rewrite->permalink_structure ?? null,
+                $structure
+            ),
+            'rules_present' => $rules['present'],
+            'rules_type' => get_debug_type($ruleValue),
+            'rules_count' => is_array($ruleValue) ? count($ruleValue) : null,
+            'rules_hash' => is_array($ruleValue) ? self::rewrite_rules_hash($ruleValue) : null,
+            'runtime_rules_type' => get_debug_type($runtimeRules),
+            'runtime_rules_count' => is_array($runtimeRules) ? count($runtimeRules) : null,
+            'runtime_rules_hash' => is_array($runtimeRules) ? self::rewrite_rules_hash($runtimeRules) : null,
+        ];
+    }
+
+    /** @return array{present:bool,value:string} */
+    private static function permalink_structure_state(): array {
+        $state = self::raw_option_state('permalink_structure');
+        if ($state['present'] && !is_string($state['value'])) {
+            throw new \RuntimeException(
+                "duo: native action 'rewrite.flush' requires permalink_structure to be a plain string; "
+                . 'the target row is malformed'
+            );
+        }
+        return [
+            'present' => $state['present'],
+            'value' => $state['present'] ? $state['value'] : '',
+        ];
+    }
+
+    /** @param array{present:bool,value:string} $structure */
+    private static function runtime_structure_matches($runtime, array $structure): bool {
+        if ($structure['present']) {
+            return is_string($runtime) && hash_equals($structure['value'], $runtime);
+        }
+        return $runtime === false || $runtime === '';
+    }
+
+    /** @return array{present:bool,value:mixed} */
+    private static function raw_option_state(string $name): array {
+        global $wpdb;
+        $wpdb->last_error = '';
+        $raw = $wpdb->get_var($wpdb->prepare(
+            "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
+            $name
+        ));
+        if ($raw === false || (string) ($wpdb->last_error ?? '') !== '') {
+            throw new \RuntimeException(
+                "duo: native action 'rewrite.flush' checked option read failed for '$name'"
+            );
+        }
+        if ($raw === null) {
+            return ['present' => false, 'value' => null];
+        }
+        if (!is_string($raw)) {
+            throw new \RuntimeException(
+                "duo: native action 'rewrite.flush' checked option read returned a non-string value for '$name'"
+            );
+        }
+        return ['present' => true, 'value' => maybe_unserialize($raw)];
+    }
+
+    /** @param array<mixed> $rules */
+    private static function rewrite_rules_hash(array $rules): string {
+        return hash('sha256', serialize($rules));
     }
 
     /**
