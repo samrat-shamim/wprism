@@ -85,7 +85,7 @@ final class Tokens {
     private array $userLogins = [];
     /** @var array<string,int> login -> user id (apply direction) */
     private array $userIds = [];
-    /** Canonical alternate identifiers indexed by positional shortcode lookup. */
+    /** Canonical alternate identifiers indexed by declared shortcode lookup. */
     private array $shortcodeAlternates = [];
     /** Reverse witness index: one alternate value may identify only one entity
      * within a declared (post-meta, post-type) domain. */
@@ -345,19 +345,44 @@ final class Tokens {
             || $metaKey === '' || $postType === '' || !self::is_positive_decimal_alternate($value)) {
             throw new \RuntimeException('duo: malformed positional shortcode alternate witness');
         }
+        $this->register_shortcode_alternate_value($token, $metaKey, $postType, $value, 'positional');
+    }
+
+    public function register_shortcode_named_alternate(
+        string $token,
+        string $metaKey,
+        string $postType,
+        string $value,
+        int $length
+    ): void {
+        if (!preg_match('/^\{\{post:[0-9a-f-]{36}\}\}$/D', $token)
+            || $metaKey === '' || $postType === '' || $length <= 0
+            || strlen($value) !== $length || !preg_match('/^[0-9a-f]+$/D', $value)) {
+            throw new \RuntimeException('duo: malformed named shortcode alternate witness');
+        }
+        $this->register_shortcode_alternate_value($token, $metaKey, $postType, $value, 'named');
+    }
+
+    private function register_shortcode_alternate_value(
+        string $token,
+        string $metaKey,
+        string $postType,
+        string $value,
+        string $form
+    ): void {
         $domain = $metaKey . "\0" . $postType;
         $tokenKey = $domain . "\0" . $token;
         $valueKey = $domain . "\0" . $value;
         $existingToken = $this->shortcodeAlternateValues[$valueKey] ?? null;
         if ($existingToken !== null && $existingToken !== $token) {
             throw new \RuntimeException(
-                "duo: positional shortcode alternate '$value' is ambiguous in $postType.$metaKey"
+                "duo: $form shortcode alternate '$value' is ambiguous in $postType.$metaKey"
             );
         }
         $existingValue = $this->shortcodeAlternates[$tokenKey] ?? null;
         if ($existingValue !== null && $existingValue !== $value) {
             throw new \RuntimeException(
-                "duo: positional shortcode token has conflicting $postType.$metaKey alternates"
+                "duo: $form shortcode token has conflicting $postType.$metaKey alternates"
             );
         }
         $this->shortcodeAlternates[$tokenKey] = $value;

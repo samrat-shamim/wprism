@@ -57,7 +57,6 @@ final class ShortcodeAlternateRegistrar {
         $lookup = $rule['lookup'];
         $metaKey = (string) $lookup['post_meta'];
         $postType = (string) $lookup['post_type'];
-        $seen = [];
         foreach ($tree as $entity) {
             if (($entity['type'] ?? '') !== 'post' || (($entity['data']['type'] ?? '') !== $postType)) {
                 continue;
@@ -77,12 +76,13 @@ final class ShortcodeAlternateRegistrar {
                 $tag,
                 (string) $rule['path']
             );
-            if (isset($seen[$prefix]) && $seen[$prefix] !== $uuid) {
-                throw new \RuntimeException(
-                    "duo: named shortcode alternate '$prefix' is ambiguous in $postType.$metaKey"
-                );
-            }
-            $seen[$prefix] = $uuid;
+            $this->tokens->register_shortcode_named_alternate(
+                '{{post:' . $uuid . '}}',
+                $metaKey,
+                $postType,
+                $prefix,
+                (int) $lookup['prefix_length']
+            );
         }
     }
 }

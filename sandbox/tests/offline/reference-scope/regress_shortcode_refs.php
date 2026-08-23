@@ -552,6 +552,7 @@ check($decimalOverflowRefused, 'S1d: positional alternates outside CF7 bare-DECI
 // and both source and target prefix domains must remain unique.
 $hashA = str_repeat('a', 64);
 $hashB = str_repeat('b', 64);
+$hashC = str_repeat('c', 64);
 $wpdb->postMetaById[MAPPED_ID]['_hash'] = [$hashA];
 $modern = '[contact-form-7 id="aaaaaaa" title="Legacy Form"]';
 $modernCanonical = Shortcodes::capture_rewrite_text($modern, $policy, $tokens);
@@ -559,10 +560,66 @@ check(
     $modernCanonical === '[contact-form-7 id="{{post:' . MAPPED_UUID . '}}" title="Legacy Form"]',
     'S1e: CF7 hash prefix canonicalizes to the owning form token'
 );
+$wpdb->postMetaById[MAPPED_ID]['_hash'] = [$hashC];
+$canonicalNamedTokens = new Tokens();
+$canonicalNamedTokens->policy = $policy;
+(new \Duo\ShortcodeAlternateRegistrar($policy, $canonicalNamedTokens))->register([[
+    'type' => 'post',
+    'data' => [
+        'type' => 'wpcf7_contact_form',
+        'uuid' => MAPPED_UUID,
+        'meta' => ['_hash' => $hashA, '_old_cf7_unit_id' => '77'],
+    ],
+]]);
 check(
-    Shortcodes::apply_rewrite_text($modernCanonical, $policy, $tokens) === $modern,
-    'S1e: CF7 form token restores the target form own seven-byte hash prefix'
+    Shortcodes::apply_rewrite_text($modernCanonical, $policy, $canonicalNamedTokens) === $modern,
+    'S1e: Apply registrar restores the canonical source prefix before the target hash is updated'
 );
+$wpdb->postMetaById[MAPPED_ID]['_hash'] = [$hashA];
+$sealedNamedTokens = new Tokens();
+$sealedNamedTokens->policy = $policy;
+$sealedNamedTokens->seal_shortcode_alternates();
+$missingNamedWitnessRefused = false;
+try {
+    Shortcodes::apply_rewrite_text($modernCanonical, $policy, $sealedNamedTokens);
+} catch (\Throwable $e) {
+    $missingNamedWitnessRefused = str_contains($e->getMessage(), 'no canonical alternate witness');
+}
+check($missingNamedWitnessRefused, 'S1e: sealed Apply refuses a named token without a canonical alternate witness');
+$malformedNamedWitnessRefused = false;
+try {
+    (new Tokens())->register_shortcode_named_alternate(
+        '{{post:' . MAPPED_UUID . '}}',
+        '_hash',
+        'wpcf7_contact_form',
+        'AAAAAAA',
+        7
+    );
+} catch (\Throwable $e) {
+    $malformedNamedWitnessRefused = str_contains($e->getMessage(), 'malformed named shortcode alternate');
+}
+check($malformedNamedWitnessRefused, 'S1e: named alternate witnesses require the declared lowercase-hex width');
+$duplicateNamedTokens = new Tokens();
+$duplicateNamedTokens->register_shortcode_named_alternate(
+    '{{post:' . MAPPED_UUID . '}}',
+    '_hash',
+    'wpcf7_contact_form',
+    'aaaaaaa',
+    7
+);
+$duplicateNamedWitnessRefused = false;
+try {
+    $duplicateNamedTokens->register_shortcode_named_alternate(
+        '{{post:' . MAPPED2_UUID . '}}',
+        '_hash',
+        'wpcf7_contact_form',
+        'aaaaaaa',
+        7
+    );
+} catch (\Throwable $e) {
+    $duplicateNamedWitnessRefused = str_contains($e->getMessage(), 'ambiguous');
+}
+check($duplicateNamedWitnessRefused, 'S1e: one named alternate cannot identify two canonical forms');
 $missingModernIdRefused = false;
 try {
     Shortcodes::capture_rewrite_text('[contact-form-7 title="Legacy Form"]', $policy, $tokens);

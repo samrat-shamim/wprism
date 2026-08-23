@@ -596,7 +596,13 @@ final class Shortcodes {
         }
         $postId = $tokens->token_to_id($value);
         self::assert_post_type($postId, $postType, $tag, $locator);
-        $alternate = self::prefix_alternate_post_meta(
+        $alternate = $tokens->shortcode_alternate($value, $metaKey, $postType);
+        if ($alternate === null && $tokens->shortcode_alternates_sealed()) {
+            throw new \RuntimeException(
+                "duo: shortcode '$tag' $locator token has no canonical alternate witness '$metaKey' for post $postId"
+            );
+        }
+        $alternate ??= self::prefix_alternate_post_meta(
             $postId,
             $metaKey,
             $postType,
