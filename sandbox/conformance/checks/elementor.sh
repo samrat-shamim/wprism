@@ -53,6 +53,14 @@ $kitSettings = get_post_meta($kitId, '_elementor_page_settings', true);
 if (!is_array($kitSettings)) {
     throw new RuntimeException('Elementor active kit settings are not native array data');
 }
+$libraryTypes = wp_get_object_terms($template->ID, 'elementor_library_type', ['fields' => 'ids']);
+if (is_wp_error($libraryTypes) || count($libraryTypes) !== 1) {
+    throw new RuntimeException('Elementor library template type relationship is incomplete');
+}
+$libraryType = get_term((int) $libraryTypes[0], 'elementor_library_type');
+if (!$libraryType instanceof WP_Term) {
+    throw new RuntimeException('Elementor library template type term is incomplete');
+}
 
 $large = 0;
 $walk = static function (array $elements) use (&$walk, &$large): void {
@@ -120,6 +128,7 @@ $ids = [
     'gallery_b' => (int) $galleryB->ID,
     'hero' => (int) $hero->ID,
     'kit' => $kitId,
+    'library_type' => (int) $libraryType->term_id,
     'target' => (int) $target->ID,
     'template' => (int) $template->ID,
 ];
@@ -178,6 +187,7 @@ echo wp_json_encode([
     ],
     'template' => [
         'image' => $templateData[0]['elements'][0]['elements'][0]['settings']['image']['id'] ?? null,
+        'library_type' => $libraryType->slug,
         'type' => get_post_meta($template->ID, '_elementor_template_type', true),
     ],
     'version' => defined('ELEMENTOR_VERSION') ? ELEMENTOR_VERSION : null,
@@ -201,7 +211,7 @@ jq -e --arg version "$ELEMENTOR_EXPECTED_VERSION" '
   .classic.hero == .ids.hero and .classic.background == .ids.background and
   .classic.gallery == [.ids.gallery_a,.ids.gallery_b] and
   .classic.link == ("http://localhost:'"$CONF2_PORT"'/duo-elementor-target/?from=elementor&encoded=a%2Fb") and
-  .template.type == "section" and .template.image == .ids.gallery_a and
+  .template.type == "section" and .template.library_type == "section" and .template.image == .ids.gallery_a and
   .kit.site_logo == .ids.hero and .kit.site_favicon == .ids.gallery_a and
   .kit.background == .ids.background and .kit.gallery == [.ids.gallery_a,.ids.gallery_b] and
   .kit.fonts == "Inter, Arial, sans-serif" and
@@ -224,7 +234,7 @@ if [ "$ATOMIC_SUPPORTED" = true ]; then
   ' <<<"$TARGET" >/dev/null || fail "Elementor Atomic document did not converge through its generated prop envelope: $TARGET"
 fi
 
-for key in classic target template kit hero gallery_a gallery_b background; do
+for key in classic target template kit hero gallery_a gallery_b background library_type; do
   SOURCE_ID=$(jq -r --arg key "$key" '.[$key]' <<<"$SOURCE_IDS")
   TARGET_ID=$(jq -r --arg key "$key" '.ids[$key]' <<<"$TARGET")
   EXPECTED_TARGET_ID=$(jq -r --arg key "$key" '.[$key]' <<<"$TARGET_IDS")

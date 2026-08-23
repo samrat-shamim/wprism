@@ -1547,7 +1547,7 @@ for ELEMENTOR_VERSION in 4.0.0 4.2.3; do
     "options": {},
     "post_meta": {},
     "post_types": ["post", "page", "attachment", "elementor_library"],
-    "taxonomies": ["category", "post_tag"]
+    "taxonomies": ["category", "post_tag", "elementor_library_type"]
   },
   "spec_version": 2
 }
@@ -2538,7 +2538,7 @@ cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
     "options": {},
     "post_meta": {},
     "post_types": ["post", "page", "attachment", "elementor_library"],
-    "taxonomies": ["category", "post_tag"]
+    "taxonomies": ["category", "post_tag", "elementor_library_type"]
   },
   "spec_version": 2
 }

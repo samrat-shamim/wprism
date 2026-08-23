@@ -3,7 +3,7 @@
     "pin": ["core", "elementor"],
     "plugins": [{"slug": "elementor", "version": "4.2.3"}],
     "post_types": ["post", "page", "attachment", "elementor_library"],
-    "taxonomies": ["category", "post_tag"]
+    "taxonomies": ["category", "post_tag", "elementor_library_type"]
   },
   "manifest": "elementor"
 }

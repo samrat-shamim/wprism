@@ -21,6 +21,10 @@ $wpdb->query("ALTER TABLE {$wpdb->posts} AUTO_INCREMENT = 8100001");
 if ($wpdb->last_error !== '') {
     throw new RuntimeException('Elementor target could not establish the high-ID premise');
 }
+$wpdb->query("ALTER TABLE {$wpdb->terms} AUTO_INCREMENT = 8200001");
+if ($wpdb->last_error !== '') {
+    throw new RuntimeException('Elementor target could not establish the high-term-ID premise');
+}
 
 function duo_elementor_target_image(string $path, int $red, int $green, int $blue): void {
     $image = imagecreatetruecolor(48, 36);
@@ -100,6 +104,11 @@ duo_elementor_target_save($template, 'section', [[
     'settings' => [],
     'elements' => [],
 ]]);
+$libraryTypes = wp_get_object_terms($template, 'elementor_library_type', ['fields' => 'ids']);
+if (is_wp_error($libraryTypes) || count($libraryTypes) !== 1) {
+    throw new RuntimeException('Elementor hostile template did not create one library-type term');
+}
+$libraryType = (int) $libraryTypes[0];
 
 $atomic = 0;
 if (class_exists('\Elementor\Modules\AtomicWidgets\PropTypes\Html_V3_Prop_Type')) {
@@ -151,6 +160,7 @@ $ids = [
     'gallery_b' => $galleryB,
     'hero' => $hero,
     'kit' => $kitId,
+    'library_type' => $libraryType,
     'target' => $target,
     'template' => $template,
 ];
@@ -158,6 +168,9 @@ foreach (['background', 'classic', 'gallery_a', 'gallery_b', 'hero', 'kit', 'tar
     if ($ids[$key] < 8100001) {
         throw new RuntimeException("Elementor target high-ID premise failed for $key");
     }
+}
+if ($ids['library_type'] < 8200001) {
+    throw new RuntimeException('Elementor target high-term-ID premise failed for library_type');
 }
 echo wp_json_encode($ids, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
 PHPEOF
@@ -168,12 +181,12 @@ require_observed_nonempty 'conf2 Elementor hostile fixture output' "$HOSTILE_OUT
 TARGET_JSON=$(printf '%s\n' "$HOSTILE_OUT" | awk 'NF { line=$0 } END { print line }')
 jq -e '
   .classic >= 8100001 and .target >= 8100001 and .template >= 8100001 and
-  .kit >= 8100001 and .hero >= 8100001 and .background >= 8100001
+  .kit >= 8100001 and .hero >= 8100001 and .background >= 8100001 and .library_type >= 8200001
 ' <<<"$TARGET_JSON" >/dev/null || fail "Elementor hostile target premise was incomplete: $TARGET_JSON"
 printf '%s\n' "$TARGET_JSON" > "$TARGET_REPO/.tmp-elementor-target.json"
 
 SOURCE_JSON=$(cat "${CONF_REPO1:-siterepo/conf1}/.tmp-elementor-source.json")
-for key in classic target template kit hero gallery_a gallery_b background; do
+for key in classic target template kit hero gallery_a gallery_b background library_type; do
   SOURCE_ID=$(jq -r --arg key "$key" '.[$key]' <<<"$SOURCE_JSON")
   TARGET_ID=$(jq -r --arg key "$key" '.[$key]' <<<"$TARGET_JSON")
   require_fixture_ids SOURCE_ID TARGET_ID

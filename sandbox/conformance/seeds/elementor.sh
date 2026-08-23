@@ -23,6 +23,10 @@ $wpdb->query("ALTER TABLE {$wpdb->posts} AUTO_INCREMENT = 4100001");
 if ($wpdb->last_error !== '') {
     throw new RuntimeException('Elementor seed could not establish the high-ID premise');
 }
+$wpdb->query("ALTER TABLE {$wpdb->terms} AUTO_INCREMENT = 4200001");
+if ($wpdb->last_error !== '') {
+    throw new RuntimeException('Elementor seed could not establish the high-term-ID premise');
+}
 
 function duo_elementor_image(string $path, int $red, int $green, int $blue): void {
     $image = imagecreatetruecolor(96, 72);
@@ -174,6 +178,11 @@ duo_elementor_save($template, 'section', [[
         ]],
     ]],
 ]]);
+$libraryTypes = wp_get_object_terms($template, 'elementor_library_type', ['fields' => 'ids']);
+if (is_wp_error($libraryTypes) || count($libraryTypes) !== 1) {
+    throw new RuntimeException('Elementor saved template did not create one library-type term');
+}
+$libraryType = (int) $libraryTypes[0];
 
 $atomic = 0;
 $atomicSupported = class_exists('\Elementor\Modules\AtomicWidgets\PropTypes\Html_V3_Prop_Type')
@@ -266,6 +275,7 @@ $ids = [
     'gallery_b' => $galleryB,
     'hero' => $hero,
     'kit' => $kitId,
+    'library_type' => $libraryType,
     'target' => $target,
     'template' => $template,
 ];
@@ -273,6 +283,9 @@ foreach (['background', 'classic', 'gallery_a', 'gallery_b', 'hero', 'kit', 'tar
     if ($ids[$key] < 4100001) {
         throw new RuntimeException("Elementor high-ID premise failed for $key");
     }
+}
+if ($ids['library_type'] < 4200001) {
+    throw new RuntimeException('Elementor high-term-ID premise failed for library_type');
 }
 echo wp_json_encode($ids, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
 PHPEOF
@@ -283,7 +296,7 @@ require_observed_nonempty 'conf1 Elementor source fixture output' "$SEED_OUT"
 SOURCE_JSON=$(printf '%s\n' "$SEED_OUT" | awk 'NF { line=$0 } END { print line }')
 jq -e '
   .classic >= 4100001 and .target >= 4100001 and .template >= 4100001 and
-  .kit >= 4100001 and .hero >= 4100001 and .background >= 4100001 and
+  .kit >= 4100001 and .hero >= 4100001 and .background >= 4100001 and .library_type >= 4200001 and
   (.atomic_supported == false or .atomic >= 4100001)
 ' <<<"$SOURCE_JSON" >/dev/null || fail "Elementor source fixture premise was incomplete: $SOURCE_JSON"
 printf '%s\n' "$SOURCE_JSON" > "$SOURCE_REPO/.tmp-elementor-source.json"
