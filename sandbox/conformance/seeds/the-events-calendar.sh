@@ -287,8 +287,6 @@ foreach ([
     'tec_seo_out_of_range_behavior' => 'soft_noindex',
     'tec_seo_noindex_dated_list_urls' => true,
     'tec_seo_disabled_view_404' => true,
-    'eventsDefaultVenueID' => (int) $venue->ID,
-    'eventsDefaultOrganizerID' => (int) $organizer->ID,
     'toggle_blocks_editor' => true,
     'debugEvents' => true,
     'enable_month_view_cache' => false,

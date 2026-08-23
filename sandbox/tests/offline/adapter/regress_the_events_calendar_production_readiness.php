@@ -1055,18 +1055,14 @@ duo_check_same('preserve', $options['autoload'] ?? null, 'the mixed TEC option p
 foreach (['eventsSlug', 'tribeEnableViews', 'category-color-enable-frontend', 'tec_seo_out_of_range_behavior'] as $key) {
     duo_check_same('authored', $options['sub_keys'][$key]['class'] ?? null, "$key is one reviewed portable setting sub-key");
 }
-duo_check_same('post', $options['sub_keys']['eventsDefaultVenueID']['ref'] ?? null, 'the default venue setting rewrites through the post ledger');
-duo_check_same('post', $options['sub_keys']['eventsDefaultOrganizerID']['ref'] ?? null, 'the default organizer setting rewrites through the post ledger');
 $expectedMainOptionClasses = [
     'authored' => [
-        'allow_duplicate_venues',
         'category-color-custom-css',
         'category-color-enable-frontend',
         'category-color-legend-show',
         'category-color-legend-superpowers',
         'category-color-reset-button',
         'category-color-show-hidden-categories',
-        'custom-fields',
         'dateTimeSeparator',
         'dateWithYearFormat',
         'dateWithoutYearFormat',
@@ -1077,12 +1073,7 @@ $expectedMainOptionClasses = [
         'donate-link',
         'embedGoogleMaps',
         'embedGoogleMapsZoom',
-        'eventsDefaultOrganizerID',
-        'eventsDefaultVenueID',
         'eventsSlug',
-        'front_page_event_archive',
-        'geoloc_default_unit',
-        'liveFiltersUpdate',
         'monthAndYearFormat',
         'monthEventAmount',
         'multiDayCutoff',
@@ -1104,7 +1095,6 @@ $expectedMainOptionClasses = [
         'tribeEnableViews',
         'tribeEventsAfterHTML',
         'tribeEventsBeforeHTML',
-        'tribeEventsCountries',
         'tribeEventsTemplate',
         'tribe_events_timezone_mode',
         'tribe_events_timezones_show_zone',
@@ -1117,12 +1107,16 @@ $expectedMainOptionClasses = [
         'latest_date_markers',
     ],
     'env' => [
+        'allow_duplicate_venues',
+        'custom-fields',
         'debugEvents',
         'delete-past-events',
         'did_init',
         'eb_security_key',
         'enable_month_view_cache',
         'event-automator-schema-version',
+        'eventsDefaultOrganizerID',
+        'eventsDefaultVenueID',
         'fb_auto_frequency',
         'fb_auto_import',
         'fb_enable_GoogleMaps',
@@ -1131,12 +1125,14 @@ $expectedMainOptionClasses = [
         'fb_token_scopes',
         'fb_uids',
         'google_maps_js_api_key',
+        'geoloc_default_unit',
         'ian-notifications-opt-in',
         'imported_post_status',
         'latest_ecp_version',
         'logging_class',
         'logging_engine',
         'logging_level',
+        'liveFiltersUpdate',
         'meetup_api_key',
         'meetup_security_key',
         'opt-in-status',
@@ -1164,8 +1160,10 @@ $expectedMainOptionClasses = [
         'tribe_aggregator_disable',
         'tribe_aggregator_import_process_system',
         'tribe_ext_tec_tweaks_remove_event_end_time',
+        'tribeEventsCountries',
     ],
     'runtime' => [
+        'front_page_event_archive',
         'imported_encoding_status',
         'last-update-message-the-events-calendar',
         'mobile_default_view',
@@ -1232,10 +1230,19 @@ foreach (['earliest_date', 'latest_date', 'earliest_date_markers', 'latest_date_
 foreach (['posts_per_page', 'stylesheetOption'] as $key) {
     duo_check_same('authored', $options['sub_keys'][$key]['class'] ?? null, "$key preserves upgraded alias precedence");
 }
+foreach (['allow_duplicate_venues', 'custom-fields', 'eventsDefaultOrganizerID', 'eventsDefaultVenueID', 'geoloc_default_unit', 'liveFiltersUpdate', 'tribeEventsCountries'] as $key) {
+    duo_check_same(
+        'env',
+        $options['sub_keys'][$key]['class'] ?? null,
+        "$key is a target-owned extension or legacy input with no exact free-plugin authoring path"
+    );
+    duo_check_same(null, $options['sub_keys'][$key]['ref'] ?? null, "$key does not claim a free-plugin reference grammar");
+    duo_check_same(null, $options['sub_keys'][$key]['plain_data'] ?? null, "$key does not claim an unbounded portable data grammar");
+}
 duo_check_same(
-    true,
-    $options['sub_keys']['tribeEventsCountries']['plain_data'] ?? null,
-    'the current free country-list setting has an explicit bounded plain-data contract'
+    'runtime',
+    $options['sub_keys']['front_page_event_archive']['class'] ?? null,
+    'the TEC homepage flag remains the target-owned runtime half of the core page_on_front pair'
 );
 
 $expectedTopLevelOptionClasses = [

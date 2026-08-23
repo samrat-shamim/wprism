@@ -456,6 +456,8 @@ jq -e '
   ($o | has("enable_month_view_cache") | not) and
   ($o | has("trash-past-events") | not) and
   ($o | has("delete-past-events") | not) and
+  ($o | has("eventsDefaultVenueID") | not) and
+  ($o | has("eventsDefaultOrganizerID") | not) and
   ($o | has("google_maps_js_api_key") | not) and
   ($o | has("duo_source_only_secret") | not)
 ' "$TEC_SOURCE_OPTIONS" >/dev/null \
@@ -597,7 +599,7 @@ printf '%s\n' "$TARGET" | jq -e \
   .cache == "target-runtime-preserved" and
   (.event.permalink | contains("/readiness-event/"))
 ' >/dev/null || fail "TEC native graph/settings/derived state did not converge: $TARGET"
-pass "TEC adopted huge native identities, rewrote refs/URLs/defaults, repaired projections, and preserved target-owned state"
+pass "TEC adopted huge native identities, rewrote refs/URLs, repaired projections, and preserved target-owned extension state"
 
 PERMALINK=$(jq -er '.event.permalink' <<<"$TARGET")
 FRONT=$(curl -fsSL "$PERMALINK") || fail "TEC target event permalink did not return 200: $PERMALINK"
