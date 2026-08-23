@@ -243,10 +243,10 @@ receipt=<id>` when the last generation is terminal. A non-terminal one reads
 `duo promote` with `rollback generation <n> is still <state>; recovery must
 reach committed or rolled_back first`. Carry it to `committed` or
 `rolled_back` — `cli/duo recover production --restore=<checkpoint>
---writers-excluded` — before upgrading under it. On a non-SSH transport
-`duo recover` refuses with `recovery_authority_unavailable`; that refusal is
-the answer, not an obstacle, because such a target holds no rollback authority
-to drain.
+--writers-excluded` — before upgrading under it. On a target with no configured
+rollback authority `duo recover` refuses with `recovery_authority_unavailable`;
+that refusal is the answer, not an obstacle, because such a target holds no
+rollback authority to drain.
 
 Frozen authorization plans are local, not target-side: `duo release` writes
 `.duo/releases/<plan_digest>.json` in the site repository before any target

@@ -9,6 +9,7 @@ require_once __DIR__ . '/../Transport/Transport.php';
 require_once __DIR__ . '/../Transport/LocalTransport.php';
 require_once __DIR__ . '/../Transport/DockerTransport.php';
 require_once __DIR__ . '/../Transport/SshTransport.php';
+require_once __DIR__ . '/../Transport/RecoveryTransport.php';
 require_once __DIR__ . '/../Onboarding/BootstrapEligibility.php';
 require_once __DIR__ . '/../Transport/CodeDeploy.php';
 require_once dirname(__DIR__, 3) . '/recovery/rollback-control.php';
@@ -63,7 +64,13 @@ final class AdoptCommand {
         $keyId = null;
         $publicKey = null;
         $recoveryConfig = null;
-        if ($transport instanceof SshTransport && $transport->rollbackConfigured()) {
+        // Adopt::install() already installs the runtime files for every
+        // AdoptionTransport (Onboarding/Adopt.php) — what this block adds is
+        // the public key and recovery-config the runtime needs to verify
+        // anything. Gating it on the capability interface rather than on SSH
+        // is what stops a configured local adopt from installing a runtime it
+        // could never authorize against.
+        if ($transport instanceof RecoveryTransport && $transport->rollbackConfigured()) {
             try {
                 $authority = new RollbackAuthority($transport);
                 $keyId = $authority->keyId();

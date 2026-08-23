@@ -1,5 +1,5 @@
 {
-    "class_count": 349,
+    "class_count": 351,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -24926,7 +24926,8 @@
             "final": true,
             "interfaces": [
                 "Duo\\Orchestrator\\AdoptionTransport",
-                "Duo\\Orchestrator\\EnvironmentDriver"
+                "Duo\\Orchestrator\\EnvironmentDriver",
+                "Duo\\Orchestrator\\RecoveryTransport"
             ],
             "kind": "class",
             "methods": {
@@ -24955,11 +24956,44 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "allocateControlInput": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "label",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "bootstrapCapability": {
                     "abstract": false,
                     "final": false,
                     "parameters": [],
                     "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "carriesRollbackAuthority": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "checkpointConfigured": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
                     "static": false,
                     "visibility": "public"
                 },
@@ -24988,6 +25022,14 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "codeReleaseConfigured": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "describe": {
                     "abstract": false,
                     "final": false,
@@ -24996,11 +25038,44 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "effectProviderConfigured": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "hostRepoPath": {
                     "abstract": false,
                     "final": false,
                     "parameters": [],
                     "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "putControlInput": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "localPath",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "targetPath",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": false,
                     "visibility": "public"
                 },
@@ -25020,6 +25095,63 @@
                     "return_type": "string",
                     "static": false,
                     "visibility": "protected"
+                },
+                "recoveryConfig": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "recoveryConfigured": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "removeControlInput": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "targetPath",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "rollbackConfigured": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "rollbackKeyId": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "rollbackSigningKeyPath": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
                 },
                 "uploadFile": {
                     "abstract": false,
@@ -25046,6 +25178,14 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "uploadProviderConfigured": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "uploadedFileIdentity": {
                     "abstract": false,
                     "final": false,
@@ -25060,6 +25200,22 @@
                         }
                     ],
                     "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "verifiedRollbackConfig": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "verifiedRollbackConfigured": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
                     "static": false,
                     "visibility": "public"
                 },
@@ -26864,6 +27020,233 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\Orchestrator\\RecoveryConfig": {
+            "abstract": false,
+            "constants": {
+                "KEYS": {
+                    "value_repr": [
+                        "rollback_key_id",
+                        "rollback_recovery",
+                        "rollback_signing_key",
+                        "verified_rollback"
+                    ]
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "configured": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "declaredIn": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "cfg",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "describeSuffix": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "keyId": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "parse": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "name",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "cfg",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "dir",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "Duo\\Orchestrator\\RecoveryConfig",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "providerConfigured": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "provider",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "recovery": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "recoveryConfigured": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "signingKeyPath": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "validateCommand": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "env",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": "mixed",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "label",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validateRecoveryConfig": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "env",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "config",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validateVerifiedRollback": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "env",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "config",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "verified": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\Orchestrator\\RecoveryProfileSelection": {
             "abstract": false,
             "constants": {
@@ -26932,7 +27315,7 @@
                             "default": null,
                             "has_default": false,
                             "name": "transport",
-                            "type": "Duo\\Orchestrator\\SshTransport",
+                            "type": "Duo\\Orchestrator\\RecoveryTransport",
                             "variadic": false
                         },
                         {
@@ -26981,7 +27364,7 @@
                             "default": null,
                             "has_default": false,
                             "name": "transport",
-                            "type": "Duo\\Orchestrator\\SshTransport",
+                            "type": "Duo\\Orchestrator\\RecoveryTransport",
                             "variadic": false
                         },
                         {
@@ -27014,7 +27397,7 @@
                             "default": null,
                             "has_default": false,
                             "name": "transport",
-                            "type": "Duo\\Orchestrator\\SshTransport",
+                            "type": "Duo\\Orchestrator\\RecoveryTransport",
                             "variadic": false
                         },
                         {
@@ -27061,6 +27444,208 @@
                     ],
                     "return_type": "?string",
                     "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\RecoveryTransport": {
+            "abstract": true,
+            "constants": [],
+            "final": false,
+            "interfaces": [
+                "Duo\\Orchestrator\\EnvironmentDriver"
+            ],
+            "kind": "interface",
+            "methods": {
+                "allocateControlInput": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "label",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "captureRaw": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "script",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "carriesRollbackAuthority": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "checkpointConfigured": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "codeReleaseConfigured": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "effectProviderConfigured": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "name": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "putControlInput": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "localPath",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "targetPath",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "recoveryConfig": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "recoveryConfigured": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "removeControlInput": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "targetPath",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "repoPath": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "rollbackConfigured": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "rollbackKeyId": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "rollbackSigningKeyPath": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "uploadProviderConfigured": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "verifiedRollbackConfig": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "verifiedRollbackConfigured": {
+                    "abstract": true,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
+                    "static": false,
                     "visibility": "public"
                 }
             },
@@ -29410,7 +29995,7 @@
                             "default": null,
                             "has_default": false,
                             "name": "transport",
-                            "type": "Duo\\Orchestrator\\SshTransport",
+                            "type": "Duo\\Orchestrator\\RecoveryTransport",
                             "variadic": false
                         }
                     ],
@@ -29606,7 +30191,7 @@
                             "default": null,
                             "has_default": false,
                             "name": "transport",
-                            "type": "Duo\\Orchestrator\\SshTransport",
+                            "type": "Duo\\Orchestrator\\RecoveryTransport",
                             "variadic": false
                         }
                     ],
@@ -29623,7 +30208,7 @@
                             "default": null,
                             "has_default": false,
                             "name": "transport",
-                            "type": "Duo\\Orchestrator\\SshTransport",
+                            "type": "Duo\\Orchestrator\\RecoveryTransport",
                             "variadic": false
                         }
                     ],
@@ -30176,7 +30761,7 @@
                             "default": null,
                             "has_default": false,
                             "name": "transport",
-                            "type": "Duo\\Orchestrator\\SshTransport",
+                            "type": "Duo\\Orchestrator\\RecoveryTransport",
                             "variadic": false
                         }
                     ],
@@ -30193,7 +30778,7 @@
                             "default": null,
                             "has_default": false,
                             "name": "transport",
-                            "type": "Duo\\Orchestrator\\SshTransport",
+                            "type": "Duo\\Orchestrator\\RecoveryTransport",
                             "variadic": false
                         }
                     ],
@@ -30210,7 +30795,7 @@
                             "default": null,
                             "has_default": false,
                             "name": "transport",
-                            "type": "Duo\\Orchestrator\\SshTransport",
+                            "type": "Duo\\Orchestrator\\RecoveryTransport",
                             "variadic": false
                         }
                     ],
@@ -30301,7 +30886,7 @@
                             "default": null,
                             "has_default": false,
                             "name": "transport",
-                            "type": "Duo\\Orchestrator\\SshTransport",
+                            "type": "Duo\\Orchestrator\\RecoveryTransport",
                             "variadic": false
                         }
                     ],
@@ -30489,7 +31074,7 @@
                             "default": null,
                             "has_default": false,
                             "name": "transport",
-                            "type": "Duo\\Orchestrator\\SshTransport",
+                            "type": "Duo\\Orchestrator\\RecoveryTransport",
                             "variadic": false
                         },
                         {
@@ -30556,7 +31141,8 @@
             "final": true,
             "interfaces": [
                 "Duo\\Orchestrator\\AdoptionTransport",
-                "Duo\\Orchestrator\\EnvironmentDriver"
+                "Duo\\Orchestrator\\EnvironmentDriver",
+                "Duo\\Orchestrator\\RecoveryTransport"
             ],
             "kind": "class",
             "methods": {
@@ -30585,11 +31171,36 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "allocateControlInput": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "label",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "bootstrapCapability": {
                     "abstract": false,
                     "final": false,
                     "parameters": [],
                     "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "carriesRollbackAuthority": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "bool",
                     "static": false,
                     "visibility": "public"
                 },
@@ -30625,6 +31236,31 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "putControlInput": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "localPath",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "targetPath",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "rawCommand": {
                     "abstract": false,
                     "final": false,
@@ -30655,6 +31291,23 @@
                     "final": false,
                     "parameters": [],
                     "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "removeControlInput": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "targetPath",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": false,
                     "visibility": "public"
                 },
@@ -31318,7 +31971,7 @@
                     ],
                     "return_type": "string",
                     "static": true,
-                    "visibility": "protected"
+                    "visibility": "public"
                 },
                 "runCapturing": {
                     "abstract": false,
@@ -31517,7 +32170,7 @@
                             "default": null,
                             "has_default": false,
                             "name": "transport",
-                            "type": "Duo\\Orchestrator\\SshTransport",
+                            "type": "Duo\\Orchestrator\\RecoveryTransport",
                             "variadic": false
                         }
                     ],
@@ -31681,7 +32334,7 @@
                             "default": null,
                             "has_default": false,
                             "name": "transport",
-                            "type": "Duo\\Orchestrator\\SshTransport",
+                            "type": "Duo\\Orchestrator\\RecoveryTransport",
                             "variadic": false
                         },
                         {

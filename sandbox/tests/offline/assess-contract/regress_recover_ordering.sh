@@ -90,6 +90,18 @@ recover_plain() {
   cat "$TMP/$name.err" >> "$TMP/$name.txt"
   return $status
 }
+# recover_configured <name> [args...] -> the same target and the same local
+# transport, but through the environment that DID configure a rollback
+# authority.
+recover_configured() {
+  local name="$1"; shift
+  : > "$DUO_WP_CALLS"
+  ( cd "$SITE" && php "$ROOT/cli/duo" --envs-file="$TMP/f/envs.json" recover configured "$@" ) \
+    > "$TMP/$name.txt" 2> "$TMP/$name.err"
+  local status=$?
+  cat "$TMP/$name.err" >> "$TMP/$name.txt"
+  return $status
+}
 
 # wp_steps -> the recovery steps the target actually received, in order
 wp_steps() {
@@ -551,10 +563,32 @@ STEPS="$(wp_steps | tr '\n' ' ')"
   && pass 'a lease this command cannot name is a lease it never takes: no step ran' \
   || fail "the no-identity restore ran steps: $STEPS"
 
-# The one thing a non-SSH target genuinely cannot do keeps its typed refusal.
+# The typed refusal survives, but it is now a statement about CONFIGURATION,
+# not about SSH: the same local transport against the same target reads the
+# signed catalog once its rollback authority is configured, and reads nothing
+# but the retained checkpoints when it is not.
+say 'recovery_authority_unavailable is about a configured authority, not about SSH'
 grep -Fq "'recovery_authority_unavailable'" "$ROOT/cli/src/Command/RecoverCommand.php" \
-  && pass 'the signed rollback still refuses with recovery_authority_unavailable off SSH' \
+  && pass 'the signed rollback still refuses with recovery_authority_unavailable where no authority is configured' \
   || fail 'recovery_authority_unavailable disappeared from RecoverCommand'
+grep -Fq 'this transport carries no rollback authority runtime, so only the database checkpoints its releases retained are listed' \
+  "$TMP/plainlist.txt" \
+  && pass 'the un-configured local environment still discloses that it has no authority to read' \
+  || fail 'the un-configured disclosure disappeared'
+
+DUO_RECOVER_STATUS="$TMP/f/status/code.json" recover_configured "configuredlist" --list
+STATUS=$?
+[ "$STATUS" = 0 ] && pass 'a configured local transport lists (exit 0)' \
+  || { fail "a configured local --list exited $STATUS"; sed -n '1,20p' "$TMP/configuredlist.txt" >&2; }
+grep -Fq 'receipt-recover-fixture' "$TMP/configuredlist.txt" \
+  && pass 'a configured local transport reads the same signed receipt the SSH target reads' \
+  || { fail 'the configured local listing carried no signed receipt'; sed -n '1,20p' "$TMP/configuredlist.txt" >&2; }
+grep -Fq 'this transport carries no rollback authority runtime' "$TMP/configuredlist.txt" \
+  && fail 'a configured local transport still claimed it carries no authority runtime' \
+  || pass 'the no-authority disclosure does not fire for a configured local transport'
+[ -s "$DUO_WP_CALLS" ] \
+  && fail '--list on a configured local transport ran a recovery step' \
+  || pass '--list on a configured local transport runs no recovery step'
 
 # ------------------------------------------------------------- cli/duo wiring
 say 'cli/duo wiring'

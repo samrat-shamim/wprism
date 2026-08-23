@@ -54,7 +54,9 @@ require_once __DIR__ . '/VerifiedRollbackProfile.php';
  *
  * ## Why the decision is split into prove/decide
  *
- * `proveVerified()` needs an `SshTransport` and (unless the caller already
+ * `proveVerified()` needs a `RecoveryTransport` — the capability interface
+ * that names the two primitives the protocol actually uses, not one transport
+ * (cli/src/Transport/RecoveryTransport.php) — and (unless the caller already
  * read one) a live authority status; `decide()` is pure. Splitting them is
  * what makes the strengthen-only rule, the warning line and the claim
  * testable offline against a fixture proof, without a target and without a
@@ -119,7 +121,7 @@ final class RecoveryProfileSelection {
      *        offline suite exercise the decision without a live target
      * @return array{profile:string,reason:string,automatic:bool,scoped:bool,status:array<string,mixed>}
      */
-    public static function proveVerified(SshTransport $transport, array $plan, ?array $status = null): array {
+    public static function proveVerified(RecoveryTransport $transport, array $plan, ?array $status = null): array {
         return self::fromSelect(VerifiedRollbackProfile::select($transport, $plan, $status), false);
     }
 
@@ -138,7 +140,7 @@ final class RecoveryProfileSelection {
      * @return array{profile:string,reason:string,automatic:bool,scoped:bool,status:array<string,mixed>}
      */
     public static function proveScoped(
-        SshTransport $transport,
+        RecoveryTransport $transport,
         array $plan,
         string $scopeHash,
         bool $allowDeletes = false,
@@ -255,7 +257,7 @@ final class RecoveryProfileSelection {
      * @param array<string,mixed> $request
      * @return array<string,mixed>
      */
-    public static function select(SshTransport $transport, array $plan, array $request = []): array {
+    public static function select(RecoveryTransport $transport, array $plan, array $request = []): array {
         // A pre-read authority status belongs on proveVerified(), whose
         // whole point is to let the verb boundary read the target once;
         // decide()'s closed key set refuses it here rather than silently

@@ -442,4 +442,65 @@ assert_true(
 );
 pass('every cli/duo verb reaching the driver preflight resolves through requirements()');
 
+// DUO: `duo envs` output is what an operator diffs when they wonder whether a
+// change reached their environments. Admitting LocalTransport to the recovery
+// capability interface must not move one byte of it for an environment that
+// never configured a rollback authority (AGENTS.md rule 8), so the three
+// un-configured describe() lines are asserted byte-exactly here rather than
+// left to a reviewer's eye.
+assert_true(
+    $local->describe() === 'local  wp_path=/wordpress repo_path=/repo',
+    'the un-configured local describe line moved'
+);
+assert_true(
+    $docker->describe() === 'docker compose_file=/tmp/duo-driver-compose.yml service=cli repo_path=/repo',
+    'the un-configured docker describe line moved'
+);
+assert_true(
+    $ssh->describe() === 'ssh    host=fixture.invalid wp_path=/wordpress repo_path=/repo',
+    'the un-configured ssh describe line moved'
+);
+
+// And the opted-in form is the SSH suffix set, in the SSH order, because one
+// RecoveryConfig renders it for every transport.
+$providerArgv = ['/bin/true'];
+$recoveryKeys = [
+    'rollback_key_id' => 'envs-proof-key',
+    'rollback_recovery' => [
+        'adapters' => [
+            'code_restore' => $providerArgv,
+            'database_restore' => $providerArgv,
+            'prior_verify' => $providerArgv,
+            'storage_restore' => $providerArgv,
+        ],
+        'exclusion_provider' => $providerArgv,
+        'timeout_seconds' => 5,
+    ],
+    'rollback_signing_key' => '/tmp/duo-envs-proof-signing.key',
+    'verified_rollback' => [
+        'claim_ttl_seconds' => 90,
+        'encryption_key_id' => 'kms-envs-proof',
+        'retention_seconds' => 3600,
+    ],
+];
+$configuredLocal = new LocalTransport('local-recovery-proof', [
+    '_machine_local' => true, 'transport' => 'local', 'wp_path' => '/wordpress', 'repo_path' => '/repo',
+] + $recoveryKeys);
+assert_true(
+    $configuredLocal->describe()
+        === 'local  wp_path=/wordpress repo_path=/repo'
+        . ' rollback_key_id=envs-proof-key rollback_recovery=configured verified_rollback=configured',
+    'the opted-in local describe line does not name its rollback authority the way ssh does'
+);
+$configuredSsh = new SshTransport('ssh-recovery-proof', [
+    'transport' => 'ssh', 'host' => 'fixture.invalid', 'wp_path' => '/wordpress', 'repo_path' => '/repo',
+] + $recoveryKeys);
+assert_true(
+    $configuredSsh->describe()
+        === 'ssh    host=fixture.invalid wp_path=/wordpress repo_path=/repo'
+        . ' rollback_key_id=envs-proof-key rollback_recovery=configured verified_rollback=configured',
+    'the opted-in ssh describe line moved'
+);
+pass('duo envs is byte-identical for every environment that never opted in, and names the authority for those that did');
+
 echo "REGRESS_ENVIRONMENT_DRIVER PASSED\n";

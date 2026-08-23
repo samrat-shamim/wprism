@@ -24,6 +24,8 @@ require __DIR__ . '/src/Command/CaptureCommand.php';
 require __DIR__ . '/src/Command/EnvironmentCommandOptions.php';
 require __DIR__ . '/src/Command/DriverCapabilitiesCommand.php';
 require __DIR__ . '/src/Transport/Transport.php';
+require __DIR__ . '/src/Transport/RecoveryTransport.php';
+require __DIR__ . '/src/Transport/RecoveryConfig.php';
 require __DIR__ . '/src/Transport/LocalTransport.php';
 require __DIR__ . '/src/Transport/DockerTransport.php';
 require __DIR__ . '/src/Transport/SshTransport.php';
@@ -874,13 +876,15 @@ Verbs:
                           database import until code is reconciled to the
                           pre-release revision, which the refusal names.
                           Two catalog sources: the signed receipt of the
-                          rollback authority (SSH-adopted targets only) and
-                          the plain database checkpoints promote and deploy
+                          rollback authority (adopted targets with a
+                          configured rollback authority) and the plain
+                          database checkpoints promote and deploy
                           RETAINED under .duo/checkpoints (every transport; id
                           promote-<owner> or deploy-<owner>, restored through
                           the same four steps under the lease identity read
-                          from the retained artifact). Only a
-                          signed rollback is SSH-only, and refuses with
+                          from the retained artifact). A
+                          signed rollback needs an adopted target with a
+                          configured rollback authority, and refuses with
                           recovery_authority_unavailable elsewhere.
   pending <env>           List the review queue (`wp duo pending --format=json`)
                           as a table: section:key, proposal, evidence, ref-hint,
@@ -1380,9 +1384,13 @@ function cmd_init(EnvironmentDriver $t, array $extra, ?string $envsFileOverride 
         static fn(): mixed => fgets(STDIN)
     );
 }
-/** Render externally verified rollback authority state for SSH targets. */
+/** Render externally verified rollback authority state for targets that carry it. */
 function render_rollback_authority_status(EnvironmentDriver $t): bool {
-    if (!$t instanceof \Duo\Orchestrator\SshTransport) {
+    // carriesRollbackAuthority() is the cheap local predicate, not a target
+    // read: SSH answers true unconditionally, so this line stays byte-identical
+    // for every SSH environment, and a transport admitted to the interface
+    // later prints nothing until its own configuration opts in.
+    if (!$t instanceof \Duo\Orchestrator\RecoveryTransport || !$t->carriesRollbackAuthority()) {
         return true;
     }
     $status = RollbackAuthority::status($t);
@@ -1410,9 +1418,9 @@ function render_rollback_authority_status(EnvironmentDriver $t): bool {
     return false;
 }
 
-/** Refuse a new SSH mutation while external authority is corrupt or nonterminal. */
+/** Refuse a new mutation while external authority is corrupt or nonterminal. */
 function rollback_authority_fence(EnvironmentDriver $t, string $verb): bool {
-    if (!$t instanceof \Duo\Orchestrator\SshTransport) {
+    if (!$t instanceof \Duo\Orchestrator\RecoveryTransport || !$t->carriesRollbackAuthority()) {
         return true;
     }
     $status = RollbackAuthority::status($t);
@@ -1768,6 +1776,12 @@ function cmd_promote_scoped(EnvironmentDriver $t, array $extra): int {
             'generate a fresh contract with duo scope --contract and retry promote'
         );
     }
+    // Deliberately still SshTransport, not RecoveryTransport: scoped
+    // promotion is a separate protocol with forward-only seal semantics
+    // (docs/recovery-runtime.md) certified on the SSH harness alone, and its
+    // envelope below is pinned by three assertions in
+    // sandbox/tests/offline/reference-scope/regress_scope_wire.php. Widening
+    // verified rollback must not leak into it.
     if (!$t instanceof \Duo\Orchestrator\SshTransport) {
         return scope_wire_refusal(
             'promote', $extra, 'scoped_promotion_unavailable',
@@ -2261,7 +2275,7 @@ function cmd_promote_internal(EnvironmentDriver $t, array $extra, ?array $frozen
         $runtimePreflightDone = true;
     }
 
-    if ($t instanceof \Duo\Orchestrator\SshTransport) {
+    if ($t instanceof \Duo\Orchestrator\RecoveryTransport && $t->carriesRollbackAuthority()) {
         try {
             $selection = VerifiedRollbackProfile::select($t, $compile['summary']);
         } catch (\Throwable $e) {
@@ -2849,7 +2863,7 @@ function frozen_promotion_reconcile(EnvironmentDriver $driver, string $repo, arr
  * @return ?array<string,mixed>
  */
 function frozen_promotion_verified_reconcile(
-    \Duo\Orchestrator\SshTransport $driver,
+    \Duo\Orchestrator\RecoveryTransport $driver,
     string $repo,
     array &$context
 ): ?array {
@@ -2942,13 +2956,13 @@ function frozen_promotion_canonical(mixed $value): string {
     return \Duo\Orchestrator\EnvironmentLifecycleCanon::encode($value);
 }
 /**
- * Provider-backed SSH promotion. The external receipt/checkpoint is prepared
- * before the target's database lease or code pointer can change. Every failure
- * after `promoting` attempts exact signed rollback and never falls through to
- * the operator-directed database-dump path.
+ * Provider-backed promotion through the rollback authority. The external
+ * receipt/checkpoint is prepared before the target's database lease or code
+ * pointer can change. Every failure after `promoting` attempts exact signed
+ * rollback and never falls through to the operator-directed database-dump path.
  */
 function cmd_promote_verified(
-    \Duo\Orchestrator\SshTransport $t,
+    \Duo\Orchestrator\RecoveryTransport $t,
     array $plan,
     string $repo,
     string $artifact,

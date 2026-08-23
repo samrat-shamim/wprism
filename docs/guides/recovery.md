@@ -105,12 +105,18 @@ by this command. Both rows restore identically: the prefix names which verb
 wrote the dump and nothing else, and the four ordered steps below are the same
 four steps for either.
 
-Two things only an SSH-adopted target can do remain SSH-only, and say so
-rather than improvise: reading the **signed** catalog (the rollback authority
-runtime the adoption installed) and driving a **signed** rollback. On any other
-transport a signed rollback refuses with `recovery_authority_unavailable` and
-points you at `--restore=<retained id>` or the provider that owns that
-environment's backups.
+Two things need an adopted target with a **configured rollback authority**,
+and say so rather than improvise: reading the **signed** catalog (the rollback
+authority runtime the adoption installed) and driving a **signed** rollback.
+The requirement is the configuration, not the transport — an `ssh` environment
+has it, and so does a `local` one that set `rollback_key_id`,
+`rollback_signing_key` and `rollback_recovery` in its machine-local
+`.duo-envs.json`. Anywhere else a signed rollback refuses with
+`recovery_authority_unavailable` and points you at `--restore=<retained id>` or
+the provider that owns that environment's backups. On a `local` target the
+signing key lives on the target machine, so the signature proves the runtime
+and the journal were not tampered with, but not the controller —
+[recovery-runtime.md](../recovery-runtime.md) says exactly what that costs.
 
 ## The claim is printed before anything happens
 
