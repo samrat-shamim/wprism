@@ -227,9 +227,10 @@ woo_ok($actionSources === [
     'provider:woocommerce-cache/invalidate_cache_groups',
     'provider:woocommerce-hierarchy-lookups/rebuild_hierarchy_lookups',
     'provider:woocommerce-hierarchy-lookups/rebuild_hierarchy_lookups',
+    'provider:woocommerce-fulfillment-prerequisites/verify_fulfillment_prerequisites',
     'provider:woocommerce-product-lookups/rebuild_product_lookups',
 ], 'manifest owns the bounded attribute-transient, shipping/tax cache, fresh-process hierarchy/brand-route, '
-    . 'and per-product lookup repairs');
+    . 'read-only fulfillment prerequisite, and per-product lookup repairs');
 $productActions = array_values(array_filter(
     $actions,
     static fn(array $row): bool => ($row['provider'] ?? null) === 'woocommerce-product-lookups'

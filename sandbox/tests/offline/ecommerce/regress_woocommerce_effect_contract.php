@@ -564,18 +564,21 @@ $nativeKeys = array_keys((array) ($wooManifest['actions'][0] ?? []));
 $providerKeys = array_keys((array) ($wooManifest['actions'][1] ?? []));
 $hierarchyKeys = array_keys((array) ($wooManifest['actions'][2] ?? []));
 $brandRouteKeys = array_keys((array) ($wooManifest['actions'][3] ?? []));
-$lookupKeys = array_keys((array) ($wooManifest['actions'][4] ?? []));
+$fulfillmentKeys = array_keys((array) ($wooManifest['actions'][4] ?? []));
+$lookupKeys = array_keys((array) ($wooManifest['actions'][5] ?? []));
 sort($nativeKeys, SORT_STRING);
 sort($providerKeys, SORT_STRING);
 sort($hierarchyKeys, SORT_STRING);
 sort($brandRouteKeys, SORT_STRING);
+sort($fulfillmentKeys, SORT_STRING);
 sort($lookupKeys, SORT_STRING);
 woo_effect_check(
-    count((array) ($wooManifest['actions'] ?? [])) === 5
+    count((array) ($wooManifest['actions'] ?? [])) === 6
         && $nativeKeys === ['action', 'args', 'effects', 'kind', 'triggers']
         && $providerKeys === ['args', 'capability', 'effects', 'kind', 'provider', 'triggers']
         && $hierarchyKeys === ['args', 'capability', 'effects', 'kind', 'provider', 'triggers']
         && $brandRouteKeys === ['args', 'capability', 'effects', 'kind', 'provider', 'triggers']
+        && $fulfillmentKeys === ['args', 'capability', 'effects', 'kind', 'provider', 'triggers']
         && $lookupKeys === ['args', 'capability', 'effects', 'kind', 'provider', 'triggers']
         && ($wooManifest['actions'][1]['triggers'] ?? null) === $cacheTriggers
         && ($wooManifest['actions'][1]['args'] ?? null) === ['groups' => ['woocommerce-attributes', 'shipping_zones', 'taxes']]
@@ -588,23 +591,29 @@ woo_effect_check(
         && ($wooManifest['actions'][3]['args'] ?? null) === ['flush_rewrite' => true]
         && ($wooManifest['actions'][3]['triggers'] ?? null) === ['option:woocommerce_brand_permalink']
         && ($wooManifest['actions'][3]['effects'] ?? null)
-            === woo_effect_hierarchy_action('woocommerce-brand-route', true),
-    'Woo actions keep exact migrated cache scope plus closed hierarchy/brand-route arguments, triggers, effects, and key shapes'
+            === woo_effect_hierarchy_action('woocommerce-brand-route', true)
+        && ($wooManifest['actions'][4]['provider'] ?? null) === 'woocommerce-fulfillment-prerequisites'
+        && ($wooManifest['actions'][4]['capability'] ?? null) === 'verify_fulfillment_prerequisites'
+        && ($wooManifest['actions'][4]['args'] ?? null) === []
+        && ($wooManifest['actions'][4]['triggers'] ?? null) === ['term:wc_fulfillment_shipping_provider']
+        && array_key_exists('effects', $wooManifest['actions'][4])
+        && $wooManifest['actions'][4]['effects'] === [],
+    'Woo actions keep exact migrated cache scope, hierarchy/brand route effects, and the explicit read-only fulfillment prerequisite shape'
 );
 // DUO-3342: the lookup entry carries NO arguments at all. Every input it
 // receives is engine-assembled (the entity batch and the declared channels),
 // and a capability may not declare the reserved `entities` argument, so an
 // args map here would be a claim the contract cannot honor.
 woo_effect_check(
-    ($wooManifest['actions'][4]['provider'] ?? null) === 'woocommerce-product-lookups'
-        && ($wooManifest['actions'][4]['capability'] ?? null) === 'rebuild_product_lookups'
-        && ($wooManifest['actions'][4]['args'] ?? null) === []
-        && ($wooManifest['actions'][4]['triggers'] ?? null) === ['post:product', 'post:product_variation'],
+    ($wooManifest['actions'][5]['provider'] ?? null) === 'woocommerce-product-lookups'
+        && ($wooManifest['actions'][5]['capability'] ?? null) === 'rebuild_product_lookups'
+        && ($wooManifest['actions'][5]['args'] ?? null) === []
+        && ($wooManifest['actions'][5]['triggers'] ?? null) === ['post:product', 'post:product_variation'],
     'the migrated lookup action names the provider capability and stays bounded to the two post types its '
         . 'retired regen_dependency declarations covered'
 );
 $lookupEffectsById = [];
-foreach ((array) ($wooManifest['actions'][4]['effects'] ?? []) as $effect) {
+foreach ((array) ($wooManifest['actions'][5]['effects'] ?? []) as $effect) {
     $lookupEffectsById[(string) ($effect['id'] ?? '')] = $effect;
 }
 $registrationFilterSelector = [
@@ -666,6 +675,25 @@ woo_effect_check(
             'capabilities' => ['rebuild_hierarchy_lookups'],
         ],
         [
+            'id' => 'woocommerce-fulfillment-prerequisites',
+            'version' => '1.0.0',
+            'source' => 'manifest',
+            'plugin' => 'woocommerce/woocommerce.php',
+            'requires' => [
+                'functions' => [
+                    'get_option',
+                    'get_taxonomy',
+                    'taxonomy_exists',
+                    'wc_get_container',
+                ],
+                'classes' => [
+                    'Automattic\\WooCommerce\\Internal\\Features\\FeaturesController',
+                    'Automattic\\WooCommerce\\Internal\\Utilities\\DatabaseUtil',
+                ],
+            ],
+            'capabilities' => ['verify_fulfillment_prerequisites'],
+        ],
+        [
             'id' => 'woocommerce-product-lookups',
             'version' => '2.0.0',
             'source' => 'manifest',
@@ -693,6 +721,7 @@ woo_effect_check(
                     'wp_cache_delete',
                 ],
                 'classes' => [
+                    'Automattic\\WooCommerce\\Internal\\CostOfGoodsSold\\CostOfGoodsSoldController',
                     'Automattic\\WooCommerce\\Internal\\ProductDownloads\\ApprovedDirectories\\Register',
                     'Automattic\\WooCommerce\\Internal\\ProductAttributesLookup\\LookupDataStore',
                     'Automattic\\WooCommerce\\Internal\\Utilities\\URL',
@@ -1031,7 +1060,7 @@ woo_effect_expect_throw(
 // own effects list; the grammar checked below is the effect validator's, which
 // never cared which declaration carried the row.
 $providerEffectIndex = null;
-foreach (($wooManifest['actions'][4]['effects'] ?? []) as $index => $effect) {
+foreach (($wooManifest['actions'][5]['effects'] ?? []) as $index => $effect) {
     if (($effect['id'] ?? null) === 'woocommerce-product-cache-provider-resource') {
         $providerEffectIndex = (int) $index;
         break;
@@ -1040,43 +1069,43 @@ foreach (($wooManifest['actions'][4]['effects'] ?? []) as $index => $effect) {
 woo_effect_check($providerEffectIndex !== null, 'Woo manifest test locates the bounded provider aggregate by effect id');
 $providerEffectIndex ??= 0;
 $badMembers = $wooManifest;
-$badMembers['actions'][4]['effects'][$providerEffectIndex]['selector']['members']['templates'][0] = 'item_{unknown}';
+$badMembers['actions'][5]['effects'][$providerEffectIndex]['selector']['members']['templates'][0] = 'item_{unknown}';
 woo_effect_expect_throw(
     fn() => woo_effect_policy_for_manifest($badMembers),
     'unknown placeholder',
     'provider-resource members reject unknown typed placeholders during policy compilation'
 );
 $badMembers = $wooManifest;
-$badMembers['actions'][4]['effects'][$providerEffectIndex]['selector']['members']['templates'][0] = 'item_*';
+$badMembers['actions'][5]['effects'][$providerEffectIndex]['selector']['members']['templates'][0] = 'item_*';
 woo_effect_expect_throw(
     fn() => woo_effect_policy_for_manifest($badMembers),
     'malformed, broad, or secret-shaped',
     'provider-resource members reject wildcard templates during policy compilation'
 );
 $badMembers = $wooManifest;
-$badMembers['actions'][4]['effects'][$providerEffectIndex]['selector']['members']['unexpected'] = [];
+$badMembers['actions'][5]['effects'][$providerEffectIndex]['selector']['members']['unexpected'] = [];
 woo_effect_expect_throw(
     fn() => woo_effect_policy_for_manifest($badMembers),
     'requires exactly exact and templates',
     'provider-resource members reject extra grammar keys during policy compilation'
 );
 $badMembers = $wooManifest;
-$badMembers['actions'][4]['effects'][$providerEffectIndex]['selector']['unexpected'] = true;
+$badMembers['actions'][5]['effects'][$providerEffectIndex]['selector']['unexpected'] = true;
 woo_effect_expect_throw(
     fn() => woo_effect_policy_for_manifest($badMembers),
     'requires exactly scope, type, value, and optional members',
     'provider-resource selectors reject extra top-level keys during policy compilation'
 );
 $badMembers = $wooManifest;
-$badMembers['actions'][4]['effects'][$providerEffectIndex]['selector']['members']['exact'][] = 'wc_products_onsale';
+$badMembers['actions'][5]['effects'][$providerEffectIndex]['selector']['members']['exact'][] = 'wc_products_onsale';
 woo_effect_expect_throw(
     fn() => woo_effect_policy_for_manifest($badMembers),
     'duplicate member',
     'provider-resource members reject duplicate exact values during policy compilation'
 );
 $badMembers = $wooManifest;
-$aggregateValue = (string) $badMembers['actions'][4]['effects'][$providerEffectIndex]['selector']['value'];
-$badMembers['actions'][4]['effects'][$providerEffectIndex]['selector']['members']['exact'][] = $aggregateValue;
+$aggregateValue = (string) $badMembers['actions'][5]['effects'][$providerEffectIndex]['selector']['value'];
+$badMembers['actions'][5]['effects'][$providerEffectIndex]['selector']['members']['exact'][] = $aggregateValue;
 woo_effect_expect_throw(
     fn() => woo_effect_policy_for_manifest($badMembers),
     'malformed, broad, or secret-shaped',

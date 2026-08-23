@@ -16,7 +16,7 @@
 
 regress-offline-all:
 	@bash sandbox/tests/offline_diagnostics_guard.sh "$(MAKE)" --no-print-directory regress-offline-corpus
-	@echo "regress-offline-all: 345 offline suites green"
+	@echo "regress-offline-all: 346 offline suites green"
 
 regress-offline-corpus: code-half-unit \
 	regress-acf-meta-interpreter \
@@ -356,6 +356,7 @@ regress-offline-corpus: code-half-unit \
 	regress-woocommerce-contract \
 	regress-woocommerce-deletion-authority \
 	regress-woocommerce-effect-contract \
+	regress-woocommerce-fulfillment-prerequisites \
 	regress-woocommerce-hierarchy-lookups \
 	regress-woocommerce-product-lookups \
 	regress-woocommerce-product-lookups-fake \
@@ -364,4 +365,4 @@ regress-offline-corpus: code-half-unit \
 	regress-wp-cli-child-process \
 	regress-yoast-duplicate-post-role-provider \
 	regress-yoast-index-provider
-	@echo "regress-offline-corpus: 345 offline suites green"
+	@echo "regress-offline-corpus: 346 offline suites green"

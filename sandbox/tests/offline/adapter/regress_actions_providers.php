@@ -460,7 +460,24 @@ $m['actions'][0]['effects'] = [['id' => 'probe', 'kind' => 'database', 'mode' =>
 refuse_probe($m, "actions[0].effects[0].mode='telekinesis' is not one of the engine-owned reversibility modes", 'an action effect with an unsupported mode is refused separately from kind, so an author is never left guessing which half failed');
 $m = probe_manifest();
 $m['actions'][0]['effects'] = [];
-refuse_probe($m, 'actions[0].effects must be a non-empty list', 'a present-but-empty action effects list is refused');
+refuse_probe($m, 'may be empty only for a provider action', 'a native action cannot use the explicit read-only provider effect contract');
+$m = probe_manifest();
+$m['actions'][1]['effects'] = [];
+$readOnlyPolicy = load_probe($m);
+check(
+    Policy::action_effects($readOnlyPolicy->actions()[1], 1) === [],
+    'an explicit empty provider effect list survives policy projection as an intentional read-only claim'
+);
+$readOnlyRows = array_values(array_filter(
+    $readOnlyPolicy->effects_inventory(),
+    static fn(array $row): bool => ($row['manifest'] ?? null) === 'probe'
+        && ($row['source'] ?? null) === 'provider:probe-cache-offline/flush'
+));
+check($readOnlyRows === [],
+    'effects_inventory emits no fabricated recovery obligation for an explicit read-only provider action');
+$m = probe_manifest();
+$m['actions'][1]['effects'] = null;
+refuse_probe($m, 'must be a non-empty list', 'null is not an explicit read-only provider effect list');
 $m = probe_manifest();
 $m['actions'][0]['effects'] = [probe_effect('probe-dup')];
 $m['actions'][1]['effects'] = [probe_effect('probe-dup')];
@@ -772,10 +789,12 @@ if ($woo !== null) {
         $wooSources === [
             'native:transient.delete',
             'provider:woocommerce-cache/invalidate_cache_groups',
+            'provider:woocommerce-hierarchy-lookups/rebuild_hierarchy_lookups',
+            'provider:woocommerce-hierarchy-lookups/rebuild_hierarchy_lookups',
+            'provider:woocommerce-fulfillment-prerequisites/verify_fulfillment_prerequisites',
             'provider:woocommerce-product-lookups/rebuild_product_lookups',
         ],
-        'WooCommerce declares exactly the migrated native action and its two migrated provider capabilities, '
-            . 'in that order'
+        'WooCommerce declares the exact transient, hierarchy/route, read-only fulfillment prerequisite, and product lookup actions in order'
     );
     // DUO-3342 added the second declaration by MIGRATING a dispatch rather than
     // by adding a repair: the product lookup rebuild reached the same adapter
@@ -789,6 +808,8 @@ if ($woo !== null) {
     );
     foreach ([
         'woocommerce-cache' => ['version' => '1.0.0', 'capabilities' => ['invalidate_cache_groups']],
+        'woocommerce-hierarchy-lookups' => ['version' => '1.0.0', 'capabilities' => ['rebuild_hierarchy_lookups']],
+        'woocommerce-fulfillment-prerequisites' => ['version' => '1.0.0', 'capabilities' => ['verify_fulfillment_prerequisites']],
         'woocommerce-product-lookups' => ['version' => '2.0.0', 'capabilities' => ['rebuild_product_lookups']],
     ] as $wooProviderId => $wooContract) {
         $wooDeclaration = $woo->provider_declarations()[$wooProviderId] ?? [];

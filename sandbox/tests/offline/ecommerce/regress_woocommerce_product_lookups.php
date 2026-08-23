@@ -295,8 +295,9 @@ check($sources === [
     'provider:woocommerce-cache/invalidate_cache_groups',
     'provider:woocommerce-hierarchy-lookups/rebuild_hierarchy_lookups',
     'provider:woocommerce-hierarchy-lookups/rebuild_hierarchy_lookups',
+    'provider:woocommerce-fulfillment-prerequisites/verify_fulfillment_prerequisites',
     'provider:woocommerce-product-lookups/rebuild_product_lookups',
-], 'Woo policy declares only the bounded transient, cache, hierarchy/route, and product-lookup repairs, '
+], 'Woo policy declares only the bounded transient, cache, hierarchy/route, fulfillment prerequisite, and product-lookup repairs, '
     . 'and no whole-catalog projection');
 check(array_filter($actions, static fn(array $row): bool => array_key_exists('command', $row)) === [],
     'no Woo action carries an executable command string');

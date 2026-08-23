@@ -212,7 +212,7 @@ final class FakeWpdb {
     private array $uniqueKeys = [];
     /** @var array<string,array<string,string>> full table name => column => SQL type */
     private array $columnTypes = [];
-    /** @var array<string,array<string,array{Type:string,Null:string,Default:mixed,Extra:string}>> */
+    /** @var array<string,array<string,array{Type:string,Null:string,Default:mixed,Extra:string}>|list<array<string,mixed>>> */
     private array $columnDefinitions = [];
     /** @var array<string,list<array{Key_name:string,Non_unique:int,Seq_in_index:int,Column_name:string,Sub_part:?int,Index_type:string}>> */
     private array $indexes = [];
@@ -400,15 +400,33 @@ final class FakeWpdb {
      * Configure exact SHOW FULL COLUMNS attributes without inferring schema
      * from seeded values. Definition order is physical ordinal order.
      *
-     * @param array<string,array{Type:string,Null:string,Default:mixed,Extra:string}> $definitions
+     * The map form is used by older suites; the list form retains arbitrary
+     * driver rows (including malformed or duplicate rows) for schema-boundary
+     * refusals. Only valid Field/Type pairs from the list form widen ordinary
+     * SELECT resolution.
+     *
+     * @param array<string,array{Type:string,Null:string,Default:mixed,Extra:string}>|list<array<string,mixed>> $definitions
      */
     public function setColumnDefinitions(string $table, array $definitions): self {
         $name = $this->tableName($table);
-        $this->columnDefinitions[$name] = $definitions;
-        $this->columnTypes[$name] = array_map(
-            static fn(array $definition): string => $definition['Type'],
-            $definitions
-        );
+        if ($definitions === [] || array_is_list($definitions)) {
+            $types = [];
+            foreach ($definitions as $row) {
+                $field = $row['Field'] ?? null;
+                $type = $row['Type'] ?? null;
+                if (is_string($field) && $field !== '' && is_string($type)) {
+                    $types[$field] = $type;
+                }
+            }
+            $this->columnTypes[$name] = $types;
+            $this->columnDefinitions[$name] = array_values($definitions);
+        } else {
+            $this->columnDefinitions[$name] = $definitions;
+            $this->columnTypes[$name] = array_map(
+                static fn(array $definition): string => $definition['Type'],
+                $definitions
+            );
+        }
         $this->store[$name] ??= [];
         return $this;
     }
@@ -478,7 +496,6 @@ final class FakeWpdb {
             'active' => $this->activeTransactionIsolation,
         ];
     }
-
     /** Result GET_LOCK() reports; 0 makes the engine's lock acquisition fail. */
     public function setLockResult(int $result): self {
         $this->lockResult = $result;
@@ -3137,18 +3154,32 @@ final class FakeWpdb {
             }
             return ['kind' => 'rows', 'rows' => $rows];
         }
-        $this->acceptKeyword('FULL');
+        if ($this->acceptKeyword('INDEX') || $this->acceptKeyword('INDEXES') || $this->acceptKeyword('KEYS')) {
+            $this->expectKeyword('FROM');
+            $table = $this->parseTableRef();
+            $this->expectEnd();
+            $name = $this->requireTable($table);
+            return ['kind' => 'rows', 'rows' => $this->indexes[$name] ?? []];
+        }
+        $full = $this->acceptKeyword('FULL');
         if ($this->acceptKeyword('COLUMNS') || $this->acceptKeyword('FIELDS')) {
             $this->expectKeyword('FROM');
             $table = $this->parseTableRef();
             $this->expectEnd();
             $name = $this->requireTable($table);
+            if ($full && isset($this->columnDefinitions[$name])) {
+                return ['kind' => 'rows', 'rows' => $this->columnDefinitions[$name]];
+            }
             $types = $this->columnTypes[$name] ?? [];
             $definitions = $this->columnDefinitions[$name] ?? [];
             $rows = [];
-            $columns = $definitions === [] ? $this->knownColumns($name) : array_keys($definitions);
+            // The list form is an exact SHOW FULL COLUMNS fixture. Ordinary
+            // SHOW COLUMNS still derives its compact rows from valid types;
+            // numeric list indexes are not column names.
+            $definitionMap = array_is_list($definitions) ? [] : $definitions;
+            $columns = $definitionMap === [] ? $this->knownColumns($name) : array_keys($definitionMap);
             foreach ($columns as $column) {
-                $definition = $definitions[$column] ?? null;
+                $definition = $definitionMap[$column] ?? null;
                 $isPrimaryKey = ($this->primaryKeys[$name] ?? null) === $column;
                 $rows[] = [
                     'Field' => $column,
