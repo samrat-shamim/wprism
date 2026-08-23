@@ -20,7 +20,7 @@
 # 3.4.34.2/3.14.11; PMPro 3.8.3 (with adjacent official-tag refusals);
 # Polylang 3.5/3.8.6;
 # WooCommerce 11.0.0 (the only stable in-range 11.x release); Yoast SEO
-# 28.0/28.2 — all real
+# 28.0/28.3 — all real
 # wp.org releases except PMPro's official upstream GitHub tags, never invented): fresh state, install ONLY from
 # a digest-verified artifact (never a bare slug install that silently pulls
 # current), seed real plugin content through that plugin's own API, capture,
@@ -369,7 +369,18 @@ check_yoast_content() {
   local COMPOSE="$PAIR_COMPOSE_STRING"
   local CONF1_PORT="$PORT1"
   local CONF2_PORT="$PORT2"
+  local YOAST_EXPECTED_VERSION="$YOAST_VERSION"
+  local YOAST_BOUNDARY_ONLY=1
   . conformance/checks/yoast.sh
+}
+
+postdeploy_yoast_content() {
+  wp_conf2() { wp2 "$@"; }
+  local CONF_REPO1="siterepo/${PAIR}1"
+  local CONF_REPO2="siterepo/${PAIR}2"
+  local COMPOSE="$PAIR_COMPOSE_STRING"
+  . conformance/postdeploy/yoast.sh
+  unset -f wp_conf2
 }
 
 seed_pmpro_content() {
@@ -1915,12 +1926,12 @@ done
 fi
 
 # Yoast's published 28.x line has two real stable boundaries: 28.0 is the
-# first release admitted by the manifest's exact 28.0 minimum, and 28.2 is
-# the newest release below 29.0.0. Exercise both exact
+# first release admitted by the manifest's exact 28.0 minimum, and 28.3 is
+# the current release below 29.0.0. Exercise both exact
 # artifacts; a current-slug install would prove neither boundary.
 if [ "$VMATRIX_MANIFEST" = yoast ]; then
 VMATRIX_CASES=$((VMATRIX_CASES + 1))
-for YOAST_VERSION in 28.0 28.2; do
+for YOAST_VERSION in 28.0 28.3; do
   say "boundary: wordpress-seo $YOAST_VERSION"
 
   reset_env wp1
@@ -1973,6 +1984,7 @@ EOF
   [ "$INSTALLED_2" = "$YOAST_VERSION" ] || fail "side 2 installed version mismatch: expected $YOAST_VERSION, got $INSTALLED_2"
 
   wp2 duo deploy --repo=/siterepo
+  postdeploy_yoast_content
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
   wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
   grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at wordpress-seo $YOAST_VERSION"
