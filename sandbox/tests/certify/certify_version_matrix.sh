@@ -1997,6 +1997,43 @@ EOF
   rm -rf "siterepo/${PAIR}2/.tmp-final"
   [ -z "$DIFF_OUT" ] || fail "byte-identity broken at wordpress-seo $YOAST_VERSION: $DIFF_OUT"
   pass "byte-identical recapture at wordpress-seo $YOAST_VERSION — the manifest's own declared version_range boundary is proven, not just its currently-installed version"
+
+  if [ "$YOAST_VERSION" = 28.0 ]; then
+    say 'in-place upgrade: wordpress-seo 28.0 -> 28.3 on both existing environments'
+    UPGRADE_ARTIFACT_1=$(fetch_artifact wordpress-seo 28.3 cli1)
+    UPGRADE_ARTIFACT_2=$(fetch_artifact wordpress-seo 28.3 cli2)
+    wp1 plugin install "$UPGRADE_ARTIFACT_1" --force --activate >/dev/null
+    [ "$(wp1 plugin get wordpress-seo --field=version)" = 28.3 ] \
+      || fail 'Yoast source in-place upgrade did not install exact 28.3'
+    UPGRADE_POST=$(wp1 post list --post_type=post --name=conformance-yoast-post --field=ID)
+    require_fixture_ids UPGRADE_POST
+    wp1 post meta update "$UPGRADE_POST" _yoast_wpseo_twitter-title 'Yoast 28.0 to 28.3 upgrade 東京 🚀' >/dev/null
+    wp1 duo capture --repo=/siterepo
+    wp1 duo lint --repo=/siterepo
+    "${GIT1[@]}" add -A
+    "${GIT1[@]}" commit -qm 'capture: wordpress-seo 28.0 to 28.3 in-place upgrade'
+    "${GIT1[@]}" push -q origin main
+    git -C "siterepo/${PAIR}2" pull -q origin main
+
+    wp2 plugin install "$UPGRADE_ARTIFACT_2" --force --activate >/dev/null
+    [ "$(wp2 plugin get wordpress-seo --field=version)" = 28.3 ] \
+      || fail 'Yoast target in-place upgrade did not install exact 28.3'
+    wp2 duo deploy --repo=/siterepo
+    REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
+    wp2 duo apply --repo=/siterepo --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+    grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
+      || fail 'apply canary not clean after wordpress-seo 28.0 to 28.3 in-place upgrade'
+    SAVED_YOAST_VERSION="$YOAST_VERSION"
+    YOAST_VERSION=28.3
+    check_yoast_content
+    YOAST_VERSION="$SAVED_YOAST_VERSION"
+
+    wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-upgraded-final
+    UPGRADE_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-upgraded-final" || true)
+    rm -rf "siterepo/${PAIR}2/.tmp-upgraded-final"
+    [ -z "$UPGRADE_DIFF" ] || fail "Yoast 28.0 to 28.3 in-place upgrade lost byte identity: $UPGRADE_DIFF"
+    pass 'wordpress-seo 28.0 -> 28.3 in-place upgrade preserves native behavior, reindexes, and recaptures byte-identically'
+  fi
 done
 fi
 

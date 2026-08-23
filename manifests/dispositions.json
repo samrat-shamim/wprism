@@ -268,10 +268,14 @@
       "capabilities": {"deletion_semantics": {"supported": [], "unsupported": ["plugin-specific deletes"]}, "entity_sections": ["tables"], "field_sections": ["options", "post_meta"], "lifecycle_phases": ["retire", "activate", "verify"], "operations": ["capture", "compile", "plan", "deploy", "apply", "recapture", "render-api"]},
       "default_authored_keyspaces": [],
       "evidence": {"bundle_schema": "duo-subject-certification-bundle/v1", "tests": ["conformance-yoast", "exact-artifact-version-matrix"]},
-      "reason": "Certified authored option/meta refs, target-local derived indexables, API/frontend behavior, and exact artifact boundaries.",
+      "reason": "Certified for exact Yoast SEO 28.0 through 28.3 on single-site WordPress: every declared option/post-meta reference is rebound across large divergent post, attachment, term and hierarchy identities; native WPSEO_Options, WPSEO_Taxonomy_Meta, WPSEO_Primary_Term, redirect and frontend metadata behavior consume the result; provider yoast-index 2.0.0 schema-preflights and relationally verifies all four tables written by the plugin-owned reindex command; hostile activation state, same-slug adoption, authored conflicts and force, target-sovereign migration/tracking/excluded option state, authorized meta/sub-key deletion, plugin-disabled indexing, malformed structured data, credential redaction, schema rollback/retry, competing apply, deactivate/reactivate, retained uninstall residue, exact reinstall, fresh boundaries, in-place 28.0 to 28.3 upgrade, and official 27.9 refusal are exercised.",
       "status": "certified",
       "supported_versions": {"plugin": "wordpress-seo/wp-seo.php", "range": {"max": "29.0.0", "min": "28.0"}},
-      "unsupported": [{"operation": "delete", "reason": "No Yoast-specific deletion selector is declared.", "surface": "deletions.*"}]
+      "unsupported": [
+        {"operation": "delete", "reason": "Declared core post-meta and option sub-key tombstones are supported and exercised, but the adapter declares no Yoast-owned authored entity/table selector; Duo therefore does not synthesize deletion of plugin-specific entities or derived rows outside the reindex provider.", "surface": "deletions.yoast-entity"},
+        {"operation": "all", "reason": "Yoast Premium and third-party Yoast add-ons are separate code/artifact and keyspace authorities. Undeclared extension options, metadata and tables remain unclassified and loud rather than inheriting the free-plugin claim.", "surface": "wordpress-seo-premium|yoast-add-ons"},
+        {"operation": "all", "reason": "The shared platform certificate and Duo v1 apply model are single-site; network options, per-blog index projections and network activation are outside this adapter.", "surface": "multisite"}
+      ]
     }
   },
   "profiles": {
