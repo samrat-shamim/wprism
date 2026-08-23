@@ -471,6 +471,15 @@ foreach (['-0.25', '1.23454', '1.23455', '1.234565', '-1.23455', '1.0E-7', '9.99
         "native authored Cost of Goods postmeta $cogsValue is portable before lookup-column coercion"
     );
 }
+foreach (['1.2300', '1.0E+3', '0E+9', '0.0000'] as $nonWriterCogsValue) {
+    woo_readiness_reports(
+        $interpreter,
+        $nonWriterCogsValue,
+        'exact native float storage spelling',
+        'product',
+        '_cogs_total_value'
+    );
+}
 duo_check_same(
     [],
     woo_readiness_diagnostics($interpreter, '0', 'product_variation', '_cogs_total_value'),
@@ -478,7 +487,7 @@ duo_check_same(
 );
 woo_readiness_reports(
     $interpreter,
-    '0.0000',
+    '0',
     'zero must be represented by metadata absence',
     'product',
     '_cogs_total_value'
@@ -486,7 +495,7 @@ woo_readiness_reports(
 duo_check_same(
     [],
     $interpreter->repository_diagnostics([woo_readiness_entity(
-        '2.5000',
+        '2.5',
         'product_variation',
         '_cogs_total_value'
     ), woo_readiness_entity('yes', 'product_variation', '_cogs_value_is_additive')]),
@@ -496,12 +505,12 @@ foreach (['01.00', '1e3', '1.0E+15', '1.0E+309', '1.0E-400', str_repeat('9', 129
     woo_readiness_reports(
         $interpreter,
         $badCogsValue,
-        'finite native numeric string',
+        'exact native float storage spelling',
         'product',
         '_cogs_total_value'
     );
 }
-woo_readiness_reports($interpreter, 1.25, 'finite native numeric string', 'product', '_cogs_total_value');
+woo_readiness_reports($interpreter, 1.25, 'exact native float storage spelling', 'product', '_cogs_total_value');
 woo_readiness_reports($interpreter, '4.00', 'valid only on product or product_variation', 'shop_coupon', '_cogs_total_value');
 woo_readiness_reports($interpreter, 'no', "must be exact 'yes'", 'product_variation', '_cogs_value_is_additive');
 woo_readiness_reports($interpreter, true, "must be exact 'yes'", 'product_variation', '_cogs_value_is_additive');

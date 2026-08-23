@@ -235,6 +235,12 @@ $needles = [
     'feature_is_enabled' => 'COGS support is admitted only through WooCommerce native feature state',
     'product_meta_lookup_table_cogs_value_columns_exist' => 'COGS lookup verification requires the exact native schema check',
     "meta_key IN ('_cogs_total_value', '_cogs_value_is_additive')" => 'COGS observation is bounded to the two exact core-authored keys',
+    'assert_cogs_product_types' => 'COGS receipt observation enforces native subtype-dependent storage invariants',
+    'SELECT ID, post_type FROM {$wpdb->posts}' => 'COGS subtype evidence independently binds the exact posts-table owner type',
+    '$product = \\wc_get_product($id)' => 'COGS subtype evidence resolves every authored owner through the native WC product factory',
+    '$value !== (string) $number' => 'COGS repository bytes are restricted to exact native float-writer spellings',
+    'variation-only additive Cost of Goods metadata' => 'post-materialization additive state cannot be certified on a base product',
+    'Cost of Goods zero that native storage deletes' => 'post-materialization base zero cannot be certified by a scoped receipt',
 ];
 foreach ($needles as $needle => $message) {
     check(is_string($source) && str_contains($source, $needle), $message);

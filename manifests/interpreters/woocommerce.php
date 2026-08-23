@@ -237,7 +237,7 @@ final class Woocommerce {
                 $out[] = $this->diagnostic(
                     $path,
                     'meta._cogs_total_value',
-                    'WooCommerce Cost of Goods value must be a finite native numeric string whose target float conversion fits the DECIMAL(19,4) lookup boundary'
+                    'WooCommerce Cost of Goods value must use the exact native float storage spelling and fit the DECIMAL(19,4) lookup boundary'
                 );
             } elseif ($postType === 'product' && (float) $meta['_cogs_total_value'] === 0.0) {
                 $out[] = $this->diagnostic(
@@ -272,6 +272,14 @@ final class Woocommerce {
         }
         $number = (float) $value;
         if (!is_finite($number)) {
+            return false;
+        }
+        // Every exact 11.0.x core writer passes a float to post metadata.
+        // WordPress therefore persists PHP's string cast, not an arbitrary
+        // equivalent decimal spelling. Refusing e.g. 1.2300/1.0E+3/0E+9
+        // keeps direct SQL apply inside the same byte grammar a native save
+        // can create and makes recapture stable without normalizing data.
+        if ($value !== (string) $number) {
             return false;
         }
         $mantissa = explode('E', ltrim($value, '-'), 2)[0];

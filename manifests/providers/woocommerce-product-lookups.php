@@ -710,7 +710,7 @@ final class WoocommerceProductLookups {
      * instead of producing a verified receipt for inert authored state.
      *
      * @param list<int> $ids
-     * @return array{cogs_scoped_products:int,cogs_authored_rows:int,cogs_feature_enabled:int,cogs_lookup_column_present:int,cogs_scope_sha256:string}
+     * @return array{cogs_scoped_products:int,cogs_typed_products:int,cogs_authored_rows:int,cogs_feature_enabled:int,cogs_lookup_column_present:int,cogs_scope_sha256:string}
      */
     private function observe_cogs_state(array $ids): array {
         global $wpdb;
@@ -752,6 +752,7 @@ final class WoocommerceProductLookups {
         }
         $rowCount = 0;
         $seen = [];
+        $authoredByProduct = [];
         foreach (array_chunk($ids, 200) as $chunk) {
             $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
             $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
@@ -788,9 +789,11 @@ final class WoocommerceProductLookups {
                 }
                 $this->fingerprint_part($fingerprint, $identity);
                 $this->fingerprint_part($fingerprint, hash('sha256', $value));
+                $authoredByProduct[$productId][$key] = $value;
                 $rowCount++;
             }
         }
+        $typedProducts = $this->assert_cogs_product_types($authoredByProduct, $fingerprint);
         if ($rowCount > 0 && !$featureEnabled) {
             throw new \RuntimeException(
                 "duo: WooCommerce Cost of Goods is disabled while $rowCount scoped authored row(s) require it; "
@@ -805,6 +808,7 @@ final class WoocommerceProductLookups {
         }
         return [
             'cogs_scoped_products' => count($ids),
+            'cogs_typed_products' => $typedProducts,
             'cogs_authored_rows' => $rowCount,
             'cogs_feature_enabled' => $featureEnabled ? 1 : 0,
             'cogs_lookup_column_present' => $lookupColumnPresent ? 1 : 0,
@@ -821,12 +825,101 @@ final class WoocommerceProductLookups {
         if (!is_finite($number)) {
             return false;
         }
+        if ($value !== (string) $number) {
+            return false;
+        }
         $mantissa = explode('E', ltrim($value, '-'), 2)[0];
         if ($number === 0.0 && preg_match('/[1-9]/', $mantissa) === 1) {
             return false;
         }
         $transport = (float) (string) $number;
         return is_finite($transport) && abs($transport) < 1000000000000000.0;
+    }
+
+    /**
+     * Bind the exact native product subtype for every owner carrying COGS.
+     * A raw postmeta write bypasses WC_Product::set_cogs_value(), so receipt
+     * observation must enforce the two class-dependent invariants itself:
+     * base products delete numeric zero, while only variations may persist
+     * the additive marker. The posts-table identity and WC factory type are
+     * checked independently; either disappearing or disagreeing is a loud
+     * post-materialization race rather than a verified recovery receipt.
+     *
+     * @param array<int,array<string,string>> $authoredByProduct
+     * @param resource|\HashContext $fingerprint
+     */
+    private function assert_cogs_product_types(array $authoredByProduct, $fingerprint): int {
+        global $wpdb;
+        if ($authoredByProduct === []) {
+            return 0;
+        }
+        $ids = array_keys($authoredByProduct);
+        sort($ids, SORT_NUMERIC);
+        $postTypes = [];
+        foreach (array_chunk($ids, 200) as $chunk) {
+            $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
+            $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+                "SELECT ID, post_type FROM {$wpdb->posts} WHERE ID IN ($placeholders) ORDER BY ID ASC",
+                ...$chunk
+            ), 'Cost of Goods product subtype observation');
+            foreach ($rows as $row) {
+                $id = (int) ($row['ID'] ?? 0);
+                $postType = $row['post_type'] ?? null;
+                if (!in_array($id, $chunk, true) || isset($postTypes[$id])
+                    || !is_string($postType)
+                    || !in_array($postType, ['product', 'product_variation'], true)) {
+                    throw new \RuntimeException(
+                        'duo: WooCommerce Cost of Goods subtype observation returned malformed or out-of-scope state'
+                    );
+                }
+                $postTypes[$id] = $postType;
+            }
+        }
+        foreach ($ids as $id) {
+            $postType = $postTypes[$id] ?? null;
+            if (!is_string($postType)) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce Cost of Goods owner $id is missing or is not a supported product subtype"
+                );
+            }
+            try {
+                $product = \wc_get_product($id);
+            } catch (\Throwable $failure) {
+                $product = null;
+            }
+            $nativeId = is_object($product) && is_callable([$product, 'get_id'])
+                ? $product->get_id()
+                : null;
+            $nativeType = is_object($product) && is_callable([$product, 'get_type'])
+                ? $product->get_type()
+                : null;
+            if (!is_int($nativeId) || $nativeId !== $id
+                || !is_string($nativeType)
+                || preg_match('/^[a-z0-9_-]{1,64}$/D', $nativeType) !== 1
+                || (($postType === 'product_variation') !== ($nativeType === 'variation'))) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce Cost of Goods owner $id has an inconsistent native product subtype"
+                );
+            }
+            $isVariation = $postType === 'product_variation';
+            $meta = $authoredByProduct[$id];
+            if (isset($meta['_cogs_value_is_additive']) && !$isVariation) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce product $id has variation-only additive Cost of Goods metadata"
+                );
+            }
+            if (isset($meta['_cogs_total_value'])
+                && (float) $meta['_cogs_total_value'] === 0.0
+                && !$isVariation) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce base product $id has a Cost of Goods zero that native storage deletes"
+                );
+            }
+            $this->fingerprint_part($fingerprint, "owner:$id");
+            $this->fingerprint_part($fingerprint, $postType);
+            $this->fingerprint_part($fingerprint, $nativeType);
+        }
+        return count($ids);
     }
 
     /**

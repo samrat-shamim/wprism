@@ -465,7 +465,8 @@ namespace {
         }
 
         public function get_results(string $query, $output = null): array {
-            global $fakeAttrLookup, $fakeMeta, $fakeMetaLookup, $fakeDownloadMetaRows, $fakeCogsMetaRows, $fakeProducts;
+            global $fakeAttrLookup, $fakeMeta, $fakeMetaLookup, $fakeDownloadMetaRows, $fakeCogsMetaRows,
+                $fakeProducts, $fakePostTypeOverrides;
             if ($this->failReadContaining !== null && str_contains($query, $this->failReadContaining)) {
                 $this->last_error = 'simulated read failure';
                 return [];
@@ -496,6 +497,22 @@ namespace {
                 ] <=> [
                     (int) $right['post_id'], (string) $right['meta_key'], (int) $right['meta_id'],
                 ]);
+                return $rows;
+            }
+            if (preg_match('/SELECT ID, post_type FROM wp_posts WHERE ID IN \(([0-9, ]+)\) ORDER BY ID ASC/', $query, $match)) {
+                $ids = array_map('intval', preg_split('/\s*,\s*/', trim($match[1])) ?: []);
+                $rows = [];
+                foreach ($ids as $id) {
+                    $product = $fakeProducts[$id] ?? null;
+                    if (!is_object($product)) {
+                        continue;
+                    }
+                    $rows[] = [
+                        'ID' => (string) $id,
+                        'post_type' => (string) ($fakePostTypeOverrides[$id]
+                            ?? ($product->get_type() === 'variation' ? 'product_variation' : 'product')),
+                    ];
+                }
                 return $rows;
             }
             if (str_contains($query, "meta_key = '_downloadable_files'")) {
@@ -1173,6 +1190,7 @@ namespace {
     // therefore leaves a deliberately stale Woo object in this cache until
     // ProductCache::remove() invalidates it, just like Woo's product factory.
     $fakeProductCache = [];
+    $fakePostTypeOverrides = [];
     $fakeCacheEvents = [];
     $fakeTransientVersions = [];
     $fakeProductTransientCalls = [];
@@ -2075,11 +2093,71 @@ namespace {
     );
     $check(($fakeMetaLookup[13]['cogs_total_value'] ?? null) === '7.1256'
         && ($cogsScoped['after']['cogs_authored_rows'] ?? null) === 1
+        && ($cogsScoped['after']['cogs_typed_products'] ?? null) === 1
         && ($cogsScoped['after']['cogs_feature_enabled'] ?? null) === 1
         && ($cogsScoped['after']['cogs_lookup_column_present'] ?? null) === 1
         && preg_match('/^[a-f0-9]{64}$/D', (string) ($cogsScoped['after']['cogs_scope_sha256'] ?? '')) === 1
         && !str_contains(serialize($cogsScoped), '7.12555'),
         'enabled COGS delegates five-decimal rounding to Woo/MySQL and binds redacted exact scoped evidence');
+
+    $simpleProduct = $fakeProducts[13];
+    $fakeProducts[13] = new FakeProduct(13, 'external', 0, [], [], true);
+    unset($fakeProductCache[13]);
+    $cogsTypeDrift = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $productScopeArgs,
+        $scopeOperation
+    );
+    $check(($cogsTypeDrift['after']['cogs_authored_rows'] ?? null)
+            === ($cogsScoped['after']['cogs_authored_rows'] ?? null)
+        && ($cogsTypeDrift['after']['cogs_scope_sha256'] ?? null)
+            !== ($cogsScoped['after']['cogs_scope_sha256'] ?? null),
+        'the exact native WC product subtype is part of the scoped COGS receipt even when row count and value are unchanged');
+    $fakeProducts[13] = $simpleProduct;
+    unset($fakeProductCache[13]);
+    $cogsTypeRecovered = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $productScopeArgs,
+        $scopeOperation
+    );
+    $check(($cogsTypeRecovered['after'] ?? null) === ($cogsScoped['after'] ?? null),
+        'restoring the native WC product subtype recovers the exact scoped COGS postcondition');
+
+    $fakeMeta[13]['_cogs_value_is_additive'] = ['yes'];
+    $simpleAdditiveMessage = '';
+    try {
+        $adapter->reconcile_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+    } catch (\Throwable $failure) {
+        $simpleAdditiveMessage = $failure->getMessage();
+    }
+    unset($fakeMeta[13]['_cogs_value_is_additive']);
+    $check(str_contains($simpleAdditiveMessage, 'variation-only additive Cost of Goods metadata')
+        && !str_contains($simpleAdditiveMessage, '7.12555'),
+        'a hostile post-materialization additive row on a simple product cannot verify or retire recovery');
+
+    $fakeMeta[13]['_cogs_total_value'] = ['0'];
+    $simpleZeroMessage = '';
+    try {
+        $adapter->reconcile_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+    } catch (\Throwable $failure) {
+        $simpleZeroMessage = $failure->getMessage();
+    }
+    $fakeMeta[13]['_cogs_total_value'] = ['7.12555'];
+    $check(str_contains($simpleZeroMessage, 'base product 13 has a Cost of Goods zero that native storage deletes')
+        && !str_contains($simpleZeroMessage, '7.12555'),
+        'a hostile post-materialization base-product zero cannot verify or retire recovery');
+
+    $fakePostTypeOverrides[13] = 'product_variation';
+    $inconsistentSubtypeMessage = '';
+    try {
+        $adapter->reconcile_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+    } catch (\Throwable $failure) {
+        $inconsistentSubtypeMessage = $failure->getMessage();
+    }
+    unset($fakePostTypeOverrides[13]);
+    $check(str_contains($inconsistentSubtypeMessage, 'inconsistent native product subtype')
+        && !str_contains($inconsistentSubtypeMessage, '7.12555'),
+        'posts-table and native WC subtype disagreement refuses with redacted diagnostics');
 
     $fakeMeta[13]['_cogs_total_value'] = ['8.12555'];
     $cogsDrift = $adapter->reconcile_scoped(
@@ -2116,6 +2194,34 @@ namespace {
     }
     $fakeMeta[13]['_cogs_total_value'] = ['7.12555'];
     $adapter->invoke_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+
+    $variationScopeArgs = [
+        'entities' => [
+            'entities' => [['kind' => 'post:product_variation', 'id' => 11]],
+            'always_on_write' => true,
+            'deletions' => [],
+            'reparents' => [],
+            'retry' => true,
+        ],
+    ];
+    $fakeMeta[11]['_cogs_total_value'] = ['0'];
+    $fakeMeta[11]['_cogs_value_is_additive'] = ['yes'];
+    $fakeMetaLookup[11]['cogs_total_value'] = '0.0000';
+    unset($fakeProductCache[11]);
+    $variationCogs = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $variationScopeArgs,
+        $scopeOperation
+    );
+    $check(($variationCogs['after']['cogs_authored_rows'] ?? null) === 2
+        && ($variationCogs['after']['cogs_typed_products'] ?? null) === 1
+        && ($fakeMetaLookup[11]['cogs_total_value'] ?? null) === '0.0000',
+        'native variation subtype preserves explicit zero and the additive marker through scoped recovery verification');
+    unset(
+        $fakeMeta[11]['_cogs_total_value'],
+        $fakeMeta[11]['_cogs_value_is_additive'],
+        $fakeMetaLookup[11]['cogs_total_value']
+    );
 
     $fakeLookupWriteFaults[13] = ['cogs_total_value' => '9.9999'];
     $cogsWriteFailure = '';
@@ -2185,6 +2291,20 @@ namespace {
     $check(str_contains($malformedCogsMessage, 'malformed authored Cost of Goods metadata')
         && !str_contains($malformedCogsMessage, 'cogs_secret_marker_DO_NOT_ECHO'),
         'malformed COGS refuses through the executable boundary with redacted diagnostics');
+
+    foreach (['1.2300', '1.0E+3', '0E+9'] as $nonWriterCogs) {
+        $fakeCogsMetaRows[13]['_cogs_total_value'] = [$nonWriterCogs];
+        $nonWriterMessage = '';
+        try {
+            $adapter->reconcile_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+        } catch (\Throwable $failure) {
+            $nonWriterMessage = $failure->getMessage();
+        }
+        $check(str_contains($nonWriterMessage, 'malformed authored Cost of Goods metadata')
+            && !str_contains($nonWriterMessage, $nonWriterCogs),
+            "non-writer-equivalent COGS spelling $nonWriterCogs is refused and redacted at reconciliation");
+    }
+    unset($fakeCogsMetaRows[13]);
 
     unset($fakeMeta[13]['_cogs_total_value'], $fakeMetaLookup[13]['cogs_total_value']);
     $cogsController->enabled = false;
