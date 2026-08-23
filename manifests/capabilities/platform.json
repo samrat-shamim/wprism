@@ -17,7 +17,13 @@
             },
             "wordpress": {
                 "last_verified": "7.0.3",
-                "note": "Pinned by the sandbox harness's exact Docker tag (wordpress:7.0.3-php8.3-apache in sandbox/pair.yml). WordPress is one exact exercised value, not a claimed range: the agent pre-policy gate and duo doctor refuse any other core version before mutation. A wider claim requires a real multi-version core matrix."
+                "max": "7.1.0",
+                "min": "6.9.0",
+                "note": "Pinned by the sandbox harness's exact Docker tags: each key of verified is a core series, and its value is the exact patch a full live proof ran on (6.9 on wordpress:6.9.2-php8.3-apache, 7.0 on wordpress:7.0.3-php8.3-apache -- sandbox/tests/live/regress_core_scope_platform.sh, regress_core_data_boundary.sh, conformance-core). A core is accepted only when it is inside [6.9.0, 7.1.0) AND its MAJOR.MINOR is one of those exercised series, so an unexercised minor line inside the range is still refused rather than claimed by a bare range. Patches inside an exercised series are claimed on exactly the basis PHP 8.3.x and MariaDB 11.x already are here -- one measured runtime per line. last_verified is the newest exercised core and the one sandbox/pair.yml boots by default.",
+                "verified": {
+                    "6.9": "6.9.2",
+                    "7.0": "7.0.3"
+                }
             }
         },
         "plugin_execution": "unmodified",

@@ -307,9 +307,11 @@ regress-core-lifecycle:
 regress-core-data-boundary:
 	bash sandbox/tests/live/regress_core_data_boundary.sh
 
-# Exact platform matrix for the host-integrated core adapter: supported PHP
-# 8.3/MariaDB 11/WordPress 7.0.3 round trip plus real adjacent WordPress and
-# PHP-exclusive-maximum refusals. Multisite retains its dedicated live suite.
+# Exact platform matrix for the host-integrated core adapter: one full PHP
+# 8.3/MariaDB 11 round trip per claimed core (6.9.2, 7.0.2, 7.0.3 — the cell
+# set is cross-checked against manifests/capabilities/platform.json's own
+# exercised-series map) plus a below-range WordPress and a
+# PHP-exclusive-maximum refusal. Multisite retains its dedicated live suite.
 regress-core-scope-platform:
 	bash sandbox/tests/live/regress_core_scope_platform.sh
 
@@ -343,8 +345,10 @@ regress-manifest-dispositions:
 	php sandbox/tests/offline/policy/regress_manifest_dispositions.php
 
 # The one agent-side platform pre-policy gate: every inclusive/exclusive
-# PHP/MariaDB edge, exact WordPress value, topology/engine mismatch, checked
-# probe failure, aggregate diagnostic, and pre-repository ordering.
+# PHP/MariaDB edge, both halves of the WordPress range-plus-exercised-series
+# predicate (including a boundary with a deliberate series hole) and every
+# malformed-axis invariant, topology/engine mismatch, checked probe failure,
+# aggregate diagnostic, and pre-repository ordering.
 regress-platform-compatibility:
 	php sandbox/tests/offline/policy/regress_platform_compatibility.php
 
@@ -2223,7 +2227,7 @@ regress-live-list:
 	@echo "  regress-core-semantics                    pair codexmac3207 8900/8901"
 	@echo "  regress-core-lifecycle                    own disposable pair (parameterized: CORE_LIFECYCLE_PAIR/PORT1/PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate; exact offline WordPress 7.0.2 -> 7.0.3 -> rollback/reinstall)"
 	@echo "  regress-core-data-boundary                own disposable pair (parameterized: CORE_DATA_BOUNDARY_PAIR/PORT1/PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate; exact offline WordPress 7.0.3)"
-	@echo "  regress-core-scope-platform               own disposable pair (parameterized: CORE_SCOPE_PLATFORM_PAIR/PORT1/PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate; exact PHP 8.3/8.4 + WordPress 7.0.2/7.0.3 matrix)"
+	@echo "  regress-core-scope-platform               own disposable pair (parameterized: CORE_SCOPE_PLATFORM_PAIR/PORT1/PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate; exact PHP 8.3/8.4 + claimed WordPress 6.9.2/7.0.2/7.0.3 matrix and a below-range 6.8.3 refusal)"
 	@echo "  regress-attachment-portability            pair codexmac3265 8964/8965"
 	@echo "  regress-fatal-mutations-live              pair codexmaca3206 9210/..."
 	@echo "  regress-multisite-refusal                 own disposable pair (parameterized: MULTISITE_PAIR/PORT1/PORT2)"
