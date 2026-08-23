@@ -332,8 +332,9 @@ printf '%s\n' "$COLOR_RECOVERED" | jq -e '
 ' >/dev/null || fail "TEC Category Colors retry did not repair native CSS/dropdown projections: $COLOR_RECOVERED"
 pass "native Category Colors option failure retains post-commit intent and retries CSS/cache repair cleanly"
 
-# Capture-time schema/secret probes restore exact live bytes and require every
-# refusal to leave the committed repository untouched.
+# Capture-time schema/secret probes restore exact live bytes. Post bodies may
+# legitimately discuss credentials, while the same token in authored TEC meta
+# is a blocking leak; both paths must redact the public diagnostic.
 SCHEMA_BACKUP="${CONF_REPO1:-siterepo/conf1}/.tmp-tec-schema-backup.json"
 wp_conf1 eval '
   $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
@@ -345,22 +346,53 @@ wp_conf1 eval '
 ' >/dev/null
 
 FAKE_SECRET='AKIAABCDEFGHIJKLMNOP'
+BODY_WARNING_DIR="${CONF_REPO1:-siterepo/conf1}/.tmp-tec-body-warning"
+rm -rf "$BODY_WARNING_DIR"
 wp_conf1 eval '
   $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
   wp_update_post(["ID"=>$p->ID,"post_content"=>"AKIAABCDEFGHIJKLMNOP"]);
 ' >/dev/null
 BEFORE_STATUS=$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)
 SECRET_RC=0
-SECRET_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || SECRET_RC=$?
-[ "$SECRET_RC" -ne 0 ] && grep -q 'secret guard tripped' <<<"$SECRET_OUT" \
+SECRET_OUT=$(wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-tec-body-warning 2>&1) || SECRET_RC=$?
+[ "$SECRET_RC" -eq 0 ] \
+  && grep -Fq 'looks like it contains a aws key' <<<"$SECRET_OUT" \
+  && grep -Fq 'not blocked: bodies may legitimately discuss credentials' <<<"$SECRET_OUT" \
   && ! grep -Fq "$FAKE_SECRET" <<<"$SECRET_OUT" \
-  || fail "TEC credential-shaped content did not refuse and redact: $SECRET_OUT"
+  && grep -RFl "$FAKE_SECRET" "$BODY_WARNING_DIR/state/posts/tribe_events" >/dev/null \
+  || fail "TEC credential-shaped body did not capture with a redacted warning: $SECRET_OUT"
 [ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$BEFORE_STATUS" ] \
-  || fail "TEC secret refusal partially published state"
+  || fail "TEC body-warning probe changed the committed repository"
+rm -rf "$BODY_WARNING_DIR"
 wp_conf1 eval '
   $b=json_decode(file_get_contents("/siterepo/.tmp-tec-schema-backup.json"),true,512,JSON_THROW_ON_ERROR);
   $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
   wp_update_post(["ID"=>$p->ID,"post_content"=>$b["content"]]);
+' >/dev/null
+
+META_SECRET_DIR="${CONF_REPO1:-siterepo/conf1}/.tmp-tec-meta-secret"
+rm -rf "$META_SECRET_DIR"
+wp_conf1 eval '
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  update_post_meta($p->ID,"_EventCost","AKIAABCDEFGHIJKLMNOP");
+' >/dev/null
+SECRET_RC=0
+SECRET_OUT=$(wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-tec-meta-secret 2>&1) || SECRET_RC=$?
+require_duo_answered "TEC credential-shaped authored meta capture" human "$SECRET_OUT"
+[ "$SECRET_RC" -ne 0 ] \
+  && grep -Fq 'secret guard tripped' <<<"$SECRET_OUT" \
+  && grep -Fq "post_meta '_EventCost'" <<<"$SECRET_OUT" \
+  && ! grep -Fq "$FAKE_SECRET" <<<"$SECRET_OUT" \
+  || fail "TEC credential-shaped authored meta did not refuse with redaction: $SECRET_OUT"
+[ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$BEFORE_STATUS" ] \
+  || fail "TEC authored-meta secret refusal partially published state"
+[ ! -e "$META_SECRET_DIR/state" ] \
+  || fail "TEC authored-meta secret refusal partially published its isolated output"
+rm -rf "$META_SECRET_DIR"
+wp_conf1 eval '
+  $b=json_decode(file_get_contents("/siterepo/.tmp-tec-schema-backup.json"),true,512,JSON_THROW_ON_ERROR);
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  update_post_meta($p->ID,"_EventCost",$b["cost"]);
 ' >/dev/null
 
 wp_conf1 eval '
@@ -404,7 +436,7 @@ wp_conf1 eval '
   update_post_meta($p->ID,"_EventCost",$b["cost"]);
 ' >/dev/null
 rm -f "$SCHEMA_BACKUP"
-pass "secret, impossible date, paid recurrence, and structured scalar probes refuse atomically"
+pass "body-secret warnings redact; authored-meta secrets, impossible dates, paid recurrence, and structured scalars refuse atomically"
 
 # The adapter grants no semantic event deletion. Remove only wp_posts so the
 # exact row can be restored after capture proves no tombstone was published.
