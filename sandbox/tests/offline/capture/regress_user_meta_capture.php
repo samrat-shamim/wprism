@@ -168,6 +168,9 @@ final class UserMetaCaptureWpdbFixture {
                 'user_login_bytes' => is_string($row['user_login'])
                     ? (string) strlen($row['user_login'])
                     : null,
+                'user_login_sha256' => is_string($row['user_login'])
+                    ? hash('sha256', $row['user_login'])
+                    : null,
             ], array_slice($rows, 0, 501));
         }
         $ids = $this->ids($sql);
@@ -187,6 +190,8 @@ final class UserMetaCaptureWpdbFixture {
                 'user_id' => $row['user_id'],
                 'meta_key_bytes' => is_string($row['meta_key']) ? (string) strlen($row['meta_key']) : null,
                 'meta_value_bytes' => is_string($row['meta_value']) ? (string) strlen($row['meta_value']) : null,
+                'meta_key_sha256' => is_string($row['meta_key']) ? hash('sha256', $row['meta_key']) : null,
+                'meta_value_sha256' => is_string($row['meta_value']) ? hash('sha256', $row['meta_value']) : null,
             ], $rows);
         }
         return $rows;

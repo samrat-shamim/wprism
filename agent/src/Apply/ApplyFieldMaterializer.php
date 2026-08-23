@@ -1,6 +1,8 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/CacheInvalidationTransaction.php';
+
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Grammar/Tokens.php';
 require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
@@ -366,6 +368,7 @@ final class ApplyFieldMaterializer {
 
     public function upsert_option(string $name, string $value, string $autoload): void {
         global $wpdb;
+        CacheInvalidationTransaction::assert_local_option_cache('authored option materialization');
         $exists = $wpdb->get_var($wpdb->prepare(
             "SELECT option_id FROM {$wpdb->options} WHERE option_name = %s LIMIT 1", $name
         ));
@@ -386,8 +389,7 @@ final class ApplyFieldMaterializer {
                 'apply insert authored option'
             );
         }
-        wp_cache_delete($name, 'options');
-        wp_cache_delete('alloptions', 'options');
+        CacheInvalidationTransaction::queue_option($name, 'authored option materialization');
     }
 
     /**

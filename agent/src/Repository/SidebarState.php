@@ -8,6 +8,15 @@ require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 final class SidebarState {
     public const ENTITY_TYPE = 'sidebar';
     public const LONGEST_CORE_ID_KIND = 'widget_media_gallery';
+    private const MAX_OPTION_NAME_BYTES = 764;
+    private const MAX_OPTION_NAME_CHARACTERS = 191;
+    private const MAX_OPTION_VALUE_BYTES = 16777216;
+    private const MAX_WIDGET_FAMILIES = 2048;
+    private const MAX_WIDGET_FAMILY_BYTES = 67108864;
+    private const MAX_WIDGET_INSTANCES_PER_FAMILY = 100000;
+    private const MAX_WIDGET_SETTINGS_PER_INSTANCE = 256;
+    private const MAX_SIDEBARS = 4096;
+    private const MAX_SIDEBAR_ASSIGNMENTS = 100000;
 
     public static function key(string $sidebar): string {
         return 'sidebar/' . $sidebar;
@@ -209,17 +218,85 @@ final class SidebarState {
     /** Validate the multi-instance family before any row is used. */
     private static function load_widget_options(Policy $policy, array $declared, bool $scanUndeclared): array {
         global $wpdb;
-        $rows = $wpdb->get_results(
-            "SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name LIKE 'widget\\_%' ORDER BY option_name",
+        $wpdb->last_error = '';
+        $preflight = $wpdb->get_results(
+            "SELECT option_name, OCTET_LENGTH(option_value) AS option_value_bytes "
+            . "FROM {$wpdb->options} WHERE option_name LIKE 'widget\\_%' "
+            . 'ORDER BY option_name ASC, option_id ASC LIMIT ' . (self::MAX_WIDGET_FAMILIES + 1),
             ARRAY_A
-        ) ?: [];
+        );
+        if (!is_array($preflight)
+            || !array_is_list($preflight)
+            || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException('duo: bounded widget option size preflight failed');
+        }
+        if (count($preflight) > self::MAX_WIDGET_FAMILIES) {
+            throw new \RuntimeException('duo: widget option family exceeds the bounded row limit');
+        }
+        $expected = [];
+        $aggregateBytes = 0;
+        foreach ($preflight as $position => $row) {
+            if (!is_array($row)
+                || array_keys($row) !== ['option_name', 'option_value_bytes']
+                || !is_string($row['option_name'] ?? null)) {
+                throw new \RuntimeException(
+                    "duo: widget option size preflight returned a malformed row at bounded position $position"
+                );
+            }
+            self::assert_option_name($row['option_name'], 'widget option family');
+            if (!str_starts_with($row['option_name'], 'widget_')) {
+                throw new \RuntimeException('duo: widget option family contains a collation alias');
+            }
+            $valueBytes = self::canonical_size($row['option_value_bytes'] ?? null);
+            if ($valueBytes === null || $valueBytes > self::MAX_OPTION_VALUE_BYTES) {
+                throw new \RuntimeException('duo: widget option family exceeds the bounded value frontier');
+            }
+            $folded = strtolower($row['option_name']);
+            if (isset($expected[$folded])) {
+                throw new \RuntimeException('duo: widget option family contains duplicate/collation-alias rows');
+            }
+            $expected[$folded] = ['name' => $row['option_name'], 'bytes' => $valueBytes];
+            $aggregateBytes += strlen($row['option_name']) + $valueBytes;
+            if ($aggregateBytes > self::MAX_WIDGET_FAMILY_BYTES) {
+                throw new \RuntimeException('duo: widget option family exceeds the bounded aggregate frontier');
+            }
+        }
+        $wpdb->last_error = '';
+        $rows = $wpdb->get_results(
+            "SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name LIKE 'widget\\_%' "
+            . 'ORDER BY option_name ASC, option_id ASC LIMIT ' . (self::MAX_WIDGET_FAMILIES + 1),
+            ARRAY_A
+        );
+        if (!is_array($rows)
+            || !array_is_list($rows)
+            || trim((string) ($wpdb->last_error ?? '')) !== ''
+            || count($rows) !== count($preflight)) {
+            throw new \RuntimeException('duo: bounded widget option read failed or changed after size preflight');
+        }
         $out = [];
-        foreach ($rows as $row) {
-            $name = (string) $row['option_name'];
+        foreach ($rows as $position => $row) {
+            if (!is_array($row)
+                || array_keys($row) !== ['option_name', 'option_value']
+                || !is_string($row['option_name'] ?? null)
+                || !is_string($row['option_value'] ?? null)) {
+                throw new \RuntimeException(
+                    "duo: bounded widget option read returned a malformed row at position $position"
+                );
+            }
+            $name = $row['option_name'];
+            $descriptor = $expected[strtolower($name)] ?? null;
+            if (!is_array($descriptor)
+                || !hash_equals($descriptor['name'], $name)
+                || $descriptor['bytes'] !== strlen($row['option_value'])) {
+                throw new \RuntimeException('duo: widget option row identity/length changed after size preflight');
+            }
             $type = substr($name, 7);
             $value = PlainData::decode($row['option_value'], "option '$name'");
             if (!is_array($value)) {
                 throw new \RuntimeException("duo: widget option '$name' is not a multi-instance array");
+            }
+            if (count($value) > self::MAX_WIDGET_INSTANCES_PER_FAMILY + 1) {
+                throw new \RuntimeException("duo: widget option '$name' exceeds the bounded instance limit");
             }
             $instances = [];
             foreach ($value as $key => $settings) {
@@ -231,6 +308,9 @@ final class SidebarState {
                 }
                 if (!preg_match('/^[1-9][0-9]*$/', (string) $key) || !is_array($settings)) {
                     throw new \RuntimeException("duo: widget option '$name' is not a valid _multiwidget family shape");
+                }
+                if (count($settings) > self::MAX_WIDGET_SETTINGS_PER_INSTANCE) {
+                    throw new \RuntimeException("duo: widget option '$name' exceeds the bounded settings limit");
                 }
                 $instances[(int) $key] = $settings;
             }
@@ -277,17 +357,29 @@ final class SidebarState {
     }
 
     private static function load_sidebars_option(): array {
-        global $wpdb;
-        $raw = $wpdb->get_var($wpdb->prepare(
-            "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
-            self::SIDEBARS_OPTION
-        ));
-        if ($raw === null) {
+        $row = self::read_exact_option(self::SIDEBARS_OPTION, 'sidebars option');
+        if ($row === null) {
             return [];
         }
-        $value = PlainData::decode($raw, 'option sidebars_widgets');
+        $value = PlainData::decode($row['option_value'], 'option sidebars_widgets');
         if (!is_array($value)) {
             throw new \RuntimeException('duo: option sidebars_widgets is not an array');
+        }
+        if (count($value) > self::MAX_SIDEBARS + 2) {
+            throw new \RuntimeException('duo: option sidebars_widgets exceeds the bounded sidebar limit');
+        }
+        $assignments = 0;
+        foreach ($value as $sidebar => $keys) {
+            if ($sidebar === 'array_version') {
+                continue;
+            }
+            if (!is_array($keys) || !array_is_list($keys)) {
+                throw new \RuntimeException('duo: option sidebars_widgets contains a malformed assignment list');
+            }
+            $assignments += count($keys);
+            if ($assignments > self::MAX_SIDEBAR_ASSIGNMENTS) {
+                throw new \RuntimeException('duo: option sidebars_widgets exceeds the bounded assignment limit');
+            }
         }
         return $value;
     }
@@ -606,15 +698,89 @@ final class SidebarState {
     }
 
     public static function witness(string $type, int $local): string {
-        global $wpdb;
-        $raw = $wpdb->get_var($wpdb->prepare(
-            "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
-            'widget_' . $type
-        ));
-        $value = $raw === null ? null : PlainData::decode($raw, "option widget_$type");
+        $name = 'widget_' . $type;
+        $row = self::read_exact_option($name, 'widget identity witness');
+        $value = $row === null ? null : PlainData::decode($row['option_value'], "option widget_$type");
         if (!is_array($value) || !isset($value[$local]) || !is_array($value[$local])) {
             throw new \RuntimeException("duo: widget identity row widget_$type:$local is missing");
         }
         return hash('sha256', Canon::encode(['kind' => self::kind($type), 'local_id' => $local, 'settings' => $value[$local]]));
+    }
+
+    /** @return ?array{option_value:string} */
+    private static function read_exact_option(string $name, string $where): ?array {
+        global $wpdb;
+        self::assert_option_name($name, $where);
+        $wpdb->last_error = '';
+        $preflight = $wpdb->get_results($wpdb->prepare(
+            'SELECT option_name, OCTET_LENGTH(option_value) AS option_value_bytes '
+            . "FROM {$wpdb->options} WHERE option_name = %s ORDER BY option_id ASC LIMIT 2",
+            $name
+        ), ARRAY_A);
+        if (!is_array($preflight)
+            || !array_is_list($preflight)
+            || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException("duo: $where size preflight failed");
+        }
+        if (count($preflight) > 1) {
+            throw new \RuntimeException("duo: $where found duplicate/collation-alias option rows");
+        }
+        if ($preflight === []) {
+            return null;
+        }
+        $size = $preflight[0];
+        $bytes = is_array($size) ? self::canonical_size($size['option_value_bytes'] ?? null) : null;
+        if (!is_array($size)
+            || array_keys($size) !== ['option_name', 'option_value_bytes']
+            || !is_string($size['option_name'] ?? null)
+            || !hash_equals($name, $size['option_name'])
+            || $bytes === null
+            || $bytes > self::MAX_OPTION_VALUE_BYTES) {
+            throw new \RuntimeException("duo: $where size/identity preflight is malformed or over the bounded frontier");
+        }
+        $wpdb->last_error = '';
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT option_name, option_value FROM {$wpdb->options} "
+            . 'WHERE option_name = %s ORDER BY option_id ASC LIMIT 2',
+            $name
+        ), ARRAY_A);
+        if (!is_array($rows)
+            || !array_is_list($rows)
+            || count($rows) !== 1
+            || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException("duo: $where exact bounded read failed or changed after preflight");
+        }
+        $row = $rows[0];
+        if (!is_array($row)
+            || array_keys($row) !== ['option_name', 'option_value']
+            || !is_string($row['option_name'] ?? null)
+            || !is_string($row['option_value'] ?? null)
+            || !hash_equals($name, $row['option_name'])
+            || strlen($row['option_value']) !== $bytes) {
+            throw new \RuntimeException("duo: $where exact bounded row changed after preflight");
+        }
+        return ['option_value' => $row['option_value']];
+    }
+
+    private static function assert_option_name(string $name, string $where): void {
+        $characters = preg_match('//u', $name) === 1 ? preg_match_all('/./us', $name) : false;
+        if ($name === ''
+            || strlen($name) > self::MAX_OPTION_NAME_BYTES
+            || !is_int($characters)
+            || $characters > self::MAX_OPTION_NAME_CHARACTERS
+            || preg_match('/[\x00-\x1F\x7F]/', $name) === 1) {
+            throw new \RuntimeException("duo: $where option identity is invalid or over the schema frontier");
+        }
+    }
+
+    private static function canonical_size(mixed $value): ?int {
+        if (is_int($value) && $value >= 0) {
+            return $value;
+        }
+        if (!is_string($value) || preg_match('/^(?:0|[1-9][0-9]*)$/D', $value) !== 1) {
+            return null;
+        }
+        $size = filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
+        return is_int($size) ? $size : null;
     }
 }

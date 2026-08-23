@@ -15,6 +15,8 @@ require_once __DIR__ . '/../Scope/ScopedApply.php';
 require_once __DIR__ . '/../Repository/SidebarState.php';
 require_once __DIR__ . '/TermMaterializer.php';
 require_once __DIR__ . '/UserMetaMaterializer.php';
+require_once __DIR__ . '/CacheInvalidationTransaction.php';
+require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
 if (!class_exists(Canary::class, false)) {
     require_once __DIR__ . '/../Review/Canary.php';
 }
@@ -107,6 +109,9 @@ final class AuthoredTransactionExecutor {
             Db::start_repeatable_read('apply transaction start');
             $transactionStarted = true;
             $this->fieldMaterializer->begin_authored_transaction();
+            $this->termMaterializer->begin_authored_transaction();
+            $this->optionsMaterializer->begin_authored_transaction();
+            CacheInvalidationTransaction::begin();
 
             if ($executeDeletes && $deleteWork) {
                 ($this->lockDeleteGuards)(
@@ -262,15 +267,35 @@ final class AuthoredTransactionExecutor {
                     "duo: side-effect canary tripped:\n  - " . implode("\n  - ", $violations)
                 );
             }
+            DeleteGuardEvaluator::assert_transaction_isolation(
+                'authored transaction final commit boundary'
+            );
             Db::commit('apply transaction commit');
             $transactionStarted = false;
+            $this->optionsMaterializer->commit_authored_transaction();
+            CacheInvalidationTransaction::finish();
         } catch (\Throwable $failure) {
             if ($transactionStarted) {
+                $participantFailure = null;
+                try {
+                    $this->optionsMaterializer->rollback_authored_transaction();
+                } catch (\Throwable $rollbackParticipantFailure) {
+                    $participantFailure = $rollbackParticipantFailure;
+                }
                 try {
                     Db::rollback('apply transaction rollback');
                 } catch (DatabaseMutationException $rollback) {
                     Canary::disarm();
                     throw new DatabaseMutationException($rollback->mutationContext, $failure);
+                }
+                CacheInvalidationTransaction::finish();
+                if ($participantFailure !== null) {
+                    Canary::disarm();
+                    throw new \RuntimeException(
+                        'duo: authored transaction rollback participant failed; recovery_required',
+                        0,
+                        $participantFailure
+                    );
                 }
             }
             Canary::disarm();
@@ -279,7 +304,10 @@ final class AuthoredTransactionExecutor {
             // Metadata locks prove these descriptors only for this authored
             // transaction. A reused ApplyServices graph starts empty after
             // either commit or rollback.
+            $this->termMaterializer->end_authored_transaction();
             $this->fieldMaterializer->end_authored_transaction();
+            $this->optionsMaterializer->end_authored_transaction();
+            CacheInvalidationTransaction::end();
         }
         Canary::disarm();
         return ['attachment_ids' => $attachmentIds, 'regen_context' => $regenContext];

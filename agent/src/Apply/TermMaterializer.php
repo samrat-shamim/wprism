@@ -4,6 +4,7 @@ namespace Duo;
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Grammar/Tokens.php';
 require_once __DIR__ . '/ApplyFieldMaterializer.php';
+require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
 // Deliberately NOT require_once('Db.php') or require_once('Ledger.php')
 // here: four suites declare a fake Duo\Ledger (regress_adapter_observation.php,
 // regress_code_revision_enforcement.php, regress_lifecycle_phase_handoff_unit.php,
@@ -65,11 +66,23 @@ require_once __DIR__ . '/ApplyFieldMaterializer.php';
  * therefore still keeps as a separate facade.
  */
 final class TermMaterializer {
+    private const MAX_RELATIONSHIP_TAXONOMIES = 256;
+    private const MAX_TERM_RELATIONSHIPS = 100000;
+    private ?string $relationshipLockIndex = null;
+
     public function __construct(
         private readonly Policy $policy,
         private readonly Tokens $tokens,
         private readonly ApplyFieldMaterializer $fieldMaterializer
     ) {
+    }
+
+    public function begin_authored_transaction(): void {
+        $this->relationshipLockIndex = null;
+    }
+
+    public function end_authored_transaction(): void {
+        $this->relationshipLockIndex = null;
     }
 
     public function ensure_term_row(array $front, string $entityType): void {
@@ -169,7 +182,7 @@ final class TermMaterializer {
                 );
             }
         }
-        $taxes = $termObjectTaxes;
+        $taxes = $this->relationship_taxonomies($termObjectTaxes);
         if (!$taxes) {
             return;
         }
@@ -189,24 +202,141 @@ final class TermMaterializer {
                 $desiredTt[$tt] = true;
             }
         }
-        $in = "'" . implode("','", array_map('esc_sql', $taxes)) . "'";
-        $current = $wpdb->get_col($wpdb->prepare(
-            "SELECT tr.term_taxonomy_id FROM {$wpdb->term_relationships} tr
-             JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
-             WHERE tr.object_id = %d AND tt.taxonomy IN ($in)",
-            $termId
-        )) ?: [];
-        foreach ($current as $tt) {
-            if (!isset($desiredTt[(int) $tt])) {
-                Db::delete($wpdb->term_relationships, ['object_id' => $termId, 'term_taxonomy_id' => (int) $tt], null, 'apply delete term-object relationship');
+        $currentRows = $this->locked_relationship_rows($termId, $taxes, 'term-object relationship reconciliation');
+        $current = [];
+        foreach ($currentRows as $row) {
+            $current[$row['term_taxonomy_id']] = true;
+        }
+        foreach (array_keys($current) as $tt) {
+            if (!isset($desiredTt[$tt])) {
+                Db::delete($wpdb->term_relationships, ['object_id' => $termId, 'term_taxonomy_id' => $tt], null, 'apply delete term-object relationship');
             }
         }
         foreach (array_keys($desiredTt) as $tt) {
-            if (!in_array((string) $tt, array_map('strval', $current), true)) {
+            if (!isset($current[$tt])) {
                 Db::insert($wpdb->term_relationships, [
                     'object_id' => $termId, 'term_taxonomy_id' => $tt, 'term_order' => 0,
                 ], null, 'apply insert term-object relationship');
             }
         }
+        foreach ($taxes as $tax) {
+            // Core returns false when no persistent cache entry existed. The
+            // fresh locked DB readback below, not that boolean, proves state.
+            wp_cache_delete($termId, $tax . '_relationships');
+        }
+        $after = [];
+        foreach ($this->locked_relationship_rows(
+            $termId,
+            $taxes,
+            'term-object relationship postcondition'
+        ) as $row) {
+            $after[$row['term_taxonomy_id']] = true;
+        }
+        ksort($after, SORT_NUMERIC);
+        ksort($desiredTt, SORT_NUMERIC);
+        if ($after !== $desiredTt) {
+            throw new \RuntimeException(
+                "duo: term $termId ($taxonomy) relationship postcondition disagrees with exact locked storage; "
+                . 'recovery_required'
+            );
+        }
+    }
+
+    /** @return list<string> */
+    private function relationship_taxonomies(array $taxonomies): array {
+        if ($taxonomies === []) {
+            return [];
+        }
+        if (!array_is_list($taxonomies) || count($taxonomies) > self::MAX_RELATIONSHIP_TAXONOMIES) {
+            throw new \RuntimeException('duo: term-object taxonomy scope is malformed or over the bounded limit');
+        }
+        $out = [];
+        foreach ($taxonomies as $taxonomy) {
+            if (!is_string($taxonomy)
+                || preg_match('/^[a-z0-9_-]{1,32}$/D', $taxonomy) !== 1
+                || isset($out[$taxonomy])) {
+                throw new \RuntimeException('duo: term-object taxonomy scope contains an invalid/duplicate name');
+            }
+            $out[$taxonomy] = true;
+        }
+        $out = array_keys($out);
+        sort($out, SORT_STRING);
+        return $out;
+    }
+
+    /** @return list<array{term_taxonomy_id:int,taxonomy:string,term_id:int}> */
+    private function locked_relationship_rows(int $termId, array $taxonomies, string $purpose): array {
+        global $wpdb;
+        if ($termId <= 0) {
+            throw new \RuntimeException("duo: $purpose received an invalid term identity");
+        }
+        DeleteGuardEvaluator::assert_table_identifiers(
+            [$wpdb->term_relationships, $wpdb->term_taxonomy],
+            $purpose
+        );
+        DeleteGuardEvaluator::assert_transaction_isolation($purpose);
+        if ($this->relationshipLockIndex === null) {
+            DeleteGuardEvaluator::assert_innodb_tables(
+                [$wpdb->term_relationships, $wpdb->term_taxonomy],
+                $purpose
+            );
+            $this->relationshipLockIndex = DeleteGuardEvaluator::full_width_lock_index(
+                $wpdb->term_relationships,
+                'object_id',
+                $purpose
+            );
+        }
+        $placeholders = implode(',', array_fill(0, count($taxonomies), '%s'));
+        $wpdb->last_error = '';
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT tr.term_taxonomy_id, tt.taxonomy, tt.term_id "
+            . "FROM {$wpdb->term_relationships} tr FORCE INDEX (`{$this->relationshipLockIndex}`) "
+            . "JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id "
+            . "WHERE tr.object_id = %d AND tt.taxonomy IN ($placeholders) "
+            . 'ORDER BY tr.term_taxonomy_id ASC LIMIT ' . (self::MAX_TERM_RELATIONSHIPS + 1)
+            . ' FOR UPDATE',
+            $termId,
+            ...$taxonomies
+        ), ARRAY_A);
+        if (!is_array($rows)
+            || !array_is_list($rows)
+            || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException("duo: $purpose bounded locked read failed");
+        }
+        if (count($rows) > self::MAX_TERM_RELATIONSHIPS) {
+            throw new \RuntimeException("duo: $purpose exceeds the bounded row limit");
+        }
+        $out = [];
+        $seen = [];
+        foreach ($rows as $position => $row) {
+            $ttId = is_array($row) ? self::positive_id($row['term_taxonomy_id'] ?? null) : null;
+            $targetId = is_array($row) ? self::positive_id($row['term_id'] ?? null) : null;
+            $tax = is_array($row) ? ($row['taxonomy'] ?? null) : null;
+            if (!is_array($row)
+                || array_keys($row) !== ['term_taxonomy_id', 'taxonomy', 'term_id']
+                || $ttId === null
+                || $targetId === null
+                || !is_string($tax)
+                || !in_array($tax, $taxonomies, true)) {
+                throw new \RuntimeException("duo: $purpose returned a malformed row at position $position");
+            }
+            if (isset($seen[$ttId])) {
+                throw new \RuntimeException("duo: $purpose returned a duplicate relationship identity");
+            }
+            $seen[$ttId] = true;
+            $out[] = ['term_taxonomy_id' => $ttId, 'taxonomy' => $tax, 'term_id' => $targetId];
+        }
+        return $out;
+    }
+
+    private static function positive_id(mixed $value): ?int {
+        if (is_int($value) && $value > 0) {
+            return $value;
+        }
+        if (!is_string($value) || preg_match('/^[1-9][0-9]*$/D', $value) !== 1) {
+            return null;
+        }
+        $id = filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        return is_int($id) ? $id : null;
     }
 }

@@ -1738,7 +1738,9 @@ final class Policy {
         ?array $targetValue,
         \Closure $lockTargetOption,
         \Closure $finalizeStorage,
-        \Closure $restoreStorage
+        \Closure $restoreStorage,
+        ?\Closure $registerRuntimeRestore = null,
+        ?\Closure $writeStorage = null
     ): bool {
         $candidate = $this->option_sub_key_interpreter_candidate(
             $name,
@@ -1758,7 +1760,13 @@ final class Policy {
             $targetValue,
             $lockTargetOption,
             $finalizeStorage,
-            $restoreStorage
+            $restoreStorage,
+            $registerRuntimeRestore ?? static function (): void {
+                throw new \RuntimeException('duo: native option runtime restoration registrar is unavailable');
+            },
+            $writeStorage ?? static function (): void {
+                throw new \RuntimeException('duo: native option engine-owned storage writer is unavailable');
+            }
         );
         if (!is_bool($handled)) {
             throw new \RuntimeException(

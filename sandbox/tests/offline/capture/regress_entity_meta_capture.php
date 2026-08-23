@@ -113,6 +113,7 @@ final class EntityMetaWpdbFixture {
     public string $termmeta = 'wp_termmeta';
     public string $last_error = '';
     public mixed $forcedResult = null;
+    public bool $mutateSameLengthAfterPreflight = false;
     /** @var array<int,array{meta_id:int,post_id:int,meta_key:string,meta_value:string}> */
     public array $postRows = [];
     /** @var array<int,array{meta_id:int,term_id:int,meta_key:string,meta_value:string}> */
@@ -153,6 +154,8 @@ final class EntityMetaWpdbFixture {
                     'meta_id' => '1',
                     'meta_key_bytes' => '7',
                     'meta_value_bytes' => '5',
+                    'meta_key_sha256' => hash('sha256', 'fixture'),
+                    'meta_value_sha256' => hash('sha256', 'value'),
                 ]);
             }
             if ($this->forcedResult === 'oversized-value') {
@@ -160,6 +163,8 @@ final class EntityMetaWpdbFixture {
                     'meta_id' => '1',
                     'meta_key_bytes' => '7',
                     'meta_value_bytes' => (string) (\Duo\MetaRows::MAX_META_VALUE_BYTES + 1),
+                    'meta_key_sha256' => hash('sha256', 'fixture'),
+                    'meta_value_sha256' => hash('sha256', 'value'),
                 ]];
             }
             $forced = $this->forcedResult;
@@ -177,6 +182,10 @@ final class EntityMetaWpdbFixture {
                         'meta_value_bytes' => $row['meta_value'] === null
                             ? null
                             : (string) strlen($row['meta_value']),
+                        'meta_key_sha256' => hash('sha256', $row['meta_key']),
+                        'meta_value_sha256' => $row['meta_value'] === null
+                            ? null
+                            : hash('sha256', $row['meta_value']),
                     ];
                 }, $forced);
             }
@@ -194,13 +203,17 @@ final class EntityMetaWpdbFixture {
                 ? [$left['meta_key'], $left['meta_id']] <=> [$right['meta_key'], $right['meta_id']]
                 : $left['meta_id'] <=> $right['meta_id'];
         });
-        return array_map(
+        $projected = array_map(
             static fn(array $row): array => $preflight ? [
                 'meta_id' => (string) $row['meta_id'],
                 'meta_key_bytes' => (string) strlen($row['meta_key']),
                 'meta_value_bytes' => $row['meta_value'] === null
                     ? null
                     : (string) strlen($row['meta_value']),
+                'meta_key_sha256' => hash('sha256', $row['meta_key']),
+                'meta_value_sha256' => $row['meta_value'] === null
+                    ? null
+                    : hash('sha256', $row['meta_value']),
             ] : [
                 'meta_id' => (string) $row['meta_id'],
                 'meta_key' => $row['meta_key'],
@@ -208,6 +221,22 @@ final class EntityMetaWpdbFixture {
             ],
             $rows
         );
+        if ($preflight && $this->mutateSameLengthAfterPreflight && $rows !== []) {
+            $this->mutateSameLengthAfterPreflight = false;
+            if ($isPost) {
+                $store =& $this->postRows;
+            } else {
+                $store =& $this->termRows;
+            }
+            foreach ($store as &$stored) {
+                if ($stored[$ownerColumn] === $ownerId) {
+                    $stored['meta_value'] = str_repeat('X', strlen((string) $stored['meta_value']));
+                    break;
+                }
+            }
+            unset($stored);
+        }
+        return $projected;
     }
 }
 
@@ -276,21 +305,21 @@ $check($termByKey === [
 ],
     'term grouped context keeps every value in key/meta_id order');
 $check(array_map($normalizeSql, $wpdb->sql) === [
-    'SELECT `meta_id` AS meta_id, OCTET_LENGTH(meta_key) AS meta_key_bytes, OCTET_LENGTH(meta_value) AS meta_value_bytes FROM `wp_postmeta` WHERE `post_id` = 7 ORDER BY `meta_id` ASC LIMIT 100001',
+    'SELECT `meta_id` AS meta_id, OCTET_LENGTH(meta_key) AS meta_key_bytes, OCTET_LENGTH(meta_value) AS meta_value_bytes, SHA2(meta_key, 256) AS meta_key_sha256, SHA2(meta_value, 256) AS meta_value_sha256 FROM `wp_postmeta` WHERE `post_id` = 7 ORDER BY `meta_id` ASC LIMIT 100001',
     'SELECT `meta_id` AS meta_id, meta_key, meta_value FROM `wp_postmeta` WHERE `post_id` = 7 ORDER BY `meta_id` ASC LIMIT 100001',
-    'SELECT `meta_id` AS meta_id, OCTET_LENGTH(meta_key) AS meta_key_bytes, OCTET_LENGTH(meta_value) AS meta_value_bytes FROM `wp_postmeta` WHERE `post_id` = 7 ORDER BY `meta_id` ASC LIMIT 100001',
+    'SELECT `meta_id` AS meta_id, OCTET_LENGTH(meta_key) AS meta_key_bytes, OCTET_LENGTH(meta_value) AS meta_value_bytes, SHA2(meta_key, 256) AS meta_key_sha256, SHA2(meta_value, 256) AS meta_value_sha256 FROM `wp_postmeta` WHERE `post_id` = 7 ORDER BY `meta_id` ASC LIMIT 100001',
     'SELECT `meta_id` AS meta_id, meta_key, meta_value FROM `wp_postmeta` WHERE `post_id` = 7 ORDER BY `meta_id` ASC LIMIT 100001',
-    'SELECT `meta_id` AS meta_id, OCTET_LENGTH(meta_key) AS meta_key_bytes, OCTET_LENGTH(meta_value) AS meta_value_bytes FROM `wp_termmeta` WHERE `term_id` = 9 ORDER BY `meta_id` ASC LIMIT 100001',
+    'SELECT `meta_id` AS meta_id, OCTET_LENGTH(meta_key) AS meta_key_bytes, OCTET_LENGTH(meta_value) AS meta_value_bytes, SHA2(meta_key, 256) AS meta_key_sha256, SHA2(meta_value, 256) AS meta_value_sha256 FROM `wp_termmeta` WHERE `term_id` = 9 ORDER BY `meta_id` ASC LIMIT 100001',
     'SELECT `meta_id` AS meta_id, meta_key, meta_value FROM `wp_termmeta` WHERE `term_id` = 9 ORDER BY `meta_id` ASC LIMIT 100001',
-    'SELECT `meta_id` AS meta_id, OCTET_LENGTH(meta_key) AS meta_key_bytes, OCTET_LENGTH(meta_value) AS meta_value_bytes FROM `wp_termmeta` WHERE `term_id` = 9 ORDER BY `meta_id` ASC LIMIT 100001',
+    'SELECT `meta_id` AS meta_id, OCTET_LENGTH(meta_key) AS meta_key_bytes, OCTET_LENGTH(meta_value) AS meta_value_bytes, SHA2(meta_key, 256) AS meta_key_sha256, SHA2(meta_value, 256) AS meta_value_sha256 FROM `wp_termmeta` WHERE `term_id` = 9 ORDER BY `meta_id` ASC LIMIT 100001',
     'SELECT `meta_id` AS meta_id, meta_key, meta_value FROM `wp_termmeta` WHERE `term_id` = 9 ORDER BY `meta_id` ASC LIMIT 100001',
 ], 'all four reads preflight compact byte witnesses before deterministic full-value reads');
 $check($wpdb->events === [
-    'query:post:size', 'query:post:value', 'checkpoint',
-    'query:post:size', 'query:post:value', 'checkpoint',
-    'query:term:size', 'query:term:value', 'checkpoint',
-    'query:term:size', 'query:term:value', 'checkpoint',
-], 'observation checkpoints run after each witnessed flat/grouped value read');
+    'query:post:size', 'checkpoint', 'query:post:value', 'checkpoint',
+    'query:post:size', 'checkpoint', 'query:post:value', 'checkpoint',
+    'query:term:size', 'checkpoint', 'query:term:value', 'checkpoint',
+    'query:term:size', 'checkpoint', 'query:term:value', 'checkpoint',
+], 'observation checkpoints run immediately after each compact and full metadata read');
 
 foreach (['false', 'null', 'error'] as $failureMode) {
     $wpdb->forcedResult = $failureMode;
@@ -339,6 +368,32 @@ $check(
         && $wpdb->last_error === '',
     'a stale prior driver error is cleared and a successful checked read remains observable'
 );
+
+$wpdb->mutateSameLengthAfterPreflight = true;
+$throws(
+    static fn(): array => $capture->termMetaByKey(9),
+    'metadata value read disagrees with the bounded size preflight',
+    'same-identity same-length metadata rewrites cannot cross the compact/full capture witness'
+);
+
+$wpdb->forcedResult = 'error';
+$transientCapture = new EntityMetaCapture(
+    $policy,
+    $tokens,
+    static function (): void {},
+    static function (string $where) use ($wpdb): void {
+        if ($wpdb->last_error !== '') {
+            throw new \RuntimeException("fixture transient checkpoint: $where");
+        }
+    },
+    static function (): void {}
+);
+$throws(
+    static fn(): array => $transientCapture->postMetaMap(7),
+    'fixture transient checkpoint: post metadata capture metadata size preflight',
+    'preflight database errors reach the transient classifier before MetaRows can retype them'
+);
+$wpdb->forcedResult = null;
 
 $trace = [];
 [$store, $value] = $capture->classifyValue(

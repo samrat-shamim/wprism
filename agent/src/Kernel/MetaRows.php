@@ -28,7 +28,8 @@ final class MetaRows {
         int $ownerId,
         string $idColumn,
         string $purpose,
-        ?string $lockIndex = null
+        ?string $lockIndex = null,
+        ?\Closure $afterRead = null
     ): array {
         global $wpdb;
         foreach ([$table => 64, $ownerColumn => 64, $idColumn => 64] as $identifier => $max) {
@@ -52,9 +53,14 @@ final class MetaRows {
         }
         $preflight = $wpdb->get_results($wpdb->prepare(
             "SELECT `$idColumn` AS meta_id, OCTET_LENGTH(meta_key) AS meta_key_bytes, "
-            . "OCTET_LENGTH(meta_value) AS meta_value_bytes $from",
+            . 'OCTET_LENGTH(meta_value) AS meta_value_bytes, '
+            . 'SHA2(meta_key, 256) AS meta_key_sha256, '
+            . "SHA2(meta_value, 256) AS meta_value_sha256 $from",
             $ownerId
         ), ARRAY_A);
+        if ($afterRead !== null) {
+            $afterRead("$purpose metadata size preflight");
+        }
         if (!is_array($preflight)
             || !array_is_list($preflight)
             || trim((string) ($wpdb->last_error ?? '')) !== '') {
@@ -73,11 +79,21 @@ final class MetaRows {
             $valueBytes = is_array($row) && ($row['meta_value_bytes'] ?? null) === null
                 ? null
                 : (is_array($row) ? self::nonnegative_size($row['meta_value_bytes'] ?? null) : null);
+            $keyHash = is_array($row) ? self::sha256($row['meta_key_sha256'] ?? null) : null;
+            $valueHash = is_array($row) && ($row['meta_value_sha256'] ?? null) === null
+                ? null
+                : (is_array($row) ? self::sha256($row['meta_value_sha256'] ?? null) : null);
             if (!is_array($row)
-                || array_keys($row) !== ['meta_id', 'meta_key_bytes', 'meta_value_bytes']
+                || array_keys($row) !== [
+                    'meta_id', 'meta_key_bytes', 'meta_value_bytes',
+                    'meta_key_sha256', 'meta_value_sha256',
+                ]
                 || $id === null
                 || $keyBytes === null
-                || ($row['meta_value_bytes'] !== null && $valueBytes === null)) {
+                || ($row['meta_value_bytes'] !== null && $valueBytes === null)
+                || $keyHash === null
+                || (($row['meta_value_sha256'] === null) !== ($row['meta_value_bytes'] === null))
+                || ($row['meta_value_sha256'] !== null && $valueHash === null)) {
                 throw new \RuntimeException(
                     "duo: $purpose metadata size preflight returned a malformed row at bounded position $position"
                 );
@@ -99,7 +115,13 @@ final class MetaRows {
             }
             $aggregateBytes += $rowBytes;
             $previousId = $id;
-            $expected[] = ['meta_id' => $row['meta_id'], 'key_bytes' => $keyBytes, 'value_bytes' => $valueBytes];
+            $expected[] = [
+                'meta_id' => $row['meta_id'],
+                'key_bytes' => $keyBytes,
+                'value_bytes' => $valueBytes,
+                'key_sha256' => $keyHash,
+                'value_sha256' => $valueHash,
+            ];
         }
 
         if (property_exists($wpdb, 'last_error')) {
@@ -109,6 +131,9 @@ final class MetaRows {
             "SELECT `$idColumn` AS meta_id, meta_key, meta_value $from",
             $ownerId
         ), ARRAY_A);
+        if ($afterRead !== null) {
+            $afterRead("$purpose metadata value read");
+        }
         if (!is_array($rows)
             || !array_is_list($rows)
             || trim((string) ($wpdb->last_error ?? '')) !== '') {
@@ -143,7 +168,12 @@ final class MetaRows {
             if ($id === null
                 || !hash_equals($witness['meta_id'], $row['meta_id'])
                 || $witness['key_bytes'] !== strlen($row['meta_key'])
-                || $witness['value_bytes'] !== ($row['meta_value'] === null ? null : $valueBytes)) {
+                || $witness['value_bytes'] !== ($row['meta_value'] === null ? null : $valueBytes)
+                || !hash_equals($witness['key_sha256'], hash('sha256', $row['meta_key']))
+                || ($row['meta_value'] === null
+                    ? $witness['value_sha256'] !== null
+                    : ($witness['value_sha256'] === null
+                        || !hash_equals($witness['value_sha256'], hash('sha256', $row['meta_value']))))) {
                 throw new \RuntimeException(
                     "duo: $purpose metadata value read disagrees with the bounded size preflight"
                 );
@@ -168,5 +198,12 @@ final class MetaRows {
         }
         $size = filter_var($value, FILTER_VALIDATE_INT);
         return is_int($size) && $size >= 0 ? $size : null;
+    }
+
+    /** MySQL/MariaDB SHA2(..., 256) text result. */
+    private static function sha256(mixed $value): ?string {
+        return is_string($value) && preg_match('/^[0-9a-f]{64}$/D', $value) === 1
+            ? $value
+            : null;
     }
 }

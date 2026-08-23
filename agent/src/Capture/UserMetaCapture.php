@@ -105,7 +105,8 @@ final class UserMetaCapture {
         while (true) {
             $preflight = $this->checkedRows(
                 $wpdb->prepare(
-                    'SELECT ID AS user_id, OCTET_LENGTH(user_login) AS user_login_bytes '
+                    'SELECT ID AS user_id, OCTET_LENGTH(user_login) AS user_login_bytes, '
+                    . 'SHA2(user_login, 256) AS user_login_sha256 '
                     . "FROM {$wpdb->users} WHERE ID > %d ORDER BY ID ASC LIMIT "
                     . (self::USER_CHUNK_SIZE + 1),
                     $lastUserId
@@ -123,18 +124,24 @@ final class UserMetaCapture {
             foreach ($preflight as $position => $row) {
                 $id = is_array($row) ? MetaRows::positive_id($row['user_id'] ?? null) : null;
                 $bytes = is_array($row) ? self::nonnegativeSize($row['user_login_bytes'] ?? null) : null;
+                $loginHash = is_array($row) ? self::sha256($row['user_login_sha256'] ?? null) : null;
                 if (!is_array($row)
-                    || array_keys($row) !== ['user_id', 'user_login_bytes']
+                    || array_keys($row) !== ['user_id', 'user_login_bytes', 'user_login_sha256']
                     || $id === null
                     || $id <= $lastUserId
                     || $bytes === null
+                    || $loginHash === null
                     || $bytes === 0
                     || $bytes > self::MAX_USER_LOGIN_BYTES) {
                     throw new \RuntimeException(
                         "duo: user-meta user size preflight returned a malformed row at bounded position $position"
                     );
                 }
-                $expectedUsers[$id] = ['id' => $row['user_id'], 'login_bytes' => $bytes];
+                $expectedUsers[$id] = [
+                    'id' => $row['user_id'],
+                    'login_bytes' => $bytes,
+                    'login_sha256' => $loginHash,
+                ];
                 $lastUserId = $id;
                 ++$seenUsers;
                 if ($seenUsers > self::MAX_USERS) {
@@ -169,6 +176,7 @@ final class UserMetaCapture {
                     || $witness === null
                     || !is_string($login)
                     || strlen($login) !== $witness['login_bytes']
+                    || !hash_equals($witness['login_sha256'], hash('sha256', $login))
                     || !is_int($characters)
                     || $characters === 0
                     || $characters > self::MAX_USER_LOGIN_CHARACTERS) {
@@ -201,7 +209,9 @@ final class UserMetaCapture {
         $preflight = $this->checkedRows(
             $wpdb->prepare(
                 'SELECT umeta_id AS meta_id, user_id, OCTET_LENGTH(meta_key) AS meta_key_bytes, '
-                . "OCTET_LENGTH(meta_value) AS meta_value_bytes FROM {$wpdb->usermeta} "
+                . 'OCTET_LENGTH(meta_value) AS meta_value_bytes, '
+                . 'SHA2(meta_key, 256) AS meta_key_sha256, '
+                . "SHA2(meta_value, 256) AS meta_value_sha256 FROM {$wpdb->usermeta} "
                 . "WHERE user_id IN ($placeholders) ORDER BY user_id ASC, umeta_id ASC LIMIT "
                 . (self::MAX_CHUNK_META_ROWS + 1),
                 ...$ids
@@ -224,15 +234,25 @@ final class UserMetaCapture {
             $valueBytes = is_array($row) && ($row['meta_value_bytes'] ?? null) === null
                 ? null
                 : (is_array($row) ? self::nonnegativeSize($row['meta_value_bytes'] ?? null) : null);
+            $keyHash = is_array($row) ? self::sha256($row['meta_key_sha256'] ?? null) : null;
+            $valueHash = is_array($row) && ($row['meta_value_sha256'] ?? null) === null
+                ? null
+                : (is_array($row) ? self::sha256($row['meta_value_sha256'] ?? null) : null);
             if (!is_array($row)
-                || array_keys($row) !== ['meta_id', 'user_id', 'meta_key_bytes', 'meta_value_bytes']
+                || array_keys($row) !== [
+                    'meta_id', 'user_id', 'meta_key_bytes', 'meta_value_bytes',
+                    'meta_key_sha256', 'meta_value_sha256',
+                ]
                 || $metaId === null
                 || $userId === null
                 || !isset($users[$userId])
                 || $keyBytes === null
+                || $keyHash === null
                 || $keyBytes === 0
                 || $keyBytes > MetaRows::MAX_META_KEY_BYTES
                 || ($row['meta_value_bytes'] !== null && $valueBytes === null)
+                || (($row['meta_value_sha256'] === null) !== ($row['meta_value_bytes'] === null))
+                || ($row['meta_value_sha256'] !== null && $valueHash === null)
                 || ($valueBytes !== null && $valueBytes > MetaRows::MAX_META_VALUE_BYTES)
                 || $userId < $previousOwner
                 || ($userId === $previousOwner && $metaId <= $previousMetaId)) {
@@ -256,6 +276,8 @@ final class UserMetaCapture {
                 'user_id' => $row['user_id'],
                 'key_bytes' => $keyBytes,
                 'value_bytes' => $valueBytes,
+                'key_sha256' => $keyHash,
+                'value_sha256' => $valueHash,
             ];
         }
 
@@ -295,7 +317,12 @@ final class UserMetaCapture {
                 || !hash_equals($witness['meta_id'], $row['meta_id'])
                 || !hash_equals($witness['user_id'], $row['user_id'])
                 || $witness['key_bytes'] !== strlen($key)
-                || $witness['value_bytes'] !== ($value === null ? null : strlen($value))) {
+                || $witness['value_bytes'] !== ($value === null ? null : strlen($value))
+                || !hash_equals($witness['key_sha256'], hash('sha256', $key))
+                || ($value === null
+                    ? $witness['value_sha256'] !== null
+                    : ($witness['value_sha256'] === null
+                        || !hash_equals($witness['value_sha256'], hash('sha256', $value))))) {
                 throw new \RuntimeException(
                     "duo: user-meta value read disagrees with its bounded preflight at position $position"
                 );
@@ -361,6 +388,12 @@ final class UserMetaCapture {
         }
         $size = filter_var($value, FILTER_VALIDATE_INT);
         return is_int($size) && $size >= 0 ? $size : null;
+    }
+
+    private static function sha256(mixed $value): ?string {
+        return is_string($value) && preg_match('/^[0-9a-f]{64}$/D', $value) === 1
+            ? $value
+            : null;
     }
 
     /** @return array{0:bool,1:mixed} */

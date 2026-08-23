@@ -449,6 +449,11 @@ final class RefreshExport {
         global $wpdb;
         $open = false;
         try {
+            self::query(
+                $wpdb,
+                'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ',
+                'pinning read-only production snapshot isolation'
+            );
             self::query($wpdb, 'START TRANSACTION READ ONLY, WITH CONSISTENT SNAPSHOT', 'starting read-only production snapshot');
             $open = true;
             $result = $fn();

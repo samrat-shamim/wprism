@@ -8,6 +8,7 @@ namespace Duo;
 // statement for this file runs, before Policy.php's body finishes
 // executing, so this resolves to a no-op rather than a re-include.
 require_once __DIR__ . '/../Policy/Policy.php';
+require_once __DIR__ . '/../Kernel/OptionState.php';
 
 /**
  * The "named sub-key of an otherwise-atomic manifest value" declaration
@@ -42,6 +43,8 @@ require_once __DIR__ . '/../Policy/Policy.php';
  */
 final class SubKeyGrammar {
     private const CLOSED_UNKNOWN_DIAGNOSTIC_LIMIT = 4;
+    private const MIXED_SUB_KEY_CLASSES = ['authored', 'runtime', 'derived', 'env'];
+    private const MIXED_PARENT_CLASSES = ['runtime', 'derived', 'env'];
 
     /**
      * Loud, load-time guard for sub_keyed_options()'s manifest input (same
@@ -80,6 +83,11 @@ final class SubKeyGrammar {
                         "duo: $label options.$optName declares closed_sub_keys without sub_keys"
                     );
                 }
+                if (array_key_exists('absent_autoload', $rule)) {
+                    throw new \RuntimeException(
+                        "duo: $label options.$optName declares absent_autoload without sub_keys"
+                    );
+                }
                 continue;
             }
             if (!is_array($subKeys) || !$subKeys) {
@@ -94,17 +102,26 @@ final class SubKeyGrammar {
                     . 'narrows independent capture to named keys of an otherwise-excluded blob). Pick one.'
                 );
             }
+            if (!in_array($rule['class'] ?? null, self::MIXED_PARENT_CLASSES, true)) {
+                throw new \RuntimeException(
+                    "duo: $label declares options.$optName.sub_keys with an invalid parent class "
+                    . '(expected runtime|derived|env; managed has no mixed-option materializer)'
+                );
+            }
             self::assert_sub_key_parent_has_no_value_fields(
                 $rule,
                 "$label options.$optName"
             );
+            self::assert_absent_autoload($rule, "$label options.$optName");
             foreach ($subKeys as $subKey => $subRule) {
-                if (!is_array($subRule) || !in_array($subRule['class'] ?? null, Policy::CLASSES, true)) {
+                if (!is_array($subRule)
+                    || !in_array($subRule['class'] ?? null, self::MIXED_SUB_KEY_CLASSES, true)) {
                     throw new \RuntimeException(
                         "duo: $label declares options.$optName.sub_keys.$subKey with an invalid or "
-                        . 'missing class (expected one of ' . implode('|', Policy::CLASSES) . ')'
+                        . 'missing class (expected one of ' . implode('|', self::MIXED_SUB_KEY_CLASSES) . ')'
                     );
                 }
+                self::assert_native_default_completion($subRule, "$label options.$optName.sub_keys.$subKey");
             }
         }
     }
@@ -254,14 +271,45 @@ final class SubKeyGrammar {
                 $decl,
                 "manifest '$name' dynamic_options.$key"
             );
+            self::assert_absent_autoload($decl, "manifest '$name' dynamic_options.$key");
             foreach ($subKeys as $subKey => $subRule) {
-                if (!is_array($subRule) || !in_array($subRule['class'] ?? null, Policy::CLASSES, true)) {
+                if (!is_array($subRule)
+                    || !in_array($subRule['class'] ?? null, self::MIXED_SUB_KEY_CLASSES, true)) {
                     throw new \RuntimeException(
                         "duo: manifest '$name' declares dynamic_options.$key.sub_keys.$subKey with an invalid or "
-                        . 'missing class (expected one of ' . implode('|', Policy::CLASSES) . ')'
+                        . 'missing class (expected one of ' . implode('|', self::MIXED_SUB_KEY_CLASSES) . ')'
                     );
                 }
+                self::assert_native_default_completion(
+                    $subRule,
+                    "manifest '$name' dynamic_options.$key.sub_keys.$subKey"
+                );
             }
+        }
+    }
+
+    /** Native APIs may materialize a declared target-owned default only by explicit manifest authority. */
+    private static function assert_native_default_completion(array $rule, string $where): void {
+        if (!array_key_exists('native_default_completion', $rule)) {
+            return;
+        }
+        if ($rule['native_default_completion'] !== true
+            || !in_array($rule['class'] ?? null, ['runtime', 'derived', 'env'], true)) {
+            throw new \RuntimeException(
+                "duo: $where.native_default_completion must be literal true on a runtime|derived|env sibling"
+            );
+        }
+    }
+
+    /** A missing mixed row needs an exact insertion-storage declaration. */
+    private static function assert_absent_autoload(array $rule, string $where): void {
+        if (!array_key_exists('absent_autoload', $rule)) {
+            return;
+        }
+        if (!in_array($rule['absent_autoload'], OptionState::AUTOLOAD_VALUES, true)) {
+            throw new \RuntimeException(
+                "duo: $where.absent_autoload must be an exact supported wp_options autoload value"
+            );
         }
     }
 }

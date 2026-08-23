@@ -223,6 +223,15 @@ final class CaptureTransaction {
                 // between attempts; never let a prior check authorize a new
                 // snapshot whose read set no longer provides MVCC.
                 self::assert_engine_support($policy, $optionsOnly);
+                // WITH CONSISTENT SNAPSHOT does not itself upgrade a session
+                // configured for READ COMMITTED. Control the immediately
+                // following transaction explicitly; ordinary WP accounts can
+                // execute this one-shot SET without PROCESS privileges.
+                Db::query(
+                    'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ',
+                    'capture transaction isolation'
+                );
+                self::check_transient_db_error('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
                 Db::query('START TRANSACTION WITH CONSISTENT SNAPSHOT', 'capture transaction start');
                 // Mark the transaction open immediately after query() returns:
                 // the following checkpoint can still report a transient

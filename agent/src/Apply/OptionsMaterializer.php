@@ -9,6 +9,7 @@ require_once __DIR__ . '/../Kernel/StructuredValue.php';
 require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/../Grammar/SubKeyGrammar.php';
 require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
+require_once __DIR__ . '/CacheInvalidationTransaction.php';
 // Deliberately NOT require_once('Db.php') here: sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php
 // stubs a fake Duo\Db and reaches this file transitively through Apply.php
 // (a direct require of "$root/agent/src/Apply/Apply.php") without ever loading the
@@ -61,12 +62,59 @@ require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
 final class OptionsMaterializer {
     private const MAX_OPTION_VALUE_BYTES = 16777216;
     private const MAX_AUTOLOAD_BYTES = 20;
+    private bool $authoredTransaction = false;
+    /** @var list<\Closure():void> */
+    private array $nativeRollbackCallbacks = [];
 
     public function __construct(
         private readonly Policy $policy,
         private readonly Tokens $tokens,
         private readonly ApplyFieldMaterializer $fieldMaterializer
     ) {
+    }
+
+    public function begin_authored_transaction(): void {
+        if ($this->authoredTransaction) {
+            throw new \RuntimeException('duo: options materializer transaction participant was already active');
+        }
+        $this->authoredTransaction = true;
+        $this->nativeRollbackCallbacks = [];
+    }
+
+    /** Clear rollback authority only after the database COMMIT returned successfully. */
+    public function commit_authored_transaction(): void {
+        if (!$this->authoredTransaction) {
+            throw new \RuntimeException('duo: options materializer transaction participant is not active');
+        }
+        $this->nativeRollbackCallbacks = [];
+    }
+
+    /** Restore plugin process state and exact raw storage before database ROLLBACK. */
+    public function rollback_authored_transaction(): void {
+        if (!$this->authoredTransaction) {
+            return;
+        }
+        $failure = null;
+        foreach (array_reverse($this->nativeRollbackCallbacks) as $restore) {
+            try {
+                $restore();
+            } catch (\Throwable $restoreFailure) {
+                $failure ??= $restoreFailure;
+            }
+        }
+        $this->nativeRollbackCallbacks = [];
+        if ($failure !== null) {
+            throw new \RuntimeException(
+                'duo: native option transaction rollback could not restore exact storage/runtime state; recovery_required',
+                0,
+                $failure
+            );
+        }
+    }
+
+    public function end_authored_transaction(): void {
+        $this->nativeRollbackCallbacks = [];
+        $this->authoredTransaction = false;
     }
 
     /**
@@ -111,9 +159,9 @@ final class OptionsMaterializer {
                     throw new \RuntimeException("duo: internal invariant: option tombstone '$name' reached apply without --with-deletes");
                 }
                 global $wpdb;
+                CacheInvalidationTransaction::assert_local_option_cache('authored option deletion');
                 Db::delete($wpdb->options, ['option_name' => $realName], null, 'apply delete authored option');
-                wp_cache_delete($realName, 'options');
-                wp_cache_delete('alloptions', 'options');
+                CacheInvalidationTransaction::queue_option($realName, 'authored option deletion');
                 continue;
             }
             $v = $record['value'];
@@ -412,6 +460,9 @@ final class OptionsMaterializer {
             );
         }
         $subKeys = (array) ($rule['sub_keys'] ?? []);
+        CacheInvalidationTransaction::assert_local_option_cache(
+            "mixed-option materialization for '$name'"
+        );
         DeleteGuardEvaluator::assert_table_identifiers([$wpdb->options], 'mixed-option row locking');
         try {
             DeleteGuardEvaluator::assert_active_transaction('mixed-option row locking');
@@ -465,11 +516,93 @@ final class OptionsMaterializer {
             }
             $materialized[(string) $subKey] = $this->apply_value("$name.$subKey", $subVal, $subRule);
         }
-        $finalizeStorage = function () use ($name, $autoload, $lockIndex): array {
+        $finalizeCalls = 0;
+        $storageWriteCalls = 0;
+        $finalizedRow = null;
+        $runtimeRestore = null;
+        $runtimeRestoreRegistrations = 0;
+        $nativeStorageTouched = false;
+        $rollbackArmed = false;
+        $rolledBack = false;
+        $writeStorage = function (array $value) use (
+            $name,
+            $autoload,
+            $raw,
+            $rule,
+            &$runtimeRestoreRegistrations,
+            &$storageWriteCalls,
+            &$nativeStorageTouched
+        ): void {
+            global $wpdb;
+            if (!$this->authoredTransaction || $runtimeRestoreRegistrations !== 1) {
+                throw new \RuntimeException(
+                    "duo: native option materializer for '$name' attempted storage before arming runtime rollback"
+                );
+            }
+            ++$storageWriteCalls;
+            if ($storageWriteCalls !== 1) {
+                throw new \RuntimeException(
+                    "duo: native option materializer for '$name' wrote storage more than once"
+                );
+            }
+            PlainData::assert($value, "native materialized option '$name'");
+            SubKeyGrammar::assert_closed_value($name, $rule, $value, 'native materialized target');
+            $wire = $this->fieldMaterializer->option_wire_value($value);
+            if (strlen($wire) > self::MAX_OPTION_VALUE_BYTES) {
+                throw new \RuntimeException(
+                    "duo: native option materializer for '$name' produced an oversized storage value"
+                );
+            }
+            CacheInvalidationTransaction::assert_local_option_cache(
+                "native option materializer for '$name'"
+            );
+            DeleteGuardEvaluator::assert_transaction_isolation(
+                'native mixed-option engine-owned storage write'
+            );
+            if ($raw === null) {
+                Db::insert(
+                    $wpdb->options,
+                    ['option_name' => $name, 'option_value' => $wire, 'autoload' => $autoload],
+                    null,
+                    'apply insert native-authored option'
+                );
+            } else {
+                Db::update(
+                    $wpdb->options,
+                    ['option_value' => $wire, 'autoload' => $autoload],
+                    ['option_name' => $name],
+                    null,
+                    null,
+                    'apply update native-authored option'
+                );
+            }
+            $nativeStorageTouched = true;
+            CacheInvalidationTransaction::queue_option(
+                $name,
+                "native option materializer for '$name'"
+            );
+        };
+        $finalizeStorage = function () use (
+            $name,
+            $lockIndex,
+            &$storageWriteCalls,
+            &$finalizeCalls,
+            &$finalizedRow
+        ): array {
+            ++$finalizeCalls;
+            if ($finalizeCalls !== 1) {
+                throw new \RuntimeException(
+                    "duo: native option materializer for '$name' finalized storage more than once"
+                );
+            }
+            if ($storageWriteCalls !== 1) {
+                throw new \RuntimeException(
+                    "duo: native option materializer for '$name' finalized without exactly one engine-owned storage write"
+                );
+            }
             DeleteGuardEvaluator::assert_transaction_isolation(
                 'native mixed-option storage finalization'
             );
-            $this->reconcile_native_option_autoload($name, $autoload);
             $row = $this->lock_option_row(
                 $name,
                 $lockIndex,
@@ -480,6 +613,7 @@ final class OptionsMaterializer {
                     "duo: native option materializer for '$name' left no raw storage row"
                 );
             }
+            $finalizedRow = $row;
             return $row;
         };
         $restoreStorage = function () use ($name, $raw, $targetAutoload, $lockIndex): ?array {
@@ -487,29 +621,82 @@ final class OptionsMaterializer {
             DeleteGuardEvaluator::assert_transaction_isolation(
                 'native mixed-option storage restoration'
             );
+            $current = $this->lock_option_row(
+                $name,
+                $lockIndex,
+                'native mixed-option storage restoration current-row lock'
+            );
             if ($raw === null) {
-                Db::delete(
-                    $wpdb->options,
-                    ['option_name' => $name],
-                    null,
-                    'restore absent native-authored option after failed apply'
+                if ($current !== null) {
+                    Db::delete(
+                        $wpdb->options,
+                        ['option_name' => $name],
+                        null,
+                        'restore absent native-authored option after failed apply'
+                    );
+                }
+                CacheInvalidationTransaction::queue_option(
+                    $name,
+                    "native option materializer for '$name' restoration"
                 );
-                wp_cache_delete($name, 'options');
-                wp_cache_delete('alloptions', 'options');
-                return $this->lock_option_row(
+                $restored = $this->lock_option_row(
                     $name,
                     $lockIndex,
                     'restored absent native mixed-option raw storage verification'
                 );
+                if ($restored !== null) {
+                    throw new \RuntimeException(
+                        "duo: native option materializer for '$name' could not restore exact absent storage"
+                    );
+                }
+                return null;
             }
-            $this->fieldMaterializer->upsert_option($name, (string) $raw, (string) $targetAutoload);
-            return $this->lock_option_row(
+            if ($current === null) {
+                Db::insert(
+                    $wpdb->options,
+                    [
+                        'option_name' => $name,
+                        'option_value' => (string) $raw,
+                        'autoload' => (string) $targetAutoload,
+                    ],
+                    null,
+                    'restore native-authored option after failed apply'
+                );
+            } else {
+                Db::update(
+                    $wpdb->options,
+                    ['option_value' => (string) $raw, 'autoload' => (string) $targetAutoload],
+                    ['option_name' => $name],
+                    null,
+                    null,
+                    'restore native-authored option after failed apply'
+                );
+            }
+            CacheInvalidationTransaction::queue_option(
+                $name,
+                "native option materializer for '$name' restoration"
+            );
+            $restored = $this->lock_option_row(
                 $name,
                 $lockIndex,
                 'restored native mixed-option raw storage verification'
             );
+            if ($restored === null
+                || !hash_equals((string) $raw, $restored['option_value'])
+                || !hash_equals((string) $targetAutoload, $restored['autoload'])) {
+                throw new \RuntimeException(
+                    "duo: native option materializer for '$name' could not restore exact storage"
+                );
+            }
+            return $restored;
         };
-        $lockTargetOption = function (string $targetName) use ($name, $ruleSource, $lockIndex): ?array {
+        $companionWitnesses = [];
+        $lockTargetOption = function (string $targetName) use (
+            $name,
+            $ruleSource,
+            $lockIndex,
+            &$companionWitnesses
+        ): ?array {
             global $wpdb;
             if ($targetName === $name
                 || preg_match('/^[A-Za-z0-9_.:-]{1,191}$/D', $targetName) !== 1) {
@@ -534,13 +721,65 @@ final class OptionsMaterializer {
                 $lockIndex,
                 "native option materializer for '$name' companion row locking"
             );
+            if (array_key_exists($targetName, $companionWitnesses)
+                && $companionWitnesses[$targetName] !== $targetRow) {
+                throw new \RuntimeException(
+                    "duo: native option materializer for '$name' changed a companion after locking it"
+                );
+            }
+            $companionWitnesses[$targetName] = $targetRow;
             if ($targetRow === null) return null;
             return [
                 'option_value' => $targetRow['option_value'],
                 'autoload' => $targetRow['autoload'],
             ];
         };
-        if ($this->policy->materialize_option_sub_keys_via_interpreter(
+        $registerRuntimeRestore = function (\Closure $restore) use (
+            $name,
+            &$runtimeRestore,
+            &$runtimeRestoreRegistrations,
+            &$rollbackArmed,
+            &$rolledBack,
+            &$nativeStorageTouched,
+            $restoreStorage
+        ): void {
+            ++$runtimeRestoreRegistrations;
+            if ($runtimeRestoreRegistrations !== 1) {
+                throw new \RuntimeException(
+                    "duo: native option materializer for '$name' registered runtime restoration more than once"
+                );
+            }
+            $runtimeRestore = $restore;
+            if (!$this->authoredTransaction) {
+                throw new \RuntimeException(
+                    "duo: native option materializer for '$name' ran outside the options transaction participant"
+                );
+            }
+            $rollbackArmed = true;
+            $this->nativeRollbackCallbacks[] = function () use (
+                &$rolledBack,
+                &$nativeStorageTouched,
+                $restoreStorage,
+                &$runtimeRestore,
+                $name
+            ): void {
+                if ($rolledBack) {
+                    return;
+                }
+                $rolledBack = true;
+                if ($nativeStorageTouched) {
+                    $restoreStorage();
+                }
+                if ($runtimeRestore instanceof \Closure) {
+                    $runtimeRestore();
+                }
+                CacheInvalidationTransaction::queue_option(
+                    $name,
+                    "native option materializer for '$name' rollback"
+                );
+            };
+        };
+        $handledNatively = $this->policy->materialize_option_sub_keys_via_interpreter(
             $name,
             $materialized,
             $rule,
@@ -549,8 +788,107 @@ final class OptionsMaterializer {
             $raw === null ? null : $live,
             $lockTargetOption,
             $finalizeStorage,
-            $restoreStorage
-        )) {
+            $restoreStorage,
+            $registerRuntimeRestore,
+            $writeStorage
+        );
+        if ($handledNatively) {
+            if (!$this->authoredTransaction || !$rollbackArmed) {
+                throw new \RuntimeException(
+                    "duo: native option materializer for '$name' ran outside the options transaction participant"
+                );
+            }
+            if ($finalizeCalls !== 1 || !is_array($finalizedRow)) {
+                throw new \RuntimeException(
+                    "duo: native option materializer for '$name' returned success without exactly one storage finalization"
+                );
+            }
+            if ($runtimeRestoreRegistrations !== 1 || !($runtimeRestore instanceof \Closure)) {
+                throw new \RuntimeException(
+                    "duo: native option materializer for '$name' returned success without one runtime restoration callback"
+                );
+            }
+            // The hook can execute arbitrary plugin callbacks after its first
+            // final read. Re-prove transaction continuity and exact storage
+            // after the hook returns so COMMIT/restart or a post-finalize
+            // rewrite cannot be blessed as native success.
+            DeleteGuardEvaluator::assert_transaction_isolation(
+                'native mixed-option post-hook verification'
+            );
+            foreach ($companionWitnesses as $companionName => $companionWitness) {
+                $currentCompanion = $this->lock_option_row(
+                    (string) $companionName,
+                    $lockIndex,
+                    "native option materializer for '$name' companion post-hook verification"
+                );
+                if ($currentCompanion !== $companionWitness) {
+                    throw new \RuntimeException(
+                        "duo: native option materializer for '$name' changed a locked companion option"
+                    );
+                }
+            }
+            $verifiedRow = $this->lock_option_row(
+                $name,
+                $lockIndex,
+                'native mixed-option post-hook raw storage verification'
+            );
+            if ($verifiedRow === null
+                || !hash_equals($finalizedRow['option_name'], $verifiedRow['option_name'])
+                || !hash_equals($finalizedRow['option_value'], $verifiedRow['option_value'])
+                || !hash_equals($finalizedRow['autoload'], $verifiedRow['autoload'])) {
+                throw new \RuntimeException(
+                    "duo: native option materializer for '$name' changed storage after finalization; recovery_required"
+                );
+            }
+            $verifiedValue = PlainData::decode(
+                $verifiedRow['option_value'],
+                "native materialized option '$name'"
+            );
+            if (!is_array($verifiedValue)) {
+                throw new \RuntimeException(
+                    "duo: native option materializer for '$name' did not persist an array-shaped mixed option"
+                );
+            }
+            SubKeyGrammar::assert_closed_value(
+                $name,
+                $rule,
+                $verifiedValue,
+                'native materialized target'
+            );
+            foreach ($materialized as $subKey => $desiredValue) {
+                if (!array_key_exists($subKey, $verifiedValue)
+                    || $verifiedValue[$subKey] !== $desiredValue) {
+                    throw new \RuntimeException(
+                        "duo: native option materializer for '$name' did not persist the exact authored group"
+                    );
+                }
+            }
+            foreach ($subKeys as $subKey => $subRule) {
+                if (($subRule['class'] ?? null) === 'authored'
+                    && !array_key_exists((string) $subKey, $materialized)
+                    && array_key_exists((string) $subKey, $verifiedValue)) {
+                    throw new \RuntimeException(
+                        "duo: native option materializer for '$name' retained an absent authored sibling"
+                    );
+                }
+                if (($subRule['class'] ?? null) === 'authored') {
+                    continue;
+                }
+                $key = (string) $subKey;
+                $wasPresent = array_key_exists($key, $live);
+                $isPresent = array_key_exists($key, $verifiedValue);
+                if ($wasPresent && (!$isPresent || $verifiedValue[$key] !== $live[$key])) {
+                    throw new \RuntimeException(
+                        "duo: native option materializer for '$name' changed a target-owned sibling"
+                    );
+                }
+                if (!$wasPresent && $isPresent && ($subRule['native_default_completion'] ?? null) !== true) {
+                    throw new \RuntimeException(
+                        "duo: native option materializer for '$name' added a target-owned sibling without "
+                        . 'native_default_completion authority'
+                    );
+                }
+            }
             return;
         }
         if ($raw === null) {

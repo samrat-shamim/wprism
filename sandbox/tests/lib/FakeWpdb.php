@@ -82,6 +82,7 @@
  *            <operand> IS [NOT] NULL
  *     operand: column | literal | BINARY <operand> | LENGTH(<operand>)
  *              | OCTET_LENGTH(<operand>) | LEFT(<operand>, <count>)
+ *              | SHA2(<operand>, 256)
  *              | <operand> + - <operand>
  *   INSERT [IGNORE] INTO t (cols) VALUES (...)[, (...)]
  *          [ON DUPLICATE KEY UPDATE col = <expr> ...]   (needs setUniqueKey)
@@ -1606,7 +1607,7 @@ final class FakeWpdb {
             $name,
             [
                 'LENGTH', 'OCTET_LENGTH', 'CHAR_LENGTH', 'LEFT', 'GET_LOCK', 'RELEASE_LOCK', 'IS_FREE_LOCK',
-                'IS_USED_LOCK', 'CONNECTION_ID', 'VERSION',
+                'IS_USED_LOCK', 'CONNECTION_ID', 'VERSION', 'SHA2',
             ],
             true
         )) {
@@ -1836,6 +1837,7 @@ final class FakeWpdb {
         return match ($node['name']) {
             'LENGTH', 'OCTET_LENGTH', 'CHAR_LENGTH' => $args[0] === null ? null : strlen((string) $args[0]),
             'LEFT' => $this->leftFunction($args),
+            'SHA2' => $this->sha2Function($args),
             // Advisory locks are a live-MySQL concern; the fake reports a
             // configurable, deterministic result so the engine's lock branch
             // is exercisable without a server.
@@ -1864,6 +1866,13 @@ final class FakeWpdb {
             throw $this->unsupported('LEFT() invalid UTF-8 input');
         }
         return implode('', array_slice($characters, 0, $args[1]));
+    }
+
+    private function sha2Function(array $args): ?string {
+        if (count($args) !== 2 || $args[1] !== 256) {
+            throw $this->unsupported('SHA2() argument shape');
+        }
+        return $args[0] === null ? null : hash('sha256', (string) $args[0]);
     }
 
     /** GET_LOCK(): records the holder only when the configured result is 1. */

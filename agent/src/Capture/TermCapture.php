@@ -10,6 +10,8 @@ require_once __DIR__ . '/../Grammar/Tokens.php';
 
 /** Builds canonical term entities after the candidate identity pass. */
 final class TermCapture {
+    private const MAX_RELATIONSHIP_TAXONOMIES = 256;
+    private const MAX_TERM_RELATIONSHIPS = 100000;
     public function __construct(
         private Policy $policy,
         private Tokens $tokens,
@@ -67,18 +69,48 @@ final class TermCapture {
         if ($termObjectTaxonomies === []) {
             return [];
         }
-        $in = "'" . implode("','", array_map('esc_sql', $termObjectTaxonomies)) . "'";
+        $taxonomies = $this->relationship_taxonomies($termObjectTaxonomies);
+        $placeholders = implode(',', array_fill(0, count($taxonomies), '%s'));
+        $wpdb->last_error = '';
         $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT tt.taxonomy, tt.term_id FROM {$wpdb->term_relationships} tr
+            "SELECT tr.term_taxonomy_id, tt.taxonomy, tt.term_id FROM {$wpdb->term_relationships} tr
              JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
-             WHERE tr.object_id = %d AND tt.taxonomy IN ($in)",
-            $termId
-        )) ?: [];
+             WHERE tr.object_id = %d AND tt.taxonomy IN ($placeholders)
+             ORDER BY tr.term_taxonomy_id ASC LIMIT " . (self::MAX_TERM_RELATIONSHIPS + 1),
+            $termId,
+            ...$taxonomies
+        ), ARRAY_A);
+        if (!is_array($rows)
+            || !array_is_list($rows)
+            || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException('duo: bounded term-object relationship capture read failed');
+        }
+        if (count($rows) > self::MAX_TERM_RELATIONSHIPS) {
+            throw new \RuntimeException('duo: term-object relationships exceed the bounded row limit');
+        }
         $out = [];
-        foreach ($rows as $row) {
-            $targetUuid = Ledger::uuid_for((int) $row->term_id, Ledger::KIND_TERM);
+        $seen = [];
+        foreach ($rows as $position => $row) {
+            $ttId = is_array($row) ? self::positive_id($row['term_taxonomy_id'] ?? null) : null;
+            $targetId = is_array($row) ? self::positive_id($row['term_id'] ?? null) : null;
+            $taxonomy = is_array($row) ? ($row['taxonomy'] ?? null) : null;
+            if (!is_array($row)
+                || array_keys($row) !== ['term_taxonomy_id', 'taxonomy', 'term_id']
+                || $ttId === null
+                || $targetId === null
+                || !is_string($taxonomy)
+                || !in_array($taxonomy, $taxonomies, true)) {
+                throw new \RuntimeException(
+                    "duo: bounded term-object relationship capture returned a malformed row at position $position"
+                );
+            }
+            if (isset($seen[$ttId])) {
+                throw new \RuntimeException('duo: term-object relationship capture returned a duplicate identity');
+            }
+            $seen[$ttId] = true;
+            $targetUuid = Ledger::uuid_for($targetId, Ledger::KIND_TERM);
             if ($targetUuid !== null) {
-                $out[$row->taxonomy][] = $targetUuid;
+                $out[$taxonomy][] = $targetUuid;
             }
         }
         foreach ($out as &$list) {
@@ -86,6 +118,38 @@ final class TermCapture {
         }
         unset($list);
         return $out;
+    }
+
+    /** @return list<string> */
+    private function relationship_taxonomies(array $taxonomies): array {
+        if (!array_is_list($taxonomies)
+            || $taxonomies === []
+            || count($taxonomies) > self::MAX_RELATIONSHIP_TAXONOMIES) {
+            throw new \RuntimeException('duo: term-object taxonomy scope is malformed or over the bounded limit');
+        }
+        $out = [];
+        foreach ($taxonomies as $taxonomy) {
+            if (!is_string($taxonomy)
+                || preg_match('/^[a-z0-9_-]{1,32}$/D', $taxonomy) !== 1
+                || isset($out[$taxonomy])) {
+                throw new \RuntimeException('duo: term-object taxonomy scope contains an invalid/duplicate name');
+            }
+            $out[$taxonomy] = true;
+        }
+        $out = array_keys($out);
+        sort($out, SORT_STRING);
+        return $out;
+    }
+
+    private static function positive_id(mixed $value): ?int {
+        if (is_int($value) && $value > 0) {
+            return $value;
+        }
+        if (!is_string($value) || preg_match('/^[1-9][0-9]*$/D', $value) !== 1) {
+            return null;
+        }
+        $id = filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        return is_int($id) ? $id : null;
     }
 
     /** @return string|object|array */

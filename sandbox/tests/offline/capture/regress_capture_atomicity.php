@@ -38,6 +38,7 @@ final class CaptureAtomicityFakeWpdb {
     public array $kv = [];
 
     public int $starts = 0;
+    public int $isolationSets = 0;
     public int $commits = 0;
     public int $rollbacks = 0;
     public int $ddlQueries = 0;
@@ -49,6 +50,10 @@ final class CaptureAtomicityFakeWpdb {
     public bool $kvTableExists = true;
     public bool $failStartBeforeOpen = false;
     public bool $failStartAfterOpen = false;
+    public bool $failIsolation = false;
+    public string $sessionIsolation = 'READ-COMMITTED';
+    public ?string $nextIsolation = null;
+    public ?string $activeIsolation = null;
     public ?string $engineAfterStartFailure = null;
     public ?string $commitCheckpointError = null;
     /** @var array<string,string> table name -> storage engine */
@@ -90,6 +95,17 @@ final class CaptureAtomicityFakeWpdb {
         $sql = preg_replace('/\s+/', ' ', trim($sql));
         $this->last_error = '';
 
+        if (strcasecmp($sql, 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ') === 0) {
+            $this->isolationSets++;
+            if ($this->failIsolation) {
+                $this->failIsolation = false;
+                $this->last_error = 'Deadlock found when trying to get lock';
+                return false;
+            }
+            $this->nextIsolation = 'REPEATABLE-READ';
+            return true;
+        }
+
         if (stripos($sql, 'START TRANSACTION') === 0) {
             $this->starts++;
             if ($this->failStartBeforeOpen) {
@@ -101,6 +117,8 @@ final class CaptureAtomicityFakeWpdb {
                 }
                 return false;
             }
+            $this->activeIsolation = $this->nextIsolation ?? $this->sessionIsolation;
+            $this->nextIsolation = null;
             $this->transactionSnapshot = $this->snapshot();
             if ($this->failStartAfterOpen) {
                 $this->failStartAfterOpen = false;
@@ -111,6 +129,7 @@ final class CaptureAtomicityFakeWpdb {
         if (strcasecmp($sql, 'COMMIT') === 0) {
             $this->commits++;
             $this->transactionSnapshot = null;
+            $this->activeIsolation = null;
             if ($this->commitCheckpointError !== null) {
                 $this->last_error = $this->commitCheckpointError;
                 $this->commitCheckpointError = null;
@@ -123,6 +142,7 @@ final class CaptureAtomicityFakeWpdb {
                 $this->restore($this->transactionSnapshot);
             }
             $this->transactionSnapshot = null;
+            $this->activeIsolation = null;
             return true;
         }
 
@@ -343,9 +363,12 @@ assert_capture_atomicity(
     'Capture directly loads its transaction collaborator without bootstrap-order coupling'
 );
 assert_capture_atomicity(
-    str_contains($transactionSource, "Db::query('START TRANSACTION WITH CONSISTENT SNAPSHOT'")
+    str_contains($transactionSource, "'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ'")
+        && str_contains($transactionSource, "Db::query('START TRANSACTION WITH CONSISTENT SNAPSHOT'")
+        && strpos($transactionSource, "'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ'")
+            < strpos($transactionSource, "Db::query('START TRANSACTION WITH CONSISTENT SNAPSHOT'")
         && !str_contains($captureSource, "Db::query('START TRANSACTION WITH CONSISTENT SNAPSHOT'"),
-    'the consistent-read protocol has one implementation owner outside Capture'
+    'the consistent-read protocol pins one-shot repeatable-read isolation immediately before snapshot start'
 );
 $transactionRun = new ReflectionMethod(CaptureTransaction::class, 'run');
 assert_capture_atomicity(
@@ -483,8 +506,14 @@ $invokeConsistentSnapshot = static function (
 // back to core and still receive engine validation before START.
 $wpdb->starts = $wpdb->commits = $wpdb->rollbacks = 0;
 $legacyCallbackRuns = 0;
-$legacyResult = $consistentSnapshot->invoke(null, static function () use (&$legacyCallbackRuns): array {
+$observedCaptureIsolation = null;
+$legacyResult = $consistentSnapshot->invoke(null, static function () use (
+    &$legacyCallbackRuns,
+    &$observedCaptureIsolation,
+    $wpdb
+): array {
     $legacyCallbackRuns++;
+    $observedCaptureIsolation = $wpdb->activeIsolation;
     return ['legacy' => true];
 });
 assert_capture_atomicity(
@@ -494,6 +523,10 @@ assert_capture_atomicity(
 assert_capture_atomicity(
     $wpdb->starts === 1 && $wpdb->commits === 1 && $wpdb->rollbacks === 0,
     'the callback-only facade still runs one validated transaction'
+);
+assert_capture_atomicity(
+    $observedCaptureIsolation === 'REPEATABLE-READ' && $wpdb->isolationSets >= 1,
+    'a READ COMMITTED session is overridden by the one-shot repeatable-read capture boundary'
 );
 
 // The extracted public seam must enforce the same storage-engine precondition

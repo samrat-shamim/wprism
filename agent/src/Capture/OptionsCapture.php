@@ -339,19 +339,20 @@ final class OptionsCapture {
     ): void {
         $row = $this->read_option_row($name);
         if ($row === null) {
-            return;
+            $live = [];
+        } else {
+            $liveCanonicalNames[$name] = true;
+            $live = PlainData::decode($row['option_value'], "option $name");
+            PlainData::assert($live, "option $name");
+            if (!is_array($live)) {
+                throw new \RuntimeException(
+                    "duo: option '$name' declares sub_keys but its live value is not array-shaped (got "
+                    . get_debug_type($live) . ') — sub_keys assumes the option decodes to a plain '
+                    . 'PHP-serialized map (an associative array keyed by sub-key name), not a scalar or object'
+                );
+            }
+            SubKeyGrammar::assert_closed_value($name, $rule, $live, 'source');
         }
-        $liveCanonicalNames[$name] = true;
-        $live = PlainData::decode($row['option_value'], "option $name");
-        PlainData::assert($live, "option $name");
-        if (!is_array($live)) {
-            throw new \RuntimeException(
-                "duo: option '$name' declares sub_keys but its live value is not array-shaped (got "
-                . get_debug_type($live) . ') — sub_keys assumes the option decodes to a plain '
-                . 'PHP-serialized map (an associative array keyed by sub-key name), not a scalar or object'
-            );
-        }
-        SubKeyGrammar::assert_closed_value($name, $rule, $live, 'source');
         $rawAuthored = [];
         foreach ($rule['sub_keys'] ?? [] as $subKey => $subRule) {
             if (($subRule['class'] ?? '') !== 'authored' || !array_key_exists($subKey, $live)) {
@@ -369,6 +370,19 @@ final class OptionsCapture {
             $rule,
             $ruleSource
         );
+        $sourceAutoload = $row['autoload'] ?? ($rule['absent_autoload'] ?? null);
+        if ($row === null && $sourceAutoload === null) {
+            if ($rawAuthored !== []) {
+                throw new \RuntimeException(
+                    "duo: absent mixed option '$name' normalized to authored defaults without an exact "
+                    . 'absent_autoload declaration'
+                );
+            }
+            return;
+        }
+        if (!is_string($sourceAutoload)) {
+            throw new \RuntimeException("duo: mixed option '$name' has no exact capture storage value");
+        }
         $captured = [];
         foreach ($rawAuthored as $subKey => $subVal) {
             $subRule = (array) (($rule['sub_keys'] ?? [])[$subKey] ?? []);
@@ -391,10 +405,11 @@ final class OptionsCapture {
                 $captured[$subKey] = $capturedValue['value'];
             }
         }
-        if ($captured) {
-            OptionState::assert_rule_autoload($rule, $row['autoload'], "option '$name'");
-            $out[$name] = OptionState::present($captured, $row['autoload']);
-        }
+        // A present source blob with no surviving authored siblings is still
+        // authoritative removal intent. Treating [] as absent leaves stale
+        // authored target keys untouched and skips closed-target validation.
+        OptionState::assert_rule_autoload($rule, $sourceAutoload, "option '$name'");
+        $out[$name] = OptionState::present($captured, $sourceAutoload);
     }
 
     /** @return ?array{option_value:string,autoload:string} */
@@ -404,7 +419,9 @@ final class OptionsCapture {
         $wpdb->last_error = '';
         $sizes = $wpdb->get_results($wpdb->prepare(
             'SELECT option_name, OCTET_LENGTH(option_value) AS option_value_bytes, '
-            . "OCTET_LENGTH(autoload) AS autoload_bytes FROM {$wpdb->options} "
+            . 'OCTET_LENGTH(autoload) AS autoload_bytes, '
+            . 'SHA2(option_value, 256) AS option_value_sha256, '
+            . "SHA2(autoload, 256) AS autoload_sha256 FROM {$wpdb->options} "
             . 'WHERE option_name = %s ORDER BY option_id ASC LIMIT 2',
             $name
         ), ARRAY_A);
@@ -422,11 +439,18 @@ final class OptionsCapture {
         $size = $sizes[0];
         $valueBytes = is_array($size) ? self::canonical_size($size['option_value_bytes'] ?? null) : null;
         $autoloadBytes = is_array($size) ? self::canonical_size($size['autoload_bytes'] ?? null) : null;
+        $valueHash = is_array($size) ? self::canonical_sha256($size['option_value_sha256'] ?? null) : null;
+        $autoloadHash = is_array($size) ? self::canonical_sha256($size['autoload_sha256'] ?? null) : null;
         if (!is_array($size)
-            || array_keys($size) !== ['option_name', 'option_value_bytes', 'autoload_bytes']
+            || array_keys($size) !== [
+                'option_name', 'option_value_bytes', 'autoload_bytes',
+                'option_value_sha256', 'autoload_sha256',
+            ]
             || !is_string($size['option_name'] ?? null)
             || $valueBytes === null
             || $autoloadBytes === null
+            || $valueHash === null
+            || $autoloadHash === null
             || $valueBytes > self::MAX_OPTION_VALUE_BYTES
             || $autoloadBytes > 20) {
             throw new \RuntimeException('duo: exact option size preflight returned a malformed or oversized row');
@@ -457,7 +481,9 @@ final class OptionsCapture {
             || !is_string($row['option_value'] ?? null)
             || !is_string($row['autoload'] ?? null)
             || strlen($row['option_value']) !== $valueBytes
-            || strlen($row['autoload']) !== $autoloadBytes) {
+            || strlen($row['autoload']) !== $autoloadBytes
+            || !hash_equals($valueHash, hash('sha256', $row['option_value']))
+            || !hash_equals($autoloadHash, hash('sha256', $row['autoload']))) {
             throw new \RuntimeException('duo: exact option read returned a malformed or oversized row');
         }
         if (!hash_equals($name, $row['option_name'])) {
@@ -576,6 +602,12 @@ final class OptionsCapture {
         }
         $size = filter_var($value, FILTER_VALIDATE_INT);
         return is_int($size) && $size >= 0 ? $size : null;
+    }
+
+    private static function canonical_sha256(mixed $value): ?string {
+        return is_string($value) && preg_match('/^[0-9a-f]{64}$/D', $value) === 1
+            ? $value
+            : null;
     }
 
     private function option_ref_tokens(

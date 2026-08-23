@@ -30,6 +30,7 @@ function wp_cache_delete(...$args): bool {
     $GLOBALS['lifecycle_cache_deletes'][] = $args;
     return true;
 }
+function wp_using_ext_object_cache(): bool { return false; }
 function maybe_serialize($value) {
     return is_array($value) || is_object($value) ? serialize($value) : $value;
 }
@@ -215,7 +216,7 @@ final class LifecycleOptionsFakeWpdb {
             $rows = [];
             foreach ($this->optionRows as $name => $row) {
                 if (strcasecmp($name, $requested) !== 0) continue;
-                $rows[] = [
+                $sizeRow = [
                     'option_name' => $name,
                     'option_value_bytes' => is_string($row['option_value'])
                         ? (string) strlen($row['option_value'])
@@ -224,6 +225,15 @@ final class LifecycleOptionsFakeWpdb {
                         ? (string) strlen($row['autoload'])
                         : 'malformed',
                 ];
+                if (str_contains($sql, 'SHA2(option_value')) {
+                    $sizeRow['option_value_sha256'] = is_string($row['option_value'])
+                        ? hash('sha256', $row['option_value'])
+                        : 'malformed';
+                    $sizeRow['autoload_sha256'] = is_string($row['autoload'])
+                        ? hash('sha256', $row['autoload'])
+                        : 'malformed';
+                }
+                $rows[] = $sizeRow;
             }
             return array_slice($rows, 0, 2);
         }
@@ -403,6 +413,12 @@ final class LifecycleOptionsFakeWpdb {
 
     public function insert($table, $data, $format = null): int {
         $this->writes[] = ['table' => (string) $table, 'data' => $data];
+        if ((string) $table === $this->options && isset($data['option_name'])) {
+            $this->optionRows[(string) $data['option_name']] = [
+                'option_value' => (string) ($data['option_value'] ?? ''),
+                'autoload' => (string) ($data['autoload'] ?? 'no'),
+            ];
+        }
         return 1;
     }
     public function update($table, $data, $where, $format = null, $whereFormat = null): int|false {
@@ -419,7 +435,12 @@ final class LifecycleOptionsFakeWpdb {
         }
         return 1;
     }
-    public function delete($table, $where, $whereFormat = null): int { return 1; }
+    public function delete($table, $where, $whereFormat = null): int {
+        if ((string) $table === $this->options && isset($where['option_name'])) {
+            unset($this->optionRows[(string) $where['option_name']]);
+        }
+        return 1;
+    }
 
     private function unwrap($query): array {
         return is_array($query) && isset($query['sql'])
@@ -605,6 +626,7 @@ $ownedBlobRule = $materializerPolicy->site['policy']['options']['owned_blob'];
 $materializerTokens = new \Duo\Tokens();
 $fieldMaterializer = new \Duo\ApplyFieldMaterializer($materializerPolicy, $materializerTokens);
 $fieldMaterializer->begin_authored_transaction();
+\Duo\CacheInvalidationTransaction::begin();
 $apply = new \Duo\MenuMaterializer($materializerPolicy, $materializerTokens, $fieldMaterializer);
 $assignLocations = new ReflectionMethod(\Duo\MenuMaterializer::class, 'assign_locations');
 // DUO-3347 slice 7: apply_option_sub_keys() moved from Apply onto
@@ -865,6 +887,7 @@ $nativeState = (object) [
     'requested' => 'pll_language_from_content_available',
     'setter_calls' => 0,
     'finalize_storage' => false,
+    'write_primary' => true,
     'delete_before_finalize' => false,
     'transaction_after_setter' => null,
 ];
@@ -879,20 +902,29 @@ $nativeInterpreter = new class ($nativeState) {
         ?array $targetValue,
         Closure $lockTargetOption,
         Closure $finalizeStorage,
-        Closure $restoreStorage
+        Closure $restoreStorage,
+        ?Closure $registerRuntimeRestore = null,
+        ?Closure $writeStorage = null
     ): bool {
+        if ($registerRuntimeRestore === null) {
+            throw new RuntimeException('fixture: missing runtime restore registrar');
+        }
+        $registerRuntimeRestore(static function (): void {});
         $row = $lockTargetOption((string) $this->state->requested);
         if (!is_array($row) || ($row['option_value'] ?? null) !== 'yes') {
             throw new RuntimeException('fixture: exact raw companion marker is not yes');
         }
         ++$this->state->setter_calls;
-        if ($this->state->delete_before_finalize) {
-            global $wpdb;
-            unset($wpdb->optionRows[$name]);
-        }
         if ($this->state->transaction_after_setter !== null) {
             global $wpdb;
             $wpdb->transactionState = $this->state->transaction_after_setter;
+        }
+        if ($this->state->write_primary) {
+            $writeStorage($captured);
+        }
+        if ($this->state->delete_before_finalize) {
+            global $wpdb;
+            unset($wpdb->optionRows[$name]);
         }
         if ($this->state->finalize_storage) {
             $finalizeStorage();
@@ -933,14 +965,23 @@ $invokeNative = static function (string $autoload = 'yes') use (
     $nativeRule
 ): void {
     $warnings = [];
-    $applyOptionSubKeys->invokeArgs($nativeMaterializer, [
-        'native_blob',
-        ['portable' => 'desired'],
-        $nativeRule,
-        'native-lock-owner',
-        $autoload,
-        &$warnings,
-    ]);
+    $nativeMaterializer->begin_authored_transaction();
+    try {
+        $applyOptionSubKeys->invokeArgs($nativeMaterializer, [
+            'native_blob',
+            ['portable' => 'desired'],
+            $nativeRule,
+            'native-lock-owner',
+            $autoload,
+            &$warnings,
+        ]);
+        $nativeMaterializer->commit_authored_transaction();
+    } catch (Throwable $failure) {
+        $nativeMaterializer->rollback_authored_transaction();
+        throw $failure;
+    } finally {
+        $nativeMaterializer->end_authored_transaction();
+    }
 };
 $wpdb->optionRows['native_blob'] = [
     'option_value' => serialize(['portable' => 'old']),
@@ -984,6 +1025,20 @@ foreach ([
 $wpdb->optionRows['pll_language_from_content_available'] = ['option_value' => 'yes', 'autoload' => 'no'];
 $nativeState->setter_calls = 0;
 $wpdb->last_error = '';
+$beforeMissingFinalize = $wpdb->optionRows;
+try {
+    $invokeNative();
+    $missingFinalizeRefused = false;
+} catch (Throwable $failure) {
+    $missingFinalizeRefused = str_contains($failure->getMessage(), 'without exactly one storage finalization');
+    $wpdb->optionRows = $beforeMissingFinalize;
+}
+$check(
+    $missingFinalizeRefused,
+    'native success without an exact engine storage finalization is refused'
+);
+$nativeState->finalize_storage = true;
+$nativeState->setter_calls = 0;
 $invokeNative();
 $check(
     $nativeState->setter_calls === 1,
@@ -1065,7 +1120,6 @@ $check(
 );
 $nativeState->requested = 'pll_language_from_content_available';
 $wpdb->optionRows['pll_language_from_content_available'] = ['option_value' => 'yes', 'autoload' => 'no'];
-$nativeState->finalize_storage = true;
 foreach (\Duo\OptionState::AUTOLOAD_VALUES as $autoloadValue) {
     $wpdb->optionRows['native_blob'] = [
         'option_value' => serialize(['portable' => 'old']),

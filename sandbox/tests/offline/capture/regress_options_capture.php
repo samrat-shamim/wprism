@@ -56,6 +56,7 @@ final class OptionsCaptureFakeWpdb {
     public ?array $exactRowsOverride = null;
     /** @var ?list<mixed> */
     public ?array $discoveryRowsOverride = null;
+    public bool $mutateExactSameLengthAfterPreflight = false;
 
     public function prepare($sql, ...$args): array {
         if (count($args) === 1 && is_array($args[0])) $args = $args[0];
@@ -130,7 +131,7 @@ final class OptionsCaptureFakeWpdb {
                 $row = $this->rows[$name] ?? null;
                 $rows = $row === null ? [] : [['option_name' => $name] + $row];
             }
-            return array_map(static function ($row) {
+            $projected = array_map(static function ($row) {
                 if (!is_array($row)
                     || !array_key_exists('option_name', $row)
                     || !array_key_exists('option_value', $row)
@@ -145,8 +146,22 @@ final class OptionsCaptureFakeWpdb {
                     'autoload_bytes' => is_string($row['autoload'])
                         ? (string) strlen($row['autoload'])
                         : '1',
+                    'option_value_sha256' => is_string($row['option_value'])
+                        ? hash('sha256', $row['option_value'])
+                        : hash('sha256', ''),
+                    'autoload_sha256' => is_string($row['autoload'])
+                        ? hash('sha256', $row['autoload'])
+                        : hash('sha256', ''),
                 ];
             }, $rows);
+            if ($this->mutateExactSameLengthAfterPreflight && isset($this->rows[$name])) {
+                $this->mutateExactSameLengthAfterPreflight = false;
+                $this->rows[$name]['option_value'] = str_repeat(
+                    'X',
+                    strlen($this->rows[$name]['option_value'])
+                );
+            }
+            return $projected;
         }
         if (str_contains($sql, 'option_value, autoload')) {
             if ($this->exactResultMode === 'false') return false;
@@ -294,6 +309,7 @@ $policy->manifests = [[
         'native_blob' => [
             'class' => 'env',
             'autoload' => 'yes',
+            'absent_autoload' => 'yes',
             'closed_sub_keys' => true,
             'sub_keys' => [
                 'existing' => ['class' => 'authored'],
@@ -360,6 +376,8 @@ $result = $capture->capture(
     true
 );
 $records = OptionState::records($result['document']);
+$initialSecretCalls = $secretCalls;
+$initialReads = $wpdb->reads;
 
 $check(
     ($records['plain_setting']['value'] ?? null) === '{{home}}/path'
@@ -389,6 +407,42 @@ $check(
         ],
     'native normalization receives raw authored siblings before every returned/defaulted value crosses the ordinary ref/text capture codec'
 );
+
+$wpdb->rows['blob_setting']['option_value'] = serialize(['runtime_key' => 'source-local']);
+$emptyMixed = OptionState::records($capture->capture(
+    false,
+    false,
+    null,
+    ['active_stylesheet' => 'target']
+)['document']);
+$check(
+    ($emptyMixed['blob_setting']['state'] ?? null) === 'present'
+        && ($emptyMixed['blob_setting']['value'] ?? null) === [],
+    'a present mixed row with zero authored siblings emits explicit empty removal intent'
+);
+$wpdb->rows['blob_setting']['option_value'] = serialize([
+    'authored_key' => 'https://source.test/blob',
+    'unset_ref' => 0,
+    'missing_ref_sentinel' => -1,
+    'runtime_key' => 'local-only',
+]);
+
+$nativeRow = $wpdb->rows['native_blob'];
+unset($wpdb->rows['native_blob']);
+$absentNative = OptionState::records($capture->capture(
+    false,
+    false,
+    null,
+    ['active_stylesheet' => 'target']
+)['document']);
+$check(
+    ($absentNative['native_blob']['state'] ?? null) === 'present'
+        && ($absentNative['native_blob']['autoload'] ?? null) === 'yes'
+        && ($absentNative['native_blob']['value']['added_ref'] ?? null)
+            === '{{post:' . $postUuid . '}}',
+    'an absent native mixed row projects registered defaults with an exact insertion-storage declaration'
+);
+$wpdb->rows['native_blob'] = $nativeRow;
 $check(
     !array_filter($tokens->warnings, static fn(string $warning): bool => str_contains($warning, 'id -1')),
     'negative sub-key no-object sentinels do not emit false unmanaged-id warnings'
@@ -433,7 +487,7 @@ $check(
     'strict observation reports a real unminted option-name row instead of warning it away'
 );
 $check(
-    array_column($secretCalls, 1) === [
+    array_column($initialSecretCalls, 1) === [
         'csv_post_refs',
         'outside_ref',
         'plain_setting',
@@ -445,10 +499,10 @@ $check(
         'theme_mods_target.background_color',
     ],
     'central secret callback runs in deterministic authored-value order before encoding; actual='
-        . json_encode(array_column($secretCalls, 1))
+        . json_encode(array_column($initialSecretCalls, 1))
 );
 $check(
-    count(array_filter($wpdb->reads, static fn(array $r): bool =>
+    count(array_filter($initialReads, static fn(array $r): bool =>
         str_contains($r['sql'], 'SELECT option_name, option_value FROM wp_options')))
         === 1,
     'one complete option-name/value scan feeds namespace and option-name discovery'
@@ -569,6 +623,20 @@ try {
 }
 $check($caseAliasRefused, 'single-row case alias cannot impersonate the exact logical option identity');
 $wpdb->exactRowsOverride = null;
+
+$beforeSameLengthRows = $wpdb->rows;
+$wpdb->mutateExactSameLengthAfterPreflight = true;
+try {
+    $capture->capture(false, false, null, ['active_stylesheet' => 'target']);
+    $sameLengthExactRefused = false;
+} catch (RuntimeException $failure) {
+    $sameLengthExactRefused = str_contains($failure->getMessage(), 'exact option read returned');
+}
+$check(
+    $sameLengthExactRefused,
+    'same-name same-length option rewrites cannot cross the compact/full exact-row witness'
+);
+$wpdb->rows = $beforeSameLengthRows;
 
 foreach (['false', 'null', 'error', 'associative'] as $mode) {
     $wpdb->discoveryResultMode = $mode;

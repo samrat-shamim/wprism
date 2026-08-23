@@ -11,8 +11,14 @@ final class IdentityBackup {
         $compiled = RepositoryCompiler::compile($repo, $policy);
         $tables = self::tables_by_kind($policy);
         global $wpdb;
-        $wpdb->query('START TRANSACTION WITH CONSISTENT SNAPSHOT');
-        self::assert_db('starting identity export snapshot');
+        self::query(
+            'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ',
+            'pinning identity export snapshot isolation'
+        );
+        self::query(
+            'START TRANSACTION WITH CONSISTENT SNAPSHOT',
+            'starting identity export snapshot'
+        );
         try {
             Identity::assert_embedded_unique();
             Ledger::prune_dead_map();
@@ -77,8 +83,14 @@ final class IdentityBackup {
             }
         }
         global $wpdb;
-        $wpdb->query('START TRANSACTION WITH CONSISTENT SNAPSHOT');
-        self::assert_db('starting identity import transaction');
+        self::query(
+            'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ',
+            'pinning identity import snapshot isolation'
+        );
+        self::query(
+            'START TRANSACTION WITH CONSISTENT SNAPSHOT',
+            'starting identity import transaction'
+        );
         try {
             Identity::assert_embedded_unique();
             $maps = self::validate_maps($artifact['maps'] ?? null, self::tables_by_kind($policy));
@@ -348,6 +360,15 @@ final class IdentityBackup {
         global $wpdb;
         if ($wpdb->last_error) {
             throw new \RuntimeException("duo: database error while $action: {$wpdb->last_error}");
+        }
+    }
+
+    /** Checked transaction-control query without leaking driver SQL/value text. */
+    private static function query(string $sql, string $action): void {
+        global $wpdb;
+        $wpdb->last_error = '';
+        if ($wpdb->query($sql) === false || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException("duo: database error while $action");
         }
     }
 }

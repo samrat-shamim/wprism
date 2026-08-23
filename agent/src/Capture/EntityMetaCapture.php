@@ -93,9 +93,15 @@ final class EntityMetaCapture {
         int $ownerId,
         string $purpose
     ): array {
-        $rows = MetaRows::ordered($table, $ownerColumn, $ownerId, 'meta_id', $purpose);
-        ($this->checkpointObservationRead)();
-        return $rows;
+        return MetaRows::ordered(
+            $table,
+            $ownerColumn,
+            $ownerId,
+            'meta_id',
+            $purpose,
+            null,
+            $this->checkpointObservationRead
+        );
     }
 
     /**

@@ -86,7 +86,9 @@ final class CaptureCandidateBuilder {
             function (string $section, string $key, $value, array $rule, string $context): void {
                 $this->safetyGates->guardSecret($section, $key, $value, $rule, $context);
             },
-            static function (): void {},
+            static function (string $where): void {
+                CaptureTransaction::check_transient_db_error($where);
+            },
             function (string $finding): void {
                 $this->unclassified[] = $finding;
             }
