@@ -441,7 +441,8 @@ pass 'provider schema drift preserves post-commit intent, retains authority, and
 # Scalar post-meta and structured option sub-key absence are ordinary updates,
 # not whole-entity tombstones. Prove those native reads first, then remove an
 # independently authored Yoast-bearing page and its list reference: that second
-# commit must require deletion authority and drive the reindex after removal.
+# commit must withhold only the tombstone without deletion authority, preserve
+# the converged non-destructive update, and drive reindex after authorization.
 wp_conf1 eval '
   $post=get_page_by_path("conformance-yoast-post",OBJECT,"post");
   delete_post_meta($post->ID,"_yoast_wpseo_bctitle");
@@ -468,13 +469,17 @@ wp_conf1 eval '
   if (!wp_delete_post($remove,true)) throw new RuntimeException("Yoast deletion fixture page was not removed");
 ' >/dev/null
 commit_yoast_source 'conformance: Yoast whole-post deletion intent'
-DELETE_BEFORE=$(yoast_target_hash)
-DELETE_RC=0
-DELETE_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || DELETE_RC=$?
-require_duo_answered 'Yoast whole-post deletion without authority' human "$DELETE_OUT"
-[ "$DELETE_RC" -ne 0 ] && grep -Eqi 'delete|with-deletes|deletion' <<<"$DELETE_OUT" \
-  || fail "Yoast whole-post deletion did not require explicit authority: $DELETE_OUT"
-[ "$(yoast_target_hash)" = "$DELETE_BEFORE" ] || fail 'Yoast unauthorized whole-post deletion partially mutated target state'
+WITHHELD=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1)
+require_duo_answered 'Yoast whole-post deletion withheld without authority' human "$WITHHELD"
+grep -q 'planned deletions NOT applied (1)' <<<"$WITHHELD" \
+  && grep -q -- '--with-deletes' <<<"$WITHHELD" \
+  && grep -q 'canary clean' <<<"$WITHHELD" \
+  || fail "Yoast whole-post deletion was not explicitly withheld from the otherwise clean apply: $WITHHELD"
+[ "$(wp_conf2 post list --post_type=page --name=conformance-included-b --format=count)" = 1 ] \
+  || fail 'Yoast whole-post deletion ran without explicit authority'
+WITHHELD_OBSERVED=$(observe_yoast conf2)
+jq -e '(.llms.included | length) == 1 and .derived.invalid_hierarchy == 0 and .derived.invalid_links == 0' <<<"$WITHHELD_OBSERVED" >/dev/null \
+  || fail "Yoast non-destructive state did not converge while its tombstone was withheld: $WITHHELD_OBSERVED"
 DELETED=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
 require_duo_answered 'Yoast authorized whole-post deletion apply' json "$DELETED"
 jq -e '.canary == "clean" and .verification.result == "pass" and (.plan.delete + .plan.deleted) > 0' <<<"$DELETED" >/dev/null \
@@ -484,7 +489,7 @@ jq -e '.canary == "clean" and .verification.result == "pass" and (.plan.delete +
 DELETE_OBSERVED=$(observe_yoast conf2)
 jq -e '(.llms.included | length) == 1 and .derived.main_primary == 1 and .derived.invalid_hierarchy == 0 and .derived.invalid_links == 0' <<<"$DELETE_OBSERVED" >/dev/null \
   || fail "Yoast native APIs or derived projections did not consume the authorized whole-post deletion: $DELETE_OBSERVED"
-pass 'a Yoast-bearing post deletion refuses without authority, then converges with verified reindex'
+pass 'a Yoast-bearing post tombstone is withheld without authority, then converges with verified reindex'
 
 # Two real processes race one new intent. One may complete and one may observe
 # no work or refuse at the named lock; final native state and plan must be exact.
