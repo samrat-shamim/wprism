@@ -526,13 +526,14 @@ jq -e '
 ' <<<"$CONVERGED" >/dev/null || fail "Ninja Forms forced conflict crossed a runtime/cache boundary: $CONVERGED"
 pass 'dirty native-model conflicts refuse atomically; explicit force preserves target runtime boundaries'
 
-# Inject a real post-commit provider failure. A target legacy cache forces the
-# fresh child through delete_option(); a trigger rejects that delete, so the
-# native child exits after entering its mutation path. Applied revision stays
-# behind with retry authority; repairing only the trigger must converge.
+# Inject a real post-commit provider failure. An orphan legacy cache avoids the
+# authored form row's generic pre-provider invalidation, then forces the fresh
+# child through delete_option(); a trigger rejects that delete after the
+# transaction commits. Applied revision stays behind with retry authority;
+# repairing only the trigger must converge.
 ninja_set_form_title conf1 "$SOURCE_FORM_ID" 'Provider recovery Ninja title 東京 🚀'
 commit_ninja_source 'conformance: Ninja Forms provider-fault recovery intent'
-wp_conf2 eval "update_option('nf_form_${CONF2_FORM_ID}', ['stale'=>'legacy target cache'], false);" >/dev/null
+wp_conf2 eval "update_option('nf_form_999999', ['stale'=>'legacy target cache'], false);" >/dev/null
 wp_conf2 db query \
   "DROP TRIGGER IF EXISTS wp_duo_nf_legacy_fail; CREATE TRIGGER wp_duo_nf_legacy_fail BEFORE DELETE ON wp_options FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='duo injected Ninja legacy cache delete failure'" >/dev/null
 FAILURE_REV_BEFORE=$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')
