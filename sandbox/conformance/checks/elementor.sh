@@ -650,13 +650,29 @@ wp_conf2 plugin install "$ELEMENTOR_ARTIFACT" --force >/dev/null
 [ "$(wp_conf2 plugin get elementor --field=version)" = 4.2.3 ] || fail 'Elementor exact reinstall reported wrong version'
 REINSTALL_DEPLOY=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 require_duo_answered 'Elementor deploy after exact reinstall' json "$REINSTALL_DEPLOY"
-REINSTALL_APPLY=$(wp_conf2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Elementor apply after exact reinstall' json "$REINSTALL_APPLY"
-jq -e '.canary == "clean" and .verification.result == "pass"' <<<"$REINSTALL_APPLY" >/dev/null \
-  || fail "Elementor exact reinstall did not recover canonical state: $REINSTALL_APPLY"
+REINSTALL_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered 'Elementor plan after exact reinstall' json "$REINSTALL_PLAN"
+jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$REINSTALL_PLAN" >/dev/null \
+  || fail "Elementor uninstall unexpectedly removed repository-owned authored state: $REINSTALL_PLAN"
+LAZY_FRONT=$(curl -fsSL "http://localhost:${CONF2_PORT}/duo-conformance-elementor-page/") \
+  || fail 'Elementor exact reinstall did not lazily render retained document data'
+grep -Fq 'Repository competing Elementor heading 東京 🚀' <<<"$LAZY_FRONT" \
+  || fail 'Elementor exact reinstall did not consume retained document data through its native lazy path'
+
+# Uninstall legitimately removes derived CSS receipts, and a zero-change apply
+# does not fire a trigger-bounded provider. Publish one ordinary authored
+# revision; that next real promotion must rebuild the complete projection.
+wp_conf1 post update "$SOURCE_CLASSIC" --post_title='Post-reinstall Elementor recovery 東京 🚀' >/dev/null
+commit_elementor_source 'conformance: Elementor post-reinstall recovery intent'
+REINSTALL_APPLY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered 'Elementor authored apply after exact reinstall' json "$REINSTALL_APPLY"
+jq -e '
+  .canary == "clean" and .verification.result == "pass" and .applied >= 1 and
+  any(.actions[]?; .source == "provider:elementor-css/regenerate_css" and .verified == true)
+' <<<"$REINSTALL_APPLY" >/dev/null || fail "Elementor next authored revision did not recover derived state: $REINSTALL_APPLY"
 RECOVERED=$(observe_elementor conf2)
 jq -e '
-  .version == "4.2.3" and .classic.post_title == "Concurrent Elementor intent 東京 🚀" and
+  .version == "4.2.3" and .classic.post_title == "Post-reinstall Elementor recovery 東京 🚀" and
   .classic.first_heading == "Repository competing Elementor heading 東京 🚀" and .kit.fonts == null and
   .ids.deletion == 0 and .derived.invalid_receipts == 0 and .derived.missing == [] and
   .derived.unexpected_empty == [] and .derived.orphan == [] and .derived.render_caches == 0
