@@ -15,6 +15,52 @@ require_once __DIR__ . '/../../../../manifests/interpreters/woocommerce.php';
 use Duo\Interpreters\Woocommerce;
 use Duo\Policy;
 
+$GLOBALS['wooReadinessBlogId'] = 1;
+$GLOBALS['wooReadinessNativeUrlCalls'] = [];
+$GLOBALS['wooReadinessNativeTextCalls'] = [];
+if (!function_exists('get_current_blog_id')) {
+    function get_current_blog_id(): int {
+        return (int) ($GLOBALS['wooReadinessBlogId'] ?? 1);
+    }
+}
+if (!function_exists('esc_url_raw')) {
+    function esc_url_raw(string $url, ?array $protocols = null): string {
+        $GLOBALS['wooReadinessNativeUrlCalls'][] = [$url, $protocols];
+        if ($url === '') {
+            return '';
+        }
+        $url = str_replace(' ', '%20', ltrim($url));
+        $url = (string) preg_replace("~[^a-z0-9\-+_.?#=!&;,/:%@$|*'()\[\]\\x80-\\xff]~i", '', $url);
+        do {
+            $before = $url;
+            $url = str_ireplace(['%0d', '%0a'], '', $url);
+        } while ($url !== $before);
+        $url = str_replace(';//', '://', $url);
+        return str_replace(['[', ']'], ['%5B', '%5D'], $url);
+    }
+}
+if (!function_exists('sanitize_text_field')) {
+    function sanitize_text_field(string $value): string {
+        $GLOBALS['wooReadinessNativeTextCalls'][] = $value;
+        $value = strip_tags($value);
+        $value = (string) preg_replace('/[\r\n\t ]+/', ' ', $value);
+        $value = trim($value);
+        do {
+            $before = $value;
+            $value = (string) preg_replace('/%[a-f0-9]{2}/i', '', $value);
+        } while ($value !== $before);
+        return trim((string) preg_replace('/ +/', ' ', $value));
+    }
+}
+
+final class WooReadinessWpdb {
+    public function get_blog_prefix(int $blogId): string {
+        return $blogId === 1 ? 'wp_' : "wp_{$blogId}_";
+    }
+}
+
+$GLOBALS['wpdb'] = new WooReadinessWpdb();
+
 /** @return array<string,mixed> */
 function woo_readiness_attribute(array $changes = []): array {
     return array_replace([
@@ -54,6 +100,65 @@ function woo_readiness_diagnostics(
     string $metaKey = '_product_attributes'
 ): array {
     return $interpreter->repository_diagnostics([woo_readiness_entity($value, $type, $metaKey)]);
+}
+
+/** @return array<string,mixed> */
+function woo_readiness_term_entity(string $taxonomy, array $meta): array {
+    return [
+        'type' => 'term',
+        'path' => "state/terms/$taxonomy/22222222-2222-4222-8222-222222222222--term.json",
+        'data' => [
+            'taxonomy' => $taxonomy,
+            'uuid' => '22222222-2222-4222-8222-222222222222',
+            'slug' => 'portable-term',
+            'name' => 'Portable 東京 term',
+            'meta' => $meta,
+        ],
+    ];
+}
+
+/** @return list<array<string,mixed>> */
+function woo_readiness_term_diagnostics(
+    Woocommerce $interpreter,
+    string $taxonomy,
+    array $meta,
+    array $relatedPosts = []
+): array {
+    return $interpreter->repository_diagnostics(array_merge(
+        [woo_readiness_term_entity($taxonomy, $meta)],
+        $relatedPosts
+    ));
+}
+
+/** @return array<string,mixed> */
+function woo_readiness_post_entity(
+    string $uuid,
+    string $type = 'attachment',
+    string $mime = 'image/png',
+    string $file = '2030/01/portable.png'
+): array {
+    return [
+        'type' => 'post',
+        'path' => "state/posts/$type/$uuid--portable.md",
+        'data' => [
+            'type' => $type,
+            'uuid' => $uuid,
+            'slug' => 'portable',
+            'mime' => $mime,
+            'file' => $file,
+            'meta' => [],
+        ],
+        'body' => '',
+    ];
+}
+
+/** @return list<array<string,mixed>> */
+function woo_readiness_option_diagnostics(Woocommerce $interpreter, array $records): array {
+    return $interpreter->repository_diagnostics([[
+        'type' => 'options',
+        'path' => 'state/options/woocommerce.json',
+        'data' => ['records' => $records],
+    ]]);
 }
 
 /** @return list<string> */
@@ -98,6 +203,104 @@ duo_check_same(
     'download rows use recursive plain-data URL rebinding rather than opaque serialized passthrough'
 );
 duo_check_same(null, $interpreter->post_meta_rule('_sku', []), 'unrelated WooCommerce meta defers to ordinary policy');
+foreach (['_button_text', '_cogs_total_value', '_cogs_value_is_additive', '_product_url'] as $metaKey) {
+    duo_check_same(
+        ['class' => 'authored'],
+        $interpreter->post_meta_rule($metaKey, []),
+        "$metaKey is a reviewed exact WooCommerce 11.0.x authored product field"
+    );
+}
+duo_check_same(
+    null,
+    $interpreter->post_meta_rule('_wc_additional_variation_images', []),
+    'an active extension-owned variation gallery row remains loudly unclassified'
+);
+duo_check_same(
+    ['class' => 'env'],
+    $interpreter->post_meta_rule('_wc_additional_variation_images', [
+        '_wc_variation_gallery_legacy_fallback_disabled' => 'yes',
+    ]),
+    'the exact core migration sentinel proves a residual legacy gallery row is inert and nonportable'
+);
+foreach (['no', 'YES', '', true, 1, ['yes']] as $hostileSentinel) {
+    duo_check_same(
+        null,
+        $interpreter->post_meta_rule('_wc_additional_variation_images', [
+            '_wc_variation_gallery_legacy_fallback_disabled' => $hostileSentinel,
+        ]),
+        'malformed or stale variation-gallery sentinels cannot hide populated extension residue'
+    );
+}
+
+foreach (['color', 'display_type', 'icon', 'order', 'tracking_url_template'] as $metaKey) {
+    duo_check_same(
+        ['class' => 'authored'],
+        $interpreter->term_meta_rule($metaKey, []),
+        "$metaKey is an exact WooCommerce-authored term field"
+    );
+}
+duo_check_same(
+    ['class' => 'authored', 'ref' => 'post'],
+    $interpreter->term_meta_rule('image', []),
+    'visual attribute images cross the attachment ledger instead of copying a source id'
+);
+duo_check_same(
+    ['class' => 'derived'],
+    $interpreter->term_meta_rule('product_ids', []),
+    'Woo product_ids term cache is derived'
+);
+foreach (['product_cat', 'product_tag', 'product_brand'] as $countedTaxonomy) {
+    duo_check_same(
+        ['class' => 'derived'],
+        $interpreter->term_meta_rule("product_count_$countedTaxonomy", []),
+        "Woo's exact _wc_term_recount cache for $countedTaxonomy is derived"
+    );
+}
+foreach (['product_count_', 'product_count_pa_color', 'product_count_product', 'product_count_product_cat_extra'] as $nearMiss) {
+    duo_check_same(
+        null,
+        $interpreter->term_meta_rule($nearMiss, []),
+        "$nearMiss is outside Woo core's exact _wc_term_recount key inventory"
+    );
+}
+duo_check_same(
+    null,
+    $policy->meta_rule_for_post('product_count_product_cat', []),
+    'an identically named post-meta row remains unknown instead of inheriting the term-only derived ruling'
+);
+foreach (['auto_fulfill_downloadable', 'auto_fulfill_virtual'] as $optionName) {
+    duo_check_same(
+        ['class' => 'authored', 'autoload' => 'preserve'],
+        $interpreter->option_rule($optionName, []),
+        "$optionName uses the reviewed exact authored option rule"
+    );
+}
+duo_check_same(
+    ['class' => 'runtime'],
+    $interpreter->user_meta_rule('wc_push_notification_preferences_wp', []),
+    'the single-site/blog-1 suffix used by Woo remains target-local device state'
+);
+$GLOBALS['wooReadinessBlogId'] = 7;
+duo_check_same(
+    ['class' => 'runtime'],
+    $interpreter->user_meta_rule('wc_push_notification_preferences_wp_7', []),
+    'the exact current multisite-blog suffix remains target-local device state'
+);
+foreach ([
+    'wc_push_notification_preferences_wp',
+    'wc_push_notification_preferences_wp_8',
+    'wc_push_notification_preferences_arbitrary',
+    'wp_7_wc_push_notification_preferences',
+    'wc_push_notification_preferences',
+] as $foreignKey) {
+    duo_check_same(
+        null,
+        $interpreter->user_meta_rule($foreignKey, []),
+        "$foreignKey cannot claim another site's or an extension's user metadata"
+    );
+}
+$GLOBALS['wooReadinessBlogId'] = 1;
+duo_check_same(null, $interpreter->user_meta_rule('customer_preferences', []), 'unrelated user metadata remains unclaimed');
 
 $global = ['pa_duo-size' => woo_readiness_attribute()];
 duo_check_same([], woo_readiness_diagnostics($interpreter, $global), 'the exact WooCommerce 11.x global-attribute row is clean');
@@ -202,6 +405,237 @@ woo_readiness_reports(
     'unsupported addon-owned field(s): addon_checksum',
     'product',
     '_downloadable_files'
+);
+
+duo_check_same(
+    [],
+    woo_readiness_diagnostics(
+        $interpreter,
+        '{{home}}/partner/東京?campaign=summer#buy',
+        'product',
+        '_product_url'
+    ),
+    'an internal external-product URL is tokenized and portable'
+);
+duo_check_same(
+    [],
+    woo_readiness_diagnostics(
+        $interpreter,
+        'https://merchant.example/products/尺寸?campaign=summer',
+        'product',
+        '_product_url'
+    ),
+    'a third-party HTTPS external-product URL remains supported'
+);
+duo_check_same(
+    [],
+    woo_readiness_diagnostics($interpreter, 'اشتر الآن — 東京', 'product', '_button_text'),
+    'external-product button text preserves bounded Unicode and RTL content'
+);
+woo_readiness_reports($interpreter, '', 'must be non-empty', 'product', '_product_url');
+woo_readiness_reports($interpreter, 7, 'must be a string', 'product', '_product_url');
+woo_readiness_reports($interpreter, 'ftp://merchant.example/file', 'HTTP or HTTPS', 'product', '_product_url');
+woo_readiness_reports($interpreter, 'https://user:pass@merchant.example/file', 'without credentials', 'product', '_product_url');
+woo_readiness_reports($interpreter, "https://merchant.example/a\x01b", 'without controls', 'product', '_product_url');
+woo_readiness_reports($interpreter, 'https://merchant.example/' . str_repeat('x', 8193), 'at most 8192 bytes', 'product', '_product_url');
+woo_readiness_reports(
+    $interpreter,
+    'https://merchant.example/item[raw]',
+    'must already equal the exact native WordPress URL-sanitized bytes',
+    'product',
+    '_product_url'
+);
+woo_readiness_reports($interpreter, 'https://merchant.example/item', 'valid only on product entities', 'product_variation', '_product_url');
+woo_readiness_reports($interpreter, ['not' => 'text'], 'must be a string', 'product', '_button_text');
+woo_readiness_reports($interpreter, "Buy\x00Now", 'without controls', 'product', '_button_text');
+woo_readiness_reports($interpreter, "Buy\xFFNow", 'valid UTF-8', 'product', '_button_text');
+woo_readiness_reports($interpreter, str_repeat('x', 4097), 'at most 4096 bytes', 'product', '_button_text');
+foreach ([' Buy now ', '<b>Buy now</b>', 'Buy%20now'] as $nonCanonicalButton) {
+    woo_readiness_reports(
+        $interpreter,
+        $nonCanonicalButton,
+        'must already equal the exact native WordPress text-sanitized bytes',
+        'product',
+        '_button_text'
+    );
+}
+duo_check(
+    $GLOBALS['wooReadinessNativeUrlCalls'] !== [] && $GLOBALS['wooReadinessNativeTextCalls'] !== [],
+    'repository validation executes the native URL and text canonicalization boundaries'
+);
+
+foreach (['-0.2500', '123456789012345.9999'] as $cogsValue) {
+    duo_check_same(
+        [],
+        woo_readiness_diagnostics($interpreter, $cogsValue, 'product', '_cogs_total_value'),
+        "native DECIMAL(19,4) Cost of Goods value $cogsValue is portable"
+    );
+}
+duo_check_same(
+    [],
+    woo_readiness_diagnostics($interpreter, '0', 'product_variation', '_cogs_total_value'),
+    'variation Cost of Goods preserves an explicit zero because its native setter disables base-product normalization'
+);
+woo_readiness_reports(
+    $interpreter,
+    '0.0000',
+    'zero must be represented by metadata absence',
+    'product',
+    '_cogs_total_value'
+);
+duo_check_same(
+    [],
+    $interpreter->repository_diagnostics([woo_readiness_entity(
+        '2.5000',
+        'product_variation',
+        '_cogs_total_value'
+    ), woo_readiness_entity('yes', 'product_variation', '_cogs_value_is_additive')]),
+    'variation Cost of Goods value and additive inheritance marker are jointly valid'
+);
+woo_readiness_reports($interpreter, '01.00', 'DECIMAL(19,4)', 'product', '_cogs_total_value');
+woo_readiness_reports($interpreter, '1e3', 'DECIMAL(19,4)', 'product', '_cogs_total_value');
+woo_readiness_reports($interpreter, '1.00000', 'DECIMAL(19,4)', 'product', '_cogs_total_value');
+woo_readiness_reports($interpreter, '1234567890123456', 'DECIMAL(19,4)', 'product', '_cogs_total_value');
+woo_readiness_reports($interpreter, 1.25, 'DECIMAL(19,4)', 'product', '_cogs_total_value');
+woo_readiness_reports($interpreter, '4.00', 'valid only on product or product_variation', 'shop_coupon', '_cogs_total_value');
+woo_readiness_reports($interpreter, 'no', "must be exact 'yes'", 'product_variation', '_cogs_value_is_additive');
+woo_readiness_reports($interpreter, true, "must be exact 'yes'", 'product_variation', '_cogs_value_is_additive');
+woo_readiness_reports($interpreter, 'yes', 'valid only on product_variation', 'product', '_cogs_value_is_additive');
+$cogsMarker = 'secret_cogs_marker_DO_NOT_ECHO';
+$cogsMarkerDiagnostics = woo_readiness_diagnostics($interpreter, $cogsMarker, 'product', '_cogs_total_value');
+duo_check(
+    $cogsMarkerDiagnostics !== []
+        && !str_contains(implode(' | ', woo_readiness_messages($cogsMarkerDiagnostics)), $cogsMarker),
+    'malformed Cost of Goods diagnostics never echo merchant-shaped input'
+);
+
+duo_check_same(
+    [],
+    woo_readiness_term_diagnostics($interpreter, 'product_cat', [
+        'display_type' => 'both',
+        'order' => '2147483647',
+        'thumbnail_id' => '{{post:33333333-3333-4333-8333-333333333333}}',
+    ], [woo_readiness_post_entity('33333333-3333-4333-8333-333333333333')]),
+    'product category display, order, and divergent attachment reference are valid together'
+);
+duo_check_same(
+    [],
+    woo_readiness_term_diagnostics($interpreter, 'product_brand', [
+        'thumbnail_id' => '{{post:44444444-4444-4444-8444-444444444444}}',
+    ], [woo_readiness_post_entity('44444444-4444-4444-8444-444444444444')]),
+    'core brand thumbnails use the same attachment-ledger boundary'
+);
+duo_check_same(
+    [],
+    woo_readiness_term_diagnostics($interpreter, 'pa_尺寸', ['color' => '#A1b2C3', 'order' => '0']),
+    'visual multibyte global attributes preserve exact native color and ordering'
+);
+duo_check_same(
+    [],
+    woo_readiness_term_diagnostics($interpreter, 'pa_尺寸', [
+        'image' => '{{post:55555555-5555-4555-8555-555555555555}}',
+    ], [woo_readiness_post_entity('55555555-5555-4555-8555-555555555555')]),
+    'visual attribute image mode preserves a divergent attachment identity'
+);
+duo_check_same(
+    [],
+    woo_readiness_term_diagnostics($interpreter, 'pa_尺寸', []),
+    'removing both visual rows is the exact native none-state transition'
+);
+foreach ([
+    [[], 'a missing/deleted image attachment'],
+    [[woo_readiness_post_entity('55555555-5555-4555-8555-555555555555', 'page', '', '')], 'a non-attachment post'],
+    [[woo_readiness_post_entity('55555555-5555-4555-8555-555555555555', 'attachment', 'application/pdf', '2030/01/file.pdf')], 'a non-image attachment'],
+] as [$relatedPosts, $description]) {
+    $imageDiagnostics = woo_readiness_term_diagnostics($interpreter, 'pa_尺寸', [
+        'image' => '{{post:55555555-5555-4555-8555-555555555555}}',
+    ], $relatedPosts);
+    duo_check(
+        $imageDiagnostics !== []
+            && str_contains(implode(' | ', woo_readiness_messages($imageDiagnostics)), 'live image attachment'),
+        "$description cannot satisfy Woo's wp_attachment_is_image semantic boundary"
+    );
+}
+duo_check_same(
+    [],
+    woo_readiness_term_diagnostics($interpreter, 'wc_fulfillment_shipping_provider', [
+        'tracking_url_template' => 'https://carrier.example/track?id=__PLACEHOLDER__',
+        'icon' => '{{uploads}}/2030/01/carrier-icon.png',
+    ]),
+    'custom fulfillment providers preserve portable native HTTP URL fields'
+);
+foreach ([
+    '' => 'an empty native tracking template remains a supported absence value',
+    'https://carrier.example/track' => 'a tracking template need not contain a placeholder',
+    'https://carrier.example/track?a=__PLACEHOLDER__&b=__PLACEHOLDER__' => 'native replacement permits multiple placeholder occurrences',
+    'https://carrier.example/track/%E6%9D%B1%E4%BA%AC?literal=100%25' => 'percent-encoded Unicode and percent data follow the native URL filter',
+] as $trackingTemplate => $message) {
+    duo_check_same(
+        [],
+        woo_readiness_term_diagnostics($interpreter, 'wc_fulfillment_shipping_provider', [
+            'tracking_url_template' => $trackingTemplate,
+        ]),
+        $message
+    );
+}
+
+$termCases = [
+    ['category', ['display_type' => 'both'], 'valid only on product_cat'],
+    ['product_cat', ['display_type' => 'grid'], 'must be default, products, subcategories, or both'],
+    ['product_cat', ['order' => '01'], 'canonical non-negative 32-bit'],
+    ['product_cat', ['order' => '2147483648'], 'canonical non-negative 32-bit'],
+    ['product_cat', ['color' => '#abc'], 'valid only on global product attribute'],
+    ['pa_color', ['color' => 'red'], 'exact three- or six-digit hex'],
+    ['pa_color', ['color' => '#abc', 'image' => '{{post:55555555-5555-4555-8555-555555555555}}'], 'mutually exclusive'],
+    ['product_brand', ['order' => '1'], 'valid only on product_cat or global product attribute'],
+    ['product_tag', ['thumbnail_id' => '{{post:55555555-5555-4555-8555-555555555555}}'], 'valid only on product_cat or product_brand'],
+    ['wc_fulfillment_shipping_provider', ['icon' => 'javascript:alert(1)'], 'HTTP or HTTPS'],
+    ['wc_fulfillment_shipping_provider', ['tracking_url_template' => 'https://user:secret@carrier.example/t'], 'without credentials'],
+    ['wc_fulfillment_shipping_provider', ['tracking_url_template' => 'https://carrier.example/追跡'], 'HTTP or HTTPS'],
+    ['wc_fulfillment_shipping_provider', ['icon' => 'https://carrier.example/icon[raw].png'], 'native WordPress URL-sanitized bytes'],
+    ['product_cat', ['tracking_url_template' => 'https://carrier.example/t'], 'valid only on wc_fulfillment_shipping_provider'],
+];
+foreach ($termCases as [$taxonomy, $meta, $fragment]) {
+    $diagnostics = woo_readiness_term_diagnostics($interpreter, $taxonomy, $meta);
+    duo_check(
+        $diagnostics !== [] && str_contains(implode(' | ', woo_readiness_messages($diagnostics)), $fragment),
+        "malformed $taxonomy term state refuses with a bounded diagnostic: $fragment"
+    );
+}
+$termSecret = 'https://user:term_secret_marker_DO_NOT_ECHO@carrier.example/t';
+$termSecretDiagnostics = woo_readiness_term_diagnostics(
+    $interpreter,
+    'wc_fulfillment_shipping_provider',
+    ['tracking_url_template' => $termSecret]
+);
+duo_check(
+    $termSecretDiagnostics !== []
+        && !str_contains(implode(' | ', woo_readiness_messages($termSecretDiagnostics)), 'term_secret_marker_DO_NOT_ECHO'),
+    'fulfillment URL refusal never echoes embedded credential-shaped bytes'
+);
+
+duo_check_same(
+    [],
+    woo_readiness_option_diagnostics($interpreter, [
+        'auto_fulfill_downloadable' => ['state' => 'present', 'value' => 'yes'],
+        'auto_fulfill_virtual' => ['state' => 'present', 'value' => 'no'],
+    ]),
+    'both native automatic-fulfillment settings accept exact yes/no states'
+);
+duo_check_same(
+    [],
+    woo_readiness_option_diagnostics($interpreter, [
+        'auto_fulfill_downloadable' => ['state' => 'deleted'],
+    ]),
+    'automatic-fulfillment option deletion remains portable'
+);
+$badFulfillmentOption = woo_readiness_option_diagnostics($interpreter, [
+    'auto_fulfill_virtual' => ['state' => 'present', 'value' => true],
+]);
+duo_check(
+    $badFulfillmentOption !== []
+        && str_contains(implode(' | ', woo_readiness_messages($badFulfillmentOption)), 'must be exact yes or no'),
+    'malformed automatic-fulfillment option state refuses'
 );
 woo_readiness_reports(
     $interpreter,

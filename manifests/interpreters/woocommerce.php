@@ -33,50 +33,519 @@ final class Woocommerce {
         'enabled',
     ];
 
+    private const HANDLED_POST_META = [
+        '_button_text',
+        '_cogs_total_value',
+        '_cogs_value_is_additive',
+        '_downloadable_files',
+        '_product_attributes',
+        '_product_url',
+    ];
+
+    private const HANDLED_TERM_META = [
+        'color',
+        'display_type',
+        'icon',
+        'image',
+        'order',
+        'product_ids',
+        'thumbnail_id',
+        'tracking_url_template',
+    ];
+
+    private const FULFILLMENT_OPTIONS = [
+        'auto_fulfill_downloadable',
+        'auto_fulfill_virtual',
+    ];
+
     public function __construct(private readonly Policy $policy) {}
 
     public function post_meta_rule(string $key, array $allMeta): ?array {
-        if (!in_array($key, ['_downloadable_files', '_product_attributes'], true)) {
+        // Woo 11's optional Variation Gallery consumes the legacy extension
+        // row only until its core migration sentinel is present. Excluding the
+        // inert residue is safe; a populated unsentinelled row remains
+        // deliberately unclassified so capture refuses before copying an
+        // extension-owned attachment schema under the core adapter claim.
+        if ($key === '_wc_additional_variation_images') {
+            return ($allMeta['_wc_variation_gallery_legacy_fallback_disabled'] ?? null) === 'yes'
+                ? ['class' => 'env']
+                : null;
+        }
+        if (!in_array($key, self::HANDLED_POST_META, true)) {
             return null;
         }
         return $this->policy->post_meta_rule($key);
     }
 
+    public function term_meta_rule(string $key, array $allMeta): ?array {
+        // WC_Term_Data_Store writes this cache family only as term metadata.
+        // Manifest meta_patterns are shared by post and term policy lookup, so
+        // keeping this exact context ruling here prevents an identically named
+        // post row from being silently discarded as derived state.
+        if (preg_match('/^product_count_(?:product_cat|product_tag|product_brand)$/D', $key) === 1) {
+            return ['class' => 'derived'];
+        }
+        if (!in_array($key, self::HANDLED_TERM_META, true)) {
+            return null;
+        }
+        return $this->policy->term_meta_rule($key);
+    }
+
+    public function option_rule(string $name, array $allOptions): ?array {
+        if (!in_array($name, self::FULFILLMENT_OPTIONS, true)) {
+            return null;
+        }
+        return $this->policy->option_rule($name);
+    }
+
+    /** Push preferences are site-scoped device state keyed by the current blog-table suffix. */
+    public function user_meta_rule(string $key, array $allMeta): ?array {
+        global $wpdb;
+
+        if (!function_exists('get_current_blog_id')
+            || !is_object($wpdb)
+            || !is_callable([$wpdb, 'get_blog_prefix'])) {
+            return null;
+        }
+
+        $prefix = $wpdb->get_blog_prefix((int) get_current_blog_id());
+        if (!is_string($prefix) || preg_match('/^[a-z0-9_]+$/Di', $prefix) !== 1) {
+            return null;
+        }
+        $siteSuffix = rtrim($prefix, '_');
+        if ($siteSuffix === '' || strlen($siteSuffix) > 220) {
+            return null;
+        }
+
+        $expected = 'wc_push_notification_preferences_' . $siteSuffix;
+        return hash_equals($expected, $key) ? ['class' => 'runtime'] : null;
+    }
+
     /** @return list<array<string,mixed>> */
     public function repository_diagnostics(array $tree): array {
         $out = [];
+        $postIndex = [];
         foreach ($tree as $entity) {
             if (($entity['type'] ?? '') !== 'post') {
                 continue;
             }
             $front = $entity['data'] ?? Canon::parse_post_file((string) ($entity['content'] ?? ''))[0];
-            $meta = (array) ($front['meta'] ?? []);
-            $postType = (string) ($front['type'] ?? '');
-            $path = (string) ($entity['path'] ?? '');
-            if (array_key_exists('_product_attributes', $meta)) {
-                if ($postType !== 'product') {
-                    $out[] = $this->diagnostic(
-                        $path,
-                        'meta._product_attributes',
-                        'WooCommerce product attributes are valid only on product entities'
-                    );
-                } else {
-                    $out = array_merge($out, $this->attribute_diagnostics($path, $meta['_product_attributes']));
-                }
+            $uuid = (string) ($front['uuid'] ?? '');
+            if ($uuid !== '') {
+                $postIndex[$uuid] = [
+                    'file' => $front['file'] ?? null,
+                    'mime' => $front['mime'] ?? null,
+                    'type' => $front['type'] ?? null,
+                ];
             }
-            if (array_key_exists('_downloadable_files', $meta)) {
-                if (!in_array($postType, ['product', 'product_variation'], true)) {
-                    $out[] = $this->diagnostic(
-                        $path,
-                        'meta._downloadable_files',
-                        'WooCommerce downloadable files are valid only on product or product_variation entities'
-                    );
-                } else {
-                    $out = array_merge($out, $this->download_diagnostics($path, $meta['_downloadable_files']));
-                }
+        }
+        foreach ($tree as $entity) {
+            $entityType = (string) ($entity['type'] ?? '');
+            if ($entityType === 'post') {
+                $out = array_merge($out, $this->post_diagnostics($entity));
+                continue;
+            }
+            if ($entityType === 'term') {
+                $out = array_merge($out, $this->term_diagnostics($entity, $postIndex));
+                continue;
+            }
+            if ($entityType === 'options') {
+                $out = array_merge($out, $this->option_diagnostics($entity));
             }
         }
         return $out;
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function post_diagnostics(array $entity): array {
+        $out = [];
+        $front = $entity['data'] ?? Canon::parse_post_file((string) ($entity['content'] ?? ''))[0];
+        $meta = (array) ($front['meta'] ?? []);
+        $postType = (string) ($front['type'] ?? '');
+        $path = (string) ($entity['path'] ?? '');
+        if (array_key_exists('_product_attributes', $meta)) {
+            if ($postType !== 'product') {
+                $out[] = $this->diagnostic(
+                    $path,
+                    'meta._product_attributes',
+                    'WooCommerce product attributes are valid only on product entities'
+                );
+            } else {
+                $out = array_merge($out, $this->attribute_diagnostics($path, $meta['_product_attributes']));
+            }
+        }
+        if (array_key_exists('_downloadable_files', $meta)) {
+            if (!in_array($postType, ['product', 'product_variation'], true)) {
+                $out[] = $this->diagnostic(
+                    $path,
+                    'meta._downloadable_files',
+                    'WooCommerce downloadable files are valid only on product or product_variation entities'
+                );
+            } else {
+                $out = array_merge($out, $this->download_diagnostics($path, $meta['_downloadable_files']));
+            }
+        }
+        foreach (['_product_url', '_button_text'] as $key) {
+            if (!array_key_exists($key, $meta)) {
+                continue;
+            }
+            if ($postType !== 'product') {
+                $out[] = $this->diagnostic(
+                    $path,
+                    "meta.$key",
+                    'WooCommerce external-product fields are valid only on product entities'
+                );
+                continue;
+            }
+            if ($key === '_product_url') {
+                $out = array_merge($out, $this->url_diagnostics(
+                    $path,
+                    "meta.$key",
+                    $meta[$key],
+                    false,
+                    'WooCommerce external product URL',
+                    false
+                ));
+            } else {
+                $textDiagnostics = $this->bounded_text_diagnostics(
+                    $path,
+                    "meta.$key",
+                    $meta[$key],
+                    4096,
+                    'WooCommerce external product button text'
+                );
+                $out = array_merge($out, $textDiagnostics);
+                if ($textDiagnostics === [] && is_string($meta[$key])) {
+                    $out = array_merge($out, $this->native_text_canonical_diagnostics(
+                        $path,
+                        "meta.$key",
+                        $meta[$key],
+                        'WooCommerce external product button text'
+                    ));
+                }
+            }
+        }
+        if (array_key_exists('_cogs_total_value', $meta)) {
+            if (!in_array($postType, ['product', 'product_variation'], true)) {
+                $out[] = $this->diagnostic(
+                    $path,
+                    'meta._cogs_total_value',
+                    'WooCommerce Cost of Goods value is valid only on product or product_variation entities'
+                );
+            } elseif (!is_string($meta['_cogs_total_value'])
+                || preg_match('/^-?(?:0|[1-9][0-9]{0,14})(?:\.[0-9]{1,4})?$/D', $meta['_cogs_total_value']) !== 1) {
+                $out[] = $this->diagnostic(
+                    $path,
+                    'meta._cogs_total_value',
+                    'WooCommerce Cost of Goods value must fit the native DECIMAL(19,4) lookup boundary'
+                );
+            } elseif ($postType === 'product'
+                && preg_match('/^-?0(?:\.0+)?$/D', $meta['_cogs_total_value']) === 1) {
+                $out[] = $this->diagnostic(
+                    $path,
+                    'meta._cogs_total_value',
+                    'WooCommerce base-product Cost of Goods zero must be represented by metadata absence'
+                );
+            }
+        }
+        if (array_key_exists('_cogs_value_is_additive', $meta)) {
+            if ($postType !== 'product_variation') {
+                $out[] = $this->diagnostic(
+                    $path,
+                    'meta._cogs_value_is_additive',
+                    'WooCommerce additive Cost of Goods state is valid only on product_variation entities'
+                );
+            } elseif ($meta['_cogs_value_is_additive'] !== 'yes') {
+                $out[] = $this->diagnostic(
+                    $path,
+                    'meta._cogs_value_is_additive',
+                    "WooCommerce additive Cost of Goods state must be exact 'yes'; false is represented by absence"
+                );
+            }
+        }
+        return $out;
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function term_diagnostics(array $entity, array $postIndex): array {
+        $front = $entity['data'] ?? Canon::decode((string) ($entity['content'] ?? ''));
+        $taxonomy = (string) ($front['taxonomy'] ?? '');
+        $meta = (array) ($front['meta'] ?? []);
+        $path = (string) ($entity['path'] ?? '');
+        $out = [];
+
+        $allowedTaxonomies = [
+            'color' => 'global product attribute',
+            'image' => 'global product attribute',
+            'display_type' => 'product_cat',
+            'order' => 'product_cat or global product attribute',
+            'thumbnail_id' => 'product_cat or product_brand',
+            'tracking_url_template' => 'wc_fulfillment_shipping_provider',
+            'icon' => 'wc_fulfillment_shipping_provider',
+            'product_ids' => 'product taxonomy cache',
+        ];
+        foreach ($allowedTaxonomies as $key => $description) {
+            if (!array_key_exists($key, $meta) || $this->term_key_matches_taxonomy($key, $taxonomy)) {
+                continue;
+            }
+            $out[] = $this->diagnostic(
+                $path,
+                "meta.$key",
+                "WooCommerce term meta $key is valid only on $description terms"
+            );
+        }
+        if (array_key_exists('display_type', $meta)
+            && (!is_string($meta['display_type'])
+                || !in_array($meta['display_type'], ['', 'products', 'subcategories', 'both'], true))) {
+            $out[] = $this->diagnostic(
+                $path,
+                'meta.display_type',
+                'WooCommerce category display type must be default, products, subcategories, or both'
+            );
+        }
+        if (array_key_exists('order', $meta)
+            && (!is_string($meta['order'])
+                || preg_match('/^(?:0|[1-9][0-9]{0,9})$/D', $meta['order']) !== 1
+                || (int) $meta['order'] > 2147483647)) {
+            $out[] = $this->diagnostic(
+                $path,
+                'meta.order',
+                'WooCommerce term order must be a canonical non-negative 32-bit integer string'
+            );
+        }
+        if (array_key_exists('color', $meta)
+            && (!is_string($meta['color'])
+                || preg_match('/^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/D', $meta['color']) !== 1)) {
+            $out[] = $this->diagnostic(
+                $path,
+                'meta.color',
+                'WooCommerce visual attribute color must be an exact three- or six-digit hex color'
+            );
+        }
+        if (array_key_exists('color', $meta) && array_key_exists('image', $meta)) {
+            $out[] = $this->diagnostic(
+                $path,
+                'meta',
+                'WooCommerce visual attribute color and image are mutually exclusive native states'
+            );
+        }
+        foreach (['image', 'thumbnail_id'] as $key) {
+            if (array_key_exists($key, $meta)) {
+                $out = array_merge($out, $this->image_attachment_ref_diagnostics(
+                    $path,
+                    "meta.$key",
+                    $meta[$key],
+                    $postIndex
+                ));
+            }
+        }
+        foreach (['tracking_url_template', 'icon'] as $key) {
+            if (array_key_exists($key, $meta)) {
+                $out = array_merge($out, $this->url_diagnostics(
+                    $path,
+                    "meta.$key",
+                    $meta[$key],
+                    true,
+                    "WooCommerce fulfillment provider $key",
+                    true
+                ));
+            }
+        }
+        return $out;
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function image_attachment_ref_diagnostics(
+        string $path,
+        string $locator,
+        mixed $value,
+        array $postIndex
+    ): array {
+        if (!is_string($value)
+            || preg_match('/^\{\{post:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\}\}$/D', $value, $match) !== 1) {
+            return [$this->diagnostic(
+                $path,
+                $locator,
+                'WooCommerce term image metadata must be one canonical post reference token'
+            )];
+        }
+        $target = $postIndex[$match[1]] ?? null;
+        if (!is_array($target)
+            || ($target['type'] ?? null) !== 'attachment'
+            || !is_string($target['mime'] ?? null)
+            || !str_starts_with($target['mime'], 'image/')
+            || !is_string($target['file'] ?? null)
+            || $target['file'] === '') {
+            return [$this->diagnostic(
+                $path,
+                $locator,
+                'WooCommerce term image metadata must resolve to a live image attachment in this repository revision'
+            )];
+        }
+        return [];
+    }
+
+    private function term_key_matches_taxonomy(string $key, string $taxonomy): bool {
+        return match ($key) {
+            'color', 'image' => $this->is_global_attribute_name($taxonomy),
+            'display_type' => $taxonomy === 'product_cat',
+            'order' => $taxonomy === 'product_cat' || $this->is_global_attribute_name($taxonomy),
+            'thumbnail_id' => in_array($taxonomy, ['product_cat', 'product_brand'], true),
+            'tracking_url_template', 'icon' => $taxonomy === 'wc_fulfillment_shipping_provider',
+            'product_ids' => $taxonomy === 'product_cat'
+                || $taxonomy === 'product_brand'
+                || $taxonomy === 'product_tag'
+                || $this->is_global_attribute_name($taxonomy),
+            default => false,
+        };
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function option_diagnostics(array $entity): array {
+        $front = $entity['data'] ?? Canon::decode((string) ($entity['content'] ?? ''));
+        $records = (array) ($front['records'] ?? []);
+        $path = (string) ($entity['path'] ?? '');
+        $out = [];
+        foreach (self::FULFILLMENT_OPTIONS as $name) {
+            $record = $records[$name] ?? null;
+            if (!is_array($record) || ($record['state'] ?? null) !== 'present') {
+                continue;
+            }
+            if (!is_string($record['value'] ?? null)
+                || !in_array($record['value'], ['yes', 'no'], true)) {
+                $out[] = $this->diagnostic(
+                    $path,
+                    "records.$name.value",
+                    "WooCommerce fulfillment option $name must be exact yes or no"
+                );
+            }
+        }
+        return $out;
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function bounded_text_diagnostics(
+        string $path,
+        string $locator,
+        mixed $value,
+        int $maxBytes,
+        string $label
+    ): array {
+        if (!is_string($value)) {
+            return [$this->diagnostic($path, $locator, "$label must be a string")];
+        }
+        if (strlen($value) > $maxBytes || preg_match('//u', $value) !== 1
+            || preg_match('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', $value) === 1) {
+            return [$this->diagnostic(
+                $path,
+                $locator,
+                "$label must be valid UTF-8 without controls and at most $maxBytes bytes"
+            )];
+        }
+        return [];
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function url_diagnostics(
+        string $path,
+        string $locator,
+        mixed $value,
+        bool $allowEmpty,
+        string $label,
+        bool $requireNativeFilter
+    ): array {
+        $textDiagnostics = $this->bounded_text_diagnostics($path, $locator, $value, 8192, $label);
+        if ($textDiagnostics !== [] || !is_string($value)) {
+            return $textDiagnostics;
+        }
+        if ($value === '' && $allowEmpty) {
+            return [];
+        }
+        if ($value === '') {
+            return [$this->diagnostic($path, $locator, "$label must be non-empty")];
+        }
+        $testable = str_replace('__PLACEHOLDER__', 'test', $value);
+        foreach (['{{home}}', '{{uploads}}'] as $token) {
+            if (str_starts_with($testable, $token)) {
+                $testable = 'https://portable.invalid' . substr($testable, strlen($token));
+                break;
+            }
+        }
+        $parts = parse_url($testable);
+        if (!is_array($parts)
+            || !in_array(strtolower((string) ($parts['scheme'] ?? '')), ['http', 'https'], true)
+            || (string) ($parts['host'] ?? '') === ''
+            || array_key_exists('user', $parts)
+            || array_key_exists('pass', $parts)
+            || preg_match('/\s/u', $testable) === 1
+            || ($requireNativeFilter && filter_var($testable, FILTER_VALIDATE_URL) === false)) {
+            return [$this->diagnostic(
+                $path,
+                $locator,
+                "$label must be a portable HTTP or HTTPS URL without credentials"
+            )];
+        }
+        return $this->native_url_canonical_diagnostics($path, $locator, $value, $label);
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function native_url_canonical_diagnostics(
+        string $path,
+        string $locator,
+        string $value,
+        string $label
+    ): array {
+        if (!function_exists('esc_url_raw')) {
+            return [$this->diagnostic(
+                $path,
+                $locator,
+                "$label cannot be validated because the native WordPress URL sanitizer is unavailable"
+            )];
+        }
+        $candidate = str_replace(
+            ['{{home}}', '{{uploads}}'],
+            ['https://portable.invalid', 'https://portable.invalid/uploads'],
+            $value
+        );
+        $candidate = preg_replace(
+            '/\{\{post:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\}\}/D',
+            '1',
+            $candidate
+        );
+        $sanitized = is_string($candidate) ? \esc_url_raw($candidate, ['http', 'https']) : null;
+        if (!is_string($sanitized) || !is_string($candidate) || !hash_equals($candidate, $sanitized)) {
+            return [$this->diagnostic(
+                $path,
+                $locator,
+                "$label must already equal the exact native WordPress URL-sanitized bytes"
+            )];
+        }
+        return [];
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function native_text_canonical_diagnostics(
+        string $path,
+        string $locator,
+        string $value,
+        string $label
+    ): array {
+        if (!function_exists('sanitize_text_field')) {
+            return [$this->diagnostic(
+                $path,
+                $locator,
+                "$label cannot be validated because the native WordPress text sanitizer is unavailable"
+            )];
+        }
+        $sanitized = \sanitize_text_field($value);
+        if (!is_string($sanitized) || !hash_equals($value, $sanitized)) {
+            return [$this->diagnostic(
+                $path,
+                $locator,
+                "$label must already equal the exact native WordPress text-sanitized bytes"
+            )];
+        }
+        return [];
     }
 
     /** @return list<array<string,mixed>> */

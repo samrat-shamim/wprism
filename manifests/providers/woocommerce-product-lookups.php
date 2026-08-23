@@ -112,6 +112,7 @@ final class WoocommerceProductLookups {
                 'args' => [],
                 'reads' => [
                     'option:wc_downloads_approved_directories_mode',
+                    'option:woocommerce_feature_cost_of_goods_sold_enabled',
                     'post:product',
                     'post:product_variation',
                     'table:postmeta',
@@ -695,8 +696,121 @@ final class WoocommerceProductLookups {
             $this->observe_lookup_state($lookupIds),
             $this->observe_attribute_lookup_state($lookupIds),
             $this->observe_sale_schedule_state($lookupIds),
+            $this->observe_cogs_state($lookupIds),
             $this->download_directory_state($liveIds, $verifyNative)
         );
+    }
+
+    /**
+     * Bind raw authored COGS rows and the exact native feature/schema state.
+     * The values are hashed rather than exposed: costs are commercially
+     * sensitive catalog data. Exact Woo 11.0.x ignores these rows when the
+     * feature is disabled and omits cogs_total_value from its public lookup
+     * derivation when the column is absent, so either mismatch must refuse
+     * instead of producing a verified receipt for inert authored state.
+     *
+     * @param list<int> $ids
+     * @return array{cogs_scoped_products:int,cogs_authored_rows:int,cogs_feature_enabled:int,cogs_lookup_column_present:int,cogs_scope_sha256:string}
+     */
+    private function observe_cogs_state(array $ids): array {
+        global $wpdb;
+        $ids = array_values(array_unique(array_filter(
+            array_map('intval', $ids),
+            static fn(int $id): bool => $id > 0
+        )));
+        sort($ids, SORT_NUMERIC);
+
+        $class = '\\Automattic\\WooCommerce\\Internal\\CostOfGoodsSold\\CostOfGoodsSoldController';
+        if (!class_exists($class) || !function_exists('wc_get_container')) {
+            throw new \RuntimeException('duo: WooCommerce Cost of Goods service is unavailable');
+        }
+        try {
+            $container = \wc_get_container();
+            $controller = is_object($container) && is_callable([$container, 'get'])
+                ? $container->get($class)
+                : null;
+        } catch (\Throwable $failure) {
+            $controller = null;
+        }
+        foreach (['feature_is_enabled', 'product_meta_lookup_table_cogs_value_columns_exist'] as $method) {
+            if (!is_object($controller) || !is_callable([$controller, $method])) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce Cost of Goods service lacks public $method(); "
+                    . 'the installed WooCommerce version is outside the adapter contract'
+                );
+            }
+        }
+        $featureEnabled = $controller->feature_is_enabled();
+        $lookupColumnPresent = $controller->product_meta_lookup_table_cogs_value_columns_exist();
+        if (!is_bool($featureEnabled) || !is_bool($lookupColumnPresent)) {
+            throw new \RuntimeException('duo: WooCommerce Cost of Goods service returned an invalid feature/schema state');
+        }
+
+        $fingerprint = hash_init('sha256');
+        foreach ($ids as $id) {
+            $this->fingerprint_part($fingerprint, 'product:' . $id);
+        }
+        $rowCount = 0;
+        $seen = [];
+        foreach (array_chunk($ids, 200) as $chunk) {
+            $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
+            $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+                "SELECT post_id, meta_id, meta_key, meta_value FROM `{$wpdb->postmeta}` "
+                . "WHERE post_id IN ($placeholders) "
+                . "AND meta_key IN ('_cogs_total_value', '_cogs_value_is_additive') "
+                . 'ORDER BY post_id ASC, meta_key ASC, meta_id ASC',
+                ...$chunk
+            ), 'Cost of Goods authored metadata observation');
+            foreach ($rows as $row) {
+                $productId = (int) ($row['post_id'] ?? 0);
+                $metaId = (int) ($row['meta_id'] ?? 0);
+                $key = (string) ($row['meta_key'] ?? '');
+                $value = $row['meta_value'] ?? null;
+                if (!in_array($productId, $chunk, true) || $metaId <= 0
+                    || !in_array($key, ['_cogs_total_value', '_cogs_value_is_additive'], true)
+                    || !is_string($value)) {
+                    throw new \RuntimeException(
+                        'duo: WooCommerce Cost of Goods metadata observation returned malformed or out-of-scope state'
+                    );
+                }
+                $identity = $productId . ':' . $key;
+                if (isset($seen[$identity])) {
+                    throw new \RuntimeException(
+                        "duo: WooCommerce product $productId has multiple $key rows; expected exactly one authored value"
+                    );
+                }
+                $seen[$identity] = true;
+                if (($key === '_cogs_total_value'
+                        && preg_match('/^-?(?:0|[1-9][0-9]{0,14})(?:\\.[0-9]{1,4})?$/D', $value) !== 1)
+                    || ($key === '_cogs_value_is_additive' && $value !== 'yes')) {
+                    throw new \RuntimeException(
+                        "duo: WooCommerce product $productId has malformed authored Cost of Goods metadata"
+                    );
+                }
+                $this->fingerprint_part($fingerprint, $identity);
+                $this->fingerprint_part($fingerprint, hash('sha256', $value));
+                $rowCount++;
+            }
+        }
+        if ($rowCount > 0 && !$featureEnabled) {
+            throw new \RuntimeException(
+                "duo: WooCommerce Cost of Goods is disabled while $rowCount scoped authored row(s) require it; "
+                . 'recovery_required'
+            );
+        }
+        if ($rowCount > 0 && !$lookupColumnPresent) {
+            throw new \RuntimeException(
+                "duo: WooCommerce Cost of Goods lookup column is absent while $rowCount scoped authored row(s) require it; "
+                . 'run the native WooCommerce COGS column tool and retry'
+            );
+        }
+        return [
+            'cogs_scoped_products' => count($ids),
+            'cogs_authored_rows' => $rowCount,
+            'cogs_feature_enabled' => $featureEnabled ? 1 : 0,
+            'cogs_lookup_column_present' => $lookupColumnPresent ? 1 : 0,
+            'cogs_scope_sha256' => hash_final($fingerprint),
+        ];
     }
 
     /**
@@ -2306,8 +2420,9 @@ final class WoocommerceProductLookups {
      *
      * Neither comparison rebuilds Woo's column rules, which is the point. This
      * adapter used to: the sku / virtual / onsale / stock / rating / tax column
-     * set, the Cost of Goods Sold feature gate, the woocommerce_schema_version
-     * >= 920 global_unique_id gate, and a per-column tolerance table for
+     * set, a copied Cost of Goods Sold lookup-column gate, the
+     * woocommerce_schema_version >= 920 global_unique_id gate, and a
+     * per-column tolerance table for
      * reading DECIMAL/BIGINT columns back were a hand-copy of
      * WC_Product_Data_Store_CPT::get_data_for_lookup_table(), a protected
      * method whose shape this adapter is not entitled to depend on. That copy
@@ -2353,8 +2468,8 @@ final class WoocommerceProductLookups {
         // Scoped to the columns WooCommerce actually derived, deliberately.
         // update_lookup_table() writes with $wpdb->replace(), which is a
         // DELETE plus INSERT, so any column OUTSIDE the derived set — a
-        // cogs_total_value still holding data while the COGS feature is off, a
-        // column some other extension maintains — comes back at its schema
+        // a column some extension maintains — or a stale cogs_total_value on
+        // a product with no authored COGS row in this operation — comes back at its schema
         // default whatever the apply did. Comparing those would turn Woo's own
         // write into a refusal blaming the apply for a divergence it did not
         // cause. They are outside this check's authority; the derivation-bound

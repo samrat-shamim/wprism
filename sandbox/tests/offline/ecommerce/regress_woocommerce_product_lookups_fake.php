@@ -11,6 +11,22 @@
  * refresh is checked for both private and public attributes.
  */
 
+namespace Automattic\WooCommerce\Internal\CostOfGoodsSold {
+    final class CostOfGoodsSoldController {
+        public static ?self $instance = null;
+        public bool $enabled = false;
+        public bool $lookupColumnPresent = false;
+
+        public function feature_is_enabled(): bool {
+            return $this->enabled;
+        }
+
+        public function product_meta_lookup_table_cogs_value_columns_exist(): bool {
+            return $this->lookupColumnPresent;
+        }
+    }
+}
+
 namespace Automattic\WooCommerce\Internal\ProductAttributesLookup {
     final class LookupDataStore {
         public const ACTION_DELETE = 3;
@@ -269,6 +285,7 @@ namespace {
             'tax_status' => 'string',
             'tax_class' => 'string',
             'global_unique_id' => 'string',
+            'cogs_total_value' => 'decimal',
         ];
 
         public const LOOKUP_COLUMN_DECLARATIONS = [
@@ -287,6 +304,7 @@ namespace {
             'total_sales' => 'bigint(20)',
             'tax_status' => 'varchar(100)',
             'tax_class' => 'varchar(100)',
+            'cogs_total_value' => 'decimal(19,4)',
         ];
 
         public static function coerce_lookup_column(string $column, mixed $value): mixed {
@@ -447,10 +465,38 @@ namespace {
         }
 
         public function get_results(string $query, $output = null): array {
-            global $fakeAttrLookup, $fakeMeta, $fakeMetaLookup, $fakeDownloadMetaRows, $fakeProducts;
+            global $fakeAttrLookup, $fakeMeta, $fakeMetaLookup, $fakeDownloadMetaRows, $fakeCogsMetaRows, $fakeProducts;
             if ($this->failReadContaining !== null && str_contains($query, $this->failReadContaining)) {
                 $this->last_error = 'simulated read failure';
                 return [];
+            }
+            if (str_contains($query, "meta_key IN ('_cogs_total_value', '_cogs_value_is_additive')")) {
+                if (!preg_match('/post_id IN \(([0-9, ]+)\)/', $query, $match)) {
+                    throw new \RuntimeException('fake wpdb could not parse Cost of Goods metadata scope');
+                }
+                $ids = array_map('intval', preg_split('/\s*,\s*/', trim($match[1])) ?: []);
+                $rows = [];
+                foreach ($ids as $id) {
+                    foreach (['_cogs_total_value', '_cogs_value_is_additive'] as $key) {
+                        $values = isset($fakeCogsMetaRows[$id]) && array_key_exists($key, (array) $fakeCogsMetaRows[$id])
+                            ? (array) $fakeCogsMetaRows[$id][$key]
+                            : (array) ($fakeMeta[$id][$key] ?? []);
+                        foreach ($values as $index => $value) {
+                            $rows[] = [
+                                'post_id' => (string) $id,
+                                'meta_id' => (string) ($id * 100 + ($key === '_cogs_total_value' ? 10 : 20) + $index),
+                                'meta_key' => $key,
+                                'meta_value' => (string) $value,
+                            ];
+                        }
+                    }
+                }
+                usort($rows, static fn(array $left, array $right): int => [
+                    (int) $left['post_id'], (string) $left['meta_key'], (int) $left['meta_id'],
+                ] <=> [
+                    (int) $right['post_id'], (string) $right['meta_key'], (int) $right['meta_id'],
+                ]);
+                return $rows;
             }
             if (str_contains($query, "meta_key = '_downloadable_files'")) {
                 if (!preg_match('/post_id IN \(([0-9, ]+)\)/', $query, $match)) {
@@ -947,6 +993,10 @@ namespace {
                 'tax_class' => '',
                 'global_unique_id' => '',
             ];
+            $cogsController = \Automattic\WooCommerce\Internal\CostOfGoodsSold\CostOfGoodsSoldController::$instance;
+            if ($cogsController !== null && $cogsController->enabled && $cogsController->lookupColumnPresent) {
+                $derived['cogs_total_value'] = (string) ($fakeMeta[$id]['_cogs_total_value'][0] ?? '');
+            }
             if ($derived === wp_cache_get('lookup_table', 'object_' . $id)) {
                 return;
             }
@@ -1054,6 +1104,11 @@ namespace {
 
     final class FakeContainer {
         public function get(string $class): object {
+            $class = '\\' . ltrim($class, '\\');
+            if ($class === '\\Automattic\\WooCommerce\\Internal\\CostOfGoodsSold\\CostOfGoodsSoldController') {
+                return \Automattic\WooCommerce\Internal\CostOfGoodsSold\CostOfGoodsSoldController::$instance
+                    ??= new \Automattic\WooCommerce\Internal\CostOfGoodsSold\CostOfGoodsSoldController();
+            }
             if ($class === '\\Automattic\\WooCommerce\\Internal\\Caches\\ProductCache') {
                 return new \Automattic\WooCommerce\Internal\Caches\ProductCache();
             }
@@ -1156,6 +1211,7 @@ namespace {
     $fakeSyncFailures = ['variable' => [], 'grouped' => []];
     $fakeMetaRestoreFailures = [];
     $fakeDownloadMetaRows = [];
+    $fakeCogsMetaRows = [];
     $fakeNativeDownloadOverrides = [];
     $fakeSaleSchedules = [
         'wc_product_start_scheduled_sale' => [],
@@ -1977,6 +2033,102 @@ namespace {
     $check(($attributeRecovered['after'] ?? null) === ($productScoped['after'] ?? null),
         'restoring exact attribute lookup rows recovers the scoped postcondition');
 
+    $cogsController = wc_get_container()->get(
+        \Automattic\WooCommerce\Internal\CostOfGoodsSold\CostOfGoodsSoldController::class
+    );
+    $fakeMeta[13]['_cogs_total_value'] = ['7.1250'];
+    $cogsLookupBeforeRefusal = $fakeMetaLookup[13];
+    $cogsDisabledMessage = '';
+    try {
+        $adapter->invoke_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+    } catch (\Throwable $failure) {
+        $cogsDisabledMessage = $failure->getMessage();
+    }
+    $check(str_contains($cogsDisabledMessage, 'Cost of Goods is disabled')
+        && str_contains($cogsDisabledMessage, '1 scoped authored row')
+        && !str_contains($cogsDisabledMessage, '7.1250')
+        && $fakeMetaLookup[13] === $cogsLookupBeforeRefusal,
+        'authored COGS refuses before provider mutation when the target native feature is disabled');
+
+    $cogsController->enabled = true;
+    $cogsMissingColumnMessage = '';
+    try {
+        $adapter->invoke_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+    } catch (\Throwable $failure) {
+        $cogsMissingColumnMessage = $failure->getMessage();
+    }
+    $check(str_contains($cogsMissingColumnMessage, 'lookup column is absent')
+        && str_contains($cogsMissingColumnMessage, 'native WooCommerce COGS column tool')
+        && !str_contains($cogsMissingColumnMessage, '7.1250')
+        && $fakeMetaLookup[13] === $cogsLookupBeforeRefusal,
+        'authored COGS refuses without an exact native lookup-column boundary and names the recovery path');
+
+    $cogsController->lookupColumnPresent = true;
+    $cogsScoped = $adapter->invoke_scoped(
+        'rebuild_product_lookups',
+        $productScopeArgs,
+        $scopeOperation
+    );
+    $check((float) ($fakeMetaLookup[13]['cogs_total_value'] ?? -1) === 7.125
+        && ($cogsScoped['after']['cogs_authored_rows'] ?? null) === 1
+        && ($cogsScoped['after']['cogs_feature_enabled'] ?? null) === 1
+        && ($cogsScoped['after']['cogs_lookup_column_present'] ?? null) === 1
+        && preg_match('/^[a-f0-9]{64}$/D', (string) ($cogsScoped['after']['cogs_scope_sha256'] ?? '')) === 1
+        && !str_contains(serialize($cogsScoped), '7.1250'),
+        'enabled COGS runs through Woo lookup derivation and binds redacted exact scoped evidence');
+
+    $fakeMeta[13]['_cogs_total_value'] = ['8.1250'];
+    $cogsDrift = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $productScopeArgs,
+        $scopeOperation
+    );
+    $check(($cogsDrift['after']['cogs_authored_rows'] ?? null)
+            === ($cogsScoped['after']['cogs_authored_rows'] ?? null)
+        && ($cogsDrift['after']['cogs_scope_sha256'] ?? null)
+            !== ($cogsScoped['after']['cogs_scope_sha256'] ?? null),
+        'same-count COGS drift cannot match the saved scoped postcondition');
+    $fakeMeta[13]['_cogs_total_value'] = ['7.1250'];
+    $cogsRecovered = $adapter->reconcile_scoped(
+        'rebuild_product_lookups',
+        $productScopeArgs,
+        $scopeOperation
+    );
+    $check(($cogsRecovered['after'] ?? null) === ($cogsScoped['after'] ?? null),
+        'restoring exact authored COGS recovers the complete scoped postcondition');
+
+    $fakeCogsMetaRows[13]['_cogs_total_value'] = ['7.1250', '7.1250'];
+    $duplicateCogsMessage = '';
+    try {
+        $adapter->reconcile_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+    } catch (\Throwable $failure) {
+        $duplicateCogsMessage = $failure->getMessage();
+    }
+    unset($fakeCogsMetaRows[13]);
+    $check(str_contains($duplicateCogsMessage, 'multiple _cogs_total_value rows')
+        && !str_contains($duplicateCogsMessage, '7.1250'),
+        'duplicate COGS rows refuse without choosing or disclosing a value');
+
+    $fakeCogsMetaRows[13]['_cogs_total_value'] = ['cogs_secret_marker_DO_NOT_ECHO'];
+    $malformedCogsMessage = '';
+    try {
+        $adapter->reconcile_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+    } catch (\Throwable $failure) {
+        $malformedCogsMessage = $failure->getMessage();
+    }
+    unset($fakeCogsMetaRows[13]);
+    $check(str_contains($malformedCogsMessage, 'malformed authored Cost of Goods metadata')
+        && !str_contains($malformedCogsMessage, 'cogs_secret_marker_DO_NOT_ECHO'),
+        'malformed COGS refuses through the executable boundary with redacted diagnostics');
+
+    unset($fakeMeta[13]['_cogs_total_value'], $fakeMetaLookup[13]['cogs_total_value']);
+    $cogsController->enabled = false;
+    $cogsController->lookupColumnPresent = false;
+
+    $attributeRowKey = array_key_first(array_filter(
+        $fakeAttrLookup,
+        static fn(array $row): bool => (int) $row['product_or_parent_id'] === 13
+    ));
     $duplicateAttributeRow = $fakeAttrLookup[$attributeRowKey] ?? null;
     if (is_array($duplicateAttributeRow)) {
         $fakeAttrLookup[] = $duplicateAttributeRow;

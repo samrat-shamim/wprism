@@ -79,6 +79,7 @@ $expectedRequires = [
         'wp_cache_delete',
     ],
     'classes' => [
+        'Automattic\\WooCommerce\\Internal\\CostOfGoodsSold\\CostOfGoodsSoldController',
         'Automattic\\WooCommerce\\Internal\\ProductDownloads\\ApprovedDirectories\\Register',
         'Automattic\\WooCommerce\\Internal\\ProductAttributesLookup\\LookupDataStore',
         'Automattic\\WooCommerce\\Internal\\Utilities\\URL',
@@ -230,6 +231,10 @@ $needles = [
     'create_data_for_product($root, false)' => 'attribute rows use Woo public synchronous scoped synthesis',
     'get_last_create_operation_failed' => 'Woo native attribute insert failures remain loud and retryable',
     'observe_attribute_lookup_state' => 'exact scoped attribute rows are independently read and receipt-bound',
+    'observe_cogs_state' => 'authored Cost of Goods rows and native feature/schema state are receipt-bound',
+    'feature_is_enabled' => 'COGS support is admitted only through WooCommerce native feature state',
+    'product_meta_lookup_table_cogs_value_columns_exist' => 'COGS lookup verification requires the exact native schema check',
+    "meta_key IN ('_cogs_total_value', '_cogs_value_is_additive')" => 'COGS observation is bounded to the two exact core-authored keys',
 ];
 foreach ($needles as $needle => $message) {
     check(is_string($source) && str_contains($source, $needle), $message);
@@ -250,8 +255,6 @@ check($verifyStart !== false && $beforeRead !== false && $forcedRefresh !== fals
 $retired = [
     'lookup_values_equal' => 'no Duo-authored per-column tolerance table for lookup values',
     "get_option('woocommerce_schema_version'" => 'no copied global_unique_id schema-version gate',
-    'CostOfGoodsSoldController' => 'no copied Cost of Goods Sold lookup-column feature gate',
-    '_cogs_total_value' => 'no Duo-side derivation of the COGS lookup column',
     'recompute_simple_price' => 'no Duo-authored simple-price sale/date rule',
     'sync_price_preserving_authored_meta' => 'no snapshot/restore copy around Woo parent price synthesis',
     'restore_authored_price_meta' => 'no Duo-authored metadata restore loop around Woo parent price synthesis',
@@ -262,6 +265,8 @@ $retired = [
 foreach ($retired as $needle => $message) {
     check(is_string($source) && !str_contains($source, $needle), $message);
 }
+check(is_string($source) && !str_contains($code, 'generate_lookup_cogs_columns'),
+    'the bounded product provider never starts WooCommerce whole-catalog COGS schema migration');
 check(is_string($source) && !str_contains($source, '->on_product_changed('),
     'adapter does not enqueue Woo asynchronous on_product_changed() work');
 check(is_string($source) && !str_contains($source, 'wc_get_products(')
@@ -282,13 +287,19 @@ $sources = array_map(
 check($sources === [
     'native:transient.delete',
     'provider:woocommerce-cache/invalidate_cache_groups',
+    'provider:woocommerce-hierarchy-lookups/rebuild_hierarchy_lookups',
+    'provider:woocommerce-hierarchy-lookups/rebuild_hierarchy_lookups',
     'provider:woocommerce-product-lookups/rebuild_product_lookups',
-], 'Woo policy declares only the bounded transient, cache, and product-lookup repairs, and no '
-    . 'whole-catalog projection');
+], 'Woo policy declares only the bounded transient, cache, hierarchy/route, and product-lookup repairs, '
+    . 'and no whole-catalog projection');
 check(array_filter($actions, static fn(array $row): bool => array_key_exists('command', $row)) === [],
     'no Woo action carries an executable command string');
 
-$lookupAction = $actions[2] ?? [];
+$lookupActions = array_values(array_filter(
+    $actions,
+    static fn(array $row): bool => ($row['provider'] ?? null) === 'woocommerce-product-lookups'
+));
+$lookupAction = $lookupActions[0] ?? [];
 check(($lookupAction['triggers'] ?? null) === ['post:product', 'post:product_variation'],
     'the lookup action is narrowed to exactly the two post types the regen_dependency declarations covered');
 $effectIds = array_map(static fn(array $e): string => (string) $e['id'], (array) ($lookupAction['effects'] ?? []));

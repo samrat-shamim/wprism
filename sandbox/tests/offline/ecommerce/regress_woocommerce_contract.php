@@ -12,6 +12,21 @@ require dirname(__DIR__, 4) . '/agent/src/Policy/Policy.php';
 
 use Duo\Policy;
 
+$GLOBALS['wooContractBlogId'] = 1;
+if (!function_exists('get_current_blog_id')) {
+    function get_current_blog_id(): int {
+        return (int) ($GLOBALS['wooContractBlogId'] ?? 1);
+    }
+}
+
+final class WooContractWpdb {
+    public function get_blog_prefix(int $blogId): string {
+        return $blogId === 1 ? 'wp_' : "wp_{$blogId}_";
+    }
+}
+
+$GLOBALS['wpdb'] = new WooContractWpdb();
+
 function woo_fail(string $message): never { fwrite(STDERR, "FAIL: $message\n"); exit(1); }
 function woo_ok(bool $condition, string $message): void {
     if (!$condition) woo_fail($message);
@@ -52,7 +67,7 @@ woo_ok($policy->post_type_relation_closure(['product_variation']) === ['product'
 
 $optionNames = preg_split('/\s+/', trim(<<<'OPTIONS'
 action_scheduler_hybrid_store_demarkation action_scheduler_migration_status
-wc_brands_show_description wc_downloads_approved_directories_mode wc_pending_batch_processes
+wc_blocks_db_schema_version wc_brands_show_description wc_customer_stock_notifications_product_sync_notice wc_downloads_approved_directories_mode wc_pending_batch_processes wc_variation_gallery_migration_completed_at
 wc_feature_woocommerce_additional_variation_images_enabled
 woocommerce_address_autocomplete_enabled woocommerce_admin_install_timestamp woocommerce_admin_notices
 woocommerce_all_except_countries woocommerce_allow_bulk_remove_personal_data woocommerce_allow_tracking woocommerce_allowed_countries woocommerce_analytics_enabled woocommerce_brand_permalink
@@ -64,8 +79,8 @@ woocommerce_downloads_add_hash_to_filename woocommerce_downloads_count_partial w
 woocommerce_email_auto_sync_with_theme woocommerce_email_background_color woocommerce_email_base_color woocommerce_email_body_background_color woocommerce_email_font_family woocommerce_email_footer_text woocommerce_email_footer_text_color woocommerce_email_from_address woocommerce_email_header_alignment woocommerce_email_header_image woocommerce_email_header_image_width woocommerce_email_improvements_disabled_count woocommerce_email_improvements_first_disabled_at woocommerce_email_improvements_last_disabled_at woocommerce_email_reply_to_address woocommerce_email_reply_to_enabled woocommerce_email_reply_to_name woocommerce_email_text_color
 woocommerce_enable_ajax_add_to_cart woocommerce_enable_checkout_login_reminder woocommerce_enable_coupons woocommerce_enable_delayed_account_creation woocommerce_enable_guest_checkout woocommerce_enable_myaccount_registration woocommerce_enable_review_rating woocommerce_enable_reviews woocommerce_enable_shipping_calc woocommerce_enable_signup_and_login_from_checkout
 woocommerce_erasure_request_removes_download_data woocommerce_erasure_request_removes_order_data
-woocommerce_feature_abandoned_cart_recovery_enabled woocommerce_feature_block_email_editor_enabled woocommerce_feature_blueprint_enabled woocommerce_feature_cost_of_goods_sold_enabled woocommerce_feature_customer_review_request_enabled woocommerce_feature_deferred_transactional_emails_enabled woocommerce_feature_destroy-empty-sessions_enabled woocommerce_feature_email_improvements_enabled woocommerce_feature_mcp_integration_enabled woocommerce_feature_order_attribution_enabled woocommerce_feature_product_instance_caching_enabled woocommerce_feature_rate_limit_checkout_enabled woocommerce_feature_remote_logging_enabled woocommerce_feature_rest_api_caching_enabled woocommerce_feature_wc_visual_attribute_enabled
-woocommerce_file_download_method woocommerce_force_ssl_checkout woocommerce_hide_out_of_stock_items woocommerce_hold_stock_minutes woocommerce_hooked_blocks_version woocommerce_hpos_datastore_caching_enabled woocommerce_hpos_fts_index_enabled woocommerce_inbox_variant_assignment woocommerce_logout_endpoint woocommerce_manage_stock woocommerce_maxmind_geolocation_settings
+woocommerce_feature_abandoned_cart_recovery_enabled woocommerce_feature_block_email_editor_enabled woocommerce_feature_blueprint_enabled woocommerce_feature_cost_of_goods_sold_enabled woocommerce_feature_customer_review_request_enabled woocommerce_feature_deferred_transactional_emails_enabled woocommerce_feature_destroy-empty-sessions_enabled woocommerce_feature_email_improvements_enabled woocommerce_feature_fulfillments_enabled woocommerce_feature_mcp_integration_enabled woocommerce_feature_order_attribution_enabled woocommerce_feature_product_instance_caching_enabled woocommerce_feature_rate_limit_checkout_enabled woocommerce_feature_remote_logging_enabled woocommerce_feature_rest_api_caching_enabled woocommerce_feature_wc_visual_attribute_enabled
+woocommerce_file_download_method woocommerce_force_ssl_checkout woocommerce_fulfillments_db_tables_created woocommerce_hide_out_of_stock_items woocommerce_hold_stock_minutes woocommerce_hooked_blocks_version woocommerce_hpos_datastore_caching_enabled woocommerce_hpos_fts_index_enabled woocommerce_inbox_variant_assignment woocommerce_logout_endpoint woocommerce_manage_stock woocommerce_maxmind_geolocation_settings
 woocommerce_myaccount_add_payment_method_endpoint woocommerce_myaccount_delete_payment_method_endpoint woocommerce_myaccount_downloads_endpoint woocommerce_myaccount_edit_account_endpoint woocommerce_myaccount_edit_address_endpoint woocommerce_myaccount_lost_password_endpoint woocommerce_myaccount_orders_endpoint woocommerce_myaccount_page_id woocommerce_myaccount_payment_methods_endpoint woocommerce_myaccount_set_default_payment_method_endpoint woocommerce_myaccount_view_order_endpoint
 woocommerce_newly_installed woocommerce_notify_backorder woocommerce_notify_low_stock woocommerce_notify_low_stock_amount woocommerce_notify_no_stock woocommerce_notify_no_stock_amount woocommerce_order_stats_has_fulfillment_column woocommerce_paypal_settings woocommerce_permalinks woocommerce_placeholder_image woocommerce_pickup_location_settings
 woocommerce_pos_refund_returns_policy woocommerce_pos_store_address woocommerce_pos_store_email woocommerce_pos_store_phone
@@ -85,7 +100,7 @@ woo_ok($policy->owned_option_rule('woocommerce_future_unreviewed') === null, 'fu
 foreach (['action_scheduler_migration_status', 'woocommerce_paypal_settings', 'woocommerce_maxmind_geolocation_settings', 'woocommerce_email_from_address', 'woocommerce_stock_email_recipient'] as $name) {
     woo_ok(($policy->owned_option_rule($name)['class'] ?? '') === 'env', "$name stays environment-local");
 }
-foreach (['wc_pending_batch_processes', 'woocommerce_admin_notices', 'woocommerce_task_list_tracked_completed_tasks', 'woocommerce_unforce_ssl_checkout'] as $name) {
+foreach (['wc_blocks_db_schema_version', 'wc_customer_stock_notifications_product_sync_notice', 'wc_pending_batch_processes', 'wc_variation_gallery_migration_completed_at', 'woocommerce_admin_notices', 'woocommerce_fulfillments_db_tables_created', 'woocommerce_task_list_tracked_completed_tasks', 'woocommerce_unforce_ssl_checkout'] as $name) {
     woo_ok(($policy->owned_option_rule($name)['class'] ?? '') === 'runtime', "$name stays runtime-local");
 }
 foreach (['wc_brands_show_description', 'woocommerce_brand_permalink', 'woocommerce_catalog_columns', 'woocommerce_catalog_rows', 'woocommerce_cod_settings', 'woocommerce_enable_delayed_account_creation', 'woocommerce_feature_wc_visual_attribute_enabled', 'woocommerce_hooked_blocks_version', 'woocommerce_pickup_location_settings'] as $name) {
@@ -117,6 +132,13 @@ woo_ok(($policy->option_rule('product_cat_children')['class'] ?? '') === 'derive
     "core's product_cat hierarchy cache is excluded as derived, not carried as a foreign id graph");
 woo_ok(($policy->option_rule('product_brand_children')['class'] ?? '') === 'derived',
     "core's product_brand hierarchy cache is excluded as derived, not carried as a foreign id graph");
+foreach (['auto_fulfill_downloadable', 'auto_fulfill_virtual'] as $name) {
+    woo_ok(($policy->option_rule($name)['class'] ?? '') === 'authored',
+        "$name is an explicit unprefixed merchant behavior setting");
+}
+woo_ok(($policy->option_rule('current_theme_supports_woocommerce')['class'] ?? '') === 'env'
+    && ($policy->option_rule('current_theme_supports_woocommerce')['required'] ?? null) === false,
+    'current theme Woo support is optional target-environment state');
 woo_ok(($manifest['taxonomies']['product_brand'] ?? null) === [
     'class' => 'authored',
     'object_type' => ['product'],
@@ -127,6 +149,50 @@ foreach (['product_brands', 'exclude_product_brands'] as $metaKey) {
         && ($policy->post_meta_rule($metaKey)['ref'] ?? null) === 'term[]',
         "coupon $metaKey stores portable brand term references");
 }
+woo_ok(($manifest['taxonomies']['wc_fulfillment_shipping_provider']['class'] ?? null) === 'authored'
+    && !array_key_exists('object_type', $manifest['taxonomies']['wc_fulfillment_shipping_provider']),
+    'feature-gated custom shipping providers are authored terms and do not invent an object relationship');
+foreach (['_button_text', '_cogs_total_value', '_cogs_value_is_additive', '_product_url'] as $metaKey) {
+    woo_ok(($policy->post_meta_rule($metaKey)['class'] ?? null) === 'authored',
+        "$metaKey is exact merchant-authored core product state");
+}
+foreach (['_headstart_post', '_migration_data', '_original_id', '_original_product_id', '_original_url', '_original_variant_id', '_product_template_id', '_wc_attachment_source', '_wc_variation_gallery_legacy_fallback_disabled'] as $metaKey) {
+    woo_ok(($policy->post_meta_rule($metaKey)['class'] ?? null) === 'env',
+        "$metaKey is target-local importer/migration provenance");
+}
+woo_ok(($policy->post_meta_rule('duplicate_temp_brand_ids')['class'] ?? null) === 'runtime',
+    'the transient Brands duplication handoff is runtime workflow state');
+woo_ok($policy->meta_rule_for_post('_wc_additional_variation_images', []) === null
+    && ($policy->meta_rule_for_post('_wc_additional_variation_images', [
+        '_wc_variation_gallery_legacy_fallback_disabled' => 'yes',
+    ])['class'] ?? null) === 'env',
+    'legacy extension gallery rows fail closed until the exact core migration sentinel proves them inert');
+foreach (['display_type', 'order', 'color', 'tracking_url_template', 'icon'] as $metaKey) {
+    woo_ok(($policy->term_meta_rule($metaKey)['class'] ?? null) === 'authored',
+        "$metaKey is exact authored Woo term metadata");
+}
+woo_ok(($policy->term_meta_rule('image')['ref'] ?? null) === 'post'
+    && ($policy->term_meta_rule('thumbnail_id')['ref'] ?? null) === 'post',
+    'category/brand/visual term images rebind through attachment identities');
+woo_ok(($policy->term_meta_rule('product_ids')['class'] ?? null) === 'derived'
+    && ($policy->meta_rule_for_term('product_count_product_cat', [])['class'] ?? null) === 'derived'
+    && ($policy->meta_rule_for_term('product_count_product_tag', [])['class'] ?? null) === 'derived'
+    && ($policy->meta_rule_for_term('product_count_product_brand', [])['class'] ?? null) === 'derived',
+    'Woo term product-id/count caches are explicitly derived');
+woo_ok($policy->meta_rule_for_term('product_count_pa_color', []) === null
+    && $policy->meta_rule_for_term('product_count_product_cat_extra', []) === null
+    && $policy->meta_rule_for_post('product_count_product_cat', []) === null,
+    'the exact term-only product-count ruling cannot hide attribute, near-miss, or post metadata');
+woo_ok(($policy->meta_rule_for_user('wc_push_notification_preferences_wp', [])['class'] ?? null) === 'runtime',
+    'blog-1 push preferences are runtime per-device user state');
+$GLOBALS['wooContractBlogId'] = 9;
+woo_ok(($policy->meta_rule_for_user('wc_push_notification_preferences_wp_9', [])['class'] ?? null) === 'runtime'
+    && $policy->meta_rule_for_user('wc_push_notification_preferences_wp_8', []) === null
+    && $policy->meta_rule_for_user('wp_9_wc_push_notification_preferences', []) === null,
+    'push preference classification binds the exact current blog suffix and refuses sibling/prefix-shaped keys');
+$GLOBALS['wooContractBlogId'] = 1;
+woo_ok(($manifest['post_types']['wc_push_token']['class'] ?? null) === 'runtime',
+    'push token posts are target-sovereign runtime state');
 woo_ok(($policy->owned_option_rule('wc_installing')['class'] ?? '') === 'runtime',
     "WC_Install's raw-SQL install mutex row stays runtime-local");
 // The name is computed (`'schema-' . static::class`), so the rule is a
@@ -138,13 +204,16 @@ foreach (['ActionScheduler_StoreSchema', 'ActionScheduler_LoggerSchema', 'Action
 
 $expectedTables = preg_split('/\s+/', trim(<<<'TABLES'
 actionscheduler_actions actionscheduler_claims actionscheduler_groups actionscheduler_logs
-wc_admin_note_actions wc_admin_notes wc_category_lookup wc_customer_lookup wc_download_log wc_email_unsubscribes wc_order_addresses wc_order_coupon_lookup wc_order_operational_data wc_order_product_lookup wc_order_stats wc_order_tax_lookup wc_orders wc_orders_meta wc_product_attributes_lookup wc_product_download_directories wc_product_meta_lookup wc_rate_limits wc_reserved_stock wc_tax_rate_classes wc_webhooks
+wc_admin_note_actions wc_admin_notes wc_category_lookup wc_customer_lookup wc_download_log wc_email_unsubscribes wc_order_addresses wc_order_coupon_lookup wc_order_fulfillment_meta wc_order_fulfillments wc_order_operational_data wc_order_product_lookup wc_order_stats wc_order_tax_lookup wc_orders wc_orders_meta wc_product_attributes_lookup wc_product_download_directories wc_product_meta_lookup wc_rate_limits wc_reserved_stock wc_stock_notificationmeta wc_stock_notifications wc_tax_rate_classes wc_webhooks
 woocommerce_api_keys woocommerce_attribute_taxonomies woocommerce_downloadable_product_permissions woocommerce_log woocommerce_order_itemmeta woocommerce_order_items woocommerce_payment_tokenmeta woocommerce_payment_tokens woocommerce_sessions woocommerce_shipping_zone_locations woocommerce_shipping_zone_methods woocommerce_shipping_zones woocommerce_tax_rate_locations woocommerce_tax_rates
 TABLES));
 $declaredTables = $policy->declared_tables();
 foreach ($expectedTables as $table) woo_ok(isset($declaredTables[$table]), "$table has an explicit disposition");
 foreach (['wc_product_meta_lookup', 'wc_product_attributes_lookup', 'wc_category_lookup'] as $table) {
     woo_ok(($declaredTables[$table]['class'] ?? '') === 'derived', "$table is rebuilt derived state");
+}
+foreach (['wc_order_fulfillment_meta', 'wc_order_fulfillments', 'wc_stock_notificationmeta', 'wc_stock_notifications'] as $table) {
+    woo_ok(($declaredTables[$table]['class'] ?? '') === 'runtime', "$table remains target operational/customer state");
 }
 woo_ok(($declaredTables['wc_tax_rate_classes']['class'] ?? '') === 'authored_snapshot', 'merchant tax classes are portable authored state');
 

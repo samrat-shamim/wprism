@@ -330,8 +330,8 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 - **Version range:** >=11.0.0 <12.0.0
 - **Operations:** apply, capture, compile, deploy, plan, promote, recapture, render-api
 - **Lifecycle phases:** retire, activate, verify
-- **Declared entities:** `post_types` (7 keys), `tables` (39 keys), `taxonomies` (6: product_brand, product_cat, product_shipping_class, product_tag, product_type, product_visibility), `taxonomy_patterns` (1 rules)
-- **Declared fields:** `options` (41 keys), `option_patterns` (7 rules), `option_name_refs` (1 rules), `post_meta` (58 keys), `meta_patterns` (2 rules), `term_meta` (1: thumbnail_id), `block_attrs` (1: woocommerce/product-collection)
+- **Declared entities:** `post_types` (8 keys), `tables` (43 keys), `taxonomies` (7 keys), `taxonomy_patterns` (1 rules)
+- **Declared fields:** `options` (48 keys), `option_patterns` (7 rules), `option_name_refs` (1 rules), `post_meta` (72 keys), `meta_patterns` (1 rules), `term_meta` (8 keys), `block_attrs` (1: woocommerce/product-collection)
 - **Adapter hooks:** 3 providers, 5 structured actions, interpreter `woocommerce`
 - **Deletions supported:** none
 - **Deletions unsupported:** post:product, post:product_variation, table:woocommerce_attribute_taxonomies, table:woocommerce_shipping_zone_locations, table:woocommerce_shipping_zone_methods, table:woocommerce_shipping_zones, table:woocommerce_tax_rate_locations, table:woocommerce_tax_rates
