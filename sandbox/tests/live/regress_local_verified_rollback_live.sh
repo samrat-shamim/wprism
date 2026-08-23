@@ -101,6 +101,12 @@ fi
 SCRATCH_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/${PAIR}-local-verified.XXXXXX")"
 HERMETIC_ROOT="$SCRATCH_ROOT/hermetic"
 ENVS_FILE="$SCRATCH_ROOT/envs.json"
+# Create the file BEFORE any container bind-mounts it: every helper below
+# mounts $ENVS_FILE at /controller/envs.json, and a bind mount whose host path
+# does not exist yet is created by Docker as a DIRECTORY, after which the later
+# write fails with "Is a directory" (measured on the first run of this suite,
+# 2026-08-24). The real machine-local registry is written in place later.
+: > "$ENVS_FILE"
 SIGNING_KEY="$SCRATCH_ROOT/signing.key"
 EVIDENCE_LOG="$SCRATCH_ROOT/evidence.log"
 
