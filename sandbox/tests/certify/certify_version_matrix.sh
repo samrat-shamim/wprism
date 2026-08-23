@@ -2405,7 +2405,7 @@ pass "confirmed: acf 5.12.6 (real, installed, genuinely below the declared min) 
 fi
 
 if [ "$VMATRIX_MANIFEST" = contact-form-7 ]; then
-say "negative control: contact-form-7 5.9.8 (real wp.org release, genuinely below manifests/contact-form-7.json's own declared min 6.0.0) must be REFUSED, not silently accepted"
+say "negative control: contact-form-7 5.9.8 (real wp.org release, genuinely below manifests/contact-form-7.json's own declared min 6.0) must be REFUSED, not silently accepted"
 reset_env wp1
 reset_case_repositories
 

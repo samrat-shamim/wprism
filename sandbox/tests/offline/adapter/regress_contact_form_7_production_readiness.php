@@ -238,7 +238,7 @@ unset($withoutOldId['_old_cf7_unit_id']);
 duo_check_same([], cf7_readiness_diagnostics($interpreter, $withoutOldId), 'forms without a legacy alternate remain valid');
 
 $manifest = json_decode((string) file_get_contents(__DIR__ . '/../../../../manifests/contact-form-7.json'), true);
-duo_check_same(['min' => '6.0.0', 'max' => '6.2.0'], $manifest['version_range'], 'CF7 admits only the audited 6.0.x and 6.1.x release lines');
+duo_check_same(['min' => '6.0', 'max' => '6.2.0'], $manifest['version_range'], 'CF7 admits the official 6.0 header and only the audited 6.0.x/6.1.x release lines');
 duo_check_same(true, $manifest['post_meta']['_mail']['plain_data'], 'current mail uses recursive string-leaf rebinding');
 duo_check_same(true, $manifest['post_meta']['_mail_2']['plain_data'], 'secondary mail uses recursive string-leaf rebinding');
 duo_check_same(true, $manifest['post_meta']['_messages']['plain_data'], 'messages use recursive string-leaf rebinding');
