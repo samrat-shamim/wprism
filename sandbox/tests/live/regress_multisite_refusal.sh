@@ -174,57 +174,22 @@ else
   pass "duo recover host gate: covered offline; set MULTISITE_RECOVER_ENV/_ID to exercise it here"
 fi
 
-# (e) The pre-swap proof: adoption asks the topology question BEFORE the
-# mu-plugin swap, so a network is refused with $swapped still false -- nothing
-# installed, nothing to roll back, no journal residue possible. Run against
-# side 2, converted here, so side 1's already-exercised runtime is untouched.
-#
-# The assertion is "no adoption transaction ever started", not "wp-content has
-# no duo/": sandbox/pair.yml:106-107,132-133 bind-mounts ${DUO_AGENT_SRC} into
-# BOTH sides' mu-plugins read-only, so a pair target always carries an agent
-# directory it did not adopt. The non-existence half is owned offline by
-# sandbox/tests/offline/cli/regress_adopt_command.php, which asserts through
-# Adopt::install() that a network uploads nothing, runs no install script and
-# never reaches the post-swap Policy probe.
-say "duo adopt refuses a network before the swap"
-wp2() { "${COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
-ADOPT_ENVS=$(mktemp "${TMPDIR:-/tmp}/duo-multisite-adopt.${PAIR}.XXXXXX")
-trap 'rm -f -- "$ADOPT_ENVS"' EXIT
-jq -n --arg compose "$(pwd)/pair.yml" --arg name "${PAIR}2" '
-  {envs:{($name):{transport:"docker",compose_file:$compose,service:"cli2",repo_path:"/siterepo"}}}
-' > "$ADOPT_ENVS"
-wp2 core multisite-convert --title='Duo Multisite Adopt Refusal' >/dev/null
-[ "$(wp2 eval 'echo is_multisite() ? "yes" : "no";')" = yes ] \
-  || fail "side 2 did not report is_multisite() after multisite-convert"
-set +e
-ADOPT_OUT=$(php ../cli/duo adopt "${PAIR}2" --envs-file="$ADOPT_ENVS" 2>&1)
-ADOPT_RC=$?
-set -e
-printf '%s\n' "$ADOPT_OUT"
-[ "$ADOPT_RC" -ne 0 ] || fail "duo adopt returned success against a network"
-grep -qF 'topology probe' <<<"$ADOPT_OUT" \
-  || fail "adopt did not refuse at the pre-swap topology probe phase"
-grep -qF 'multisite is unsupported by the certified v1 contract' <<<"$ADOPT_OUT" \
-  || fail "the adopt refusal did not carry the multisite sentence"
-grep -qF 'policy verification' <<<"$ADOPT_OUT" \
-  && fail "adopt reached the POST-swap policy probe; the refusal is not pre-swap" \
-  || true
-# No staged transaction path, and no archive: the refusal happened before the
-# tar and the upload, so /tmp holds no duo-adopt archive and mu-plugins holds
-# no .duo-* transaction directory.
-ADOPT_RESIDUE=$("${COMPOSE[@]}" run --rm -T cli2 sh -c '
-  find /var/www/html/wp-content/mu-plugins -maxdepth 1 \
-    \( -name ".duo-adopt-*" -o -name ".duo-new-*" -o -name ".duo-old-*" \
-       -o -name ".duo-loader-new-*" -o -name ".duo-loader-old-*" \
-       -o -name ".duo-manifests-new-*" -o -name ".duo-manifests-old-*" \) -print
-  find /tmp -maxdepth 1 -name "duo-adopt-*.tar" -print
-' 2>/dev/null || true)
-[ -z "$(printf '%s' "$ADOPT_RESIDUE" | tr -d '[:space:]')" ] \
-  || fail "a refused adoption left staged transaction or archive paths: $ADOPT_RESIDUE"
-ADOPT_TABLES=$(wp2 db query "SHOW TABLES LIKE '%duo\\_%'" --skip-column-names 2>/dev/null || true)
-[ -z "$(printf '%s' "$ADOPT_TABLES" | tr -d '[:space:]')" ] \
-  || fail "a refused adoption created duo tables on the network: $ADOPT_TABLES"
-pass "adopt refuses at the pre-swap topology probe with no staged transaction, archive, or ledger table"
+# (e) The pre-swap adoption proof is NOT drivable from a pair: `duo adopt`
+# reaches DockerTransport's driver preflight first, which refuses with
+# "driver 'docker' does not implement 'environment.bootstrap'; no emulation
+# is permitted" (cli/src/Transport/DockerTransport.php is not an
+# AdoptionTransport — measured on this estate 2026-08-24), so no docker
+# environment can ever reach Adopt::install()'s topology probe, let alone the
+# swap. The ordering claim — the probe precedes the tar, the upload and the
+# install script, and a network leaves $swapped false with nothing to roll back
+# — is owned offline by sandbox/tests/offline/cli/regress_adopt_command.php,
+# which drives Adopt::install() through the product path with a transport that
+# answers multisite and asserts no command after the probe ever ran. A live
+# pre-swap proof needs an adoptable transport (ssh: regress_ssh_adopt.sh's
+# estate; local: regress_local_bootstrap_live.sh's controller container), which
+# is a separate, heavier estate than this one-pair refusal suite.
+say "duo adopt pre-swap topology probe"
+pass "adopt pre-swap ordering: covered offline (regress_adopt_command.php); a pair target is not adoptable over the docker driver"
 
 printf '\n\033[1;32m✔ REGRESS_MULTISITE_REFUSAL PASSED\033[0m\n'
 

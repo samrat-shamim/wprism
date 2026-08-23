@@ -2226,7 +2226,7 @@ regress-live-list:
 	@echo "  regress-discovery-completeness            pair codexmac3205 8900/8901"
 	@echo "  regress-core-semantics                    pair codexmac3207 8900/8901"
 	@echo "  regress-core-lifecycle                    own disposable pair (parameterized: CORE_LIFECYCLE_PAIR/PORT1/PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate; exact offline WordPress 7.0.2 -> 7.0.3 -> rollback/reinstall)"
-	@echo "  regress-core-data-boundary                own disposable pair (parameterized: CORE_DATA_BOUNDARY_PAIR/PORT1/PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate; exact offline WordPress 7.0.3)"
+	@echo "  regress-core-data-boundary                own disposable pair (parameterized: CORE_DATA_BOUNDARY_PAIR/PORT1/PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate; exact offline core per run: CORE_DATA_BOUNDARY_WORDPRESS/_IMAGE, default 7.0.3; re-run per exercised series)"
 	@echo "  regress-core-scope-platform               own disposable pair (parameterized: CORE_SCOPE_PLATFORM_PAIR/PORT1/PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate; exact PHP 8.3/8.4 + claimed WordPress 6.9.2/7.0.2/7.0.3 matrix and a below-range 6.8.3 refusal)"
 	@echo "  regress-attachment-portability            pair codexmac3265 8964/8965"
 	@echo "  regress-fatal-mutations-live              pair codexmaca3206 9210/..."

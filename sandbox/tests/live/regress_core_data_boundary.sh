@@ -15,8 +15,13 @@ fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
 PAIR="${CORE_DATA_BOUNDARY_PAIR:-coreboundary}"
 PORT1="${CORE_DATA_BOUNDARY_PORT1:-8994}"
 PORT2="${CORE_DATA_BOUNDARY_PORT2:-8995}"
-WORDPRESS_VERSION=7.0.3
-WORDPRESS_IMAGE='wordpress@sha256:a09147f15a882b956f67a617e9e1e053adf9322c45c797c2ff7c0e66522bf204'
+# The boundary proof runs against ONE exact core per invocation. The default is
+# the newest exercised core (platform.json last_verified); the matrix in
+# regress_core_scope_platform.sh names the other exercised series, and this
+# suite is re-run per series by overriding both values together with the
+# exact digest of that series' proof image (never a floating tag).
+WORDPRESS_VERSION="${CORE_DATA_BOUNDARY_WORDPRESS:-7.0.3}"
+WORDPRESS_IMAGE="${CORE_DATA_BOUNDARY_IMAGE:-wordpress@sha256:a09147f15a882b956f67a617e9e1e053adf9322c45c797c2ff7c0e66522bf204}"
 
 [[ "$PAIR" =~ ^[a-z][a-z0-9]*$ ]] || fail "invalid CORE_DATA_BOUNDARY_PAIR '$PAIR'"
 [ -n "${DUO_EXPECTED_SOURCE_SHA:-}" ] \
@@ -145,9 +150,14 @@ docker image inspect "$WORDPRESS_IMAGE" >/dev/null 2>&1 \
   || fail "exact core image is absent locally (offline proof will not pull): $WORDPRESS_IMAGE"
 [ "$(docker run --rm --entrypoint php "$WORDPRESS_IMAGE" -r 'include "/usr/src/wordpress/wp-includes/version.php"; echo $wp_version;')" = "$WORDPRESS_VERSION" ] \
   || fail "$WORDPRESS_IMAGE does not contain WordPress $WORDPRESS_VERSION"
-jq -e --arg version "$WORDPRESS_VERSION" '.platform.compatibility.wordpress.last_verified == $version' \
+# The core under test must be one of the exact patches platform.json names as
+# a per-series proof (the values of compatibility.wordpress.verified): this
+# suite IS that proof for the data boundary, so running it on a core the claim
+# does not name would prove nothing about the claim.
+jq -e --arg version "$WORDPRESS_VERSION" \
+  '[.platform.compatibility.wordpress.verified | to_entries[] | .value] | index($version) != null' \
   ../manifests/capabilities/platform.json >/dev/null \
-  || fail "platform last_verified no longer names boundary-test WordPress $WORDPRESS_VERSION"
+  || fail "platform.json names no exercised series whose proof is WordPress $WORDPRESS_VERSION"
 pass 'core data-boundary proof uses the exact reviewed WordPress image and platform declaration'
 
 say 'fresh exact pair and hostile source/target seeds'
