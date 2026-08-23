@@ -112,6 +112,7 @@ wp_conf1 eval "
 \$attribute->set_variation(false);
 \$download = new WC_Product_Download();
 \$download->set_id(md5('duo-woocommerce-portable-download'));
+\$download->set_enabled(true);
 \$download->set_name('Portable catalog 日本語 🚀.png');
 \$download->set_file(wp_get_attachment_url($THUMB_ID) . '?download=1&label=' . rawurlencode('東京 🚀'));
 \$admin = get_user_by('login', 'admin');

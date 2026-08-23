@@ -465,7 +465,10 @@ jq -e --arg version "$WOOCOMMERCE_EXPECTED_VERSION" --arg target "http://localho
   (.derived.precision_lookup.max_price | tonumber) == 123456788.6543 and
   .shipping.methods.flat_rate.cost == "5.99" and .shipping.methods.free_shipping.min_amount == "50.00" and
   .shipping.tax_class.slug == "conformance-reduced-rate" and .shipping.tax_rate.tax_rate == "7.2500" and
-  .options.paypal == {"enabled":"yes","email":"target-paypal@example.test","identity_token":"target-secret-token-preserved"} and
+  .options.paypal.enabled == "yes" and
+  .options.paypal.email == "target-paypal@example.test" and
+  .options.paypal.receiver_email == "target-paypal@example.test" and
+  .options.paypal.identity_token == "target-secret-token-preserved" and
   .options.neighbor == "target-neighbor-preserved" and
   .runtime == {"hpos":true,"source_orders":0,"source_queue":0,"source_sessions":0,"target_orders":1,"target_queue":1,"target_sessions":1} and
   (.ids | to_entries | all(.value > 2147483647))
