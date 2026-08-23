@@ -13,13 +13,33 @@ if (!class_exists(Canon::class, false)) {
 require_once __DIR__ . '/../Kernel/PathSafety.php';
 
 /**
- * `duo-code-lock/v1` — the provenance and byte-identity declaration for code
- * components the repository deliberately does NOT carry in Git.
+ * `duo-code-lock/v2` — the sourcing declaration for every plugin and theme
+ * component a repository's code half carries.
  *
- * Scope, deliberately narrow (DUO-3499): one entry declares WHERE one
- * component's bytes came from (`origin`) and WHAT the unpacked component must
- * hash to (`tree_sha256`). It expresses no version range, no dependency graph
- * and no update policy — `CodeCompatibility` already owns dependency-graph and
+ * Two lists, one invariant. `components` names the third-party components
+ * the repository deliberately does NOT carry in Git: WHERE each one's bytes
+ * come from (`origin`) and WHAT the unpacked component must hash to
+ * (`tree_sha256`). `first_party` names the components Git DOES carry, by the
+ * operator's explicit declaration that the code is the site's own. The
+ * invariant the compile gate enforces from these two lists is that Git never
+ * carries third-party bytes: a component present under `code/wp-content`
+ * that is in neither list is refused (`code_component_undeclared`,
+ * CodeDescriptorCompiler::lock_diagnostics()) rather than vendored by
+ * omission. There is no third classification and no "vendor it anyway"
+ * escape: a premium plugin is imported once as an archive on the host
+ * (`duo code-import`) and locked as `imported-archive`, exactly like a
+ * wp.org release is locked as `wp-org-release`.
+ *
+ * `duo-code-lock/v1` (DUO-3499) declared `components` only and admitted a
+ * `vendored-archive` origin — a ZIP committed inside the repository, which
+ * is third-party bytes in Git by another name. v1 documents still parse
+ * (their `first_party` is empty, so any component Git carries beside them
+ * reaches `code_component_undeclared` and the remedy names `duo
+ * code-classify`), but a `vendored-archive` entry is refused by name, since
+ * no writer ever produced one and nothing will resolve one again.
+ *
+ * Scope stays deliberately narrow: no version range, no dependency graph, no
+ * update policy — `CodeCompatibility` already owns dependency-graph and
  * version-range findings from the frozen source, and a lock that grew those
  * would be a second manifest treadmill.
  *
@@ -41,9 +61,12 @@ require_once __DIR__ . '/../Kernel/PathSafety.php';
  * from one algorithm, so they cannot drift apart.
  */
 final class CodeSourceLock {
-    public const FORMAT = 'duo-code-lock/v1';
+    public const FORMAT = 'duo-code-lock/v2';
 
-    /** The only lock path a `code.format: 2` declaration may name in v1. */
+    /** The DUO-3499 grammar: `components` only, no `first_party`. Read, never written. */
+    public const LEGACY_FORMAT = 'duo-code-lock/v1';
+
+    /** The only lock path a `code.format: 2` declaration may name. */
     public const PATH = 'code/duo-code.lock.json';
 
     /**
@@ -56,8 +79,20 @@ final class CodeSourceLock {
      */
     public const ROOTS = ['plugins', 'themes'];
 
-    /** @var list<string> */
-    public const KINDS = ['vendored-archive', 'wp-org-release'];
+    /**
+     * `wp-org-release`: the canonical downloads.wordpress.org archive for a
+     * published version, fetched by the host. `imported-archive`: an archive
+     * the operator imported into the host's content-addressed cache with
+     * `duo code-import`, identified by its digest alone — the lock records no
+     * URL and no path for it, because a vendor download URL is usually
+     * license-keyed and a path would name bytes the repository must not carry.
+     *
+     * @var list<string>
+     */
+    public const KINDS = ['imported-archive', 'wp-org-release'];
+
+    /** Refused by name, with the remedy: the only kind DUO-3499 shipped that put third-party bytes in Git. */
+    public const REMOVED_KIND = 'vendored-archive';
 
     /**
      * The payload source prefix, spelled as a literal rather than as
@@ -90,13 +125,19 @@ final class CodeSourceLock {
      * @param array<string,mixed> $lock
      */
     public static function assert_lock(array $lock): void {
+        $format = $lock['format'] ?? null;
+        if ($format !== self::FORMAT && $format !== self::LEGACY_FORMAT) {
+            throw new \RuntimeException(
+                'duo: code lock format must be "' . self::FORMAT . '" (or the legacy "' . self::LEGACY_FORMAT . '")'
+            );
+        }
         $keys = array_keys($lock);
         sort($keys, SORT_STRING);
-        if ($keys !== ['components', 'format']) {
-            throw new \RuntimeException('duo: code lock must contain exactly format and components');
-        }
-        if (($lock['format'] ?? null) !== self::FORMAT) {
-            throw new \RuntimeException('duo: code lock format must be "' . self::FORMAT . '"');
+        $expected = $format === self::FORMAT ? ['components', 'first_party', 'format'] : ['components', 'format'];
+        if ($keys !== $expected) {
+            throw new \RuntimeException(
+                'duo: code lock ' . $format . ' must contain exactly ' . implode(', ', $expected)
+            );
         }
         $components = $lock['components'];
         if (!is_array($components) || !array_is_list($components)) {
@@ -113,11 +154,60 @@ final class CodeSourceLock {
             $seen[$key] = true;
             $order[] = [(string) $entry['root'], (string) $entry['component']];
         }
-        $expected = $order;
-        usort($expected, static fn(array $a, array $b): int => $a <=> $b);
-        if ($order !== $expected) {
+        $sorted = $order;
+        usort($sorted, static fn(array $a, array $b): int => $a <=> $b);
+        if ($order !== $sorted) {
             throw new \RuntimeException('duo: code lock components are not deterministically sorted by root then component');
         }
+        if ($format === self::FORMAT) {
+            self::assert_first_party($lock['first_party'], $seen);
+        }
+    }
+
+    /**
+     * `first_party` is a sorted list of unique `{root}/{component}` identities,
+     * each a lockable root and a safe component name, and none of them also a
+     * locked component: one identity cannot be both "Git carries it" and "Git
+     * does not carry it".
+     *
+     * @param mixed $firstParty
+     * @param array<string,bool> $locked `{root}/{component}` => true
+     */
+    private static function assert_first_party($firstParty, array $locked): void {
+        if (!is_array($firstParty) || !array_is_list($firstParty)) {
+            throw new \RuntimeException('duo: code lock first_party must be a list');
+        }
+        $seen = [];
+        foreach ($firstParty as $i => $identity) {
+            if (!is_string($identity) || !self::is_identity($identity)) {
+                throw new \RuntimeException(
+                    "duo: code lock first_party[$i] must be one '{root}/{component}' identity with root "
+                    . implode('/', self::ROOTS) . ' and one safe component segment'
+                );
+            }
+            if (isset($seen[$identity])) {
+                throw new \RuntimeException("duo: code lock first_party declares '$identity' more than once");
+            }
+            if (isset($locked[$identity])) {
+                throw new \RuntimeException(
+                    "duo: code lock declares '$identity' both as a locked component and as first-party"
+                );
+            }
+            $seen[$identity] = true;
+        }
+        $sorted = array_keys($seen);
+        sort($sorted, SORT_STRING);
+        if ($firstParty !== $sorted) {
+            throw new \RuntimeException('duo: code lock first_party is not deterministically sorted');
+        }
+    }
+
+    /** `{root}/{component}` with a lockable root and one safe component segment. */
+    public static function is_identity(string $identity): bool {
+        $parts = explode('/', $identity);
+        return count($parts) === 2
+            && in_array($parts[0], self::ROOTS, true)
+            && PathSafety::safe_component($parts[1]);
     }
 
     /** @param mixed $entry */
@@ -156,6 +246,17 @@ final class CodeSourceLock {
             throw new \RuntimeException("duo: code lock components[$i] origin must be an object");
         }
         $kind = $origin['kind'] ?? null;
+        if ($kind === self::REMOVED_KIND) {
+            // Named rather than folded into "must be one of": the operator
+            // holding a v1 lock with this entry needs the remedy, not the
+            // vocabulary. The archive the entry pointed at is still in their
+            // repository; importing it is one command.
+            throw new \RuntimeException(
+                "duo: code lock components[$i] origin.kind '" . self::REMOVED_KIND . "' is no longer a lock origin: "
+                . 'Git must not carry third-party code, archives included; import the archive on the host with '
+                . '`duo code-import <archive.zip>` and re-lock the component with `duo code-classify`'
+            );
+        }
         if (!is_string($kind) || !in_array($kind, self::KINDS, true)) {
             throw new \RuntimeException(
                 "duo: code lock components[$i] origin.kind must be one of " . implode('/', self::KINDS)
@@ -163,9 +264,9 @@ final class CodeSourceLock {
         }
         $keys = array_keys($origin);
         sort($keys, SORT_STRING);
-        $locator = $kind === 'wp-org-release' ? 'url' : 'path';
-        $required = ['archive_sha256', 'kind', $locator];
-        sort($required, SORT_STRING);
+        $required = $kind === 'wp-org-release'
+            ? ['archive_sha256', 'kind', 'url']
+            : ['archive_sha256', 'kind'];
         $withRoot = [...$required, 'archive_root'];
         sort($withRoot, SORT_STRING);
         if ($keys !== $required && $keys !== $withRoot) {
@@ -189,19 +290,12 @@ final class CodeSourceLock {
                     "duo: code lock components[$i] origin.url must be an https:// URL with no whitespace"
                 );
             }
-        } else {
-            $path = $origin['path'];
-            // A vendored archive is a repository-relative path. safe_relative()
-            // is the same predicate the descriptor applies to every payload
-            // path (agent/src/Kernel/PathSafety.php:68-75), so '..', a leading
-            // '/', a backslash and a control byte are all refused here — the
-            // lock can never name bytes outside the repository it describes.
-            if (!is_string($path) || !PathSafety::safe_relative($path)) {
-                throw new \RuntimeException(
-                    "duo: code lock components[$i] origin.path must be a repository-relative path that cannot escape the repository"
-                );
-            }
         }
+        // An imported archive carries NO locator by design: its identity is
+        // `archive_sha256`, which the host's cache is keyed by. A URL would be
+        // a vendor's license-keyed download link committed to Git; a path
+        // would be bytes the repository must not carry. The grammar has no
+        // field for either, so neither can be written by accident.
         if (array_key_exists('archive_root', $origin)
             && (!is_string($origin['archive_root']) || !PathSafety::safe_relative($origin['archive_root']))) {
             throw new \RuntimeException(
@@ -216,13 +310,19 @@ final class CodeSourceLock {
     }
 
     /**
-     * Canonical lock bytes. The entries are sorted here rather than trusted
-     * from the caller, so a writer cannot emit a lock its own reader refuses.
+     * Canonical lock bytes, always in the current format. The entries are
+     * sorted here rather than trusted from the caller, so a writer cannot emit
+     * a lock its own reader refuses.
      *
      * @param list<array<string,mixed>> $components
+     * @param list<string> $firstParty `{root}/{component}` identities Git carries by declaration
      */
-    public static function encode(array $components): string {
-        $lock = ['format' => self::FORMAT, 'components' => self::sort_components($components)];
+    public static function encode(array $components, array $firstParty = []): string {
+        $lock = [
+            'format' => self::FORMAT,
+            'components' => self::sort_components($components),
+            'first_party' => self::sort_first_party($firstParty),
+        ];
         self::assert_lock($lock);
         return Canon::encode($lock);
     }
@@ -240,7 +340,17 @@ final class CodeSourceLock {
     }
 
     /**
-     * `{root}/{component}` => entry, for the two consumers that need lookup by
+     * @param list<string> $firstParty
+     * @return list<string>
+     */
+    public static function sort_first_party(array $firstParty): array {
+        $identities = array_values(array_unique(array_map('strval', $firstParty)));
+        sort($identities, SORT_STRING);
+        return $identities;
+    }
+
+    /**
+     * `{root}/{component}` => entry, for the consumers that need lookup by
      * identity (the compile gate and CodeStateContract's remedy branch).
      *
      * @param array<string,mixed> $lock
@@ -254,6 +364,26 @@ final class CodeSourceLock {
             }
         }
         return $index;
+    }
+
+    /**
+     * `{root}/{component}` => true for every first-party declaration. A legacy
+     * v1 lock declares none, which is what sends every component Git carries
+     * beside it to `code_component_undeclared` until `duo code-classify`
+     * re-declares the repository.
+     *
+     * @param array<string,mixed> $lock
+     * @return array<string,bool>
+     */
+    public static function first_party(array $lock): array {
+        $declared = [];
+        foreach ((array) ($lock['first_party'] ?? []) as $identity) {
+            if (is_string($identity) && self::is_identity($identity)) {
+                $declared[$identity] = true;
+            }
+        }
+        ksort($declared, SORT_STRING);
+        return $declared;
     }
 
     /**

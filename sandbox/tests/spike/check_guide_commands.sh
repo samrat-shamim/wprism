@@ -180,7 +180,14 @@ scan_guides() {
                 allowed="$verbs"
                 label="duo $token"
             fi
-            if printf '%s\n' "$allowed" | grep -qxF -- "$token"; then
+            # A here-string, not `printf | grep -q`: grep -q exits on the
+            # first match, and under `pipefail` a printf that was still
+            # writing then fails the pipeline with SIGPIPE -- a VALID token
+            # (the alphabetically first verb, `adapter`, most of all) reported
+            # as unknown whenever the host is busy. Observed as an intermittent
+            # "cites 'duo adapter', which is not a verb" while the offline
+            # corpus ran beside this check.
+            if grep -qxF -- "$token" <<<"$allowed"; then
                 continue
             fi
             if [ "$planned" = '1' ]; then

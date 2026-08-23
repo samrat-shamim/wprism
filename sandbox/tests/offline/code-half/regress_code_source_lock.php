@@ -1,14 +1,18 @@
 <?php
 /**
- * Offline grammar characterization for `duo-code-lock/v1` (DUO-3499).
+ * Offline grammar characterization for `duo-code-lock/v2` (DUO-3499, then the
+ * no-third-party-bytes invariant).
  *
  * The lock is the only wire the code-half split adds, and everything
- * downstream — the compile gate, `duo init --code=split`, `duo code-classify`,
- * and DUO-3500's resolver — trusts it to have already refused a malformed
- * declaration by name. This suite pins each refusal to the fact it names, and
- * pins the two identities that would otherwise drift silently: the payload
- * source prefix CodeSourceLock spells as a literal, and the tree digest
- * algorithm it shares with CodeDescriptorCompiler's per-file rows.
+ * downstream — the compile gate, `duo init`, `duo code-classify`, and the
+ * resolver — trusts it to have already refused a malformed declaration by
+ * name. This suite pins each refusal to the fact it names, pins the v2 shape
+ * (`components` Git does not carry + `first_party` it carries by declaration),
+ * pins that the DUO-3499 `vendored-archive` origin is refused BY NAME with its
+ * remedy and that a legacy v1 document still parses, and pins the two
+ * identities that would otherwise drift silently: the payload source prefix
+ * CodeSourceLock spells as a literal, and the tree digest algorithm it shares
+ * with CodeDescriptorCompiler's per-file rows.
  */
 declare(strict_types=1);
 
@@ -47,9 +51,19 @@ function lock_entry(array $overrides = []): array {
     return $entry;
 }
 
-/** @param list<array<string,mixed>> $components @return array<string,mixed> */
-function lock_of(array $components): array {
-    return ['format' => CodeSourceLock::FORMAT, 'components' => $components];
+/** @param list<array<string,mixed>> $components @param list<string> $firstParty @return array<string,mixed> */
+function lock_of(array $components, array $firstParty = []): array {
+    return ['format' => CodeSourceLock::FORMAT, 'components' => $components, 'first_party' => $firstParty];
+}
+
+/** The DUO-3499 shape: components only. @param list<array<string,mixed>> $components @return array<string,mixed> */
+function legacy_lock_of(array $components): array {
+    return ['format' => CodeSourceLock::LEGACY_FORMAT, 'components' => $components];
+}
+
+/** @return array<string,mixed> */
+function imported_origin(array $overrides = []): array {
+    return array_merge(['kind' => 'imported-archive', 'archive_sha256' => str_repeat('c', 64)], $overrides);
 }
 
 function refuses(array $lock, string $needle, string $message): void {
@@ -70,9 +84,12 @@ duo_check_same(
     CodeSourceLock::SOURCE,
     'CodeSourceLock::SOURCE is the descriptor compiler payload prefix, spelled out to keep the grammar loadable alone'
 );
-duo_check_same('duo-code-lock/v1', CodeSourceLock::FORMAT, 'the lock wire format is duo-code-lock/v1');
-duo_check_same('code/duo-code.lock.json', CodeSourceLock::PATH, 'v1 accepts exactly one lock path');
+duo_check_same('duo-code-lock/v2', CodeSourceLock::FORMAT, 'the lock wire format is duo-code-lock/v2');
+duo_check_same('duo-code-lock/v1', CodeSourceLock::LEGACY_FORMAT, 'the DUO-3499 format is still named, as the legacy it reads');
+duo_check_same('code/duo-code.lock.json', CodeSourceLock::PATH, 'exactly one lock path is legal');
 duo_check_same(['plugins', 'themes'], CodeSourceLock::ROOTS, 'only plugins/ and themes/ components are lockable');
+duo_check_same(['imported-archive', 'wp-org-release'], CodeSourceLock::KINDS, 'two origin kinds: a wp.org release, or an archive imported on the host');
+duo_check_same('vendored-archive', CodeSourceLock::REMOVED_KIND, 'the removed kind is named, so its refusal can carry the remedy');
 
 // ---------------------------------------------------------------------------
 // Accepted shapes.
@@ -82,17 +99,28 @@ CodeSourceLock::assert_lock(lock_of([lock_entry()]));
 duo_check(true, 'a minimal wp-org-release entry is accepted');
 
 CodeSourceLock::assert_lock(lock_of([
-    lock_entry([
-        'origin' => [
-            'kind' => 'vendored-archive',
-            'path' => 'code/archives/acme-premium.1.4.2.zip',
-            'archive_sha256' => str_repeat('c', 64),
-            'archive_root' => 'acme-premium',
-        ],
-        'component' => 'acme-premium',
-    ]),
+    lock_entry(['origin' => imported_origin(['archive_root' => 'acme-premium-1.4.2']), 'component' => 'acme-premium']),
 ]));
-duo_check(true, 'a vendored-archive entry with an archive_root is accepted');
+duo_check(true, 'an imported-archive entry with an archive_root is accepted');
+CodeSourceLock::assert_lock(lock_of([lock_entry(['origin' => imported_origin(), 'component' => 'acme-premium'])]));
+duo_check(true, 'an imported-archive entry is identified by archive_sha256 alone: no url, no path');
+
+CodeSourceLock::assert_lock(lock_of([], ['plugins/duo-agency', 'themes/agency-child']));
+duo_check(true, 'a lock with no locked component and only first-party declarations is accepted: the declaration is the point');
+CodeSourceLock::assert_lock(lock_of([lock_entry()], ['plugins/duo-agency']));
+duo_check(true, 'locked components and first-party declarations coexist');
+
+CodeSourceLock::assert_lock(legacy_lock_of([lock_entry()]));
+duo_check(true, 'a legacy duo-code-lock/v1 document (components only) still parses');
+duo_check_same([], CodeSourceLock::first_party(legacy_lock_of([lock_entry()])), 'a legacy v1 lock declares no first-party component');
+duo_check_same(
+    ['plugins/duo-agency' => true],
+    CodeSourceLock::first_party(lock_of([], ['plugins/duo-agency'])),
+    'first_party() indexes the declarations by identity'
+);
+duo_check(CodeSourceLock::is_identity('plugins/woocommerce') && !CodeSourceLock::is_identity('mu-plugins/duo')
+    && !CodeSourceLock::is_identity('plugins/../x') && !CodeSourceLock::is_identity('woocommerce'),
+    'is_identity() admits exactly <lockable root>/<safe component>');
 
 CodeSourceLock::assert_lock(lock_of([
     lock_entry(['root' => 'plugins', 'component' => 'akismet']),
@@ -106,17 +134,57 @@ duo_check(true, 'entries sorted by root then component are accepted');
 // ---------------------------------------------------------------------------
 
 refuses(
-    ['format' => CodeSourceLock::FORMAT, 'components' => [], 'extra' => 1],
-    'must contain exactly format and components',
+    ['format' => CodeSourceLock::FORMAT, 'components' => [], 'first_party' => [], 'extra' => 1],
+    'must contain exactly components, first_party, format',
     'an extra top-level key is refused'
 );
 refuses(
-    ['format' => 'duo-code-lock/v2', 'components' => []],
-    'format must be "duo-code-lock/v1"',
+    ['format' => CodeSourceLock::FORMAT, 'components' => []],
+    'must contain exactly components, first_party, format',
+    'a v2 lock without first_party is refused: the declaration list is not optional'
+);
+refuses(
+    ['format' => CodeSourceLock::LEGACY_FORMAT, 'components' => [], 'first_party' => []],
+    'must contain exactly components, format',
+    'a v1 lock carrying first_party is refused: the legacy shape is read exactly as written'
+);
+refuses(
+    ['format' => 'duo-code-lock/v3', 'components' => [], 'first_party' => []],
+    'format must be "duo-code-lock/v2" (or the legacy "duo-code-lock/v1")',
     'an unknown lock format is refused by name'
 );
 refuses(
-    ['format' => CodeSourceLock::FORMAT, 'components' => ['plugins/woocommerce' => lock_entry()]],
+    ['format' => CodeSourceLock::FORMAT, 'components' => [], 'first_party' => 'plugins/duo-agency'],
+    'first_party must be a list',
+    'a non-list first_party is refused'
+);
+refuses(
+    lock_of([], ['mu-plugins/duo']),
+    "first_party[0] must be one '{root}/{component}' identity",
+    'a first-party identity outside the lockable roots is refused'
+);
+refuses(
+    lock_of([], ['plugins/../escape']),
+    "first_party[0] must be one '{root}/{component}' identity",
+    'a traversing first-party identity is refused'
+);
+refuses(
+    lock_of([], ['plugins/duo-agency', 'plugins/duo-agency']),
+    "first_party declares 'plugins/duo-agency' more than once",
+    'a duplicate first-party identity is refused'
+);
+refuses(
+    lock_of([], ['themes/agency-child', 'plugins/duo-agency']),
+    'first_party is not deterministically sorted',
+    'an unsorted first_party list is refused'
+);
+refuses(
+    lock_of([lock_entry()], ['plugins/woocommerce']),
+    "declares 'plugins/woocommerce' both as a locked component and as first-party",
+    'one identity cannot be both carried and not carried by Git'
+);
+refuses(
+    ['format' => CodeSourceLock::FORMAT, 'components' => ['plugins/woocommerce' => lock_entry()], 'first_party' => []],
     'components must be a list',
     'a keyed components map is refused'
 );
@@ -162,8 +230,47 @@ refuses(
 );
 refuses(
     lock_of([lock_entry(['origin' => ['kind' => 'composer', 'url' => 'https://example.test/x.zip', 'archive_sha256' => str_repeat('a', 64)]])]),
-    'origin.kind must be one of vendored-archive/wp-org-release',
+    'origin.kind must be one of imported-archive/wp-org-release',
     'an unknown origin kind is refused by name'
+);
+refuses(
+    lock_of([lock_entry(['origin' => [
+        'kind' => 'vendored-archive',
+        'path' => 'code/archives/acme-premium.1.4.2.zip',
+        'archive_sha256' => str_repeat('c', 64),
+    ]])]),
+    "origin.kind 'vendored-archive' is no longer a lock origin: Git must not carry third-party code, archives included; "
+    . 'import the archive on the host with `duo code-import <archive.zip>` and re-lock the component with `duo code-classify`',
+    'the DUO-3499 vendored-archive origin is refused by name with its remedy, in a v2 lock'
+);
+refuses(
+    legacy_lock_of([lock_entry(['origin' => [
+        'kind' => 'vendored-archive',
+        'path' => 'code/archives/acme-premium.1.4.2.zip',
+        'archive_sha256' => str_repeat('c', 64),
+    ]])]),
+    "origin.kind 'vendored-archive' is no longer a lock origin",
+    'and in a legacy v1 lock: no reader resolves a ZIP committed inside the repository again'
+);
+refuses(
+    lock_of([lock_entry(['origin' => imported_origin(['url' => 'https://vendor.example/acme.zip'])])]),
+    "origin of kind 'imported-archive' must contain exactly archive_sha256, kind and may add archive_root",
+    'an imported-archive origin carrying a url is refused: a vendor download link must never reach the repository'
+);
+refuses(
+    lock_of([lock_entry(['origin' => imported_origin(['path' => 'code/archives/acme.zip'])])]),
+    "origin of kind 'imported-archive' must contain exactly archive_sha256, kind and may add archive_root",
+    'an imported-archive origin carrying a path is refused: the repository carries no archive bytes'
+);
+refuses(
+    lock_of([lock_entry(['origin' => imported_origin(['archive_sha256' => 'nope'])])]),
+    'origin.archive_sha256 must be 64 lowercase hex characters',
+    'an imported-archive origin with a malformed digest is refused'
+);
+refuses(
+    lock_of([lock_entry(['origin' => imported_origin(['archive_root' => '../elsewhere'])])]),
+    'origin.archive_root must be a safe relative path inside the archive',
+    'a traversing imported-archive archive_root is refused'
 );
 refuses(
     lock_of([lock_entry(['origin' => [
@@ -194,24 +301,6 @@ refuses(
 );
 refuses(
     lock_of([lock_entry(['origin' => [
-        'kind' => 'vendored-archive',
-        'path' => '../../outside-the-repo.zip',
-        'archive_sha256' => str_repeat('c', 64),
-    ]])]),
-    'cannot escape the repository',
-    'a vendored-archive path that escapes the repository is refused'
-);
-refuses(
-    lock_of([lock_entry(['origin' => [
-        'kind' => 'vendored-archive',
-        'path' => '/etc/passwd.zip',
-        'archive_sha256' => str_repeat('c', 64),
-    ]])]),
-    'cannot escape the repository',
-    'an absolute vendored-archive path is refused'
-);
-refuses(
-    lock_of([lock_entry(['origin' => [
         'kind' => 'wp-org-release',
         'url' => 'https://downloads.wordpress.org/plugin/woocommerce.11.0.0.zip',
         'archive_sha256' => str_repeat('a', 64),
@@ -228,7 +317,7 @@ refuses(
         'path' => 'code/archives/x.zip',
     ]])]),
     "origin of kind 'wp-org-release' must contain exactly",
-    'a wp-org-release origin carrying a vendored path is refused'
+    'a wp-org-release origin carrying a path is refused'
 );
 refuses(
     lock_of([lock_entry(), lock_entry()]),
@@ -273,12 +362,23 @@ $encoded = CodeSourceLock::encode([
     lock_entry(['root' => 'themes', 'component' => 'storefront']),
     lock_entry(['root' => 'plugins', 'component' => 'woocommerce']),
     lock_entry(['root' => 'plugins', 'component' => 'akismet']),
-]);
+], ['themes/agency-child', 'plugins/duo-agency', 'plugins/duo-agency']);
 $reparsed = CodeSourceLock::parse($encoded);
 duo_check_same(
     ['plugins/akismet', 'plugins/woocommerce', 'themes/storefront'],
     array_keys(CodeSourceLock::index($reparsed)),
     'encode() sorts entries deterministically, so an unsorted caller list still round-trips'
+);
+duo_check_same(
+    ['plugins/duo-agency', 'themes/agency-child'],
+    $reparsed['first_party'],
+    'encode() sorts and dedupes first_party, so a writer cannot emit a declaration list its reader refuses'
+);
+duo_check_same(CodeSourceLock::FORMAT, $reparsed['format'], 'encode() always writes the current format, never the legacy one');
+duo_check_same(
+    ['components' => [], 'first_party' => [], 'format' => CodeSourceLock::FORMAT],
+    CodeSourceLock::parse(CodeSourceLock::encode([])),
+    'a lock with nothing locked and nothing declared still encodes as a complete v2 document'
 );
 duo_check_same(
     $encoded,

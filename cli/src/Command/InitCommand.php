@@ -5,7 +5,7 @@ namespace Duo\Orchestrator;
 
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/../Onboarding/Init.php';
-require_once __DIR__ . '/../Code/WpOrgReleases.php';
+require_once __DIR__ . '/../Code/CodeClassifier.php';
 
 /** Host command handler for the digest-bound initialization workflow. */
 final class InitCommand {
@@ -27,12 +27,7 @@ final class InitCommand {
     ): int {
         $yes = false;
         $allowUnmanagedPlugins = false;
-        // DUO-3499. `split` is the default because a repository that carries
-        // every third-party byte in Git for a site whose plugins are published,
-        // versioned and byte-verifiable is carrying them for no reason; `full`
-        // is the explicit way back to that shape, and both say so out loud
-        // before the proposal is rendered.
-        $codeMode = 'split';
+        $firstPartyValues = [];
         $offline = false;
         $cacheDir = null;
         foreach ($extra as $arg) {
@@ -44,8 +39,8 @@ final class InitCommand {
                 $allowUnmanagedPlugins = true;
                 continue;
             }
-            if ($arg === '--code=split' || $arg === '--code=full') {
-                $codeMode = substr($arg, strlen('--code='));
+            if (is_string($arg) && str_starts_with($arg, CodeClassifier::FIRST_PARTY_FLAG)) {
+                $firstPartyValues[] = substr($arg, strlen(CodeClassifier::FIRST_PARTY_FLAG));
                 continue;
             }
             if ($arg === '--offline') {
@@ -60,11 +55,32 @@ final class InitCommand {
                 }
                 continue;
             }
+            if (is_string($arg) && str_starts_with($arg, '--code=')) {
+                // Named, because the flag existed (DUO-3499: `--code=split|full`)
+                // and an operator with it in a script deserves the reason
+                // rather than "unsupported argument". There is no mode: Git
+                // never carries third-party code, so "vendor everything" is
+                // not a choice the command offers.
+                fwrite(
+                    STDERR,
+                    'duo: init no longer takes --code: Git never carries third-party code, so every component either '
+                    . "locks (wp.org release or `duo code-import`ed archive) or is declared the site's own with "
+                    . CodeClassifier::FIRST_PARTY_FLAG . "<root>/<slug>\n"
+                );
+                return 1;
+            }
             fwrite(
                 STDERR,
-                'duo: init accepts only --yes, ' . Init::ALLOW_UNMANAGED_PLUGINS
-                    . ", --code=split|full, --offline and --cache-dir=<path>; unsupported argument '$arg'\n"
+                'duo: init accepts only --yes, ' . Init::ALLOW_UNMANAGED_PLUGINS . ', '
+                    . CodeClassifier::FIRST_PARTY_FLAG . '<root>/<slug>, --offline and --cache-dir=<path>; '
+                    . "unsupported argument '$arg'\n"
             );
+            return 1;
+        }
+        try {
+            $firstParty = CodeClassifier::parseFirstParty($firstPartyValues);
+        } catch (\Throwable $e) {
+            fwrite(STDERR, 'duo: init: ' . $e->getMessage() . "\n");
             return 1;
         }
 
@@ -91,7 +107,7 @@ final class InitCommand {
                     $transport,
                     $proposal,
                     $allowUnmanagedPlugins,
-                    $codeMode,
+                    $firstParty,
                     $offline,
                     $cacheDir
                 );
@@ -103,6 +119,11 @@ final class InitCommand {
                 fwrite(STDERR, 'duo: init code classification failed: ' . $e->getMessage() . "\n");
                 return 1;
             }
+        } elseif ($firstParty !== []) {
+            // The first proposal is blocked on something else entirely, so the
+            // classification never ran; say so, or the operator re-reads their
+            // --first-party spelling for a refusal that has nothing to do with it.
+            echo "duo: the proposal is blocked before code classification; --first-party was not evaluated.\n";
         }
 
         foreach (Init::render($proposal) as $line) {
@@ -154,7 +175,7 @@ final class InitCommand {
         foreach (Init::nextSteps(
             $transport->name(),
             (string) ($result['state']['repository'] ?? $transport->repoPath()),
-            $lockPlan !== null
+            $lockPlan !== null && CodeClassifier::lockRows($lockPlan) !== []
         ) as $line) {
             echo $line . "\n";
         }
@@ -167,57 +188,59 @@ final class InitCommand {
      *
      * Three target calls instead of two, deliberately: the first proposal is
      * what tells the host which components exist and what they hash to, the
-     * classification needs a package registry the target must never reach, and
-     * the reviewed proposal has to be the one that carries the decision. When
-     * nothing locks, there is no second call and the repository is exactly the
-     * fully vendored shape every pre-DUO-3499 init produced.
+     * classification needs a package registry and a host cache the target must
+     * never reach, and the reviewed proposal has to be the one that carries
+     * the decision. The only site that skips the second call is one with no
+     * lockable component at all: there is nothing Git could carry by omission,
+     * so there is nothing to declare.
+     *
+     * An unsourced component is NOT decided here. The plan carries it as
+     * `unsourced` with the reason, and the agent turns that into a blocking
+     * `code_component_unsourced` row on the re-proposal, so the operator reads
+     * the component, the reason, and both remedies in the proposal itself.
      *
      * @param array<string,mixed> $proposal
+     * @param list<string> $firstParty sorted `{root}/{component}` identities
      * @return array{0:array<string,mixed>,1:?list<array<string,mixed>>}
      */
     private static function classify(
         EnvironmentDriver $transport,
         array $proposal,
         bool $allowUnmanagedPlugins,
-        string $codeMode,
+        array $firstParty,
         bool $offline,
         ?string $cacheDir
     ): array {
-        if ($codeMode === 'full') {
-            echo "duo: --code=full: every active component is vendored into Git (code format 1).\n";
-            return [$proposal, null];
-        }
-        $inventory = (array) ($proposal['code']['component_inventory'] ?? []);
-        if ($inventory === []) {
-            echo "duo: this site has no lockable plugin or theme component; the code half stays fully vendored.\n";
-            return [$proposal, null];
-        }
-        if ($offline) {
-            echo 'duo: --offline: no release registry was contacted, so no component could be verified against a '
-                . "published archive and every one is vendored into Git (code format 1).\n";
-            return [$proposal, null];
-        }
-        $releases = new WpOrgReleases($cacheDir ?? WpOrgReleases::defaultCacheDir(), false);
-        $plan = $releases->classify(array_map(
+        $inventory = array_map(
             static fn(array $row): array => [
                 'root' => (string) $row['root'],
                 'component' => (string) $row['component'],
                 'version' => (string) $row['version'],
                 'tree_sha256' => (string) $row['tree_sha256'],
             ],
-            $inventory
-        ));
-        $locked = array_values(array_filter(
-            $plan,
-            static fn(array $row): bool => ($row['classification'] ?? null) === 'locked'
-        ));
-        if ($locked === []) {
-            echo 'duo: no active component hash-matched a published release archive, so the code half stays fully '
-                . "vendored (code format 1); each component's reason is printed with the proposal below.\n";
-            foreach ($plan as $row) {
-                echo '  VENDORED ' . $row['root'] . '/' . $row['component'] . ' — ' . $row['reason'] . "\n";
+            (array) ($proposal['code']['component_inventory'] ?? [])
+        );
+        if ($inventory === []) {
+            if ($firstParty !== []) {
+                throw new \RuntimeException(
+                    '--first-party names ' . implode(', ', $firstParty) . ', but this site has no lockable plugin '
+                    . 'or theme component'
+                );
             }
+            echo "duo: this site has no lockable plugin or theme component; there is no code classification to make.\n";
             return [$proposal, null];
+        }
+        CodeClassifier::assertFirstPartyKnown($inventory, $firstParty);
+        if ($offline) {
+            echo 'duo: --offline: no release registry is contacted; wp.org components lock only from the host cache, '
+                . "imported archives as usual.\n";
+        }
+        $plan = CodeClassifier::make($cacheDir, $offline)->classify($inventory, $firstParty);
+        $unsourced = CodeClassifier::unsourced($plan);
+        if ($unsourced !== []) {
+            echo 'duo: ' . count($unsourced) . ' component(s) could not be sourced; the proposal below is blocked on each '
+                . 'of them, with the reason and both remedies (import its archive with `duo code-import`, or declare it '
+                . 'the site\'s own code with ' . CodeClassifier::FIRST_PARTY_FLAG . "<root>/<slug>).\n";
         }
         return [Init::proposal($transport, $allowUnmanagedPlugins, $plan), $plan];
     }

@@ -109,18 +109,27 @@ launch gate passes.
 ## Standing decisions
 
 - Artifact sourcing: wp.org release archive, sha256-locked, no latest-fallback
-  (DUO-3223 ruling; lockfile schema leaves room for vendored premium ZIPs).
-  Extended from the test estate to the PRODUCT code half on 2026-08-21
-  (owner ruling, shipped as DUO-3499): Duo owns a lockfile,
-  `code/duo-code.lock.json`; `duo init` defaults to `--code=split`; and the
-  egress constraint is absolute — the agent/production target NEVER fetches
-  from a registry, so classification and resolution are orchestrator-host work
-  only. That constraint is what keeps `code_release_provider`'s shipped probe
-  attestation ("off-target build and dependency resolution … no target Git
-  history or registry credentials") true for a site using both. Resolution
-  itself shipped as DUO-3500 (`duo code-resolve`, and the automatic
-  `<verb> phase: code-resolve` inside deploy and promote) for `local` and
-  `docker`; host-to-target push over ssh is DUO-3514.
+  (DUO-3223 ruling). Extended from the test estate to the PRODUCT code half on
+  2026-08-21 (owner ruling, shipped as DUO-3499): Duo owns a lockfile,
+  `code/duo-code.lock.json`, and the egress constraint is absolute — the
+  agent/production target NEVER fetches from a registry, so classification and
+  resolution are orchestrator-host work only. That constraint is what keeps
+  `code_release_provider`'s shipped probe attestation ("off-target build and
+  dependency resolution … no target Git history or registry credentials") true
+  for a site using both. Resolution itself shipped as DUO-3500 (`duo
+  code-resolve`, and the automatic `<verb> phase: code-resolve` inside deploy
+  and promote) for `local` and `docker`; host-to-target push over ssh is
+  DUO-3514.
+- Git never carries third-party code (owner ruling, 2026-08-23). There is no
+  vendoring mode: every plugin and theme component is LOCKED — against its
+  wp.org release, or against an archive the operator imported on the host with
+  `duo code-import` (`imported-archive`, recorded by digest alone: no URL, no
+  path) — or declared FIRST-PARTY with `--first-party=<root>/<slug>`, and
+  anything else blocks `duo init`, refuses `duo code-classify`, and refuses
+  every compile (`code_component_undeclared`). `--code=full` and the
+  `vendored-archive` lock origin are retired; `duo-code-lock/v2` carries the
+  `first_party` declarations beside `components`. Premium archives are the
+  operator's to move between hosts, never Duo's to download.
 - natural_key identity: the key supplies deterministic bootstrap identity;
   the ledger supplies continuity thereafter, so renames retain UUIDs and are
   surfaced as informational observations (DUO-3237 revised ruling).

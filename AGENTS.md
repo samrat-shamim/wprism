@@ -12,7 +12,7 @@ about CI belongs in a PR, an issue, or this file.
 | path | what it is | ships? |
 | --- | --- | --- |
 | `agent/` | the WordPress drop-in. `duo.php` `require_once`s 95 files at load; `agent/src` is 226 `namespace Duo;` files across 17 directories, each requiring its own dependencies. The only autoload is the generated additive fallback `agent/duo-classmap.php` (rule 1). | yes |
-| `cli/` | the `duo` orchestrator (`cli/duo` is an extensionless `#!/usr/bin/env php` executable) over 76 `cli/src` files | yes |
+| `cli/` | the `duo` orchestrator (`cli/duo` is an extensionless `#!/usr/bin/env php` executable) over 83 `cli/src` files | yes |
 | `recovery/` | the recovery runtime (canonical JSON, atomic store, Ed25519 rollback control) | yes |
 | `manifests/` | core + 9 plugin manifests + `duo-agency-cpt` (the one `excluded` regression fixture, no product claim); `providers/`, `interpreters/`, `regenerators/` hook code; `dispositions.json`, the hand-authored reviewed claim source; `capabilities/platform.json` (the platform boundary certificates sign against) and `capabilities/adapter-authorities.json` | yes |
 | `sandbox/` | the test estate: `bin/pair.sh`, `tests/` (214 `regress_*.php` + 95 `regress_*.sh`, counted recursively — every suite is under one of the five execution-class directories `offline/<domain>/`, `live/`, `grind/`, `certify/`, `spike/`, and the corpus root holds only `fixtures/`, `lib/`, `support/` and `offline_diagnostics_guard.sh`), `conformance/`, `siterepo/`, `tmp/` (gitignored scratch) | no |

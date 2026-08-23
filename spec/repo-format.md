@@ -424,17 +424,33 @@ Format 2 adds exactly one key. Everything else about the code half is unchanged:
 ```
 
 `lock` may name only `code/duo-code.lock.json` in this version. Format 1 remains
-valid and unchanged; a repository moves between the two only by an explicit act
-(`duo init --code=split` at first run, `duo code-classify` afterwards).
+readable as the legacy, unenforced shape (every byte in Git, nothing declared);
+`duo init` produces format 2 for every site that has a plugin or theme
+component, and `duo code-classify` moves an existing repository to it. The
+invariant format 2 exists to enforce is that **Git never carries third-party
+code**: every plugin and theme component under `code/wp-content` is either a
+locked component Git does not carry, or a first-party component Git carries by
+the operator's explicit declaration. There is no third classification.
 
-The lock declares components the repository deliberately does NOT carry in Git.
-It lives outside `code/wp-content`, so the descriptor never inventories it and
-no lock byte ever reaches a target.
+The lock is the sourcing declaration for both: `components` names what Git does
+NOT carry and where it comes from; `first_party` names what Git carries by
+declaration. It lives outside `code/wp-content`, so the descriptor never
+inventories it and no lock byte ever reaches a target.
 
 ```json
 {
-  "format": "duo-code-lock/v1",
+  "format": "duo-code-lock/v2",
   "components": [
+    {
+      "root": "plugins",
+      "component": "acme-premium",
+      "version": "1.4.2",
+      "origin": {
+        "kind": "imported-archive",
+        "archive_sha256": "<64 hex>"
+      },
+      "tree_sha256": "<64 hex>"
+    },
     {
       "root": "plugins",
       "component": "woocommerce",
@@ -446,19 +462,29 @@ no lock byte ever reaches a target.
       },
       "tree_sha256": "<64 hex>"
     }
-  ]
+  ],
+  "first_party": ["plugins/acme-site", "themes/acme-child"]
 }
 ```
 
 `root` is `plugins` or `themes`; `component` is one safe path segment; entries
 are deterministically sorted by `(root, component)` and canonically encoded.
-`origin.kind` is `wp-org-release` (with an `https://` `url`) or
-`vendored-archive` (with a repository-relative `path`), each carrying
-`archive_sha256` and optionally `archive_root` — the directory inside the
-archive that holds the component. Both digests exist because a published
-version can be re-packaged and a ZIP digest is not a tree digest:
-`archive_sha256` says what to fetch, `tree_sha256` says what the unpacked
-component must hash to.
+`origin.kind` is `wp-org-release` (with an `https://` `url`, the canonical
+downloads.wordpress.org archive) or `imported-archive` (an archive the operator
+imported into the host's content-addressed code-artifact cache with
+`duo code-import`, identified by `archive_sha256` alone — no URL, because a
+vendor download link is usually license-keyed, and no path, because the
+repository carries no copy), each carrying `archive_sha256` and optionally
+`archive_root` — the directory inside the archive that holds the component.
+Both digests exist because a published version can be re-packaged and a ZIP
+digest is not a tree digest: `archive_sha256` says what to fetch or read,
+`tree_sha256` says what the unpacked component must hash to. `first_party` is a
+sorted list of unique `<root>/<component>` identities, none of which is also a
+locked component. `duo-code-lock/v1` (components only, no `first_party`) is
+still read; its `vendored-archive` origin — a ZIP committed inside the
+repository, third-party bytes in Git by another name — is refused by name with
+the remedy (`duo code-import` it on the host and re-lock with
+`duo code-classify`).
 
 `tree_sha256` is the sha256 of the canonical, path-sorted `{path, sha256}` rows
 of that component's subtree — exactly the rows compilation already inventories,
@@ -472,13 +498,14 @@ staged-payload proof keep meaning exactly what they mean for format 1. A
 repository that migrates from format 1 to format 2 without moving a byte
 compiles to the identical `code_revision`.
 
-Compilation raises three blocking, non-forceable diagnostics:
+Compilation raises four blocking, non-forceable diagnostics:
 
 | diagnostic | condition | remedy |
 | --- | --- | --- |
 | `code_component_unresolved` | the lock declares a component and the repository carries none of its bytes | `duo code-resolve <env>`, which `duo deploy` and `duo promote` also run themselves before compiling |
 | `code_component_digest_mismatch` | the component is present but hashes to something other than `tree_sha256` | re-materialize the locked release, or re-lock the bytes if they are the intended ones |
 | `code_component_unlocked` | the repository-root `.gitignore` excludes a component under `code/wp-content` that the lock does not declare | declare it in the lock, or remove the ignore line |
+| `code_component_undeclared` | the repository carries a plugin or theme component that is neither a locked component nor in `first_party` | declare it first-party with `duo code-classify --first-party=<root>/<slug>` if it is the site's own code; otherwise `duo code-import` its archive on the host and re-lock it with `duo code-classify` |
 
 The third is answered without invoking `git`: only a literal, root-anchored
 `/code/wp-content/<root>/<component>/` line in the repository-root `.gitignore`
@@ -490,10 +517,14 @@ owned component file and shipped to the target.
 Composer resolution, full-webroot/core ownership, controller-built SSH
 artifacts, and atomic release-directory swaps are later build/deployment modes
 that must emit this same descriptor contract. Format 2 delivers the DECLARATION
-and the compile-time gate for a split repository, plus first-run classification
-(`duo init --code=split`) and migration (`duo code-classify`) on the
-orchestrator host. It does not deliver an in-product resolver: materializing a
-locked component in a fresh clone is the operator's build step today.
+and the compile-time gate, first-run classification (`duo init`) and
+re-declaration (`duo code-classify`) on the orchestrator host, the import of
+archives with no registry (`duo code-import`, host-side, into the same
+content-addressed cache wp.org releases are fetched into), and the resolver
+(`duo code-resolve`, which `duo deploy` and `duo promote` run as a phase before
+compiling). Resolution is host work: the target never fetches, and an
+imported archive resolves only on a host where it was imported — Duo never
+downloads from a vendor.
 
 The separation is structural, not merely naming. Code scanning and filesystem
 mutation never parse or apply canonical entities. State planning and apply never

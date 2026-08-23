@@ -48,16 +48,20 @@ use Duo\PathSafety;
  *   `CodeSourceLock::tree_sha256()`, i.e. the same rows the agent's descriptor
  *   compiler builds. This is the one function that makes "the release equals
  *   the installed tree" a decidable question rather than a guess.
- * - `classify(components)` — init's and `code-classify`'s shared decision:
- *   locked when the release unpacks to exactly these bytes, vendored with a
- *   STATED reason otherwise. A resolver does not need this one.
+ * - `verifiedRelease(root, slug, version, tree)` — the wp.org leg of the
+ *   classification CodeClassifier composes: the `wp-org-release` origin when
+ *   the published release unpacks to exactly these bytes, otherwise the
+ *   STATED reason it does not. Init's and `code-classify`'s shared decision
+ *   itself (locked / first-party / unsourced) lives in CodeClassifier, which
+ *   adds the imported-archive leg (ImportedArchives) and the operator's
+ *   first-party declarations; a resolver needs neither.
  *
  * ## Why fetch() raises a REASON-CODED refusal
  *
  * The three fetch failures below are the only ones a caller can act on
  * differently, and `duo code-resolve` (DUO-3500) is the caller that lets them
- * escape: `classify()` folds every one of them into a stated "vendored
- * because…" reason and never rethrows. Naming the reason where the failure is
+ * escape: `verifiedRelease()` folds every one of them into a stated "no
+ * verified wp.org release…" reason and never rethrows. Naming the reason where the failure is
  * DETECTED — rather than re-deriving it in the resolver by matching on message
  * text — is what keeps `code_resolve_cache_corrupt` and
  * `code_resolve_archive_digest_mismatch` from silently collapsing into one
@@ -98,6 +102,15 @@ final class WpOrgReleases {
     ) {
         $env = getenv(self::FETCH_BASE_ENV);
         $this->fetchBase = rtrim($fetchBase ?? (is_string($env) && $env !== '' ? $env : self::CANONICAL_BASE), '/');
+    }
+
+    /** The content-addressed cache root this instance reads and writes. */
+    public function cacheDir(): string {
+        return $this->cacheDir;
+    }
+
+    public function isOffline(): bool {
+        return $this->offline;
     }
 
     public static function defaultCacheDir(): string {
@@ -278,8 +291,8 @@ final class WpOrgReleases {
     public function unpack(string $archivePath, string $destination): void {
         if (!class_exists(\ZipArchive::class)) {
             throw new \RuntimeException(
-                'duo: PHP ZipArchive is not available on this host, so a wp.org release cannot be verified; '
-                . 'install the php-zip extension, or classify this component as vendored with --code=full'
+                'duo: PHP ZipArchive is not available on this host, so no release archive can be verified; '
+                . 'install the php-zip extension'
             );
         }
         $zip = new \ZipArchive();
@@ -364,85 +377,59 @@ final class WpOrgReleases {
     }
 
     /**
-     * Classify every component: locked when a wp.org release for its declared
-     * version unpacks to exactly these bytes, vendored with a stated reason
-     * otherwise.
+     * The wp.org leg of a component's classification: the `wp-org-release`
+     * origin when the published release for its declared version unpacks to
+     * exactly the installed tree, otherwise the stated reason it does not.
      *
-     * The default is vendored. A component is locked only when the bytes were
-     * fetched, unpacked and hashed, because a wp.org version can be
+     * A release is offered only when its bytes were fetched (or found in the
+     * host cache), unpacked and hashed, because a wp.org version can be
      * re-packaged and a ZIP digest is not a tree digest — which is exactly why
      * the lock carries both `archive_sha256` (what to fetch) and `tree_sha256`
-     * (what the unpacked component must hash to).
+     * (what the unpacked component must hash to). Offline, fetch() answers
+     * from the cache or refuses, and that refusal becomes the reason here: no
+     * registry is contacted, and nothing is guessed.
      *
-     * @param list<array{root:string,component:string,version:string,tree_sha256:string}> $components
-     * @return list<array<string,mixed>> the classification the agent verifies
+     * @return array{reason:string,origin?:array{kind:string,url:string,archive_sha256:string,archive_root?:string}}
      */
-    public function classify(array $components): array {
-        $plan = [];
-        foreach ($components as $candidate) {
-            $root = (string) $candidate['root'];
-            $slug = (string) $candidate['component'];
-            $version = (string) $candidate['version'];
-            $tree = (string) $candidate['tree_sha256'];
-            $row = [
-                'classification' => 'vendored',
-                'component' => $slug,
-                'reason' => '',
-                'root' => $root,
-                'tree_sha256' => $tree,
-                'version' => $version,
-            ];
-            if (!isset(self::RELEASE_PATH[$root])) {
-                $row['reason'] = "$root components have no wp.org release identity";
-                $plan[] = $row;
-                continue;
-            }
-            if (!self::safeVersion($version)) {
-                $row['reason'] = $version === ''
-                    ? 'the component declares no Version header, so no release can be pinned'
-                    : "the declared version '$version' cannot name a release archive";
-                $plan[] = $row;
-                continue;
-            }
-            if ($this->offline) {
-                $row['reason'] = 'offline: no release registry was contacted, so nothing could be verified';
-                $plan[] = $row;
-                continue;
-            }
-            $canonical = self::canonicalUrl($root, $slug, $version);
-            $unpacked = null;
-            try {
-                $archive = $this->fetch($canonical);
-                $unpacked = $this->temporaryDirectory();
-                $this->unpack($archive['path'], $unpacked);
-                $archiveRoot = self::archiveRoot($unpacked, $slug);
-                $digest = self::treeDigest($unpacked . '/' . $archiveRoot);
-                if (hash_equals($tree, $digest)) {
-                    $row['classification'] = 'locked';
-                    $row['reason'] = "the wp.org release $slug $version unpacks to exactly these bytes";
-                    $row['origin'] = [
-                        'kind' => 'wp-org-release',
-                        'url' => $canonical,
-                        'archive_sha256' => $archive['sha256'],
-                    ];
-                    if ($archiveRoot !== $slug) {
-                        $row['origin']['archive_root'] = $archiveRoot;
-                    }
-                } else {
-                    $row['reason'] = "the wp.org release $slug $version unpacks to $digest, not the installed tree $tree";
-                }
-            } catch (\Throwable $error) {
-                $row['reason'] = 'no verified wp.org release: ' . self::oneLine($error->getMessage());
-            } finally {
-                if ($unpacked !== null) {
-                    self::removeTree($unpacked);
-                }
-            }
-            $plan[] = $row;
+    public function verifiedRelease(string $root, string $slug, string $version, string $tree): array {
+        if (!isset(self::RELEASE_PATH[$root])) {
+            return ['reason' => "$root components have no wp.org release identity"];
         }
-        usort($plan, static fn(array $a, array $b): int =>
-            [(string) $a['root'], (string) $a['component']] <=> [(string) $b['root'], (string) $b['component']]);
-        return $plan;
+        if (!self::safeVersion($version)) {
+            return ['reason' => $version === ''
+                ? 'the component declares no Version header, so no wp.org release can be pinned'
+                : "the declared version '$version' cannot name a wp.org release archive"];
+        }
+        $canonical = self::canonicalUrl($root, $slug, $version);
+        $unpacked = null;
+        try {
+            $archive = $this->fetch($canonical);
+            $unpacked = self::temporaryDirectory();
+            $this->unpack($archive['path'], $unpacked);
+            $archiveRoot = self::archiveRoot($unpacked, $slug);
+            $digest = self::treeDigest($unpacked . '/' . $archiveRoot);
+            if (!hash_equals($tree, $digest)) {
+                return ['reason' => "the wp.org release $slug $version unpacks to $digest, not the installed tree $tree"];
+            }
+            $origin = [
+                'kind' => 'wp-org-release',
+                'url' => $canonical,
+                'archive_sha256' => $archive['sha256'],
+            ];
+            if ($archiveRoot !== $slug) {
+                $origin['archive_root'] = $archiveRoot;
+            }
+            return [
+                'reason' => "the wp.org release $slug $version unpacks to exactly these bytes",
+                'origin' => $origin,
+            ];
+        } catch (\Throwable $error) {
+            return ['reason' => 'no verified wp.org release: ' . self::oneLine($error->getMessage())];
+        } finally {
+            if ($unpacked !== null) {
+                self::removeTree($unpacked);
+            }
+        }
     }
 
     /** A reason is one line: it is rendered in a proposal and refused otherwise. */
@@ -450,7 +437,8 @@ final class WpOrgReleases {
         return trim((string) preg_replace('/\s+/', ' ', $message));
     }
 
-    private function temporaryDirectory(): string {
+    /** A fresh unpack directory under the temp root; removeTree() removes only these. */
+    public static function temporaryDirectory(): string {
         $path = rtrim(sys_get_temp_dir(), '/') . '/duo-code-unpack-' . bin2hex(random_bytes(8));
         if (!@mkdir($path, 0700, true)) {
             throw new \RuntimeException("duo: could not create the unpack directory $path");
@@ -458,8 +446,8 @@ final class WpOrgReleases {
         return $path;
     }
 
-    /** Removes only a directory this class created under the temp root. */
-    private static function removeTree(string $path): void {
+    /** Removes only a directory temporaryDirectory() created under the temp root. */
+    public static function removeTree(string $path): void {
         if (!str_contains($path, '/duo-code-unpack-') || !is_dir($path)) {
             return;
         }

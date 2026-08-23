@@ -8,7 +8,7 @@
  * file` (agent/src/Code/CodeStateContract.php:61-67) and nothing could say
  * "this component is deliberately absent, and here is what it must hash to".
  *
- * The four properties pinned here are the ones the split rests on:
+ * The five properties pinned here are the ones the split rests on:
  *   1. migration is free — a resolved split tree compiles to a code_revision
  *      byte-identical to the same tree compiled with no lock at all;
  *   2. an absent locked component is blocking, non-forceable, and names the
@@ -16,7 +16,12 @@
  *   3. one changed byte is a digest mismatch, not a silent acceptance;
  *   4. a component Git excludes but the lock does not declare is refused,
  *      because a fresh clone would carry neither its bytes nor a way to get
- *      them.
+ *      them;
+ *   5. a component the payload carries that is neither locked nor declared
+ *      first-party is refused (`code_component_undeclared`) — Git never
+ *      carries third-party code, and "vendored by omission" is exactly the
+ *      shape that rule exists to refuse. A legacy v1 lock declares no
+ *      first-party list, so it reaches the same refusal and the same remedy.
  */
 declare(strict_types=1);
 
@@ -77,9 +82,14 @@ function make_repo(string $scratch, int &$seq, array $components = ['plugins/woo
     return $repo;
 }
 
-/** @param list<array<string,mixed>> $entries */
-function write_lock(string $repo, array $entries): void {
-    file_put_contents($repo . '/code/duo-code.lock.json', CodeSourceLock::encode($entries));
+/**
+ * @param list<array<string,mixed>> $entries
+ * @param list<string> $firstParty the components Git carries by declaration;
+ *        the fixture's in-house plugin by default, because a lock that leaves
+ *        it undeclared is refused (property 5) rather than silently vendored
+ */
+function write_lock(string $repo, array $entries, array $firstParty = ['plugins/duo-agency']): void {
+    file_put_contents($repo . '/code/duo-code.lock.json', CodeSourceLock::encode($entries, $firstParty));
 }
 
 function entry_for(string $repo, string $root, string $component, string $version): array {
@@ -193,7 +203,7 @@ $sibling = make_repo($scratch, $repoSeq);
 copy($repo . '/code/duo-code.lock.json', $sibling . '/code/duo-code.lock.json');
 file_put_contents($sibling . '/code/wp-content/plugins/duo-agency/duo-agency.php', "<?php\n/**\n * Plugin Name: Duo Agency\n * Version: 1.0.1\n */\n");
 CodeDescriptorCompiler::compile($sibling, FORMAT_2);
-duo_check(true, 'editing a vendored (unlocked) component compiles: the lock scopes itself to what it declares');
+duo_check(true, 'editing a first-party (unlocked, declared) component compiles: the lock scopes itself to what it declares');
 
 // ---------------------------------------------------------------------------
 // 4. Ignored but unlocked, and the two .gitignore placements the compiler
@@ -201,7 +211,7 @@ duo_check(true, 'editing a vendored (unlocked) component compiles: the lock scop
 // ---------------------------------------------------------------------------
 
 $unlocked = make_repo($scratch, $repoSeq);
-write_lock($unlocked, [entry_for($unlocked, 'plugins', 'woocommerce', '11.0.0')]);
+write_lock($unlocked, [entry_for($unlocked, 'plugins', 'woocommerce', '11.0.0')], ['plugins/duo-agency', 'themes/storefront']);
 file_put_contents($unlocked . '/.gitignore', "/.duo/\n/code/wp-content/plugins/woocommerce/\n/code/wp-content/plugins/duo-agency/\n");
 $diagnostics = diagnostics_of(static fn() => CodeDescriptorCompiler::compile($unlocked, FORMAT_2));
 duo_check_same(['code_component_unlocked'], codes_of($diagnostics), 'a Git-excluded component the lock does not declare is code_component_unlocked');
@@ -219,7 +229,7 @@ duo_check(true, 'removing the undeclared ignore line clears the refusal');
 // compiler itself (CodeDescriptorCompiler.php:97-99), which is why generated
 // ignore lines are root-anchored in the repository-root file and nowhere else.
 $misplaced = make_repo($scratch, $repoSeq);
-write_lock($misplaced, [entry_for($misplaced, 'plugins', 'woocommerce', '11.0.0')]);
+write_lock($misplaced, [entry_for($misplaced, 'plugins', 'woocommerce', '11.0.0')], ['plugins/duo-agency', 'themes/storefront']);
 file_put_contents($misplaced . '/code/wp-content/.gitignore', "plugins/woocommerce/\n");
 $diagnostics = diagnostics_of(static fn() => CodeDescriptorCompiler::compile($misplaced, FORMAT_2));
 duo_check_same(['unsafe_code_path'], codes_of($diagnostics), 'a .gitignore at code/wp-content/ refuses compile: the payload may hold only the three roots');
@@ -259,6 +269,47 @@ duo_check_throws(
     'a malformed lock refuses by grammar before any component is compared',
     'must contain exactly component, origin, root, tree_sha256, and version'
 );
+
+// ---------------------------------------------------------------------------
+// 5b. Undeclared: carried by the payload, neither locked nor first-party.
+// ---------------------------------------------------------------------------
+
+$undeclared = make_repo($scratch, $repoSeq);
+write_lock($undeclared, [entry_for($undeclared, 'plugins', 'woocommerce', '11.0.0')], ['themes/storefront']);
+$diagnostics = diagnostics_of(static fn() => CodeDescriptorCompiler::compile($undeclared, FORMAT_2));
+duo_check_same(['code_component_undeclared'], codes_of($diagnostics), 'a carried component that is neither locked nor first-party is code_component_undeclared');
+duo_check_same('code/wp-content/plugins/duo-agency', $diagnostics[0]['path'], 'the undeclared diagnostic names the component');
+duo_check(
+    str_contains($diagnostics[0]['message'], 'Git must not carry third-party code')
+        && str_contains($diagnostics[0]['message'], '`duo code-classify --first-party=plugins/duo-agency`')
+        && str_contains($diagnostics[0]['message'], '`duo code-import <archive.zip>`'),
+    'the refusal states the invariant and both remedies by name: declare first-party, or import the archive and re-lock'
+);
+duo_check_same('blocking', $diagnostics[0]['severity'], 'undeclared is blocking, like every other lock diagnostic');
+write_lock($undeclared, [entry_for($undeclared, 'plugins', 'woocommerce', '11.0.0')], ['plugins/duo-agency', 'themes/storefront']);
+CodeDescriptorCompiler::compile($undeclared, FORMAT_2);
+duo_check(true, 'declaring the component first-party clears the refusal without moving a byte');
+
+// A legacy v1 lock declares no first_party list, so a v1 repository that still
+// carries an in-house component reaches the same refusal — and its remedy,
+// `duo code-classify`, is how it gains the declaration.
+$legacy = make_repo($scratch, $repoSeq, ['plugins/woocommerce', 'plugins/duo-agency']);
+$legacyEntry = entry_for($legacy, 'plugins', 'woocommerce', '11.0.0');
+file_put_contents($legacy . '/code/duo-code.lock.json', \Duo\Canon::encode([
+    'format' => CodeSourceLock::LEGACY_FORMAT,
+    'components' => [$legacyEntry],
+]));
+$diagnostics = diagnostics_of(static fn() => CodeDescriptorCompiler::compile($legacy, FORMAT_2));
+duo_check_same(['code_component_undeclared'], codes_of($diagnostics), 'a legacy v1 lock still parses, and the component it leaves undeclared is refused');
+duo_check_same('code/wp-content/plugins/duo-agency', $diagnostics[0]['path'], 'the v1 refusal names the undeclared component, not the locked one');
+
+// An owned root with no file beneath it is not a component Git carries, so it
+// is not undeclared either: the gate and component_inventory() agree.
+$hollow = make_repo($scratch, $repoSeq, ['plugins/woocommerce']);
+mkdir($hollow . '/code/wp-content/plugins/empty-dir', 0775, true);
+write_lock($hollow, [entry_for($hollow, 'plugins', 'woocommerce', '11.0.0')], []);
+CodeDescriptorCompiler::compile($hollow, FORMAT_2);
+duo_check(true, 'an empty component directory is neither carried nor undeclared');
 
 // ---------------------------------------------------------------------------
 // 6. CodeStateContract: the lock-aware remedy branch, and the byte-identical
