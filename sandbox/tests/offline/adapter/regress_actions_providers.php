@@ -788,15 +788,15 @@ if ($woo !== null) {
         'and no shipped Woo post type still claims the batch regenerator channel the second capability replaced'
     );
     foreach ([
-        'woocommerce-cache' => ['invalidate_cache_groups'],
-        'woocommerce-product-lookups' => ['rebuild_product_lookups'],
-    ] as $wooProviderId => $wooCapabilities) {
+        'woocommerce-cache' => ['version' => '1.0.0', 'capabilities' => ['invalidate_cache_groups']],
+        'woocommerce-product-lookups' => ['version' => '2.0.0', 'capabilities' => ['rebuild_product_lookups']],
+    ] as $wooProviderId => $wooContract) {
         $wooDeclaration = $woo->provider_declarations()[$wooProviderId] ?? [];
         check(
             ($wooDeclaration['source'] ?? null) === 'manifest'
                 && ($wooDeclaration['plugin'] ?? null) === 'woocommerce/woocommerce.php'
-                && ($wooDeclaration['version'] ?? null) === '1.0.0'
-                && ($wooDeclaration['capabilities'] ?? null) === $wooCapabilities,
+                && ($wooDeclaration['version'] ?? null) === $wooContract['version']
+                && ($wooDeclaration['capabilities'] ?? null) === $wooContract['capabilities'],
             "the WooCommerce '$wooProviderId' declaration is manifest-shipped code owned by the version-pinned plugin"
         );
     }
