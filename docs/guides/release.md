@@ -11,9 +11,11 @@ It assumes the site has an accepted application contract. If it does not,
 and [assess.md](assess.md) is the fifteen minutes that fixes it.
 
 `duo release` **composes** `duo promote` rather than replacing it.
-Deploy-before-apply ordering, the promotion lease, the target fence, the
-database checkpoint and the rollback-profile selection all remain promote's,
-byte for byte. Release adds authorization in front and verification behind.
+Deploy-before-apply ordering, the promotion lease and the target fence are
+promote's, byte for byte, and so are the rollback-profile selection and the
+trailing state `apply`. The database checkpoint is not exclusive to promote any
+more: `duo deploy` takes and retains its own under its own lease. Release adds
+authorization in front and verification behind.
 `duo promote` remains documented and supported as the lower-level verb; see
 [daily-workflow.md](daily-workflow.md).
 

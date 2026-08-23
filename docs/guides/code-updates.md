@@ -15,12 +15,15 @@ The commands are documented in
 
 `duo deploy <env>` runs these phases, stopping at the first non-zero one:
 
-1. **flag validation** — `duo deploy` accepts exactly `--force-code-mismatch`
-   and `--force-code-drift`; anything else, including the orchestrator's own
-   internal artifact and lease flags, is refused by name.
+1. **flag validation** — `duo deploy` accepts exactly `--force-code-mismatch`,
+   `--force-code-drift` and `--no-checkpoint`; anything else, including the
+   orchestrator's own internal artifact and lease flags, is refused by name.
+   `--no-checkpoint` is consumed here and never forwarded to the lifecycle
+   phases, which own no checkpoint.
 2. **rollback-authority fence** — target mutation is refused while the external
    rollback authority is invalid or in a nonterminal state.
-3. **artifact directory** — created under the target's operational `.duo/`.
+3. **artifact and checkpoint directories** — created under the target's
+   operational `.duo/` (the checkpoint directory only when one will be taken).
 4. **code-resolve** — host-side, and only for a repository that declares
    `code/duo-code.lock.json`; silent for every other repository. See
    [`duo deploy` and `duo promote` resolve for you](#duo-deploy-and-duo-promote-resolve-for-you)
@@ -31,20 +34,33 @@ The commands are documented in
 6. **adapter disposition gate** — an experimental or unsupported adapter
    claim refuses here, *before* any lease exists.
 7. **promotion-begin** — an exact owner/artifact session on the target.
-8. **code-stage** — the new bytes land beside the live tree.
-9. **lifecycle retire** — deactivation hooks fire.
-10. **lifecycle activate** — in a *fresh process*, so the new code is what
+8. **checkpoint** — a whole-database export under that same lease, retained at
+   `<repo>/.duo/checkpoints/deploy-<owner>.sql` beside the
+   `deploy-<owner>.json` artifact of step 5. It sits here, not earlier, because
+   the dump has to contain the promotion lease row it was taken under — that is
+   what makes `duo recover`'s abort → begin → import → final abort sequence
+   valid for it. An export failure aborts the lease and stops before any code
+   or lifecycle mutation. `duo deploy --no-checkpoint` skips this step: the
+   export is a full dump written to the target's disk, inside the
+   write-exclusion window and with no retention policy, so on a large database
+   the cost has to be refusable — at the price of having nothing to restore
+   from if a later phase fails.
+9. **code-stage** — the new bytes land beside the live tree.
+10. **lifecycle retire** — deactivation hooks fire.
+11. **lifecycle activate** — in a *fresh process*, so the new code is what
     boots and its own updater notices the version change deterministically.
-11. **code-finalize** — requires both lifecycle receipts, so a merely staged
+12. **code-finalize** — requires both lifecycle receipts, so a merely staged
     payload can never be promoted into a completed `code_revision` by skipping
     the WordPress lifecycle.
 
-`duo promote <env>` is this same sequence with a database checkpoint taken
-after the lease and before code staging, and a state `apply` appended at the
+`duo promote <env>` is this same sequence with a state `apply` appended at the
 end. That trailing position is the entire point: apply is hook-free and
 canary-armed, and it must write into a schema the running code already
 understands. Deploy is the window where hooks fire; apply is the window where
-they must not.
+they must not. On a production SSH target with the complete `verified_rollback`
+capability promote also selects a signed rollback profile; deploy never does.
+Those two — the trailing apply and the profile selection — are what remain
+promote's alone. The database checkpoint is now taken by both verbs.
 
 The host sequences the halves. It does not interpret the code descriptor's
 fields or mutate files itself — those checks and mutations belong to the target

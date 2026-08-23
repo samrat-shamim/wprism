@@ -37,6 +37,12 @@ declare(strict_types=1);
  *                     .duo/checkpoints/promote-<code-owner>.sql (+ artifact)
  *                       — a second retained checkpoint whose frozen plan
  *                         entered a code lifecycle phase, for code-first
+ *                     .duo/checkpoints/deploy-<deploy-owner>.sql (+ artifact)
+ *                       — the checkpoint a standalone `duo deploy` retains
+ *                         under its own lease. Same kind, same four ordered
+ *                         steps; only the file-name prefix differs, which is
+ *                         exactly what RetainedCheckpoints::prefixForRow()
+ *                         reads back off the row id
  *   envs.json       one `ssh` environment named `fixture`, one `local`
  *                   environment named `plain` on the same target repository
  *   bin/ssh         runs the remote command locally
@@ -86,6 +92,13 @@ const RECOVER_ARTIFACT = 'a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1
 /** The second retained checkpoint: a release that entered a code lifecycle phase. */
 const RECOVER_CODE_OWNER = 'recover-fixture-code';
 const RECOVER_CODE_ARTIFACT = 'b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2';
+/**
+ * The third: a standalone `duo deploy`'s own checkpoint. It reuses
+ * RECOVER_ARTIFACT so the SAME frozen plan (database-only, no lifecycle phase)
+ * governs it — the subject here is the file-name prefix reaching restore, not
+ * a second code-first scenario, which RECOVER_CODE_OWNER already covers.
+ */
+const RECOVER_DEPLOY_OWNER = 'deploy-recover-fixture-owner';
 
 foreach (['site', 'target', 'bin', 'wordpress', 'status'] as $child) {
     if (!is_dir("$dir/$child") && !mkdir("$dir/$child", 0700, true) && !is_dir("$dir/$child")) {
@@ -210,6 +223,19 @@ file_put_contents(
 // retained checkpoint's lease identity is read from.
 file_put_contents(
     "$dir/target/.duo/artifacts/promote-" . RECOVER_OWNER . '.json',
+    \Duo\Canon::encode(['artifact_hash' => RECOVER_ARTIFACT, 'format' => 'duo-compiled/fixture'])
+);
+// The deploy checkpoint and its sibling artifact, stem for stem: that shared
+// stem is the whole reason RetainedCheckpoints reads the lease identity out of
+// `artifacts/<basename>.json` with no second mechanism. Dated between the two
+// promote checkpoints so the merged listing order is deterministic.
+file_put_contents(
+    "$dir/target/.duo/checkpoints/" . RECOVER_DEPLOY_OWNER . '.sql',
+    "-- fixture checkpoint (deploy)\n"
+);
+touch("$dir/target/.duo/checkpoints/" . RECOVER_DEPLOY_OWNER . '.sql', 1_750_000_000);
+file_put_contents(
+    "$dir/target/.duo/artifacts/" . RECOVER_DEPLOY_OWNER . '.json',
     \Duo\Canon::encode(['artifact_hash' => RECOVER_ARTIFACT, 'format' => 'duo-compiled/fixture'])
 );
 // The code-phase release's pair, dated earlier so the listing order is fixed.

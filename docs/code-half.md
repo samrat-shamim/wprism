@@ -363,7 +363,10 @@ promotion session before entering each mutating lifecycle phase. Success
 consumes it atomically with the canonical handoff. Failure leaves it unresolved,
 blocking every materializer/lifecycle/apply continuation and every different
 owner/artifact until the retained pre-lifecycle checkpoint and known
-pre-promotion code revision are restored. Plan/status exposes the receipt as a
+pre-promotion code revision are restored. A standalone `duo deploy` retains
+that checkpoint too, as `.duo/checkpoints/deploy-<owner>.sql`, so this is the
+recovery source on the deploy path as much as on the promote path.
+Plan/status exposes the receipt as a
 non-forceable `incomplete_lifecycle` finding. This remains mandatory on a first
 sync where no three-way base exists.
 
@@ -619,6 +622,9 @@ session and carry the host-observed outer artifact hash. Each mutation process
 holds a connection-scoped database advisory fence across long hooks and
 filesystem walks. Manual checkpoint import still requires external maintenance
 exclusion because importing the database can replace any lock row stored in it.
+That precondition and the same four-step sequence apply unchanged to the
+checkpoint a standalone `duo deploy` retains, which is written under its own
+lease at the same position promote writes one.
 The two fresh lifecycle processes publish ordered positive phase receipts—even
 for no-op phases—and code-finalize requires both. Absence of an unresolved hook
 attempt is therefore not mistaken for proof that lifecycle was ever run.

@@ -22502,6 +22502,23 @@
             "interfaces": [],
             "kind": "class",
             "methods": {
+                "checkpointRequested": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "extra",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "forceFlags": {
                     "abstract": false,
                     "final": false,
@@ -22584,6 +22601,14 @@
                             "default": null,
                             "has_default": false,
                             "name": "abort",
+                            "type": "callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "printRecovery",
                             "type": "callable",
                             "variadic": false
                         }
@@ -29146,17 +29171,26 @@
         "Duo\\Orchestrator\\RetainedCheckpoints": {
             "abstract": false,
             "constants": {
+                "DEPLOY_ID_PREFIX": {
+                    "value_repr": "deploy-"
+                },
                 "DISCLOSURE_NO_IDENTITY": {
                     "value_repr": "a retained checkpoint whose compiled artifact is gone has no lease identity and cannot be restored by this command; recover it through the provider that owns the target's backups"
                 },
                 "DISCLOSURE_RETAINED": {
-                    "value_repr": "retained release checkpoints are the plain database checkpoints promote kept under .duo/checkpoints; restoring one drives the operator-directed path (abort, begin, isolated import, final abort)"
+                    "value_repr": "retained release checkpoints are the plain database checkpoints promote and deploy kept under .duo/checkpoints; restoring one drives the operator-directed path (abort, begin, isolated import, final abort)"
                 },
                 "DISCLOSURE_SUPERSEDED": {
                     "value_repr": "a retained checkpoint older than the target's latest begun promotion session is refused at step 1 with promotion_abort_session_superseded; an obsolete checkpoint is not a safe recovery source, so recover that release through the provider that owns the target's backups instead"
                 },
                 "ID_PREFIX": {
                     "value_repr": "promote-"
+                },
+                "ID_PREFIXES": {
+                    "value_repr": [
+                        "promote-",
+                        "deploy-"
+                    ]
                 },
                 "KIND": {
                     "value_repr": "retained-release-checkpoint"
@@ -29190,6 +29224,14 @@
                             "has_default": false,
                             "name": "row",
                             "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": "self::ID_PREFIX",
+                            "has_default": true,
+                            "name": "prefix",
+                            "type": "string",
                             "variadic": false
                         }
                     ],
@@ -29264,6 +29306,23 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "prefixForRow": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "row",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "row": {
                     "abstract": false,
                     "final": false,
@@ -29297,6 +29356,14 @@
                             "default": null,
                             "has_default": false,
                             "name": "now",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": "self::ID_PREFIX",
+                            "has_default": true,
+                            "name": "prefix",
                             "type": "string",
                             "variadic": false
                         }

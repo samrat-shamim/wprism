@@ -3,7 +3,9 @@
 # gates for apply; deploy reconciles them through real WP lifecycle APIs;
 # deploy-only mail/HTTP observations are report-only; the host `duo promote`
 # product path retains a DB checkpoint and runs fresh retirement/activation
-# processes before apply.
+# processes before apply. `duo deploy` retains its own checkpoint under its own
+# lease, `duo recover` lists and restores it through the same four ordered
+# steps, and `--no-checkpoint` writes nothing.
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$REPO_ROOT"
@@ -120,6 +122,54 @@ grep -Fq 'http request attempted: https://duo-promotion-probe.invalid/activation
 [ "$(wp2 option get active_plugins --format=json | jq -c .)" = '["hello.php","duo-promotion-probe/duo-promotion-probe.php"]' ] \
   || fail "deploy did not establish canonical plugin order"
 pass "deploy activates for real and reports mail/HTTP without failing"
+
+# Deploy's own database checkpoint, end to end on a real target: it is taken
+# under deploy's own lease before staging, retained beside the deploy-<owner>
+# artifact, listed by `duo recover --list` as a retained-release-checkpoint, and
+# restorable through the same four ordered steps a promote checkpoint gets.
+grep -Fq 'deploy phase: checkpoint' <<<"$DEPLOY" \
+  || fail "host deploy did not take a database checkpoint"
+DEPLOY_CKPT="$(printf '%s\n' "$DEPLOY" | sed -n 's/^database checkpoint retained: //p' | head -1)"
+[ -n "$DEPLOY_CKPT" ] || fail "host deploy printed no retained checkpoint path"
+case "$DEPLOY_CKPT" in
+  /siterepo/.duo/checkpoints/deploy-*.sql) : ;;
+  *) fail "deploy retained its checkpoint at an unexpected path: $DEPLOY_CKPT" ;;
+esac
+[ -s "$SITE2/${DEPLOY_CKPT#/siterepo/}" ] \
+  || fail "the deploy checkpoint is missing or empty on the target"
+DEPLOY_CKPT_ID="$(basename "$DEPLOY_CKPT" .sql)"
+# The stem is load-bearing: RetainedCheckpoints reads the lease identity out of
+# the SIBLING artifacts/<same-stem>.json, so a stem mismatch lists the row with
+# an empty artifact_hash and then refuses checkpoint_identity_unknown.
+[ -f "$SITE2/.duo/artifacts/${DEPLOY_CKPT_ID}.json" ] \
+  || fail "the deploy checkpoint has no sibling artifact to read its lease identity from"
+RECOVER_LIST="$($DUO --envs-file="$ENVS" recover target --list 2>&1)" \
+  || fail "duo recover --list failed after deploy: $RECOVER_LIST"
+grep -Fq "$DEPLOY_CKPT_ID  retained  retained-release-checkpoint" <<<"$RECOVER_LIST" \
+  || fail "duo recover --list did not list the deploy checkpoint: $RECOVER_LIST"
+RECOVER_OUT="$($DUO --envs-file="$ENVS" recover target "--restore=$DEPLOY_CKPT_ID" --writers-excluded 2>&1)" \
+  || fail "restoring the deploy checkpoint failed: $RECOVER_OUT"
+grep -Fq 'recovery profile: operator-directed' <<<"$RECOVER_OUT" \
+  || fail "the deploy checkpoint restore printed no operator-directed claim"
+for step in 'abort: ok' 'begin: ok' 'import: ok' 'final-abort: ok'; do
+  grep -Fq "$step" <<<"$RECOVER_OUT" || fail "the deploy checkpoint restore did not report '$step': $RECOVER_OUT"
+done
+pass "deploy retains a recoverable database checkpoint under its own lease"
+
+# --no-checkpoint is the opt-out: no new file under .duo/checkpoints, and no
+# retained line. Re-run against the now-converged target, which is a no-op
+# lifecycle move.
+BEFORE_COUNT="$(ls -1 "$SITE2/.duo/checkpoints" | wc -l | tr -d ' ')"
+DEPLOY_NC="$($DUO --envs-file="$ENVS" deploy target --no-checkpoint 2>&1)" \
+  || fail "--no-checkpoint deploy failed: $DEPLOY_NC"
+grep -Fq 'deploy phase: checkpoint' <<<"$DEPLOY_NC" \
+  && fail "--no-checkpoint still ran the checkpoint phase"
+grep -Fq 'database checkpoint retained: ' <<<"$DEPLOY_NC" \
+  && fail "--no-checkpoint still reported a retained checkpoint"
+AFTER_COUNT="$(ls -1 "$SITE2/.duo/checkpoints" | wc -l | tr -d ' ')"
+[ "$BEFORE_COUNT" = "$AFTER_COUNT" ] \
+  || fail "--no-checkpoint wrote a new file under .duo/checkpoints ($BEFORE_COUNT -> $AFTER_COUNT)"
+pass "duo deploy --no-checkpoint writes nothing under .duo/checkpoints"
 
 wp2 eval "update_option('active_plugins', ['$PROBE', 'hello.php']);" >/dev/null
 PLAN="$(wp2 duo plan --repo=/siterepo --format=json 2>/dev/null | tail -1)"

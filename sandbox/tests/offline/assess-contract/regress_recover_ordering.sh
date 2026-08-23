@@ -30,6 +30,14 @@
 # prints on a local/docker target is a claim this verb honours (grind_mup.sh
 # step 11).
 #
+# A standalone `duo deploy` is the second writer, at
+# `.duo/checkpoints/deploy-<owner>.sql`. The property this suite adds is that
+# the file-name prefix is the ONLY difference that reaches `duo recover`: the
+# row lists under the same kind, --writers-excluded is required for it just the
+# same, the four ordered steps are the same steps under the lease identity read
+# from its own sibling artifact, and an absent one refuses the way an absent
+# promote checkpoint does.
+#
 # Offline: no docker, no WordPress, no network, no real ssh, no real target.
 set -uo pipefail
 
@@ -353,13 +361,16 @@ recover_plain "plainlist" --list
 STATUS=$?
 [ "$STATUS" = 0 ] && pass 'a local transport lists (exit 0) instead of refusing' \
   || { fail "a local transport --list exited $STATUS"; sed -n '1,20p' "$TMP/plainlist.txt" >&2; }
-grep -Fq 'checkpoints: 2' "$TMP/plainlist.txt" \
-  && pass 'both retained checkpoints are counted' \
+grep -Fq 'checkpoints: 3' "$TMP/plainlist.txt" \
+  && pass 'every retained checkpoint is counted, promote- and deploy- alike' \
   || { fail 'the retained checkpoints were not counted'; sed -n '1,12p' "$TMP/plainlist.txt" >&2; }
+grep -Fq 'deploy-recover-fixture-owner  retained  retained-release-checkpoint' "$TMP/plainlist.txt" \
+  && pass 'a deploy checkpoint lists under the same kind a promote checkpoint does' \
+  || { fail 'the deploy checkpoint was not listed'; sed -n '1,16p' "$TMP/plainlist.txt" >&2; }
 grep -Fq 'this transport carries no rollback authority runtime, so only the database checkpoints its releases retained are listed' "$TMP/plainlist.txt" \
   && pass 'the listing says which source it could not read' \
   || fail 'the listing did not disclose the missing authority source'
-grep -Fq 'retained release checkpoints are the plain database checkpoints promote kept under .duo/checkpoints' "$TMP/plainlist.txt" \
+grep -Fq 'retained release checkpoints are the plain database checkpoints promote and deploy kept under .duo/checkpoints' "$TMP/plainlist.txt" \
   && pass 'the listing says what a retained checkpoint is and how it is restored' \
   || fail 'the listing did not disclose what a retained checkpoint is'
 # DUO-3506: the listing discloses the refusal an older checkpoint can meet at
@@ -431,6 +442,67 @@ if ($missing !== []) {
 }
 echo "ok: the retained restore prints the frozen plan claim for that artifact verbatim, restores and does-not-restore\n";
 ' "$TMP/plainrestore.txt" "$TMP/f/claim.json" || fail 'the retained restore claim is not the frozen plan claim'
+
+# The deploy checkpoint: the same four ordered steps, under the lease identity
+# read from ITS OWN sibling artifact. Only the file-name prefix differs.
+recover_plain "plaindeploynoexcl" --restore=deploy-recover-fixture-owner
+STATUS=$?
+[ "$STATUS" = 1 ] && pass 'a deploy checkpoint restore without --writers-excluded refuses (exit 1)' \
+  || fail "a deploy checkpoint restore without --writers-excluded exited $STATUS"
+grep -Fq 'writer_exclusion_required' "$TMP/plaindeploynoexcl.txt" \
+  && pass 'the deploy checkpoint refusal names writer_exclusion_required too' \
+  || fail 'the deploy checkpoint restore did not require writer exclusion'
+[ -s "$DUO_WP_CALLS" ] \
+  && fail 'a refused deploy checkpoint restore still touched the target' \
+  || pass 'a refused deploy checkpoint restore runs nothing at all'
+
+recover_plain "plaindeploy" --restore=deploy-recover-fixture-owner --writers-excluded
+STATUS=$?
+[ "$STATUS" = 0 ] && pass 'a retained deploy checkpoint restores on a local transport (exit 0)' \
+  || { fail "the deploy checkpoint restore exited $STATUS"; sed -n '1,25p' "$TMP/plaindeploy.txt" >&2; }
+ORDER="$(wp_steps | tr '\n' ' ')"
+[ "$ORDER" = "abort begin import abort " ] \
+  && pass 'a deploy checkpoint is restored through exactly abort -> begin -> import -> final abort' \
+  || fail "the deploy checkpoint restore ran: $ORDER"
+grep -Fq 'deploy-recover-fixture-owner.sql' "$DUO_WP_CALLS" \
+  && pass 'the import reads exactly the file duo deploy wrote' \
+  || fail 'the import did not name the deploy checkpoint file'
+grep -Fq -- '--artifact-hash=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1' "$DUO_WP_CALLS" \
+  && pass 'the deploy recovery lease names the hash from the sibling deploy-<owner>.json' \
+  || fail 'the deploy recovery lease did not carry its own artifact hash'
+grep -Fq 'recovery profile: operator-directed' "$TMP/plaindeploy.txt" \
+  && pass 'the deploy checkpoint restore prints the operator-directed claim before acting' \
+  || fail 'the deploy checkpoint restore did not print the claim'
+
+# The final abort is mandatory for a deploy checkpoint as well.
+DUO_IMPORT_EXIT=3 recover_plain "plaindeployimportfail" --restore=deploy-recover-fixture-owner --writers-excluded
+STATUS=$?
+[ "$STATUS" = 1 ] && pass 'a failed deploy-checkpoint import is reported as not recovered (exit 1)' \
+  || fail "a failed deploy-checkpoint import exited $STATUS"
+ORDER="$(wp_steps | tr '\n' ' ')"
+[ "$ORDER" = "abort begin import abort " ] \
+  && pass 'the final abort ran for the deploy checkpoint even though the import failed' \
+  || fail "a failed deploy-checkpoint import ran: $ORDER"
+
+# An absent deploy checkpoint refuses, and refuses for the right reason. A
+# RETAINED row IS its file (RetainedCheckpoints::script()'s `[ -s "$f" ]` skips
+# a missing or zero-byte one), so the id stops existing rather than becoming an
+# unrestorable row — which is why this is checkpoint_unknown and not the
+# checkpoint_unavailable a signed receipt gets above at the same emptiness. A
+# retained checkpoint has no source of truth other than the file.
+mv "$TMP/f/target/.duo/checkpoints/deploy-recover-fixture-owner.sql" "$TMP/deploy-checkpoint.hold"
+recover_plain "plaindeploygone" --restore=deploy-recover-fixture-owner --writers-excluded
+STATUS=$?
+[ "$STATUS" = 1 ] && pass 'an absent deploy checkpoint refuses (exit 1)' \
+  || fail "an absent deploy checkpoint exited $STATUS"
+grep -Fq 'checkpoint_unknown' "$TMP/plaindeploygone.txt" \
+  && pass 'an absent deploy checkpoint refuses by name rather than importing nothing' \
+  || { fail 'an absent deploy checkpoint did not refuse with checkpoint_unknown'; sed -n '1,12p' "$TMP/plaindeploygone.txt" >&2; }
+STEPS="$(wp_steps | tr '\n' ' ')"
+[ -z "${STEPS// /}" ] \
+  && pass 'an absent deploy checkpoint never reaches step 1' \
+  || fail "an absent deploy checkpoint ran steps: $STEPS"
+mv "$TMP/deploy-checkpoint.hold" "$TMP/f/target/.duo/checkpoints/deploy-recover-fixture-owner.sql"
 
 # Code first holds for a retained checkpoint too: the checkpoint file carries
 # no code evidence, so the question is asked of the frozen plan for that

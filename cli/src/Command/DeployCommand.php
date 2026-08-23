@@ -14,6 +14,13 @@ require_once __DIR__ . '/../Transport/CodeDeploy.php';
  * The larger promotion family still owns the shared scope, rollback-fence,
  * owner, and exact-cleanup primitives. They are explicit collaborators here
  * so deploy becomes independently callable without duplicating recovery law.
+ *
+ * Deploy takes its own whole-database checkpoint under its own lease, at the
+ * position promote takes one (cli/duo:2385-2388), and retains it as
+ * `deploy-<runId>.sql` beside the `deploy-<runId>.json` artifact — the naming
+ * that lets `RetainedCheckpoints` list and `duo recover` restore it with no
+ * second recovery mechanism. `--no-checkpoint` opts out and reproduces the
+ * pre-checkpoint stream and wp-call sequence exactly.
  */
 final class DeployCommand {
     /**
@@ -23,6 +30,10 @@ final class DeployCommand {
      * @param callable():string $runIdFactory
      * @param callable(EnvironmentDriver,array<string,mixed>,string,string):void $compensateUncertainBegin
      * @param callable(EnvironmentDriver,string,string):bool $abort
+     * @param callable(EnvironmentDriver,string,bool,string,string):void $printRecovery
+     *        a verb-aware `print_promotion_recovery` (cli/duo:3272). It arrives
+     *        as a collaborator for the same reason the other five do: this
+     *        handler stays callable without loading cli/duo's globals.
      */
     public static function run(
         EnvironmentDriver $transport,
@@ -31,7 +42,8 @@ final class DeployCommand {
         callable $rollbackFence,
         callable $runIdFactory,
         callable $compensateUncertainBegin,
-        callable $abort
+        callable $abort,
+        callable $printRecovery
     ): int {
         $scopeExit = $scopeRefusal($extra);
         if ($scopeExit !== null) return $scopeExit;
@@ -46,7 +58,23 @@ final class DeployCommand {
         $repo = rtrim($transport->repoPath(), '/');
         $runId = $runIdFactory();
         $artifact = "$repo/.duo/artifacts/deploy-$runId.json";
-        $mkdir = $transport->captureRaw('mkdir -p ' . escapeshellarg(dirname($artifact)));
+        // The checkpoint is the SIBLING of the artifact, stem for stem. That is
+        // what makes `RetainedCheckpoints::script()`'s existing
+        // `artifacts/$b.json` identity grep (RetainedCheckpoints.php:180) find
+        // this deploy's lease identity with no second mechanism; a
+        // `promote-<runId>.sql` here would list with an empty artifact_hash and
+        // then refuse `checkpoint_identity_unknown` at --restore time.
+        $checkpoint = "$repo/.duo/checkpoints/deploy-$runId.sql";
+        $wantCheckpoint = self::checkpointRequested($extra);
+        // One mkdir, two directories when a checkpoint is wanted — the shape
+        // promote uses (cli/duo:2190-2192). The message below names a failed
+        // precondition, not a directory count, so it stays byte-identical in
+        // both arms; `--no-checkpoint` must reproduce today's stream exactly.
+        $mkdir = $transport->captureRaw(
+            $wantCheckpoint
+                ? 'mkdir -p ' . escapeshellarg(dirname($artifact)) . ' ' . escapeshellarg(dirname($checkpoint))
+                : 'mkdir -p ' . escapeshellarg(dirname($artifact))
+        );
         if ($mkdir['exit'] !== 0) {
             fwrite(STDERR, "duo: deploy: could not create target artifact directory\n");
             CommandOutput::renderTransportDetail($mkdir);
@@ -99,12 +127,36 @@ final class DeployCommand {
             return $begin['exit'] !== 0 ? $begin['exit'] : 1;
         }
 
+        if ($wantCheckpoint) {
+            // Under the lease, exactly where promote takes it
+            // (cli/duo:2385-2388). The dump therefore contains the promotion
+            // lease row this deploy just took, which is the whole reason
+            // `duo recover`'s four steps re-take that same (owner,
+            // artifact_hash) pair before importing (cli/duo:3289-3297). Taken
+            // before promotion-begin the dump would carry no lease row or a
+            // stale one; taken after code-stage it would already describe
+            // mutated code.
+            echo "deploy phase: checkpoint\n";
+            $export = $transport->captureWp(['db', 'export', $checkpoint, '--porcelain']);
+            if ($export['exit'] !== 0) {
+                fwrite(STDERR, "duo: deploy: database checkpoint failed; code and lifecycle phases were not started\n");
+                CommandOutput::renderTransportDetail($export);
+                if ($abort($transport, $runId, $artifactHash)) {
+                    fwrite(STDERR, "duo: deploy: promotion lease cleanup confirmed; no usable checkpoint was produced\n");
+                }
+                return $export['exit'] !== 0 ? $export['exit'] : 1;
+            }
+            echo "database checkpoint: $checkpoint\n";
+        }
+
         if ($codeEnabled) {
             echo "deploy phase: code-stage\n";
             $stage = $transport->streamWp(CodeDeploy::stageArgs($repo, $artifact, $runId, $artifactHash));
             if ($stage !== 0) {
                 fwrite(STDERR, "duo: deploy: code-stage failed (exit $stage); lifecycle phases and code-finalize were not run\n");
-                $abort($transport, $runId, $artifactHash);
+                self::cleanupAndGuide(
+                    $transport, $abort, $printRecovery, $wantCheckpoint, $checkpoint, true, $runId, $artifactHash
+                );
                 return $stage;
             }
         }
@@ -115,7 +167,11 @@ final class DeployCommand {
         ));
         if ($retire !== 0) {
             fwrite(STDERR, "duo: deploy: lifecycle retirement failed (exit $retire); later phases were not run\n");
-            $abort($transport, $runId, $artifactHash);
+            // $codeEnabled, not true: with no code descriptor this phase staged
+            // nothing, which is the same boolean promote passes (cli/duo:2430).
+            self::cleanupAndGuide(
+                $transport, $abort, $printRecovery, $wantCheckpoint, $checkpoint, $codeEnabled, $runId, $artifactHash
+            );
             return $retire;
         }
 
@@ -125,7 +181,9 @@ final class DeployCommand {
         ));
         if ($activate !== 0) {
             fwrite(STDERR, "duo: deploy: lifecycle activation failed (exit $activate); later phases were not run\n");
-            $abort($transport, $runId, $artifactHash);
+            self::cleanupAndGuide(
+                $transport, $abort, $printRecovery, $wantCheckpoint, $checkpoint, $codeEnabled, $runId, $artifactHash
+            );
             return $activate;
         }
 
@@ -134,15 +192,63 @@ final class DeployCommand {
             $finalize = $transport->streamWp(CodeDeploy::finalizeArgs($repo, $artifact, $runId, $artifactHash, false));
             if ($finalize !== 0) {
                 fwrite(STDERR, "duo: deploy: code-finalize failed (exit $finalize); later phases were not run\n");
-                $abort($transport, $runId, $artifactHash);
+                self::cleanupAndGuide(
+                    $transport, $abort, $printRecovery, $wantCheckpoint, $checkpoint, true, $runId, $artifactHash
+                );
                 return $finalize;
             }
+            // The completion line is unchanged; the retained line is a separate
+            // fact, in the position and wording promote uses (cli/duo:2465).
             echo "deploy complete: code-stage -> lifecycle-retire -> lifecycle-activate -> code-finalize\n";
+            if ($wantCheckpoint) {
+                echo "database checkpoint retained: $checkpoint\n";
+            }
             return 0;
         }
 
         echo "deploy complete: lifecycle-retire -> lifecycle-activate (no code descriptor)\n";
+        if ($wantCheckpoint) {
+            echo "database checkpoint retained: $checkpoint\n";
+        }
         return 0;
+    }
+
+    /**
+     * The one post-checkpoint failure epilogue: exact lease cleanup, then —
+     * only when a checkpoint exists — the four numbered instructions that make
+     * it usable.
+     *
+     * This mirrors `promote_failed()` (cli/duo:3310-3316) rather than
+     * discarding the abort's result: a checkpoint an operator is never told how
+     * to use is not a recovery story, and the code-first ordering
+     * `RecoverCommand::assertCodeFirst()` enforces has to be announced at
+     * failure time rather than discovered at `--restore` time. Under
+     * `--no-checkpoint` nothing here prints, so that arm reproduces today's
+     * stream byte for byte.
+     *
+     * @param callable(EnvironmentDriver,string,string):bool $abort
+     * @param callable(EnvironmentDriver,string,bool,string,string):void $printRecovery
+     */
+    private static function cleanupAndGuide(
+        EnvironmentDriver $transport,
+        callable $abort,
+        callable $printRecovery,
+        bool $wantCheckpoint,
+        string $checkpoint,
+        bool $codeMayHaveChanged,
+        string $runId,
+        string $artifactHash
+    ): void {
+        $clean = $abort($transport, $runId, $artifactHash);
+        if (!$wantCheckpoint) {
+            return;
+        }
+        if ($clean) {
+            fwrite(STDERR, "duo: deploy: promotion lease cleanup confirmed\n");
+            $printRecovery($transport, $checkpoint, $codeMayHaveChanged, $runId, $artifactHash);
+            return;
+        }
+        fwrite(STDERR, "duo: deploy: do not begin checkpoint recovery until the exact lease cleanup command above succeeds. Expiry lets a different promotion owner recover the target; it does not authorize this checkpoint restore.\n");
     }
 
     /** @return list<string> force flags that may also be passed to both lifecycle phases. */
@@ -160,11 +266,31 @@ final class DeployCommand {
                 $allowed[] = $arg;
                 continue;
             }
+            // Accepted here and DROPPED: the two lifecycle phases own no
+            // checkpoint, so forwarding --no-checkpoint to them would offer the
+            // agent a flag it must refuse.
+            if ($arg === '--no-checkpoint') {
+                continue;
+            }
             throw new \RuntimeException(
-                "duo $verb: unsupported deploy flag '$arg' (only --force-code-mismatch and --force-code-drift are accepted)"
+                "duo $verb: unsupported deploy flag '$arg' (only --force-code-mismatch, --force-code-drift and --no-checkpoint are accepted)"
             );
         }
         return $allowed;
+    }
+
+    /**
+     * Whether this invocation takes its database checkpoint. Default is yes.
+     *
+     * Exact match only, with no `=value` form: a `--no-checkpoint=false` that
+     * silently checkpointed anyway would be the quiet reinterpretation
+     * AGENTS.md rule 9 forbids, and `forceFlags()` refuses any spelling this
+     * does not recognise before the first target call.
+     *
+     * @param list<string> $extra
+     */
+    public static function checkpointRequested(array $extra): bool {
+        return !in_array('--no-checkpoint', $extra, true);
     }
 
     /**
