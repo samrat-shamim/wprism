@@ -244,7 +244,7 @@
             ]
           }
         ],
-        "file_count": 19,
+        "file_count": 20,
         "files": [
           "ArtifactPolicyIdentity.php",
           "CodeConfigGrammar.php",
@@ -255,6 +255,7 @@
           "ManifestGrammar.php",
           "ManifestValidator.php",
           "PinResolver.php",
+          "PlatformCompatibility.php",
           "Policy.php",
           "PolicyLoadFinalizer.php",
           "PolicyRuleResolver.php",

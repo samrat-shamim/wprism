@@ -96,7 +96,7 @@ class HealthyDoctorDriver implements EnvironmentDriver {
                 'php' => '8.3.33',
                 'db_version' => '11.8.8',
                 'db_engine' => 'mariadb',
-                'wp' => '7.0.2',
+                'wp' => '7.0.3',
             ]) . "\n", 'stderr' => ''];
         }
         return ['exit' => 99, 'stdout' => '', 'stderr' => 'unexpected WordPress probe'];
@@ -174,6 +174,58 @@ assert_doctor_command($healthy->wpCalls === 2, 'healthy doctor makes exactly two
 assert_doctor_command(str_contains($healthyOutput, '[PASS] transport reachable'), 'healthy doctor renders a pass row');
 assert_doctor_command(str_contains($healthyOutput, '[WARN] DISALLOW_FILE_MODS set'), 'healthy doctor renders advisory warning');
 
+/** @return array{exit:int,output:string,driver:HealthyDoctorDriver} */
+$compatibilityCase = static function (array $override): array {
+    $facts = [
+        'agent' => 'duo-ok',
+        'file_mods' => 'duo-set',
+        'php' => '8.3.33',
+        'db_version' => '11.8.8',
+        'db_engine' => 'mariadb',
+        'wp' => '7.0.3',
+    ];
+    foreach ($override as $key => $value) {
+        $facts[$key] = $value;
+    }
+    $driver = new HealthyDoctorDriver();
+    $driver->factsResult = [
+        'exit' => 0,
+        'stdout' => (string) json_encode($facts) . "\n",
+        'stderr' => '',
+    ];
+    ob_start();
+    $exit = DoctorCommand::run($driver);
+    return ['exit' => $exit, 'output' => (string) ob_get_clean(), 'driver' => $driver];
+};
+
+foreach ([
+    'PHP inclusive minimum' => ['php' => '8.3.0'],
+    'PHP value below the exclusive maximum' => ['php' => '8.3.99'],
+    'MariaDB inclusive minimum' => ['db_version' => '11.0.0'],
+    'MariaDB value below the exclusive maximum' => ['db_version' => '11.99.99'],
+] as $label => $override) {
+    $case = $compatibilityCase($override);
+    assert_doctor_command($case['exit'] === 0, "$label remains inside the declared platform boundary");
+}
+
+foreach ([
+    'PHP below minimum' => [['php' => '8.2.99'], '[FAIL] PHP version (8.2.99)'],
+    'PHP exact exclusive maximum' => [['php' => '8.4.0'], '[FAIL] PHP version (8.4.0)'],
+    'MariaDB below minimum' => [['db_version' => '10.11.0'], '[FAIL] database (mariadb 10.11.0)'],
+    'MariaDB exact exclusive maximum' => [['db_version' => '12.0.0'], '[FAIL] database (mariadb 12.0.0)'],
+    'different database engine' => [['db_engine' => 'mysql'], '[FAIL] database (mysql 11.8.8)'],
+    'older WordPress core' => [['wp' => '7.0.2'], '[FAIL] WordPress core (7.0.2)'],
+    'newer WordPress core' => [['wp' => '7.0.4'], '[FAIL] WordPress core (7.0.4)'],
+] as $label => [$override, $needle]) {
+    $case = $compatibilityCase($override);
+    assert_doctor_command($case['exit'] === 1, "$label is a blocking platform refusal");
+    assert_doctor_command(str_contains($case['output'], $needle), "$label names the exact failing platform row");
+    assert_doctor_command(
+        $case['driver']->rawCalls === 2 && $case['driver']->wpCalls === 2,
+        "$label uses the composed four-round-trip doctor path"
+    );
+}
+
 $missingAgent = new AdoptableDoctorDriver(false);
 ob_start();
 $missingAgentExit = DoctorCommand::run($missingAgent);
@@ -222,7 +274,7 @@ $sunkDb->factsResult = ['exit' => 0, 'stdout' => (string) json_encode([
     'php' => '8.3.33',
     'db_version' => null,
     'db_engine' => null,
-    'wp' => '7.0.2',
+    'wp' => '7.0.3',
 ]) . "\n", 'stderr' => ''];
 ob_start();
 $sunkDbExit = DoctorCommand::run($sunkDb);
@@ -292,7 +344,7 @@ final class ThrownDbWpdb {
     }
 }
 if (!function_exists('get_bloginfo')) {
-    function get_bloginfo(string $show): string { return $show === 'version' ? '7.0.2' : ''; }
+    function get_bloginfo(string $show): string { return $show === 'version' ? '7.0.3' : ''; }
 }
 class_alias(stdClass::class, 'Duo\\Capture');
 $GLOBALS['wpdb'] = new ThrownDbWpdb();
@@ -305,7 +357,7 @@ assert_doctor_command(is_array($facts), "the composed snippet emitted a JSON obj
 assert_doctor_command(($facts['agent'] ?? null) === 'duo-ok', 'a throwing $wpdb sank the agent-presence field');
 assert_doctor_command(($facts['file_mods'] ?? null) === 'duo-unset', 'a throwing $wpdb sank the DISALLOW_FILE_MODS field');
 assert_doctor_command(($facts['php'] ?? null) === PHP_VERSION, 'a throwing $wpdb sank the PHP version field');
-assert_doctor_command(($facts['wp'] ?? null) === '7.0.2', 'a throwing $wpdb sank the WordPress version field');
+assert_doctor_command(($facts['wp'] ?? null) === '7.0.3', 'a throwing $wpdb sank the WordPress version field');
 assert_doctor_command(array_key_exists('db_version', $facts) && $facts['db_version'] === null, 'the thrown field did not leave its own null sentinel');
 assert_doctor_command(($facts['db_engine'] ?? null) === 'mariadb', 'the sibling database field did not answer independently of the thrown one');
 

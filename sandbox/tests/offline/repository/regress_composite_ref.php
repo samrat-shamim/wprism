@@ -290,15 +290,15 @@ $GLOBALS['wpdb'] = $wpdb;
 
 // ----------------------------------------------------------- engine + fixtures
 
-require __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
-require __DIR__ . '/../../../../agent/src/Policy/Policy.php';
-require __DIR__ . '/../../../../agent/src/Kernel/Uuid.php';
-require __DIR__ . '/../../../../agent/src/Kernel/Secrets.php';
-require __DIR__ . '/../../../../agent/src/Kernel/Db.php';
-require __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
-require __DIR__ . '/../../../../agent/src/Grammar/Tokens.php';
-require __DIR__ . '/../../../../agent/src/Repository/IdentityNotes.php';
-require __DIR__ . '/../../../../agent/src/Repository/Snapshot.php';
+require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
+require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/../../../../agent/src/Kernel/Uuid.php';
+require_once __DIR__ . '/../../../../agent/src/Kernel/Secrets.php';
+require_once __DIR__ . '/../../../../agent/src/Kernel/Db.php';
+require_once __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
+require_once __DIR__ . '/../../../../agent/src/Grammar/Tokens.php';
+require_once __DIR__ . '/../../../../agent/src/Repository/IdentityNotes.php';
+require_once __DIR__ . '/../../../../agent/src/Repository/Snapshot.php';
 
 use Duo\Canon;
 use Duo\Ledger;

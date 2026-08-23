@@ -24,15 +24,14 @@
  * `agent/src/Assess/` — asserted against the real manifest library, so a new
  * adapter automatically joins the forbidden set.
  *
- * SEAM. `AssessInventory::report()` calls `TargetProbe::probe_target()`,
- * whose `SELECT VERSION()` the offline `$wpdb` deliberately refuses to model,
- * and `Pending::scan_read_only()`, whose gate walk needs a live WordPress. So
- * the suite drives `from_facts()`, which is the same document builder with
- * exactly those two facts (plus the coverage projection and the adapter
- * survey) handed in. Everything the class does itself — plugins, themes,
- * media, the manifest list and every surface group — is still read live from
- * the seeded fake site, and `Coverage::report()` is the REAL one, which is
- * what makes the sentinel assertion mean something.
+ * SEAM. `AssessInventory::report()` calls `TargetProbe::probe_target()` and
+ * `Pending::scan_read_only()`, whose gate walk needs a live WordPress. So the
+ * suite drives `from_facts()`, which is the same document builder with those
+ * target facts (plus the coverage projection and adapter survey) handed in.
+ * Everything the class does itself — plugins, themes, media, the manifest
+ * list and every surface group — is still read live from the seeded fake
+ * site, and `Coverage::report()` is the REAL one, which is what makes the
+ * sentinel assertion mean something.
  */
 declare(strict_types=1);
 

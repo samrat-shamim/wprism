@@ -1,5 +1,5 @@
 {
-  "_comment": "DUO-3222/DUO-3227: the ONE project-level WordPress/PHP/database compatibility statement. PHP and database use min-inclusive/max-exclusive ranges; WordPress remains a single last-verified version because no multi-version core matrix exists. duo doctor blocks on the PHP and database ranges, and tools/capability-doc.php cross-checks this file against manifests/capabilities/platform.json so the two copies cannot drift -- never independently-maintained numbers.",
+  "_comment": "DUO-3222/DUO-3227: the ONE project-level WordPress/PHP/database compatibility statement. PHP and database use min-inclusive/max-exclusive ranges; WordPress is the one exact exercised version because no multi-version core matrix exists. The agent pre-policy gate and duo doctor block outside these values, and tools/capability-doc.php cross-checks this file against manifests/capabilities/platform.json so the two copies cannot drift -- never independently-maintained numbers.",
   "php": {
     "min": "8.3.0",
     "max": "8.4.0",
@@ -13,6 +13,6 @@
   },
   "wordpress": {
     "last_verified": "7.0.3",
-    "note": "Pinned by the sandbox harness's own Docker tag (wordpress:7.0.3-php8.3-apache -- see sandbox/pair.yml, sandbox/db.yml, sandbox/docker-compose.yml): the core version the live conformance estate last ran against. The sandbox image is not core-version pinned, so this is a single last-verified version, not a claimed range; other core versions are genuinely untested and no runtime gate enforces this boundary -- a wider claim requires a real multi-version core matrix."
+    "note": "Pinned by the sandbox harness's exact Docker tag (wordpress:7.0.3-php8.3-apache in sandbox/pair.yml). WordPress is one exact exercised value, not a claimed range: the agent pre-policy gate and duo doctor refuse any other core version before mutation. A wider claim requires a real multi-version core matrix."
   }
 }

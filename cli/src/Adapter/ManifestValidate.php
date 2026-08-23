@@ -149,6 +149,13 @@ final class ManifestValidate {
                     . 'THIS machine — whether the target runs that revision is a fact about the target',
             ],
             [
+                'surface' => 'PHP / database / WordPress / site mode',
+                'check' => 'PlatformCompatibility::current_facts() / PlatformCompatibility::assert_supported()',
+                'why' => 'the platform declaration is separate from one adapter manifest, and the observed PHP, '
+                    . 'database engine/version, exact WordPress version, and site topology exist only on a loaded '
+                    . 'target. Policy::load() checks those facts before repository reads on the real product path',
+            ],
+            [
                 'surface' => 'tables',
                 'check' => 'Snapshot::assert_row_schema() / assert_composite_row_schema() / assert_meta_schema()',
                 'why' => 'the declaration half of a table (class, pk, id_kind, columns, refs, identity) is checked '

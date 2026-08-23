@@ -28,9 +28,10 @@ resolve correctly).
 The generic pair's WordPress core image is pinned to the exact version
 `docs/compatibility-baseline.json` records as last verified, so a floating
 registry tag cannot silently move the platform boundary a proof runs against.
-That file is the one project-level compatibility statement:
-`cli/src/Onboarding/Doctor.php` blocks on its PHP and database ranges at
-runtime, and `tools/capability-doc.php` cross-checks it against
+That file is the one project-level compatibility statement: the agent blocks
+policy load outside its PHP/database ranges or exact WordPress value,
+`cli/src/Onboarding/Doctor.php` reports the same failures before orchestration,
+and `tools/capability-doc.php` cross-checks it against
 `manifests/capabilities/platform.json` so the two copies cannot drift.
 `DUO_WP_IMAGE` is an explicit override for exploratory local work; a
 candidate-bound run leaves it unset and therefore uses

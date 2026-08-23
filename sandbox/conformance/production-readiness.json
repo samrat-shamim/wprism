@@ -122,7 +122,7 @@
       }
     },
     "core": {
-      "readiness": "unready",
+      "readiness": "ready",
       "covered": {
         "contract-dependency": ["manifests/core.json", "manifests/capabilities/platform.json", "sandbox/tests/live/regress_multisite_refusal.sh"],
         "clean-target": ["sandbox/conformance/entries/core.json", "sandbox/conformance/seeds/core.sh", "sandbox/conformance/checks/core.sh"],
@@ -134,11 +134,10 @@
         "derived-state": ["manifests/core.json", "sandbox/tests/offline/adapter/regress_core_rewrite_native_action.php", "sandbox/conformance/checks/core.sh"],
         "concurrency-idempotence": ["sandbox/tests/offline/capture/regress_capture_atomicity.php", "sandbox/tests/live/regress_capture_concurrency.sh"],
         "lifecycle": ["manifests/core.json", "sandbox/conformance/run.sh", "sandbox/tests/live/regress_core_lifecycle.sh"],
-        "data-boundary": ["agent/src/Grammar/Blocks.php", "agent/src/Kernel/TableSchema.php", "agent/src/Repository/RepositoryPortableShapeValidator.php", "manifests/core.json", "sandbox/tests/offline/capture/regress_options_capture.php", "sandbox/tests/offline/reference-scope/regress_block_refs.php", "sandbox/tests/offline/repository/regress_repository_portable_shape_validator.php", "sandbox/tests/offline/repository/regress_table_schema.php", "sandbox/tests/live/regress_core_data_boundary.sh"]
+        "data-boundary": ["agent/src/Grammar/Blocks.php", "agent/src/Kernel/TableSchema.php", "agent/src/Repository/RepositoryPortableShapeValidator.php", "manifests/core.json", "sandbox/tests/offline/capture/regress_options_capture.php", "sandbox/tests/offline/reference-scope/regress_block_refs.php", "sandbox/tests/offline/repository/regress_repository_portable_shape_validator.php", "sandbox/tests/offline/repository/regress_table_schema.php", "sandbox/tests/live/regress_core_data_boundary.sh"],
+        "scope-platform": ["agent/src/Policy/PlatformCompatibility.php", "manifests/capabilities/platform.json", "sandbox/tests/offline/policy/regress_platform_compatibility.php", "sandbox/tests/live/regress_core_scope_platform.sh", "sandbox/tests/live/regress_multisite_refusal.sh"]
       },
-      "gaps": {
-        "scope-platform": "Multisite refuses, but the declared PHP/database/WordPress boundary has not been exercised as an adapter-level matrix."
-      },
+      "gaps": {},
       "blocked": {},
       "not_applicable": {}
     },

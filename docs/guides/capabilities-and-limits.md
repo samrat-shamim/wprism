@@ -664,19 +664,17 @@ into the generated [docs/capabilities.md](../capabilities.md), and mirrored
 byte-for-byte in `docs/compatibility-baseline.json` — `make release-gate`
 holds those two copies equal so they cannot drift into two truths.
 
-Be precise about who enforces which half. `duo doctor` compares the live PHP
-and database facts against the baseline and **blocks** on either being outside
-it; a different database engine is reported as genuinely untested rather than
-merely unpinned. WordPress core is reported and never compared, because this
-project's own Docker tags carry no core-version pin and a fabricated range
-would be a guess. The *capability report* enforces none of the three: with the
-measured evidence record gone, `AdapterRegistry::target_reasons()` deliberately
-reports no WordPress, PHP, database or multisite boundary per surface rather
-than re-deriving one from the shipped platform note. The one runtime version
-gate that survives there is the adapter's own plugin window, which a human
-authored into its disposition.
+Be precise about who enforces which half. The agent pre-policy gate and `duo
+doctor` compare live PHP and database facts against the baseline and **block**
+outside either range; a different database engine is genuinely untested, not
+merely unpinned. WordPress is one exact exercised value because `pair.yml`
+pins 7.0.3; both gates refuse another value rather than inventing a range. The
+*capability report* still enforces none of the three per surface: with the
+measured evidence record gone, `AdapterRegistry::target_reasons()` does not
+re-derive global compatibility as adapter-local reasons. The adapter plugin
+window remains a separate authored and enforced contract.
 
-The platform boundary is still load-bearing in one other way:
+The platform boundary is also load-bearing in one other way:
 `ManifestDispositions::platform_boundary()` refuses at agent load time —
 `duo: … platform version disagrees with the loaded agent` — if
 `platform.json`'s `agent_version`/`spec_version` differ from the running
