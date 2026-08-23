@@ -644,7 +644,8 @@ post_type, prefix_length, stored_length}}` rule. The latter requires one exact
 attribute, validates and collision-checks every owner, and refuses title or
 numeric fallbacks. Do not declare it from example shortcode output alone:
 trace the lookup query, its collation/case behavior, excluded post statuses,
-the stored-value generator, and duplicate-row behavior, then reproduce a
+the stored-value generator at every admitted release, upgrade retention, and
+duplicate-row behavior, then reproduce a
 foreign target collision live. Also run the plugin's destructive native
 uninstall/reinstall path: when owner rows are deleted but embedding pages
 survive, target observation may recover only from the sealed canonical reverse
@@ -652,6 +653,13 @@ witness. Prove the unforced run remains atomic, any activation-default slug
 collision still needs explicit adoption, a live owner mapped to another entity
 still refuses, and the successful recovery restores the repository's authored
 alternate rather than inventing a target-local one.
+
+When adjacent supported releases generate different exact widths for the same
+fixed-prefix callback, use `stored_lengths` instead of `stored_length`. It must
+be a strictly increasing list of at least two unique widths. Prove every width
+from the plugin's source and a real saved row, prove the in-place upgrade shape
+(including a retained old-width value), and reject every undeclared width; a
+min/max range would silently admit identities no native release generates.
 
 When any step cannot be represented, keep the adapter experimental or reject
 it. Do not disguise a missing codec as `verbatim`, `runtime`, a broad option

@@ -591,7 +591,7 @@ final class Shortcodes {
         $metaKey = (string) $lookup['post_meta'];
         $postType = (string) $lookup['post_type'];
         $prefixLength = (int) $lookup['prefix_length'];
-        $storedLength = (int) $lookup['stored_length'];
+        $storedLengths = self::named_alternate_stored_lengths($lookup);
         $locator = "attribute '$name'";
         if ($capture) {
             if (!self::is_lower_hex($value, $prefixLength)) {
@@ -604,7 +604,7 @@ final class Shortcodes {
                 $metaKey,
                 $postType,
                 $value,
-                $storedLength,
+                $storedLengths,
                 $tag,
                 $locator,
                 $canonicalToken !== null
@@ -640,7 +640,7 @@ final class Shortcodes {
             $metaKey,
             $postType,
             $prefixLength,
-            $storedLength,
+            $storedLengths,
             $tag,
             $locator
         );
@@ -664,11 +664,11 @@ final class Shortcodes {
         string $attr
     ): string {
         $prefixLength = (int) $lookup['prefix_length'];
-        $storedLength = (int) $lookup['stored_length'];
-        if (!self::is_lower_hex($storedValue, $storedLength)) {
+        $storedLengths = self::named_alternate_stored_lengths($lookup);
+        if (!self::is_lower_hex_stored_value($storedValue, $storedLengths)) {
             throw new \RuntimeException(
                 "duo: shortcode '$tag' attribute '$attr' canonical post_meta '{$lookup['post_meta']}' "
-                . "must be exactly $storedLength lowercase hexadecimal bytes"
+                . 'must be ' . self::stored_length_requirement($storedLengths)
             );
         }
         $prefix = substr($storedValue, 0, $prefixLength);
@@ -683,11 +683,12 @@ final class Shortcodes {
         return $prefix;
     }
 
+    /** @param list<int> $storedLengths */
     private static function prefix_alternate_post_id(
         string $metaKey,
         string $postType,
         string $prefix,
-        int $storedLength,
+        array $storedLengths,
         string $tag,
         string $locator,
         bool $allowMissing = false
@@ -703,7 +704,7 @@ final class Shortcodes {
                 "duo: shortcode '$tag' $locator prefix '$prefix' has $why via post_meta '$metaKey'"
             );
         }
-        if (!self::is_lower_hex((string) $rows[0]['meta_value'], $storedLength)) {
+        if (!self::is_lower_hex_stored_value((string) $rows[0]['meta_value'], $storedLengths)) {
             throw new \RuntimeException(
                 "duo: shortcode '$tag' $locator prefix '$prefix' resolves through malformed post_meta '$metaKey'"
             );
@@ -711,12 +712,13 @@ final class Shortcodes {
         return $ids[0];
     }
 
+    /** @param list<int> $storedLengths */
     private static function prefix_alternate_post_meta(
         int $postId,
         string $metaKey,
         string $postType,
         int $prefixLength,
-        int $storedLength,
+        array $storedLengths,
         string $tag,
         string $locator
     ): string {
@@ -732,9 +734,10 @@ final class Shortcodes {
                 "duo: shortcode '$tag' $locator target post $postId has duplicate '$metaKey' metadata rows"
             );
         }
-        if (count($rows) !== 1 || !self::is_lower_hex((string) ($rows[0] ?? ''), $storedLength)) {
+        if (count($rows) !== 1 || !self::is_lower_hex_stored_value((string) ($rows[0] ?? ''), $storedLengths)) {
             throw new \RuntimeException(
-                "duo: shortcode '$tag' $locator target post $postId has no unique $storedLength-byte lowercase-hex post_meta '$metaKey'"
+                "duo: shortcode '$tag' $locator target post $postId has no unique "
+                . self::stored_length_requirement($storedLengths) . " post_meta '$metaKey'"
             );
         }
         return substr((string) $rows[0], 0, $prefixLength);
@@ -793,6 +796,28 @@ final class Shortcodes {
 
     private static function is_lower_hex(string $value, int $length): bool {
         return strlen($value) === $length && preg_match('/^[0-9a-f]+$/D', $value) === 1;
+    }
+
+    /** @return list<int> */
+    private static function named_alternate_stored_lengths(array $lookup): array {
+        if (array_key_exists('stored_lengths', $lookup)) {
+            return array_map('intval', $lookup['stored_lengths']);
+        }
+        return [(int) $lookup['stored_length']];
+    }
+
+    /** @param list<int> $storedLengths */
+    private static function is_lower_hex_stored_value(string $value, array $storedLengths): bool {
+        return in_array(strlen($value), $storedLengths, true)
+            && preg_match('/^[0-9a-f]+$/D', $value) === 1;
+    }
+
+    /** @param list<int> $storedLengths */
+    private static function stored_length_requirement(array $storedLengths): string {
+        if (count($storedLengths) === 1) {
+            return "exactly {$storedLengths[0]}-byte lowercase hexadecimal";
+        }
+        return 'exactly one of ' . implode('/', $storedLengths) . ' lowercase-hexadecimal byte lengths';
     }
 
     /**

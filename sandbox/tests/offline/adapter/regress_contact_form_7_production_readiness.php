@@ -34,7 +34,7 @@ function cf7_readiness_mail(bool $secondary = false): array {
 }
 
 /** @return array<string,mixed> */
-function cf7_readiness_meta(bool $legacy = false, string $hashSeed = 'a'): array {
+function cf7_readiness_meta(bool $legacy = false, string $hashSeed = 'a', int $hashLength = 64): array {
     $properties = [
         'form' => "<label>名前 [text* your-name]</label>\n[text broken-tag",
         'mail' => cf7_readiness_mail(),
@@ -43,7 +43,7 @@ function cf7_readiness_meta(bool $legacy = false, string $hashSeed = 'a'): array
         'additional_settings' => "demo_mode: on\nacceptance_as_validation: on",
     ];
     $meta = [
-        '_hash' => str_repeat($hashSeed, 64),
+        '_hash' => str_repeat($hashSeed, $hashLength),
         '_locale' => 'en_US',
         '_old_cf7_unit_id' => '3199001',
     ];
@@ -84,6 +84,11 @@ duo_check($interpreter instanceof ContactForm7, 'the shipped manifest resolves i
 
 $current = cf7_readiness_meta();
 duo_check_same([], cf7_readiness_diagnostics($interpreter, $current), 'the exact current CF7 property shape is clean');
+duo_check_same(
+    [],
+    cf7_readiness_diagnostics($interpreter, cf7_readiness_meta(false, 'b', 40)),
+    'the exact CF7 6.0 SHA-1 identity shape is clean'
+);
 duo_check_same([], cf7_readiness_diagnostics($interpreter, cf7_readiness_meta(true)), 'the still-readable legacy CF7 property shape is clean');
 duo_check_same(
     ['class' => 'authored', 'plain_data' => true],
@@ -136,9 +141,12 @@ foreach (['form', 'mail', 'mail_2', 'messages', 'additional_settings'] as $name)
 }
 
 foreach ([
-    '' => '64-byte lowercase',
-    str_repeat('A', 64) => '64-byte lowercase',
-    str_repeat('a', 63) => '64-byte lowercase',
+    '' => '40- or 64-byte lowercase',
+    str_repeat('A', 40) => '40- or 64-byte lowercase',
+    str_repeat('a', 39) => '40- or 64-byte lowercase',
+    str_repeat('a', 41) => '40- or 64-byte lowercase',
+    str_repeat('a', 63) => '40- or 64-byte lowercase',
+    str_repeat('a', 65) => '40- or 64-byte lowercase',
 ] as $hash => $expected) {
     $bad = $current;
     $bad['_hash'] = $hash;
@@ -150,7 +158,7 @@ foreach ([
 
 $duplicateHashTree = [
     cf7_readiness_entity($current),
-    cf7_readiness_entity(cf7_readiness_meta(false, 'a'), '22222222-2222-4222-8222-222222222222'),
+    cf7_readiness_entity(cf7_readiness_meta(false, 'a', 40), '22222222-2222-4222-8222-222222222222'),
 ];
 duo_check(
     str_contains(
@@ -230,10 +238,12 @@ unset($withoutOldId['_old_cf7_unit_id']);
 duo_check_same([], cf7_readiness_diagnostics($interpreter, $withoutOldId), 'forms without a legacy alternate remain valid');
 
 $manifest = json_decode((string) file_get_contents(__DIR__ . '/../../../../manifests/contact-form-7.json'), true);
+duo_check_same(['min' => '6.0.0', 'max' => '6.2.0'], $manifest['version_range'], 'CF7 admits only the audited 6.0.x and 6.1.x release lines');
 duo_check_same(true, $manifest['post_meta']['_mail']['plain_data'], 'current mail uses recursive string-leaf rebinding');
 duo_check_same(true, $manifest['post_meta']['_mail_2']['plain_data'], 'secondary mail uses recursive string-leaf rebinding');
 duo_check_same(true, $manifest['post_meta']['_messages']['plain_data'], 'messages use recursive string-leaf rebinding');
 duo_check_same('hex-prefix', $manifest['shortcode_attrs']['contact-form-7'][0]['lookup']['codec'], 'modern CF7 shortcode declares its real hash-prefix identity');
+duo_check_same([40, 64], $manifest['shortcode_attrs']['contact-form-7'][0]['lookup']['stored_lengths'], 'modern CF7 shortcode admits exactly the native SHA-1 and SHA-256 storage widths');
 duo_check_same(true, $manifest['shortcode_attrs']['contact-form-7'][0]['required'], 'modern CF7 shortcode refuses mutable title-only fallback');
 
 duo_check_summary('Contact Form 7 production readiness');

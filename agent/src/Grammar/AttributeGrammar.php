@@ -179,15 +179,53 @@ final class AttributeGrammar {
             }
             $lookup = $rule['lookup'];
             $lookupKeys = is_array($lookup) ? array_keys($lookup) : [];
-            $expectedLookupKeys = ['codec', 'post_meta', 'post_type', 'prefix_length', 'stored_length'];
+            $hasStoredLength = is_array($lookup) && array_key_exists('stored_length', $lookup);
+            $hasStoredLengths = is_array($lookup) && array_key_exists('stored_lengths', $lookup);
+            $expectedLookupKeys = [
+                'codec',
+                'post_meta',
+                'post_type',
+                'prefix_length',
+                $hasStoredLengths && !$hasStoredLength ? 'stored_lengths' : 'stored_length',
+            ];
             sort($lookupKeys, SORT_STRING);
             sort($expectedLookupKeys, SORT_STRING);
             if (!is_array($lookup) || $lookupKeys !== $expectedLookupKeys
                 || ($lookup['codec'] ?? null) !== 'hex-prefix'
                 || !is_string($lookup['post_meta'] ?? null) || $lookup['post_meta'] === ''
                 || !is_string($lookup['post_type'] ?? null) || $lookup['post_type'] === ''
-                || !is_int($lookup['prefix_length'] ?? null) || $lookup['prefix_length'] < 1
-                || !is_int($lookup['stored_length'] ?? null)
+                || !is_int($lookup['prefix_length'] ?? null) || $lookup['prefix_length'] < 1) {
+                throw new \RuntimeException(
+                    "duo: $where.lookup must be exactly {codec:hex-prefix,post_meta,post_type,prefix_length,stored_length}, "
+                    . 'with non-empty domains and 1 <= prefix_length <= stored_length <= 128'
+                );
+            }
+            if ($hasStoredLengths) {
+                $storedLengths = $lookup['stored_lengths'];
+                $validStoredLengths = is_array($storedLengths)
+                    && array_is_list($storedLengths)
+                    && count($storedLengths) >= 2;
+                if ($validStoredLengths) {
+                    foreach ($storedLengths as $length) {
+                        if (!is_int($length) || $length < $lookup['prefix_length'] || $length > 128) {
+                            $validStoredLengths = false;
+                            break;
+                        }
+                    }
+                }
+                if ($validStoredLengths) {
+                    $sortedLengths = $storedLengths;
+                    sort($sortedLengths, SORT_NUMERIC);
+                    $validStoredLengths = $storedLengths === $sortedLengths
+                        && count(array_unique($storedLengths, SORT_REGULAR)) === count($storedLengths);
+                }
+                if (!$validStoredLengths) {
+                    throw new \RuntimeException(
+                        "duo: $where.lookup stored_lengths must be a strictly increasing list of at least two unique "
+                        . 'integers with prefix_length <= each stored length <= 128'
+                    );
+                }
+            } elseif (!is_int($lookup['stored_length'] ?? null)
                 || $lookup['stored_length'] < $lookup['prefix_length']
                 || $lookup['stored_length'] > 128) {
                 throw new \RuntimeException(

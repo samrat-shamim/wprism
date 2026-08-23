@@ -90,7 +90,7 @@
       "evidence": {"bundle_schema": "duo-subject-certification-bundle/v1", "tests": ["conformance-contact-form-7", "exact-artifact-version-matrix"]},
       "reason": "Certified with real form/API/render behavior at both admitted artifact boundaries, including legacy positional shortcode alternate binding.",
       "status": "certified",
-      "supported_versions": {"plugin": "contact-form-7/wp-contact-form-7.php", "range": {"max": "7.0.0", "min": "6.0.0"}},
+      "supported_versions": {"plugin": "contact-form-7/wp-contact-form-7.php", "range": {"max": "6.2.0", "min": "6.0.0"}},
       "unsupported": [
         {"operation": "delete", "reason": "No Contact Form 7 deletion selector is declared.", "surface": "deletions.*"}
       ]

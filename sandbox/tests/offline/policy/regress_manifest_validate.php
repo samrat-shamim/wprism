@@ -523,6 +523,47 @@ refuses(
     'shortcode_attrs.acme[0] named alternate refs have a closed vocabulary',
     'named alternate rules refuse unknown top-level keys'
 );
+accepts(
+    solo_b(['shortcode_attrs' => ['acme' => [[
+        'kind' => 'post', 'path' => 'id', 'required' => true,
+        'lookup' => [
+            'codec' => 'hex-prefix', 'post_meta' => '_hash', 'post_type' => 'acme_b',
+            'prefix_length' => 7, 'stored_lengths' => [40, 64],
+        ],
+    ]]]]),
+    'named alternate identities may declare a closed increasing set of native storage widths'
+);
+foreach ([
+    'one width' => [40],
+    'duplicate widths' => [40, 40],
+    'descending widths' => [64, 40],
+    'non-integer width' => [40, '64'],
+    'width below prefix' => [6, 64],
+    'width above engine bound' => [40, 129],
+] as $case => $storedLengths) {
+    refuses(
+        solo_b(['shortcode_attrs' => ['acme' => [[
+            'kind' => 'post', 'path' => 'id', 'required' => true,
+            'lookup' => [
+                'codec' => 'hex-prefix', 'post_meta' => '_hash', 'post_type' => 'acme_b',
+                'prefix_length' => 7, 'stored_lengths' => $storedLengths,
+            ],
+        ]]]]),
+        'stored_lengths must be a strictly increasing list of at least two unique integers',
+        "named alternate identities refuse $case"
+    );
+}
+refuses(
+    solo_b(['shortcode_attrs' => ['acme' => [[
+        'kind' => 'post', 'path' => 'id', 'required' => true,
+        'lookup' => [
+            'codec' => 'hex-prefix', 'post_meta' => '_hash', 'post_type' => 'acme_b',
+            'prefix_length' => 7, 'stored_length' => 64, 'stored_lengths' => [40, 64],
+        ],
+    ]]]]),
+    'lookup must be exactly {codec:hex-prefix,post_meta,post_type,prefix_length,stored_length}',
+    'named alternate identities cannot declare scalar and plural storage-width forms together'
+);
 refuses(
     solo_b(['shortcode_attrs' => ['acme' => [[
         'kind' => 'post', 'path' => 'id', 'required' => true,

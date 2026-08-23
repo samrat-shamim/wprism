@@ -10,7 +10,7 @@ use Duo\Policy;
  * Contact Form 7 stores five form properties in either current underscored
  * metadata or its still-readable pre-3.3 names. The interpreter keeps legacy
  * forms portable, excludes verified environment/runtime residues, and closes
- * the repository shapes CF7 6.0 and 6.1.6 actually consume.
+ * the repository shapes CF7 6.0 and 6.1.7 actually consume.
  */
 final class ContactForm7 {
     private const PROPERTY_RULES = [
@@ -78,11 +78,11 @@ final class ContactForm7 {
             $path = (string) ($entity['path'] ?? '');
             $meta = (array) ($front['meta'] ?? []);
             $hash = $meta['_hash'] ?? null;
-            if (!is_string($hash) || preg_match('/^[0-9a-f]{64}$/D', $hash) !== 1) {
+            if (!is_string($hash) || preg_match('/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/D', $hash) !== 1) {
                 $out[] = $this->diagnostic(
                     $path,
                     'meta._hash',
-                    'Contact Form 7 _hash must be one 64-byte lowercase hexadecimal identity'
+                    'Contact Form 7 _hash must be one 40- or 64-byte lowercase hexadecimal identity'
                 );
             } else {
                 $prefix = substr($hash, 0, 7);

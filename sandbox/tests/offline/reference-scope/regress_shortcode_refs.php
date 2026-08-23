@@ -309,7 +309,7 @@ $policy->manifests = [[
                 'post_meta' => '_hash',
                 'post_type' => 'wpcf7_contact_form',
                 'prefix_length' => 7,
-                'stored_length' => 64,
+                'stored_lengths' => [40, 64],
             ],
             'path' => 'id',
             'required' => true,
@@ -559,6 +559,25 @@ $modernCanonical = Shortcodes::capture_rewrite_text($modern, $policy, $tokens);
 check(
     $modernCanonical === '[contact-form-7 id="{{post:' . MAPPED_UUID . '}}" title="Legacy Form"]',
     'S1e: CF7 hash prefix canonicalizes to the owning form token'
+);
+$hash40 = str_repeat('d', 40);
+$wpdb->postMetaById[MAPPED_ID]['_hash'] = [$hash40];
+$modern40 = '[contact-form-7 id="ddddddd" title="Legacy Form"]';
+$modern40Canonical = Shortcodes::capture_rewrite_text($modern40, $policy, $tokens);
+$canonical40Tokens = new Tokens();
+$canonical40Tokens->policy = $policy;
+(new \Duo\ShortcodeAlternateRegistrar($policy, $canonical40Tokens))->register([[
+    'type' => 'post',
+    'data' => [
+        'type' => 'wpcf7_contact_form',
+        'uuid' => MAPPED_UUID,
+        'meta' => ['_hash' => $hash40, '_old_cf7_unit_id' => '77'],
+    ],
+]]);
+check(
+    $modern40Canonical === $modernCanonical
+        && Shortcodes::apply_rewrite_text($modern40Canonical, $policy, $canonical40Tokens) === $modern40,
+    'S1e: the declared legacy SHA-1 width canonicalizes and applies through the same fixed-prefix identity'
 );
 $wpdb->postMetaById[MAPPED_ID]['_hash'] = [$hashC];
 $canonicalNamedTokens = new Tokens();
