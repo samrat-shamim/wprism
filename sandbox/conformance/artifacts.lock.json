@@ -74,9 +74,9 @@
         "sha256": "75a04b2574c5de63245daaf8e203172a3f4d61ed7f8ffbfd506e2ad59a9067e2",
         "role": "certified-boundary"
       },
-      "4.2.2": {
-        "url": "https://downloads.wordpress.org/plugin/elementor.4.2.2.zip",
-        "sha256": "4638f58c4cc476bc714941c34679e9284493a2fe7233d7923e7e834d42d653db",
+      "4.2.3": {
+        "url": "https://downloads.wordpress.org/plugin/elementor.4.2.3.zip",
+        "sha256": "20d8bf5f8be00cd89f8ae6ba13a109faa175ac198f2280bb593d6960c1c65fd5",
         "role": "certified-boundary"
       }
     },

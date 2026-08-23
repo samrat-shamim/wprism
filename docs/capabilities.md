@@ -197,22 +197,26 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 
 ## elementor
 
-**Status: certified.** Certified structural JSON/reference and frontend/CSS behavior at both admitted boundaries.
+**Status: certified.** Certified for exact Elementor 4.0.0 and 4.2.3 on single-site WordPress with a real in-place 4.0.0-to-4.2.3 upgrade, classic and Atomic documents, kits and saved-template taxonomy, divergent high post/media identities, nested media and URL rebinding, large UTF-8 document data, target runtime-option sovereignty, native frontend rendering, file and empty CSS receipts, orphan/stale CSS and render-cache cleanup, malformed/credential-shaped schema refusal and redaction, unsupported library-delete atomicity, authorized core-page deletion and derived cleanup, dirty nested-document conflicts and forced convergence, post-commit provider failure and exact repair/retry, competing-apply serialization, deactivate/reactivate and uninstall/absent-code/exact-reinstall recovery, byte-identical recapture, and official 3.35.9 refusal evidence.
 
 - **Plugin:** `elementor/elementor.php`
 - **Version range:** >=4.0.0 <5.0.0
 - **Operations:** apply, capture, compile, deploy, plan, promote, recapture, render-api
 - **Lifecycle phases:** retire, activate, verify
-- **Declared entities:** none
-- **Declared fields:** `options` (1: elementor_active_kit), `post_meta` (9 keys), `meta_patterns` (1 rules)
+- **Declared entities:** `post_types` (1: elementor_library), `taxonomies` (1: elementor_library_type)
+- **Declared fields:** `options` (1: elementor_active_kit), `option_patterns` (1 rules), `post_meta` (10 keys), `meta_patterns` (1 rules)
 - **Adapter hooks:** 1 provider, 1 structured action
 - **Deletions supported:** none
-- **Deletions unsupported:** plugin-specific deletes
+- **Deletions unsupported:** post:elementor_library
 - **Exercised by:** `conformance-elementor`, `exact-artifact-version-matrix`
 
 **Unsupported, explicitly.**
 
-- `deletions.*` / `delete` — No Elementor deletion selector is declared.
+- `post:elementor_library` / `delete` — Elementor library entities own plugin postmeta, taxonomy relationships, kit/template semantics, and potentially external reverse references without a declared complete cascade and reverse-reference guard, so capture refuses before publishing a tombstone and leaves canonical state unchanged.
+- `optional-and-extension-owned` / `capture` — Elementor Pro, third-party add-ons, e-floating-buttons, global classes, variables, components, and other optional or extension-owned entity stores are outside the free-plugin inventory; unknown fields and entities remain loud instead of being guessed portable.
+- `options:elementor_experiment-*|target-integrations` / `apply` — Experiment flags and target integration, credential, installation, and operational settings remain runtime or unclassified target state and are verified to survive apply instead of crossing environments.
+- `version:<4.0.0|>=5.0.0` / `all` — Elementor releases before 4.0.0 and 5.0.0 or later are outside the source-audited and exact-artifact-tested range and are blocked until a new review extends the manifest.
+- `multisite` / `all` — Duo v1 refuses multisite; Elementor network/global behavior is outside this single-site adapter.
 
 ## ninja-forms
 

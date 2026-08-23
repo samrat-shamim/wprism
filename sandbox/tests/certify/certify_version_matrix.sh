@@ -16,7 +16,7 @@
 # last pinned-manifest boundary that DUO-3223 had explicitly scope-accounted.
 #
 # For EACH boundary version (ACF 6.0.0/6.8.7; Advanced Editor Tools 5.9.2;
-# Classic Editor 1.7.0; Code Snippets 3.9.5/3.9.6; CF7 6.0/6.1.7; Elementor 4.0.0/4.2.2; Ninja Forms
+# Classic Editor 1.7.0; Code Snippets 3.9.5/3.9.6; CF7 6.0/6.1.7; Elementor 4.0.0/4.2.3; Ninja Forms
 # 3.4.34.2/3.14.11; PMPro 3.8.3 (with adjacent official-tag refusals);
 # Polylang 3.5/3.8.6;
 # WooCommerce 11.0.0 (the only stable in-range 11.x release); Yoast SEO
@@ -234,9 +234,23 @@ seed_elementor_content() {
 
 check_elementor_content() {
   wp_conf2() { wp2 "$@"; }
+  local CONF_REPO1="siterepo/${PAIR}1"
+  local CONF_REPO2="siterepo/${PAIR}2"
   local CONF1_PORT="$PORT1"
   local CONF2_PORT="$PORT2"
+  local COMPOSE="$PAIR_COMPOSE_STRING"
+  local ELEMENTOR_EXPECTED_VERSION="${ELEMENTOR_VERSION:-4.2.3}"
+  local ELEMENTOR_BOUNDARY_ONLY=1
   . conformance/checks/elementor.sh
+  unset -f wp_conf2
+}
+
+postdeploy_elementor_content() {
+  wp_conf2() { wp2 "$@"; }
+  local CONF_REPO1="siterepo/${PAIR}1"
+  local CONF_REPO2="siterepo/${PAIR}2"
+  local COMPOSE="$PAIR_COMPOSE_STRING"
+  . conformance/postdeploy/elementor.sh
   unset -f wp_conf2
 }
 
@@ -1508,7 +1522,7 @@ fi
 
 if [ "$VMATRIX_MANIFEST" = elementor ]; then
 VMATRIX_CASES=$((VMATRIX_CASES + 1))
-for ELEMENTOR_VERSION in 4.0.0 4.2.2; do
+for ELEMENTOR_VERSION in 4.0.0 4.2.3; do
   say "boundary: elementor $ELEMENTOR_VERSION"
   ELEMENTOR_STDERR_LOG=$(mktemp "${TMPDIR:-/tmp}/duo-vmatrix-elementor.XXXXXX")
 
@@ -1533,7 +1547,7 @@ for ELEMENTOR_VERSION in 4.0.0 4.2.2; do
     "options": {},
     "post_meta": {},
     "post_types": ["post", "page", "attachment", "elementor_library"],
-    "taxonomies": ["category", "post_tag"]
+    "taxonomies": ["category", "post_tag", "elementor_library_type"]
   },
   "spec_version": 2
 }
@@ -1564,9 +1578,12 @@ EOF
   [ "$INSTALLED_2" = "$ELEMENTOR_VERSION" ] || fail "side 2 installed version mismatch: expected $ELEMENTOR_VERSION, got $INSTALLED_2"
 
   run_elementor_command wp2 duo deploy --repo=/siterepo
+  run_elementor_command postdeploy_elementor_content
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-  run_elementor_command wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
-  grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at elementor $ELEMENTOR_VERSION"
+  run_elementor_command wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" --format=json | tee "$VMATRIX_APPLY_LOG"
+  require_duo_answered "Elementor $ELEMENTOR_VERSION apply" json "$(cat "$VMATRIX_APPLY_LOG")"
+  jq -e '.canary == "clean"' "$VMATRIX_APPLY_LOG" >/dev/null \
+    || fail "apply canary not clean at elementor $ELEMENTOR_VERSION"
   pass "deploy + apply succeeded on side 2 (elementor $ELEMENTOR_VERSION, canary clean)"
 
   run_elementor_command check_elementor_content
@@ -1576,6 +1593,45 @@ EOF
   rm -rf "siterepo/${PAIR}2/.tmp-final"
   [ -z "$DIFF_OUT" ] || fail "byte-identity broken at elementor $ELEMENTOR_VERSION: $DIFF_OUT"
   pass "byte-identical recapture at elementor $ELEMENTOR_VERSION — the manifest's own declared version_range boundary is proven, not just its currently-installed version"
+
+  if [ "$ELEMENTOR_VERSION" = 4.0.0 ]; then
+    say 'in-place upgrade: elementor 4.0.0 -> 4.2.3 on both existing environments'
+    UPGRADE_ARTIFACT_1=$(run_elementor_command fetch_artifact elementor 4.2.3 cli1)
+    UPGRADE_ARTIFACT_2=$(run_elementor_command fetch_artifact elementor 4.2.3 cli2)
+    run_elementor_command wp1 plugin install "$UPGRADE_ARTIFACT_1" --force --activate >/dev/null
+    [ "$(run_elementor_command wp1 plugin get elementor --field=version)" = 4.2.3 ] \
+      || fail 'Elementor source in-place upgrade did not install exact 4.2.3'
+    run_elementor_command wp1 duo deploy --repo=/siterepo --force-code-drift >/dev/null
+    UPGRADE_PAGE=$(run_elementor_command wp1 post list --post_type=page --name=duo-conformance-elementor-page --field=ID)
+    require_fixture_ids UPGRADE_PAGE
+    run_elementor_command wp1 post update "$UPGRADE_PAGE" --post_title='Elementor 4.0.0 to 4.2.3 upgrade 東京 🚀' >/dev/null
+    run_elementor_command wp1 duo capture --repo=/siterepo
+    run_elementor_command wp1 duo lint --repo=/siterepo
+    "${GIT1[@]}" add -A
+    "${GIT1[@]}" commit -qm 'capture: elementor 4.0.0 to 4.2.3 in-place upgrade'
+    "${GIT1[@]}" push -q origin main
+    git -C "siterepo/${PAIR}2" pull -q origin main
+
+    run_elementor_command wp2 plugin install "$UPGRADE_ARTIFACT_2" --force --activate >/dev/null
+    [ "$(run_elementor_command wp2 plugin get elementor --field=version)" = 4.2.3 ] \
+      || fail 'Elementor target in-place upgrade did not install exact 4.2.3'
+    run_elementor_command wp2 duo deploy --repo=/siterepo --force-code-drift
+    REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
+    run_elementor_command wp2 duo apply --repo=/siterepo --default-author=admin --revision="$REV" --format=json | tee "$VMATRIX_APPLY_LOG"
+    require_duo_answered 'Elementor 4.0.0 to 4.2.3 upgrade apply' json "$(cat "$VMATRIX_APPLY_LOG")"
+    jq -e '.canary == "clean" and .verification.result == "pass"' "$VMATRIX_APPLY_LOG" >/dev/null \
+      || fail 'apply canary not clean after elementor 4.0.0 to 4.2.3 in-place upgrade'
+    SAVED_ELEMENTOR_VERSION="$ELEMENTOR_VERSION"
+    ELEMENTOR_VERSION=4.2.3
+    run_elementor_command check_elementor_content
+    ELEMENTOR_VERSION="$SAVED_ELEMENTOR_VERSION"
+
+    run_elementor_command wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-upgraded-final
+    UPGRADE_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-upgraded-final" || true)
+    rm -rf "siterepo/${PAIR}2/.tmp-upgraded-final"
+    [ -z "$UPGRADE_DIFF" ] || fail "Elementor 4.0.0 to 4.2.3 in-place upgrade lost byte identity: $UPGRADE_DIFF"
+    pass 'elementor 4.0.0 -> 4.2.3 in-place upgrade preserves native rendering, regenerates CSS, and recaptures byte-identically'
+  fi
 
   # The exact boundary must be warning-free. Keep stderr visible for normal
   # diagnostics, then reject the specific Elementor null-reference paths that
@@ -2523,7 +2579,7 @@ cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
     "options": {},
     "post_meta": {},
     "post_types": ["post", "page", "attachment", "elementor_library"],
-    "taxonomies": ["category", "post_tag"]
+    "taxonomies": ["category", "post_tag", "elementor_library_type"]
   },
   "spec_version": 2
 }

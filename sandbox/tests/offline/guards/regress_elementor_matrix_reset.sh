@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Regression — DUO-3366: the exact Elementor version-boundary matrix must
 # remove Elementor's active-kit option before `site empty` deletes its target
-# post. Without that ordering, the next exact 4.2.2 lifecycle dereferences a
+# post. Without that ordering, the next exact 4.2.3 lifecycle dereferences a
 # null post and emits a PHP warning while the matrix still reports success.
 # The live matrix also scans the captured boundary stderr; this offline check
 # pins the reset contract so a future cleanup edit cannot silently reintroduce
@@ -17,6 +17,7 @@ F=tests/certify/certify_version_matrix.sh
 
 python3 - "$F" <<'PY'
 from pathlib import Path
+import json
 import sys
 
 path = Path(sys.argv[1])
@@ -43,6 +44,12 @@ required = (
     'return "$rc"',
     "run_elementor_command reset_env wp1",
     "run_elementor_command check_elementor_content",
+    '--revision="$REV" --format=json | tee "$VMATRIX_APPLY_LOG"',
+    'require_duo_answered "Elementor $ELEMENTOR_VERSION apply" json',
+    "jq -e '.canary == \"clean\"' \"$VMATRIX_APPLY_LOG\"",
+    "in-place upgrade: elementor 4.0.0 -> 4.2.3",
+    "Elementor 4.0.0 to 4.2.3 upgrade apply",
+    "elementor 4.0.0 -> 4.2.3 in-place upgrade preserves native rendering",
     "ELEMENTOR_WARNING_MATCHES=$(grep -nE",
     "elementor/core/isolation/elementor-adapter",
     "elementor/core/base/document",
@@ -58,7 +65,13 @@ if guard < recapture:
     raise SystemExit("Elementor warning guard runs before the full boundary recapture")
 if guard >= boundary_end:
     raise SystemExit("Elementor warning guard escaped the Elementor boundary block")
+
+aggregate = json.loads(Path("conformance/manifests.json").read_text(encoding="utf-8"))["elementor"]
+entry = json.loads(Path("conformance/entries/elementor.json").read_text(encoding="utf-8"))["entry"]
+for label, declaration in (("aggregate", aggregate), ("entry", entry)):
+    if "elementor_library_type" not in declaration.get("taxonomies", []):
+        raise SystemExit(f"Elementor {label} fixture omits its native library taxonomy")
 PY
 
-pass "Elementor matrix removes the stale active-kit reference before site empty and guards the exact boundary stderr"
+pass "Elementor fixtures pin native taxonomy scope, machine-readable receipts, reset order, and boundary stderr"
 echo "REGRESS_ELEMENTOR_MATRIX_RESET PASSED"

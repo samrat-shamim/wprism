@@ -25,6 +25,11 @@ final class ElementorCss {
 
     private const COMMAND = 'elementor flush-css --regenerate';
 
+    private const REQUIRED_COLUMNS = [
+        'posts' => ['ID', 'post_status'],
+        'postmeta' => ['meta_id', 'post_id', 'meta_key', 'meta_value'],
+    ];
+
     /**
      * Elementor's per-document RENDER caches: `_elementor_element_cache` is
      * the cached rendered widget HTML, `_elementor_page_assets` the derived
@@ -51,7 +56,7 @@ final class ElementorCss {
         return [
             'id' => 'elementor-css',
             'plugin' => 'elementor/elementor.php',
-            'version' => '1.0.0',
+            'version' => '2.0.0',
         ];
     }
 
@@ -66,7 +71,7 @@ final class ElementorCss {
         return [
             'regenerate_css' => [
                 'args' => [],
-                'reads' => ['table:postmeta'],
+                'reads' => ['table:posts', 'table:postmeta'],
                 'writes' => ['table:postmeta', 'entity:elementor-generated-css'],
                 'scope' => 'site',
                 'idempotent' => true,
@@ -95,7 +100,7 @@ final class ElementorCss {
         return [
             'operation' => $operation,
             'before' => $receipt['before'],
-            'after' => $this->scoped_postcondition(),
+            'after' => $receipt['after'],
             'verified' => true,
         ];
     }
@@ -109,17 +114,8 @@ final class ElementorCss {
         }
         return [
             'operation' => $operation,
-            'after' => $this->scoped_postcondition(),
+            'after' => $this->projection_summary($this->projection_detail(), true),
             'verified' => true,
-        ];
-    }
-
-    /** @return array{builder_documents:int,css_files:array<string,array{bytes:int,mtime:int}>} */
-    private function scoped_postcondition(): array {
-        return [
-            'builder_documents' => $this->builder_document_count(),
-            'css_files' => $this->css_inventory(),
-            'render_caches' => $this->render_cache_count(),
         ];
     }
 
@@ -135,13 +131,14 @@ final class ElementorCss {
      * CSS files under uploads are what flush-css owns, and what the
      * conformance check reads back.
      *
-     * The predicate: a completed flush-css either rewrites or removes cached
-     * CSS, so the inventory must differ across the call whenever there was
-     * anything cached. An unchanged non-empty inventory means the command
-     * exited 0 having done nothing — precisely the false-green DUO-3282
-     * showed a bare exit code cannot distinguish. An empty-to-empty
-     * transition is a legitimate no-op (nothing has been rendered yet) and is
-     * recorded as such rather than dressed up as a regeneration.
+     * The verification mirrors Elementor 4.0.0 and 4.2.3's own
+     * Files_Manager::generate_css() query and Post CSS receipt: every
+     * published post carrying the builder marker must finish with an
+     * `_elementor_css.status` of `file` or `empty`; `file` requires exactly
+     * its post-<id>.css and `empty` requires no such file. Atomic-only
+     * documents with no per-page style rules legitimately use `empty`, so a
+     * blanket one-file-per-document predicate would reject valid Elementor
+     * 4 pages. Orphan post CSS is independently forbidden.
      *
      * @return array{before:array, after:array, verified:true}
      */
@@ -152,18 +149,28 @@ final class ElementorCss {
                 . "' command and is unavailable outside wp-cli"
             );
         }
-        $before = [
-            'builder_documents' => $this->builder_document_count(),
-            'css_files' => $this->css_inventory(),
-            'render_caches' => $this->render_cache_count(),
-        ];
+        $beforeDetail = $this->projection_detail();
+        $before = $this->projection_summary($beforeDetail, false);
 
-        $result = \WP_CLI::runcommand(self::COMMAND, [
-            'launch' => true,
-            'return' => 'all',
-            'exit_error' => false,
-        ]);
-        if ((int) $result->return_code !== 0) {
+        try {
+            $result = \WP_CLI::runcommand(self::COMMAND, [
+                'launch' => true,
+                'return' => 'all',
+                'exit_error' => false,
+            ]);
+        } catch (\Throwable $t) {
+            throw new \RuntimeException(
+                "duo: Elementor '" . self::COMMAND . "' could not start",
+                0,
+                $t
+            );
+        }
+        if (!is_object($result) || !isset($result->return_code) || !is_int($result->return_code)) {
+            throw new \RuntimeException(
+                "duo: Elementor '" . self::COMMAND . "' returned an unreadable process result"
+            );
+        }
+        if ($result->return_code !== 0) {
             // DUO-3282: the launch layer is a genuinely separate process
             // boundary, and a bare exit code does not explain a fatal inside
             // the plugin's own command. Surfacing the tails is the difference
@@ -177,6 +184,26 @@ final class ElementorCss {
                 . ($err !== '' ? "\nstderr: $err" : '')
             );
         }
+        $out = trim((string) ($result->stdout ?? ''));
+        $err = trim((string) ($result->stderr ?? ''));
+        if ($err !== '') {
+            throw new \RuntimeException(
+                "duo: Elementor '" . self::COMMAND
+                . "' emitted stderr despite exit 0; recovery_required"
+            );
+        }
+        if (!str_contains($out, 'Success: Flushed the Elementor CSS Cache')) {
+            throw new \RuntimeException(
+                "duo: Elementor '" . self::COMMAND
+                . "' exited 0 without its native success receipt; recovery_required"
+            );
+        }
+
+        // WP_CLI::runcommand(launch=true) regenerates in a child process.
+        // projection_detail() populated this parent's post-meta cache before
+        // launch, so readback would otherwise see the pre-command
+        // `_elementor_css` receipt after the child committed the new one.
+        $this->clear_css_receipt_caches($beforeDetail['builder_document_ids']);
 
         // Invalidate the render caches AFTER flush-css: `--regenerate`
         // re-renders each document to rebuild CSS and can leave the element
@@ -185,29 +212,149 @@ final class ElementorCss {
         // them from the just-applied `_elementor_data`.
         $this->clear_render_caches();
 
-        $after = [
-            'builder_documents' => $this->builder_document_count(),
-            'css_files' => $this->css_inventory(),
-            'render_caches' => $this->render_cache_count(),
-        ];
-        if ($before['css_files'] !== [] && $before['css_files'] === $after['css_files']) {
+        $afterDetail = $this->projection_detail();
+        if ($beforeDetail['builder_document_ids'] !== $afterDetail['builder_document_ids']) {
             throw new \RuntimeException(
-                "duo: Elementor '" . self::COMMAND . "' exited 0 but left "
-                . count($after['css_files']) . ' cached CSS file(s) untouched; '
-                . 'the generated stylesheets still carry pre-apply state'
+                'duo: Elementor builder-document population changed during CSS regeneration; recovery_required'
             );
         }
-        if ($after['render_caches'] !== 0) {
-            throw new \RuntimeException(
-                'duo: Elementor render-cache invalidation left ' . $after['render_caches']
-                . ' cached rendered-HTML/page-asset row(s); the front-end would serve pre-apply markup'
-            );
-        }
-        $after['outcome'] = $after['css_files'] === [] && $before['css_files'] === []
-            ? 'no-op (no generated CSS cached on this target yet)'
+        $after = $this->projection_summary($afterDetail, true);
+        $after['outcome'] = $before['css_fingerprint'] === $after['css_fingerprint']
+            ? 'already-converged'
             : 'regenerated';
 
         return ['before' => $before, 'after' => $after, 'verified' => true];
+    }
+
+    /**
+     * @return array{
+     *   builder_document_ids:list<int>,
+     *   builder_css_statuses:array<int,string>,
+     *   css_files:array<string,array{bytes:int,mtime:int,sha256:string}>,
+     *   post_css_ids:list<int>,
+     *   render_caches:int
+     * }
+     */
+    private function projection_detail(): array {
+        $this->assert_schema();
+        $documents = $this->builder_document_ids();
+        $statuses = $this->builder_css_statuses($documents);
+        $inventory = $this->css_inventory();
+        $postCssIds = [];
+        foreach (array_keys($inventory) as $file) {
+            if (preg_match('/^post-([1-9][0-9]*)\.css$/D', $file, $match) === 1) {
+                $postCssIds[] = (int) $match[1];
+            }
+        }
+        sort($postCssIds, SORT_NUMERIC);
+        return [
+            'builder_document_ids' => $documents,
+            'builder_css_statuses' => $statuses,
+            'css_files' => $inventory,
+            'post_css_ids' => $postCssIds,
+            'render_caches' => $this->render_cache_count(),
+        ];
+    }
+
+    /** @param array<string,mixed> $detail @return array<string,int|string> */
+    private function projection_summary(array $detail, bool $verify): array {
+        $documents = $detail['builder_document_ids'];
+        $statuses = $detail['builder_css_statuses'];
+        $postCssIds = $detail['post_css_ids'];
+        $fileIds = [];
+        $emptyIds = [];
+        $invalidReceipts = 0;
+        foreach ($documents as $id) {
+            if (($statuses[$id] ?? null) === 'file') {
+                $fileIds[] = $id;
+            } elseif (($statuses[$id] ?? null) === 'empty') {
+                $emptyIds[] = $id;
+            } else {
+                $invalidReceipts++;
+            }
+        }
+        $missing = array_values(array_diff($fileIds, $postCssIds));
+        $unexpected = array_values(array_intersect($emptyIds, $postCssIds));
+        $orphaned = array_values(array_diff($postCssIds, $documents));
+        $summary = [
+            'builder_documents' => count($documents),
+            'css_receipt_files' => count($fileIds),
+            'css_receipt_empty' => count($emptyIds),
+            'invalid_css_receipts' => $invalidReceipts,
+            'css_files' => count($detail['css_files']),
+            'post_css_files' => count($postCssIds),
+            'css_fingerprint' => hash('sha256', serialize($detail['css_files'])),
+            'missing_document_css' => count($missing),
+            'unexpected_empty_document_css' => count($unexpected),
+            'orphan_document_css' => count($orphaned),
+            'render_caches' => $detail['render_caches'],
+        ];
+        if ($verify) {
+            foreach ([
+                'invalid_css_receipts',
+                'missing_document_css',
+                'unexpected_empty_document_css',
+                'orphan_document_css',
+                'render_caches',
+            ] as $field) {
+                if ($summary[$field] !== 0) {
+                    throw new \RuntimeException(
+                        "duo: Elementor CSS readback found {$summary[$field]} $field; recovery_required"
+                    );
+                }
+            }
+        }
+        return $summary;
+    }
+
+    /** @param list<int> $documents @return array<int,string> */
+    private function builder_css_statuses(array $documents): array {
+        if (!function_exists('get_post_meta')) {
+            throw new \RuntimeException(
+                'duo: Elementor CSS verification requires get_post_meta()'
+            );
+        }
+        $statuses = [];
+        foreach ($documents as $id) {
+            $receipt = get_post_meta($id, '_elementor_css', true);
+            $status = is_array($receipt) ? ($receipt['status'] ?? null) : null;
+            $statuses[$id] = is_string($status) ? $status : 'missing';
+        }
+        return $statuses;
+    }
+
+    /** @param list<int> $documents */
+    private function clear_css_receipt_caches(array $documents): void {
+        if (!function_exists('wp_cache_delete')) {
+            throw new \RuntimeException(
+                'duo: Elementor CSS verification requires wp_cache_delete()'
+            );
+        }
+        foreach ($documents as $id) {
+            wp_cache_delete($id, 'post_meta');
+        }
+    }
+
+    private function assert_schema(): void {
+        global $wpdb;
+        foreach (self::REQUIRED_COLUMNS as $property => $required) {
+            $table = (string) ($wpdb->{$property} ?? '');
+            if ($table === '') {
+                throw new \RuntimeException("duo: Elementor $property table is unavailable; recovery_required");
+            }
+            $wpdb->last_error = '';
+            $columns = $wpdb->get_col("SHOW COLUMNS FROM `$table`");
+            if ((string) ($wpdb->last_error ?? '') !== '' || !is_array($columns)) {
+                throw new \RuntimeException("duo: Elementor $property schema probe failed; recovery_required");
+            }
+            $missing = array_values(array_diff($required, array_map('strval', $columns)));
+            if ($missing !== []) {
+                throw new \RuntimeException(
+                    "duo: Elementor $property table is missing required column(s): "
+                    . implode(', ', $missing) . '; recovery_required'
+                );
+            }
+        }
     }
 
     /**
@@ -244,11 +391,11 @@ final class ElementorCss {
     }
 
     /**
-     * Fingerprint of Elementor's generated CSS directory: file name => size
-     * and modification time. Compared as a whole rather than by count, so a
-     * regeneration that rewrites the same file names is still visible.
+     * Fingerprint of Elementor's generated CSS directory: file name => size,
+     * modification time and content hash. Compared as a whole rather than by
+     * count, so a regeneration that rewrites the same file names is visible.
      *
-     * @return array<string, array{bytes:int, mtime:int}>
+     * @return array<string, array{bytes:int, mtime:int, sha256:string}>
      */
     private function css_inventory(): array {
         if (!function_exists('wp_upload_dir')) {
@@ -257,6 +404,11 @@ final class ElementorCss {
             );
         }
         $uploads = wp_upload_dir();
+        if (!is_array($uploads) || (string) ($uploads['error'] ?? '') !== '') {
+            throw new \RuntimeException(
+                'duo: Elementor CSS verification could not resolve the uploads base directory'
+            );
+        }
         $base = rtrim((string) ($uploads['basedir'] ?? ''), '/');
         if ($base === '') {
             throw new \RuntimeException(
@@ -267,6 +419,9 @@ final class ElementorCss {
         if (!is_dir($dir)) {
             return [];
         }
+        if (is_link($dir)) {
+            throw new \RuntimeException('duo: Elementor CSS directory is a symbolic link; recovery_required');
+        }
         $entries = scandir($dir);
         if ($entries === false) {
             throw new \RuntimeException("duo: Elementor CSS directory $dir is unreadable");
@@ -274,15 +429,25 @@ final class ElementorCss {
         $out = [];
         foreach ($entries as $entry) {
             $path = $dir . '/' . $entry;
-            if ($entry === '.' || $entry === '..' || !is_file($path)) {
+            if ($entry === '.' || $entry === '..') {
                 continue;
+            }
+            if (is_link($path) || !is_file($path)) {
+                throw new \RuntimeException(
+                    "duo: Elementor CSS inventory contains unsupported entry $entry; recovery_required"
+                );
             }
             $size = filesize($path);
             $mtime = filemtime($path);
-            if ($size === false || $mtime === false) {
-                throw new \RuntimeException("duo: Elementor CSS file $path is unreadable");
+            $sha256 = hash_file('sha256', $path);
+            if ($size === false || $mtime === false || $sha256 === false) {
+                throw new \RuntimeException("duo: Elementor CSS file $entry is unreadable");
             }
-            $out[$entry] = ['bytes' => (int) $size, 'mtime' => (int) $mtime];
+            $out[$entry] = [
+                'bytes' => (int) $size,
+                'mtime' => (int) $mtime,
+                'sha256' => $sha256,
+            ];
         }
         ksort($out, SORT_STRING);
         return $out;
@@ -294,19 +459,21 @@ final class ElementorCss {
      * because a failed query returning an empty-looking value would otherwise
      * make a receipt claim a smaller population than the site really has.
      */
-    private function builder_document_count(): int {
+    /** @return list<int> */
+    private function builder_document_ids(): array {
         global $wpdb;
         $wpdb->last_error = '';
-        $count = $wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE meta_key = %s AND meta_value = %s",
+        $ids = $wpdb->get_col($wpdb->prepare(
+            "SELECT DISTINCT p.ID FROM {$wpdb->posts} p INNER JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID "
+            . "WHERE p.post_status = 'publish' AND pm.meta_key = %s AND pm.meta_value = %s ORDER BY p.ID",
             '_elementor_edit_mode',
             'builder'
         ));
-        if ($count === null || (string) ($wpdb->last_error ?? '') !== '') {
+        if (!is_array($ids) || (string) ($wpdb->last_error ?? '') !== '') {
             throw new \RuntimeException(
-                'duo: Elementor builder-document count query failed'
+                'duo: Elementor builder-document inventory query failed; recovery_required'
             );
         }
-        return (int) $count;
+        return array_values(array_map('intval', $ids));
     }
 }
