@@ -69,8 +69,10 @@ docker exec "$DB" mariadb -uroot -proot-pass -e \
 # The SSH estate installs WordPress from wp.org; without a version it floats to
 # whatever core is current that day and silently leaves the exercised platform
 # boundary (measured 2026-08-24: `wp core download` fetched 7.1 while the claim
-# is [6.9.0, 7.1.0)). Pin to the newest exercised core the claim itself names,
-# read from the shipped boundary so estate and claim cannot drift apart.
+# still stopped at 7.1.0 — the 7.1 series has since been claimed, but a floating
+# fetch would leave the boundary again on the next release either way). Pin to
+# the newest exercised core the claim itself names, read from the shipped
+# boundary so estate and claim cannot drift apart.
 WP_CORE_VERSION="$(jq -r '.platform.compatibility.wordpress.last_verified' manifests/capabilities/platform.json)"
 [[ "$WP_CORE_VERSION" =~ ^[0-9]+(\.[0-9]+){1,3}$ ]] || fail "platform.json names no usable last_verified WordPress core"
 

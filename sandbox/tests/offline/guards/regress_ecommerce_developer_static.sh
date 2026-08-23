@@ -191,7 +191,14 @@ grep -Fq 'assert_eq retail "$(target_db_scalar' "$SCRIPT" || fail 'checkpoint re
 # The generic pair is the candidate-bound live harness.  Keep its WordPress
 # image tied to the one project-level evidence boundary instead of allowing a
 # floating registry tag to change the target core version underneath a proof.
-EXPECTED_WORDPRESS_VERSION="$(jq -er '.wordpress.last_verified | select(type == "string" and test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))' ../docs/compatibility-baseline.json)" \
+# Exactly PlatformCompatibility::version()'s own accepted shape
+# (agent/src/Policy/PlatformCompatibility.php:307, /^\d+(?:\.\d+){1,3}$/D)
+# rather than a stricter three-component rule of this suite's own: WordPress
+# ships a TWO-component $wp_version for a series' first release
+# (wp-includes/version.php:19 of WordPress 7.1 reads $wp_version = '7.1'), so
+# demanding MAJOR.MINOR.PATCH here would reject a core the shipped claim, the
+# agent gate and doctor all accept.
+EXPECTED_WORDPRESS_VERSION="$(jq -er '.wordpress.last_verified | select(type == "string" and test("^[0-9]+(\\.[0-9]+){1,3}$"))' ../docs/compatibility-baseline.json)" \
   || fail 'compatibility baseline does not expose one valid WordPress evidence version'
 # The core claim is now a series matrix, and last_verified is its newest
 # exercised member (the agent enforces that membership in

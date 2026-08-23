@@ -295,7 +295,7 @@ final class PlatformCompatibility {
 
     /**
      * The `required` value of a WordPress diagnostic, e.g.
-     * `>=6.9.0 <7.1.0 exercised 6.9, 7.0`. Ordered by version_compare rather
+     * `>=6.9.0 <7.2.0 exercised 6.9, 7.0, 7.1`. Ordered by version_compare rather
      * than string sort so a two-digit minor (6.10) cannot render before 6.9
      * and make the label non-deterministic against the claim's own order.
      *

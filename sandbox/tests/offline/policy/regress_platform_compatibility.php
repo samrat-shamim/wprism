@@ -33,7 +33,7 @@ if (!defined('WPINC')) {
     define('WPINC', 'wp-includes');
 }
 
-$GLOBALS['platform_wordpress_version'] = '7.0.3';
+$GLOBALS['platform_wordpress_version'] = '7.1';
 $GLOBALS['platform_multisite'] = false;
 function get_bloginfo(string $show): string {
     return $show === 'version' ? (string) $GLOBALS['platform_wordpress_version'] : '';
@@ -78,7 +78,7 @@ $facts = static fn(
     string $php = '8.3.33',
     string $engine = 'MariaDB',
     string $database = '11.8.8',
-    string $wordpress = '7.0.3',
+    string $wordpress = '7.1',
     string $siteMode = 'single-site'
 ): array => [
     'php' => $php,
@@ -125,6 +125,16 @@ foreach ([
     'WordPress unrun patch inside the exercised 6.9 series' => $facts(wordpress: '6.9.99'),
     'WordPress patch below last_verified inside its exercised series' => $facts(wordpress: '7.0.2'),
     'WordPress patch above last_verified inside its exercised series' => $facts(wordpress: '7.0.4'),
+    // WordPress ships '7.1' — two components — as the 7.1 series' first
+    // release (wp-includes/version.php:19), so the value the gate compares for
+    // a brand-new series is not MAJOR.MINOR.PATCH. version() accepts 1-3 dots
+    // and series('7.1') === '7.1', so this is a first-class claimed core, not
+    // a shape the gate tolerates by accident.
+    'WordPress two-component core string for a series first release' => $facts(wordpress: '7.1'),
+    // The patch that does not exist yet but will: 7.1.0 was the exclusive
+    // maximum — a hard refusal — until this claim widened to [6.9.0, 7.2.0).
+    'WordPress patch generalized over inside the newly exercised 7.1 series' => $facts(wordpress: '7.1.0'),
+    'WordPress later patch inside the newly exercised 7.1 series' => $facts(wordpress: '7.1.9'),
 ] as $label => $caseFacts) {
     $failure = $refusal(static fn() => PlatformCompatibility::assert_supported($platform, $caseFacts));
     duo_check($failure === null, "$label is accepted by the agent gate");
@@ -137,8 +147,8 @@ foreach ([
     'MariaDB exact exclusive maximum' => [$facts(database: '12.0.0'), 'platform_database_version_unsupported'],
     'MySQL engine' => [$facts(engine: 'MySQL', database: '8.4.3'), 'platform_database_engine_unsupported'],
     'WordPress below minimum' => [$facts(wordpress: '6.8.3'), 'platform_wordpress_version_unsupported'],
-    'WordPress exact exclusive maximum' => [$facts(wordpress: '7.1.0'), 'platform_wordpress_version_unsupported'],
-    // Inside [6.9.0, 7.1.0) by version_compare and still unexercised: 6.10 is
+    'WordPress exact exclusive maximum' => [$facts(wordpress: '7.2.0'), 'platform_wordpress_version_unsupported'],
+    // Inside [6.9.0, 7.2.0) by version_compare and still unexercised: 6.10 is
     // a minor line the shipped `verified` map does not name. WordPress is not
     // semver, so this is a case the range half cannot catch on its own.
     'WordPress unexercised minor line inside the shipped range' => [$facts(wordpress: '6.10.0'), 'platform_wordpress_version_unsupported'],
@@ -161,7 +171,7 @@ foreach ([
 // live halves of the evidence cannot drift apart.
 $belowMinimum = $refusal(static fn() => PlatformCompatibility::assert_supported($platform, $facts(wordpress: '6.8.3')));
 duo_check_same(
-    '>=6.9.0 <7.1.0 exercised 6.9, 7.0',
+    '>=6.9.0 <7.2.0 exercised 6.9, 7.0, 7.1',
     $belowMinimum?->diagnostics[0]['required'] ?? null,
     'a refused core is told the exercised matrix, not one exact version'
 );
@@ -199,7 +209,7 @@ duo_check(
 
 $allMismatch = $refusal(static fn() => PlatformCompatibility::assert_supported(
     $platform,
-    $facts('8.4.0', 'MySQL', '8.4.3', '7.1.0', 'multisite')
+    $facts('8.4.0', 'MySQL', '8.4.3', '7.2.0', 'multisite')
 ));
 duo_check_same(
     [
@@ -283,7 +293,7 @@ duo_check_same(
     [
         'php' => PHP_VERSION,
         'database' => ['engine' => 'MariaDB', 'version' => '11.8.8'],
-        'wordpress' => '7.0.3',
+        'wordpress' => '7.1',
         'site_mode' => 'single-site',
     ],
     $liveFacts,

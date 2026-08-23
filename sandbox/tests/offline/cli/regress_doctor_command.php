@@ -234,6 +234,13 @@ foreach ([
     'WordPress inclusive minimum' => [['wp' => '6.9.0'], '[PASS] WordPress core (6.9.0)'],
     'WordPress unrun patch inside an exercised series' => [['wp' => '7.0.4'], '[PASS] WordPress core (7.0.4)'],
     'WordPress patch below last_verified inside its series' => [['wp' => '7.0.2'], '[PASS] WordPress core (7.0.2)'],
+    // The two-component core string WordPress ships for a series' first
+    // release (wp-includes/version.php:19 of 7.1 reads $wp_version = '7.1').
+    // Doctor's own dotted-shape guard is /^\d+(?:\.\d+){1,3}$/D, the agent's
+    // regex exactly, so both halves must call this compatible or the host
+    // screen and the product path disagree about the newest claimed core.
+    'WordPress two-component core for a series first release' => [['wp' => '7.1'], '[PASS] WordPress core (7.1)'],
+    'WordPress unrun patch inside the newly exercised 7.1 series' => [['wp' => '7.1.0'], '[PASS] WordPress core (7.1.0)'],
 ] as $label => [$override, $needle]) {
     $case = $compatibilityCase($override);
     assert_doctor_command($case['exit'] === 0, "$label remains inside the declared platform boundary");
@@ -250,7 +257,7 @@ foreach ([
     'MariaDB exact exclusive maximum' => [['db_version' => '12.0.0'], '[FAIL] database (mariadb 12.0.0)'],
     'different database engine' => [['db_engine' => 'mysql'], '[FAIL] database (mysql 11.8.8)'],
     'WordPress below minimum' => [['wp' => '6.8.3'], '[FAIL] WordPress core (6.8.3)'],
-    'WordPress exact exclusive maximum' => [['wp' => '7.1.0'], '[FAIL] WordPress core (7.1.0)'],
+    'WordPress exact exclusive maximum' => [['wp' => '7.2.0'], '[FAIL] WordPress core (7.2.0)'],
     // Inside [min, max) and still unexercised: 6.10 is a minor line the
     // claim's `verified` map does not name, so the range half alone would
     // wrongly pass it here while the agent gate refuses it.
@@ -323,13 +330,13 @@ assert_doctor_command(
 
 // The FAIL detail names the whole matrix the operator has to move onto — the
 // range AND the exercised series — mirroring the agent diagnostic's `required`
-// label (>=6.9.0 <7.1.0 exercised 6.9, 7.0). The sentence this replaced said
+// label (>=6.9.0 <7.2.0 exercised 6.9, 7.0, 7.1). The sentence this replaced said
 // 'A wider claim requires a real core-version matrix'; this claim is that
 // matrix, so the sentence must not survive anywhere in doctor's output.
 $unclaimedCore = $compatibilityCase(['wp' => '6.8.3']);
 assert_doctor_command(str_contains(
     $unclaimedCore['output'],
-    '[FAIL] WordPress core (6.8.3) — outside the exercised core matrix (>=6.9.0 <7.1.0, exercised series 6.9, 7.0'
+    '[FAIL] WordPress core (6.8.3) — outside the exercised core matrix (>=6.9.0 <7.2.0, exercised series 6.9, 7.0, 7.1'
         . ' — docs/compatibility-baseline.json).'
 ), 'the WordPress FAIL detail names the declared range and every exercised series');
 assert_doctor_command(

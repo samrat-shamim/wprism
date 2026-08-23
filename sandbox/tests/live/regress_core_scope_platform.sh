@@ -26,19 +26,26 @@ PLATFORM_FILE='../manifests/capabilities/platform.json'
 WP692_IMAGE='wordpress@sha256:ba1996f128e96e06613cffd9efa17e619d077a427c2d135204b1bc3bc9fa0510'
 WP702_IMAGE='wordpress@sha256:3dcb744b16cb673639d98cf1aa5ea1de46732850629830bf101f44165b9040a1'
 WP703_IMAGE='wordpress@sha256:a09147f15a882b956f67a617e9e1e053adf9322c45c797c2ff7c0e66522bf204'
+# The 7.1 series' only release. Both wordpress:7.1-php8.3-apache and the
+# docker-library alias wordpress:7.1.0-php8.3-apache resolve to this one OCI
+# index (measured with `docker buildx imagetools inspect`); the core inside it
+# calls itself '7.1', because wp-includes/version.php:19 of a WordPress x.y.0
+# release ships a two-component $wp_version.
+WP71_IMAGE='wordpress@sha256:65919a9ca10940feb10d9400fead0d639bf86241f47c91e2b9ea4703aa8452cf'
 WP683_IMAGE='wordpress@sha256:30bff39330d1693b0ce13d32fc9b7bb67193064f040b7d60d3494e136fa599d4'
 WP84_IMAGE='wordpress@sha256:322fedc0b666dfdbbb7c940fc934ec9f5ac4d8b1c4c6147838291b6c7eb197db'
 CLI83_IMAGE='wordpress@sha256:2b5e9d4d3e51909dca1aaa4732e9f5e5bf0377c2114dbd8ff39f060bff202586'
 CLI84_IMAGE='wordpress@sha256:13d152baa3c9111882d05e8ef4c32b4c84019b1bf7bf66b042c6b45e7aaba81d'
 
-# One exercise cell per claimed core. 6.9.2 and 7.0.3 are the exact patches
-# platform.json names as its per-series proofs; 7.0.2 is a patch INSIDE the
-# proven 7.0 series that no proof value names, and is exercised precisely
+# One exercise cell per claimed core. 6.9.2, 7.0.3 and 7.1 are the exact
+# patches platform.json names as its per-series proofs; 7.0.2 is a patch INSIDE
+# the proven 7.0 series that no proof value names, and is exercised precisely
 # because the claim generalizes over it — it refused before this matrix.
 EXERCISE_CELLS=(
   "6.9.2 $WP692_IMAGE"
   "7.0.2 $WP702_IMAGE"
   "7.0.3 $WP703_IMAGE"
+  "7.1 $WP71_IMAGE"
 )
 # A core below the claimed minimum, not an adjacent patch: every 7.0.x is
 # inside the claim now, so the refusal cell has to leave the range entirely.
