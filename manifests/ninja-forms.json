@@ -156,7 +156,7 @@
   "providers": [
     {
       "id": "ninja-forms-form-cache",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "source": "manifest",
       "plugin": "ninja-forms/ninja-forms.php",
       "requires": {"functions": ["Ninja_Forms"], "classes": ["WP_CLI", "WPN_Helper"]},

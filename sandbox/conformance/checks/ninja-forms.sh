@@ -238,7 +238,7 @@ require_fixture_ids CONF2_FORM_ID
   || fail "Ninja Forms target action identities did not use the hostile high-id range: $TARGET"
 
 PROVIDER_RECEIPT="${APPLY_JSON:-}"
-grep -Fq 'ninja-forms-form-cache@2.0.0' <<<"$PROVIDER_RECEIPT" \
+grep -Fq 'ninja-forms-form-cache@2.1.0' <<<"$PROVIDER_RECEIPT" \
   || fail "initial apply receipt did not identify Ninja Forms cache provider v2: ${PROVIDER_RECEIPT:-<missing>}"
 jq -e '
   any(.actions[]?;

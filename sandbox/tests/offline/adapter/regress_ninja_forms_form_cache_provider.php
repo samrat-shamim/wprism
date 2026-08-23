@@ -195,6 +195,11 @@ namespace {
                 'key' => 'form_title', 'value' => 'Large identity form',
                 'meta_key' => 'form_title', 'meta_value' => 'Large identity form',
             ]),
+            nf_provider_row('nf3_form_meta', [
+                'id' => 103, 'parent_id' => 1,
+                'key' => 'seq_num', 'value' => null,
+                'meta_key' => 'seq_num', 'meta_value' => null,
+            ]),
         ]);
         $db->seedTable('nf3_fields', [
             nf_provider_row('nf3_fields', [
@@ -289,7 +294,7 @@ namespace {
 
     $provider = nf_provider_reset();
     duo_check_same(
-        ['id' => 'ninja-forms-form-cache', 'plugin' => 'ninja-forms/ninja-forms.php', 'version' => '2.0.0'],
+        ['id' => 'ninja-forms-form-cache', 'plugin' => 'ninja-forms/ninja-forms.php', 'version' => '2.1.0'],
         $provider->identity(),
         'provider identity makes the strengthened fresh-process contract fleet-visible'
     );
@@ -330,6 +335,7 @@ namespace {
     duo_check_same(true, $receipt['verified'] ?? null, 'scoped cache rebuild verifies its postcondition');
     duo_check_same(nf_provider_operation(), $receipt['operation'] ?? null, 'receipt binds the exact scoped operation');
     duo_check_same(2, $receipt['before']['forms'] ?? null, 'before receipt counts the bounded form population');
+    duo_check_same(3, $receipt['before']['form_meta_rows'] ?? null, 'native mirrored SQL NULL form metadata is admitted exactly');
     duo_check_same(2, $receipt['before']['cache_rows'] ?? null, 'before receipt records stale plus orphan cache rows');
     duo_check_same(1, $receipt['before']['missing_form_caches'] ?? null, 'before receipt detects the missing large-id cache');
     duo_check_same(1, $receipt['before']['orphan_form_caches'] ?? null, 'before receipt detects orphan target cache state');
@@ -473,6 +479,17 @@ namespace {
         \RuntimeException::class,
         'legacy/current metadata divergence refuses before rebuild',
         'meta legacy/current columns diverge'
+    );
+
+    $provider = nf_provider_reset();
+    $rows = $GLOBALS['wpdb']->rows('nf3_form_meta');
+    $rows[2]['meta_value'] = '';
+    $GLOBALS['wpdb']->seedTable('nf3_form_meta', $rows);
+    duo_check_throws(
+        static fn(): array => $provider->invoke('rebuild_form_caches', []),
+        \RuntimeException::class,
+        'one-sided native NULL metadata still refuses before rebuild',
+        'form meta legacy/current columns diverge'
     );
 
     $provider = nf_provider_reset();

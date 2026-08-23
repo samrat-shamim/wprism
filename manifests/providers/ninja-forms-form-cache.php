@@ -63,7 +63,7 @@ final class NinjaFormsFormCache {
         return [
             'id' => 'ninja-forms-form-cache',
             'plugin' => 'ninja-forms/ninja-forms.php',
-            'version' => '2.0.0',
+            'version' => '2.1.0',
         ];
     }
 
@@ -475,13 +475,17 @@ PHP;
                 );
             }
             $ids[$id] = true;
+            $legacyValue = $row['value'] ?? null;
+            $currentValue = $row['meta_value'] ?? null;
+            $valuesMatch = ($legacyValue === null && $currentValue === null)
+                || (is_string($legacyValue)
+                    && is_string($currentValue)
+                    && hash_equals($legacyValue, $currentValue));
             if (!is_string($row['key'] ?? null)
                 || $row['key'] === ''
                 || !is_string($row['meta_key'] ?? null)
                 || !hash_equals($row['key'], $row['meta_key'])
-                || !is_string($row['value'] ?? null)
-                || !is_string($row['meta_value'] ?? null)
-                || !hash_equals($row['value'], $row['meta_value'])) {
+                || !$valuesMatch) {
                 throw new \RuntimeException(
                     "duo: Ninja Forms $label meta legacy/current columns diverge; recovery_required"
                 );

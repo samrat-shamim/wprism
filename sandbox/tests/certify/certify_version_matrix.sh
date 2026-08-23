@@ -1536,7 +1536,7 @@ EOF
       2>&1 | tee "$VMATRIX_APPLY_LOG"
     grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
       || fail 'Ninja Forms 3.4.34.2 -> 3.14.11 apply canary was not clean'
-    grep -q 'provider capability fired: ninja-forms-form-cache@2.0.0 rebuild_form_caches' "$VMATRIX_APPLY_LOG" \
+    grep -q 'provider capability fired: ninja-forms-form-cache@2.1.0 rebuild_form_caches' "$VMATRIX_APPLY_LOG" \
       || fail 'Ninja Forms cache provider v2 did not fire across the in-place upgrade'
     check_ninja_forms_boundary_content 'Job Application Upgrade 東京 🚀'
 
