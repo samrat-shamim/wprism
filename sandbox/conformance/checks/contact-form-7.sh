@@ -400,8 +400,9 @@ jq -e '
   || fail "CF7 forced repository intent did not converge cleanly: $FORCED"
 CONVERGED=$(observe_cf7 conf2)
 printf '%s\n' "$CONVERGED" | jq -e '
+  . as $observed |
   (.main.mail.subject | contains("Repository competing subject 東京 🚀")) and
-  (.main.messages.validation_error | contains(.home)) and
+  (.main.messages.validation_error | contains($observed.home)) and
   .main.config_validation["target-runtime"] == true and
   .main.constant_contact.list == "target-environment-list" and
   .option.duo_target_only == "target-option-preserved"
@@ -441,8 +442,9 @@ jq -e '.canary == "clean" and .verification.result == "pass" and .applied >= 1' 
   || fail "CF7 retry did not consume durable intent: $RETRY"
 RETRIED=$(observe_cf7 conf2)
 printf '%s\n' "$RETRIED" | jq -e '
+  . as $observed |
   (.main.mail.subject | contains("CF7 transaction subject 東京 🚀")) and
-  (.main.messages.mail_sent_ok | contains(.home))
+  (.main.messages.mail_sent_ok | contains($observed.home))
 ' >/dev/null || fail "CF7 retry did not converge through its native API: $RETRIED"
 pass "late CF7 metadata failure rolls back every write, retains authority, and retries cleanly"
 
