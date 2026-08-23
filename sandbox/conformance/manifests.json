@@ -111,7 +111,7 @@
   },
   "yoast": {
     "pin": ["core", "yoast"],
-    "plugins": [{"slug": "wordpress-seo", "version": "28.2"}],
+    "plugins": [{"slug": "wordpress-seo", "version": "28.3"}],
     "post_types": ["post", "page", "attachment"],
     "taxonomies": ["category", "post_tag"]
   }

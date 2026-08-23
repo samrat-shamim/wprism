@@ -192,6 +192,11 @@
         "url": "https://downloads.wordpress.org/plugin/wordpress-seo.28.2.zip",
         "sha256": "f464e509d5f642023dc0a47082b3cdfed6b1fd5d5e4bf6584d6d43e0b53e8e23",
         "role": "certified-boundary"
+      },
+      "28.3": {
+        "url": "https://downloads.wordpress.org/plugin/wordpress-seo.28.3.zip",
+        "sha256": "381edc1603147bd76af81341f21c9155ff3e9f6ce29ed20886d889fb9d6744fb",
+        "role": "certified-boundary"
       }
     },
     "wpforms-lite": {

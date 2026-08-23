@@ -287,23 +287,22 @@
       }
     },
     "yoast": {
-      "readiness": "unready",
+      "readiness": "ready",
       "covered": {
-        "contract-dependency": ["manifests/yoast.json", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "contract-dependency": ["manifests/yoast.json", "manifests/providers/yoast-index.php", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/offline/adapter/regress_yoast_index_provider.php"],
         "clean-target": ["sandbox/conformance/entries/yoast.json", "sandbox/conformance/seeds/yoast.sh", "sandbox/conformance/checks/yoast.sh"],
-        "identity-references": ["sandbox/conformance/checks/yoast.sh"],
-        "native-behavior": ["sandbox/conformance/checks/yoast.sh"],
-        "derived-state": ["manifests/providers/yoast-index.php", "sandbox/conformance/checks/yoast.sh"]
+        "dirty-target": ["sandbox/conformance/postdeploy/yoast.sh", "sandbox/conformance/checks/yoast.sh"],
+        "identity-references": ["sandbox/conformance/seeds/yoast.sh", "sandbox/conformance/postdeploy/yoast.sh", "sandbox/conformance/checks/yoast.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "native-behavior": ["sandbox/conformance/seeds/yoast.sh", "sandbox/conformance/checks/yoast.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "derived-state": ["manifests/providers/yoast-index.php", "sandbox/tests/offline/adapter/regress_yoast_index_provider.php", "sandbox/conformance/checks/yoast.sh"],
+        "deletion": ["sandbox/conformance/checks/yoast.sh", "sandbox/tests/offline/apply/regress_delete_authorization_receipt.php"],
+        "failure-recovery": ["sandbox/tests/offline/adapter/regress_yoast_index_provider.php", "sandbox/conformance/checks/yoast.sh", "sandbox/tests/offline/reference-scope/regress_scoped_effect_reconciliation.php"],
+        "concurrency-idempotence": ["sandbox/conformance/checks/yoast.sh", "sandbox/tests/live/regress_capture_concurrency.sh"],
+        "lifecycle": ["sandbox/conformance/checks/yoast.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "data-boundary": ["manifests/yoast.json", "sandbox/conformance/seeds/yoast.sh", "sandbox/conformance/checks/yoast.sh", "sandbox/tests/offline/adapter/regress_yoast_index_provider.php"],
+        "scope-platform": ["manifests/yoast.json", "sandbox/tests/offline/adapter/regress_yoast_index_provider.php", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/live/regress_multisite_refusal.sh"]
       },
-      "gaps": {
-        "dirty-target": "No conflicting primary terms, stale index rows, activation-default, and target-only runtime matrix exists.",
-        "deletion": "The unsupported Yoast-specific delete boundary lacks a live no-partial-mutation refusal exercise.",
-        "failure-recovery": "The real index provider lacks injected throw/bad-receipt/crash-after-intent and retry evidence.",
-        "concurrency-idempotence": "No competing SEO metadata apply/index repair exercise exists.",
-        "lifecycle": "The exact-artifact matrix resets state and does not prove in-place upgrade, deactivate/reactivate, residue, and reinstall.",
-        "data-boundary": "Long titles/descriptions, Unicode, malformed schema/serialized values, huge IDs, secrets, and schema drift lack a closed matrix.",
-        "scope-platform": "Optional Yoast modules and the shared platform boundary are not exercised per adapter."
-      },
+      "gaps": {},
       "blocked": {},
       "not_applicable": {}
     },
