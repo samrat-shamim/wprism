@@ -4,8 +4,9 @@ declare(strict_types=1);
 /**
  * Offline product-path contract for the five exact-artifact adapters added by
  * the 2026-08-22 ecosystem probe, including the independently certified
- * Advanced Editor Tools, Classic Editor, and WPS Hide Login subjects. The assertions load the shipped
- * manifests and disposition registry through Policy::load(); fixtures would
+ * Advanced Editor Tools, Classic Editor, Code Snippets, and WPS Hide Login
+ * subjects. The assertions load the shipped manifests and disposition registry
+ * through Policy::load(); fixtures would
  * miss the byte set that managed sites actually pin.
  *
  * The mutation cases use the same loader against a temporary manifest
@@ -50,6 +51,7 @@ $conformanceEntry = Canon::decode(Canon::read_file($root . '/sandbox/conformance
 $standaloneEntries = [
     'advanced-editor-tools' => Canon::decode(Canon::read_file($root . '/sandbox/conformance/entries/advanced-editor-tools.json')),
     'classic-editor' => Canon::decode(Canon::read_file($root . '/sandbox/conformance/entries/classic-editor.json')),
+    'code-snippets' => Canon::decode(Canon::read_file($root . '/sandbox/conformance/entries/code-snippets.json')),
     'wps-hide-login' => Canon::decode(Canon::read_file($root . '/sandbox/conformance/entries/wps-hide-login.json')),
 ];
 $artifactLock = Canon::decode(Canon::read_file($root . '/sandbox/conformance/artifacts.lock.json'));
@@ -73,8 +75,8 @@ $artifacts = [
     ],
     'code-snippets' => [
         'plugin' => 'code-snippets/code-snippets.php',
-        'range' => ['min' => '3.9.6', 'max' => '3.9.7'],
-        'sha256' => 'ab5822db426858b43d7c010481a87d0eaffb056cc483e93e057d96f6e6fdd4f4',
+        'range' => ['min' => '3.9.5', 'max' => '3.9.7'],
+        'sha256' => '19bb57c5f677348fb449bc5e8115fb9852d523bc5b4c7021aeab1767169af6f4',
     ],
     'wps-hide-login' => [
         'plugin' => 'wps-hide-login/wps-hide-login.php',
@@ -89,7 +91,7 @@ $artifacts = [
 ];
 
 $effectiveRanges = $policy->version_ranges();
-$certified = ['advanced-editor-tools', 'classic-editor', 'wps-hide-login'];
+$certified = ['advanced-editor-tools', 'classic-editor', 'code-snippets', 'wps-hide-login'];
 foreach ($artifacts as $name => $artifact) {
     $manifest = $manifests[$name];
     duo_check_same($artifact['plugin'], $manifest['plugin'] ?? null, "$name pins the observed plugin basename");
@@ -134,6 +136,16 @@ foreach ($artifacts as $name => $artifact) {
         );
     }
 }
+duo_check_same(
+    'certified-boundary',
+    $artifactLock['plugins']['code-snippets']['3.9.6']['role'] ?? null,
+    'Code Snippets 3.9.6 is independently locked as the upper certified patch boundary'
+);
+duo_check_same(
+    'ab5822db426858b43d7c010481a87d0eaffb056cc483e93e057d96f6e6fdd4f4',
+    $artifactLock['plugins']['code-snippets']['3.9.6']['sha256'] ?? null,
+    'Code Snippets 3.9.6 upper-boundary evidence is digest-pinned'
+);
 
 foreach (['wpforms', 'redirection', 'custom-post-type-ui'] as $rejected) {
     duo_check(!is_file($root . "/manifests/$rejected.json"), "$rejected remains rejected instead of gaining an unsafe manifest");
@@ -177,6 +189,10 @@ $refusalArtifacts = [
     'classic-editor' => [
         'version' => '1.6.7',
         'sha256' => '4b2b45b19c61f627ff8730222692a691023dea3435b35b8db95a2418b45ece65',
+    ],
+    'code-snippets' => [
+        'version' => '3.9.4',
+        'sha256' => '2dad76bec092682a441823a6636abfa8723a67dc3c9ecc7f5209140a796cfa4a',
     ],
     'wps-hide-login' => [
         'version' => '1.9.18',
@@ -296,6 +312,18 @@ duo_check_same(
     array_map(static fn(array $rule): mixed => $rule['class'] ?? null, $snippetTable['columns'] ?? []),
     'Code Snippets classifies every observed non-primary column without a default bucket'
 );
+$snippetActions = array_values(array_filter(
+    $policy->actions_for(['table:snippets']),
+    static fn(array $action): bool => ($action['provider'] ?? null) === 'code-snippets-state'
+));
+duo_check_same(1, count($snippetActions), 'Code Snippets table mutation schedules exactly one state-rebuild provider');
+duo_check_same('rebuild_snippet_state', $snippetActions[0]['capability'] ?? null, 'Code Snippets invokes the bounded cache and flat-file rebuild capability');
+duo_check_same(
+    ['cache', 'filesystem'],
+    array_column($snippetActions[0]['effects'] ?? [], 'kind'),
+    'Code Snippets declares both irreversible external projections before mutation'
+);
+duo_check(is_file($root . '/manifests/providers/code-snippets-state.php'), 'the shipped provider source exists beside its manifest identity');
 
 $shortcodes = $policy->shortcode_attr_rules();
 $snippetRefRules = [
@@ -337,7 +365,7 @@ foreach (['_dp_creation_date_gmt', '_dp_has_been_republished', '_dp_has_rewrite_
 foreach ($names as $name) {
     $operations = $policy->manifest_disposition($name)['capabilities']['operations'] ?? [];
     if (in_array($name, $certified, true)) {
-        duo_check(in_array('apply', $operations, true), "$name claims the exact hook-free option apply path its isolated target profile proves");
+        duo_check(in_array('apply', $operations, true), "$name claims the isolated apply path its target profile proves");
     } else {
         duo_check(!in_array('apply', $operations, true), "$name does not claim hook-free apply while its postcondition is open");
     }
@@ -347,7 +375,7 @@ $blockerNames = array_values(array_unique(array_column($policy->certification_re
 sort($blockerNames, SORT_STRING);
 $sortedNames = array_values(array_diff($names, $certified));
 sort($sortedNames, SORT_STRING);
-duo_check_same($sortedNames, $blockerNames, 'only the two still-experimental adapters block promotion through the capability registry');
+duo_check_same($sortedNames, $blockerNames, 'only the still-experimental adapter blocks promotion through the capability registry');
 
 $limitations = (string) file_get_contents($root . '/docs/guides/adapter-authoring-limitations.md');
 foreach ([

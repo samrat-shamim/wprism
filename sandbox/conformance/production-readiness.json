@@ -80,24 +80,23 @@
       }
     },
     "code-snippets": {
-      "readiness": "unready",
-      "covered": {},
-      "gaps": {
-        "contract-dependency": "One exact exercise artifact exists, but no supported-boundary plus out-of-range refusal matrix exists.",
-        "clean-target": "The shared profile stops before deploy/apply.",
-        "dirty-target": "No same-name snippet, packaged-default, target-only row, or conflict matrix exists.",
-        "identity-references": "Source IDs diverge from one, but no target-ID divergence round-trip exists for either shortcode alias.",
-        "native-behavior": "Both shortcodes render only on the source side.",
-        "deletion": "Snippet deletion and shortcode reverse-reference behavior are unimplemented and untested.",
-        "failure-recovery": "No cache/flat-file failure-after-intent and retry exercise exists.",
-        "concurrency-idempotence": "No competing snippet apply/cache rebuild exercise exists.",
-        "lifecycle": "Activation, supported upgrade, downgrade refusal, uninstall residue, and reinstall are untested.",
-        "data-boundary": "Executable PHP, long UTF-8, delimiter hazards, credential-shaped code, invalid code, and large priorities are untested on the manifest path.",
-        "scope-platform": "Optional safe mode, multisite, and flat-file feature boundaries are not exercised."
+      "readiness": "ready",
+      "covered": {
+        "contract-dependency": ["manifests/code-snippets.json", "manifests/providers/code-snippets-state.php", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "clean-target": ["sandbox/conformance/entries/code-snippets.json", "sandbox/conformance/seeds/code-snippets.sh", "sandbox/conformance/checks/code-snippets.sh"],
+        "dirty-target": ["sandbox/conformance/postdeploy/code-snippets.sh", "sandbox/conformance/checks/code-snippets.sh"],
+        "identity-references": ["sandbox/conformance/seeds/code-snippets.sh", "sandbox/conformance/checks/code-snippets.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "native-behavior": ["sandbox/conformance/seeds/code-snippets.sh", "sandbox/conformance/checks/code-snippets.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "derived-state": ["manifests/providers/code-snippets-state.php", "sandbox/tests/offline/adapter/regress_code_snippets_state_provider.php", "sandbox/conformance/checks/code-snippets.sh"],
+        "deletion": ["sandbox/conformance/checks/code-snippets.sh", "sandbox/tests/offline/apply/regress_delete_authorization_receipt.php"],
+        "failure-recovery": ["sandbox/conformance/checks/code-snippets.sh", "sandbox/tests/offline/adapter/regress_code_snippets_state_provider.php", "sandbox/tests/offline/reference-scope/regress_scoped_effect_reconciliation.php"],
+        "concurrency-idempotence": ["sandbox/conformance/checks/code-snippets.sh", "sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php"],
+        "lifecycle": ["sandbox/conformance/checks/code-snippets.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "data-boundary": ["sandbox/conformance/seeds/code-snippets.sh", "sandbox/conformance/checks/code-snippets.sh"],
+        "scope-platform": ["sandbox/conformance/checks/code-snippets.sh", "sandbox/tests/live/regress_multisite_refusal.sh"]
       },
-      "blocked": {
-        "derived-state": "Raw table materialization bypasses clean_snippets_cache() and the optional executable flat-file rebuild; no verified provider exists."
-      },
+      "gaps": {},
+      "blocked": {},
       "not_applicable": {}
     },
     "contact-form-7": {

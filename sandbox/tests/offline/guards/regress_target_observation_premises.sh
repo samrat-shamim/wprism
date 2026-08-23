@@ -29,6 +29,22 @@ OBSERVATIONS=(
   'conformance/checks/contact-form-7.sh|require_observed_nonempty "conf2 legacy Contact Form 7 rendered response"'
   'conformance/checks/contact-form-7.sh|require_observed_nonempty "conf1 post-count baseline before anonymous Contact Form 7 submission"'
   'conformance/checks/contact-form-7.sh|require_observed_nonempty "conf1 post-count after anonymous Contact Form 7 submission"'
+  'conformance/checks/code-snippets.sh|require_observed_nonempty "Code Snippets $side runtime observation"'
+  'conformance/checks/code-snippets.sh|require_duo_answered "Code Snippets deploy after deactivation" json'
+  'conformance/checks/code-snippets.sh|require_duo_answered "Code Snippets deploy with code absent" human'
+  'conformance/checks/code-snippets.sh|require_duo_answered "Code Snippets deploy after retained-state reinstall" json'
+  'conformance/checks/code-snippets.sh|require_duo_answered "Code Snippets schema-drift plan" human'
+  'conformance/checks/code-snippets.sh|require_duo_answered "Code Snippets plan after plugin schema repair" json'
+  'conformance/checks/code-snippets.sh|require_duo_answered "Code Snippets competing-row plan" json'
+  'conformance/checks/code-snippets.sh|require_duo_answered "Code Snippets target-only identity capture" human'
+  'conformance/checks/code-snippets.sh|require_duo_answered "Code Snippets unforced competing-row apply" human'
+  'conformance/checks/code-snippets.sh|require_duo_answered "Code Snippets forced competing-row apply" json'
+  'conformance/checks/code-snippets.sh|require_duo_answered "Code Snippets zero-change plan" json'
+  'conformance/checks/code-snippets.sh|require_duo_answered "Code Snippets zero-change apply" json'
+  'conformance/checks/code-snippets.sh|require_duo_answered "Code Snippets deploy after complete uninstall" json'
+  'conformance/checks/code-snippets.sh|require_duo_answered "Code Snippets plan after complete uninstall" json'
+  'conformance/checks/code-snippets.sh|require_duo_answered "Code Snippets forced recovery after complete uninstall" json'
+  'conformance/checks/code-snippets.sh|require_duo_answered "Code Snippets plan retry after complete-uninstall recovery" json'
   'conformance/checks/elementor.sh|require_observed_nonempty "conf2 Elementor rendered response"'
   'conformance/checks/elementor.sh|require_observed_nonempty "conf2 Elementor regenerated CSS"'
   'conformance/checks/fse.sh|require_duo_answered "conf2 duo plan after active-theme mismatch" json'
@@ -64,8 +80,10 @@ OBSERVATIONS=(
   'conformance/checks/yoast.sh|require_observed_nonempty "conf2 Yoast runtime observation"'
   'conformance/checks/yoast.sh|require_observed_nonempty "conf2 Yoast rendered response"'
   'conformance/postdeploy/ninja-forms.sh|require_observed_nonempty "conf2 Ninja Forms activation cleanup observation"'
+  'conformance/postdeploy/code-snippets.sh|require_observed_nonempty "Code Snippets hostile target seed"'
   'conformance/seeds/acf.sh|require_observed_nonempty "conf1 ACF seed output"'
   'conformance/seeds/contact-form-7.sh|require_observed_nonempty "conf1 Contact Form 7 seed output"'
+  'conformance/seeds/code-snippets.sh|require_observed_nonempty "Code Snippets source seed"'
   'conformance/seeds/ninja-forms.sh|require_observed_nonempty "conf1 Ninja Forms activation cleanup observation"'
   'conformance/seeds/paid-memberships-pro.sh|require_observed_nonempty "conf1 PMPro seed output"'
   'conformance/seeds/polylang.sh|require_observed_nonempty "conf1 Polylang translated-term seed output"'
@@ -179,6 +197,11 @@ pass "all ${#OBSERVATIONS[@]} target-reading postconditions have an answered/pre
 FIXTURES=(
   'conformance/checks/contact-form-7.sh|require_fixture_ids CONF1_WPCF7_ID'
   'conformance/checks/contact-form-7.sh|require_fixture_values LEGACY_CONF2_OLD_ID'
+  'conformance/checks/code-snippets.sh|require_fixture_ids SOURCE_CONTENT_ID TARGET_CONTENT_ID'
+  'conformance/checks/code-snippets.sh|require_fixture_ids out'
+  'conformance/checks/code-snippets.sh|require_fixture_ids TARGET_ONLY_ID'
+  'conformance/checks/code-snippets.sh|require_fixture_ids SECRET_ID'
+  'conformance/checks/code-snippets.sh|require_fixture_ids INVALID_ID'
   'conformance/checks/elementor.sh|require_fixture_ids PAGE_ID'
   'conformance/checks/ninja-forms.sh|require_fixture_ids CONF2_FORM_ID'
   'conformance/checks/ninja-forms.sh|require_fixture_ids CONF1_FORM_ID PAGE_ID'
@@ -233,10 +256,10 @@ grep -Fq 'SELECT uuid FROM wp_duo_map WHERE uuid' tests/certify/certify_adversar
 grep -Fq 'git -C siterepo/certmatrix1 status --porcelain -- state' tests/certify/certify_adversarial_matrix.sh \
   || fail "the adversarial clean-repository observation exemption lost its direct git status evidence"
 version_matrix="tests/certify/certify_version_matrix.sh"
-[ "$(grep -Fc 'require_fixture_values INSTALLED_2' "$version_matrix")" -eq 11 ] \
-  || fail "version-matrix target plugin-version premises must cover all eleven certified plugin loops"
-[ "$(grep -Fc 'require_fixture_values NEGATIVE_INSTALLED' "$version_matrix")" -eq 8 ] \
-  || fail "version-matrix negative-control plugin-version premises must cover all eight bounded-version controls"
+[ "$(grep -Fc 'require_fixture_values INSTALLED_2' "$version_matrix")" -eq 12 ] \
+  || fail "version-matrix target plugin-version premises must cover all twelve certified plugin loops"
+[ "$(grep -Fc 'require_fixture_values NEGATIVE_INSTALLED' "$version_matrix")" -eq 9 ] \
+  || fail "version-matrix negative-control plugin-version premises must cover all nine bounded-version controls"
 pass "expected-empty absence/clean-repository predicates remain explicitly inventoried rather than falsely premise-guarded"
 
 echo "REGRESS_TARGET_OBSERVATION_PREMISES PASSED"

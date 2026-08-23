@@ -634,6 +634,12 @@ regress-adapter-catalog:
 regress-ecosystem-adapter-batch:
 	php sandbox/tests/offline/adapter/regress_ecosystem_adapter_batch.php
 
+# Code Snippets' shipped provider against a faithful fake of the exact 3.9.x
+# public DB/cache/flat-file APIs: stale code, recovery cache, disabled mode,
+# schema failure, symlink containment, network residue, and secret-safe receipt.
+regress-code-snippets-state-provider:
+	php sandbox/tests/offline/adapter/regress_code_snippets_state_provider.php
+
 # The hand-reviewed production-readiness work ledger: exact shipped-adapter
 # coverage, all twelve hostile scenario families, grounded evidence paths, and
 # a hard refusal to spell `ready` while an applicable family is still open.
@@ -2081,10 +2087,10 @@ regress-user-meta:
 # closed signed SSH crash-matrix evidence verifier.
 regress-offline-all:
 	@bash sandbox/tests/offline_diagnostics_guard.sh "$(MAKE)" --no-print-directory regress-offline-corpus
-	@echo "regress-offline-all: 271 offline suites green"
+	@echo "regress-offline-all: 272 offline suites green"
 
 regress-offline-corpus: code-half-unit \
-	regress-adopt-rollback regress-local-bootstrap regress-capture-publish regress-adapter-contract regress-adapter-sources regress-site-adapter-certification regress-ecosystem-adapter-batch regress-adapter-production-readiness regress-manifest-dispositions regress-interpreter-policy regress-proof-legacy-pair \
+	regress-adopt-rollback regress-local-bootstrap regress-capture-publish regress-adapter-contract regress-adapter-sources regress-site-adapter-certification regress-ecosystem-adapter-batch regress-code-snippets-state-provider regress-adapter-production-readiness regress-manifest-dispositions regress-interpreter-policy regress-proof-legacy-pair \
 	regress-acf-meta-interpreter regress-fatal-mutations-unit regress-capture-secret-scan regress-user-meta-capture regress-entity-meta-capture regress-menu-capture regress-media-capture regress-options-capture regress-reference-scope-classifier regress-capture-safety-gates regress-capture-gate-scanner regress-capture-refactor-boundaries \
 	regress-order-preserving regress-canonical-json-parity regress-assess-projection regress-assess-inventory regress-contract-shape regress-contract-projection regress-assess-composition regress-assess-bounds regress-contract-accept regress-contract-multi-env regress-authorization-plan regress-release-containment-gate regress-recover-claim regress-verify-oracles regress-rehearse-provider regress-release-next-action regress-release-ref-binding regress-recover-ordering regress-mup-leak-audit regress-adapter-certify \
 	regress-block-refs regress-identity-token-codec regress-text-tokenizer regress-structured-reference-codec regress-url-query-reference-codec regress-lint-primitives regress-block-reference-scanner regress-menu-reference-scanner regress-serialized-term-description-scanner regress-shortcode-reference-scanner regress-composite-ref regress-doctor-env-values regress-environment-driver regress-environment-lifecycle regress-environment-command regress-environment-materializer regress-environment-materializer-ssh regress-environment-materializer-recovery regress-frozen-materialization-promotion regress-docker-exec-mode regress-pending-queue-ownership \

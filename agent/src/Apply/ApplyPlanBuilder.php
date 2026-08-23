@@ -293,6 +293,8 @@ final class ApplyPlanBuilder {
             }
             $plan['create'][] = $row;
         }
+        $plan = $this->apply_planner()->project_reference_rebinds($plan, $tree, $env, $base);
+
         // Absence is not deletion authority. Only a compiled, versioned
         // tombstone can enter one of the deletion buckets below. Its
         // expected_hash is the three-way base that capture observed before

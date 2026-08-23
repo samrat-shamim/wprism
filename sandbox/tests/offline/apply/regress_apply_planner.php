@@ -193,6 +193,76 @@ $check(
     'observed comparison: repository and target changes become a typed conflict'
 );
 
+// --------------------------------------------- recreated-reference projection
+
+$recreatedTarget = Uuid::v5(Uuid::NAMESPACE_DUO, 'reference-rebind-target');
+$unchangedReferrer = Uuid::v5(Uuid::NAMESPACE_DUO, 'reference-rebind-unchanged');
+$driftedReferrer = Uuid::v5(Uuid::NAMESPACE_DUO, 'reference-rebind-drifted');
+$unrelatedEntity = Uuid::v5(Uuid::NAMESPACE_DUO, 'reference-rebind-unrelated');
+$referenceTree = [
+    $recreatedTarget => [
+        'type' => 'post', 'path' => 'posts/page/target.md', 'hash' => 'target-repository-hash',
+        'body' => '', 'data' => ['uuid' => $recreatedTarget],
+    ],
+    $unchangedReferrer => [
+        'type' => 'post', 'path' => 'posts/page/unchanged.md', 'hash' => 'unchanged-repository-hash',
+        'body' => "[fixture id=\"{{post:$recreatedTarget}}\"]", 'data' => ['uuid' => $unchangedReferrer],
+    ],
+    $driftedReferrer => [
+        'type' => 'post', 'path' => 'posts/page/drifted.md', 'hash' => 'drifted-repository-hash',
+        'body' => "{{post:$recreatedTarget}}", 'data' => ['uuid' => $driftedReferrer],
+    ],
+    $unrelatedEntity => [
+        'type' => 'post', 'path' => 'posts/page/unrelated.md', 'hash' => 'unrelated-repository-hash',
+        'body' => 'no references', 'data' => ['uuid' => $unrelatedEntity],
+    ],
+];
+$referencePlan = [
+    'create' => [['uuid' => $recreatedTarget, 'type' => 'post', 'path' => 'posts/page/target.md']],
+    'adopt' => [],
+    'update' => [],
+    'unchanged' => [
+        ['uuid' => $unchangedReferrer, 'type' => 'post', 'path' => 'posts/page/unchanged.md'],
+        ['uuid' => $unrelatedEntity, 'type' => 'post', 'path' => 'posts/page/unrelated.md'],
+    ],
+    'drift' => [['uuid' => $driftedReferrer, 'type' => 'post', 'path' => 'posts/page/drifted.md']],
+    'conflict' => [],
+];
+$referencePlanner = new ApplyPlanner(
+    new Policy(),
+    [],
+    static fn(string $uuid, string $kind): ?int => null,
+    static fn(string $uuid, string $kind): ?int => null
+);
+$referenceProjection = $referencePlanner->project_reference_rebinds(
+    $referencePlan,
+    $referenceTree,
+    [
+        $unchangedReferrer => ['hash' => 'unchanged-repository-hash'],
+        $driftedReferrer => ['hash' => 'drifted-target-hash'],
+        $unrelatedEntity => ['hash' => 'unrelated-repository-hash'],
+    ],
+    [
+        $unchangedReferrer => ['content_hash' => 'unchanged-repository-hash'],
+        $driftedReferrer => ['content_hash' => 'drifted-repository-hash'],
+        $unrelatedEntity => ['content_hash' => 'unrelated-repository-hash'],
+    ]
+);
+$check(
+    array_column($referenceProjection['update'], 'uuid') === [$unchangedReferrer]
+        && $referenceProjection['update'][0]['reference_rebind_targets'] === [$recreatedTarget]
+        && array_column($referenceProjection['unchanged'], 'uuid') === [$unrelatedEntity],
+    'reference rebind: an unchanged reverse-reference owner is scheduled while unrelated state stays untouched'
+);
+$check(
+    $referenceProjection['drift'] === []
+        && array_column($referenceProjection['conflict'], 'uuid') === [$driftedReferrer]
+        && $referenceProjection['conflict'][0]['reference_rebind_targets'] === [$recreatedTarget]
+        && $referenceProjection['conflict'][0]['conflict_view']['reason_code'] === 'reference_target_identity_recreated'
+        && $referenceProjection['conflict'][0]['conflict_view']['choices'][1]['requires'] === ['--force-theirs'],
+    'reference rebind: target-authored referrers become explicit repository-authority conflicts before identity recreation'
+);
+
 // ---------------------------------------------------------- forced_override_evidence
 
 $row = ['uuid' => 'e1', 'conflict_view' => $view];
@@ -1116,6 +1186,10 @@ $builderSource = file_get_contents(__DIR__ . '/../../../../agent/src/Apply/Apply
 $plannerSource = file_get_contents(__DIR__ . '/../../../../agent/src/Apply/ApplyPlanner.php');
 $preparationSource = file_get_contents(__DIR__ . '/../../../../agent/src/Apply/ApplyPreparationCoordinator.php');
 $planEnvironmentSource = file_get_contents(__DIR__ . '/../../../../agent/src/Apply/ApplyPlanEnvironment.php');
+$check(
+    str_contains($builderSource, '$plan = $this->apply_planner()->project_reference_rebinds($plan, $tree, $env, $base);'),
+    'reference rebind: ApplyPlanBuilder wires the reverse-reference projection into every plan/apply product path'
+);
 $check(
     !preg_match('/private function find_collision\(/', $applySource),
     'collision planner: Apply no longer owns the collision implementation'

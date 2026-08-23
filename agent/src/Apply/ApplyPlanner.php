@@ -6,6 +6,7 @@ require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Repository/IdentityNotes.php';
 require_once __DIR__ . '/../Kernel/OptionState.php';
 require_once __DIR__ . '/../Policy/Policy.php';
+require_once __DIR__ . '/../Repository/ReferenceGraph.php';
 require_once __DIR__ . '/../Repository/Snapshot.php';
 require_once __DIR__ . '/IncompleteApplyMarker.php';
 
@@ -541,6 +542,124 @@ final class ApplyPlanner {
                 ),
             ],
         ];
+    }
+
+    /**
+     * Add unchanged reverse-reference owners to the authored work set when a
+     * referenced identity must be recreated or adopted. Phase 1 can replace
+     * the target's local id, so omitting an otherwise byte-equal owner leaves
+     * its live shortcode/block/option/table reference on the retired id. The
+     * complete-uninstall branch in checks/code-snippets.sh reproduced that
+     * exact boundary: the snippet moved from local id 11 to 5 and canonical
+     * verification refused the unchanged post that phase 2 had skipped.
+     *
+     * Environment drift cannot be preserved across that identity change: its
+     * embedded local ids would become dangling. Promote it to the ordinary
+     * typed conflict contract so reconciliation is the default and an exact
+     * --force-theirs choice can authorize rewriting repository state.
+     *
+     * @param array<string,mixed> $plan
+     * @param array<string,array<string,mixed>> $tree
+     * @param array<string,array<string,mixed>> $environment
+     * @param array<string,array<string,mixed>> $base
+     * @return array<string,mixed>
+     */
+    public function project_reference_rebinds(
+        array $plan,
+        array $tree,
+        array $environment,
+        array $base
+    ): array {
+        $recreatedEntries = [];
+        foreach (['create', 'adopt'] as $bucket) {
+            foreach ((array) ($plan[$bucket] ?? []) as $row) {
+                $recreatedEntries[(string) ($row['uuid'] ?? '')] = true;
+            }
+        }
+        unset($recreatedEntries['']);
+        if ($recreatedEntries === []) {
+            return $plan;
+        }
+
+        $owners = ReferenceGraph::owners($tree);
+        $recreatedTargets = [];
+        foreach ($owners as $uuid => $owner) {
+            if (isset($recreatedEntries[(string) ($owner['entity'] ?? '')])) {
+                $recreatedTargets[(string) $uuid] = true;
+            }
+        }
+        if ($recreatedTargets === []) {
+            return $plan;
+        }
+
+        $targetsByReferrer = [];
+        foreach (ReferenceGraph::edges($tree, $this->policy) as $edge) {
+            $target = (string) ($edge['target'] ?? '');
+            if (!isset($recreatedTargets[$target])) {
+                continue;
+            }
+            $from = (string) ($edge['from'] ?? '');
+            $referrer = (string) ($owners[$from]['entity'] ?? $from);
+            if ($referrer === '' || isset($recreatedEntries[$referrer])) {
+                continue;
+            }
+            $targetsByReferrer[$referrer][$target] = true;
+        }
+        foreach ($targetsByReferrer as &$targets) {
+            $targets = array_keys($targets);
+            sort($targets, SORT_STRING);
+        }
+        unset($targets);
+        if ($targetsByReferrer === []) {
+            return $plan;
+        }
+
+        foreach (['create', 'adopt', 'update', 'unchanged', 'drift', 'conflict'] as $bucket) {
+            foreach ((array) ($plan[$bucket] ?? []) as $index => $row) {
+                $uuid = (string) ($row['uuid'] ?? '');
+                if (isset($targetsByReferrer[$uuid])) {
+                    $plan[$bucket][$index]['reference_rebind_targets'] = $targetsByReferrer[$uuid];
+                }
+            }
+        }
+
+        foreach ((array) ($plan['unchanged'] ?? []) as $index => $row) {
+            $uuid = (string) ($row['uuid'] ?? '');
+            if (!isset($targetsByReferrer[$uuid])) {
+                continue;
+            }
+            $plan['update'][] = $plan['unchanged'][$index];
+            unset($plan['unchanged'][$index]);
+        }
+        $plan['unchanged'] = array_values((array) ($plan['unchanged'] ?? []));
+
+        foreach ((array) ($plan['drift'] ?? []) as $index => $row) {
+            $uuid = (string) ($row['uuid'] ?? '');
+            if (!isset($targetsByReferrer[$uuid])) {
+                continue;
+            }
+            $repositoryHash = is_string($tree[$uuid]['hash'] ?? null) ? $tree[$uuid]['hash'] : null;
+            $baseHash = is_string($base[$uuid]['content_hash'] ?? null) ? $base[$uuid]['content_hash'] : null;
+            $targetHash = is_string($environment[$uuid]['hash'] ?? null) ? $environment[$uuid]['hash'] : null;
+            $conflict = $plan['drift'][$index];
+            $conflict['reason'] = 'target-authored entity references an identity that must be recreated';
+            $conflict['conflict_view'] = self::conflict_view(
+                'reference_target_identity_recreated',
+                'update',
+                $baseHash === null ? 'missing' : 'present',
+                $baseHash,
+                $repositoryHash,
+                $baseHash,
+                null,
+                $targetHash,
+                ['--force-theirs']
+            );
+            $plan['conflict'][] = $conflict;
+            unset($plan['drift'][$index]);
+        }
+        $plan['drift'] = array_values((array) ($plan['drift'] ?? []));
+
+        return $plan;
     }
 
     /**

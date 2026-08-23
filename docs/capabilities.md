@@ -35,7 +35,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 | [acf](#acf) | certified | `advanced-custom-fields/acf.php` | >=6.0.0 <7.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [advanced-editor-tools](#advanced-editor-tools) | certified | `tinymce-advanced/tinymce-advanced.php` | >=5.9.2 <5.9.3 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [classic-editor](#classic-editor) | certified | `classic-editor/classic-editor.php` | >=1.7.0 <1.7.1 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
-| [code-snippets](#code-snippets) | experimental | `code-snippets/code-snippets.php` | >=3.9.6 <3.9.7 | capture, compile, plan, recapture |
+| [code-snippets](#code-snippets) | certified | `code-snippets/code-snippets.php` | >=3.9.5 <3.9.7 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [contact-form-7](#contact-form-7) | certified | `contact-form-7/wp-contact-form-7.php` | >=6.0.0 <7.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [duo-agency-cpt](#duo-agency-cpt) | excluded | none declared | fixture only | test-only |
 | [elementor](#elementor) | certified | `elementor/elementor.php` | >=4.0.0 <5.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
@@ -125,24 +125,24 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 
 ## code-snippets
 
-**Status: experimental.** Experimental exact-artifact draft: the single-site snippet table and shortcode references are classified, but apply lacks a verified cache and optional flat-file rebuild provider.
+**Status: certified.** Certified for exact Code Snippets 3.9.5 and 3.9.6 on single-site WordPress with divergent snippet identities, all four shortcode id aliases, active PHP and content execution, invalid inactive code, large UTF-8/delimiter payloads, hostile cache and flat-file convergence through a verified plugin-native provider, enabled and disabled flat-file modes, schema drift refusal and recovery, conflict/idempotence, lifecycle recovery, credential-shaped-code capture refusal, unsupported deletion refusal, in-place patch upgrade, and official 3.9.4 refusal evidence.
 
 - **Plugin:** `code-snippets/code-snippets.php`
-- **Version range:** >=3.9.6 <3.9.7
-- **Operations:** capture, compile, plan, recapture
-- **Lifecycle phases:** none declared
+- **Version range:** >=3.9.5 <3.9.7
+- **Operations:** apply, capture, compile, deploy, plan, promote, recapture, render-api
+- **Lifecycle phases:** retire, activate, verify
 - **Declared entities:** `tables` (1: snippets)
 - **Declared fields:** `options` (2: code_snippets_settings, code_snippets_version), `shortcode_attrs` (2: code_snippet, code_snippet_source)
+- **Adapter hooks:** 1 provider, 1 structured action
 - **Deletions supported:** none
 - **Deletions unsupported:** table:snippets
-- **Exercised by:** `conformance-ecosystem-adapter-batch`
+- **Exercised by:** `conformance-code-snippets`, `exact-artifact-version-matrix`
 
 **Unsupported, explicitly.**
 
-- `tables.snippets` / `apply` — Raw typed-table writes bypass clean_snippets_cache() and the optional code_snippets/settings_updated flat-file rebuild; no bounded verified provider is shipped.
-- `tables.snippets` / `delete` — No race-safe snippet deletion selector or flat-file cleanup contract is declared.
+- `tables.snippets` / `delete` — Snippet ids can be embedded in shortcode content; the deletion-guard grammar cannot yet prove the absence of all reverse shortcode references, so row deletion remains loud and leaves both database and derived files untouched.
 - `block_attrs.code-snippets/source` / `capture` — The packaged free artifact checks for a code-snippets/source block but exposes no exact registered block attribute schema to declare.
-- `production` / `promote` — No exact-artifact clean-target execution, shortcode render, cache, or flat-file evidence exists.
+- `multisite` / `all` — Duo v1 refuses multisite; the provider also refuses residual active_shared_network_snippets state rather than crossing into a network snippet identity domain.
 
 ## contact-form-7
 
