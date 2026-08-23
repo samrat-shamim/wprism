@@ -287,7 +287,13 @@ final class OptionsMaterializer {
             return $this->tokens->plain_data_apply($v);
         }
         if (!empty($rule['ref'])) {
-            return $this->tokens->tokens_to_value($v, $rule['ref']);
+            // Options and metadata share the same ref/cast declaration.
+            // The rule-aware codec is required here: PMPro's CSV level-order
+            // options must return to comma-delimited strings because the
+            // plugin passes them directly to explode(). The ref-only codec
+            // materialized a serialized PHP array and made every subsequent
+            // PMPro bootstrap fatal before Duo could retry or repair it.
+            return $this->tokens->meta_tokens_to_value($v, $rule);
         }
         if (is_string($v)) {
             return $this->tokens->detokenize_text($v);

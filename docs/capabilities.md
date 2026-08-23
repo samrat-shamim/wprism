@@ -40,7 +40,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 | [duo-agency-cpt](#duo-agency-cpt) | excluded | none declared | fixture only | test-only |
 | [elementor](#elementor) | certified | `elementor/elementor.php` | >=4.0.0 <5.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [ninja-forms](#ninja-forms) | certified | `ninja-forms/ninja-forms.php` | >=3.4.34.2 <4.0.0 | apply, capture, compile, delete, deploy, plan, promote, recapture, render-api |
-| [paid-memberships-pro](#paid-memberships-pro) | experimental | `paid-memberships-pro/paid-memberships-pro.php` | >=3.8.3 <3.8.4 | apply, capture, compile, delete, plan, recapture |
+| [paid-memberships-pro](#paid-memberships-pro) | certified | `paid-memberships-pro/paid-memberships-pro.php` | >=3.8.2 <3.8.4 | apply, capture, compile, delete, deploy, plan, promote, recapture, render-api |
 | [polylang](#polylang) | certified | `polylang/polylang.php` | >=3.5 <4.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [the-events-calendar](#the-events-calendar) | experimental | `the-events-calendar/the-events-calendar.php` | >=6.17.2 <6.17.3 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [woocommerce](#woocommerce) | certified | `woocommerce/woocommerce.php` | >=11.0.0 <12.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
@@ -246,30 +246,29 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 
 ## paid-memberships-pro
 
-**Status: experimental.** Experimental: exact 3.8.3 artifact and version-boundary evidence exist, but intent-only authored tables and an unbounded default metadata keyspace remain promotion-blocking.
+**Status: certified.** Certified for exact Paid Memberships Pro 3.8.2 and 3.8.3 on single-site WordPress with the complete free-plugin authored level, discount, group, relationship, option, and closed levelmeta graph; divergent mapped/natural/composite identities; PMPro API and frontend access verification; target-owned payment, integration, membership, order, and subscription state; verified native cache reconstruction; large UTF-8 and serialized plain data; unknown add-on/object/secret/schema refusal and redaction; four authorized relationship deletions plus loud parent refusal; hostile duplicate names and competing edits; injected transaction rollback/retry; concurrent apply serialization; deactivate/redeploy and destructive uninstall/exact-reinstall recovery; a populated 3.8.2 to 3.8.3 upgrade; and adjacent official 3.8.1/3.8.4 refusal evidence.
 
 - **Plugin:** `paid-memberships-pro/paid-memberships-pro.php`
-- **Version range:** >=3.8.3 <3.8.4
-- **Operations:** apply, capture, compile, delete, plan, recapture
-- **Lifecycle phases:** none declared
+- **Version range:** >=3.8.2 <3.8.4
+- **Operations:** apply, capture, compile, delete, deploy, plan, promote, recapture, render-api
+- **Lifecycle phases:** retire, activate, verify
 - **Declared entities:** `tables` (15 keys)
-- **Declared fields:** `options` (33 keys), `post_meta` (0 rules)
-- **Deletions supported:** `table:pmpro_memberships_pages`
-- **Deletions unsupported:** intent-only composite tables
+- **Declared fields:** `options` (138 keys), `option_namespaces` (1 rules), `option_patterns` (5 rules)
+- **Adapter hooks:** 1 provider, 1 structured action
+- **Deletions supported:** `table:pmpro_discount_codes_levels`, `table:pmpro_membership_levels_groups`, `table:pmpro_memberships_categories`, `table:pmpro_memberships_pages`
+- **Deletions unsupported:** table:pmpro_membership_levels, table:pmpro_discount_codes, table:pmpro_groups, runtime membership/payment state
 - **Exercised by:** `conformance-paid-memberships-pro`, `exact-artifact-version-matrix`
-
-**Default-authored keyspaces.** A table whose unlisted keys default to authored needs its own review; each is recorded with the verdict a reviewer reached.
-
-- `pmpro_membership_levelmeta` — **unsupported**: No version-pinned evidence bounds the default metadata keyspace; the whole adapter remains promotion-blocking.
 
 **Unsupported, explicitly.**
 
-- `tables.pmpro_discount_codes` / `capture` — Intent marker only; no implemented typed snapshot contract.
-- `tables.pmpro_discount_codes_levels` / `capture` — Intent marker only; no implemented typed snapshot contract.
-- `tables.pmpro_groups` / `capture` — Intent marker only; no implemented typed snapshot contract.
-- `tables.pmpro_membership_levels_groups` / `capture` — Intent marker only; no implemented typed snapshot contract.
-- `tables.pmpro_memberships_categories` / `capture` — Intent marker only; no implemented typed snapshot contract.
-- `production` / `promote` — Intent-only authored tables and an unbounded default metadata keyspace prevent a closed production claim.
+- `tables.pmpro_membership_levels|pmpro_discount_codes|pmpro_groups` / `delete` — Membership levels may be referenced by runtime memberships/orders and extension-owned tables, discount codes by use/order state, and groups by extension-owned relationships; without a closed reverse-reference boundary only their pure authored relationship rows have deletion authority.
+- `options.pmpro_user_fields_settings` / `capture` — PMPro stores custom user-field definitions as nested PHP objects and exposes no lossless plain-data import/export primitive at the admitted tags; objects are refused rather than serialized into canonical state.
+- `optional-and-extension-owned` / `capture` — Only exact free-plugin option, table, and levelmeta inventories are classified; add-on-created options, tables, metadata, email templates, page templates, and subscription-delay settings remain loud instead of inheriting core ownership.
+- `payment-and-integration-environment` / `apply` — Gateway selection and mode, payment credentials, remote product/connect/webhook ids, anti-spam credentials, licensing, URL/SSL state, recipients, and optional integration switches are environment-owned and preserved on the target instead of crossing environments.
+- `runtime-membership-and-payment-state` / `capture` — Memberships, orders, subscriptions, discount uses, order metadata, and email logs are target runtime state and never enter the authored repository.
+- `version:<3.8.2|>=3.8.4` / `all` — Paid Memberships Pro releases before 3.8.2 and 3.8.4 or later are outside the source-audited range and are blocked until a new exact-artifact review extends the manifest.
+- `multisite` / `all` — Duo v1 refuses multisite; PMPro network tables, network activation, and blog-prefix behavior are outside this single-site adapter.
+- `runtime.action-scheduler-deactivation-cleanup` / `all` — PMPro 3.8.2/3.8.3 remove_recurring_hooks() requests ARRAY_A records from its bundled Action Scheduler, receives empty protected-property arrays, and warns while leaving pending recurring actions. Duo certifies authored-state recovery across deactivate/redeploy and destructive uninstall/reinstall, but does not claim or repair the plugin's runtime scheduler cleanup.
 
 ## polylang
 

@@ -293,7 +293,8 @@ final class OptionsCapture {
                 $v,
                 $rule['ref'],
                 $forceUnresolvedRefs,
-                $omitUnsetScalarRef
+                $omitUnsetScalarRef,
+                $rule['cast'] ?? null
             );
             return ['included' => $captured !== null, 'value' => $captured];
         }
@@ -388,12 +389,27 @@ final class OptionsCapture {
         $value,
         string $ref,
         bool $forceUnresolvedRefs = false,
-        bool $omitUnsetScalar = false
+        bool $omitUnsetScalar = false,
+        ?string $cast = null
     ) {
         if (str_ends_with($ref, '[]')) {
             $kind = substr($ref, 0, -2);
             $ok = [];
-            foreach ((array) $value as $v) {
+            // PMPro 3.8.x stores pmpro_level_order and
+            // pmpro_hideadslevels as comma-delimited strings, while their
+            // manifest refs are list-shaped. Treating that string as one
+            // PHP array element silently retained only its leading integer
+            // (`(int) "2,1,3" === 2`) and lost every later relationship.
+            // The same cast already has a rule-aware apply codec in Tokens;
+            // split here before the option-specific scope triage so each id
+            // is independently mapped, dropped, or reported.
+            $values = $cast === 'csv'
+                ? array_values(array_filter(
+                    array_map('trim', explode(',', (string) $value)),
+                    static fn(string $part): bool => $part !== ''
+                ))
+                : (array) $value;
+            foreach ($values as $v) {
                 $id = (int) $v;
                 if ($id === 0) {
                     continue;

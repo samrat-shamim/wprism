@@ -1311,6 +1311,12 @@ final class Snapshot {
             static function (array $tables, array $preserved): void {
                 Ledger::prune_dead_table_map($tables, $preserved);
             },
+            static function (array $tables): void {
+                Ledger::prune_dead_composite_table_map(
+                    $tables,
+                    SnapshotIdentity::compositeComponentBits()
+                );
+            },
             static fn(array $decl): bool => self::is_composite_ref($decl)
         );
     }
@@ -1339,7 +1345,7 @@ final class Snapshot {
         return self::snapshot_pruner($policy)->option_name_ref_preserved_ids($repositoryOptions);
     }
 
-    /** Full capture dead-map hygiene for declared non-composite table rows. */
+    /** Full capture dead-map hygiene for every declared typed-table row. */
     public static function prune_dead_map(Policy $policy, ?array $repositoryOptions = null): void {
         self::snapshot_pruner($policy)->prune_dead_map(self::row_tables($policy), $repositoryOptions);
     }
@@ -1355,9 +1361,10 @@ final class Snapshot {
      * Ledger::prune_dead_table_map() already has the required absent-table
      * skip, so this method supplies only the option_name_refs intersection.
      *
-     * Composite-ref tables are excluded for the same reason as
-     * prune_dead_map(): their packed local_id has no single source PK to join
-     * against, and no current option-name reference can resolve one safely.
+     * Composite-ref tables remain excluded here: no current option-name
+     * reference resolves a packed tuple, and lifecycle capture intentionally
+     * runs before plugin activation may recreate the owning table. Full
+     * capture prunes them safely through their exact two-column tuple.
      */
     public static function prune_option_name_ref_map(
         Policy $policy,

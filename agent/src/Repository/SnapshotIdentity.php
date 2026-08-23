@@ -13,6 +13,11 @@ final class SnapshotIdentity {
     private const COMPOSITE_COMPONENT_BITS = 31;
     private const COMPOSITE_COMPONENT_MAX = (1 << self::COMPOSITE_COMPONENT_BITS) - 1;
 
+    /** One authority for both PHP packing and Ledger's SQL-side tuple probe. */
+    public static function compositeComponentBits(): int {
+        return self::COMPOSITE_COMPONENT_BITS;
+    }
+
     private \Closure $naturalKeyColumns;
     private \Closure $rowTables;
     private \Closure $ledgerUuidFor;
