@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-// DUO-3225: offline contract inventory for the exact WooCommerce 11.0.0
+// DUO-3225: offline contract inventory for the exact WooCommerce 11.0.x
 // fixture. The live conformance suite proves behavior; this fast test keeps a
 // future option/table addition from becoming invisible by accident.
 

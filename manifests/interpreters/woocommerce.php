@@ -7,7 +7,8 @@ use Duo\Canon;
 use Duo\Policy;
 
 /**
- * WooCommerce 11.0.0 reads `_product_attributes` as a six-field row map.
+ * Exact WooCommerce 11.0.0 and 11.0.1 read `_product_attributes` as a
+ * six-field row map.
  * Its native reader silently drops a non-array value and fills missing row
  * fields with defaults, so canonical JSON can otherwise be valid while the
  * promoted catalog loses merchant-authored attributes. Keep extension-owned

@@ -20,7 +20,7 @@
 # Classic Editor 1.7.0; Code Snippets 3.9.5/3.9.6; CF7 6.0/6.1.7; Elementor 4.0.0/4.2.3; Ninja Forms
 # 3.4.34.2/3.14.11; PMPro 3.8.2/3.8.3 (with adjacent official-tag refusals);
 # Polylang 3.8/3.8.7; The Events Calendar 6.17.2/6.17.3;
-# WooCommerce 11.0.0 (the only stable in-range 11.x release); Yoast SEO
+# WooCommerce 11.0.0/11.0.1 (including a populated in-place upgrade); Yoast SEO
 # 28.0/28.3 — all real
 # wp.org releases except PMPro's official upstream GitHub tags, never invented): fresh state, install ONLY from
 # a digest-verified artifact (never a bare slug install that silently pulls
@@ -1774,13 +1774,14 @@ done
 
 fi
 
-# WooCommerce 11.0.0 is currently both the declared minimum and the newest
-# stable release below 12.0.0. Certify it once: repeating the same artifact
-# under two labels would add runtime without adding evidence.
+# WooCommerce 11.0.0 is the declared minimum and 11.0.1 is the current exact
+# release below 12.0.0. Certify both artifacts, then upgrade populated 11.0.0
+# environments in place so a fresh 11.0.1 install is not mistaken for upgrade
+# compatibility.
 if [ "$VMATRIX_MANIFEST" = woocommerce ]; then
 VMATRIX_CASES=$((VMATRIX_CASES + 1))
-for WOO_VERSION in 11.0.0; do
-  say "boundary: woocommerce $WOO_VERSION (only stable in-range release; min == max-practical)"
+for WOO_VERSION in 11.0.0 11.0.1; do
+  say "boundary: woocommerce $WOO_VERSION"
 
   reset_env wp1
   reset_env wp2
@@ -1845,7 +1846,55 @@ EOF
   DIFF_OUT=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
   rm -rf "siterepo/${PAIR}2/.tmp-final"
   [ -z "$DIFF_OUT" ] || fail "byte-identity broken at woocommerce $WOO_VERSION: $DIFF_OUT"
-  pass "byte-identical recapture at woocommerce $WOO_VERSION — the only currently available in-range boundary is proven without duplicate execution"
+  pass "byte-identical recapture at woocommerce $WOO_VERSION — the exact in-range release is proven through the full product path"
+
+  if [ "$WOO_VERSION" = 11.0.0 ]; then
+    say 'in-place upgrade: populated woocommerce 11.0.0 -> exact 11.0.1 on both environments'
+    UPGRADE_ARTIFACT_1=$(fetch_artifact woocommerce 11.0.1 cli1)
+    UPGRADE_ARTIFACT_2=$(fetch_artifact woocommerce 11.0.1 cli2)
+    wp1 plugin install "$UPGRADE_ARTIFACT_1" --force --activate >/dev/null
+    [ "$(wp1 plugin get woocommerce --field=version)" = 11.0.1 ] \
+      || fail 'WooCommerce source in-place upgrade did not install exact 11.0.1'
+    wp1 duo deploy --repo=/siterepo --force-code-drift >/dev/null
+    wp1 eval '
+      $product=wc_get_product(wc_get_product_id_by_sku("CONF-WIDGET-1"));
+      if (!$product) { throw new RuntimeException("upgrade product missing"); }
+      $product->set_purchase_note("WooCommerce 11.0.0 to 11.0.1 upgrade 東京 🚀");
+      $product->save();
+    ' >/dev/null
+    wp1 duo capture --repo=/siterepo
+    wp1 duo lint --repo=/siterepo
+    "${GIT1[@]}" add -A
+    "${GIT1[@]}" commit -qm 'capture: woocommerce 11.0.0 to 11.0.1 in-place upgrade'
+    "${GIT1[@]}" push -q origin main
+
+    wp2 plugin install "$UPGRADE_ARTIFACT_2" --force --activate >/dev/null
+    [ "$(wp2 plugin get woocommerce --field=version)" = 11.0.1 ] \
+      || fail 'WooCommerce target in-place upgrade did not install exact 11.0.1'
+    git -C "siterepo/${PAIR}2" pull -q origin main
+    wp2 duo deploy --repo=/siterepo --force-code-drift >/dev/null
+    UPGRADE_REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
+    wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$UPGRADE_REV" \
+      2>&1 | tee "$VMATRIX_APPLY_LOG"
+    grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
+      || fail 'apply canary not clean after woocommerce 11.0.0 to 11.0.1 in-place upgrade'
+    SAVED_WOO_VERSION="$WOO_VERSION"
+    WOO_VERSION=11.0.1
+    check_woocommerce_content
+    WOO_VERSION="$SAVED_WOO_VERSION"
+    UPGRADE_NOTE=$(wp2 eval '
+      $product=wc_get_product(wc_get_product_id_by_sku("CONF-WIDGET-1"));
+      echo $product ? $product->get_purchase_note("edit") : "";
+    ')
+    [ "$UPGRADE_NOTE" = 'WooCommerce 11.0.0 to 11.0.1 upgrade 東京 🚀' ] \
+      || fail "WooCommerce 11.0.1 did not preserve/apply the product authored during upgrade: $UPGRADE_NOTE"
+    wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-woo-upgrade-final
+    UPGRADE_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-woo-upgrade-final" || true)
+    rm -rf "siterepo/${PAIR}2/.tmp-woo-upgrade-final"
+    [ -z "$UPGRADE_DIFF" ] \
+      || fail "WooCommerce 11.0.0 to 11.0.1 in-place upgrade lost byte identity: $UPGRADE_DIFF"
+    pass 'populated woocommerce 11.0.0 -> 11.0.1 upgrade preserves native catalog/API behavior, applies cleanly, and recaptures byte-identically'
+  fi
 done
 fi
 

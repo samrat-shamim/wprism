@@ -16,7 +16,7 @@
 set -euo pipefail
 CONF1_PORT="${CONF1_PORT:-8800}"
 CONF2_PORT="${CONF2_PORT:-8801}"
-WOOCOMMERCE_EXPECTED_VERSION="${WOOCOMMERCE_EXPECTED_VERSION:-11.0.0}"
+WOOCOMMERCE_EXPECTED_VERSION="${WOOCOMMERCE_EXPECTED_VERSION:-11.0.1}"
 
 observe_woocommerce() { # <conf1|conf2>
   local side="$1" repo service file out
@@ -410,7 +410,7 @@ jq -e 'length >= 1 and any(.[]; .name == "Conformance Variable Widget" and .is_p
 pass "Store API attribute filtering returns the visible, purchasable variable catalog product"
 
 # The automatic contract is intentionally bounded to products affected by
-# this Apply. WooCommerce 11.0.0 exposes only a whole-catalog public rebuild
+# this Apply. WooCommerce 11.0.x exposes only a whole-catalog public rebuild
 # for wc_category_lookup, so category lookup repair is an explicit manual
 # boundary and is not claimed by this conformance run.
 pass "bounded Woo price/product-meta/sale projections verified; attribute and category lookups remain explicit manual boundaries"
@@ -928,12 +928,12 @@ MISSING_OUT=$(wp_conf2 duo deploy --repo=/siterepo 2>&1) || MISSING_RC=$?
 require_duo_answered 'WooCommerce deploy with code absent' human "$MISSING_OUT"
 [ "$MISSING_RC" -ne 0 ] && grep -Eq 'code_mismatch|missing_in_code|is not installed' <<<"$MISSING_OUT" \
   || fail "missing WooCommerce code did not refuse at compatibility: $MISSING_OUT"
-WOO_SHA=ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666
-WOO_ARTIFACT="/artifacts-cache/plugin-woocommerce-11.0.0-${WOO_SHA}.zip"
+WOO_SHA=da189b6616c610d15a2106f93151dab81b78f83e075bcefce221ac0d00b4fa21
+WOO_ARTIFACT="/artifacts-cache/plugin-woocommerce-11.0.1-${WOO_SHA}.zip"
 [ "$(wp_conf2 eval "echo hash_file('sha256','$WOO_ARTIFACT');")" = "$WOO_SHA" ] \
   || fail 'cached WooCommerce reinstall artifact digest moved'
 wp_conf2 plugin install "$WOO_ARTIFACT" --force >/dev/null
-[ "$(wp_conf2 plugin get woocommerce --field=version)" = 11.0.0 ] \
+[ "$(wp_conf2 plugin get woocommerce --field=version)" = 11.0.1 ] \
   || fail 'WooCommerce exact reinstall reported the wrong version'
 REINSTALL_DEPLOY=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 require_duo_answered 'WooCommerce deploy after exact reinstall' json "$REINSTALL_DEPLOY"

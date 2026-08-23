@@ -324,7 +324,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 
 ## woocommerce
 
-**Status: certified.** Certified product/catalog creation and update with bounded product-meta/price/sale repair, typed-table configuration, option-name reference, HPOS runtime-sovereignty, lifecycle, and explicit fail-closed attribute/category lookup and deletion boundaries.
+**Status: certified.** Certified exact WooCommerce 11.0.0 and 11.0.1 product/catalog creation and update, including a populated in-place 11.0.0-to-11.0.1 upgrade, bounded product-meta/price/sale/download repair with exact scoped recovery evidence, typed-table configuration, option-name reference, HPOS runtime-sovereignty, lifecycle, and explicit fail-closed attribute/category lookup and deletion boundaries.
 
 - **Plugin:** `woocommerce/woocommerce.php`
 - **Version range:** >=11.0.0 <12.0.0
@@ -343,8 +343,8 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 - `post_types.product_variation` / `delete` — Variation reverse references and parent/group relationships share the same open WooCommerce extension boundary as products.
 - `tables.woocommerce_attribute_taxonomies` / `delete` — The v1 guard/cascade grammar cannot express WooCommerce global-attribute semantic deletion.
 - `tables.woocommerce_shipping_zone_locations|woocommerce_shipping_zone_methods|woocommerce_shipping_zones|woocommerce_tax_rate_locations|woocommerce_tax_rates` / `delete` — Shipping-zone and tax-rate rows require version-pinned WooCommerce API, cache, child-row, and option-name effects that are not a closed semantic delete contract.
-- `derived.wc_category_lookup` / `apply` — WooCommerce 11.0.0 exposes only a public whole-catalog category lookup rebuild; automatic bounded repair and verification are unavailable, so operators must repair this derived table explicitly.
-- `derived.wc_product_attributes_lookup` / `apply` — WooCommerce 11.0.0 exposes no stable bounded expected-output or independent value-verification API for product-attribute lookup rows, so the verified provider does not mutate this table; operators must run and verify WooCommerce's regeneration explicitly.
+- `derived.wc_category_lookup` / `apply` — Exact WooCommerce 11.0.0 and 11.0.1 expose only a public whole-catalog category lookup rebuild; automatic bounded repair and verification are unavailable, so operators must repair this derived table explicitly.
+- `derived.wc_product_attributes_lookup` / `apply` — Exact WooCommerce 11.0.0 and 11.0.1 expose no stable bounded expected-output or independent value-verification API for product-attribute lookup rows, so the verified provider does not mutate this table; operators must run and verify WooCommerce's regeneration explicitly.
 - `tables.runtime` / `capture` — Orders, customers, sessions, stock reservations, and Action Scheduler rows remain runtime-sovereign.
 
 ## wps-hide-login
