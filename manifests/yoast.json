@@ -73,7 +73,7 @@
     "_yoast_wpseo_is_cornerstone": {"class": "authored", "lint_ok": true},
     "_yoast_wpseo_linkdex": {"class": "derived"},
     "_yoast_wpseo_meta-robots-adv": {"class": "authored"},
-    "_yoast_wpseo_meta-robots-nofollow": {"class": "authored"},
+    "_yoast_wpseo_meta-robots-nofollow": {"class": "authored", "lint_ok": true},
     "_yoast_wpseo_meta-robots-noindex": {"class": "authored"},
     "_yoast_wpseo_metadesc": {"class": "authored"},
     "_yoast_wpseo_opengraph-description": {"class": "authored"},
