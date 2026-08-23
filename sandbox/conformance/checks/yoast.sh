@@ -399,7 +399,10 @@ pass 'Yoast-owned disabled-indexing policy yields a verified no-op while authore
 # Rename a required live column after publishing new authored intent. Provider
 # schema preflight must refuse before the destructive command, the database
 # checkpoint must undo earlier materialization, and retry must consume the same
-# retained authority once the exact schema is restored.
+# retained authority once the exact schema is restored. The live envelope pins
+# the provider/capability refusal while regress_yoast_index_provider.php pins
+# `missing required column(s): link_count`: Providers::invoke() intentionally
+# redacts provider throwables so a plugin cannot leak a credential into CLI.
 wp_conf1 eval '
   $post=get_page_by_path("conformance-yoast-post",OBJECT,"post");
   update_post_meta($post->ID,"_yoast_wpseo_metadesc","Schema recovery Yoast description 東京 🚀");
@@ -410,7 +413,7 @@ SCHEMA_BEFORE=$(yoast_target_hash)
 SCHEMA_RC=0
 SCHEMA_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || SCHEMA_RC=$?
 require_duo_answered 'Yoast schema-preflight failure' human "$SCHEMA_OUT"
-[ "$SCHEMA_RC" -ne 0 ] && grep -q 'missing required column(s): link_count' <<<"$SCHEMA_OUT" \
+[ "$SCHEMA_RC" -ne 0 ] && grep -q "provider 'yoast-index' capability 'reindex' failed" <<<"$SCHEMA_OUT" \
   || fail "Yoast missing provider column did not refuse exactly: $SCHEMA_OUT"
 [ "$(yoast_target_hash)" = "$SCHEMA_BEFORE" ] || fail 'Yoast schema failure left partial authored or derived writes'
 [ "$(wp_conf2 eval 'echo null === \Duo\Ledger::kv_get("apply_in_progress") ? "clear" : "retained";')" = retained ] \
