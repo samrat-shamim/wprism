@@ -202,7 +202,8 @@ final class InitPlanner {
         $unsupported = array_merge($unsupported, $code['blockers']);
         $advisories = array_merge($advisories, $code['advisories']);
         unset($code['blockers'], $code['advisories']);
-        $code = self::code_split($code, $lockPlan);
+        [$code, $codeBlockers] = self::code_split($code, $lockPlan);
+        $unsupported = array_merge($unsupported, $codeBlockers);
 
         $selected = array_values(array_unique($selected));
         sort($selected, SORT_STRING);
@@ -330,9 +331,11 @@ final class InitPlanner {
         }
 
         $config = [
-            // The declaration the split produced: format 1 when every
-            // component is vendored, format 2 naming the lock when at least
-            // one is not carried in Git (DUO-3499).
+            // The declaration the classification produced: format 2 naming
+            // the lock (components Git does not carry + first_party it does)
+            // for every classified site; format 1 only for a site with no
+            // lockable component at all, where an empty payload has nothing
+            // to declare (DUO-3499, then the no-third-party-bytes invariant).
             'code' => $code['declaration'],
             'manifests' => $pins,
             'policy' => [
@@ -523,21 +526,36 @@ final class InitPlanner {
      * reaches the proposal, so a confirmation can never be asked to write a
      * lock its own reader would refuse.
      *
-     * A violation throws rather than becoming an `unsupported` row: these are
-     * host protocol errors, not conditions of the site being adopted.
+     * Three classifications, and only three: `locked` (Git does not carry it;
+     * the origin says where its bytes come from), `first-party` (Git carries
+     * it because the operator declared the code the site's own), and
+     * `unsourced` (neither — no verified release, no imported archive, no
+     * first-party declaration). The last is a BLOCKER, not a fallback: it
+     * becomes an `unsupported` row (`code_component_unsourced`) naming the
+     * component and both remedies, so the proposal reads "blocked" and the
+     * operator chooses rather than Git quietly receiving third-party bytes.
+     * That is the whole of "Git never carries third-party code" at init time;
+     * CodeDescriptorCompiler::lock_diagnostics() holds the same line at every
+     * compile afterwards.
+     *
+     * A protocol violation (an unknown classification, a component this site
+     * does not have, a stale digest) throws rather than becoming an
+     * `unsupported` row: those are host errors, not conditions of the site
+     * being adopted.
      *
      * @param array<string,mixed> $code
      * @param ?list<array<string,mixed>> $lockPlan
-     * @return array<string,mixed>
+     * @return array{0:array<string,mixed>,1:list<array<string,string>>} the code proposal and its blockers
      */
     private static function code_split(array $code, ?array $lockPlan): array {
         // Always present, so the proposal shape does not depend on the mode.
-        // An empty split means no component was classified and the entire
-        // payload is vendored -- which is exactly `duo init --code=full` and
-        // exactly what every repository initialized before DUO-3499 has.
+        // An empty split means the host classified nothing, which the host
+        // does only for a site with no lockable component at all (the
+        // inventory is empty, so there is nothing Git could carry by
+        // omission); the declaration then stays format 1 over an empty payload.
         $code['split'] = [];
         if ($lockPlan === null) {
-            return $code;
+            return [$code, []];
         }
         $inventory = [];
         foreach ((array) ($code['component_inventory'] ?? []) as $row) {
@@ -545,6 +563,8 @@ final class InitPlanner {
         }
         $rows = [];
         $lock = [];
+        $firstParty = [];
+        $blockers = [];
         $seen = [];
         foreach ($lockPlan as $i => $entry) {
             if (!is_array($entry) || array_is_list($entry)) {
@@ -556,8 +576,10 @@ final class InitPlanner {
             $expectedKeys = $classification === 'locked'
                 ? ['classification', 'component', 'origin', 'reason', 'root', 'tree_sha256', 'version']
                 : ['classification', 'component', 'reason', 'root', 'tree_sha256', 'version'];
-            if (!in_array($classification, ['locked', 'vendored'], true)) {
-                throw new \RuntimeException("duo: init code classification [$i] must be locked or vendored");
+            if (!in_array($classification, ['locked', 'first-party', 'unsourced'], true)) {
+                throw new \RuntimeException(
+                    "duo: init code classification [$i] must be locked, first-party or unsourced"
+                );
             }
             if ($keys !== $expectedKeys) {
                 throw new \RuntimeException(
@@ -600,31 +622,51 @@ final class InitPlanner {
                     'origin' => $entry['origin'],
                     'tree_sha256' => $entry['tree_sha256'],
                 ];
+            } elseif ($classification === 'first-party') {
+                $firstParty[] = $key;
+            } else {
+                $blockers[] = [
+                    'code' => 'code_component_unsourced',
+                    'extension' => $key,
+                    'kind' => 'code',
+                    'reason' => 'the host could not source this component: ' . (string) $entry['reason']
+                        . '. Git must not carry third-party code, so it cannot be vendored by default',
+                    'remediation' => 'import its release archive on the host with `duo code-import <archive.zip>` '
+                        . 'and rerun duo init, or declare it the site\'s own code with `duo init --first-party='
+                        . $key . '`',
+                ];
             }
         }
         if (count($seen) !== count($inventory)) {
             $missing = array_values(array_diff(array_keys($inventory), array_keys($seen)));
             throw new \RuntimeException(
                 'duo: init code classification is incomplete; it says nothing about ' . implode(', ', $missing)
-                . '. Every active component must be classified, or one would be vendored by omission'
+                . '. Every active component must be classified, or one would be carried by omission'
             );
         }
         usort($rows, static fn(array $a, array $b): int =>
             [(string) $a['root'], (string) $a['component']] <=> [(string) $b['root'], (string) $b['component']]);
         $code['split'] = $rows;
-        if ($lock !== []) {
-            $code['lock'] = CodeSourceLock::sort_components($lock);
-            // Refuse here, where the operator can still read the proposal,
-            // rather than mid-transaction when the lock is being published.
-            CodeSourceLock::assert_lock(['format' => CodeSourceLock::FORMAT, 'components' => $code['lock']]);
-            $code['declaration'] = [
-                'format' => 2,
-                'layout' => 'wp-content',
-                'lock' => CodeSourceLock::PATH,
-                'source' => Code::SOURCE,
-            ];
-        }
-        return $code;
+        // A classified site is ALWAYS the split declaration, even when nothing
+        // locked: the lock's `first_party` list is what lets the compile gate
+        // tell "Git carries this by declaration" from "Git carries this by
+        // omission", and format 1 has nowhere to record that.
+        $code['lock'] = CodeSourceLock::sort_components($lock);
+        $code['first_party'] = CodeSourceLock::sort_first_party($firstParty);
+        // Refuse here, where the operator can still read the proposal,
+        // rather than mid-transaction when the lock is being published.
+        CodeSourceLock::assert_lock([
+            'format' => CodeSourceLock::FORMAT,
+            'components' => $code['lock'],
+            'first_party' => $code['first_party'],
+        ]);
+        $code['declaration'] = [
+            'format' => 2,
+            'layout' => 'wp-content',
+            'lock' => CodeSourceLock::PATH,
+            'source' => Code::SOURCE,
+        ];
+        return [$code, $blockers];
     }
 
     /**

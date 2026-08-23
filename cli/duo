@@ -96,6 +96,7 @@ require __DIR__ . '/src/Command/CodeClassifyCommand.php';
 // already pulled this file in, because `duo deploy` runs the same resolver as
 // an automatic pre-compile phase.
 require_once __DIR__ . '/src/Command/CodeResolveCommand.php';
+require_once __DIR__ . '/src/Command/CodeImportCommand.php';
 require __DIR__ . '/src/Command/ContractCommand.php';
 // Round-3 MUP §2.2-§2.5, in the same last-in-block position and for the same
 // reason: every class below require_once's its own dependencies by path, so a
@@ -199,6 +200,7 @@ use Duo\Orchestrator\PendingCommand;
 use Duo\Orchestrator\ClassifyCommand;
 use Duo\Orchestrator\CodeClassifyCommand;
 use Duo\Orchestrator\CodeResolveCommand;
+use Duo\Orchestrator\CodeImportCommand;
 use Duo\Orchestrator\StatusCommand;
 use Duo\Orchestrator\AssessCommand;
 use Duo\Orchestrator\ContractCommand;
@@ -260,12 +262,13 @@ Usage:
   duo doctor <env>
   duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
   duo adopt  <env>
-  duo init   <env> [--yes] [--allow-unmanaged-plugins] [--code=split|full] [--offline] [--cache-dir=<path>]
+  duo init   <env> [--yes] [--allow-unmanaged-plugins] [--first-party=<root>/<slug>[,…]] [--offline] [--cache-dir=<path>]
   duo status <env> [--category=<ids>] [--action=<buckets>] [--entity=<kinds>] [--limit=<1..200>]
   duo assess <env> [--operation=<ops>] [--limit=<1..200>] [--format=json]
   duo contract <env> show|propose|accept [--format=json]
-  duo code-classify <env> [--dry-run] [--offline] [--cache-dir=<path>]
+  duo code-classify <env> [--dry-run] [--first-party=<root>/<slug>[,…]] [--offline] [--cache-dir=<path>]
   duo code-resolve  <env> [--dry-run] [--offline] [--cache-dir=<path>]
+  duo code-import <archive.zip> [--component=<slug>] [--root=plugins|themes] [--cache-dir=<path>] [--format=json]
   duo rehearse <env> --from <production-env> [--branch <ref>] [--create]
                      [--ttl <seconds>] [--limit=<1..200>] [--format=json]
   duo rehearse <env> --reap [--format=json]
@@ -525,34 +528,53 @@ Verbs:
                           to fix first. It does not weaken any other refusal —
                           an installed but UNCERTIFIED adapter still blocks init
                           (certify it with `duo adapter certify`).
-    --code=split|full     Whether third-party components whose installed bytes
-                          hash-match their own published wp.org release archive
-                          are declared in `code/duo-code.lock.json` and left out
-                          of Git (`split`, the default), or vendored into Git
-                          wholesale (`full`). Classification runs on THIS host,
-                          never on the target, and only a component that was
-                          fetched, unpacked and hash-matched is locked; every
-                          other one is vendored with its reason printed. The
-                          classification is inside the proposal digest.
-    --offline             Contact no release registry. Equivalent to
-                          `--code=full`, with the reason stated.
+    --first-party=<root>/<slug>[,…]
+                          Declare a plugin or theme the site's OWN code, so Git
+                          carries it. Repeatable. Every other component must
+                          LOCK — against its published wp.org release when the
+                          installed bytes hash-match it, or against an archive
+                          imported on this host with `duo code-import` — and is
+                          declared in `code/duo-code.lock.json` and left out of
+                          Git. A component that neither locks nor is declared
+                          first-party BLOCKS init (`code_component_unsourced`):
+                          Git never carries third-party code, so there is no
+                          "vendor it anyway". Classification runs on THIS host,
+                          never on the target, and is inside the proposal digest.
+    --offline             Contact no release registry: a wp.org component locks
+                          only from the host cache, imported archives work as
+                          usual, and anything else is unsourced.
     --cache-dir=<path>    Absolute path for the content-addressed release cache
                           (default `\$XDG_CACHE_HOME/duo/code-artifacts`, else
                           `~/.cache/duo/code-artifacts`).
-  code-classify <env>     Migrate an already-initialized repository to the
-    [--dry-run]           code-half split. Runs from INSIDE the site repo, like
-    [--offline]           assess and contract. Reads each component's digest
-    [--cache-dir=<path>]  from code/wp-content, classifies it against its own
-                          published wp.org release on THIS host, then writes
-                          code/duo-code.lock.json, the root-anchored .gitignore
-                          lines, and `code` format 2 into site.duo.json, and
-                          `git rm --cached` the locked trees. The bytes stay on
-                          disk, so the next compile produces the IDENTICAL
-                          code_revision -- asserted, not assumed. Refuses if
-                          code/ has uncommitted changes, or if <env>'s
-                          repository describes different components than this
-                          checkout. A fresh clone then needs the materialization
-                          step in docs/guides/code-updates.md before it compiles.
+  code-import <archive>   Import one release archive the operator holds into
+    [--component=<slug>]  THIS host's code-artifact cache, so a component with
+    [--root=plugins|themes] no wp.org release (a premium plugin, a private
+    [--cache-dir=<path>]  theme, a vendor build) can be LOCKED instead of
+    [--format=json]       carried in Git. No <env>: the cache is the host's.
+                          Prints the archive_sha256 the lock will record and
+                          the tree_sha256 an installed component must hash to;
+                          records nothing about where the archive came from.
+                          Pass --component when the archive's top-level
+                          directory is not named after the component.
+  code-classify <env>     (Re)declare an initialized repository's code half.
+    [--dry-run]           Runs from INSIDE the site repo, like assess and
+    [--first-party=<root>/<slug>[,…]]
+    [--offline]           contract. Reads each component's digest from
+    [--cache-dir=<path>]  code/wp-content and classifies it on THIS host:
+                          LOCKED against its published wp.org release or an
+                          imported archive, FIRST-PARTY when declared, and
+                          otherwise UNSOURCED, which refuses the whole run --
+                          Git never carries third-party code. Writes
+                          code/duo-code.lock.json (components + first_party),
+                          the root-anchored .gitignore lines, `code` format 2
+                          into site.duo.json, and `git rm --cached` the newly
+                          locked trees. The bytes stay on disk, so the next
+                          compile produces the IDENTICAL code_revision --
+                          asserted, not assumed. Refuses if code/ has
+                          uncommitted changes, or if <env>'s repository
+                          describes different components than this checkout.
+                          A fresh clone then needs `duo code-resolve` before
+                          it compiles.
   code-resolve <env>      Materialize every component code/duo-code.lock.json
     [--dry-run]           declares, on THIS host, into that environment's own
     [--offline]           code/wp-content. Reads the content-addressed release
@@ -1055,6 +1077,15 @@ function main(array $argv): int {
             return AdapterCertify::run($rest);
         }
         return AdapterCatalog::run($rest);
+    }
+
+    // Same shape, same reason: `code-import` reads one archive on THIS machine
+    // into the host's content-addressed code-artifact cache. The cache is a
+    // property of the host, not of a site, and the import has to be possible
+    // before the `duo init` that classifies the component — so no environment
+    // and no transport, exactly like manifest-validate.
+    if ($verb === 'code-import') {
+        return CodeImportCommand::run($rest);
     }
 
     if (!EnvironmentCommandPreflight::requiresEnvironment($verb)) {

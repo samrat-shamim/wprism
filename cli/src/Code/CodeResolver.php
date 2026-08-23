@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Duo\Orchestrator;
 
 require_once __DIR__ . '/WpOrgReleases.php';
+require_once __DIR__ . '/ImportedArchives.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/PathSafety.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Code/CodeSourceLock.php';
@@ -25,8 +26,12 @@ use Duo\PathSafety;
  * step. It adds no algorithm: every byte-level decision — the content-addressed
  * cache, the refuse-don't-refetch rule, the delete-partial-and-refuse rule,
  * offline, the unpack entry check and the tree digest — already lives in
- * WpOrgReleases, where `duo init --code=split` and `duo code-classify` proved
- * it out against real archive bytes.
+ * WpOrgReleases, where `duo init` and `duo code-classify` proved it out
+ * against real archive bytes. An `imported-archive` origin takes the identical
+ * path from the same cache's imported store (ImportedArchives) with no
+ * network at all; what it cannot do is fetch, because the archive of a premium
+ * component is the operator's to move between hosts (`duo code-import`), never
+ * Duo's to download.
  *
  * ## Two invariants worth stating outright
  *
@@ -66,8 +71,8 @@ final class CodeResolver {
     /** The unpacked release does not hash to the `tree_sha256` the lock declares. */
     public const REASON_TREE_DIGEST_MISMATCH = 'code_resolve_tree_digest_mismatch';
 
-    /** A `vendored-archive` origin names a path this repository does not carry. */
-    public const REASON_ARCHIVE_MISSING = 'code_resolve_archive_missing';
+    /** An `imported-archive` origin names an archive this host's cache does not hold. */
+    public const REASON_ARCHIVE_MISSING = ImportedArchives::REASON_ARCHIVE_MISSING;
 
     /** The archive could not be opened, or does not hold one component directory. */
     public const REASON_UNPACK_FAILED = 'code_resolve_unpack_failed';
@@ -84,7 +89,13 @@ final class CodeResolver {
     /** Repository-relative staging root. Ignored by init's own `/.duo/` line. */
     public const STAGING = '.duo/code-resolve';
 
+    private ImportedArchives $imported;
+
     public function __construct(private WpOrgReleases $releases) {
+        // One cache root for both origins: the imported store is a
+        // subdirectory of the same content-addressed cache wp.org releases
+        // are fetched into, so `--cache-dir` moves both together.
+        $this->imported = ImportedArchives::forReleases($releases);
     }
 
     /**
@@ -221,14 +232,14 @@ final class CodeResolver {
                     'would-resolve',
                     $kind === 'wp-org-release'
                         ? 'would fetch and verify ' . (string) $origin['url']
-                        : 'would unpack and verify ' . (string) $origin['path']
+                        : 'would unpack and verify imported archive ' . (string) $origin['archive_sha256']
                 );
                 continue;
             }
 
             $archive = $kind === 'wp-org-release'
                 ? $this->releaseArchive($origin)
-                : ['path' => $this->vendoredArchive($repo, $root, $component, $origin), 'source' => 'vendored-archive'];
+                : $this->importedArchive($origin, $root, $component, $version);
             $this->materialize($repo, $root, $component, $version, $declared, $archive['path'], $origin);
             $rows[] = self::row($root, $component, $version, 'resolved', 'verified and materialized from ' . $archive['source']);
         }
@@ -293,53 +304,23 @@ final class CodeResolver {
     }
 
     /**
-     * The verified archive for a `vendored-archive` origin.
+     * The verified archive for an `imported-archive` origin.
      *
-     * Same verification, one fewer moving part: the bytes are in the
-     * repository, so there is no cache and no network, and the only question
-     * is whether the file the lock names still hashes to the digest the lock
-     * declares. The grammar already proved the path cannot escape the
-     * repository (agent/src/Code/CodeSourceLock.php:199-203); re-asserting it
-     * here costs nothing and keeps this function safe to call on a lock that
-     * arrived some other way.
+     * Same verification, no network: the archive is in this host's imported
+     * store or it is not, and the store re-verifies its bytes against the
+     * digest the lock names before handing the path over
+     * (ImportedArchives::archivePath()). The one refusal names the one
+     * remedy — import the vendor's archive on this host — because there is
+     * nothing Duo could fetch on the operator's behalf.
      *
      * @param array<string,mixed> $origin
+     * @return array{path:string,source:string}
      */
-    private function vendoredArchive(string $repo, string $root, string $component, array $origin): string {
-        $relative = (string) $origin['path'];
-        if (!PathSafety::safe_relative($relative)) {
-            throw new CommandRefusalException(
-                self::REASON_ARCHIVE_MISSING,
-                'a vendored-archive origin names a path that could escape the repository',
-                'restore a lock whose vendored-archive paths are repository-relative',
-                [],
-                "duo: $root/$component declares vendored archive '$relative', which is not repository-relative"
-            );
-        }
-        $path = $repo . '/' . $relative;
-        if (is_link($path) || !is_file($path)) {
-            throw new CommandRefusalException(
-                self::REASON_ARCHIVE_MISSING,
-                'a vendored-archive origin names an archive this repository does not carry',
-                'restore the archive at the path the lock names, or re-lock the component with duo code-classify',
-                [],
-                "duo: $root/$component declares vendored archive $relative, which is not a regular file in $repo"
-            );
-        }
-        $digest = hash_file('sha256', $path);
-        $expected = (string) $origin['archive_sha256'];
-        if (!is_string($digest) || !hash_equals($expected, $digest)) {
-            throw new CommandRefusalException(
-                WpOrgReleases::REASON_ARCHIVE_DIGEST_MISMATCH,
-                'a vendored release archive does not hash to the digest the lock declares',
-                'restore the reviewed archive, or re-lock the component with duo code-classify if this archive '
-                . 'is the intended one',
-                [],
-                "duo: $root/$component vendored archive $relative hashes to " . (is_string($digest) ? $digest : 'nothing')
-                . ", but the lock declares $expected"
-            );
-        }
-        return $path;
+    private function importedArchive(array $origin, string $root, string $component, string $version): array {
+        return [
+            'path' => $this->imported->archivePath((string) $origin['archive_sha256'], $root, $component, $version),
+            'source' => 'the host cache (imported archive)',
+        ];
     }
 
     /**

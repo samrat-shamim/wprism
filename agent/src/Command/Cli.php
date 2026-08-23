@@ -882,9 +882,9 @@ final class Cli {
      * verifies (DUO-3499).
      *
      * Strict base64 and a JSON list, or nothing: a silently-empty
-     * classification would produce a fully vendored proposal that the operator
-     * asked to be split, which is exactly the kind of quiet downgrade the
-     * digest protocol exists to prevent.
+     * classification would produce an unclassified proposal whose every
+     * component Git would carry by omission, which is exactly the kind of
+     * quiet downgrade the digest protocol exists to prevent.
      *
      * @param mixed $raw
      * @return ?list<array<string,mixed>>

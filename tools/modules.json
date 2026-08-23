@@ -1409,10 +1409,12 @@
       },
       "Code": {
         "layer": "policy",
-        "purpose": "Host-side code-half sourcing: the wp.org release cache, fetch, verify, unpack and tree-digest primitives behind `duo init --code=split` and `duo code-classify`, and the lock resolver `duo code-resolve` materializes with.",
+        "purpose": "Host-side code-half sourcing: the wp.org release cache, fetch, verify, unpack and tree-digest primitives, the imported-archive store `duo code-import` fills for components with no wp.org release, the locked / first-party / unsourced classification behind `duo init` and `duo code-classify`, and the lock resolver `duo code-resolve` materializes with.",
         "status": "populated",
         "entry_points": [
+          "CodeClassifier",
           "CodeResolver",
+          "ImportedArchives",
           "WpOrgReleases"
         ],
         "depends_on": [
@@ -1421,9 +1423,11 @@
           "agent:Kernel"
         ],
         "exceptions": [],
-        "file_count": 2,
+        "file_count": 4,
         "files": [
+          "CodeClassifier.php",
           "CodeResolver.php",
+          "ImportedArchives.php",
           "WpOrgReleases.php"
         ]
       },
@@ -1454,13 +1458,14 @@
           "agent:Policy"
         ],
         "exceptions": [],
-        "file_count": 27,
+        "file_count": 28,
         "files": [
           "AdoptCommand.php",
           "AssessCommand.php",
           "CaptureCommand.php",
           "ClassifyCommand.php",
           "CodeClassifyCommand.php",
+          "CodeImportCommand.php",
           "CodeResolveCommand.php",
           "CommandOutput.php",
           "ContractCommand.php",

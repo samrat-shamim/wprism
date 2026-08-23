@@ -21,8 +21,10 @@
  *      warm cache, so the flag forbids the network and nothing else;
  *   F. a release that unpacks to the wrong tree refuses AFTER the archive
  *      digest matched — the two digests are not redundant;
- *   G. `vendored-archive` origins get the identical verification with no cache
- *      and no network;
+ *   G. `imported-archive` origins get the identical verification from the
+ *      host's imported store, with no network — and a store that does not
+ *      hold the archive refuses by name, because Duo never fetches from a
+ *      vendor and the repository deliberately carries no copy;
  *   H. a component present at any OTHER digest refuses rather than
  *      overwriting bytes Git does not carry;
  *   I. `--dry-run` reports and writes nothing — not even a cache entry;
@@ -49,6 +51,7 @@ require_once __DIR__ . '/../../../../agent/src/Kernel/PathSafety.php';
 require_once __DIR__ . '/../../../../agent/src/Code/CodeSourceLock.php';
 require_once __DIR__ . '/../../../../agent/src/Code/CodeDescriptorCompiler.php';
 require_once __DIR__ . '/../../../../cli/src/Code/CodeResolver.php';
+require_once __DIR__ . '/../../../../cli/src/Code/ImportedArchives.php';
 require_once __DIR__ . '/../../../../cli/src/Command/CodeResolveCommand.php';
 
 use Duo\CodeCompilationException;
@@ -57,6 +60,7 @@ use Duo\CodeSourceLock;
 use Duo\CommandRefusalException;
 use Duo\Orchestrator\CodeResolveCommand;
 use Duo\Orchestrator\CodeResolver;
+use Duo\Orchestrator\ImportedArchives;
 use Duo\Orchestrator\WpOrgReleases;
 
 const RESOLVE_FORMAT_1 = ['format' => 1, 'layout' => 'wp-content', 'source' => 'code/wp-content'];
@@ -131,6 +135,8 @@ function resolve_tree_digest(string $scratch, array $files): string {
 /**
  * A split repository: `site.duo.json` at code format 2, the root-anchored
  * ignore lines, and only the components named in `$present` materialized.
+ * Every present component the lock does not declare is declared first-party
+ * in the same lock: that is the only shape a carried component may take.
  *
  * @param list<array<string,mixed>> $lockRows
  * @param array<string,array<string,string>> $present `{root}/{component}` => file map
@@ -143,7 +149,12 @@ function resolve_make_repo(string $scratch, int &$seq, array $lockRows, array $p
         $repo . '/site.duo.json',
         \Duo\Canon::encode(['code' => RESOLVE_FORMAT_2, 'format' => 1, 'site' => 'fixture'])
     );
-    file_put_contents($repo . '/' . CodeSourceLock::PATH, CodeSourceLock::encode($lockRows));
+    $locked = [];
+    foreach ($lockRows as $row) {
+        $locked[$row['root'] . '/' . $row['component']] = true;
+    }
+    $firstParty = array_values(array_filter(array_keys($present), static fn(string $key): bool => !isset($locked[$key])));
+    file_put_contents($repo . '/' . CodeSourceLock::PATH, CodeSourceLock::encode($lockRows, $firstParty));
     $ignore = "/.duo/\n";
     foreach (CodeSourceLock::sort_components($lockRows) as $row) {
         $ignore .= CodeSourceLock::gitignore_line((string) $row['root'], (string) $row['component']) . "\n";
@@ -255,8 +266,8 @@ $lockRows = [
         'tree_sha256' => $themeTreeDigest,
     ],
 ];
-// `duo-agency` is the vendored control: it is in Git, is NOT in the lock, and
-// must be untouched by every resolution below.
+// `duo-agency` is the first-party control: it is in Git by declaration, is NOT
+// a locked component, and must be untouched by every resolution below.
 $vendored = ['plugins/duo-agency' => $agencyFiles];
 
 // ---------------------------------------------------------------------------
@@ -297,7 +308,7 @@ duo_check(
 duo_check_same(
     $agencyFiles['duo-agency.php'],
     (string) file_get_contents($repo . '/code/wp-content/plugins/duo-agency/duo-agency.php'),
-    'the vendored component nobody declared is not touched'
+    'the first-party component is not touched'
 );
 duo_check(
     !is_dir($repo . '/' . CodeResolver::STAGING) || scandir($repo . '/' . CodeResolver::STAGING) === ['.', '..'],
@@ -463,57 +474,80 @@ duo_check(
 );
 
 // ---------------------------------------------------------------------------
-// G. vendored-archive: same verification, no cache and no network.
+// G. imported-archive: same verification from the host's imported store, no
+//    network, and a store that does not hold the archive refuses by name.
 // ---------------------------------------------------------------------------
 
 $premiumTreeDigest = resolve_tree_digest($scratch, $premiumFiles);
-$premiumArchive = 'code/archives/premium.1.2.0.zip';
-$vendoredRows = [[
+$vendorZip = $scratch . '/vendor-downloads/premium-1.2.0.zip';
+resolve_write_archive($vendorZip, 'premium', $premiumFiles);
+$importCache = resolve_cache($scratch, $cacheSeq);
+// The operator imports the vendor's archive on this host; the lock will
+// record only the digest the import printed — no url, no path.
+$import = ImportedArchives::forReleases(new WpOrgReleases($importCache, true))->import($vendorZip, null, 'plugins');
+duo_check_same($premiumTreeDigest, $import['tree_sha256'], 'the import computes the same tree digest the lock will demand');
+$importedRows = [[
     'root' => 'plugins',
     'component' => 'premium',
     'version' => '1.2.0',
-    'origin' => [
-        'kind' => 'vendored-archive',
-        'path' => $premiumArchive,
-        'archive_sha256' => str_repeat('0', 64),
-    ],
+    'origin' => ['kind' => 'imported-archive', 'archive_sha256' => $import['archive_sha256']],
     'tree_sha256' => $premiumTreeDigest,
 ]];
-$vendoredRepo = resolve_make_repo($scratch, $repoSeq, $vendoredRows, $vendored);
-resolve_write_archive($vendoredRepo . '/' . $premiumArchive, 'premium', $premiumFiles);
-$vendoredRows[0]['origin']['archive_sha256'] = (string) hash_file('sha256', $vendoredRepo . '/' . $premiumArchive);
-file_put_contents($vendoredRepo . '/' . CodeSourceLock::PATH, CodeSourceLock::encode($vendoredRows));
-$vendoredLock = CodeResolver::declaredLock($vendoredRepo);
+$importedRepo = resolve_make_repo($scratch, $repoSeq, $importedRows, $vendored);
+$importedLock = CodeResolver::declaredLock($importedRepo);
 
-// An empty cache and a registry base that resolves nothing: a vendored archive
-// must reach neither.
-$rows = resolve_resolver($scratch . '/never-used-cache', $scratch . '/no-registry')
-    ->resolve($vendoredRepo, $vendoredLock['components'], false);
-duo_check_same(['resolved'], array_column($rows, 'state'), 'a vendored-archive origin unpacks from the repository itself');
+// A registry base that resolves nothing: an imported archive must never reach
+// it, and the cache it resolves from is the imported store alone.
+$rows = resolve_resolver($importCache, $scratch . '/no-registry')
+    ->resolve($importedRepo, $importedLock['components'], false);
+duo_check_same(['resolved'], array_column($rows, 'state'), 'an imported-archive origin resolves from the host\'s imported store');
+duo_check(str_contains($rows[0]['detail'], 'imported archive'), 'and says where it came from');
 duo_check_same(
     $premiumTreeDigest,
-    WpOrgReleases::treeDigest($vendoredRepo . '/code/wp-content/plugins/premium'),
+    WpOrgReleases::treeDigest($importedRepo . '/code/wp-content/plugins/premium'),
     'and is verified against the same tree digest a wp.org release would be'
 );
 duo_check(
-    !is_dir($scratch . '/never-used-cache'),
-    'the release cache is never even created for a vendored archive'
+    !is_dir($scratch . '/no-registry'),
+    'the registry is never reached for an imported archive'
+);
+duo_check(
+    !is_file($importedRepo . '/code/archives/premium-1.2.0.zip') && !is_dir($importedRepo . '/code/archives'),
+    'and the repository carries no copy of the archive: the bytes live in the host store only'
 );
 
-resolve_remove_tree($vendoredRepo . '/code/wp-content/plugins/premium');
-file_put_contents($vendoredRepo . '/' . $premiumArchive, 'not the reviewed archive');
+resolve_remove_tree($importedRepo . '/code/wp-content/plugins/premium');
+file_put_contents($import['path'], 'not the imported archive');
 resolve_check_refuses(
-    static fn() => resolve_resolver($scratch . '/never-used-cache', $scratch . '/no-registry')
-        ->resolve($vendoredRepo, $vendoredLock['components'], false),
-    WpOrgReleases::REASON_ARCHIVE_DIGEST_MISMATCH,
-    'a vendored archive that no longer hashes to the declared digest refuses with the same reason a download does'
+    static fn() => resolve_resolver($importCache, $scratch . '/no-registry')
+        ->resolve($importedRepo, $importedLock['components'], false),
+    WpOrgReleases::REASON_CACHE_CORRUPT,
+    'an imported archive that no longer hashes to its digest refuses as a corrupted cache entry, never silently re-imported over'
 );
-unlink($vendoredRepo . '/' . $premiumArchive);
-resolve_check_refuses(
-    static fn() => resolve_resolver($scratch . '/never-used-cache', $scratch . '/no-registry')
-        ->resolve($vendoredRepo, $vendoredLock['components'], false),
+duo_check_same('not the imported archive', (string) file_get_contents($import['path']), 'and the corrupted bytes survive as evidence');
+unlink($import['path']);
+$missing = resolve_check_refuses(
+    static fn() => resolve_resolver($importCache, $scratch . '/no-registry')
+        ->resolve($importedRepo, $importedLock['components'], false),
     CodeResolver::REASON_ARCHIVE_MISSING,
-    'a vendored-archive path the repository does not carry is named, not silently skipped'
+    'an imported archive this host\'s store does not hold is named, not silently skipped'
+);
+duo_check(
+    $missing !== null && str_contains($missing->remediation, 'duo code-import <archive.zip>')
+        && str_contains($missing->remediation, 'Duo never fetches from a vendor'),
+    'and the remedy is the one thing that can be done about it: import the vendor archive on this host'
+);
+$freshCache = resolve_cache($scratch, $cacheSeq);
+resolve_check_refuses(
+    static fn() => resolve_resolver($freshCache, $registry)
+        ->resolve($importedRepo, $importedLock['components'], false),
+    CodeResolver::REASON_ARCHIVE_MISSING,
+    'a host that never imported the archive refuses the same way, whatever its registry holds: a clone resolves premium code only where the operator imported it'
+);
+$rows = resolve_resolver($importCache, $scratch . '/no-registry')->resolve($importedRepo, $importedLock['components'], true);
+duo_check(
+    str_contains($rows[0]['detail'], 'imported archive ' . $import['archive_sha256']),
+    '--dry-run names the imported archive it would unpack, by digest'
 );
 
 // ---------------------------------------------------------------------------
@@ -522,31 +556,35 @@ resolve_check_refuses(
 
 // The re-packaged shape the classifier records archive_root for: the archive
 // carries BOTH a directory named after the slug and the one that actually
-// holds the component, so detection alone would resolve the wrong tree.
+// holds the component, so detection alone would resolve the wrong tree. The
+// archive sits in the store under its digest, as an import elsewhere left it.
 $repackedFiles = ['premium.php' => "<?php\n/**\n * Plugin Name: Premium\n * Version: 1.2.0\n */\n"];
 $decoyFiles = ['readme.txt' => "not the component\n"];
-$repackedArchive = 'code/archives/premium-repacked.zip';
-$repackedRepo = resolve_make_repo($scratch, $repoSeq, $vendoredRows, $vendored);
+$repackedZip = $scratch . '/vendor-downloads/premium-repacked.zip';
 $zip = new ZipArchive();
-mkdir(dirname($repackedRepo . '/' . $repackedArchive), 0775, true);
-$zip->open($repackedRepo . '/' . $repackedArchive, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+$zip->open($repackedZip, ZipArchive::CREATE | ZipArchive::OVERWRITE);
 $zip->addFromString('premium/' . array_key_first($decoyFiles), $decoyFiles['readme.txt']);
 $zip->addFromString('premium-pro-1.2.0/premium.php', $repackedFiles['premium.php']);
 $zip->close();
+$repackedDigest = (string) hash_file('sha256', $repackedZip);
+$repackedStore = ImportedArchives::forReleases(new WpOrgReleases($importCache, true));
+if (!is_dir($repackedStore->directory())) {
+    mkdir($repackedStore->directory(), 0775, true);
+}
+copy($repackedZip, $repackedStore->archivePathFor($repackedDigest));
 $repackedRows = [[
     'root' => 'plugins',
     'component' => 'premium',
     'version' => '1.2.0',
     'origin' => [
-        'kind' => 'vendored-archive',
-        'path' => $repackedArchive,
+        'kind' => 'imported-archive',
         'archive_root' => 'premium-pro-1.2.0',
-        'archive_sha256' => (string) hash_file('sha256', $repackedRepo . '/' . $repackedArchive),
+        'archive_sha256' => $repackedDigest,
     ],
     'tree_sha256' => resolve_tree_digest($scratch, $repackedFiles),
 ]];
-file_put_contents($repackedRepo . '/' . CodeSourceLock::PATH, CodeSourceLock::encode($repackedRows));
-$rows = resolve_resolver($scratch . '/never-used-cache', $scratch . '/no-registry')
+$repackedRepo = resolve_make_repo($scratch, $repoSeq, $repackedRows, $vendored);
+$rows = resolve_resolver($importCache, $scratch . '/no-registry')
     ->resolve($repackedRepo, CodeResolver::declaredLock($repackedRepo)['components'], false);
 duo_check_same(['resolved'], array_column($rows, 'state'), 'a declared archive_root resolves the directory the lock names');
 duo_check(
@@ -555,10 +593,10 @@ duo_check(
     'and not the same-named decoy directory detection alone would have picked'
 );
 $repackedRows[0]['origin']['archive_root'] = 'no-such-directory';
-file_put_contents($repackedRepo . '/' . CodeSourceLock::PATH, CodeSourceLock::encode($repackedRows));
+file_put_contents($repackedRepo . '/' . CodeSourceLock::PATH, CodeSourceLock::encode($repackedRows, ['plugins/duo-agency']));
 resolve_remove_tree($repackedRepo . '/code/wp-content/plugins/premium');
 resolve_check_refuses(
-    static fn() => resolve_resolver($scratch . '/never-used-cache', $scratch . '/no-registry')
+    static fn() => resolve_resolver($importCache, $scratch . '/no-registry')
         ->resolve($repackedRepo, CodeResolver::declaredLock($repackedRepo)['components'], false),
     CodeResolver::REASON_UNPACK_FAILED,
     'an archive_root the archive does not contain refuses instead of falling back to detection'
@@ -1113,7 +1151,24 @@ file_put_contents($brokenRepo . '/' . CodeSourceLock::PATH, '{"format":"duo-code
 resolve_check_refuses(
     static fn() => CodeResolver::declaredLock($brokenRepo),
     CodeResolver::REASON_LOCK_UNREADABLE,
-    'and a lock the v1 grammar rejects is refused too, not partially honoured'
+    'and a lock the grammar rejects is refused too, not partially honoured'
+);
+file_put_contents($brokenRepo . '/' . CodeSourceLock::PATH, json_encode([
+    'format' => 'duo-code-lock/v1',
+    'components' => [[
+        'root' => 'plugins', 'component' => 'premium', 'version' => '1.2.0',
+        'origin' => ['kind' => 'vendored-archive', 'path' => 'code/archives/premium.zip', 'archive_sha256' => str_repeat('0', 64)],
+        'tree_sha256' => str_repeat('1', 64),
+    ]],
+]));
+$retired = resolve_check_refuses(
+    static fn() => CodeResolver::declaredLock($brokenRepo),
+    CodeResolver::REASON_LOCK_UNREADABLE,
+    'a legacy lock naming the retired vendored-archive origin is refused at the reader, so nothing ever resolves a ZIP committed inside the repository again'
+);
+duo_check(
+    $retired !== null && str_contains($retired->getMessage(), '`duo code-import <archive.zip>`'),
+    'and the refusal carries the remedy: import the archive on the host and re-lock'
 );
 
 resolve_remove_tree($scratch);
