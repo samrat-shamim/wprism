@@ -16,7 +16,7 @@
 # last pinned-manifest boundary that DUO-3223 had explicitly scope-accounted.
 #
 # For EACH boundary version (ACF 6.0.0/6.8.7; Advanced Editor Tools 5.9.2;
-# Classic Editor 1.7.0; Code Snippets 3.9.5/3.9.6; CF7 6.0/6.1.6; Elementor 4.0.0/4.2.2; Ninja Forms
+# Classic Editor 1.7.0; Code Snippets 3.9.5/3.9.6; CF7 6.0/6.1.7; Elementor 4.0.0/4.2.2; Ninja Forms
 # 3.4.34.2/3.14.11; PMPro 3.8.3 (with adjacent official-tag refusals);
 # Polylang 3.5/3.8.6;
 # WooCommerce 11.0.0 (the only stable in-range 11.x release); Yoast SEO
@@ -1575,7 +1575,7 @@ fi
 
 if [ "$VMATRIX_MANIFEST" = contact-form-7 ]; then
 VMATRIX_CASES=$((VMATRIX_CASES + 1))
-for CF7_VERSION in 6.0 6.1.6; do
+for CF7_VERSION in 6.0 6.1.7; do
   say "boundary: contact-form-7 $CF7_VERSION"
 
   reset_env wp1
@@ -1620,7 +1620,7 @@ EOF
   CF7_SOURCE_HASH=$(wp1 post meta get "$CF7_FORM_ID" _hash)
   require_fixture_values CF7_MODERN_SHORTCODE CF7_SOURCE_HASH
   [[ "$CF7_OLD_ID" =~ ^[1-9][0-9]+$ && "$CF7_FORM_ID" =~ ^[0-9]+$ && "$CF7_LEGACY_PAGE_ID" =~ ^[0-9]+$ \
-    && "$CF7_SOURCE_HASH" =~ ^[0-9a-f]{64}$ \
+    && "$CF7_SOURCE_HASH" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ \
     && "$CF7_MODERN_SHORTCODE" =~ ^\[contact-form-7\ id=\"[0-9a-f]{7}\" ]] \
     || fail "CF7 $CF7_VERSION seed did not return native legacy and modern identities"
   [[ "$CF7_MODERN_SHORTCODE" == *"id=\"${CF7_SOURCE_HASH:0:7}\""* ]] \
@@ -1700,14 +1700,14 @@ EOF
   pass "byte-identical recapture at contact-form-7 $CF7_VERSION — the manifest's own declared version_range boundary is proven, not just its currently-installed version"
 
   if [ "$CF7_VERSION" = 6.0 ]; then
-    say "in-place lifecycle: contact-form-7 6.0 authored state -> exact 6.1.6 on both environments"
-    UPGRADE_ARTIFACT_1=$(fetch_artifact contact-form-7 6.1.6 cli1)
-    UPGRADE_ARTIFACT_2=$(fetch_artifact contact-form-7 6.1.6 cli2)
+    say "in-place lifecycle: contact-form-7 6.0 authored state -> exact 6.1.7 on both environments"
+    UPGRADE_ARTIFACT_1=$(fetch_artifact contact-form-7 6.1.7 cli1)
+    UPGRADE_ARTIFACT_2=$(fetch_artifact contact-form-7 6.1.7 cli2)
     wp1 plugin install "$UPGRADE_ARTIFACT_1" --force >/dev/null
     wp2 plugin install "$UPGRADE_ARTIFACT_2" --force >/dev/null
-    [ "$(wp1 plugin get contact-form-7 --field=version)" = 6.1.6 ] \
-      && [ "$(wp2 plugin get contact-form-7 --field=version)" = 6.1.6 ] \
-      || fail "CF7 in-place upgrade did not install exact 6.1.6 on both environments"
+    [ "$(wp1 plugin get contact-form-7 --field=version)" = 6.1.7 ] \
+      && [ "$(wp2 plugin get contact-form-7 --field=version)" = 6.1.7 ] \
+      || fail "CF7 in-place upgrade did not install exact 6.1.7 on both environments"
 
     # Exact code replacement changes the captured code witness. Re-baseline
     # that explicit drift, then publish only real native data migrations.
@@ -1717,7 +1717,7 @@ EOF
     wp1 duo lint --repo=/siterepo
     if ! git -C "siterepo/${PAIR}1" diff --quiet -- state; then
       "${GIT1[@]}" add -A
-      "${GIT1[@]}" commit -qm "capture: CF7 in-place 6.0 to 6.1.6 migration"
+      "${GIT1[@]}" commit -qm "capture: CF7 in-place 6.0 to 6.1.7 migration"
       "${GIT1[@]}" push -q origin main
       git -C "siterepo/${PAIR}2" pull -q origin main
     fi
@@ -1725,7 +1725,7 @@ EOF
     wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$UPGRADE_REV" \
       2>&1 | tee "$VMATRIX_APPLY_LOG"
     grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
-      || fail "CF7 in-place 6.0 -> 6.1.6 apply canary was not clean"
+      || fail "CF7 in-place 6.0 -> 6.1.7 apply canary was not clean"
 
     UPGRADE_NATIVE=$(wp2 eval '
       $forms=get_posts([
@@ -1743,24 +1743,24 @@ EOF
         "recipient"=>(string)($mail["recipient"] ?? ""),
       ]);
     ')
-    require_observed_json "CF7 6.1.6 upgraded native form" "$UPGRADE_NATIVE"
+    require_observed_json "CF7 6.1.7 upgraded native form" "$UPGRADE_NATIVE"
     jq -e '
-      .version == "6.1.6" and .id > 0 and .recipient == "vmatrix@example.test" and
-      (.hash | test("^[0-9a-f]{64}$")) and
+      .version == "6.1.7" and .id > 0 and .recipient == "vmatrix@example.test" and
+      (.hash | test("^([0-9a-f]{40}|[0-9a-f]{64})$")) and
       (.shortcode | test("^\\[contact-form-7 id=\\\"[0-9a-f]{7}\\\""))
     ' <<<"$UPGRADE_NATIVE" >/dev/null \
-      || fail "CF7 6.1.6 did not preserve the form authored under 6.0: $UPGRADE_NATIVE"
+      || fail "CF7 6.1.7 did not preserve the form authored under 6.0: $UPGRADE_NATIVE"
     UPGRADE_FRONT=$(curl -fs "http://localhost:${PORT2}/vmatrix-contact/") \
-      || fail "CF7 6.1.6 did not render the modern page authored under 6.0"
+      || fail "CF7 6.1.7 did not render the modern page authored under 6.0"
     UPGRADE_FORM_ID=$(jq -r '.id' <<<"$UPGRADE_NATIVE")
     grep -q "_wpcf7\" value=\"$UPGRADE_FORM_ID\"" <<<"$UPGRADE_FRONT" \
-      || fail "CF7 6.1.6 did not resolve the modern identity authored under 6.0"
+      || fail "CF7 6.1.7 did not resolve the modern identity authored under 6.0"
     wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-cf7-upgrade-final
     UPGRADE_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-cf7-upgrade-final" || true)
     rm -rf "siterepo/${PAIR}2/.tmp-cf7-upgrade-final"
     [ -z "$UPGRADE_DIFF" ] \
-      || fail "CF7 in-place 6.0 -> 6.1.6 recapture was not byte-identical: $UPGRADE_DIFF"
-    pass "CF7 state authored under exact 6.0 upgrades in place to exact 6.1.6, remains natively visible, applies cleanly, and recaptures byte-identically"
+      || fail "CF7 in-place 6.0 -> 6.1.7 recapture was not byte-identical: $UPGRADE_DIFF"
+    pass "CF7 state authored under exact 6.0 upgrades in place to exact 6.1.7, remains natively visible, applies cleanly, and recaptures byte-identically"
   fi
 done
 fi

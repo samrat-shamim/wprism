@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Exact CF7 6.1.6 source fixture. Forms are authored through the plugin API;
+# Exact CF7 6.1.7 source fixture. Forms are authored through the plugin API;
 # the only direct metadata transition reproduces CF7's still-readable pre-3.3
 # property names so both admitted storage generations travel the product path.
 set -euo pipefail

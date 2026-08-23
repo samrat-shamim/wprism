@@ -113,7 +113,7 @@ TARGET=$(observe_cf7 conf2)
 TARGET_PREMISE=$(cat "${CONF_REPO2:-siterepo/conf2}/.tmp-cf7-target.json")
 printf '%s\n' "$TARGET" | jq -e '
   .home as $home |
-  .version == "6.1.6" and
+  .version == "6.1.7" and
   .main.old_id == "3199001" and .legacy.old_id == "3199002" and
   (.main.hash | test("^[0-9a-f]{64}$")) and (.legacy.hash | test("^[0-9a-f]{64}$")) and
   (.main.form | contains("Name 東京 🚀")) and (.main.form | contains("duo-unknown")) and
@@ -201,7 +201,7 @@ require_observed_nonempty "conf1 post-count before CF7 submission" "$CONF1_POSTS
 require_observed_nonempty "conf2 CF7 unit tag" "$UNIT_TAG"
 submit_cf7() {
   curl -fs -X POST "http://localhost:${CONF2_PORT}/wp-json/contact-form-7/v1/contact-forms/${TARGET_MAIN}/feedback" \
-    -F "_wpcf7=$TARGET_MAIN" -F "_wpcf7_version=6.1.6" -F "_wpcf7_locale=en_US" \
+    -F "_wpcf7=$TARGET_MAIN" -F "_wpcf7_version=6.1.7" -F "_wpcf7_locale=en_US" \
     -F "_wpcf7_unit_tag=$UNIT_TAG" -F "_wpcf7_container_post=$(jq -r '.pages.modern.id' <<<"$TARGET")" \
     -F "your-name=Conformance Visitor" -F "your-email=visitor@example.test" \
     -F "your-subject=Conformance check" -F "your-message=Automated conformance submission 東京 🚀"
@@ -517,12 +517,12 @@ MISSING_OUT=$(wp_conf2 duo deploy --repo=/siterepo 2>&1) || MISSING_RC=$?
 require_duo_answered "CF7 deploy with code absent" human "$MISSING_OUT"
 [ "$MISSING_RC" -ne 0 ] && grep -Eq 'code_mismatch|missing_in_code|is not installed' <<<"$MISSING_OUT" \
   || fail "missing CF7 code did not refuse at compatibility: $MISSING_OUT"
-CF7_SHA=e52abafe8b5fbe900b9243c80b5b68b5a61f609626d29754b88eea93d162b08e
-CF7_ARTIFACT="/artifacts-cache/plugin-contact-form-7-6.1.6-${CF7_SHA}.zip"
+CF7_SHA=aedc5cc878e1e62187882286e0711168491d744be547addc063311999ef1468d
+CF7_ARTIFACT="/artifacts-cache/plugin-contact-form-7-6.1.7-${CF7_SHA}.zip"
 [ "$(wp_conf2 eval "echo hash_file('sha256', '$CF7_ARTIFACT');")" = "$CF7_SHA" ] \
   || fail "cached CF7 reinstall artifact digest moved"
 wp_conf2 plugin install "$CF7_ARTIFACT" --force >/dev/null
-[ "$(wp_conf2 plugin get contact-form-7 --field=version)" = '6.1.6' ] \
+[ "$(wp_conf2 plugin get contact-form-7 --field=version)" = '6.1.7' ] \
   || fail "CF7 exact reinstall reported wrong version"
 REINSTALL_DEPLOY=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 require_duo_answered "CF7 deploy after exact reinstall" json "$REINSTALL_DEPLOY"
