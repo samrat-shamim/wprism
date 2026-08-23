@@ -154,7 +154,7 @@ echo wp_json_encode([
         'zone' => $zoneId,
     ],
     'options' => [
-        'neighbor' => get_option('woocommerce_target_undeclared_neighbor', null),
+        'neighbor' => get_option('duo_target_environment_neighbor', null),
         'paypal' => get_option('woocommerce_paypal_settings', null),
         'precision' => (string) get_option('woocommerce_price_num_decimals', ''),
     ],

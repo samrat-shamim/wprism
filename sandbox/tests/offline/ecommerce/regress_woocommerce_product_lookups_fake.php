@@ -174,6 +174,24 @@ namespace {
             'global_unique_id' => 'string',
         ];
 
+        public const LOOKUP_COLUMN_DECLARATIONS = [
+            'product_id' => 'bigint(20)',
+            'sku' => 'varchar(100)',
+            'global_unique_id' => 'varchar(100)',
+            'virtual' => 'tinyint(1)',
+            'downloadable' => 'tinyint(1)',
+            'min_price' => 'decimal(19,4)',
+            'max_price' => 'decimal(19,4)',
+            'onsale' => 'tinyint(1)',
+            'stock_quantity' => 'double',
+            'stock_status' => 'varchar(100)',
+            'rating_count' => 'bigint(20)',
+            'average_rating' => 'decimal(3,2)',
+            'total_sales' => 'bigint(20)',
+            'tax_status' => 'varchar(100)',
+            'tax_class' => 'varchar(100)',
+        ];
+
         public static function coerce_lookup_column(string $column, mixed $value): mixed {
             if ($value === null) {
                 return null;
@@ -183,6 +201,10 @@ namespace {
                 'decimal' => (float) $value,
                 default => (string) $value,
             };
+        }
+
+        public static function decimal_assignment(mixed $value, int $scale): string {
+            return number_format((float) $value, $scale, '.', '');
         }
 
         public string $prefix = 'wp_';
@@ -314,6 +336,13 @@ namespace {
                 $this->last_error = 'simulated read failure';
                 return [];
             }
+            if ($query === 'SHOW COLUMNS FROM `wp_wc_product_meta_lookup`') {
+                return array_map(
+                    static fn(string $column, string $type): array => ['Field' => $column, 'Type' => $type],
+                    array_keys(self::LOOKUP_COLUMN_DECLARATIONS),
+                    array_values(self::LOOKUP_COLUMN_DECLARATIONS)
+                );
+            }
             if (str_contains($query, 'wc_product_attributes_lookup')) {
                 preg_match('/product_or_parent_id = (\\d+) OR product_id = (\\d+)/', $query, $m);
                 $root = (int) ($m[1] ?? 0);
@@ -352,6 +381,13 @@ namespace {
                 }
                 return null;
             }
+            $query = (string) preg_replace_callback(
+                "/CAST\\('((?:[^'\\\\]|\\\\.)*)' AS DECIMAL\\(([1-9][0-9]?),([0-9]{1,2})\\)\\)/",
+                static fn(array $matches): string => "'"
+                    . self::decimal_assignment(stripslashes($matches[1]), (int) $matches[3])
+                    . "'",
+                $query
+            );
             // DUO-3342 value verification. The adapter asks the DATABASE
             // whether the stored row equals WooCommerce's own published
             // derivation — one NULL-safe predicate per column — so that the
@@ -708,8 +744,16 @@ namespace {
                     $stored[$column] = null;
                 }
             }
-            $stored['min_price'] = $first === null ? '0.0000' : $first;
-            $stored['max_price'] = $last === null ? '0.0000' : $last;
+            $stored['min_price'] = $first === null
+                ? '0.0000'
+                : (strlen((string) strrchr((string) $first, '.')) > 5
+                    ? FakeWpdb::decimal_assignment($first, 4)
+                    : $first);
+            $stored['max_price'] = $last === null
+                ? '0.0000'
+                : (strlen((string) strrchr((string) $last, '.')) > 5
+                    ? FakeWpdb::decimal_assignment($last, 4)
+                    : $last);
             $stored['average_rating'] = $derived['average_rating'] === '' ? '0.00' : $derived['average_rating'];
             $stored['total_sales'] = $derived['total_sales'] === '' ? '0' : $derived['total_sales'];
             $fakeMetaLookup[$id] = array_merge(
@@ -1244,6 +1288,24 @@ namespace {
         echo ($condition ? 'ok: ' : 'FAIL: ') . $message . "\n";
         if (!$condition) { $failures++; }
     };
+
+    // Woo publishes the uncoerced PHP price in its derivation cache while
+    // MySQL assigns that value into DECIMAL(19,4). The verifier must accept
+    // the installed schema's exact rounding and must not weaken comparison of
+    // any non-DECIMAL column.
+    $fakeMeta[16] = $fakeMeta[13];
+    $fakeMeta[16]['_price'] = ['0'];
+    $fakeMeta[16]['_regular_price'] = ['123456789.123456'];
+    $fakeMeta[16]['_sale_price'] = [''];
+    $fakeProducts[16] = new FakeProduct(16, 'simple', 0, [], [], true);
+    $fakeMetaLookup[16] = $fakeMetaLookup[10];
+    $fakeMetaLookup[16]['product_id'] = 16;
+    $adapter->regenerate_batch([16], []);
+    $check($fakeMeta[16]['_price'] === ['123456789.123456'],
+        'six-decimal authored price remains exact in WooCommerce postmeta');
+    $check(($fakeMetaLookup[16]['min_price'] ?? null) === '123456789.1235'
+        && ($fakeMetaLookup[16]['max_price'] ?? null) === '123456789.1235',
+        'lookup verification accepts only the installed DECIMAL scale assignment');
 
     // Sale scheduling is a bounded product batch, not a catalog-wide scan.
     // Exercise a future end date, an unrelated no-date product, heartbeat

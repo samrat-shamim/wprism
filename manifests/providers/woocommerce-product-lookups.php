@@ -38,6 +38,9 @@ use Duo\Policy;
 final class WoocommerceProductLookups {
     private Policy $policy;
 
+    /** @var array<string,string>|null column => validated SQL cast */
+    private ?array $lookupColumnCasts = null;
+
     private const META_LOOKUP = 'wc_product_meta_lookup';
     private const CAPABILITY = 'rebuild_product_lookups';
 
@@ -1693,6 +1696,7 @@ final class WoocommerceProductLookups {
         string $failure
     ): void {
         global $wpdb;
+        $columnCasts = $this->lookup_column_casts($table);
         $conditions = ['product_id = %d'];
         $params = [$id];
         foreach ($expected as $column => $value) {
@@ -1717,7 +1721,10 @@ final class WoocommerceProductLookups {
                     "duo: non-scalar WooCommerce product lookup value for product $id.$column"
                 );
             }
-            $conditions[] = "`$column` <=> %s";
+            $cast = $columnCasts[$column] ?? '';
+            $conditions[] = $cast === ''
+                ? "`$column` <=> %s"
+                : "`$column` <=> CAST(%s AS $cast)";
             // (string) is how $wpdb->replace() bound this same value on the
             // way in, so ints, floats and false reach MySQL identically here.
             $params[] = (string) $value;
@@ -1739,6 +1746,56 @@ final class WoocommerceProductLookups {
             . '(expected ' . var_export($expected, true)
             . ', stored ' . var_export($stored, true) . ')'
         );
+    }
+
+    /**
+     * Return the installed lookup table's assignment casts for fixed-point
+     * columns. Woo publishes its pre-insert PHP value in the lookup cache,
+     * while MySQL stores that value at the column's declared scale. Comparing
+     * the raw cache string to the row rejects a legitimate value such as a
+     * six-decimal price in Woo's DECIMAL(19,4) lookup column; comparing it
+     * through this exact schema cast models the same coercion Woo's preceding
+     * $wpdb->replace() used and still detects a stale or failed write.
+     *
+     * The type comes from this target's table, not a copied Woo schema. Only a
+     * tightly validated DECIMAL declaration becomes SQL; every other type
+     * keeps the ordinary parameterized comparison above. An absent expected
+     * column is still rejected separately by assert_lookup_row_matches().
+     *
+     * @return array<string,string> column => DECIMAL(precision,scale)
+     */
+    private function lookup_column_casts(string $table): array {
+        if ($this->lookupColumnCasts !== null) {
+            return $this->lookupColumnCasts;
+        }
+        if (preg_match('/^[a-zA-Z0-9_]{1,64}$/D', $table) !== 1) {
+            throw new \RuntimeException('duo: unusable WooCommerce product lookup table name for schema verification');
+        }
+        $rows = \Duo\ProviderSdk::checked_get_results(
+            "SHOW COLUMNS FROM `$table`",
+            'product lookup schema verification'
+        );
+        $casts = [];
+        foreach ($rows as $row) {
+            $column = (string) ($row['Field'] ?? '');
+            $type = strtolower((string) ($row['Type'] ?? ''));
+            if (preg_match('/^[a-z][a-z0-9_]{0,62}$/D', $column) !== 1) {
+                throw new \RuntimeException('duo: WooCommerce product lookup schema returned an unusable column name');
+            }
+            if (preg_match('/^decimal\(([1-9][0-9]?),([0-9]{1,2})\)(?: unsigned)?$/D', $type, $matches) !== 1) {
+                continue;
+            }
+            $precision = (int) $matches[1];
+            $scale = (int) $matches[2];
+            if ($precision > 65 || $scale > 30 || $scale > $precision) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce product lookup column '$column' has an unsupported DECIMAL declaration"
+                );
+            }
+            $casts[$column] = "DECIMAL($precision,$scale)";
+        }
+        $this->lookupColumnCasts = $casts;
+        return $casts;
     }
 
 }
