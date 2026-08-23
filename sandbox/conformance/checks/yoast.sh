@@ -436,32 +436,55 @@ jq -e '.canary == "clean" and .verification.result == "pass" and .applied >= 1' 
 RETRIED=$(observe_yoast conf2)
 jq -e '.meta["_yoast_wpseo_metadesc"] == "Schema recovery Yoast description 東京 🚀" and .derived.invalid_links == 0' <<<"$RETRIED" >/dev/null \
   || fail "Yoast schema retry did not converge through native readback: $RETRIED"
-pass 'provider schema drift rolls back every write, retains authority, and retries cleanly after exact repair'
+pass 'provider schema drift preserves post-commit intent, retains authority, and retries cleanly after exact repair'
 
-# Remove both a scalar post-meta field and a structured option reference. The
-# first apply must require deletion authority and remain atomic; --with-deletes
-# then removes the authored state while Yoast's own option default reads 0.
+# Scalar post-meta and structured option sub-key absence are ordinary updates,
+# not whole-entity tombstones. Prove those native reads first, then remove an
+# independently authored Yoast-bearing page and its list reference: that second
+# commit must require deletion authority and drive the reindex after removal.
 wp_conf1 eval '
   $post=get_page_by_path("conformance-yoast-post",OBJECT,"post");
   delete_post_meta($post->ID,"_yoast_wpseo_bctitle");
   WPSEO_Options::set("contact_page",0);
 ' >/dev/null
-commit_yoast_source 'conformance: Yoast authored deletion intent'
+commit_yoast_source 'conformance: Yoast authored field absence'
+FIELD_REMOVED=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered 'Yoast field/sub-key absence apply' json "$FIELD_REMOVED"
+jq -e '.canary == "clean" and .verification.result == "pass" and .plan.update > 0 and .plan.delete == 0 and .plan.deleted == 0' <<<"$FIELD_REMOVED" >/dev/null \
+  || fail "Yoast field/sub-key absence did not converge as an ordinary update: $FIELD_REMOVED"
+FIELD_OBSERVED=$(observe_yoast conf2)
+jq -e '.meta["_yoast_wpseo_bctitle"] == "" and .llms.contact == 0 and .derived.main_primary == 1' <<<"$FIELD_OBSERVED" >/dev/null \
+  || fail "Yoast native APIs did not consume authored field/sub-key absence: $FIELD_OBSERVED"
+pass 'post-meta and structured option sub-key absence converge as ordinary verified updates'
+
+wp_conf1 eval '
+  $ids=json_decode(file_get_contents("/siterepo/.tmp-yoast-source.json"),true,512,JSON_THROW_ON_ERROR);
+  $remove=(int)$ids["included_b"];
+  $included=array_values(array_filter(
+    array_map("intval",(array)WPSEO_Options::get("other_included_pages")),
+    static fn(int $id): bool => $id !== $remove
+  ));
+  WPSEO_Options::set("other_included_pages",$included);
+  if (!wp_delete_post($remove,true)) throw new RuntimeException("Yoast deletion fixture page was not removed");
+' >/dev/null
+commit_yoast_source 'conformance: Yoast whole-post deletion intent'
 DELETE_BEFORE=$(yoast_target_hash)
 DELETE_RC=0
 DELETE_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || DELETE_RC=$?
-require_duo_answered 'Yoast deletion without authority' human "$DELETE_OUT"
+require_duo_answered 'Yoast whole-post deletion without authority' human "$DELETE_OUT"
 [ "$DELETE_RC" -ne 0 ] && grep -Eqi 'delete|with-deletes|deletion' <<<"$DELETE_OUT" \
-  || fail "Yoast deletion did not require explicit authority: $DELETE_OUT"
-[ "$(yoast_target_hash)" = "$DELETE_BEFORE" ] || fail 'Yoast unauthorized deletion partially mutated target state'
+  || fail "Yoast whole-post deletion did not require explicit authority: $DELETE_OUT"
+[ "$(yoast_target_hash)" = "$DELETE_BEFORE" ] || fail 'Yoast unauthorized whole-post deletion partially mutated target state'
 DELETED=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Yoast authorized deletion apply' json "$DELETED"
+require_duo_answered 'Yoast authorized whole-post deletion apply' json "$DELETED"
 jq -e '.canary == "clean" and .verification.result == "pass" and (.plan.delete + .plan.deleted) > 0' <<<"$DELETED" >/dev/null \
-  || fail "Yoast authorized deletion did not converge: $DELETED"
+  || fail "Yoast authorized whole-post deletion did not converge: $DELETED"
+[ "$(wp_conf2 post list --post_type=page --name=conformance-included-b --format=count)" = 0 ] \
+  || fail 'Yoast authorized deletion left the removed page on the target'
 DELETE_OBSERVED=$(observe_yoast conf2)
-jq -e '.meta["_yoast_wpseo_bctitle"] == "" and .llms.contact == 0 and .derived.main_primary == 1' <<<"$DELETE_OBSERVED" >/dev/null \
-  || fail "Yoast native APIs did not consume authored deletions: $DELETE_OBSERVED"
-pass 'post-meta and structured option deletion refuse without authority, then converge with verified reindex'
+jq -e '(.llms.included | length) == 1 and .derived.main_primary == 1 and .derived.invalid_hierarchy == 0 and .derived.invalid_links == 0' <<<"$DELETE_OBSERVED" >/dev/null \
+  || fail "Yoast native APIs or derived projections did not consume the authorized whole-post deletion: $DELETE_OBSERVED"
+pass 'a Yoast-bearing post deletion refuses without authority, then converges with verified reindex'
 
 # Two real processes race one new intent. One may complete and one may observe
 # no work or refuse at the named lock; final native state and plan must be exact.

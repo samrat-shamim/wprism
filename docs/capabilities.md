@@ -351,7 +351,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 
 ## yoast
 
-**Status: certified.** Certified for exact Yoast SEO 28.0 through 28.3 on single-site WordPress: every declared option/post-meta reference is rebound across large divergent post, attachment, term and hierarchy identities; native WPSEO_Options, WPSEO_Taxonomy_Meta, WPSEO_Primary_Term, redirect and frontend metadata behavior consume the result; provider yoast-index 2.0.0 schema-preflights and relationally verifies all four tables written by the plugin-owned reindex command; hostile activation state, same-slug adoption, authored conflicts and force, target-sovereign migration/tracking/excluded option state, authorized meta/sub-key deletion, plugin-disabled indexing, malformed structured data, credential redaction, schema rollback/retry, competing apply, deactivate/reactivate, retained uninstall residue, exact reinstall, fresh boundaries, in-place 28.0 to 28.3 upgrade, and official 27.9 refusal are exercised.
+**Status: certified.** Certified for exact Yoast SEO 28.0 through 28.3 on single-site WordPress: every declared option/post-meta reference is rebound across large divergent post, attachment, term and hierarchy identities; native WPSEO_Options, WPSEO_Taxonomy_Meta, WPSEO_Primary_Term, redirect and frontend metadata behavior consume the result; provider yoast-index 2.0.0 schema-preflights and relationally verifies all four tables written by the plugin-owned reindex command; hostile activation state, same-slug adoption, authored conflicts and force, target-sovereign migration/tracking/excluded option state, field/sub-key absence, authorized whole-post deletion, plugin-disabled indexing, malformed structured data, credential redaction, schema failure/retry, competing apply, deactivate/reactivate, retained uninstall residue, exact reinstall, fresh boundaries, in-place 28.0 to 28.3 upgrade, and official 27.9 refusal are exercised.
 
 - **Plugin:** `wordpress-seo/wp-seo.php`
 - **Version range:** >=28.0 <29.0.0
@@ -366,7 +366,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 
 **Unsupported, explicitly.**
 
-- `deletions.yoast-entity` / `delete` — Declared core post-meta and option sub-key tombstones are supported and exercised, but the adapter declares no Yoast-owned authored entity/table selector; Duo therefore does not synthesize deletion of plugin-specific entities or derived rows outside the reindex provider.
+- `deletions.yoast-entity` / `delete` — Declared post-meta and option sub-key absence is an ordinary entity update, and core post deletion plus Yoast reindex is exercised with explicit deletion authority; the adapter declares no Yoast-owned authored entity/table selector, so Duo does not synthesize deletion of plugin-specific entities or derived rows outside the reindex provider.
 - `wordpress-seo-premium|yoast-add-ons` / `all` — Yoast Premium and third-party Yoast add-ons are separate code/artifact and keyspace authorities. Undeclared extension options, metadata and tables remain unclassified and loud rather than inheriting the free-plugin claim.
 - `multisite` / `all` — The shared platform certificate and Duo v1 apply model are single-site; network options, per-blog index projections and network activation are outside this adapter.
 
