@@ -500,7 +500,7 @@ if [ -z "$PROVIDER_RECEIPT" ] && [ -n "${VMATRIX_APPLY_LOG:-}" ] && [ -f "$VMATR
 fi
 grep -Eq 'woocommerce-cache@1\.0\.0 invalidate_cache_groups .*verified' <<<"$PROVIDER_RECEIPT" \
   || fail "initial apply receipt omitted the verified WooCommerce cache provider: ${PROVIDER_RECEIPT:-<missing>}"
-grep -Eq 'woocommerce-product-lookups@1\.0\.0 rebuild_product_lookups .*verified' <<<"$PROVIDER_RECEIPT" \
+grep -Eq 'woocommerce-product-lookups@2\.0\.0 rebuild_product_lookups .*verified' <<<"$PROVIDER_RECEIPT" \
   || fail "initial apply receipt omitted the verified WooCommerce lookup provider: ${PROVIDER_RECEIPT:-<missing>}"
 if jq -e 'type == "object"' <<<"$PROVIDER_RECEIPT" >/dev/null 2>&1; then
   jq -e '
@@ -525,3 +525,439 @@ if [ "${WOOCOMMERCE_BOUNDARY_ONLY:-0}" = 1 ]; then
   pass "WooCommerce $WOOCOMMERCE_EXPECTED_VERSION exact boundary consumed the full portable fixture"
   return 0 2>/dev/null || exit 0
 fi
+
+commit_woocommerce_source() { # <message>
+  wp_conf1 duo capture --repo=/siterepo >/dev/null
+  git -C "$CONF_REPO1" add -A
+  git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm "$1"
+  git -C "$CONF_REPO1" push -q origin main
+  git -C "$CONF_REPO2" pull -q origin main
+}
+
+observe_woocommerce_adoption() {
+  wp_conf2 eval '
+    global $wpdb;
+    $product_id=wc_get_product_id_by_sku("CONF-ADOPT-PRODUCT");
+    $product=wc_get_product($product_id);
+    $coupon=new WC_Coupon("CONF-ADOPT-25");
+    if (!$product || !$coupon->get_id()) throw new RuntimeException("Woo adoption fixtures are incomplete");
+    echo wp_json_encode([
+      "product"=>[
+        "id"=>(int)$product->get_id(),"name"=>$product->get_name("edit"),
+        "regular"=>$product->get_regular_price("edit"),"sale"=>$product->get_sale_price("edit"),
+      ],
+      "coupon"=>[
+        "id"=>(int)$coupon->get_id(),"amount"=>$coupon->get_amount("edit"),
+        "description"=>$coupon->get_description("edit"),"type"=>$coupon->get_discount_type("edit"),
+      ],
+      "runtime"=>[
+        "neighbor"=>get_option("duo_target_environment_neighbor"),
+        "paypal"=>get_option("woocommerce_paypal_settings"),
+        "orders"=>count(wc_get_orders(["billing_email"=>"target-runtime@example.test","limit"=>-1,"return"=>"ids"])),
+        "sessions"=>(int)$wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}woocommerce_sessions WHERE session_key=\"duo-target-runtime-session\""),
+        "queue"=>(int)$wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}actionscheduler_actions WHERE hook=\"duo_woo_target_runtime_probe\""),
+      ],
+    ],JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
+  '
+}
+
+woocommerce_target_guard() {
+  wp_conf2 eval '
+    global $wpdb;
+    $product_id=wc_get_product_id_by_sku("CONF-ADOPT-PRODUCT");
+    $product=wc_get_product($product_id);
+    $coupon=new WC_Coupon("CONF-ADOPT-25");
+    $guard=[
+      "product"=>$product ? [
+        "id"=>$product->get_id(),"name"=>$product->get_name("edit"),
+        "regular"=>$product->get_regular_price("edit"),"sale"=>$product->get_sale_price("edit"),
+      ] : null,
+      "coupon"=>$coupon->get_id() ? [
+        "id"=>$coupon->get_id(),"amount"=>$coupon->get_amount("edit"),
+        "description"=>$coupon->get_description("edit"),"type"=>$coupon->get_discount_type("edit"),
+      ] : null,
+      "paypal"=>get_option("woocommerce_paypal_settings"),
+      "neighbor"=>get_option("duo_target_environment_neighbor"),
+      "orders"=>count(wc_get_orders(["billing_email"=>"target-runtime@example.test","limit"=>-1,"return"=>"ids"])),
+      "sessions"=>(int)$wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}woocommerce_sessions WHERE session_key=\"duo-target-runtime-session\""),
+      "queue"=>(int)$wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}actionscheduler_actions WHERE hook=\"duo_woo_target_runtime_probe\""),
+    ];
+    echo hash("sha256",wp_json_encode($guard,JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
+  '
+}
+
+woocommerce_storage_hash() {
+  wp_conf2 eval '
+    global $wpdb;
+    $state=[];
+    $state["posts"]=$wpdb->get_results(
+      "SELECT * FROM {$wpdb->posts} WHERE post_type IN (\"product\",\"product_variation\",\"shop_coupon\") ORDER BY ID",
+      ARRAY_A
+    );
+    $state["meta"]=$wpdb->get_results(
+      "SELECT pm.* FROM {$wpdb->postmeta} pm INNER JOIN {$wpdb->posts} p ON p.ID=pm.post_id " .
+      "WHERE p.post_type IN (\"product\",\"product_variation\",\"shop_coupon\") ORDER BY pm.meta_id",
+      ARRAY_A
+    );
+    $state["options"]=$wpdb->get_results(
+      "SELECT option_name,option_value,autoload FROM {$wpdb->options} WHERE option_name IN (" .
+      "\"woocommerce_calc_taxes\",\"woocommerce_cod_settings\",\"woocommerce_paypal_settings\"," .
+      "\"woocommerce_price_num_decimals\",\"duo_target_environment_neighbor\") ORDER BY option_name",
+      ARRAY_A
+    );
+    foreach ([
+      "attributes"=>"woocommerce_attribute_taxonomies",
+      "zones"=>"woocommerce_shipping_zones",
+      "zone_locations"=>"woocommerce_shipping_zone_locations",
+      "zone_methods"=>"woocommerce_shipping_zone_methods",
+      "tax_classes"=>"wc_tax_rate_classes",
+      "tax_rates"=>"woocommerce_tax_rates",
+      "tax_locations"=>"woocommerce_tax_rate_locations",
+      "lookups"=>"wc_product_meta_lookup",
+      "download_directories"=>"wc_product_download_directories",
+    ] as $key=>$suffix) {
+      $table=$wpdb->prefix.$suffix;
+      $state[$key]=$wpdb->get_results("SELECT * FROM `$table` ORDER BY 1",ARRAY_A);
+    }
+    echo hash("sha256",wp_json_encode($state,JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
+  '
+}
+
+# Add two repository entities only after the first clean round trip, and put
+# hostile same-slug rows on the target before their first apply. This isolates
+# explicit posts adoption from Woo's legitimate derived timestamp churn.
+SOURCE_ADOPT=$(wp_conf1 eval '
+  $product=new WC_Product_Simple();
+  $product->set_name("Repository adopted product 東京 🚀");
+  $product->set_slug("duo-woo-adopt-product");
+  $product->set_status("publish");
+  $product->set_sku("CONF-ADOPT-PRODUCT");
+  $product->set_regular_price("44.444444");
+  $product->set_virtual(true);
+  $product_id=$product->save();
+  $coupon=new WC_Coupon();
+  $coupon->set_code("CONF-ADOPT-25");
+  $coupon->set_status("publish");
+  $coupon->set_discount_type("fixed_cart");
+  $coupon->set_amount("25.25");
+  $coupon->set_description("Repository adopted coupon 東京 🚀");
+  $coupon_id=$coupon->save();
+  echo wp_json_encode(["product"=>$product_id,"coupon"=>$coupon_id]);
+')
+TARGET_ADOPT=$(wp_conf2 eval '
+  $product=new WC_Product_Simple();
+  $product->set_name("Hostile target adopted product");
+  $product->set_slug("duo-woo-adopt-product");
+  $product->set_status("publish");
+  $product->set_sku("TARGET-HOSTILE-ADOPT");
+  $product->set_regular_price("999.999999");
+  $product->set_virtual(false);
+  $product_id=$product->save();
+  $coupon=new WC_Coupon();
+  $coupon->set_code("CONF-ADOPT-25");
+  $coupon->set_status("draft");
+  $coupon->set_discount_type("percent");
+  $coupon->set_amount("99");
+  $coupon->set_description("Hostile target coupon");
+  $coupon_id=$coupon->save();
+  echo wp_json_encode(["product"=>$product_id,"coupon"=>$coupon_id]);
+')
+require_observed_nonempty 'WooCommerce source adoption identities' "$SOURCE_ADOPT"
+require_observed_nonempty 'WooCommerce target adoption identities' "$TARGET_ADOPT"
+commit_woocommerce_source 'conformance: WooCommerce same-slug adoption fixtures'
+ADOPTED=$(wp_conf2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered 'WooCommerce same-slug product/coupon adoption' json "$ADOPTED"
+jq -e '.canary == "clean" and .verification.result == "pass" and .plan.adopt >= 2' <<<"$ADOPTED" >/dev/null \
+  || fail "WooCommerce same-slug product/coupon adoption did not converge: $ADOPTED"
+ADOPTED_NATIVE=$(observe_woocommerce_adoption)
+jq -e --argjson ids "$TARGET_ADOPT" '
+  .product.id == $ids.product and .product.name == "Repository adopted product 東京 🚀" and
+  .product.regular == "44.444444" and .coupon.id == $ids.coupon and
+  .coupon.amount == "25.25" and .coupon.type == "fixed_cart" and
+  .coupon.description == "Repository adopted coupon 東京 🚀" and
+  .runtime.neighbor == "target-neighbor-preserved" and
+  .runtime.paypal.identity_token == "target-secret-token-preserved" and
+  .runtime.orders == 1 and .runtime.sessions == 1 and .runtime.queue == 1
+' <<<"$ADOPTED_NATIVE" >/dev/null || fail "WooCommerce adopted native state crossed a target boundary: $ADOPTED_NATIVE"
+[ "$(jq -r '.product' <<<"$SOURCE_ADOPT")" != "$(jq -r '.product' <<<"$TARGET_ADOPT")" ] \
+  || fail 'WooCommerce product adoption fixture reused the source identity'
+[ "$(jq -r '.coupon' <<<"$SOURCE_ADOPT")" != "$(jq -r '.coupon' <<<"$TARGET_ADOPT")" ] \
+  || fail 'WooCommerce coupon adoption fixture reused the source identity'
+pass 'hostile same-slug product and coupon rows retain target identities while repository-authored native values converge'
+
+# Corrupt structured product metadata, introduce a credential-shaped checkout
+# setting, and remove one repository product row. Each independent capture must
+# refuse before changing canonical state; exact raw restoration must recapture
+# byte-identically.
+CAPTURE_BASELINE=$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)
+ATTR_BACKUP=$(wp_conf1 eval '
+  global $wpdb; $id=wc_get_product_id_by_sku("CONF-PRECISION-UTF8");
+  echo base64_encode((string)$wpdb->get_var($wpdb->prepare(
+    "SELECT meta_value FROM {$wpdb->postmeta} WHERE post_id=%d AND meta_key=\"_product_attributes\" LIMIT 1",$id
+  )));
+')
+require_observed_nonempty 'WooCommerce raw product-attribute backup' "$ATTR_BACKUP"
+wp_conf1 eval '
+  global $wpdb; $id=wc_get_product_id_by_sku("CONF-PRECISION-UTF8");
+  $wpdb->update($wpdb->postmeta,["meta_value"=>"malformed-product-attributes"],["post_id"=>$id,"meta_key"=>"_product_attributes"]);
+  clean_post_cache($id);
+' >/dev/null
+MALFORMED_RC=0
+MALFORMED_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || MALFORMED_RC=$?
+require_duo_answered 'WooCommerce malformed product-attribute capture' human "$MALFORMED_OUT"
+[ "$MALFORMED_RC" -ne 0 ] && grep -Eqi 'product_attributes|structured|object|adapter schema' <<<"$MALFORMED_OUT" \
+  || fail "WooCommerce malformed product attributes did not refuse: $MALFORMED_OUT"
+[ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$CAPTURE_BASELINE" ] \
+  || fail 'WooCommerce malformed metadata refusal partially published canonical state'
+wp_conf1 eval "
+  global \$wpdb; \$id=wc_get_product_id_by_sku('CONF-PRECISION-UTF8');
+  \$wpdb->update(\$wpdb->postmeta,['meta_value'=>base64_decode('$ATTR_BACKUP')],['post_id'=>\$id,'meta_key'=>'_product_attributes']);
+  clean_post_cache(\$id);
+" >/dev/null
+
+COD_BACKUP=$(wp_conf1 eval '
+  global $wpdb; echo base64_encode((string)$wpdb->get_var(
+    "SELECT option_value FROM {$wpdb->options} WHERE option_name=\"woocommerce_cod_settings\""
+  ));
+')
+require_observed_nonempty 'WooCommerce raw COD option backup' "$COD_BACKUP"
+FAKE_SECRET='AKIAABCDEFGHIJKLMNOP'
+wp_conf1 eval '
+  $settings=(array)get_option("woocommerce_cod_settings",[]);
+  $settings["instructions"]="AKIAABCDEFGHIJKLMNOP";
+  update_option("woocommerce_cod_settings",$settings);
+' >/dev/null
+SECRET_RC=0
+SECRET_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || SECRET_RC=$?
+require_duo_answered 'WooCommerce credential-shaped checkout capture' human "$SECRET_OUT"
+[ "$SECRET_RC" -ne 0 ] && grep -q 'secret guard tripped' <<<"$SECRET_OUT" \
+  && ! grep -Fq "$FAKE_SECRET" <<<"$SECRET_OUT" \
+  || fail "WooCommerce credential-shaped checkout setting did not refuse and redact: $SECRET_OUT"
+[ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$CAPTURE_BASELINE" ] \
+  || fail 'WooCommerce secret refusal partially published canonical state'
+wp_conf1 eval "
+  global \$wpdb;
+  \$wpdb->update(\$wpdb->options,['option_value'=>base64_decode('$COD_BACKUP')],['option_name'=>'woocommerce_cod_settings']);
+  wp_cache_delete('woocommerce_cod_settings','options');
+" >/dev/null
+
+DELETE_ROW=$(wp_conf1 eval '
+  global $wpdb; $id=wc_get_product_id_by_sku("CONF-ADOPT-PRODUCT");
+  echo base64_encode(wp_json_encode($wpdb->get_row($wpdb->prepare(
+    "SELECT * FROM {$wpdb->posts} WHERE ID=%d",$id
+  ),ARRAY_A),JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
+')
+require_observed_nonempty 'WooCommerce unsupported product-delete backup' "$DELETE_ROW"
+wp_conf1 eval '
+  global $wpdb; $id=wc_get_product_id_by_sku("CONF-ADOPT-PRODUCT");
+  if (1 !== $wpdb->delete($wpdb->posts,["ID"=>$id],["%d"])) throw new RuntimeException($wpdb->last_error);
+  clean_post_cache($id);
+' >/dev/null
+DELETE_RC=0
+DELETE_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || DELETE_RC=$?
+require_duo_answered 'WooCommerce unsupported product deletion capture' human "$DELETE_OUT"
+[ "$DELETE_RC" -ne 0 ] && grep -Eqi 'delet|unsupported|policy scope' <<<"$DELETE_OUT" \
+  || fail "WooCommerce unsupported product deletion did not refuse: $DELETE_OUT"
+[ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$CAPTURE_BASELINE" ] \
+  || fail 'WooCommerce unsupported deletion refusal partially published canonical state'
+wp_conf1 eval "
+  global \$wpdb; \$row=json_decode(base64_decode('$DELETE_ROW'),true,512,JSON_THROW_ON_ERROR);
+  if (false === \$wpdb->insert(\$wpdb->posts,\$row)) throw new RuntimeException(\$wpdb->last_error);
+  clean_post_cache((int)\$row['ID']);
+" >/dev/null
+wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-woocommerce-restored >/dev/null
+diff -r "$CONF_REPO1/state" "$CONF_REPO1/.tmp-woocommerce-restored" \
+  || fail 'WooCommerce source did not restore byte-identically after malformed/secret/deletion probes'
+rm -rf "$CONF_REPO1/.tmp-woocommerce-restored"
+pass 'malformed attributes, credential-shaped checkout data, and unsupported product deletion refuse atomically and redact values'
+
+# Both branches edit one managed native price. Unforced application must be
+# byte-still on the target; explicit repository authority must converge without
+# crossing target payment, order, session, queue, or unrelated-option state.
+wp_conf1 eval '
+  $product=wc_get_product(wc_get_product_id_by_sku("CONF-ADOPT-PRODUCT"));
+  $product->set_regular_price("55.123456"); $product->save();
+' >/dev/null
+commit_woocommerce_source 'conformance: competing WooCommerce product-price intent'
+wp_conf2 eval '
+  $product=wc_get_product(wc_get_product_id_by_sku("CONF-ADOPT-PRODUCT"));
+  $product->set_regular_price("77.654321"); $product->save();
+' >/dev/null
+CONFLICT_BEFORE=$(woocommerce_target_guard)
+CONFLICT_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered 'WooCommerce competing product-price plan' json "$CONFLICT_PLAN"
+jq -e '(.conflict | length) > 0' <<<"$CONFLICT_PLAN" >/dev/null \
+  || fail "WooCommerce competing price did not produce a conflict: $CONFLICT_PLAN"
+CONFLICT_RC=0
+CONFLICT_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || CONFLICT_RC=$?
+require_duo_answered 'WooCommerce unforced competing product apply' human "$CONFLICT_OUT"
+[ "$CONFLICT_RC" -ne 0 ] && grep -qi 'conflict' <<<"$CONFLICT_OUT" \
+  || fail "WooCommerce unforced competing product apply did not refuse: $CONFLICT_OUT"
+[ "$(woocommerce_target_guard)" = "$CONFLICT_BEFORE" ] \
+  || fail 'WooCommerce unforced conflict partially mutated target state'
+FORCED=$(wp_conf2 duo apply --repo=/siterepo --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered 'WooCommerce forced competing product apply' json "$FORCED"
+jq -e '.canary == "clean" and .verification.result == "pass" and .plan.conflict > 0' <<<"$FORCED" >/dev/null \
+  || fail "WooCommerce forced repository intent did not converge: $FORCED"
+CONVERGED=$(observe_woocommerce_adoption)
+jq -e --argjson ids "$TARGET_ADOPT" '
+  .product.id == $ids.product and .product.regular == "55.123456" and
+  .runtime.neighbor == "target-neighbor-preserved" and
+  .runtime.paypal.identity_token == "target-secret-token-preserved" and
+  .runtime.orders == 1 and .runtime.sessions == 1 and .runtime.queue == 1
+' <<<"$CONVERGED" >/dev/null || fail "WooCommerce forced conflict crossed a target boundary: $CONVERGED"
+pass 'dirty native price conflicts refuse atomically; explicit repository authority preserves target runtime and environment state'
+
+# Publish another authored price, then break the exact lookup schema after the
+# commit is visible. The provider must fail loudly after retaining authored
+# state, not advance the verified revision, keep retry authority, and converge
+# from that authority after the schema is restored.
+wp_conf1 eval '
+  $product=wc_get_product(wc_get_product_id_by_sku("CONF-ADOPT-PRODUCT"));
+  $product->set_sale_price("49.123456"); $product->save();
+' >/dev/null
+commit_woocommerce_source 'conformance: WooCommerce lookup-schema recovery intent'
+wp_conf2 db query 'ALTER TABLE wp_wc_product_meta_lookup RENAME COLUMN min_price TO duo_fault_min_price' >/dev/null
+SCHEMA_REV_BEFORE=$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')
+require_observed_nonempty 'WooCommerce applied revision before lookup-schema fault' "$SCHEMA_REV_BEFORE"
+SCHEMA_RC=0
+SCHEMA_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || SCHEMA_RC=$?
+require_duo_answered 'WooCommerce lookup-schema provider failure' human "$SCHEMA_OUT"
+[ "$SCHEMA_RC" -ne 0 ] && grep -Eq "provider 'woocommerce-product-lookups' capability 'rebuild_product_lookups' failed" <<<"$SCHEMA_OUT" \
+  || fail "WooCommerce lookup-schema fault did not refuse through the provider: $SCHEMA_OUT"
+[ "$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')" = "$SCHEMA_REV_BEFORE" ] \
+  || fail 'WooCommerce provider failure advanced applied_revision before verified effects'
+[ "$(wp_conf2 eval 'echo null === \Duo\Ledger::kv_get("apply_in_progress") ? "clear" : "retained";')" = retained ] \
+  || fail 'WooCommerce provider failure did not retain retry authority'
+FAILED_AUTHORED=$(observe_woocommerce_adoption)
+jq -e '
+  .product.regular == "55.123456" and .product.sale == "49.123456" and
+  .runtime.neighbor == "target-neighbor-preserved" and
+  .runtime.paypal.identity_token == "target-secret-token-preserved" and
+  .runtime.orders == 1 and .runtime.sessions == 1 and .runtime.queue == 1
+' <<<"$FAILED_AUTHORED" >/dev/null || fail "WooCommerce provider failure lost retained authored or runtime state: $FAILED_AUTHORED"
+wp_conf2 db query 'ALTER TABLE wp_wc_product_meta_lookup RENAME COLUMN duo_fault_min_price TO min_price' >/dev/null
+RETRY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered 'WooCommerce retry after lookup-schema repair' json "$RETRY"
+jq -e '
+  .canary == "clean" and .verification.result == "pass" and .applied >= 1 and
+  any(.actions[]?; .source == "provider:woocommerce-product-lookups/rebuild_product_lookups" and .verified == true)
+' <<<"$RETRY" >/dev/null || fail "WooCommerce lookup-schema retry did not consume durable intent: $RETRY"
+RETRIED_LOOKUP=$(wp_conf2 eval '
+  global $wpdb; $id=wc_get_product_id_by_sku("CONF-ADOPT-PRODUCT"); $product=wc_get_product($id);
+  $row=$wpdb->get_row($wpdb->prepare(
+    "SELECT min_price,max_price FROM {$wpdb->prefix}wc_product_meta_lookup WHERE product_id=%d",$id
+  ),ARRAY_A);
+  echo wp_json_encode(["regular"=>$product->get_regular_price("edit"),"sale"=>$product->get_sale_price("edit"),"lookup"=>$row]);
+')
+jq -e '
+  .regular == "55.123456" and .sale == "49.123456" and
+  .lookup.min_price == "49.1235" and .lookup.max_price == "49.1235"
+' <<<"$RETRIED_LOOKUP" >/dev/null || fail "WooCommerce retry did not restore native price/lookup state: $RETRIED_LOOKUP"
+pass 'lookup-schema failure retains authored intent and retry authority, then exact repair converges through WooCommerce readback'
+
+# Removing one authored field is an ordinary update, never an entity tombstone.
+wp_conf1 eval '
+  $id=wc_get_product_id_by_sku("CONF-PRECISION-UTF8");
+  delete_post_meta($id,"_purchase_note");
+' >/dev/null
+commit_woocommerce_source 'conformance: WooCommerce authored field absence'
+FIELD_REMOVED=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered 'WooCommerce authored field-absence apply' json "$FIELD_REMOVED"
+jq -e '.canary == "clean" and .verification.result == "pass" and .plan.update > 0 and .plan.delete == 0 and .plan.deleted == 0' <<<"$FIELD_REMOVED" >/dev/null \
+  || fail "WooCommerce authored field absence did not converge as an update: $FIELD_REMOVED"
+[ "$(wp_conf2 eval '$p=wc_get_product(wc_get_product_id_by_sku("CONF-PRECISION-UTF8")); echo $p->get_purchase_note("edit");')" = '' ] \
+  || fail 'WooCommerce native product API retained the removed purchase note'
+pass 'authored product-meta absence converges as an ordinary verified update'
+
+# Two real processes race one new product title. At least one must succeed; a
+# loser may only refuse at the named promotion lock, and the final native state
+# and plan must be exact.
+wp_conf1 eval '
+  $product=wc_get_product(wc_get_product_id_by_sku("CONF-ADOPT-PRODUCT"));
+  $product->set_name("Concurrent WooCommerce intent 東京 🚀"); $product->save();
+' >/dev/null
+commit_woocommerce_source 'conformance: concurrent WooCommerce apply intent'
+CONCURRENT_A="$CONF_REPO2/.tmp-woocommerce-concurrent-a.log"
+CONCURRENT_B="$CONF_REPO2/.tmp-woocommerce-concurrent-b.log"
+set +e
+wp_conf2 duo apply --repo=/siterepo --default-author=admin >"$CONCURRENT_A" 2>&1 & PID_A=$!
+wp_conf2 duo apply --repo=/siterepo --default-author=admin >"$CONCURRENT_B" 2>&1 & PID_B=$!
+wait "$PID_A"; RC_A=$?
+wait "$PID_B"; RC_B=$?
+set -e
+if [ "$RC_A" -ne 0 ] && [ "$RC_B" -ne 0 ]; then
+  fail "both competing WooCommerce applies failed: A=$(cat "$CONCURRENT_A") B=$(cat "$CONCURRENT_B")"
+fi
+for result in A B; do
+  eval "rc=\$RC_$result"; eval "log=\$CONCURRENT_$result"
+  if [ "$rc" -eq 0 ]; then
+    grep -q 'canary clean' "$log" || fail "successful competing WooCommerce apply lacked a clean canary: $(cat "$log")"
+  else
+    grep -Eqi 'lock|another apply|in progress|promotion' "$log" \
+      || fail "competing WooCommerce apply failed outside the named lock: $(cat "$log")"
+  fi
+done
+rm -f "$CONCURRENT_A" "$CONCURRENT_B"
+CONCURRENT=$(observe_woocommerce_adoption)
+jq -e '.product.name == "Concurrent WooCommerce intent 東京 🚀"' <<<"$CONCURRENT" >/dev/null \
+  || fail "competing WooCommerce applies lost repository intent: $CONCURRENT"
+CONCURRENT_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered 'WooCommerce plan after competing applies' json "$CONCURRENT_PLAN"
+jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$CONCURRENT_PLAN" >/dev/null \
+  || fail "WooCommerce competing applies left retained work: $CONCURRENT_PLAN"
+pass 'competing WooCommerce applies serialize and leave one exact idempotent result'
+
+# Deactivation is repaired by deploy. Woo's default uninstall keeps catalog,
+# typed configuration, lookup, approved-directory, and HPOS data unless the
+# merchant explicitly enables destructive cleanup; absent code must refuse,
+# then the digest-bound cached artifact must recover the retained state.
+wp_conf2 plugin deactivate woocommerce >/dev/null
+wp_conf2 plugin is-active woocommerce >/dev/null 2>&1 && fail 'WooCommerce deactivation premise did not land'
+REACTIVATE=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered 'WooCommerce deploy after deactivation' json "$REACTIVATE"
+wp_conf2 plugin is-active woocommerce >/dev/null || fail 'Duo deploy did not reactivate exact WooCommerce code'
+LIFECYCLE_BEFORE=$(woocommerce_storage_hash)
+wp_conf2 plugin deactivate woocommerce >/dev/null
+wp_conf2 plugin uninstall woocommerce >/dev/null
+wp_conf2 plugin is-installed woocommerce >/dev/null 2>&1 && fail 'WooCommerce uninstall left plugin code installed'
+[ "$(woocommerce_storage_hash)" = "$LIFECYCLE_BEFORE" ] \
+  || fail 'WooCommerce default uninstall changed retained catalog/configuration storage'
+MISSING_RC=0
+MISSING_OUT=$(wp_conf2 duo deploy --repo=/siterepo 2>&1) || MISSING_RC=$?
+require_duo_answered 'WooCommerce deploy with code absent' human "$MISSING_OUT"
+[ "$MISSING_RC" -ne 0 ] && grep -Eq 'code_mismatch|missing_in_code|is not installed' <<<"$MISSING_OUT" \
+  || fail "missing WooCommerce code did not refuse at compatibility: $MISSING_OUT"
+WOO_SHA=ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666
+WOO_ARTIFACT="/artifacts-cache/plugin-woocommerce-11.0.0-${WOO_SHA}.zip"
+[ "$(wp_conf2 eval "echo hash_file('sha256','$WOO_ARTIFACT');")" = "$WOO_SHA" ] \
+  || fail 'cached WooCommerce reinstall artifact digest moved'
+wp_conf2 plugin install "$WOO_ARTIFACT" --force >/dev/null
+[ "$(wp_conf2 plugin get woocommerce --field=version)" = 11.0.0 ] \
+  || fail 'WooCommerce exact reinstall reported the wrong version'
+REINSTALL_DEPLOY=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered 'WooCommerce deploy after exact reinstall' json "$REINSTALL_DEPLOY"
+wp_conf2 plugin is-active woocommerce >/dev/null || fail 'WooCommerce exact reinstall was not active after deploy'
+RECOVERED=$(observe_woocommerce_adoption)
+jq -e --argjson ids "$TARGET_ADOPT" '
+  .product.id == $ids.product and .product.name == "Concurrent WooCommerce intent 東京 🚀" and
+  .product.regular == "55.123456" and .product.sale == "49.123456" and
+  .coupon.id == $ids.coupon and .runtime.neighbor == "target-neighbor-preserved" and
+  .runtime.paypal.identity_token == "target-secret-token-preserved" and
+  .runtime.orders == 1 and .runtime.sessions == 1 and .runtime.queue == 1
+' <<<"$RECOVERED" >/dev/null || fail "WooCommerce retained native state did not recover after reinstall: $RECOVERED"
+EXTRA_ACTIVE=$(wp_conf2 plugin list --status=active --field=name | grep -v '^woocommerce$' || true)
+[ -z "$EXTRA_ACTIVE" ] || fail "WooCommerce scope fixture unexpectedly activated optional extensions: $EXTRA_ACTIVE"
+FINAL_APPLY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered 'WooCommerce final apply after exact reinstall' json "$FINAL_APPLY"
+jq -e '.canary == "clean" and .verification.result == "pass"' <<<"$FINAL_APPLY" >/dev/null \
+  || fail "WooCommerce exact reinstall did not remain clean: $FINAL_APPLY"
+FINAL_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered 'WooCommerce final recovery plan' json "$FINAL_PLAN"
+jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$FINAL_PLAN" >/dev/null \
+  || fail "WooCommerce recovery was not idempotent: $FINAL_PLAN"
+wp_conf2 duo capture --repo=/siterepo --out=/siterepo/.tmp-woocommerce-final >/dev/null
+diff -r "$CONF_REPO1/state" "$CONF_REPO2/.tmp-woocommerce-final" \
+  || fail 'WooCommerce final recovered state was not byte-identical'
+rm -rf "$CONF_REPO2/.tmp-woocommerce-final"
+pass 'deactivate/reactivate, retained-data uninstall, absent-code refusal, exact reinstall, optional-extension isolation, and final retry are clean'
