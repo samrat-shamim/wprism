@@ -111,7 +111,22 @@ if (is_dir($cssDir)) {
 }
 sort($postCssIds, SORT_NUMERIC);
 ksort($cssFiles, SORT_STRING);
-$missing = array_values(array_diff($builderIds, $postCssIds));
+$fileIds = [];
+$emptyIds = [];
+$invalidReceipts = 0;
+foreach ($builderIds as $builderId) {
+    $receipt = get_post_meta($builderId, '_elementor_css', true);
+    $status = is_array($receipt) ? ($receipt['status'] ?? null) : null;
+    if ($status === 'file') {
+        $fileIds[] = $builderId;
+    } elseif ($status === 'empty') {
+        $emptyIds[] = $builderId;
+    } else {
+        $invalidReceipts++;
+    }
+}
+$missing = array_values(array_diff($fileIds, $postCssIds));
+$unexpectedEmpty = array_values(array_intersect($emptyIds, $postCssIds));
 $orphan = array_values(array_diff($postCssIds, $builderIds));
 $renderCaches = (int) $wpdb->get_var(
     "SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE meta_key IN ('_elementor_element_cache','_elementor_page_assets')"
@@ -164,10 +179,14 @@ echo wp_json_encode([
         'builder_ids' => $builderIds,
         'css_files' => count($cssFiles),
         'css_fingerprint' => hash('sha256', serialize($cssFiles)),
+        'empty_receipt_ids' => $emptyIds,
+        'file_receipt_ids' => $fileIds,
+        'invalid_receipts' => $invalidReceipts,
         'missing' => $missing,
         'orphan' => $orphan,
         'post_css_ids' => $postCssIds,
         'render_caches' => $renderCaches,
+        'unexpected_empty' => $unexpectedEmpty,
     ],
     'ids' => $ids,
     'kit' => [
@@ -224,8 +243,10 @@ jq -e --arg version "$ELEMENTOR_EXPECTED_VERSION" '
   (.kit.system_colors | map(select(._id == "secondary" and .color == "#654321")) | length) == 1 and
   (.kit.custom_colors | map(select(._id == "duocustom" and .title == "Duo Custom 東京 🚀" and .color == "#abcdef")) | length) == 1 and
   (.media_exist | to_entries | all(.value == true)) and
-  .derived.missing == [] and .derived.orphan == [] and .derived.render_caches == 0 and
-  .derived.builder_ids == .derived.post_css_ids and
+  .derived.invalid_receipts == 0 and .derived.missing == [] and
+  .derived.unexpected_empty == [] and .derived.orphan == [] and .derived.render_caches == 0 and
+  .derived.file_receipt_ids == .derived.post_css_ids and
+  ((.derived.file_receipt_ids + .derived.empty_receipt_ids) | sort) == .derived.builder_ids and
   .runtime.connect_key == "target-connect-site-key-preserved" and
   .runtime.checklist.completed == ["target-runtime-marker"] and
   .runtime.experiment == "active" and
@@ -266,8 +287,11 @@ if jq -e 'type == "object"' <<<"$PROVIDER_RECEIPT" >/dev/null 2>&1; then
   jq -e '
     any(.actions[]?;
       .source == "provider:elementor-css/regenerate_css" and .verified == true and
-      .after.missing_document_css == 0 and .after.orphan_document_css == 0 and
-      .after.render_caches == 0 and .after.builder_documents == .after.post_css_files)
+      .after.invalid_css_receipts == 0 and .after.missing_document_css == 0 and
+      .after.unexpected_empty_document_css == 0 and .after.orphan_document_css == 0 and
+      .after.render_caches == 0 and
+      .after.css_receipt_files == .after.post_css_files and
+      (.after.css_receipt_files + .after.css_receipt_empty) == .after.builder_documents)
   ' <<<"$PROVIDER_RECEIPT" >/dev/null \
     || fail 'Elementor provider JSON receipt omitted its closed document/CSS projection'
 fi

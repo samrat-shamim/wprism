@@ -132,11 +132,13 @@ final class ElementorCss {
      * conformance check reads back.
      *
      * The verification mirrors Elementor 4.0.0 and 4.2.3's own
-     * Files_Manager::generate_css() query: every published post carrying the
-     * builder marker must have one post-<id>.css file, and every such file
-     * must still own a live marked document. This catches both silently
-     * skipped documents and orphan CSS left after a deletion while allowing
-     * a genuinely idempotent command to reproduce identical bytes.
+     * Files_Manager::generate_css() query and Post CSS receipt: every
+     * published post carrying the builder marker must finish with an
+     * `_elementor_css.status` of `file` or `empty`; `file` requires exactly
+     * its post-<id>.css and `empty` requires no such file. Atomic-only
+     * documents with no per-page style rules legitimately use `empty`, so a
+     * blanket one-file-per-document predicate would reject valid Elementor
+     * 4 pages. Orphan post CSS is independently forbidden.
      *
      * @return array{before:array, after:array, verified:true}
      */
@@ -221,6 +223,7 @@ final class ElementorCss {
     /**
      * @return array{
      *   builder_document_ids:list<int>,
+     *   builder_css_statuses:array<int,string>,
      *   css_files:array<string,array{bytes:int,mtime:int,sha256:string}>,
      *   post_css_ids:list<int>,
      *   render_caches:int
@@ -229,6 +232,7 @@ final class ElementorCss {
     private function projection_detail(): array {
         $this->assert_schema();
         $documents = $this->builder_document_ids();
+        $statuses = $this->builder_css_statuses($documents);
         $inventory = $this->css_inventory();
         $postCssIds = [];
         foreach (array_keys($inventory) as $file) {
@@ -239,6 +243,7 @@ final class ElementorCss {
         sort($postCssIds, SORT_NUMERIC);
         return [
             'builder_document_ids' => $documents,
+            'builder_css_statuses' => $statuses,
             'css_files' => $inventory,
             'post_css_ids' => $postCssIds,
             'render_caches' => $this->render_cache_count(),
@@ -248,20 +253,44 @@ final class ElementorCss {
     /** @param array<string,mixed> $detail @return array<string,int|string> */
     private function projection_summary(array $detail, bool $verify): array {
         $documents = $detail['builder_document_ids'];
+        $statuses = $detail['builder_css_statuses'];
         $postCssIds = $detail['post_css_ids'];
-        $missing = array_values(array_diff($documents, $postCssIds));
+        $fileIds = [];
+        $emptyIds = [];
+        $invalidReceipts = 0;
+        foreach ($documents as $id) {
+            if (($statuses[$id] ?? null) === 'file') {
+                $fileIds[] = $id;
+            } elseif (($statuses[$id] ?? null) === 'empty') {
+                $emptyIds[] = $id;
+            } else {
+                $invalidReceipts++;
+            }
+        }
+        $missing = array_values(array_diff($fileIds, $postCssIds));
+        $unexpected = array_values(array_intersect($emptyIds, $postCssIds));
         $orphaned = array_values(array_diff($postCssIds, $documents));
         $summary = [
             'builder_documents' => count($documents),
+            'css_receipt_files' => count($fileIds),
+            'css_receipt_empty' => count($emptyIds),
+            'invalid_css_receipts' => $invalidReceipts,
             'css_files' => count($detail['css_files']),
             'post_css_files' => count($postCssIds),
             'css_fingerprint' => hash('sha256', serialize($detail['css_files'])),
             'missing_document_css' => count($missing),
+            'unexpected_empty_document_css' => count($unexpected),
             'orphan_document_css' => count($orphaned),
             'render_caches' => $detail['render_caches'],
         ];
         if ($verify) {
-            foreach (['missing_document_css', 'orphan_document_css', 'render_caches'] as $field) {
+            foreach ([
+                'invalid_css_receipts',
+                'missing_document_css',
+                'unexpected_empty_document_css',
+                'orphan_document_css',
+                'render_caches',
+            ] as $field) {
                 if ($summary[$field] !== 0) {
                     throw new \RuntimeException(
                         "duo: Elementor CSS readback found {$summary[$field]} $field; recovery_required"
@@ -270,6 +299,22 @@ final class ElementorCss {
             }
         }
         return $summary;
+    }
+
+    /** @param list<int> $documents @return array<int,string> */
+    private function builder_css_statuses(array $documents): array {
+        if (!function_exists('get_post_meta')) {
+            throw new \RuntimeException(
+                'duo: Elementor CSS verification requires get_post_meta()'
+            );
+        }
+        $statuses = [];
+        foreach ($documents as $id) {
+            $receipt = get_post_meta($id, '_elementor_css', true);
+            $status = is_array($receipt) ? ($receipt['status'] ?? null) : null;
+            $statuses[$id] = is_string($status) ? $status : 'missing';
+        }
+        return $statuses;
     }
 
     private function assert_schema(): void {

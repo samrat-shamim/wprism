@@ -20,6 +20,7 @@ namespace {
     $GLOBALS['ec_after_command'] = null;
     $GLOBALS['ec_delete_calls'] = [];
     $GLOBALS['ec_retain_render_caches'] = false;
+    $GLOBALS['ec_css_statuses'] = [11 => 'file', 22 => 'file'];
 
     function wp_upload_dir(): mixed {
         return $GLOBALS['ec_uploads'];
@@ -35,6 +36,15 @@ namespace {
             $GLOBALS['wpdb']->renderCaches = 0;
         }
         return true;
+    }
+
+    function get_post_meta(int $postId, string $key, bool $single = false): mixed {
+        if ($key !== '_elementor_css') {
+            return $single ? '' : [];
+        }
+        $status = $GLOBALS['ec_css_statuses'][$postId] ?? null;
+        $value = is_string($status) ? ['status' => $status] : '';
+        return $single ? $value : [$value];
     }
 
     final class WP_CLI {
@@ -176,6 +186,7 @@ namespace {
         $GLOBALS['ec_after_command'] = null;
         $GLOBALS['ec_delete_calls'] = [];
         $GLOBALS['ec_retain_render_caches'] = false;
+        $GLOBALS['ec_css_statuses'] = [11 => 'file', 22 => 'file'];
         $GLOBALS['wpdb'] = new ElementorCssWpdb();
         return new ElementorCss(new \Duo\Policy());
     }
@@ -249,7 +260,11 @@ namespace {
     duo_check_same(2, $receipt['after']['builder_documents'] ?? null, 'receipt bounds the builder population after mutation');
     duo_check_same(2, $receipt['after']['css_files'] ?? null, 'receipt counts the exact flat CSS inventory');
     duo_check_same(2, $receipt['after']['post_css_files'] ?? null, 'receipt counts the exact per-document CSS projection');
+    duo_check_same(2, $receipt['after']['css_receipt_files'] ?? null, 'receipt counts native file-producing documents');
+    duo_check_same(0, $receipt['after']['css_receipt_empty'] ?? null, 'receipt counts native empty documents independently');
+    duo_check_same(0, $receipt['after']['invalid_css_receipts'] ?? null, 'verified receipt has a native status for every builder document');
     duo_check_same(0, $receipt['after']['missing_document_css'] ?? null, 'verified receipt has no silently skipped builder document');
+    duo_check_same(0, $receipt['after']['unexpected_empty_document_css'] ?? null, 'verified receipt has no CSS for a native empty document');
     duo_check_same(0, $receipt['after']['orphan_document_css'] ?? null, 'verified receipt has no deleted-document CSS residue');
     duo_check_same(0, $receipt['after']['render_caches'] ?? null, 'verified receipt proves stale rendered HTML caches absent');
     duo_check_same('regenerated', $receipt['after']['outcome'] ?? null, 'changed CSS bytes report a regenerated outcome');
@@ -300,6 +315,42 @@ namespace {
         $idempotent['before']['css_fingerprint'] ?? null,
         $idempotent['after']['css_fingerprint'] ?? null,
         'idempotent retry preserves the full CSS inventory fingerprint'
+    );
+
+    $provider = ec_reset();
+    $GLOBALS['ec_css_statuses'][22] = 'empty';
+    ec_write_css(['post-11.css' => 'before']);
+    $GLOBALS['ec_after_command'] = static function (): void {
+        ec_write_css(['post-11.css' => 'after']);
+    };
+    $emptyReceipt = $provider->invoke('regenerate_css', []);
+    duo_check_same(1, $emptyReceipt['after']['css_receipt_files'] ?? null, 'native file receipt requires one generated stylesheet');
+    duo_check_same(1, $emptyReceipt['after']['css_receipt_empty'] ?? null, 'Atomic-style empty receipt is represented explicitly');
+    duo_check_same(1, $emptyReceipt['after']['post_css_files'] ?? null, 'legitimate empty document needs no synthetic stylesheet');
+    duo_check_same(0, $emptyReceipt['after']['missing_document_css'] ?? null, 'legitimate empty document is not misreported as missing CSS');
+
+    $provider = ec_reset();
+    unset($GLOBALS['ec_css_statuses'][22]);
+    $GLOBALS['ec_after_command'] = static function (): void {
+        ec_write_css(['post-11.css' => 'after']);
+    };
+    duo_check_throws(
+        static fn(): array => $provider->invoke('regenerate_css', []),
+        \RuntimeException::class,
+        'missing native CSS receipt refuses instead of inferring completion from file absence',
+        'found 1 invalid_css_receipts'
+    );
+
+    $provider = ec_reset();
+    $GLOBALS['ec_css_statuses'][22] = 'empty';
+    $GLOBALS['ec_after_command'] = static function (): void {
+        ec_write_css(['post-11.css' => 'after', 'post-22.css' => 'stale']);
+    };
+    duo_check_throws(
+        static fn(): array => $provider->invoke('regenerate_css', []),
+        \RuntimeException::class,
+        'native empty receipt with retained stylesheet refuses',
+        'found 1 unexpected_empty_document_css'
     );
 
     $provider = ec_reset();
