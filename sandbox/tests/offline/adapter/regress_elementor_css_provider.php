@@ -21,6 +21,8 @@ namespace {
     $GLOBALS['ec_delete_calls'] = [];
     $GLOBALS['ec_retain_render_caches'] = false;
     $GLOBALS['ec_css_statuses'] = [11 => 'file', 22 => 'file'];
+    $GLOBALS['ec_css_status_cache'] = [];
+    $GLOBALS['ec_cache_delete_calls'] = [];
 
     function wp_upload_dir(): mixed {
         return $GLOBALS['ec_uploads'];
@@ -42,9 +44,20 @@ namespace {
         if ($key !== '_elementor_css') {
             return $single ? '' : [];
         }
-        $status = $GLOBALS['ec_css_statuses'][$postId] ?? null;
+        if (!array_key_exists($postId, $GLOBALS['ec_css_status_cache'])) {
+            $GLOBALS['ec_css_status_cache'][$postId] = $GLOBALS['ec_css_statuses'][$postId] ?? null;
+        }
+        $status = $GLOBALS['ec_css_status_cache'][$postId];
         $value = is_string($status) ? ['status' => $status] : '';
         return $single ? $value : [$value];
+    }
+
+    function wp_cache_delete(int $key, string $group = ''): bool {
+        $GLOBALS['ec_cache_delete_calls'][] = [$key, $group];
+        if ($group === 'post_meta') {
+            unset($GLOBALS['ec_css_status_cache'][$key]);
+        }
+        return true;
     }
 
     final class WP_CLI {
@@ -187,6 +200,8 @@ namespace {
         $GLOBALS['ec_delete_calls'] = [];
         $GLOBALS['ec_retain_render_caches'] = false;
         $GLOBALS['ec_css_statuses'] = [11 => 'file', 22 => 'file'];
+        $GLOBALS['ec_css_status_cache'] = [];
+        $GLOBALS['ec_cache_delete_calls'] = [];
         $GLOBALS['wpdb'] = new ElementorCssWpdb();
         return new ElementorCss(new \Duo\Policy());
     }
@@ -288,6 +303,11 @@ namespace {
         $GLOBALS['ec_delete_calls'],
         'provider invalidates both known rendered-document caches after native regeneration'
     );
+    duo_check_same(
+        [[11, 'post_meta'], [22, 'post_meta']],
+        $GLOBALS['ec_cache_delete_calls'],
+        'provider expires parent-process receipt caches after child-process regeneration'
+    );
     $published = json_encode($receipt, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     duo_check(
         is_string($published)
@@ -315,6 +335,25 @@ namespace {
         $idempotent['before']['css_fingerprint'] ?? null,
         $idempotent['after']['css_fingerprint'] ?? null,
         'idempotent retry preserves the full CSS inventory fingerprint'
+    );
+
+    $provider = ec_reset();
+    unset($GLOBALS['ec_css_statuses'][22]);
+    ec_write_css(['post-11.css' => 'before']);
+    $GLOBALS['ec_after_command'] = static function (): void {
+        $GLOBALS['ec_css_statuses'][22] = 'file';
+        ec_write_css(['post-11.css' => 'after', 'post-22.css' => 'after']);
+    };
+    $crossProcess = $provider->invoke('regenerate_css', []);
+    duo_check_same(
+        0,
+        $crossProcess['after']['invalid_css_receipts'] ?? null,
+        'postcondition evicts a missing pre-command receipt cached in the parent process'
+    );
+    duo_check_same(
+        2,
+        $crossProcess['after']['css_receipt_files'] ?? null,
+        'postcondition reads both receipts committed by the child process'
     );
 
     $provider = ec_reset();

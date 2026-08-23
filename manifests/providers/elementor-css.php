@@ -199,6 +199,12 @@ final class ElementorCss {
             );
         }
 
+        // WP_CLI::runcommand(launch=true) regenerates in a child process.
+        // projection_detail() populated this parent's post-meta cache before
+        // launch, so readback would otherwise see the pre-command
+        // `_elementor_css` receipt after the child committed the new one.
+        $this->clear_css_receipt_caches($beforeDetail['builder_document_ids']);
+
         // Invalidate the render caches AFTER flush-css: `--regenerate`
         // re-renders each document to rebuild CSS and can leave the element
         // HTML cache repopulated (grind_adoption A6). Deleting the keys here
@@ -315,6 +321,18 @@ final class ElementorCss {
             $statuses[$id] = is_string($status) ? $status : 'missing';
         }
         return $statuses;
+    }
+
+    /** @param list<int> $documents */
+    private function clear_css_receipt_caches(array $documents): void {
+        if (!function_exists('wp_cache_delete')) {
+            throw new \RuntimeException(
+                'duo: Elementor CSS verification requires wp_cache_delete()'
+            );
+        }
+        foreach ($documents as $id) {
+            wp_cache_delete($id, 'post_meta');
+        }
     }
 
     private function assert_schema(): void {
