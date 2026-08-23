@@ -85,7 +85,12 @@ $hidden_event_ids = array_map(
     'intval',
     tribe(\Tribe\Events\Views\V2\Query\Hide_From_Upcoming_Controller::class)->get_hidden_post_ids()
 );
-$registered = get_registered_meta_keys('post');
+// Editor meta is registered globally, while Classic_Editor.php:131-146 uses
+// register_post_meta('tribe_events', ...); both registries are native contract.
+$registered = array_replace(
+    get_registered_meta_keys('post'),
+    get_registered_meta_keys('post', Tribe__Events__Main::POSTTYPE)
+);
 $registered_contract = [];
 foreach ([
     '_EventCostDescription',
