@@ -52,7 +52,7 @@ check($policy->regen_batch('product') === null && $policy->regen_batch('product_
 $declaration = $policy->provider_declarations()['woocommerce-product-lookups'] ?? null;
 check(is_array($declaration)
     && $declaration['source'] === 'manifest'
-    && $declaration['version'] === '1.0.0'
+    && $declaration['version'] === '2.0.0'
     && $declaration['plugin'] === 'woocommerce/woocommerce.php'
     && $declaration['capabilities'] === ['rebuild_product_lookups'],
     'the lookup repair is declared as a manifest-sourced provider pinned to the same plugin the manifest claims');
@@ -68,6 +68,7 @@ $expectedRequires = [
         'add_filter',
         'remove_filter',
         'get_post_meta',
+        'maybe_unserialize',
         'delete_post_meta',
         'add_post_meta',
         'wc_maybe_schedule_product_sale_events',
@@ -77,6 +78,8 @@ $expectedRequires = [
         'wp_cache_delete',
     ],
     'classes' => [
+        'Automattic\\WooCommerce\\Internal\\ProductDownloads\\ApprovedDirectories\\Register',
+        'Automattic\\WooCommerce\\Internal\\Utilities\\URL',
         'WC_Data_Store',
         'WC_Product_Variable',
         'WC_Product_Grouped',
@@ -97,7 +100,7 @@ $adapter = new \Duo\Providers\WoocommerceProductLookups($policy);
 check($adapter->identity() === [
     'id' => 'woocommerce-product-lookups',
     'plugin' => 'woocommerce/woocommerce.php',
-    'version' => '1.0.0',
+    'version' => '2.0.0',
 ], "the provider's self-reported identity matches its declaration exactly (negotiation compares these)");
 $capabilities = $adapter->capabilities();
 $capability = $capabilities['rebuild_product_lookups'] ?? null;
@@ -284,11 +287,11 @@ $lookupAction = $actions[2] ?? [];
 check(($lookupAction['triggers'] ?? null) === ['post:product', 'post:product_variation'],
     'the lookup action is narrowed to exactly the two post types the regen_dependency declarations covered');
 $effectIds = array_map(static fn(array $e): string => (string) $e['id'], (array) ($lookupAction['effects'] ?? []));
-check(count($effectIds) === 118 && count(array_unique($effectIds)) === 118,
-    'both post types\' supported effect lists remain distinct (59 + 59), including the bounded late taxonomy registration filters and permalink reads — the manifest note '
-    . 'records why product and variation ids stay separate even where they name the same resource');
-check(count(array_filter($effectIds, static fn(string $id): bool => str_starts_with($id, 'woocommerce-product-'))) === 59
-    && count(array_filter($effectIds, static fn(string $id): bool => str_starts_with($id, 'woocommerce-variation-'))) === 59,
+check(count($effectIds) === 120 && count(array_unique($effectIds)) === 120,
+    'both post types\' supported effect lists remain distinct (60 + 60), including approved-directory repair, bounded late taxonomy registration filters, and permalink reads — the manifest note '
+        . 'records why product and variation ids stay separate even where they name the same resource');
+check(count(array_filter($effectIds, static fn(string $id): bool => str_starts_with($id, 'woocommerce-product-'))) === 60
+    && count(array_filter($effectIds, static fn(string $id): bool => str_starts_with($id, 'woocommerce-variation-'))) === 60,
     'and neither half was dropped or renamed on the way');
 $registrationFilterSelector = [
     'scope' => 'external',
@@ -324,7 +327,7 @@ check(array_filter($inventory, static fn(array $row): bool =>
     'the effects inventory now carries them under the rebuild phase of the declaring action, with no '
     . 'orphaned regenerator-phase rows left behind');
 check(count(array_filter($inventory, static fn(array $row): bool =>
-    $row['source'] === 'provider:woocommerce-product-lookups/rebuild_product_lookups')) === 118,
+    $row['source'] === 'provider:woocommerce-product-lookups/rebuild_product_lookups')) === 120,
     'every one of them is attributed to the exact provider capability a recovery operator would re-run');
 
 if ($failures > 0) {

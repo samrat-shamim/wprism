@@ -133,6 +133,90 @@ namespace Automattic\WooCommerce\Internal\Caches {
     }
 }
 
+namespace Automattic\WooCommerce\Internal\Utilities {
+    final class URL {
+        public function __construct(private string $url) {}
+
+        public function get_parent_url(): string|false {
+            $withoutQuery = explode('?', $this->url, 2)[0];
+            $slash = strrpos($withoutQuery, '/');
+            return $slash === false ? false : substr($withoutQuery, 0, $slash + 1);
+        }
+    }
+}
+
+namespace Automattic\WooCommerce\Internal\ProductDownloads\ApprovedDirectories {
+    final class StoredUrl {
+        public function __construct(private int $id, private string $url, private bool $enabled) {}
+        public function get_id(): int { return $this->id; }
+        public function get_url(): string { return $this->url; }
+        public function is_enabled(): bool { return $this->enabled; }
+    }
+
+    final class Register {
+        public const MODE_DISABLED = 'disabled';
+        public const MODE_ENABLED = 'enabled';
+        public static ?self $instance = null;
+        /** @var array<string,array{id:int,enabled:bool}> */
+        public array $rules = [];
+        public string $mode = self::MODE_ENABLED;
+        public int $adds = 0;
+        public int $enables = 0;
+        public bool $failAdd = false;
+        public bool $failEnable = false;
+        public bool $failValidation = false;
+        private int $nextId = 1;
+
+        public function get_mode(): string { return $this->mode; }
+
+        public function get_by_url(string $url): StoredUrl|false {
+            $url = rtrim($url, '/') . '/';
+            $row = $this->rules[$url] ?? null;
+            return is_array($row) ? new StoredUrl($row['id'], $url, $row['enabled']) : false;
+        }
+
+        public function add_approved_directory(string $url, bool $enabled = true): int {
+            if ($this->failAdd) {
+                throw new \RuntimeException('simulated add failure containing api_key=do-not-leak');
+            }
+            $url = rtrim($url, '/') . '/';
+            if (isset($this->rules[$url])) {
+                return $this->rules[$url]['id'];
+            }
+            $id = $this->nextId++;
+            $this->rules[$url] = ['id' => $id, 'enabled' => $enabled];
+            $this->adds++;
+            return $id;
+        }
+
+        public function enable_by_id(int $id): bool {
+            if ($this->failEnable) {
+                return false;
+            }
+            foreach ($this->rules as $url => $row) {
+                if ($row['id'] === $id) {
+                    $this->rules[$url]['enabled'] = true;
+                    $this->enables++;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public function is_valid_path(string $file): bool {
+            if ($this->failValidation) {
+                throw new \RuntimeException('simulated validation failure containing token=do-not-leak');
+            }
+            foreach ($this->rules as $url => $row) {
+                if ($row['enabled'] && str_starts_with($file, $url)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+}
+
 namespace {
     if (!defined('DUO_SPEC_VERSION')) {
         define('DUO_SPEC_VERSION', 2);
@@ -331,10 +415,30 @@ namespace {
         }
 
         public function get_results(string $query, $output = null): array {
-            global $fakeAttrLookup;
+            global $fakeAttrLookup, $fakeMeta, $fakeDownloadMetaRows;
             if ($this->failReadContaining !== null && str_contains($query, $this->failReadContaining)) {
                 $this->last_error = 'simulated read failure';
                 return [];
+            }
+            if (str_contains($query, "meta_key = '_downloadable_files'")) {
+                if (!preg_match('/post_id IN \(([0-9, ]+)\)/', $query, $match)) {
+                    throw new \RuntimeException('fake wpdb could not parse downloadable metadata scope');
+                }
+                $ids = array_map('intval', preg_split('/\s*,\s*/', trim($match[1])) ?: []);
+                $rows = [];
+                foreach ($ids as $id) {
+                    $values = array_key_exists($id, (array) $fakeDownloadMetaRows)
+                        ? (array) $fakeDownloadMetaRows[$id]
+                        : (array) ($fakeMeta[$id]['_downloadable_files'] ?? []);
+                    foreach ($values as $index => $value) {
+                        $rows[] = [
+                            'post_id' => (string) $id,
+                            'meta_id' => (string) ($id * 10 + $index + 1),
+                            'meta_value' => (string) $value,
+                        ];
+                    }
+                }
+                return $rows;
             }
             if ($query === 'SHOW COLUMNS FROM `wp_wc_product_meta_lookup`') {
                 return array_map(
@@ -480,6 +584,12 @@ namespace {
         public function getTimestamp(): int { return $this->timestamp; }
     }
 
+    final class FakeProductDownload {
+        public function __construct(private string $file, private bool $enabled) {}
+        public function get_file(): string { return $this->file; }
+        public function get_enabled(): bool { return $this->enabled; }
+    }
+
     class FakeProduct {
         public function __construct(
             private int $id,
@@ -536,6 +646,25 @@ namespace {
             return $this->visibleChildren;
         }
         public function get_attributes(): array { return $this->attributes; }
+        public function get_downloads(): array {
+            global $fakeMeta;
+            $raw = maybe_unserialize((string) ($fakeMeta[$this->id]['_downloadable_files'][0] ?? 'a:0:{}'));
+            if (!is_array($raw)) {
+                return [];
+            }
+            $register = \Automattic\WooCommerce\Internal\ProductDownloads\ApprovedDirectories\Register::$instance
+                ??= new \Automattic\WooCommerce\Internal\ProductDownloads\ApprovedDirectories\Register();
+            $out = [];
+            foreach ($raw as $id => $row) {
+                if (!is_array($row) || !is_string($row['file'] ?? null)) {
+                    continue;
+                }
+                $enabled = $register->mode === $register::MODE_DISABLED
+                    || $register->is_valid_path($row['file']);
+                $out[(string) $id] = new FakeProductDownload($row['file'], $enabled);
+            }
+            return $out;
+        }
         public function is_in_stock(): bool { return $this->stock; }
         public function get_date_on_sale_from(string $context = 'view'): ?FakeSaleDate {
             return fake_sale_date($this->id, '_sale_price_dates_from');
@@ -835,6 +964,10 @@ namespace {
             if ($class === '\\Automattic\\WooCommerce\\Internal\\Caches\\ProductCache') {
                 return new \Automattic\WooCommerce\Internal\Caches\ProductCache();
             }
+            if ($class === '\\Automattic\\WooCommerce\\Internal\\ProductDownloads\\ApprovedDirectories\\Register') {
+                return \Automattic\WooCommerce\Internal\ProductDownloads\ApprovedDirectories\Register::$instance
+                    ??= new \Automattic\WooCommerce\Internal\ProductDownloads\ApprovedDirectories\Register();
+            }
             return \Automattic\WooCommerce\Internal\ProductAttributesLookup\LookupDataStore::$instance
                 ??= new \Automattic\WooCommerce\Internal\ProductAttributesLookup\LookupDataStore();
         }
@@ -929,6 +1062,7 @@ namespace {
     $fakeGroupedChildren = [];
     $fakeSyncFailures = ['variable' => [], 'grouped' => []];
     $fakeMetaRestoreFailures = [];
+    $fakeDownloadMetaRows = [];
     $fakeSaleSchedules = [
         'wc_product_start_scheduled_sale' => [],
         'wc_product_end_scheduled_sale' => [],
@@ -1076,6 +1210,13 @@ namespace {
         global $fakeMeta;
         $values = $fakeMeta[$id][$key] ?? [];
         return $single ? ($values[0] ?? '') : $values;
+    }
+    function maybe_unserialize($value) {
+        if (!is_string($value)) {
+            return $value;
+        }
+        $decoded = @unserialize(trim($value));
+        return $decoded === false && trim($value) !== 'b:0;' ? $value : $decoded;
     }
     function delete_post_meta(int $id, string $key): bool {
         global $fakeMeta;
@@ -1288,6 +1429,149 @@ namespace {
         echo ($condition ? 'ok: ' : 'FAIL: ') . $message . "\n";
         if (!$condition) { $failures++; }
     };
+
+    // A target-local approved-directory register is a real WooCommerce 11
+    // projection: raw postmeta can contain an enabled, correctly rebased
+    // file while WC_Product::get_downloads() disables it until the target
+    // parent is approved. Exercise that boundary through regenerate_batch(),
+    // the same provider entry point a real apply invokes.
+    $downloadId = '0123456789abcdef0123456789abcdef';
+    $downloadFile = 'https://target.example/uploads/2030/01/catalog.pdf?download=1&label=tokyo';
+    $downloadRow = static fn(string $file, bool $enabled = true): string => serialize([
+        $downloadId => [
+            'id' => $downloadId,
+            'name' => 'Portable catalog 東京.pdf',
+            'file' => $file,
+            'enabled' => $enabled,
+        ],
+    ]);
+    $fakeMeta[17] = $fakeMeta[13];
+    $fakeMeta[17]['_downloadable'] = ['yes'];
+    $fakeMeta[17]['_downloadable_files'] = [$downloadRow($downloadFile)];
+    $fakeProducts[17] = new FakeProduct(17, 'simple', 0, [], [], true);
+    $fakeMetaLookup[17] = $fakeMetaLookup[10];
+    $fakeMetaLookup[17]['product_id'] = 17;
+    $register = \Automattic\WooCommerce\Internal\ProductDownloads\ApprovedDirectories\Register::$instance
+        ??= new \Automattic\WooCommerce\Internal\ProductDownloads\ApprovedDirectories\Register();
+    $register->rules['https://unrelated.example/private/'] = ['id' => 900, 'enabled' => true];
+    $adapter->regenerate_batch([17], []);
+    $expectedParent = 'https://target.example/uploads/2030/01/';
+    $nativeDownload = wc_get_product(17)->get_downloads()[$downloadId] ?? null;
+    $check(isset($register->rules[$expectedParent]) && $register->rules[$expectedParent]['enabled'] === true,
+        'download repair adds the exact target parent through WooCommerce\'s approved-directory API');
+    $check(isset($register->rules['https://unrelated.example/private/']),
+        'download repair preserves unrelated target-local approved-directory rules');
+    $check($nativeDownload instanceof FakeProductDownload && $nativeDownload->get_enabled() === true
+        && $nativeDownload->get_file() === $downloadFile,
+        'the real provider path verifies the exact rebased file as enabled through the native product API');
+    $addCount = $register->adds;
+    $adapter->regenerate_batch([17], []);
+    $check($register->adds === $addCount,
+        'replaying the same product batch is idempotent and creates no duplicate directory rule');
+
+    $register->rules[$expectedParent]['enabled'] = false;
+    $enableCount = $register->enables;
+    $adapter->regenerate_batch([17], []);
+    $check($register->rules[$expectedParent]['enabled'] === true && $register->enables === $enableCount + 1,
+        'an exact disabled target rule is re-enabled because the authored product requires that directory');
+
+    $register->rules = [
+        'https://target.example/uploads/' => ['id' => 901, 'enabled' => true],
+        'https://unrelated.example/private/' => ['id' => 900, 'enabled' => true],
+    ];
+    $addCount = $register->adds;
+    $adapter->regenerate_batch([17], []);
+    $check($register->adds === $addCount && !isset($register->rules[$expectedParent]),
+        'an existing broader approved parent satisfies the file without adding a redundant narrower rule');
+
+    $register->mode = $register::MODE_DISABLED;
+    $register->rules = ['https://unrelated.example/private/' => ['id' => 900, 'enabled' => true]];
+    $addCount = $register->adds;
+    $adapter->regenerate_batch([17], []);
+    $nativeDownload = wc_get_product(17)->get_downloads()[$downloadId] ?? null;
+    $check($register->adds === $addCount && $nativeDownload instanceof FakeProductDownload
+        && $nativeDownload->get_enabled() === true,
+        'disabled directory enforcement performs no registry mutation and native verification still succeeds');
+    $register->mode = $register::MODE_ENABLED;
+
+    $secretFile = 'https://target.example/private/catalog.pdf?api_key=do-not-leak';
+    $fakeMeta[17]['_downloadable_files'] = [$downloadRow($secretFile)];
+    $register->rules = [];
+    $register->failAdd = true;
+    $failureMessage = '';
+    try {
+        $adapter->regenerate_batch([17], []);
+    } catch (\Throwable $failure) {
+        $failureMessage = $failure->getMessage();
+    }
+    $register->failAdd = false;
+    $check(str_contains($failureMessage, 'could not approve the target directory')
+        && !str_contains($failureMessage, 'api_key') && !str_contains($failureMessage, 'do-not-leak'),
+        'directory write failures are loud but redact credential-shaped URLs and plugin error detail');
+    $adapter->regenerate_batch([17], []);
+    $check(wc_get_product(17)->get_downloads()[$downloadId]->get_enabled() === true,
+        'the same batch converges on retry after a directory-provider write failure');
+
+    $fakeMeta[17]['_downloadable_files'] = [$downloadRow('[private_download id="17"]')];
+    $shortcodeFailure = false;
+    try {
+        $adapter->regenerate_batch([17], []);
+    } catch (\Throwable $failure) {
+        $shortcodeFailure = str_contains($failure->getMessage(), 'shortcode download locator');
+    }
+    $check($shortcodeFailure,
+        'extension-executed shortcode download locators fail closed before any approval API call');
+
+    $fakeMeta[17]['_downloadable_files'] = [$downloadRow($downloadFile, false)];
+    $disabledFailure = false;
+    try {
+        $adapter->regenerate_batch([17], []);
+    } catch (\Throwable $failure) {
+        $disabledFailure = str_contains($failure->getMessage(), 'unsupported downloadable-file row');
+    }
+    $check($disabledFailure,
+        'site-local disabled download rows cannot be silently promoted as portable authored state');
+
+    $fakeMeta[17]['_downloadable_files'] = [$downloadRow($downloadFile)];
+    $fakeDownloadMetaRows[17] = [$downloadRow($downloadFile), $downloadRow($downloadFile)];
+    $duplicateFailure = false;
+    try {
+        $adapter->regenerate_batch([17], []);
+    } catch (\Throwable $failure) {
+        $duplicateFailure = str_contains($failure->getMessage(), 'multiple _downloadable_files rows');
+    }
+    unset($fakeDownloadMetaRows[17]);
+    $check($duplicateFailure,
+        'duplicate raw download metadata rows refuse instead of selecting an arbitrary value');
+
+    $lookupBeforeReadFailure = $fakeMetaLookup[17];
+    $wpdb->failReadContaining = "meta_key = '_downloadable_files'";
+    $readFailure = false;
+    try {
+        $adapter->regenerate_batch([17], []);
+    } catch (\Throwable $failure) {
+        $readFailure = str_contains($failure->getMessage(), 'checked read failed');
+    }
+    $wpdb->failReadContaining = null;
+    $wpdb->last_error = '';
+    $check($readFailure && $fakeMetaLookup[17] === $lookupBeforeReadFailure,
+        'a failed fresh metadata read refuses before product lookup mutation and is safe to retry');
+
+    $receipt = $adapter->invoke('rebuild_product_lookups', [
+        'entities' => [
+            'entities' => [['kind' => 'post:product', 'id' => 17]],
+            'always_on_write' => true,
+            'deletions' => [],
+            'reparents' => [],
+            'retry' => true,
+        ],
+    ]);
+    $receiptBytes = serialize($receipt);
+    $check(($receipt['after']['download_files'] ?? null) === 1
+        && ($receipt['after']['usable_download_files'] ?? null) === 1
+        && preg_match('/^[a-f0-9]{64}$/D', (string) ($receipt['after']['download_scope_sha256'] ?? '')) === 1
+        && !str_contains($receiptBytes, 'target.example') && !str_contains($receiptBytes, 'catalog.pdf'),
+        'verified receipts stay bounded and bind the download scope without exposing authored URLs');
 
     // Woo publishes the uncoerced PHP price in its derivation cache while
     // MySQL assigns that value into DECIMAL(19,4). The verifier must accept

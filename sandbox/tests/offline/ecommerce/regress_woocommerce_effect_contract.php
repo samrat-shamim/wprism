@@ -273,6 +273,7 @@ function woo_effect_product_regenerator(string $postType): array {
     $effects = [
         woo_effect_db_table($prefix . '-posts', 'posts'),
         woo_effect_db_table($prefix . '-postmeta', 'postmeta'),
+        woo_effect_db_table($prefix . '-download-directories', 'wc_product_download_directories'),
         woo_effect_db_table($prefix . '-meta-lookup', 'wc_product_meta_lookup'),
         woo_effect_db_table($prefix . '-sale-actions', 'actionscheduler_actions'),
         woo_effect_db_table($prefix . '-sale-action-groups', 'actionscheduler_groups'),
@@ -436,9 +437,9 @@ usort($expectedWooRows, static fn(array $a, array $b): int => strcmp(
 ));
 woo_effect_check($wooRows === $expectedWooRows, 'Woo manifest compiles the exact lifecycle, rebuild, and regenerator inventory');
 woo_effect_check(
-    count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'restorable')) === 40
+    count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'restorable')) === 42
         && count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'irreversible')) === 97
-        && count(array_unique(array_map(static fn(array $row): string => (string) ($row['effect']['id'] ?? ''), $wooRows))) === 137,
+        && count(array_unique(array_map(static fn(array $row): string => (string) ($row['effect']['id'] ?? ''), $wooRows))) === 139,
     'Woo inventory exposes exact transient/version, bounded sale-action, and Action Scheduler hook boundaries, keeps every unproven boundary irreversible, and uses unique effect IDs'
 );
 $cacheProviderSource = (string) file_get_contents(dirname(__DIR__, 4) . '/manifests/providers/woocommerce-cache.php');
@@ -560,7 +561,7 @@ woo_effect_check(
         ],
         [
             'id' => 'woocommerce-product-lookups',
-            'version' => '1.0.0',
+            'version' => '2.0.0',
             'source' => 'manifest',
             'plugin' => 'woocommerce/woocommerce.php',
             'requires' => [
@@ -575,6 +576,7 @@ woo_effect_check(
                     'add_filter',
                     'remove_filter',
                     'get_post_meta',
+                    'maybe_unserialize',
                     'delete_post_meta',
                     'add_post_meta',
                     'wc_maybe_schedule_product_sale_events',
@@ -584,6 +586,8 @@ woo_effect_check(
                     'wp_cache_delete',
                 ],
                 'classes' => [
+                    'Automattic\\WooCommerce\\Internal\\ProductDownloads\\ApprovedDirectories\\Register',
+                    'Automattic\\WooCommerce\\Internal\\Utilities\\URL',
                     'WC_Data_Store',
                     'WC_Product_Variable',
                     'WC_Product_Grouped',

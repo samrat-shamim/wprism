@@ -110,6 +110,21 @@ final class Woocommerce {
                     );
                 }
             }
+            if (is_string($row['file'] ?? null)) {
+                if ($row['file'] === '') {
+                    $out[] = $this->diagnostic(
+                        $path,
+                        "$locator.file",
+                        'WooCommerce downloadable-file file must be non-empty'
+                    );
+                } elseif (str_starts_with($row['file'], '[') && str_ends_with($row['file'], ']')) {
+                    $out[] = $this->diagnostic(
+                        $path,
+                        "$locator.file",
+                        'WooCommerce shortcode download locators are extension-executed and outside this adapter contract'
+                    );
+                }
+            }
             if (array_key_exists('id', $row)
                 && (!is_string($row['id']) || $row['id'] !== $downloadKey)) {
                 $out[] = $this->diagnostic(
@@ -118,12 +133,20 @@ final class Woocommerce {
                     'WooCommerce downloadable-file id must equal its object key'
                 );
             }
-            if (array_key_exists('enabled', $row) && !is_bool($row['enabled'])) {
-                $out[] = $this->diagnostic(
-                    $path,
-                    "$locator.enabled",
-                    'WooCommerce downloadable-file enabled must be boolean when present'
-                );
+            if (array_key_exists('enabled', $row)) {
+                if (!is_bool($row['enabled'])) {
+                    $out[] = $this->diagnostic(
+                        $path,
+                        "$locator.enabled",
+                        'WooCommerce downloadable-file enabled must be boolean when present'
+                    );
+                } elseif ($row['enabled'] !== true) {
+                    $out[] = $this->diagnostic(
+                        $path,
+                        "$locator.enabled",
+                        'WooCommerce disabled download rows reflect site-local approval state and are outside the portable authored contract'
+                    );
+                }
             }
         }
         return $out;

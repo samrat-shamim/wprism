@@ -166,8 +166,11 @@ woo_readiness_reports($interpreter, [['name' => 'x', 'file' => 'y']], 'not a pos
 woo_readiness_reports($interpreter, [str_repeat('x', 129) => ['name' => 'x', 'file' => 'y']], 'at most 128 bytes', 'product', '_downloadable_files');
 woo_readiness_reports($interpreter, ['download-a' => ['file' => 'https://example.test/a']], 'downloadable-file name must be a string', 'product', '_downloadable_files');
 woo_readiness_reports($interpreter, ['download-a' => ['name' => 'A', 'file' => 7]], 'downloadable-file file must be a string', 'product', '_downloadable_files');
+woo_readiness_reports($interpreter, ['download-a' => ['name' => 'A', 'file' => '']], 'file must be non-empty', 'product', '_downloadable_files');
+woo_readiness_reports($interpreter, ['download-a' => ['name' => 'A', 'file' => '[private_download id="7"]']], 'shortcode download locators', 'product', '_downloadable_files');
 woo_readiness_reports($interpreter, ['download-a' => ['id' => 'download-b', 'name' => 'A', 'file' => 'a']], 'id must equal its object key', 'product', '_downloadable_files');
 woo_readiness_reports($interpreter, ['download-a' => ['name' => 'A', 'file' => 'a', 'enabled' => 1]], 'enabled must be boolean', 'product', '_downloadable_files');
+woo_readiness_reports($interpreter, ['download-a' => ['name' => 'A', 'file' => 'a', 'enabled' => false]], 'site-local approval state', 'product', '_downloadable_files');
 woo_readiness_reports(
     $interpreter,
     $download,

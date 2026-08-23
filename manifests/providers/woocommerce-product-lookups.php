@@ -53,7 +53,7 @@ final class WoocommerceProductLookups {
         return [
             'id' => 'woocommerce-product-lookups',
             'plugin' => 'woocommerce/woocommerce.php',
-            'version' => '1.0.0',
+            'version' => '2.0.0',
         ];
     }
 
@@ -107,15 +107,18 @@ final class WoocommerceProductLookups {
             self::CAPABILITY => [
                 'args' => [],
                 'reads' => [
+                    'option:wc_downloads_approved_directories_mode',
                     'post:product',
                     'post:product_variation',
                     'table:postmeta',
                     'table:posts',
                     'table:term_relationships',
+                    'table:wc_product_download_directories',
                 ],
                 'writes' => [
                     'table:actionscheduler_actions',
                     'table:postmeta',
+                    'table:wc_product_download_directories',
                     'table:wc_product_meta_lookup',
                 ],
                 'scope' => 'entity',
@@ -193,11 +196,11 @@ final class WoocommerceProductLookups {
         $observed = array_values(array_unique($observed));
         sort($observed, SORT_NUMERIC);
 
-        $before = $this->observe_lookup_state($observed);
+        $before = $this->observe_provider_state($observed, array_values($liveIds), false);
         $this->regenerate_batch(array_values($liveIds), $deletionContext);
         return [
             'before' => $before,
-            'after' => $this->observe_lookup_state($observed),
+            'after' => $this->observe_provider_state($observed, array_values($liveIds), false),
             'verified' => true,
         ];
     }
@@ -227,9 +230,33 @@ final class WoocommerceProductLookups {
         ];
     }
 
-    /** @param array<string,mixed> $args @return array{scoped_products:int,meta_lookup_rows:int} */
+    /** @param array<string,mixed> $args @return array<string,int|string> */
     private function scoped_postcondition(array $args): array {
-        return $this->observe_lookup_state($this->scoped_observed_ids($args));
+        return $this->observe_provider_state(
+            $this->scoped_observed_ids($args),
+            $this->scoped_live_ids($args),
+            true
+        );
+    }
+
+    /** @param array<string,mixed> $args @return list<int> */
+    private function scoped_live_ids(array $args): array {
+        $envelope = $args[\Duo\Providers::ENTITIES_ARG] ?? null;
+        if (!is_array($envelope) || !is_array($envelope['entities'] ?? null)) {
+            throw new \RuntimeException(
+                'duo: WooCommerce product lookup reconciliation received no engine live-entity batch'
+            );
+        }
+        $ids = [];
+        foreach ($envelope['entities'] as $entity) {
+            $id = is_array($entity) ? (int) ($entity['id'] ?? 0) : 0;
+            if ($id > 0) {
+                $ids[$id] = $id;
+            }
+        }
+        $ids = array_values($ids);
+        sort($ids, SORT_NUMERIC);
+        return $ids;
     }
 
     /** @param array<string,mixed> $args @return list<int> */
@@ -384,6 +411,318 @@ final class WoocommerceProductLookups {
     }
 
     /**
+     * One bounded receipt for both Woo-owned projections this provider now
+     * repairs. Download URLs never enter the receipt: the fingerprint binds
+     * them without leaking signed query strings or other merchant data.
+     *
+     * @param list<int> $lookupIds
+     * @param list<int> $liveIds
+     * @return array<string,int|string>
+     */
+    private function observe_provider_state(array $lookupIds, array $liveIds, bool $verifyNative): array {
+        return array_merge(
+            $this->observe_lookup_state($lookupIds),
+            $this->download_directory_state($liveIds, $verifyNative)
+        );
+    }
+
+    /**
+     * Add only parent directories required by enabled downloads on products
+     * in this apply batch. Existing broader rules satisfy the requirement and
+     * are left alone; unrelated rules are never listed, changed, or deleted.
+     * Woo's own Register/URL classes retain ownership of normalization and
+     * directory-containment semantics.
+     *
+     * @param list<int> $ids
+     */
+    private function approve_download_directories(array $ids): void {
+        $downloads = $this->authored_downloads($ids);
+        if ($downloads === []) {
+            return;
+        }
+        $register = $this->download_directory_register();
+        $mode = (string) $register->get_mode();
+        $registerClass = '\\Automattic\\WooCommerce\\Internal\\ProductDownloads\\ApprovedDirectories\\Register';
+        if ($mode !== $registerClass::MODE_ENABLED) {
+            return;
+        }
+
+        foreach ($downloads as $download) {
+            if ($this->download_path_is_valid($register, $download)) {
+                continue;
+            }
+            $parent = $this->download_parent_url($download);
+            try {
+                $stored = $register->get_by_url($parent);
+                if (is_object($stored)) {
+                    if (!is_callable([$stored, 'get_id']) || !is_callable([$stored, 'is_enabled'])) {
+                        throw new \RuntimeException('unreadable approved-directory record');
+                    }
+                    if (!$stored->is_enabled() && !$register->enable_by_id((int) $stored->get_id())) {
+                        throw new \RuntimeException('approved-directory enable did not persist');
+                    }
+                } else {
+                    $created = $register->add_approved_directory($parent, true);
+                    if (!is_int($created) || $created <= 0) {
+                        throw new \RuntimeException('approved-directory add returned no identity');
+                    }
+                }
+            } catch (\Throwable $failure) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce could not approve the target directory for product '
+                    . $download['product_id'] . ' download ' . $this->download_label($download)
+                );
+            }
+            if (!$this->download_path_is_valid($register, $download)) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce approved-directory write did not make product '
+                    . $download['product_id'] . ' download ' . $this->download_label($download)
+                    . ' valid; recovery_required'
+                );
+            }
+        }
+    }
+
+    /**
+     * Read the exact raw metadata Duo wrote, bypassing WordPress's potentially
+     * stale post-meta cache. Repository diagnostics already reject malformed
+     * rows, but the executable boundary repeats the small shape check so a
+     * direct or corrupted artifact cannot turn a provider receipt into an
+     * approval of an unreviewed locator.
+     *
+     * @param list<int> $ids
+     * @return list<array{product_id:int,download_id:string,file:string}>
+     */
+    private function authored_downloads(array $ids): array {
+        global $wpdb;
+        $ids = array_values(array_unique(array_filter(
+            array_map('intval', $ids),
+            static fn(int $id): bool => $id > 0
+        )));
+        sort($ids, SORT_NUMERIC);
+        if ($ids === []) {
+            return [];
+        }
+
+        $seenProducts = [];
+        $out = [];
+        foreach (array_chunk($ids, 200) as $chunk) {
+            $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
+            $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+                "SELECT post_id, meta_id, meta_value FROM `{$wpdb->postmeta}` "
+                . "WHERE meta_key = '_downloadable_files' AND post_id IN ($placeholders) "
+                . 'ORDER BY post_id ASC, meta_id ASC',
+                ...$chunk
+            ), 'downloadable product metadata read');
+            foreach ($rows as $row) {
+                $productId = (int) ($row['post_id'] ?? 0);
+                if ($productId <= 0 || !in_array($productId, $chunk, true)) {
+                    throw new \RuntimeException(
+                        'duo: WooCommerce downloadable product metadata read returned an out-of-scope owner'
+                    );
+                }
+                if (isset($seenProducts[$productId])) {
+                    throw new \RuntimeException(
+                        "duo: WooCommerce product $productId has multiple _downloadable_files rows; "
+                        . 'the adapter supports one authored value'
+                    );
+                }
+                $seenProducts[$productId] = true;
+                $decoded = maybe_unserialize((string) ($row['meta_value'] ?? ''));
+                if (!is_array($decoded) || ($decoded !== [] && array_is_list($decoded))) {
+                    throw new \RuntimeException(
+                        "duo: WooCommerce product $productId has malformed downloadable-file metadata"
+                    );
+                }
+                foreach ($decoded as $downloadId => $value) {
+                    if (!is_string($downloadId) || $downloadId === ''
+                        || !is_array($value) || array_is_list($value)
+                        || !is_string($value['name'] ?? null)
+                        || !is_string($value['file'] ?? null) || $value['file'] === ''
+                        || (array_key_exists('id', $value) && $value['id'] !== $downloadId)
+                        || (array_key_exists('enabled', $value) && $value['enabled'] !== true)) {
+                        throw new \RuntimeException(
+                            "duo: WooCommerce product $productId has an unsupported downloadable-file row"
+                        );
+                    }
+                    $file = $value['file'];
+                    if (str_starts_with($file, '[') && str_ends_with($file, ']')) {
+                        throw new \RuntimeException(
+                            "duo: WooCommerce product $productId uses a shortcode download locator; "
+                            . 'extension-executed locators are outside this adapter contract'
+                        );
+                    }
+                    $out[] = [
+                        'product_id' => $productId,
+                        'download_id' => $downloadId,
+                        'file' => $file,
+                    ];
+                }
+            }
+        }
+        usort($out, static fn(array $left, array $right): int => [
+            $left['product_id'], $left['download_id'], $left['file'],
+        ] <=> [
+            $right['product_id'], $right['download_id'], $right['file'],
+        ]);
+        return $out;
+    }
+
+    /** @return object WooCommerce ApprovedDirectories Register */
+    private function download_directory_register(): object {
+        $class = '\\Automattic\\WooCommerce\\Internal\\ProductDownloads\\ApprovedDirectories\\Register';
+        if (!class_exists($class) || !function_exists('wc_get_container')) {
+            throw new \RuntimeException(
+                'duo: WooCommerce approved-download-directory API is unavailable'
+            );
+        }
+        try {
+            $register = \wc_get_container()->get($class);
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException('duo: WooCommerce approved-download-directory service could not load');
+        }
+        foreach (['get_mode', 'get_by_url', 'add_approved_directory', 'enable_by_id', 'is_valid_path'] as $method) {
+            if (!is_object($register) || !is_callable([$register, $method])) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce approved-download-directory service lacks public $method(); "
+                    . 'the installed version is outside this adapter contract'
+                );
+            }
+        }
+        return $register;
+    }
+
+    /** @param array{product_id:int,download_id:string,file:string} $download */
+    private function download_parent_url(array $download): string {
+        $class = '\\Automattic\\WooCommerce\\Internal\\Utilities\\URL';
+        if (!class_exists($class)) {
+            throw new \RuntimeException('duo: WooCommerce approved-download URL API is unavailable');
+        }
+        try {
+            $parent = (new $class($download['file']))->get_parent_url();
+        } catch (\Throwable $failure) {
+            $parent = false;
+        }
+        if (!is_string($parent) || $parent === '') {
+            throw new \RuntimeException(
+                'duo: WooCommerce product ' . $download['product_id'] . ' download '
+                . $this->download_label($download) . ' has no approvable parent directory'
+            );
+        }
+        return $parent;
+    }
+
+    /** @param array{product_id:int,download_id:string,file:string} $download */
+    private function download_path_is_valid(object $register, array $download): bool {
+        try {
+            return $register->is_valid_path($download['file']) === true;
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException(
+                'duo: WooCommerce could not validate the target path for product '
+                . $download['product_id'] . ' download ' . $this->download_label($download)
+            );
+        }
+    }
+
+    /** @param array{product_id:int,download_id:string,file:string} $download */
+    private function download_label(array $download): string {
+        return substr(hash('sha256', $download['product_id'] . "\0" . $download['download_id']), 0, 12);
+    }
+
+    /**
+     * @param list<int> $ids
+     * @return array{download_files:int,download_directories:int,usable_download_files:int,directory_mode:string,download_scope_sha256:string}
+     */
+    private function download_directory_state(array $ids, bool $verifyNative): array {
+        $downloads = $this->authored_downloads($ids);
+        $fingerprint = hash_init('sha256');
+        foreach ($downloads as $download) {
+            foreach ([(string) $download['product_id'], $download['download_id'], $download['file']] as $part) {
+                hash_update($fingerprint, strlen($part) . ':' . $part . ';');
+            }
+        }
+        if ($downloads === []) {
+            return [
+                'download_files' => 0,
+                'download_directories' => 0,
+                'usable_download_files' => 0,
+                'directory_mode' => 'not-applicable',
+                'download_scope_sha256' => hash_final($fingerprint),
+            ];
+        }
+
+        $register = $this->download_directory_register();
+        $mode = (string) $register->get_mode();
+        $registerClass = '\\Automattic\\WooCommerce\\Internal\\ProductDownloads\\ApprovedDirectories\\Register';
+        if (!in_array($mode, [$registerClass::MODE_DISABLED, $registerClass::MODE_ENABLED], true)) {
+            throw new \RuntimeException(
+                'duo: WooCommerce approved-download-directory mode is outside the adapter contract'
+            );
+        }
+        $directories = [];
+        $usable = 0;
+        foreach ($downloads as $download) {
+            $parent = $this->download_parent_url($download);
+            $directories[hash('sha256', $parent)] = true;
+            if ($mode === $registerClass::MODE_DISABLED
+                || $this->download_path_is_valid($register, $download)) {
+                $usable++;
+            }
+        }
+        if ($verifyNative && $usable !== count($downloads)) {
+            throw new \RuntimeException(
+                'duo: WooCommerce approved-directory verification left one or more scoped downloads unusable; '
+                . 'recovery_required'
+            );
+        }
+        if ($verifyNative) {
+            $this->verify_native_downloads($downloads);
+        }
+        return [
+            'download_files' => count($downloads),
+            'download_directories' => count($directories),
+            'usable_download_files' => $usable,
+            'directory_mode' => $mode,
+            'download_scope_sha256' => hash_final($fingerprint),
+        ];
+    }
+
+    /** @param list<array{product_id:int,download_id:string,file:string}> $downloads */
+    private function verify_native_downloads(array $downloads): void {
+        $byProduct = [];
+        foreach ($downloads as $download) {
+            $byProduct[$download['product_id']][$download['download_id']] = $download;
+        }
+        foreach ($byProduct as $productId => $expected) {
+            $product = \wc_get_product((int) $productId);
+            if (!is_object($product) || !is_callable([$product, 'get_downloads'])) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce could not load product $productId for native download verification"
+                );
+            }
+            $native = $product->get_downloads();
+            if (!is_array($native)) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce product $productId returned an unreadable native download collection"
+                );
+            }
+            foreach ($expected as $downloadId => $download) {
+                $value = $native[$downloadId] ?? null;
+                if (!is_object($value)
+                    || !is_callable([$value, 'get_file'])
+                    || !is_callable([$value, 'get_enabled'])
+                    || !hash_equals($download['file'], (string) $value->get_file())
+                    || $value->get_enabled() !== true) {
+                    throw new \RuntimeException(
+                        "duo: WooCommerce native download verification failed for product $productId download "
+                        . $this->download_label($download) . '; recovery_required'
+                    );
+                }
+            }
+        }
+    }
+
+    /**
      * Reconcile all supplied live product ids plus pre-delete/reparent cleanup
      * context. The engine may pass a parent and several variations in any
      * order; roots are deduplicated here so variable products are synthesized
@@ -418,6 +757,16 @@ final class WoocommerceProductLookups {
             static fn(int $id): bool => $id > 0
         )));
         sort($liveIds, SORT_NUMERIC);
+
+        // WooCommerce 11 validates every hydrated downloadable file against
+        // a target-local approved-directory register. Duo has already
+        // rebound authored file URLs to this target, but raw postmeta writes
+        // bypass the native admin save that adds the new parent directory.
+        // Repair that finite, apply-selected set before the first product
+        // object is loaded; otherwise Woo caches those downloads as disabled
+        // for the rest of the promotion process.
+        $this->approve_download_directories($liveIds);
+        $this->heartbeat($heartbeat);
 
         $deletionIds = [];
         $deletedParents = [];
@@ -780,6 +1129,7 @@ final class WoocommerceProductLookups {
             $heartbeat
         );
         $this->verify_sale_schedules(array_values($saleIds), $deletionIds, $saleProducts, $heartbeat);
+        $this->download_directory_state($liveIds, true);
     }
 
     /**
