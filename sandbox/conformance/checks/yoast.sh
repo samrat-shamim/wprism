@@ -20,7 +20,7 @@ observe_yoast() { # <conf1|conf2>
 global $wpdb;
 $post = get_page_by_path('conformance-yoast-post', OBJECT, 'post');
 $hub = get_page_by_path('conformance-yoast-hub', OBJECT, 'page');
-$child = get_page_by_path('conformance-yoast-child', OBJECT, 'page');
+$child = get_page_by_path('conformance-yoast-hub/conformance-yoast-child', OBJECT, 'page');
 $primary = get_term_by('slug', 'conformance-primary', 'category');
 $secondary = get_term_by('slug', 'conformance-secondary', 'category');
 $tag = get_term_by('slug', 'conformance-search-tag', 'post_tag');
