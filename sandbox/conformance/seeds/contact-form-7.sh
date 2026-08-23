@@ -99,7 +99,7 @@ update_post_meta($main->id(), '_constant_contact', ['list' => 'source-environmen
 update_post_meta($main->id(), '_sendinblue', ['list' => 'source-environment-list']);
 $sourceOption = (array) get_option('wpcf7', []);
 $sourceOption['duo_source_only'] = 'must-not-cross';
-$sourceOption['recaptcha'] = ['sitekey' => 'source-site-key', 'secret' => 'source-secret-key'];
+$sourceOption['recaptcha'] = ['source-site-key' => 'source-secret-key'];
 update_option('wpcf7', $sourceOption);
 
 $modern = $main->shortcode();

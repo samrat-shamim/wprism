@@ -129,7 +129,7 @@ printf '%s\n' "$TARGET" | jq -e '
   .main.constant_contact.list == "target-environment-list" and
   .main.sendinblue.list == "target-environment-list" and
   .option.duo_target_only == "target-option-preserved" and
-  .option.turnstile.secret == "target-secret-key" and
+  .option.turnstile == {"target-site-key":"target-secret-key"} and
   (.option | has("duo_source_only") | not) and
   .legacy.storage == [
     {"current":false,"legacy":true}, {"current":false,"legacy":true},
@@ -187,25 +187,46 @@ grep -q "_wpcf7\" value=\"$TARGET_LEGACY\"" <<<"$STORAGE_FRONT" \
   || fail "multiple-form page did not render both target identities"
 grep -Fq '[duo-unknown raw="main-literal"]' <<<"$FRONT" \
   || fail "CF7 changed the verified literal behavior of an unknown form tag"
+grep -Fq 'data-sitekey="target-site-key"' <<<"$FRONT" \
+  || fail "CF7 target render did not retain its environment-owned Turnstile integration"
 pass "native renders cover modern, positional, legacy-property, multiple-form, literal-tag, UTF-8, and target-host behavior"
 
-# A real anonymous submission must stay local. demo_mode prevents external
-# mail while exercising CF7 validation/submission code against the target id.
+# The target-owned Turnstile integration must remain behaviorally active: an
+# anonymous request without a browser-generated token is spam. Then remove the
+# integration for one local-only request so demo_mode can exercise the success
+# path without an external verifier, and restore its exact native key map.
 CONF1_POSTS_BEFORE=$(wp_conf1 post list --post_type=any --format=count)
 UNIT_TAG=$(grep -o '_wpcf7_unit_tag" value="[^"]*"' <<<"$FRONT" | sed 's/.*value="//;s/"//')
 require_observed_nonempty "conf1 post-count before CF7 submission" "$CONF1_POSTS_BEFORE"
 require_observed_nonempty "conf2 CF7 unit tag" "$UNIT_TAG"
-SUBMISSION=$(curl -fs -X POST "http://localhost:${CONF2_PORT}/wp-json/contact-form-7/v1/contact-forms/${TARGET_MAIN}/feedback" \
-  -F "_wpcf7=$TARGET_MAIN" -F "_wpcf7_version=6.1.6" -F "_wpcf7_locale=en_US" \
-  -F "_wpcf7_unit_tag=$UNIT_TAG" -F "_wpcf7_container_post=$(jq -r '.pages.modern.id' <<<"$TARGET")" \
-  -F "your-name=Conformance Visitor" -F "your-email=visitor@example.test" \
-  -F "your-subject=Conformance check" -F "your-message=Automated conformance submission 東京 🚀") \
-  || fail "anonymous CF7 REST submission failed"
+submit_cf7() {
+  curl -fs -X POST "http://localhost:${CONF2_PORT}/wp-json/contact-form-7/v1/contact-forms/${TARGET_MAIN}/feedback" \
+    -F "_wpcf7=$TARGET_MAIN" -F "_wpcf7_version=6.1.6" -F "_wpcf7_locale=en_US" \
+    -F "_wpcf7_unit_tag=$UNIT_TAG" -F "_wpcf7_container_post=$(jq -r '.pages.modern.id' <<<"$TARGET")" \
+    -F "your-name=Conformance Visitor" -F "your-email=visitor@example.test" \
+    -F "your-subject=Conformance check" -F "your-message=Automated conformance submission 東京 🚀"
+}
+SPAM_SUBMISSION=$(submit_cf7) || fail "Turnstile-protected CF7 REST submission failed at HTTP transport"
+printf '%s\n' "$SPAM_SUBMISSION" | jq -e '
+  .status == "spam" and .demo_mode == true and .posted_data_hash == "" and (.invalid_fields | length) == 0
+' >/dev/null || fail "CF7 target integration did not reject the missing Turnstile token: $SPAM_SUBMISSION"
+
+wp_conf2 eval '$option=(array)get_option("wpcf7",[]); unset($option["turnstile"]); update_option("wpcf7",$option);' >/dev/null
+SUBMISSION_RC=0
+SUBMISSION=$(submit_cf7) || SUBMISSION_RC=$?
+wp_conf2 eval '
+  $option=(array)get_option("wpcf7",[]);
+  $option["turnstile"]=["target-site-key"=>"target-secret-key"];
+  update_option("wpcf7",$option);
+' >/dev/null
+[ "$SUBMISSION_RC" -eq 0 ] || fail "anonymous CF7 REST submission failed"
 printf '%s\n' "$SUBMISSION" | jq -e '.status == "mail_sent" and (.posted_data_hash | type) == "string"' >/dev/null \
   || fail "CF7 native submission returned an unexpected result: $SUBMISSION"
+[ "$(wp_conf2 eval 'echo wp_json_encode(WPCF7::get_option("turnstile"));')" = '{"target-site-key":"target-secret-key"}' ] \
+  || fail "CF7 controlled submission did not restore the target Turnstile integration exactly"
 [ "$(wp_conf1 post list --post_type=any --format=count)" = "$CONF1_POSTS_BEFORE" ] \
   || fail "conf1 changed after an anonymous conf2 CF7 submission"
-pass "anonymous target submission reaches CF7 native validation in demo mode and leaves the source untouched"
+pass "target Turnstile spam behavior and local demo-mode success both execute without crossing environment state"
 
 ZERO_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 require_duo_answered "CF7 zero-change plan" json "$ZERO_PLAN"
@@ -372,7 +393,10 @@ require_duo_answered "CF7 unforced competing branch apply" human "$CONFLICT_OUT"
   || fail "CF7 unforced conflict partially mutated target state"
 FORCED=$(wp_conf2 duo apply --repo=/siterepo --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
 require_duo_answered "CF7 forced competing branch apply" json "$FORCED"
-jq -e '.canary == "clean" and .verification.result == "pass" and (.forced_overrides | length) > 0' <<<"$FORCED" >/dev/null \
+jq -e '
+  .canary == "clean" and .verification.result == "pass" and .plan.conflict == 1 and
+  (.warnings | any(contains("FORCED conflict") and contains("repository intent authorized")))
+' <<<"$FORCED" >/dev/null \
   || fail "CF7 forced repository intent did not converge cleanly: $FORCED"
 CONVERGED=$(observe_cf7 conf2)
 printf '%s\n' "$CONVERGED" | jq -e '
@@ -396,26 +420,21 @@ wp_conf1 eval '
 ' >/dev/null
 commit_cf7_source 'conformance: CF7 transactional recovery intent'
 FAULT_BEFORE=$(cf7_target_hash)
+wp_conf2 db query 'ALTER TABLE wp_postmeta DROP CONSTRAINT IF EXISTS duo_cf7_fail_messages' >/dev/null
 wp_conf2 db query '
-  DROP TRIGGER IF EXISTS duo_cf7_fail_messages;
-  CREATE TRIGGER duo_cf7_fail_messages BEFORE UPDATE ON wp_postmeta
-  FOR EACH ROW
-  BEGIN
-    IF NEW.meta_key = "_messages" THEN
-      SIGNAL SQLSTATE "45000" SET MESSAGE_TEXT = "duo injected CF7 messages failure";
-    END IF;
-  END
+  ALTER TABLE wp_postmeta ADD CONSTRAINT duo_cf7_fail_messages
+  CHECK (meta_key <> "_messages" OR meta_value NOT LIKE "%CF7 transaction message%")
 ' >/dev/null
 FAULT_RC=0
 FAULT_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || FAULT_RC=$?
 require_duo_answered "CF7 injected transaction failure" human "$FAULT_OUT"
-[ "$FAULT_RC" -ne 0 ] && grep -q 'duo injected CF7 messages failure' <<<"$FAULT_OUT" \
+[ "$FAULT_RC" -ne 0 ] && grep -q 'duo_cf7_fail_messages' <<<"$FAULT_OUT" \
   || fail "CF7 injected late database failure did not surface exactly: $FAULT_OUT"
 [ "$(cf7_target_hash)" = "$FAULT_BEFORE" ] \
   || fail "CF7 failed transaction left partial post/meta writes"
 [ "$(wp_conf2 eval 'echo null === \Duo\Ledger::kv_get("apply_in_progress") ? "clear" : "retained";')" = retained ] \
   || fail "CF7 failed transaction did not retain retry authority"
-wp_conf2 db query 'DROP TRIGGER duo_cf7_fail_messages' >/dev/null
+wp_conf2 db query 'ALTER TABLE wp_postmeta DROP CONSTRAINT duo_cf7_fail_messages' >/dev/null
 RETRY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
 require_duo_answered "CF7 retry after injected failure" json "$RETRY"
 jq -e '.canary == "clean" and .verification.result == "pass" and .applied >= 1' <<<"$RETRY" >/dev/null \
@@ -476,7 +495,11 @@ fi
 REACTIVATE=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 require_duo_answered "CF7 deploy after deactivation" json "$REACTIVATE"
 wp_conf2 plugin is-active contact-form-7 >/dev/null || fail "Duo deploy did not reactivate exact CF7 code"
-wp_conf2 plugin uninstall contact-form-7 --deactivate >/dev/null
+# A combined `uninstall --deactivate` keeps WPCF7_VERSION defined in that
+# request, and CF7's uninstall.php intentionally skips deletion in that shape.
+# A second native request after deactivation is the plugin's destructive path.
+wp_conf2 plugin deactivate contact-form-7 >/dev/null
+wp_conf2 plugin uninstall contact-form-7 >/dev/null
 if wp_conf2 plugin is-installed contact-form-7 >/dev/null 2>&1; then
   fail "CF7 uninstall left plugin code installed"
 fi
@@ -506,14 +529,20 @@ wp_conf2 eval '
   $option["duo_reinstall_target"]="reinstall-env-preserved";
   update_option("wpcf7",$option);
 ' >/dev/null
+REINSTALL_BEFORE=$(cf7_target_hash)
 REINSTALL_RC=0
 REINSTALL_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || REINSTALL_RC=$?
 require_duo_answered "CF7 unforced apply after destructive uninstall" human "$REINSTALL_OUT"
-[ "$REINSTALL_RC" -ne 0 ] && grep -Eqi 'conflict|deleted|missing|target' <<<"$REINSTALL_OUT" \
-  || fail "CF7 destructive target uninstall did not require explicit recovery authority: $REINSTALL_OUT"
-REINSTALL_APPLY=$(wp_conf2 duo apply --repo=/siterepo --force-theirs --adopt-by-slug=terms,posts --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "CF7 forced recovery after exact reinstall" json "$REINSTALL_APPLY"
-jq -e '.canary == "clean" and .verification.result == "pass"' <<<"$REINSTALL_APPLY" >/dev/null \
+[ "$REINSTALL_RC" -ne 0 ] && grep -Eq 'slug collisions need explicit resolution|collides with env id' <<<"$REINSTALL_OUT" \
+  || fail "CF7 activation default did not require explicit slug adoption: $REINSTALL_OUT"
+[ "$(cf7_target_hash)" = "$REINSTALL_BEFORE" ] \
+  || fail "CF7 unforced reinstall collision partially mutated target state"
+REINSTALL_APPLY=$(wp_conf2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered "CF7 recovery with explicit activation-default adoption" json "$REINSTALL_APPLY"
+jq -e '
+  .canary == "clean" and .verification.result == "pass" and .plan.adopt == 1 and
+  (.warnings | any(contains("adopted env post")))
+' <<<"$REINSTALL_APPLY" >/dev/null \
   || fail "CF7 exact reinstall did not recover canonical state: $REINSTALL_APPLY"
 RECOVERED=$(observe_cf7 conf2)
 printf '%s\n' "$RECOVERED" | jq -e '

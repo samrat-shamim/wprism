@@ -59,7 +59,7 @@ update_post_meta($main->id(), '_sendinblue', ['list' => 'target-environment-list
 
 $option = (array) get_option('wpcf7', []);
 $option['duo_target_only'] = 'target-option-preserved';
-$option['turnstile'] = ['sitekey' => 'target-site-key', 'secret' => 'target-secret-key'];
+$option['turnstile'] = ['target-site-key' => 'target-secret-key'];
 update_option('wpcf7', $option);
 
 echo wp_json_encode([
