@@ -14,10 +14,12 @@
     "includes/customizer/class-wc-shop-customizer.php": "6ad7b3e724e21bdc0723b2385a4a5aab13b4cf26527f7d9b56a30270309f4e53",
     "src/Admin/Features/LaunchYourStore.php": "941dbddf38a638df0fa6162bd440f87daa3a5f3855ba713b3478464db3ba96bd",
     "src/Api/Infrastructure/Main.php": "5ae0290104c03b8cd75f230149a24151ef38d6b116c13059f9060ea852ae3b1d",
+    "src/Blocks/Shipping/PickupLocation.php": "8f8f1f4a9c24ff43d495811808c0b300ed6342f010c1750ee4583925bb9c3e47",
     "src/Blocks/Shipping/ShippingController.php": "44b301c1ef87eb38ba1da57d55e25674d2d5ac25a66757bb47a19147f96be4b1",
     "src/Internal/Admin/Settings.php": "facae760f94c59a97b547de22423df36d02eeee9a25e4ca6d977aee7cc5cd88b",
     "src/Internal/Api/Settings.php": "b5d39a8f1069d2aedd9d51d712c723295dde57d87edaf8cc76ff415a96b56aa3",
-    "src/Internal/Features/FeaturesController.php": "c39f44ebd0928be1c3f3a5066422defa5623705dc44f440f4572595def5866b2"
+    "src/Internal/Features/FeaturesController.php": "c39f44ebd0928be1c3f3a5066422defa5623705dc44f440f4572595def5866b2",
+    "src/StoreApi/Utilities/LocalPickupUtils.php": "5c7057ed826e3aa79993f117d3b969ef7a6a78e57826e521f148bd451a86a81a"
   },
   "literal_ids": {
     "wc_admin": "ui",
@@ -172,7 +174,7 @@
     "auto_fulfill_downloadable": "authored",
     "auto_fulfill_virtual": "authored",
     "current_theme_supports_woocommerce": "env",
-    "pickup_location_pickup_locations": "pending_native_side_effect",
+    "pickup_location_pickup_locations": "authored",
     "woocommerce_bacs_accounts": "pending_secret_record",
     "woocommerce_bacs_settings": "pending_mixed_record",
     "woocommerce_category_archive_display": "authored",
@@ -191,7 +193,7 @@
     "woocommerce_graphql_object_cache_enabled": "authored",
     "woocommerce_graphql_opcache_enabled": "authored",
     "woocommerce_graphql_query_cache_ttl": "authored",
-    "woocommerce_pickup_location_settings": "pending_native_side_effect",
+    "woocommerce_pickup_location_settings": "authored",
     "woocommerce_private_link": "pending_native_side_effect",
     "woocommerce_share_key": "env",
     "woocommerce_shop_page_display": "authored",

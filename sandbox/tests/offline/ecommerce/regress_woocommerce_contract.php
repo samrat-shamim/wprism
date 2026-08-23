@@ -64,8 +64,8 @@ woo_ok(($settingsInventory['format'] ?? null) === 'duo-woocommerce-settings-inve
     'the source-audited settings inventory uses the exact reviewed schema');
 woo_ok(count((array) ($settingsInventory['literal_ids'] ?? [])) === 147,
     'the exact 11.0.0/11.0.1 literal settings scan freezes all 147 source ids');
-woo_ok(count((array) ($settingsInventory['source_files'] ?? [])) === 13,
-    'the inventory binds all thirteen source files used by the literal and computed settings audit');
+woo_ok(count((array) ($settingsInventory['source_files'] ?? [])) === 15,
+    'the inventory binds all fifteen source files used by the settings and local-pickup behavior audit');
 foreach ((array) ($settingsInventory['source_files'] ?? []) as $sourceFile => $sha256) {
     woo_ok(
         is_string($sourceFile) && $sourceFile !== ''
@@ -166,10 +166,7 @@ woocommerce_stock_email_recipient woocommerce_stock_format woocommerce_store_add
 woocommerce_tax_based_on woocommerce_tax_classes woocommerce_tax_display_cart woocommerce_tax_display_shop woocommerce_tax_round_at_subtotal woocommerce_tax_total_display woocommerce_terms_page_id woocommerce_thumbnail_image_width woocommerce_trash_cancelled_orders woocommerce_trash_failed_orders woocommerce_trash_pending_orders woocommerce_unforce_ssl_checkout woocommerce_version woocommerce_weight_unit
 OPTIONS));
 
-$pendingOptionNames = [
-    'woocommerce_cod_settings',
-    'woocommerce_pickup_location_settings',
-];
+$pendingOptionNames = ['woocommerce_cod_settings'];
 foreach ($optionNames as $name) {
     woo_ok($policy->option_namespace($name) !== null, "$name is discovery-owned");
     if (in_array($name, $pendingOptionNames, true)) {
@@ -198,8 +195,11 @@ foreach (['woocommerce_catalog_columns', 'woocommerce_catalog_rows'] as $name) {
 woo_ok(($policy->owned_option_rule('woocommerce_hooked_blocks_version')['ref'] ?? null) === null, 'hooked-block rendering policy remains an opaque ref-free authored record');
 woo_ok($policy->owned_option_rule('woocommerce_cod_settings') === null,
     'core COD settings fail closed until method-instance references use the reviewed typed schema');
-woo_ok($policy->owned_option_rule('woocommerce_pickup_location_settings') === null,
-    'local-pickup settings fail closed until native cache convergence is part of apply');
+foreach (['pickup_location_pickup_locations', 'woocommerce_pickup_location_settings'] as $name) {
+    woo_ok(($policy->option_rule($name)['class'] ?? null) === 'authored'
+        && ($policy->option_rule($name)['plain_data'] ?? null) === true,
+        "$name is class-disabled authored local-pickup state with a closed native record schema");
+}
 woo_ok(($policy->option_rule('woocommerce_placeholder_image')['ref'] ?? '') === 'post', 'placeholder image uses portable post identity');
 woo_ok(($policy->option_rule('woocommerce_refund_returns_page_id')['ref'] ?? '') === 'post', 'refund page uses portable post identity');
 woo_ok(($policy->option_rule('woocommerce_flat_rate_41_settings')['ref'] ?? null) === null
@@ -323,6 +323,13 @@ $productActions = array_values(array_filter(
     $actions,
     static fn(array $row): bool => ($row['provider'] ?? null) === 'woocommerce-product-lookups'
 ));
+$cacheAction = array_values(array_filter(
+    $actions,
+    static fn(array $row): bool => ($row['provider'] ?? null) === 'woocommerce-cache'
+))[0] ?? [];
+woo_ok(in_array('option:pickup_location_pickup_locations', $cacheAction['triggers'] ?? [], true)
+    && in_array('option:woocommerce_pickup_location_settings', $cacheAction['triggers'] ?? [], true),
+    'both local-pickup REST records trigger the receipt-bound native shipping-cache invalidation');
 $productAction = $productActions[0] ?? [];
 // DUO-3342: the third entry is a MIGRATED dispatch, not a new repair. It is
 // bounded by the same two post-type triggers the retired regen_dependency

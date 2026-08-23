@@ -537,13 +537,12 @@ woo_effect_check(
     'Woo rebuild actions are structured data bounded by exact authored surfaces, with no executable command string'
 );
 // The DUO-3338 migration had to preserve the retired channel's scoping
-// BYTE-FOR-BYTE: this is the exact trigger list manifests/woocommerce.json
-// carried as `rebuilders[1].triggers` at the last pre-migration revision
-// (da93360), pinned here so a later edit that widens or narrows Woo's cache
-// invalidation has to say so out loud instead of arriving as a diff nobody
-// reads. The key-set assertions close the entries: a leftover `command`, or a
-// native key on the provider entry, is not merely refused at load — it cannot
-// be present at all.
+// BYTE-FOR-BYTE except for the two exact Woo 11.0.x local-pickup REST records:
+// ShippingController attaches the same shipping-version bump to both
+// pre_update hooks. Keeping the complete trigger inventory pinned here makes
+// a later scope change explicit. The key-set assertions close the entries: a
+// leftover `command`, or a native key on the provider entry, is not merely
+// refused at load — it cannot be present at all.
 $cacheTriggers = [
     'table:woocommerce_attribute_taxonomies',
     'table:woocommerce_shipping_zone_locations',
@@ -551,10 +550,12 @@ $cacheTriggers = [
     'table:woocommerce_shipping_zones',
     'table:woocommerce_tax_rate_locations',
     'table:woocommerce_tax_rates',
+    'option:pickup_location_pickup_locations',
     'option:woocommerce_all_except_countries',
     'option:woocommerce_allowed_countries',
     'option:woocommerce_calc_taxes',
     'option:woocommerce_default_country',
+    'option:woocommerce_pickup_location_settings',
     'option:woocommerce_prices_include_tax',
     'option:woocommerce_ship_to_countries',
     'option:woocommerce_ship_to_destination',

@@ -331,7 +331,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 - **Operations:** apply, capture, compile, deploy, plan, promote, recapture, render-api
 - **Lifecycle phases:** retire, activate, verify
 - **Declared entities:** `post_types` (9 keys), `tables` (43 keys), `taxonomies` (8 keys), `taxonomy_patterns` (1 rules)
-- **Declared fields:** `options` (79 keys), `option_patterns` (8 rules), `option_name_refs` (1 rules), `post_meta` (72 keys), `meta_patterns` (1 rules), `term_meta` (8 keys), `block_attrs` (1: woocommerce/product-collection)
+- **Declared fields:** `options` (81 keys), `option_patterns` (8 rules), `option_name_refs` (1 rules), `post_meta` (72 keys), `meta_patterns` (1 rules), `term_meta` (8 keys), `block_attrs` (1: woocommerce/product-collection)
 - **Adapter hooks:** 4 providers, 6 structured actions, interpreter `woocommerce`
 - **Deletions supported:** none
 - **Deletions unsupported:** post:product, post:product_variation, table:woocommerce_attribute_taxonomies, table:woocommerce_shipping_zone_locations, table:woocommerce_shipping_zone_methods, table:woocommerce_shipping_zones, table:woocommerce_tax_rate_locations, table:woocommerce_tax_rates

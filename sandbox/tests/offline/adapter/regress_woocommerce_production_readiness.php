@@ -563,6 +563,7 @@ foreach (['auto_fulfill_downloadable', 'auto_fulfill_virtual'] as $optionName) {
     );
 }
 foreach ([
+    'pickup_location_pickup_locations',
     'woocommerce_actionable_order_statuses',
     'woocommerce_category_archive_display',
     'woocommerce_checkout_terms_and_conditions_checkbox_text',
@@ -585,6 +586,7 @@ foreach ([
     'woocommerce_graphql_object_cache_enabled',
     'woocommerce_graphql_opcache_enabled',
     'woocommerce_graphql_query_cache_ttl',
+    'woocommerce_pickup_location_settings',
     'woocommerce_pos_store_name',
     'woocommerce_rest_api_enable_cache_headers',
     'woocommerce_shop_page_display',
@@ -595,7 +597,13 @@ foreach ([
         "$optionName is exact portable merchant-authored WooCommerce state"
     );
 }
-foreach (['woocommerce_actionable_order_statuses', 'woocommerce_excluded_report_order_statuses', 'woocommerce_gateway_order'] as $optionName) {
+foreach ([
+    'pickup_location_pickup_locations',
+    'woocommerce_actionable_order_statuses',
+    'woocommerce_excluded_report_order_statuses',
+    'woocommerce_gateway_order',
+    'woocommerce_pickup_location_settings',
+] as $optionName) {
     duo_check_same(
         true,
         $policy->option_rule($optionName)['plain_data'] ?? null,
@@ -616,8 +624,6 @@ duo_check_same(
 );
 foreach ([
     'woocommerce_cod_settings',
-    'woocommerce_pickup_location_settings',
-    'pickup_location_pickup_locations',
     'woocommerce_analytics_scheduled_import',
     'woocommerce_customer_stock_notifications_unverified_deletions_days_threshold',
 ] as $pendingOption) {
@@ -1003,7 +1009,23 @@ duo_check(
     'malformed automatic-fulfillment option state refuses'
 );
 
+$validPickupLocations = [[
+    'name' => 'مخزن 東京',
+    'address' => [
+        'address_1' => '١٢ شارع الاختبار',
+        'city' => '東京',
+        'state' => '13',
+        'postcode' => '100-0001',
+        'country' => 'JP',
+    ],
+    'details' => '<strong>بوابة ٢</strong><br>南口',
+    'enabled' => true,
+]];
 $validSettings = [
+    'pickup_location_pickup_locations' => [
+        'state' => 'present',
+        'value' => $validPickupLocations,
+    ],
     'woocommerce_actionable_order_statuses' => [
         'state' => 'present',
         'value' => ['processing', 'on-hold', 'merchant-review'],
@@ -1042,6 +1064,15 @@ $validSettings = [
     'woocommerce_graphql_opcache_enabled' => ['state' => 'present', 'value' => 'no'],
     'woocommerce_graphql_query_cache_ttl' => ['state' => 'present', 'value' => '3600'],
     'woocommerce_pos_store_name' => ['state' => 'present', 'value' => 'فرع 東京'],
+    'woocommerce_pickup_location_settings' => [
+        'state' => 'present',
+        'value' => [
+            'enabled' => 'yes',
+            'title' => 'استلام 東京',
+            'tax_status' => 'taxable',
+            'cost' => '12.50',
+        ],
+    ],
     'woocommerce_rest_api_enable_cache_headers' => ['state' => 'present', 'value' => 'yes'],
     'woocommerce_shop_page_display' => ['state' => 'present', 'value' => 'subcategories'],
 ];
@@ -1054,6 +1085,8 @@ duo_check_same(
     [],
     woo_readiness_option_diagnostics($interpreter, [
         'woocommerce_gateway_order' => ['state' => 'present', 'value' => []],
+        'pickup_location_pickup_locations' => ['state' => 'present', 'value' => []],
+        'woocommerce_pickup_location_settings' => ['state' => 'present', 'value' => []],
         'woocommerce_shop_page_display' => ['state' => 'present', 'value' => ''],
         'woocommerce_email_from_name' => ['state' => 'present', 'value' => ''],
         'woocommerce_graphql_endpoint_url' => ['state' => 'deleted'],
@@ -1083,6 +1116,62 @@ $invalidSettings = [
     ['woocommerce_gateway_order', ['cod' => 0, 'bacs' => 0], 'unique bounded integer positions'],
     ['woocommerce_gateway_order', ['bad key' => 0], 'unique bounded integer positions'],
     ['woocommerce_gateway_order', ['cod' => '0'], 'unique bounded integer positions'],
+    ['woocommerce_pickup_location_settings', ['enabled' => 'yes'], 'permit only enabled, title, tax_status, and cost'],
+    ['woocommerce_pickup_location_settings', [
+        'enabled' => true,
+        'title' => 'Pickup',
+        'tax_status' => 'taxable',
+        'cost' => '',
+    ], 'enabled must be exact yes or no'],
+    ['woocommerce_pickup_location_settings', [
+        'enabled' => 'yes',
+        'title' => '<b>Pickup</b>',
+        'tax_status' => 'taxable',
+        'cost' => '',
+    ], 'native WordPress text-sanitized bytes'],
+    ['woocommerce_pickup_location_settings', [
+        'enabled' => 'yes',
+        'title' => 'Pickup',
+        'tax_status' => 'inherit',
+        'cost' => '',
+    ], 'tax_status must be exact taxable or none'],
+    ['pickup_location_pickup_locations', [[
+        'name' => 'Depot',
+        'address' => [
+            'address_1' => '1 Main St',
+            'city' => 'City',
+            'state' => 'ST',
+            'postcode' => '12345',
+            'country' => 'US',
+        ],
+        'details' => '',
+        'enabled' => 'yes',
+    ]], 'enabled must be a native REST boolean'],
+    ['pickup_location_pickup_locations', [[
+        'name' => 'Depot',
+        'address' => [
+            'address_1' => '1 Main St',
+            'city' => 'City',
+            'state' => 'ST',
+            'postcode' => '12345',
+            'country' => 'US',
+            'county' => 'secret-county',
+        ],
+        'details' => '',
+        'enabled' => true,
+    ]], 'address permits only'],
+    ['pickup_location_pickup_locations', [[
+        'name' => 'Depot',
+        'address' => [
+            'address_1' => '1 Main St',
+            'city' => 'City',
+            'state' => 'ST',
+            'postcode' => '12345',
+            'country' => 'US',
+        ],
+        'details' => '<script>bad</script>',
+        'enabled' => true,
+    ]], 'HTML-sanitized bytes'],
     ['woocommerce_checkout_terms_and_conditions_checkbox_text', '<script>bad</script>', 'HTML-sanitized bytes'],
 ];
 foreach ($invalidSettings as [$name, $value, $fragment]) {
@@ -1095,6 +1184,31 @@ foreach ($invalidSettings as [$name, $value, $fragment]) {
         "$name rejects malformed repository state at its exact native boundary: $fragment"
     );
 }
+
+$tooManyPickupLocations = array_fill(0, 257, $validPickupLocations[0]);
+$tooManyPickupDiagnostics = woo_readiness_option_diagnostics($interpreter, [
+    'pickup_location_pickup_locations' => ['state' => 'present', 'value' => $tooManyPickupLocations],
+]);
+duo_check(
+    str_contains(implode(' | ', woo_readiness_messages($tooManyPickupDiagnostics)), 'at most 256'),
+    'local-pickup inventory refuses before accepting more than 256 locations'
+);
+$oversizedPickup = $validPickupLocations[0];
+$oversizedPickup['name'] = str_repeat('x', 4096);
+$oversizedPickup['details'] = str_repeat('y', 16384);
+foreach (array_keys($oversizedPickup['address']) as $addressField) {
+    $oversizedPickup['address'][$addressField] = str_repeat('z', 4096);
+}
+$oversizedPickupDiagnostics = woo_readiness_option_diagnostics($interpreter, [
+    'pickup_location_pickup_locations' => [
+        'state' => 'present',
+        'value' => array_fill(0, 32, $oversizedPickup),
+    ],
+]);
+duo_check(
+    str_contains(implode(' | ', woo_readiness_messages($oversizedPickupDiagnostics)), 'one-megabyte aggregate'),
+    'local-pickup inventory enforces its aggregate decoded-byte bound before field traversal'
+);
 
 $statusFlood = array_fill(0, 129, 'processing');
 duo_check(

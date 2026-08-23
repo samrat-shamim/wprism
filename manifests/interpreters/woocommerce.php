@@ -104,6 +104,31 @@ final class Woocommerce {
         'woocommerce_graphql_query_cache_ttl',
     ];
 
+    private const PICKUP_SETTINGS_FIELDS = [
+        'cost',
+        'enabled',
+        'tax_status',
+        'title',
+    ];
+
+    private const PICKUP_LOCATION_FIELDS = [
+        'address',
+        'details',
+        'enabled',
+        'name',
+    ];
+
+    private const PICKUP_ADDRESS_FIELDS = [
+        'address_1',
+        'city',
+        'country',
+        'postcode',
+        'state',
+    ];
+
+    private const MAX_PICKUP_LOCATIONS = 256;
+    private const MAX_PICKUP_BYTES = 1048576;
+
     private const PRODUCT_VISIBILITY_TERMS = [
         'exclude-from-search',
         'exclude-from-catalog',
@@ -779,6 +804,14 @@ final class Woocommerce {
                 $out = array_merge($out, $this->gateway_order_diagnostics($path, $locator, $value));
                 continue;
             }
+            if ($name === 'woocommerce_pickup_location_settings') {
+                $out = array_merge($out, $this->pickup_settings_diagnostics($path, $locator, $value));
+                continue;
+            }
+            if ($name === 'pickup_location_pickup_locations') {
+                $out = array_merge($out, $this->pickup_locations_diagnostics($path, $locator, $value));
+                continue;
+            }
             if ($name === 'woocommerce_checkout_terms_and_conditions_checkbox_text') {
                 $out = array_merge($out, $this->native_html_diagnostics(
                     $path,
@@ -821,6 +854,185 @@ final class Woocommerce {
             $seen[$status] = true;
         }
         return [];
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function pickup_settings_diagnostics(string $path, string $locator, mixed $value): array {
+        if (!is_array($value) || ($value !== [] && array_is_list($value))) {
+            return [$this->diagnostic(
+                $path,
+                $locator,
+                'WooCommerce local-pickup settings must be the exact native named record'
+            )];
+        }
+        if ($value === []) {
+            return [];
+        }
+        $fields = array_keys($value);
+        sort($fields, SORT_STRING);
+        if ($fields !== self::PICKUP_SETTINGS_FIELDS) {
+            return [$this->diagnostic(
+                $path,
+                $locator,
+                'WooCommerce local-pickup settings permit only enabled, title, tax_status, and cost'
+            )];
+        }
+
+        $out = [];
+        if (!is_string($value['enabled']) || !in_array($value['enabled'], ['yes', 'no'], true)) {
+            $out[] = $this->diagnostic(
+                $path,
+                "$locator.enabled",
+                'WooCommerce local-pickup enabled must be exact yes or no'
+            );
+        }
+        if (!is_string($value['tax_status']) || !in_array($value['tax_status'], ['taxable', 'none'], true)) {
+            $out[] = $this->diagnostic(
+                $path,
+                "$locator.tax_status",
+                'WooCommerce local-pickup tax_status must be exact taxable or none'
+            );
+        }
+        $titleDiagnostics = $this->bounded_text_diagnostics(
+            $path,
+            "$locator.title",
+            $value['title'],
+            4096,
+            'WooCommerce local-pickup title'
+        );
+        $out = array_merge($out, $titleDiagnostics);
+        if ($titleDiagnostics === [] && is_string($value['title'])) {
+            $out = array_merge($out, $this->native_text_canonical_diagnostics(
+                $path,
+                "$locator.title",
+                $value['title'],
+                'WooCommerce local-pickup title'
+            ));
+        }
+        $out = array_merge($out, $this->bounded_text_diagnostics(
+            $path,
+            "$locator.cost",
+            $value['cost'],
+            1024,
+            'WooCommerce local-pickup cost'
+        ));
+        return $out;
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function pickup_locations_diagnostics(string $path, string $locator, mixed $value): array {
+        if (!is_array($value) || !array_is_list($value) || count($value) > self::MAX_PICKUP_LOCATIONS) {
+            return [$this->diagnostic(
+                $path,
+                $locator,
+                'WooCommerce pickup locations must be an ordered list of at most 256 native records'
+            )];
+        }
+        $encoded = json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if (!is_string($encoded) || strlen($encoded) > self::MAX_PICKUP_BYTES) {
+            return [$this->diagnostic(
+                $path,
+                $locator,
+                'WooCommerce pickup locations exceed the one-megabyte aggregate boundary'
+            )];
+        }
+
+        $out = [];
+        foreach ($value as $index => $location) {
+            $rowLocator = "$locator.$index";
+            if (!is_array($location) || array_is_list($location)) {
+                $out[] = $this->diagnostic(
+                    $path,
+                    $rowLocator,
+                    'WooCommerce pickup location must be the exact native named record'
+                );
+                continue;
+            }
+            $fields = array_keys($location);
+            sort($fields, SORT_STRING);
+            if ($fields !== self::PICKUP_LOCATION_FIELDS) {
+                $out[] = $this->diagnostic(
+                    $path,
+                    $rowLocator,
+                    'WooCommerce pickup location permits only name, address, details, and enabled'
+                );
+                continue;
+            }
+            foreach (['name' => 4096, 'details' => 16384] as $field => $maxBytes) {
+                $textDiagnostics = $this->bounded_text_diagnostics(
+                    $path,
+                    "$rowLocator.$field",
+                    $location[$field],
+                    $maxBytes,
+                    "WooCommerce pickup location $field"
+                );
+                $out = array_merge($out, $textDiagnostics);
+                if ($textDiagnostics === [] && is_string($location[$field])) {
+                    $out = array_merge(
+                        $out,
+                        $field === 'details'
+                            ? $this->native_html_diagnostics(
+                                $path,
+                                "$rowLocator.$field",
+                                $location[$field],
+                                $maxBytes,
+                                'WooCommerce pickup location details'
+                            )
+                            : $this->native_text_canonical_diagnostics(
+                                $path,
+                                "$rowLocator.$field",
+                                $location[$field],
+                                'WooCommerce pickup location name'
+                            )
+                    );
+                }
+            }
+            if (!is_bool($location['enabled'])) {
+                $out[] = $this->diagnostic(
+                    $path,
+                    "$rowLocator.enabled",
+                    'WooCommerce pickup location enabled must be a native REST boolean'
+                );
+            }
+            $address = $location['address'];
+            if (!is_array($address) || array_is_list($address)) {
+                $out[] = $this->diagnostic(
+                    $path,
+                    "$rowLocator.address",
+                    'WooCommerce pickup location address must be the exact native named record'
+                );
+                continue;
+            }
+            $addressFields = array_keys($address);
+            sort($addressFields, SORT_STRING);
+            if ($addressFields !== self::PICKUP_ADDRESS_FIELDS) {
+                $out[] = $this->diagnostic(
+                    $path,
+                    "$rowLocator.address",
+                    'WooCommerce pickup location address permits only address_1, city, state, postcode, and country'
+                );
+                continue;
+            }
+            foreach (self::PICKUP_ADDRESS_FIELDS as $field) {
+                $textDiagnostics = $this->bounded_text_diagnostics(
+                    $path,
+                    "$rowLocator.address.$field",
+                    $address[$field],
+                    4096,
+                    "WooCommerce pickup location address $field"
+                );
+                $out = array_merge($out, $textDiagnostics);
+                if ($textDiagnostics === [] && is_string($address[$field])) {
+                    $out = array_merge($out, $this->native_text_canonical_diagnostics(
+                        $path,
+                        "$rowLocator.address.$field",
+                        $address[$field],
+                        "WooCommerce pickup location address $field"
+                    ));
+                }
+            }
+        }
+        return $out;
     }
 
     /** @return list<array<string,mixed>> */
