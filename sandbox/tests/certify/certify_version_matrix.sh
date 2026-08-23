@@ -2787,7 +2787,7 @@ cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
     "options": {},
     "post_meta": {},
     "post_types": ["post", "page", "attachment", "product", "product_variation", "shop_coupon"],
-    "taxonomies": ["category", "post_tag", "product_cat", "product_type"]
+    "taxonomies": ["category", "post_tag", "product_cat", "product_shipping_class", "product_tag", "product_type"]
   },
   "spec_version": 2
 }
