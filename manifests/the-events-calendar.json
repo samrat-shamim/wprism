@@ -165,14 +165,14 @@
     "_VenueOrigin": {"class": "authored"},
     "_VenuePhone": {"class": "authored"},
     "_VenueProvince": {"class": "authored"},
-    "_VenueShowMap": {"class": "authored"},
-    "_VenueShowMapLink": {"class": "authored"},
+    "_VenueShowMap": {"class": "authored", "lint_ok": true},
+    "_VenueShowMapLink": {"class": "authored", "lint_ok": true},
     "_VenueState": {"class": "authored"},
     "_VenueStateProvince": {"class": "authored"},
     "_VenueURL": {"class": "authored"},
     "_VenueZip": {"class": "authored"},
     "_tribe_events_errors": {"class": "runtime"},
-    "_tribe_featured": {"class": "authored"},
+    "_tribe_featured": {"class": "authored", "lint_ok": true},
     "_tribe_modified_fields": {"class": "runtime"}
   },
   "taxonomies": {

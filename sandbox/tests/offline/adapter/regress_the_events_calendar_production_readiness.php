@@ -243,6 +243,13 @@ foreach (['_tribe_events_errors', '_tribe_modified_fields'] as $key) {
 foreach (['_VenueURL', '_VenueProvince', '_VenueShowMap', '_VenueShowMapLink', '_OrganizerWebsite'] as $key) {
     duo_check_same('authored', $policy->post_meta_rule($key)['class'] ?? null, "$key closes the free venue/organizer API surface");
 }
+foreach (['_tribe_featured', '_VenueShowMap', '_VenueShowMapLink'] as $key) {
+    duo_check_same(
+        true,
+        $policy->post_meta_rule($key)['lint_ok'] ?? null,
+        "$key is an explicitly reviewed boolean rather than a coincidental local post reference"
+    );
+}
 
 $options = $policy->option_rule('tribe_events_calendar_options');
 duo_check_same('env', $options['class'] ?? null, 'the mixed TEC option remains target-owned as a whole');
