@@ -368,6 +368,14 @@ final class Woocommerce {
                 $out
             );
             $productType = count($productTypes) === 1 ? $productTypes[0] : null;
+            if ($productType === null
+                || !in_array($productType, ['simple', 'grouped', 'variable', 'external'], true)) {
+                $out[] = $this->diagnostic(
+                    $path,
+                    'terms.product_type',
+                    'WooCommerce products require exactly one admitted core product_type relationship'
+                );
+            }
             $postMeta = (array) ($front['meta'] ?? []);
             $downloadable = (($postMeta['_downloadable'] ?? null) === 'yes');
             if ($pos !== [] && ($downloadable || !in_array($productType, ['simple', 'variable'], true))) {
@@ -389,6 +397,21 @@ final class Woocommerce {
                 );
             } elseif ($parent !== null) {
                 $parentTerms = (array) ($parent['terms'] ?? []);
+                $parentTypes = $this->relationship_slugs(
+                    $path,
+                    'parent.terms.product_type',
+                    $parentTerms['product_type'] ?? [],
+                    'product_type',
+                    $termIndex,
+                    $out
+                );
+                if ($parentTypes !== ['variable']) {
+                    $out[] = $this->diagnostic(
+                        $path,
+                        'parent.terms.product_type',
+                        'WooCommerce variations require exactly one variable product_type parent'
+                    );
+                }
                 $parentPos = $this->relationship_slugs(
                     $path,
                     'parent.terms.pos_product_visibility',
@@ -491,12 +514,12 @@ final class Woocommerce {
         $path = (string) ($entity['path'] ?? '');
         $out = [];
 
-        if (in_array($taxonomy, ['product_visibility', 'pos_product_visibility'], true)) {
+        if (in_array($taxonomy, ['product_type', 'product_visibility', 'pos_product_visibility'], true)) {
             $slug = (string) ($front['slug'] ?? '');
             $name = (string) ($front['name'] ?? '');
-            $allowed = $taxonomy === 'product_visibility'
-                ? self::PRODUCT_VISIBILITY_TERMS
-                : ['pos-hidden'];
+            $allowed = $taxonomy === 'product_type'
+                ? ['simple', 'grouped', 'variable', 'external']
+                : ($taxonomy === 'product_visibility' ? self::PRODUCT_VISIBILITY_TERMS : ['pos-hidden']);
             if (!in_array($slug, $allowed, true) || $name !== $slug) {
                 $out[] = $this->diagnostic(
                     $path,

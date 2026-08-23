@@ -528,7 +528,10 @@ namespace {
                 return array_slice($rows, 0, (int) $match[2]);
             }
             if (str_contains($query, 'FROM wp_term_relationships tr')
-                && str_contains($query, "tt.taxonomy IN ('product_visibility', 'pos_product_visibility')")) {
+                && str_contains(
+                    $query,
+                    "tt.taxonomy IN ('product_type', 'product_visibility', 'pos_product_visibility')"
+                )) {
                 if (!preg_match('/tr.object_id IN \(([0-9, ]+)\)/', $query, $match)) {
                     throw new \RuntimeException('fake wpdb could not parse product visibility relationship scope');
                 }
@@ -576,7 +579,7 @@ namespace {
                 ] <=> [
                     $right['taxonomy'], $right['slug'], (int) $right['term_taxonomy_id'],
                 ]);
-                return array_slice($rows, 0, 11);
+                return array_slice($rows, 0, 15);
             }
             if (str_contains($query, "meta_key IN ('_cogs_total_value', '_cogs_value_is_additive')")) {
                 if (!preg_match('/post_id IN \(([0-9, ]+)\)/', $query, $match)) {
@@ -968,6 +971,7 @@ namespace {
         public function set_attributes(array $attributes): void { $this->attributes = $attributes; }
         public function set_visible_children(array $children): void { $this->visibleChildren = $children; }
         public function set_status(string $status): void { $this->status = $status; }
+        public function set_type(string $type): void { $this->type = $type; }
         public function set_catalog_visibility(string $visibility): void {
             $this->catalogVisibility = $visibility;
             global $fakeVisibilityRelationships;
@@ -1344,7 +1348,16 @@ namespace {
         14 => new FakeProduct(14, 'simple', 0, [], [], true),
         15 => new FakeProduct(15, 'simple', 0, [], ['pa_grind-size' => new FakeProductAttribute(7, [101], false)], true),
     ];
-    $fakeVisibilityTerms = ['product_visibility' => [], 'pos_product_visibility' => []];
+    $fakeVisibilityTerms = ['product_type' => [], 'product_visibility' => [], 'pos_product_visibility' => []];
+    foreach (['simple', 'grouped', 'variable', 'external'] as $offset => $slug) {
+        $fakeVisibilityTerms['product_type'][$slug] = [
+            'term_id' => 181 + $offset,
+            'term_taxonomy_id' => 281 + $offset,
+            'taxonomy' => 'product_type',
+            'slug' => $slug,
+            'name' => $slug,
+        ];
+    }
     foreach ([
         'exclude-from-search', 'exclude-from-catalog', 'featured', 'outofstock',
         'rated-1', 'rated-2', 'rated-3', 'rated-4', 'rated-5',
@@ -1365,11 +1378,15 @@ namespace {
         'name' => 'pos-hidden',
     ];
     $fakeVisibilityRelationships = [];
-    foreach (array_keys($fakeProducts) as $id) {
+    foreach ($fakeProducts as $id => $product) {
         $fakeVisibilityRelationships[$id] = [
+            'product_type' => [],
             'product_visibility' => [],
             'pos_product_visibility' => [],
         ];
+        if ($product->get_type() !== 'variation') {
+            fake_set_visibility_relationships((int) $id, 'product_type', [$product->get_type()]);
+        }
     }
     fake_set_visibility_relationships(30, 'product_visibility', [
         'exclude-from-search',
@@ -1510,6 +1527,7 @@ namespace {
             $right['slug'], $right['term_taxonomy_id'],
         ]);
         $fakeVisibilityRelationships[$id] ??= [
+            'product_type' => [],
             'product_visibility' => [],
             'pos_product_visibility' => [],
         ];
@@ -1565,9 +1583,13 @@ namespace {
             'global_unique_id' => '',
         ];
         $fakeVisibilityRelationships[$id] = [
+            'product_type' => [],
             'product_visibility' => [],
             'pos_product_visibility' => [],
         ];
+        if ($type !== 'variation') {
+            fake_set_visibility_relationships($id, 'product_type', [$type]);
+        }
     }
     function fake_visibility_pre_write(int $id, string $taxonomy, string $operation): void {
         global $fakeVisibilityPreWriteMutations;
@@ -2068,7 +2090,7 @@ namespace {
     );
     $visibilityReceiptBytes = serialize($visibilityScoped['after']);
     $check(($visibilityScoped['after']['visibility_products'] ?? null) === 3
-        && ($visibilityScoped['after']['visibility_relationships'] ?? null) === 8
+        && ($visibilityScoped['after']['visibility_relationships'] ?? null) === 9
         && preg_match(
             '/^[a-f0-9]{64}$/D',
             (string) ($visibilityScoped['after']['visibility_intent_sha256'] ?? '')
@@ -2178,6 +2200,75 @@ namespace {
     unset($fakeVisibilityTerms['pos_product_visibility']['extension-private']);
     $check($extraPosVisibilityFailure,
         'POS visibility inventory admits only absence or the one exact core pos-hidden identity');
+
+    $exactRootType = $fakeVisibilityRelationships[90]['product_type'];
+    fake_set_visibility_relationships(90, 'product_type', []);
+    $missingProductTypeFailure = false;
+    try {
+        $adapter->regenerate_batch([90], []);
+    } catch (\Throwable $failure) {
+        $missingProductTypeFailure = str_contains($failure->getMessage(), 'exactly one native product_type');
+    }
+    $fakeVisibilityRelationships[90]['product_type'] = $exactRootType;
+    $check($missingProductTypeFailure,
+        'a product missing its authored native product_type refuses before derived mutation');
+
+    fake_set_visibility_relationships(90, 'product_type', ['variable', 'simple']);
+    $multipleProductTypeFailure = false;
+    try {
+        $adapter->regenerate_batch([90], []);
+    } catch (\Throwable $failure) {
+        $multipleProductTypeFailure = str_contains($failure->getMessage(), 'exactly one native product_type');
+    }
+    $fakeVisibilityRelationships[90]['product_type'] = $exactRootType;
+    $check($multipleProductTypeFailure,
+        'multiple product_type relationships cannot select a plausible native subtype');
+
+    $wrongProductTypeIdentity = $fakeVisibilityRelationships[90]['product_type'][0];
+    $fakeVisibilityRelationships[90]['product_type'][0]['term_id'] = 999992;
+    $wrongProductTypeIdentityFailure = false;
+    try {
+        $adapter->regenerate_batch([90], []);
+    } catch (\Throwable $failure) {
+        $wrongProductTypeIdentityFailure = str_contains($failure->getMessage(), 'product_type identity');
+    }
+    $fakeVisibilityRelationships[90]['product_type'][0] = $wrongProductTypeIdentity;
+    $check($wrongProductTypeIdentityFailure,
+        'the right product_type slug with a wrong native term identity cannot verify');
+
+    $savedExternalType = $fakeVisibilityTerms['product_type']['external'];
+    unset($fakeVisibilityTerms['product_type']['external']);
+    $missingTypeInventoryFailure = false;
+    try {
+        $adapter->regenerate_batch([90], []);
+    } catch (\Throwable $failure) {
+        $missingTypeInventoryFailure = str_contains($failure->getMessage(), 'product_type term inventory is incomplete');
+    }
+    $fakeVisibilityTerms['product_type']['external'] = $savedExternalType;
+    $check($missingTypeInventoryFailure,
+        'the exact four-term core product_type inventory is required even on a no-op root');
+
+    fake_set_visibility_relationships(91, 'product_type', ['simple']);
+    $variationTypeFailure = false;
+    try {
+        $adapter->regenerate_batch([90], []);
+    } catch (\Throwable $failure) {
+        $variationTypeFailure = str_contains($failure->getMessage(), 'impossible product_type relationship');
+    }
+    fake_set_visibility_relationships(91, 'product_type', []);
+    $check($variationTypeFailure,
+        'a variation cannot carry a product_type relationship of its own');
+
+    fake_add_visibility_product(199, 'variation', 13);
+    $nonVariableParentFailure = false;
+    try {
+        $adapter->regenerate_batch([199], []);
+    } catch (\Throwable $failure) {
+        $nonVariableParentFailure = str_contains($failure->getMessage(), 'exact variable product_type parent');
+    }
+    unset($fakeProducts[199], $fakeMeta[199], $fakeMetaLookup[199], $fakeVisibilityRelationships[199]);
+    $check($nonVariableParentFailure,
+        'a variation parent must resolve to the exact authored variable product_type');
 
     // Removing root POS intent must remove every inherited child term. The
     // supported simple case remains portable; downloadable and external roots
@@ -2353,6 +2444,117 @@ namespace {
     fake_set_visibility_relationships(90, 'pos_product_visibility', ['pos-hidden']);
     $adapter->regenerate_batch([90], []);
 
+    // Final verification must derive from its own fresh native snapshot. Each
+    // mutation lands after reconcile_visibility() observed current state but
+    // before the first exact derived-term removal, the window in which reusing
+    // the old expected array used to bless a stale projection.
+    fake_set_visibility_relationships(90, 'product_visibility', [
+        'exclude-from-search', 'featured', 'rated-1',
+    ]);
+    $fakeProducts[90]->set_stock(false);
+    $fakeVisibilityPreWriteMutations['90:product_visibility:remove'] = static function (): void {
+        global $fakeProducts;
+        $fakeProducts[90]->set_stock(true);
+    };
+    $stockRaceFailure = false;
+    try {
+        $adapter->regenerate_batch([90], []);
+    } catch (\Throwable $failure) {
+        $stockRaceFailure = str_contains($failure->getMessage(), 'product_visibility projection disagrees');
+    }
+    $check($stockRaceFailure,
+        'after-snapshot stock drift cannot bless the stale outofstock visibility projection');
+    $fakeProducts[90]->set_stock(false);
+    fake_set_visibility_relationships(90, 'product_visibility', [
+        'exclude-from-search', 'featured', 'outofstock', 'rated-5',
+    ]);
+
+    fake_set_visibility_relationships(90, 'product_visibility', [
+        'exclude-from-search', 'featured', 'rated-1',
+    ]);
+    $fakeMeta[90]['_wc_average_rating'] = ['4.6'];
+    $fakeVisibilityPreWriteMutations['90:product_visibility:remove'] = static function (): void {
+        global $fakeMeta;
+        $fakeMeta[90]['_wc_average_rating'] = ['3.6'];
+    };
+    $ratingRaceFailure = false;
+    try {
+        $adapter->regenerate_batch([90], []);
+    } catch (\Throwable $failure) {
+        $ratingRaceFailure = str_contains($failure->getMessage(), 'product_visibility projection disagrees');
+    }
+    $check($ratingRaceFailure,
+        'after-snapshot rating drift cannot bless the stale rated-* visibility projection');
+    $fakeMeta[90]['_wc_average_rating'] = ['4.6'];
+    fake_set_visibility_relationships(90, 'product_visibility', [
+        'exclude-from-search', 'featured', 'outofstock', 'rated-5',
+    ]);
+
+    fake_set_visibility_relationships(90, 'product_visibility', [
+        'exclude-from-search', 'featured', 'rated-1',
+    ]);
+    $fakeVisibilityPreWriteMutations['90:product_visibility:remove'] = static function (): void {
+        global $fakeProducts;
+        $fakeProducts[90]->set_type('external');
+        fake_set_visibility_relationships(90, 'product_type', ['external']);
+    };
+    $typeRaceFailure = false;
+    try {
+        $adapter->regenerate_batch([90], []);
+    } catch (\Throwable $failure) {
+        $typeRaceFailure = str_contains($failure->getMessage(), 'intent changed');
+    }
+    $check($typeRaceFailure,
+        'after-snapshot product subtype drift cannot retain the prior visibility/POS projection');
+    $fakeProducts[90]->set_type('variable');
+    fake_set_visibility_relationships(90, 'product_type', ['variable']);
+    fake_set_visibility_relationships(90, 'product_visibility', [
+        'exclude-from-search', 'featured', 'outofstock', 'rated-5',
+    ]);
+
+    fake_set_visibility_relationships(90, 'product_visibility', [
+        'exclude-from-search', 'featured', 'rated-1',
+    ]);
+    $fakeMeta[90]['_downloadable'] = ['no'];
+    $fakeVisibilityPreWriteMutations['90:product_visibility:remove'] = static function (): void {
+        global $fakeMeta;
+        $fakeMeta[90]['_downloadable'] = ['yes'];
+    };
+    $downloadableRaceFailure = false;
+    try {
+        $adapter->regenerate_batch([90], []);
+    } catch (\Throwable $failure) {
+        $downloadableRaceFailure = str_contains($failure->getMessage(), 'intent changed');
+    }
+    $check($downloadableRaceFailure,
+        'after-snapshot downloadable drift cannot retain stale POS applicability');
+    $fakeMeta[90]['_downloadable'] = ['no'];
+    fake_set_visibility_relationships(90, 'product_visibility', [
+        'exclude-from-search', 'featured', 'outofstock', 'rated-5',
+    ]);
+
+    fake_set_visibility_relationships(90, 'product_visibility', [
+        'exclude-from-search', 'featured', 'rated-1',
+    ]);
+    $fakeVisibilityPreWriteMutations['90:product_visibility:remove'] = static function (): void {
+        global $fakeProducts;
+        $fakeProducts[91]->set_parent(93);
+    };
+    $parentRaceFailure = false;
+    try {
+        $adapter->regenerate_batch([90], []);
+    } catch (\Throwable $failure) {
+        $parentRaceFailure = str_contains($failure->getMessage(), 'intent changed')
+            || str_contains($failure->getMessage(), 'scope changed');
+    }
+    $check($parentRaceFailure,
+        'after-snapshot variation-parent drift cannot bless the old variable/POS inheritance scope');
+    $fakeProducts[91]->set_parent(90);
+    fake_set_visibility_relationships(90, 'product_visibility', [
+        'exclude-from-search', 'featured', 'outofstock', 'rated-5',
+    ]);
+    $adapter->regenerate_batch([90], []);
+
     fake_add_visibility_product(96, 'variation', 999, [], true);
     $orphanVisibilityFailure = false;
     try {
@@ -2416,6 +2618,7 @@ namespace {
     $fakeMeta[17]['_downloadable'] = ['yes'];
     $fakeMeta[17]['_downloadable_files'] = [$downloadRow($downloadFile)];
     $fakeProducts[17] = new FakeProduct(17, 'simple', 0, [], [], true);
+    fake_set_visibility_relationships(17, 'product_type', ['simple']);
     $fakeMetaLookup[17] = $fakeMetaLookup[10];
     $fakeMetaLookup[17]['product_id'] = 17;
     $register = \Automattic\WooCommerce\Internal\ProductDownloads\ApprovedDirectories\Register::$instance
@@ -2680,6 +2883,7 @@ namespace {
     $fakeMeta[16]['_regular_price'] = ['123456789.123456'];
     $fakeMeta[16]['_sale_price'] = [''];
     $fakeProducts[16] = new FakeProduct(16, 'simple', 0, [], [], true);
+    fake_set_visibility_relationships(16, 'product_type', ['simple']);
     $fakeMetaLookup[16] = $fakeMetaLookup[10];
     $fakeMetaLookup[16]['product_id'] = 16;
     $adapter->regenerate_batch([16], []);
@@ -2858,6 +3062,7 @@ namespace {
 
     $simpleProduct = $fakeProducts[13];
     $fakeProducts[13] = new FakeProduct(13, 'external', 0, [], [], true);
+    fake_set_visibility_relationships(13, 'product_type', ['external']);
     unset($fakeProductCache[13]);
     $cogsTypeDrift = $adapter->reconcile_scoped(
         'rebuild_product_lookups',
@@ -2870,6 +3075,7 @@ namespace {
             !== ($cogsScoped['after']['cogs_scope_sha256'] ?? null),
         'the exact native WC product subtype is part of the scoped COGS receipt even when row count and value are unchanged');
     $fakeProducts[13] = $simpleProduct;
+    fake_set_visibility_relationships(13, 'product_type', ['simple']);
     unset($fakeProductCache[13]);
     $cogsTypeRecovered = $adapter->reconcile_scoped(
         'rebuild_product_lookups',
@@ -3476,6 +3682,8 @@ namespace {
     // isolation.
     $fakeProducts[40] = new FakeProduct(40, 'grouped', 0, [41, 12], [], true);
     $fakeProducts[41] = new FakeProduct(41, 'simple', 0, [], [], true);
+    fake_set_visibility_relationships(40, 'product_type', ['grouped']);
+    fake_set_visibility_relationships(41, 'product_type', ['simple']);
     $fakeMeta[40] = $fakeMeta[10];
     $fakeMeta[40]['_price'] = ['777'];
     $fakeMeta[40]['_regular_price'] = ['74'];
@@ -3556,6 +3764,8 @@ namespace {
     $fakeProducts[50] = new FakeProduct(50, 'grouped', 0, [51], [], true);
     $fakeProducts[51] = new FakeProduct(51, 'variable', 0, [52], [], true);
     $fakeProducts[52] = new FakeProduct(52, 'variation', 51, [], [], true);
+    fake_set_visibility_relationships(50, 'product_type', ['grouped']);
+    fake_set_visibility_relationships(51, 'product_type', ['variable']);
     $fakeMeta[50] = $fakeMeta[40];
     $fakeMeta[50]['_price'] = ['777'];
     $fakeMeta[50]['_stock'] = ['6'];
@@ -3963,21 +4173,21 @@ namespace {
         (int) $row['product_or_parent_id'] === 600),
         'retry deterministically clears the failed bounded attribute tombstone');
 
-    // On a fresh target the derived product_type relationship is absent, so
-    // Woo's ordinary factory reports the root as simple. Put lower-id
-    // variations before their higher-id parent to reproduce the live R3-A
-    // ordering that originally erased/omitted lookup rows. The adapter must
-    // infer a WC_Product_Variable object without persisting product_type.
+    // Apply materializes authored product_type before this provider runs. Put
+    // lower-id variations before their higher-id exact variable parent to
+    // reproduce the live R3-A ordering that originally erased/omitted lookup
+    // rows without asking this derived-state provider to invent type identity.
     $fakeProducts[68] = new FakeProduct(68, 'variation', 70, [], ['pa_color' => 'red'], true);
     $fakeProducts[69] = new FakeProduct(69, 'variation', 70, [], ['pa_color' => 'blue'], true);
     $fakeProducts[70] = new FakeProduct(
         70,
-        'simple',
+        'variable',
         0,
         [68, 69],
         ['pa_color' => new FakeProductAttribute(12, [101, 102], true)],
         true
     );
+    fake_set_visibility_relationships(70, 'product_type', ['variable']);
     $fakeMeta[68] = $fakeMeta[12];
     $fakeMeta[68]['_regular_price'] = ['18'];
     $fakeMeta[68]['_sale_price'] = [''];
@@ -3991,9 +4201,9 @@ namespace {
     }
     $adapter->regenerate_batch([68, 69, 70], []);
     $check($fakeMeta[70]['_price'] === ['18', '21'],
-        'fresh target infers variable-root price synthesis from authored child posts');
-    $check($fakeProducts[70]->get_type() === 'simple',
-        'fresh-target classification stays in memory and never persists a derived product_type');
+        'fresh target synthesizes variable-root price from the exact authored type and child posts');
+    $check($fakeProducts[70]->get_type() === 'variable',
+        'fresh-target classification is bound to the authored variable product_type identity');
 
     // DUO-3342: wc_product_meta_lookup verification no longer rebuilds Woo's
     // column rules. It brackets one forced re-derivation with two reads — the
@@ -4027,6 +4237,7 @@ namespace {
         ['pa_color' => new FakeProductAttribute(13, [101, 102], true)],
         true
     );
+    fake_set_visibility_relationships(90, 'product_type', ['variable']);
     foreach ([90, 91, 92] as $id) {
         $fakeMeta[$id] = $fakeMeta[12];
         $fakeMetaLookup[$id] = $fakeMetaLookup[12];
@@ -4105,6 +4316,7 @@ namespace {
     // A standalone product for the cache cases: ids 10-12 have been through
     // deletion and reparent fixtures by this point in the suite.
     $fakeProducts[80] = new FakeProduct(80, 'simple', 0, [], [], true);
+    fake_set_visibility_relationships(80, 'product_type', ['simple']);
     $fakeMeta[80] = [
         '_price' => ['21'], '_regular_price' => ['21'], '_sale_price' => [''],
         '_sale_price_dates_from' => [''], '_sale_price_dates_to' => [''],

@@ -737,8 +737,6 @@ woo_effect_check(
                     'Automattic\\WooCommerce\\Internal\\Utilities\\URL',
                     'Automattic\\WooCommerce\\Utilities\\NumberUtil',
                     'WC_Data_Store',
-                    'WC_Product_Variable',
-                    'WC_Product_Grouped',
                     'WC_Cache_Helper',
                 ],
             ],

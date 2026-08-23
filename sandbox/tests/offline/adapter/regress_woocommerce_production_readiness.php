@@ -87,6 +87,9 @@ function woo_readiness_entity(
             'uuid' => '11111111-1111-4111-8111-111111111111',
             'slug' => 'catalog-item',
             'meta' => [$metaKey => $value],
+            'terms' => $type === 'product'
+                ? ['product_type' => ['20000000-0000-4000-8000-000000000001']]
+                : [],
         ],
         'body' => 'Long UTF-8 product body 東京 🚀 مرحبا',
     ];
@@ -123,6 +126,21 @@ function woo_readiness_visibility_terms(): array {
 }
 
 /** @return list<array<string,mixed>> */
+function woo_readiness_product_type_terms(): array {
+    return [[
+        'type' => 'term',
+        'path' => 'state/terms/product_type/20000000-0000-4000-8000-000000000001--simple.json',
+        'data' => [
+            'taxonomy' => 'product_type',
+            'uuid' => '20000000-0000-4000-8000-000000000001',
+            'slug' => 'simple',
+            'name' => 'simple',
+            'meta' => [],
+        ],
+    ]];
+}
+
+/** @return list<array<string,mixed>> */
 function woo_readiness_diagnostics(
     Woocommerce $interpreter,
     mixed $value,
@@ -131,7 +149,8 @@ function woo_readiness_diagnostics(
 ): array {
     return $interpreter->repository_diagnostics(array_merge(
         [woo_readiness_entity($value, $type, $metaKey)],
-        woo_readiness_visibility_terms()
+        woo_readiness_visibility_terms(),
+        $type === 'product' ? woo_readiness_product_type_terms() : []
     ));
 }
 
@@ -255,6 +274,8 @@ $variableTypeTerm = [
         'meta' => [],
     ],
 ];
+$simpleTypeTerm = woo_readiness_product_type_terms()[0];
+$simpleTypeUuid = (string) $simpleTypeTerm['data']['uuid'];
 $visibilityParentUuid = '40000000-0000-4000-8000-000000000003';
 $visibilityChildUuid = '40000000-0000-4000-8000-000000000004';
 $visibilityParent = [
@@ -387,6 +408,55 @@ duo_check(
         'malformed or duplicate term identity'
     ),
     'duplicate visibility references refuse before materialization'
+);
+$missingProductType = $visibilityParent;
+$missingProductType['data']['terms']['product_type'] = [];
+duo_check(
+    str_contains(
+        implode(' | ', woo_readiness_messages($interpreter->repository_diagnostics(array_merge(
+            [$missingProductType, $visibilityChild, $posVisibilityTerm, $variableTypeTerm],
+            $visibilityTerms
+        )))),
+        'exactly one admitted core product_type'
+    ),
+    'a repository product missing its exact core product_type refuses readiness'
+);
+$multipleProductTypes = $visibilityParent;
+$multipleProductTypes['data']['terms']['product_type'][] = $simpleTypeUuid;
+duo_check(
+    str_contains(
+        implode(' | ', woo_readiness_messages($interpreter->repository_diagnostics(array_merge(
+            [$multipleProductTypes, $visibilityChild, $posVisibilityTerm, $variableTypeTerm, $simpleTypeTerm],
+            $visibilityTerms
+        )))),
+        'exactly one admitted core product_type'
+    ),
+    'multiple core product_type relationships cannot choose a native product class'
+);
+$simpleVisibilityParent = $visibilityParent;
+$simpleVisibilityParent['data']['terms']['product_type'] = [$simpleTypeUuid];
+duo_check(
+    str_contains(
+        implode(' | ', woo_readiness_messages($interpreter->repository_diagnostics(array_merge(
+            [$simpleVisibilityParent, $visibilityChild, $posVisibilityTerm, $simpleTypeTerm],
+            $visibilityTerms
+        )))),
+        'exactly one variable product_type parent'
+    ),
+    'a variation parent must carry the exact variable product_type identity'
+);
+$malformedProductTypeTerm = $variableTypeTerm;
+$malformedProductTypeTerm['data']['slug'] = 'subscription';
+$malformedProductTypeTerm['data']['name'] = 'subscription';
+duo_check(
+    str_contains(
+        implode(' | ', woo_readiness_messages($interpreter->repository_diagnostics(array_merge(
+            [$visibilityParent, $visibilityChild, $posVisibilityTerm, $malformedProductTypeTerm],
+            $visibilityTerms
+        )))),
+        'permits only its exact core slug/name identities'
+    ),
+    'an extension or malformed product_type term remains outside the exact core adapter contract'
 );
 $missingPosIdentityTree = array_merge(
     [$visibilityParent, $visibilityChild, $variableTypeTerm],

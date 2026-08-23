@@ -46,6 +46,12 @@ final class WoocommerceProductLookups {
     private const ATTRIBUTE_LOOKUP = 'wc_product_attributes_lookup';
     private const CAPABILITY = 'rebuild_product_lookups';
     private const MAX_VISIBILITY_PRODUCTS = 50000;
+    private const CORE_PRODUCT_TYPES = [
+        'simple',
+        'grouped',
+        'variable',
+        'external',
+    ];
     private const PRODUCT_VISIBILITY_TERMS = [
         'exclude-from-search',
         'exclude-from-catalog',
@@ -891,6 +897,11 @@ final class WoocommerceProductLookups {
                 'downloadable:' . ($native[$id]['downloadable'] ? 'true' : 'false')
             );
             foreach ($merchant[$id] as $key => $value) {
+                if ($key === 'pos_hidden'
+                    && (!in_array($native[$id]['type'], ['simple', 'variable'], true)
+                        || $native[$id]['downloadable'] !== false)) {
+                    $value = false;
+                }
                 $this->fingerprint_part(
                     $intentFingerprint,
                     'merchant:' . $key . ':'
@@ -910,7 +921,7 @@ final class WoocommerceProductLookups {
             $this->fingerprint_part($fingerprint, 'post:' . $id);
             $this->fingerprint_part($fingerprint, $post['post_type']);
             $this->fingerprint_part($fingerprint, (string) $post['parent_id']);
-            foreach (['product_visibility', 'pos_product_visibility'] as $taxonomy) {
+            foreach (['product_type', 'product_visibility', 'pos_product_visibility'] as $taxonomy) {
                 $this->fingerprint_part($fingerprint, $taxonomy);
                 foreach ($relationships[$id][$taxonomy] ?? [] as $row) {
                     foreach ($row as $key => $value) {
@@ -1047,20 +1058,21 @@ final class WoocommerceProductLookups {
         $out = [];
         foreach ($ids as $id) {
             $out[(int) $id] = [
+                'product_type' => [],
                 'product_visibility' => [],
                 'pos_product_visibility' => [],
             ];
         }
         foreach (array_chunk($ids, 200) as $chunk) {
             $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
-            $limit = count($chunk) * 10 + 1;
+            $limit = count($chunk) * 11 + 1;
             $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
                 "SELECT tr.object_id, tr.term_taxonomy_id, tr.term_order, tt.term_id, tt.taxonomy, t.slug, t.name "
                 . "FROM {$wpdb->term_relationships} tr "
                 . "INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id "
                 . "INNER JOIN {$wpdb->terms} t ON t.term_id = tt.term_id "
                 . "WHERE tr.object_id IN ($placeholders) "
-                . "AND tt.taxonomy IN ('product_visibility', 'pos_product_visibility') "
+                . "AND tt.taxonomy IN ('product_type', 'product_visibility', 'pos_product_visibility') "
                 . 'ORDER BY tr.object_id ASC, tt.taxonomy ASC, t.slug ASC, tr.term_taxonomy_id ASC '
                 . "LIMIT $limit",
                 ...$chunk
@@ -1078,9 +1090,11 @@ final class WoocommerceProductLookups {
                 $taxonomy = $row['taxonomy'] ?? null;
                 $slug = $row['slug'] ?? null;
                 $name = $row['name'] ?? null;
-                $allowed = $taxonomy === 'product_visibility'
-                    ? self::PRODUCT_VISIBILITY_TERMS
-                    : ($taxonomy === 'pos_product_visibility' ? ['pos-hidden'] : []);
+                $allowed = $taxonomy === 'product_type'
+                    ? self::CORE_PRODUCT_TYPES
+                    : ($taxonomy === 'product_visibility'
+                        ? self::PRODUCT_VISIBILITY_TERMS
+                        : ($taxonomy === 'pos_product_visibility' ? ['pos-hidden'] : []));
                 if (!in_array($objectId, $chunk, true) || !is_string($slug) || !is_string($name)
                     || !in_array($slug, $allowed, true) || $name !== $slug || $order !== 0) {
                     throw new \RuntimeException(
@@ -1227,6 +1241,7 @@ final class WoocommerceProductLookups {
             $expected = $this->expected_visibility_projection($snapshot);
         }
         $terms ??= $this->visibility_term_map($this->visibility_requires_pos($snapshot, $expected));
+        $this->assert_product_type_projection($snapshot, $terms);
         if (array_keys($expected) !== array_keys($snapshot['posts'])) {
             throw new \RuntimeException(
                 'duo: WooCommerce product visibility scope changed during projection; recovery_required'
@@ -1260,6 +1275,61 @@ final class WoocommerceProductLookups {
                         "duo: WooCommerce native featured/catalog visibility readback disagrees for product $id; recovery_required"
                     );
                 }
+            }
+        }
+    }
+
+    /**
+     * Product type is authored identity, not a class-name guess. Every root
+     * must point at one exact admitted core term and WC's public object must
+     * resolve the same type. Variations carry no product_type relationship and
+     * their parent must be the exact variable root Woo's inheritance code
+     * expects; a generic post parent alone cannot prove that semantic edge.
+     *
+     * @param array<string,mixed> $snapshot
+     * @param array<string,array<string,array{term_id:int,term_taxonomy_id:int}>> $terms
+     */
+    private function assert_product_type_projection(array $snapshot, array $terms): void {
+        foreach ((array) ($snapshot['posts'] ?? []) as $id => $post) {
+            $id = (int) $id;
+            $rows = (array) ($snapshot['relationships'][$id]['product_type'] ?? []);
+            $native = (array) ($snapshot['native'][$id] ?? []);
+            if (($post['post_type'] ?? null) === 'product') {
+                if (count($rows) !== 1) {
+                    throw new \RuntimeException(
+                        "duo: WooCommerce product $id must have exactly one native product_type relationship"
+                    );
+                }
+                $slug = (string) ($rows[0]['slug'] ?? '');
+                if (!in_array($slug, self::CORE_PRODUCT_TYPES, true)
+                    || ($native['type'] ?? null) !== $slug
+                    || !$this->visibility_relationship_matches($rows, [$slug], 'product_type', $terms)) {
+                    throw new \RuntimeException(
+                        "duo: WooCommerce product $id has inconsistent native product_type identity"
+                    );
+                }
+                continue;
+            }
+            if ($rows !== []) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce variation $id carries an impossible product_type relationship"
+                );
+            }
+            $parentId = (int) ($post['parent_id'] ?? 0);
+            $parentRows = (array) ($snapshot['relationships'][$parentId]['product_type'] ?? []);
+            if (($snapshot['posts'][$parentId]['post_type'] ?? null) !== 'product'
+                || ($snapshot['native'][$parentId]['type'] ?? null) !== 'variable'
+                || count($parentRows) !== 1
+                || ($parentRows[0]['slug'] ?? null) !== 'variable'
+                || !$this->visibility_relationship_matches(
+                    $parentRows,
+                    ['variable'],
+                    'product_type',
+                    $terms
+                )) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce variation $id requires one exact variable product_type parent"
+                );
             }
         }
     }
@@ -1353,7 +1423,19 @@ final class WoocommerceProductLookups {
             true,
             (array) ($intent['excluded_ids'] ?? [])
         );
-        $this->assert_visibility_projection($after, $expected, $terms);
+        if (!hash_equals(
+            (string) ($intent['intent_sha256'] ?? ''),
+            (string) $after['intent_sha256']
+        )) {
+            throw new \RuntimeException(
+                'duo: WooCommerce product visibility intent changed during native repair; recovery_required'
+            );
+        }
+        // Recompute the projection and native term map from the final fresh
+        // snapshot. Reusing $expected would let a stock, rating, subtype,
+        // downloadable, or parent change after the current snapshot bless the
+        // exact stale terms this invocation was about to write.
+        $this->assert_visibility_projection($after, null, null);
     }
 
     /**
@@ -1479,23 +1561,25 @@ final class WoocommerceProductLookups {
         $rows = \Duo\ProviderSdk::checked_get_results(
             "SELECT t.term_id, t.name, t.slug, tt.term_taxonomy_id, tt.taxonomy "
             . "FROM {$wpdb->terms} t INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id "
-            . "WHERE tt.taxonomy IN ('product_visibility', 'pos_product_visibility') "
-            . 'ORDER BY tt.taxonomy ASC, t.slug ASC, tt.term_taxonomy_id ASC LIMIT 11',
+            . "WHERE tt.taxonomy IN ('product_type', 'product_visibility', 'pos_product_visibility') "
+            . 'ORDER BY tt.taxonomy ASC, t.slug ASC, tt.term_taxonomy_id ASC LIMIT 15',
             'WooCommerce native visibility-term inventory'
         );
-        if (count($rows) >= 11) {
+        if (count($rows) >= 15) {
             throw new \RuntimeException(
                 'duo: WooCommerce native visibility-term inventory exceeds exact core cardinality'
             );
         }
-        $out = ['product_visibility' => [], 'pos_product_visibility' => []];
+        $out = ['product_type' => [], 'product_visibility' => [], 'pos_product_visibility' => []];
         foreach ($rows as $row) {
             $taxonomy = $row['taxonomy'] ?? null;
             $slug = $row['slug'] ?? null;
             $name = $row['name'] ?? null;
-            $allowed = $taxonomy === 'product_visibility'
-                ? self::PRODUCT_VISIBILITY_TERMS
-                : ($taxonomy === 'pos_product_visibility' ? ['pos-hidden'] : []);
+            $allowed = $taxonomy === 'product_type'
+                ? self::CORE_PRODUCT_TYPES
+                : ($taxonomy === 'product_visibility'
+                    ? self::PRODUCT_VISIBILITY_TERMS
+                    : ($taxonomy === 'pos_product_visibility' ? ['pos-hidden'] : []));
             if (!is_string($slug) || !is_string($name) || $name !== $slug
                 || !in_array($slug, $allowed, true)
                 || isset($out[$taxonomy][$slug])) {
@@ -1518,6 +1602,15 @@ final class WoocommerceProductLookups {
         if ($actual !== $expected) {
             throw new \RuntimeException(
                 'duo: WooCommerce native product_visibility term inventory is incomplete'
+            );
+        }
+        $actualProductTypes = array_keys($out['product_type']);
+        sort($actualProductTypes, SORT_STRING);
+        $expectedProductTypes = self::CORE_PRODUCT_TYPES;
+        sort($expectedProductTypes, SORT_STRING);
+        if ($actualProductTypes !== $expectedProductTypes) {
+            throw new \RuntimeException(
+                'duo: WooCommerce native product_type term inventory is incomplete'
             );
         }
         if ($requirePos && !isset($out['pos_product_visibility']['pos-hidden'])) {
@@ -2194,9 +2287,10 @@ final class WoocommerceProductLookups {
         // not permission to bless duplicate/hijacked native term identities,
         // and a referenced POS term must exist before this provider changes
         // an otherwise unrelated derived surface.
-        $this->visibility_term_map(
+        $visibilityTerms = $this->visibility_term_map(
             $this->visibility_requires_pos($currentVisibility, null)
         );
+        $this->assert_product_type_projection($currentVisibility, $visibilityTerms);
         // Typed Woo attribute definitions can be applied after Woo's init
         // registration pass. Refresh the public attribute caches and register
         // any newly-created pa_* taxonomies before wc_get_product() parses
@@ -2981,49 +3075,9 @@ final class WoocommerceProductLookups {
         }
     }
 
-    /**
-     * Load the public Woo product class implied by authored source shape.
-     *
-     * Woo stores `product_type` as a derived taxonomy relationship. On a
-     * fresh target that row does not exist until Woo hooks run, but Duo must
-     * rebuild projections before its receipt can advance. Variation children
-     * and grouped `_children` metadata are authored, deterministic evidence
-     * for the only two parent classes whose lookup synthesis differs from a
-     * simple product. Construct the public class in memory; never persist a
-     * guessed product_type relationship.
-     */
+    /** Load only the public class resolved from the exact authored product_type relationship. */
     private function load_product(int $id): object|false {
-        global $wpdb;
-        $product = \wc_get_product($id);
-        if (!$product || !is_callable([$product, 'is_type']) || !$product->is_type('simple')) {
-            return $product;
-        }
-
-        $postType = \Duo\ProviderSdk::checked_get_var($wpdb->prepare(
-            "SELECT post_type FROM {$wpdb->posts} WHERE ID = %d LIMIT 1",
-            $id
-        ), "product source-shape read for product $id");
-        if ((string) $postType !== 'product') {
-            return $product;
-        }
-
-        $variationId = \Duo\ProviderSdk::checked_get_var($wpdb->prepare(
-            "SELECT ID FROM {$wpdb->posts} WHERE post_parent = %d AND post_type = 'product_variation' ORDER BY ID LIMIT 1",
-            $id
-        ), "variation-child discovery for product $id");
-        if ($variationId !== null) {
-            return new \WC_Product_Variable($id);
-        }
-
-        $children = get_post_meta($id, '_children', true);
-        if (is_array($children) && array_filter(
-            array_map('intval', $children),
-            static fn(int $childId): bool => $childId > 0
-        ) !== []) {
-            return new \WC_Product_Grouped($id);
-        }
-
-        return $product;
+        return \wc_get_product($id);
     }
 
     /**
