@@ -489,36 +489,48 @@ jq -e '
 ' <<<"$CONVERGED" >/dev/null || fail "Elementor forced conflict crossed a runtime boundary: $CONVERGED"
 pass 'dirty nested-document conflicts refuse atomically; explicit force preserves target runtime boundaries'
 
-# Rename a required core postmeta column after a post-title intent is
-# published. The provider must fail before its destructive native command,
-# keep applied_revision behind, retain retry authority, and converge once the
-# exact schema is restored.
-wp_conf1 post update "$SOURCE_CLASSIC" --post_title='Schema recovery Elementor title 東京 🚀' >/dev/null
-commit_elementor_source 'conformance: Elementor schema-fault recovery intent'
-wp_conf2 db query 'ALTER TABLE wp_postmeta RENAME COLUMN meta_id TO duo_fault_meta_id' >/dev/null
-SCHEMA_REV_BEFORE=$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')
-require_observed_nonempty 'Elementor applied revision before schema fault' "$SCHEMA_REV_BEFORE"
-SCHEMA_RC=0
-SCHEMA_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || SCHEMA_RC=$?
-require_duo_answered 'Elementor provider schema-preflight failure' human "$SCHEMA_OUT"
-[ "$SCHEMA_RC" -ne 0 ] && grep -q "provider 'elementor-css' capability 'regenerate_css' failed" <<<"$SCHEMA_OUT" \
-  || fail "Elementor missing provider column did not refuse exactly: $SCHEMA_OUT"
-[ "$(wp_conf2 post get "$(jq -r '.ids.classic' <<<"$CONVERGED")" --field=post_title)" = 'Schema recovery Elementor title 東京 🚀' ] \
-  || fail 'Elementor schema failure did not retain the post-commit authored state needed for retry'
+# Publish a post-title intent, then put an unsupported nested entry inside the
+# generated-CSS projection. Core materialization must complete, the real
+# provider must refuse its bounded readback before mutation, applied_revision
+# must stay behind, and retry must converge after the projection is repaired.
+wp_conf1 post update "$SOURCE_CLASSIC" --post_title='Failure recovery Elementor title 東京 🚀' >/dev/null
+commit_elementor_source 'conformance: Elementor provider-fault recovery intent'
+CSS_FAULT=$(wp_conf2 eval '
+  $uploads=wp_upload_dir();
+  $css=rtrim((string)$uploads["basedir"],"/")."/elementor/css";
+  if (!is_dir($css) && !wp_mkdir_p($css)) throw new RuntimeException("Elementor fault CSS directory unavailable");
+  $fault=$css."/duo-unsupported-nested-entry";
+  if (!mkdir($fault) && !is_dir($fault)) throw new RuntimeException("Elementor CSS fault injection failed");
+  echo $fault;
+')
+require_observed_nonempty 'Elementor provider projection-fault path' "$CSS_FAULT"
+FAILURE_REV_BEFORE=$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')
+require_observed_nonempty 'Elementor applied revision before provider fault' "$FAILURE_REV_BEFORE"
+FAILURE_RC=0
+FAILURE_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || FAILURE_RC=$?
+require_duo_answered 'Elementor provider projection failure' human "$FAILURE_OUT"
+[ "$FAILURE_RC" -ne 0 ] && grep -q "provider 'elementor-css' capability 'regenerate_css' failed" <<<"$FAILURE_OUT" \
+  || fail "Elementor malformed CSS projection did not refuse in the provider: $FAILURE_OUT"
+[ "$(wp_conf2 post get "$(jq -r '.ids.classic' <<<"$CONVERGED")" --field=post_title)" = 'Failure recovery Elementor title 東京 🚀' ] \
+  || fail 'Elementor provider failure did not retain the post-commit authored state needed for retry'
 [ "$(wp_conf2 option get elementor_target_undeclared_neighbor)" = target-neighbor-preserved ] \
-  || fail 'Elementor schema recovery crossed the target-owned option boundary'
-[ "$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')" = "$SCHEMA_REV_BEFORE" ] \
-  || fail 'Elementor schema failure advanced applied_revision before verified effects'
+  || fail 'Elementor provider recovery crossed the target-owned option boundary'
+[ "$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')" = "$FAILURE_REV_BEFORE" ] \
+  || fail 'Elementor provider failure advanced applied_revision before verified effects'
 [ "$(wp_conf2 eval 'echo null === \Duo\Ledger::kv_get("apply_in_progress") ? "clear" : "retained";')" = retained ] \
-  || fail 'Elementor schema failure did not retain retry authority'
-wp_conf2 db query 'ALTER TABLE wp_postmeta RENAME COLUMN duo_fault_meta_id TO meta_id' >/dev/null
+  || fail 'Elementor provider failure did not retain retry authority'
+wp_conf2 eval '
+  $uploads=wp_upload_dir();
+  $fault=rtrim((string)$uploads["basedir"],"/")."/elementor/css/duo-unsupported-nested-entry";
+  if (!rmdir($fault)) throw new RuntimeException("Elementor CSS fault repair failed");
+' >/dev/null
 RETRY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered 'Elementor retry after schema repair' json "$RETRY"
+require_duo_answered 'Elementor retry after provider projection repair' json "$RETRY"
 jq -e '
   .canary == "clean" and .verification.result == "pass" and .applied >= 1 and
   any(.actions[]?; .source == "provider:elementor-css/regenerate_css" and .verified == true)
-' <<<"$RETRY" >/dev/null || fail "Elementor schema retry did not consume retained intent: $RETRY"
-pass 'provider schema drift retains post-commit intent and authority, then retries cleanly after exact repair'
+' <<<"$RETRY" >/dev/null || fail "Elementor provider retry did not consume retained intent: $RETRY"
+pass 'malformed CSS projection retains post-commit intent and authority, then retries cleanly after exact repair'
 
 # Removing one authored kit sub-key is an ordinary structured update, not a
 # whole-post tombstone. Elementor's native kit storage must observe absence.
