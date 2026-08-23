@@ -115,7 +115,7 @@ if (class_exists('\Elementor\Modules\AtomicWidgets\PropTypes\Html_V3_Prop_Type')
     $atomic = duo_elementor_target_post('page', 'Target Atomic Elementor Stale', 'duo-atomic-elementor-page');
     duo_elementor_target_save($atomic, 'wp-page', [[
         'id' => 'stalat01',
-        'elType' => 'container',
+        'elType' => 'e-flexbox',
         'settings' => [],
         'elements' => [],
     ]]);
@@ -140,8 +140,8 @@ update_post_meta($classic, '_elementor_element_cache', '<div>stale rendered targ
 update_post_meta($classic, '_elementor_page_assets', ['stale-target-asset']);
 update_option('elementor_connect_site_key', 'target-connect-site-key-preserved');
 update_option('elementor_checklist', wp_json_encode(['completed' => ['target-runtime-marker']]));
-update_option('elementor_atomic_cache_validity__global', 'target-atomic-cache-marker');
-update_option('elementor_experiment-e_atomic_elements', 'target-experiment-marker');
+delete_option('elementor_atomic_cache_validity__global');
+update_option('elementor_experiment-e_atomic_elements', 'active');
 update_option('elementor_target_undeclared_neighbor', 'target-neighbor-preserved');
 
 $uploads = wp_upload_dir();

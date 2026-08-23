@@ -199,7 +199,7 @@ if ($atomicSupported) {
     $atomic = duo_elementor_post('page', 'Duo Atomic Elementor Page', 'duo-atomic-elementor-page');
     duo_elementor_save($atomic, 'wp-page', [[
         'id' => 'atcont01',
-        'elType' => 'container',
+        'elType' => 'e-flexbox',
         'settings' => [],
         'elements' => [
             [

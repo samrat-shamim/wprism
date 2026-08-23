@@ -28,10 +28,10 @@ $classic = $post('duo-conformance-elementor-page', 'page');
 $target = $post('duo-elementor-target', 'page');
 $template = $post('duo-portable-section', 'elementor_library');
 $atomic = $post('duo-atomic-elementor-page', 'page');
-$hero = $post('duo-conf-elementor-hero', 'attachment');
-$galleryA = $post('duo-conf-elementor-gallery-a', 'attachment');
-$galleryB = $post('duo-conf-elementor-gallery-b', 'attachment');
-$background = $post('duo-conf-elementor-bg', 'attachment');
+$hero = $post('duo-conformance-elementor-hero', 'attachment');
+$galleryA = $post('duo-conformance-elementor-gallery-a', 'attachment');
+$galleryB = $post('duo-conformance-elementor-gallery-b', 'attachment');
+$background = $post('duo-conformance-elementor-bg', 'attachment');
 $kitId = (int) get_option('elementor_active_kit');
 $kitPost = $kitId > 0 ? get_post($kitId) : null;
 if (!$classic || !$target || !$template || !$hero || !$galleryA || !$galleryB || !$background
@@ -228,7 +228,7 @@ jq -e --arg version "$ELEMENTOR_EXPECTED_VERSION" '
   .derived.builder_ids == .derived.post_css_ids and
   .runtime.connect_key == "target-connect-site-key-preserved" and
   .runtime.checklist.completed == ["target-runtime-marker"] and
-  .runtime.experiment == "target-experiment-marker" and
+  .runtime.experiment == "active" and
   .runtime.neighbor == "target-neighbor-preserved"
 ' <<<"$TARGET" >/dev/null || fail "Elementor authored/runtime/native state did not converge: $TARGET"
 
