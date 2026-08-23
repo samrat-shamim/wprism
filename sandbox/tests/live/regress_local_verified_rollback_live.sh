@@ -371,7 +371,18 @@ grep -Fq 'rollback authority' <<<"$OUT" \
   || pass "status reports the authority for the armed environment and stays silent for the un-armed one"
 
 say "initialize the canonical baseline"
-run_controller "init" init local --yes
+# The probe plugin is on the target BEFORE init and declared first-party, so
+# the canonical code half carries it: a plugin that appears on the target after
+# init has no source under code/wp-content and capture refuses it with
+# code_state_mismatch (measured on this suite's first run, 2026-08-24) -- the
+# product working, not a fixture the suite may bypass.
+target_sh '
+  set -eu
+  mkdir -p /var/www/html/wp-content/plugins/duo-promotion-probe
+  cp /duo-source/sandbox/tests/fixtures/duo-promotion-probe.php \
+     /var/www/html/wp-content/plugins/duo-promotion-probe/duo-promotion-probe.php
+'
+run_controller "init" init local --yes --first-party=plugins/duo-promotion-probe
 [ "$CODE" -eq 0 ] || fail "init failed after local adoption"
 grep -Fq 'Initialized canonical state baseline' <<<"$OUT" || fail "init omitted its canonical baseline result"
 pass "canonical baseline established"
@@ -379,13 +390,8 @@ pass "canonical baseline established"
 say "promote selects the automatic verified profile off SSH"
 # The probe plugin's activation hook is a real lifecycle boundary: promote must
 # reach lifecycle-activate through the signed generation, not through the
-# operator-directed checkpoint path.
-target_sh '
-  set -eu
-  mkdir -p /var/www/html/wp-content/plugins/duo-promotion-probe
-  cp /duo-source/sandbox/tests/fixtures/duo-promotion-probe.php \
-     /var/www/html/wp-content/plugins/duo-promotion-probe/duo-promotion-probe.php
-'
+# operator-directed checkpoint path. (Its bytes are already in the code half --
+# see init above.)
 target_wp plugin activate duo-promotion-probe >/dev/null || fail "could not activate the promotion probe"
 run_controller "capture" capture local --yes
 [ "$CODE" -eq 0 ] || fail "capture failed"
@@ -419,11 +425,16 @@ pass "the refusal is about a configured authority, not about SSH"
 
 say "a lifecycle-activate failure converges through the signed rollback"
 # The injected failure is a real activation fatal, produced by the probe
-# plugin's own hook, not by patching the orchestrator.
+# plugin's own hook, not by patching the orchestrator. It is authored where a
+# first-party component's bytes live -- the site repository's code half -- and
+# committed, so promote's own code-stage materializes the broken hook onto the
+# target before lifecycle-activate fires it. Editing the target's copy directly
+# would be overwritten by that same stage.
 target_sh '
   set -eu
   printf "%s\n" "<?php register_activation_hook(__FILE__, static function (): void { throw new RuntimeException(\"injected lifecycle-activate failure\"); });" \
-    > /var/www/html/wp-content/plugins/duo-promotion-probe/duo-promotion-probe.php
+    > /siterepo/site/code/wp-content/plugins/duo-promotion-probe/duo-promotion-probe.php
+  git -C /siterepo/site -c user.name=duo -c user.email=duo@example.test commit -qam "inject lifecycle-activate failure"
 '
 target_wp plugin deactivate duo-promotion-probe >/dev/null 2>&1 || true
 run_controller "failing promote" promote local
