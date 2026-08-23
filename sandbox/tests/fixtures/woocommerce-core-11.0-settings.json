@@ -5,13 +5,18 @@
     "11.0.1": "da189b6616c610d15a2106f93151dab81b78f83e075bcefce221ac0d00b4fa21"
   },
   "source_files": {
+    "includes/abstracts/abstract-wc-settings-api.php": "1c7615bcd26fba9f83961db045edf6bd42acc6ee691383e8a8dd6f6a1e00434c",
+    "includes/abstracts/abstract-wc-shipping-method.php": "cf324b0e37f34399b66b00a01006df03a4a190dbed3e18a7ca26250b7babba53",
+    "includes/admin/class-wc-admin-settings.php": "74c45874fc3c9a7b768a7a6649d9a98a86493a7748bdcb48f897cbd1ac1814f0",
     "includes/admin/settings/class-wc-settings-advanced.php": "36e07f6b50c8da6942a6b0e8de715ecba028a974b142b107ab6cc1e5017314b2",
     "includes/admin/settings/class-wc-settings-emails.php": "b2d4c7a9eb6724ccd82750f2a4add8fc0f7e7655de6917648e0dc75dc2ebcf56",
     "includes/admin/settings/class-wc-settings-general.php": "af94c9c9e3c63b0d4383e9e610d8beceb16997cf09729c24de7483ec2899f55c",
     "includes/admin/settings/class-wc-settings-point-of-sale.php": "d5212fd523f39322c6e598ed329215afc52a3e057c610af38076a14c1139dfc7",
     "includes/admin/settings/class-wc-settings-products.php": "9adf211140e0acb5d5ae8df71a16cca36fe4e29e28752e42a30678183448aae8",
     "includes/class-wc-install.php": "b498f502b9f94204625d4fe8f4c745930c5f37d1af46f4064f561ab2c1b5fbdc",
+    "includes/class-wc-shipping-rate.php": "4d39531e7e2ed2ffa47868e03f9d2cbac213c508cbd708f5530ade25146238eb",
     "includes/customizer/class-wc-shop-customizer.php": "6ad7b3e724e21bdc0723b2385a4a5aab13b4cf26527f7d9b56a30270309f4e53",
+    "includes/wc-formatting-functions.php": "c3576416420bbfb6893ad5164ccf8c439b7e731c337c04b32e058ac6a0809d41",
     "src/Admin/Features/LaunchYourStore.php": "941dbddf38a638df0fa6162bd440f87daa3a5f3855ba713b3478464db3ba96bd",
     "src/Api/Infrastructure/Main.php": "5ae0290104c03b8cd75f230149a24151ef38d6b116c13059f9060ea852ae3b1d",
     "src/Blocks/Shipping/PickupLocation.php": "8f8f1f4a9c24ff43d495811808c0b300ed6342f010c1750ee4583925bb9c3e47",

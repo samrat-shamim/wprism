@@ -305,6 +305,57 @@ echo "$MERCHANT_SETTINGS_OUT" | jq -e '
   || fail "conf2 merchant Woo settings did not round-trip through the option and COD gateway APIs (got: $MERCHANT_SETTINGS_OUT)"
 pass "conf2 preserves authored tax enablement and distinctive COD settings through WooCommerce's option and gateway APIs"
 
+LOCAL_PICKUP_OUT=$($COMPOSE run --rm -T cli2 wp eval '
+$admin = get_user_by("login", "admin");
+if (!$admin) throw new RuntimeException("missing admin for Woo Settings REST readback");
+wp_set_current_user((int) $admin->ID);
+rest_get_server();
+$response = rest_do_request(new WP_REST_Request("GET", "/wp/v2/settings"));
+if ($response->is_error() || $response->get_status() !== 200) {
+  throw new RuntimeException("Woo Settings REST readback failed");
+}
+$rest = $response->get_data();
+$raw = get_option("woocommerce_pickup_location_settings");
+$locations = get_option("pickup_location_pickup_locations");
+$edit = \Automattic\WooCommerce\StoreApi\Utilities\LocalPickupUtils::get_local_pickup_settings("edit");
+$view = \Automattic\WooCommerce\StoreApi\Utilities\LocalPickupUtils::get_local_pickup_settings();
+$method = new \Automattic\WooCommerce\Blocks\Shipping\PickupLocation();
+$rates = $method->get_rates_for_package([]);
+$rate = reset($rates);
+$rateMeta = $rate instanceof WC_Shipping_Rate ? $rate->get_meta_data() : [];
+echo wp_json_encode([
+  "raw" => $raw,
+  "locations" => $locations,
+  "rest_settings" => $rest["pickup_location_settings"] ?? null,
+  "rest_locations" => $rest["pickup_locations"] ?? null,
+  "edit" => $edit,
+  "view" => $view,
+  "rate" => $rate instanceof WC_Shipping_Rate ? [
+    "cost" => (string) $rate->get_cost(),
+    "label" => $rate->get_label(),
+    "tax_status" => $rate->get_tax_status(),
+    "location" => $rateMeta["pickup_location"] ?? null,
+    "details" => $rateMeta["pickup_details"] ?? null,
+  ] : null,
+], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+' 2>&1 | tail -1)
+require_observed_nonempty "conf2 WooCommerce local-pickup REST/native observation" "$LOCAL_PICKUP_OUT"
+echo "conf2 local-pickup REST/native check: $LOCAL_PICKUP_OUT"
+jq -e '
+  .raw == {"enabled":"yes","title":"استلام 東京","cost":"-12.50"} and
+  .rest_settings == .raw and .edit == .raw and
+  .view == {"enabled":true,"title":"استلام 東京","cost":"-12.50"} and
+  (.locations | length) == 1 and .rest_locations == .locations and
+  .locations[0].name == "<strong>مخزن</strong> 東京" and
+  .locations[0].details == "<em>بوابة ٢</em><br>南口" and
+  .rate.cost == "-12.50" and .rate.tax_status == "taxable" and
+  (.rate.label | contains("<strong>مخزن</strong> 東京")) and
+  .rate.location == "<strong>مخزن</strong> 東京" and
+  .rate.details == "<em>بوابة ٢</em><br>南口"
+' <<<"$LOCAL_PICKUP_OUT" >/dev/null \
+  || fail "conf2 local-pickup partial settings, REST records, HTML, defaults, or calculated rate diverged (got: $LOCAL_PICKUP_OUT)"
+pass "local-pickup settings and locations round-trip through the native Settings REST route, default completion, HTML rendering, and rate calculation"
+
 ORDER_OUT=$($COMPOSE run --rm -T cli2 wp eval '
 $source = wc_get_orders(["billing_email" => "source-runtime@example.test", "limit" => -1, "return" => "ids"]);
 $target = wc_get_orders(["billing_email" => "target-runtime@example.test", "limit" => -1, "return" => "ids"]);
@@ -601,7 +652,8 @@ woocommerce_storage_hash() {
     );
     $state["options"]=$wpdb->get_results(
       "SELECT option_name,option_value,autoload FROM {$wpdb->options} WHERE option_name IN (" .
-      "\"woocommerce_calc_taxes\",\"woocommerce_cod_settings\",\"woocommerce_paypal_settings\"," .
+      "\"pickup_location_pickup_locations\",\"woocommerce_calc_taxes\",\"woocommerce_cod_settings\"," .
+      "\"woocommerce_paypal_settings\",\"woocommerce_pickup_location_settings\"," .
       "\"woocommerce_price_num_decimals\",\"duo_target_environment_neighbor\") ORDER BY option_name",
       ARRAY_A
     );

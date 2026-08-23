@@ -64,8 +64,8 @@ woo_ok(($settingsInventory['format'] ?? null) === 'duo-woocommerce-settings-inve
     'the source-audited settings inventory uses the exact reviewed schema');
 woo_ok(count((array) ($settingsInventory['literal_ids'] ?? [])) === 147,
     'the exact 11.0.0/11.0.1 literal settings scan freezes all 147 source ids');
-woo_ok(count((array) ($settingsInventory['source_files'] ?? [])) === 15,
-    'the inventory binds all fifteen source files used by the settings and local-pickup behavior audit');
+woo_ok(count((array) ($settingsInventory['source_files'] ?? [])) === 20,
+    'the inventory binds all twenty source files used by the settings and local-pickup behavior audit');
 foreach ((array) ($settingsInventory['source_files'] ?? []) as $sourceFile => $sha256) {
     woo_ok(
         is_string($sourceFile) && $sourceFile !== ''

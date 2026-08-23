@@ -185,6 +185,52 @@ wp_conf1 wc product_variation create "$VPID" \
 wp_conf1 option update woocommerce_calc_taxes yes >/dev/null
 wp_conf1 option update woocommerce_cod_settings --format=json \
   '{"enabled":"yes","title":"Conformance COD Desk","description":"Pay at the conformance desk.","instructions":"Use code CONF-COD-7 at pickup.","enable_for_methods":[],"enable_for_virtual":"yes"}' >/dev/null
+
+# Exercise the exact native Settings REST route rather than manufacturing the
+# serialized option bytes. ShippingController intentionally declares no
+# `required` list: Woo completes the omitted tax status while consuming the
+# record, and the target check proves that partial-record path in a fresh
+# process. Location rows remain complete because the same controller and the
+# shipping method index every row field directly.
+wp_conf1 eval '
+$admin = get_user_by("login", "admin");
+if (!$admin) {
+    throw new RuntimeException("Woo local-pickup REST seed requires the admin user");
+}
+wp_set_current_user((int) $admin->ID);
+rest_get_server();
+$request = new WP_REST_Request("POST", "/wp/v2/settings");
+$settings = [
+    "enabled" => "yes",
+    "title" => "استلام 東京",
+    "cost" => "-12.50",
+];
+$locations = [[
+    "name" => "<strong>مخزن</strong> 東京",
+    "address" => [
+        "address_1" => "١٢ شارع الاختبار",
+        "city" => "東京",
+        "state" => "13",
+        "postcode" => "100-0001",
+        "country" => "JP",
+    ],
+    "details" => "<em>بوابة ٢</em><br>南口",
+    "enabled" => true,
+]];
+$request->set_param("pickup_location_settings", $settings);
+$request->set_param("pickup_locations", $locations);
+$response = rest_do_request($request);
+if ($response->is_error() || $response->get_status() !== 200) {
+    throw new RuntimeException("Woo local-pickup Settings REST write failed");
+}
+$data = $response->get_data();
+if (($data["pickup_location_settings"] ?? null) !== $settings
+    || ($data["pickup_locations"] ?? null) !== $locations
+    || get_option("woocommerce_pickup_location_settings") !== $settings
+    || get_option("pickup_location_pickup_locations") !== $locations) {
+    throw new RuntimeException("Woo local-pickup Settings REST round-trip changed native bytes");
+}
+' >/dev/null
 ZONE_ID=$(wp_conf1 wc shipping_zone create --name='Conformance United States' --order=1 --user=admin --porcelain)
 # WC_Shipping_Zone's constructor argument is optional, so an empty id here
 # would silently construct (and save) a SECOND, unrelated zone rather than

@@ -19,6 +19,7 @@ $GLOBALS['wooReadinessBlogId'] = 1;
 $GLOBALS['wooReadinessNativeUrlCalls'] = [];
 $GLOBALS['wooReadinessNativeTextCalls'] = [];
 $GLOBALS['wooReadinessNativeHtmlCalls'] = [];
+$GLOBALS['wooReadinessNativeDecimalCalls'] = [];
 if (!function_exists('get_current_blog_id')) {
     function get_current_blog_id(): int {
         return (int) ($GLOBALS['wooReadinessBlogId'] ?? 1);
@@ -57,6 +58,18 @@ if (!function_exists('wp_kses_post')) {
     function wp_kses_post(string $value): string {
         $GLOBALS['wooReadinessNativeHtmlCalls'][] = $value;
         return strip_tags($value, '<a><br><em><strong>');
+    }
+}
+if (!function_exists('wc_format_decimal')) {
+    function wc_format_decimal(mixed $value, mixed $decimals = false): string {
+        $GLOBALS['wooReadinessNativeDecimalCalls'][] = [$value, $decimals];
+        if ($value === '') {
+            return '';
+        }
+        $clean = (string) preg_replace('/\.(?![^.]+$)|[^0-9.-]/', '', (string) $value);
+        return $decimals === false
+            ? $clean
+            : number_format((float) $clean, (int) $decimals, '.', '');
     }
 }
 
@@ -1010,7 +1023,7 @@ duo_check(
 );
 
 $validPickupLocations = [[
-    'name' => 'مخزن 東京',
+    'name' => '<strong>مخزن</strong> 東京',
     'address' => [
         'address_1' => '١٢ شارع الاختبار',
         'city' => '東京',
@@ -1093,6 +1106,24 @@ duo_check_same(
     ]),
     'native empty maps/text/enums and option deletion remain portable where the exact writer permits them'
 );
+foreach ([
+    ['enabled' => 'yes'],
+    ['title' => 'Pickup'],
+    ['tax_status' => 'none'],
+    ['cost' => '-12.50'],
+    ['enabled' => 'no', 'cost' => '0'],
+] as $partialPickupSettings) {
+    duo_check_same(
+        [],
+        woo_readiness_option_diagnostics($interpreter, [
+            'woocommerce_pickup_location_settings' => [
+                'state' => 'present',
+                'value' => $partialPickupSettings,
+            ],
+        ]),
+        'each REST-valid local-pickup settings subset survives repository validation and native default completion'
+    );
+}
 
 $invalidSettings = [
     ['woocommerce_rest_api_enable_cache_headers', true, 'exact yes or no'],
@@ -1116,7 +1147,7 @@ $invalidSettings = [
     ['woocommerce_gateway_order', ['cod' => 0, 'bacs' => 0], 'unique bounded integer positions'],
     ['woocommerce_gateway_order', ['bad key' => 0], 'unique bounded integer positions'],
     ['woocommerce_gateway_order', ['cod' => '0'], 'unique bounded integer positions'],
-    ['woocommerce_pickup_location_settings', ['enabled' => 'yes'], 'permit only enabled, title, tax_status, and cost'],
+    ['woocommerce_pickup_location_settings', ['unknown' => 'secret'], 'permit only enabled, title, tax_status, and cost'],
     ['woocommerce_pickup_location_settings', [
         'enabled' => true,
         'title' => 'Pickup',
@@ -1135,6 +1166,12 @@ $invalidSettings = [
         'tax_status' => 'inherit',
         'cost' => '',
     ], 'tax_status must be exact taxable or none'],
+    ['woocommerce_pickup_location_settings', [
+        'cost' => '1.0e2',
+    ], 'native decimal calculation bytes'],
+    ['woocommerce_pickup_location_settings', [
+        'cost' => '12 USD',
+    ], 'native decimal calculation bytes'],
     ['pickup_location_pickup_locations', [[
         'name' => 'Depot',
         'address' => [
@@ -1230,8 +1267,10 @@ duo_check(
     'settings schema refusals identify only the option and shape, never merchant bytes'
 );
 duo_check(
-    $GLOBALS['wooReadinessNativeTextCalls'] !== [] && $GLOBALS['wooReadinessNativeHtmlCalls'] !== [],
-    'settings readiness executes the native text and HTML sanitizer boundaries'
+    $GLOBALS['wooReadinessNativeTextCalls'] !== []
+        && $GLOBALS['wooReadinessNativeHtmlCalls'] !== []
+        && $GLOBALS['wooReadinessNativeDecimalCalls'] !== [],
+    'settings readiness executes the native text, HTML, and decimal calculation boundaries'
 );
 woo_readiness_reports(
     $interpreter,

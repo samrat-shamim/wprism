@@ -870,7 +870,7 @@ final class Woocommerce {
         }
         $fields = array_keys($value);
         sort($fields, SORT_STRING);
-        if ($fields !== self::PICKUP_SETTINGS_FIELDS) {
+        if (array_diff($fields, self::PICKUP_SETTINGS_FIELDS) !== []) {
             return [$this->diagnostic(
                 $path,
                 $locator,
@@ -879,44 +879,78 @@ final class Woocommerce {
         }
 
         $out = [];
-        if (!is_string($value['enabled']) || !in_array($value['enabled'], ['yes', 'no'], true)) {
+        if (array_key_exists('enabled', $value)
+            && (!is_string($value['enabled']) || !in_array($value['enabled'], ['yes', 'no'], true))) {
             $out[] = $this->diagnostic(
                 $path,
                 "$locator.enabled",
                 'WooCommerce local-pickup enabled must be exact yes or no'
             );
         }
-        if (!is_string($value['tax_status']) || !in_array($value['tax_status'], ['taxable', 'none'], true)) {
+        if (array_key_exists('tax_status', $value)
+            && (!is_string($value['tax_status']) || !in_array($value['tax_status'], ['taxable', 'none'], true))) {
             $out[] = $this->diagnostic(
                 $path,
                 "$locator.tax_status",
                 'WooCommerce local-pickup tax_status must be exact taxable or none'
             );
         }
-        $titleDiagnostics = $this->bounded_text_diagnostics(
-            $path,
-            "$locator.title",
-            $value['title'],
-            4096,
-            'WooCommerce local-pickup title'
-        );
-        $out = array_merge($out, $titleDiagnostics);
-        if ($titleDiagnostics === [] && is_string($value['title'])) {
-            $out = array_merge($out, $this->native_text_canonical_diagnostics(
+        if (array_key_exists('title', $value)) {
+            $titleDiagnostics = $this->bounded_text_diagnostics(
                 $path,
                 "$locator.title",
                 $value['title'],
+                4096,
                 'WooCommerce local-pickup title'
+            );
+            $out = array_merge($out, $titleDiagnostics);
+            if ($titleDiagnostics === [] && is_string($value['title'])) {
+                $out = array_merge($out, $this->native_text_canonical_diagnostics(
+                    $path,
+                    "$locator.title",
+                    $value['title'],
+                    'WooCommerce local-pickup title'
+                ));
+            }
+        }
+        if (array_key_exists('cost', $value)) {
+            $out = array_merge($out, $this->pickup_cost_diagnostics(
+                $path,
+                "$locator.cost",
+                $value['cost']
             ));
         }
-        $out = array_merge($out, $this->bounded_text_diagnostics(
+        return $out;
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function pickup_cost_diagnostics(string $path, string $locator, mixed $value): array {
+        $textDiagnostics = $this->bounded_text_diagnostics(
             $path,
-            "$locator.cost",
-            $value['cost'],
+            $locator,
+            $value,
             1024,
             'WooCommerce local-pickup cost'
-        ));
-        return $out;
+        );
+        if ($textDiagnostics !== [] || !is_string($value) || $value === '') {
+            return $textDiagnostics;
+        }
+        if (!function_exists('wc_format_decimal')) {
+            return [$this->diagnostic(
+                $path,
+                $locator,
+                'WooCommerce local-pickup cost cannot be validated because its native calculation API is unavailable'
+            )];
+        }
+        $formatted = \wc_format_decimal($value, false);
+        if (!is_string($formatted) || !is_numeric($value) || !hash_equals($value, $formatted)) {
+            return [$this->diagnostic(
+                $path,
+                $locator,
+                'WooCommerce local-pickup cost must already equal its exact native decimal calculation bytes'
+            )];
+        }
+        return [];
     }
 
     /** @return list<array<string,mixed>> */
@@ -970,13 +1004,13 @@ final class Woocommerce {
                 if ($textDiagnostics === [] && is_string($location[$field])) {
                     $out = array_merge(
                         $out,
-                        $field === 'details'
+                        in_array($field, ['name', 'details'], true)
                             ? $this->native_html_diagnostics(
                                 $path,
                                 "$rowLocator.$field",
                                 $location[$field],
                                 $maxBytes,
-                                'WooCommerce pickup location details'
+                                "WooCommerce pickup location $field"
                             )
                             : $this->native_text_canonical_diagnostics(
                                 $path,
