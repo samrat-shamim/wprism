@@ -1,0 +1,9 @@
+{
+  "entry": {
+    "pin": ["core", "yoast-duplicate-post"],
+    "plugins": [{"slug": "duplicate-post", "version": "4.7"}],
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "manifest": "yoast-duplicate-post"
+}

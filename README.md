@@ -19,7 +19,7 @@
 | woocommerce | certified | `woocommerce/woocommerce.php` | >=11.0.0 <12.0.0 |
 | wps-hide-login | certified | `wps-hide-login/wps-hide-login.php` | >=1.9.19 <1.9.20 |
 | yoast | certified | `wordpress-seo/wp-seo.php` | >=28.0 <29.0.0 |
-| yoast-duplicate-post | experimental | `duplicate-post/duplicate-post.php` | >=4.7 <4.8 |
+| yoast-duplicate-post | certified | `duplicate-post/duplicate-post.php` | >=4.7 <4.8 |
 
 Every claim above is declared by the adapter's own manifest, reviewed into `manifests/dispositions.json` with a written reason, and exercised by named conformance suites against a live WordPress pair — a reviewed, tested declaration rather than an attestation sealed to a content-addressed evidence bundle. Outside a declared surface, version range, or operation Duo refuses by default instead of guessing; the exact surfaces, operations, and explicit unsupported boundaries are in [the generated capability document](docs/capabilities.md), and plugins always run unmodified. One excluded fixture manifest (duo-agency-cpt) ships with the agent for regression use only and carries no product claim.
 <!-- END GENERATED CAPABILITY SUMMARY -->
