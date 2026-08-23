@@ -220,7 +220,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 
 ## ninja-forms
 
-**Status: certified.** Certified typed-table form graph, cache rebuild, block rendering, child-row deletion, loud parent-deletion refusal, and exact version boundaries.
+**Status: certified.** Certified Ninja Forms 3.x built-in typed-table graph with divergent mapped form/field/action identities, native block/model rendering, exact fresh-process cache reconstruction, large UTF-8 and bounded plain serialized settings, target-only submission preservation, authorized field/action deletion, injected provider failure/retry, competing-apply idempotence, uninstall residue/reinstall, exact 3.4.34.2 and 3.14.11 boundaries, supported in-place 3.4.34.2-to-3.14.11 upgrade, and loud code-witness downgrade handling. Optional add-on types, whole-form deletion, submissions, multisite, and versions outside the declared interval remain explicit refusals rather than inferred support.
 
 - **Plugin:** `ninja-forms/ninja-forms.php`
 - **Version range:** >=3.4.34.2 <4.0.0
@@ -228,7 +228,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 - **Lifecycle phases:** retire, activate, verify
 - **Declared entities:** `post_types` (1: nf_sub), `tables` (11 keys)
 - **Declared fields:** `options` (3: nf_doing_import_form, nf_import_form, ninja_forms_needs_updates), `block_attrs` (1: ninja-forms/form)
-- **Adapter hooks:** 1 provider, 1 structured action
+- **Adapter hooks:** 1 provider, 1 structured action, interpreter `ninja-forms`
 - **Deletions supported:** `table:nf3_actions`, `table:nf3_fields`
 - **Deletions unsupported:** table:nf3_forms, runtime submissions
 - **Exercised by:** `conformance-ninja-forms`, `exact-artifact-version-matrix`
@@ -243,6 +243,9 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 
 - `tables.nf3_forms` / `delete` — The shipped nf3_actions.parent_id and nf3_fields.parent_id columns have no complete indexes, so an unmodified Ninja Forms target cannot provide the next-key/gap-lock boundary required for race-safe form deletion.
 - `post_types.nf_sub` / `capture` — Submission entities are runtime-sovereign and intentionally excluded.
+- `tables.nf3_fields.type,tables.nf3_actions.type` / `capture` — The digest-bound interpreter admits only the source-reviewed built-in field/action vocabulary present in Ninja Forms 3.4.34.2 through 3.14.11. Optional add-on types may carry extension-owned schema and behavior, so they refuse until that add-on has its own reviewed adapter.
+- `version:<3.4.34.2|>=4.0.0` / `all` — Ninja Forms releases before 3.4.34.2 and 4.0.0 or later are outside the source-audited and exact-artifact-tested range and are blocked until a new review extends the manifest.
+- `multisite` / `all` — Duo v1 refuses multisite; network-scoped Ninja Forms tables, caches, and add-on behavior are outside this single-site adapter.
 
 ## paid-memberships-pro
 

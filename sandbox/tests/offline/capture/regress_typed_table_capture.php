@@ -128,6 +128,20 @@ final class TypedCaptureTokens {
         }
         return $out;
     }
+
+    public function plain_data_capture($value) {
+        if (is_string($value)) {
+            return $this->tokenize_text($value);
+        }
+        if (!is_array($value)) {
+            return $value;
+        }
+        foreach ($value as &$child) {
+            $child = $this->plain_data_capture($child);
+        }
+        unset($child);
+        return $value;
+    }
 }
 
 final class TypedCaptureIdentity {
@@ -233,6 +247,7 @@ $metaDecl = [
             'json_encoded' => true,
             'order_preserving' => true,
         ],
+        'portable_data' => ['class' => 'authored', 'plain_data' => true],
     ],
 ];
 $wpdb->tables['widgets'] = [[
@@ -250,6 +265,15 @@ $wpdb->tables['widget_meta'] = [
     ['meta_id' => 3, 'owner_id' => 7, 'meta_key' => 'linked', 'meta_value' => '8'],
     ['meta_id' => 4, 'owner_id' => 7, 'meta_key' => 'dangling', 'meta_value' => '99'],
     ['meta_id' => 5, 'owner_id' => 7, 'meta_key' => 'empty_ref', 'meta_value' => '0'],
+    [
+        'meta_id' => 7,
+        'owner_id' => 7,
+        'meta_key' => 'portable_data',
+        'meta_value' => serialize([
+            'url' => 'https://source.test/path?field=1',
+            'choices' => [['label' => 'Tokyo', 'selected' => false]],
+        ]),
+    ],
 ];
 
 $entities = $capture->capture_table('widgets', $rowDecl, ['widget_meta' => $metaDecl], $tokens, true);
@@ -275,6 +299,12 @@ $check(($front['meta']['plain'] ?? null) === 'text<hello>'
 $check(($front['meta']['config']['z'] ?? null) === "{{post:$post4}}"
     && ($front['meta']['config']['a'] ?? null) === "{{post:$post5}}",
     'structured attached meta runs through the shared plain-data and reference codec path');
+$check(($front['meta']['portable_data']['url'] ?? null) === 'text<https://source.test/path?field=1>'
+    && ($front['meta']['portable_data']['choices'][0]['label'] ?? null) === 'text<Tokyo>'
+    && ($front['meta']['portable_data']['choices'][0]['selected'] ?? null) === false,
+    'serialized attached meta is decoded before nested string leaves are tokenized');
+$check(!str_contains((string) ($entity['content'] ?? ''), 'a:2:{s:3:"url"'),
+    'canonical attached plain data never carries fragile PHP serialization byte counts');
 $content = (string) ($entity['content'] ?? '');
 $configOffset = strpos($content, '"config"');
 $check($configOffset !== false

@@ -237,6 +237,20 @@ namespace {
         public function struct_apply($value, array $refs, ?array $keyRefs = null) {
             return $value;
         }
+
+        public function plain_data_apply($value) {
+            if (is_string($value)) {
+                return $this->detokenize_text($value);
+            }
+            if (!is_array($value)) {
+                return $value;
+            }
+            foreach ($value as &$child) {
+                $child = $this->plain_data_apply($child);
+            }
+            unset($child);
+            return $value;
+        }
     }
 
     require __DIR__ . '/../../../../agent/src/Apply/TypedTableMaterializer.php';
@@ -296,6 +310,7 @@ namespace {
         'keys' => [
             'parent_id' => ['class' => 'authored', 'ref' => 'post'],
             'runtime_key' => ['class' => 'runtime'],
+            'portable_data' => ['class' => 'authored', 'plain_data' => true],
         ],
     ];
     $compositeDecl = [
@@ -385,6 +400,10 @@ namespace {
                 'kept' => 'new {{site:url}}',
                 'parent_id' => '{{post:parent}}',
                 'new_key' => 'new-value',
+                'portable_data' => [
+                    'url' => '{{site:url}}/nested?field=1',
+                    'choices' => [['label' => 'Tokyo', 'selected' => false]],
+                ],
             ],
         ],
     ];
@@ -419,6 +438,15 @@ namespace {
             && ($metaByKey['parent_id']['meta_value'] ?? null) === '77'
             && ($metaByKey['new_key']['meta_value'] ?? null) === 'new-value',
         'attached-meta reconciliation updates, inserts, resolves refs, and writes legacy mirrors'
+    );
+    $portableExpected = serialize([
+        'url' => 'https://target.test/nested?field=1',
+        'choices' => [['label' => 'Tokyo', 'selected' => false]],
+    ]);
+    materializer_check(
+        ($metaByKey['portable_data']['meta_value'] ?? null) === $portableExpected
+            && ($metaByKey['portable_data']['value'] ?? null) === $portableExpected,
+        'attached plain data rebinds nested strings before canonical serialization and legacy mirroring'
     );
     materializer_check($wpdb->tables['form_cache']['rows'] === [] && $wpdb->tables['options']['rows'] === [],
         'declared table and option invalidations execute after row reconciliation');

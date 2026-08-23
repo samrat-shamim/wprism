@@ -108,10 +108,103 @@ done
 rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-nf-import-step.php
 require_fixture_ids NF_FORM_ID
 
+# Add one disposable child through Ninja Forms' own model API. It carries a
+# large UTF-8 setting and a nested canonical PHP-serialized setting so the
+# digest-bound interpreter, typed-table codec, native cache builder, positive
+# child-deletion path, and size/serialization boundary all see real plugin
+# storage rather than a hand-authored repository file.
+cat > "${CONF_REPO1:-siterepo/conf1}"/.tmp-nf-extended-field.php <<'PHPEOF'
+<?php
+$formId = (int) getenv('NF_FORM_ID');
+if ($formId <= 0) {
+    throw new RuntimeException('Ninja Forms extended fixture has no form id');
+}
+$field = Ninja_Forms()->form($formId)->field()->get();
+$field
+    ->update_setting('type', 'listselect')
+    ->update_setting('parent_id', $formId)
+    ->update_setting('label', 'Duo Disposable Child — 界')
+    ->update_setting('key', 'duo_disposable_child')
+    ->update_setting('order', 24)
+    ->update_setting('required', 0)
+    ->update_setting('default_value', '')
+    ->update_setting('instructions', str_repeat('Large UTF-8 — مرحبا — こんにちは — ', 4096))
+    ->update_setting('options', [
+        [
+            'label' => '東京',
+            'value' => home_url('/conformance-careers/?from=ninja'),
+            'calc' => '',
+            'selected' => 0,
+            'order' => 0,
+        ],
+        ['label' => 'Dhaka', 'value' => '0', 'calc' => '', 'selected' => 0, 'order' => 1],
+    ])
+    ->save();
+$fieldId = (int) $field->get_id();
+if ($fieldId <= 0) {
+    throw new RuntimeException('Ninja Forms native extended field save returned no id');
+}
+$form = Ninja_Forms()->form($formId)->get();
+$formContent = $form->get_setting('formContentData');
+if (!is_array($formContent)) {
+    throw new RuntimeException('Ninja Forms native form layout is not an array');
+}
+$formContent = array_values(array_filter(
+    $formContent,
+    static function ($key): bool {
+        return (string) $key !== 'duo_disposable_child';
+    }
+));
+$insertAt = count($formContent);
+foreach ($formContent as $offset => $key) {
+    if (strpos((string) $key, 'submit_') === 0) {
+        $insertAt = $offset;
+        break;
+    }
+}
+array_splice($formContent, $insertAt, 0, ['duo_disposable_child']);
+$form->update_setting('formContentData', $formContent)->save();
+$action = Ninja_Forms()->form($formId)->action()->get();
+$action
+    ->update_setting('type', 'successmessage')
+    ->update_setting('parent_id', $formId)
+    ->update_setting('label', 'Duo Disposable Action — 界')
+    ->update_setting('title', 'Duo Disposable Action — 界')
+    ->update_setting('key', 'duo_disposable_action')
+    ->update_setting('message', 'Disposable native action 東京 🚀')
+    ->update_setting('active', true)
+    ->save();
+$actionId = (int) $action->get_id();
+if ($actionId <= 0) {
+    throw new RuntimeException('Ninja Forms native extended action save returned no id');
+}
+WPN_Helper::delete_nf_cache($formId);
+$cache = WPN_Helper::build_nf_cache($formId);
+if (!is_array($cache)
+    || count((array) ($cache['fields'] ?? [])) !== 24
+    || count((array) ($cache['actions'] ?? [])) !== 4) {
+    throw new RuntimeException('Ninja Forms extended fixture cache did not expose 24 fields and 4 actions');
+}
+echo "extended_field_id=$fieldId\n";
+echo "extended_action_id=$actionId\n";
+echo 'large_setting_bytes=' . strlen((string) $field->get_setting('instructions')) . "\n";
+PHPEOF
+NF_EXTENDED=$($COMPOSE run --rm -T -e "NF_FORM_ID=$NF_FORM_ID" \
+    cli1 wp eval-file /siterepo/.tmp-nf-extended-field.php)
+rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-nf-extended-field.php
+printf '%s\n' "$NF_EXTENDED"
+require_observed_nonempty "conf1 Ninja Forms native extended-field observation" "$NF_EXTENDED"
+NF_EXTENDED_FIELD_ID=$(grep -o 'extended_field_id=[0-9]*' <<<"$NF_EXTENDED" | grep -o '[0-9]*')
+NF_EXTENDED_ACTION_ID=$(grep -o 'extended_action_id=[0-9]*' <<<"$NF_EXTENDED" | grep -o '[0-9]*')
+NF_LARGE_BYTES=$(grep -o 'large_setting_bytes=[0-9]*' <<<"$NF_EXTENDED" | grep -o '[0-9]*')
+require_fixture_ids NF_EXTENDED_FIELD_ID NF_EXTENDED_ACTION_ID NF_LARGE_BYTES
+[ "$NF_LARGE_BYTES" -gt 100000 ] \
+  || fail "Ninja Forms large UTF-8 fixture was too small ($NF_LARGE_BYTES bytes)"
+
 PAGE_ID=$(wp_conf1 post create --post_type=page --post_title='Conformance Careers' --post_name=conformance-careers \
   --post_status=publish --porcelain \
   --post_content="<!-- wp:paragraph --><p>Conformance careers page.</p><!-- /wp:paragraph -->
 <!-- wp:ninja-forms/form {\"formID\":$NF_FORM_ID,\"formTitle\":\"Job Application\"} /-->")
 require_fixture_ids PAGE_ID
 
-echo "ninja-forms seed: page=$PAGE_ID form_id=$NF_FORM_ID (23 fields, 3 actions)"
+echo "ninja-forms seed: page=$PAGE_ID form_id=$NF_FORM_ID disposable_field=$NF_EXTENDED_FIELD_ID disposable_action=$NF_EXTENDED_ACTION_ID (24 fields, 4 actions)"
