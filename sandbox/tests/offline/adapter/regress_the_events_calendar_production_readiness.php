@@ -489,6 +489,11 @@ $artifacts = json_decode(
     true,
     flags: JSON_THROW_ON_ERROR
 )['plugins']['the-events-calendar'];
+$disposition = json_decode(
+    (string) file_get_contents($root . '/manifests/dispositions.json'),
+    true,
+    flags: JSON_THROW_ON_ERROR
+)['manifests']['the-events-calendar'];
 
 duo_check_same(
     ['min' => '6.17.2', 'max' => '6.17.4'],
@@ -507,6 +512,11 @@ duo_check_same(
     '2db436c929797bfc5311be942158c474716e61c2f289f7d05c3a08d29b2ad687',
     $artifacts['6.17.3']['sha256'],
     'the upper-bound official ZIP digest is immutable review input'
+);
+duo_check_same(
+    ['post:tribe_events', 'post:tribe_organizer', 'post:tribe_venue', 'term:tribe_events_cat'],
+    $disposition['capabilities']['deletion_semantics']['unsupported'] ?? null,
+    'the reviewed claim names every free TEC entity whose native deletion effects remain unsupported'
 );
 
 $policy = Policy::load(null, ['the-events-calendar']);
@@ -2027,6 +2037,40 @@ foreach (['primary', 'secondary', 'text', 'priority', 'hidden'] as $suffix) {
 duo_check_same('derived', $policy->table_rule('tec_events')['class'] ?? null, 'tec_events is derived rather than duplicated authored state');
 duo_check_same('derived', $policy->table_rule('tec_occurrences')['class'] ?? null, 'tec_occurrences is derived and regenerated');
 duo_check_same('runtime', $policy->table_rule('tec_kv_cache')['class'] ?? null, 'tec_kv_cache remains target-runtime state');
+foreach (['post:tribe_events', 'post:tribe_venue', 'post:tribe_organizer', 'term:tribe_events_cat'] as $selector) {
+    duo_check_same(
+        null,
+        $policy->deletion_capability($selector),
+        "$selector has no inferred deletion authority before its native cascades and reverse references are closed"
+    );
+}
+$deletionSeed = (string) file_get_contents($root . '/sandbox/conformance/seeds/the-events-calendar.sh');
+$deletionCheck = (string) file_get_contents($root . '/sandbox/conformance/checks/the-events-calendar.sh');
+foreach ([
+    'Duo Unsupported Delete Probe',
+    'Duo Unsupported Delete Venue',
+    'Duo Unsupported Delete Organizer',
+    'duo-unsupported-delete-category',
+] as $fixtureIdentity) {
+    duo_check(
+        str_contains($deletionSeed, $fixtureIdentity),
+        "the exact live seed carries independent unreferenced deletion fixture $fixtureIdentity"
+    );
+}
+foreach ([
+    "tec_refuse_post_deletion tribe_events 'Duo Unsupported Delete Probe' post:tribe_events",
+    "tec_refuse_post_deletion tribe_venue 'Duo Unsupported Delete Venue' post:tribe_venue",
+    "tec_refuse_post_deletion tribe_organizer 'Duo Unsupported Delete Organizer' post:tribe_organizer",
+    'tec_refuse_term_deletion tribe_events_cat duo-unsupported-delete-category term:tribe_events_cat',
+] as $probe) {
+    duo_check(str_contains($deletionCheck, $probe), "the exact live matrix executes $probe");
+}
+foreach (['postmeta', 'termmeta', 'term_relationships', 'tec_events', 'tec_occurrences', 'category_css'] as $witness) {
+    duo_check(
+        str_contains($deletionCheck, '"' . $witness . '"=>'),
+        "deletion refusal fingerprints $witness before and after capture"
+    );
+}
 
 $regenerator = new TheEventsCalendarRegenerator($policy);
 duo_check_throws(

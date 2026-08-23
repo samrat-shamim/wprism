@@ -308,12 +308,12 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 - **Declared fields:** `options` (56 keys), `post_meta` (48 keys), `term_meta` (5: tec-events-cat-colors-hidden, tec-events-cat-colors-primary, tec-events-cat-colors-priority, tec-events-cat-colors-secondary, tec-events-cat-colors-text), `block_attrs` (1: tribe/event-organizer), `interpreter` (`the-events-calendar`)
 - **Adapter hooks:** 1 provider, 2 structured actions, interpreter `the-events-calendar`
 - **Deletions supported:** none
-- **Deletions unsupported:** post:tribe_events, post:tribe_organizer, post:tribe_venue
+- **Deletions unsupported:** post:tribe_events, post:tribe_organizer, post:tribe_venue, term:tribe_events_cat
 - **Exercised by:** `conformance-the-events-calendar`, `exact-artifact-version-matrix`
 
 **Unsupported, explicitly.**
 
-- `post:tribe_events|tribe_organizer|tribe_venue` / `delete` — TEC events, venues, and organizers own occurrence projections and can participate in reverse references or optional-add-on cascades; the generic hook-free post delete cannot prove that complete semantic boundary, so capture refuses before publishing a tombstone.
+- `post:tribe_events|tribe_organizer|tribe_venue|term:tribe_events_cat` / `delete` — TEC events, venues, organizers, and event categories own occurrence, linked-post, relationship, Category Colors, and optional-add-on effects; generic hook-free entity deletion cannot prove that complete semantic boundary, so capture refuses before publishing a tombstone.
 - `optional-and-extension-owned` / `capture` — Events Calendar Pro recurrence/series, Event Tickets, Event Aggregator remote records, legacy Category Colors plugin residue, and third-party add-on entities are outside the reviewed free-plugin inventory and remain unclassified and loud.
 - `options:tribe_events_calendar_options:target-runtime-and-integrations` / `apply` — Credentials, remote-import state, schema/migration markers, telemetry, schedules, calculated date ranges, caches, and undeclared mixed-option siblings remain target-owned and are verified to survive apply.
 - `version:<6.17.2|>=6.17.4` / `all` — The Events Calendar releases before 6.17.2 and 6.17.4 or later are outside the source-audited and exact-artifact-tested range; the exclusive minor-patch maximum prevents a future 6.17.4 release from being silently admitted.

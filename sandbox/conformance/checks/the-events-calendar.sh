@@ -959,36 +959,124 @@ wp_conf1 eval '
 rm -f "$SCHEMA_BACKUP"
 pass "body warnings redact; authored secrets, malformed status/organizers, dates/scalars, and paid/import/coordinate surfaces refuse atomically"
 
-# The adapter grants no semantic event deletion. Remove only wp_posts so the
-# exact row can be restored after capture proves no tombstone was published.
-DELETE_BACKUP="${CONF_REPO1:-siterepo/conf1}/.tmp-tec-delete-row.json"
-DELETE_ID=$(wp_conf1 eval '
-  global $wpdb;
-  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Unsupported Delete Probe"])[0];
-  $row=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->posts} WHERE ID=%d",$p->ID),ARRAY_A);
-  file_put_contents("/siterepo/.tmp-tec-delete-row.json",wp_json_encode($row));
-  if(1!==$wpdb->delete($wpdb->posts,["ID"=>$p->ID])) throw new RuntimeException($wpdb->last_error);
-  clean_post_cache($p->ID); echo $p->ID;
-')
-require_fixture_ids DELETE_ID
-DELETE_STATUS=$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)
-DELETE_RC=0
-DELETE_OUT=$(wp_conf1 duo capture --repo=/siterepo --format=json) || DELETE_RC=$?
-require_duo_answered "TEC unsupported event deletion capture" json "$DELETE_OUT"
-[ "$DELETE_RC" -ne 0 ] && jq -e '
-  .format == "duo-command-refusal/v1" and .reason_code == "unsupported_deletion" and
-  any(.diagnostics[]?; .code == "unsupported_deletion" and .surface == "post:tribe_events")
-' <<<"$DELETE_OUT" >/dev/null \
-  || fail "TEC event deletion did not refuse at exact selector: $DELETE_OUT"
-[ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$DELETE_STATUS" ] \
-  || fail "TEC deletion refusal partially published a tombstone"
-wp_conf1 eval '
-  global $wpdb; $row=json_decode(file_get_contents("/siterepo/.tmp-tec-delete-row.json"),true,512,JSON_THROW_ON_ERROR);
-  if(false===$wpdb->insert($wpdb->posts,$row)) throw new RuntimeException($wpdb->last_error);
-  clean_post_cache((int)$row["ID"]);
-' >/dev/null
-rm -f "$DELETE_BACKUP"
-pass "unsupported TEC event deletion refuses at post:tribe_events with no partial tombstone"
+# TEC entities participate in plugin-owned occurrence, linked-post, taxonomy,
+# Category Colors, and optional-add-on effects. Remove only each identity row,
+# retain every dependent row as a witness, and prove capture publishes neither
+# a tombstone nor any database/provider side effect before restoring the row.
+tec_deletion_fingerprint() {
+  wp_conf1 eval '
+    global $wpdb;
+    $queries=[
+      "posts"=>"SELECT * FROM {$wpdb->posts} ORDER BY ID",
+      "postmeta"=>"SELECT * FROM {$wpdb->postmeta} ORDER BY meta_id",
+      "terms"=>"SELECT * FROM {$wpdb->terms} ORDER BY term_id",
+      "term_taxonomy"=>"SELECT * FROM {$wpdb->term_taxonomy} ORDER BY term_taxonomy_id",
+      "termmeta"=>"SELECT * FROM {$wpdb->termmeta} ORDER BY meta_id",
+      "term_relationships"=>"SELECT * FROM {$wpdb->term_relationships} ORDER BY object_id,term_taxonomy_id",
+      "tec_events"=>"SELECT * FROM {$wpdb->prefix}tec_events ORDER BY event_id",
+      "tec_occurrences"=>"SELECT * FROM {$wpdb->prefix}tec_occurrences ORDER BY occurrence_id",
+      "category_css"=>$wpdb->prepare(
+        "SELECT option_id,option_name,option_value,autoload FROM {$wpdb->options} WHERE option_name IN (%s,%s) ORDER BY option_id",
+        "tec_events_category_color_css","tribe_events_calendar_options"
+      ),
+    ];
+    $fingerprint=[];
+    foreach($queries as $name=>$sql){
+      $wpdb->last_error="";
+      $rows=$wpdb->get_results($sql,ARRAY_A);
+      if(!is_array($rows)||$wpdb->last_error!==""){
+        throw new RuntimeException("TEC deletion fingerprint read failed for $name");
+      }
+      $fingerprint[$name]=["count"=>count($rows),"sha256"=>hash("sha256",serialize($rows))];
+    }
+    echo wp_json_encode($fingerprint,JSON_UNESCAPED_SLASHES);
+  '
+}
+
+tec_refuse_post_deletion() { # <post-type> <title> <surface>
+  local post_type="$1" title="$2" surface="$3" backup id status before after rc out
+  backup="${CONF_REPO1:-siterepo/conf1}/.tmp-tec-delete-${post_type}-row.json"
+  id=$(wp_conf1 eval '
+    global $wpdb;
+    $posts=get_posts(["post_type"=>"'"$post_type"'","post_status"=>"any","posts_per_page"=>2,"title"=>"'"$title"'"]);
+    if(count($posts)!==1) throw new RuntimeException("TEC deletion probe identity is not unique");
+    $row=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->posts} WHERE ID=%d",$posts[0]->ID),ARRAY_A);
+    if(!is_array($row)) throw new RuntimeException("TEC deletion probe row is unreadable");
+    file_put_contents("/siterepo/.tmp-tec-delete-'"$post_type"'-row.json",wp_json_encode($row));
+    if(1!==$wpdb->delete($wpdb->posts,["ID"=>$posts[0]->ID])) throw new RuntimeException($wpdb->last_error);
+    clean_post_cache($posts[0]->ID); echo $posts[0]->ID;
+  ')
+  require_fixture_ids id
+  status=$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)
+  before=$(tec_deletion_fingerprint)
+  rc=0
+  out=$(wp_conf1 duo capture --repo=/siterepo --format=json) || rc=$?
+  require_duo_answered "TEC unsupported $surface deletion capture" json "$out"
+  [ "$rc" -ne 0 ] && jq -e --arg surface "$surface" '
+    .format == "duo-command-refusal/v1" and .reason_code == "unsupported_deletion" and
+    any(.diagnostics[]?; .code == "unsupported_deletion" and .surface == $surface)
+  ' <<<"$out" >/dev/null \
+    || fail "TEC deletion did not refuse at exact selector $surface: $out"
+  after=$(tec_deletion_fingerprint)
+  [ "$after" = "$before" ] \
+    || fail "TEC $surface deletion refusal mutated posts/meta/terms/relationships/occurrences/Category Colors state"
+  [ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$status" ] \
+    || fail "TEC $surface deletion refusal partially published a tombstone"
+  wp_conf1 eval '
+    global $wpdb;
+    $row=json_decode(file_get_contents("/siterepo/.tmp-tec-delete-'"$post_type"'-row.json"),true,512,JSON_THROW_ON_ERROR);
+    if(false===$wpdb->insert($wpdb->posts,$row)) throw new RuntimeException($wpdb->last_error);
+    clean_post_cache((int)$row["ID"]);
+  ' >/dev/null
+  rm -f "$backup"
+  pass "unsupported TEC deletion refuses atomically at $surface"
+}
+
+tec_refuse_term_deletion() { # <taxonomy> <slug> <surface>
+  local taxonomy="$1" slug="$2" surface="$3" backup id status before after rc out
+  backup="${CONF_REPO1:-siterepo/conf1}/.tmp-tec-delete-${taxonomy}-row.json"
+  id=$(wp_conf1 eval '
+    global $wpdb;
+    $term=get_term_by("slug","'"$slug"'","'"$taxonomy"'");
+    if(!$term instanceof WP_Term) throw new RuntimeException("TEC term deletion probe is missing");
+    $row=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->terms} WHERE term_id=%d",$term->term_id),ARRAY_A);
+    if(!is_array($row)) throw new RuntimeException("TEC term deletion probe row is unreadable");
+    file_put_contents("/siterepo/.tmp-tec-delete-'"$taxonomy"'-row.json",wp_json_encode($row));
+    if(1!==$wpdb->delete($wpdb->terms,["term_id"=>$term->term_id])) throw new RuntimeException($wpdb->last_error);
+    clean_term_cache((int)$term->term_id,"'"$taxonomy"'"); echo $term->term_id;
+  ')
+  require_fixture_ids id
+  status=$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)
+  before=$(tec_deletion_fingerprint)
+  rc=0
+  out=$(wp_conf1 duo capture --repo=/siterepo --format=json) || rc=$?
+  require_duo_answered "TEC unsupported $surface deletion capture" json "$out"
+  [ "$rc" -ne 0 ] && jq -e --arg surface "$surface" '
+    .format == "duo-command-refusal/v1" and .reason_code == "unsupported_deletion" and
+    any(.diagnostics[]?; .code == "unsupported_deletion" and .surface == $surface)
+  ' <<<"$out" >/dev/null \
+    || fail "TEC deletion did not refuse at exact selector $surface: $out"
+  after=$(tec_deletion_fingerprint)
+  [ "$after" = "$before" ] \
+    || fail "TEC $surface deletion refusal mutated posts/meta/terms/relationships/occurrences/Category Colors state"
+  [ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$status" ] \
+    || fail "TEC $surface deletion refusal partially published a tombstone"
+  wp_conf1 eval '
+    global $wpdb;
+    $row=json_decode(file_get_contents("/siterepo/.tmp-tec-delete-'"$taxonomy"'-row.json"),true,512,JSON_THROW_ON_ERROR);
+    if(false===$wpdb->insert($wpdb->terms,$row)) throw new RuntimeException($wpdb->last_error);
+    clean_term_cache((int)$row["term_id"],"'"$taxonomy"'");
+  ' >/dev/null
+  rm -f "$backup"
+  pass "unsupported TEC deletion refuses atomically at $surface"
+}
+
+tec_refuse_post_deletion tribe_events 'Duo Unsupported Delete Probe' post:tribe_events
+tec_refuse_post_deletion tribe_venue 'Duo Unsupported Delete Venue' post:tribe_venue
+tec_refuse_post_deletion tribe_organizer 'Duo Unsupported Delete Organizer' post:tribe_organizer
+tec_refuse_term_deletion tribe_events_cat duo-unsupported-delete-category term:tribe_events_cat
+unset -f tec_deletion_fingerprint tec_refuse_post_deletion tec_refuse_term_deletion
+pass "all unsupported TEC entity deletions refuse with no tombstone, cascade, reverse-reference, occurrence, or Category Colors mutation"
 
 # Competing source/target native repository edits must surface a conflict,
 # remain atomic unforced, and converge only under explicit repository authority.

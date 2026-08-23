@@ -24,6 +24,21 @@ $color->set('tec-events-cat-colors-primary', '#123abc')
     ->set('tec-events-cat-colors-priority', 17)
     ->set('tec-events-cat-colors-hidden', '0')
     ->save();
+$delete_category = wp_insert_term('Duo Unsupported Delete Category', 'tribe_events_cat', [
+    'slug' => 'duo-unsupported-delete-category',
+    'description' => 'A colored unreferenced category retained solely for atomic deletion refusal evidence.',
+]);
+if (is_wp_error($delete_category)) {
+    throw new RuntimeException($delete_category->get_error_message());
+}
+$delete_category_id = (int) $delete_category['term_id'];
+tribe(\TEC\Events\Category_Colors\Event_Category_Meta::class)->set_term($delete_category_id)
+    ->set('tec-events-cat-colors-primary', '#4a148c')
+    ->set('tec-events-cat-colors-secondary', '#ce93d8')
+    ->set('tec-events-cat-colors-text', '#ffffff')
+    ->set('tec-events-cat-colors-priority', 23)
+    ->set('tec-events-cat-colors-hidden', '0')
+    ->save();
 
 $venue = tribe_venues()->set_args([
     'venue' => 'Duo Readiness Hall 東京',
@@ -63,11 +78,23 @@ foreach ([
     $organizers[] = tribe_organizers()->set_args($organizer_args)->create();
 }
 $organizer = $organizers[0];
-if (!$venue || !$venue->ID || count(array_filter(
+$delete_venue = tribe_venues()->set_args([
+    'venue' => 'Duo Unsupported Delete Venue',
+    'address' => '400 Atomic Refusal Street',
+    'city' => 'Kathmandu',
+    'country' => 'Nepal',
+])->create();
+$delete_organizer = tribe_organizers()->set_args([
+    'organizer' => 'Duo Unsupported Delete Organizer',
+    'email' => 'delete-refusal@example.test',
+    'website' => home_url('/unsupported-delete-organizer/'),
+])->create();
+if (!$venue || !$venue->ID || !$delete_venue || !$delete_venue->ID
+    || !$delete_organizer || !$delete_organizer->ID || count(array_filter(
     $organizers,
     static fn($candidate): bool => $candidate && $candidate->ID
 )) !== 3) {
-    throw new RuntimeException('TEC venue/organizer repositories did not create the source graph');
+    throw new RuntimeException('TEC venue/organizer repositories did not create the source and deletion-refusal graph');
 }
 $organizer_ids = array_map(static fn($candidate): int => (int) $candidate->ID, $organizers);
 
@@ -341,7 +368,10 @@ echo wp_json_encode([
     'all_day' => (int) $all_day->ID,
     'absent_map_venue' => (int) $absent_map_venue->ID,
     'category' => $category_id,
+    'delete_category' => $delete_category_id,
+    'delete_organizer' => (int) $delete_organizer->ID,
     'delete_probe' => (int) $delete_probe->ID,
+    'delete_venue' => (int) $delete_venue->ID,
     'disabled_venue' => (int) $disabled_venue_id,
     'event' => (int) $event->ID,
     'organizer' => (int) $organizer->ID,
@@ -359,7 +389,8 @@ SEED_JSON=$(printf '%s\n' "$SEED_OUT" | awk 'NF { line=$0 } END { print line }')
 printf '%s\n' "$SEED_JSON" | jq -e '
   .event > 0 and .venue > 0 and .organizer > 0 and (.organizers | length) == 3 and
   .organizer == .organizers[0] and (.organizers | unique | length) == 3 and .category > 0 and
-  .all_day > 0 and .delete_probe > 0 and .disabled_venue > 0 and .absent_map_venue > 0
+  .all_day > 0 and .delete_probe > 0 and .delete_venue > 0 and .delete_organizer > 0 and
+  .delete_category > 0 and .disabled_venue > 0 and .absent_map_venue > 0
 ' >/dev/null || fail "TEC source repository fixture returned malformed identities: $SEED_JSON"
 printf '%s\n' "$SEED_JSON" > "$SOURCE_IDS_FILE"
 rm -f "$SEED_FILE"
