@@ -90,7 +90,7 @@ final class Tokens {
     /** Reverse witness index: one alternate value may identify only one entity
      * within a declared (post-meta, post-type) domain. */
     private array $shortcodeAlternateValues = [];
-    /** Apply has finished registering the immutable canonical alternate map. */
+    /** Apply or target observation has registered the immutable canonical alternate map. */
     private bool $shortcodeAlternatesSealed = false;
     /** Fallback for unresolvable user tokens on apply (set by Apply). */
     public ?int $defaultUserId = null;
@@ -401,6 +401,10 @@ final class Tokens {
 
     public function shortcode_alternate(string $token, string $metaKey, string $postType): ?string {
         return $this->shortcodeAlternates[$metaKey . "\0" . $postType . "\0" . $token] ?? null;
+    }
+
+    public function shortcode_alternate_token(string $value, string $metaKey, string $postType): ?string {
+        return $this->shortcodeAlternateValues[$metaKey . "\0" . $postType . "\0" . $value] ?? null;
     }
 
     public function seal_shortcode_alternates(): void {

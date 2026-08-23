@@ -645,7 +645,13 @@ attribute, validates and collision-checks every owner, and refuses title or
 numeric fallbacks. Do not declare it from example shortcode output alone:
 trace the lookup query, its collation/case behavior, excluded post statuses,
 the stored-value generator, and duplicate-row behavior, then reproduce a
-foreign target collision live.
+foreign target collision live. Also run the plugin's destructive native
+uninstall/reinstall path: when owner rows are deleted but embedding pages
+survive, target observation may recover only from the sealed canonical reverse
+witness. Prove the unforced run remains atomic, any activation-default slug
+collision still needs explicit adoption, a live owner mapped to another entity
+still refuses, and the successful recovery restores the repository's authored
+alternate rather than inventing a target-local one.
 
 When any step cannot be represented, keep the adapter experimental or reject
 it. Do not disguise a missing codec as `verbatim`, `runtime`, a broad option

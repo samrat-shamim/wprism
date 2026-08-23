@@ -410,6 +410,14 @@ final class OptionsCapture {
             return $ok;
         }
         $id = (int) $value;
+        if ($omitUnsetScalar && $id <= 0) {
+            // WordPress uses negative ids as cached "no object" sentinels
+            // (custom_css_post_id=-1 after a frontend lookup). A sub-key ref
+            // has no portable target in either zero spelling, so omit it
+            // without accusing an unmanaged entity; whole-option scalar refs
+            // retain the stricter durable-zero contract below.
+            return null;
+        }
         if ($id === 0) {
             // A whole authored scalar option uses 0 as durable "unset"
             // state (page_on_front/page_for_posts/privacy policy). Returning

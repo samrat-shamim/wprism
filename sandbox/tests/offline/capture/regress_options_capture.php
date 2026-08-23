@@ -132,6 +132,7 @@ $wpdb->rows = [
     'blob_setting' => ['option_value' => serialize([
         'authored_key' => 'https://source.test/blob',
         'unset_ref' => 0,
+        'missing_ref_sentinel' => -1,
         'runtime_key' => 'local-only',
     ]), 'autoload' => 'yes'],
     'theme_mods_source' => ['option_value' => serialize(['background_color' => 'source-blue']), 'autoload' => 'yes'],
@@ -164,6 +165,7 @@ $policy->site = ['policy' => [
             'sub_keys' => [
                 'authored_key' => ['class' => 'authored'],
                 'unset_ref' => ['class' => 'authored', 'ref' => 'post'],
+                'missing_ref_sentinel' => ['class' => 'authored', 'ref' => 'post'],
                 'runtime_key' => ['class' => 'runtime'],
             ],
         ],
@@ -229,7 +231,11 @@ $check(
 $check(
     ($records['blob_setting']['value'] ?? null) === ['authored_key' => '{{home}}/blob']
         && !array_key_exists('runtime_key', $records['blob_setting']['value'] ?? []),
-    'sub-key capture keeps zero-ref deletion semantics while including only authored portable keys'
+    'sub-key capture omits zero/negative no-object sentinels while including only authored portable keys'
+);
+$check(
+    !array_filter($tokens->warnings, static fn(string $warning): bool => str_contains($warning, 'id -1')),
+    'negative sub-key no-object sentinels do not emit false unmanaged-id warnings'
 );
 $check(
     ($records['theme_mods_target']['value'] ?? null) === ['background_color' => 'target-green']

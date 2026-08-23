@@ -17,6 +17,7 @@ require_once __DIR__ . '/../Repository/SidebarState.php';
 require_once __DIR__ . '/../Repository/Snapshot.php';
 require_once __DIR__ . '/TermCapture.php';
 require_once __DIR__ . '/../Grammar/Tokens.php';
+require_once __DIR__ . '/../Grammar/ShortcodeAlternateRegistrar.php';
 require_once __DIR__ . '/UserMetaCapture.php';
 
 /**
@@ -59,7 +60,12 @@ final class CaptureCandidateBuilder {
      *        environment binding instead of the live one (Tokens' docblock);
      *        plan's foreign-bound comparison observation is the only caller.
      */
-    public function __construct(string $repo, private Policy $policy, ?array $binding = null) {
+    public function __construct(
+        string $repo,
+        private Policy $policy,
+        ?array $binding = null,
+        private readonly ?array $canonicalShortcodeTree = null
+    ) {
         $this->repo = rtrim($repo, '/');
         $this->tokens = $binding === null
             ? new Tokens()
@@ -322,6 +328,11 @@ final class CaptureCandidateBuilder {
         $this->tokens->unscopedShortcodeRefs = [];
         $this->tokens->unscopedUrlQueryRefs = [];
         $this->tokens->forceUnresolvedRefs = $forceUnresolvedRefs;
+        if ($this->canonicalShortcodeTree !== null) {
+            (new ShortcodeAlternateRegistrar($this->policy, $this->tokens))->register(
+                $this->canonicalShortcodeTree
+            );
+        }
     }
 
     private function buildOptions(

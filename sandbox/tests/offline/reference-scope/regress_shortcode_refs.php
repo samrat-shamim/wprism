@@ -358,13 +358,13 @@ check($tokens->warnings === [], 'S1: no warnings on a clean mapped capture (got:
 
 // S1b — CF7's legacy positional shortcode resolves through the declared
 // alternate post-meta identity, never through wp_posts.ID.  Capture emits a
-// canonical post token; apply restores the target form's own old unit id.
+// canonical post token; the ordinary direct seam restores the declared value.
 $legacy = '[contact-form 77 "Legacy Form"]';
 $legacyCanonical = Shortcodes::capture_rewrite_text($legacy, $policy, $tokens);
 check($legacyCanonical === '[contact-form {{post:' . MAPPED_UUID . '}} "Legacy Form"]',
     'S1b: positional alternate id is canonicalized to the form token (got: ' . $legacyCanonical . ')');
 check(Shortcodes::apply_rewrite_text($legacyCanonical, $policy, $tokens) === $legacy,
-    'S1b: positional token round-trips through the target alternate id');
+    'S1b: positional token round-trips through the declared alternate id');
 check(!str_contains($legacyCanonical, '77'), 'S1b: canonical content has no raw _old_cf7_unit_id');
 $savedBacktrackLimit = ini_get('pcre.backtrack_limit');
 $captureRegexFailureRefused = false;
@@ -620,6 +620,80 @@ try {
     $duplicateNamedWitnessRefused = str_contains($e->getMessage(), 'ambiguous');
 }
 check($duplicateNamedWitnessRefused, 'S1e: one named alternate cannot identify two canonical forms');
+$recoveryTokens = new Tokens();
+$recoveryTokens->policy = $policy;
+$recoveryTokens->register_shortcode_alternate(
+    '{{post:' . MAPPED_UUID . '}}',
+    '_old_cf7_unit_id',
+    'wpcf7_contact_form',
+    '77'
+);
+$recoveryTokens->register_shortcode_named_alternate(
+    '{{post:' . MAPPED_UUID . '}}',
+    '_hash',
+    'wpcf7_contact_form',
+    'aaaaaaa',
+    7
+);
+$recoveryTokens->seal_shortcode_alternates();
+$mappedMeta = $wpdb->postMetaById[MAPPED_ID];
+unset($wpdb->postMetaById[MAPPED_ID]);
+$strictSourceTokens = new Tokens();
+$strictSourceTokens->policy = $policy;
+$missingSourcePositionalRefused = false;
+try {
+    Shortcodes::capture_rewrite_text($legacy, $policy, $strictSourceTokens);
+} catch (\Throwable $e) {
+    $missingSourcePositionalRefused = str_contains($e->getMessage(), 'no matching form');
+}
+check(
+    $missingSourcePositionalRefused,
+    'S1e: ordinary source capture cannot use an unsealed positional fallback when the owner is missing'
+);
+$missingSourceNamedRefused = false;
+try {
+    Shortcodes::capture_rewrite_text($modern, $policy, $strictSourceTokens);
+} catch (\Throwable $e) {
+    $missingSourceNamedRefused = str_contains($e->getMessage(), 'no matching form');
+}
+check(
+    $missingSourceNamedRefused,
+    'S1e: ordinary source capture cannot use an unsealed named fallback when the owner is missing'
+);
+check(
+    Shortcodes::capture_rewrite_text($legacy, $policy, $recoveryTokens) === $legacyCanonical,
+    'S1e: target observation recovers a dangling positional identity from the sealed repository witness'
+);
+check(
+    Shortcodes::capture_rewrite_text($modern, $policy, $recoveryTokens) === $modernCanonical,
+    'S1e: target observation recovers a dangling named identity from the sealed repository witness'
+);
+$wpdb->postMetaById[MAPPED2_ID] = [
+    '_old_cf7_unit_id' => ['77'],
+    '_hash' => [$hashA],
+];
+$disagreeingPositionalOwnerRefused = false;
+try {
+    Shortcodes::capture_rewrite_text($legacy, $policy, $recoveryTokens);
+} catch (\Throwable $e) {
+    $disagreeingPositionalOwnerRefused = str_contains($e->getMessage(), 'disagrees with its canonical witness');
+}
+check(
+    $disagreeingPositionalOwnerRefused,
+    'S1e: target observation refuses a live positional owner mapped to another canonical entity'
+);
+$disagreeingNamedOwnerRefused = false;
+try {
+    Shortcodes::capture_rewrite_text($modern, $policy, $recoveryTokens);
+} catch (\Throwable $e) {
+    $disagreeingNamedOwnerRefused = str_contains($e->getMessage(), 'disagrees with its canonical witness');
+}
+check(
+    $disagreeingNamedOwnerRefused,
+    'S1e: target observation refuses a live named owner mapped to another canonical entity'
+);
+unset($wpdb->postMetaById[MAPPED2_ID]);
+$wpdb->postMetaById[MAPPED_ID] = $mappedMeta;
 $missingModernIdRefused = false;
 try {
     Shortcodes::capture_rewrite_text('[contact-form-7 title="Legacy Form"]', $policy, $tokens);

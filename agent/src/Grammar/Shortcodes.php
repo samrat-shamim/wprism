@@ -251,7 +251,8 @@ final class Shortcodes {
      * positional integer as a post primary key: CF7's legacy shortcode uses
      * `_old_cf7_unit_id`, which is stable content identity but not wp_posts.ID.
      * The canonical representation is still the ordinary post UUID token;
-     * apply resolves that token back to the target form's alternate value.
+     * apply restores the repository's authored alternate witness because the
+     * referenced post-meta value travels with that same entity.
      */
     private static function rewrite_positional(
         string $rawAttrs,
@@ -282,11 +283,26 @@ final class Shortcodes {
                     "duo: shortcode '$tag' positional[$position] must be a positive decimal alternate id"
                 );
             }
-            $postId = self::alternate_post_id($lookup, $postType, $value, $tag, $position);
-            $token = $tokens->id_to_token($postId, (string) $rule['kind']);
+            $canonicalToken = $tokens->shortcode_alternate_token($value, $lookup, $postType);
+            $postId = self::alternate_post_id(
+                $lookup,
+                $postType,
+                $value,
+                $tag,
+                $position,
+                $canonicalToken !== null
+            );
+            $token = $postId === null
+                ? $canonicalToken
+                : $tokens->id_to_token($postId, (string) $rule['kind']);
             if ($token === null) {
                 throw new \RuntimeException(
                     "duo: shortcode '$tag' positional[$position] alternate id '$value' resolves to unmanaged post $postId"
+                );
+            }
+            if ($canonicalToken !== null && $token !== $canonicalToken) {
+                throw new \RuntimeException(
+                    "duo: shortcode '$tag' positional[$position] alternate id '$value' disagrees with its canonical witness"
                 );
             }
             $replacement = $quote . $token . $quote;
@@ -338,7 +354,14 @@ final class Shortcodes {
         return $out;
     }
 
-    private static function alternate_post_id(string $metaKey, string $postType, string $alternate, string $tag, int $position): int {
+    private static function alternate_post_id(
+        string $metaKey,
+        string $postType,
+        string $alternate,
+        string $tag,
+        int $position,
+        bool $allowMissing = false
+    ): ?int {
         global $wpdb;
         if (property_exists($wpdb, 'last_error')) {
             $wpdb->last_error = '';
@@ -353,6 +376,9 @@ final class Shortcodes {
             throw new \RuntimeException("duo: shortcode '$tag' positional[$position] alternate lookup failed; refusing an unproven identity");
         }
         $ids = array_values(array_unique(array_map('intval', $rows)));
+        if ($allowMissing && $ids === []) {
+            return null;
+        }
         if (count($rows) !== 1 || count($ids) !== 1) {
             $why = $ids === [] ? 'no matching form' : 'multiple matching forms or duplicate alternate metadata';
             throw new \RuntimeException(
@@ -573,18 +599,25 @@ final class Shortcodes {
                     "duo: shortcode '$tag' $locator must be exactly $prefixLength lowercase hexadecimal bytes"
                 );
             }
+            $canonicalToken = $tokens->shortcode_alternate_token($value, $metaKey, $postType);
             $postId = self::prefix_alternate_post_id(
                 $metaKey,
                 $postType,
                 $value,
                 $storedLength,
                 $tag,
-                $locator
+                $locator,
+                $canonicalToken !== null
             );
-            $token = $tokens->id_to_token($postId, 'post');
+            $token = $postId === null ? $canonicalToken : $tokens->id_to_token($postId, 'post');
             if ($token === null) {
                 throw new \RuntimeException(
                     "duo: shortcode '$tag' $locator prefix '$value' resolves to unmanaged post $postId"
+                );
+            }
+            if ($canonicalToken !== null && $token !== $canonicalToken) {
+                throw new \RuntimeException(
+                    "duo: shortcode '$tag' $locator prefix '$value' disagrees with its canonical witness"
                 );
             }
             return $ws . $name . '="' . $token . '"';
@@ -656,10 +689,14 @@ final class Shortcodes {
         string $prefix,
         int $storedLength,
         string $tag,
-        string $locator
-    ): int {
+        string $locator,
+        bool $allowMissing = false
+    ): ?int {
         $rows = self::prefix_alternate_rows($metaKey, $postType, $prefix, $tag, $locator);
         $ids = array_values(array_unique(array_map(static fn(array $row): int => (int) $row['post_id'], $rows)));
+        if ($allowMissing && $ids === []) {
+            return null;
+        }
         if (count($rows) !== 1 || count($ids) !== 1) {
             $why = $ids === [] ? 'no matching form' : 'multiple matching forms or duplicate alternate metadata';
             throw new \RuntimeException(

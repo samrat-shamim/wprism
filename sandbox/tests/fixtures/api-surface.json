@@ -5705,6 +5705,14 @@
                             "name": "binding",
                             "type": "?array",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "canonicalShortcodeTree",
+                            "type": "?array",
+                            "variadic": false
                         }
                     ],
                     "return_type": null,
@@ -53290,6 +53298,39 @@
                             "default": null,
                             "has_default": false,
                             "name": "token",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "metaKey",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "postType",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "shortcode_alternate_token": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
                             "type": "string",
                             "variadic": false
                         },
