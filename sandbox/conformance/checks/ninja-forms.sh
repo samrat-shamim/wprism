@@ -192,6 +192,7 @@ ninja_target_hash() {
 
 SOURCE=$(observe_ninja_forms conf1)
 TARGET=$(observe_ninja_forms conf2)
+require_observed_nonempty "conf2 Ninja Forms API observation" "$TARGET"
 jq -e --arg version "$NINJA_EXPECTED_VERSION" '
   .version == $version and .form.title == "Job Application" and
   .form.native_fields == 24 and .form.native_actions == 4 and
@@ -207,7 +208,8 @@ jq -e --arg version "$NINJA_EXPECTED_VERSION" '
 
 SOURCE_FORM_ID=$(jq -r '.form.id' <<<"$SOURCE")
 CONF2_FORM_ID=$(jq -r '.form.id' <<<"$TARGET")
-require_fixture_ids SOURCE_FORM_ID CONF2_FORM_ID
+require_fixture_ids SOURCE_FORM_ID
+require_fixture_ids CONF2_FORM_ID
 [ "$SOURCE_FORM_ID" != "$CONF2_FORM_ID" ] && [ "$CONF2_FORM_ID" -ge 700000 ] \
   || fail "Ninja Forms source/target form identities did not diverge: source=$SOURCE_FORM_ID target=$CONF2_FORM_ID"
 [ "$(jq -r '.form.field_ids | min' <<<"$TARGET")" -ge 720000 ] \
