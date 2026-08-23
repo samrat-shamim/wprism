@@ -15570,6 +15570,31 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "prune_dead_composite_table_map": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "tables",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "componentBits",
+                            "type": "int",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "prune_dead_map": {
                     "abstract": false,
                     "final": false,
@@ -50526,6 +50551,14 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "compositeComponentBits": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "findCollision": {
                     "abstract": false,
                     "final": false,
@@ -50851,6 +50884,14 @@
                             "default": null,
                             "has_default": false,
                             "name": "pruneDeadTableMap",
+                            "type": "Closure",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "pruneDeadCompositeTableMap",
                             "type": "Closure",
                             "variadic": false
                         },
