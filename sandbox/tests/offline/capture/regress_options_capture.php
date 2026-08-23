@@ -119,14 +119,16 @@ $wpdb = new OptionsCaptureFakeWpdb();
 $GLOBALS['wpdb'] = $wpdb;
 
 $postUuid = '11111111-1111-7111-8111-111111111111';
+$secondPostUuid = '33333333-3333-7333-8333-333333333333';
 $methodUuid = '22222222-2222-7222-8222-222222222222';
 $wpdb->uuids = [
-    'post' => [5 => $postUuid],
+    'post' => [5 => $postUuid, 6 => $secondPostUuid],
     'method' => [7 => $methodUuid],
 ];
 $wpdb->rows = [
     'plain_setting' => ['option_value' => 'https://source.test/path', 'autoload' => 'yes'],
     'post_ref' => ['option_value' => '5', 'autoload' => 'yes'],
+    'csv_post_refs' => ['option_value' => '5, 6', 'autoload' => 'yes'],
     'zero_ref' => ['option_value' => '0', 'autoload' => 'yes'],
     'outside_ref' => ['option_value' => '99', 'autoload' => 'yes'],
     'blob_setting' => ['option_value' => serialize([
@@ -156,6 +158,7 @@ $policy->site = ['policy' => [
     'options' => [
         'plain_setting' => ['class' => 'authored', 'autoload' => 'yes'],
         'post_ref' => ['class' => 'authored', 'ref' => 'post', 'autoload' => 'yes'],
+        'csv_post_refs' => ['class' => 'authored', 'ref' => 'post[]', 'cast' => 'csv', 'autoload' => 'yes'],
         'zero_ref' => ['class' => 'authored', 'ref' => 'post', 'autoload' => 'yes'],
         'outside_ref' => ['class' => 'authored', 'ref' => 'post', 'autoload' => 'yes'],
         'missing_setting' => ['class' => 'authored', 'autoload' => 'yes'],
@@ -229,6 +232,13 @@ $check(
     'exact authored values preserve text tokenization, mapped refs, and scalar zero as explicit unset intent'
 );
 $check(
+    ($records['csv_post_refs']['value'] ?? null) === [
+        '{{post:' . $postUuid . '}}',
+        '{{post:' . $secondPostUuid . '}}',
+    ],
+    'CSV option refs capture every comma-delimited id instead of coercing only the leading integer'
+);
+$check(
     ($records['blob_setting']['value'] ?? null) === ['authored_key' => '{{home}}/blob']
         && !array_key_exists('runtime_key', $records['blob_setting']['value'] ?? []),
     'sub-key capture omits zero/negative no-object sentinels while including only authored portable keys'
@@ -278,6 +288,7 @@ $check(
 );
 $check(
     array_column($secretCalls, 1) === [
+        'csv_post_refs',
         'outside_ref',
         'plain_setting',
         'post_ref',

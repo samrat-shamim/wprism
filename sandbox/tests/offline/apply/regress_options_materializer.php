@@ -49,16 +49,26 @@ use Duo\Policy;
 use Duo\Tokens;
 
 final class OptionsMaterializerAcfFakeWpdb {
+    public string $prefix = 'wp_';
     public string $options = 'wp_options';
     public string $last_error = '';
     /** @var list<array{table:string,data:array,where?:array}> */
     public array $writes = [];
+    /** @var array<string,int> canonical "uuid:id_kind" => target-local id */
+    public array $localIds = [];
 
     public function prepare(string $query, mixed ...$args): array {
         return ['sql' => $query, 'args' => $args];
     }
 
     public function get_var(array|string $query): ?int {
+        if (is_array($query)) {
+            $sql = (string) ($query['sql'] ?? '');
+            $args = (array) ($query['args'] ?? []);
+            if (str_contains($sql, 'SELECT local_id FROM wp_duo_map')) {
+                return $this->localIds[(string) ($args[0] ?? '') . ':' . (string) ($args[1] ?? '')] ?? null;
+            }
+        }
         return null;
     }
 
@@ -190,6 +200,46 @@ $check(
         && ($acfWrites[0]['data']['option_value'] ?? null) === 'Scoped ACF tagline'
         && !str_contains((string) ($acfWrites[0]['data']['option_name'] ?? ''), '_options_'),
     'record-scoped materialization uses an excluded ACF shadow only as immutable classification context and writes only the selected option'
+);
+
+// PMPro passes pmpro_level_order straight to explode(), so its target wire
+// type is part of the adapter contract rather than a cosmetic serialization
+// choice. Exercise the public option write path with divergent target-local
+// ids; this failed live when the ref-only codec wrote a serialized array.
+$firstLevelUuid = '44444444-4444-7444-8444-444444444444';
+$secondLevelUuid = '55555555-5555-7555-8555-555555555555';
+$csvPolicy = new Policy();
+$csvPolicy->site = ['policy' => ['options' => [
+    'pmpro_level_order' => [
+        'class' => 'authored',
+        'ref' => 'pmpro_level[]',
+        'cast' => 'csv',
+        'autoload' => 'yes',
+    ],
+]]];
+$csvTokens = new Tokens();
+$csvMaterializer = new OptionsMaterializer(
+    $csvPolicy,
+    $csvTokens,
+    new ApplyFieldMaterializer($csvPolicy, $csvTokens)
+);
+$csvDb = new OptionsMaterializerAcfFakeWpdb();
+$csvDb->localIds = [
+    $firstLevelUuid . ':pmpro_level' => 701,
+    $secondLevelUuid . ':pmpro_level' => 902,
+];
+$GLOBALS['wpdb'] = $csvDb;
+$csvWarnings = [];
+$csvMaterializer->apply_options(\Duo\OptionState::document([
+    'pmpro_level_order' => \Duo\OptionState::present([
+        '{{pmpro_level:' . $firstLevelUuid . '}}',
+        '{{pmpro_level:' . $secondLevelUuid . '}}',
+    ], 'yes'),
+]), false, $csvWarnings);
+$csvWrite = $csvDb->writes[0]['data']['option_value'] ?? null;
+$check(
+    $csvWrite === '701,902' && explode(',', $csvWrite) === ['701', '902'],
+    'CSV option refs apply as the plugin-native comma-delimited string with target-local ids'
 );
 
 if ($failures) {
