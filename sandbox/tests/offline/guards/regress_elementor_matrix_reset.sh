@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Regression — DUO-3366: the exact Elementor version-boundary matrix must
 # remove Elementor's active-kit option before `site empty` deletes its target
-# post. Without that ordering, the next exact 4.2.2 lifecycle dereferences a
+# post. Without that ordering, the next exact 4.2.3 lifecycle dereferences a
 # null post and emits a PHP warning while the matrix still reports success.
 # The live matrix also scans the captured boundary stderr; this offline check
 # pins the reset contract so a future cleanup edit cannot silently reintroduce
@@ -43,6 +43,9 @@ required = (
     'return "$rc"',
     "run_elementor_command reset_env wp1",
     "run_elementor_command check_elementor_content",
+    '--revision="$REV" --format=json | tee "$VMATRIX_APPLY_LOG"',
+    'require_duo_answered "Elementor $ELEMENTOR_VERSION apply" json',
+    "jq -e '.canary == \"clean\"' \"$VMATRIX_APPLY_LOG\"",
     "ELEMENTOR_WARNING_MATCHES=$(grep -nE",
     "elementor/core/isolation/elementor-adapter",
     "elementor/core/base/document",
@@ -60,5 +63,5 @@ if guard >= boundary_end:
     raise SystemExit("Elementor warning guard escaped the Elementor boundary block")
 PY
 
-pass "Elementor matrix removes the stale active-kit reference before site empty and guards the exact boundary stderr"
+pass "Elementor matrix pins machine-readable apply receipts, removes stale active-kit state, and guards boundary stderr"
 echo "REGRESS_ELEMENTOR_MATRIX_RESET PASSED"

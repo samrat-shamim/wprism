@@ -1580,8 +1580,10 @@ EOF
   run_elementor_command wp2 duo deploy --repo=/siterepo
   run_elementor_command postdeploy_elementor_content
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-  run_elementor_command wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
-  grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at elementor $ELEMENTOR_VERSION"
+  run_elementor_command wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" --format=json | tee "$VMATRIX_APPLY_LOG"
+  require_duo_answered "Elementor $ELEMENTOR_VERSION apply" json "$(cat "$VMATRIX_APPLY_LOG")"
+  jq -e '.canary == "clean"' "$VMATRIX_APPLY_LOG" >/dev/null \
+    || fail "apply canary not clean at elementor $ELEMENTOR_VERSION"
   pass "deploy + apply succeeded on side 2 (elementor $ELEMENTOR_VERSION, canary clean)"
 
   run_elementor_command check_elementor_content
