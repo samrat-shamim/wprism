@@ -36,7 +36,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 | [advanced-editor-tools](#advanced-editor-tools) | certified | `tinymce-advanced/tinymce-advanced.php` | >=5.9.2 <5.9.3 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [classic-editor](#classic-editor) | certified | `classic-editor/classic-editor.php` | >=1.7.0 <1.7.1 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [code-snippets](#code-snippets) | certified | `code-snippets/code-snippets.php` | >=3.9.5 <3.9.7 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
-| [contact-form-7](#contact-form-7) | certified | `contact-form-7/wp-contact-form-7.php` | >=6.0.0 <7.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
+| [contact-form-7](#contact-form-7) | certified | `contact-form-7/wp-contact-form-7.php` | >=6.0 <6.2.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [duo-agency-cpt](#duo-agency-cpt) | excluded | none declared | fixture only | test-only |
 | [elementor](#elementor) | certified | `elementor/elementor.php` | >=4.0.0 <5.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [ninja-forms](#ninja-forms) | certified | `ninja-forms/ninja-forms.php` | >=3.4.34.2 <4.0.0 | apply, capture, compile, delete, deploy, plan, promote, recapture, render-api |
@@ -155,21 +155,27 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 
 ## contact-form-7
 
-**Status: certified.** Certified with real form/API/render behavior at both admitted artifact boundaries, including legacy positional shortcode alternate binding.
+**Status: certified.** Certified for exact Contact Form 7 6.0 and 6.1.7 on single-site WordPress with native 40-byte SHA-1 and 64-byte SHA-256 form identities, a real in-place 6.0-to-6.1.7 upgrade that retains its 40-byte identity, divergent local post ids, modern hash-prefix and legacy positional shortcode rebinding, current and legacy property storage, long UTF-8/delimiter mail and messages, nested target-URL rebinding, hostile same-slug forms and foreign hash collisions, target runtime and integration sovereignty, native API/render/Turnstile/submission verification, malformed/ambiguous/secret schema refusal and redaction, unsupported form-delete atomicity, dirty conflict convergence, late database-failure rollback and retry, competing-apply serialization, deactivate/reactivate and destructive-uninstall exact-reinstall recovery, byte-identical recapture, and official 5.9.8 refusal evidence.
 
 - **Plugin:** `contact-form-7/wp-contact-form-7.php`
-- **Version range:** >=6.0.0 <7.0.0
+- **Version range:** >=6.0 <6.2.0
 - **Operations:** apply, capture, compile, deploy, plan, promote, recapture, render-api
 - **Lifecycle phases:** retire, activate, verify
 - **Declared entities:** `post_types` (1: wpcf7_contact_form)
-- **Declared fields:** `post_meta` (8 keys), `shortcode_attrs` (1: contact-form)
+- **Declared fields:** `options` (1: wpcf7), `post_meta` (8 keys), `shortcode_attrs` (2: contact-form, contact-form-7), `interpreter` (`contact-form-7`)
+- **Adapter hooks:** interpreter `contact-form-7`
 - **Deletions supported:** none
-- **Deletions unsupported:** plugin-specific deletes
+- **Deletions unsupported:** post:wpcf7_contact_form
 - **Exercised by:** `conformance-contact-form-7`, `exact-artifact-version-matrix`
 
 **Unsupported, explicitly.**
 
-- `deletions.*` / `delete` — No Contact Form 7 deletion selector is declared.
+- `post:wpcf7_contact_form` / `delete` — Contact Form 7 form deletion has plugin-owned postmeta and shortcode reverse references without a declared cascade and complete reverse-reference guard, so capture refuses before publishing a tombstone and leaves canonical state unchanged.
+- `shortcode_attrs.contact-form-7.id:non-native` / `compile` — The modern callback's stable native identity is exactly a seven-character lowercase-hex prefix of _hash; title-only, numeric, full-hash, wrong-width, uppercase, or otherwise non-native id shapes refuse rather than falling back to mutable titles or unrelated posts.
+- `post_meta:unknown-extension` / `capture` — Only the reviewed current/legacy property schemas and explicitly classified native residue are admitted; unknown Contact Form 7 or add-on postmeta remains unclassified and loud rather than being guessed authored, runtime, or environment state.
+- `options.wpcf7|post_meta:_constant_contact|_sendinblue` / `apply` — The mixed wpcf7 settings blob and optional integration properties contain installed-version, validation, admin, and credential-bearing target state; they remain environment-owned and are verified to survive apply instead of crossing environments.
+- `version:>=6.2.0` / `all` — Contact Form 7 6.2 and later are outside the source-audited and exact-artifact-tested range and are blocked until a new review extends the manifest.
+- `multisite` / `all` — Duo v1 refuses multisite; Contact Form 7 network/global behavior is outside this single-site adapter.
 
 ## duo-agency-cpt
 
