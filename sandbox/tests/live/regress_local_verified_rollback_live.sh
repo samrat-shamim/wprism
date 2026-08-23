@@ -382,6 +382,11 @@ target_sh '
   cp /duo-source/sandbox/tests/fixtures/duo-promotion-probe.php \
      /var/www/html/wp-content/plugins/duo-promotion-probe/duo-promotion-probe.php
 '
+# init inventories ACTIVE components only (cli/src/Code/CodeClassifier.php
+# assertFirstPartyKnown: "--first-party names …, which is not a component this
+# site has" on an installed-but-inactive probe, measured 2026-08-24), so it is
+# activated before the proposal is built.
+target_wp plugin activate duo-promotion-probe >/dev/null || fail "could not activate the promotion probe before init"
 run_controller "init" init local --yes --first-party=plugins/duo-promotion-probe
 [ "$CODE" -eq 0 ] || fail "init failed after local adoption"
 grep -Fq 'Initialized canonical state baseline' <<<"$OUT" || fail "init omitted its canonical baseline result"
