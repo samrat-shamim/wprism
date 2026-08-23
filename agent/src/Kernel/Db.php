@@ -91,6 +91,20 @@ final class Db {
         self::query('START TRANSACTION', $context);
     }
 
+    /** Start a write transaction whose exact next-transaction isolation is controlled. */
+    public static function start_repeatable_read(string $context = 'transaction start'): void {
+        // `@@transaction_isolation`/`@@tx_isolation` report the session
+        // default, not a one-shot active-transaction override, while
+        // information_schema.innodb_trx requires PROCESS on ordinary WP DB
+        // accounts. SET TRANSACTION is accepted by those accounts and applies
+        // only to the immediately following START TRANSACTION.
+        self::query(
+            'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ',
+            $context . ' isolation'
+        );
+        self::query('START TRANSACTION', $context);
+    }
+
     public static function commit(string $context = 'transaction commit'): void {
         self::query('COMMIT', $context);
     }

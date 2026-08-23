@@ -81,6 +81,7 @@
  *            <operand> [NOT] LIKE <string>
  *            <operand> IS [NOT] NULL
  *     operand: column | literal | BINARY <operand> | LENGTH(<operand>)
+ *              | OCTET_LENGTH(<operand>) | LEFT(<operand>, <count>)
  *              | <operand> + - <operand>
  *   INSERT [IGNORE] INTO t (cols) VALUES (...)[, (...)]
  *          [ON DUPLICATE KEY UPDATE col = <expr> ...]   (needs setUniqueKey)
@@ -1604,7 +1605,7 @@ final class FakeWpdb {
         if (!in_array(
             $name,
             [
-                'LENGTH', 'CHAR_LENGTH', 'GET_LOCK', 'RELEASE_LOCK', 'IS_FREE_LOCK',
+                'LENGTH', 'OCTET_LENGTH', 'CHAR_LENGTH', 'LEFT', 'GET_LOCK', 'RELEASE_LOCK', 'IS_FREE_LOCK',
                 'IS_USED_LOCK', 'CONNECTION_ID', 'VERSION',
             ],
             true
@@ -1833,7 +1834,8 @@ final class FakeWpdb {
     private function evalFunction(array $node, array $row, ?array $ctx): mixed {
         $args = array_map(fn(array $arg): mixed => $this->evalOperand($arg, $row, $ctx), $node['args']);
         return match ($node['name']) {
-            'LENGTH', 'CHAR_LENGTH' => $args[0] === null ? null : strlen((string) $args[0]),
+            'LENGTH', 'OCTET_LENGTH', 'CHAR_LENGTH' => $args[0] === null ? null : strlen((string) $args[0]),
+            'LEFT' => $this->leftFunction($args),
             // Advisory locks are a live-MySQL concern; the fake reports a
             // configurable, deterministic result so the engine's lock branch
             // is exercisable without a server.
@@ -1848,6 +1850,20 @@ final class FakeWpdb {
             'VERSION' => $this->serverVersion,
             default => throw $this->unsupported('SQL function ' . $node['name']),
         };
+    }
+
+    private function leftFunction(array $args): ?string {
+        if (count($args) !== 2 || !is_int($args[1]) || $args[1] < 0) {
+            throw $this->unsupported('LEFT() argument shape');
+        }
+        if ($args[0] === null) {
+            return null;
+        }
+        $characters = preg_split('//u', (string) $args[0], -1, PREG_SPLIT_NO_EMPTY);
+        if (!is_array($characters)) {
+            throw $this->unsupported('LEFT() invalid UTF-8 input');
+        }
+        return implode('', array_slice($characters, 0, $args[1]));
     }
 
     /** GET_LOCK(): records the holder only when the configured result is 1. */

@@ -38,6 +38,7 @@ function maybe_serialize($value) {
         ? serialize($value)
         : $value;
 }
+function wp_cache_delete($key, string $group = ''): bool { return false; }
 
 require __DIR__ . '/../../../../agent/src/Kernel/TransientDbException.php';
 require __DIR__ . '/../../../../agent/src/Kernel/Db.php';
@@ -61,6 +62,7 @@ final class TermMetaFakeWpdb {
     public string $termmeta = 'wp_termmeta';
     public string $last_error = '';
     public int $insert_id = 0;
+    public bool $savepointExists = false;
     /** @var array<int,array{meta_id:int,term_id:int,meta_key:string,meta_value:mixed}> */
     public array $rows = [];
     /** @var array<int,string> */
@@ -77,19 +79,50 @@ final class TermMetaFakeWpdb {
     }
 
     public function get_results(string $sql, $format = null): array {
-        if (str_contains($sql, 'FROM wp_termmeta')) {
-            preg_match('/term_id = ([0-9]+)/', $sql, $m);
+        if (str_contains($sql, 'information_schema.TABLES')) {
+            return [['TABLE_NAME' => 'wp_termmeta', 'ENGINE' => 'InnoDB']];
+        }
+        if (str_starts_with($sql, 'SHOW INDEX FROM `wp_termmeta`')) {
+            return [[
+                'Key_name' => 'term_id',
+                'Column_name' => 'term_id',
+                'Seq_in_index' => '1',
+                'Sub_part' => null,
+                'Non_unique' => '1',
+                'Index_type' => 'BTREE',
+                'Visible' => 'YES',
+            ]];
+        }
+        if (str_contains($sql, 'FROM `wp_termmeta`')) {
+            preg_match('/`term_id` = ([0-9]+)/', $sql, $m);
             $termId = (int) ($m[1] ?? 0);
             $rows = array_values(array_filter($this->rows, fn(array $row): bool => $row['term_id'] === $termId));
-            usort($rows, fn(array $a, array $b): int => str_contains($sql, 'meta_key ASC')
-                ? [$a['meta_key'], $a['meta_id']] <=> [$b['meta_key'], $b['meta_id']]
-                : $a['meta_id'] <=> $b['meta_id']);
-            return array_map(fn(array $row): array => array_intersect_key($row, array_flip(['meta_id','meta_key','meta_value'])), $rows);
+            usort($rows, fn(array $a, array $b): int => $a['meta_id'] <=> $b['meta_id']);
+            if (str_contains($sql, 'OCTET_LENGTH(meta_key)')) {
+                return array_map(static fn(array $row): array => [
+                    'meta_id' => (string) $row['meta_id'],
+                    'meta_key_bytes' => (string) strlen($row['meta_key']),
+                    'meta_value_bytes' => $row['meta_value'] === null
+                        ? null
+                        : (string) strlen((string) $row['meta_value']),
+                ], $rows);
+            }
+            return array_map(static fn(array $row): array => [
+                'meta_id' => (string) $row['meta_id'],
+                'meta_key' => $row['meta_key'],
+                'meta_value' => $row['meta_value'] === null ? null : (string) $row['meta_value'],
+            ], $rows);
         }
         throw new RuntimeException("unrecognized get_results query: $sql");
     }
 
     public function get_var(string $sql) {
+        if ($sql === 'SELECT @@in_transaction') {
+            return '1';
+        }
+        if ($sql === 'SELECT 1 FROM `wp_termmeta` LIMIT 1') {
+            return '1';
+        }
         if (str_contains($sql, 'SELECT uuid FROM wp_duo_map')) {
             preg_match("/local_id = ([0-9]+)/", $sql, $m);
             return $this->uuidById[(int) ($m[1] ?? 0)] ?? null;
@@ -107,6 +140,22 @@ final class TermMetaFakeWpdb {
             return null;
         }
         throw new RuntimeException("unrecognized get_var query: $sql");
+    }
+
+    public function query(string $sql): int|false {
+        if (str_starts_with($sql, 'SAVEPOINT `')) {
+            $this->savepointExists = true;
+            return 0;
+        }
+        if (str_starts_with($sql, 'RELEASE SAVEPOINT `')) {
+            if (!$this->savepointExists) {
+                $this->last_error = 'SAVEPOINT does not exist';
+                return false;
+            }
+            $this->savepointExists = false;
+            return 0;
+        }
+        throw new RuntimeException("unrecognized query: $sql");
     }
 
     public function update(string $table, array $data, array $where, $format = null, $whereFormat = null): int {
@@ -194,6 +243,7 @@ $wpdb->rows = [
     ['meta_id' => 13, 'term_id' => 9, 'meta_key' => 'undeclared_plugin_key', 'meta_value' => "opaque\0bytes"],
 ];
 $apply = new \Duo\ApplyFieldMaterializer($policy, $targetTokens);
+$apply->begin_authored_transaction();
 $apply->reconcile_authored_term_meta(9, ['thumbnail_id' => $canonical]);
 
 $byKey = [];

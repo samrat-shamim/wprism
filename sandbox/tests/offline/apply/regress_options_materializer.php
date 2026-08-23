@@ -138,9 +138,10 @@ $check(
 );
 $applyOptionSubKeysParams = (new ReflectionMethod(OptionsMaterializer::class, 'apply_option_sub_keys'))->getParameters();
 $check(
-    array_map(static fn(ReflectionParameter $p): string => $p->getName(), $applyOptionSubKeysParams) === ['name', 'captured', 'subKeys', 'autoload', 'warnings']
-        && $applyOptionSubKeysParams[4]->isPassedByReference(),
-    'apply_option_sub_keys() takes the caller\'s warnings collection as an explicit by-reference fifth parameter'
+    array_map(static fn(ReflectionParameter $p): string => $p->getName(), $applyOptionSubKeysParams)
+        === ['name', 'captured', 'rule', 'ruleSource', 'autoload', 'warnings']
+        && $applyOptionSubKeysParams[5]->isPassedByReference(),
+    'apply_option_sub_keys() carries the complete effective rule/provenance and explicit by-reference warnings collection'
 );
 
 // === Prove the extraction itself: Apply.php no longer inlines these bodies,

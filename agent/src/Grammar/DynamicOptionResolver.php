@@ -40,12 +40,16 @@ final class DynamicOptionResolver {
         if ($declaration === null) {
             return null;
         }
-        return [
+        $resolved = [
             'name' => $declaration['prefix'] . $resolvedValue,
             'class' => 'env',
             'sub_keys' => $declaration['sub_keys'],
             'autoload' => $declaration['autoload'] ?? null,
         ];
+        if (($declaration['closed_sub_keys'] ?? false) === true) {
+            $resolved['closed_sub_keys'] = true;
+        }
+        return $resolved;
     }
 
     /** @param array<string,string> $resolvedValues */
@@ -83,7 +87,15 @@ final class DynamicOptionResolver {
             }
             $resolved = $this->resolve_dynamic_option($key, $resolvedValue);
             if ($resolved !== null && $resolved['name'] === $name) {
-                return ['class' => $resolved['class'], 'sub_keys' => $resolved['sub_keys'], 'autoload' => $resolved['autoload']];
+                $rule = [
+                    'class' => $resolved['class'],
+                    'sub_keys' => $resolved['sub_keys'],
+                    'autoload' => $resolved['autoload'],
+                ];
+                if (($resolved['closed_sub_keys'] ?? false) === true) {
+                    $rule['closed_sub_keys'] = true;
+                }
+                return $rule;
             }
         }
         return null;
@@ -93,11 +105,15 @@ final class DynamicOptionResolver {
     public function dynamic_option_rule_for_prefix(string $name): ?array {
         foreach ($this->dynamic_options() as $declaration) {
             if (str_starts_with($name, $declaration['prefix'])) {
-                return [
+                $rule = [
                     'class' => 'env',
                     'sub_keys' => $declaration['sub_keys'],
                     'autoload' => $declaration['autoload'] ?? null,
                 ];
+                if (($declaration['closed_sub_keys'] ?? false) === true) {
+                    $rule['closed_sub_keys'] = true;
+                }
+                return $rule;
             }
         }
         return null;

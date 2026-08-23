@@ -4,6 +4,7 @@ namespace Duo;
 require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/../Kernel/StructuredValue.php';
 require_once __DIR__ . '/../Kernel/OrderPreserved.php';
+require_once __DIR__ . '/../Kernel/MetaRows.php';
 
 /**
  * Read-only post/term metadata discovery and authored-value classification.
@@ -38,14 +39,10 @@ final class EntityMetaCapture {
     /** First-value-per-key postmeta context in meta_id order. */
     public function postMetaMap(int $postId): array {
         global $wpdb;
-        $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id = %d ORDER BY meta_id ASC",
-            $postId
-        ), ARRAY_A) ?: [];
-        ($this->checkpointObservationRead)();
+        $rows = $this->ownerMetaRows($wpdb->postmeta, 'post_id', $postId, 'post metadata capture');
         $out = [];
         foreach ($rows as $row) {
-            if (!isset($out[$row['meta_key']])) {
+            if (!array_key_exists($row['meta_key'], $out)) {
                 $out[$row['meta_key']] = $row['meta_value'];
             }
         }
@@ -55,10 +52,7 @@ final class EntityMetaCapture {
     /** All postmeta values grouped by key, preserving meta_id order per key. */
     public function postMetaByKey(int $postId): array {
         global $wpdb;
-        $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id = %d ORDER BY meta_key ASC, meta_id ASC",
-            $postId
-        ), ARRAY_A) ?: [];
+        $rows = $this->ownerMetaRows($wpdb->postmeta, 'post_id', $postId, 'post metadata capture');
         $byKey = [];
         foreach ($rows as $row) {
             $byKey[$row['meta_key']][] = $row['meta_value'];
@@ -69,14 +63,10 @@ final class EntityMetaCapture {
     /** First-value-per-key termmeta context in meta_id order. */
     public function termMetaMap(int $termId): array {
         global $wpdb;
-        $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT meta_key, meta_value FROM {$wpdb->termmeta} WHERE term_id = %d ORDER BY meta_id ASC",
-            $termId
-        ), ARRAY_A) ?: [];
-        ($this->checkpointObservationRead)();
+        $rows = $this->ownerMetaRows($wpdb->termmeta, 'term_id', $termId, 'term metadata capture');
         $out = [];
         foreach ($rows as $row) {
-            if (!isset($out[$row['meta_key']])) {
+            if (!array_key_exists($row['meta_key'], $out)) {
                 $out[$row['meta_key']] = $row['meta_value'];
             }
         }
@@ -86,15 +76,26 @@ final class EntityMetaCapture {
     /** All termmeta values grouped by key, preserving meta_id order per key. */
     public function termMetaByKey(int $termId): array {
         global $wpdb;
-        $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT meta_key, meta_value FROM {$wpdb->termmeta} WHERE term_id = %d ORDER BY meta_key ASC, meta_id ASC",
-            $termId
-        ), ARRAY_A) ?: [];
+        $rows = $this->ownerMetaRows($wpdb->termmeta, 'term_id', $termId, 'term metadata capture');
         $byKey = [];
         foreach ($rows as $row) {
             $byKey[$row['meta_key']][] = $row['meta_value'];
         }
         return $byKey;
+    }
+
+    /**
+     * @return list<array{meta_id:string,meta_key:string,meta_value:?string}>
+     */
+    private function ownerMetaRows(
+        string $table,
+        string $ownerColumn,
+        int $ownerId,
+        string $purpose
+    ): array {
+        $rows = MetaRows::ordered($table, $ownerColumn, $ownerId, 'meta_id', $purpose);
+        ($this->checkpointObservationRead)();
+        return $rows;
     }
 
     /**

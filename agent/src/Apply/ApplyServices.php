@@ -208,6 +208,7 @@ final class ApplyServices {
             $this->tokens,
             $this->apply_planner(),
             $this->snapshot_row_tables(),
+            $this->field_materializer(),
             $this->entity_adopter(),
             $this->term_materializer(),
             $this->post_materializer(),

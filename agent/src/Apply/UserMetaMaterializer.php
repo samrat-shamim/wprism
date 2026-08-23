@@ -5,6 +5,9 @@ require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Grammar/Tokens.php';
 require_once __DIR__ . '/ApplyFieldMaterializer.php';
 require_once __DIR__ . '/../Kernel/StructuredValue.php';
+require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
+require_once __DIR__ . '/../Kernel/MetaRows.php';
+require_once __DIR__ . '/MetaOwnerRangeLock.php';
 // Deliberately NOT require_once('Db.php') here: sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php
 // and regress_adapter_observation.php both stub a fake Duo\Db and reach this
 // file transitively through Apply.php without ever loading the real Db.php;
@@ -24,7 +27,7 @@ require_once __DIR__ . '/../Kernel/StructuredValue.php';
  *
  * Extracted from Apply.php on top of DUO-3347 slice 3's ApplyFieldMaterializer
  * (for the shared upsert_meta() write) -- finalize_user_meta() and its own
- * exact-login resolver (resolve_exact_login(), plus its memoization cache)
+ * exact-login resolver (resolve_exact_login())
  * were otherwise fully self-contained: their only external collaborators were
  * Policy (meta_rule_for_user), Tokens (ref/struct decoding), and the shared
  * meta writer, and resolve_exact_login() had exactly one caller.
@@ -35,9 +38,7 @@ require_once __DIR__ . '/../Kernel/StructuredValue.php';
  * already established.
  */
 final class UserMetaMaterializer {
-    /** @var array<string,int> exact (binary) login -> user id */
-    private array $exactUserIds = [];
-
+    private const MAX_COLLATION_CANDIDATES = 3;
     public function __construct(
         private readonly Policy $policy,
         private readonly Tokens $tokens,
@@ -53,7 +54,36 @@ final class UserMetaMaterializer {
     public function finalize_user_meta(array $front): void {
         global $wpdb;
         $login = (string) ($front['login'] ?? '');
-        $userId = $this->resolve_exact_login($login);
+        DeleteGuardEvaluator::assert_table_identifiers(
+            [$wpdb->users, $wpdb->usermeta],
+            'authored user-meta row locking'
+        );
+        try {
+            $this->fieldMaterializer->prove_lock_tables(
+                [$wpdb->users, $wpdb->usermeta],
+                'authored user-meta row locking'
+            );
+        } catch (\RuntimeException $failure) {
+            if (str_contains($failure->getMessage(), 'requires an active transaction')) {
+                throw new \RuntimeException(
+                    "duo: authored user-meta for exact login '$login' requires an active transaction",
+                    0,
+                    $failure
+                );
+            }
+            throw $failure;
+        }
+        $loginIndex = $this->fieldMaterializer->proven_lock_index(
+            $wpdb->users,
+            'user_login',
+            'exact-login user row'
+        );
+        $userMetaRange = $this->fieldMaterializer->meta_owner_range_lock(
+            $wpdb->usermeta,
+            'user_id',
+            'authored user-meta row locking'
+        );
+        $userId = $this->resolve_exact_login($login, $loginIndex);
         if ($userId === null) {
             throw new \RuntimeException(
                 "duo: user-meta exact login '$login' disappeared after preflight; transaction rolled back"
@@ -87,14 +117,20 @@ final class UserMetaMaterializer {
             $desired[(string) $key] = maybe_serialize($value);
         }
 
-        $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT umeta_id AS meta_id, meta_key, meta_value FROM {$wpdb->usermeta} "
-            . 'WHERE user_id = %d ORDER BY umeta_id ASC',
-            $userId
-        ), ARRAY_A) ?: [];
+        $rows = $userMetaRange->read($userId, 'umeta_id');
         $flat = [];
+        $exactMetaIds = [];
         foreach ($rows as $row) {
-            $flat[$row['meta_key']] ??= $row['meta_value'];
+            if (!array_key_exists($row['meta_key'], $flat)) {
+                // WordPress historically exposes SQL NULL usermeta values as
+                // empty strings; match UserMetaCapture while retaining the
+                // first physical row as policy context when duplicates exist.
+                $flat[$row['meta_key']] = $row['meta_value'] ?? '';
+            }
+            $slot = "k\0" . $row['meta_key'];
+            if (!isset($exactMetaIds[$slot])) {
+                $exactMetaIds[$slot] = MetaRows::positive_id($row['meta_id']);
+            }
         }
         $kept = [];
         foreach ($rows as $row) {
@@ -103,11 +139,12 @@ final class UserMetaMaterializer {
                 continue;
             }
             $key = (string) $row['meta_key'];
+            $slot = "k\0" . $key;
             // Canonical authored user meta is deliberately single-valued.
             // Remove every absent owned row and all but the first existing
             // row before upsert, so a dirty target cannot retain duplicates
             // that would make the verification capture refuse.
-            if (!array_key_exists($key, $desired) || isset($kept[$key])) {
+            if (!array_key_exists($key, $desired) || isset($kept[$slot])) {
                 Db::delete(
                     $wpdb->usermeta,
                     ['umeta_id' => (int) $row['meta_id']],
@@ -116,15 +153,22 @@ final class UserMetaMaterializer {
                 );
                 continue;
             }
-            $kept[$key] = true;
+            $kept[$slot] = true;
         }
         foreach ($desired as $key => $value) {
-            $this->fieldMaterializer->upsert_meta(
+            $rule = $this->policy->meta_rule_for_user((string) $key, $flat);
+            if (($rule['class'] ?? null) !== 'authored') {
+                throw new \RuntimeException(
+                    "duo: user-meta '$key' for exact login '$login' is not authored in the locked target context"
+                );
+            }
+            $this->fieldMaterializer->upsert_locked_authored_meta(
                 $wpdb->usermeta,
                 'user_id',
                 $userId,
                 $key,
                 $value,
+                $exactMetaIds["k\0" . $key] ?? null,
                 "apply reconcile authored user meta for exact login '$login'",
                 'umeta_id'
             );
@@ -132,19 +176,53 @@ final class UserMetaMaterializer {
         wp_cache_delete($userId, 'user_meta');
     }
 
-    /** Exact byte/case login lookup for the user-meta owning-user boundary. */
-    private function resolve_exact_login(string $login): ?int {
+    /**
+     * Lock the complete collation-equal login range, then choose one exact
+     * byte/case identity in PHP. The indexed equality predicate preserves
+     * next-key/gap locking; putting BINARY around the indexed column would
+     * make that proof optimizer-dependent.
+     */
+    private function resolve_exact_login(string $login, string $index): ?int {
         global $wpdb;
         if ($login === '') {
             return null;
         }
-        if (!array_key_exists($login, $this->exactUserIds)) {
-            $id = $wpdb->get_var($wpdb->prepare(
-                "SELECT ID FROM {$wpdb->users} WHERE BINARY user_login = BINARY %s LIMIT 1",
-                $login
-            ));
-            $this->exactUserIds[$login] = $id ? (int) $id : 0;
+        DeleteGuardEvaluator::assert_transaction_isolation('exact-login user row');
+        $wpdb->last_error = '';
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT ID, user_login FROM {$wpdb->users} FORCE INDEX (`$index`) "
+            . 'WHERE user_login = %s ORDER BY ID ASC LIMIT ' . self::MAX_COLLATION_CANDIDATES . ' FOR UPDATE',
+            $login
+        ), ARRAY_A);
+        if (!is_array($rows) || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException(
+                'duo: exact-login locked user read failed; transaction rolled back'
+            );
         }
-        return $this->exactUserIds[$login] ?: null;
+        return $this->exact_user_id_from_locked_rows($login, $rows);
     }
+
+    /** @param list<array<string,mixed>> $rows */
+    private function exact_user_id_from_locked_rows(string $login, array $rows): ?int {
+        if (count($rows) > 1) {
+            throw new \RuntimeException(
+                'duo: exact-login lookup is ambiguous under the target collation; transaction rolled back'
+            );
+        }
+        if ($rows === []) {
+            return null;
+        }
+        $row = $rows[0];
+        if (!is_array($row)
+            || MetaRows::positive_id($row['ID'] ?? null) === null
+            || !is_string($row['user_login'] ?? null)) {
+            throw new \RuntimeException(
+                'duo: exact-login locked user row is malformed; transaction rolled back'
+            );
+        }
+        return hash_equals($login, $row['user_login'])
+            ? MetaRows::positive_id($row['ID'])
+            : null;
+    }
+
 }

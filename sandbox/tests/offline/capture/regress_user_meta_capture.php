@@ -97,20 +97,105 @@ final class UserMetaCaptureTokensFixture {
 final class UserMetaCaptureWpdbFixture {
     public string $users = 'wp_users';
     public string $usermeta = 'wp_usermeta';
+    public string $last_error = '';
     public string $sql = '';
-    /** @var array<int,array<string,mixed>> */
-    public array $rows;
+    /** @var list<string> */
+    public array $queries = [];
+    public mixed $forcedResult = null;
+    public ?string $forcedPattern = null;
+    public bool $forcedError = false;
+    public bool $hasOrphan = false;
+    /** @var array<int,array{user_id:string,user_login:mixed}> */
+    private array $userRows = [];
+    /** @var list<array{meta_id:string,user_id:string,meta_key:mixed,meta_value:mixed}> */
+    private array $metaRows = [];
 
     public function __construct(array $rows) {
-        $this->rows = $rows;
+        $metaId = 0;
+        foreach ($rows as $row) {
+            $id = (string) ($row['user_id'] ?? '');
+            $this->userRows[$id] = ['user_id' => $id, 'user_login' => $row['user_login'] ?? null];
+            if (($row['meta_key'] ?? null) === null) continue;
+            $this->metaRows[] = [
+                'meta_id' => (string) (++$metaId),
+                'user_id' => $id,
+                'meta_key' => $row['meta_key'],
+                'meta_value' => $row['meta_value'] ?? null,
+            ];
+        }
     }
 
-    public function get_results(string $sql, mixed $mode): array {
+    public function prepare(string $sql, ...$args): string {
+        foreach ($args as $arg) {
+            $sql = preg_replace('/%d/', (string) $arg, $sql, 1);
+        }
+        return $sql;
+    }
+
+    public function get_results(string $sql, mixed $mode): mixed {
         if ($mode !== ARRAY_A) {
             throw new \RuntimeException('fixture expected ARRAY_A');
         }
         $this->sql = $sql;
-        return $this->rows;
+        $this->queries[] = $sql;
+        if ($this->forcedPattern !== null && str_contains($sql, $this->forcedPattern)) {
+            if ($this->forcedError) $this->last_error = 'simulated user-meta read error';
+            return $this->forcedResult;
+        }
+        if (str_contains($sql, 'WHERE u.ID IS NULL')) {
+            return $this->hasOrphan ? [['meta_id' => '999']] : [];
+        }
+        if (str_contains($sql, 'INNER JOIN wp_users b')) {
+            $rows = array_values($this->userRows);
+            foreach ($rows as $left) {
+                foreach ($rows as $right) {
+                    if ((int) $right['user_id'] > (int) $left['user_id']
+                        && strcasecmp((string) $right['user_login'], (string) $left['user_login']) === 0) {
+                        return [['left_id' => $left['user_id'], 'right_id' => $right['user_id']]];
+                    }
+                }
+            }
+            return [];
+        }
+        if (str_contains($sql, 'OCTET_LENGTH(user_login)')) {
+            preg_match('/WHERE ID > ([0-9]+)/', $sql, $match);
+            $after = (int) ($match[1] ?? 0);
+            $rows = array_values(array_filter($this->userRows,
+                static fn(array $row): bool => (int) $row['user_id'] > $after));
+            usort($rows, static fn(array $a, array $b): int => (int) $a['user_id'] <=> (int) $b['user_id']);
+            return array_map(static fn(array $row): array => [
+                'user_id' => $row['user_id'],
+                'user_login_bytes' => is_string($row['user_login'])
+                    ? (string) strlen($row['user_login'])
+                    : null,
+            ], array_slice($rows, 0, 501));
+        }
+        $ids = $this->ids($sql);
+        if (str_contains($sql, 'SELECT ID AS user_id, user_login')) {
+            $rows = array_values(array_filter($this->userRows,
+                static fn(array $row): bool => in_array((int) $row['user_id'], $ids, true)));
+            usort($rows, static fn(array $a, array $b): int => (int) $a['user_id'] <=> (int) $b['user_id']);
+            return $rows;
+        }
+        $rows = array_values(array_filter($this->metaRows,
+            static fn(array $row): bool => in_array((int) $row['user_id'], $ids, true)));
+        usort($rows, static fn(array $a, array $b): int =>
+            [(int) $a['user_id'], (int) $a['meta_id']] <=> [(int) $b['user_id'], (int) $b['meta_id']]);
+        if (str_contains($sql, 'OCTET_LENGTH(meta_key)')) {
+            return array_map(static fn(array $row): array => [
+                'meta_id' => $row['meta_id'],
+                'user_id' => $row['user_id'],
+                'meta_key_bytes' => is_string($row['meta_key']) ? (string) strlen($row['meta_key']) : null,
+                'meta_value_bytes' => is_string($row['meta_value']) ? (string) strlen($row['meta_value']) : null,
+            ], $rows);
+        }
+        return $rows;
+    }
+
+    /** @return list<int> */
+    private function ids(string $sql): array {
+        if (preg_match('/WHERE (?:ID|user_id) IN \(([^)]+)\)/', $sql, $match) !== 1) return [];
+        return array_map('intval', explode(',', $match[1]));
     }
 }
 
@@ -155,12 +240,23 @@ $capture = new UserMetaCapture(
 );
 
 $entities = $capture->capture(['alpha', '', 'alpha']);
-$normalizeSql = static fn(string $sql): string => preg_replace('/\s+/', ' ', trim($sql)) ?? '';
 $check(
-    $normalizeSql($wpdb->sql) === 'SELECT u.ID AS user_id, u.user_login, um.meta_key, um.meta_value FROM wp_users u LEFT JOIN wp_usermeta um ON um.user_id = u.ID ORDER BY u.ID ASC, um.umeta_id ASC',
-    'one read preserves the exact user ownership join and deterministic SQL order'
+    count($wpdb->queries) === 6
+        && str_contains($wpdb->queries[0], 'WHERE u.ID IS NULL')
+        && str_contains($wpdb->queries[1], 'INNER JOIN wp_users b')
+        && str_contains($wpdb->queries[2], 'OCTET_LENGTH(user_login)')
+        && str_contains($wpdb->queries[4], 'OCTET_LENGTH(meta_key)')
+        && str_contains($wpdb->queries[5], 'meta_key, meta_value'),
+    'capture streams one bounded user chunk through compact user/meta preflights before full values'
 );
-$check($dbChecks === ['Capture::user_meta_maps()'], 'the transient DB checkpoint runs immediately after the user-meta read');
+$check($dbChecks === [
+    'Capture::user_meta_orphan_check()',
+    'Capture::user_meta_login_ambiguity_check()',
+    'Capture::user_meta_users_size_preflight()',
+    'Capture::user_meta_users_value_read()',
+    'Capture::user_meta_size_preflight()',
+    'Capture::user_meta_value_read()',
+], 'the transient DB checkpoint runs immediately after every bounded user-meta read');
 $check(
     array_map(static fn(array $entity): string => json_decode($entity['content'], true)['login'], $entities)
         === ['alpha', 'editor', 'zeta'],
@@ -258,6 +354,86 @@ $throws(
     static fn() => $duplicateCapture->capture([]),
     "multi-value authored user meta 'duplicate' on exact login 'duplicate-user'",
     'multi-value authored user meta still refuses instead of choosing a row'
+);
+
+$captureForWpdb = static function (UserMetaCaptureWpdbFixture $fixture): UserMetaCapture {
+    $GLOBALS['wpdb'] = $fixture;
+    return new UserMetaCapture(
+        new UserMetaCapturePolicyFixture(),
+        new UserMetaCaptureTokensFixture(),
+        static function (): void {},
+        static function (): void {},
+        static function (): void {}
+    );
+};
+
+$orphanWpdb = new UserMetaCaptureWpdbFixture($rows);
+$orphanWpdb->hasOrphan = true;
+$throws(
+    static fn() => $captureForWpdb($orphanWpdb)->capture([]),
+    'metadata without an exact user owner',
+    'orphan usermeta refuses instead of disappearing from a login-keyed source projection'
+);
+
+$aliasWpdb = new UserMetaCaptureWpdbFixture([
+    ['user_id' => '1', 'user_login' => 'Editor', 'meta_key' => 'plain', 'meta_value' => 'one'],
+    ['user_id' => '2', 'user_login' => 'editor', 'meta_key' => 'plain', 'meta_value' => 'two'],
+]);
+$throws(
+    static fn() => $captureForWpdb($aliasWpdb)->capture([]),
+    'collation-equal duplicate login identities',
+    'source collation aliases refuse before one exact login can overwrite another'
+);
+
+$falseReadWpdb = new UserMetaCaptureWpdbFixture($rows);
+$falseReadWpdb->forcedPattern = 'WHERE u.ID IS NULL';
+$falseReadWpdb->forcedResult = false;
+$throws(
+    static fn() => $captureForWpdb($falseReadWpdb)->capture([]),
+    'failed or returned a malformed row list',
+    'false DB results never become an empty user-meta source'
+);
+
+$malformedUserWpdb = new UserMetaCaptureWpdbFixture($rows);
+$malformedUserWpdb->forcedPattern = 'OCTET_LENGTH(user_login)';
+$malformedUserWpdb->forcedResult = [['user_id' => '01', 'user_login_bytes' => '5']];
+$throws(
+    static fn() => $captureForWpdb($malformedUserWpdb)->capture([]),
+    'user size preflight returned a malformed row',
+    'noncanonical source user identities refuse before login bytes are transferred'
+);
+
+$oversizedMetaWpdb = new UserMetaCaptureWpdbFixture([
+    ['user_id' => '1', 'user_login' => 'bounded', 'meta_key' => 'plain', 'meta_value' => 'small'],
+]);
+$oversizedMetaWpdb->forcedPattern = 'OCTET_LENGTH(meta_key)';
+$oversizedMetaWpdb->forcedResult = [[
+    'meta_id' => '1',
+    'user_id' => '1',
+    'meta_key_bytes' => '5',
+    'meta_value_bytes' => (string) (\Duo\MetaRows::MAX_META_VALUE_BYTES + 1),
+]];
+$throws(
+    static fn() => $captureForWpdb($oversizedMetaWpdb)->capture([]),
+    'malformed/oversized row',
+    'oversized user-meta LONGTEXT refuses at the compact preflight'
+);
+$check(
+    count(array_filter(
+        $oversizedMetaWpdb->queries,
+        static fn(string $sql): bool => str_contains($sql, 'meta_key, meta_value')
+    )) === 0,
+    'oversized user-meta refuses before any full-value query'
+);
+
+$nullValueWpdb = new UserMetaCaptureWpdbFixture([
+    ['user_id' => '1', 'user_login' => 'nullable', 'meta_key' => 'plain', 'meta_value' => null],
+]);
+$nullEntities = $captureForWpdb($nullValueWpdb)->capture([]);
+$nullDocument = json_decode((string) ($nullEntities[0]['content'] ?? ''), true);
+$check(
+    is_array($nullDocument) && ($nullDocument['meta']['plain'] ?? null) === 'tokenized:',
+    'valid nullable wp_usermeta values preserve the historical empty-string capture semantics'
 );
 
 $GLOBALS['wpdb'] = new UserMetaCaptureWpdbFixture($rows);

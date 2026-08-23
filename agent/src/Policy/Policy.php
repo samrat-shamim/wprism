@@ -12,6 +12,7 @@ require_once __DIR__ . '/../Rebuild/NativeActions.php';
 // reason NativeActions is.
 require_once __DIR__ . '/../Adapter/AdapterSources.php';
 require_once __DIR__ . '/../Kernel/ReferenceRules.php';
+require_once __DIR__ . '/../Kernel/PlainData.php';
 // DUO-3348 first extraction slice: the pure table/widget declaration grammar,
 // required here for the same "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/ManifestGrammar.php';
@@ -1718,6 +1719,166 @@ final class Policy {
             );
         }
         return $details['rule'];
+    }
+
+    /**
+     * Optional manifest-owned native materialization for a mixed option.
+     * The engine resolves references and enforces the closed sibling registry;
+     * only the interpreter paired with an exact declaring manifest may replace
+     * the generic SQL merge. The hook executes inside Apply's authored
+     * transaction, so a warning, save failure, or postcondition mismatch rolls
+     * back with every other canonical mutation.
+     */
+    public function materialize_option_sub_keys_via_interpreter(
+        string $name,
+        array $captured,
+        array $effectiveRule,
+        ?string $effectiveSource,
+        string $autoload,
+        ?array $targetValue,
+        \Closure $lockTargetOption,
+        \Closure $finalizeStorage,
+        \Closure $restoreStorage
+    ): bool {
+        $candidate = $this->option_sub_key_interpreter_candidate(
+            $name,
+            $effectiveRule,
+            $effectiveSource,
+            'materialize_option_sub_keys',
+            'native materialization'
+        );
+        if ($candidate === null) {
+            return false;
+        }
+        $handled = $candidate['interpreter']->materialize_option_sub_keys(
+            $name,
+            $captured,
+            (array) ($effectiveRule['sub_keys'] ?? []),
+            $autoload,
+            $targetValue,
+            $lockTargetOption,
+            $finalizeStorage,
+            $restoreStorage
+        );
+        if (!is_bool($handled)) {
+            throw new \RuntimeException(
+                "duo: interpreter '{$candidate['interpreter_name']}' materialize_option_sub_keys() must return a boolean"
+            );
+        }
+        if (!$handled) {
+            throw new \RuntimeException(
+                "duo: interpreter '{$candidate['interpreter_name']}' is the exact native materialization owner for "
+                . "option '$name' but returned false after dispatch; generic SQL fallback is forbidden"
+            );
+        }
+        return true;
+    }
+
+    /**
+     * Let an exact interpreter fill plugin-native defaults and normalize raw
+     * authored siblings before the ordinary secret/ref/text capture codec.
+     * The hook never receives repository tokens, and every returned value is
+     * subsequently guarded and encoded through the declared sub-key rule.
+     */
+    public function normalize_captured_option_sub_keys_via_interpreter(
+        string $name,
+        array $rawAuthored,
+        array $effectiveRule,
+        ?string $effectiveSource
+    ): array {
+        $candidate = $this->option_sub_key_interpreter_candidate(
+            $name,
+            $effectiveRule,
+            $effectiveSource,
+            'normalize_captured_option_sub_keys',
+            'native capture normalization'
+        );
+        if ($candidate === null) {
+            return $rawAuthored;
+        }
+        $normalized = $candidate['interpreter']->normalize_captured_option_sub_keys(
+            $name,
+            $rawAuthored,
+            (array) ($effectiveRule['sub_keys'] ?? [])
+        );
+        if (!is_array($normalized) || ($normalized !== [] && array_is_list($normalized))) {
+            throw new \RuntimeException(
+                "duo: interpreter '{$candidate['interpreter_name']}' normalize_captured_option_sub_keys() "
+                . 'must return an object-shaped array'
+            );
+        }
+        foreach (array_keys($rawAuthored) as $subKey) {
+            if (!array_key_exists($subKey, $normalized)) {
+                throw new \RuntimeException(
+                    "duo: interpreter '{$candidate['interpreter_name']}' native capture normalization dropped "
+                    . "already-present authored option '$name.$subKey'"
+                );
+            }
+        }
+        $subKeys = (array) ($effectiveRule['sub_keys'] ?? []);
+        foreach ($normalized as $subKey => $value) {
+            if (($subKeys[(string) $subKey]['class'] ?? null) !== 'authored') {
+                throw new \RuntimeException(
+                    "duo: interpreter '{$candidate['interpreter_name']}' native capture normalization returned "
+                    . "undeclared/non-authored option '$name.$subKey'"
+                );
+            }
+            PlainData::assert($value, "interpreter-normalized option $name.$subKey");
+        }
+        return $normalized;
+    }
+
+    /** @return ?array{interpreter_name:string,interpreter:object,manifest_name:string} */
+    private function option_sub_key_interpreter_candidate(
+        string $name,
+        array $effectiveRule,
+        ?string $effectiveSource,
+        string $hook,
+        string $operation
+    ): ?array {
+        $interpreters = $this->interpreters();
+        $candidates = [];
+        foreach ($this->manifests as $manifest) {
+            $declaredSubKeys = $manifest['options'][$name]['sub_keys'] ?? null;
+            $interpreterName = $manifest['interpreter'] ?? null;
+            if (!is_array($declaredSubKeys)
+                || !is_string($interpreterName)
+                || !isset($interpreters[$interpreterName])
+                || !method_exists($interpreters[$interpreterName], $hook)) {
+                continue;
+            }
+            $manifestName = (string) ($manifest['name'] ?? '');
+            $declaredRule = self::with_option_autoload((array) $manifest['options'][$name], $manifest);
+            if ($effectiveSource !== $manifestName || $declaredRule !== $effectiveRule) {
+                throw new \RuntimeException(
+                    "duo: interpreter '$interpreterName' $operation declaration for option '$name' is owned by "
+                    . "manifest '$manifestName', but the full effective rule/provenance differs; refusing hook dispatch"
+                );
+            }
+            if (($effectiveRule['closed_sub_keys'] ?? null) !== true) {
+                throw new \RuntimeException(
+                    "duo: interpreter '$interpreterName' $operation declaration for option '$name' is not a "
+                    . 'closed_sub_keys registry; native hook dispatch is forbidden'
+                );
+            }
+            $candidates[] = [
+                'interpreter_name' => $interpreterName,
+                'interpreter' => $interpreters[$interpreterName],
+                'manifest_name' => $manifestName,
+            ];
+        }
+        if (count($candidates) > 1) {
+            $owners = array_map(
+                static fn(array $candidate): string => "'{$candidate['manifest_name']}'/"
+                    . "'{$candidate['interpreter_name']}'",
+                $candidates
+            );
+            throw new \RuntimeException(
+                "duo: option '$name' $operation has multiple exact manifest/interpreter owners: "
+                . implode(', ', $owners)
+            );
+        }
+        return $candidates[0] ?? null;
     }
 
     /**

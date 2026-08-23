@@ -41,6 +41,8 @@ require_once __DIR__ . '/../Policy/Policy.php';
  * second place.
  */
 final class SubKeyGrammar {
+    private const CLOSED_UNKNOWN_DIAGNOSTIC_LIMIT = 4;
+
     /**
      * Loud, load-time guard for sub_keyed_options()'s manifest input (same
      * "throw immediately, never degrade silently" posture as
@@ -66,7 +68,18 @@ final class SubKeyGrammar {
     public static function validate_sub_keys(array $source, string $label): void {
         foreach ($source['options'] ?? [] as $optName => $rule) {
             $subKeys = $rule['sub_keys'] ?? null;
+            if (array_key_exists('closed_sub_keys', $rule)
+                && !is_bool($rule['closed_sub_keys'])) {
+                throw new \RuntimeException(
+                    "duo: $label options.$optName.closed_sub_keys must be a boolean"
+                );
+            }
             if ($subKeys === null) {
+                if (array_key_exists('closed_sub_keys', $rule)) {
+                    throw new \RuntimeException(
+                        "duo: $label options.$optName declares closed_sub_keys without sub_keys"
+                    );
+                }
                 continue;
             }
             if (!is_array($subKeys) || !$subKeys) {
@@ -94,6 +107,47 @@ final class SubKeyGrammar {
                 }
             }
         }
+    }
+
+    /**
+     * A mixed option can be safely target-preserving only when its manifest
+     * names the complete sibling vocabulary. Closed declarations reject an
+     * unknown key regardless of its current value: an empty/false value can
+     * be a newly introduced feature flag, and the engine has no authority to
+     * infer that it is inert. A plugin with a real scaffold exception must
+     * declare that key and classify it explicitly.
+     */
+    public static function assert_closed_value(
+        string $name,
+        array $rule,
+        array $value,
+        string $where
+    ): void {
+        if (empty($rule['closed_sub_keys'])) {
+            return;
+        }
+        $known = (array) ($rule['sub_keys'] ?? []);
+        $unknownCount = 0;
+        $fingerprints = [];
+        foreach (array_keys($value) as $key) {
+            if (!array_key_exists((string) $key, $known)) {
+                ++$unknownCount;
+                if (count($fingerprints) < self::CLOSED_UNKNOWN_DIAGNOSTIC_LIMIT) {
+                    $raw = (string) $key;
+                    $fingerprints[] = (is_int($key) ? 'integer' : 'string')
+                        . ':' . strlen($raw) . ':' . substr(hash('sha256', $raw), 0, 16);
+                }
+            }
+        }
+        if ($unknownCount === 0) {
+            return;
+        }
+        sort($fingerprints, SORT_STRING);
+        throw new \RuntimeException(
+            "duo: $where option '$name' contains $unknownCount undeclared sibling key(s) "
+            . '(bounded key fingerprints: ' . implode(', ', $fingerprints) . ')'
+            . '; closed_sub_keys requires an explicit authored/runtime/derived/env classification for every key'
+        );
     }
 
     private const SUB_KEY_PARENT_VALUE_FIELDS = [
@@ -166,6 +220,12 @@ final class SubKeyGrammar {
         foreach ($manifest['dynamic_options'] ?? [] as $key => $decl) {
             if (!is_array($decl)) {
                 throw new \RuntimeException("duo: manifest '$name' declares dynamic_options.$key that is not an object");
+            }
+            if (array_key_exists('closed_sub_keys', $decl)
+                && !is_bool($decl['closed_sub_keys'])) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' dynamic_options.$key.closed_sub_keys must be a boolean"
+                );
             }
             if (array_key_exists('class', $decl)) {
                 throw new \RuntimeException(

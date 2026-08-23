@@ -39,6 +39,7 @@ function maybe_serialize($value) {
         ? serialize($value)
         : $value;
 }
+function wp_cache_delete($key, string $group = ''): bool { return false; }
 
 require __DIR__ . '/../../../../agent/src/Kernel/TransientDbException.php';
 require __DIR__ . '/../../../../agent/src/Kernel/Db.php';
@@ -71,6 +72,7 @@ final class PostFieldFakeWpdb {
     public string $term_relationships = 'wp_term_relationships';
     public string $last_error = '';
     public int $insert_id = 100;
+    public bool $savepointExists = false;
     /** @var array<string,int> */
     public array $map = [];
     /** @var array<int,array{table:string,data:array,where:array}> */
@@ -89,6 +91,12 @@ final class PostFieldFakeWpdb {
     }
 
     public function get_var(string $sql) {
+        if ($sql === 'SELECT @@in_transaction') {
+            return '1';
+        }
+        if ($sql === 'SELECT 1 FROM `wp_postmeta` LIMIT 1') {
+            return '1';
+        }
         if (str_contains($sql, 'SELECT local_id FROM wp_duo_map')) {
             preg_match("/uuid = '([^']+)'/", $sql, $m);
             return $this->map[$m[1] ?? ''] ?? null;
@@ -101,6 +109,23 @@ final class PostFieldFakeWpdb {
     }
 
     public function get_results(string $sql, $format = null): array {
+        if (str_contains($sql, 'information_schema.TABLES')) {
+            return [['TABLE_NAME' => 'wp_postmeta', 'ENGINE' => 'InnoDB']];
+        }
+        if (str_starts_with($sql, 'SHOW INDEX FROM `wp_postmeta`')) {
+            return [[
+                'Key_name' => 'post_id',
+                'Column_name' => 'post_id',
+                'Seq_in_index' => '1',
+                'Sub_part' => null,
+                'Non_unique' => '1',
+                'Index_type' => 'BTREE',
+                'Visible' => 'YES',
+            ]];
+        }
+        if (str_contains($sql, 'FROM `wp_postmeta` FORCE INDEX')) {
+            return [];
+        }
         return [];
     }
 
@@ -115,7 +140,19 @@ final class PostFieldFakeWpdb {
         return 1;
     }
 
-    public function query(string $sql): int {
+    public function query(string $sql): int|false {
+        if (str_starts_with($sql, 'SAVEPOINT `')) {
+            $this->savepointExists = true;
+            return 0;
+        }
+        if (str_starts_with($sql, 'RELEASE SAVEPOINT `')) {
+            if (!$this->savepointExists) {
+                $this->last_error = 'SAVEPOINT does not exist';
+                return false;
+            }
+            $this->savepointExists = false;
+            return 0;
+        }
         return 1;
     }
 }
@@ -291,6 +328,7 @@ function option_authorization_diagnostics(Policy $policy, array $document): arra
 
 function apply_instance(Policy $policy, Tokens $tokens): \Duo\PostMaterializer {
     $fieldMaterializer = new \Duo\ApplyFieldMaterializer($policy, $tokens);
+    $fieldMaterializer->begin_authored_transaction();
     $compiled = (new ReflectionClass(CompiledRepository::class))->newInstanceWithoutConstructor();
     return new \Duo\PostMaterializer(
         $policy,

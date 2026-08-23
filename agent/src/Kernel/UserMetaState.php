@@ -22,9 +22,14 @@ final class UserMetaState {
     }
 
     public static function assert_login(string $login): void {
-        if ($login === '' || strlen($login) > 60 || preg_match('/[\x00-\x1f\x7f]/', $login)) {
+        $characters = strlen($login) <= 240 ? preg_match_all('/./us', $login) : false;
+        if ($login === ''
+            || strlen($login) > 240
+            || !is_int($characters)
+            || $characters > 60
+            || preg_match('/[\x00-\x1f\x7f]/', $login)) {
             throw new \RuntimeException(
-                'duo: user-meta login must be a non-empty, control-free WordPress user_login of at most 60 bytes'
+                'duo: user-meta login must be a non-empty, control-free WordPress user_login of at most 60 characters'
             );
         }
     }

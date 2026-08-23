@@ -6,6 +6,7 @@ require_once __DIR__ . '/../Kernel/StructuredValue.php';
 require_once __DIR__ . '/../Kernel/OrderPreserved.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/UserMetaState.php';
+require_once __DIR__ . '/../Kernel/MetaRows.php';
 
 /**
  * Read-only capture of login-keyed authored user-meta sidecars.
@@ -18,6 +19,12 @@ require_once __DIR__ . '/../Kernel/UserMetaState.php';
  * canonical bytes ready for Capture's ordinary publication pipeline.
  */
 final class UserMetaCapture {
+    private const MAX_USERS = 1000000;
+    private const USER_CHUNK_SIZE = 500;
+    private const MAX_USER_LOGIN_CHARACTERS = 60;
+    private const MAX_USER_LOGIN_BYTES = 240;
+    private const MAX_CHUNK_META_ROWS = 250000;
+    private const MAX_CHUNK_META_BYTES = 134217728;
     private object $policy;
     private object $tokens;
     private \Closure $guardSecret;
@@ -47,15 +54,10 @@ final class UserMetaCapture {
      */
     public function capture(array $carriedLogins): array {
         $carry = array_fill_keys(array_filter(array_map('strval', $carriedLogins)), true);
-        $users = [];
+        $outByLogin = [];
         foreach ($this->userMetaMaps() as $user) {
             UserMetaState::assert_login($user['login']);
-            $users[$user['login']] = $user;
-        }
-        ksort($users, SORT_STRING);
-
-        $out = [];
-        foreach ($users as $login => $user) {
+            $login = $user['login'];
             $authored = [];
             foreach ($user['values'] as $key => $values) {
                 [$store, $value] = $this->classifyValue(
@@ -72,7 +74,7 @@ final class UserMetaCapture {
                 continue;
             }
             $document = UserMetaState::document($login, $authored);
-            $out[] = [
+            $outByLogin[$login] = [
                 // Canonical-state key only: not a UUID, never duo_map.
                 'uuid' => UserMetaState::key($login),
                 'type' => 'user-meta',
@@ -80,41 +82,285 @@ final class UserMetaCapture {
                 'content' => Canon::encode($document),
             ];
         }
-        return $out;
+        // Only canonical outputs survive a chunk. A sparse million-user site
+        // with no authored sidecars therefore retains zero raw user/meta maps
+        // instead of accumulating the complete roster before classification.
+        ksort($outByLogin, SORT_STRING);
+        return array_values($outByLogin);
     }
 
     /**
      * Whole-user meta context for the optional interpreter hook. The join
      * excludes orphaned usermeta rows, which have no exact login owner.
      *
-     * @return array<int, array{login:string,meta:array<string,mixed>,values:array<string,string[]>}>
+     * @return \Generator<int, array{login:string,meta:array<string,mixed>,values:array<string,string[]>}>
      */
-    private function userMetaMaps(): array {
+    private function userMetaMaps(): \Generator {
         global $wpdb;
-        $rows = $wpdb->get_results(
-            "SELECT u.ID AS user_id, u.user_login, um.meta_key, um.meta_value
-             FROM {$wpdb->users} u
-             LEFT JOIN {$wpdb->usermeta} um ON um.user_id = u.ID
-             ORDER BY u.ID ASC, um.umeta_id ASC",
-            ARRAY_A
-        ) ?: [];
-        ($this->checkTransientDbError)('Capture::user_meta_maps()');
-        $out = [];
-        foreach ($rows as $row) {
-            $userId = (int) $row['user_id'];
-            $out[$userId]['login'] = (string) $row['user_login'];
-            $out[$userId]['meta'] ??= [];
-            $out[$userId]['values'] ??= [];
-            if ($row['meta_key'] === null) {
-                continue;
+        $this->assertNoOrphanMeta();
+        $this->assertNoCollationEqualLogins();
+
+        $lastUserId = 0;
+        $seenUsers = 0;
+        while (true) {
+            $preflight = $this->checkedRows(
+                $wpdb->prepare(
+                    'SELECT ID AS user_id, OCTET_LENGTH(user_login) AS user_login_bytes '
+                    . "FROM {$wpdb->users} WHERE ID > %d ORDER BY ID ASC LIMIT "
+                    . (self::USER_CHUNK_SIZE + 1),
+                    $lastUserId
+                ),
+                'Capture::user_meta_users_size_preflight()'
+            );
+            if ($preflight === []) {
+                return;
             }
-            $key = (string) $row['meta_key'];
-            $out[$userId]['values'][$key][] = (string) $row['meta_value'];
-            if (!array_key_exists($key, $out[$userId]['meta'])) {
-                $out[$userId]['meta'][$key] = (string) $row['meta_value'];
+            $hasMore = count($preflight) > self::USER_CHUNK_SIZE;
+            if ($hasMore) {
+                $preflight = array_slice($preflight, 0, self::USER_CHUNK_SIZE);
+            }
+            $expectedUsers = [];
+            foreach ($preflight as $position => $row) {
+                $id = is_array($row) ? MetaRows::positive_id($row['user_id'] ?? null) : null;
+                $bytes = is_array($row) ? self::nonnegativeSize($row['user_login_bytes'] ?? null) : null;
+                if (!is_array($row)
+                    || array_keys($row) !== ['user_id', 'user_login_bytes']
+                    || $id === null
+                    || $id <= $lastUserId
+                    || $bytes === null
+                    || $bytes === 0
+                    || $bytes > self::MAX_USER_LOGIN_BYTES) {
+                    throw new \RuntimeException(
+                        "duo: user-meta user size preflight returned a malformed row at bounded position $position"
+                    );
+                }
+                $expectedUsers[$id] = ['id' => $row['user_id'], 'login_bytes' => $bytes];
+                $lastUserId = $id;
+                ++$seenUsers;
+                if ($seenUsers > self::MAX_USERS) {
+                    throw new \RuntimeException('duo: user-meta capture exceeds the bounded user limit');
+                }
+            }
+            $ids = array_keys($expectedUsers);
+            $placeholders = implode(',', array_fill(0, count($ids), '%d'));
+            $userRows = $this->checkedRows(
+                $wpdb->prepare(
+                    "SELECT ID AS user_id, user_login FROM {$wpdb->users} "
+                    . "WHERE ID IN ($placeholders) ORDER BY ID ASC LIMIT " . (count($ids) + 1),
+                    ...$ids
+                ),
+                'Capture::user_meta_users_value_read()'
+            );
+            if (count($userRows) !== count($expectedUsers)) {
+                throw new \RuntimeException('duo: user-meta users changed after the bounded size preflight');
+            }
+            $users = [];
+            $loginHashes = [];
+            foreach ($userRows as $position => $row) {
+                $id = is_array($row) ? MetaRows::positive_id($row['user_id'] ?? null) : null;
+                $login = is_array($row) ? ($row['user_login'] ?? null) : null;
+                $witness = $id === null ? null : ($expectedUsers[$id] ?? null);
+                $characters = is_string($login) && strlen($login) <= self::MAX_USER_LOGIN_BYTES
+                    ? preg_match_all('/./us', $login)
+                    : false;
+                if (!is_array($row)
+                    || array_keys($row) !== ['user_id', 'user_login']
+                    || $id === null
+                    || $witness === null
+                    || !is_string($login)
+                    || strlen($login) !== $witness['login_bytes']
+                    || !is_int($characters)
+                    || $characters === 0
+                    || $characters > self::MAX_USER_LOGIN_CHARACTERS) {
+                    throw new \RuntimeException(
+                        "duo: user-meta user value read returned a malformed row at bounded position $position"
+                    );
+                }
+                UserMetaState::assert_login($login);
+                $loginHash = hash('sha256', $login);
+                if (isset($loginHashes[$loginHash])) {
+                    throw new \RuntimeException('duo: user-meta capture found duplicate exact login identities');
+                }
+                $loginHashes[$loginHash] = true;
+                $users[$id] = ['login' => $login, 'meta' => [], 'values' => []];
+            }
+
+            $this->fillUserMetaChunk($users, $ids, $placeholders);
+            foreach ($users as $user) {
+                yield $user;
+            }
+            if (!$hasMore) {
+                return;
             }
         }
-        return $out;
+    }
+
+    /** @param array<int,array{login:string,meta:array,values:array}> $users @param list<int> $ids */
+    private function fillUserMetaChunk(array &$users, array $ids, string $placeholders): void {
+        global $wpdb;
+        $preflight = $this->checkedRows(
+            $wpdb->prepare(
+                'SELECT umeta_id AS meta_id, user_id, OCTET_LENGTH(meta_key) AS meta_key_bytes, '
+                . "OCTET_LENGTH(meta_value) AS meta_value_bytes FROM {$wpdb->usermeta} "
+                . "WHERE user_id IN ($placeholders) ORDER BY user_id ASC, umeta_id ASC LIMIT "
+                . (self::MAX_CHUNK_META_ROWS + 1),
+                ...$ids
+            ),
+            'Capture::user_meta_size_preflight()'
+        );
+        if (count($preflight) > self::MAX_CHUNK_META_ROWS) {
+            throw new \RuntimeException('duo: user-meta capture exceeds the bounded chunk row limit');
+        }
+        $expected = [];
+        $ownerRows = [];
+        $ownerBytes = [];
+        $chunkBytes = 0;
+        $previousOwner = 0;
+        $previousMetaId = 0;
+        foreach ($preflight as $position => $row) {
+            $metaId = is_array($row) ? MetaRows::positive_id($row['meta_id'] ?? null) : null;
+            $userId = is_array($row) ? MetaRows::positive_id($row['user_id'] ?? null) : null;
+            $keyBytes = is_array($row) ? self::nonnegativeSize($row['meta_key_bytes'] ?? null) : null;
+            $valueBytes = is_array($row) && ($row['meta_value_bytes'] ?? null) === null
+                ? null
+                : (is_array($row) ? self::nonnegativeSize($row['meta_value_bytes'] ?? null) : null);
+            if (!is_array($row)
+                || array_keys($row) !== ['meta_id', 'user_id', 'meta_key_bytes', 'meta_value_bytes']
+                || $metaId === null
+                || $userId === null
+                || !isset($users[$userId])
+                || $keyBytes === null
+                || $keyBytes === 0
+                || $keyBytes > MetaRows::MAX_META_KEY_BYTES
+                || ($row['meta_value_bytes'] !== null && $valueBytes === null)
+                || ($valueBytes !== null && $valueBytes > MetaRows::MAX_META_VALUE_BYTES)
+                || $userId < $previousOwner
+                || ($userId === $previousOwner && $metaId <= $previousMetaId)) {
+                throw new \RuntimeException(
+                    "duo: user-meta size preflight returned a malformed/oversized row at bounded position $position"
+                );
+            }
+            $rowBytes = strlen($row['meta_id']) + strlen($row['user_id']) + $keyBytes + ($valueBytes ?? 0);
+            $ownerRows[$userId] = ($ownerRows[$userId] ?? 0) + 1;
+            $ownerBytes[$userId] = ($ownerBytes[$userId] ?? 0) + $rowBytes;
+            if ($ownerRows[$userId] > MetaRows::MAX_OWNER_ROWS
+                || $ownerBytes[$userId] > MetaRows::MAX_OWNER_BYTES
+                || $rowBytes > self::MAX_CHUNK_META_BYTES - $chunkBytes) {
+                throw new \RuntimeException('duo: user-meta capture exceeds a bounded owner/chunk frontier');
+            }
+            $chunkBytes += $rowBytes;
+            $previousOwner = $userId;
+            $previousMetaId = $metaId;
+            $expected[] = [
+                'meta_id' => $row['meta_id'],
+                'user_id' => $row['user_id'],
+                'key_bytes' => $keyBytes,
+                'value_bytes' => $valueBytes,
+            ];
+        }
+
+        $rows = $this->checkedRows(
+            $wpdb->prepare(
+                "SELECT umeta_id AS meta_id, user_id, meta_key, meta_value FROM {$wpdb->usermeta} "
+                . "WHERE user_id IN ($placeholders) ORDER BY user_id ASC, umeta_id ASC LIMIT "
+                . (count($expected) + 1),
+                ...$ids
+            ),
+            'Capture::user_meta_value_read()'
+        );
+        if (count($rows) !== count($expected)) {
+            throw new \RuntimeException('duo: user-meta rows changed after the bounded size preflight');
+        }
+        foreach ($rows as $position => $row) {
+            $metaId = is_array($row) ? MetaRows::positive_id($row['meta_id'] ?? null) : null;
+            $userId = is_array($row) ? MetaRows::positive_id($row['user_id'] ?? null) : null;
+            $key = is_array($row) ? ($row['meta_key'] ?? null) : null;
+            $value = is_array($row) ? ($row['meta_value'] ?? null) : null;
+            $keyCharacters = is_string($key) && strlen($key) <= MetaRows::MAX_META_KEY_BYTES
+                ? preg_match_all('/./us', $key)
+                : false;
+            $witness = $expected[$position] ?? null;
+            if (!is_array($row)
+                || array_keys($row) !== ['meta_id', 'user_id', 'meta_key', 'meta_value']
+                || $metaId === null
+                || $userId === null
+                || !isset($users[$userId])
+                || !is_string($key)
+                || $key === ''
+                || !is_int($keyCharacters)
+                || $keyCharacters > MetaRows::MAX_META_KEY_CHARACTERS
+                || preg_match('/[\x00-\x1F\x7F]/', $key) === 1
+                || !(is_string($value) || $value === null)
+                || !is_array($witness)
+                || !hash_equals($witness['meta_id'], $row['meta_id'])
+                || !hash_equals($witness['user_id'], $row['user_id'])
+                || $witness['key_bytes'] !== strlen($key)
+                || $witness['value_bytes'] !== ($value === null ? null : strlen($value))) {
+                throw new \RuntimeException(
+                    "duo: user-meta value read disagrees with its bounded preflight at position $position"
+                );
+            }
+            // wp_usermeta.meta_value is nullable. WordPress's historical
+            // capture behavior string-casts SQL NULL to the empty string.
+            $stored = $value ?? '';
+            $users[$userId]['values'][$key][] = $stored;
+            if (!array_key_exists($key, $users[$userId]['meta'])) {
+                $users[$userId]['meta'][$key] = $stored;
+            }
+        }
+    }
+
+    private function assertNoOrphanMeta(): void {
+        global $wpdb;
+        $rows = $this->checkedRows(
+            "SELECT um.umeta_id AS meta_id FROM {$wpdb->usermeta} um "
+            . "LEFT JOIN {$wpdb->users} u ON u.ID = um.user_id WHERE u.ID IS NULL "
+            . 'ORDER BY um.umeta_id ASC LIMIT 1',
+            'Capture::user_meta_orphan_check()'
+        );
+        if ($rows !== []) {
+            throw new \RuntimeException('duo: user-meta capture found metadata without an exact user owner');
+        }
+    }
+
+    private function assertNoCollationEqualLogins(): void {
+        global $wpdb;
+        $rows = $this->checkedRows(
+            "SELECT a.ID AS left_id, b.ID AS right_id FROM {$wpdb->users} a "
+            . "INNER JOIN {$wpdb->users} b ON b.user_login = a.user_login AND b.ID > a.ID "
+            . 'ORDER BY a.ID ASC, b.ID ASC LIMIT 1',
+            'Capture::user_meta_login_ambiguity_check()'
+        );
+        if ($rows !== []) {
+            throw new \RuntimeException(
+                'duo: user-meta capture found collation-equal duplicate login identities'
+            );
+        }
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function checkedRows(mixed $sql, string $context): array {
+        global $wpdb;
+        if (!is_string($sql) || $sql === '') {
+            throw new \RuntimeException("duo: $context could not prepare its bounded read");
+        }
+        $wpdb->last_error = '';
+        $rows = $wpdb->get_results($sql, ARRAY_A);
+        ($this->checkTransientDbError)($context);
+        if (!is_array($rows)
+            || !array_is_list($rows)
+            || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException("duo: $context failed or returned a malformed row list");
+        }
+        return $rows;
+    }
+
+    private static function nonnegativeSize(mixed $value): ?int {
+        if (!is_string($value) || preg_match('/^(?:0|[1-9][0-9]*)$/D', $value) !== 1) {
+            return null;
+        }
+        $size = filter_var($value, FILTER_VALIDATE_INT);
+        return is_int($size) && $size >= 0 ? $size : null;
     }
 
     /** @return array{0:bool,1:mixed} */

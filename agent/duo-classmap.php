@@ -126,6 +126,8 @@ return [
     'Duo\\MenuCapture' => 'src/Capture/MenuCapture.php',
     'Duo\\MenuMaterializer' => 'src/Apply/MenuMaterializer.php',
     'Duo\\MenuReferenceScanner' => 'src/Review/MenuReferenceScanner.php',
+    'Duo\\MetaOwnerRangeLock' => 'src/Apply/MetaOwnerRangeLock.php',
+    'Duo\\MetaRows' => 'src/Kernel/MetaRows.php',
     'Duo\\NativeActions' => 'src/Rebuild/NativeActions.php',
     'Duo\\NativeRebuildExecutor' => 'src/Rebuild/NativeRebuildExecutor.php',
     'Duo\\OptionGrammar' => 'src/Grammar/OptionGrammar.php',

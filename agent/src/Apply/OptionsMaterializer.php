@@ -7,6 +7,8 @@ require_once __DIR__ . '/ApplyFieldMaterializer.php';
 require_once __DIR__ . '/../Kernel/OptionState.php';
 require_once __DIR__ . '/../Kernel/StructuredValue.php';
 require_once __DIR__ . '/../Kernel/PlainData.php';
+require_once __DIR__ . '/../Grammar/SubKeyGrammar.php';
+require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
 // Deliberately NOT require_once('Db.php') here: sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php
 // stubs a fake Duo\Db and reaches this file transitively through Apply.php
 // (a direct require of "$root/agent/src/Apply/Apply.php") without ever loading the
@@ -57,6 +59,9 @@ require_once __DIR__ . '/../Kernel/PlainData.php';
  * term_materializer() already established.
  */
 final class OptionsMaterializer {
+    private const MAX_OPTION_VALUE_BYTES = 16777216;
+    private const MAX_AUTOLOAD_BYTES = 20;
+
     public function __construct(
         private readonly Policy $policy,
         private readonly Tokens $tokens,
@@ -100,7 +105,7 @@ final class OptionsMaterializer {
             if ($record['state'] === 'absent') {
                 continue; // explicit no-value/no-delete intent; target row is untouched
             }
-            [$realName, $rule] = $this->option_apply_target((string) $name, $allOptions);
+            [$realName, $rule, $ruleSource] = $this->option_apply_target((string) $name, $allOptions);
             if ($record['state'] === 'deleted') {
                 if (!$withDeletes) {
                     throw new \RuntimeException("duo: internal invariant: option tombstone '$name' reached apply without --with-deletes");
@@ -143,7 +148,7 @@ final class OptionsMaterializer {
                 // DUO-3233: SUB-KEY-LEVEL merge into the live blob, never a
                 // whole-value replace — see apply_option_sub_keys()'s own
                 // docblock for the full rationale.
-                $this->apply_option_sub_keys($name, $v, $rule['sub_keys'], $autoload, $warnings);
+                $this->apply_option_sub_keys($name, $v, $rule, $ruleSource, $autoload, $warnings);
                 continue;
             }
             $this->fieldMaterializer->upsert_option(
@@ -154,7 +159,7 @@ final class OptionsMaterializer {
         }
     }
 
-    /** @return array{0:string,1:array} canonical name -> target-local name + owning rule */
+    /** @return array{0:string,1:array,2:?string} canonical name -> target-local name + owning rule/provenance */
     private function option_apply_target(string $name, array $allOptions): array {
         if (!str_contains($name, '{{')) {
             // Even a raw/noncanonical repository key must pass through the
@@ -177,8 +182,14 @@ final class OptionsMaterializer {
             // (theme_mods_<active theme>, disjoint namespace from every
             // ACF options-page name) chains after it for the same reason it
             // already chained after option_rule() before this merge.
-            $rule = $this->policy->meta_rule_for_option($name, $allOptions) ?? $this->dynamic_option_rule_for_name($name);
-            return [$name, $rule ?? []];
+            $details = $this->policy->option_rule_details_for_option($name, $allOptions);
+            $rule = $details['rule'] ?? null;
+            $source = $details['source'] ?? null;
+            if ($rule === null) {
+                $rule = $this->dynamic_option_rule_for_name($name);
+                $source = $rule === null ? null : 'dynamic_options';
+            }
+            return [$name, $rule ?? [], is_string($source) ? $source : null];
         }
         if (!preg_match('/\{\{([a-z][a-z0-9_]*):([0-9a-f-]{36})\}\}/', $name, $tm)) {
             throw new \RuntimeException("duo: option key '$name' contains '{{' but is not a well-formed ref token");
@@ -205,7 +216,7 @@ final class OptionsMaterializer {
                 . "after detokenizing to '$realName'"
             );
         }
-        return [$realName, $rule];
+        return [$realName, $rule, is_string($realDetails['source'] ?? null) ? $realDetails['source'] : null];
     }
 
     /**
@@ -303,20 +314,19 @@ final class OptionsMaterializer {
 
     /**
      * sub_keys apply (DUO-3233): SUB-KEY-LEVEL merge into the LIVE blob —
-     * never a whole-value replace. Reads the target's own CURRENT value
-     * (carrying every key this manifest did NOT carve out — Polylang's own
-     * force_lang/rewrite/first_activation/version, populated by the
-     * plugin's own activation-time add_option()/admin saves), overlays only
-     * the captured, declared-authored sub-keys on top, and writes the
-     * merged result back. The excluded remainder survives apply completely
-     * untouched, on every environment, every run — this is the mechanism
-     * manifests/polylang.json's own notes long documented as missing: "v0's
-     * options model classifies a whole option name at once ... there is no
-     * way to keep force_lang/default_lang/etc authored while excluding
-     * first_activation/version without capturing them too."
+     * never a whole-value replace. Reads and locks the target's own CURRENT
+     * value, overlays only declared-authored sub-keys, and preserves every
+     * declared target-owned sibling. A manifest-owned interpreter may replace
+     * that generic merge with a plugin-native grouped save, but only when the
+     * complete effective rule and its provenance exactly match the declaring
+     * manifest; an override may not borrow a digest-bound native hook merely
+     * by repeating the same sub-key names.
      *
-     * Absent-live-option case: starts the merge from an empty array
-     * (warned) rather than refusing outright. The ordinary case where this
+     * Absent-live-option case: starts the generic merge from an empty array
+     * (warned) rather than refusing outright. A native materializer can
+     * instead persist its complete registered default/env shape, so the
+     * generic-only warning is deliberately deferred until after dispatch.
+     * The ordinary case where this
      * would matter — Polylang/Yoast not yet activated on this target — is
      * caught upstream of this code path: spec/repo-format.md's code-half
      * ordering runs `wp duo deploy` (real activate_plugin() calls) before
@@ -325,8 +335,8 @@ final class OptionsMaterializer {
      * apply reaches here. A bare `apply` run in isolation (e.g. a test)
      * against a plugin that was never activated is a real, if unusual,
      * situation this still handles honestly rather than refusing: the
-     * merged option ends up containing ONLY the declared sub-keys, which is
-     * observable (warned) rather than silently incomplete.
+     * generic merged option ends up containing ONLY the declared sub-keys,
+     * which is observable (warned) rather than silently incomplete.
      *
      * Whole-option deletion remains ownership-exact and unrelated to the
      * tombstone below: DUO-3211's whole-row `deleted` record is authorized
@@ -377,22 +387,51 @@ final class OptionsMaterializer {
      * invariant the original merge-only loop already upheld in the add/
      * update direction.
      *
+     * The single indexed equality SELECT ... FOR UPDATE protects both the
+     * existing row and, under the required InnoDB + REPEATABLE-READ boundary,
+     * its absent-key gap. Without that proof a concurrent plugin/admin write
+     * could be overwritten while the postcondition observed only our own
+     * bytes and falsely blessed target-owned sibling loss.
+     *
+     * @param array<string,mixed> $rule complete effective rule, not a
+     *   reconstructed static declaration
      * @param string[] $warnings appended to in place
      */
-    private function apply_option_sub_keys(string $name, $captured, array $subKeys, string $autoload, array &$warnings): void {
+    private function apply_option_sub_keys(
+        string $name,
+        $captured,
+        array $rule,
+        ?string $ruleSource,
+        string $autoload,
+        array &$warnings
+    ): void {
         global $wpdb;
         if (!is_array($captured)) {
             throw new \RuntimeException(
                 "duo: captured option '$name' declares sub_keys but its repository value is not an object"
             );
         }
-        $raw = $wpdb->get_var($wpdb->prepare(
-            "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1", $name
-        ));
+        $subKeys = (array) ($rule['sub_keys'] ?? []);
+        DeleteGuardEvaluator::assert_table_identifiers([$wpdb->options], 'mixed-option row locking');
+        try {
+            DeleteGuardEvaluator::assert_active_transaction('mixed-option row locking');
+        } catch (\RuntimeException) {
+            throw new \RuntimeException(
+                "duo: mixed-option row locking for '$name' requires an active authored transaction"
+            );
+        }
+        DeleteGuardEvaluator::assert_innodb_tables([$wpdb->options], 'mixed-option row locking');
+        DeleteGuardEvaluator::assert_transaction_isolation('mixed-option row locking');
+        $lockIndex = DeleteGuardEvaluator::full_width_lock_index(
+            $wpdb->options,
+            'option_name',
+            'mixed-option row locking',
+            true
+        );
+        $row = $this->lock_option_row($name, $lockIndex, 'mixed-option row locking');
+        $raw = is_array($row) ? $row['option_value'] : null;
+        $targetAutoload = is_array($row) ? $row['autoload'] : null;
         if ($raw === null) {
-            $warnings[] = "option $name: no live value to sub-key-merge into — creating it containing ONLY "
-                . 'the declared sub-keys (its owning plugin\'s own defaults are absent; expected if that plugin '
-                . 'has not been deployed/activated on this target yet)';
             $live = [];
         } else {
             $live = PlainData::decode($raw, "live option '$name'");
@@ -403,6 +442,13 @@ final class OptionsMaterializer {
                 );
             }
         }
+        SubKeyGrammar::assert_closed_value(
+            $name,
+            $rule,
+            $live,
+            'target'
+        );
+        $materialized = [];
         foreach ($captured as $subKey => $subVal) {
             $subRule = $subKeys[$subKey] ?? null;
             if (($subRule['class'] ?? '') !== 'authored') {
@@ -417,7 +463,103 @@ final class OptionsMaterializer {
                     . 'authorization should have refused this before apply'
                 );
             }
-            $live[(string) $subKey] = $this->apply_value("$name.$subKey", $subVal, $subRule);
+            $materialized[(string) $subKey] = $this->apply_value("$name.$subKey", $subVal, $subRule);
+        }
+        $finalizeStorage = function () use ($name, $autoload, $lockIndex): array {
+            DeleteGuardEvaluator::assert_transaction_isolation(
+                'native mixed-option storage finalization'
+            );
+            $this->reconcile_native_option_autoload($name, $autoload);
+            $row = $this->lock_option_row(
+                $name,
+                $lockIndex,
+                'native mixed-option raw storage verification'
+            );
+            if ($row === null) {
+                throw new \RuntimeException(
+                    "duo: native option materializer for '$name' left no raw storage row"
+                );
+            }
+            return $row;
+        };
+        $restoreStorage = function () use ($name, $raw, $targetAutoload, $lockIndex): ?array {
+            global $wpdb;
+            DeleteGuardEvaluator::assert_transaction_isolation(
+                'native mixed-option storage restoration'
+            );
+            if ($raw === null) {
+                Db::delete(
+                    $wpdb->options,
+                    ['option_name' => $name],
+                    null,
+                    'restore absent native-authored option after failed apply'
+                );
+                wp_cache_delete($name, 'options');
+                wp_cache_delete('alloptions', 'options');
+                return $this->lock_option_row(
+                    $name,
+                    $lockIndex,
+                    'restored absent native mixed-option raw storage verification'
+                );
+            }
+            $this->fieldMaterializer->upsert_option($name, (string) $raw, (string) $targetAutoload);
+            return $this->lock_option_row(
+                $name,
+                $lockIndex,
+                'restored native mixed-option raw storage verification'
+            );
+        };
+        $lockTargetOption = function (string $targetName) use ($name, $ruleSource, $lockIndex): ?array {
+            global $wpdb;
+            if ($targetName === $name
+                || preg_match('/^[A-Za-z0-9_.:-]{1,191}$/D', $targetName) !== 1) {
+                $fingerprint = 'string:' . strlen($targetName) . ':'
+                    . substr(hash('sha256', $targetName), 0, 16);
+                throw new \RuntimeException(
+                    "duo: native option materializer for '$name' requested an invalid companion lock "
+                    . "($fingerprint)"
+                );
+            }
+            $details = $this->policy->option_rule_details($targetName);
+            $targetRule = $details['rule'] ?? null;
+            if ($ruleSource === null
+                || ($details['source'] ?? null) !== $ruleSource
+                || !in_array(($targetRule['class'] ?? null), ['runtime', 'derived', 'env'], true)) {
+                throw new \RuntimeException(
+                    "duo: native option materializer for '$name' requested an undeclared/non-target-owned companion lock"
+                );
+            }
+            $targetRow = $this->lock_option_row(
+                $targetName,
+                $lockIndex,
+                "native option materializer for '$name' companion row locking"
+            );
+            if ($targetRow === null) return null;
+            return [
+                'option_value' => $targetRow['option_value'],
+                'autoload' => $targetRow['autoload'],
+            ];
+        };
+        if ($this->policy->materialize_option_sub_keys_via_interpreter(
+            $name,
+            $materialized,
+            $rule,
+            $ruleSource,
+            $autoload,
+            $raw === null ? null : $live,
+            $lockTargetOption,
+            $finalizeStorage,
+            $restoreStorage
+        )) {
+            return;
+        }
+        if ($raw === null) {
+            $warnings[] = "option $name: no live value to sub-key-merge into — creating it containing ONLY "
+                . 'the declared sub-keys (its owning plugin\'s own defaults are absent; expected if that plugin '
+                . 'has not been deployed/activated on this target yet)';
+        }
+        foreach ($materialized as $subKey => $subVal) {
+            $live[$subKey] = $subVal;
         }
         foreach ($subKeys as $subKey => $subRule) {
             if (($subRule['class'] ?? '') !== 'authored' || array_key_exists((string) $subKey, $captured)) {
@@ -431,5 +573,134 @@ final class OptionsMaterializer {
             }
         }
         $this->fieldMaterializer->upsert_option($name, $this->fieldMaterializer->option_wire_value($live), $autoload);
+    }
+
+    /** Native option APIs preserve an existing row's storage flag. */
+    private function reconcile_native_option_autoload(string $name, string $autoload): void {
+        global $wpdb;
+        $current = $this->read_exact_native_autoload($name);
+        if ($current !== $autoload) {
+            Db::update(
+                $wpdb->options,
+                ['autoload' => $autoload],
+                ['option_name' => $name],
+                null,
+                null,
+                'apply update native-authored option autoload'
+            );
+            wp_cache_delete($name, 'options');
+            wp_cache_delete('alloptions', 'options');
+        }
+        $stored = $this->read_exact_native_autoload($name);
+        if (!hash_equals($autoload, $stored)) {
+            throw new \RuntimeException(
+                "duo: native option materializer for '$name' did not persist the canonical autoload value"
+            );
+        }
+    }
+
+    /**
+     * Lock compact lengths before transferring LONGTEXT, then bind the full
+     * row to that witness inside the same row/gap lock boundary.
+     *
+     * @return ?array{option_name:string,option_value:string,autoload:string}
+     */
+    private function lock_option_row(string $name, string $lockIndex, string $purpose): ?array {
+        global $wpdb;
+        DeleteGuardEvaluator::assert_transaction_isolation($purpose);
+        $predicate = "FROM {$wpdb->options} FORCE INDEX (`$lockIndex`) WHERE option_name = %s "
+            . 'ORDER BY option_id ASC LIMIT 2 FOR UPDATE';
+        $wpdb->last_error = '';
+        $sizes = $wpdb->get_results($wpdb->prepare(
+            'SELECT option_name, OCTET_LENGTH(option_value) AS option_value_bytes, '
+            . "OCTET_LENGTH(autoload) AS autoload_bytes $predicate",
+            $name
+        ), ARRAY_A);
+        if (!is_array($sizes)
+            || !array_is_list($sizes)
+            || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException("duo: $purpose size preflight failed");
+        }
+        if (count($sizes) > 1) {
+            throw new \RuntimeException("duo: $purpose found ambiguous collation-equal rows");
+        }
+        if ($sizes === []) return null;
+        $size = $sizes[0];
+        $valueBytes = is_array($size) ? self::canonical_size($size['option_value_bytes'] ?? null) : null;
+        $autoloadBytes = is_array($size) ? self::canonical_size($size['autoload_bytes'] ?? null) : null;
+        if (!is_array($size)
+            || array_keys($size) !== ['option_name', 'option_value_bytes', 'autoload_bytes']
+            || !is_string($size['option_name'] ?? null)
+            || $valueBytes === null
+            || $autoloadBytes === null
+            || $valueBytes > self::MAX_OPTION_VALUE_BYTES
+            || $autoloadBytes > self::MAX_AUTOLOAD_BYTES) {
+            throw new \RuntimeException("duo: $purpose size preflight returned a malformed or oversized row");
+        }
+        if (!hash_equals($name, $size['option_name'])) {
+            throw new \RuntimeException("duo: $purpose found a collation-equal option_name alias");
+        }
+        $wpdb->last_error = '';
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT option_name, option_value, autoload $predicate",
+            $name
+        ), ARRAY_A);
+        if (!is_array($rows)
+            || !array_is_list($rows)
+            || count($rows) !== 1
+            || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException("duo: $purpose value read failed after size preflight");
+        }
+        $row = $rows[0];
+        if (!is_array($row)
+            || array_keys($row) !== ['option_name', 'option_value', 'autoload']
+            || !is_string($row['option_name'] ?? null)
+            || !is_string($row['option_value'] ?? null)
+            || !is_string($row['autoload'] ?? null)
+            || !hash_equals($name, $row['option_name'])
+            || strlen($row['option_value']) !== $valueBytes
+            || strlen($row['autoload']) !== $autoloadBytes) {
+            throw new \RuntimeException("duo: $purpose value read disagrees with the bounded size preflight");
+        }
+        return $row;
+    }
+
+    private function read_exact_native_autoload(string $name): string {
+        global $wpdb;
+        DeleteGuardEvaluator::assert_transaction_isolation(
+            'native mixed-option autoload verification'
+        );
+        $wpdb->last_error = '';
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT option_name, autoload FROM {$wpdb->options} WHERE option_name = %s "
+            . 'ORDER BY option_id ASC LIMIT 2',
+            $name
+        ), ARRAY_A);
+        if (!is_array($rows)
+            || !array_is_list($rows)
+            || count($rows) !== 1
+            || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException(
+                "duo: native option materializer for '$name' did not leave one readable option row"
+            );
+        }
+        $row = $rows[0];
+        if (!is_array($row)
+            || array_keys($row) !== ['option_name', 'autoload']
+            || !is_string($row['option_name'] ?? null)
+            || !is_string($row['autoload'] ?? null)
+            || strlen($row['autoload']) > self::MAX_AUTOLOAD_BYTES
+            || !hash_equals($name, $row['option_name'])) {
+            throw new \RuntimeException(
+                "duo: native option materializer for '$name' left a malformed/collation-aliased option row"
+            );
+        }
+        return $row['autoload'];
+    }
+
+    private static function canonical_size(mixed $value): ?int {
+        if (!is_string($value) || preg_match('/^(?:0|[1-9][0-9]*)$/D', $value) !== 1) return null;
+        $size = filter_var($value, FILTER_VALIDATE_INT);
+        return is_int($size) && $size >= 0 ? $size : null;
     }
 }

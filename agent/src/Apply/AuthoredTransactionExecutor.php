@@ -3,6 +3,7 @@ namespace Duo;
 
 require_once __DIR__ . '/ApplyPlanner.php';
 require_once __DIR__ . '/AuthoredTransactionRequest.php';
+require_once __DIR__ . '/ApplyFieldMaterializer.php';
 require_once __DIR__ . '/../Delete/DeleteExecutor.php';
 require_once __DIR__ . '/EntityAdopter.php';
 require_once __DIR__ . '/MenuMaterializer.php';
@@ -55,6 +56,7 @@ final class AuthoredTransactionExecutor {
         private readonly Tokens $tokens,
         private readonly ApplyPlanner $planner,
         private readonly array $snapshotRowTables,
+        private readonly ApplyFieldMaterializer $fieldMaterializer,
         private readonly EntityAdopter $adopter,
         private readonly TermMaterializer $termMaterializer,
         private readonly PostMaterializer $postMaterializer,
@@ -102,8 +104,9 @@ final class AuthoredTransactionExecutor {
         $transactionStarted = false;
         Canary::arm();
         try {
-            Db::start('apply transaction start');
+            Db::start_repeatable_read('apply transaction start');
             $transactionStarted = true;
+            $this->fieldMaterializer->begin_authored_transaction();
 
             if ($executeDeletes && $deleteWork) {
                 ($this->lockDeleteGuards)(
@@ -272,6 +275,11 @@ final class AuthoredTransactionExecutor {
             }
             Canary::disarm();
             throw $failure;
+        } finally {
+            // Metadata locks prove these descriptors only for this authored
+            // transaction. A reused ApplyServices graph starts empty after
+            // either commit or rollback.
+            $this->fieldMaterializer->end_authored_transaction();
         }
         Canary::disarm();
         return ['attachment_ids' => $attachmentIds, 'regen_context' => $regenContext];

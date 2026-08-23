@@ -111,6 +111,8 @@ final class EntityMetaTokensFixture {
 final class EntityMetaWpdbFixture {
     public string $postmeta = 'wp_postmeta';
     public string $termmeta = 'wp_termmeta';
+    public string $last_error = '';
+    public mixed $forcedResult = null;
     /** @var array<int,array{meta_id:int,post_id:int,meta_key:string,meta_value:string}> */
     public array $postRows = [];
     /** @var array<int,array{meta_id:int,term_id:int,meta_key:string,meta_value:string}> */
@@ -127,14 +129,60 @@ final class EntityMetaWpdbFixture {
         return $sql;
     }
 
-    public function get_results(string $sql, mixed $mode): array {
+    public function get_results(string $sql, mixed $mode): mixed {
         if ($mode !== ARRAY_A) {
             throw new \RuntimeException('fixture expected ARRAY_A');
         }
         $this->sql[] = $sql;
-        $isPost = str_contains($sql, 'FROM wp_postmeta');
-        $this->events[] = $isPost ? 'query:post' : 'query:term';
-        preg_match('/(?:post_id|term_id) = ([0-9]+)/', $sql, $match);
+        $isPost = str_contains($sql, 'FROM `wp_postmeta`');
+        $preflight = str_contains($sql, 'OCTET_LENGTH(meta_key)');
+        $this->events[] = ($isPost ? 'query:post:' : 'query:term:') . ($preflight ? 'size' : 'value');
+        if ($this->forcedResult !== null) {
+            if ($this->forcedResult === 'false') {
+                return false;
+            }
+            if ($this->forcedResult === 'null') {
+                return null;
+            }
+            if ($this->forcedResult === 'error') {
+                $this->last_error = 'simulated checked metadata read failure';
+                return [];
+            }
+            if ($this->forcedResult === 'oversize') {
+                return array_fill(0, \Duo\MetaRows::MAX_OWNER_ROWS + 1, [
+                    'meta_id' => '1',
+                    'meta_key_bytes' => '7',
+                    'meta_value_bytes' => '5',
+                ]);
+            }
+            if ($this->forcedResult === 'oversized-value') {
+                return [[
+                    'meta_id' => '1',
+                    'meta_key_bytes' => '7',
+                    'meta_value_bytes' => (string) (\Duo\MetaRows::MAX_META_VALUE_BYTES + 1),
+                ]];
+            }
+            $forced = $this->forcedResult;
+            if ($preflight && is_array($forced) && array_is_list($forced)) {
+                return array_map(static function ($row) {
+                    if (!is_array($row)
+                        || array_keys($row) !== ['meta_id', 'meta_key', 'meta_value']
+                        || !is_string($row['meta_key'] ?? null)
+                        || !(is_string($row['meta_value'] ?? null) || ($row['meta_value'] ?? null) === null)) {
+                        return $row;
+                    }
+                    return [
+                        'meta_id' => $row['meta_id'],
+                        'meta_key_bytes' => (string) strlen($row['meta_key']),
+                        'meta_value_bytes' => $row['meta_value'] === null
+                            ? null
+                            : (string) strlen($row['meta_value']),
+                    ];
+                }, $forced);
+            }
+            return $forced;
+        }
+        preg_match('/`(?:post_id|term_id)` = ([0-9]+)/', $sql, $match);
         $ownerId = (int) ($match[1] ?? 0);
         $ownerColumn = $isPost ? 'post_id' : 'term_id';
         $rows = array_values(array_filter(
@@ -147,7 +195,14 @@ final class EntityMetaWpdbFixture {
                 : $left['meta_id'] <=> $right['meta_id'];
         });
         return array_map(
-            static fn(array $row): array => [
+            static fn(array $row): array => $preflight ? [
+                'meta_id' => (string) $row['meta_id'],
+                'meta_key_bytes' => (string) strlen($row['meta_key']),
+                'meta_value_bytes' => $row['meta_value'] === null
+                    ? null
+                    : (string) strlen($row['meta_value']),
+            ] : [
+                'meta_id' => (string) $row['meta_id'],
                 'meta_key' => $row['meta_key'],
                 'meta_value' => $row['meta_value'],
             ],
@@ -170,11 +225,15 @@ $wpdb->postRows = [
     ['meta_id' => 2, 'post_id' => 7, 'meta_key' => 'marker', 'meta_value' => 'second'],
     ['meta_id' => 3, 'post_id' => 7, 'meta_key' => 'duplicate', 'meta_value' => 'one'],
     ['meta_id' => 5, 'post_id' => 7, 'meta_key' => 'duplicate', 'meta_value' => 'two'],
+    ['meta_id' => 6, 'post_id' => 7, 'meta_key' => 'nullable_context', 'meta_value' => null],
+    ['meta_id' => 7, 'post_id' => 7, 'meta_key' => 'nullable_context', 'meta_value' => 'later'],
 ];
 $wpdb->termRows = [
     ['meta_id' => 3, 'term_id' => 9, 'meta_key' => 'term_ref', 'meta_value' => '21'],
     ['meta_id' => 1, 'term_id' => 9, 'meta_key' => 'marker', 'meta_value' => 'first'],
     ['meta_id' => 2, 'term_id' => 9, 'meta_key' => 'marker', 'meta_value' => 'second'],
+    ['meta_id' => 4, 'term_id' => 9, 'meta_key' => 'nullable_context', 'meta_value' => null],
+    ['meta_id' => 5, 'term_id' => 9, 'meta_key' => 'nullable_context', 'meta_value' => 'later'],
 ];
 $GLOBALS['wpdb'] = $wpdb;
 $unclassified = [];
@@ -200,23 +259,86 @@ $postByKey = $capture->postMetaByKey(7);
 $termMap = $capture->termMetaMap(9);
 $termByKey = $capture->termMetaByKey(9);
 $normalizeSql = static fn(string $sql): string => preg_replace('/\s+/', ' ', trim($sql)) ?? '';
-$check($postMap === ['marker' => 'first', 'duplicate' => 'one', 'plain' => 'hello'],
-    'post flat context keeps the first value per key in meta_id order');
-$check($postByKey === ['duplicate' => ['one', 'two'], 'marker' => ['first', 'second'], 'plain' => ['hello']],
-    'post grouped context keeps every value in key/meta_id order');
-$check($termMap === ['marker' => 'first', 'term_ref' => '21'],
-    'term flat context keeps the first value per key in meta_id order');
-$check($termByKey === ['marker' => ['first', 'second'], 'term_ref' => ['21']],
+$check($postMap === [
+    'marker' => 'first', 'duplicate' => 'one', 'plain' => 'hello', 'nullable_context' => null,
+], 'post flat context keeps the first value per key, including SQL NULL, in meta_id order');
+$check($postByKey === [
+    'marker' => ['first', 'second'],
+    'duplicate' => ['one', 'two'],
+    'plain' => ['hello'],
+    'nullable_context' => [null, 'later'],
+],
+    'post grouped context keeps every value in meta_id order per key');
+$check($termMap === ['marker' => 'first', 'term_ref' => '21', 'nullable_context' => null],
+    'term flat context keeps the first value per key, including SQL NULL, in meta_id order');
+$check($termByKey === [
+    'marker' => ['first', 'second'], 'term_ref' => ['21'], 'nullable_context' => [null, 'later'],
+],
     'term grouped context keeps every value in key/meta_id order');
 $check(array_map($normalizeSql, $wpdb->sql) === [
-    'SELECT meta_key, meta_value FROM wp_postmeta WHERE post_id = 7 ORDER BY meta_id ASC',
-    'SELECT meta_key, meta_value FROM wp_postmeta WHERE post_id = 7 ORDER BY meta_key ASC, meta_id ASC',
-    'SELECT meta_key, meta_value FROM wp_termmeta WHERE term_id = 9 ORDER BY meta_id ASC',
-    'SELECT meta_key, meta_value FROM wp_termmeta WHERE term_id = 9 ORDER BY meta_key ASC, meta_id ASC',
-], 'all four reads preserve their exact normalized SQL and deterministic ordering');
+    'SELECT `meta_id` AS meta_id, OCTET_LENGTH(meta_key) AS meta_key_bytes, OCTET_LENGTH(meta_value) AS meta_value_bytes FROM `wp_postmeta` WHERE `post_id` = 7 ORDER BY `meta_id` ASC LIMIT 100001',
+    'SELECT `meta_id` AS meta_id, meta_key, meta_value FROM `wp_postmeta` WHERE `post_id` = 7 ORDER BY `meta_id` ASC LIMIT 100001',
+    'SELECT `meta_id` AS meta_id, OCTET_LENGTH(meta_key) AS meta_key_bytes, OCTET_LENGTH(meta_value) AS meta_value_bytes FROM `wp_postmeta` WHERE `post_id` = 7 ORDER BY `meta_id` ASC LIMIT 100001',
+    'SELECT `meta_id` AS meta_id, meta_key, meta_value FROM `wp_postmeta` WHERE `post_id` = 7 ORDER BY `meta_id` ASC LIMIT 100001',
+    'SELECT `meta_id` AS meta_id, OCTET_LENGTH(meta_key) AS meta_key_bytes, OCTET_LENGTH(meta_value) AS meta_value_bytes FROM `wp_termmeta` WHERE `term_id` = 9 ORDER BY `meta_id` ASC LIMIT 100001',
+    'SELECT `meta_id` AS meta_id, meta_key, meta_value FROM `wp_termmeta` WHERE `term_id` = 9 ORDER BY `meta_id` ASC LIMIT 100001',
+    'SELECT `meta_id` AS meta_id, OCTET_LENGTH(meta_key) AS meta_key_bytes, OCTET_LENGTH(meta_value) AS meta_value_bytes FROM `wp_termmeta` WHERE `term_id` = 9 ORDER BY `meta_id` ASC LIMIT 100001',
+    'SELECT `meta_id` AS meta_id, meta_key, meta_value FROM `wp_termmeta` WHERE `term_id` = 9 ORDER BY `meta_id` ASC LIMIT 100001',
+], 'all four reads preflight compact byte witnesses before deterministic full-value reads');
 $check($wpdb->events === [
-    'query:post', 'checkpoint', 'query:post', 'query:term', 'checkpoint', 'query:term',
-], 'observation checkpoints run immediately after flat reads and nowhere on grouped capture reads');
+    'query:post:size', 'query:post:value', 'checkpoint',
+    'query:post:size', 'query:post:value', 'checkpoint',
+    'query:term:size', 'query:term:value', 'checkpoint',
+    'query:term:size', 'query:term:value', 'checkpoint',
+], 'observation checkpoints run after each witnessed flat/grouped value read');
+
+foreach (['false', 'null', 'error'] as $failureMode) {
+    $wpdb->forcedResult = $failureMode;
+    $wpdb->last_error = 'stale error that the reader must clear';
+    $throws(
+        static fn(): array => $capture->termMetaByKey(9),
+        'checked metadata size preflight failed',
+        "term grouped capture refuses a $failureMode database result instead of omitting authored catalogs"
+    );
+}
+$wpdb->forcedResult = [[
+    'meta_id' => '1',
+    'meta_key' => ['malformed'],
+    'meta_value' => 'value',
+]];
+$throws(
+    static fn(): array => $capture->termMetaByKey(9),
+    'metadata size preflight returned a malformed row at bounded position 0',
+    'term grouped capture rejects malformed driver row shapes'
+);
+$wpdb->forcedResult = 'oversize';
+$throws(
+    static fn(): array => $capture->termMetaByKey(9),
+    'exceeds the bounded owner-row limit',
+    'term grouped capture rejects an oversized owner range before iterating it'
+);
+$beforeValueReads = count(array_filter($wpdb->sql,
+    static fn(string $sql): bool => str_contains($sql, 'meta_key, meta_value')));
+$wpdb->forcedResult = 'oversized-value';
+$throws(
+    static fn(): array => $capture->termMetaByKey(9),
+    'metadata size preflight found an oversized value',
+    'term grouped capture rejects oversized LONGTEXT from compact length evidence'
+);
+$check(
+    count(array_filter($wpdb->sql,
+        static fn(string $sql): bool => str_contains($sql, 'meta_key, meta_value'))) === $beforeValueReads,
+    'oversized metadata refuses before issuing any full-value query'
+);
+$wpdb->forcedResult = null;
+$wpdb->last_error = 'stale prior driver error';
+$check(
+    $capture->termMetaByKey(9) === [
+        'marker' => ['first', 'second'], 'term_ref' => ['21'], 'nullable_context' => [null, 'later'],
+    ]
+        && $wpdb->last_error === '',
+    'a stale prior driver error is cleared and a successful checked read remains observable'
+);
 
 $trace = [];
 [$store, $value] = $capture->classifyValue(

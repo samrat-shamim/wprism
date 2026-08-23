@@ -58,6 +58,7 @@ namespace Duo {
         public string $term_taxonomy = 'wp_term_taxonomy';
         public string $term_relationships = 'wp_term_relationships';
         public string $termmeta = 'wp_termmeta';
+        public string $last_error = '';
         /** @var string[] */
         public array $events = [];
 
@@ -103,29 +104,47 @@ namespace Duo {
                 $this->events[] = 'query:posts';
                 return [(object) ['ID' => 10, 'post_type' => 'page']];
             }
-            if (str_contains($sql, 'FROM wp_postmeta')) {
+            if (str_contains($sql, 'FROM `wp_postmeta`')) {
                 $postId = (int) ($args[0] ?? 0);
-                $this->events[] = "query:post-meta:$postId";
-                return $postId === 10
+                $preflight = str_contains($sql, 'OCTET_LENGTH(meta_key)');
+                $this->events[] = "query:post-meta:$postId:" . ($preflight ? 'size' : 'value');
+                $rows = $postId === 10
                     ? [
-                        ['meta_key' => '_wp_attached_file', 'meta_value' => 'ignored.jpg'],
-                        ['meta_key' => 'known_post', 'meta_value' => 'classified'],
-                        ['meta_key' => 'shared_unknown', 'meta_value' => 'page value'],
+                        ['meta_id' => '1', 'meta_key' => '_wp_attached_file', 'meta_value' => 'ignored.jpg'],
+                        ['meta_id' => '2', 'meta_key' => 'known_post', 'meta_value' => 'classified'],
+                        ['meta_id' => '3', 'meta_key' => 'shared_unknown', 'meta_value' => 'page value'],
                     ]
                     : [
-                        ['meta_key' => 'shared_unknown', 'meta_value' => 'menu value'],
+                        ['meta_id' => '4', 'meta_key' => 'shared_unknown', 'meta_value' => 'menu value'],
                     ];
+                if (!$preflight) {
+                    return $rows;
+                }
+                return array_map(static fn(array $row): array => [
+                    'meta_id' => $row['meta_id'],
+                    'meta_key_bytes' => (string) strlen($row['meta_key']),
+                    'meta_value_bytes' => (string) strlen($row['meta_value']),
+                ], $rows);
             }
             if (str_contains($sql, 'SELECT t.term_id')) {
                 $this->events[] = 'query:terms';
                 return [(object) ['term_id' => 20, 'taxonomy' => 'category']];
             }
-            if (str_contains($sql, 'FROM wp_termmeta')) {
-                $this->events[] = 'query:term-meta:20';
-                return [
-                    ['meta_key' => 'known_term', 'meta_value' => 'classified'],
-                    ['meta_key' => 'unknown_term', 'meta_value' => serialize(['future' => true])],
+            if (str_contains($sql, 'FROM `wp_termmeta`')) {
+                $preflight = str_contains($sql, 'OCTET_LENGTH(meta_key)');
+                $this->events[] = 'query:term-meta:20:' . ($preflight ? 'size' : 'value');
+                $rows = [
+                    ['meta_id' => '5', 'meta_key' => 'known_term', 'meta_value' => 'classified'],
+                    ['meta_id' => '6', 'meta_key' => 'unknown_term', 'meta_value' => serialize(['future' => true])],
                 ];
+                if (!$preflight) {
+                    return $rows;
+                }
+                return array_map(static fn(array $row): array => [
+                    'meta_id' => $row['meta_id'],
+                    'meta_key_bytes' => (string) strlen($row['meta_key']),
+                    'meta_value_bytes' => (string) strlen($row['meta_value']),
+                ], $rows);
             }
             throw new \RuntimeException('unexpected gate-scanner query: ' . $sql);
         }
@@ -215,11 +234,11 @@ namespace Duo {
         'query:taxonomy-gaps', 'checkpoint',
         'query:options', 'checkpoint',
         'query:posts', 'checkpoint',
-        'query:post-meta:10', 'checkpoint',
+        'query:post-meta:10:size', 'query:post-meta:10:value', 'checkpoint',
         'query:terms', 'checkpoint',
-        'query:term-meta:20', 'checkpoint',
+        'query:term-meta:20:size', 'query:term-meta:20:value', 'checkpoint',
         'query:menu-items', 'checkpoint',
-        'query:post-meta:30', 'checkpoint',
+        'query:post-meta:30:size', 'query:post-meta:30:value', 'checkpoint',
     ], 'every scanner query preserves its immediate read checkpoint and frozen order');
 
     echo "REGRESS_CAPTURE_GATE_SCANNER PASSED\n";

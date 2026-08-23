@@ -13,9 +13,11 @@ declare(strict_types=1);
 if (!defined('ARRAY_A')) {
     define('ARRAY_A', 'ARRAY_A');
 }
+require_once __DIR__ . '/../../../../agent/src/Kernel/Db.php';
 require_once __DIR__ . '/../../../../agent/src/Delete/DeleteGuardEvaluator.php';
 
 use Duo\DeleteGuardEvaluator;
+use Duo\Db;
 
 final class DeleteGuardEvaluatorFakeWpdb {
     public string $last_error = '';
@@ -23,21 +25,58 @@ final class DeleteGuardEvaluatorFakeWpdb {
     public array $queries = [];
     /** @var array<string,string|null> */
     public array $tableEngines;
+    public ?string $indexResultMode = null;
+    public mixed $activeTransaction = '1';
+    public bool $activeTransactionError = false;
+    public bool $savepointExists = false;
+    public bool $nextRepeatableRead = false;
+    public bool $failSetTransaction = false;
 
     /** @param list<array<string,mixed>> $indexRows */
     public function __construct(
         private array $indexRows,
         ?array $tableEngines = null,
         private bool $metadataProbeFails = false,
-        private bool $introspectionFails = false,
-        private ?string $transactionIsolation = null,
-        private ?string $legacyIsolation = null,
-        private bool $isolationProbeFails = false
+        private bool $introspectionFails = false
     ) {
         $this->tableEngines = $tableEngines ?? [
             'wp_options' => 'InnoDB',
             'wp_postmeta' => 'InnoDB',
         ];
+    }
+
+    public function query(string $sql): int|false {
+        $this->queries[] = $sql;
+        if ($sql === 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ') {
+            if ($this->failSetTransaction) {
+                $this->last_error = 'simulated SET TRANSACTION failure';
+                return false;
+            }
+            $this->nextRepeatableRead = true;
+            return 1;
+        }
+        if ($sql === 'START TRANSACTION') {
+            if (!$this->nextRepeatableRead) {
+                throw new RuntimeException('START TRANSACTION was not immediately preceded by the one-shot isolation');
+            }
+            $this->nextRepeatableRead = false;
+            $this->activeTransaction = '1';
+            $this->savepointExists = false;
+            return 1;
+        }
+        if (preg_match('/^SAVEPOINT `duo_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
+            $this->savepointExists = true;
+            return 1;
+        }
+        if (preg_match('/^RELEASE SAVEPOINT `duo_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
+            if (!$this->savepointExists) {
+                $this->last_error = 'SAVEPOINT does not exist';
+                return false;
+            }
+            $this->savepointExists = false;
+            return 1;
+        }
+        throw new RuntimeException("unexpected mutation query: $sql");
     }
 
     public function prepare(string $sql, ...$args): string {
@@ -49,15 +88,11 @@ final class DeleteGuardEvaluatorFakeWpdb {
 
     public function get_var(string $sql): int|string|null|false {
         $this->queries[] = $sql;
-        if ($sql === 'SELECT @@transaction_isolation') {
-            if ($this->isolationProbeFails) {
-                $this->last_error = 'simulated modern isolation probe failure';
-                return null;
+        if ($sql === 'SELECT @@in_transaction') {
+            if ($this->activeTransactionError) {
+                $this->last_error = 'simulated transaction-state read failure';
             }
-            return $this->transactionIsolation;
-        }
-        if ($sql === 'SELECT @@tx_isolation') {
-            return $this->legacyIsolation;
+            return $this->activeTransaction;
         }
         if ($this->metadataProbeFails) {
             $this->last_error = 'simulated metadata probe failure';
@@ -66,7 +101,7 @@ final class DeleteGuardEvaluatorFakeWpdb {
         return 1;
     }
 
-    public function get_results(string $sql, $format = null): array {
+    public function get_results(string $sql, $format = null): mixed {
         $this->queries[] = $sql;
         if (str_contains($sql, 'information_schema.TABLES')) {
             if ($this->introspectionFails) {
@@ -80,6 +115,15 @@ final class DeleteGuardEvaluatorFakeWpdb {
                 }
             }
             return $rows;
+        }
+        if ($this->indexResultMode === 'false') return false;
+        if ($this->indexResultMode === 'null') return null;
+        if ($this->indexResultMode === 'error') {
+            $this->last_error = 'simulated SHOW INDEX failure';
+            return [];
+        }
+        if ($this->indexResultMode === 'associative') {
+            return ['not-a-list' => $this->indexRows[0] ?? []];
         }
         return $this->indexRows;
     }
@@ -123,6 +167,196 @@ $check(
     DeleteGuardEvaluator::lock_index(['column' => 'target_id'], 'wp_refs') === 'unsafename',
     'ordinary scalar guards use a sanitized first-column lock index'
 );
+
+$GLOBALS['wpdb'] = new DeleteGuardEvaluatorFakeWpdb([
+    ['Key_name' => 'legal-index-🙂', 'Seq_in_index' => 1, 'Column_name' => 'legal.column 🙂', 'Sub_part' => null, 'Non_unique' => 1, 'Index_type' => 'BTREE'],
+    ['Key_name' => 'functional_extra', 'Seq_in_index' => 1, 'Column_name' => null, 'Expression' => 'lower(`unrelated`)', 'Sub_part' => null, 'Non_unique' => 1, 'Index_type' => 'BTREE'],
+    ['Key_name' => 'peculiar_unrelated', 'Seq_in_index' => 'not-an-ordinal', 'Column_name' => 'unrelated', 'Sub_part' => null],
+    ['Key_name' => 'prefix_name', 'Seq_in_index' => 1, 'Column_name' => 'option_name', 'Sub_part' => 191, 'Non_unique' => 0, 'Index_type' => 'BTREE'],
+    ['Key_name' => 'hidden_name', 'Seq_in_index' => 1, 'Column_name' => 'option_name', 'Sub_part' => null, 'Non_unique' => 0, 'Visible' => 'NO', 'Index_type' => 'BTREE'],
+    ['Key_name' => 'ignored_name', 'Seq_in_index' => 1, 'Column_name' => 'option_name', 'Sub_part' => null, 'Non_unique' => 0, 'Ignored' => 'YES', 'Index_type' => 'BTREE'],
+    ['Key_name' => 'fulltext_name', 'Seq_in_index' => 1, 'Column_name' => 'option_name', 'Sub_part' => null, 'Non_unique' => 0, 'Index_type' => 'FULLTEXT'],
+    ['Key_name' => 'nonunique_name', 'Seq_in_index' => 1, 'Column_name' => 'option_name', 'Sub_part' => null, 'Non_unique' => 1, 'Index_type' => 'BTREE'],
+    ['Key_name' => 'unique_name', 'Seq_in_index' => 1, 'Column_name' => 'option_name', 'Sub_part' => null, 'Non_unique' => 0, 'Visible' => 'YES', 'Ignored' => 'NO', 'Index_type' => 'BTREE'],
+]);
+$check(
+    DeleteGuardEvaluator::full_width_lock_index('wp_options', 'option_name', 'mixed option', true)
+        === 'unique_name',
+    'full-width lock proof ignores legal exotic, functional, and malformed-but-unrelated groups while rejecting unsafe candidate indexes'
+);
+
+foreach ([
+    'MySQL invisible' => ['Visible' => 'NO', 'Index_type' => 'BTREE'],
+    'MariaDB ignored' => ['Ignored' => 'YES', 'Index_type' => 'BTREE'],
+    'non-BTREE' => ['Visible' => 'YES', 'Index_type' => 'FULLTEXT'],
+] as $family => $extra) {
+    $GLOBALS['wpdb'] = new DeleteGuardEvaluatorFakeWpdb([array_merge([
+        'Key_name' => 'option_name',
+        'Seq_in_index' => 1,
+        'Column_name' => 'option_name',
+        'Sub_part' => null,
+        'Non_unique' => 0,
+    ], $extra)]);
+    try {
+        DeleteGuardEvaluator::full_width_lock_index('wp_options', 'option_name', 'mixed option', true);
+        $familyRefused = false;
+    } catch (RuntimeException $failure) {
+        $familyRefused = str_contains($failure->getMessage(), 'visible full-width unique first-column index');
+    }
+    $check($familyRefused, "$family index metadata cannot prove a singleton next-key lock");
+}
+
+$GLOBALS['wpdb'] = new DeleteGuardEvaluatorFakeWpdb([[
+    'Key_name' => 'legacy_option_name',
+    'Seq_in_index' => 1,
+    'Column_name' => 'option_name',
+    'Sub_part' => null,
+    'Non_unique' => 0,
+    'Index_type' => 'BTREE',
+]]);
+$check(
+    DeleteGuardEvaluator::full_width_lock_index('wp_options', 'option_name', 'mixed option', true)
+        === 'legacy_option_name',
+    'older-server rows remain accepted when the family-specific visibility and ignored fields are absent'
+);
+
+foreach ([
+    'loose sequence' => ['Seq_in_index' => '1junk', 'Non_unique' => '0', 'Index_type' => 'BTREE'],
+    'loose uniqueness' => ['Seq_in_index' => '1', 'Non_unique' => '0junk', 'Index_type' => 'BTREE'],
+    'missing index type' => ['Seq_in_index' => '1', 'Non_unique' => '0'],
+    'unknown visibility' => ['Seq_in_index' => '1', 'Non_unique' => '0', 'Index_type' => 'BTREE', 'Visible' => 'MAYBE'],
+    'unknown ignored state' => ['Seq_in_index' => '1', 'Non_unique' => '0', 'Index_type' => 'BTREE', 'Ignored' => 'MAYBE'],
+] as $label => $fields) {
+    $GLOBALS['wpdb'] = new DeleteGuardEvaluatorFakeWpdb([array_merge([
+        'Key_name' => 'option_name',
+        'Column_name' => 'option_name',
+        'Sub_part' => null,
+    ], $fields)]);
+    try {
+        DeleteGuardEvaluator::full_width_lock_index('wp_options', 'option_name', 'mixed option', true);
+        $malformedIndexRefused = false;
+    } catch (RuntimeException $failure) {
+        $malformedIndexRefused = str_contains($failure->getMessage(), 'malformed row');
+    }
+    $check($malformedIndexRefused, "$label SHOW INDEX metadata fails closed");
+}
+
+$GLOBALS['wpdb'] = new DeleteGuardEvaluatorFakeWpdb([
+    ['Key_name' => 'option_name', 'Seq_in_index' => '1', 'Column_name' => 'option_name', 'Sub_part' => null, 'Non_unique' => '0', 'Index_type' => 'BTREE'],
+    ['Key_name' => 'option_name', 'Seq_in_index' => '1', 'Column_name' => 'option_name', 'Sub_part' => null, 'Non_unique' => '0', 'Index_type' => 'BTREE'],
+]);
+try {
+    DeleteGuardEvaluator::full_width_lock_index('wp_options', 'option_name', 'mixed option', true);
+    $duplicateIndexPositionRefused = false;
+} catch (RuntimeException $failure) {
+    $duplicateIndexPositionRefused = str_contains($failure->getMessage(), 'duplicate index positions');
+}
+$check($duplicateIndexPositionRefused, 'duplicate SHOW INDEX positions fail closed');
+
+// Only the chosen index name is interpolated. A legal exotic later column in
+// an otherwise usable owner-range index does not invalidate its exact first
+// column or make the selected index name unsafe.
+$GLOBALS['wpdb'] = new DeleteGuardEvaluatorFakeWpdb([
+    ['Key_name' => 'user_id_meta_key', 'Seq_in_index' => '1', 'Column_name' => 'user_id', 'Sub_part' => null, 'Non_unique' => '1', 'Index_type' => 'BTREE'],
+    ['Key_name' => 'user_id_meta_key', 'Seq_in_index' => '2', 'Column_name' => 'legal-column 🙂', 'Sub_part' => null, 'Non_unique' => '1', 'Index_type' => 'BTREE'],
+]);
+$check(
+    DeleteGuardEvaluator::full_width_lock_index('wp_usermeta', 'user_id', 'owner range')
+        === 'user_id_meta_key',
+    'full-width proof accepts a harmless legal exotic later column without interpolating it'
+);
+
+foreach ([
+    'loose later prefix' => ['Seq_in_index' => '2', 'Column_name' => 'meta_key', 'Sub_part' => '191junk', 'Non_unique' => '1', 'Index_type' => 'BTREE'],
+    'oversized later prefix' => ['Seq_in_index' => '2', 'Column_name' => 'meta_key', 'Sub_part' => '65536', 'Non_unique' => '1', 'Index_type' => 'BTREE'],
+    'missing later type' => ['Seq_in_index' => '2', 'Column_name' => 'meta_key', 'Sub_part' => null, 'Non_unique' => '1'],
+    'changed later type' => ['Seq_in_index' => '2', 'Column_name' => 'meta_key', 'Sub_part' => null, 'Non_unique' => '1', 'Index_type' => 'FULLTEXT'],
+    'changed later uniqueness' => ['Seq_in_index' => '2', 'Column_name' => 'meta_key', 'Sub_part' => null, 'Non_unique' => '0', 'Index_type' => 'BTREE'],
+    'changed later visibility' => ['Seq_in_index' => '2', 'Column_name' => 'meta_key', 'Sub_part' => null, 'Non_unique' => '1', 'Index_type' => 'BTREE', 'Visible' => 'NO'],
+    'missing later visibility field' => ['Seq_in_index' => '2', 'Column_name' => 'meta_key', 'Sub_part' => null, 'Non_unique' => '1', 'Index_type' => 'BTREE'],
+    'changed later ignored state' => ['Seq_in_index' => '2', 'Column_name' => 'meta_key', 'Sub_part' => null, 'Non_unique' => '1', 'Index_type' => 'BTREE', 'Ignored' => 'YES'],
+] as $label => $later) {
+    $first = [
+        'Key_name' => 'user_id_meta_key',
+        'Seq_in_index' => '1',
+        'Column_name' => 'user_id',
+        'Sub_part' => null,
+        'Non_unique' => '1',
+        'Index_type' => 'BTREE',
+    ];
+    if (str_contains($label, 'visibility')) {
+        $first['Visible'] = 'YES';
+    }
+    if (str_contains($label, 'ignored')) {
+        $first['Ignored'] = 'NO';
+    }
+    $later['Key_name'] = 'user_id_meta_key';
+    $GLOBALS['wpdb'] = new DeleteGuardEvaluatorFakeWpdb([$first, $later]);
+    try {
+        DeleteGuardEvaluator::full_width_lock_index('wp_usermeta', 'user_id', 'owner range');
+        $laterRowRefused = false;
+    } catch (RuntimeException $failure) {
+        $laterRowRefused = str_contains($failure->getMessage(), 'malformed row')
+            || str_contains($failure->getMessage(), 'inconsistent composite-index metadata');
+    }
+    $check($laterRowRefused, "$label composite SHOW INDEX row fails closed");
+}
+
+$GLOBALS['wpdb'] = new DeleteGuardEvaluatorFakeWpdb([
+    ['Key_name' => 'user_id_meta_key', 'Seq_in_index' => '1', 'Column_name' => 'user_id', 'Sub_part' => null, 'Non_unique' => '1', 'Index_type' => 'BTREE'],
+    ['Key_name' => 'user_id_meta_key', 'Seq_in_index' => '3', 'Column_name' => 'meta_key', 'Sub_part' => null, 'Non_unique' => '1', 'Index_type' => 'BTREE'],
+]);
+try {
+    DeleteGuardEvaluator::full_width_lock_index('wp_usermeta', 'user_id', 'owner range');
+    $indexGapRefused = false;
+} catch (RuntimeException $failure) {
+    $indexGapRefused = str_contains($failure->getMessage(), 'noncontiguous index positions');
+}
+$check($indexGapRefused, 'noncontiguous composite SHOW INDEX positions fail closed');
+
+try {
+    DeleteGuardEvaluator::full_width_lock_index(str_repeat('t', 65), 'user_id', 'owner range');
+    $oversizedTableRefused = false;
+} catch (RuntimeException $failure) {
+    $oversizedTableRefused = str_contains($failure->getMessage(), 'unsafe table/column name');
+}
+$check($oversizedTableRefused, 'lock-index proof enforces the MySQL 64-byte table identifier boundary');
+
+foreach (['false', 'null', 'error', 'associative'] as $mode) {
+    $indexWpdb = new DeleteGuardEvaluatorFakeWpdb([[
+        'Key_name' => 'option_name',
+        'Seq_in_index' => '1',
+        'Column_name' => 'option_name',
+        'Sub_part' => null,
+        'Non_unique' => '0',
+        'Index_type' => 'BTREE',
+    ]]);
+    $indexWpdb->indexResultMode = $mode;
+    $GLOBALS['wpdb'] = $indexWpdb;
+    try {
+        DeleteGuardEvaluator::full_width_lock_index('wp_options', 'option_name', 'mixed option', true);
+        $indexReadRefused = false;
+    } catch (RuntimeException $failure) {
+        $indexReadRefused = str_contains($failure->getMessage(), 'index introspection failed');
+    }
+    $check($indexReadRefused, "$mode SHOW INDEX result fails closed");
+}
+
+$GLOBALS['wpdb'] = new DeleteGuardEvaluatorFakeWpdb([
+    ['Key_name' => 'user_id', 'Seq_in_index' => 1, 'Column_name' => 'user_id', 'Sub_part' => null, 'Non_unique' => 1, 'Index_type' => 'BTREE'],
+]);
+$check(
+    DeleteGuardEvaluator::full_width_lock_index('wp_usermeta', 'user_id', 'user-meta owner range')
+        === 'user_id',
+    'full-width lock proof permits a nonunique complete owner-range index when singleton identity is not claimed'
+);
+try {
+    DeleteGuardEvaluator::full_width_lock_index('wp_usermeta', 'user_id', 'user-meta singleton', true);
+    $fullWidthUniqueRefused = false;
+} catch (RuntimeException $failure) {
+    $fullWidthUniqueRefused = str_contains($failure->getMessage(), 'visible full-width unique first-column index');
+}
+$check($fullWidthUniqueRefused, 'full-width lock proof loudly refuses a missing uniqueness guarantee');
 
 // The lock boundary's engine proof is deliberately direct-callable. These
 // checks would fail against the pre-extraction evaluator, which had no such
@@ -173,11 +407,23 @@ $metadataRefused = false;
 try {
     DeleteGuardEvaluator::assert_innodb_tables(['wp_postmeta']);
 } catch (RuntimeException $e) {
-    $metadataRefused = str_contains($e->getMessage(), 'unable to acquire metadata lock')
-        && str_contains($e->getMessage(), 'simulated metadata probe failure')
+    $metadataRefused = $e->getMessage()
+        === 'duo: deletion guard locking refused — unable to acquire metadata lock for guard table '
+            . 'wp_postmeta: simulated metadata probe failure'
         && count($engineWpdb->queries) === 1;
 }
 $check($metadataRefused, 'metadata-lock failure refuses before information-schema introspection');
+
+$engineWpdb = new DeleteGuardEvaluatorFakeWpdb([]);
+$GLOBALS['wpdb'] = $engineWpdb;
+try {
+    DeleteGuardEvaluator::assert_innodb_tables(['wp_termmeta` WHERE 1=0 --'], 'authored meta locking');
+    $hostileTableRefused = false;
+} catch (RuntimeException $e) {
+    $hostileTableRefused = str_contains($e->getMessage(), 'unsafe table identifier')
+        && $engineWpdb->queries === [];
+}
+$check($hostileTableRefused, 'hostile runtime table identifiers refuse before any SQL interpolation');
 
 $engineWpdb = new DeleteGuardEvaluatorFakeWpdb([], ['wp_postmeta' => 'InnoDB'], false, true);
 $GLOBALS['wpdb'] = $engineWpdb;
@@ -190,32 +436,81 @@ try {
 }
 $check($introspectionRefused, 'information-schema failure remains a fail-closed deletion refusal');
 
-$GLOBALS['wpdb'] = new DeleteGuardEvaluatorFakeWpdb([], null, false, false, 'REPEATABLE-READ');
-DeleteGuardEvaluator::assert_transaction_isolation();
+$isolationWpdb = new DeleteGuardEvaluatorFakeWpdb([]);
+$GLOBALS['wpdb'] = $isolationWpdb;
+$isolationWpdb->activeTransaction = '0';
+Db::start_repeatable_read('fixture transaction start');
+DeleteGuardEvaluator::begin_authored_transaction();
 $check(
-    $GLOBALS['wpdb']->queries === ['SELECT @@transaction_isolation'],
-    'transaction-isolation proof accepts the modern server variable when it supplies gap locks'
+    array_slice($isolationWpdb->queries, 0, 2) === [
+        'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ',
+        'START TRANSACTION',
+    ],
+    'authored transaction positively sets one-shot REPEATABLE READ immediately before START'
 );
-
-$GLOBALS['wpdb'] = new DeleteGuardEvaluatorFakeWpdb([], null, false, false, null, 'SERIALIZABLE');
-DeleteGuardEvaluator::assert_transaction_isolation();
+$isolationWpdb->queries = [];
+DeleteGuardEvaluator::assert_transaction_isolation('owner-range locking');
 $check(
-    $GLOBALS['wpdb']->queries === ['SELECT @@transaction_isolation', 'SELECT @@tx_isolation'],
-    'transaction-isolation proof falls back to the legacy server variable without assuming a server family'
+    count($isolationWpdb->queries) === 3
+        && $isolationWpdb->queries[0] === 'SELECT @@in_transaction'
+        && str_starts_with($isolationWpdb->queries[1], 'RELEASE SAVEPOINT `duo_authored_')
+        && str_starts_with($isolationWpdb->queries[2], 'SAVEPOINT `duo_authored_')
+        && !array_filter(
+            $isolationWpdb->queries,
+            static fn(string $query): bool => str_contains($query, '@@transaction_isolation')
+                || str_contains($query, '@@tx_isolation')
+                || str_contains($query, 'innodb_trx')
+        ),
+    'each lock rechecks canonical activity and savepoint continuity without privileged/session-default introspection'
 );
-
-$GLOBALS['wpdb'] = new DeleteGuardEvaluatorFakeWpdb([], null, false, false, 'READ-COMMITTED');
-$unsafeIsolationRefused = false;
+$isolationWpdb->savepointExists = false; // Simulates COMMIT followed by a same-isolation START TRANSACTION.
 try {
-    DeleteGuardEvaluator::assert_transaction_isolation();
+    DeleteGuardEvaluator::assert_transaction_isolation('owner-range locking');
+    $restartedTransactionRefused = false;
 } catch (RuntimeException $e) {
-    $unsafeIsolationRefused = str_contains($e->getMessage(), 'REPEATABLE-READ or SERIALIZABLE')
-        && $GLOBALS['wpdb']->queries === ['SELECT @@transaction_isolation'];
+    $restartedTransactionRefused = str_contains($e->getMessage(), 'lost authored transaction continuity');
+}
+$check($restartedTransactionRefused, 'same-isolation transaction restart cannot reuse the authored lock boundary');
+DeleteGuardEvaluator::end_authored_transaction();
+
+$setFailureWpdb = new DeleteGuardEvaluatorFakeWpdb([]);
+$setFailureWpdb->activeTransaction = '0';
+$setFailureWpdb->failSetTransaction = true;
+$GLOBALS['wpdb'] = $setFailureWpdb;
+try {
+    Db::start_repeatable_read('fixture transaction start');
+    $setFailureRefused = false;
+} catch (Throwable $failure) {
+    $setFailureRefused = $failure instanceof \Duo\DatabaseMutationException;
 }
 $check(
-    $unsafeIsolationRefused,
-    'transaction-isolation proof refuses record-lock-only isolation before deletion guards run'
+    $setFailureRefused
+        && $setFailureWpdb->queries === ['SET TRANSACTION ISOLATION LEVEL REPEATABLE READ'],
+    'failed one-shot isolation refuses before START TRANSACTION'
 );
+
+foreach (['0', '01', '1.0', '1junk', 1, false, null] as $activeValue) {
+    $activeWpdb = new DeleteGuardEvaluatorFakeWpdb([]);
+    $activeWpdb->activeTransaction = $activeValue;
+    $GLOBALS['wpdb'] = $activeWpdb;
+    try {
+        DeleteGuardEvaluator::assert_active_transaction('owner-range locking');
+        $activeShapeRefused = false;
+    } catch (RuntimeException $e) {
+        $activeShapeRefused = str_contains($e->getMessage(), 'requires an active transaction');
+    }
+    $check($activeShapeRefused, 'noncanonical transaction-state value ' . json_encode($activeValue) . ' fails closed');
+}
+$activeWpdb = new DeleteGuardEvaluatorFakeWpdb([]);
+$activeWpdb->activeTransactionError = true;
+$GLOBALS['wpdb'] = $activeWpdb;
+try {
+    DeleteGuardEvaluator::assert_active_transaction('owner-range locking');
+    $activeErrorRefused = false;
+} catch (RuntimeException $e) {
+    $activeErrorRefused = str_contains($e->getMessage(), 'requires an active transaction');
+}
+$check($activeErrorRefused, 'canonical transaction-state value plus a driver error fails closed');
 
 $referenceCalls = [];
 $findings = DeleteGuardEvaluator::reference_findings(
@@ -460,6 +755,8 @@ $evaluator = new ReflectionClass(DeleteGuardEvaluator::class);
 $check(
     (new ReflectionMethod(DeleteGuardEvaluator::class, 'lock_index'))->isPublic()
         && (new ReflectionMethod(DeleteGuardEvaluator::class, 'lock_index'))->isStatic()
+        && (new ReflectionMethod(DeleteGuardEvaluator::class, 'full_width_lock_index'))->isPublic()
+        && (new ReflectionMethod(DeleteGuardEvaluator::class, 'full_width_lock_index'))->isStatic()
         && (new ReflectionMethod(DeleteGuardEvaluator::class, 'assert_innodb_tables'))->isPublic()
         && (new ReflectionMethod(DeleteGuardEvaluator::class, 'assert_innodb_tables'))->isStatic()
         && (new ReflectionMethod(DeleteGuardEvaluator::class, 'assert_transaction_isolation'))->isPublic()
