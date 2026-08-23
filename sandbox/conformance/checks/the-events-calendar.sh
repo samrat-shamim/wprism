@@ -359,7 +359,7 @@ SECRET_OUT=$(wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-tec-body
   && grep -Fq 'looks like it contains a aws key' <<<"$SECRET_OUT" \
   && grep -Fq 'not blocked: bodies may legitimately discuss credentials' <<<"$SECRET_OUT" \
   && ! grep -Fq "$FAKE_SECRET" <<<"$SECRET_OUT" \
-  && grep -RFl "$FAKE_SECRET" "$BODY_WARNING_DIR/state/posts/tribe_events" >/dev/null \
+  && grep -RFl "$FAKE_SECRET" "$BODY_WARNING_DIR/posts/tribe_events" >/dev/null \
   || fail "TEC credential-shaped body did not capture with a redacted warning: $SECRET_OUT"
 [ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$BEFORE_STATUS" ] \
   || fail "TEC body-warning probe changed the committed repository"
@@ -386,7 +386,7 @@ require_duo_answered "TEC credential-shaped authored meta capture" human "$SECRE
   || fail "TEC credential-shaped authored meta did not refuse with redaction: $SECRET_OUT"
 [ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$BEFORE_STATUS" ] \
   || fail "TEC authored-meta secret refusal partially published state"
-[ ! -e "$META_SECRET_DIR/state" ] \
+[ ! -e "$META_SECRET_DIR" ] \
   || fail "TEC authored-meta secret refusal partially published its isolated output"
 rm -rf "$META_SECRET_DIR"
 wp_conf1 eval '
