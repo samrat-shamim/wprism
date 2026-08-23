@@ -283,6 +283,17 @@ namespace {
         static fn(string $sql): bool => preg_match('/^(?:SELECT|SHOW)\b/i', $sql) !== 1
     )) === 0 && $wpdb->ddlLog() === [],
         'provider verification executes only checked SELECT/SHOW reads and no DDL/DML');
+    duo_check(count(array_filter(
+        $queries,
+        static fn(string $sql): bool => str_contains($sql, 'LENGTH(option_value) AS option_bytes')
+            && str_contains($sql, 'WHERE option_name =')
+            && str_contains($sql, 'ORDER BY option_id ASC LIMIT 2')
+    )) === 4 && count(array_filter(
+        $queries,
+        static fn(string $sql): bool => str_contains($sql, 'BINARY option_name = BINARY')
+            && str_contains($sql, 'AND LENGTH(option_value) =')
+    )) === 4,
+        'both prerequisite options use compact witnesses followed by exact size-bound payload fetches');
     duo_check_same($beforeRows, [
         'options' => $wpdb->rows('options'),
         'term_taxonomy' => $wpdb->rows('term_taxonomy'),
@@ -389,6 +400,11 @@ namespace {
     );
 
     $wpdb = woo_fulfillment_ready_target();
+    $wpdb->seedTable('WC_order_fulfillments', []);
+    duo_check_same([], $provider->capabilities(),
+        'a collation-equivalent fulfillment table alias cannot satisfy exact table identity');
+
+    $wpdb = woo_fulfillment_ready_target();
     woo_fulfillment_set_options($wpdb, 'yes', 'yes');
     duo_check_same([], $provider->capabilities(),
         'non-writer marker spelling is stale even when PHP truthiness would pass Woo core');
@@ -401,6 +417,72 @@ namespace {
     WpStore::instance()->options['woocommerce_feature_fulfillments_enabled'] = 'no';
     duo_check_same([], $provider->capabilities(),
         'raw/effective feature cache disagreement cannot be blessed');
+
+    $wpdb = woo_fulfillment_ready_target();
+    $optionRows = $wpdb->rows('options');
+    $optionRows[] = [
+        'option_id' => 90,
+        'option_name' => 'WooCommerce_feature_fulfillments_enabled',
+        'option_value' => 'yes',
+        'autoload' => 'yes',
+    ];
+    $wpdb->seedTable('options', $optionRows)->setColumns('options', [
+        'option_id' => 'bigint(20) unsigned',
+        'option_name' => 'varchar(191)',
+        'option_value' => 'longtext',
+        'autoload' => 'varchar(20)',
+    ]);
+    duo_check_same([], $provider->capabilities(),
+        'a collation-equivalent fulfillment feature option alias fails closed');
+    duo_check_throws(
+        static fn() => $provider->invoke('verify_fulfillment_prerequisites', []),
+        RuntimeException::class,
+        'an aliased fulfillment option identity remains loud at invoke',
+        'aliased'
+    );
+
+    $wpdb = woo_fulfillment_ready_target();
+    $wpdb->update('options', ['option_value' => str_repeat('x', 17)], [
+        'option_name' => 'woocommerce_feature_fulfillments_enabled',
+    ]);
+    WpStore::instance()->options['woocommerce_feature_fulfillments_enabled'] = str_repeat('x', 17);
+    $wpdb->resetLog();
+    duo_check_same([], $provider->capabilities(),
+        'an oversized fulfillment option fails before its LONGTEXT payload is fetched');
+    $oversizedOptionQueries = $wpdb->queries();
+    duo_check(count($oversizedOptionQueries) === 1
+        && str_contains($oversizedOptionQueries[0], 'LENGTH(option_value) AS option_bytes')
+        && !str_contains($oversizedOptionQueries[0], ', option_value,'),
+        'oversized fulfillment option refusal stops at the compact witness');
+
+    $wpdb = woo_fulfillment_ready_target();
+    $wpdb->update('options', ['option_id' => 9000000001], [
+        'option_name' => 'woocommerce_feature_fulfillments_enabled',
+    ]);
+    duo_check(isset($provider->capabilities()['verify_fulfillment_prerequisites']),
+        'a valid divergent 64-bit option identity remains inside the canonical uint boundary');
+
+    $wpdb = woo_fulfillment_ready_target();
+    $grewDuringRead = false;
+    $wpdb->onQuery(static function (string $sql, string $_method, FakeWpdb $db) use (&$grewDuringRead): null {
+        if (!$grewDuringRead
+            && str_contains($sql, "BINARY option_name = BINARY 'woocommerce_feature_fulfillments_enabled'")) {
+            $grewDuringRead = true;
+            $db->onQuery(null);
+            $db->update('options', ['option_value' => str_repeat('z', 17)], [
+                'option_name' => 'woocommerce_feature_fulfillments_enabled',
+            ]);
+        }
+        return null;
+    });
+    duo_check_throws(
+        static fn() => $provider->invoke('verify_fulfillment_prerequisites', []),
+        RuntimeException::class,
+        'fulfillment option growth after its witness cannot cross the bounded payload read',
+        'changed during bounded readback'
+    );
+    duo_check($grewDuringRead,
+        'the fulfillment size race is injected between witness and payload fetch');
 
     foreach ([
         'name' => 'wc_fulfillment_shipping_provider_hijack',
@@ -473,6 +555,22 @@ namespace {
         'malformed schema rows fail closed without PHP coercion');
 
     $wpdb = woo_fulfillment_ready_target();
+    $columns = woo_fulfillment_columns('wc_order_fulfillments');
+    for ($columnIndex = count($columns); $columnIndex <= 4096; ++$columnIndex) {
+        $columns[] = [
+            'Field' => 'hostile_' . $columnIndex,
+            'Type' => 'longtext',
+            'Null' => 'YES',
+            'Key' => '',
+            'Default' => null,
+            'Extra' => '',
+        ];
+    }
+    $wpdb->setColumnDefinitions('wc_order_fulfillments', $columns);
+    duo_check_same([], $provider->capabilities(),
+        'a hostile schema inventory beyond the explicit MySQL column ceiling fails closed');
+
+    $wpdb = woo_fulfillment_ready_target();
     $indexes = woo_fulfillment_indexes('wc_order_fulfillments');
     $indexes[] = ['Key_name' => 'addon_index', 'Non_unique' => '1', 'Seq_in_index' => '1', 'Column_name' => 'status', 'Sub_part' => null, 'Index_type' => 'BTREE'];
     $wpdb->setIndexes('wc_order_fulfillments', $indexes);
@@ -499,6 +597,22 @@ namespace {
     $wpdb->setIndexes('wc_order_fulfillments', $indexes);
     duo_check_same([], $provider->capabilities(),
         'duplicate index rows cannot be collapsed into the native index contract');
+
+    $wpdb = woo_fulfillment_ready_target();
+    $indexes = woo_fulfillment_indexes('wc_order_fulfillments');
+    while (count($indexes) <= 1040) {
+        $indexes[] = [
+            'Key_name' => 'hostile_' . count($indexes),
+            'Non_unique' => '1',
+            'Seq_in_index' => '1',
+            'Column_name' => 'status',
+            'Sub_part' => null,
+            'Index_type' => 'BTREE',
+        ];
+    }
+    $wpdb->setIndexes('wc_order_fulfillments', $indexes);
+    duo_check_same([], $provider->capabilities(),
+        'a hostile index inventory beyond the explicit MySQL index ceiling fails closed');
 
     foreach ([
         ['field' => 'Non_unique', 'value' => '00', 'label' => 'noncanonical Non_unique'],
@@ -564,10 +678,12 @@ namespace {
     );
 
     $wpdb = woo_fulfillment_ready_target();
-    $query = 0;
-    $wpdb->onQuery(static function (string $_sql, string $_method, FakeWpdb $db) use (&$query): null {
-        $query++;
-        if ($query === 9) {
+    $featureWitness = 0;
+    $wpdb->onQuery(static function (string $sql, string $_method, FakeWpdb $db) use (&$featureWitness): null {
+        if (str_contains($sql, "WHERE option_name = 'woocommerce_feature_fulfillments_enabled'")) {
+            $featureWitness++;
+        }
+        if ($featureWitness === 2) {
             $db->onQuery(null);
             WpStore::instance()->options['woocommerce_feature_fulfillments_enabled'] = 'no';
             $db->update('options', ['option_value' => 'no'], [
@@ -585,10 +701,12 @@ namespace {
     );
 
     $wpdb = woo_fulfillment_ready_target();
-    $query = 0;
-    $wpdb->onQuery(static function (string $_sql, string $_method, FakeWpdb $db) use (&$query): null {
-        $query++;
-        if ($query === 10) {
+    $markerWitness = 0;
+    $wpdb->onQuery(static function (string $sql, string $_method, FakeWpdb $db) use (&$markerWitness): null {
+        if (str_contains($sql, "WHERE option_name = 'woocommerce_fulfillments_db_tables_created'")) {
+            $markerWitness++;
+        }
+        if ($markerWitness === 2) {
             $db->onQuery(null);
             WpStore::instance()->options['woocommerce_fulfillments_db_tables_created'] = '0';
             $db->update('options', ['option_value' => '0'], [
@@ -605,10 +723,12 @@ namespace {
     );
 
     $wpdb = woo_fulfillment_ready_target();
-    $query = 0;
-    $wpdb->onQuery(static function (string $_sql, string $_method, FakeWpdb $db) use (&$query): null {
-        $query++;
-        if ($query === 9) {
+    $featureWitness = 0;
+    $wpdb->onQuery(static function (string $sql, string $_method, FakeWpdb $db) use (&$featureWitness): null {
+        if (str_contains($sql, "WHERE option_name = 'woocommerce_feature_fulfillments_enabled'")) {
+            $featureWitness++;
+        }
+        if ($featureWitness === 2) {
             $db->onQuery(null);
             $GLOBALS['wooFulfillmentContainer']->database->maxIndexLength = 250;
             foreach (['wc_order_fulfillments', 'wc_order_fulfillment_meta'] as $table) {
@@ -625,10 +745,12 @@ namespace {
     );
 
     $wpdb = woo_fulfillment_ready_target();
-    $query = 0;
-    $wpdb->onQuery(static function (string $_sql, string $_method, FakeWpdb $db) use (&$query): null {
-        $query++;
-        if ($query === 9) {
+    $featureWitness = 0;
+    $wpdb->onQuery(static function (string $sql, string $_method, FakeWpdb $db) use (&$featureWitness): null {
+        if (str_contains($sql, "WHERE option_name = 'woocommerce_feature_fulfillments_enabled'")) {
+            $featureWitness++;
+        }
+        if ($featureWitness === 2) {
             $db->onQuery(null);
             WpStore::instance()->options['woocommerce_feature_fulfillments_enabled'] = 'no';
             $db->update('options', ['option_value' => 'no'], [
@@ -677,6 +799,21 @@ namespace {
         'checked-read failure is bounded, loud/retryable, and never echoes driver detail');
     duo_check(($provider->invoke('verify_fulfillment_prerequisites', [])['verified'] ?? false) === true,
         'checked-read failure retries cleanly without target repair by the provider');
+
+    $wpdb = woo_fulfillment_ready_target();
+    $wpdb->failNextQuery($driverSecret, 'BINARY option_name = BINARY');
+    $fetchFailure = '';
+    try {
+        $provider->invoke('verify_fulfillment_prerequisites', []);
+    } catch (Throwable $caught) {
+        $fetchFailure = $caught->getMessage();
+    }
+    duo_check(strlen($fetchFailure) < 256
+        && str_contains($fetchFailure, 'provider checked read failed')
+        && !str_contains($fetchFailure, 'FULFILLMENT_DRIVER_MARKER'),
+        'bounded option payload read failure is loud, retryable, and redacted');
+    duo_check(($provider->invoke('verify_fulfillment_prerequisites', [])['verified'] ?? false) === true,
+        'bounded payload read failure leaves exact prerequisite state retryable');
 
     $artifactLock = json_decode((string) file_get_contents(
         $root . '/sandbox/conformance/artifacts.lock.json'

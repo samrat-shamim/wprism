@@ -19,6 +19,12 @@ final class WoocommerceFulfillmentPrerequisites {
     private const FEATURE_OPTION = 'woocommerce_feature_fulfillments_enabled';
     private const MARKER_OPTION = 'woocommerce_fulfillments_db_tables_created';
     private const TAXONOMY = 'wc_fulfillment_shipping_provider';
+    private const MAX_OPTION_BYTES = 16;
+    // MySQL's physical table/index ceilings make SHOW output finite; these
+    // explicit caps keep hostile driver output from entering a receipt as an
+    // apparently ordinary schema inventory.
+    private const MAX_TABLE_COLUMNS = 4096;
+    private const MAX_TABLE_INDEX_ROWS = 1040;
     /** Mirrors Ledger::TABLE_IDENTIFIER_WIDTH and the journal SQL grammar. */
     private const TABLE_IDENTIFIER_PATTERN = '/^[A-Za-z0-9_]{1,64}$/D';
 
@@ -214,13 +220,50 @@ final class WoocommerceFulfillmentPrerequisites {
 
     private static function raw_option(string $name): string {
         global $wpdb;
-        $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
-            "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s ORDER BY option_id ASC LIMIT 2",
+        // The first read transfers only an identity and byte-count witness.
+        // Plain equality intentionally discovers case/collation aliases; the
+        // byte-exact returned name below then refuses them rather than letting
+        // WordPress's default CI collation select a sibling option.
+        $witnesses = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+            "SELECT option_id, BINARY option_name AS option_name, "
+            . "LENGTH(option_value) AS option_bytes FROM {$wpdb->options} "
+            . 'WHERE option_name = %s ORDER BY option_id ASC LIMIT 2',
             $name
-        ), 'WooCommerce fulfillment option readback');
-        if (count($rows) !== 1 || !is_string($rows[0]['option_value'] ?? null)) {
+        ), 'WooCommerce fulfillment option witness');
+        if (count($witnesses) !== 1
+            || ($witnesses[0]['option_name'] ?? null) !== $name) {
             throw new \RuntimeException(
-                'duo: WooCommerce fulfillment prerequisite option is absent or duplicated'
+                'duo: WooCommerce fulfillment prerequisite option is absent, aliased, or duplicated'
+            );
+        }
+        $optionId = self::db_uint($witnesses[0]['option_id'] ?? null, 'option_id');
+        $optionBytes = self::db_uint($witnesses[0]['option_bytes'] ?? null, 'option_bytes');
+        if ($optionId < 1 || $optionBytes > self::MAX_OPTION_BYTES) {
+            throw new \RuntimeException(
+                'duo: WooCommerce fulfillment prerequisite option is outside the bounded byte contract'
+            );
+        }
+
+        // Bind the payload fetch to the witnessed row, exact binary identity,
+        // and safe size. A concurrent growth/change therefore yields no row
+        // instead of transferring an unbounded LONGTEXT value.
+        $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+            "SELECT option_id, BINARY option_name AS option_name, option_value, "
+            . "LENGTH(option_value) AS option_bytes FROM {$wpdb->options} "
+            . 'WHERE option_id = %d AND BINARY option_name = BINARY %s '
+            . 'AND LENGTH(option_value) = %d ORDER BY option_id ASC LIMIT 2',
+            $optionId,
+            $name,
+            $optionBytes
+        ), 'WooCommerce fulfillment option bounded readback');
+        if (count($rows) !== 1
+            || ($rows[0]['option_name'] ?? null) !== $name
+            || ($rows[0]['option_id'] ?? null) !== (string) $optionId
+            || ($rows[0]['option_bytes'] ?? null) !== (string) $optionBytes
+            || !is_string($rows[0]['option_value'] ?? null)
+            || strlen($rows[0]['option_value']) !== $optionBytes) {
+            throw new \RuntimeException(
+                'duo: WooCommerce fulfillment prerequisite option changed during bounded readback'
             );
         }
         return $rows[0]['option_value'];
@@ -325,11 +368,13 @@ final class WoocommerceFulfillmentPrerequisites {
                 'duo: WooCommerce fulfillment table identity is outside the bounded database identifier grammar'
             );
         }
-        $found = \Duo\ProviderSdk::checked_get_var(
-            $wpdb->prepare('SHOW TABLES LIKE %s', $table),
+        $foundRows = \Duo\ProviderSdk::checked_get_results(
+            $wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table)),
             'WooCommerce fulfillment table existence'
         );
-        if ($found !== $table) {
+        if (count($foundRows) !== 1
+            || count($foundRows[0]) !== 1
+            || array_values($foundRows[0])[0] !== $table) {
             throw new \RuntimeException(
                 'duo: WooCommerce fulfillment database table is absent or outside the exact site prefix'
             );
@@ -339,6 +384,11 @@ final class WoocommerceFulfillmentPrerequisites {
             "SHOW FULL COLUMNS FROM `$table`",
             'WooCommerce fulfillment table schema'
         );
+        if (count($rows) > self::MAX_TABLE_COLUMNS) {
+            throw new \RuntimeException(
+                'duo: WooCommerce fulfillment table returned an oversized column inventory'
+            );
+        }
         $actual = [];
         foreach ($rows as $row) {
             $field = $row['Field'] ?? null;
@@ -370,6 +420,11 @@ final class WoocommerceFulfillmentPrerequisites {
             "SHOW INDEX FROM `$table`",
             'WooCommerce fulfillment table indexes'
         );
+        if (count($indexRows) > self::MAX_TABLE_INDEX_ROWS) {
+            throw new \RuntimeException(
+                'duo: WooCommerce fulfillment table returned an oversized index inventory'
+            );
+        }
         $indexes = [];
         foreach ($indexRows as $row) {
             $key = $row['Key_name'] ?? null;
@@ -437,9 +492,14 @@ final class WoocommerceFulfillmentPrerequisites {
         if (is_int($value)) {
             $number = $value;
         } elseif (is_string($value)
-            && strlen($value) <= 10
+            && strlen($value) <= strlen((string) PHP_INT_MAX)
             && preg_match('/^(?:0|[1-9][0-9]*)$/D', $value) === 1) {
             $number = (int) $value;
+            if ((string) $number !== $value) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce fulfillment table returned an out-of-range $field index integer"
+                );
+            }
         } else {
             throw new \RuntimeException(
                 "duo: WooCommerce fulfillment table returned a noncanonical $field index integer"

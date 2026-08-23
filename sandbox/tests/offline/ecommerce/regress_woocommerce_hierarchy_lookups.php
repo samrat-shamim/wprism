@@ -121,7 +121,10 @@ function woo_hierarchy_test_set_option(string $name, mixed $value): void {
     $store = WpStore::instance();
     $store->options[$name] = $value;
     $store->autoload[$name] = 'yes';
-    $raw = serialize($value);
+    // WordPress maybe_serialize() leaves scalar strings unchanged and only
+    // serializes structured values. Mirroring that byte boundary matters for
+    // the brand permalink raw/effective identity check.
+    $raw = is_array($value) || is_object($value) ? serialize($value) : (string) $value;
     $found = array_values(array_filter(
         $wpdb->rows($wpdb->options),
         static fn(array $row): bool => ($row['option_name'] ?? null) === $name
@@ -149,6 +152,17 @@ function woo_hierarchy_test_remove_option(string $name): void {
     global $wpdb;
     unset(WpStore::instance()->options[$name], WpStore::instance()->autoload[$name]);
     $wpdb->delete($wpdb->options, ['option_name' => $name]);
+}
+
+/** @param list<array<string,mixed>> $rows */
+function woo_hierarchy_test_seed_option_rows(array $rows): void {
+    global $wpdb;
+    $wpdb->seedTable('wp_options', $rows)->setColumns('wp_options', [
+        'option_id' => 'bigint(20) unsigned',
+        'option_name' => 'varchar(191)',
+        'option_value' => 'longtext',
+        'autoload' => 'varchar(20)',
+    ]);
 }
 
 /** Install the exact state the real child must create, then return its bounded receipt. */
@@ -462,6 +476,123 @@ duo_check(str_contains($dbFailure, 'provider checked read failed')
     'checked parent-map read failure stays loud and redacts driver detail');
 duo_check(($provider->invoke('rebuild_hierarchy_lookups', $hierarchyArgs)['after']['category_lookup_valid'] ?? false) === true,
     'checked-read failure retries cleanly');
+
+$rawOption = new ReflectionMethod(
+    \Duo\Providers\WoocommerceHierarchyLookups::class,
+    'raw_option'
+);
+$optionRows = $wpdb->rows('wp_options');
+$aliasedRows = $optionRows;
+$aliasedRows[] = [
+    'option_id' => 99,
+    'option_name' => 'Product_cat_children',
+    'option_value' => 'a:0:{}',
+    'autoload' => 'yes',
+];
+woo_hierarchy_test_seed_option_rows($aliasedRows);
+$callsBeforeAlias = count(WP_CLI::$calls);
+duo_check_throws(
+    static fn() => $provider->invoke('rebuild_hierarchy_lookups', $hierarchyArgs),
+    RuntimeException::class,
+    'a collation-equivalent hierarchy option alias refuses before native mutation',
+    'aliased'
+);
+duo_check_same($callsBeforeAlias, count(WP_CLI::$calls),
+    'an aliased option identity launches no repair child');
+woo_hierarchy_test_seed_option_rows($optionRows);
+
+$oversizedRaw = str_repeat('x', 16777217);
+woo_hierarchy_test_set_raw_option('product_cat_children', $oversizedRaw, []);
+$wpdb->resetLog();
+duo_check_same(null, $rawOption->invoke(null, 'product_cat_children', false),
+    'an oversized dirty derived option is observed without transferring its LONGTEXT payload');
+$oversizedQueries = $wpdb->queries();
+duo_check(count($oversizedQueries) === 1
+    && str_contains($oversizedQueries[0], 'LENGTH(option_value) AS option_bytes')
+    && !str_contains($oversizedQueries[0], ', option_value,'),
+    'oversized option refusal stops after the compact identity/size witness');
+duo_check_throws(
+    static fn() => $rawOption->invoke(null, 'product_cat_children', true),
+    RuntimeException::class,
+    'verified readback refuses an oversized hierarchy option loudly',
+    'bounded plain-data contract'
+);
+woo_hierarchy_test_set_option(
+    'product_cat_children',
+    woo_hierarchy_test_children(woo_hierarchy_test_parent_map('product_cat'))
+);
+
+$wpdb->resetLog();
+$grewDuringRead = false;
+$wpdb->onQuery(static function (string $sql, string $_method, FakeWpdb $db) use (&$grewDuringRead): null {
+    if (!$grewDuringRead
+        && str_contains($sql, "BINARY option_name = BINARY 'product_cat_children'")) {
+        $grewDuringRead = true;
+        $db->onQuery(null);
+        $db->update('wp_options', ['option_value' => str_repeat('y', 4096)], [
+            'option_name' => 'product_cat_children',
+        ]);
+    }
+    return null;
+});
+duo_check_throws(
+    static fn() => $rawOption->invoke(null, 'product_cat_children', true),
+    RuntimeException::class,
+    'option growth between compact witness and payload fetch cannot cross the byte bound',
+    'changed during bounded readback'
+);
+duo_check($grewDuringRead,
+    'the growth race is injected after the witness and before the exact payload fetch');
+woo_hierarchy_test_set_option(
+    'product_cat_children',
+    woo_hierarchy_test_children(woo_hierarchy_test_parent_map('product_cat'))
+);
+
+$wpdb->failNextQuery('secret=HIERARCHY_OPTION_DRIVER', 'LENGTH(option_value) AS option_bytes');
+$optionFailure = '';
+try {
+    $rawOption->invoke(null, 'product_cat_children', true);
+} catch (Throwable $failure) {
+    $optionFailure = $failure->getMessage();
+}
+duo_check(str_contains($optionFailure, 'provider checked read failed')
+    && !str_contains($optionFailure, 'HIERARCHY_OPTION_DRIVER'),
+    'option witness database failure is loud, bounded, and redacted');
+
+$wpdb->prefix = "wp_`hostile";
+$wpdb->options = "wp_`hostileoptions";
+$wpdb->term_taxonomy = "wp_`hostileterm_taxonomy";
+$wpdb->resetLog();
+duo_check_throws(
+    static fn() => $provider->invoke('rebuild_hierarchy_lookups', $hierarchyArgs),
+    RuntimeException::class,
+    'a hostile hierarchy database prefix is refused before identifier interpolation',
+    'exact site database identity'
+);
+duo_check_same([], $wpdb->queries(),
+    'invalid hierarchy database identifiers reach no checked SQL read');
+$wpdb->prefix = 'wp_';
+$wpdb->options = 'wp_options';
+$wpdb->term_taxonomy = 'wp_term_taxonomy';
+
+$wpdb->setColumns('wp_wc_category_lookup', array_merge(
+    ['category_tree_id' => 'bigint(20) unsigned', 'category_id' => 'bigint(20) unsigned'],
+    array_fill_keys(array_map(
+        static fn(int $index): string => 'hostile_' . $index,
+        range(1, 4095)
+    ), 'longtext')
+));
+duo_check_throws(
+    static fn() => $provider->invoke('rebuild_hierarchy_lookups', $hierarchyArgs),
+    RuntimeException::class,
+    'a hostile schema inventory beyond the explicit MySQL column ceiling refuses before repair',
+    'oversized column inventory'
+);
+$wpdb->setColumns('wp_wc_category_lookup', [
+    'category_tree_id' => 'bigint(20) unsigned',
+    'category_id' => 'bigint(20) unsigned',
+]);
+$provider->invoke('rebuild_hierarchy_lookups', $hierarchyArgs);
 
 $source = (string) file_get_contents($root . '/manifests/providers/woocommerce-hierarchy-lookups.php');
 duo_check(str_contains($source, 'CategoryLookup')

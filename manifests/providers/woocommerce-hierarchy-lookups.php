@@ -30,6 +30,9 @@ final class WoocommerceHierarchyLookups {
     private const MAX_CATEGORY_LOOKUP_ROWS = 200000;
     private const MAX_REWRITE_RULES = 200000;
     private const MAX_REWRITE_PART_BYTES = 8192;
+    private const MAX_TABLE_COLUMNS = 4096;
+    /** Mirrors Ledger::TABLE_IDENTIFIER_WIDTH and the journal SQL grammar. */
+    private const TABLE_IDENTIFIER_PATTERN = '/^[A-Za-z0-9_]{1,64}$/D';
 
     public function __construct(Policy $policy) {
         $this->policy = $policy;
@@ -301,12 +304,7 @@ final class WoocommerceHierarchyLookups {
     }
 
     private static function assert_option_absent(string $option): void {
-        global $wpdb;
-        $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
-            "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 2",
-            $option
-        ), 'WooCommerce hierarchy option deletion readback');
-        if ($rows !== []) {
+        if (self::option_witness($option) !== null) {
             throw new \RuntimeException(
                 'duo: WooCommerce hierarchy option deletion did not persist; recovery_required'
             );
@@ -315,6 +313,7 @@ final class WoocommerceHierarchyLookups {
 
     /** @return array<string,int|string|bool> */
     private static function projection_snapshot(bool $verify, bool $includeRewrite, bool $verifyFreshRewrite): array {
+        self::assert_database_identity();
         self::assert_category_lookup_schema();
         $parents = [];
         foreach (self::TAXONOMIES as $taxonomy) {
@@ -368,6 +367,11 @@ final class WoocommerceHierarchyLookups {
             "SHOW COLUMNS FROM `$table`",
             'WooCommerce category lookup schema'
         );
+        if (count($columns) > self::MAX_TABLE_COLUMNS) {
+            throw new \RuntimeException(
+                'duo: WooCommerce category lookup schema returned an oversized column inventory'
+            );
+        }
         $actual = [];
         foreach ($columns as $column) {
             $field = $column['Field'] ?? null;
@@ -636,22 +640,23 @@ final class WoocommerceHierarchyLookups {
         ];
     }
 
-    private static function raw_option(string $name, bool $verify): ?string {
+    private static function raw_option(
+        string $name,
+        bool $verify,
+        int $maxBytes = self::MAX_OPTION_BYTES,
+        bool $allowMissing = false
+    ): ?string {
         global $wpdb;
-        $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
-            "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 2",
-            $name
-        ), "WooCommerce $name raw option readback");
-        if (count($rows) !== 1 || !is_string($rows[0]['option_value'] ?? null)) {
-            if ($verify) {
+        $witness = self::option_witness($name);
+        if ($witness === null) {
+            if ($verify && !$allowMissing) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce $name option is missing or duplicated; recovery_required"
+                    "duo: WooCommerce $name option is missing; recovery_required"
                 );
             }
             return null;
         }
-        $raw = $rows[0]['option_value'];
-        if (strlen($raw) > self::MAX_OPTION_BYTES) {
+        if ($witness['bytes'] > $maxBytes) {
             if ($verify) {
                 throw new \RuntimeException(
                     "duo: WooCommerce $name option exceeds the bounded plain-data contract; recovery_required"
@@ -659,7 +664,77 @@ final class WoocommerceHierarchyLookups {
             }
             return null;
         }
-        return $raw;
+
+        // The witness prevents a dirty 16 MiB+ LONGTEXT value from crossing
+        // the PHP boundary. Requiring the same length in the exact-id fetch
+        // also turns a concurrent size change into a loud retryable mismatch.
+        $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+            "SELECT option_id, BINARY option_name AS option_name, option_value, "
+            . "LENGTH(option_value) AS option_bytes FROM {$wpdb->options} "
+            . 'WHERE option_id = %d AND BINARY option_name = BINARY %s '
+            . 'AND LENGTH(option_value) = %d ORDER BY option_id ASC LIMIT 2',
+            $witness['id'],
+            $name,
+            $witness['bytes']
+        ), "WooCommerce $name bounded raw option readback");
+        if (count($rows) !== 1
+            || ($rows[0]['option_name'] ?? null) !== $name
+            || ($rows[0]['option_id'] ?? null) !== (string) $witness['id']
+            || ($rows[0]['option_bytes'] ?? null) !== (string) $witness['bytes']
+            || !is_string($rows[0]['option_value'] ?? null)
+            || strlen($rows[0]['option_value']) !== $witness['bytes']) {
+            if ($verify) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce $name option changed during bounded readback; recovery_required"
+                );
+            }
+            return null;
+        }
+        return $rows[0]['option_value'];
+    }
+
+    /** @return null|array{id:int,bytes:int} */
+    private static function option_witness(string $name): ?array {
+        global $wpdb;
+        $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+            "SELECT option_id, BINARY option_name AS option_name, "
+            . "LENGTH(option_value) AS option_bytes FROM {$wpdb->options} "
+            . 'WHERE option_name = %s ORDER BY option_id ASC LIMIT 2',
+            $name
+        ), "WooCommerce $name raw option witness");
+        if ($rows === []) {
+            return null;
+        }
+        if (count($rows) !== 1 || ($rows[0]['option_name'] ?? null) !== $name) {
+            throw new \RuntimeException(
+                "duo: WooCommerce $name option is missing, aliased, or duplicated; recovery_required"
+            );
+        }
+        return [
+            'id' => self::strict_uint($rows[0]['option_id'] ?? null, false, "$name option_id"),
+            'bytes' => self::strict_uint($rows[0]['option_bytes'] ?? null, true, "$name option bytes"),
+        ];
+    }
+
+    private static function assert_database_identity(): void {
+        global $wpdb;
+        if (!is_object($wpdb)
+            || !isset($wpdb->prefix, $wpdb->options, $wpdb->term_taxonomy)
+            || !is_string($wpdb->prefix)
+            || !is_string($wpdb->options)
+            || !is_string($wpdb->term_taxonomy)
+            || $wpdb->options !== $wpdb->prefix . 'options'
+            || $wpdb->term_taxonomy !== $wpdb->prefix . 'term_taxonomy'
+            || preg_match(self::TABLE_IDENTIFIER_PATTERN, $wpdb->options) !== 1
+            || preg_match(self::TABLE_IDENTIFIER_PATTERN, $wpdb->term_taxonomy) !== 1
+            || preg_match(
+                self::TABLE_IDENTIFIER_PATTERN,
+                $wpdb->prefix . self::CATEGORY_TABLE
+            ) !== 1) {
+            throw new \RuntimeException(
+                'duo: WooCommerce hierarchy verification requires the exact site database identity'
+            );
+        }
     }
 
     private static function fresh_option(string $name): mixed {
@@ -769,6 +844,7 @@ final class WoocommerceHierarchyLookups {
 
     private static function brand_permalink_fingerprint(): string {
         $name = 'woocommerce_brand_permalink';
+        $raw = self::raw_option($name, true, 200, true);
         wp_cache_delete($name, 'options');
         wp_cache_delete('alloptions', 'options');
         wp_cache_delete('notoptions', 'options');
@@ -782,6 +858,19 @@ final class WoocommerceHierarchyLookups {
             throw new \RuntimeException(
                 'duo: WooCommerce brand permalink is outside the bounded string contract'
             );
+        }
+        if ($raw === null) {
+            if ($value !== '') {
+                throw new \RuntimeException(
+                    'duo: WooCommerce brand permalink raw and effective absence disagree'
+                );
+            }
+        } else {
+            if ($raw !== $value) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce brand permalink raw and effective values disagree'
+                );
+            }
         }
         return hash('sha256', $value);
     }
