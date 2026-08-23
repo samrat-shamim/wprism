@@ -80,19 +80,24 @@
     },
     "contact-form-7": {
       "capabilities": {
-        "deletion_semantics": {"supported": [], "unsupported": ["plugin-specific deletes"]},
+        "deletion_semantics": {"supported": [], "unsupported": ["post:wpcf7_contact_form"]},
         "entity_sections": ["post_types"],
-        "field_sections": ["post_meta", "shortcode_attrs"],
+        "field_sections": ["options", "post_meta", "shortcode_attrs", "interpreter"],
         "lifecycle_phases": ["retire", "activate", "verify"],
         "operations": ["capture", "compile", "plan", "deploy", "apply", "recapture", "render-api"]
       },
       "default_authored_keyspaces": [],
       "evidence": {"bundle_schema": "duo-subject-certification-bundle/v1", "tests": ["conformance-contact-form-7", "exact-artifact-version-matrix"]},
-      "reason": "Certified with real form/API/render behavior at both admitted artifact boundaries, including legacy positional shortcode alternate binding.",
+      "reason": "Certified for exact Contact Form 7 6.0 and 6.1.7 on single-site WordPress with native 40-byte SHA-1 and 64-byte SHA-256 form identities, a real in-place 6.0-to-6.1.7 upgrade that retains its 40-byte identity, divergent local post ids, modern hash-prefix and legacy positional shortcode rebinding, current and legacy property storage, long UTF-8/delimiter mail and messages, nested target-URL rebinding, hostile same-slug forms and foreign hash collisions, target runtime and integration sovereignty, native API/render/Turnstile/submission verification, malformed/ambiguous/secret schema refusal and redaction, unsupported form-delete atomicity, dirty conflict convergence, late database-failure rollback and retry, competing-apply serialization, deactivate/reactivate and destructive-uninstall exact-reinstall recovery, byte-identical recapture, and official 5.9.8 refusal evidence.",
       "status": "certified",
-      "supported_versions": {"plugin": "contact-form-7/wp-contact-form-7.php", "range": {"max": "7.0.0", "min": "6.0.0"}},
+      "supported_versions": {"plugin": "contact-form-7/wp-contact-form-7.php", "range": {"max": "6.2.0", "min": "6.0"}},
       "unsupported": [
-        {"operation": "delete", "reason": "No Contact Form 7 deletion selector is declared.", "surface": "deletions.*"}
+        {"operation": "delete", "reason": "Contact Form 7 form deletion has plugin-owned postmeta and shortcode reverse references without a declared cascade and complete reverse-reference guard, so capture refuses before publishing a tombstone and leaves canonical state unchanged.", "surface": "post:wpcf7_contact_form"},
+        {"operation": "compile", "reason": "The modern callback's stable native identity is exactly a seven-character lowercase-hex prefix of _hash; title-only, numeric, full-hash, wrong-width, uppercase, or otherwise non-native id shapes refuse rather than falling back to mutable titles or unrelated posts.", "surface": "shortcode_attrs.contact-form-7.id:non-native"},
+        {"operation": "capture", "reason": "Only the reviewed current/legacy property schemas and explicitly classified native residue are admitted; unknown Contact Form 7 or add-on postmeta remains unclassified and loud rather than being guessed authored, runtime, or environment state.", "surface": "post_meta:unknown-extension"},
+        {"operation": "apply", "reason": "The mixed wpcf7 settings blob and optional integration properties contain installed-version, validation, admin, and credential-bearing target state; they remain environment-owned and are verified to survive apply instead of crossing environments.", "surface": "options.wpcf7|post_meta:_constant_contact|_sendinblue"},
+        {"operation": "all", "reason": "Contact Form 7 6.2 and later are outside the source-audited and exact-artifact-tested range and are blocked until a new review extends the manifest.", "surface": "version:>=6.2.0"},
+        {"operation": "all", "reason": "Duo v1 refuses multisite; Contact Form 7 network/global behavior is outside this single-site adapter.", "surface": "multisite"}
       ]
     },
     "core": {

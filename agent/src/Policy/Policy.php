@@ -1028,7 +1028,8 @@ final class Policy {
      * fact about a shortcode's own attribute grammar, not a site-local
      * policy choice — no site.duo.json override, mirroring block_attrs'
      * own reasoning exactly), but a flatter rule shape: tagName => list of
-     * {path, kind, cast?} rules — no `type`, unlike block_attrs — a
+     * named path rules or closed positional/alternate lookup rules. Ordinary
+     * named refs use {path, kind, cast?} — no `type`, unlike block_attrs — a
      * shortcode attribute value is always flat text in the source (never
      * a native JSON array the way a block attr can be), so `cast: "csv"`
      * alone signals "comma-joined id list" (WordPress's own convention
@@ -1036,7 +1037,10 @@ final class Policy {
      * reading gallery_shortcode() directly, not assumed); anything not
      * csv-cast is a plain scalar id. `path` names a shortcode ATTRIBUTE
      * (not a JSON path; shortcode attributes are already a flat key=value
-     * grammar, `shortcode_parse_atts()`'s own return shape).
+     * grammar, `shortcode_parse_atts()`'s own return shape). Alternate rules
+     * bind plugin-public identifiers (currently a decimal post-meta value or
+     * a fixed lowercase-hex post-meta prefix) to the same canonical post
+     * token while refusing missing or ambiguous owners.
      */
     public function shortcode_attr_rules(): array {
         return $this->content_attribute_rule_resolver()->shortcode_attr_rules();

@@ -10,7 +10,7 @@
 | advanced-editor-tools | certified | `tinymce-advanced/tinymce-advanced.php` | >=5.9.2 <5.9.3 |
 | classic-editor | certified | `classic-editor/classic-editor.php` | >=1.7.0 <1.7.1 |
 | code-snippets | certified | `code-snippets/code-snippets.php` | >=3.9.5 <3.9.7 |
-| contact-form-7 | certified | `contact-form-7/wp-contact-form-7.php` | >=6.0.0 <7.0.0 |
+| contact-form-7 | certified | `contact-form-7/wp-contact-form-7.php` | >=6.0 <6.2.0 |
 | elementor | certified | `elementor/elementor.php` | >=4.0.0 <5.0.0 |
 | ninja-forms | certified | `ninja-forms/ninja-forms.php` | >=3.4.34.2 <4.0.0 |
 | paid-memberships-pro | experimental | `paid-memberships-pro/paid-memberships-pro.php` | >=3.8.3 <3.8.4 |

@@ -39,9 +39,9 @@ final class CaptureSnapshotService {
         Ledger::prune_dead_map();
         $policy ??= Policy::load($repo);
         SidebarState::prune_dead_map($policy);
-        $capture = new CaptureCandidateBuilder($repo, $policy, $binding);
         CaptureTransaction::assert_engine_support($policy);
         $repository = $compiled ?? RepositoryCompiler::compile_for_diff($repo, Policy::load($repo));
+        $capture = new CaptureCandidateBuilder($repo, $policy, $binding, $repository->tree());
         $repositoryOptions = self::repositoryOptions($repo, $policy, $repository);
         Snapshot::prune_dead_map($policy, $repositoryOptions);
         $repositoryUserLogins = self::repositoryUserLogins($repository);
@@ -91,8 +91,8 @@ final class CaptureSnapshotService {
         );
         $policy ??= Policy::load($repo);
         CaptureTransaction::assert_engine_support($policy);
-        $capture = new CaptureCandidateBuilder($repo, $policy);
         $repository = $compiled ?? RepositoryCompiler::compile_for_diff($repo, Policy::load($repo));
+        $capture = new CaptureCandidateBuilder($repo, $policy, null, $repository->tree());
         $repositoryOptions = self::repositoryOptions($repo, $policy, $repository);
         $repositoryUserLogins = self::repositoryUserLogins($repository);
 

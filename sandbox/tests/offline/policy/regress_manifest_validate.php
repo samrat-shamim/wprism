@@ -501,6 +501,131 @@ refuses(
     'shortcode_attrs.contact-form cannot mix positional and named path rules',
     'a shortcode tag cannot declare incompatible positional and named callback selectors'
 );
+refuses(
+    solo_b(['block_attrs' => ['acme/b' => [[
+        'kind' => 'post', 'path' => 'id', 'required' => true,
+        'lookup' => [
+            'codec' => 'hex-prefix', 'post_meta' => '_hash', 'post_type' => 'acme_b',
+            'prefix_length' => 7, 'stored_length' => 64,
+        ],
+    ]]]]),
+    'block_attrs.acme/b[0].lookup is supported only for shortcode refs',
+    'named alternate identities cannot silently acquire a block rewrite path'
+);
+refuses(
+    solo_b(['shortcode_attrs' => ['acme' => [[
+        'kind' => 'post', 'path' => 'id', 'required' => true, 'future' => true,
+        'lookup' => [
+            'codec' => 'hex-prefix', 'post_meta' => '_hash', 'post_type' => 'acme_b',
+            'prefix_length' => 7, 'stored_length' => 64,
+        ],
+    ]]]]),
+    'shortcode_attrs.acme[0] named alternate refs have a closed vocabulary',
+    'named alternate rules refuse unknown top-level keys'
+);
+accepts(
+    solo_b(['shortcode_attrs' => ['acme' => [[
+        'kind' => 'post', 'path' => 'id', 'required' => true,
+        'lookup' => [
+            'codec' => 'hex-prefix', 'post_meta' => '_hash', 'post_type' => 'acme_b',
+            'prefix_length' => 7, 'stored_lengths' => [40, 64],
+        ],
+    ]]]]),
+    'named alternate identities may declare a closed increasing set of native storage widths'
+);
+foreach ([
+    'one width' => [40],
+    'duplicate widths' => [40, 40],
+    'descending widths' => [64, 40],
+    'non-integer width' => [40, '64'],
+    'width below prefix' => [6, 64],
+    'width above engine bound' => [40, 129],
+] as $case => $storedLengths) {
+    refuses(
+        solo_b(['shortcode_attrs' => ['acme' => [[
+            'kind' => 'post', 'path' => 'id', 'required' => true,
+            'lookup' => [
+                'codec' => 'hex-prefix', 'post_meta' => '_hash', 'post_type' => 'acme_b',
+                'prefix_length' => 7, 'stored_lengths' => $storedLengths,
+            ],
+        ]]]]),
+        'stored_lengths must be a strictly increasing list of at least two unique integers',
+        "named alternate identities refuse $case"
+    );
+}
+refuses(
+    solo_b(['shortcode_attrs' => ['acme' => [[
+        'kind' => 'post', 'path' => 'id', 'required' => true,
+        'lookup' => [
+            'codec' => 'hex-prefix', 'post_meta' => '_hash', 'post_type' => 'acme_b',
+            'prefix_length' => 7, 'stored_length' => 64, 'stored_lengths' => [40, 64],
+        ],
+    ]]]]),
+    'lookup must be exactly {codec:hex-prefix,post_meta,post_type,prefix_length,stored_length}',
+    'named alternate identities cannot declare scalar and plural storage-width forms together'
+);
+refuses(
+    solo_b(['shortcode_attrs' => ['acme' => [[
+        'kind' => 'post', 'path' => 'id', 'required' => true,
+        'lookup' => [
+            'codec' => 'hex-prefix', 'post_meta' => '_hash', 'post_type' => 'acme_b',
+            'prefix_length' => 7, 'stored_length' => 6,
+        ],
+    ]]]]),
+    'with non-empty domains and 1 <= prefix_length <= stored_length <= 128',
+    'a prefix cannot exceed the stored alternate identity it projects'
+);
+refuses(
+    solo_b(['shortcode_attrs' => ['acme' => [[
+        'kind' => 'post', 'path' => 'id', 'required' => false,
+        'lookup' => [
+            'codec' => 'hex-prefix', 'post_meta' => '_hash', 'post_type' => 'acme_b',
+            'prefix_length' => 7, 'stored_length' => 64,
+        ],
+    ]]]]),
+    'shortcode_attrs.acme[0] named alternate refs require static kind=post and required=true',
+    'an optional identity cannot fall through to CF7 title matching'
+);
+refuses(
+    solo_b(['shortcode_attrs' => ['acme' => [[
+        'kind' => 'post', 'path' => 'id', 'required' => true,
+        'lookup' => [
+            'codec' => 'hex-prefix', 'post_meta' => '_hash', 'post_type' => 'acme_b',
+            'prefix_length' => 7, 'stored_length' => 64, 'fallback' => 'title',
+        ],
+    ]]]]),
+    'lookup must be exactly {codec:hex-prefix,post_meta,post_type,prefix_length,stored_length}',
+    'lookup domains are closed and cannot smuggle a mutable title fallback'
+);
+refuses(
+    solo_b(['shortcode_attrs' => ['acme' => [[
+        'kind' => 'post', 'path' => 'id', 'required' => true,
+        'lookup' => [
+            'codec' => 'opaque-prefix', 'post_meta' => '_hash', 'post_type' => 'acme_b',
+            'prefix_length' => 7, 'stored_length' => 64,
+        ],
+    ]]]]),
+    'lookup must be exactly {codec:hex-prefix,post_meta,post_type,prefix_length,stored_length}',
+    'unknown alternate codecs refuse instead of falling back to raw values'
+);
+refuses(
+    solo_b(['shortcode_attrs' => ['acme' => [[
+        'kind' => 'post', 'path' => 'id', 'required' => true,
+        'lookup' => [
+            'codec' => 'hex-prefix', 'post_meta' => '_hash', 'post_type' => 'acme_b',
+            'prefix_length' => 7, 'stored_length' => 129,
+        ],
+    ]]]]),
+    'with non-empty domains and 1 <= prefix_length <= stored_length <= 128',
+    'alternate identities stay inside the engine-owned storage bound'
+);
+refuses(
+    solo_b(['shortcode_attrs' => ['acme' => [[
+        'kind' => 'post', 'path' => 'id', 'required' => true,
+    ]]]]),
+    'shortcode_attrs.acme[0].required is allowed only on named alternate shortcode refs',
+    'required cannot become a silently ignored modifier on ordinary named refs'
+);
 
 // --- invalid RANGES / bounds
 refuses(

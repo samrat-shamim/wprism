@@ -85,12 +85,12 @@ final class Tokens {
     private array $userLogins = [];
     /** @var array<string,int> login -> user id (apply direction) */
     private array $userIds = [];
-    /** Canonical alternate identifiers indexed by positional shortcode lookup. */
+    /** Canonical alternate identifiers indexed by declared shortcode lookup. */
     private array $shortcodeAlternates = [];
     /** Reverse witness index: one alternate value may identify only one entity
      * within a declared (post-meta, post-type) domain. */
     private array $shortcodeAlternateValues = [];
-    /** Apply has finished registering the immutable canonical alternate map. */
+    /** Apply or target observation has registered the immutable canonical alternate map. */
     private bool $shortcodeAlternatesSealed = false;
     /** Fallback for unresolvable user tokens on apply (set by Apply). */
     public ?int $defaultUserId = null;
@@ -331,13 +331,18 @@ final class Tokens {
 
     /** "{{<kind>:uuid}}" -> id (apply direction). Throws when unresolvable. */
     public function token_to_id(string $token): int {
-        $decoded = IdentityTokenCodec::decode($token);
-        $kind = self::ledger_kind($decoded['kind']);
-        $id = Ledger::id_for($decoded['uuid'], $kind);
+        $id = $this->bound_token_id($token);
         if ($id === null) {
             throw new \RuntimeException("duo: unresolvable ref $token (entity not in this environment)");
         }
         return $id;
+    }
+
+    /** Returns the current local binding without weakening token_to_id()'s strict apply contract. */
+    public function bound_token_id(string $token): ?int {
+        $decoded = IdentityTokenCodec::decode($token);
+        $kind = self::ledger_kind($decoded['kind']);
+        return Ledger::id_for($decoded['uuid'], $kind);
     }
 
     public function register_shortcode_alternate(string $token, string $metaKey, string $postType, string $value): void {
@@ -345,19 +350,44 @@ final class Tokens {
             || $metaKey === '' || $postType === '' || !self::is_positive_decimal_alternate($value)) {
             throw new \RuntimeException('duo: malformed positional shortcode alternate witness');
         }
+        $this->register_shortcode_alternate_value($token, $metaKey, $postType, $value, 'positional');
+    }
+
+    public function register_shortcode_named_alternate(
+        string $token,
+        string $metaKey,
+        string $postType,
+        string $value,
+        int $length
+    ): void {
+        if (!preg_match('/^\{\{post:[0-9a-f-]{36}\}\}$/D', $token)
+            || $metaKey === '' || $postType === '' || $length <= 0
+            || strlen($value) !== $length || !preg_match('/^[0-9a-f]+$/D', $value)) {
+            throw new \RuntimeException('duo: malformed named shortcode alternate witness');
+        }
+        $this->register_shortcode_alternate_value($token, $metaKey, $postType, $value, 'named');
+    }
+
+    private function register_shortcode_alternate_value(
+        string $token,
+        string $metaKey,
+        string $postType,
+        string $value,
+        string $form
+    ): void {
         $domain = $metaKey . "\0" . $postType;
         $tokenKey = $domain . "\0" . $token;
         $valueKey = $domain . "\0" . $value;
         $existingToken = $this->shortcodeAlternateValues[$valueKey] ?? null;
         if ($existingToken !== null && $existingToken !== $token) {
             throw new \RuntimeException(
-                "duo: positional shortcode alternate '$value' is ambiguous in $postType.$metaKey"
+                "duo: $form shortcode alternate '$value' is ambiguous in $postType.$metaKey"
             );
         }
         $existingValue = $this->shortcodeAlternates[$tokenKey] ?? null;
         if ($existingValue !== null && $existingValue !== $value) {
             throw new \RuntimeException(
-                "duo: positional shortcode token has conflicting $postType.$metaKey alternates"
+                "duo: $form shortcode token has conflicting $postType.$metaKey alternates"
             );
         }
         $this->shortcodeAlternates[$tokenKey] = $value;
@@ -376,6 +406,10 @@ final class Tokens {
 
     public function shortcode_alternate(string $token, string $metaKey, string $postType): ?string {
         return $this->shortcodeAlternates[$metaKey . "\0" . $postType . "\0" . $token] ?? null;
+    }
+
+    public function shortcode_alternate_token(string $value, string $metaKey, string $postType): ?string {
+        return $this->shortcodeAlternateValues[$metaKey . "\0" . $postType . "\0" . $value] ?? null;
     }
 
     public function seal_shortcode_alternates(): void {

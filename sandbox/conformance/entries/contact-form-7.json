@@ -1,7 +1,7 @@
 {
   "entry": {
     "pin": ["core", "contact-form-7"],
-    "plugins": [{"slug": "contact-form-7", "version": "6.1.6"}],
+    "plugins": [{"slug": "contact-form-7", "version": "6.1.7"}],
     "post_types": ["post", "page", "attachment", "wpcf7_contact_form"],
     "taxonomies": ["category", "post_tag"]
   },

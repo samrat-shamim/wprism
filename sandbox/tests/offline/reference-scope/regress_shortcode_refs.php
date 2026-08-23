@@ -101,6 +101,7 @@ final class FakeWpdb {
     /** @var array<int, array<string, list<string>>> */
     public $postMetaById = [];
     public $injectGetColError = false;
+    public $injectGetResultsError = false;
     /** @var array<int, array{name:string, taxonomy:string}> */
     public $termsById = [];
 
@@ -206,6 +207,35 @@ final class FakeWpdb {
         throw new \RuntimeException("FakeWpdb::get_row: unrecognized query shape: $sql");
     }
 
+    public function get_results($prepared, $output = ARRAY_A) {
+        [$sql, $args] = $this->unwrap($prepared);
+        if ($this->injectGetResultsError) {
+            $this->last_error = 'injected SQL failure';
+            return [];
+        }
+        if (str_contains($sql, 'SELECT pm.post_id, pm.meta_value FROM')
+            && str_contains($sql, $this->postmeta)) {
+            [$key, $postType] = array_pad($args, 2, null);
+            $excluded = array_slice($args, 2);
+            $out = [];
+            foreach ($this->postMetaById as $postId => $meta) {
+                if (($this->postsById[(int) $postId]['post_type'] ?? null) !== $postType
+                    || in_array(
+                        (string) ($this->postsById[(int) $postId]['post_status'] ?? 'publish'),
+                        $excluded,
+                        true
+                    )) {
+                    continue;
+                }
+                foreach ((array) ($meta[$key] ?? []) as $value) {
+                    $out[] = ['post_id' => $postId, 'meta_value' => (string) $value];
+                }
+            }
+            return $out;
+        }
+        throw new \RuntimeException("FakeWpdb::get_results: unrecognized query shape: $sql");
+    }
+
     private function unwrap($prepared): array {
         if (is_array($prepared) && ($prepared['__prepared'] ?? false)) {
             return [$prepared['sql'], $prepared['args']];
@@ -272,6 +302,18 @@ $policy->manifests = [[
         'contact-form' => [
             ['kind' => 'post', 'lookup' => ['post_meta' => '_old_cf7_unit_id', 'post_type' => 'wpcf7_contact_form'], 'position' => 0],
         ],
+        'contact-form-7' => [[
+            'kind' => 'post',
+            'lookup' => [
+                'codec' => 'hex-prefix',
+                'post_meta' => '_hash',
+                'post_type' => 'wpcf7_contact_form',
+                'prefix_length' => 7,
+                'stored_lengths' => [40, 64],
+            ],
+            'path' => 'id',
+            'required' => true,
+        ]],
     ],
 ]];
 $tokens = new Tokens();
@@ -316,13 +358,13 @@ check($tokens->warnings === [], 'S1: no warnings on a clean mapped capture (got:
 
 // S1b — CF7's legacy positional shortcode resolves through the declared
 // alternate post-meta identity, never through wp_posts.ID.  Capture emits a
-// canonical post token; apply restores the target form's own old unit id.
+// canonical post token; the ordinary direct seam restores the declared value.
 $legacy = '[contact-form 77 "Legacy Form"]';
 $legacyCanonical = Shortcodes::capture_rewrite_text($legacy, $policy, $tokens);
 check($legacyCanonical === '[contact-form {{post:' . MAPPED_UUID . '}} "Legacy Form"]',
     'S1b: positional alternate id is canonicalized to the form token (got: ' . $legacyCanonical . ')');
 check(Shortcodes::apply_rewrite_text($legacyCanonical, $policy, $tokens) === $legacy,
-    'S1b: positional token round-trips through the target alternate id');
+    'S1b: positional token round-trips through the declared alternate id');
 check(!str_contains($legacyCanonical, '77'), 'S1b: canonical content has no raw _old_cf7_unit_id');
 $savedBacktrackLimit = ini_get('pcre.backtrack_limit');
 $captureRegexFailureRefused = false;
@@ -437,8 +479,12 @@ check(Shortcodes::apply_rewrite_text($legacyCanonical, $policy, $tokens) === $le
 $applyForAlternates = new \Duo\ShortcodeAlternateRegistrar($policy, new Tokens());
 $registerAlternates = new \ReflectionMethod(\Duo\ShortcodeAlternateRegistrar::class, 'register');
 $duplicateAlternateTree = [
-    ['type' => 'post', 'data' => ['type' => 'wpcf7_contact_form', 'uuid' => MAPPED_UUID, 'meta' => ['_old_cf7_unit_id' => '77']]],
-    ['type' => 'post', 'data' => ['type' => 'wpcf7_contact_form', 'uuid' => MAPPED2_UUID, 'meta' => ['_old_cf7_unit_id' => '77']]],
+    ['type' => 'post', 'data' => ['type' => 'wpcf7_contact_form', 'uuid' => MAPPED_UUID, 'meta' => [
+        '_hash' => str_repeat('a', 64), '_old_cf7_unit_id' => '77',
+    ]]],
+    ['type' => 'post', 'data' => ['type' => 'wpcf7_contact_form', 'uuid' => MAPPED2_UUID, 'meta' => [
+        '_hash' => str_repeat('b', 64), '_old_cf7_unit_id' => '77',
+    ]]],
 ];
 $duplicateRefused = false;
 try {
@@ -450,7 +496,9 @@ check($duplicateRefused, 'S1d: Apply refuses duplicate positional alternate valu
 $zeroRefused = false;
 try {
     $registerAlternates->invoke($applyForAlternates, [[
-        'type' => 'post', 'data' => ['type' => 'wpcf7_contact_form', 'uuid' => MAPPED2_UUID, 'meta' => ['_old_cf7_unit_id' => '0']],
+        'type' => 'post', 'data' => ['type' => 'wpcf7_contact_form', 'uuid' => MAPPED2_UUID, 'meta' => [
+            '_hash' => str_repeat('b', 64), '_old_cf7_unit_id' => '0',
+        ]],
     ]]);
 } catch (\Throwable $e) {
     $zeroRefused = str_contains($e->getMessage(), 'malformed positional shortcode alternate');
@@ -498,6 +546,268 @@ try {
     $decimalOverflowRefused = str_contains($e->getMessage(), 'malformed positional shortcode alternate');
 }
 check($decimalOverflowRefused, 'S1d: positional alternates outside CF7 bare-DECIMAL range refuse');
+
+// S1e — CF7 5.8+ uses a seven-byte prefix of its persisted 64-byte _hash
+// as the public shortcode identity. Canonical state carries the post token,
+// and both source and target prefix domains must remain unique.
+$hashA = str_repeat('a', 64);
+$hashB = str_repeat('b', 64);
+$hashC = str_repeat('c', 64);
+$wpdb->postMetaById[MAPPED_ID]['_hash'] = [$hashA];
+$modern = '[contact-form-7 id="aaaaaaa" title="Legacy Form"]';
+$modernCanonical = Shortcodes::capture_rewrite_text($modern, $policy, $tokens);
+check(
+    $modernCanonical === '[contact-form-7 id="{{post:' . MAPPED_UUID . '}}" title="Legacy Form"]',
+    'S1e: CF7 hash prefix canonicalizes to the owning form token'
+);
+$hash40 = str_repeat('d', 40);
+$wpdb->postMetaById[MAPPED_ID]['_hash'] = [$hash40];
+$modern40 = '[contact-form-7 id="ddddddd" title="Legacy Form"]';
+$modern40Canonical = Shortcodes::capture_rewrite_text($modern40, $policy, $tokens);
+$canonical40Tokens = new Tokens();
+$canonical40Tokens->policy = $policy;
+(new \Duo\ShortcodeAlternateRegistrar($policy, $canonical40Tokens))->register([[
+    'type' => 'post',
+    'data' => [
+        'type' => 'wpcf7_contact_form',
+        'uuid' => MAPPED_UUID,
+        'meta' => ['_hash' => $hash40, '_old_cf7_unit_id' => '77'],
+    ],
+]]);
+check(
+    $modern40Canonical === $modernCanonical
+        && Shortcodes::apply_rewrite_text($modern40Canonical, $policy, $canonical40Tokens) === $modern40,
+    'S1e: the declared legacy SHA-1 width canonicalizes and applies through the same fixed-prefix identity'
+);
+$wpdb->postMetaById[MAPPED_ID]['_hash'] = [$hashC];
+$canonicalNamedTokens = new Tokens();
+$canonicalNamedTokens->policy = $policy;
+(new \Duo\ShortcodeAlternateRegistrar($policy, $canonicalNamedTokens))->register([[
+    'type' => 'post',
+    'data' => [
+        'type' => 'wpcf7_contact_form',
+        'uuid' => MAPPED_UUID,
+        'meta' => ['_hash' => $hashA, '_old_cf7_unit_id' => '77'],
+    ],
+]]);
+check(
+    Shortcodes::apply_rewrite_text($modernCanonical, $policy, $canonicalNamedTokens) === $modern,
+    'S1e: Apply registrar restores the canonical source prefix before the target hash is updated'
+);
+$boundIdentity = $wpdb->identity['post'][MAPPED_ID];
+unset($wpdb->identity['post'][MAPPED_ID]);
+$cleanTargetTokens = new Tokens();
+$cleanTargetTokens->policy = $policy;
+(new \Duo\ShortcodeAlternateRegistrar($policy, $cleanTargetTokens))->register([[
+    'type' => 'post',
+    'data' => [
+        'type' => 'wpcf7_contact_form',
+        'uuid' => MAPPED_UUID,
+        'meta' => ['_hash' => $hashA, '_old_cf7_unit_id' => '77'],
+    ],
+]]);
+check(
+    $cleanTargetTokens->shortcode_alternate(
+        '{{post:' . MAPPED_UUID . '}}',
+        '_hash',
+        'wpcf7_contact_form'
+    ) === 'aaaaaaa',
+    'S1e: Apply registrar preflights and seals a canonical named witness before a clean target has a local binding'
+);
+$wpdb->identity['post'][MAPPED_ID] = $boundIdentity;
+$wpdb->postMetaById[MAPPED_ID]['_hash'] = [$hashA];
+$sealedNamedTokens = new Tokens();
+$sealedNamedTokens->policy = $policy;
+$sealedNamedTokens->seal_shortcode_alternates();
+$missingNamedWitnessRefused = false;
+try {
+    Shortcodes::apply_rewrite_text($modernCanonical, $policy, $sealedNamedTokens);
+} catch (\Throwable $e) {
+    $missingNamedWitnessRefused = str_contains($e->getMessage(), 'no canonical alternate witness');
+}
+check($missingNamedWitnessRefused, 'S1e: sealed Apply refuses a named token without a canonical alternate witness');
+$malformedNamedWitnessRefused = false;
+try {
+    (new Tokens())->register_shortcode_named_alternate(
+        '{{post:' . MAPPED_UUID . '}}',
+        '_hash',
+        'wpcf7_contact_form',
+        'AAAAAAA',
+        7
+    );
+} catch (\Throwable $e) {
+    $malformedNamedWitnessRefused = str_contains($e->getMessage(), 'malformed named shortcode alternate');
+}
+check($malformedNamedWitnessRefused, 'S1e: named alternate witnesses require the declared lowercase-hex width');
+$duplicateNamedTokens = new Tokens();
+$duplicateNamedTokens->register_shortcode_named_alternate(
+    '{{post:' . MAPPED_UUID . '}}',
+    '_hash',
+    'wpcf7_contact_form',
+    'aaaaaaa',
+    7
+);
+$duplicateNamedWitnessRefused = false;
+try {
+    $duplicateNamedTokens->register_shortcode_named_alternate(
+        '{{post:' . MAPPED2_UUID . '}}',
+        '_hash',
+        'wpcf7_contact_form',
+        'aaaaaaa',
+        7
+    );
+} catch (\Throwable $e) {
+    $duplicateNamedWitnessRefused = str_contains($e->getMessage(), 'ambiguous');
+}
+check($duplicateNamedWitnessRefused, 'S1e: one named alternate cannot identify two canonical forms');
+$recoveryTokens = new Tokens();
+$recoveryTokens->policy = $policy;
+$recoveryTokens->register_shortcode_alternate(
+    '{{post:' . MAPPED_UUID . '}}',
+    '_old_cf7_unit_id',
+    'wpcf7_contact_form',
+    '77'
+);
+$recoveryTokens->register_shortcode_named_alternate(
+    '{{post:' . MAPPED_UUID . '}}',
+    '_hash',
+    'wpcf7_contact_form',
+    'aaaaaaa',
+    7
+);
+$recoveryTokens->seal_shortcode_alternates();
+$mappedMeta = $wpdb->postMetaById[MAPPED_ID];
+unset($wpdb->postMetaById[MAPPED_ID]);
+$strictSourceTokens = new Tokens();
+$strictSourceTokens->policy = $policy;
+$missingSourcePositionalRefused = false;
+try {
+    Shortcodes::capture_rewrite_text($legacy, $policy, $strictSourceTokens);
+} catch (\Throwable $e) {
+    $missingSourcePositionalRefused = str_contains($e->getMessage(), 'no matching form');
+}
+check(
+    $missingSourcePositionalRefused,
+    'S1e: ordinary source capture cannot use an unsealed positional fallback when the owner is missing'
+);
+$missingSourceNamedRefused = false;
+try {
+    Shortcodes::capture_rewrite_text($modern, $policy, $strictSourceTokens);
+} catch (\Throwable $e) {
+    $missingSourceNamedRefused = str_contains($e->getMessage(), 'no matching form');
+}
+check(
+    $missingSourceNamedRefused,
+    'S1e: ordinary source capture cannot use an unsealed named fallback when the owner is missing'
+);
+check(
+    Shortcodes::capture_rewrite_text($legacy, $policy, $recoveryTokens) === $legacyCanonical,
+    'S1e: target observation recovers a dangling positional identity from the sealed repository witness'
+);
+check(
+    Shortcodes::capture_rewrite_text($modern, $policy, $recoveryTokens) === $modernCanonical,
+    'S1e: target observation recovers a dangling named identity from the sealed repository witness'
+);
+$wpdb->postMetaById[MAPPED2_ID] = [
+    '_old_cf7_unit_id' => ['77'],
+    '_hash' => [$hashA],
+];
+$disagreeingPositionalOwnerRefused = false;
+try {
+    Shortcodes::capture_rewrite_text($legacy, $policy, $recoveryTokens);
+} catch (\Throwable $e) {
+    $disagreeingPositionalOwnerRefused = str_contains($e->getMessage(), 'disagrees with its canonical witness');
+}
+check(
+    $disagreeingPositionalOwnerRefused,
+    'S1e: target observation refuses a live positional owner mapped to another canonical entity'
+);
+$disagreeingNamedOwnerRefused = false;
+try {
+    Shortcodes::capture_rewrite_text($modern, $policy, $recoveryTokens);
+} catch (\Throwable $e) {
+    $disagreeingNamedOwnerRefused = str_contains($e->getMessage(), 'disagrees with its canonical witness');
+}
+check(
+    $disagreeingNamedOwnerRefused,
+    'S1e: target observation refuses a live named owner mapped to another canonical entity'
+);
+unset($wpdb->postMetaById[MAPPED2_ID]);
+$wpdb->postMetaById[MAPPED_ID] = $mappedMeta;
+$missingModernIdRefused = false;
+try {
+    Shortcodes::capture_rewrite_text('[contact-form-7 title="Legacy Form"]', $policy, $tokens);
+} catch (\Throwable $e) {
+    $missingModernIdRefused = str_contains($e->getMessage(), 'requires exactly one');
+}
+check($missingModernIdRefused, 'S1e: title-only CF7 fallback refuses instead of using mutable title identity');
+$malformedModernIdRefused = false;
+try {
+    Shortcodes::capture_rewrite_text('[contact-form-7 id="AAAAAAA" title="Legacy Form"]', $policy, $tokens);
+} catch (\Throwable $e) {
+    $malformedModernIdRefused = str_contains($e->getMessage(), 'lowercase hexadecimal');
+}
+check($malformedModernIdRefused, 'S1e: non-canonical CF7 hash prefixes refuse');
+$duplicateModernAttrRefused = false;
+try {
+    Shortcodes::capture_rewrite_text(
+        '[contact-form-7 id="aaaaaaa" id="aaaaaaa" title="Legacy Form"]',
+        $policy,
+        $tokens
+    );
+} catch (\Throwable $e) {
+    $duplicateModernAttrRefused = str_contains($e->getMessage(), 'requires exactly one');
+}
+check($duplicateModernAttrRefused, 'S1e: duplicate CF7 identity attributes refuse rather than relying on parse order');
+$wpdb->postMetaById[MAPPED2_ID] = ['_hash' => ['aaaaaaa' . substr($hashB, 7)]];
+$duplicateModernSourceRefused = false;
+try {
+    Shortcodes::capture_rewrite_text($modern, $policy, $tokens);
+} catch (\Throwable $e) {
+    $duplicateModernSourceRefused = str_contains($e->getMessage(), 'multiple matching forms');
+}
+unset($wpdb->postMetaById[MAPPED2_ID]);
+check($duplicateModernSourceRefused, 'S1e: a duplicate source hash prefix refuses capture');
+$wpdb->postsById[603] = [
+    'post_type' => 'wpcf7_contact_form',
+    'post_title' => 'Trashed Hash Collision',
+    'post_status' => 'trash',
+];
+$wpdb->postMetaById[603] = ['_hash' => ['aaaaaaa' . substr($hashB, 7)]];
+check(
+    Shortcodes::capture_rewrite_text($modern, $policy, $tokens) === $modernCanonical,
+    'S1e: CF7-ineligible trash rows do not collide with modern hash lookup'
+);
+unset($wpdb->postsById[603], $wpdb->postMetaById[603]);
+$wpdb->postMetaById[MAPPED2_ID] = ['_hash' => ['aaaaaaa' . substr($hashB, 7)]];
+$duplicateModernTargetRefused = false;
+try {
+    Shortcodes::apply_rewrite_text($modernCanonical, $policy, $tokens);
+} catch (\Throwable $e) {
+    $duplicateModernTargetRefused = str_contains($e->getMessage(), 'already owned by another');
+}
+unset($wpdb->postMetaById[MAPPED2_ID]);
+check($duplicateModernTargetRefused, 'S1e: a foreign target hash-prefix owner refuses apply');
+$wpdb->postMetaById[MAPPED_ID]['_hash'] = [$hashA, $hashA];
+$duplicateModernRowsRefused = false;
+try {
+    Shortcodes::apply_rewrite_text($modernCanonical, $policy, $tokens);
+} catch (\Throwable $e) {
+    $duplicateModernRowsRefused = str_contains($e->getMessage(), 'duplicate')
+        && str_contains($e->getMessage(), 'metadata rows');
+}
+$wpdb->postMetaById[MAPPED_ID]['_hash'] = [$hashA];
+check($duplicateModernRowsRefused, 'S1e: duplicate target _hash rows on the selected form refuse apply');
+$wpdb->injectGetResultsError = true;
+$modernSqlFailureRefused = false;
+try {
+    Shortcodes::capture_rewrite_text($modern, $policy, $tokens);
+} catch (\Throwable $e) {
+    $modernSqlFailureRefused = str_contains($e->getMessage(), 'collision lookup failed');
+}
+$wpdb->injectGetResultsError = false;
+check($modernSqlFailureRefused, 'S1e: a CF7 hash collision-query failure refuses capture');
+unset($wpdb->postMetaById[MAPPED_ID]['_hash']);
 
 // S2 — unmapped scalar: DROP the attribute (+ its own leading whitespace)
 // entirely, never leave the raw env-local id, matching Blocks.php's own

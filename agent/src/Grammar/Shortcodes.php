@@ -207,6 +207,11 @@ final class Shortcodes {
             if ($rewritten === null) {
                 throw new \RuntimeException("duo: shortcode '$tag' attribute rewrite regex failed; refusing unproven content");
             }
+            if (array_key_exists('lookup', $rule) && $count !== 1) {
+                throw new \RuntimeException(
+                    "duo: shortcode '$tag' requires exactly one '$attrName' alternate-identity attribute; found $count"
+                );
+            }
             $rawAttrs = $rewritten;
         }
         return $rawAttrs;
@@ -246,7 +251,8 @@ final class Shortcodes {
      * positional integer as a post primary key: CF7's legacy shortcode uses
      * `_old_cf7_unit_id`, which is stable content identity but not wp_posts.ID.
      * The canonical representation is still the ordinary post UUID token;
-     * apply resolves that token back to the target form's alternate value.
+     * apply restores the repository's authored alternate witness because the
+     * referenced post-meta value travels with that same entity.
      */
     private static function rewrite_positional(
         string $rawAttrs,
@@ -277,11 +283,26 @@ final class Shortcodes {
                     "duo: shortcode '$tag' positional[$position] must be a positive decimal alternate id"
                 );
             }
-            $postId = self::alternate_post_id($lookup, $postType, $value, $tag, $position);
-            $token = $tokens->id_to_token($postId, (string) $rule['kind']);
+            $canonicalToken = $tokens->shortcode_alternate_token($value, $lookup, $postType);
+            $postId = self::alternate_post_id(
+                $lookup,
+                $postType,
+                $value,
+                $tag,
+                $position,
+                $canonicalToken !== null
+            );
+            $token = $postId === null
+                ? $canonicalToken
+                : $tokens->id_to_token($postId, (string) $rule['kind']);
             if ($token === null) {
                 throw new \RuntimeException(
                     "duo: shortcode '$tag' positional[$position] alternate id '$value' resolves to unmanaged post $postId"
+                );
+            }
+            if ($canonicalToken !== null && $token !== $canonicalToken) {
+                throw new \RuntimeException(
+                    "duo: shortcode '$tag' positional[$position] alternate id '$value' disagrees with its canonical witness"
                 );
             }
             $replacement = $quote . $token . $quote;
@@ -333,7 +354,14 @@ final class Shortcodes {
         return $out;
     }
 
-    private static function alternate_post_id(string $metaKey, string $postType, string $alternate, string $tag, int $position): int {
+    private static function alternate_post_id(
+        string $metaKey,
+        string $postType,
+        string $alternate,
+        string $tag,
+        int $position,
+        bool $allowMissing = false
+    ): ?int {
         global $wpdb;
         if (property_exists($wpdb, 'last_error')) {
             $wpdb->last_error = '';
@@ -348,6 +376,9 @@ final class Shortcodes {
             throw new \RuntimeException("duo: shortcode '$tag' positional[$position] alternate lookup failed; refusing an unproven identity");
         }
         $ids = array_values(array_unique(array_map('intval', $rows)));
+        if ($allowMissing && $ids === []) {
+            return null;
+        }
         if (count($rows) !== 1 || count($ids) !== 1) {
             $why = $ids === [] ? 'no matching form' : 'multiple matching forms or duplicate alternate metadata';
             throw new \RuntimeException(
@@ -413,15 +444,16 @@ final class Shortcodes {
         }
     }
 
-    private static function assert_post_type(int $postId, string $postType, string $tag, int $position): void {
+    private static function assert_post_type(int $postId, string $postType, string $tag, int|string $position): void {
         global $wpdb;
+        $locator = is_int($position) ? "positional[$position]" : $position;
         $actualType = $wpdb->get_var($wpdb->prepare(
             "SELECT post_type FROM {$wpdb->posts} WHERE ID = %d",
             $postId
         ));
         if ((string) $actualType !== $postType) {
             throw new \RuntimeException(
-                "duo: shortcode '$tag' positional[$position] token resolves to post $postId outside post_type '$postType'"
+                "duo: shortcode '$tag' $locator token resolves to post $postId outside post_type '$postType'"
             );
         }
     }
@@ -493,6 +525,10 @@ final class Shortcodes {
         $kind = $rule['kind'];
         $isCsv = ($rule['cast'] ?? null) === 'csv';
 
+        if (array_key_exists('lookup', $rule)) {
+            return self::rewrite_named_alternate($ws, $name, $value, $rule, $tokens, $capture, $tag);
+        }
+
         if ($capture) {
             if ($isCsv) {
                 $kept = [];
@@ -534,6 +570,254 @@ final class Shortcodes {
             return $ws . $name . '="' . implode(',', $ids) . '"';
         }
         return $ws . $name . '="' . $toId($value) . '"';
+    }
+
+    /**
+     * Rewrite a named shortcode attribute whose public identity is a fixed
+     * lowercase-hex prefix of an authored post-meta value. Contact Form 7's
+     * native shortcode is the first declared consumer: its seven-byte _hash
+     * prefix is the runtime lookup key, while the stored value is 64 bytes.
+     */
+    private static function rewrite_named_alternate(
+        string $ws,
+        string $name,
+        string $value,
+        array $rule,
+        Tokens $tokens,
+        bool $capture,
+        string $tag
+    ): string {
+        $lookup = $rule['lookup'];
+        $metaKey = (string) $lookup['post_meta'];
+        $postType = (string) $lookup['post_type'];
+        $prefixLength = (int) $lookup['prefix_length'];
+        $storedLengths = self::named_alternate_stored_lengths($lookup);
+        $locator = "attribute '$name'";
+        if ($capture) {
+            if (!self::is_lower_hex($value, $prefixLength)) {
+                throw new \RuntimeException(
+                    "duo: shortcode '$tag' $locator must be exactly $prefixLength lowercase hexadecimal bytes"
+                );
+            }
+            $canonicalToken = $tokens->shortcode_alternate_token($value, $metaKey, $postType);
+            $postId = self::prefix_alternate_post_id(
+                $metaKey,
+                $postType,
+                $value,
+                $storedLengths,
+                $tag,
+                $locator,
+                $canonicalToken !== null
+            );
+            $token = $postId === null ? $canonicalToken : $tokens->id_to_token($postId, 'post');
+            if ($token === null) {
+                throw new \RuntimeException(
+                    "duo: shortcode '$tag' $locator prefix '$value' resolves to unmanaged post $postId"
+                );
+            }
+            if ($canonicalToken !== null && $token !== $canonicalToken) {
+                throw new \RuntimeException(
+                    "duo: shortcode '$tag' $locator prefix '$value' disagrees with its canonical witness"
+                );
+            }
+            return $ws . $name . '="' . $token . '"';
+        }
+        if (!str_starts_with($value, '{{')) {
+            throw new \RuntimeException(
+                "duo: shortcode '$tag' $locator retained raw alternate '$value' at apply"
+            );
+        }
+        $postId = $tokens->token_to_id($value);
+        self::assert_post_type($postId, $postType, $tag, $locator);
+        $alternate = $tokens->shortcode_alternate($value, $metaKey, $postType);
+        if ($alternate === null && $tokens->shortcode_alternates_sealed()) {
+            throw new \RuntimeException(
+                "duo: shortcode '$tag' $locator token has no canonical alternate witness '$metaKey' for post $postId"
+            );
+        }
+        $alternate ??= self::prefix_alternate_post_meta(
+            $postId,
+            $metaKey,
+            $postType,
+            $prefixLength,
+            $storedLengths,
+            $tag,
+            $locator
+        );
+        self::assert_prefix_alternate_unique_on_target(
+            $postId,
+            $metaKey,
+            $postType,
+            $alternate,
+            $tag,
+            $locator
+        );
+        return $ws . $name . '="' . $alternate . '"';
+    }
+
+    /** Apply preflight for every canonical owner, including unembedded forms. */
+    public static function assert_named_alternate_target_available(
+        ?int $postId,
+        array $lookup,
+        string $storedValue,
+        string $tag,
+        string $attr
+    ): string {
+        $prefixLength = (int) $lookup['prefix_length'];
+        $storedLengths = self::named_alternate_stored_lengths($lookup);
+        if (!self::is_lower_hex_stored_value($storedValue, $storedLengths)) {
+            throw new \RuntimeException(
+                "duo: shortcode '$tag' attribute '$attr' canonical post_meta '{$lookup['post_meta']}' "
+                . 'must be ' . self::stored_length_requirement($storedLengths)
+            );
+        }
+        $prefix = substr($storedValue, 0, $prefixLength);
+        self::assert_prefix_alternate_unique_on_target(
+            $postId,
+            (string) $lookup['post_meta'],
+            (string) $lookup['post_type'],
+            $prefix,
+            $tag,
+            "attribute '$attr'"
+        );
+        return $prefix;
+    }
+
+    /** @param list<int> $storedLengths */
+    private static function prefix_alternate_post_id(
+        string $metaKey,
+        string $postType,
+        string $prefix,
+        array $storedLengths,
+        string $tag,
+        string $locator,
+        bool $allowMissing = false
+    ): ?int {
+        $rows = self::prefix_alternate_rows($metaKey, $postType, $prefix, $tag, $locator);
+        $ids = array_values(array_unique(array_map(static fn(array $row): int => (int) $row['post_id'], $rows)));
+        if ($allowMissing && $ids === []) {
+            return null;
+        }
+        if (count($rows) !== 1 || count($ids) !== 1) {
+            $why = $ids === [] ? 'no matching form' : 'multiple matching forms or duplicate alternate metadata';
+            throw new \RuntimeException(
+                "duo: shortcode '$tag' $locator prefix '$prefix' has $why via post_meta '$metaKey'"
+            );
+        }
+        if (!self::is_lower_hex_stored_value((string) $rows[0]['meta_value'], $storedLengths)) {
+            throw new \RuntimeException(
+                "duo: shortcode '$tag' $locator prefix '$prefix' resolves through malformed post_meta '$metaKey'"
+            );
+        }
+        return $ids[0];
+    }
+
+    /** @param list<int> $storedLengths */
+    private static function prefix_alternate_post_meta(
+        int $postId,
+        string $metaKey,
+        string $postType,
+        int $prefixLength,
+        array $storedLengths,
+        string $tag,
+        string $locator
+    ): string {
+        global $wpdb;
+        self::assert_post_type($postId, $postType, $tag, $locator);
+        $rows = $wpdb->get_col($wpdb->prepare(
+            "SELECT meta_value FROM {$wpdb->postmeta} WHERE post_id = %d AND meta_key = %s ORDER BY meta_id ASC",
+            $postId,
+            $metaKey
+        )) ?: [];
+        if (count($rows) > 1) {
+            throw new \RuntimeException(
+                "duo: shortcode '$tag' $locator target post $postId has duplicate '$metaKey' metadata rows"
+            );
+        }
+        if (count($rows) !== 1 || !self::is_lower_hex_stored_value((string) ($rows[0] ?? ''), $storedLengths)) {
+            throw new \RuntimeException(
+                "duo: shortcode '$tag' $locator target post $postId has no unique "
+                . self::stored_length_requirement($storedLengths) . " post_meta '$metaKey'"
+            );
+        }
+        return substr((string) $rows[0], 0, $prefixLength);
+    }
+
+    private static function assert_prefix_alternate_unique_on_target(
+        ?int $postId,
+        string $metaKey,
+        string $postType,
+        string $prefix,
+        string $tag,
+        string $locator
+    ): void {
+        $rows = self::prefix_alternate_rows($metaKey, $postType, $prefix, $tag, $locator);
+        $rawIds = array_map(static fn(array $row): int => (int) $row['post_id'], $rows);
+        if ($postId !== null && count(array_filter($rawIds, static fn(int $id): bool => $id === $postId)) > 1) {
+            throw new \RuntimeException(
+                "duo: shortcode '$tag' $locator target post $postId has duplicate '$metaKey' metadata rows"
+            );
+        }
+        foreach (array_values(array_unique($rawIds)) as $id) {
+            if ($postId === null || $id !== $postId) {
+                throw new \RuntimeException(
+                    "duo: shortcode '$tag' $locator prefix '$prefix' is already owned by another $postType row ($id) "
+                    . "in post_meta '$metaKey'"
+                );
+            }
+        }
+    }
+
+    /** @return list<array{post_id:mixed,meta_value:mixed}> */
+    private static function prefix_alternate_rows(
+        string $metaKey,
+        string $postType,
+        string $prefix,
+        string $tag,
+        string $locator
+    ): array {
+        global $wpdb;
+        if (property_exists($wpdb, 'last_error')) {
+            $wpdb->last_error = '';
+        }
+        $status = self::runtime_status_filter('p');
+        $sql = "SELECT pm.post_id, pm.meta_value FROM {$wpdb->postmeta} pm JOIN {$wpdb->posts} p ON p.ID = pm.post_id "
+            . 'WHERE pm.meta_key = %s AND p.post_type = %s' . $status['sql'] . ' ORDER BY pm.meta_id ASC';
+        $rows = $wpdb->get_results($wpdb->prepare($sql, [$metaKey, $postType, ...$status['args']]), ARRAY_A);
+        if (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '') {
+            throw new \RuntimeException(
+                "duo: shortcode '$tag' $locator prefix collision lookup failed; refusing an unproven identity"
+            );
+        }
+        return array_values(array_filter($rows, static function (array $row) use ($prefix): bool {
+            return strncasecmp((string) ($row['meta_value'] ?? ''), $prefix, strlen($prefix)) === 0;
+        }));
+    }
+
+    private static function is_lower_hex(string $value, int $length): bool {
+        return strlen($value) === $length && preg_match('/^[0-9a-f]+$/D', $value) === 1;
+    }
+
+    /** @return list<int> */
+    private static function named_alternate_stored_lengths(array $lookup): array {
+        if (array_key_exists('stored_lengths', $lookup)) {
+            return array_map('intval', $lookup['stored_lengths']);
+        }
+        return [(int) $lookup['stored_length']];
+    }
+
+    /** @param list<int> $storedLengths */
+    private static function is_lower_hex_stored_value(string $value, array $storedLengths): bool {
+        return in_array(strlen($value), $storedLengths, true)
+            && preg_match('/^[0-9a-f]+$/D', $value) === 1;
+    }
+
+    /** @param list<int> $storedLengths */
+    private static function stored_length_requirement(array $storedLengths): string {
+        if (count($storedLengths) === 1) {
+            return "exactly {$storedLengths[0]}-byte lowercase hexadecimal";
+        }
+        return 'exactly one of ' . implode('/', $storedLengths) . ' lowercase-hexadecimal byte lengths';
     }
 
     /**

@@ -99,22 +99,21 @@
       "not_applicable": {}
     },
     "contact-form-7": {
-      "readiness": "unready",
+      "readiness": "ready",
       "covered": {
-        "contract-dependency": ["manifests/contact-form-7.json", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "contract-dependency": ["manifests/contact-form-7.json", "manifests/interpreters/contact-form-7.php", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/offline/adapter/regress_contact_form_7_production_readiness.php"],
         "clean-target": ["sandbox/conformance/entries/contact-form-7.json", "sandbox/conformance/seeds/contact-form-7.sh", "sandbox/conformance/checks/contact-form-7.sh"],
-        "identity-references": ["sandbox/conformance/seeds/contact-form-7.sh", "sandbox/conformance/checks/contact-form-7.sh"],
-        "native-behavior": ["sandbox/conformance/checks/contact-form-7.sh"]
+        "dirty-target": ["sandbox/conformance/postdeploy/contact-form-7.sh", "sandbox/conformance/checks/contact-form-7.sh"],
+        "identity-references": ["manifests/interpreters/contact-form-7.php", "sandbox/conformance/seeds/contact-form-7.sh", "sandbox/conformance/checks/contact-form-7.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "native-behavior": ["sandbox/conformance/seeds/contact-form-7.sh", "sandbox/conformance/checks/contact-form-7.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "deletion": ["sandbox/conformance/checks/contact-form-7.sh", "sandbox/tests/offline/adapter/regress_contact_form_7_production_readiness.php"],
+        "failure-recovery": ["sandbox/conformance/checks/contact-form-7.sh", "sandbox/tests/offline/adapter/regress_contact_form_7_production_readiness.php", "sandbox/tests/offline/apply/regress_fatal_mutations.php"],
+        "concurrency-idempotence": ["sandbox/conformance/checks/contact-form-7.sh", "sandbox/tests/live/regress_capture_concurrency.sh"],
+        "lifecycle": ["sandbox/conformance/checks/contact-form-7.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "data-boundary": ["agent/src/Kernel/PlainData.php", "manifests/interpreters/contact-form-7.php", "sandbox/conformance/seeds/contact-form-7.sh", "sandbox/conformance/checks/contact-form-7.sh", "sandbox/tests/offline/adapter/regress_contact_form_7_production_readiness.php"],
+        "scope-platform": ["manifests/contact-form-7.json", "sandbox/conformance/checks/contact-form-7.sh", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/live/regress_multisite_refusal.sh"]
       },
-      "gaps": {
-        "dirty-target": "No unmanaged same-title form, target-only mail/runtime state, or managed divergence matrix exists.",
-        "deletion": "The unsupported form-delete boundary lacks a live refusal/no-partial-mutation exercise.",
-        "failure-recovery": "No CF7-specific mid-apply fault and retry/recovery exercise exists.",
-        "concurrency-idempotence": "No competing form capture/apply exercise exists.",
-        "lifecycle": "No in-place supported upgrade, deactivate/reactivate, uninstall residue, and reinstall exercise exists.",
-        "data-boundary": "Long mail templates, UTF-8, malformed form-tags, secret-shaped recipients, and legacy meta shapes lack a manifest-path matrix.",
-        "scope-platform": "Optional integrations and the shared platform range are not exercised per adapter."
-      },
+      "gaps": {},
       "blocked": {},
       "not_applicable": {
         "derived-state": "The declared CF7 surface has no separately repaired adapter-owned derived-state store."
