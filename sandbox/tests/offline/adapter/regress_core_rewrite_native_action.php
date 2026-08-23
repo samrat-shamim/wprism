@@ -9,14 +9,16 @@ declare(strict_types=1);
  * rewrite_rules row continues serving the old grammar. This fixture models
  * the exact WordPress 7.0.3 WP_Rewrite contract the engine calls: a fresh
  * process boots against permalink_structure, a soft flush regenerates and
- * persists ordered rules, and wp_rewrite_rules reads them back. Hostile
- * storage/runtime states and dropped writes prove the checked receipt, not a
- * child-process return code, is the gate.
+ * persists ordered rules (or WordPress's exact empty-string sentinel for
+ * plain permalinks), and wp_rewrite_rules reads them back. Hostile storage/
+ * runtime states and dropped writes prove the checked receipt, not a child-
+ * process return code, is the gate.
  */
 
 require_once __DIR__ . '/../../lib/check.php';
 
 define('DUO_SPEC_VERSION', 2);
+define('ARRAY_A', 'ARRAY_A');
 
 $GLOBALS['core_rewrite_filters'] = [];
 $GLOBALS['core_rewrite_filter_calls'] = [];
@@ -112,7 +114,31 @@ final class CoreRewriteFakeWpdb {
         if (!array_key_exists($name, $this->optionRows)) {
             return null;
         }
-        return str_starts_with($query, 'SELECT option_name') ? $name : $this->optionRows[$name];
+        $value = str_starts_with($query, 'SELECT option_name') ? $name : $this->optionRows[$name];
+        // WordPress wpdb::get_var() deliberately returns null for an exact
+        // empty string, which makes it unusable for presence-sensitive reads.
+        return $value === '' ? null : $value;
+    }
+
+    public function get_row(string $query, string $output = ARRAY_A): ?array {
+        if ($output !== ARRAY_A || !preg_match(
+            "/SELECT option_value FROM wp_options WHERE option_name = '((?:[^'\\\\]|\\\\.)*)' LIMIT 1/",
+            $query,
+            $match
+        )) {
+            throw new RuntimeException("unexpected core rewrite option row query: $query");
+        }
+        $name = stripslashes($match[1]);
+        $this->readNames[] = $name;
+        if (($this->failReads[$name] ?? 0) > 0) {
+            $this->failReads[$name]--;
+            $this->last_error = 'injected database detail which must not escape';
+            return null;
+        }
+        $this->last_error = '';
+        return array_key_exists($name, $this->optionRows)
+            ? ['option_value' => $this->optionRows[$name]]
+            : null;
     }
 }
 
@@ -162,11 +188,10 @@ final class CoreRewriteRuntime {
     /** @return array<string,string> */
     private function generated_rules(): array {
         $structure = $this->permalink_structure === false ? '' : (string) $this->permalink_structure;
-        $rules = ['^wp-json/?$' => 'index.php?rest_route=/'];
         if ($structure === '') {
-            $rules['^index\.php$'] = 'index.php';
-            return $rules;
+            return [];
         }
+        $rules = ['^wp-json/?$' => 'index.php?rest_route=/'];
         $fingerprint = substr(hash('sha256', $structure), 0, 16);
         $rules['^portable/([^/]+)/?$'] = 'index.php?name=$matches[1]&grammar=' . $fingerprint;
         $rules['^portable/page/([0-9]+)/?$'] = 'index.php?paged=$matches[1]&grammar=' . $fingerprint;
@@ -181,7 +206,11 @@ final class CoreRewriteRuntime {
         if (!did_action('wp_loaded')) {
             return;
         }
-        $this->rules = apply_filters('rewrite_rules_array', $this->generated_rules());
+        $generated = $this->generated_rules();
+        // WP_Rewrite::refresh_rewrite_rules() sets rules='' before calling
+        // rewrite_rules(); the latter returns [] early for plain permalinks
+        // without assigning that return value back to the property.
+        $this->rules = $generated === [] ? '' : apply_filters('rewrite_rules_array', $generated);
         update_option('rewrite_rules', $this->rules);
         if ($GLOBALS['core_rewrite_mutate_structure']) {
             $GLOBALS['wpdb']->optionRows['permalink_structure'] = '/raced/%postname%/';
@@ -365,11 +394,23 @@ foreach (['', '/archives/%post_id%/', '/東京/%category%/%postname%/', str_repe
     core_rewrite_reset($structure);
     $receipt = Duo\NativeActions::execute('rewrite.flush', []);
     duo_check_same($structure, get_option('permalink_structure'), "permalink boundary round-trips exact source bytes (length " . strlen($structure) . ')');
-    duo_check(
-        ($receipt['after']['rules_count'] ?? 0) >= 2
-            && ($receipt['after']['rules_hash'] ?? null) === ($receipt['after']['runtime_rules_hash'] ?? null),
-        "permalink boundary regenerates ordered rules with database/runtime hash parity (length " . strlen($structure) . ')'
-    );
+    $after = $receipt['after'] ?? [];
+    if ($structure === '') {
+        duo_check(
+            ($after['rules_type'] ?? null) === 'string'
+                && ($after['rules_count'] ?? null) === 0
+                && get_option('rewrite_rules') === ''
+                && ($after['rules_hash'] ?? null) === ($after['runtime_rules_hash'] ?? null),
+            'plain permalinks preserve WordPress\'s exact empty-string rewrite sentinel with database/runtime hash parity'
+        );
+    } else {
+        duo_check(
+            ($after['rules_type'] ?? null) === 'array'
+                && ($after['rules_count'] ?? 0) >= 2
+                && ($after['rules_hash'] ?? null) === ($after['runtime_rules_hash'] ?? null),
+            "permalink boundary regenerates ordered rules with database/runtime hash parity (length " . strlen($structure) . ')'
+        );
+    }
 }
 
 core_rewrite_reset(false);
@@ -377,6 +418,7 @@ $absent = Duo\NativeActions::execute('rewrite.flush', []);
 duo_check(!array_key_exists('permalink_structure', $wpdb->optionRows), 'explicit authored option deletion stays deleted after regeneration');
 duo_check(($absent['after']['permalink_present'] ?? null) === false, 'deletion receipt distinguishes absence from an empty stored string');
 duo_check_same(false, $wp_rewrite->permalink_structure, 'parent readback reflects WordPress semantic plain-permalink state without recreating the row');
+duo_check_same('', get_option('rewrite_rules'), 'an absent permalink row still persists WordPress\'s exact empty rewrite sentinel');
 
 core_rewrite_reset();
 $GLOBALS['core_rewrite_wp_loaded'] = 0;
@@ -441,7 +483,7 @@ core_rewrite_reset();
 add_filter('rewrite_rules_array', static fn(array $rules): string => 'malformed filtered rules');
 core_rewrite_refuses(
     static fn() => Duo\NativeActions::execute('rewrite.flush', []),
-    'did not generate an array-valued rewrite runtime',
+    'did not generate a valid rewrite runtime',
     'a malformed extension rewrite projection cannot produce a verified native-action receipt'
 );
 duo_check_same(

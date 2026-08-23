@@ -15,6 +15,10 @@ declare(strict_types=1);
 
 $root = dirname(__DIR__, 4);
 
+if (!defined('ARRAY_A')) {
+    define('ARRAY_A', 'ARRAY_A');
+}
+
 final class DuoScopedEffectFakeWpdb {
     public string $options = 'wp_options';
     public string $last_error = '';
@@ -40,6 +44,17 @@ final class DuoScopedEffectFakeWpdb {
         }
         if (preg_match("/option_name = '([^']*)'/", $query, $match) === 1) {
             return array_key_exists($match[1], $this->optionRows) ? $match[1] : null;
+        }
+        return null;
+    }
+
+    /** Preserve an exact empty option value instead of conflating it with a failed scalar read. */
+    public function get_row(string $query, mixed $output = ARRAY_A): ?array {
+        $this->last_error = '';
+        if (str_contains($query, 'SELECT option_value')
+            && preg_match("/option_name = '([^']*)'/", $query, $match) === 1
+            && array_key_exists($match[1], $this->optionRows)) {
+            return ['option_value' => $this->optionRows[$match[1]]];
         }
         return null;
     }

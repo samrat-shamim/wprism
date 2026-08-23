@@ -18,6 +18,7 @@ require_once __DIR__ . '/../../../../agent/src/Kernel/TableSchema.php';
 use Duo\Ledger;
 use Duo\Policy;
 use Duo\Snapshot;
+use Duo\CoreCaptureSchemaException;
 use Duo\TableGraph;
 use Duo\TableSchema;
 
@@ -44,6 +45,16 @@ $throws = static function (callable $run, string $fragment, string $label) use (
 /** Minimal fake for the two live introspection statements TableSchema owns. */
 final class TableSchemaWpdb {
     public string $prefix = 'wp_';
+    public string $posts = 'wp_posts';
+    public string $postmeta = 'wp_postmeta';
+    public string $terms = 'wp_terms';
+    public string $term_taxonomy = 'wp_term_taxonomy';
+    public string $term_relationships = 'wp_term_relationships';
+    public string $termmeta = 'wp_termmeta';
+    public string $options = 'wp_options';
+    public string $users = 'wp_users';
+    public string $usermeta = 'wp_usermeta';
+    public string $last_error = '';
     /** @var array<string,array<string,string>> */
     public array $tables = [];
     public int $reads = 0;
@@ -62,8 +73,20 @@ final class TableSchemaWpdb {
     }
 
     /** @return list<array{Field:string,Type:string}> */
-    public function get_results(string $sql, string $mode): array {
+    public function get_results(array|string $sql, string $mode): array {
         $this->reads++;
+        if (is_array($sql) && str_contains((string) ($sql['sql'] ?? ''), 'information_schema.COLUMNS')) {
+            $out = [];
+            foreach ((array) ($sql['args'] ?? []) as $prefixed) {
+                $table = str_starts_with((string) $prefixed, $this->prefix)
+                    ? substr((string) $prefixed, strlen($this->prefix))
+                    : (string) $prefixed;
+                foreach ($this->tables[$table] ?? [] as $field => $_type) {
+                    $out[] = ['TABLE_NAME' => (string) $prefixed, 'COLUMN_NAME' => $field];
+                }
+            }
+            return $out;
+        }
         if ($mode !== ARRAY_A || !preg_match('/`([^`]+)`/', $sql, $match)) {
             throw new \RuntimeException('unexpected fake wpdb SHOW COLUMNS shape');
         }
@@ -100,6 +123,37 @@ $check(TableSchema::live_columns('typed_row') === ['id', 'parent_id', 'title', '
     'column-name introspection derives from the same live type map');
 $check(TableSchema::live_column_types('absent') === null,
     'an absent live table remains distinguishable from an empty table');
+
+foreach (TableSchema::core_capture_required_columns() as $property => $columns) {
+    $table = str_starts_with($wpdb->$property, $wpdb->prefix)
+        ? substr($wpdb->$property, strlen($wpdb->prefix))
+        : $wpdb->$property;
+    $wpdb->tables[$table] = array_fill_keys($columns, 'fixture');
+}
+TableSchema::assert_core_capture_schema();
+$check(true, 'the complete WordPress core capture read schema passes one batched live inventory');
+unset($wpdb->tables['posts']['post_excerpt']);
+$schemaFailure = null;
+try {
+    TableSchema::assert_core_capture_schema();
+} catch (Throwable $failure) {
+    $schemaFailure = $failure;
+}
+$check(
+    $schemaFailure instanceof CoreCaptureSchemaException
+        && $schemaFailure->missing === [['table' => 'posts', 'column' => 'post_excerpt']],
+    'core schema refusal carries one stable logical table/column location without exposing the physical prefix'
+);
+$throws(
+    static fn() => TableSchema::assert_core_capture_schema(),
+    'wp_posts.post_excerpt',
+    'a renamed SELECT-star post property refuses before PHP can coerce it to empty canonical state'
+);
+$wpdb->tables['posts']['post_excerpt'] = 'text';
+$wpdb->tables['posts']['plugin_extra_column'] = 'longtext';
+TableSchema::assert_core_capture_schema();
+$check(true, 'plugin-added core-table columns do not widen adapter ownership or trigger a false schema refusal');
+unset($wpdb->tables['posts']['plugin_extra_column']);
 
 $check(TableSchema::is_bit_column('bit(1)') && TableSchema::is_bit_column('BIT(8)'),
     'BIT detection is case-insensitive');

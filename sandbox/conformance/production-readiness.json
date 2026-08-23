@@ -133,10 +133,10 @@
         "failure-recovery": ["sandbox/conformance/checks/core.sh", "sandbox/tests/offline/adapter/regress_core_rewrite_native_action.php"],
         "derived-state": ["manifests/core.json", "sandbox/tests/offline/adapter/regress_core_rewrite_native_action.php", "sandbox/conformance/checks/core.sh"],
         "concurrency-idempotence": ["sandbox/tests/offline/capture/regress_capture_atomicity.php", "sandbox/tests/live/regress_capture_concurrency.sh"],
-        "lifecycle": ["manifests/core.json", "sandbox/conformance/run.sh", "sandbox/tests/live/regress_core_lifecycle.sh"]
+        "lifecycle": ["manifests/core.json", "sandbox/conformance/run.sh", "sandbox/tests/live/regress_core_lifecycle.sh"],
+        "data-boundary": ["agent/src/Grammar/Blocks.php", "agent/src/Kernel/TableSchema.php", "agent/src/Repository/RepositoryPortableShapeValidator.php", "manifests/core.json", "sandbox/tests/offline/capture/regress_options_capture.php", "sandbox/tests/offline/reference-scope/regress_block_refs.php", "sandbox/tests/offline/repository/regress_repository_portable_shape_validator.php", "sandbox/tests/offline/repository/regress_table_schema.php", "sandbox/tests/live/regress_core_data_boundary.sh"]
       },
       "gaps": {
-        "data-boundary": "No exhaustive per-entity UTF-8, size, malformed structured value, secret, and schema-drift matrix exists.",
         "scope-platform": "Multisite refuses, but the declared PHP/database/WordPress boundary has not been exercised as an adapter-level matrix."
       },
       "blocked": {},

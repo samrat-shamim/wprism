@@ -1,5 +1,5 @@
 {
-    "class_count": 347,
+    "class_count": 348,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -10243,6 +10243,53 @@
             },
             "parent": null,
             "properties": [],
+            "readonly": false
+        },
+        "Duo\\CoreCaptureSchemaException": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [
+                "Stringable",
+                "Throwable"
+            ],
+            "kind": "class",
+            "methods": {
+                "__construct": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "missing",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "message",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": null,
+                    "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": "RuntimeException",
+            "properties": {
+                "missing": {
+                    "readonly": false,
+                    "static": false,
+                    "type": "array",
+                    "visibility": "public"
+                }
+            },
             "readonly": false
         },
         "Duo\\Coverage": {
@@ -51916,6 +51963,14 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "assert_core_capture_schema": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "assert_entity_type_width": {
                     "abstract": false,
                     "final": false,
@@ -52037,6 +52092,14 @@
                         }
                     ],
                     "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "core_capture_required_columns": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
                     "static": true,
                     "visibility": "public"
                 },

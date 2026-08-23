@@ -84,6 +84,7 @@ $validManifest = [
     'block_attrs' => [
         'acme/card' => [
             ['path' => 'room', 'type' => 'int', 'kind' => 'acme_room'],
+            ['path' => 'author', 'type' => 'int', 'kind' => 'user'],
             [
                 'path' => 'slot',
                 'type' => 'int',
@@ -131,7 +132,7 @@ $sitePolicy = [
 $validManifests = [$validManifest];
 $assertAccepted(
     static fn() => ReferenceKindGrammar::validate_ref_kinds($validManifests, $sitePolicy),
-    'engine, pinned-table, site-table, and list-suffixed ref kinds are accepted'
+    'engine, block-user, pinned-table, site-table, and list-suffixed ref kinds are accepted'
 );
 
 $invalid = $validManifests;
@@ -148,6 +149,14 @@ $assertThrows(
     static fn() => ReferenceKindGrammar::validate_ref_kinds($invalid, $sitePolicy),
     'token kind vocabulary is closed',
     'the token vocabulary excludes the login-only user reference kind'
+);
+
+$invalid = $validManifests;
+$invalid[0]['shortcode_attrs']['acme-card'][0]['kind'] = 'user';
+$assertThrows(
+    static fn() => ReferenceKindGrammar::validate_ref_kinds($invalid, $sitePolicy),
+    'token kind vocabulary is closed',
+    'shortcode attrs do not inherit the block-only user-login codec'
 );
 
 $invalid = $validManifests;

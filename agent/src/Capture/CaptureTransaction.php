@@ -4,6 +4,7 @@ namespace Duo;
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Kernel/TransientDbException.php';
 require_once __DIR__ . '/../Kernel/Db.php';
+require_once __DIR__ . '/../Kernel/TableSchema.php';
 require_once __DIR__ . '/../Publication/Publish.php';
 require_once __DIR__ . '/../Policy/Policy.php';
 
@@ -52,11 +53,19 @@ final class CaptureTransaction {
         $tables = array_values(array_unique($tables));
 
         $placeholders = implode(',', array_fill(0, count($tables), '%s'));
+        $wpdb->last_error = '';
         $rows = $wpdb->get_results($wpdb->prepare(
             "SELECT TABLE_NAME, ENGINE FROM information_schema.TABLES
              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ($placeholders)",
             $tables
-        ), ARRAY_A) ?: [];
+        ), ARRAY_A);
+        if (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '') {
+            throw self::schema_refusal(
+                new \RuntimeException(
+                    'duo: capture storage-engine inventory could not be read; refusing to assume snapshot support'
+                )
+            );
+        }
 
         $bad = [];
         foreach ($rows as $row) {
@@ -65,28 +74,32 @@ final class CaptureTransaction {
                 $bad[] = "{$row['TABLE_NAME']} (engine: $engine)";
             }
         }
-        if ($bad === []) {
-            return;
+        if ($bad !== []) {
+            sort($bad);
+            $operatorMessage = 'duo: capture refused — consistent-snapshot isolation requires InnoDB, but the following table(s) '
+                . 'capture reads from use a different storage engine (no MVCC/undo log, so a consistent-snapshot '
+                . "transaction gives no real point-in-time guarantee for them):\n  - " . implode("\n  - ", $bad)
+                . "\nConvert the table(s) to InnoDB (e.g. ALTER TABLE <table> ENGINE=InnoDB) and re-run capture.";
+            $diagnostics = array_map(static fn(string $table): array => [
+                'code' => 'unsupported_storage_engine',
+                'table' => $table,
+                'message' => 'capture cannot prove a coherent snapshot for this table',
+                'remediation' => 'convert the table to InnoDB before another capture',
+            ], $bad);
+            throw new CommandRefusalException(
+                'capture_snapshot_unsupported',
+                'capture refused because one or more tables cannot provide a coherent snapshot',
+                'resolve every storage-engine diagnostic before another capture',
+                $diagnostics,
+                $operatorMessage
+            );
         }
 
-        sort($bad);
-        $operatorMessage = 'duo: capture refused — consistent-snapshot isolation requires InnoDB, but the following table(s) '
-            . 'capture reads from use a different storage engine (no MVCC/undo log, so a consistent-snapshot '
-            . "transaction gives no real point-in-time guarantee for them):\n  - " . implode("\n  - ", $bad)
-            . "\nConvert the table(s) to InnoDB (e.g. ALTER TABLE <table> ENGINE=InnoDB) and re-run capture.";
-        $diagnostics = array_map(static fn(string $table): array => [
-            'code' => 'unsupported_storage_engine',
-            'table' => $table,
-            'message' => 'capture cannot prove a coherent snapshot for this table',
-            'remediation' => 'convert the table to InnoDB before another capture',
-        ], $bad);
-        throw new CommandRefusalException(
-            'capture_snapshot_unsupported',
-            'capture refused because one or more tables cannot provide a coherent snapshot',
-            'resolve every storage-engine diagnostic before another capture',
-            $diagnostics,
-            $operatorMessage
-        );
+        try {
+            TableSchema::assert_core_capture_schema();
+        } catch (\Throwable $failure) {
+            throw self::schema_refusal($failure);
+        }
     }
 
     /** Validate only the tables read by the lifecycle options handoff. */
@@ -113,11 +126,19 @@ final class CaptureTransaction {
             static fn($table): bool => (string) $table !== ''
         )));
         $placeholders = implode(',', array_fill(0, count($tables), '%s'));
+        $wpdb->last_error = '';
         $rows = $wpdb->get_results($wpdb->prepare(
             "SELECT TABLE_NAME, ENGINE FROM information_schema.TABLES
              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ($placeholders)",
             $tables
-        ), ARRAY_A) ?: [];
+        ), ARRAY_A);
+        if (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '') {
+            throw self::schema_refusal(
+                new \RuntimeException(
+                    'duo: lifecycle options storage-engine inventory could not be read; refusing to assume snapshot support'
+                )
+            );
+        }
         $bad = [];
         foreach ($rows as $row) {
             $engine = strtoupper((string) ($row['ENGINE'] ?? ''));
@@ -126,6 +147,11 @@ final class CaptureTransaction {
             }
         }
         if ($bad === []) {
+            try {
+                TableSchema::assert_core_capture_schema();
+            } catch (\Throwable $failure) {
+                throw self::schema_refusal($failure);
+            }
             return;
         }
 
@@ -135,6 +161,28 @@ final class CaptureTransaction {
             . "the following lifecycle-read table(s) use a different storage engine:\n  - "
             . implode("\n  - ", $bad)
             . "\nConvert the table(s) to InnoDB and re-run deploy."
+        );
+    }
+
+    private static function schema_refusal(\Throwable $failure): CommandRefusalException {
+        $diagnostic = [
+            'code' => 'core_schema_drift',
+            'message' => 'required WordPress core table or column evidence is unavailable',
+            'remediation' => 'repair the WordPress database schema and retry from an unchanged repository revision',
+        ];
+        if ($failure instanceof CoreCaptureSchemaException) {
+            // Logical wpdb binding names and fixed core column names are safe,
+            // actionable contract locations. Never publish the physical table
+            // prefix or the database driver's arbitrary error text.
+            $diagnostic['missing'] = $failure->missing;
+        }
+        return new CommandRefusalException(
+            'capture_schema_unsupported',
+            'capture refused because the WordPress core schema cannot satisfy the adapter contract',
+            'restore the required WordPress core table schema before another capture, plan, or apply',
+            [$diagnostic],
+            $failure->getMessage(),
+            $failure
         );
     }
 

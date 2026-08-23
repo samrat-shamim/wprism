@@ -132,7 +132,13 @@ final class RepositoryPortableShapeValidator {
                     } elseif (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
                         $this->validate_structured_rule($value, $rule, $path, 'options.' . $name);
                     } elseif (!empty($rule['ref'])) {
-                        $this->validate_declared_ref($value, (string) $rule['ref'], $path, 'options.' . $name);
+                        $this->validate_declared_ref(
+                            $value,
+                            (string) $rule['ref'],
+                            $path,
+                            'options.' . $name,
+                            true
+                        );
                     }
                 }
             } elseif ($entity['type'] === 'user-meta') {
@@ -256,12 +262,24 @@ final class RepositoryPortableShapeValidator {
         $validateMap($value, '');
     }
 
-    private function validate_declared_ref($value, string $ref, string $path, string $locator): void {
+    private function validate_declared_ref(
+        $value,
+        string $ref,
+        string $path,
+        string $locator,
+        bool $allowUnsetScalar = false
+    ): void {
         if ($value === null) {
             return;
         }
         $many = str_ends_with($ref, '[]');
         $kind = $many ? substr($ref, 0, -2) : $ref;
+        if ($allowUnsetScalar && !$many && $value === 0) {
+            // sandbox/tests/live/regress_core_data_boundary.sh proves that
+            // 0 is durable authored intent for WordPress's whole scalar
+            // option refs; every other raw id remains environment-local.
+            return;
+        }
         if ($many) {
             if (!is_array($value) || !array_is_list($value)) {
                 $this->add('nonportable_reference', $path, $locator, "declared $ref value must be a token list");

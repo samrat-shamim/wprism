@@ -73,6 +73,14 @@ final class BlockReferenceScanner {
                                 );
                             }
                         }
+                    } elseif (array_key_exists('unsupported', $rule)) {
+                        $findings[] = LintFinding::make(
+                            'unsupported_block_attr', $rel,
+                            'blocks.' . $name . '.attrs.' . $attrKey, self::unsupportedValue($attrVal), null,
+                            "block '$name' attribute '$attrKey' is explicitly unsupported: "
+                                . (string) $rule['unsupported']
+                        );
+                        continue;
                     } elseif (empty($rule['lint_ok']) && ($rule['tokenize'] ?? null) !== 'text') {
                         // DUO-3212: a registered path is a REF rule by
                         // Blocks::resolve_kind()'s own contract (it throws
@@ -102,14 +110,26 @@ final class BlockReferenceScanner {
                             );
                         }
                     }
-                    if (is_string($attrVal) && $attrVal !== '' && str_contains($attrVal, $home)) {
+                    foreach (self::stringLeaves($attrVal) as [$value, $locSuffix]) {
+                        if ($value === '' || !str_contains($value, $home)) {
+                            continue;
+                        }
+                        $registered = ($rule['tokenize'] ?? null) === 'text';
                         $findings[] = LintFinding::make(
-                            'unregistered_block_attr', $rel,
-                            'blocks.' . $name . '.attrs.' . $attrKey, self::truncate($attrVal), null,
-                            "block '$name' attribute '$attrKey' contains this environment's home URL in plain "
-                            . 'form; block attributes are parsed JSON values, never routed through '
-                            . 'tokenize_text()/detokenize_text() (only innerHTML/innerContent are today), so it '
-                            . "will leak this environment's host into the target regardless of any registry rule."
+                            $registered ? 'unrewritten_registered_text' : 'unregistered_block_attr',
+                            $rel,
+                            'blocks.' . $name . '.attrs.' . $attrKey . $locSuffix,
+                            self::truncate($value),
+                            null,
+                            $registered
+                                ? "block '$name' attribute '$attrKey$locSuffix' declares tokenize:text, but the "
+                                    . "captured value still contains this environment's home URL in plain form — "
+                                    . 'the declared recursive rewrite did not run and the value will leak this '
+                                    . "environment's host into the target."
+                                : "block '$name' attribute '$attrKey$locSuffix' contains this environment's home "
+                                    . 'URL in plain form and has no tokenize:text rule; parsed block attributes '
+                                    . 'are separate from innerHTML/innerContent, so this value will leak this '
+                                    . "environment's host into the target."
                         );
                     }
                 }
@@ -138,5 +158,24 @@ final class BlockReferenceScanner {
         return strlen($value) > self::MAX_VALUE_LEN
             ? substr($value, 0, self::MAX_VALUE_LEN) . '…(truncated)'
             : $value;
+    }
+
+    private static function unsupportedValue($value): string {
+        return is_array($value) ? '<structured-array>' : self::truncate($value);
+    }
+
+    /** @return list<array{0:string,1:string}> */
+    private static function stringLeaves($value, string $suffix = ''): array {
+        if (is_string($value)) {
+            return [[$value, $suffix]];
+        }
+        if (!is_array($value)) {
+            return [];
+        }
+        $leaves = [];
+        foreach ($value as $key => $item) {
+            array_push($leaves, ...self::stringLeaves($item, $suffix . '[' . (string) $key . ']'));
+        }
+        return $leaves;
     }
 }

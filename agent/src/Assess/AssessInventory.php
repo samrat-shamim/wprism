@@ -778,8 +778,9 @@ final class AssessInventory {
      *
      * The pattern key comes from `PolicyRuleResolver::pattern_keys()` rather
      * than a literal, so this enumerates exactly the sections whose lookup
-     * really has a pattern fallback — today `options` only; `user_meta` has
-     * none and correctly yields nothing.
+     * really has a pattern fallback; `user_meta` has none and correctly
+     * yields nothing. A section may have a surface-specific fallback followed
+     * by a legacy shared fallback, and both are enumerated here.
      *
      * §4.6's bound is untouched: no option NAME is produced (a pattern has no
      * finite name set to list), only the declarant x class pair the group id
@@ -791,8 +792,8 @@ final class AssessInventory {
      * @return array<string,array{class:string,declared_by:string}>
      */
     private static function pattern_groups(Policy $policy, string $section): array {
-        $patternKey = PolicyRuleResolver::pattern_keys()[$section] ?? null;
-        if ($patternKey === null) {
+        $patternKeys = PolicyRuleResolver::pattern_keys()[$section] ?? [];
+        if ($patternKeys === []) {
             return [];
         }
         $groups = [];
@@ -801,12 +802,14 @@ final class AssessInventory {
             if ($declaredBy === '') {
                 continue;
             }
-            foreach ((array) ($manifest[$patternKey] ?? []) as $pattern) {
-                if (!is_array($pattern)) {
-                    continue;
+            foreach ($patternKeys as $patternKey) {
+                foreach ((array) ($manifest[$patternKey] ?? []) as $pattern) {
+                    if (!is_array($pattern)) {
+                        continue;
+                    }
+                    $class = (string) ($pattern['class'] ?? 'authored');
+                    $groups[$declaredBy . ':' . $class] = ['class' => $class, 'declared_by' => $declaredBy];
                 }
-                $class = (string) ($pattern['class'] ?? 'authored');
-                $groups[$declaredBy . ':' . $class] = ['class' => $class, 'declared_by' => $declaredBy];
             }
         }
         return $groups;

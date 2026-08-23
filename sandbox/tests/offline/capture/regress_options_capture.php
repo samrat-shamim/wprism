@@ -127,9 +127,11 @@ $wpdb->uuids = [
 $wpdb->rows = [
     'plain_setting' => ['option_value' => 'https://source.test/path', 'autoload' => 'yes'],
     'post_ref' => ['option_value' => '5', 'autoload' => 'yes'],
+    'zero_ref' => ['option_value' => '0', 'autoload' => 'yes'],
     'outside_ref' => ['option_value' => '99', 'autoload' => 'yes'],
     'blob_setting' => ['option_value' => serialize([
         'authored_key' => 'https://source.test/blob',
+        'unset_ref' => 0,
         'runtime_key' => 'local-only',
     ]), 'autoload' => 'yes'],
     'theme_mods_source' => ['option_value' => serialize(['background_color' => 'source-blue']), 'autoload' => 'yes'],
@@ -153,6 +155,7 @@ $policy->site = ['policy' => [
     'options' => [
         'plain_setting' => ['class' => 'authored', 'autoload' => 'yes'],
         'post_ref' => ['class' => 'authored', 'ref' => 'post', 'autoload' => 'yes'],
+        'zero_ref' => ['class' => 'authored', 'ref' => 'post', 'autoload' => 'yes'],
         'outside_ref' => ['class' => 'authored', 'ref' => 'post', 'autoload' => 'yes'],
         'missing_setting' => ['class' => 'authored', 'autoload' => 'yes'],
         'blob_setting' => [
@@ -160,6 +163,7 @@ $policy->site = ['policy' => [
             'autoload' => 'yes',
             'sub_keys' => [
                 'authored_key' => ['class' => 'authored'],
+                'unset_ref' => ['class' => 'authored', 'ref' => 'post'],
                 'runtime_key' => ['class' => 'runtime'],
             ],
         ],
@@ -217,13 +221,15 @@ $records = OptionState::records($result['document']);
 
 $check(
     ($records['plain_setting']['value'] ?? null) === '{{home}}/path'
-        && ($records['post_ref']['value'] ?? null) === '{{post:' . $postUuid . '}}',
-    'exact authored values preserve text tokenization and mapped scalar references'
+        && ($records['post_ref']['value'] ?? null) === '{{post:' . $postUuid . '}}'
+        && array_key_exists('value', $records['zero_ref'] ?? [])
+        && $records['zero_ref']['value'] === 0,
+    'exact authored values preserve text tokenization, mapped refs, and scalar zero as explicit unset intent'
 );
 $check(
     ($records['blob_setting']['value'] ?? null) === ['authored_key' => '{{home}}/blob']
         && !array_key_exists('runtime_key', $records['blob_setting']['value'] ?? []),
-    'sub-key capture includes only authored keys through the shared value codec'
+    'sub-key capture keeps zero-ref deletion semantics while including only authored portable keys'
 );
 $check(
     ($records['theme_mods_target']['value'] ?? null) === ['background_color' => 'target-green']
@@ -269,6 +275,7 @@ $check(
         'outside_ref',
         'plain_setting',
         'post_ref',
+        'zero_ref',
         'blob_setting.authored_key',
         'theme_mods_target.background_color',
     ],
