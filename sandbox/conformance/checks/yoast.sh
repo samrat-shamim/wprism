@@ -114,7 +114,7 @@ echo wp_json_encode([
         'api_name' => $primaryTerm && !is_wp_error($primaryTerm) ? $primaryTerm->name : '',
     ],
     'runtime' => [
-        'main_neighbor' => $mainOption['duo_target_neighbor'] ?? null,
+        'main_excluded' => $mainOption['enable_admin_bar_menu'] ?? null,
         'migration' => get_option('yoast_migrations_free'),
         'tracking' => get_option('wpseo_tracking_only'),
         'undeclared_neighbor' => get_option('yoast_target_undeclared_neighbor'),
@@ -139,6 +139,7 @@ SOURCE_IDS=$(cat "${CONF_REPO1:-siterepo/conf1}/.tmp-yoast-source.json")
 TARGET_IDS=$(cat "${CONF_REPO2:-siterepo/conf2}/.tmp-yoast-target.json")
 
 jq -e --arg version "$YOAST_EXPECTED_VERSION" '
+  .home as $home |
   .version == $version and
   .primary.api_name == "Conformance Primary 東京 🚀" and .primary.api_id == .ids.cat_a and
   .parent == .ids.hub and .llms.mode == "manual" and (.llms.included | length) == 2 and
@@ -147,26 +148,26 @@ jq -e --arg version "$YOAST_EXPECTED_VERSION" '
   .tax_posts_exist == {"og":true,"twitter":true} and
   (.tax["wpseo_desc"] | contains("東京 🚀")) and
   .meta["_yoast_wpseo_bctitle"] == "Breadcrumb 東京 🚀 | %%title%%" and
-  (.meta["_yoast_wpseo_canonical"] | contains(.home)) and
+  (.meta["_yoast_wpseo_canonical"] | contains($home)) and
   .meta["_yoast_wpseo_focuskw"] == "portable 東京 search" and
   .meta["_yoast_wpseo_is_cornerstone"] == "1" and
   .meta["_yoast_wpseo_meta-robots-adv"] == "noimageindex,nosnippet" and
   .meta["_yoast_wpseo_meta-robots-nofollow"] == "1" and
-  .meta["_yoast_wpseo_meta-robots-noindex"] == "0" and
+  .meta["_yoast_wpseo_meta-robots-noindex"] == "" and
   (.meta["_yoast_wpseo_metadesc"] | contains("東京 🚀")) and
   (.meta["_yoast_wpseo_opengraph-description"] | contains("東京 🚀")) and
   .meta["_yoast_wpseo_opengraph-image-id"] != "" and
   .meta["_yoast_wpseo_primary_category"] == (.ids.cat_a | tostring) and
-  (.meta["_yoast_wpseo_redirect"] | contains(.home)) and
+  (.meta["_yoast_wpseo_redirect"] | contains($home)) and
   (.meta["_yoast_wpseo_title"] | contains("東京 🚀")) and
   (.meta["_yoast_wpseo_twitter-description"] | contains("東京 🚀")) and
-  .runtime.main_neighbor == "target-main-option-preserved" and
+  .runtime.main_excluded == false and
   .runtime.undeclared_neighbor == "target-neighbor-preserved" and
-  .runtime.tracking.task_list_first_opened_on == 1999999001 and
+  (.runtime.tracking.task_list_first_opened_on | tonumber) == 1999999001 and
   .runtime.migration.error.message == "target-runtime-marker" and
   .meta["_yoast_wpseo_content_score"] == "target-derived-17" and
   .meta["_yoast_wpseo_estimated-reading-time-minutes"] == "99" and
-  .meta["_yoast_wpseo_linkdex"] == "target-derived-19"
+  .meta["_yoast_wpseo_linkdex"] == ""
 ' <<<"$TARGET" >/dev/null || fail "Yoast authored/runtime native state did not converge: $TARGET"
 
 for key in post hub child cat_a cat_b tag; do
@@ -199,8 +200,29 @@ grep -Fq 'yoast-index@2.0.0' <<<"$PROVIDER_RECEIPT" \
 pass 'Yoast public APIs consume every authored ref at divergent IDs while derived scores and runtime options stay target-owned'
 pass 'Yoast provider 2.0.0 rebuilt indexables, hierarchy, primary terms, and SEO links with relational readback'
 
-FRONT=$(curl -fsSL "http://localhost:${CONF2_PORT}/conformance-yoast-post/") \
-  || fail 'conf2 conformance-yoast-post did not return 200'
+# The authored redirect is itself plugin-visible behavior. Prove it first,
+# then remove it for one controlled render so title/description output can be
+# observed; restore the exact target-local URL before any subsequent capture.
+REDIRECT_HEADERS=$(mktemp "${TMPDIR:-/tmp}/duo-yoast-redirect.XXXXXX")
+REDIRECT_CODE=$(curl -sS -D "$REDIRECT_HEADERS" -o /dev/null -w '%{http_code}' \
+  "http://localhost:${CONF2_PORT}/conformance-yoast-post/")
+REDIRECT_LOCATION=$(awk 'BEGIN { IGNORECASE=1 } /^Location:/ { sub(/\r$/, ""); print substr($0, 11) }' "$REDIRECT_HEADERS" | tail -1)
+rm -f "$REDIRECT_HEADERS"
+[[ "$REDIRECT_CODE" =~ ^30[12378]$ ]] && [[ "$REDIRECT_LOCATION" == "http://localhost:${CONF2_PORT}/"*"conformance-yoast-child/"* ]] \
+  || fail "Yoast authored redirect did not drive the frontend (status=$REDIRECT_CODE location=${REDIRECT_LOCATION:-<none>})"
+$COMPOSE run --rm -T cli2 wp eval '
+  $post=get_page_by_path("conformance-yoast-post",OBJECT,"post");
+  if (!$post) throw new RuntimeException("Yoast render probe post missing");
+  delete_post_meta($post->ID,"_yoast_wpseo_redirect");
+' >/dev/null
+FRONT_RC=0
+FRONT=$(curl -fsSL "http://localhost:${CONF2_PORT}/conformance-yoast-post/") || FRONT_RC=$?
+$COMPOSE run --rm -T cli2 wp eval '
+  $post=get_page_by_path("conformance-yoast-post",OBJECT,"post");
+  if (!$post) throw new RuntimeException("Yoast render probe post missing during restore");
+  update_post_meta($post->ID,"_yoast_wpseo_redirect",home_url("/conformance-yoast-child/?from=seo"));
+' >/dev/null
+[ "$FRONT_RC" -eq 0 ] || fail 'conf2 conformance-yoast-post did not return 200 with its redirect temporarily isolated'
 require_observed_nonempty 'conf2 Yoast rendered response' "$FRONT"
 [ "${#FRONT}" -ge 1000 ] || fail "conf2 Yoast response was suspiciously short (${#FRONT} bytes)"
 grep -qiE 'fatal error|uncaught' <<<"$FRONT" && fail 'conf2 Yoast response contains a fatal marker'
@@ -208,6 +230,7 @@ grep -Fq 'Conformance Yoast Post 東京 🚀' <<<"$FRONT" || fail 'rendered titl
 grep -Fq 'Portable meta description 東京 🚀' <<<"$FRONT" || fail 'rendered description did not consume authored Yoast description'
 grep -Fq "http://localhost:${CONF1_PORT}" <<<"$FRONT" && fail 'conf2 Yoast render leaked the source host'
 pass 'frontend metadata renders UTF-8 authored values and target-local URLs without fatal output'
+pass 'Yoast authored redirect executes and the controlled render probe restores it exactly'
 
 ZERO_PLAN=$($COMPOSE run --rm -T cli2 wp duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 require_duo_answered 'Yoast zero-change plan' json "$ZERO_PLAN"

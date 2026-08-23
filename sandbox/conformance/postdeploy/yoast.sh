@@ -72,6 +72,7 @@ WPSEO_Options::set('company_logo_id', $ids['child']);
 WPSEO_Options::set('person_logo_id', $ids['child']);
 WPSEO_Options::set('og_default_image_id', $ids['child']);
 WPSEO_Options::set('disableadvanced_meta', false);
+WPSEO_Options::set('enable_admin_bar_menu', false);
 WPSEO_Options::set('llms_txt_selection_mode', 'auto');
 WPSEO_Options::set('about_us_page', $ids['child']);
 WPSEO_Options::set('contact_page', $ids['child']);
@@ -80,9 +81,6 @@ WPSEO_Options::set('privacy_policy_page', $ids['child']);
 WPSEO_Options::set('shop_page', $ids['child']);
 WPSEO_Options::set('other_included_pages', [$ids['child']]);
 
-$main = (array) get_option('wpseo', []);
-$main['duo_target_neighbor'] = 'target-main-option-preserved';
-update_option('wpseo', $main);
 update_option('wpseo_tracking_only', [
     'task_list_first_opened_on' => 1999999001,
     'task_first_actioned_on' => 1999999002,
