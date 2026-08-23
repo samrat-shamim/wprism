@@ -47,7 +47,10 @@
  * wpdb::get_results() returns $this->last_result, which wpdb::flush() already
  * reset to array() at the top of the failing query -- so BOTH return an empty
  * array on a driver error, and get_var()/get_row() return null. last_error is
- * the only positive signal, and it is always set here.
+ * the only positive signal, and it is always set here. The explicit
+ * returnNextGetResultsAs() seam is the one exception: it models defensive
+ * callers running behind a non-core wpdb-compatible driver that violates
+ * this return contract, without teaching the SQL store another behavior.
  *
  * The consequence for a suite author: `if (!is_array($rows))` after a
  * get_col() is dead code against live wpdb (RegenerationContextStore and
@@ -213,6 +216,8 @@ final class FakeWpdb {
     private $queryHook = null;
     /** @var list<array{match:?string,error:string,remaining:int}> */
     private array $injectedFailures = [];
+    /** @var list<array|false|null> explicit non-core driver return probes */
+    private array $getResultsReturnOverrides = [];
     /**
      * Row snapshot taken at START TRANSACTION. Deliberately does NOT include
      * $autoIncrement -- see execTransaction().
@@ -417,6 +422,18 @@ final class FakeWpdb {
         int $times = 1
     ): self {
         $this->injectedFailures[] = ['match' => $matching, 'error' => $error, 'remaining' => $times];
+        return $this;
+    }
+
+    /**
+     * Override only the next get_results() return after its SQL executes.
+     * Core wpdb returns an array; null/false exist solely to prove a caller's
+     * fail-closed handling of compatible-but-non-core database drivers.
+     *
+     * @param array<array-key,mixed>|false|null $value
+     */
+    public function returnNextGetResultsAs(array|false|null $value): self {
+        $this->getResultsReturnOverrides[] = $value;
         return $this;
     }
 
@@ -658,10 +675,13 @@ final class FakeWpdb {
      * $this->last_result, which wpdb::flush() reset to array() before the
      * statement ran. Read $last_error to detect the failure.
      *
-     * @return array<array-key,array<string,?string>|object>
+     * @return array<array-key,array<string,?string>|object>|false|null
      */
-    public function get_results(string $query, string $output = OBJECT): array {
+    public function get_results(string $query, string $output = OBJECT): array|false|null {
         $result = $this->run('get_results', $query);
+        if ($this->getResultsReturnOverrides !== []) {
+            return array_shift($this->getResultsReturnOverrides);
+        }
         if ($result === null || $result['kind'] !== 'rows') {
             return [];
         }

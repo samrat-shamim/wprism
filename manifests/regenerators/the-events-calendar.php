@@ -61,49 +61,199 @@ final class TheEventsCalendar {
             );
         }
 
-        $upserted = $eventClass::upsert(['post_id'], $eventClass::data_from_post($localId));
+        $eventData = $eventClass::data_from_post($localId);
+        if (!is_array($eventData)) {
+            throw new \RuntimeException(
+                'duo: TEC Event::data_from_post() returned a non-array value'
+            );
+        }
+        $upserted = $eventClass::upsert(['post_id'], $eventData);
         if ($upserted === false) {
             $errors = (array) $eventClass::last_errors();
             throw new \RuntimeException(
-                "duo: TEC Event::upsert() failed for post $localId: " . implode('. ', $errors)
+                'duo: TEC Event::upsert() failed with ' . count($errors) . ' model error(s)'
             );
         }
 
         $event = $eventClass::find($localId, 'post_id');
         if (!($event instanceof $eventClass)) {
             throw new \RuntimeException(
-                "duo: TEC Event::find(\$localId, 'post_id') could not locate the just-upserted event for post $localId"
+                "duo: TEC Event::find(\$localId, 'post_id') could not locate the just-upserted event"
+            );
+        }
+        $eventId = $event->event_id;
+        if (!is_int($eventId) || $eventId <= 0) {
+            throw new \RuntimeException(
+                'duo: TEC Event::find() returned an event without one positive integer event_id'
             );
         }
         $event->occurrences()->save_occurrences();
 
         global $wpdb;
-        $table = $wpdb->prefix . 'tec_occurrences';
-        $rows = $wpdb->get_results(
+        $eventTable = $wpdb->prefix . 'tec_events';
+        // Native model calls can handle a driver error and leave the public
+        // wpdb field populated. Only this exact read may decide its outcome.
+        $wpdb->last_error = '';
+        $eventRows = $wpdb->get_results(
             $wpdb->prepare(
-                "SELECT start_date, end_date FROM `$table` WHERE post_id = %d ORDER BY occurrence_id",
-                $localId
+                "SELECT event_id, post_id, start_date, end_date, start_date_utc, end_date_utc, "
+                . "timezone, duration, updated_at, hash FROM `$eventTable` "
+                . 'WHERE post_id = %d OR event_id = %d ORDER BY event_id',
+                $localId,
+                $eventId
             ),
             ARRAY_A
         );
         if ($wpdb->last_error !== '') {
             throw new \RuntimeException(
-                "duo: TEC occurrence verification query failed for post $localId: {$wpdb->last_error}"
+                'duo: TEC derived-state verification query failed for tec_events'
             );
         }
-        $expectedStart = (string) get_post_meta($localId, '_EventStartDate', true);
-        $expectedEnd = (string) get_post_meta($localId, '_EventEndDate', true);
-        if (count($rows) !== 1
-            || (string) ($rows[0]['start_date'] ?? '') !== $expectedStart
-            || (string) ($rows[0]['end_date'] ?? '') !== $expectedEnd) {
-            $actual = count($rows) === 1
-                ? (string) ($rows[0]['start_date'] ?? '') . '..' . (string) ($rows[0]['end_date'] ?? '')
-                : count($rows) . ' occurrence row(s)';
+        if (!is_array($eventRows)) {
             throw new \RuntimeException(
-                "duo: TEC occurrence verification failed for post $localId: expected "
-                . "$expectedStart..$expectedEnd, got $actual"
+                'duo: TEC derived-state verification query returned a non-array for tec_events'
             );
         }
+        $expectedDuration = $this->expectedDuration($localId);
+        $expectedEvent = [
+            'event_id' => (string) $eventId,
+            'post_id' => (string) $localId,
+            'start_date' => $this->postMetaString($localId, '_EventStartDate'),
+            'end_date' => $this->postMetaString($localId, '_EventEndDate'),
+            'start_date_utc' => $this->postMetaString($localId, '_EventStartDateUTC'),
+            'end_date_utc' => $this->postMetaString($localId, '_EventEndDateUTC'),
+            'timezone' => $this->postMetaString($localId, '_EventTimezone'),
+            'duration' => $expectedDuration,
+            // Event::data_from_post() sets this exact free-plugin wire. Any
+            // filter changing it is outside the reviewed 6.17.2/6.17.3 path.
+            'hash' => '',
+        ];
+        $eventMismatches = $this->rowMismatches($eventRows, $expectedEvent);
+        if (count($eventRows) === 1 && !$this->validDatabaseTimestamp($eventRows[0]['updated_at'] ?? null)) {
+            $eventMismatches[] = 'updated_at';
+        }
+        if ($eventMismatches !== []) {
+            throw new \RuntimeException(
+                'duo: TEC derived-state verification failed for tec_events fields: '
+                . implode(',', $eventMismatches)
+            );
+        }
+
+        $occurrenceTable = $wpdb->prefix . 'tec_occurrences';
+        $wpdb->last_error = '';
+        $occurrenceRows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT occurrence_id, event_id, post_id, start_date, end_date, start_date_utc, "
+                . "end_date_utc, duration, updated_at, hash FROM `$occurrenceTable` "
+                . 'WHERE post_id = %d OR event_id = %d ORDER BY occurrence_id',
+                $localId,
+                $eventId
+            ),
+            ARRAY_A
+        );
+        if ($wpdb->last_error !== '') {
+            throw new \RuntimeException(
+                'duo: TEC derived-state verification query failed for tec_occurrences'
+            );
+        }
+        if (!is_array($occurrenceRows)) {
+            throw new \RuntimeException(
+                'duo: TEC derived-state verification query returned a non-array for tec_occurrences'
+            );
+        }
+        $expectedOccurrence = $expectedEvent;
+        unset($expectedOccurrence['timezone']);
+        $expectedOccurrence['hash'] = sha1(implode(':', [
+            $expectedOccurrence['post_id'],
+            $expectedOccurrence['start_date'],
+            $expectedOccurrence['end_date'],
+            $expectedOccurrence['start_date_utc'],
+            $expectedOccurrence['end_date_utc'],
+            $expectedOccurrence['duration'],
+        ]));
+        $occurrenceMismatches = $this->rowMismatches($occurrenceRows, $expectedOccurrence);
+        if (count($occurrenceRows) === 1) {
+            if (!$this->validPositiveDatabaseId($occurrenceRows[0]['occurrence_id'] ?? null)) {
+                $occurrenceMismatches[] = 'occurrence_id';
+            }
+            if (!$this->validDatabaseTimestamp($occurrenceRows[0]['updated_at'] ?? null)) {
+                $occurrenceMismatches[] = 'updated_at';
+            }
+        }
+        if ($occurrenceMismatches !== []) {
+            throw new \RuntimeException(
+                'duo: TEC derived-state verification failed for tec_occurrences fields: '
+                . implode(',', $occurrenceMismatches)
+            );
+        }
+    }
+
+    private function postMetaString(int $localId, string $key): string {
+        $value = get_post_meta($localId, $key, true);
+        if (!is_string($value)) {
+            throw new \RuntimeException(
+                "duo: TEC derived-state verification requires $key to be one scalar string"
+            );
+        }
+        return $value;
+    }
+
+    private function expectedDuration(int $localId): string {
+        $duration = $this->postMetaString($localId, '_EventDuration');
+        // Event::data_from_post() uses empty(), so the exact '0' string also
+        // takes this path. For a real zero-length event the derived interval
+        // remains zero; for an inconsistent one the repository interpreter
+        // already refuses before apply.
+        if ($duration !== '' && $duration !== '0') {
+            return $duration;
+        }
+        $start = $this->utcMetaDate($localId, '_EventStartDateUTC');
+        $end = $this->utcMetaDate($localId, '_EventEndDateUTC');
+        return (string) ($end->getTimestamp() - $start->getTimestamp());
+    }
+
+    private function utcMetaDate(int $localId, string $key): \DateTimeImmutable {
+        $wire = $this->postMetaString($localId, $key);
+        $utc = new \DateTimeZone('UTC');
+        $date = \DateTimeImmutable::createFromFormat('!Y-m-d H:i:s', $wire, $utc);
+        if (!$date instanceof \DateTimeImmutable || $date->format('Y-m-d H:i:s') !== $wire) {
+            throw new \RuntimeException(
+                "duo: TEC derived-state verification requires $key to be one exact UTC database timestamp"
+            );
+        }
+        return $date;
+    }
+
+    private function validPositiveDatabaseId(mixed $value): bool {
+        return is_string($value) && preg_match('/^[1-9][0-9]*$/D', $value) === 1;
+    }
+
+    private function validDatabaseTimestamp(mixed $value): bool {
+        if (!is_string($value)) {
+            return false;
+        }
+        $utc = new \DateTimeZone('UTC');
+        $date = \DateTimeImmutable::createFromFormat('!Y-m-d H:i:s', $value, $utc);
+        return $date instanceof \DateTimeImmutable && $date->format('Y-m-d H:i:s') === $value;
+    }
+
+    /**
+     * @param list<array<string,mixed>> $rows
+     * @param array<string,string> $expected
+     * @return list<string>
+     */
+    private function rowMismatches(array $rows, array $expected): array {
+        if (count($rows) !== 1) {
+            return ['row_count'];
+        }
+        $mismatches = [];
+        foreach ($expected as $field => $expectedValue) {
+            $actual = $rows[0][$field] ?? null;
+            if (!is_scalar($actual) || (string) $actual !== $expectedValue) {
+                $mismatches[] = $field;
+            }
+        }
+        return $mismatches;
     }
 
     /**

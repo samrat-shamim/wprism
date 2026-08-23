@@ -8,6 +8,7 @@ if (!defined('DUO_SPEC_VERSION')) {
 }
 
 require_once __DIR__ . '/../../lib/check.php';
+require_once __DIR__ . '/../../lib/FakeWpdb.php';
 require_once __DIR__ . '/../../support/wp-block-parser-stub.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
@@ -22,6 +23,7 @@ use Duo\EntityMetaCapture;
 use Duo\Policy;
 use Duo\Providers\TheEventsCalendarCategoryColors;
 use Duo\Regenerators\TheEventsCalendar as TheEventsCalendarRegenerator;
+use DuoTest\FakeWpdb;
 
 const TEC_EVENT_UUID = '11111111-1111-4111-8111-111111111111';
 const TEC_VENUE_UUID = '22222222-2222-4222-8222-222222222222';
@@ -59,6 +61,182 @@ final class TecReadinessCategoryColorDropdown {
     }
 }
 
+final class TecReadinessEventModel {
+    public mixed $event_id;
+    public int $post_id;
+    public string $start_date;
+    public string $end_date;
+    public string $start_date_utc;
+    public string $end_date_utc;
+    public string $timezone;
+    public string $duration;
+
+    /** @param array<string,mixed> $row */
+    public function __construct(array $row) {
+        $this->event_id = $row['event_id'] ?? null;
+        $this->post_id = (int) ($row['post_id'] ?? 0);
+        $this->start_date = (string) ($row['start_date'] ?? '');
+        $this->end_date = (string) ($row['end_date'] ?? '');
+        $this->start_date_utc = (string) ($row['start_date_utc'] ?? '');
+        $this->end_date_utc = (string) ($row['end_date_utc'] ?? '');
+        $this->timezone = (string) ($row['timezone'] ?? '');
+        $this->duration = (string) ($row['duration'] ?? '');
+    }
+
+    /** @return mixed */
+    public static function data_from_post(int $postId): mixed {
+        if (($GLOBALS['tec_readiness_regen_mode'] ?? '') === 'non_array_data') {
+            return 'credential-shaped-AKIAABCDEFGHIJKLMNOP';
+        }
+        $data = [
+            'post_id' => $postId,
+            'start_date' => get_post_meta($postId, '_EventStartDate', true),
+            'end_date' => get_post_meta($postId, '_EventEndDate', true),
+            'start_date_utc' => get_post_meta($postId, '_EventStartDateUTC', true),
+            'end_date_utc' => get_post_meta($postId, '_EventEndDateUTC', true),
+            'timezone' => get_post_meta($postId, '_EventTimezone', true),
+            'duration' => get_post_meta($postId, '_EventDuration', true),
+            'hash' => '',
+        ];
+        if ($data['duration'] === '' || $data['duration'] === '0') {
+            $start = new DateTimeImmutable((string) $data['start_date_utc'], new DateTimeZone('UTC'));
+            $end = new DateTimeImmutable((string) $data['end_date_utc'], new DateTimeZone('UTC'));
+            $data['duration'] = (string) ($end->getTimestamp() - $start->getTimestamp());
+        }
+        if (($GLOBALS['tec_readiness_regen_mode'] ?? '') === 'filtered_event_timezone') {
+            $data['timezone'] = 'UTC';
+        }
+        return $data;
+    }
+
+    /** @param list<string> $uniqueBy @param array<string,mixed>|null $data */
+    public static function upsert(array $uniqueBy, ?array $data = null): int|false {
+        if (($GLOBALS['tec_readiness_regen_mode'] ?? '') === 'upsert_false') {
+            return false;
+        }
+        if ($uniqueBy !== ['post_id'] || $data === null) {
+            throw new RuntimeException('unexpected fake TEC upsert contract');
+        }
+        /** @var FakeWpdb $wpdb */
+        $wpdb = $GLOBALS['wpdb'];
+        $table = $wpdb->prefix . 'tec_events';
+        $eventId = 7000000001;
+        foreach ($wpdb->rows($table) as $row) {
+            if ((int) ($row['post_id'] ?? 0) === (int) $data['post_id']) {
+                $eventId = (int) $row['event_id'];
+                break;
+            }
+        }
+        $wpdb->delete($table, ['post_id' => (int) $data['post_id']]);
+        $row = ['event_id' => $eventId] + $data + ['updated_at' => '2026-08-24 00:00:00'];
+        if (($GLOBALS['tec_readiness_regen_mode'] ?? '') === 'invalid_event_updated_at') {
+            $row['updated_at'] = '2026-02-31 25:99:99';
+        }
+        if ($wpdb->insert($table, $row) === false) {
+            return false;
+        }
+        $GLOBALS['tec_readiness_regen_calls'][] = (int) $data['post_id'];
+        return 1;
+    }
+
+    /** @return list<string> */
+    public static function last_errors(): array {
+        return [
+            'hostile model error AKIAABCDEFGHIJKLMNOP',
+            str_repeat('x', 4096),
+        ];
+    }
+
+    public static function find(int $postId, string $column): ?self {
+        if (($GLOBALS['tec_readiness_regen_mode'] ?? '') === 'find_missing') {
+            return null;
+        }
+        if ($column !== 'post_id') {
+            throw new RuntimeException('unexpected fake TEC find contract');
+        }
+        /** @var FakeWpdb $wpdb */
+        $wpdb = $GLOBALS['wpdb'];
+        foreach ($wpdb->rows($wpdb->prefix . 'tec_events') as $row) {
+            if ((int) ($row['post_id'] ?? 0) === $postId) {
+                if (($GLOBALS['tec_readiness_regen_mode'] ?? '') === 'invalid_event_id') {
+                    $row['event_id'] = '7000000001';
+                }
+                return new self($row);
+            }
+        }
+        return null;
+    }
+
+    public function occurrences(): TecReadinessOccurrenceSaver {
+        return new TecReadinessOccurrenceSaver($this);
+    }
+}
+
+final class TecReadinessOccurrenceSaver {
+    public function __construct(private TecReadinessEventModel $event) {}
+
+    public function save_occurrences(): void {
+        /** @var FakeWpdb $wpdb */
+        $wpdb = $GLOBALS['wpdb'];
+        $table = $wpdb->prefix . 'tec_occurrences';
+        $existingId = 8000000001;
+        foreach ($wpdb->rows($table) as $row) {
+            if ((int) ($row['post_id'] ?? 0) === $this->event->post_id) {
+                $existingId = (int) $row['occurrence_id'];
+                break;
+            }
+        }
+        // Free TEC updates the first physical occurrence for this post and
+        // does not silently erase hostile extra rows. Verification below is
+        // what refuses that unsupported dirty shape.
+        $wpdb->delete($table, ['occurrence_id' => $existingId]);
+        $row = [
+            'occurrence_id' => $existingId,
+            'event_id' => $this->event->event_id,
+            'post_id' => $this->event->post_id,
+            'start_date' => $this->event->start_date,
+            'end_date' => $this->event->end_date,
+            'start_date_utc' => $this->event->start_date_utc,
+            'end_date_utc' => $this->event->end_date_utc,
+            'duration' => $this->event->duration,
+            'updated_at' => '2026-08-24 00:00:01',
+        ];
+        $row['hash'] = sha1(implode(':', [
+            $row['post_id'],
+            $row['start_date'],
+            $row['end_date'],
+            $row['start_date_utc'],
+            $row['end_date_utc'],
+            $row['duration'],
+        ]));
+        $mode = $GLOBALS['tec_readiness_regen_mode'] ?? '';
+        if ($mode === 'partial_occurrence') {
+            $row['end_date_utc'] = '2001-01-01 00:00:00';
+        } elseif ($mode === 'wrong_event_link') {
+            $row['event_id'] = (int) $row['event_id'] + 1;
+        } elseif ($mode === 'invalid_occurrence_id') {
+            $row['occurrence_id'] = 0;
+        } elseif ($mode === 'invalid_occurrence_updated_at') {
+            $row['updated_at'] = '2026-02-31 25:99:99';
+        } elseif ($mode === 'save_throw') {
+            $row['end_date_utc'] = '2001-01-01 00:00:00';
+        }
+        $wpdb->insert($table, $row);
+        if ($mode === 'orphan_extra') {
+            $orphan = $row;
+            $orphan['occurrence_id'] = 8000000002;
+            $orphan['post_id'] = $this->event->post_id + 999;
+            $wpdb->insert($table, $orphan);
+        }
+        if ($mode === 'save_throw') {
+            throw new RuntimeException('injected native occurrence save failure');
+        }
+        if ($mode === 'stale_driver_error') {
+            $wpdb->last_error = 'handled stale error AKIAABCDEFGHIJKLMNOP';
+        }
+    }
+}
+
 class_alias(TecReadinessNativeColor::class, 'Tribe__Utils__Color');
 foreach ([
     'TEC\\Events\\Category_Colors\\CSS\\Controller',
@@ -67,6 +245,7 @@ foreach ([
 ] as $tecReadinessNativeClass) {
     class_alias(TecReadinessNativeMarker::class, $tecReadinessNativeClass);
 }
+class_alias(TecReadinessEventModel::class, 'TEC\Events\Custom_Tables\V1\Models\Event');
 
 /** @return mixed */
 function get_option(string $name, mixed $default = false): mixed {
@@ -76,6 +255,11 @@ function get_option(string $name, mixed $default = false): mixed {
 /** @return mixed */
 function get_term_meta(int $termId, string $key, bool $single = false): mixed {
     return $GLOBALS['tec_readiness_term_meta'][$termId][$key] ?? ($single ? '' : []);
+}
+
+/** @return mixed */
+function get_post_meta(int $postId, string $key, bool $single = false): mixed {
+    return $GLOBALS['tec_readiness_post_meta'][$postId][$key] ?? ($single ? '' : []);
 }
 
 /** @return list<object> */
@@ -1121,6 +1305,38 @@ duo_check_throws(
     'does not implement capability'
 );
 
+$GLOBALS['tec_readiness_terms'] = [];
+$GLOBALS['tec_readiness_term_meta'] = [];
+$GLOBALS['tec_readiness_options']['tec_events_category_color_css'] =
+    '.tribe_events_cat-orphan{--tec-color-category-primary:#111111}';
+$GLOBALS['tec_readiness_dropdown_rows'] = [[
+    'slug' => 'orphan',
+    'name' => 'Orphan',
+    'priority' => 9,
+    'primary' => '#111111',
+    'hidden' => false,
+]];
+$GLOBALS['tec_readiness_generated_css'] = '';
+$GLOBALS['tec_readiness_generated_dropdown_rows'] = [];
+$emptyColorReceipt = $colorProvider->invoke('regenerate_css', []);
+duo_check_same(true, $emptyColorReceipt['verified'] ?? null, 'zero event categories converge through the native empty CSS/dropdown path');
+duo_check_same(0, $emptyColorReceipt['after']['colored_category_count'] ?? null, 'zero-category receipt stays bounded at zero colored categories');
+duo_check_same(0, $emptyColorReceipt['after']['css_selector_count'] ?? null, 'zero categories store TEC native empty CSS without a synthetic selector');
+duo_check_same(0, $emptyColorReceipt['after']['dropdown_actual_count'] ?? null, 'zero categories store TEC native empty dropdown projection');
+duo_check_same(
+    true,
+    $colorProvider->reconcile_scoped('regenerate_css', [], $operation)['verified'] ?? null,
+    'zero-category reconciliation verifies the native empty state without mutation'
+);
+
+$GLOBALS['tec_readiness_terms'] = [(object) ['term_id' => 72, 'slug' => 'plain-category']];
+$GLOBALS['tec_readiness_term_meta'] = [72 => []];
+$plainColorReceipt = $colorProvider->invoke('regenerate_css', []);
+duo_check_same(true, $plainColorReceipt['verified'] ?? null, 'categories with no color metadata converge through native empty generated state');
+duo_check_same(0, $plainColorReceipt['after']['colored_category_count'] ?? null, 'an uncolored native category is not invented as a colored selector');
+duo_check_same(0, $plainColorReceipt['after']['dropdown_actual_count'] ?? null, 'an uncolored native category is absent from the color dropdown cache');
+duo_check_same(4, $GLOBALS['tec_readiness_cache_busts'], 'only four explicit provider invocations replayed native cache mutation');
+
 duo_check(in_array('tribe_events', $policy->declared_post_types(), true), 'events are in adapter post scope');
 duo_check(in_array('tribe_venue', $policy->declared_post_types(), true), 'venues are in adapter post scope');
 duo_check(in_array('tribe_organizer', $policy->declared_post_types(), true), 'organizers are in adapter post scope');
@@ -1142,6 +1358,342 @@ duo_check_throws(
     RuntimeException::class,
     'TEC deletion context refuses before plugin code or database mutation',
     'deletion regeneration is unsupported'
+);
+
+$tecEventId = 6100000001;
+$GLOBALS['tec_readiness_post_meta'] = [
+    $tecEventId => [
+        '_EventStartDate' => '2026-11-02 18:30:00',
+        '_EventEndDate' => '2026-11-02 21:00:00',
+        '_EventStartDateUTC' => '2026-11-02 12:45:00',
+        '_EventEndDateUTC' => '2026-11-02 15:15:00',
+        '_EventTimezone' => 'Asia/Kathmandu',
+        '_EventDuration' => '9000',
+    ],
+];
+$tecDb = FakeWpdb::install();
+$eventTable = $tecDb->prefix . 'tec_events';
+$occurrenceTable = $tecDb->prefix . 'tec_occurrences';
+$tecDb->setColumns($eventTable, [
+    'event_id' => 'bigint(20) unsigned',
+    'post_id' => 'bigint(20) unsigned',
+    'start_date' => 'varchar(19)',
+    'end_date' => 'varchar(19)',
+    'timezone' => 'varchar(30)',
+    'start_date_utc' => 'varchar(19)',
+    'end_date_utc' => 'varchar(19)',
+    'duration' => 'mediumint(30)',
+    'updated_at' => 'timestamp',
+    'hash' => 'varchar(40)',
+]);
+$tecDb->setColumns($occurrenceTable, [
+    'occurrence_id' => 'bigint(20) unsigned',
+    'event_id' => 'bigint(20) unsigned',
+    'post_id' => 'bigint(20) unsigned',
+    'start_date' => 'datetime',
+    'end_date' => 'datetime',
+    'start_date_utc' => 'datetime',
+    'end_date_utc' => 'datetime',
+    'duration' => 'mediumint(30)',
+    'updated_at' => 'timestamp',
+    'hash' => 'varchar(40)',
+]);
+$tecDb->setPrimaryKey($eventTable, 'event_id')->setPrimaryKey($occurrenceTable, 'occurrence_id');
+$resetTecDerived = static function () use ($tecDb, $eventTable, $occurrenceTable, $tecEventId): void {
+    $tecDb->seedTable($eventTable, [
+        [
+            'event_id' => 7000000001,
+            'post_id' => $tecEventId,
+            'start_date' => '1999-01-01 00:00:00',
+            'end_date' => '1999-01-01 00:30:00',
+            'timezone' => 'UTC',
+            'start_date_utc' => '1999-01-01 00:00:00',
+            'end_date_utc' => '1999-01-01 00:30:00',
+            'duration' => 1800,
+            'updated_at' => '1999-01-01 00:00:00',
+            'hash' => 'stale-event-hash',
+        ],
+        [
+            'event_id' => 7000000099,
+            'post_id' => 6100000099,
+            'start_date' => '2028-01-01 00:00:00',
+            'end_date' => '2028-01-01 01:00:00',
+            'timezone' => 'UTC',
+            'start_date_utc' => '2028-01-01 00:00:00',
+            'end_date_utc' => '2028-01-01 01:00:00',
+            'duration' => 3600,
+            'updated_at' => '2028-01-01 00:00:00',
+            'hash' => 'target-runtime-event',
+        ],
+    ]);
+    $tecDb->seedTable($occurrenceTable, [
+        [
+            'occurrence_id' => 8000000001,
+            'event_id' => 7000000001,
+            'post_id' => $tecEventId,
+            'start_date' => '1999-01-01 00:00:00',
+            'end_date' => '1999-01-01 00:30:00',
+            'start_date_utc' => '1999-01-01 00:00:00',
+            'end_date_utc' => '1999-01-01 00:30:00',
+            'duration' => 1800,
+            'updated_at' => '1999-01-01 00:00:00',
+            'hash' => 'stale-occurrence-hash',
+        ],
+        [
+            'occurrence_id' => 8000000099,
+            'event_id' => 7000000099,
+            'post_id' => 6100000099,
+            'start_date' => '2028-01-01 00:00:00',
+            'end_date' => '2028-01-01 01:00:00',
+            'start_date_utc' => '2028-01-01 00:00:00',
+            'end_date_utc' => '2028-01-01 01:00:00',
+            'duration' => 3600,
+            'updated_at' => '2028-01-01 00:00:00',
+            'hash' => 'target-runtime-occurrence',
+        ],
+    ]);
+    $tecDb->onQuery(null);
+    $GLOBALS['tec_readiness_regen_mode'] = 'ok';
+    $GLOBALS['tec_readiness_regen_calls'] = [];
+};
+$tecFailure = static function (callable $call): string {
+    try {
+        $call();
+    } catch (RuntimeException $e) {
+        return $e->getMessage();
+    }
+    duo_check(false, 'expected TEC regenerator failure did not occur');
+    return '';
+};
+
+$resetTecDerived();
+$regenerator->regenerate($tecEventId);
+$expectedOccurrenceHash = sha1(implode(':', [
+    (string) $tecEventId,
+    '2026-11-02 18:30:00',
+    '2026-11-02 21:00:00',
+    '2026-11-02 12:45:00',
+    '2026-11-02 15:15:00',
+    '9000',
+]));
+$nativeEventRow = $tecDb->get_row($tecDb->prepare(
+    'SELECT event_id, post_id, start_date, end_date, start_date_utc, end_date_utc, timezone, duration, hash '
+    . "FROM `$eventTable` WHERE post_id = %d",
+    $tecEventId
+), ARRAY_A);
+duo_check_same([
+    'event_id' => '7000000001',
+    'post_id' => (string) $tecEventId,
+    'start_date' => '2026-11-02 18:30:00',
+    'end_date' => '2026-11-02 21:00:00',
+    'start_date_utc' => '2026-11-02 12:45:00',
+    'end_date_utc' => '2026-11-02 15:15:00',
+    'timezone' => 'Asia/Kathmandu',
+    'duration' => '9000',
+    'hash' => '',
+], $nativeEventRow, 'regeneration verifies every deterministic tec_events field on a huge post identity');
+$nativeOccurrenceRow = $tecDb->get_row($tecDb->prepare(
+    'SELECT event_id, post_id, start_date, end_date, start_date_utc, end_date_utc, duration, hash '
+    . "FROM `$occurrenceTable` WHERE post_id = %d",
+    $tecEventId
+), ARRAY_A);
+duo_check_same([
+    'event_id' => '7000000001',
+    'post_id' => (string) $tecEventId,
+    'start_date' => '2026-11-02 18:30:00',
+    'end_date' => '2026-11-02 21:00:00',
+    'start_date_utc' => '2026-11-02 12:45:00',
+    'end_date_utc' => '2026-11-02 15:15:00',
+    'duration' => '9000',
+    'hash' => $expectedOccurrenceHash,
+], $nativeOccurrenceRow, 'regeneration verifies every deterministic occurrence field and event linkage');
+duo_check_same(
+    'target-runtime-event',
+    $tecDb->get_var("SELECT hash FROM `$eventTable` WHERE post_id = 6100000099"),
+    'event regeneration preserves unrelated target-derived rows'
+);
+duo_check_same(
+    'target-runtime-occurrence',
+    $tecDb->get_var("SELECT hash FROM `$occurrenceTable` WHERE post_id = 6100000099"),
+    'occurrence regeneration preserves unrelated target-derived rows'
+);
+$beforeRetry = [$nativeEventRow, $nativeOccurrenceRow];
+$regenerator->regenerate($tecEventId);
+$afterRetry = [
+    $tecDb->get_row($tecDb->prepare(
+        'SELECT event_id, post_id, start_date, end_date, start_date_utc, end_date_utc, timezone, duration, hash '
+        . "FROM `$eventTable` WHERE post_id = %d",
+        $tecEventId
+    ), ARRAY_A),
+    $tecDb->get_row($tecDb->prepare(
+        'SELECT event_id, post_id, start_date, end_date, start_date_utc, end_date_utc, duration, hash '
+        . "FROM `$occurrenceTable` WHERE post_id = %d",
+        $tecEventId
+    ), ARRAY_A),
+];
+duo_check_same($beforeRetry, $afterRetry, 'a repeated native regeneration is idempotent at every deterministic field');
+$heartbeats = 0;
+$regenerator->regenerate_batch(
+    [$tecEventId, 0, $tecEventId, -1],
+    [],
+    static function () use (&$heartbeats): void {
+        ++$heartbeats;
+    }
+);
+duo_check_same(1, $heartbeats, 'batch regeneration deduplicates live IDs before heartbeat and native mutation');
+duo_check_same([$tecEventId, $tecEventId, $tecEventId], $GLOBALS['tec_readiness_regen_calls'], 'batch retry invokes only the one canonical positive live ID');
+
+$resetTecDerived();
+$GLOBALS['tec_readiness_post_meta'][$tecEventId]['_EventDuration'] = '';
+$regenerator->regenerate($tecEventId);
+duo_check_same(
+    ['9000', '9000'],
+    [
+        $tecDb->get_var($tecDb->prepare("SELECT duration FROM `$eventTable` WHERE post_id = %d", $tecEventId)),
+        $tecDb->get_var($tecDb->prepare("SELECT duration FROM `$occurrenceTable` WHERE post_id = %d", $tecEventId)),
+    ],
+    'empty native duration metadata derives exact seconds from UTC endpoints in both custom tables'
+);
+$GLOBALS['tec_readiness_post_meta'][$tecEventId]['_EventDuration'] = '9000';
+
+$resetTecDerived();
+$GLOBALS['tec_readiness_regen_mode'] = 'stale_driver_error';
+$regenerator->regenerate($tecEventId);
+duo_check_same('', $tecDb->last_error, 'handled stale native model errors cannot poison either exact verification read');
+
+$resetTecDerived();
+$GLOBALS['tec_readiness_regen_mode'] = 'non_array_data';
+$failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
+duo_check(str_contains($failure, 'non-array') && !str_contains($failure, 'AKIA'), 'filtered non-array event data refuses with a bounded redacted diagnostic');
+
+$resetTecDerived();
+$GLOBALS['tec_readiness_regen_mode'] = 'upsert_false';
+$failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
+duo_check(str_contains($failure, '2 model error(s)') && strlen($failure) < 200 && !str_contains($failure, 'AKIA'), 'native upsert errors are counted without leaking hostile plugin payloads');
+
+$resetTecDerived();
+$GLOBALS['tec_readiness_regen_mode'] = 'find_missing';
+duo_check(
+    str_contains($tecFailure(static fn() => $regenerator->regenerate($tecEventId)), 'could not locate'),
+    'a partial upsert whose native model cannot be read back refuses'
+);
+
+$resetTecDerived();
+$GLOBALS['tec_readiness_regen_mode'] = 'invalid_event_id';
+duo_check(
+    str_contains($tecFailure(static fn() => $regenerator->regenerate($tecEventId)), 'positive integer event_id'),
+    'a native model with a non-integer generated identity refuses before occurrence mutation'
+);
+
+$resetTecDerived();
+$GLOBALS['tec_readiness_regen_mode'] = 'filtered_event_timezone';
+duo_check_same(
+    'duo: TEC derived-state verification failed for tec_events fields: timezone',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'a filter-corrupted deterministic event timezone refuses by fixed field name without authored values'
+);
+
+$resetTecDerived();
+$GLOBALS['tec_readiness_regen_mode'] = 'invalid_event_updated_at';
+duo_check_same(
+    'duo: TEC derived-state verification failed for tec_events fields: updated_at',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'an invalid generated event update timestamp refuses without treating it as authored state'
+);
+
+$resetTecDerived();
+$GLOBALS['tec_readiness_regen_mode'] = 'invalid_occurrence_id';
+duo_check_same(
+    'duo: TEC derived-state verification failed for tec_occurrences fields: occurrence_id',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'an occurrence without one positive generated identity refuses'
+);
+
+$resetTecDerived();
+$GLOBALS['tec_readiness_regen_mode'] = 'invalid_occurrence_updated_at';
+duo_check_same(
+    'duo: TEC derived-state verification failed for tec_occurrences fields: updated_at',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'an invalid generated occurrence update timestamp refuses without copying it'
+);
+
+$resetTecDerived();
+$tecDb->returnNextGetResultsAs(null);
+duo_check_same(
+    'duo: TEC derived-state verification query returned a non-array for tec_events',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'a null event read from a non-core wpdb-compatible driver refuses explicitly'
+);
+
+$resetTecDerived();
+$tecDb->returnNextGetResultsAs([[
+    'event_id' => '7000000001',
+    'post_id' => (string) $tecEventId,
+    'start_date' => '2026-11-02 18:30:00',
+    'end_date' => '2026-11-02 21:00:00',
+    'start_date_utc' => '2026-11-02 12:45:00',
+    'end_date_utc' => '2026-11-02 15:15:00',
+    'timezone' => 'Asia/Kathmandu',
+    'duration' => '9000',
+    'updated_at' => '2026-08-24 00:00:00',
+    'hash' => '',
+]])->returnNextGetResultsAs(false);
+duo_check_same(
+    'duo: TEC derived-state verification query returned a non-array for tec_occurrences',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'a false occurrence read from a non-core wpdb-compatible driver refuses explicitly'
+);
+
+$resetTecDerived();
+$tecDb->failNextQuery('credential SQL failure AKIAABCDEFGHIJKLMNOP', 'SELECT event_id, post_id');
+$failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
+duo_check_same('duo: TEC derived-state verification query failed for tec_events', $failure, 'event verification query failure is explicit and redacted');
+
+$resetTecDerived();
+$tecDb->failNextQuery('credential SQL failure AKIAABCDEFGHIJKLMNOP', 'SELECT occurrence_id, event_id');
+$failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
+duo_check_same('duo: TEC derived-state verification query failed for tec_occurrences', $failure, 'occurrence verification query failure is explicit and redacted');
+
+$resetTecDerived();
+$GLOBALS['tec_readiness_regen_mode'] = 'partial_occurrence';
+duo_check_same(
+    'duo: TEC derived-state verification failed for tec_occurrences fields: end_date_utc',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'a partially written occurrence refuses on its missing deterministic postcondition'
+);
+
+$resetTecDerived();
+$GLOBALS['tec_readiness_regen_mode'] = 'wrong_event_link';
+duo_check_same(
+    'duo: TEC derived-state verification failed for tec_occurrences fields: event_id',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'an occurrence linked to the wrong native event row refuses'
+);
+
+$resetTecDerived();
+$GLOBALS['tec_readiness_regen_mode'] = 'orphan_extra';
+duo_check_same(
+    'duo: TEC derived-state verification failed for tec_occurrences fields: row_count',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'an orphan occurrence sharing the native event identity refuses rather than earning success'
+);
+
+$resetTecDerived();
+$GLOBALS['tec_readiness_regen_mode'] = 'save_throw';
+duo_check_same(
+    'injected native occurrence save failure',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'a native occurrence exception surfaces and leaves retry authority to the engine'
+);
+$GLOBALS['tec_readiness_regen_mode'] = 'ok';
+$regenerator->regenerate($tecEventId);
+duo_check_same(
+    $expectedOccurrenceHash,
+    $tecDb->get_var($tecDb->prepare(
+        "SELECT hash FROM `$occurrenceTable` WHERE post_id = %d",
+        $tecEventId
+    )),
+    'retry after a partial native occurrence failure converges to the exact deterministic row'
 );
 
 duo_check_summary('The Events Calendar production-readiness contract');
