@@ -52,10 +52,10 @@ woo_ok($policy->post_type_relation_closure(['product_variation']) === ['product'
 
 $optionNames = preg_split('/\s+/', trim(<<<'OPTIONS'
 action_scheduler_hybrid_store_demarkation action_scheduler_migration_status
-wc_downloads_approved_directories_mode wc_pending_batch_processes
+wc_brands_show_description wc_downloads_approved_directories_mode wc_pending_batch_processes
 wc_feature_woocommerce_additional_variation_images_enabled
 woocommerce_address_autocomplete_enabled woocommerce_admin_install_timestamp woocommerce_admin_notices
-woocommerce_all_except_countries woocommerce_allow_bulk_remove_personal_data woocommerce_allow_tracking woocommerce_allowed_countries woocommerce_analytics_enabled
+woocommerce_all_except_countries woocommerce_allow_bulk_remove_personal_data woocommerce_allow_tracking woocommerce_allowed_countries woocommerce_analytics_enabled woocommerce_brand_permalink
 woocommerce_anonymize_completed_orders woocommerce_anonymize_refunded_orders woocommerce_attribute_lookup_direct_updates woocommerce_attribute_lookup_enabled woocommerce_attribute_lookup_optimized_updates
 woocommerce_calc_discounts_sequentially woocommerce_calc_taxes woocommerce_cart_page_id woocommerce_cart_redirect_after_add woocommerce_cart_save_for_later_enabled woocommerce_catalog_columns woocommerce_catalog_rows
 woocommerce_checkout_address_2_field woocommerce_checkout_company_field woocommerce_checkout_highlight_required_fields woocommerce_checkout_order_received_endpoint woocommerce_checkout_page_id woocommerce_checkout_pay_endpoint woocommerce_checkout_phone_field woocommerce_checkout_privacy_policy_text
@@ -88,7 +88,7 @@ foreach (['action_scheduler_migration_status', 'woocommerce_paypal_settings', 'w
 foreach (['wc_pending_batch_processes', 'woocommerce_admin_notices', 'woocommerce_task_list_tracked_completed_tasks', 'woocommerce_unforce_ssl_checkout'] as $name) {
     woo_ok(($policy->owned_option_rule($name)['class'] ?? '') === 'runtime', "$name stays runtime-local");
 }
-foreach (['woocommerce_catalog_columns', 'woocommerce_catalog_rows', 'woocommerce_cod_settings', 'woocommerce_enable_delayed_account_creation', 'woocommerce_feature_wc_visual_attribute_enabled', 'woocommerce_hooked_blocks_version', 'woocommerce_pickup_location_settings'] as $name) {
+foreach (['wc_brands_show_description', 'woocommerce_brand_permalink', 'woocommerce_catalog_columns', 'woocommerce_catalog_rows', 'woocommerce_cod_settings', 'woocommerce_enable_delayed_account_creation', 'woocommerce_feature_wc_visual_attribute_enabled', 'woocommerce_hooked_blocks_version', 'woocommerce_pickup_location_settings'] as $name) {
     woo_ok(($policy->owned_option_rule($name)['class'] ?? '') === 'authored', "$name stays portable merchant-authored state");
 }
 foreach (['woocommerce_catalog_columns', 'woocommerce_catalog_rows'] as $name) {
@@ -115,6 +115,18 @@ woo_ok(($policy->option_rule('default_product_cat')['class'] ?? '') === 'authore
     'the fallback product category is authored and resolves through the term ledger');
 woo_ok(($policy->option_rule('product_cat_children')['class'] ?? '') === 'derived',
     "core's product_cat hierarchy cache is excluded as derived, not carried as a foreign id graph");
+woo_ok(($policy->option_rule('product_brand_children')['class'] ?? '') === 'derived',
+    "core's product_brand hierarchy cache is excluded as derived, not carried as a foreign id graph");
+woo_ok(($manifest['taxonomies']['product_brand'] ?? null) === [
+    'class' => 'authored',
+    'object_type' => ['product'],
+    'update_count_callback' => '_wc_term_recount',
+], 'Woo core Brands taxonomy is authored with its exact product/count registration facts');
+foreach (['product_brands', 'exclude_product_brands'] as $metaKey) {
+    woo_ok(($policy->post_meta_rule($metaKey)['class'] ?? null) === 'authored'
+        && ($policy->post_meta_rule($metaKey)['ref'] ?? null) === 'term[]',
+        "coupon $metaKey stores portable brand term references");
+}
 woo_ok(($policy->owned_option_rule('wc_installing')['class'] ?? '') === 'runtime',
     "WC_Install's raw-SQL install mutex row stays runtime-local");
 // The name is computed (`'schema-' . static::class`), so the rule is a
@@ -144,14 +156,22 @@ $actionSources = array_map(
 woo_ok($actionSources === [
     'native:transient.delete',
     'provider:woocommerce-cache/invalidate_cache_groups',
+    'provider:woocommerce-hierarchy-lookups/rebuild_hierarchy_lookups',
+    'provider:woocommerce-hierarchy-lookups/rebuild_hierarchy_lookups',
     'provider:woocommerce-product-lookups/rebuild_product_lookups',
-], 'manifest keeps only the bounded attribute-transient, shipping/tax cache, and per-product lookup repairs; '
-    . 'the whole-catalog projection is not automatic');
+], 'manifest owns the bounded attribute-transient, shipping/tax cache, fresh-process hierarchy/brand-route, '
+    . 'and per-product lookup repairs');
+$productActions = array_values(array_filter(
+    $actions,
+    static fn(array $row): bool => ($row['provider'] ?? null) === 'woocommerce-product-lookups'
+));
+$productAction = $productActions[0] ?? [];
 // DUO-3342: the third entry is a MIGRATED dispatch, not a new repair. It is
 // bounded by the same two post-type triggers the retired regen_dependency
 // declarations covered, and those declarations are gone — a manifest carrying
 // both would be two dispatchers over one post type, which negotiation refuses.
-woo_ok(($actions[2]['triggers'] ?? null) === ['post:product', 'post:product_variation'],
+woo_ok(count($productActions) === 1
+    && ($productAction['triggers'] ?? null) === ['post:product', 'post:product_variation'],
     'the product lookup repair stays bounded to the two product post types it always covered');
 woo_ok($policy->regen_batch_post_types() === [] && $policy->regen_dependency('product') === null,
     'and the batch regenerator channel it replaced claims no Woo post type any more');
@@ -203,9 +223,8 @@ $unsupportedApplySurfaces = array_values(array_filter(
     (array) ($wooDisposition['unsupported'] ?? []),
     static fn(array $row): bool => ($row['operation'] ?? null) === 'apply'
 ));
-woo_ok(array_column($unsupportedApplySurfaces, 'surface') === [
-    'derived.wc_category_lookup',
-], 'external capability registry keeps only the remaining category table without a verified repair explicit');
+woo_ok($unsupportedApplySurfaces === [],
+    'external capability registry advertises no derived apply gap after exact hierarchy/attribute repair');
 woo_ok(!in_array('derived.wc_product_attributes_lookup', array_column(
     (array) ($wooDisposition['unsupported'] ?? []),
     'surface'

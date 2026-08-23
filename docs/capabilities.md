@@ -324,15 +324,15 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 
 ## woocommerce
 
-**Status: certified.** Certified exact WooCommerce 11.0.0 and 11.0.1 product/catalog creation and update, including a populated in-place 11.0.0-to-11.0.1 upgrade, bounded product-meta/price/sale/download repair with exact scoped recovery evidence, typed-table configuration, option-name reference, HPOS runtime-sovereignty, lifecycle, and explicit fail-closed attribute/category lookup and deletion boundaries.
+**Status: experimental.** Production-readiness expansion is in progress for exact WooCommerce 11.0.0 and 11.0.1. Existing evidence covers the product/catalog, upgrade, typed-table, product lookup, lifecycle, and fail-closed deletion contracts; fresh-process category/brand hierarchy repair is now closed offline. Certification is withheld until the remaining Brands, external-product, visibility/POS, COGS, term-meta, exact settings-inventory, and final-SHA live matrices are complete.
 
 - **Plugin:** `woocommerce/woocommerce.php`
 - **Version range:** >=11.0.0 <12.0.0
 - **Operations:** apply, capture, compile, deploy, plan, promote, recapture, render-api
 - **Lifecycle phases:** retire, activate, verify
-- **Declared entities:** `post_types` (7 keys), `tables` (39 keys), `taxonomies` (5: product_cat, product_shipping_class, product_tag, product_type, product_visibility), `taxonomy_patterns` (1 rules)
-- **Declared fields:** `options` (38 keys), `option_patterns` (7 rules), `option_name_refs` (1 rules), `post_meta` (56 keys), `meta_patterns` (2 rules), `term_meta` (1: thumbnail_id), `block_attrs` (1: woocommerce/product-collection)
-- **Adapter hooks:** 2 providers, 3 structured actions, interpreter `woocommerce`
+- **Declared entities:** `post_types` (7 keys), `tables` (39 keys), `taxonomies` (6: product_brand, product_cat, product_shipping_class, product_tag, product_type, product_visibility), `taxonomy_patterns` (1 rules)
+- **Declared fields:** `options` (41 keys), `option_patterns` (7 rules), `option_name_refs` (1 rules), `post_meta` (58 keys), `meta_patterns` (2 rules), `term_meta` (1: thumbnail_id), `block_attrs` (1: woocommerce/product-collection)
+- **Adapter hooks:** 3 providers, 5 structured actions, interpreter `woocommerce`
 - **Deletions supported:** none
 - **Deletions unsupported:** post:product, post:product_variation, table:woocommerce_attribute_taxonomies, table:woocommerce_shipping_zone_locations, table:woocommerce_shipping_zone_methods, table:woocommerce_shipping_zones, table:woocommerce_tax_rate_locations, table:woocommerce_tax_rates
 - **Exercised by:** `conformance-woocommerce`, `exact-artifact-version-matrix`
@@ -343,8 +343,6 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 - `post_types.product_variation` / `delete` — Variation reverse references and parent/group relationships share the same open WooCommerce extension boundary as products.
 - `tables.woocommerce_attribute_taxonomies` / `delete` — The v1 guard/cascade grammar cannot express WooCommerce global-attribute semantic deletion.
 - `tables.woocommerce_shipping_zone_locations|woocommerce_shipping_zone_methods|woocommerce_shipping_zones|woocommerce_tax_rate_locations|woocommerce_tax_rates` / `delete` — Shipping-zone and tax-rate rows require version-pinned WooCommerce API, cache, child-row, and option-name effects that are not a closed semantic delete contract.
-- `derived.wc_category_lookup` / `apply` — Exact WooCommerce 11.0.0 and 11.0.1 expose only a public whole-catalog category lookup rebuild; automatic bounded repair and verification are unavailable, so operators must repair this derived table explicitly.
-- `derived.wc_product_attributes_lookup` / `apply` — Exact WooCommerce 11.0.0 and 11.0.1 expose no stable bounded expected-output or independent value-verification API for product-attribute lookup rows, so the verified provider does not mutate this table; operators must run and verify WooCommerce's regeneration explicitly.
 - `tables.runtime` / `capture` — Orders, customers, sessions, stock reservations, and Action Scheduler rows remain runtime-sovereign.
 
 ## wps-hide-login

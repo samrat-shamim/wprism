@@ -301,22 +301,23 @@
       "not_applicable": {}
     },
     "woocommerce": {
-      "readiness": "ready",
+      "readiness": "unready",
       "covered": {
-        "contract-dependency": ["manifests/woocommerce.json", "manifests/interpreters/woocommerce.php", "manifests/providers/woocommerce-cache.php", "manifests/providers/woocommerce-product-lookups.php", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/offline/adapter/regress_woocommerce_production_readiness.php", "sandbox/tests/offline/ecommerce/regress_woocommerce_product_lookups_fake.php"],
-        "clean-target": ["sandbox/conformance/entries/woocommerce.json", "sandbox/conformance/seeds/woocommerce.sh", "sandbox/conformance/checks/woocommerce.sh"],
-        "dirty-target": ["sandbox/conformance/postdeploy/woocommerce.sh", "sandbox/conformance/checks/woocommerce.sh"],
-        "identity-references": ["manifests/interpreters/woocommerce.php", "sandbox/conformance/seeds/woocommerce.sh", "sandbox/conformance/checks/woocommerce.sh"],
-        "native-behavior": ["sandbox/conformance/seeds/woocommerce.sh", "sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
-        "derived-state": ["manifests/providers/woocommerce-cache.php", "manifests/providers/woocommerce-product-lookups.php", "sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/offline/ecommerce/regress_woocommerce_product_lookups.php", "sandbox/tests/offline/ecommerce/regress_woocommerce_product_lookups_fake.php"],
-        "deletion": ["manifests/dispositions.json", "sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/offline/adapter/regress_woocommerce_production_readiness.php"],
-        "failure-recovery": ["sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/offline/ecommerce/regress_woocommerce_product_lookups_fake.php", "sandbox/tests/offline/apply/regress_fatal_mutations.php"],
-        "concurrency-idempotence": ["sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php"],
-        "lifecycle": ["sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
-        "data-boundary": ["manifests/interpreters/woocommerce.php", "sandbox/conformance/seeds/woocommerce.sh", "sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/offline/adapter/regress_woocommerce_production_readiness.php", "sandbox/tests/offline/ecommerce/regress_woocommerce_product_lookups_fake.php"],
-        "scope-platform": ["manifests/woocommerce.json", "sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/live/regress_multisite_refusal.sh"]
+        "deletion": ["manifests/dispositions.json", "sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/offline/adapter/regress_woocommerce_production_readiness.php"]
       },
-      "gaps": {},
+      "gaps": {
+        "contract-dependency": "Exact 11.0.0/11.0.1 pins and adjacent refusal exist, but the bounded core source-to-manifest field/settings inventory and final shipped-byte matrix are still open.",
+        "clean-target": "The existing product fixture does not yet exercise Brands, external products, visibility/POS, COGS, visual term metadata, or the complete portable core settings set.",
+        "dirty-target": "Hierarchy and product-lookup hostile-state repair are closed offline, but those remaining authored families lack one clean/hostile target matrix.",
+        "identity-references": "Brand, category/attribute image, coupon-brand, and external URL identities are not yet all exercised across divergent large target IDs.",
+        "native-behavior": "Frontend/Store API/REST/admin behavior for the newly inventoried normal core surfaces remains to be bound to the final artifact SHA.",
+        "derived-state": "Product-attribute and category/brand hierarchy repairs have exact offline receipts, but visibility/POS and COGS projections plus final live readback remain open.",
+        "failure-recovery": "The lookup/hierarchy providers cover injected failures and retries offline; the remaining product/settings surfaces and final live recovery sequence are incomplete.",
+        "concurrency-idempotence": "Scoped lookup/hierarchy same-count drift and source races are covered offline, but a final competing-apply matrix over all added families is pending.",
+        "lifecycle": "The populated 11.0.0-to-11.0.1 upgrade exists on older shipped bytes; deactivate/uninstall/reinstall and upgrade evidence must be rerun after the surface union is final.",
+        "data-boundary": "Unknown core/add-on fields, COGS, visual term metadata, settings records, secret redaction, and large malformed payloads are not yet one closed matrix.",
+        "scope-platform": "Multisite refusal exists, but optional/core feature toggles, exact email/gateway settings ownership, and unsupported extension boundaries still require inventory evidence."
+      },
       "blocked": {},
       "not_applicable": {}
     },

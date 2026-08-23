@@ -409,11 +409,11 @@ jq -e 'length >= 1 and any(.[]; .name == "Conformance Variable Widget" and .is_p
   || fail "Store API filtering/catalog visibility did not return the purchasable variable product"
 pass "Store API attribute filtering returns the visible, purchasable variable catalog product"
 
-# The automatic contract is intentionally bounded to products affected by
-# this Apply. WooCommerce 11.0.x exposes only a whole-catalog public rebuild
-# for wc_category_lookup, so category lookup repair is an explicit manual
-# boundary and is not claimed by this conformance run.
-pass "bounded Woo price/product-meta/sale projections verified; attribute and category lookups remain explicit manual boundaries"
+# The current fixture predates the hostile category/brand hierarchy matrix.
+# Automatic repair is shipped by woocommerce-hierarchy-lookups; readiness
+# stays unready until this live check observes its checked rows/options on the
+# final bytes rather than treating the old flat category as evidence.
+pass "bounded Woo price/product-meta/sale projections verified; expanded category/brand hierarchy live evidence remains withheld"
 
 FRONT=$(curl -fsSL "http://localhost:${CONF2_PORT}/product/conformance-widget/") \
   || fail "conf2 Conformance Widget page did not return 200"
