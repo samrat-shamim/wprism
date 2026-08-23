@@ -140,23 +140,22 @@
       "not_applicable": {}
     },
     "elementor": {
-      "readiness": "unready",
+      "readiness": "ready",
       "covered": {
-        "contract-dependency": ["manifests/elementor.json", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "contract-dependency": ["manifests/elementor.json", "manifests/providers/elementor-css.php", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/offline/adapter/regress_elementor_css_provider.php"],
         "clean-target": ["sandbox/conformance/entries/elementor.json", "sandbox/conformance/seeds/elementor.sh", "sandbox/conformance/checks/elementor.sh"],
-        "identity-references": ["sandbox/conformance/seeds/elementor.sh", "sandbox/conformance/checks/elementor.sh"],
-        "native-behavior": ["sandbox/conformance/checks/elementor.sh"],
-        "derived-state": ["manifests/providers/elementor-css.php", "sandbox/conformance/checks/elementor.sh"]
+        "dirty-target": ["sandbox/conformance/postdeploy/elementor.sh", "sandbox/conformance/checks/elementor.sh"],
+        "identity-references": ["sandbox/conformance/seeds/elementor.sh", "sandbox/conformance/postdeploy/elementor.sh", "sandbox/conformance/checks/elementor.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "native-behavior": ["sandbox/conformance/seeds/elementor.sh", "sandbox/conformance/checks/elementor.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "derived-state": ["manifests/providers/elementor-css.php", "sandbox/tests/offline/adapter/regress_elementor_css_provider.php", "sandbox/conformance/checks/elementor.sh"],
+        "deletion": ["sandbox/conformance/checks/elementor.sh", "sandbox/tests/offline/apply/regress_delete_authorization_receipt.php"],
+        "failure-recovery": ["sandbox/tests/offline/adapter/regress_elementor_css_provider.php", "sandbox/conformance/checks/elementor.sh", "sandbox/tests/offline/reference-scope/regress_scoped_effect_reconciliation.php"],
+        "concurrency-idempotence": ["sandbox/conformance/checks/elementor.sh", "sandbox/tests/live/regress_capture_concurrency.sh"],
+        "lifecycle": ["sandbox/conformance/checks/elementor.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "data-boundary": ["manifests/elementor.json", "sandbox/conformance/seeds/elementor.sh", "sandbox/conformance/checks/elementor.sh", "sandbox/tests/offline/adapter/regress_elementor_css_provider.php"],
+        "scope-platform": ["manifests/elementor.json", "sandbox/tests/offline/adapter/regress_elementor_css_provider.php", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/live/regress_multisite_refusal.sh"]
       },
-      "gaps": {
-        "dirty-target": "No conflicting active kit/library, stale target CSS, activation-default, and unmanaged-key matrix exists.",
-        "deletion": "The unsupported Elementor entity-delete boundary lacks a live no-partial-mutation refusal exercise.",
-        "failure-recovery": "The real CSS provider lacks injected throw/bad-receipt/crash-after-intent and retry evidence.",
-        "concurrency-idempotence": "No competing document apply/CSS regeneration exercise exists.",
-        "lifecycle": "The version matrix resets state and does not prove in-place upgrade, deactivate/reactivate, or residue/reinstall behavior.",
-        "data-boundary": "Large documents, malformed element JSON, unusual URLs/IDs, secret-shaped settings, and schema drift are not a closed manifest-path matrix.",
-        "scope-platform": "Optional Elementor features and the shared platform boundary are not exercised per adapter."
-      },
+      "gaps": {},
       "blocked": {},
       "not_applicable": {}
     },
