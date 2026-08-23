@@ -7,8 +7,9 @@
 # backed by real evidence at ITS OWN edges, not just the one version every
 # other fixture happens to exercise.
 #
-# First thirteen real plugins: ACF, Advanced Editor Tools, Classic Editor,
+# First fourteen real plugins: ACF, Advanced Editor Tools, Classic Editor,
 # Code Snippets, Contact Form 7, Elementor, Ninja Forms, Paid Memberships Pro, Polylang,
+# The Events Calendar,
 # WooCommerce, WPS Hide Login, Yoast Duplicate Post, and Yoast SEO. ACF proved the artifact-sourcing
 # mechanism itself; the others
 # prove the matrix accepts genuinely different
@@ -18,7 +19,7 @@
 # For EACH boundary version (ACF 6.0.0/6.8.7; Advanced Editor Tools 5.9.2;
 # Classic Editor 1.7.0; Code Snippets 3.9.5/3.9.6; CF7 6.0/6.1.7; Elementor 4.0.0/4.2.3; Ninja Forms
 # 3.4.34.2/3.14.11; PMPro 3.8.2/3.8.3 (with adjacent official-tag refusals);
-# Polylang 3.5/3.8.6;
+# Polylang 3.5/3.8.6; The Events Calendar 6.17.2/6.17.3;
 # WooCommerce 11.0.0 (the only stable in-range 11.x release); Yoast SEO
 # 28.0/28.3 — all real
 # wp.org releases except PMPro's official upstream GitHub tags, never invented): fresh state, install ONLY from
@@ -734,6 +735,115 @@ check_wps_hide_login_boundary_content() { # <wp1|wp2> <port> <label>
   pass "WPS Hide Login $label exact artifact drives APIs, custom GET/POST, encoded old-login refusal, and wp-admin redirect"
 }
 
+seed_the_events_calendar_content() {
+  # Reuse the standalone conformance seed verbatim: it authors the venue,
+  # organizer and event through TEC's OWN repositories
+  # (tribe_venues()/tribe_organizers()/tribe_events()), which is the only
+  # path that populates the tec_events/tec_occurrences custom tables the
+  # manifest classifies derived. A hand-written wp_insert_post fixture would
+  # leave those tables empty and quietly weaken the boundary proof.
+  wp_conf1() { wp1 "$@"; }
+  local CONF_REPO1="siterepo/${PAIR}1"
+  local COMPOSE="$PAIR_COMPOSE_STRING"
+  . conformance/seeds/the-events-calendar.sh
+  unset -f wp_conf1
+}
+
+postdeploy_the_events_calendar_content() {
+  wp_conf2() { wp2 "$@"; }
+  local CONF_REPO2="siterepo/${PAIR}2"
+  local COMPOSE="$PAIR_COMPOSE_STRING"
+  . conformance/postdeploy/the-events-calendar.sh
+  unset -f wp_conf2
+}
+
+check_the_events_calendar_boundary_content() { # <label> <expected-plugin-version>
+  # Deliberately NOT a grep of the apply log: TEC's convergence runs through
+  # `regen_dependency` (manifests/the-events-calendar.json post_types.
+  # tribe_events), not through a provider, so RebuildActionDispatcher.php:353's
+  # "provider capability fired: ..." line is never emitted for this adapter.
+  # The evidence is the same one sandbox/tests/live/regress_tec_regen.sh:230-234
+  # uses: a matching tec_occurrences row AND plain-WP_Query visibility, which
+  # is the hard dependency the manifest note documents (without an occurrence
+  # row the post is invisible to WP_Query itself, admin list included).
+  local label="$1" expected_version="$2" source_ids target_ids dirty_id out json
+  source_ids=$(cat "siterepo/${PAIR}1/.tmp-tec-source-ids.json")
+  target_ids=$(cat "siterepo/${PAIR}2/.tmp-tec-target-ids.json")
+  require_fixture_values source_ids target_ids
+  dirty_id=$(printf '%s\n' "$target_ids" | jq -er '.dirty_event')
+  require_fixture_ids dirty_id
+  out=$(wp2 eval '
+    $events = get_posts([
+      "post_type" => "tribe_events",
+      "post_status" => "any",
+      "posts_per_page" => -1,
+      "name" => "duo-production-readiness-event",
+    ]);
+    if (count($events) !== 1) {
+      throw new RuntimeException("expected exactly one adopted target event, got " . count($events));
+    }
+    $event = $events[0];
+    $venue = get_post((int) get_post_meta($event->ID, "_EventVenueID", true));
+    $organizer = get_post((int) get_post_meta($event->ID, "_EventOrganizerID", true));
+    global $wpdb;
+    $occurrence = $wpdb->get_row($wpdb->prepare(
+      "SELECT start_date, end_date FROM {$wpdb->prefix}tec_occurrences WHERE post_id = %d",
+      (int) $event->ID
+    ), ARRAY_A);
+    $events_rows = (int) $wpdb->get_var($wpdb->prepare(
+      "SELECT COUNT(*) FROM {$wpdb->prefix}tec_events WHERE post_id = %d",
+      (int) $event->ID
+    ));
+    $repository_event = tribe_events()->where("id", (int) $event->ID)->first();
+    $query = new WP_Query([
+      "post_type" => "tribe_events",
+      "post_status" => "any",
+      "posts_per_page" => -1,
+      "fields" => "ids",
+    ]);
+    $cache = $wpdb->get_var($wpdb->prepare(
+      "SELECT value FROM {$wpdb->prefix}tec_kv_cache WHERE cache_key = %s",
+      "duo-readiness-target-only"
+    ));
+    echo wp_json_encode([
+      "cache" => $cache,
+      "content" => $event->post_content,
+      "end_meta" => get_post_meta($event->ID, "_EventEndDate", true),
+      "event" => (int) $event->ID,
+      "events_rows" => $events_rows,
+      "occurrence" => $occurrence,
+      "organizer" => $organizer ? (int) $organizer->ID : 0,
+      "organizer_email" => $organizer ? get_post_meta($organizer->ID, "_OrganizerEmail", true) : "",
+      "plugin_version" => Tribe__Events__Main::VERSION,
+      "repository_event" => $repository_event ? (int) $repository_event->ID : 0,
+      "start_meta" => get_post_meta($event->ID, "_EventStartDate", true),
+      "venue" => $venue ? (int) $venue->ID : 0,
+      "venue_city" => $venue ? get_post_meta($venue->ID, "_VenueCity", true) : "",
+      "wp_query_ids" => array_map("intval", $query->posts),
+    ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+  ')
+  require_observed_nonempty "The Events Calendar $label target behavior" "$out"
+  json=$(printf '%s\n' "$out" | awk 'NF { line=$0 } END { print line }')
+  printf '%s\n' "$json" | jq -e \
+    --argjson source "$source_ids" \
+    --argjson dirty "$dirty_id" \
+    --arg version "$expected_version" '
+      .event == $dirty and
+      .event != $source.event and .venue != $source.venue and .organizer != $source.organizer and
+      .repository_event == .event and
+      .wp_query_ids == [.event] and
+      .events_rows == 1 and
+      .plugin_version == $version and
+      .start_meta == "2026-09-05 17:00:00" and .end_meta == "2026-09-05 20:00:00" and
+      .occurrence.start_date == .start_meta and .occurrence.end_date == .end_meta and
+      .venue_city == "Dhaka" and .organizer_email == "events@example.test" and
+      (.content | contains("বাংলা café")) and
+      .cache == "target-runtime-preserved"
+    ' >/dev/null \
+    || fail "The Events Calendar $label target did not converge its occurrence, query-visibility, reference and runtime boundary: $json"
+  pass "The Events Calendar $label adopted divergent identities, repaired the stale occurrence, stayed WP_Query-visible, and preserved target-only runtime cache"
+}
+
 reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
   # core/theme installed and the site "installed" (unlike `pair.sh reset`,
   # which drops the database entirely and leaves the site UNINSTALLED until
@@ -795,7 +905,7 @@ reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
     }
   ' >/dev/null
   local plugin
-  for plugin in advanced-custom-fields classic-editor code-snippets contact-form-7 duplicate-post elementor ninja-forms paid-memberships-pro polylang tinymce-advanced woocommerce wordpress-seo wps-hide-login; do
+  for plugin in advanced-custom-fields classic-editor code-snippets contact-form-7 duplicate-post elementor ninja-forms paid-memberships-pro polylang the-events-calendar tinymce-advanced woocommerce wordpress-seo wps-hide-login; do
     "$cli" plugin deactivate "$plugin" >/dev/null 2>&1 || true
     "$cli" plugin delete "$plugin" >/dev/null 2>&1 || true
   done
@@ -907,6 +1017,26 @@ reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
       $wpdb->query("DROP TABLE IF EXISTS `{$safe}`");
     }
     $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '\''wpseo%'\'' OR option_name LIKE '\''yoast_%'\'' OR option_name LIKE '\''_transient_%yoast%'\'' OR option_name LIKE '\''_site_transient_%yoast%'\''");
+  ' >/dev/null
+  # The Events Calendar's Custom Tables v1 schema, its schema-version and
+  # one-time-migration bookkeeping, and its kv cache all survive ordinary
+  # plugin deletion (manifests/the-events-calendar.json classifies exactly
+  # these as env/runtime/derived). `site empty` deletes the tribe_events
+  # posts but not their tec_occurrences rows, and the target-only cache row
+  # conformance/postdeploy/the-events-calendar.sh plants
+  # ('duo-readiness-target-only') would otherwise survive into the next
+  # boundary iteration and satisfy that iteration's own runtime-preservation
+  # assertion without this run having preserved anything.
+  "$cli" eval '
+    global $wpdb;
+    foreach (["tec\\_%"] as $suffix) {
+      $like = $wpdb->prefix . $suffix;
+      foreach ($wpdb->get_col($wpdb->prepare("SHOW TABLES LIKE %s", $like)) as $table) {
+        $safe = str_replace("`", "``", $table);
+        $wpdb->query("DROP TABLE IF EXISTS `{$safe}`");
+      }
+    }
+    $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '"'"'tec\_%'"'"' OR option_name LIKE '"'"'tribe\_%'"'"' OR option_name LIKE '"'"'stellar\_schema\_version\_%'"'"' OR option_name LIKE '"'"'stellarwp\_telemetry%'"'"' OR option_name LIKE '"'"'_transient\_tribe\_%'"'"' OR option_name LIKE '"'"'_site\_transient\_tribe\_%'"'"'");
   ' >/dev/null
   "$cli" db query "TRUNCATE TABLE wp_duo_map" >/dev/null 2>&1 || true
   "$cli" db query "TRUNCATE TABLE wp_duo_state" >/dev/null 2>&1 || true
@@ -1300,6 +1430,148 @@ rm -rf "siterepo/${PAIR}2/.tmp-final"
 [ -z "$YDP_DIFF" ] \
   || fail "byte-identity broken at duplicate-post $YDP_VERSION: $YDP_DIFF"
 pass "Yoast Duplicate Post $YDP_VERSION deploys, rewrites provenance, reconciles role state, behaves natively, and recaptures byte-identically"
+fi
+
+# The Events Calendar's window admitted exactly one release (>=6.17.2
+# <6.17.3) until 6.17.3 shipped on 2026-08-20 — the ONLY one of this file's
+# patch-bounded manifests with a newer upstream release to widen to
+# (api.wordpress.org, checked 2026-08-24: classic-editor 1.7.0,
+# tinymce-advanced 5.9.2, code-snippets 3.9.6, wps-hide-login 1.9.19 and
+# duplicate-post 4.7 are each already their slug's current stable, so their
+# cells above stay single-release on evidence, not on inertia).
+#
+# This cell is the evidence the widening depends on, so it only passes once
+# manifests/the-events-calendar.json declares max 6.17.4 and
+# manifests/dispositions.json adds exact-artifact-version-matrix to this
+# manifest's evidence.tests — sandbox/tmp/VERSION_WINDOW_EDITS.md carries
+# both edits verbatim. Run red-first if you want the proof that today's
+# <6.17.3 max really refuses 6.17.3; the range moves WITH this log, never
+# ahead of it.
+#
+# The measured justification for pairing the two edges rather than
+# re-certifying 6.17.3 from scratch (the same argument code-snippets'
+# class-db.php note makes): src/Events/Custom_Tables/V1/** is byte-identical
+# across 6.17.2 -> 6.17.3, Single_Event_Migration_Strategy.php (the file
+# manifests/regenerators/the-events-calendar.php wraps) hashes to
+# f307a323aecb78f3004abea04d002e78d1a90d417baa7c6c22f3796db4cf3c12 in both
+# trees, and Events::SCHEMA_VERSION / Occurrences::SCHEMA_VERSION stay
+# 1.0.1 / 1.0.3. Of 67 differing files, 61 are lang/*.mo + .pot + readme +
+# changelog, three are composer autoload maps, two are the VERSION consts,
+# and the only real code deltas are src/Tribe/Views/V2/{Url,View,Template/
+# Title,Widgets/Service_Provider}.php — front-end view rendering, and this
+# manifest declares no widget or view-layer state at all. So no captured
+# byte may move across the upgrade, which is exactly what the leg below
+# asserts rather than assumes.
+if [ "$VMATRIX_MANIFEST" = the-events-calendar ]; then
+VMATRIX_CASES=$((VMATRIX_CASES + 1))
+for TEC_VERSION in 6.17.2 6.17.3; do
+  say "boundary: the-events-calendar $TEC_VERSION"
+
+  reset_env wp1
+  reset_env wp2
+  reset_case_repositories
+
+  say "fetch + verify the-events-calendar $TEC_VERSION (digest-checked artifact only)"
+  TEC_ARTIFACT_1=$(fetch_artifact the-events-calendar "$TEC_VERSION" cli1)
+  TEC_ARTIFACT_2=$(fetch_artifact the-events-calendar "$TEC_VERSION" cli2)
+  wp1 plugin install "$TEC_ARTIFACT_1" --activate >/dev/null
+  TEC_INSTALLED_1=$(wp1 plugin get the-events-calendar --field=version)
+  [ "$TEC_INSTALLED_1" = "$TEC_VERSION" ] \
+    || fail "side 1 installed version mismatch: expected $TEC_VERSION, got $TEC_INSTALLED_1"
+  pass "side 1: the-events-calendar $TEC_VERSION installed from verified artifact, active"
+
+  # Mirrors conformance/entries/the-events-calendar.json's own scope: venues
+  # and organizers are plain CPTs referenced from the event's postmeta, so
+  # all three post types must be in policy or the reference graph cannot
+  # round-trip.
+  cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+{
+  "manifests": ["core", "the-events-calendar"],
+  "policy": {
+    "options": {},
+    "post_meta": {},
+    "post_types": ["post", "page", "attachment", "tribe_events", "tribe_venue", "tribe_organizer"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "spec_version": 2
+}
+EOF
+  cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
+  "${GIT1[@]}" init -q -b main
+  "${GIT1[@]}" remote add origin "../origin-$PAIR.git"
+  "${GIT1[@]}" add -A
+  "${GIT1[@]}" commit -qm "policy: The Events Calendar $TEC_VERSION exact-boundary certification"
+  "${GIT1[@]}" push -qu origin main
+
+  seed_the_events_calendar_content
+  wp1 duo capture --repo=/siterepo
+  wp1 duo lint --repo=/siterepo
+  "${GIT1[@]}" add -A
+  "${GIT1[@]}" commit -qm "capture: The Events Calendar $TEC_VERSION event graph"
+  "${GIT1[@]}" push -q origin main
+
+  clone_case_target
+  wp2 plugin install "$TEC_ARTIFACT_2" >/dev/null
+  INSTALLED_2=$(wp2 plugin get the-events-calendar --field=version)
+  require_fixture_values INSTALLED_2
+  [ "$INSTALLED_2" = "$TEC_VERSION" ] \
+    || fail "side 2 installed version mismatch: expected $TEC_VERSION, got $INSTALLED_2"
+  wp2 duo deploy --repo=/siterepo
+  postdeploy_the_events_calendar_content
+  REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
+  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
+  grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
+    || fail "apply canary not clean at the-events-calendar $TEC_VERSION"
+  check_the_events_calendar_boundary_content "$TEC_VERSION" "$TEC_VERSION"
+
+  wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-final
+  TEC_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
+  rm -rf "siterepo/${PAIR}2/.tmp-final"
+  [ -z "$TEC_DIFF" ] \
+    || fail "byte-identity broken at the-events-calendar $TEC_VERSION: $TEC_DIFF"
+  pass "The Events Calendar $TEC_VERSION deploys, regenerates its occurrence dependency, stays natively queryable, and recaptures byte-identically"
+
+  if [ "$TEC_VERSION" = 6.17.2 ]; then
+    # Upgrade both POPULATED sides in place. The header's measured diff says
+    # no adapter-visible byte moves; this leg is what turns that reading into
+    # evidence — the plan after a forced redeploy must be empty in all seven
+    # buckets, and the occurrence/query/runtime readback must still converge.
+    # The baseline hashes tec_occurrences' own `hash` column alongside the
+    # dates (src/Events/Custom_Tables/V1/Tables/Occurrences.php:64-76 declares
+    # both): `hash` is TEC's derived per-occurrence digest, so a change in how
+    # 6.17.3 computes it would move these rows even though every date stayed
+    # put — which the date-only comparison would have missed.
+    TEC_UPGRADE_1=$(fetch_artifact the-events-calendar 6.17.3 cli1)
+    TEC_UPGRADE_2=$(fetch_artifact the-events-calendar 6.17.3 cli2)
+    TEC_UPGRADE_BEFORE_1=$(wp1 eval 'global $wpdb; echo hash("sha256", wp_json_encode($wpdb->get_results("SELECT post_id,start_date,end_date,duration,hash FROM {$wpdb->prefix}tec_occurrences ORDER BY post_id", ARRAY_A), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));')
+    TEC_UPGRADE_BEFORE_2=$(wp2 eval 'global $wpdb; echo hash("sha256", wp_json_encode($wpdb->get_results("SELECT post_id,start_date,end_date,duration,hash FROM {$wpdb->prefix}tec_occurrences ORDER BY post_id", ARRAY_A), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));')
+    require_observed_nonempty "The Events Calendar 6.17.2 source upgrade baseline" "$TEC_UPGRADE_BEFORE_1"
+    require_observed_nonempty "The Events Calendar 6.17.2 target upgrade baseline" "$TEC_UPGRADE_BEFORE_2"
+    wp1 plugin install "$TEC_UPGRADE_1" --force --activate >/dev/null
+    wp2 plugin install "$TEC_UPGRADE_2" --force --activate >/dev/null
+    [ "$(wp1 plugin get the-events-calendar --field=version)" = 6.17.3 ] \
+      && [ "$(wp2 plugin get the-events-calendar --field=version)" = 6.17.3 ] \
+      || fail "The Events Calendar supported in-place upgrade did not install 6.17.3 on both sides"
+    TEC_UPGRADE_DEPLOY_RC=0
+    TEC_UPGRADE_DEPLOY_OUT=$(wp2 duo deploy --repo=/siterepo 2>&1) || TEC_UPGRADE_DEPLOY_RC=$?
+    require_duo_answered "The Events Calendar out-of-band 6.17.2 to 6.17.3 upgrade refusal" human "$TEC_UPGRADE_DEPLOY_OUT"
+    [ "$TEC_UPGRADE_DEPLOY_RC" -ne 0 ] \
+      && grep -q 'deploy refused — code_drift' <<<"$TEC_UPGRADE_DEPLOY_OUT" \
+      && grep -q 'recorded 6.17.2' <<<"$TEC_UPGRADE_DEPLOY_OUT" \
+      && grep -q 'is 6.17.3 on this environment' <<<"$TEC_UPGRADE_DEPLOY_OUT" \
+      || fail "The Events Calendar out-of-band upgrade did not refuse at the exact code-drift boundary: $TEC_UPGRADE_DEPLOY_OUT"
+    wp2 duo deploy --repo=/siterepo --force-code-drift >/dev/null
+    TEC_UPGRADE_PLAN=$(wp2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+    require_duo_answered "The Events Calendar 6.17.2 to 6.17.3 target plan" json "$TEC_UPGRADE_PLAN"
+    jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$TEC_UPGRADE_PLAN" >/dev/null \
+      || fail "The Events Calendar supported in-place upgrade invented authored work: $TEC_UPGRADE_PLAN"
+    [ "$(wp1 eval 'global $wpdb; echo hash("sha256", wp_json_encode($wpdb->get_results("SELECT post_id,start_date,end_date,duration,hash FROM {$wpdb->prefix}tec_occurrences ORDER BY post_id", ARRAY_A), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));')" = "$TEC_UPGRADE_BEFORE_1" ] \
+      && [ "$(wp2 eval 'global $wpdb; echo hash("sha256", wp_json_encode($wpdb->get_results("SELECT post_id,start_date,end_date,duration,hash FROM {$wpdb->prefix}tec_occurrences ORDER BY post_id", ARRAY_A), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));')" = "$TEC_UPGRADE_BEFORE_2" ] \
+      || fail "The Events Calendar supported in-place upgrade moved derived occurrence rows"
+    check_the_events_calendar_boundary_content '6.17.2 -> 6.17.3 in-place upgrade' 6.17.3
+    pass "The Events Calendar populated 6.17.2 sites upgrade in place to 6.17.3 without authored, identity, reference, occurrence or runtime drift"
+  fi
+done
 fi
 
 if [ "$VMATRIX_MANIFEST" = acf ]; then
