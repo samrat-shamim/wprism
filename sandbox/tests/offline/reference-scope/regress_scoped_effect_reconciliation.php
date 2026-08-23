@@ -77,6 +77,7 @@ function add_option(string $name, mixed $value, mixed $deprecated = '', mixed $a
 
 function update_option(string $name, mixed $value, mixed $autoload = null): bool {
     global $wpdb;
+    $value = sanitize_option($name, $value);
     $old = $wpdb->optionRows[$name] ?? null;
     $wpdb->optionRows[$name] = is_array($value) || is_object($value) || is_bool($value)
         ? serialize($value)
@@ -97,6 +98,10 @@ function get_option(string $name, mixed $default = false): mixed {
     return array_key_exists($name, $wpdb->optionRows)
         ? maybe_unserialize($wpdb->optionRows[$name])
         : $default;
+}
+
+function sanitize_option(string $name, mixed $value): mixed {
+    return $value;
 }
 
 function did_action(string $hook): int {

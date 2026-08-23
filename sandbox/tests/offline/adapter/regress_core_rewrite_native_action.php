@@ -155,8 +155,13 @@ function get_option(string $name, mixed $default = false): mixed {
     return apply_filters("option_$name", maybe_unserialize($wpdb->optionRows[$name]), $name);
 }
 
+function sanitize_option(string $name, mixed $value): mixed {
+    return apply_filters("sanitize_option_$name", $value, $name);
+}
+
 function update_option(string $name, mixed $value): bool {
     global $wpdb;
+    $value = sanitize_option($name, $value);
     $old = get_option($name, null);
     $value = apply_filters("pre_update_option_$name", $value, $old, $name);
     $value = apply_filters('pre_update_option', $value, $name, $old);
@@ -326,6 +331,8 @@ duo_check_same(
         'core-permalink-option-filter',
         'core-permalink-default-option-filter',
         'core-rewrite-rules-array-filter',
+        'core-rewrite-sanitize-filter',
+        'core-rewrite-option-filter',
         'core-rewrite-pre-update-filter',
         'core-rewrite-pre-update-generic-filter',
         'core-rewrite-update-option-hook',
@@ -378,6 +385,8 @@ duo_check(
 );
 duo_check(
     in_array('rewrite_rules_array', $GLOBALS['core_rewrite_filter_calls'], true)
+        && in_array('sanitize_option_rewrite_rules', $GLOBALS['core_rewrite_filter_calls'], true)
+        && in_array('option_rewrite_rules', $GLOBALS['core_rewrite_filter_calls'], true)
         && in_array('pre_update_option_rewrite_rules', $GLOBALS['core_rewrite_filter_calls'], true)
         && in_array('update_option_rewrite_rules', $GLOBALS['core_rewrite_action_calls'], true)
         && in_array('updated_option', $GLOBALS['core_rewrite_action_calls'], true),
@@ -389,6 +398,42 @@ $second = Duo\NativeActions::execute('rewrite.flush', []);
 duo_check_same($stableRows, $wpdb->optionRows, 'an immediate retry is byte-idempotent in persistent storage');
 duo_check_same($first['after'], $second['before'], 'retry begins from the exact previously verified postcondition');
 duo_check_same($first['after'], $second['after'], 'retry preserves the exact verified rewrite evidence');
+
+core_rewrite_reset();
+$dynamicRules = ['^sitemap_index\\.xml$' => 'index.php?sitemap=1'];
+add_filter(
+    'rewrite_rules_array',
+    static fn(array $rules): array => $GLOBALS['core_rewrite_dynamic_rules'] + $rules
+);
+add_filter(
+    'sanitize_option_rewrite_rules',
+    static fn(array $rules): array => array_diff_key($rules, $GLOBALS['core_rewrite_dynamic_rules'])
+);
+add_filter(
+    'option_rewrite_rules',
+    static fn(array $rules): array => $GLOBALS['core_rewrite_dynamic_rules'] + $rules
+);
+$GLOBALS['core_rewrite_dynamic_rules'] = $dynamicRules;
+$dynamic = Duo\NativeActions::execute('rewrite.flush', []);
+$dynamicStored = maybe_unserialize($wpdb->optionRows['rewrite_rules']);
+$dynamicEffective = get_option('rewrite_rules');
+duo_check(
+    is_array($dynamicStored)
+        && !array_key_exists('^sitemap_index\\.xml$', $dynamicStored)
+        && is_array($dynamicEffective)
+        && ($dynamicEffective['^sitemap_index\\.xml$'] ?? null) === 'index.php?sitemap=1',
+    'a plugin may intentionally sanitize dynamic routes out of durable storage and restore them on option read'
+);
+duo_check(
+    ($dynamic['after']['rules_hash'] ?? null) !== ($dynamic['after']['runtime_rules_hash'] ?? null)
+        && ($dynamic['after']['rules_count'] ?? null) + 1 === ($dynamic['after']['runtime_rules_count'] ?? null)
+        && $wp_rewrite->rules === $dynamicEffective,
+    'the receipt independently verifies sanitized storage and the larger effective runtime projection'
+);
+$dynamicRows = $wpdb->optionRows;
+$dynamicRetry = Duo\NativeActions::execute('rewrite.flush', []);
+duo_check_same($dynamicRows, $wpdb->optionRows, 'a dynamic-route retry is byte-idempotent in persistent storage');
+duo_check_same($dynamic['after'], $dynamicRetry['after'], 'a dynamic-route retry preserves both verified projections');
 
 foreach (['', '/archives/%post_id%/', '/東京/%category%/%postname%/', str_repeat('/segment', 512) . '/%postname%/'] as $structure) {
     core_rewrite_reset($structure);

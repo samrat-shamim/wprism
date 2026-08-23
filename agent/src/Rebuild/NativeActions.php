@@ -374,6 +374,7 @@ final class NativeActions {
         if (!class_exists('\WP_CLI')
             || !is_callable(['\WP_CLI', 'runcommand'])
             || !function_exists('maybe_unserialize')
+            || !function_exists('get_option')
             || !is_object($wp_rewrite)) {
             throw new \RuntimeException(
                 "duo: native action 'rewrite.flush' requires a loaded WordPress/WP-CLI rewrite runtime; "
@@ -431,6 +432,7 @@ final class NativeActions {
         $desiredHash = hash('sha256', $structure['present'] ? $structure['value'] : '');
         $storedStructure = self::permalink_structure_state();
         $storedRules = self::raw_option_state('rewrite_rules');
+        $effectiveRules = get_option('rewrite_rules');
         if (!hash_equals($desiredHash, $after['permalink_hash'])
             || $storedStructure['present'] !== $after['permalink_present']
             || !hash_equals(
@@ -444,6 +446,13 @@ final class NativeActions {
             || !hash_equals(
                 (string) self::rewrite_rules_hash($storedRules['value']),
                 $after['rules_hash']
+            )
+            || !self::valid_rewrite_rules_value($effectiveRules, $storedStructure)
+            || get_debug_type($effectiveRules) !== $after['runtime_rules_type']
+            || self::rewrite_rules_count($effectiveRules) !== $after['runtime_rules_count']
+            || !hash_equals(
+                (string) self::rewrite_rules_hash($effectiveRules),
+                $after['runtime_rules_hash']
             )) {
             throw new \RuntimeException(
                 "duo: native action 'rewrite.flush' fresh-process evidence disagrees with checked durable storage; "
@@ -455,7 +464,7 @@ final class NativeActions {
         // to regenerate rules, but keeping its two directly-read surfaces in
         // sync prevents later read-only consumers from serving the stale row.
         $wp_rewrite->permalink_structure = $storedStructure['present'] ? $storedStructure['value'] : false;
-        $wp_rewrite->rules = $storedRules['value'];
+        $wp_rewrite->rules = $effectiveRules;
         return [
             'action' => 'rewrite.flush',
             'args' => [],
@@ -470,6 +479,7 @@ final class NativeActions {
         global $wp_rewrite;
         if (!function_exists('did_action')
             || !function_exists('maybe_unserialize')
+            || !function_exists('sanitize_option')
             || !is_object($wp_rewrite)
             || !method_exists($wp_rewrite, 'flush_rules')
             || !method_exists($wp_rewrite, 'wp_rewrite_rules')) {
@@ -543,11 +553,12 @@ final class NativeActions {
             || ($after['rules_type'] === 'string' && $after['rules_count'] !== 0)
             || !is_string($after['rules_hash'] ?? null)
             || preg_match('/^[a-f0-9]{64}$/D', $after['rules_hash']) !== 1
-            || ($after['runtime_rules_type'] ?? null) !== $after['rules_type']
+            || !in_array($after['runtime_rules_type'] ?? null, ['array', 'string'], true)
             || !is_int($after['runtime_rules_count'] ?? null)
-            || $after['runtime_rules_count'] !== $after['rules_count']
+            || $after['runtime_rules_count'] < 0
+            || ($after['runtime_rules_type'] === 'string' && $after['runtime_rules_count'] !== 0)
             || !is_string($after['runtime_rules_hash'] ?? null)
-            || !hash_equals($after['rules_hash'], $after['runtime_rules_hash'])) {
+            || preg_match('/^[a-f0-9]{64}$/D', $after['runtime_rules_hash']) !== 1) {
             throw new \RuntimeException(
                 "duo: native action 'rewrite.flush' fresh WordPress process returned invalid hash/count evidence; "
                 . 'recovery_required'
@@ -565,7 +576,7 @@ final class NativeActions {
             "duo: native action 'rewrite.flush' did not generate a valid rewrite runtime; recovery_required",
             "duo: native action 'rewrite.flush' generated rewrite rules disagree with the checked database row; recovery_required",
             "duo: native action 'rewrite.flush' did not persist a valid rewrite_rules postcondition; recovery_required",
-            "duo: native action 'rewrite.flush' loaded rewrite rules disagree with the checked database row; recovery_required",
+            "duo: native action 'rewrite.flush' generated rewrite rules disagree with the loaded effective rules; recovery_required",
             "duo: native action 'rewrite.flush' loaded permalink structure disagrees with the checked database row; recovery_required",
             "duo: native action 'rewrite.flush' permalink readback changed during regeneration; recovery_required",
         ];
@@ -589,8 +600,11 @@ final class NativeActions {
         $rules = self::raw_option_state('rewrite_rules');
         $runtimeRules = $wp_rewrite->rules ?? null;
         if ($strict) {
-            if ($expectedRules !== null
-                && !self::same_rewrite_rules_value($expectedRules, $rules['value'])) {
+            $expectedStoredRules = $expectedRules === null
+                ? null
+                : sanitize_option('rewrite_rules', $expectedRules);
+            if ($expectedStoredRules !== null
+                && !self::same_rewrite_rules_value($expectedStoredRules, $rules['value'])) {
                 throw new \RuntimeException(
                     "duo: native action 'rewrite.flush' generated rewrite rules disagree with the checked "
                     . 'database row; recovery_required'
@@ -605,10 +619,11 @@ final class NativeActions {
                     . 'postcondition; recovery_required'
                 );
             }
-            if (!self::same_rewrite_rules_value($rules['value'], $runtimeRules)) {
+            if ($expectedRules !== null
+                && !self::same_rewrite_rules_value($expectedRules, $runtimeRules)) {
                 throw new \RuntimeException(
-                    "duo: native action 'rewrite.flush' loaded rewrite rules disagree with the checked "
-                    . 'database row; recovery_required'
+                    "duo: native action 'rewrite.flush' generated rewrite rules disagree with the loaded "
+                    . 'effective rules; recovery_required'
                 );
             }
             if (!self::runtime_structure_matches($wp_rewrite->permalink_structure ?? null, $structure)) {

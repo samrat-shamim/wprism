@@ -397,9 +397,10 @@ install_yoast_index_fixture wp2
 pass 'Yoast-owned disabled-indexing policy yields a verified no-op while authored state still converges'
 
 # Rename a required live column after publishing new authored intent. Provider
-# schema preflight must refuse before the destructive command, the database
-# checkpoint must undo earlier materialization, and retry must consume the same
-# retained authority once the exact schema is restored. The live envelope pins
+# schema preflight must refuse before the destructive command, preserve the
+# post-commit authored state without advancing the verified revision, and retry
+# must consume the same retained authority once the exact schema is restored.
+# The live envelope pins
 # the provider/capability refusal while regress_yoast_index_provider.php pins
 # `missing required column(s): link_count`: Providers::invoke() intentionally
 # redacts provider throwables so a plugin cannot leak a credential into CLI.
@@ -409,13 +410,22 @@ wp_conf1 eval '
 ' >/dev/null
 commit_yoast_source 'conformance: Yoast schema-fault recovery intent'
 wp_conf2 db query 'ALTER TABLE wp_yoast_indexable RENAME COLUMN link_count TO duo_fault_link_count' >/dev/null
-SCHEMA_BEFORE=$(yoast_target_hash)
+SCHEMA_DERIVED_BEFORE=$(yoast_derived_hash)
+SCHEMA_REV_BEFORE=$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')
+require_observed_nonempty 'Yoast applied revision before schema fault' "$SCHEMA_REV_BEFORE"
 SCHEMA_RC=0
 SCHEMA_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || SCHEMA_RC=$?
 require_duo_answered 'Yoast schema-preflight failure' human "$SCHEMA_OUT"
 [ "$SCHEMA_RC" -ne 0 ] && grep -q "provider 'yoast-index' capability 'reindex' failed" <<<"$SCHEMA_OUT" \
   || fail "Yoast missing provider column did not refuse exactly: $SCHEMA_OUT"
-[ "$(yoast_target_hash)" = "$SCHEMA_BEFORE" ] || fail 'Yoast schema failure left partial authored or derived writes'
+[ "$(yoast_derived_hash)" = "$SCHEMA_DERIVED_BEFORE" ] \
+  || fail 'Yoast schema preflight failure mutated a derived projection table'
+[ "$(wp_conf2 post meta get "$(wp_conf2 post list --post_type=post --name=conformance-yoast-post --field=ID)" _yoast_wpseo_metadesc)" = 'Schema recovery Yoast description 東京 🚀' ] \
+  || fail 'Yoast schema failure did not retain the post-commit authored state needed for retry'
+[ "$(wp_conf2 option get yoast_target_undeclared_neighbor)" = target-neighbor-preserved ] \
+  || fail 'Yoast schema recovery crossed the target-owned option boundary'
+[ "$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')" = "$SCHEMA_REV_BEFORE" ] \
+  || fail 'Yoast schema failure advanced applied_revision before verified effects'
 [ "$(wp_conf2 eval 'echo null === \Duo\Ledger::kv_get("apply_in_progress") ? "clear" : "retained";')" = retained ] \
   || fail 'Yoast schema failure did not retain retry authority'
 wp_conf2 db query 'ALTER TABLE wp_yoast_indexable RENAME COLUMN duo_fault_link_count TO link_count' >/dev/null
