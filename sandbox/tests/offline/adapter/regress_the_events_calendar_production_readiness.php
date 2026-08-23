@@ -322,6 +322,32 @@ $allDay['_EventEndDateUTC'] = '2026-09-05 18:14:59';
 $allDay['_EventDuration'] = '86399';
 duo_check_same([], $interpreter->repository_diagnostics(tec_readiness_tree($allDay)), 'the exact all-day yes wire shape and day bounds are clean');
 
+$registeredAllDay = $allDay;
+$registeredAllDay['_EventAllDay'] = '1';
+duo_check_same(
+    [],
+    $interpreter->repository_diagnostics(tec_readiness_tree($registeredAllDay)),
+    'the registered Gutenberg all-day true wire is clean'
+);
+foreach (['', 'no'] as $falseWire) {
+    $timed = tec_readiness_meta();
+    $timed['_EventAllDay'] = $falseWire;
+    duo_check_same(
+        [],
+        $interpreter->repository_diagnostics(tec_readiness_tree($timed)),
+        "the native all-day false wire '$falseWire' is clean"
+    );
+}
+foreach (['', '1', 'yes'] as $hideWire) {
+    $hidden = tec_readiness_meta();
+    $hidden['_EventHideFromUpcoming'] = $hideWire;
+    duo_check_same(
+        [],
+        $interpreter->repository_diagnostics(tec_readiness_tree($hidden)),
+        "the native hide-from-upcoming wire '$hideWire' is clean"
+    );
+}
+
 foreach (['_EventStartDate', '_EventEndDate', '_EventStartDateUTC', '_EventEndDateUTC', '_EventDuration', '_EventTimezone'] as $key) {
     $bad = tec_readiness_meta();
     unset($bad[$key]);
@@ -425,9 +451,26 @@ foreach (['_EventShowMap', '_EventShowMapLink', '_VenueShowMap', '_VenueShowMapL
         );
     }
 }
-$bad = tec_readiness_meta();
-$bad['_EventAllDay'] = 'true';
-tec_readiness_refuses($interpreter, tec_readiness_tree($bad), 'exact yes wire value', 'all-day rejects a non-native boolean spelling');
+foreach (['0', 'false', 'true', 1, false, true] as $value) {
+    $bad = tec_readiness_meta();
+    $bad['_EventAllDay'] = $value;
+    tec_readiness_refuses(
+        $interpreter,
+        tec_readiness_tree($bad),
+        'exact current empty/1/no/yes wire value',
+        'all-day rejects non-native persisted boolean spellings and non-string values'
+    );
+}
+foreach (['0', 'false', 'no', 'true', 1, false, true] as $value) {
+    $bad = tec_readiness_meta();
+    $bad['_EventHideFromUpcoming'] = $value;
+    tec_readiness_refuses(
+        $interpreter,
+        tec_readiness_tree($bad),
+        'exact current empty/1/yes wire value',
+        'hide-from-upcoming rejects non-native persisted spellings and non-string values'
+    );
+}
 $bad = tec_readiness_meta();
 $bad['_tribe_featured'] = 'yes';
 tec_readiness_refuses($interpreter, tec_readiness_tree($bad), 'exact 1 wire value', 'featured rejects a non-native boolean spelling');

@@ -64,6 +64,8 @@ $dirty = tribe_events()->set_args([
     'start_date' => '2031-01-02 03:00:00',
     'end_date' => '2031-01-02 04:00:00',
     'timezone' => 'UTC',
+    'all_day' => true,
+    'hide_from_upcoming' => true,
     'venue' => (int) $venue->ID,
     'organizers' => [$organizer_ids[2], $organizer_ids[0], $organizer_ids[1]],
 ])->create();
@@ -79,6 +81,7 @@ $dirty_all_day = tribe_events()->set_args([
     'start_date' => '2031-02-03 05:00:00',
     'end_date' => '2031-02-03 06:00:00',
     'timezone' => 'UTC',
+    'all_day' => true,
     'organizers' => [$organizer_ids[1]],
     'venue' => (int) $venue->ID,
 ])->create();
@@ -89,9 +92,16 @@ $dirty_delete_probe = tribe_events()->set_args([
     'start_date' => '2031-03-04 07:00:00',
     'end_date' => '2031-03-04 08:00:00',
     'timezone' => 'UTC',
+    'all_day' => true,
+    'hide_from_upcoming' => true,
 ])->create();
 if (!$dirty_all_day || !$dirty_all_day->ID || !$dirty_delete_probe || !$dirty_delete_probe->ID) {
     throw new RuntimeException('TEC did not create hostile status/deletion target rows');
+}
+foreach ([$dirty, $dirty_all_day, $dirty_delete_probe] as $dirty_event) {
+    if (get_post_meta((int) $dirty_event->ID, '_EventAllDay', true) !== 'yes') {
+        throw new RuntimeException('TEC hostile target did not retain the classic repository all-day wire');
+    }
 }
 
 $status_editor = tribe(\Tribe\Events\Event_Status\Classic_Editor::class);

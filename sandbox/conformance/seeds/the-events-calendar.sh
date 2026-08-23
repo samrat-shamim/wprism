@@ -146,6 +146,7 @@ $all_day = tribe_events()->set_args([
     'end_date' => '2026-10-11 23:59:59',
     'timezone' => 'Asia/Kathmandu',
     'all_day' => true,
+    'hide_from_upcoming' => true,
     'cost' => '0',
     'show_map' => false,
     'show_map_link' => false,
@@ -160,6 +161,13 @@ $delete_probe = tribe_events()->set_args([
 ])->create();
 if (!$all_day || !$all_day->ID || !$delete_probe || !$delete_probe->ID) {
     throw new RuntimeException('TEC boundary events were not created');
+}
+update_post_meta((int) $delete_probe->ID, '_EventAllDay', false);
+if (get_post_meta((int) $all_day->ID, '_EventAllDay', true) !== '1'
+    || get_post_meta((int) $all_day->ID, '_EventHideFromUpcoming', true) !== 'yes'
+    || !metadata_exists('post', (int) $delete_probe->ID, '_EventAllDay')
+    || get_post_meta((int) $delete_probe->ID, '_EventAllDay', true) !== '') {
+    throw new RuntimeException('TEC registered/repository boolean paths did not persist their exact native wires');
 }
 delete_post_meta((int) $delete_probe->ID, '_EventShowMap');
 delete_post_meta((int) $delete_probe->ID, '_EventShowMapLink');

@@ -81,6 +81,10 @@ $editor_meta = new Tribe__Events__Editor__Meta();
 $editor_meta->register();
 $status_editor = tribe(\Tribe\Events\Event_Status\Classic_Editor::class);
 $status_editor->register_fields();
+$hidden_event_ids = array_map(
+    'intval',
+    tribe(\Tribe\Events\Views\V2\Query\Hide_From_Upcoming_Controller::class)->get_hidden_post_ids()
+);
 $registered = get_registered_meta_keys('post');
 $registered_contract = [];
 foreach ([
@@ -162,6 +166,7 @@ $status_meta = static function (WP_Post $post) use ($rest_meta): array {
 echo wp_json_encode([
     'all_day' => [
         'all_day' => get_post_meta($all_day->ID, '_EventAllDay', true),
+        'all_day_native' => tribe_event_is_all_day($all_day->ID),
         'end' => get_post_meta($all_day->ID, '_EventEndDate', true),
         'id' => (int) $all_day->ID,
         'editor_meta' => $optional_editor_meta($all_day),
@@ -171,6 +176,14 @@ echo wp_json_encode([
         'permalink' => get_permalink($all_day),
         'start' => get_post_meta($all_day->ID, '_EventStartDate', true),
         'status' => $status_meta($all_day),
+        'hide_from_upcoming' => metadata_exists('post', $all_day->ID, '_EventHideFromUpcoming')
+            ? get_post_meta($all_day->ID, '_EventHideFromUpcoming', true)
+            : null,
+        'hidden_native' => in_array(
+            (int) $all_day->ID,
+            $hidden_event_ids,
+            true
+        ),
         'venue' => get_post_meta($all_day->ID, '_EventVenueID', true),
     ],
     'cache' => $cache,
@@ -182,6 +195,14 @@ echo wp_json_encode([
     ],
     'category_css' => get_option('tec_events_category_color_css', null),
     'delete_probe' => [
+        'all_day' => metadata_exists('post', $delete_probe->ID, '_EventAllDay')
+            ? get_post_meta($delete_probe->ID, '_EventAllDay', true)
+            : null,
+        'all_day_native' => tribe_event_is_all_day($delete_probe->ID),
+        'hide_from_upcoming' => metadata_exists('post', $delete_probe->ID, '_EventHideFromUpcoming')
+            ? get_post_meta($delete_probe->ID, '_EventHideFromUpcoming', true)
+            : null,
+        'hidden_native' => in_array((int) $delete_probe->ID, $hidden_event_ids, true),
         'id' => (int) $delete_probe->ID,
         'permalink' => get_permalink($delete_probe),
         'status' => $status_meta($delete_probe),
@@ -199,6 +220,14 @@ echo wp_json_encode([
         'end' => get_post_meta($event->ID, '_EventEndDate', true),
         'featured' => get_post_meta($event->ID, '_tribe_featured', true),
         'id' => (int) $event->ID,
+        'all_day' => metadata_exists('post', $event->ID, '_EventAllDay')
+            ? get_post_meta($event->ID, '_EventAllDay', true)
+            : null,
+        'all_day_native' => tribe_event_is_all_day($event->ID),
+        'hide_from_upcoming' => metadata_exists('post', $event->ID, '_EventHideFromUpcoming')
+            ? get_post_meta($event->ID, '_EventHideFromUpcoming', true)
+            : null,
+        'hidden_native' => in_array((int) $event->ID, $hidden_event_ids, true),
         'occurrence' => $occurrence,
         'map' => $map_meta($event),
         'organizer' => (int) get_post_meta($event->ID, '_EventOrganizerID', true),
@@ -367,6 +396,15 @@ SOURCE=$(observe_tec conf1)
 TARGET=$(observe_tec conf2)
 TEC_EXPECTED_VERSION="${TEC_EXPECTED_VERSION:-6.17.3}"
 
+printf '%s\n' "$SOURCE" | jq -e '
+  .event.all_day == null and .event.all_day_native == false and
+  .event.hide_from_upcoming == null and .event.hidden_native == false and
+  .all_day.all_day == "1" and .all_day.all_day_native == true and
+  .all_day.hide_from_upcoming == "yes" and .all_day.hidden_native == true and
+  .delete_probe.all_day == "" and .delete_probe.all_day_native == false and
+  .delete_probe.hide_from_upcoming == null and .delete_probe.hidden_native == false
+' >/dev/null || fail "TEC source did not expose exact repository/Gutenberg all-day and visibility wires: $SOURCE"
+
 printf '%s\n' "$TARGET" | jq -e \
   --arg version "$TEC_EXPECTED_VERSION" \
   --argjson source "$SOURCE_IDS" \
@@ -436,13 +474,19 @@ printf '%s\n' "$TARGET" | jq -e \
   (.category_css | contains("--tec-color-category-primary:#123abc")) and
   (.category_css | contains("--tec-color-category-secondary:#fedcba")) and
   (.category_css | contains("--tec-color-category-text:#ffffff")) and
-  .all_day.all_day == "yes" and .all_day.venue == "" and .all_day.organizer == "" and
+  .event.all_day == null and .event.all_day_native == false and
+  .event.hide_from_upcoming == null and .event.hidden_native == false and
+  .all_day.all_day == "1" and .all_day.all_day_native == true and
+  .all_day.hide_from_upcoming == "yes" and .all_day.hidden_native == true and
+  .all_day.venue == "" and .all_day.organizer == "" and
   .all_day.status.raw_status == "postponed" and .all_day.status.model_status == "postponed" and
   .all_day.status.raw_reason == "" and .all_day.status.model_reason == "" and
   .all_day.status.rest.status == "postponed" and .all_day.status.rest.status_reason == "" and
   .all_day.editor_meta == {_EventCostDescription:null,_EventDateTimeSeparator:null,_EventTimeRangeSeparator:null} and
   .all_day.map == {embed:false,link:false,meta:{_EventShowMap:"",_EventShowMapLink:"",_VenueShowMap:null,_VenueShowMapLink:null}} and
   .delete_probe_map == {embed:false,link:false,meta:{_EventShowMap:null,_EventShowMapLink:null,_VenueShowMap:null,_VenueShowMapLink:null}} and
+  .delete_probe.all_day == "" and .delete_probe.all_day_native == false and
+  .delete_probe.hide_from_upcoming == null and .delete_probe.hidden_native == false and
   .delete_probe.status.raw_status == null and .delete_probe.status.raw_reason == null and
   .delete_probe.status.model_status == "" and .delete_probe.status.model_reason == "" and
   .delete_probe.status.rest.status == "" and .delete_probe.status.rest.status_reason == "" and

@@ -230,14 +230,28 @@ final class TheEventsCalendar {
                     );
                 }
             }
-            foreach (['_EventAllDay', '_EventHideFromUpcoming'] as $key) {
-                if (array_key_exists($key, $meta) && $meta[$key] !== 'yes') {
-                    $out[] = $this->diagnostic(
-                        $path,
-                        "meta.$key",
-                        "The Events Calendar $key must be absent or use the plugin's exact yes wire value"
-                    );
-                }
+            // Editor/Meta.php:27 + common Editor/Meta.php:178 persist
+            // Gutenberg booleans as 1/empty, while API.php:369-373 persists
+            // the public classic API's same states as yes/no. Both exact
+            // 6.17.2/6.17.3 paths are current authored storage, not aliases.
+            if (array_key_exists('_EventAllDay', $meta)
+                && !in_array($meta['_EventAllDay'], ['', '1', 'no', 'yes'], true)) {
+                $out[] = $this->diagnostic(
+                    $path,
+                    'meta._EventAllDay',
+                    'The Events Calendar _EventAllDay must be absent or use an exact current empty/1/no/yes wire value'
+                );
+            }
+            // API.php:180 plus its bool-typed public helper persist 1/empty;
+            // Repository/Event.php:1480-1485 and the classic checkbox persist
+            // yes/absence. Unlike _EventAllDay, no native path normalizes no.
+            if (array_key_exists('_EventHideFromUpcoming', $meta)
+                && !in_array($meta['_EventHideFromUpcoming'], ['', '1', 'yes'], true)) {
+                $out[] = $this->diagnostic(
+                    $path,
+                    'meta._EventHideFromUpcoming',
+                    'The Events Calendar _EventHideFromUpcoming must be absent or use an exact current empty/1/yes wire value'
+                );
             }
             if (array_key_exists('_tribe_featured', $meta) && $meta['_tribe_featured'] !== '1') {
                 $out[] = $this->diagnostic(
