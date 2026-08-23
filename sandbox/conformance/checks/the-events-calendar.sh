@@ -402,6 +402,18 @@ tec_target_hash() {
   '
 }
 
+tec_derived_hash() {
+  wp_conf2 eval '
+    global $wpdb;
+    $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0]??null;
+    if(!$p) throw new RuntimeException("TEC derived hash event missing");
+    echo hash("sha256",wp_json_encode([
+      "event"=>$wpdb->get_results($wpdb->prepare("SELECT * FROM {$wpdb->prefix}tec_events WHERE post_id=%d OR event_id IN (SELECT event_id FROM {$wpdb->prefix}tec_events WHERE post_id=%d) ORDER BY event_id",$p->ID,$p->ID),ARRAY_A),
+      "occurrence"=>$wpdb->get_results($wpdb->prepare("SELECT * FROM {$wpdb->prefix}tec_occurrences WHERE post_id=%d OR event_id IN (SELECT event_id FROM {$wpdb->prefix}tec_events WHERE post_id=%d) ORDER BY occurrence_id",$p->ID,$p->ID),ARRAY_A),
+    ],JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
+  '
+}
+
 SOURCE_IDS_FILE="${CONF_REPO1:-siterepo/conf1}/.tmp-tec-source-ids.json"
 TARGET_IDS_FILE="${CONF_REPO2:-siterepo/conf2}/.tmp-tec-target-ids.json"
 [ -f "$SOURCE_IDS_FILE" ] || fail "TEC source identity premise is missing: $SOURCE_IDS_FILE"
@@ -1121,13 +1133,89 @@ printf '%s\n' "$CONVERGED" | jq -e '
 ' >/dev/null || fail "TEC forced conflict did not repair native derived state or preserve runtime state: $CONVERGED"
 pass "native event conflicts refuse atomically; explicit authority converges and regenerates occurrences"
 
+# The exact free custom-table model exposes one filter over the complete
+# derived row. A same-shape extension callback is still a different authority:
+# refuse it before either custom-table write, retain the batch marker, and let
+# the next process retry the identical canonical intent after the hook leaves.
+wp_conf1 eval '
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  $result=tribe_events()->where("id",$p->ID)->set_args([
+    "description"=>"TEC filtered-row refusal body 東京 🚀 " . home_url("/filter-refusal/"),
+    "start_date"=>"2026-09-08 13:15:00","end_date"=>"2026-09-08 16:45:00","timezone"=>"Asia/Kathmandu"
+  ])->save();
+  if(empty($result[$p->ID])) throw new RuntimeException("TEC filter-refusal source update failed");
+' >/dev/null
+commit_tec_source 'conformance: TEC filtered derived-row refusal intent'
+FILTER_DERIVED_BEFORE=$(tec_derived_hash)
+FILTER_REV_BEFORE=$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')
+require_observed_nonempty "TEC applied revision before event-data filter refusal" "$FILTER_REV_BEFORE"
+TEC_FILTER_MU_MAY_EXIST=1
+remove_tec_filter_fault() {
+  $COMPOSE exec -T --user root wp2 rm -f -- /var/www/html/wp-content/mu-plugins/duo-tec-event-data-filter-fault.php >/dev/null 2>&1
+}
+cleanup_tec_filter_fault() {
+  local status=$?
+  trap - EXIT
+  if [ "${TEC_FILTER_MU_MAY_EXIST:-0}" -eq 1 ]; then
+    remove_tec_filter_fault || true
+  fi
+  exit "$status"
+}
+trap cleanup_tec_filter_fault EXIT
+$COMPOSE exec -T --user root wp2 sh -c \
+  'printf "%s\n" "<?php" "add_filter(\"tec_events_custom_tables_v1_event_data_from_post\", static function (array \$data): array { \$data[\"timezone\"] = \"UTC\"; return \$data; }, PHP_INT_MAX, 1);" > /var/www/html/wp-content/mu-plugins/duo-tec-event-data-filter-fault.php'
+[ "$(wp_conf2 eval 'echo has_filter("tec_events_custom_tables_v1_event_data_from_post") ? "registered" : "missing";')" = registered ] \
+  || fail "TEC event-data filter fault was not registered"
+FILTER_RC=0
+FILTER_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || FILTER_RC=$?
+require_duo_answered "TEC native event-data filter refusal" human "$FILTER_OUT"
+[ "$FILTER_RC" -ne 0 ] \
+  && grep -Fq "batch regenerator 'the-events-calendar' failed" <<<"$FILTER_OUT" \
+  && grep -Fq 'free-plugin derived-state contract does not admit the event-data filter' <<<"$FILTER_OUT" \
+  || fail "TEC event-data filter did not refuse through the exact regenerator: $FILTER_OUT"
+[ "$(wp_conf2 eval '
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  echo get_post_meta($p->ID,"_EventStartDate",true);
+')" = '2026-09-08 13:15:00' ] || fail "TEC event-data filter refusal lost the committed authored intent"
+[ "$(tec_derived_hash)" = "$FILTER_DERIVED_BEFORE" ] \
+  || fail "TEC event-data filter refusal mutated a derived row before topology validation"
+[ "$(wp_conf2 eval '
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  $uuid=\Duo\Ledger::uuid_for((int)$p->ID,\Duo\Ledger::KIND_POST);
+  echo $uuid === null ? "missing-uuid" : (string)\Duo\Ledger::kv_get("regen_pending:".$uuid);
+')" = tribe_events ] || fail "TEC event-data filter refusal did not arm the exact batch retry marker"
+[ "$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')" = "$FILTER_REV_BEFORE" ] \
+  || fail "TEC event-data filter refusal advanced applied_revision"
+[ "$(wp_conf2 eval 'echo null === \Duo\Ledger::kv_get("apply_in_progress") ? "clear" : "retained";')" = retained ] \
+  || fail "TEC event-data filter refusal did not retain apply_in_progress"
+remove_tec_filter_fault
+TEC_FILTER_MU_MAY_EXIST=0
+trap - EXIT
+FILTER_RETRY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered "TEC retry after event-data filter refusal" json "$FILTER_RETRY"
+jq -e '.canary == "clean" and .verification.result == "pass" and .applied >= 1' <<<"$FILTER_RETRY" >/dev/null \
+  || fail "TEC retry after event-data filter refusal did not converge: $FILTER_RETRY"
+[ "$(wp_conf2 eval '
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  $uuid=\Duo\Ledger::uuid_for((int)$p->ID,\Duo\Ledger::KIND_POST);
+  echo $uuid !== null && \Duo\Ledger::kv_get("regen_pending:".$uuid) === null ? "clear" : "retained";
+')" = clear ] || fail "TEC successful event-data filter retry retained its batch marker"
+FILTER_RETRIED=$(observe_tec conf2)
+printf '%s\n' "$FILTER_RETRIED" | jq -e '
+  .event.start == "2026-09-08 13:15:00" and .event.end == "2026-09-08 16:45:00" and
+  .event.timezone == "Asia/Kathmandu" and
+  .event.occurrence.start_date == .event.start and .event.occurrence.end_date == .event.end and
+  (.event.content | contains("TEC filtered-row refusal body 東京 🚀"))
+' >/dev/null || fail "TEC event-data filter retry did not converge both exact native rows: $FILTER_RETRIED"
+pass "native event-data filter topology refuses before derived writes, arms retry, and converges after removal"
+
 # A late postmeta constraint failure lands after the post body write. The whole
 # transaction, derived rows, and retry marker must survive as one unit.
 wp_conf1 eval '
   $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
   $result=tribe_events()->where("id",$p->ID)->set_args([
     "description"=>"TEC transaction body 東京 🚀 " . home_url("/transaction/"),
-    "start_date"=>"2026-09-08 13:15:00","end_date"=>"2026-09-08 16:45:00","timezone"=>"Asia/Kathmandu"
+    "start_date"=>"2026-09-09 13:15:00","end_date"=>"2026-09-09 16:45:00","timezone"=>"Asia/Kathmandu"
   ])->save();
   if(empty($result[$p->ID])) throw new RuntimeException("TEC transaction source update failed");
 ' >/dev/null
@@ -1136,7 +1224,7 @@ FAULT_BEFORE=$(tec_target_hash)
 wp_conf2 db query 'ALTER TABLE wp_postmeta DROP CONSTRAINT IF EXISTS duo_tec_fail_end' >/dev/null
 wp_conf2 db query '
   ALTER TABLE wp_postmeta ADD CONSTRAINT duo_tec_fail_end
-  CHECK (meta_key <> "_EventEndDate" OR meta_value <> "2026-09-08 16:45:00")
+  CHECK (meta_key <> "_EventEndDate" OR meta_value <> "2026-09-09 16:45:00")
 ' >/dev/null
 FAULT_RC=0
 FAULT_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || FAULT_RC=$?
@@ -1153,7 +1241,7 @@ jq -e '.canary == "clean" and .verification.result == "pass" and .applied >= 1' 
   || fail "TEC retry did not consume durable intent: $RETRY"
 RETRIED=$(observe_tec conf2)
 printf '%s\n' "$RETRIED" | jq -e '
-  .event.start == "2026-09-08 13:15:00" and .event.end == "2026-09-08 16:45:00" and
+  .event.start == "2026-09-09 13:15:00" and .event.end == "2026-09-09 16:45:00" and
   .event.occurrence.start_date == .event.start and .event.occurrence.end_date == .event.end and
   (.event.content | contains("TEC transaction body 東京 🚀"))
 ' >/dev/null || fail "TEC retry did not converge native event/occurrence state: $RETRIED"

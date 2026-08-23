@@ -2158,6 +2158,18 @@ foreach (['postmeta', 'termmeta', 'term_relationships', 'tec_events', 'tec_occur
         "deletion refusal fingerprints $witness before and after capture"
     );
 }
+foreach ([
+    'tec_events_custom_tables_v1_event_data_from_post',
+    'FILTER_DERIVED_BEFORE=$(tec_derived_hash)',
+    'regen_pending:',
+    'event-data filter refusal advanced applied_revision',
+    'successful event-data filter retry retained its batch marker',
+] as $filterRecoveryEvidence) {
+    duo_check(
+        str_contains($deletionCheck, $filterRecoveryEvidence),
+        "the exact live matrix binds event-data filter recovery evidence $filterRecoveryEvidence"
+    );
+}
 
 $regenerator = new TheEventsCalendarRegenerator($policy);
 duo_check_throws(
