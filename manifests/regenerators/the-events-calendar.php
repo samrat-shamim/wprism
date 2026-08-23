@@ -43,6 +43,8 @@ use Duo\Policy;
 final class TheEventsCalendar {
     private Policy $policy;
 
+    private const EVENT_DATA_FILTER = 'tec_events_custom_tables_v1_event_data_from_post';
+
     private const EVENT_ROW_FIELDS = [
         'event_id',
         'post_id',
@@ -73,6 +75,16 @@ final class TheEventsCalendar {
     }
 
     public function regenerate(int $localId): void {
+        if (!function_exists('has_filter')) {
+            throw new \RuntimeException(
+                'duo: TEC derived-state regeneration requires has_filter()'
+            );
+        }
+        if (has_filter(self::EVENT_DATA_FILTER) !== false) {
+            throw new \RuntimeException(
+                'duo: TEC free-plugin derived-state contract does not admit the event-data filter'
+            );
+        }
         $eventClass = '\\TEC\\Events\\Custom_Tables\\V1\\Models\\Event';
         if (!class_exists($eventClass)) {
             throw new \RuntimeException(

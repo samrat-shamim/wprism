@@ -47,9 +47,19 @@ final class TecReadinessNativeMarker {}
 
 final class TecReadinessCategoryColorController {
     public function generate_css(): void {
-        ++$GLOBALS['tec_readiness_cache_busts'];
+        ++$GLOBALS['tec_readiness_color_controller_calls'];
         tec_readiness_set_css($GLOBALS['tec_readiness_generated_css']);
+        $mode = $GLOBALS['tec_readiness_color_controller_mode'] ?? '';
+        if ($mode === 'throw_after_css') {
+            $GLOBALS['tec_readiness_color_controller_mode'] = '';
+            throw new RuntimeException('injected native Category Colors failure after CSS write');
+        }
         $GLOBALS['tec_readiness_dropdown_rows'] = $GLOBALS['tec_readiness_generated_dropdown_rows'];
+        ++$GLOBALS['tec_readiness_cache_busts'];
+        if ($mode === 'throw_after_cache_bust') {
+            $GLOBALS['tec_readiness_color_controller_mode'] = '';
+            throw new RuntimeException('injected native Category Colors failure after cache bust');
+        }
     }
 }
 
@@ -135,6 +145,9 @@ final class TecReadinessEventModel {
             return false;
         }
         $GLOBALS['tec_readiness_regen_calls'][] = (int) $data['post_id'];
+        if (($GLOBALS['tec_readiness_regen_mode'] ?? '') === 'upsert_throw_after_write') {
+            throw new RuntimeException('injected native event upsert failure after derived write');
+        }
         return 1;
     }
 
@@ -1570,6 +1583,8 @@ $GLOBALS['tec_readiness_dropdown_rows'] = [[
 $GLOBALS['tec_readiness_tribe_options'] = ['category-color-show-hidden-categories' => false];
 $GLOBALS['tec_readiness_filters'] = [];
 $GLOBALS['tec_readiness_cache_busts'] = 0;
+$GLOBALS['tec_readiness_color_controller_calls'] = 0;
+$GLOBALS['tec_readiness_color_controller_mode'] = '';
 $GLOBALS['tec_readiness_category_color_controller'] = new TecReadinessCategoryColorController();
 $GLOBALS['tec_readiness_category_color_dropdown'] = new TecReadinessCategoryColorDropdown();
 $colorDb = FakeWpdb::install();
@@ -1616,6 +1631,70 @@ duo_check_same(
     $secondColorReceipt['after']['css_sha256'] ?? null,
     'a retry is idempotent at the generated CSS projection'
 );
+
+tec_readiness_set_css('.tribe_events_cat-readiness{--tec-color-category-primary:#000000}');
+$GLOBALS['tec_readiness_dropdown_rows'] = [[
+    'slug' => 'readiness',
+    'name' => 'Readiness',
+    'priority' => 99,
+    'primary' => '#000000',
+    'hidden' => false,
+]];
+$GLOBALS['tec_readiness_color_controller_mode'] = 'throw_after_css';
+duo_check_throws(
+    static fn() => $colorProvider->invoke('regenerate_css', []),
+    RuntimeException::class,
+    'a failure after the native CSS option write surfaces without certifying the stale dropdown cache',
+    'injected native Category Colors failure after CSS write'
+);
+duo_check_same(
+    $GLOBALS['tec_readiness_generated_css'],
+    get_option('tec_events_category_color_css'),
+    'the first native failure witness contains the completed CSS write'
+);
+duo_check_same(
+    '#000000',
+    $GLOBALS['tec_readiness_dropdown_rows'][0]['primary'] ?? null,
+    'the first native failure witness retains the stale pre-bust dropdown cache'
+);
+duo_check_same(
+    2,
+    $GLOBALS['tec_readiness_cache_busts'],
+    'a failure before the native dropdown-cache bust does not claim that effect'
+);
+$afterCssRetry = $colorProvider->invoke('regenerate_css', []);
+duo_check_same(true, $afterCssRetry['verified'] ?? null, 'same-process retry after the partial CSS write converges');
+duo_check_same(
+    $GLOBALS['tec_readiness_generated_dropdown_rows'],
+    $GLOBALS['tec_readiness_dropdown_rows'],
+    'same-process retry after the partial CSS write repairs the native dropdown projection'
+);
+
+tec_readiness_set_css('.tribe_events_cat-readiness{--tec-color-category-primary:#000000}');
+$GLOBALS['tec_readiness_dropdown_rows'][0]['primary'] = '#000000';
+$GLOBALS['tec_readiness_color_controller_mode'] = 'throw_after_cache_bust';
+duo_check_throws(
+    static fn() => $colorProvider->invoke('regenerate_css', []),
+    RuntimeException::class,
+    'a failure after both native writes surfaces before Duo can issue a verified receipt',
+    'injected native Category Colors failure after cache bust'
+);
+duo_check_same(
+    $GLOBALS['tec_readiness_generated_css'],
+    get_option('tec_events_category_color_css'),
+    'the second native failure witness contains the completed CSS write'
+);
+duo_check_same(
+    $GLOBALS['tec_readiness_generated_dropdown_rows'],
+    $GLOBALS['tec_readiness_dropdown_rows'],
+    'the second native failure witness contains the completed dropdown-cache bust'
+);
+$afterCacheBustRetry = $colorProvider->invoke('regenerate_css', []);
+duo_check_same(true, $afterCacheBustRetry['verified'] ?? null, 'same-process retry after both native writes remains idempotent');
+$cacheBustsAfterPartialRetries = $GLOBALS['tec_readiness_cache_busts'];
+duo_check_same(5, $cacheBustsAfterPartialRetries, 'only completed native dropdown-cache busts are counted across both retries');
+duo_check_same(6, $GLOBALS['tec_readiness_color_controller_calls'], 'both partial attempts and both retries crossed the native controller boundary');
+
 $operation = ['format' => 'duo-provider-operation/v1', 'id' => 'tec-offline-reconcile'];
 $reconciled = $colorProvider->reconcile_scoped('regenerate_css', [], $operation);
 duo_check_same($operation, $reconciled['operation'] ?? null, 'reconciliation binds its caller-supplied operation envelope');
@@ -1899,7 +1978,11 @@ duo_check_throws(
     'exceeds the bounded row frontier'
 );
 $GLOBALS['tec_readiness_dropdown_rows'] = $GLOBALS['tec_readiness_generated_dropdown_rows'];
-duo_check_same(2, $GLOBALS['tec_readiness_cache_busts'], 'reconciliation probes never replay the native mutation');
+duo_check_same(
+    $cacheBustsAfterPartialRetries,
+    $GLOBALS['tec_readiness_cache_busts'],
+    'reconciliation probes never replay the native mutation'
+);
 duo_check_throws(
     static fn() => $colorProvider->invoke('invented_capability', []),
     RuntimeException::class,
@@ -2025,7 +2108,11 @@ $plainColorReceipt = $colorProvider->invoke('regenerate_css', []);
 duo_check_same(true, $plainColorReceipt['verified'] ?? null, 'categories with no color metadata converge through native empty generated state');
 duo_check_same(0, $plainColorReceipt['after']['colored_category_count'] ?? null, 'an uncolored native category is not invented as a colored selector');
 duo_check_same(0, $plainColorReceipt['after']['dropdown_actual_count'] ?? null, 'an uncolored native category is absent from the color dropdown cache');
-duo_check_same(4, $GLOBALS['tec_readiness_cache_busts'], 'only four explicit provider invocations replayed native cache mutation');
+duo_check_same(
+    $cacheBustsAfterPartialRetries + 2,
+    $GLOBALS['tec_readiness_cache_busts'],
+    'only explicit provider invocations replayed native cache mutation'
+);
 
 duo_check(in_array('tribe_events', $policy->declared_post_types(), true), 'events are in adapter post scope');
 duo_check(in_array('tribe_venue', $policy->declared_post_types(), true), 'venues are in adapter post scope');
@@ -2190,6 +2277,22 @@ $tecFailure = static function (callable $call): string {
     duo_check(false, 'expected TEC regenerator failure did not occur');
     return '';
 };
+
+$resetTecDerived();
+$beforeFilteredRegeneration = [$tecDb->rows($eventTable), $tecDb->rows($occurrenceTable)];
+$GLOBALS['tec_readiness_filters'] = ['tec_events_custom_tables_v1_event_data_from_post'];
+duo_check_same(
+    'duo: TEC free-plugin derived-state contract does not admit the event-data filter',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'the exact native event-data filter topology refuses before any derived write'
+);
+duo_check_same(
+    $beforeFilteredRegeneration,
+    [$tecDb->rows($eventTable), $tecDb->rows($occurrenceTable)],
+    'a malicious same-shape event-data filter cannot mutate either custom table before refusal'
+);
+duo_check_same([], $GLOBALS['tec_readiness_regen_calls'], 'event-data filter refusal never crosses the native upsert boundary');
+$GLOBALS['tec_readiness_filters'] = [];
 
 $resetTecDerived();
 $regenerator->regenerate($tecEventId);
@@ -2446,11 +2549,56 @@ $failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
 duo_check_same('duo: TEC derived-state verification query failed for tec_occurrences', $failure, 'occurrence verification query failure is explicit and redacted');
 
 $resetTecDerived();
+$GLOBALS['tec_readiness_regen_mode'] = 'upsert_throw_after_write';
+duo_check_same(
+    'injected native event upsert failure after derived write',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'a native exception after the tec_events upsert surfaces before occurrence synthesis'
+);
+duo_check_same(
+    '',
+    $tecDb->get_var($tecDb->prepare("SELECT hash FROM `$eventTable` WHERE post_id = %d", $tecEventId)),
+    'the event-upsert failure witness contains the completed first derived write'
+);
+duo_check_same(
+    'stale-occurrence-hash',
+    $tecDb->get_var($tecDb->prepare("SELECT hash FROM `$occurrenceTable` WHERE post_id = %d", $tecEventId)),
+    'the event-upsert failure witness leaves the second derived row untouched'
+);
+$GLOBALS['tec_readiness_regen_mode'] = 'ok';
+$regenerator->regenerate($tecEventId);
+duo_check_same(
+    $expectedOccurrenceHash,
+    $tecDb->get_var($tecDb->prepare("SELECT hash FROM `$occurrenceTable` WHERE post_id = %d", $tecEventId)),
+    'same-process retry after the partial event upsert converges both native rows'
+);
+duo_check_same(
+    ['target-runtime-event', 'target-runtime-occurrence'],
+    [
+        $tecDb->get_var("SELECT hash FROM `$eventTable` WHERE post_id = 6100000099"),
+        $tecDb->get_var("SELECT hash FROM `$occurrenceTable` WHERE post_id = 6100000099"),
+    ],
+    'partial event-upsert failure and retry preserve unrelated target-derived rows'
+);
+
+$resetTecDerived();
 $GLOBALS['tec_readiness_regen_mode'] = 'partial_occurrence';
 duo_check_same(
     'duo: TEC derived-state verification failed for tec_occurrences fields: end_date_utc',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'a partially written occurrence refuses on its missing deterministic postcondition'
+);
+duo_check_same(
+    '2001-01-01 00:00:00',
+    $tecDb->get_var($tecDb->prepare("SELECT end_date_utc FROM `$occurrenceTable` WHERE post_id = %d", $tecEventId)),
+    'the failed verification leaves an explicit partial-occurrence witness for engine rollback or retry'
+);
+$GLOBALS['tec_readiness_regen_mode'] = 'ok';
+$regenerator->regenerate($tecEventId);
+duo_check_same(
+    '2026-11-02 15:15:00',
+    $tecDb->get_var($tecDb->prepare("SELECT end_date_utc FROM `$occurrenceTable` WHERE post_id = %d", $tecEventId)),
+    'same-process retry after a value-level verification failure repairs the exact occurrence field'
 );
 
 $resetTecDerived();
@@ -2497,6 +2645,11 @@ duo_check_same(
     'injected native occurrence save failure',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'a native occurrence exception surfaces and leaves retry authority to the engine'
+);
+duo_check_same(
+    '2001-01-01 00:00:00',
+    $tecDb->get_var($tecDb->prepare("SELECT end_date_utc FROM `$occurrenceTable` WHERE post_id = %d", $tecEventId)),
+    'the native occurrence exception is injected after the second derived row is physically written'
 );
 $GLOBALS['tec_readiness_regen_mode'] = 'ok';
 $regenerator->regenerate($tecEventId);
