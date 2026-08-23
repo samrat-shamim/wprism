@@ -138,6 +138,10 @@ namespace {
         preg_match('/check_pmpro_content\(\) \{.*?wp_conf1\(\).*?wp_conf2\(\)/s', $matrix) === 1,
         'the exact matrix binds both PMPro conformance environments to its dedicated pair'
     );
+    duo_check(
+        preg_match('/if \[ "\$VMATRIX_MANIFEST" = paid-memberships-pro \]; then.*?wp2 duo apply --repo=\/siterepo --adopt-by-slug=terms,posts.*?2>&1 \| tee "\$VMATRIX_APPLY_LOG"/s', $matrix) === 1,
+        'the exact matrix retains PMPro provider receipts emitted on stderr'
+    );
     duo_check_same(
         ['min' => '3.8.2', 'max' => '3.8.4'],
         $manifest['version_range'] ?? null,
