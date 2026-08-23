@@ -296,7 +296,9 @@ wp_conf2 db query '
 COLOR_FAULT_RC=0
 COLOR_FAULT_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || COLOR_FAULT_RC=$?
 require_duo_answered "TEC injected Category Colors provider failure" human "$COLOR_FAULT_OUT"
-[ "$COLOR_FAULT_RC" -ne 0 ] && grep -Eq 'Category Colors|recovery_required|missing native projection' <<<"$COLOR_FAULT_OUT" \
+[ "$COLOR_FAULT_RC" -ne 0 ] \
+  && grep -Fq "required manifest action 'provider:the-events-calendar-category-colors/regenerate_css' failed" <<<"$COLOR_FAULT_OUT" \
+  && grep -Fq "provider 'the-events-calendar-category-colors' capability 'regenerate_css' failed" <<<"$COLOR_FAULT_OUT" \
   || fail "TEC injected Category Colors option failure did not surface through the provider: $COLOR_FAULT_OUT"
 [ "$(tec_target_hash)" = "$COLOR_FAULT_BEFORE" ] \
   || fail "TEC failed Category Colors provider action left partial term-meta/CSS writes"
