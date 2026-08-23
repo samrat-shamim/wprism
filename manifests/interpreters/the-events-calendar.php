@@ -140,35 +140,93 @@ final class TheEventsCalendar {
                 );
             }
 
-            foreach (['_EventVenueID' => 'tribe_venue', '_EventOrganizerID' => 'tribe_organizer'] as $key => $type) {
-                if (!array_key_exists($key, $meta)) {
-                    continue;
-                }
-                $token = $meta[$key];
+            if (array_key_exists('_EventVenueID', $meta)) {
+                $token = $meta['_EventVenueID'];
                 if (!is_string($token)
                     || preg_match('/^\{\{post:([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\}\}$/D', $token, $m) !== 1) {
                     $out[] = $this->diagnostic(
                         $path,
-                        "meta.$key",
-                        "The Events Calendar $key must be one canonical post UUID token"
+                        'meta._EventVenueID',
+                        'The Events Calendar _EventVenueID must be one canonical post UUID token'
                     );
-                    continue;
-                }
-                if (isset($posts[$m[1]]) && $posts[$m[1]] !== $type) {
+                } elseif (isset($posts[$m[1]]) && $posts[$m[1]] !== 'tribe_venue') {
                     $out[] = $this->diagnostic(
                         $path,
-                        "meta.$key",
-                        "The Events Calendar $key must resolve to post type $type, not {$posts[$m[1]]}"
+                        'meta._EventVenueID',
+                        "The Events Calendar _EventVenueID must resolve to post type tribe_venue, not {$posts[$m[1]]}"
                     );
                 }
             }
+            if (array_key_exists('_EventOrganizerID', $meta)) {
+                $organizers = $meta['_EventOrganizerID'];
+                if (!is_array($organizers) || !array_is_list($organizers) || $organizers === []) {
+                    $out[] = $this->diagnostic(
+                        $path,
+                        'meta._EventOrganizerID',
+                        'The Events Calendar _EventOrganizerID must be a non-empty ordered list of canonical post UUID tokens'
+                    );
+                } else {
+                    $seenOrganizers = [];
+                    foreach ($organizers as $i => $organizerToken) {
+                        if (!is_string($organizerToken)
+                            || preg_match('/^\{\{post:([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\}\}$/D', $organizerToken, $m) !== 1) {
+                            $out[] = $this->diagnostic(
+                                $path,
+                                "meta._EventOrganizerID[$i]",
+                                'The Events Calendar each organizer row must be one canonical post UUID token'
+                            );
+                            continue;
+                        }
+                        if (isset($seenOrganizers[$organizerToken])) {
+                            $out[] = $this->diagnostic(
+                                $path,
+                                "meta._EventOrganizerID[$i]",
+                                'The Events Calendar organizer rows must be unique in native physical order'
+                            );
+                        }
+                        $seenOrganizers[$organizerToken] = true;
+                        if (isset($posts[$m[1]]) && $posts[$m[1]] !== 'tribe_organizer') {
+                            $out[] = $this->diagnostic(
+                                $path,
+                                "meta._EventOrganizerID[$i]",
+                                "The Events Calendar organizer row must resolve to post type tribe_organizer, not {$posts[$m[1]]}"
+                            );
+                        }
+                    }
+                }
+            }
+
+            $hasStatus = array_key_exists('_tribe_events_status', $meta);
+            $hasStatusReason = array_key_exists('_tribe_events_status_reason', $meta);
+            if ($hasStatus && (!is_string($meta['_tribe_events_status'])
+                || !in_array($meta['_tribe_events_status'], ['canceled', 'postponed'], true))) {
+                $out[] = $this->diagnostic(
+                    $path,
+                    'meta._tribe_events_status',
+                    'The Events Calendar stored event status must be canceled or postponed; scheduled is represented by absence'
+                );
+            }
+            if ($hasStatusReason && !is_string($meta['_tribe_events_status_reason'])) {
+                $out[] = $this->diagnostic(
+                    $path,
+                    'meta._tribe_events_status_reason',
+                    'The Events Calendar event status reason must remain one scalar string'
+                );
+            }
+            if ($hasStatus !== $hasStatusReason) {
+                $out[] = $this->diagnostic(
+                    $path,
+                    $hasStatus ? 'meta._tribe_events_status_reason' : 'meta._tribe_events_status',
+                    'The Events Calendar status and reason rows must be present or absent together'
+                );
+            }
 
             foreach (['_EventShowMap', '_EventShowMapLink'] as $key) {
-                if (array_key_exists($key, $meta) && !in_array($meta[$key], ['0', '1'], true)) {
+                if (array_key_exists($key, $meta) && !in_array($meta[$key], ['', '1'], true)) {
                     $out[] = $this->diagnostic(
                         $path,
                         "meta.$key",
-                        "The Events Calendar $key must use the plugin's exact 0/1 wire value"
+                        "The Events Calendar event $key must use the repository's exact empty/1 wire value"
                     );
                 }
             }
@@ -205,9 +263,37 @@ final class TheEventsCalendar {
                     );
                 }
             }
+            foreach (['_tribe_aggregator_global_id', '_tribe_legacy_ignored_event'] as $key) {
+                if (array_key_exists($key, $meta)) {
+                    $out[] = $this->diagnostic(
+                        $path,
+                        "meta.$key",
+                        'The Events Calendar Event Aggregator/import state is outside the free-plugin authored contract'
+                    );
+                }
+            }
+            foreach (['_VenueLat', '_VenueLng', '_VenueOverwriteCoords'] as $key) {
+                if (array_key_exists($key, $meta)) {
+                    $out[] = $this->diagnostic(
+                        $path,
+                        "meta.$key",
+                        'The Events Calendar Pro/Event Aggregator coordinate state is outside the free-plugin adapter contract'
+                    );
+                }
+            }
+            foreach (['_VenueShowMap', '_VenueShowMapLink'] as $key) {
+                if (array_key_exists($key, $meta)) {
+                    $out[] = $this->diagnostic(
+                        $path,
+                        "meta.$key",
+                        "The Events Calendar $key belongs only to a tribe_venue post"
+                    );
+                }
+            }
             foreach ([
-                '_EventCost', '_EventCostMax', '_EventCostMin', '_EventCurrencyCode',
-                '_EventCurrencyPosition', '_EventCurrencySymbol', '_EventOrigin', '_EventPhone',
+                '_EventCost', '_EventCostDescription', '_EventCostMax', '_EventCostMin',
+                '_EventCurrencyCode', '_EventCurrencyPosition', '_EventCurrencySymbol',
+                '_EventDateTimeSeparator', '_EventOrigin', '_EventPhone', '_EventTimeRangeSeparator',
                 '_EventTimezoneAbbr', '_EventURL',
             ] as $key) {
                 if (array_key_exists($key, $meta) && !is_string($meta[$key])) {
@@ -218,25 +304,83 @@ final class TheEventsCalendar {
                     );
                 }
             }
+            if (isset($meta['_EventCostDescription'])
+                && is_string($meta['_EventCostDescription'])
+                && !$this->is_sanitized_text_field($meta['_EventCostDescription'])) {
+                $out[] = $this->diagnostic(
+                    $path,
+                    'meta._EventCostDescription',
+                    'The Events Calendar _EventCostDescription must already match its native sanitize_text_field shape'
+                );
+            }
+            foreach (['_EventDateTimeSeparator', '_EventTimeRangeSeparator'] as $key) {
+                if (isset($meta[$key]) && is_string($meta[$key]) && !$this->is_sanitized_separator($meta[$key])) {
+                    $out[] = $this->diagnostic(
+                        $path,
+                        "meta.$key",
+                        "The Events Calendar $key must already match its native separator sanitizer shape"
+                    );
+                }
+            }
         }
 
         $linkedStringMeta = [
             'tribe_venue' => [
                 '_VenueAddress', '_VenueCity', '_VenueCountry', '_VenueOrigin', '_VenuePhone',
-                '_VenueProvince', '_VenueShowMap', '_VenueShowMapLink', '_VenueState',
-                '_VenueStateProvince', '_VenueURL', '_VenueZip',
+                '_VenueProvince', '_VenueState', '_VenueStateProvince', '_VenueURL', '_VenueZip',
             ],
             'tribe_organizer' => ['_OrganizerEmail', '_OrganizerOrigin', '_OrganizerPhone', '_OrganizerWebsite'],
         ];
         foreach ($linkedPosts as [$entity, $front]) {
             $path = (string) ($entity['path'] ?? '');
             $meta = (array) ($front['meta'] ?? []);
-            foreach ($linkedStringMeta[(string) $front['type']] as $key) {
+            $postType = (string) $front['type'];
+            foreach ($linkedStringMeta[$postType] as $key) {
                 if (array_key_exists($key, $meta) && !is_string($meta[$key])) {
                     $out[] = $this->diagnostic(
                         $path,
                         "meta.$key",
                         "The Events Calendar $key must remain one scalar string, not structured or serialized data"
+                    );
+                }
+            }
+            foreach (['_VenueLat', '_VenueLng', '_VenueOverwriteCoords'] as $key) {
+                if (array_key_exists($key, $meta)) {
+                    $out[] = $this->diagnostic(
+                        $path,
+                        "meta.$key",
+                        'The Events Calendar Pro/Event Aggregator coordinate state is outside the free-plugin adapter contract'
+                    );
+                }
+            }
+            $mapKeys = ['_EventShowMap', '_EventShowMapLink', '_VenueShowMap', '_VenueShowMapLink'];
+            if ($postType === 'tribe_venue') {
+                foreach ($mapKeys as $key) {
+                    if (array_key_exists($key, $meta) && !in_array($meta[$key], ['', '1', 'false'], true)) {
+                        $out[] = $this->diagnostic(
+                            $path,
+                            "meta.$key",
+                            "The Events Calendar venue $key must use the native empty/1/false wire value"
+                        );
+                    }
+                }
+            } else {
+                foreach ($mapKeys as $key) {
+                    if (array_key_exists($key, $meta)) {
+                        $out[] = $this->diagnostic(
+                            $path,
+                            "meta.$key",
+                            "The Events Calendar $key does not belong to a tribe_organizer post"
+                        );
+                    }
+                }
+            }
+            foreach (['_tribe_events_status', '_tribe_events_status_reason'] as $key) {
+                if (array_key_exists($key, $meta)) {
+                    $out[] = $this->diagnostic(
+                        $path,
+                        "meta.$key",
+                        "The Events Calendar $key belongs only to a tribe_events post"
                     );
                 }
             }
@@ -305,6 +449,22 @@ final class TheEventsCalendar {
             return null;
         }
         return $date;
+    }
+
+    private function is_sanitized_text_field(string $value): bool {
+        if (preg_match('//u', $value) !== 1
+            || str_contains($value, '<')
+            || preg_match('/%[a-f0-9]{2}/iD', $value) === 1
+            || preg_match('/[\x00-\x1f\x7f]/D', $value) === 1
+            || preg_match('/ {2,}/D', $value) === 1) {
+            return false;
+        }
+        return trim($value) === $value;
+    }
+
+    private function is_sanitized_separator(string $value): bool {
+        return preg_match('//u', $value) === 1
+            && strip_tags(htmlspecialchars_decode($value, ENT_QUOTES)) === $value;
     }
 
     /** @return array{code:string,path:string,locator:string,message:string} */

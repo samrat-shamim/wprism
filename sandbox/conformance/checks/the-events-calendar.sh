@@ -17,6 +17,7 @@ observe_tec() { # <conf1|conf2>
   file="$repo/.tmp-tec-observe.php"
   read -r -d '' OBSERVE_PHP <<'PHPEOF' || true
 <?php
+wp_set_current_user(1);
 $one = static function (string $type, string $title): WP_Post {
     $posts = get_posts([
         'post_type' => $type,
@@ -33,7 +34,12 @@ $event = $one('tribe_events', 'Duo Production Readiness Event 東京');
 $all_day = $one('tribe_events', 'Duo All Day Boundary Event');
 $delete_probe = $one('tribe_events', 'Duo Unsupported Delete Probe');
 $venue = $one('tribe_venue', 'Duo Readiness Hall 東京');
+$disabled_venue = $one('tribe_venue', 'Duo Map Disabled Venue');
+$absent_map_venue = $one('tribe_venue', 'Duo Map Metadata Absent Venue');
 $organizer = $one('tribe_organizer', 'Duo Readiness Team 東京');
+$organizer_accessibility = $one('tribe_organizer', 'Duo Accessibility Guild বাংলা');
+$organizer_night = $one('tribe_organizer', 'Duo Night Crew مرحبا');
+$organizers = [$organizer, $organizer_accessibility, $organizer_night];
 $category = get_term_by('slug', 'duo-readiness-category', 'tribe_events_cat');
 if (!$category instanceof WP_Term) {
     throw new RuntimeException('TEC event category is missing');
@@ -71,14 +77,100 @@ $category_dropdown = array_values(array_filter(
 if (count($category_dropdown) !== 1) {
     throw new RuntimeException('TEC native Category Colors dropdown did not return the fixture category');
 }
+$editor_meta = new Tribe__Events__Editor__Meta();
+$editor_meta->register();
+$status_editor = tribe(\Tribe\Events\Event_Status\Classic_Editor::class);
+$status_editor->register_fields();
+$registered = get_registered_meta_keys('post');
+$registered_contract = [];
+foreach ([
+    '_EventCostDescription',
+    '_EventDateTimeSeparator',
+    '_EventTimeRangeSeparator',
+    '_EventOrganizerID',
+    '_VenueLat',
+    '_VenueLng',
+    '_tribe_events_status',
+    '_tribe_events_status_reason',
+] as $key) {
+    $args = $registered[$key] ?? [];
+    $callback = $args['sanitize_callback'] ?? null;
+    $registered_contract[$key] = [
+        'callback' => is_array($callback)
+            ? get_class($callback[0]) . '::' . $callback[1]
+            : (is_string($callback) ? $callback : get_debug_type($callback)),
+        'rest' => $args['show_in_rest'] ?? null,
+        'single' => $args['single'] ?? null,
+        'type' => $args['type'] ?? null,
+    ];
+}
+$map_meta = static function (WP_Post $post): array {
+    $values = [];
+    foreach (['_EventShowMap', '_EventShowMapLink', '_VenueShowMap', '_VenueShowMapLink'] as $key) {
+        $values[$key] = metadata_exists('post', $post->ID, $key)
+            ? get_post_meta($post->ID, $key, true)
+            : null;
+    }
+    return [
+        'embed' => tribe_embed_google_map($post->ID),
+        'link' => tribe_show_google_map_link($post->ID),
+        'meta' => $values,
+    ];
+};
+$optional_editor_meta = static function (WP_Post $post): array {
+    $values = [];
+    foreach (['_EventCostDescription', '_EventDateTimeSeparator', '_EventTimeRangeSeparator'] as $key) {
+        $values[$key] = metadata_exists('post', $post->ID, $key)
+            ? get_post_meta($post->ID, $key, true)
+            : null;
+    }
+    return $values;
+};
+$rest_meta = static function (WP_Post $post): array {
+    $request = new WP_REST_Request('GET', '/wp/v2/tribe_events/' . $post->ID);
+    $request->set_param('context', 'edit');
+    $response = rest_do_request($request);
+    if ($response->get_status() !== 200) {
+        throw new RuntimeException(
+            "TEC core REST readback failed for {$post->ID}: " . wp_json_encode($response->get_data())
+        );
+    }
+    $meta = (array) ($response->get_data()['meta'] ?? []);
+    return [
+        'cost_description' => $meta['_EventCostDescription'] ?? null,
+        'date_time_separator' => $meta['_EventDateTimeSeparator'] ?? null,
+        'organizers' => $meta['_EventOrganizerID'] ?? null,
+        'status' => $meta['_tribe_events_status'] ?? null,
+        'status_reason' => $meta['_tribe_events_status_reason'] ?? null,
+        'time_range_separator' => $meta['_EventTimeRangeSeparator'] ?? null,
+    ];
+};
+$status_meta = static function (WP_Post $post) use ($rest_meta): array {
+    $model = tribe_get_event($post->ID);
+    return [
+        'model_reason' => $model instanceof WP_Post ? $model->event_status_reason : null,
+        'model_status' => $model instanceof WP_Post ? $model->event_status : null,
+        'raw_reason' => metadata_exists('post', $post->ID, '_tribe_events_status_reason')
+            ? get_post_meta($post->ID, '_tribe_events_status_reason', true)
+            : null,
+        'raw_status' => metadata_exists('post', $post->ID, '_tribe_events_status')
+            ? get_post_meta($post->ID, '_tribe_events_status', true)
+            : null,
+        'rest' => $rest_meta($post),
+    ];
+};
 echo wp_json_encode([
     'all_day' => [
         'all_day' => get_post_meta($all_day->ID, '_EventAllDay', true),
         'end' => get_post_meta($all_day->ID, '_EventEndDate', true),
         'id' => (int) $all_day->ID,
+        'editor_meta' => $optional_editor_meta($all_day),
         'occurrence' => $all_day_occurrence,
         'organizer' => get_post_meta($all_day->ID, '_EventOrganizerID', true),
+        'map' => $map_meta($all_day),
+        'permalink' => get_permalink($all_day),
         'start' => get_post_meta($all_day->ID, '_EventStartDate', true),
+        'status' => $status_meta($all_day),
         'venue' => get_post_meta($all_day->ID, '_EventVenueID', true),
     ],
     'cache' => $cache,
@@ -89,11 +181,18 @@ echo wp_json_encode([
         'meta' => $category_meta,
     ],
     'category_css' => get_option('tec_events_category_color_css', null),
-    'delete_probe' => (int) $delete_probe->ID,
+    'delete_probe' => [
+        'id' => (int) $delete_probe->ID,
+        'permalink' => get_permalink($delete_probe),
+        'status' => $status_meta($delete_probe),
+    ],
+    'delete_probe_map' => $map_meta($delete_probe),
+    'editor_meta_contract' => $registered_contract,
     'event' => [
         'category_ids' => array_map('intval', wp_get_post_terms($event->ID, 'tribe_events_cat', ['fields' => 'ids'])),
         'content' => $event->post_content,
         'cost' => get_post_meta($event->ID, '_EventCost', true),
+        'cost_description' => get_post_meta($event->ID, '_EventCostDescription', true),
         'currency_code' => get_post_meta($event->ID, '_EventCurrencyCode', true),
         'currency_position' => get_post_meta($event->ID, '_EventCurrencyPosition', true),
         'currency_symbol' => get_post_meta($event->ID, '_EventCurrencySymbol', true),
@@ -101,7 +200,14 @@ echo wp_json_encode([
         'featured' => get_post_meta($event->ID, '_tribe_featured', true),
         'id' => (int) $event->ID,
         'occurrence' => $occurrence,
+        'map' => $map_meta($event),
         'organizer' => (int) get_post_meta($event->ID, '_EventOrganizerID', true),
+        'organizer_helper' => array_map('intval', tribe_get_organizer_ids($event->ID)),
+        'organizer_names' => array_map(
+            static fn($id): string => get_the_title((int) $id),
+            tribe_get_organizer_ids($event->ID)
+        ),
+        'organizer_rows' => array_map('intval', get_post_meta($event->ID, '_EventOrganizerID', false)),
         'permalink' => get_permalink($event),
         'phone' => get_post_meta($event->ID, '_EventPhone', true),
         'repository_id' => $repository_event ? (int) $repository_event->ID : 0,
@@ -109,16 +215,40 @@ echo wp_json_encode([
         'start' => get_post_meta($event->ID, '_EventStartDate', true),
         'tags' => wp_get_post_terms($event->ID, 'post_tag', ['fields' => 'names']),
         'timezone' => get_post_meta($event->ID, '_EventTimezone', true),
+        'preview_organizers' => get_post_meta($event->ID, '_preview_organizers', true),
+        'preview_venues' => get_post_meta($event->ID, '_preview_venues', true),
+        'rest' => $rest_meta($event),
+        'status' => $status_meta($event),
+        'date_time_separator' => get_post_meta($event->ID, '_EventDateTimeSeparator', true),
+        'time_range_separator' => get_post_meta($event->ID, '_EventTimeRangeSeparator', true),
         'url' => get_post_meta($event->ID, '_EventURL', true),
         'venue' => (int) get_post_meta($event->ID, '_EventVenueID', true),
     ],
     'home' => home_url('/'),
+    'map_boundary_venues' => [
+        'absent' => [
+            'id' => (int) $absent_map_venue->ID,
+            'map' => $map_meta($absent_map_venue),
+        ],
+        'disabled' => [
+            'id' => (int) $disabled_venue->ID,
+            'map' => $map_meta($disabled_venue),
+        ],
+    ],
     'organizer' => [
         'email' => get_post_meta($organizer->ID, '_OrganizerEmail', true),
         'id' => (int) $organizer->ID,
         'phone' => get_post_meta($organizer->ID, '_OrganizerPhone', true),
         'website' => get_post_meta($organizer->ID, '_OrganizerWebsite', true),
     ],
+    'organizers' => array_map(static function (WP_Post $post): array {
+        return [
+            'email' => get_post_meta($post->ID, '_OrganizerEmail', true),
+            'id' => (int) $post->ID,
+            'name' => $post->post_title,
+            'website' => get_post_meta($post->ID, '_OrganizerWebsite', true),
+        ];
+    }, $organizers),
     'options' => [
         'after' => $option['tribeEventsAfterHTML'] ?? null,
         'before' => $option['tribeEventsBeforeHTML'] ?? null,
@@ -127,7 +257,10 @@ echo wp_json_encode([
         'currency_code' => $option['defaultCurrencyCode'] ?? null,
         'default_organizer' => (int) ($option['eventsDefaultOrganizerID'] ?? 0),
         'default_venue' => (int) ($option['eventsDefaultVenueID'] ?? 0),
+        'debug' => $option['debugEvents'] ?? null,
+        'delete_past' => $option['delete-past-events'] ?? null,
         'eb_secret' => $option['eb_security_key'] ?? null,
+        'month_cache' => $option['enable_month_view_cache'] ?? null,
         'events_slug' => $option['eventsSlug'] ?? null,
         'maps_key' => $option['google_maps_js_api_key'] ?? null,
         'seo_behavior' => $option['tec_seo_out_of_range_behavior'] ?? null,
@@ -135,6 +268,7 @@ echo wp_json_encode([
         'source_only' => $option['duo_source_only_secret'] ?? null,
         'target_only' => $option['duo_target_only_runtime'] ?? null,
         'timezone_mode' => $option['tribe_events_timezone_mode'] ?? null,
+        'trash_past' => $option['trash-past-events'] ?? null,
         'views' => $option['tribeEnableViews'] ?? null,
     ],
     'venue' => [
@@ -142,6 +276,8 @@ echo wp_json_encode([
         'city' => get_post_meta($venue->ID, '_VenueCity', true),
         'country' => get_post_meta($venue->ID, '_VenueCountry', true),
         'id' => (int) $venue->ID,
+        'coordinates' => tribe_get_coordinates($venue->ID),
+        'map' => $map_meta($venue),
         'phone' => get_post_meta($venue->ID, '_VenuePhone', true),
         'province' => get_post_meta($venue->ID, '_VenueProvince', true),
         'state_province' => get_post_meta($venue->ID, '_VenueStateProvince', true),
@@ -196,6 +332,37 @@ TARGET_IDS_FILE="${CONF_REPO2:-siterepo/conf2}/.tmp-tec-target-ids.json"
 [ -f "$TARGET_IDS_FILE" ] || fail "TEC target identity premise is missing: $TARGET_IDS_FILE"
 SOURCE_IDS=$(cat "$SOURCE_IDS_FILE")
 TARGET_IDS=$(cat "$TARGET_IDS_FILE")
+TEC_SOURCE_EVENT_STATE=$(grep -RlF '"title": "Duo Production Readiness Event 東京"' \
+  "${CONF_REPO1:-siterepo/conf1}/state/posts/tribe_events" || true)
+[ -n "$TEC_SOURCE_EVENT_STATE" ] && [ "$(printf '%s\n' "$TEC_SOURCE_EVENT_STATE" | wc -l | tr -d ' ')" = 1 ] \
+  || fail "TEC canonical source event was not unique: $TEC_SOURCE_EVENT_STATE"
+TEC_SOURCE_EVENT_JSON=$(awk '
+  NR == 1 && $0 == "---" { front = 1; next }
+  front && $0 == "---" { exit }
+  front { print }
+' "$TEC_SOURCE_EVENT_STATE")
+printf '%s\n' "$TEC_SOURCE_EVENT_JSON" | jq -e '
+  (.meta._EventOrganizerID | type) == "array" and
+  (.meta._EventOrganizerID | length) == 3 and
+  (.meta._EventOrganizerID | unique | length) == 3 and
+  all(.meta._EventOrganizerID[]; test("^\\{\\{post:[0-9a-f-]{36}\\}\\}$")) and
+  .meta._tribe_events_status == "canceled" and
+  .meta._tribe_events_status_reason == "Weather <strong>closure</strong> 東京 — doors remain shut." and
+  (.meta | has("_preview_organizers") | not) and
+  (.meta | has("_preview_venues") | not)
+' >/dev/null || fail "TEC canonical source did not carry exact ordered organizers/status or retained runtime previews"
+TEC_SOURCE_OPTIONS="${CONF_REPO1:-siterepo/conf1}/state/options/core.json"
+jq -e '
+  .records.tribe_events_calendar_options.value as $o |
+  ($o | has("debugEvents") | not) and
+  ($o | has("enable_month_view_cache") | not) and
+  ($o | has("trash-past-events") | not) and
+  ($o | has("delete-past-events") | not) and
+  ($o | has("google_maps_js_api_key") | not) and
+  ($o | has("duo_source_only_secret") | not)
+' "$TEC_SOURCE_OPTIONS" >/dev/null \
+  || fail "TEC canonical mixed option captured an operational/secret target-owned sibling"
+pass "canonical TEC state preserves ordered organizer rows and status while excluding preview, operational, and secret state"
 SOURCE=$(observe_tec conf1)
 TARGET=$(observe_tec conf2)
 TEC_EXPECTED_VERSION="${TEC_EXPECTED_VERSION:-6.17.3}"
@@ -206,26 +373,61 @@ printf '%s\n' "$TARGET" | jq -e \
   --argjson dirty "$TARGET_IDS" '
   .home as $home |
   .version == $version and
-  .event.id == $dirty.dirty_event and .venue.id == $dirty.venue and
+  .event.id == $dirty.dirty_event and .all_day.id == $dirty.all_day and
+  .delete_probe.id == $dirty.delete_probe and .venue.id == $dirty.venue and
   .organizer.id == $dirty.organizer and .category.id == $dirty.category and
+  .map_boundary_venues.disabled.id != $source.disabled_venue and
+  .map_boundary_venues.absent.id != $source.absent_map_venue and
   .event.id != $source.event and .venue.id != $source.venue and
   .organizer.id != $source.organizer and .category.id != $source.category and
-  .event.id >= 7000000000 and .category.id >= 7100000000 and
+  .event.id >= 7000000000 and .all_day.id >= 7000000000 and .delete_probe.id >= 7000000000 and
+  .category.id >= 7100000000 and
+  .map_boundary_venues.disabled.id >= 7000000000 and .map_boundary_venues.absent.id >= 7000000000 and
   .event.repository_id == .event.id and .event.venue == .venue.id and
-  .event.organizer == .organizer.id and .event.category_ids == [.category.id] and
+  (.organizers | map(.id)) == $dirty.organizers and
+  .event.organizer == .organizer.id and .event.organizer_rows == ($dirty.organizers) and
+  .event.organizer_helper == ($dirty.organizers) and .event.rest.organizers == ($dirty.organizers) and
+  .event.organizer_names == ["Duo Readiness Team 東京","Duo Accessibility Guild বাংলা","Duo Night Crew مرحبا"] and
+  .event.preview_organizers == [$dirty.organizers[2],$dirty.organizers[0],$dirty.organizers[1]] and
+  .event.preview_venues == [$dirty.venue] and .event.category_ids == [.category.id] and
   .event.start == "2026-09-05 22:30:00" and .event.end == "2026-09-06 01:45:00" and
   .event.timezone == "Asia/Kathmandu" and .event.cost == "125.50" and
+  .event.cost_description == "Admission details 東京 — bring ID" and
+  .event.date_time_separator == " · at · " and .event.time_range_separator == " · until · " and
+  .event.rest.cost_description == .event.cost_description and
+  .event.rest.date_time_separator == .event.date_time_separator and
+  .event.rest.time_range_separator == .event.time_range_separator and
+  .event.status == {
+    model_reason:"Weather <strong>closure</strong> 東京 — doors remain shut.",
+    model_status:"canceled",
+    raw_reason:"Weather <strong>closure</strong> 東京 — doors remain shut.",
+    raw_status:"canceled",
+    rest:{
+      cost_description:"Admission details 東京 — bring ID",
+      date_time_separator:" · at · ",
+      organizers:$dirty.organizers,
+      status:"canceled",
+      status_reason:"Weather <strong>closure</strong> 東京 — doors remain shut.",
+      time_range_separator:" · until · "
+    }
+  } and
   .event.currency_code == "NPR" and .event.currency_position == "postfix" and
   .event.currency_symbol == "रु" and .event.featured == "1" and
   .event.phone == "+977-555-0199" and
+  .event.map == {embed:true,link:true,meta:{_EventShowMap:"1",_EventShowMapLink:"1",_VenueShowMap:null,_VenueShowMapLink:null}} and
   .event.occurrence.start_date == .event.start and .event.occurrence.end_date == .event.end and
   .event.row.start_date == .event.start and .event.row.end_date == .event.end and
   .event.row.timezone == .event.timezone and
   (.event.content | length > 25000) and (.event.content | contains("বাংলা")) and
   (.event.content | contains($home)) and (.event.url | startswith($home)) and
-  .venue.city == "Kathmandu" and .venue.country == "Nepal" and
+  .venue.city == "Kathmandu" and .venue.country == "Nepal" and .venue.coordinates == {lat:0,lng:0} and
+  .venue.map == {embed:true,link:true,meta:{_EventShowMap:null,_EventShowMapLink:null,_VenueShowMap:"1",_VenueShowMapLink:"1"}} and
+  .map_boundary_venues.disabled.map == {embed:false,link:false,meta:{_EventShowMap:"false",_EventShowMapLink:"false",_VenueShowMap:"false",_VenueShowMapLink:"false"}} and
+  .map_boundary_venues.absent.map == {embed:false,link:false,meta:{_EventShowMap:null,_EventShowMapLink:null,_VenueShowMap:null,_VenueShowMapLink:null}} and
   (.venue.address | contains("ভবন ৭")) and (.venue.website | startswith($home)) and
   .organizer.email == "events@example.test" and (.organizer.website | startswith($home)) and
+  (.organizers | map(.email)) == ["events@example.test","accessibility@example.test","night@example.test"] and
+  all(.organizers[]; (.website | startswith($home))) and
   .category.description == "Portable category description — বাংলা — مرحبا" and
   .category.meta == {primary:"#123abc",secondary:"#fedcba",text:"#ffffff",priority:"17",hidden:"0"} and
   .category.dropdown.primary == "#123abc" and .category.dropdown.slug == "duo-readiness-category" and
@@ -235,13 +437,34 @@ printf '%s\n' "$TARGET" | jq -e \
   (.category_css | contains("--tec-color-category-secondary:#fedcba")) and
   (.category_css | contains("--tec-color-category-text:#ffffff")) and
   .all_day.all_day == "yes" and .all_day.venue == "" and .all_day.organizer == "" and
+  .all_day.status.raw_status == "postponed" and .all_day.status.model_status == "postponed" and
+  .all_day.status.raw_reason == "" and .all_day.status.model_reason == "" and
+  .all_day.status.rest.status == "postponed" and .all_day.status.rest.status_reason == "" and
+  .all_day.editor_meta == {_EventCostDescription:null,_EventDateTimeSeparator:null,_EventTimeRangeSeparator:null} and
+  .all_day.map == {embed:false,link:false,meta:{_EventShowMap:"",_EventShowMapLink:"",_VenueShowMap:null,_VenueShowMapLink:null}} and
+  .delete_probe_map == {embed:false,link:false,meta:{_EventShowMap:null,_EventShowMapLink:null,_VenueShowMap:null,_VenueShowMapLink:null}} and
+  .delete_probe.status.raw_status == null and .delete_probe.status.raw_reason == null and
+  .delete_probe.status.model_status == "" and .delete_probe.status.model_reason == "" and
+  .delete_probe.status.rest.status == "" and .delete_probe.status.rest.status_reason == "" and
   .all_day.occurrence.start_date == .all_day.start and .all_day.occurrence.end_date == .all_day.end and
+  .editor_meta_contract == {
+    _EventCostDescription:{callback:"sanitize_text_field",rest:true,single:true,type:"string"},
+    _EventDateTimeSeparator:{callback:"Tribe__Events__Editor__Meta::sanitize_separator",rest:true,single:true,type:"string"},
+    _EventTimeRangeSeparator:{callback:"Tribe__Events__Editor__Meta::sanitize_separator",rest:true,single:true,type:"string"},
+    _EventOrganizerID:{callback:"Tribe__Events__Editor__Meta::sanitize_numeric_array",rest:true,single:false,type:"number"},
+    _VenueLat:{callback:"sanitize_text_field",rest:true,single:true,type:"string"},
+    _VenueLng:{callback:"sanitize_text_field",rest:true,single:true,type:"string"},
+    _tribe_events_status:{callback:"null",rest:true,single:true,type:"string"},
+    _tribe_events_status_reason:{callback:"null",rest:true,single:true,type:"string"}
+  } and
   .options.events_slug == "calendar-readiness" and .options.single_slug == "readiness-event" and
   .options.views == ["list","month"] and .options.currency_code == "NPR" and
   .options.default_venue == .venue.id and .options.default_organizer == .organizer.id and
   .options.category_frontend == true and .options.seo_behavior == "soft_noindex" and
   .options.category_show_hidden == false and
   .options.timezone_mode == "event" and
+  .options.debug == false and .options.month_cache == true and
+  .options.trash_past == 12 and .options.delete_past == 24 and
   .options.maps_key == "target-maps-key-preserved" and
   .options.eb_secret == "target-event-aggregator-secret-preserved" and
   .options.target_only == "target-option-preserved" and .options.source_only == null and
@@ -256,8 +479,36 @@ require_observed_nonempty "TEC target event response" "$FRONT"
 [ "${#FRONT}" -ge 20000 ] || fail "TEC target event response was suspiciously short (${#FRONT} bytes)"
 grep -qF 'Duo Production Readiness Event 東京' <<<"$FRONT" || fail "TEC target event response lost the title"
 grep -qF 'Portable long event body' <<<"$FRONT" || fail "TEC target event response lost the long body"
+grep -qF 'Admission details 東京 — bring ID' <<<"$FRONT" \
+  || fail "TEC target event response lost the Gutenberg price description"
+grep -qF '· at ·' <<<"$FRONT" || fail "TEC target event response lost the date/time separator"
+grep -qF '· until ·' <<<"$FRONT" || fail "TEC target event response lost the time-range separator"
+for organizer_name in 'Duo Readiness Team 東京' 'Duo Accessibility Guild বাংলা' 'Duo Night Crew مرحبا'; do
+  grep -qF "$organizer_name" <<<"$FRONT" \
+    || fail "TEC target event response lost organizer: $organizer_name"
+done
+grep -qF 'tribe-events-status-single--canceled' <<<"$FRONT" \
+  || fail "TEC target event response did not render the native canceled status"
+grep -qF 'Weather <strong>closure</strong> 東京 — doors remain shut.' <<<"$FRONT" \
+  || fail "TEC target event response did not render the kses-preserved canceled reason"
 ! grep -qF '.tribe_events_cat-duo-readiness-category{' <<<"$FRONT" \
   || fail "TEC singular event unexpectedly enqueued archive-only Category Colors CSS"
+
+ALL_DAY_PERMALINK=$(jq -er '.all_day.permalink' <<<"$TARGET")
+ALL_DAY_FRONT=$(curl -fsSL "$ALL_DAY_PERMALINK") \
+  || fail "TEC target postponed event permalink did not return 200: $ALL_DAY_PERMALINK"
+grep -qF 'tribe-events-status-single--postponed' <<<"$ALL_DAY_FRONT" \
+  || fail "TEC target all-day event did not render the native postponed status"
+! grep -qF 'Target stale all-day reason.' <<<"$ALL_DAY_FRONT" \
+  || fail "TEC target postponed event retained its stale status reason"
+
+DELETE_PROBE_PERMALINK=$(jq -er '.delete_probe.permalink' <<<"$TARGET")
+DELETE_PROBE_FRONT=$(curl -fsSL "$DELETE_PROBE_PERMALINK") \
+  || fail "TEC scheduled-as-absence event permalink did not return 200: $DELETE_PROBE_PERMALINK"
+! grep -qF 'tribe-events-status-single-notice' <<<"$DELETE_PROBE_FRONT" \
+  || fail "TEC scheduled-as-absence event rendered a stale status notice"
+! grep -qF 'Target stale reason must be deleted.' <<<"$DELETE_PROBE_FRONT" \
+  || fail "TEC scheduled-as-absence event retained its stale status reason"
 ARCHIVE=$(curl -fsSL "http://localhost:${CONF2_PORT}/calendar-readiness/") \
   || fail "TEC authored archive slug did not resolve after rewrite repair"
 grep -qF 'Readiness before 東京' <<<"$ARCHIVE" || fail "TEC archive lost authored before HTML"
@@ -265,7 +516,7 @@ grep -qF 'Readiness after বাংলা' <<<"$ARCHIVE" || fail "TEC archive lo
 grep -qF '.tribe_events_cat-duo-readiness-category{' <<<"$ARCHIVE" \
   || fail "TEC archive did not enqueue the native Category Colors selector"
 grep -qF '#123abc' <<<"$ARCHIVE" || fail "TEC archive did not carry the authored primary category color"
-pass "single/archive frontends follow TEC's singular exclusion and archive-only native Category Colors behavior"
+pass "native Gutenberg editor meta, ordered organizers, canceled/postponed/scheduled statuses, and Category Colors render exactly"
 
 if [ "${TEC_BOUNDARY_ONLY:-0}" = 1 ]; then
   pass "TEC exact-boundary native round trip is clean"
@@ -342,6 +593,9 @@ wp_conf1 eval '
     "content"=>$p->post_content,
     "start"=>get_post_meta($p->ID,"_EventStartDate",true),
     "cost"=>get_post_meta($p->ID,"_EventCost",true),
+    "organizers"=>get_post_meta($p->ID,"_EventOrganizerID",false),
+    "status"=>get_post_meta($p->ID,"_tribe_events_status",true),
+    "status_reason"=>get_post_meta($p->ID,"_tribe_events_status_reason",true),
   ],JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
 ' >/dev/null
 
@@ -395,6 +649,74 @@ wp_conf1 eval '
   update_post_meta($p->ID,"_EventCost",$b["cost"]);
 ' >/dev/null
 
+ORGANIZER_DUP_DIR="${CONF_REPO1:-siterepo/conf1}/.tmp-tec-organizer-duplicate"
+rm -rf "$ORGANIZER_DUP_DIR"
+wp_conf1 eval '
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  $ids=get_post_meta($p->ID,"_EventOrganizerID",false);
+  if(count($ids)!==3||!add_post_meta($p->ID,"_EventOrganizerID",$ids[0])) throw new RuntimeException("duplicate organizer probe failed");
+' >/dev/null
+ORGANIZER_DUP_RC=0
+ORGANIZER_DUP_OUT=$(wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-tec-organizer-duplicate 2>&1) \
+  || ORGANIZER_DUP_RC=$?
+require_duo_answered "TEC duplicate organizer row capture" human "$ORGANIZER_DUP_OUT"
+[ "$ORGANIZER_DUP_RC" -ne 0 ] \
+  && grep -Fq "repeated-row authored meta '_EventOrganizerID'" <<<"$ORGANIZER_DUP_OUT" \
+  && grep -Fq 'contains a duplicate value' <<<"$ORGANIZER_DUP_OUT" \
+  || fail "TEC duplicate physical organizer row did not refuse exactly: $ORGANIZER_DUP_OUT"
+[ ! -e "$ORGANIZER_DUP_DIR" ] || fail "TEC duplicate organizer refusal published isolated output"
+wp_conf1 eval '
+  $b=json_decode(file_get_contents("/siterepo/.tmp-tec-schema-backup.json"),true,512,JSON_THROW_ON_ERROR);
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  delete_post_meta($p->ID,"_EventOrganizerID");
+  foreach($b["organizers"] as $id){if(!add_post_meta($p->ID,"_EventOrganizerID",$id))throw new RuntimeException("organizer restore failed");}
+  if(get_post_meta($p->ID,"_EventOrganizerID",false)!==$b["organizers"])throw new RuntimeException("organizer order restore failed");
+' >/dev/null
+rm -rf "$ORGANIZER_DUP_DIR"
+
+STATUS_BAD_DIR="${CONF_REPO1:-siterepo/conf1}/.tmp-tec-status-malformed"
+rm -rf "$STATUS_BAD_DIR"
+wp_conf1 eval '
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  update_post_meta($p->ID,"_tribe_events_status","rescheduled");
+' >/dev/null
+STATUS_BAD_RC=0
+STATUS_BAD_OUT=$(wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-tec-status-malformed 2>&1) \
+  || STATUS_BAD_RC=$?
+require_duo_answered "TEC unknown event status capture" human "$STATUS_BAD_OUT"
+[ "$STATUS_BAD_RC" -ne 0 ] \
+  && grep -Fq 'stored event status must be canceled or postponed' <<<"$STATUS_BAD_OUT" \
+  || fail "TEC unknown event status did not refuse through the shipped interpreter: $STATUS_BAD_OUT"
+[ ! -e "$STATUS_BAD_DIR" ] || fail "TEC unknown status refusal published isolated output"
+wp_conf1 eval '
+  $b=json_decode(file_get_contents("/siterepo/.tmp-tec-schema-backup.json"),true,512,JSON_THROW_ON_ERROR);
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  update_post_meta($p->ID,"_tribe_events_status",$b["status"]);
+  update_post_meta($p->ID,"_tribe_events_status_reason",$b["status_reason"]);
+' >/dev/null
+rm -rf "$STATUS_BAD_DIR"
+
+STATUS_REASON_DIR="${CONF_REPO1:-siterepo/conf1}/.tmp-tec-status-reason-malformed"
+rm -rf "$STATUS_REASON_DIR"
+wp_conf1 eval '
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  update_post_meta($p->ID,"_tribe_events_status_reason",["not"=>"a string"]);
+' >/dev/null
+STATUS_REASON_RC=0
+STATUS_REASON_OUT=$(wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-tec-status-reason-malformed 2>&1) \
+  || STATUS_REASON_RC=$?
+require_duo_answered "TEC non-string event status reason capture" human "$STATUS_REASON_OUT"
+[ "$STATUS_REASON_RC" -ne 0 ] \
+  && grep -Fq 'event status reason must remain one scalar string' <<<"$STATUS_REASON_OUT" \
+  || fail "TEC structured event status reason did not refuse through the shipped interpreter: $STATUS_REASON_OUT"
+[ ! -e "$STATUS_REASON_DIR" ] || fail "TEC malformed status reason refusal published isolated output"
+wp_conf1 eval '
+  $b=json_decode(file_get_contents("/siterepo/.tmp-tec-schema-backup.json"),true,512,JSON_THROW_ON_ERROR);
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  update_post_meta($p->ID,"_tribe_events_status_reason",$b["status_reason"]);
+' >/dev/null
+rm -rf "$STATUS_REASON_DIR"
+
 wp_conf1 eval '
   $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
   update_post_meta($p->ID,"_EventStartDate","2026-02-30 01:02:03");
@@ -424,6 +746,45 @@ wp_conf1 eval '
 
 wp_conf1 eval '
   $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  update_post_meta($p->ID,"_EventRecurrenceRRULE","FREQ=WEEKLY;COUNT=3");
+' >/dev/null
+RRULE_RC=0
+RRULE_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || RRULE_RC=$?
+[ "$RRULE_RC" -ne 0 ] && grep -Eqi '_EventRecurrenceRRULE|recurrence|unclassified' <<<"$RRULE_OUT" \
+  || fail "TEC Pro RRULE state did not refuse in the free adapter: $RRULE_OUT"
+wp_conf1 eval '
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  delete_post_meta($p->ID,"_EventRecurrenceRRULE");
+' >/dev/null
+
+wp_conf1 eval '
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  update_post_meta($p->ID,"_tribe_aggregator_global_id","outside-free-contract");
+' >/dev/null
+IMPORT_RC=0
+IMPORT_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || IMPORT_RC=$?
+[ "$IMPORT_RC" -ne 0 ] && grep -Eqi '_tribe_aggregator_global_id|aggregator|unclassified' <<<"$IMPORT_OUT" \
+  || fail "TEC Event Aggregator state did not refuse in the free adapter: $IMPORT_OUT"
+wp_conf1 eval '
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  delete_post_meta($p->ID,"_tribe_aggregator_global_id");
+' >/dev/null
+
+wp_conf1 eval '
+  $v=get_posts(["post_type"=>"tribe_venue","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Readiness Hall 東京"])[0];
+  update_post_meta($v->ID,"_VenueLat","27.7172");
+' >/dev/null
+COORDINATE_RC=0
+COORDINATE_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || COORDINATE_RC=$?
+[ "$COORDINATE_RC" -ne 0 ] && grep -Eqi '_VenueLat|coordinate|unclassified' <<<"$COORDINATE_OUT" \
+  || fail "TEC Pro/Event Aggregator coordinate state did not refuse in the free adapter: $COORDINATE_OUT"
+wp_conf1 eval '
+  $v=get_posts(["post_type"=>"tribe_venue","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Readiness Hall 東京"])[0];
+  delete_post_meta($v->ID,"_VenueLat");
+' >/dev/null
+
+wp_conf1 eval '
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
   update_post_meta($p->ID,"_EventCost",["future"=>"schema"]);
 ' >/dev/null
 COST_RC=0
@@ -436,7 +797,7 @@ wp_conf1 eval '
   update_post_meta($p->ID,"_EventCost",$b["cost"]);
 ' >/dev/null
 rm -f "$SCHEMA_BACKUP"
-pass "body-secret warnings redact; authored-meta secrets, impossible dates, paid recurrence, and structured scalars refuse atomically"
+pass "body warnings redact; authored secrets, malformed status/organizers, dates/scalars, and paid/import/coordinate surfaces refuse atomically"
 
 # The adapter grants no semantic event deletion. Remove only wp_posts so the
 # exact row can be restored after capture proves no tombstone was published.

@@ -39,14 +39,23 @@ $venue = tribe_venues()->set_args([
     'country' => 'Target stale country',
     'website' => home_url('/target-stale-venue/'),
 ])->create();
-$organizer = tribe_organizers()->set_args([
-    'organizer' => 'Duo Readiness Team 東京',
-    'email' => 'target-stale@example.test',
-    'website' => home_url('/target-stale-organizer/'),
-])->create();
-if (!$venue || !$venue->ID || !$organizer || !$organizer->ID) {
+$organizers = [];
+foreach ([
+    ['organizer' => 'Duo Readiness Team 東京', 'email' => 'target-stale@example.test'],
+    ['organizer' => 'Duo Accessibility Guild বাংলা', 'email' => 'target-stale-accessibility@example.test'],
+    ['organizer' => 'Duo Night Crew مرحبا', 'email' => 'target-stale-night@example.test'],
+] as $organizer_args) {
+    $organizer_args['website'] = home_url('/target-stale-organizer/');
+    $organizers[] = tribe_organizers()->set_args($organizer_args)->create();
+}
+$organizer = $organizers[0];
+if (!$venue || !$venue->ID || count(array_filter(
+    $organizers,
+    static fn($candidate): bool => $candidate && $candidate->ID
+)) !== 3) {
     throw new RuntimeException('TEC did not create hostile linked target rows');
 }
+$organizer_ids = array_map(static fn($candidate): int => (int) $candidate->ID, $organizers);
 
 $dirty = tribe_events()->set_args([
     'title' => 'Duo Production Readiness Event 東京',
@@ -56,12 +65,56 @@ $dirty = tribe_events()->set_args([
     'end_date' => '2031-01-02 04:00:00',
     'timezone' => 'UTC',
     'venue' => (int) $venue->ID,
-    'organizer' => (int) $organizer->ID,
+    'organizers' => [$organizer_ids[2], $organizer_ids[0], $organizer_ids[1]],
 ])->create();
 if (!$dirty || !$dirty->ID) {
     throw new RuntimeException('TEC did not create the dirty same-slug target event');
 }
 wp_set_object_terms((int) $dirty->ID, [$category_id], 'tribe_events_cat');
+
+$dirty_all_day = tribe_events()->set_args([
+    'title' => 'Duo All Day Boundary Event',
+    'status' => 'publish',
+    'description' => 'Target-only stale all-day body.',
+    'start_date' => '2031-02-03 05:00:00',
+    'end_date' => '2031-02-03 06:00:00',
+    'timezone' => 'UTC',
+    'organizers' => [$organizer_ids[1]],
+    'venue' => (int) $venue->ID,
+])->create();
+$dirty_delete_probe = tribe_events()->set_args([
+    'title' => 'Duo Unsupported Delete Probe',
+    'status' => 'publish',
+    'description' => 'Target-only stale scheduled-state boundary.',
+    'start_date' => '2031-03-04 07:00:00',
+    'end_date' => '2031-03-04 08:00:00',
+    'timezone' => 'UTC',
+])->create();
+if (!$dirty_all_day || !$dirty_all_day->ID || !$dirty_delete_probe || !$dirty_delete_probe->ID) {
+    throw new RuntimeException('TEC did not create hostile status/deletion target rows');
+}
+
+$status_editor = tribe(\Tribe\Events\Event_Status\Classic_Editor::class);
+$status_editor->register_fields();
+$status_editor->update_fields((int) $dirty->ID, [
+    'status' => 'postponed',
+    'status-reason' => 'Target stale main reason.',
+]);
+$status_editor->update_fields((int) $dirty_all_day->ID, [
+    'status' => 'canceled',
+    'status-reason' => 'Target stale all-day reason.',
+]);
+$status_editor->update_fields((int) $dirty_delete_probe->ID, [
+    'status' => 'canceled',
+    'status-reason' => 'Target stale reason must be deleted.',
+]);
+
+$tec_main = Tribe__Events__Main::instance();
+$tec_main->link_preview_venue_to_event((int) $venue->ID, (int) $dirty->ID);
+$tec_main->link_preview_organizer_to_event(
+    [$organizer_ids[2], $organizer_ids[0], $organizer_ids[1]],
+    (int) $dirty->ID
+);
 
 $wpdb->update(
     $wpdb->prefix . 'tec_occurrences',
@@ -97,6 +150,10 @@ foreach ([
     'defaultCurrencyCode' => 'USD',
     'eventsDefaultVenueID' => (int) $venue->ID,
     'eventsDefaultOrganizerID' => (int) $organizer->ID,
+    'debugEvents' => false,
+    'enable_month_view_cache' => true,
+    'trash-past-events' => 12,
+    'delete-past-events' => 24,
     'category-color-enable-frontend' => false,
     'category-color-show-hidden-categories' => true,
     'tec_seo_out_of_range_behavior' => 'hard_404',
@@ -128,8 +185,11 @@ if (count($dirty_dropdown) !== 1 || ($dirty_dropdown[0]['primary'] ?? null) !== 
 
 echo wp_json_encode([
     'category' => $category_id,
+    'all_day' => (int) $dirty_all_day->ID,
+    'delete_probe' => (int) $dirty_delete_probe->ID,
     'dirty_event' => (int) $dirty->ID,
     'organizer' => (int) $organizer->ID,
+    'organizers' => $organizer_ids,
     'venue' => (int) $venue->ID,
 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 PHPEOF
@@ -141,9 +201,12 @@ TARGET_OUT=$(wp_conf2 eval-file /siterepo/.tmp-tec-target.php)
 require_observed_nonempty "TEC dirty target premise" "$TARGET_OUT"
 TARGET_JSON=$(printf '%s\n' "$TARGET_OUT" | awk 'NF { line=$0 } END { print line }')
 printf '%s\n' "$TARGET_JSON" | jq -e '
-  .dirty_event >= 7000000000 and .venue >= 7000000000 and .organizer >= 7000000000 and
+  .dirty_event >= 7000000000 and .all_day >= 7000000000 and .delete_probe >= 7000000000 and
+  .venue >= 7000000000 and .organizer >= 7000000000 and
+  (.organizers | length) == 3 and (.organizers | unique | length) == 3 and
+  all(.organizers[]; . >= 7000000000) and
   .category >= 7100000000
 ' >/dev/null || fail "TEC dirty target premise returned malformed or non-huge identities: $TARGET_JSON"
 printf '%s\n' "$TARGET_JSON" > "$TARGET_IDS_FILE"
 rm -f "$TARGET_FILE"
-pass "TEC target has huge divergent same-slug identities, stale projections/settings, and target-owned integration/cache state"
+pass "TEC target has huge divergent identities, reversed organizers, stale statuses/projections/settings, and target-owned runtime state"

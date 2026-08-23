@@ -39,18 +39,63 @@ $venue = tribe_venues()->set_args([
     'show_map' => true,
     'show_map_link' => true,
 ])->create();
-$organizer = tribe_organizers()->set_args([
-    'organizer' => 'Duo Readiness Team 東京',
-    'email' => 'events@example.test',
-    'phone' => '+977-555-0101',
-    'website' => home_url('/readiness-organizer/'),
-])->create();
-if (!$venue || !$venue->ID || !$organizer || !$organizer->ID) {
+$organizers = [];
+foreach ([
+    [
+        'organizer' => 'Duo Readiness Team 東京',
+        'email' => 'events@example.test',
+        'phone' => '+977-555-0101',
+        'website' => home_url('/readiness-organizer/'),
+    ],
+    [
+        'organizer' => 'Duo Accessibility Guild বাংলা',
+        'email' => 'accessibility@example.test',
+        'phone' => '+977-555-0102',
+        'website' => home_url('/readiness-accessibility/'),
+    ],
+    [
+        'organizer' => 'Duo Night Crew مرحبا',
+        'email' => 'night@example.test',
+        'phone' => '+977-555-0103',
+        'website' => home_url('/readiness-night-crew/'),
+    ],
+] as $organizer_args) {
+    $organizers[] = tribe_organizers()->set_args($organizer_args)->create();
+}
+$organizer = $organizers[0];
+if (!$venue || !$venue->ID || count(array_filter(
+    $organizers,
+    static fn($candidate): bool => $candidate && $candidate->ID
+)) !== 3) {
     throw new RuntimeException('TEC venue/organizer repositories did not create the source graph');
 }
+$organizer_ids = array_map(static fn($candidate): int => (int) $candidate->ID, $organizers);
 
+$disabled_venue_id = tribe_create_venue([
+    'Venue' => 'Duo Map Disabled Venue',
+    'Address' => '200 Native False Street',
+    'City' => 'Kathmandu',
+    'Country' => 'Nepal',
+    'ShowMap' => false,
+    'ShowMapLink' => false,
+]);
+$absent_map_venue = tribe_venues()->set_args([
+    'venue' => 'Duo Map Metadata Absent Venue',
+    'address' => '300 Legacy Boundary Street',
+    'city' => 'Kathmandu',
+    'country' => 'Nepal',
+])->create();
+if (!$disabled_venue_id || !$absent_map_venue || !$absent_map_venue->ID) {
+    throw new RuntimeException('TEC map-boundary venues did not create through native APIs');
+}
+
+$cost_description = 'Admission details 東京 — bring ID';
+$date_separator = ' · at · ';
+$time_separator = ' · until · ';
 $body = str_repeat('Portable long event body — বাংলা — 日本語 — مرحبا. ', 700)
-    . "\nNative source URL: " . home_url('/events/portable-source/');
+    . "\nNative source URL: " . home_url('/events/portable-source/')
+    . "\n<!-- wp:tribe/event-datetime /-->"
+    . "\n<!-- wp:tribe/event-price {\"costDescription\":\"$cost_description\"} /-->";
 $event = tribe_events()->set_args([
     'title' => 'Duo Production Readiness Event 東京',
     'status' => 'publish',
@@ -59,7 +104,7 @@ $event = tribe_events()->set_args([
     'end_date' => '2026-09-06 01:45:00',
     'timezone' => 'Asia/Kathmandu',
     'venue' => (int) $venue->ID,
-    'organizer' => (int) $organizer->ID,
+    'organizers' => $organizer_ids,
     'cost' => '125.50',
     'currency_symbol' => 'रु',
     'currency_position' => 'postfix',
@@ -73,6 +118,20 @@ if (!$event || !$event->ID) {
 }
 update_post_meta((int) $event->ID, '_EventCurrencyCode', 'NPR');
 update_post_meta((int) $event->ID, '_EventPhone', '+977-555-0199');
+$editor_meta = new Tribe__Events__Editor__Meta();
+$editor_meta->register();
+update_post_meta((int) $event->ID, '_EventCostDescription', '<b>Admission details</b> 東京 — bring ID');
+update_post_meta((int) $event->ID, '_EventDateTimeSeparator', ' <em>· at ·</em> ');
+update_post_meta((int) $event->ID, '_EventTimeRangeSeparator', ' <em>· until ·</em> ');
+foreach ([
+    '_EventCostDescription' => $cost_description,
+    '_EventDateTimeSeparator' => $date_separator,
+    '_EventTimeRangeSeparator' => $time_separator,
+] as $key => $expected) {
+    if (get_post_meta((int) $event->ID, $key, true) !== $expected) {
+        throw new RuntimeException("TEC registered-meta sanitizer did not persist exact $key state");
+    }
+}
 $terms = wp_set_object_terms((int) $event->ID, [$category_id], 'tribe_events_cat');
 $tags = wp_set_object_terms((int) $event->ID, ['readiness', '東京'], 'post_tag');
 if (is_wp_error($terms) || is_wp_error($tags)) {
@@ -88,6 +147,8 @@ $all_day = tribe_events()->set_args([
     'timezone' => 'Asia/Kathmandu',
     'all_day' => true,
     'cost' => '0',
+    'show_map' => false,
+    'show_map_link' => false,
 ])->create();
 $delete_probe = tribe_events()->set_args([
     'title' => 'Duo Unsupported Delete Probe',
@@ -99,6 +160,95 @@ $delete_probe = tribe_events()->set_args([
 ])->create();
 if (!$all_day || !$all_day->ID || !$delete_probe || !$delete_probe->ID) {
     throw new RuntimeException('TEC boundary events were not created');
+}
+delete_post_meta((int) $delete_probe->ID, '_EventShowMap');
+delete_post_meta((int) $delete_probe->ID, '_EventShowMapLink');
+
+$status_editor = tribe(\Tribe\Events\Event_Status\Classic_Editor::class);
+$status_editor->register_fields();
+$status_editor->update_fields((int) $event->ID, [
+    'status' => 'canceled',
+    'status-reason' => 'Weather <strong>closure</strong> 東京 — doors remain shut.',
+]);
+$status_editor->update_fields((int) $all_day->ID, [
+    'status' => 'postponed',
+    'status-reason' => '',
+]);
+$status_editor->delete_fields((int) $delete_probe->ID, ['status' => 'scheduled']);
+
+if (get_post_meta((int) $event->ID, '_EventOrganizerID', false) !== array_map('strval', $organizer_ids)
+    || tribe_get_organizer_ids((int) $event->ID) !== array_map('strval', $organizer_ids)) {
+    throw new RuntimeException('TEC native repository did not preserve unique organizer row order');
+}
+$status_expectations = [
+    [(int) $event->ID, 'canceled', 'Weather <strong>closure</strong> 東京 — doors remain shut.'],
+    [(int) $all_day->ID, 'postponed', ''],
+];
+foreach ($status_expectations as [$event_id, $status, $reason]) {
+    $model = tribe_get_event($event_id);
+    if (get_post_meta($event_id, '_tribe_events_status', true) !== $status
+        || get_post_meta($event_id, '_tribe_events_status_reason', true) !== $reason
+        || !$model instanceof WP_Post
+        || $model->event_status !== $status
+        || $model->event_status_reason !== $reason) {
+        throw new RuntimeException("TEC native event-status readback mismatch on $event_id");
+    }
+}
+foreach (['_tribe_events_status', '_tribe_events_status_reason'] as $key) {
+    if (metadata_exists('post', (int) $delete_probe->ID, $key)) {
+        throw new RuntimeException("TEC scheduled-as-absence boundary retained $key");
+    }
+}
+
+// These are native auto-draft preview cleanup lists, not authored graph refs.
+// Persist them through the owning core methods so capture must exclude the
+// exact serialized wire while a dirty target keeps its own local cleanup list.
+$tec_main = Tribe__Events__Main::instance();
+$tec_main->link_preview_venue_to_event((int) $venue->ID, (int) $event->ID);
+$tec_main->link_preview_organizer_to_event($organizer_ids, (int) $event->ID);
+if (get_post_meta((int) $event->ID, '_preview_venues', true) !== [(int) $venue->ID]
+    || get_post_meta((int) $event->ID, '_preview_organizers', true) !== $organizer_ids) {
+    throw new RuntimeException('TEC native preview cleanup lists did not persist exact source state');
+}
+
+$map_expectations = [
+    [(int) $event->ID, '_EventShowMap', '1', true],
+    [(int) $event->ID, '_EventShowMapLink', '1', true],
+    [(int) $all_day->ID, '_EventShowMap', '', false],
+    [(int) $all_day->ID, '_EventShowMapLink', '', false],
+    [(int) $venue->ID, '_VenueShowMap', '1', true],
+    [(int) $venue->ID, '_VenueShowMapLink', '1', true],
+    [(int) $disabled_venue_id, '_EventShowMap', 'false', false],
+    [(int) $disabled_venue_id, '_EventShowMapLink', 'false', false],
+    [(int) $disabled_venue_id, '_VenueShowMap', 'false', false],
+    [(int) $disabled_venue_id, '_VenueShowMapLink', 'false', false],
+];
+foreach ($map_expectations as [$post_id, $key, $expected, $truthy]) {
+    if (get_post_meta($post_id, $key, true) !== $expected) {
+        throw new RuntimeException("TEC native map wire mismatch for $key on $post_id");
+    }
+    $rendered = str_ends_with($key, 'ShowMapLink')
+        ? tribe_show_google_map_link($post_id)
+        : tribe_embed_google_map($post_id);
+    if ($rendered !== $truthy) {
+        throw new RuntimeException("TEC native map readback mismatch for $key on $post_id");
+    }
+}
+foreach (['_EventShowMap', '_EventShowMapLink'] as $key) {
+    if (metadata_exists('post', (int) $delete_probe->ID, $key)) {
+        throw new RuntimeException("TEC event absence boundary unexpectedly retained $key");
+    }
+}
+foreach (['_EventShowMap', '_EventShowMapLink', '_VenueShowMap', '_VenueShowMapLink'] as $key) {
+    if (metadata_exists('post', (int) $absent_map_venue->ID, $key)) {
+        throw new RuntimeException("TEC venue absence boundary unexpectedly retained $key");
+    }
+}
+if (tribe_embed_google_map((int) $delete_probe->ID)
+    || tribe_show_google_map_link((int) $delete_probe->ID)
+    || tribe_embed_google_map((int) $absent_map_venue->ID)
+    || tribe_show_google_map_link((int) $absent_map_venue->ID)) {
+    throw new RuntimeException('TEC absent map metadata did not render as disabled');
 }
 
 foreach ([
@@ -126,6 +276,10 @@ foreach ([
     'tec_seo_disabled_view_404' => true,
     'eventsDefaultVenueID' => (int) $venue->ID,
     'eventsDefaultOrganizerID' => (int) $organizer->ID,
+    'debugEvents' => true,
+    'enable_month_view_cache' => false,
+    'trash-past-events' => 3,
+    'delete-past-events' => 6,
     'duo_source_only_secret' => 'source-integration-value-must-not-copy',
     'google_maps_js_api_key' => 'source-maps-key-must-not-copy',
 ] as $key => $value) {
@@ -161,10 +315,13 @@ foreach ([(int) $event->ID, (int) $all_day->ID, (int) $delete_probe->ID] as $eve
 
 echo wp_json_encode([
     'all_day' => (int) $all_day->ID,
+    'absent_map_venue' => (int) $absent_map_venue->ID,
     'category' => $category_id,
     'delete_probe' => (int) $delete_probe->ID,
+    'disabled_venue' => (int) $disabled_venue_id,
     'event' => (int) $event->ID,
     'organizer' => (int) $organizer->ID,
+    'organizers' => $organizer_ids,
     'venue' => (int) $venue->ID,
 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 PHPEOF
@@ -176,9 +333,10 @@ SEED_OUT=$(wp_conf1 eval-file /siterepo/.tmp-tec-seed.php)
 require_observed_nonempty "TEC source repository fixture" "$SEED_OUT"
 SEED_JSON=$(printf '%s\n' "$SEED_OUT" | awk 'NF { line=$0 } END { print line }')
 printf '%s\n' "$SEED_JSON" | jq -e '
-  .event > 0 and .venue > 0 and .organizer > 0 and .category > 0 and
-  .all_day > 0 and .delete_probe > 0
+  .event > 0 and .venue > 0 and .organizer > 0 and (.organizers | length) == 3 and
+  .organizer == .organizers[0] and (.organizers | unique | length) == 3 and .category > 0 and
+  .all_day > 0 and .delete_probe > 0 and .disabled_venue > 0 and .absent_map_venue > 0
 ' >/dev/null || fail "TEC source repository fixture returned malformed identities: $SEED_JSON"
 printf '%s\n' "$SEED_JSON" > "$SOURCE_IDS_FILE"
 rm -f "$SEED_FILE"
-pass "TEC source authored a long linked event, all-day/no-ref event, delete probe, category colors, settings, and occurrences"
+pass "TEC source authored registered editor meta, ordered organizers, event statuses, map boundaries, runtime previews, settings, and occurrences"

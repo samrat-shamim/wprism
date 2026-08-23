@@ -29,7 +29,8 @@
     "tribe_events_calendar_options remains environment-owned as a whole, but the reviewed sub_keys below now carry the free plugin's stable human-authored presentation, editor, SEO, category-color, default-linked-post, and timezone settings. Credentials, Event Aggregator remote-import state, event-cleaner schedules, schema/version markers, telemetry, date-range caches, and undeclared add-on keys remain target-owned and are never overwritten by apply.",
     "TEC 6.17.2/6.17.3 free ships Category Colors as a native feature. tribe_events_cat and its five exact tec-events-cat-colors-* term-meta keys are authored state; the interpreter rejects malformed colors, priorities, and flags before compilation. Events Calendar Pro recurrence, Event Tickets state, Event Aggregator records and credentials, legacy Category Colors plugin residue, third-party add-ons, and multisite remain outside this contract and refuse rather than receiving inferred authority.",
     "Event, venue, and organizer deletion remains deliberately unsupported. Duo's generic post deletion is hook-free while TEC and optional add-ons own occurrence cleanup and reverse-reference behavior; the batch regenerator refuses any deletion context before mutation, and conformance proves no tombstone or partial target change is produced.",
-    "Live conformance on exact 6.17.3 found a second hard derived-state path in the bundled Category Colors feature. Event_Category_Meta::save() writes only the five authored term-meta values; native CSS regeneration runs from the separate tec_events_category_colors_saved wp-admin hook, which Duo's direct materialization cannot fire. The target therefore retained stale category colors even though its term metadata was correct. Provider the-events-calendar-category-colors calls the plugin's own CSS Controller::generate_css(), which both runs Generator::generate_and_save_css() and busts the native dropdown cache, then verifies the exact CSS selector/value set and the native dropdown rows against live category metadata with no missing, stale, duplicate, or orphan projection. The option remains derived and excluded from capture; triggers are bounded to tribe_events_cat writes and the portable mixed option whose show-hidden setting affects the dropdown, and the restorable option plus irreversible plugin cache are declared effects."
+    "Live conformance on exact 6.17.3 found a second hard derived-state path in the bundled Category Colors feature. Event_Category_Meta::save() writes only the five authored term-meta values; native CSS regeneration runs from the separate tec_events_category_colors_saved wp-admin hook, which Duo's direct materialization cannot fire. The target therefore retained stale category colors even though its term metadata was correct. Provider the-events-calendar-category-colors calls the plugin's own CSS Controller::generate_css(), which both runs Generator::generate_and_save_css() and busts the native dropdown cache, then verifies the exact CSS selector/value set and the native dropdown rows against live category metadata with no missing, stale, duplicate, or orphan projection. The option remains derived and excluded from capture; triggers are bounded to tribe_events_cat writes and the portable mixed option whose show-hidden setting affects the dropdown, and the restorable option plus irreversible plugin cache are declared effects.",
+    "Free TEC 6.17.2/6.17.3 registers `_EventOrganizerID` as non-single numeric metadata and its native APIs/templates preserve multiple unique organizer rows in physical order. The adapter therefore uses the engine's closed repeated-row authored-meta grammar: one canonical post token per row, unique and order-preserving, with exact row replacement on apply. Event status is stored only as paired `_tribe_events_status`/`_tribe_events_status_reason` rows for canceled or postponed events; scheduled is native absence. Preview linked-post lists are editor-runtime cleanup state. Debug, month-view cache, past-event trash/delete settings, credentials, imports, and cleaner scheduling remain target-owned because direct sub-key writes would bypass their operational hooks."
   ],
   "providers": [
     {
@@ -161,16 +162,23 @@
   "post_meta": {
     "_EventAllDay": {"class": "authored"},
     "_EventCost": {"class": "authored"},
+    "_EventCostDescription": {"class": "authored"},
     "_EventCostMax": {"class": "authored"},
     "_EventCostMin": {"class": "authored"},
     "_EventCurrencyCode": {"class": "authored"},
     "_EventCurrencyPosition": {"class": "authored"},
     "_EventCurrencySymbol": {"class": "authored"},
+    "_EventDateTimeSeparator": {"class": "authored"},
     "_EventDuration": {"class": "authored"},
     "_EventEndDate": {"class": "authored"},
     "_EventEndDateUTC": {"class": "authored"},
     "_EventHideFromUpcoming": {"class": "authored"},
-    "_EventOrganizerID": {"class": "authored", "ref": "post"},
+    "_EventOrganizerID": {
+      "cast": "string",
+      "class": "authored",
+      "ref": "post",
+      "repeated_rows": {"cardinality": "one_or_more", "duplicates": "forbid", "order": "preserve"}
+    },
     "_EventOrigin": {"class": "authored"},
     "_EventPhone": {"class": "authored"},
     "_EventShowMap": {"class": "authored", "lint_ok": true},
@@ -179,6 +187,7 @@
     "_EventStartDateUTC": {"class": "authored"},
     "_EventTimezone": {"class": "authored"},
     "_EventTimezoneAbbr": {"class": "authored"},
+    "_EventTimeRangeSeparator": {"class": "authored"},
     "_EventURL": {"class": "authored"},
     "_EventVenueID": {"class": "authored", "ref": "post"},
     "_OrganizerEmail": {"class": "authored"},
@@ -197,7 +206,11 @@
     "_VenueStateProvince": {"class": "authored"},
     "_VenueURL": {"class": "authored"},
     "_VenueZip": {"class": "authored"},
+    "_preview_organizers": {"class": "runtime"},
+    "_preview_venues": {"class": "runtime"},
     "_tribe_events_errors": {"class": "runtime"},
+    "_tribe_events_status": {"class": "authored"},
+    "_tribe_events_status_reason": {"class": "authored"},
     "_tribe_featured": {"class": "authored", "lint_ok": true},
     "_tribe_modified_fields": {"class": "runtime"}
   },

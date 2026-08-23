@@ -11,11 +11,13 @@ require_once __DIR__ . '/../../lib/check.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/../../../../agent/src/Adapter/Providers.php';
+require_once __DIR__ . '/../../../../agent/src/Capture/EntityMetaCapture.php';
 require_once __DIR__ . '/../../../../manifests/interpreters/the-events-calendar.php';
 require_once __DIR__ . '/../../../../manifests/providers/the-events-calendar-category-colors.php';
 require_once __DIR__ . '/../../../../manifests/regenerators/the-events-calendar.php';
 
 use Duo\Interpreters\TheEventsCalendar;
+use Duo\EntityMetaCapture;
 use Duo\Policy;
 use Duo\Providers\TheEventsCalendarCategoryColors;
 use Duo\Regenerators\TheEventsCalendar as TheEventsCalendarRegenerator;
@@ -23,6 +25,7 @@ use Duo\Regenerators\TheEventsCalendar as TheEventsCalendarRegenerator;
 const TEC_EVENT_UUID = '11111111-1111-4111-8111-111111111111';
 const TEC_VENUE_UUID = '22222222-2222-4222-8222-222222222222';
 const TEC_ORGANIZER_UUID = '33333333-3333-4333-8333-333333333333';
+const TEC_ORGANIZER_TWO_UUID = '55555555-5555-4555-8555-555555555555';
 const TEC_CATEGORY_UUID = '44444444-4444-4444-8444-444444444444';
 
 final class TecReadinessNativeColor {
@@ -104,10 +107,15 @@ function tribe_get_option(string $name, mixed $default = false): mixed {
 /** @return array<string,mixed> */
 function tec_readiness_meta(): array {
     return [
+        '_EventCostDescription' => 'Admission details 東京 — bring ID',
+        '_EventDateTimeSeparator' => ' · at · ',
         '_EventDuration' => '10800',
         '_EventEndDate' => '2026-09-05 20:00:00',
         '_EventEndDateUTC' => '2026-09-05 14:15:00',
-        '_EventOrganizerID' => '{{post:' . TEC_ORGANIZER_UUID . '}}',
+        '_EventOrganizerID' => [
+            '{{post:' . TEC_ORGANIZER_UUID . '}}',
+            '{{post:' . TEC_ORGANIZER_TWO_UUID . '}}',
+        ],
         '_EventOrigin' => 'events-calendar',
         '_EventShowMap' => '1',
         '_EventShowMapLink' => '1',
@@ -115,6 +123,7 @@ function tec_readiness_meta(): array {
         '_EventStartDateUTC' => '2026-09-05 11:15:00',
         '_EventTimezone' => 'Asia/Kathmandu',
         '_EventTimezoneAbbr' => '+0545',
+        '_EventTimeRangeSeparator' => ' · until · ',
         '_EventVenueID' => '{{post:' . TEC_VENUE_UUID . '}}',
     ];
 }
@@ -150,11 +159,17 @@ function tec_readiness_term(array $meta): array {
 }
 
 /** @return list<array<string,mixed>> */
-function tec_readiness_tree(?array $meta = null, ?array $termMeta = null): array {
+function tec_readiness_tree(?array $meta = null, ?array $termMeta = null, ?array $venueMeta = null): array {
     return [
         tec_readiness_post(TEC_EVENT_UUID, 'tribe_events', $meta ?? tec_readiness_meta(), 'production-readiness-event'),
-        tec_readiness_post(TEC_VENUE_UUID, 'tribe_venue', [], 'readiness-hall'),
+        tec_readiness_post(TEC_VENUE_UUID, 'tribe_venue', $venueMeta ?? [
+            '_EventShowMap' => 'false',
+            '_EventShowMapLink' => 'false',
+            '_VenueShowMap' => 'false',
+            '_VenueShowMapLink' => 'false',
+        ], 'readiness-hall'),
         tec_readiness_post(TEC_ORGANIZER_UUID, 'tribe_organizer', [], 'readiness-team'),
+        tec_readiness_post(TEC_ORGANIZER_TWO_UUID, 'tribe_organizer', [], 'readiness-team-two'),
         tec_readiness_term($termMeta ?? [
             'tec-events-cat-colors-primary' => '#123abc',
             'tec-events-cat-colors-secondary' => '#abcdef',
@@ -220,6 +235,84 @@ $unlinked = tec_readiness_meta();
 unset($unlinked['_EventVenueID'], $unlinked['_EventOrganizerID']);
 duo_check_same([], $interpreter->repository_diagnostics(tec_readiness_tree($unlinked)), 'legitimately absent venue and organizer references stay clean');
 
+$singleOrganizer = tec_readiness_meta();
+$singleOrganizer['_EventOrganizerID'] = ['{{post:' . TEC_ORGANIZER_UUID . '}}'];
+duo_check_same(
+    [],
+    $interpreter->repository_diagnostics(tec_readiness_tree($singleOrganizer)),
+    'one organizer remains a one-row canonical list rather than collapsing to scalar storage'
+);
+$reorderedOrganizers = tec_readiness_meta();
+$reorderedOrganizers['_EventOrganizerID'] = array_reverse($reorderedOrganizers['_EventOrganizerID']);
+duo_check_same(
+    [],
+    $interpreter->repository_diagnostics(tec_readiness_tree($reorderedOrganizers)),
+    'multiple unique organizer rows preserve either native physical order as authored intent'
+);
+
+foreach ([
+    ['canceled', 'Doors closed because of <strong>weather</strong>.'],
+    ['postponed', ''],
+] as [$status, $reason]) {
+    $statusMeta = tec_readiness_meta();
+    $statusMeta['_tribe_events_status'] = $status;
+    $statusMeta['_tribe_events_status_reason'] = $reason;
+    duo_check_same(
+        [],
+        $interpreter->repository_diagnostics(tec_readiness_tree($statusMeta)),
+        "$status status accepts its native paired arbitrary-string reason shape"
+    );
+}
+$statusDeleted = tec_readiness_meta();
+unset($statusDeleted['_tribe_events_status'], $statusDeleted['_tribe_events_status_reason']);
+duo_check_same(
+    [],
+    $interpreter->repository_diagnostics(tec_readiness_tree($statusDeleted)),
+    'scheduled status and explicit status deletion both use native absence of both rows'
+);
+
+$optionalEditorMetaAbsent = tec_readiness_meta();
+unset(
+    $optionalEditorMetaAbsent['_EventCostDescription'],
+    $optionalEditorMetaAbsent['_EventDateTimeSeparator'],
+    $optionalEditorMetaAbsent['_EventTimeRangeSeparator']
+);
+duo_check_same(
+    [],
+    $interpreter->repository_diagnostics(tec_readiness_tree($optionalEditorMetaAbsent)),
+    'absent or deleted optional Gutenberg-authored event metadata stays clean'
+);
+$optionalEditorMetaUpdated = tec_readiness_meta();
+$optionalEditorMetaUpdated['_EventCostDescription'] = 'Updated plain description বাংলা';
+$optionalEditorMetaUpdated['_EventDateTimeSeparator'] = "\nthrough\t";
+$optionalEditorMetaUpdated['_EventTimeRangeSeparator'] = ' & through & ';
+duo_check_same(
+    [],
+    $interpreter->repository_diagnostics(tec_readiness_tree($optionalEditorMetaUpdated)),
+    'native-sanitized Gutenberg metadata accepts updates and separator whitespace'
+);
+$nativeFalseEvent = tec_readiness_meta();
+$nativeFalseEvent['_EventShowMap'] = '';
+$nativeFalseEvent['_EventShowMapLink'] = '';
+duo_check_same(
+    [],
+    $interpreter->repository_diagnostics(tec_readiness_tree($nativeFalseEvent)),
+    'event repository false uses exact empty postmeta values'
+);
+duo_check_same(
+    [],
+    $interpreter->repository_diagnostics(tec_readiness_tree(null, null, [
+        '_VenueShowMap' => '',
+        '_VenueShowMapLink' => '1',
+    ])),
+    'venue repository empty/1 map values and absent legacy mirrors stay clean'
+);
+duo_check_same(
+    [],
+    $interpreter->repository_diagnostics(tec_readiness_tree(null, null, [])),
+    'repository venue map rows may be absent when the owning API does not write them'
+);
+
 $allDay = tec_readiness_meta();
 $allDay['_EventAllDay'] = 'yes';
 $allDay['_EventStartDate'] = '2026-09-05 00:00:00';
@@ -265,13 +358,72 @@ $bad = tec_readiness_meta();
 $bad['_EventVenueID'] = '{{post:' . TEC_ORGANIZER_UUID . '}}';
 tec_readiness_refuses($interpreter, tec_readiness_tree($bad), 'post type tribe_venue', 'a venue reference resolving to an organizer refuses');
 $bad = tec_readiness_meta();
-$bad['_EventOrganizerID'] = '{{post:' . TEC_VENUE_UUID . '}}';
+$bad['_EventOrganizerID'] = ['{{post:' . TEC_VENUE_UUID . '}}'];
 tec_readiness_refuses($interpreter, tec_readiness_tree($bad), 'post type tribe_organizer', 'an organizer reference resolving to a venue refuses');
+foreach ([
+    ['{{post:' . TEC_ORGANIZER_UUID . '}}', 'ordered list'],
+    [[], 'ordered list'],
+    [['7000000001'], 'canonical post UUID token'],
+    [[
+        '{{post:' . TEC_ORGANIZER_UUID . '}}',
+        '{{post:' . TEC_ORGANIZER_UUID . '}}',
+    ], 'must be unique'],
+] as [$badOrganizerRows, $needle]) {
+    $bad = tec_readiness_meta();
+    $bad['_EventOrganizerID'] = $badOrganizerRows;
+    tec_readiness_refuses(
+        $interpreter,
+        tec_readiness_tree($bad),
+        $needle,
+        'malformed scalar, empty, raw-id, and duplicate organizer row shapes refuse before deploy'
+    );
+}
+
+foreach (['scheduled', 'cancelled', '', 7] as $badStatus) {
+    $bad = tec_readiness_meta();
+    $bad['_tribe_events_status'] = $badStatus;
+    $bad['_tribe_events_status_reason'] = 'reason';
+    tec_readiness_refuses(
+        $interpreter,
+        tec_readiness_tree($bad),
+        'scheduled is represented by absence',
+        'unknown, scheduled-as-row, empty, and non-string event statuses refuse'
+    );
+}
+$bad = tec_readiness_meta();
+$bad['_tribe_events_status'] = 'canceled';
+tec_readiness_refuses($interpreter, tec_readiness_tree($bad), 'present or absent together', 'status without a reason row refuses');
+$bad = tec_readiness_meta();
+$bad['_tribe_events_status_reason'] = 'orphan reason';
+tec_readiness_refuses($interpreter, tec_readiness_tree($bad), 'present or absent together', 'reason without a status row refuses');
+$bad = tec_readiness_meta();
+$bad['_tribe_events_status'] = 'postponed';
+$bad['_tribe_events_status_reason'] = ['not' => 'a string'];
+tec_readiness_refuses($interpreter, tec_readiness_tree($bad), 'reason must remain one scalar string', 'structured status reason refuses');
 
 foreach (['_EventShowMap', '_EventShowMapLink'] as $key) {
-    $bad = tec_readiness_meta();
-    $bad[$key] = 'yes';
-    tec_readiness_refuses($interpreter, tec_readiness_tree($bad), 'exact 0/1 wire value', "$key rejects a non-native boolean spelling");
+    foreach (['0', 'false', 'yes'] as $value) {
+        $bad = tec_readiness_meta();
+        $bad[$key] = $value;
+        tec_readiness_refuses(
+            $interpreter,
+            tec_readiness_tree($bad),
+            'exact empty/1 wire value',
+            "$key rejects non-native event repository spelling '$value'"
+        );
+    }
+}
+foreach (['_EventShowMap', '_EventShowMapLink', '_VenueShowMap', '_VenueShowMapLink'] as $key) {
+    foreach (['0', 'true', 'yes'] as $value) {
+        $bad = tec_readiness_tree();
+        $bad[1]['data']['meta'][$key] = $value;
+        tec_readiness_refuses(
+            $interpreter,
+            $bad,
+            'native empty/1/false wire value',
+            "$key rejects non-native venue spelling '$value'"
+        );
+    }
 }
 $bad = tec_readiness_meta();
 $bad['_EventAllDay'] = 'true';
@@ -285,12 +437,63 @@ tec_readiness_refuses($interpreter, tec_readiness_tree($bad), 'prefix or postfix
 $bad = tec_readiness_meta();
 $bad['_EventRecurrence'] = ['rules' => [['type' => 'Every Week']]];
 tec_readiness_refuses($interpreter, tec_readiness_tree($bad), 'Pro recurrence state', 'free-adapter recurrence state refuses before deploy');
+foreach (['_EventRecurrenceRRULE', '_tribe_aggregator_global_id', '_tribe_legacy_ignored_event'] as $key) {
+    $bad = tec_readiness_meta();
+    $bad[$key] = 'outside-free-contract';
+    tec_readiness_refuses(
+        $interpreter,
+        tec_readiness_tree($bad),
+        str_starts_with($key, '_EventRecurrence') ? 'Pro recurrence state' : 'Event Aggregator/import state',
+        "$key remains a loud licensed/import boundary"
+    );
+}
 $bad = tec_readiness_meta();
 $bad['_EventCost'] = ['serialized' => 'future schema'];
 tec_readiness_refuses($interpreter, tec_readiness_tree($bad), 'one scalar string', 'structured event cost refuses instead of being serialized into native meta');
+$bad = tec_readiness_meta();
+$bad['_EventCostDescription'] = ['serialized' => 'future schema'];
+tec_readiness_refuses($interpreter, tec_readiness_tree($bad), 'one scalar string', 'structured cost description refuses before registered-meta consumption');
+foreach ([' leading', 'trailing ', 'two  spaces', "line\nbreak", '<b>markup</b>', 'pay%20now'] as $value) {
+    $bad = tec_readiness_meta();
+    $bad['_EventCostDescription'] = $value;
+    tec_readiness_refuses(
+        $interpreter,
+        tec_readiness_tree($bad),
+        'native sanitize_text_field shape',
+        'cost description refuses values the native registered-meta sanitizer would rewrite'
+    );
+}
+foreach (['_EventDateTimeSeparator', '_EventTimeRangeSeparator'] as $key) {
+    foreach (['<em>until</em>', '&amp;'] as $value) {
+        $bad = tec_readiness_meta();
+        $bad[$key] = $value;
+        tec_readiness_refuses(
+            $interpreter,
+            tec_readiness_tree($bad),
+            'native separator sanitizer shape',
+            "$key refuses values the plugin's entity/tag sanitizer would rewrite"
+        );
+    }
+}
 $linkedTree = tec_readiness_tree();
 $linkedTree[1]['data']['meta']['_VenueURL'] = (object) ['url' => 'https://invalid.example.test'];
 tec_readiness_refuses($interpreter, $linkedTree, 'one scalar string', 'structured venue metadata refuses before native code consumes it');
+$wrongOwner = tec_readiness_tree();
+$wrongOwner[0]['data']['meta']['_VenueShowMap'] = '1';
+tec_readiness_refuses($interpreter, $wrongOwner, 'belongs only to a tribe_venue', 'venue map flags refuse on event posts');
+$wrongOwner = tec_readiness_tree();
+$wrongOwner[2]['data']['meta']['_EventShowMap'] = '1';
+tec_readiness_refuses($interpreter, $wrongOwner, 'does not belong to a tribe_organizer', 'map flags refuse on organizer posts');
+foreach (['_VenueLat', '_VenueLng'] as $key) {
+    $coordinateTree = tec_readiness_tree();
+    $coordinateTree[1]['data']['meta'][$key] = $key === '_VenueLat' ? '27.7172' : '85.3240';
+    tec_readiness_refuses(
+        $interpreter,
+        $coordinateTree,
+        'Pro/Event Aggregator coordinate state',
+        "$key refuses loudly because free TEC has no coordinate writer or reader"
+    );
+}
 
 foreach ([
     ['tec-events-cat-colors-primary', 'red', 'six-digit hex color'],
@@ -307,27 +510,63 @@ foreach ([
 }
 
 $eventMetaKeys = [
-    '_EventAllDay', '_EventCost', '_EventCostMax', '_EventCostMin', '_EventCurrencyCode',
-    '_EventCurrencyPosition', '_EventCurrencySymbol', '_EventDuration', '_EventEndDate',
-    '_EventEndDateUTC', '_EventHideFromUpcoming', '_EventOrganizerID', '_EventOrigin', '_EventPhone',
-    '_EventShowMap', '_EventShowMapLink', '_EventStartDate', '_EventStartDateUTC', '_EventTimezone',
-    '_EventTimezoneAbbr', '_EventURL', '_EventVenueID', '_tribe_featured',
+    '_EventAllDay', '_EventCost', '_EventCostDescription', '_EventCostMax', '_EventCostMin',
+    '_EventCurrencyCode', '_EventCurrencyPosition', '_EventCurrencySymbol', '_EventDateTimeSeparator',
+    '_EventDuration', '_EventEndDate', '_EventEndDateUTC', '_EventHideFromUpcoming',
+    '_EventOrganizerID', '_EventOrigin', '_EventPhone', '_EventShowMap', '_EventShowMapLink',
+    '_EventStartDate', '_EventStartDateUTC', '_EventTimezone', '_EventTimezoneAbbr',
+    '_EventTimeRangeSeparator', '_EventURL', '_EventVenueID', '_tribe_events_status',
+    '_tribe_events_status_reason', '_tribe_featured',
 ];
 foreach ($eventMetaKeys as $key) {
     duo_check_same('authored', $policy->post_meta_rule($key)['class'] ?? null, "$key is reviewed authored TEC state");
 }
-foreach (['_tribe_events_errors', '_tribe_modified_fields'] as $key) {
+foreach (['_preview_organizers', '_preview_venues', '_tribe_events_errors', '_tribe_modified_fields'] as $key) {
     duo_check_same('runtime', $policy->post_meta_rule($key)['class'] ?? null, "$key remains target-runtime state");
+}
+duo_check_same(
+    [
+        'cardinality' => 'one_or_more',
+        'duplicates' => 'forbid',
+        'order' => 'preserve',
+    ],
+    $policy->post_meta_rule('_EventOrganizerID')['repeated_rows'] ?? null,
+    'organizer storage declares the exact reviewed ordered unique physical-row grammar'
+);
+duo_check_same(
+    'string',
+    $policy->post_meta_rule('_EventOrganizerID')['cast'] ?? null,
+    'organizer row refs restore TEC native digit-string postmeta bytes'
+);
+$runtimeCapture = new EntityMetaCapture(
+    $policy,
+    new stdClass(),
+    static function (): void {},
+    static function (): void {},
+    static function (): void {}
+);
+foreach (['_preview_organizers', '_preview_venues'] as $key) {
+    [$storePreview] = $runtimeCapture->classifyValue(
+        $key,
+        ['a:2:{i:0;i:700000001;i:1;i:800000003;}'],
+        [$key => 'fixture'],
+        'post preview draft',
+        'post_meta'
+    );
+    duo_check_same(false, $storePreview, "$key is excluded before canonical state can retain local preview ids");
 }
 foreach (['_VenueURL', '_VenueProvince', '_VenueShowMap', '_VenueShowMapLink', '_OrganizerWebsite'] as $key) {
     duo_check_same('authored', $policy->post_meta_rule($key)['class'] ?? null, "$key closes the free venue/organizer API surface");
 }
-foreach (['_tribe_featured', '_VenueShowMap', '_VenueShowMapLink'] as $key) {
+foreach (['_EventShowMap', '_EventShowMapLink', '_tribe_featured', '_VenueShowMap', '_VenueShowMapLink'] as $key) {
     duo_check_same(
         true,
         $policy->post_meta_rule($key)['lint_ok'] ?? null,
         "$key is an explicitly reviewed boolean rather than a coincidental local post reference"
     );
+}
+foreach (['_VenueLat', '_VenueLng'] as $key) {
+    duo_check_same(null, $policy->post_meta_rule($key), "$key remains outside the free-plugin manifest contract");
 }
 
 $options = $policy->option_rule('tribe_events_calendar_options');
@@ -338,7 +577,11 @@ foreach (['eventsSlug', 'tribeEnableViews', 'category-color-enable-frontend', 't
 }
 duo_check_same('post', $options['sub_keys']['eventsDefaultVenueID']['ref'] ?? null, 'the default venue setting rewrites through the post ledger');
 duo_check_same('post', $options['sub_keys']['eventsDefaultOrganizerID']['ref'] ?? null, 'the default organizer setting rewrites through the post ledger');
-foreach (['google_maps_js_api_key', 'eb_security_key', 'meetup_api_key', 'fb_token', 'schema-version', 'earliest_date', 'trash-past-events'] as $key) {
+foreach ([
+    'debugEvents', 'enable_month_view_cache', 'trash-past-events', 'delete-past-events',
+    'google_maps_js_api_key', 'eb_security_key', 'meetup_api_key', 'fb_token',
+    'schema-version', 'earliest_date',
+] as $key) {
     duo_check(!isset($options['sub_keys'][$key]), "$key remains target-owned rather than leaking or replaying integration/runtime state");
 }
 duo_check_same(
