@@ -39,6 +39,17 @@ pair_compose_configure() { # pair_compose_configure <name> [overlay-file ...]
     PAIR_SOURCE_ROOT="$root"
   fi
   export DUO_AGENT_SRC="$root/agent" DUO_MANIFESTS_SRC="$root/manifests"
+  # Which shared database server pair.yml:94 renders into WORDPRESS_DB_HOST.
+  # pair.sh exports it once at load from DB_CONTAINER (pair_db_select_engine()),
+  # so it is already set for EVERY subcommand by the time they funnel through
+  # here -- the same reason the two source paths above are exported here rather
+  # than in cmd_up, and for the same measured failure: this rewrites .env on
+  # every call, so a cmd_up-only export let `stop` on a mysql-lane pair put the
+  # MariaDB host back in the file the next subprocess compose call reads.
+  # The duo-shared-db default remains for a caller that sources this library
+  # without pair.sh at all; it matches pair.yml's own `${DUO_DB_HOST:-...}` so
+  # such a caller renders byte-identically to before the MySQL lane existed.
+  export DUO_DB_HOST="${DUO_DB_HOST:-duo-shared-db}"
 
   # DUO-3277 (CI caught this the first version above missed): that export
   # only reaches pair.sh's OWN "${PAIR_COMPOSE[@]}" calls -- it dies with
@@ -54,7 +65,7 @@ pair_compose_configure() { # pair_compose_configure <name> [overlay-file ...]
   # would be fragile -- easy to add a new call site and forget it, with no
   # loud failure until that exact path runs.
   #
-  # Persist the same two values to sandbox/.env instead, in addition to the
+  # Persist the same three values to sandbox/.env instead, in addition to the
   # export above: docker compose auto-loads a file by that exact name from
   # the CWD (verified live with `env -i` stripping every inherited
   # variable -- compose still resolved both mounts correctly from .env
@@ -68,7 +79,14 @@ pair_compose_configure() { # pair_compose_configure <name> [overlay-file ...]
   # Each worktree has its own sandbox/.env, so concurrent worktree writers do
   # not share this file. Callers in one worktree always agree on its selected
   # source root.
-  printf 'DUO_AGENT_SRC=%s\nDUO_MANIFESTS_SRC=%s\n' "$DUO_AGENT_SRC" "$DUO_MANIFESTS_SRC" > .env
+  #
+  # DUO_DB_HOST rides this same channel for the same process-boundary reason,
+  # with a sharper failure mode than a broken mount: a pair brought up on the
+  # MySQL evidence lane whose conformance/regress subprocesses then re-rendered
+  # pair.yml's duo-shared-db default would run GREEN against MariaDB while the
+  # operator recorded it as MySQL evidence -- wrong-engine evidence is worse
+  # than no evidence.
+  printf 'DUO_AGENT_SRC=%s\nDUO_MANIFESTS_SRC=%s\nDUO_DB_HOST=%s\n' "$DUO_AGENT_SRC" "$DUO_MANIFESTS_SRC" "$DUO_DB_HOST" > .env
 }
 
 pair_compose_live_pairs() { # pair_compose_live_pairs — one live pair name per line
