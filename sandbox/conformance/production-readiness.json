@@ -221,22 +221,22 @@
       "not_applicable": {}
     },
     "the-events-calendar": {
-      "readiness": "ready",
-      "covered": {
-        "contract-dependency": ["manifests/the-events-calendar.json", "manifests/interpreters/the-events-calendar.php", "manifests/providers/the-events-calendar-category-colors.php", "manifests/regenerators/the-events-calendar.php", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php"],
-        "clean-target": ["sandbox/conformance/entries/the-events-calendar.json", "sandbox/conformance/seeds/the-events-calendar.sh", "sandbox/conformance/checks/the-events-calendar.sh"],
-        "dirty-target": ["sandbox/conformance/postdeploy/the-events-calendar.sh", "sandbox/conformance/checks/the-events-calendar.sh"],
-        "identity-references": ["manifests/the-events-calendar.json", "sandbox/conformance/seeds/the-events-calendar.sh", "sandbox/conformance/postdeploy/the-events-calendar.sh", "sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
-        "native-behavior": ["sandbox/conformance/seeds/the-events-calendar.sh", "sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
-        "derived-state": ["manifests/providers/the-events-calendar-category-colors.php", "manifests/regenerators/the-events-calendar.php", "sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/live/regress_tec_regen.sh"],
-        "deletion": ["sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php"],
-        "failure-recovery": ["manifests/providers/the-events-calendar-category-colors.php", "sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/live/regress_tec_regen.sh", "sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php"],
-        "concurrency-idempotence": ["sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/live/regress_capture_concurrency.sh"],
-        "lifecycle": ["sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
-        "data-boundary": ["manifests/interpreters/the-events-calendar.php", "sandbox/conformance/seeds/the-events-calendar.sh", "sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php"],
-        "scope-platform": ["manifests/the-events-calendar.json", "sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/live/regress_multisite_refusal.sh"]
+      "readiness": "unready",
+      "covered": {},
+      "gaps": {
+        "contract-dependency": "The exact 6.17.2/6.17.3 free-plugin inventory is not closed until mixed-option unknown-sibling refusal, current Customizer versus legacy fallback, and checked repeated-meta storage land on the shared engine seams and both exact artifacts plus adjacent refusals are rerun on the final SHA.",
+        "clean-target": "The final candidate bytes have not completed one exact-artifact native clean-target capture, apply, render/API readback, and byte-identical recapture.",
+        "dirty-target": "The final candidate lacks executed hostile-target evidence for managed conflicts, stale projections, unknown mixed-option siblings, legacy/current Customizer precedence, and preservation of runtime, credential, import, cleaner, and extension state.",
+        "identity-references": "Ordered repeated organizer rows still need checked bounded capture, transactional owner-range locking, fresh post-meta cache semantics, and exact divergent-large-ID block/REST/frontend proof after the shared metadata seam lands.",
+        "native-behavior": "Registered Gutenberg metadata, status/map transitions, settings registry hooks, Customizer precedence, multiple organizers, and frontend/REST output are specified offline but not yet executed together on both final exact artifacts.",
+        "derived-state": "Custom Tables V1 occurrence/event rows and Category Colors CSS/dropdown cache need final exact value-level repair, rollback, retry, stale/orphan refusal, and recapture evidence on the candidate SHA.",
+        "deletion": "Unsupported event, venue, organizer, and category deletion still needs an exact live refusal matrix proving no tombstone, post/meta/term mutation, occurrence cleanup, reverse-reference damage, or provider side effect.",
+        "failure-recovery": "Injected database, metadata, option-hook, regenerator, provider, and late-transaction failures have not all proved exact raw/in-memory rollback followed by a clean same-process retry on final bytes.",
+        "concurrency-idempotence": "Competing ordered-organizer, option, event-occurrence, and Category Colors applies plus no-op retries have not completed under the final transactional/cache topology.",
+        "lifecycle": "The final candidate has not executed populated 6.17.2-to-6.17.3 upgrade, deactivate/reactivate, uninstall residue preservation, absent-code refusal, and exact reinstall/reapply/recapture as one lifecycle matrix.",
+        "data-boundary": "Large and malformed metadata/options/CSS/tables, serialized and secret-shaped values, huge identities, dates/timezones/statuses, schema drift, and canonical native rendering still need one final exact-artifact execution matrix.",
+        "scope-platform": "Multisite must refuse before TEC mutation, while Pro, Event Tickets, Aggregator, CSV/import, optional integration, credential, cleaner, and shared Common runtime namespaces need final exact preservation/refusal evidence."
       },
-      "gaps": {},
       "blocked": {},
       "not_applicable": {}
     },

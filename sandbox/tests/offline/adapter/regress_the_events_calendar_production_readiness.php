@@ -491,9 +491,9 @@ $artifacts = json_decode(
 )['plugins']['the-events-calendar'];
 
 duo_check_same(
-    ['min' => '6.17.2', 'max' => '6.17.3.1'],
+    ['min' => '6.17.2', 'max' => '6.17.4'],
     $manifest['version_range'],
-    'the exclusive range admits exactly the two reviewed published TEC releases'
+    'the exclusive range admits the reviewed 6.17.2/6.17.3 artifact family without admitting 6.17.4'
 );
 duo_check_same(
     ['6.17.1', '6.17.2', '6.17.3'],
@@ -501,8 +501,8 @@ duo_check_same(
     'the artifact lock carries one real adjacent refusal and both exact boundaries'
 );
 duo_check_same('refusal-fixture', $artifacts['6.17.1']['role'], '6.17.1 is an adjacent refusal artifact');
-duo_check_same('certified-boundary', $artifacts['6.17.2']['role'], '6.17.2 is the lower certified artifact');
-duo_check_same('certified-boundary', $artifacts['6.17.3']['role'], '6.17.3 is the upper certified artifact');
+duo_check_same('exercise-fixture', $artifacts['6.17.2']['role'], '6.17.2 remains a candidate exercise artifact until final evidence is green');
+duo_check_same('exercise-fixture', $artifacts['6.17.3']['role'], '6.17.3 remains a candidate exercise artifact until final evidence is green');
 duo_check_same(
     '2db436c929797bfc5311be942158c474716e61c2f289f7d05c3a08d29b2ad687',
     $artifacts['6.17.3']['sha256'],
