@@ -160,23 +160,22 @@
       "not_applicable": {}
     },
     "ninja-forms": {
-      "readiness": "unready",
+      "readiness": "ready",
       "covered": {
-        "contract-dependency": ["manifests/ninja-forms.json", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "contract-dependency": ["manifests/ninja-forms.json", "manifests/interpreters/ninja-forms.php", "manifests/providers/ninja-forms-form-cache.php", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/offline/adapter/regress_ninja_forms_form_cache_provider.php", "sandbox/tests/offline/adapter/regress_ninja_forms_production_readiness.php"],
         "clean-target": ["sandbox/conformance/entries/ninja-forms.json", "sandbox/conformance/seeds/ninja-forms.sh", "sandbox/conformance/checks/ninja-forms.sh"],
-        "identity-references": ["sandbox/conformance/checks/ninja-forms.sh"],
-        "native-behavior": ["sandbox/conformance/checks/ninja-forms.sh"],
-        "derived-state": ["manifests/providers/ninja-forms-form-cache.php", "sandbox/conformance/checks/ninja-forms.sh"]
+        "dirty-target": ["sandbox/conformance/postdeploy/ninja-forms.sh", "sandbox/conformance/checks/ninja-forms.sh"],
+        "identity-references": ["sandbox/conformance/seeds/ninja-forms.sh", "sandbox/conformance/postdeploy/ninja-forms.sh", "sandbox/conformance/checks/ninja-forms.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "native-behavior": ["sandbox/conformance/seeds/ninja-forms.sh", "sandbox/conformance/checks/ninja-forms.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "derived-state": ["manifests/providers/ninja-forms-form-cache.php", "sandbox/tests/offline/adapter/regress_ninja_forms_form_cache_provider.php", "sandbox/conformance/checks/ninja-forms.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "deletion": ["sandbox/conformance/checks/ninja-forms.sh", "sandbox/tests/offline/apply/regress_delete_authorization_receipt.php", "sandbox/tests/offline/adapter/regress_ninja_forms_production_readiness.php"],
+        "failure-recovery": ["sandbox/conformance/checks/ninja-forms.sh", "sandbox/tests/offline/adapter/regress_ninja_forms_form_cache_provider.php", "sandbox/tests/offline/reference-scope/regress_scoped_effect_reconciliation.php"],
+        "concurrency-idempotence": ["sandbox/conformance/checks/ninja-forms.sh", "sandbox/tests/live/regress_capture_concurrency.sh"],
+        "lifecycle": ["sandbox/conformance/checks/ninja-forms.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "data-boundary": ["manifests/ninja-forms.json", "manifests/interpreters/ninja-forms.php", "sandbox/conformance/seeds/ninja-forms.sh", "sandbox/conformance/postdeploy/ninja-forms.sh", "sandbox/conformance/checks/ninja-forms.sh", "sandbox/tests/offline/adapter/regress_ninja_forms_form_cache_provider.php", "sandbox/tests/offline/adapter/regress_ninja_forms_production_readiness.php"],
+        "scope-platform": ["manifests/ninja-forms.json", "manifests/interpreters/ninja-forms.php", "manifests/providers/ninja-forms-form-cache.php", "sandbox/conformance/checks/ninja-forms.sh", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/live/regress_multisite_refusal.sh"]
       },
-      "gaps": {
-        "dirty-target": "Activation-default cleanup exists, but unmanaged same-title, managed divergence, and target-only submission/cache state are not a complete matrix.",
-        "deletion": "Parent refusal is exercised, but no positive live child-delete rollback/retry proof covers the certified action/field deletion claim.",
-        "failure-recovery": "Mapped-identity recovery is strong; the real cache provider still lacks injected failure-after-intent and retry evidence.",
-        "concurrency-idempotence": "No competing form graph apply/delete/cache repair exercise exists.",
-        "lifecycle": "No in-place supported upgrade, downgrade handling, deactivate/reactivate, uninstall residue, and reinstall exercise exists.",
-        "data-boundary": "Large forms, malformed serialized settings, zero/large IDs, secrets, and table-schema drift lack a manifest-path matrix.",
-        "scope-platform": "Optional add-ons, multisite, and the shared platform boundary are not exercised per adapter."
-      },
+      "gaps": {},
       "blocked": {},
       "not_applicable": {}
     },
