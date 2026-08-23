@@ -318,7 +318,7 @@ duo_check_same(
     ),
     'every source-reviewed core serialized-array key binds the typed-table plain-data codec'
 );
-duo_check_same('2.1.0', $manifest['providers'][0]['version'] ?? null, 'manifest requires the strengthened provider identity');
+duo_check_same('2.2.0', $manifest['providers'][0]['version'] ?? null, 'manifest requires the cross-process fingerprint-bound provider identity');
 duo_check_same(
     ['Ninja_Forms'],
     $manifest['providers'][0]['requires']['functions'] ?? null,

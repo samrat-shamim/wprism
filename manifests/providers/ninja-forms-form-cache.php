@@ -1,6 +1,7 @@
 <?php
 namespace Duo\Providers;
 
+use Duo\PlainData;
 use Duo\Policy;
 
 /**
@@ -63,7 +64,7 @@ final class NinjaFormsFormCache {
         return [
             'id' => 'ninja-forms-form-cache',
             'plugin' => 'ninja-forms/ninja-forms.php',
-            'version' => '2.1.0',
+            'version' => '2.2.0',
         ];
     }
 
@@ -188,10 +189,18 @@ final class NinjaFormsFormCache {
             );
         }
         if (!is_array($child)
-            || array_keys($child) !== ['format', 'form_count', 'rebuilt_form_count', 'verified']
+            || array_keys($child) !== [
+                'format',
+                'form_count',
+                'rebuilt_form_count',
+                'cache_fingerprint',
+                'verified',
+            ]
             || ($child['format'] ?? null) !== self::CHILD_FORMAT
             || !is_int($child['form_count'] ?? null)
             || !is_int($child['rebuilt_form_count'] ?? null)
+            || !is_string($child['cache_fingerprint'] ?? null)
+            || preg_match('/^[a-f0-9]{64}$/D', $child['cache_fingerprint']) !== 1
             || ($child['verified'] ?? null) !== true
             || $child['form_count'] < 0
             || $child['rebuilt_form_count'] !== $child['form_count']) {
@@ -210,6 +219,11 @@ final class NinjaFormsFormCache {
         if ($after['forms'] !== $child['form_count']) {
             throw new \RuntimeException(
                 'duo: Ninja Forms child receipt disagrees with the checked form population; recovery_required'
+            );
+        }
+        if (!hash_equals((string) $child['cache_fingerprint'], (string) $after['cache_fingerprint'])) {
+            throw new \RuntimeException(
+                'duo: Ninja Forms child cache projection disagrees with parent readback; recovery_required'
             );
         }
 
@@ -294,6 +308,34 @@ if ($cached !== $ids) {
     throw new RuntimeException('Ninja Forms rebuilt cache inventory does not equal the form inventory');
 }
 $wpdb->last_error = '';
+$cache_rows = $wpdb->get_results("SELECT id, cache, stage, maintenance FROM `$cache` ORDER BY id", ARRAY_A);
+if (!is_array($cache_rows) || (string) $wpdb->last_error !== '') {
+    throw new RuntimeException('Ninja Forms rebuilt cache projection query failed');
+}
+$cache_projection = [];
+foreach ($cache_rows as $row) {
+    $cache_id = (int) ($row['id'] ?? 0);
+    $raw_cache = $row['cache'] ?? null;
+    $stage = (int) ($row['stage'] ?? -1);
+    $maintenance_value = $row['maintenance'] ?? null;
+    if ($maintenance_value === 0 || $maintenance_value === '0' || $maintenance_value === "\0") {
+        $maintenance_mode = 0;
+    } elseif ($maintenance_value === 1 || $maintenance_value === '1' || $maintenance_value === "\1") {
+        $maintenance_mode = 1;
+    } else {
+        throw new RuntimeException('Ninja Forms rebuilt cache has an invalid maintenance flag');
+    }
+    if ($cache_id <= 0 || isset($cache_projection[$cache_id]) || !is_string($raw_cache) || $stage < 0) {
+        throw new RuntimeException('Ninja Forms rebuilt cache projection is invalid');
+    }
+    $cache_projection[$cache_id] = [
+        'cache_sha256' => hash('sha256', $raw_cache),
+        'stage' => $stage,
+        'maintenance' => $maintenance_mode,
+    ];
+}
+ksort($cache_projection, SORT_NUMERIC);
+$wpdb->last_error = '';
 $legacy = $wpdb->get_col("SELECT option_name FROM `$options` WHERE option_name LIKE 'nf_form_%' ORDER BY option_name");
 if (!is_array($legacy) || (string) $wpdb->last_error !== '') {
     throw new RuntimeException('Ninja Forms legacy cache verification query failed');
@@ -307,6 +349,7 @@ echo wp_json_encode([
     'format' => 'duo-ninja-forms-cache-rebuild/v1',
     'form_count' => count($ids),
     'rebuilt_form_count' => $rebuilt,
+    'cache_fingerprint' => hash('sha256', serialize($cache_projection)),
     'verified' => true,
 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 PHP;
@@ -495,7 +538,11 @@ PHP;
 
     /** @param list<int> $fieldIds @param list<int> $actionIds */
     private function valid_cache(string $raw, int $formId, array $fieldIds, array $actionIds): bool {
-        $cache = @unserialize($raw, ['allowed_classes' => false, 'max_depth' => 64]);
+        try {
+            $cache = PlainData::decode_serialized($raw, "Ninja Forms cache for form $formId");
+        } catch (\Throwable) {
+            return false;
+        }
         if (!is_array($cache)
             || array_keys($cache) !== ['id', 'fields', 'actions', 'settings']
             || (int) ($cache['id'] ?? 0) !== $formId

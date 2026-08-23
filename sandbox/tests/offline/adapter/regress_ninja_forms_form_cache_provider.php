@@ -4,12 +4,14 @@ declare(strict_types=1);
 namespace {
     require_once __DIR__ . '/../../lib/check.php';
     require_once __DIR__ . '/../../lib/FakeWpdb.php';
+    require_once dirname(__DIR__, 4) . '/agent/src/Kernel/PlainData.php';
 
     $GLOBALS['nf_provider_multisite'] = false;
     $GLOBALS['nf_provider_command_calls'] = [];
     $GLOBALS['nf_provider_command_result'] = null;
     $GLOBALS['nf_provider_command_throw'] = null;
     $GLOBALS['nf_provider_after_command'] = null;
+    $GLOBALS['nf_provider_wakeup_count'] = 0;
 
     function is_multisite(): bool {
         return $GLOBALS['nf_provider_multisite'];
@@ -24,7 +26,14 @@ namespace {
             if (is_callable($GLOBALS['nf_provider_after_command'])) {
                 ($GLOBALS['nf_provider_after_command'])();
             }
-            return $GLOBALS['nf_provider_command_result'];
+            $result = $GLOBALS['nf_provider_command_result'];
+            return is_callable($result) ? $result() : $result;
+        }
+    }
+
+    final class NinjaFormsCacheWakeupProbe {
+        public function __wakeup(): void {
+            $GLOBALS['nf_provider_wakeup_count']++;
         }
     }
 }
@@ -81,14 +90,41 @@ namespace {
         return array_replace(array_fill_keys(array_keys($columns), ''), $values);
     }
 
+    function nf_provider_cache_fingerprint(): string {
+        /** @var FakeWpdb $db */
+        $db = $GLOBALS['wpdb'];
+        $rows = $db->rows('nf3_upgrades');
+        usort($rows, static fn(array $a, array $b): int => (int) $a['id'] <=> (int) $b['id']);
+        $projection = [];
+        foreach ($rows as $row) {
+            $id = (int) ($row['id'] ?? 0);
+            $maintenance = $row['maintenance'] ?? null;
+            if ($maintenance === 0 || $maintenance === '0' || $maintenance === "\0") {
+                $maintenance = 0;
+            } elseif ($maintenance === 1 || $maintenance === '1' || $maintenance === "\1") {
+                $maintenance = 1;
+            } else {
+                throw new \RuntimeException('fixture cache maintenance flag is invalid');
+            }
+            $projection[$id] = [
+                'cache_sha256' => hash('sha256', (string) ($row['cache'] ?? '')),
+                'stage' => (int) ($row['stage'] ?? -1),
+                'maintenance' => $maintenance,
+            ];
+        }
+        ksort($projection, SORT_NUMERIC);
+        return hash('sha256', serialize($projection));
+    }
+
     /** @return object{return_code:int,stdout:string,stderr:string} */
-    function nf_provider_result(int $forms = 2): object {
+    function nf_provider_result(int $forms = 2, ?string $cacheFingerprint = null): object {
         return (object) [
             'return_code' => 0,
             'stdout' => json_encode([
                 'format' => 'duo-ninja-forms-cache-rebuild/v1',
                 'form_count' => $forms,
                 'rebuilt_form_count' => $forms,
+                'cache_fingerprint' => $cacheFingerprint ?? nf_provider_cache_fingerprint(),
                 'verified' => true,
             ], JSON_UNESCAPED_SLASHES),
             'stderr' => '',
@@ -156,10 +192,11 @@ namespace {
         $GLOBALS['nf_provider_multisite'] = false;
         $GLOBALS['nf_provider_command_calls'] = [];
         $GLOBALS['nf_provider_command_throw'] = null;
+        $GLOBALS['nf_provider_wakeup_count'] = 0;
         $GLOBALS['nf_provider_after_command'] = static function (): void {
             nf_provider_rebuild();
         };
-        $GLOBALS['nf_provider_command_result'] = nf_provider_result();
+        $GLOBALS['nf_provider_command_result'] = static fn(): object => nf_provider_result();
 
         $db = FakeWpdb::install();
         foreach (nf_provider_columns() as $table => $columns) {
@@ -292,9 +329,37 @@ namespace {
         throw new \RuntimeException('expected Ninja Forms provider refusal');
     }
 
+    /** @param callable(list<array<string,mixed>>):list<array<string,mixed>> $mutate */
+    function nf_provider_mutate_projection_after_child(callable $mutate): void {
+        nf_provider_rebuild();
+        $GLOBALS['nf_provider_command_result'] = nf_provider_result();
+        $rows = $GLOBALS['wpdb']->rows('nf3_upgrades');
+        $GLOBALS['wpdb']->seedTable('nf3_upgrades', $mutate($rows));
+    }
+
+    function nf_provider_mutate_cache_after_child(callable $mutate): void {
+        nf_provider_mutate_projection_after_child(static function (array $rows) use ($mutate): array {
+            $rows[0]['cache'] = $mutate((string) $rows[0]['cache']);
+            return $rows;
+        });
+    }
+
+    function nf_provider_expect_invalid_cache(string $label, callable $mutate): void {
+        $provider = nf_provider_reset();
+        $GLOBALS['nf_provider_after_command'] = static function () use ($mutate): void {
+            nf_provider_mutate_cache_after_child($mutate);
+        };
+        duo_check_throws(
+            static fn(): array => $provider->invoke('rebuild_form_caches', []),
+            \RuntimeException::class,
+            $label,
+            'invalid_form_caches'
+        );
+    }
+
     $provider = nf_provider_reset();
     duo_check_same(
-        ['id' => 'ninja-forms-form-cache', 'plugin' => 'ninja-forms/ninja-forms.php', 'version' => '2.1.0'],
+        ['id' => 'ninja-forms-form-cache', 'plugin' => 'ninja-forms/ninja-forms.php', 'version' => '2.2.0'],
         $provider->identity(),
         'provider identity makes the strengthened fresh-process contract fleet-visible'
     );
@@ -361,6 +426,20 @@ namespace {
             && !str_contains($published, 'こんにちは'),
         'receipt never exposes authored values, UTF-8 payloads, or credential-shaped data'
     );
+    $childPublished = (string) nf_provider_result()->stdout;
+    $childReceipt = json_decode($childPublished, true, 16, JSON_THROW_ON_ERROR);
+    duo_check_same(
+        ['format', 'form_count', 'rebuilt_form_count', 'cache_fingerprint', 'verified'],
+        array_keys($childReceipt),
+        'child receipt exposes only counts, a bounded exact cache fingerprint, and verification state'
+    );
+    duo_check(
+        preg_match('/^[a-f0-9]{64}$/D', (string) ($childReceipt['cache_fingerprint'] ?? '')) === 1
+            && !str_contains($childPublished, 'nf-live-secret')
+            && !str_contains($childPublished, 'Job Application')
+            && !str_contains($childPublished, 'こんにちは'),
+        'child receipt is hash-only and never exposes cache settings or authored values'
+    );
     duo_check_same(1, count($GLOBALS['nf_provider_command_calls']), 'provider launches exactly one fresh process');
     [$command, $options] = $GLOBALS['nf_provider_command_calls'][0];
     duo_check(str_starts_with($command, 'eval '), 'provider uses a fresh wp-cli eval process');
@@ -369,10 +448,13 @@ namespace {
             && str_contains($command, 'WPN_Helper::build_nf_cache')
             && str_contains($command, 'serialize($expected)')
             && str_contains($command, 'hash_equals')
+            && str_contains($command, '$cache_projection')
+            && str_contains($command, 'cache_fingerprint')
+            && str_contains($command, 'serialize($cache_projection)')
             && str_contains($command, 'nf_form_')
             && str_contains($command, 'delete_option($name)')
             && strpos($command, 'DELETE FROM `$cache`') < strpos($command, 'WPN_Helper::build_nf_cache'),
-        'child purges all stale/orphan cache before any native build and proves exact persisted bytes'
+        'child purges before native build and binds its exact normalized cache projection into the receipt'
     );
     duo_check_same(
         ['launch' => true, 'return' => 'all', 'exit_error' => false],
@@ -506,12 +588,11 @@ namespace {
 
     $provider = nf_provider_reset();
     $GLOBALS['nf_provider_after_command'] = static function (): void {
-        nf_provider_rebuild();
-        $rows = $GLOBALS['wpdb']->rows('nf3_upgrades');
-        $cache = unserialize((string) $rows[0]['cache'], ['allowed_classes' => false]);
-        $cache['fields'][0]['id'] = 31337;
-        $rows[0]['cache'] = serialize($cache);
-        $GLOBALS['wpdb']->seedTable('nf3_upgrades', $rows);
+        nf_provider_mutate_cache_after_child(static function (string $raw): string {
+            $cache = unserialize($raw, ['allowed_classes' => false]);
+            $cache['fields'][0]['id'] = 31337;
+            return serialize($cache);
+        });
     };
     duo_check_throws(
         static fn(): array => $provider->invoke('rebuild_form_caches', []),
@@ -522,10 +603,7 @@ namespace {
 
     $provider = nf_provider_reset();
     $GLOBALS['nf_provider_after_command'] = static function (): void {
-        nf_provider_rebuild();
-        $rows = $GLOBALS['wpdb']->rows('nf3_upgrades');
-        $rows[0]['cache'] = str_repeat('x', 16777217);
-        $GLOBALS['wpdb']->seedTable('nf3_upgrades', $rows);
+        nf_provider_mutate_cache_after_child(static fn(string $raw): string => str_repeat('x', 16777217));
     };
     duo_check_throws(
         static fn(): array => $provider->invoke('rebuild_form_caches', []),
@@ -537,6 +615,7 @@ namespace {
     $provider = nf_provider_reset();
     $GLOBALS['nf_provider_after_command'] = static function (): void {
         nf_provider_rebuild();
+        $GLOBALS['nf_provider_command_result'] = nf_provider_result();
         $rows = $GLOBALS['wpdb']->rows('nf3_forms');
         $rows[0]['title'] = 'concurrent source edit';
         $GLOBALS['wpdb']->seedTable('nf3_forms', $rows);
@@ -548,7 +627,98 @@ namespace {
         'authored table graph changed'
     );
 
+    $provider = nf_provider_reset();
+    $GLOBALS['nf_provider_after_command'] = static function (): void {
+        nf_provider_mutate_cache_after_child(static function (string $raw): string {
+            $cache = unserialize($raw, ['allowed_classes' => false]);
+            $cache['settings']['title'] = 'retained competing form settings';
+            $cache['fields'][0]['settings']['label'] = 'retained competing field settings';
+            $cache['actions'][0]['settings']['label'] = 'retained competing action settings';
+            return serialize($cache);
+        });
+    };
+    duo_check_throws(
+        static fn(): array => $provider->invoke('rebuild_form_caches', []),
+        \RuntimeException::class,
+        'same-count same-identity retained cache rewrite cannot be blessed by the parent',
+        'child cache projection disagrees with parent readback'
+    );
+
+    $provider = nf_provider_reset();
+    $GLOBALS['nf_provider_after_command'] = static function (): void {
+        nf_provider_mutate_projection_after_child(static function (array $rows): array {
+            $rows[0]['stage'] = 15;
+            return $rows;
+        });
+    };
+    duo_check_throws(
+        static fn(): array => $provider->invoke('rebuild_form_caches', []),
+        \RuntimeException::class,
+        'retained stage rewrite cannot drift between child proof and parent readback',
+        'child cache projection disagrees with parent readback'
+    );
+
+    $provider = nf_provider_reset();
+    $GLOBALS['nf_provider_command_result'] = static fn(): object => nf_provider_result(
+        2,
+        str_repeat('d', 64)
+    );
+    duo_check_throws(
+        static fn(): array => $provider->invoke('rebuild_form_caches', []),
+        \RuntimeException::class,
+        'success-shaped child receipt with a different exact projection refuses',
+        'child cache projection disagrees with parent readback'
+    );
+
+    nf_provider_expect_invalid_cache(
+        'canonical serialized cache refuses a valid prefix followed by trailing bytes',
+        static fn(string $raw): string => $raw . 'TRAILING'
+    );
+    nf_provider_expect_invalid_cache(
+        'malformed serialized cache refuses without accepting a partial outer structure',
+        static fn(string $raw): string => 'a:4:{s:2:"id";i:1;'
+    );
+    nf_provider_expect_invalid_cache(
+        'noncanonical serialized integer spelling refuses despite PHP accepting its value',
+        static function (string $raw): string {
+            $mutated = preg_replace('/s:2:"id";i:1;/', 's:2:"id";i:01;', $raw, 1);
+            return is_string($mutated) ? $mutated : $raw;
+        }
+    );
+    nf_provider_expect_invalid_cache(
+        'serialized object cache refuses without invoking target-controlled wakeup code',
+        static function (string $raw): string {
+            $cache = unserialize($raw, ['allowed_classes' => false]);
+            $cache['settings']['probe'] = new NinjaFormsCacheWakeupProbe();
+            return serialize($cache);
+        }
+    );
+    duo_check_same(0, $GLOBALS['nf_provider_wakeup_count'], 'object refusal executes no __wakeup side effect');
+    nf_provider_expect_invalid_cache(
+        'shared-reference serialized settings refuse as non-portable cache data',
+        static function (string $raw): string {
+            $cache = unserialize($raw, ['allowed_classes' => false]);
+            $shared = ['credential' => 'sk_reference_must_not_escape'];
+            $cache['settings']['left'] = &$shared;
+            $cache['settings']['right'] = &$shared;
+            return serialize($cache);
+        }
+    );
+    nf_provider_expect_invalid_cache(
+        'serialized settings beyond the reviewed plain-data depth refuse',
+        static function (string $raw): string {
+            $cache = unserialize($raw, ['allowed_classes' => false]);
+            $deep = 'leaf';
+            for ($depth = 0; $depth <= \Duo\PlainData::MAX_DEPTH + 2; $depth++) {
+                $deep = ['next' => $deep];
+            }
+            $cache['settings']['deep'] = $deep;
+            return serialize($cache);
+        }
+    );
+
     $hostile = 'child process token sk_child_must_not_escape';
+    $validFingerprint = str_repeat('a', 64);
     $cases = [
         'unreadable result' => ['result' => ['not-an-object'], 'needle' => 'unreadable result'],
         'noninteger return code' => ['result' => (object) ['return_code' => '0', 'stdout' => '', 'stderr' => ''], 'needle' => 'unreadable result'],
@@ -559,7 +729,25 @@ namespace {
             'return_code' => 0,
             'stdout' => json_encode([
                 'format' => 'duo-ninja-forms-cache-rebuild/v1', 'form_count' => 2,
-                'rebuilt_form_count' => 2, 'verified' => true, 'secret' => $hostile,
+                'rebuilt_form_count' => 2, 'cache_fingerprint' => $validFingerprint,
+                'verified' => true, 'secret' => $hostile,
+            ]),
+            'stderr' => '',
+        ], 'needle' => 'invalid receipt'],
+        'missing fingerprint' => ['result' => (object) [
+            'return_code' => 0,
+            'stdout' => json_encode([
+                'format' => 'duo-ninja-forms-cache-rebuild/v1', 'form_count' => 2,
+                'rebuilt_form_count' => 2, 'verified' => true,
+            ]),
+            'stderr' => '',
+        ], 'needle' => 'invalid receipt'],
+        'malformed fingerprint' => ['result' => (object) [
+            'return_code' => 0,
+            'stdout' => json_encode([
+                'format' => 'duo-ninja-forms-cache-rebuild/v1', 'form_count' => 2,
+                'rebuilt_form_count' => 2, 'cache_fingerprint' => 'not-a-hash',
+                'verified' => true,
             ]),
             'stderr' => '',
         ], 'needle' => 'invalid receipt'],
@@ -567,7 +755,8 @@ namespace {
             'return_code' => 0,
             'stdout' => json_encode([
                 'format' => 'duo-ninja-forms-cache-rebuild/v1', 'form_count' => -1,
-                'rebuilt_form_count' => -1, 'verified' => true,
+                'rebuilt_form_count' => -1, 'cache_fingerprint' => $validFingerprint,
+                'verified' => true,
             ]),
             'stderr' => '',
         ], 'needle' => 'invalid receipt'],
@@ -575,11 +764,15 @@ namespace {
             'return_code' => 0,
             'stdout' => json_encode([
                 'format' => 'duo-ninja-forms-cache-rebuild/v1', 'form_count' => 2,
-                'rebuilt_form_count' => 1, 'verified' => true,
+                'rebuilt_form_count' => 1, 'cache_fingerprint' => $validFingerprint,
+                'verified' => true,
             ]),
             'stderr' => '',
         ], 'needle' => 'invalid receipt'],
-        'checked population mismatch' => ['result' => nf_provider_result(1), 'needle' => 'disagrees with the checked form population'],
+        'checked population mismatch' => [
+            'result' => static fn(): object => nf_provider_result(1),
+            'needle' => 'disagrees with the checked form population',
+        ],
     ];
     foreach ($cases as $label => $case) {
         $provider = nf_provider_reset();
@@ -600,7 +793,7 @@ namespace {
     foreach (['nf3_forms', 'nf3_form_meta', 'nf3_fields', 'nf3_field_meta', 'nf3_actions', 'nf3_action_meta'] as $table) {
         $GLOBALS['wpdb']->seedTable($table, []);
     }
-    $GLOBALS['nf_provider_command_result'] = nf_provider_result(0);
+    $GLOBALS['nf_provider_command_result'] = static fn(): object => nf_provider_result(0);
     $receipt = $provider->invoke('rebuild_form_caches', []);
     duo_check_same(0, $receipt['after']['forms'] ?? null, 'zero-form population is a valid exact projection');
     duo_check_same(0, $receipt['after']['cache_rows'] ?? null, 'zero-form rebuild removes all stale/orphan cache rows');
