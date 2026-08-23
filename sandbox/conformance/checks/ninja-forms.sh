@@ -255,11 +255,13 @@ FRONT=$(curl -fsSL "http://localhost:${CONF2_PORT}/conformance-careers/") \
 require_observed_nonempty "conf2 Ninja Forms rendered response" "$FRONT"
 [ "${#FRONT}" -ge 1000 ] || fail "conf2 Ninja Forms response was suspiciously short (${#FRONT} bytes)"
 grep -qiE 'fatal error|uncaught' <<<"$FRONT" && fail "conf2 Ninja Forms response contains a fatal marker"
-grep -q 'First Name' <<<"$FRONT" && grep -Fq 'Duo Disposable Child — 界' <<<"$FRONT" \
-  || fail "conf2 frontend did not render core and extended Ninja Forms fields"
+grep -q 'First Name' <<<"$FRONT" \
+  && grep -Fq 'Duo Disposable Child \u2014 \u754c' <<<"$FRONT" \
+  && grep -Fq '"key":"duo_disposable_child","type":"listselect"' <<<"$FRONT" \
+  || fail "conf2 frontend did not publish core and extended Ninja Forms field models"
 grep -Fq "http://localhost:${CONF1_PORT}" <<<"$FRONT" \
   && fail "conf2 Ninja Forms frontend leaked the source host"
-pass "Ninja Forms native model/frontend consumes 24 fields, 4 actions, large UTF-8/serialized data and divergent target identities"
+pass "Ninja Forms native model/frontend publishes 24 fields, 4 actions, large UTF-8/serialized data and divergent target identities"
 pass "provider v2 removed table/legacy orphan caches and preserved target-only submission/runtime state"
 
 ZERO_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
