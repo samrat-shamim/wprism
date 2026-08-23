@@ -171,19 +171,21 @@
       ]
     },
     "paid-memberships-pro": {
-      "capabilities": {"deletion_semantics": {"supported": ["table:pmpro_memberships_pages"], "unsupported": ["intent-only composite tables"]}, "entity_sections": ["tables"], "field_sections": ["options", "post_meta"], "lifecycle_phases": [], "operations": ["capture", "compile", "plan", "apply", "delete", "recapture"]},
-      "default_authored_keyspaces": [{"reason": "No version-pinned evidence bounds the default metadata keyspace; the whole adapter remains promotion-blocking.", "status": "unsupported", "table": "pmpro_membership_levelmeta"}],
+      "capabilities": {"deletion_semantics": {"supported": ["table:pmpro_discount_codes_levels", "table:pmpro_membership_levels_groups", "table:pmpro_memberships_categories", "table:pmpro_memberships_pages"], "unsupported": ["table:pmpro_membership_levels", "table:pmpro_discount_codes", "table:pmpro_groups", "runtime membership/payment state"]}, "entity_sections": ["tables"], "field_sections": ["options", "option_patterns"], "lifecycle_phases": [], "operations": ["capture", "compile", "plan", "apply", "delete", "recapture"]},
+      "default_authored_keyspaces": [],
       "evidence": {"bundle_schema": "duo-subject-certification-bundle/v1", "tests": ["conformance-paid-memberships-pro", "exact-artifact-version-matrix"]},
-      "reason": "Experimental: exact 3.8.3 artifact and version-boundary evidence exist, but intent-only authored tables and an unbounded default metadata keyspace remain promotion-blocking.",
+      "reason": "Experimental while the expanded 3.8.2/3.8.3 exact-artifact adversarial and lifecycle matrix is being completed; the typed contract itself is closed and no longer carries intent-only or default-authored surfaces.",
       "status": "experimental",
-      "supported_versions": {"plugin": "paid-memberships-pro/paid-memberships-pro.php", "range": {"max": "3.8.4", "min": "3.8.3"}},
+      "supported_versions": {"plugin": "paid-memberships-pro/paid-memberships-pro.php", "range": {"max": "3.8.4", "min": "3.8.2"}},
       "unsupported": [
-        {"operation": "capture", "reason": "Intent marker only; no implemented typed snapshot contract.", "surface": "tables.pmpro_discount_codes"},
-        {"operation": "capture", "reason": "Intent marker only; no implemented typed snapshot contract.", "surface": "tables.pmpro_discount_codes_levels"},
-        {"operation": "capture", "reason": "Intent marker only; no implemented typed snapshot contract.", "surface": "tables.pmpro_groups"},
-        {"operation": "capture", "reason": "Intent marker only; no implemented typed snapshot contract.", "surface": "tables.pmpro_membership_levels_groups"},
-        {"operation": "capture", "reason": "Intent marker only; no implemented typed snapshot contract.", "surface": "tables.pmpro_memberships_categories"},
-        {"operation": "promote", "reason": "Intent-only authored tables and an unbounded default metadata keyspace prevent a closed production claim.", "surface": "production"}
+        {"operation": "delete", "reason": "Membership levels may be referenced by runtime memberships/orders and extension-owned tables, discount codes by use/order state, and groups by extension-owned relationships; without a closed reverse-reference boundary only their pure authored relationship rows have deletion authority.", "surface": "tables.pmpro_membership_levels|pmpro_discount_codes|pmpro_groups"},
+        {"operation": "capture", "reason": "PMPro stores custom user-field definitions as nested PHP objects and exposes no lossless plain-data import/export primitive at the admitted tags; objects are refused rather than serialized into canonical state.", "surface": "options.pmpro_user_fields_settings"},
+        {"operation": "capture", "reason": "Only exact free-plugin option, table, and levelmeta inventories are classified; add-on-created options, tables, metadata, email templates, page templates, and subscription-delay settings remain loud instead of inheriting core ownership.", "surface": "optional-and-extension-owned"},
+        {"operation": "apply", "reason": "Gateway selection and mode, payment credentials, remote product/connect/webhook ids, anti-spam credentials, licensing, URL/SSL state, recipients, and optional integration switches are environment-owned and preserved on the target instead of crossing environments.", "surface": "payment-and-integration-environment"},
+        {"operation": "capture", "reason": "Memberships, orders, subscriptions, discount uses, order metadata, and email logs are target runtime state and never enter the authored repository.", "surface": "runtime-membership-and-payment-state"},
+        {"operation": "all", "reason": "Paid Memberships Pro releases before 3.8.2 and 3.8.4 or later are outside the source-audited range and are blocked until a new exact-artifact review extends the manifest.", "surface": "version:<3.8.2|>=3.8.4"},
+        {"operation": "all", "reason": "Duo v1 refuses multisite; PMPro network tables, network activation, and blog-prefix behavior are outside this single-site adapter.", "surface": "multisite"},
+        {"operation": "promote", "reason": "The expanded exact-artifact adversarial and lifecycle evidence matrix must be green before the disposition can become certified.", "surface": "production"}
       ]
     },
     "polylang": {

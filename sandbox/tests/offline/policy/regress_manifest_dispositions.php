@@ -141,13 +141,13 @@ $pmproManifest = $manifestsByName['paid-memberships-pro'];
 $pmproDisposition = $data['manifests']['paid-memberships-pro'];
 check(
     ($pmproManifest['plugin'] ?? null) === 'paid-memberships-pro/paid-memberships-pro.php'
-        && ($pmproManifest['version_range'] ?? null) === ['min' => '3.8.3', 'max' => '3.8.4'],
-    'Paid Memberships Pro is bound to the one exact upstream artifact its table/reference evidence exercises'
+        && ($pmproManifest['version_range'] ?? null) === ['min' => '3.8.2', 'max' => '3.8.4'],
+    'Paid Memberships Pro is bound to the two schema-audited upstream artifacts its table/reference evidence exercises'
 );
 check(
     ($pmproDisposition['supported_versions'] ?? null) === [
         'plugin' => 'paid-memberships-pro/paid-memberships-pro.php',
-        'range' => ['max' => '3.8.4', 'min' => '3.8.3'],
+        'range' => ['max' => '3.8.4', 'min' => '3.8.2'],
     ]
         && ($pmproDisposition['evidence']['tests'] ?? null) === [
             'conformance-paid-memberships-pro',
@@ -311,11 +311,18 @@ $pmproAuthoredBlocker = array_values(array_filter(
 check(($pmproAuthoredBlocker[0]['name'] ?? null) === 'paid-memberships-pro', 'an experimental pin is a structured readiness blocker');
 check($pmproPolicy->capability_report()['ready'] === false, 'experimental capability output can never report ready');
 
-echo "\n== intent-only tables and default-authored keyspaces remain unsupported/justified ==\n";
+echo "\n== typed table identities, closed keyspaces, and parent-delete limits are explicit ==\n";
 $pmproUnsupported = array_fill_keys(array_column($data['manifests']['paid-memberships-pro']['unsupported'], 'surface'), true);
 foreach (['pmpro_discount_codes', 'pmpro_discount_codes_levels', 'pmpro_groups', 'pmpro_membership_levels_groups', 'pmpro_memberships_categories'] as $table) {
-    check(isset($pmproUnsupported["tables.$table"]), "$table is not presented as implemented table support");
+    check(
+        ($pmproManifest['tables'][$table]['class'] ?? null) === 'authored_snapshot',
+        "$table is a real typed snapshot declaration rather than an intent marker"
+    );
 }
+check(
+    isset($pmproUnsupported['tables.pmpro_membership_levels|pmpro_discount_codes|pmpro_groups']),
+    'PMPro parent-table deletion remains one explicit unsupported reverse-reference boundary'
+);
 $ninjaDefaults = array_column($data['manifests']['ninja-forms']['default_authored_keyspaces'], 'status', 'table');
 foreach (['nf3_action_meta', 'nf3_field_meta', 'nf3_form_meta'] as $table) {
     check(($ninjaDefaults[$table] ?? null) === 'justified', "$table has exact default-authored justification");
@@ -324,7 +331,11 @@ $ninjaDeletes = $data['manifests']['ninja-forms']['capabilities']['deletion_sema
 check($ninjaDeletes['supported'] === ['table:nf3_actions', 'table:nf3_fields'], 'Ninja Forms certifies only independently safe child-row deletion');
 check(in_array('table:nf3_forms', $ninjaDeletes['unsupported'], true), 'Ninja Forms parent deletion is explicitly unsupported');
 check(Policy::load(null, ['ninja-forms'])->deletion_capability('table:nf3_forms') === null, 'Ninja Forms manifest cannot authorize parent deletion');
-check(($data['manifests']['paid-memberships-pro']['default_authored_keyspaces'][0]['status'] ?? null) === 'unsupported', 'PMPro default-authored keyspace is explicitly unsupported');
+check(
+    ($data['manifests']['paid-memberships-pro']['default_authored_keyspaces'] ?? null) === []
+        && ($pmproManifest['tables']['pmpro_membership_levelmeta']['default_class'] ?? null) === 'runtime',
+    'PMPro has no default-authored keyspace: only the exact reviewed core keys can enter canonical state'
+);
 
 echo "\n== disposition bytes are frozen and content-addressed ==\n";
 $snapshotPolicy = Policy::from_snapshot($corePolicy->export_snapshot());
