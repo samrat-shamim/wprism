@@ -160,6 +160,25 @@ $classicElements = [[
 ]];
 duo_elementor_save($classic, 'wp-page', $classicElements);
 
+$deletion = duo_elementor_post('page', 'Duo Elementor Deletion Page', 'duo-elementor-deletion-page');
+duo_elementor_save($deletion, 'wp-page', [[
+    'id' => 'delsect1',
+    'elType' => 'section',
+    'settings' => ['background_background' => 'classic', 'background_color' => '#2468ac'],
+    'elements' => [[
+        'id' => 'delcol01',
+        'elType' => 'column',
+        'settings' => ['_column_size' => 100],
+        'elements' => [[
+            'id' => 'delhead1',
+            'elType' => 'widget',
+            'widgetType' => 'heading',
+            'settings' => ['title' => 'Disposable Elementor deletion fixture 東京 🚀'],
+            'elements' => [],
+        ]],
+    ]],
+]]);
+
 $template = duo_elementor_post('elementor_library', 'Duo Portable Section', 'duo-portable-section');
 duo_elementor_save($template, 'section', [[
     'id' => 'tplsect1',
@@ -271,6 +290,7 @@ $ids = [
     'atomic_supported' => $atomicSupported,
     'background' => $background,
     'classic' => $classic,
+    'deletion' => $deletion,
     'gallery_a' => $galleryA,
     'gallery_b' => $galleryB,
     'hero' => $hero,
@@ -279,7 +299,7 @@ $ids = [
     'target' => $target,
     'template' => $template,
 ];
-foreach (['background', 'classic', 'gallery_a', 'gallery_b', 'hero', 'kit', 'target', 'template'] as $key) {
+foreach (['background', 'classic', 'deletion', 'gallery_a', 'gallery_b', 'hero', 'kit', 'target', 'template'] as $key) {
     if ($ids[$key] < 4100001) {
         throw new RuntimeException("Elementor high-ID premise failed for $key");
     }
@@ -295,7 +315,7 @@ rm -f "$SEED_FILE"
 require_observed_nonempty 'conf1 Elementor source fixture output' "$SEED_OUT"
 SOURCE_JSON=$(printf '%s\n' "$SEED_OUT" | awk 'NF { line=$0 } END { print line }')
 jq -e '
-  .classic >= 4100001 and .target >= 4100001 and .template >= 4100001 and
+  .classic >= 4100001 and .deletion >= 4100001 and .target >= 4100001 and .template >= 4100001 and
   .kit >= 4100001 and .hero >= 4100001 and .background >= 4100001 and .library_type >= 4200001 and
   (.atomic_supported == false or .atomic >= 4100001)
 ' <<<"$SOURCE_JSON" >/dev/null || fail "Elementor source fixture premise was incomplete: $SOURCE_JSON"

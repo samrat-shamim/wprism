@@ -97,6 +97,14 @@ duo_elementor_target_save($classic, 'wp-page', [[
     ]],
 ]]);
 
+$deletion = duo_elementor_target_post('page', 'Target Elementor Deletion Stale', 'duo-elementor-deletion-page');
+duo_elementor_target_save($deletion, 'wp-page', [[
+    'id' => 'stdelsec',
+    'elType' => 'section',
+    'settings' => ['background_background' => 'classic', 'background_color' => '#ff00ff'],
+    'elements' => [],
+]]);
+
 $template = duo_elementor_target_post('elementor_library', 'Duo Portable Section', 'duo-portable-section');
 duo_elementor_target_save($template, 'section', [[
     'id' => 'staltpl1',
@@ -156,6 +164,7 @@ $ids = [
     'atomic' => $atomic,
     'background' => $background,
     'classic' => $classic,
+    'deletion' => $deletion,
     'gallery_a' => $galleryA,
     'gallery_b' => $galleryB,
     'hero' => $hero,
@@ -164,7 +173,7 @@ $ids = [
     'target' => $target,
     'template' => $template,
 ];
-foreach (['background', 'classic', 'gallery_a', 'gallery_b', 'hero', 'kit', 'target', 'template'] as $key) {
+foreach (['background', 'classic', 'deletion', 'gallery_a', 'gallery_b', 'hero', 'kit', 'target', 'template'] as $key) {
     if ($ids[$key] < 8100001) {
         throw new RuntimeException("Elementor target high-ID premise failed for $key");
     }
@@ -180,13 +189,13 @@ rm -f "$HOSTILE_FILE"
 require_observed_nonempty 'conf2 Elementor hostile fixture output' "$HOSTILE_OUT"
 TARGET_JSON=$(printf '%s\n' "$HOSTILE_OUT" | awk 'NF { line=$0 } END { print line }')
 jq -e '
-  .classic >= 8100001 and .target >= 8100001 and .template >= 8100001 and
+  .classic >= 8100001 and .deletion >= 8100001 and .target >= 8100001 and .template >= 8100001 and
   .kit >= 8100001 and .hero >= 8100001 and .background >= 8100001 and .library_type >= 8200001
 ' <<<"$TARGET_JSON" >/dev/null || fail "Elementor hostile target premise was incomplete: $TARGET_JSON"
 printf '%s\n' "$TARGET_JSON" > "$TARGET_REPO/.tmp-elementor-target.json"
 
 SOURCE_JSON=$(cat "${CONF_REPO1:-siterepo/conf1}/.tmp-elementor-source.json")
-for key in classic target template kit hero gallery_a gallery_b background library_type; do
+for key in classic deletion target template kit hero gallery_a gallery_b background library_type; do
   SOURCE_ID=$(jq -r --arg key "$key" '.[$key]' <<<"$SOURCE_JSON")
   TARGET_ID=$(jq -r --arg key "$key" '.[$key]' <<<"$TARGET_JSON")
   require_fixture_ids SOURCE_ID TARGET_ID
