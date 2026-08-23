@@ -655,7 +655,7 @@ TARGET_ADOPT=$(wp_conf2 eval '
   $product_id=$product->save();
   $coupon=new WC_Coupon();
   $coupon->set_code("CONF-ADOPT-25");
-  $coupon->set_status("draft");
+  $coupon->set_status("publish");
   $coupon->set_discount_type("percent");
   $coupon->set_amount("99");
   $coupon->set_description("Hostile target coupon");
