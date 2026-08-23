@@ -401,8 +401,16 @@ if [ "$DIRTY_PLAN_RC" -eq 0 ]; then
   jq -e '([.collision,.conflict,.drift] | map(length) | add) > 0' <<<"$DIRTY_PLAN" >/dev/null \
     || fail "PMPro target-only duplicate names produced a falsely clean plan: $DIRTY_PLAN"
 else
-  grep -Eqi 'mapped identity|collision|missing|unmanaged' <<<"$DIRTY_PLAN" \
-    || fail "PMPro duplicate-name refusal did not name its identity boundary: $DIRTY_PLAN"
+  jq -e '
+    .format == "duo-command-refusal/v1" and .reason_code == "plan_failed" and
+    .details_redacted == true
+  ' <<<"$DIRTY_PLAN" >/dev/null \
+    || fail "PMPro duplicate-name machine refusal did not preserve the redacted public envelope: $DIRTY_PLAN"
+  DIRTY_HUMAN_RC=0
+  DIRTY_HUMAN=$(wp_conf2 duo plan --repo=/siterepo 2>&1) || DIRTY_HUMAN_RC=$?
+  require_duo_answered 'PMPro hostile duplicate-name private diagnostic' human "$DIRTY_HUMAN"
+  [ "$DIRTY_HUMAN_RC" -ne 0 ] && grep -Eqi 'mapped identity|collision|missing|unmanaged' <<<"$DIRTY_HUMAN" \
+    || fail "PMPro duplicate-name refusal did not name its identity boundary privately: $DIRTY_HUMAN"
 fi
 DIRTY_LEVEL=$(jq -r '.level' <<<"$DIRTY_IDS")
 DIRTY_GROUP=$(jq -r '.group' <<<"$DIRTY_IDS")
