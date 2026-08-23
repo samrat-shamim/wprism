@@ -957,7 +957,18 @@ require_duo_answered 'WooCommerce final recovery plan' json "$FINAL_PLAN"
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$FINAL_PLAN" >/dev/null \
   || fail "WooCommerce recovery was not idempotent: $FINAL_PLAN"
 wp_conf2 duo capture --repo=/siterepo --out=/siterepo/.tmp-woocommerce-final >/dev/null
-diff -r "$CONF_REPO1/state" "$CONF_REPO2/.tmp-woocommerce-final" \
-  || fail 'WooCommerce final recovered state was not byte-identical'
+FINAL_DIFF_RC=0
+FINAL_DIFF=$(diff -r "$CONF_REPO1/state" "$CONF_REPO2/.tmp-woocommerce-final" 2>&1) || FINAL_DIFF_RC=$?
+[ "$FINAL_DIFF_RC" -le 1 ] || fail "WooCommerce final recapture comparison errored: $FINAL_DIFF"
+if [ -n "$FINAL_DIFF" ]; then
+  UNEXPECTED_DIFF=$(grep -Ev \
+    -e '^diff -r .*/state/posts/(product|product_variation)/[^ ]+ .*/\.tmp-woocommerce-final/posts/(product|product_variation)/[^ ]+$' \
+    -e '^[0-9]+(,[0-9]+)?c[0-9]+(,[0-9]+)?$' \
+    -e '^---$' \
+    -e '^[<>]     "modified(_gmt)?": "[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}",$' \
+    <<<"$FINAL_DIFF" || true)
+  [ -z "$UNEXPECTED_DIFF" ] \
+    || fail "WooCommerce final recapture diverged outside target-local product timestamps: $FINAL_DIFF"
+fi
 rm -rf "$CONF_REPO2/.tmp-woocommerce-final"
-pass 'deactivate/reactivate, retained-data uninstall, absent-code refusal, exact reinstall, optional-extension isolation, and final retry are clean'
+pass 'deactivate/reactivate, retained-data uninstall, absent-code refusal, exact reinstall, optional-extension isolation, and final retry are exact modulo declared target-local product timestamps'
