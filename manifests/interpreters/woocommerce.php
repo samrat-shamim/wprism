@@ -58,6 +58,18 @@ final class Woocommerce {
         'auto_fulfill_virtual',
     ];
 
+    private const PRODUCT_VISIBILITY_TERMS = [
+        'exclude-from-search',
+        'exclude-from-catalog',
+        'featured',
+        'outofstock',
+        'rated-1',
+        'rated-2',
+        'rated-3',
+        'rated-4',
+        'rated-5',
+    ];
+
     public function __construct(private readonly Policy $policy) {}
 
     public function post_meta_rule(string $key, array $allMeta): ?array {
@@ -125,24 +137,48 @@ final class Woocommerce {
     public function repository_diagnostics(array $tree): array {
         $out = [];
         $postIndex = [];
+        $termIndex = [];
+        $visibilityInventory = [];
+        $hasProduct = false;
         foreach ($tree as $entity) {
-            if (($entity['type'] ?? '') !== 'post') {
+            $entityType = (string) ($entity['type'] ?? '');
+            if ($entityType === 'post') {
+                $front = $entity['data'] ?? Canon::parse_post_file((string) ($entity['content'] ?? ''))[0];
+                $uuid = (string) ($front['uuid'] ?? '');
+                if ($uuid !== '') {
+                    $postIndex[$uuid] = $front;
+                }
+                $hasProduct = $hasProduct
+                    || in_array((string) ($front['type'] ?? ''), ['product', 'product_variation'], true);
                 continue;
             }
-            $front = $entity['data'] ?? Canon::parse_post_file((string) ($entity['content'] ?? ''))[0];
-            $uuid = (string) ($front['uuid'] ?? '');
-            if ($uuid !== '') {
-                $postIndex[$uuid] = [
-                    'file' => $front['file'] ?? null,
-                    'mime' => $front['mime'] ?? null,
-                    'type' => $front['type'] ?? null,
-                ];
+            if ($entityType === 'term') {
+                $front = (array) ($entity['data'] ?? []);
+                $uuid = (string) ($front['uuid'] ?? '');
+                if ($uuid !== '') {
+                    $termIndex[$uuid] = $front;
+                }
+                if (($front['taxonomy'] ?? null) === 'product_visibility') {
+                    $visibilityInventory[] = (string) ($front['slug'] ?? '');
+                }
+            }
+        }
+        if ($hasProduct || $visibilityInventory !== []) {
+            sort($visibilityInventory, SORT_STRING);
+            $expected = self::PRODUCT_VISIBILITY_TERMS;
+            sort($expected, SORT_STRING);
+            if ($visibilityInventory !== $expected) {
+                $out[] = $this->diagnostic(
+                    'state/terms/product_visibility',
+                    'taxonomy.inventory',
+                    'WooCommerce repositories with products require exactly one of every core product_visibility term'
+                );
             }
         }
         foreach ($tree as $entity) {
             $entityType = (string) ($entity['type'] ?? '');
             if ($entityType === 'post') {
-                $out = array_merge($out, $this->post_diagnostics($entity));
+                $out = array_merge($out, $this->post_diagnostics($entity, $postIndex, $termIndex));
                 continue;
             }
             if ($entityType === 'term') {
@@ -157,12 +193,18 @@ final class Woocommerce {
     }
 
     /** @return list<array<string,mixed>> */
-    private function post_diagnostics(array $entity): array {
+    private function post_diagnostics(array $entity, array $postIndex, array $termIndex): array {
         $out = [];
         $front = $entity['data'] ?? Canon::parse_post_file((string) ($entity['content'] ?? ''))[0];
         $meta = (array) ($front['meta'] ?? []);
         $postType = (string) ($front['type'] ?? '');
         $path = (string) ($entity['path'] ?? '');
+        if (in_array($postType, ['product', 'product_variation'], true)) {
+            $out = array_merge(
+                $out,
+                $this->visibility_diagnostics($path, $front, $postIndex, $termIndex)
+            );
+        }
         if (array_key_exists('_product_attributes', $meta)) {
             if ($postType !== 'product') {
                 $out[] = $this->diagnostic(
@@ -265,6 +307,152 @@ final class Woocommerce {
         return $out;
     }
 
+    /** @return list<array<string,mixed>> */
+    private function visibility_diagnostics(string $path, array $front, array $postIndex, array $termIndex): array {
+        $out = [];
+        $postType = (string) ($front['type'] ?? '');
+        $terms = (array) ($front['terms'] ?? []);
+        $visibility = $this->relationship_slugs(
+            $path,
+            'terms.product_visibility',
+            $terms['product_visibility'] ?? [],
+            'product_visibility',
+            $termIndex,
+            $out
+        );
+        $pos = $this->relationship_slugs(
+            $path,
+            'terms.pos_product_visibility',
+            $terms['pos_product_visibility'] ?? [],
+            'pos_product_visibility',
+            $termIndex,
+            $out
+        );
+
+        $ratings = array_values(array_filter(
+            $visibility,
+            static fn(string $slug): bool => str_starts_with($slug, 'rated-')
+        ));
+        if (count($ratings) > 1) {
+            $out[] = $this->diagnostic(
+                $path,
+                'terms.product_visibility',
+                'WooCommerce product visibility may contain at most one native rated-* projection term'
+            );
+        }
+        if ($postType === 'product_variation') {
+            $unsupported = array_values(array_diff($visibility, ['outofstock']));
+            if ($unsupported !== []) {
+                $out[] = $this->diagnostic(
+                    $path,
+                    'terms.product_visibility',
+                    'WooCommerce variations may carry only the native outofstock visibility projection'
+                );
+            }
+        }
+        if (array_diff($pos, ['pos-hidden']) !== [] || count($pos) > 1) {
+            $out[] = $this->diagnostic(
+                $path,
+                'terms.pos_product_visibility',
+                'WooCommerce POS visibility accepts only one exact pos-hidden relationship'
+            );
+        }
+
+        if ($postType === 'product') {
+            $productTypes = $this->relationship_slugs(
+                $path,
+                'terms.product_type',
+                $terms['product_type'] ?? [],
+                'product_type',
+                $termIndex,
+                $out
+            );
+            $productType = count($productTypes) === 1 ? $productTypes[0] : null;
+            $postMeta = (array) ($front['meta'] ?? []);
+            $downloadable = (($postMeta['_downloadable'] ?? null) === 'yes');
+            if ($pos !== [] && ($downloadable || !in_array($productType, ['simple', 'variable'], true))) {
+                $out[] = $this->diagnostic(
+                    $path,
+                    'terms.pos_product_visibility',
+                    'WooCommerce pos-hidden is valid only for a non-downloadable simple or variable product'
+                );
+            }
+        } else {
+            $parentUuid = (string) ($front['parent'] ?? '');
+            $parent = is_array($postIndex[$parentUuid] ?? null) ? $postIndex[$parentUuid] : null;
+            if (($parentUuid !== '' || $pos !== [])
+                && ($parent === null || ($parent['type'] ?? null) !== 'product')) {
+                $out[] = $this->diagnostic(
+                    $path,
+                    'parent',
+                    'WooCommerce variation visibility requires an exact product parent in the repository'
+                );
+            } elseif ($parent !== null) {
+                $parentTerms = (array) ($parent['terms'] ?? []);
+                $parentPos = $this->relationship_slugs(
+                    $path,
+                    'parent.terms.pos_product_visibility',
+                    $parentTerms['pos_product_visibility'] ?? [],
+                    'pos_product_visibility',
+                    $termIndex,
+                    $out
+                );
+                if (($pos === ['pos-hidden']) !== ($parentPos === ['pos-hidden'])) {
+                    $out[] = $this->diagnostic(
+                        $path,
+                        'terms.pos_product_visibility',
+                        'WooCommerce variation POS visibility must exactly inherit its variable parent'
+                    );
+                }
+            }
+        }
+        return $out;
+    }
+
+    /** @param list<array<string,mixed>> $out @return list<string> */
+    private function relationship_slugs(
+        string $path,
+        string $locator,
+        mixed $references,
+        string $taxonomy,
+        array $termIndex,
+        array &$out
+    ): array {
+        if (!is_array($references) || !array_is_list($references)) {
+            $out[] = $this->diagnostic(
+                $path,
+                $locator,
+                "WooCommerce $taxonomy relationships must be a canonical list of term identities"
+            );
+            return [];
+        }
+        $slugs = [];
+        $seen = [];
+        foreach ($references as $reference) {
+            if (!is_string($reference) || isset($seen[$reference])) {
+                $out[] = $this->diagnostic(
+                    $path,
+                    $locator,
+                    "WooCommerce $taxonomy relationships contain a malformed or duplicate term identity"
+                );
+                continue;
+            }
+            $seen[$reference] = true;
+            $term = $termIndex[$reference] ?? null;
+            if (!is_array($term) || ($term['taxonomy'] ?? null) !== $taxonomy) {
+                $out[] = $this->diagnostic(
+                    $path,
+                    $locator,
+                    "WooCommerce $taxonomy relationship does not resolve to the exact taxonomy"
+                );
+                continue;
+            }
+            $slugs[] = (string) ($term['slug'] ?? '');
+        }
+        sort($slugs, SORT_STRING);
+        return $slugs;
+    }
+
     private static function cogs_meta_value_supported(string $value): bool {
         if ($value === '' || strlen($value) > 128
             || preg_match('/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:E[+-]?(?:0|[1-9][0-9]*))?$/D', $value) !== 1) {
@@ -302,6 +490,31 @@ final class Woocommerce {
         $meta = (array) ($front['meta'] ?? []);
         $path = (string) ($entity['path'] ?? '');
         $out = [];
+
+        if (in_array($taxonomy, ['product_visibility', 'pos_product_visibility'], true)) {
+            $slug = (string) ($front['slug'] ?? '');
+            $name = (string) ($front['name'] ?? '');
+            $allowed = $taxonomy === 'product_visibility'
+                ? self::PRODUCT_VISIBILITY_TERMS
+                : ['pos-hidden'];
+            if (!in_array($slug, $allowed, true) || $name !== $slug) {
+                $out[] = $this->diagnostic(
+                    $path,
+                    'slug',
+                    "WooCommerce $taxonomy permits only its exact core slug/name identities"
+                );
+            }
+            if (($front['parent'] ?? null) !== null
+                || (string) ($front['description'] ?? '') !== ''
+                || $meta !== []
+                || (array) ($front['relationships'] ?? []) !== []) {
+                $out[] = $this->diagnostic(
+                    $path,
+                    'taxonomy',
+                    "WooCommerce $taxonomy core projection terms must have no parent, description, metadata, or outbound relationships"
+                );
+            }
+        }
 
         $allowedTaxonomies = [
             'color' => 'global product attribute',

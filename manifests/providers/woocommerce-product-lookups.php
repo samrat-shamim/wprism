@@ -9,8 +9,8 @@ use Duo\Policy;
  * Duo writes product posts and postmeta with SQL, intentionally bypassing the
  * save hooks Woo normally uses to maintain derived product state. This
  * adapter is the manifest-owned boundary for the product-meta and product-
- * attribute lookups, price, and sale-schedule surfaces that have independent
- * synchronous verification.
+ * attribute lookups, price, sale-schedule, and mixed product/POS visibility
+ * surfaces that have independent synchronous verification.
  * It deliberately does not call on_product_changed():
  * Woo's public hook-facing method schedules Action Scheduler work by default,
  * which would leave a successful Duo apply with a pending, non-deterministic
@@ -45,6 +45,31 @@ final class WoocommerceProductLookups {
     private const META_LOOKUP = 'wc_product_meta_lookup';
     private const ATTRIBUTE_LOOKUP = 'wc_product_attributes_lookup';
     private const CAPABILITY = 'rebuild_product_lookups';
+    private const MAX_VISIBILITY_PRODUCTS = 50000;
+    private const PRODUCT_VISIBILITY_TERMS = [
+        'exclude-from-search',
+        'exclude-from-catalog',
+        'featured',
+        'outofstock',
+        'rated-1',
+        'rated-2',
+        'rated-3',
+        'rated-4',
+        'rated-5',
+    ];
+    private const MERCHANT_VISIBILITY_TERMS = [
+        'exclude-from-search',
+        'exclude-from-catalog',
+        'featured',
+    ];
+    private const DERIVED_VISIBILITY_TERMS = [
+        'outofstock',
+        'rated-1',
+        'rated-2',
+        'rated-3',
+        'rated-4',
+        'rated-5',
+    ];
 
     public function __construct(Policy $policy) {
         $this->policy = $policy;
@@ -55,7 +80,7 @@ final class WoocommerceProductLookups {
         return [
             'id' => 'woocommerce-product-lookups',
             'plugin' => 'woocommerce/woocommerce.php',
-            'version' => '2.0.0',
+            'version' => '3.0.0',
         ];
     }
 
@@ -117,6 +142,8 @@ final class WoocommerceProductLookups {
                     'post:product_variation',
                     'table:postmeta',
                     'table:posts',
+                    'table:terms',
+                    'table:term_taxonomy',
                     'table:term_relationships',
                     'table:wc_product_attributes_lookup',
                     'table:wc_product_download_directories',
@@ -124,6 +151,8 @@ final class WoocommerceProductLookups {
                 'writes' => [
                     'table:actionscheduler_actions',
                     'table:postmeta',
+                    'table:term_relationships',
+                    'table:term_taxonomy',
                     'table:wc_product_attributes_lookup',
                     'table:wc_product_download_directories',
                     'table:wc_product_meta_lookup',
@@ -202,11 +231,16 @@ final class WoocommerceProductLookups {
         $observed = array_values(array_unique($observed));
         sort($observed, SORT_NUMERIC);
 
+        $visibilityIntent = $this->visibility_snapshot(
+            array_values($liveIds),
+            true,
+            $this->visibility_deletion_ids($deletionContext)
+        );
         $before = $this->observe_provider_state($observed, array_values($liveIds), false);
-        $this->regenerate_batch(array_values($liveIds), $deletionContext);
+        $this->regenerate_batch(array_values($liveIds), $deletionContext, null, $visibilityIntent);
         return [
             'before' => $before,
-            'after' => $this->observe_provider_state($observed, array_values($liveIds), false),
+            'after' => $this->observe_provider_state($observed, array_values($liveIds), true),
             'verified' => true,
         ];
     }
@@ -683,6 +717,837 @@ final class WoocommerceProductLookups {
     }
 
     /**
+     * Bind the exact mixed product/POS visibility projection for the finite
+     * product-root scope selected by this apply. Raw relationship identities
+     * and public WC semantics both enter the digest; no product title, term
+     * prose, SKU, or other merchant value enters the receipt.
+     *
+     * @param list<int> $ids
+     * @return array{visibility_products:int,visibility_relationships:int,visibility_intent_sha256:string,visibility_scope_sha256:string}
+     */
+    private function visibility_receipt(array $ids, bool $verifyNative): array {
+        $snapshot = $this->visibility_snapshot($ids, $verifyNative);
+        if ($verifyNative) {
+            $terms = $this->visibility_term_map($this->visibility_requires_pos($snapshot, null));
+            $this->assert_visibility_projection($snapshot, null, $terms);
+        }
+        return [
+            'visibility_products' => count($snapshot['posts']),
+            'visibility_relationships' => (int) $snapshot['relationship_count'],
+            'visibility_intent_sha256' => (string) $snapshot['intent_sha256'],
+            'visibility_scope_sha256' => (string) $snapshot['scope_sha256'],
+        ];
+    }
+
+    /** @param array<int,array<string,mixed>> $deletionContext @return list<int> */
+    private function visibility_deletion_ids(array $deletionContext): array {
+        $ids = [];
+        foreach ($deletionContext as $context) {
+            if (($context['kind'] ?? 'delete') !== 'delete') {
+                continue;
+            }
+            foreach (array_merge(
+                [(int) ($context['id'] ?? 0)],
+                array_map('intval', (array) ($context['child_ids'] ?? []))
+            ) as $id) {
+                if ($id > 0) {
+                    $ids[$id] = $id;
+                }
+            }
+        }
+        ksort($ids, SORT_NUMERIC);
+        return array_values($ids);
+    }
+
+    /**
+     * @param list<int> $ids
+     * @param list<int> $excludedIds
+     * @return array{requested_ids:list<int>,excluded_ids:list<int>,posts:array<int,array{post_type:string,parent_id:int}>,relationships:array<int,array<string,list<array{slug:string,term_id:int,term_taxonomy_id:int,term_order:int}>>>,native:array<int,array<string,mixed>>,merchant:array<int,array{featured:bool,catalog_visibility:string,pos_hidden:bool}>,relationship_count:int,intent_sha256:string,scope_sha256:string}
+     */
+    private function visibility_snapshot(array $ids, bool $freshNative, array $excludedIds = []): array {
+        $requested = array_values(array_unique(array_filter(
+            array_map('intval', $ids),
+            static fn(int $id): bool => $id > 0
+        )));
+        sort($requested, SORT_NUMERIC);
+        $excluded = array_values(array_unique(array_filter(
+            array_map('intval', $excludedIds),
+            static fn(int $id): bool => $id > 0
+        )));
+        sort($excluded, SORT_NUMERIC);
+        if (array_intersect($requested, $excluded) !== []) {
+            throw new \RuntimeException(
+                'duo: WooCommerce product visibility scope declares a live product as deleted'
+            );
+        }
+        if (count($requested) > self::MAX_VISIBILITY_PRODUCTS) {
+            throw new \RuntimeException(
+                'duo: WooCommerce product visibility scope exceeds the bounded product limit'
+            );
+        }
+        $posts = $this->visibility_post_scope($requested, $excluded);
+        $relationships = $this->visibility_relationship_rows(array_keys($posts));
+        $native = [];
+        $merchant = [];
+        foreach ($posts as $id => $post) {
+            $id = (int) $id;
+            if ($freshNative) {
+                $this->invalidate_product_caches($id);
+            }
+            $product = $this->load_product($id);
+            if (!is_object($product)) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce product visibility could not load scoped product $id"
+                );
+            }
+            foreach (['get_type', 'get_parent_id', 'get_stock_status', 'get_downloadable'] as $method) {
+                if (!is_callable([$product, $method])) {
+                    throw new \RuntimeException(
+                        "duo: WooCommerce product $id lacks public $method() for visibility projection"
+                    );
+                }
+            }
+            $type = (string) $product->get_type();
+            $parentId = (int) $product->get_parent_id('edit');
+            $stockStatus = (string) $product->get_stock_status('edit');
+            $downloadable = $product->get_downloadable('edit');
+            if ($type === '' || !in_array($stockStatus, ['instock', 'outofstock', 'onbackorder'], true)
+                || !is_bool($downloadable)
+                || ($post['post_type'] === 'product_variation') !== ($type === 'variation')
+                || $parentId !== $post['parent_id']) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce product $id returned incompatible native visibility inputs"
+                );
+            }
+            $native[$id] = [
+                'type' => $type,
+                'parent_id' => $parentId,
+                'stock_status' => $stockStatus,
+                'downloadable' => $downloadable,
+            ];
+            if ($post['post_type'] !== 'product') {
+                continue;
+            }
+            foreach (['get_featured', 'get_catalog_visibility', 'get_average_rating'] as $method) {
+                if (!is_callable([$product, $method])) {
+                    throw new \RuntimeException(
+                        "duo: WooCommerce product $id lacks public $method() for visibility projection"
+                    );
+                }
+            }
+            $featured = $product->get_featured('edit');
+            $catalog = (string) $product->get_catalog_visibility('edit');
+            $average = $product->get_average_rating('edit');
+            if (!is_bool($featured)
+                || !in_array($catalog, ['visible', 'catalog', 'search', 'hidden'], true)
+                || (!is_int($average) && !is_float($average) && !is_string($average))
+                || !is_numeric((string) $average)
+                || !is_finite((float) $average)
+                || (float) $average < 0.0 || (float) $average > 5.0) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce product $id returned invalid native visibility semantics"
+                );
+            }
+            $native[$id]['featured'] = $featured;
+            $native[$id]['catalog_visibility'] = $catalog;
+            $native[$id]['average_rating'] = (string) $average;
+
+            $visibilitySlugs = $this->visibility_slugs($relationships[$id]['product_visibility'] ?? []);
+            $merchant[$id] = [
+                'featured' => in_array('featured', $visibilitySlugs, true),
+                'catalog_visibility' => $this->catalog_visibility_from_terms($visibilitySlugs),
+                'pos_hidden' => in_array(
+                    'pos-hidden',
+                    $this->visibility_slugs($relationships[$id]['pos_product_visibility'] ?? []),
+                    true
+                ),
+            ];
+        }
+        ksort($native, SORT_NUMERIC);
+        ksort($merchant, SORT_NUMERIC);
+
+        // Only merchant-controlled intent and the finite ownership/type scope
+        // enter this race fingerprint. Parent stock and rating projections may
+        // legitimately change when the same provider synchronizes a variable
+        // product; binding those here would reject the provider's own native
+        // derivation rather than a competing authored write.
+        $intentFingerprint = hash_init('sha256');
+        foreach ($requested as $id) {
+            $this->fingerprint_part($intentFingerprint, 'requested:' . $id);
+        }
+        foreach ($excluded as $id) {
+            $this->fingerprint_part($intentFingerprint, 'excluded:' . $id);
+        }
+        foreach ($posts as $id => $post) {
+            $this->fingerprint_part($intentFingerprint, 'post:' . $id);
+            $this->fingerprint_part($intentFingerprint, $post['post_type']);
+            $this->fingerprint_part($intentFingerprint, (string) $post['parent_id']);
+            if ($post['post_type'] !== 'product') {
+                continue;
+            }
+            $this->fingerprint_part($intentFingerprint, 'type:' . (string) $native[$id]['type']);
+            $this->fingerprint_part(
+                $intentFingerprint,
+                'downloadable:' . ($native[$id]['downloadable'] ? 'true' : 'false')
+            );
+            foreach ($merchant[$id] as $key => $value) {
+                $this->fingerprint_part(
+                    $intentFingerprint,
+                    'merchant:' . $key . ':'
+                    . (is_bool($value) ? ($value ? 'true' : 'false') : (string) $value)
+                );
+            }
+        }
+
+        $fingerprint = hash_init('sha256');
+        foreach ($requested as $id) {
+            $this->fingerprint_part($fingerprint, 'requested:' . $id);
+        }
+        foreach ($excluded as $id) {
+            $this->fingerprint_part($fingerprint, 'excluded:' . $id);
+        }
+        foreach ($posts as $id => $post) {
+            $this->fingerprint_part($fingerprint, 'post:' . $id);
+            $this->fingerprint_part($fingerprint, $post['post_type']);
+            $this->fingerprint_part($fingerprint, (string) $post['parent_id']);
+            foreach (['product_visibility', 'pos_product_visibility'] as $taxonomy) {
+                $this->fingerprint_part($fingerprint, $taxonomy);
+                foreach ($relationships[$id][$taxonomy] ?? [] as $row) {
+                    foreach ($row as $key => $value) {
+                        $this->fingerprint_part($fingerprint, $key . ':' . (string) $value);
+                    }
+                }
+            }
+            foreach ($native[$id] as $key => $value) {
+                $this->fingerprint_part(
+                    $fingerprint,
+                    'native:' . $key . ':' . (is_bool($value) ? ($value ? 'true' : 'false') : (string) $value)
+                );
+            }
+        }
+        return [
+            'requested_ids' => $requested,
+            'excluded_ids' => $excluded,
+            'posts' => $posts,
+            'relationships' => $relationships,
+            'native' => $native,
+            'merchant' => $merchant,
+            'relationship_count' => array_sum(array_map(
+                static fn(array $byTaxonomy): int => array_sum(array_map('count', $byTaxonomy)),
+                $relationships
+            )),
+            'intent_sha256' => hash_final($intentFingerprint),
+            'scope_sha256' => hash_final($fingerprint),
+        ];
+    }
+
+    /** @param list<int> $requested @param list<int> $excluded @return array<int,array{post_type:string,parent_id:int}> */
+    private function visibility_post_scope(array $requested, array $excluded): array {
+        global $wpdb;
+        if ($requested === []) {
+            return [];
+        }
+        $posts = $this->visibility_read_posts($requested);
+        foreach ($requested as $id) {
+            if (!isset($posts[$id])) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce visibility scope no longer contains live product $id"
+                );
+            }
+        }
+        $parentIds = [];
+        foreach ($posts as $post) {
+            if ($post['post_type'] === 'product_variation' && $post['parent_id'] > 0) {
+                $parentIds[$post['parent_id']] = $post['parent_id'];
+            }
+        }
+        $missingParents = array_values(array_diff(array_values($parentIds), array_keys($posts)));
+        if ($missingParents !== []) {
+            $posts += $this->visibility_read_posts($missingParents);
+        }
+        foreach ($parentIds as $parentId) {
+            if (($posts[$parentId]['post_type'] ?? null) !== 'product') {
+                throw new \RuntimeException(
+                    'duo: WooCommerce product visibility scope contains an orphaned variation owner'
+                );
+            }
+        }
+        $roots = [];
+        foreach ($posts as $id => $post) {
+            if ($post['post_type'] === 'product') {
+                $roots[(int) $id] = (int) $id;
+            }
+        }
+        foreach (array_chunk(array_values($roots), 200) as $chunk) {
+            $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
+            $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+                "SELECT ID, post_parent, post_type FROM {$wpdb->posts} "
+                . "WHERE post_parent IN ($placeholders) AND post_type = 'product_variation' "
+                . 'ORDER BY ID ASC LIMIT ' . (self::MAX_VISIBILITY_PRODUCTS + 1),
+                ...$chunk
+            ), 'WooCommerce product visibility child-scope discovery');
+            foreach ($rows as $row) {
+                $id = $this->visibility_uint($row['ID'] ?? null, 'post ID');
+                $parentId = $this->visibility_uint($row['post_parent'] ?? null, 'parent ID');
+                if (in_array($id, $excluded, true)) {
+                    continue;
+                }
+                if (($row['post_type'] ?? null) !== 'product_variation'
+                    || !in_array($parentId, $chunk, true)) {
+                    throw new \RuntimeException(
+                        'duo: WooCommerce product visibility child discovery returned malformed or out-of-scope state'
+                    );
+                }
+                $posts[$id] = ['post_type' => 'product_variation', 'parent_id' => $parentId];
+                if (count($posts) > self::MAX_VISIBILITY_PRODUCTS) {
+                    throw new \RuntimeException(
+                        'duo: WooCommerce product visibility root expands beyond the bounded product limit'
+                    );
+                }
+            }
+        }
+        ksort($posts, SORT_NUMERIC);
+        return $posts;
+    }
+
+    /** @param list<int> $ids @return array<int,array{post_type:string,parent_id:int}> */
+    private function visibility_read_posts(array $ids): array {
+        global $wpdb;
+        $posts = [];
+        foreach (array_chunk($ids, 200) as $chunk) {
+            $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
+            $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+                "SELECT ID, post_parent, post_type FROM {$wpdb->posts} WHERE ID IN ($placeholders) ORDER BY ID ASC",
+                ...$chunk
+            ), 'WooCommerce product visibility owner discovery');
+            foreach ($rows as $row) {
+                $id = $this->visibility_uint($row['ID'] ?? null, 'post ID');
+                $parent = $this->visibility_uint($row['post_parent'] ?? null, 'parent ID', true);
+                $postType = $row['post_type'] ?? null;
+                if (!in_array($id, $chunk, true)
+                    || !in_array($postType, ['product', 'product_variation'], true)
+                    || ($postType === 'product_variation' && $parent === 0)
+                    || isset($posts[$id])) {
+                    throw new \RuntimeException(
+                        'duo: WooCommerce product visibility owner discovery returned malformed or duplicate state'
+                    );
+                }
+                $posts[$id] = ['post_type' => $postType, 'parent_id' => $parent];
+            }
+        }
+        return $posts;
+    }
+
+    /**
+     * @param list<int> $ids
+     * @return array<int,array<string,list<array{slug:string,term_id:int,term_taxonomy_id:int,term_order:int}>>>
+     */
+    private function visibility_relationship_rows(array $ids): array {
+        global $wpdb;
+        $out = [];
+        foreach ($ids as $id) {
+            $out[(int) $id] = [
+                'product_visibility' => [],
+                'pos_product_visibility' => [],
+            ];
+        }
+        foreach (array_chunk($ids, 200) as $chunk) {
+            $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
+            $limit = count($chunk) * 10 + 1;
+            $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+                "SELECT tr.object_id, tr.term_taxonomy_id, tr.term_order, tt.term_id, tt.taxonomy, t.slug, t.name "
+                . "FROM {$wpdb->term_relationships} tr "
+                . "INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id "
+                . "INNER JOIN {$wpdb->terms} t ON t.term_id = tt.term_id "
+                . "WHERE tr.object_id IN ($placeholders) "
+                . "AND tt.taxonomy IN ('product_visibility', 'pos_product_visibility') "
+                . 'ORDER BY tr.object_id ASC, tt.taxonomy ASC, t.slug ASC, tr.term_taxonomy_id ASC '
+                . "LIMIT $limit",
+                ...$chunk
+            ), 'WooCommerce product visibility relationship observation');
+            if (count($rows) >= $limit) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce product visibility relationship scope exceeds the exact core cardinality'
+                );
+            }
+            foreach ($rows as $row) {
+                $objectId = $this->visibility_uint($row['object_id'] ?? null, 'relationship owner');
+                $termId = $this->visibility_uint($row['term_id'] ?? null, 'term ID');
+                $ttId = $this->visibility_uint($row['term_taxonomy_id'] ?? null, 'term-taxonomy ID');
+                $order = $this->visibility_uint($row['term_order'] ?? null, 'term order', true);
+                $taxonomy = $row['taxonomy'] ?? null;
+                $slug = $row['slug'] ?? null;
+                $name = $row['name'] ?? null;
+                $allowed = $taxonomy === 'product_visibility'
+                    ? self::PRODUCT_VISIBILITY_TERMS
+                    : ($taxonomy === 'pos_product_visibility' ? ['pos-hidden'] : []);
+                if (!in_array($objectId, $chunk, true) || !is_string($slug) || !is_string($name)
+                    || !in_array($slug, $allowed, true) || $name !== $slug || $order !== 0) {
+                    throw new \RuntimeException(
+                        'duo: WooCommerce product visibility relationship observation returned malformed or unsupported state'
+                    );
+                }
+                foreach ($out[$objectId][$taxonomy] as $existing) {
+                    if ($existing['slug'] === $slug || $existing['term_taxonomy_id'] === $ttId) {
+                        throw new \RuntimeException(
+                            'duo: WooCommerce product visibility relationship observation returned duplicate state'
+                        );
+                    }
+                }
+                $out[$objectId][$taxonomy][] = [
+                    'slug' => $slug,
+                    'term_id' => $termId,
+                    'term_taxonomy_id' => $ttId,
+                    'term_order' => $order,
+                ];
+            }
+        }
+        foreach ($out as &$byTaxonomy) {
+            foreach ($byTaxonomy as &$rows) {
+                usort($rows, static fn(array $left, array $right): int => [
+                    $left['slug'], $left['term_taxonomy_id'],
+                ] <=> [
+                    $right['slug'], $right['term_taxonomy_id'],
+                ]);
+            }
+            unset($rows);
+        }
+        unset($byTaxonomy);
+        return $out;
+    }
+
+    /** @param list<array{slug:string}> $rows @return list<string> */
+    private function visibility_slugs(array $rows): array {
+        $slugs = array_map(static fn(array $row): string => $row['slug'], $rows);
+        sort($slugs, SORT_STRING);
+        return $slugs;
+    }
+
+    /** @param list<string> $terms */
+    private function catalog_visibility_from_terms(array $terms): string {
+        $excludeSearch = in_array('exclude-from-search', $terms, true);
+        $excludeCatalog = in_array('exclude-from-catalog', $terms, true);
+        if ($excludeSearch && $excludeCatalog) {
+            return 'hidden';
+        }
+        if ($excludeSearch) {
+            return 'catalog';
+        }
+        if ($excludeCatalog) {
+            return 'search';
+        }
+        return 'visible';
+    }
+
+    /**
+     * @param array<string,mixed> $intent
+     * @return array<int,array<string,list<string>>>
+     */
+    private function expected_visibility_projection(array $intent): array {
+        $expected = [];
+        $rootPos = [];
+        foreach ($intent['posts'] as $id => $post) {
+            $id = (int) $id;
+            $native = $intent['native'][$id] ?? null;
+            if (!is_array($native) || $post['post_type'] !== 'product') {
+                continue;
+            }
+            $merchant = $intent['merchant'][$id] ?? null;
+            if (!is_array($merchant)) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce product $id has no captured merchant visibility intent"
+                );
+            }
+            if (($native['featured'] ?? null) !== $merchant['featured']
+                || ($native['catalog_visibility'] ?? null) !== $merchant['catalog_visibility']) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce product $id visibility changed after intent capture; recovery_required"
+                );
+            }
+            $terms = [];
+            if ($merchant['featured']) {
+                $terms[] = 'featured';
+            }
+            if (($native['stock_status'] ?? null) === 'outofstock') {
+                $terms[] = 'outofstock';
+            }
+            $numberUtil = '\\Automattic\\WooCommerce\\Utilities\\NumberUtil';
+            if (!class_exists($numberUtil) || !is_callable([$numberUtil, 'round'])) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce native NumberUtil::round() is unavailable for rating visibility projection'
+                );
+            }
+            $rating = min(5, (int) $numberUtil::round((float) $native['average_rating'], 0));
+            if ($rating > 0) {
+                $terms[] = 'rated-' . $rating;
+            }
+            if ($merchant['catalog_visibility'] === 'hidden') {
+                $terms[] = 'exclude-from-search';
+                $terms[] = 'exclude-from-catalog';
+            } elseif ($merchant['catalog_visibility'] === 'catalog') {
+                $terms[] = 'exclude-from-search';
+            } elseif ($merchant['catalog_visibility'] === 'search') {
+                $terms[] = 'exclude-from-catalog';
+            }
+            sort($terms, SORT_STRING);
+            $supported = in_array($native['type'], ['simple', 'variable'], true)
+                && $native['downloadable'] === false;
+            $rootPos[$id] = $supported && $merchant['pos_hidden'];
+            $expected[$id] = [
+                'product_visibility' => $terms,
+                'pos_product_visibility' => $rootPos[$id] ? ['pos-hidden'] : [],
+            ];
+        }
+        foreach ($intent['posts'] as $id => $post) {
+            $id = (int) $id;
+            if ($post['post_type'] !== 'product_variation') {
+                continue;
+            }
+            $native = $intent['native'][$id] ?? [];
+            $expected[$id] = [
+                'product_visibility' => ($native['stock_status'] ?? null) === 'outofstock'
+                    ? ['outofstock']
+                    : [],
+                'pos_product_visibility' => !empty($rootPos[(int) $post['parent_id']])
+                    ? ['pos-hidden']
+                    : [],
+            ];
+        }
+        ksort($expected, SORT_NUMERIC);
+        return $expected;
+    }
+
+    /**
+     * @param array<string,mixed> $snapshot
+     * @param array<int,array<string,list<string>>>|null $expected
+     * @param array<string,array<string,array{term_id:int,term_taxonomy_id:int}>>|null $terms
+     */
+    private function assert_visibility_projection(array $snapshot, ?array $expected, ?array $terms = null): void {
+        if ($expected === null) {
+            $expected = $this->expected_visibility_projection($snapshot);
+        }
+        $terms ??= $this->visibility_term_map($this->visibility_requires_pos($snapshot, $expected));
+        if (array_keys($expected) !== array_keys($snapshot['posts'])) {
+            throw new \RuntimeException(
+                'duo: WooCommerce product visibility scope changed during projection; recovery_required'
+            );
+        }
+        foreach ($expected as $id => $taxonomies) {
+            foreach (['product_visibility', 'pos_product_visibility'] as $taxonomy) {
+                $wanted = $taxonomies[$taxonomy] ?? [];
+                sort($wanted, SORT_STRING);
+                if (!$this->visibility_relationship_matches(
+                    $snapshot['relationships'][$id][$taxonomy] ?? [],
+                    $wanted,
+                    $taxonomy,
+                    $terms
+                )) {
+                    throw new \RuntimeException(
+                        "duo: WooCommerce $taxonomy projection disagrees for product $id; recovery_required"
+                    );
+                }
+            }
+            if (($snapshot['posts'][$id]['post_type'] ?? null) === 'product') {
+                $merchant = $snapshot['merchant'][$id] ?? [];
+                $native = $snapshot['native'][$id] ?? [];
+                $wantedFeatured = in_array('featured', $taxonomies['product_visibility'], true);
+                $wantedCatalog = $this->catalog_visibility_from_terms($taxonomies['product_visibility']);
+                if (($merchant['featured'] ?? null) !== $wantedFeatured
+                    || ($merchant['catalog_visibility'] ?? null) !== $wantedCatalog
+                    || ($native['featured'] ?? null) !== $wantedFeatured
+                    || ($native['catalog_visibility'] ?? null) !== $wantedCatalog) {
+                    throw new \RuntimeException(
+                        "duo: WooCommerce native featured/catalog visibility readback disagrees for product $id; recovery_required"
+                    );
+                }
+            }
+        }
+    }
+
+    /**
+     * @param list<array{slug:string,term_id:int,term_taxonomy_id:int,term_order:int}> $rows
+     * @param list<string> $slugs
+     * @param array<string,array<string,array{term_id:int,term_taxonomy_id:int}>> $terms
+     */
+    private function visibility_relationship_matches(
+        array $rows,
+        array $slugs,
+        string $taxonomy,
+        array $terms
+    ): bool {
+        if ($this->visibility_slugs($rows) !== $slugs || count($rows) !== count($slugs)) {
+            return false;
+        }
+        foreach ($rows as $row) {
+            $term = $terms[$taxonomy][$row['slug']] ?? null;
+            if (!is_array($term)
+                || $row['term_id'] !== $term['term_id']
+                || $row['term_taxonomy_id'] !== $term['term_taxonomy_id']) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** @param array<string,mixed> $snapshot @param array<int,array<string,list<string>>>|null $expected */
+    private function visibility_requires_pos(array $snapshot, ?array $expected): bool {
+        foreach ((array) ($snapshot['relationships'] ?? []) as $taxonomies) {
+            if (($taxonomies['pos_product_visibility'] ?? []) !== []) {
+                return true;
+            }
+        }
+        foreach ((array) $expected as $taxonomies) {
+            if (($taxonomies['pos_product_visibility'] ?? []) !== []) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @param array<string,mixed> $intent */
+    private function reconcile_visibility(array $intent, ?callable $heartbeat = null): void {
+        $current = $this->visibility_snapshot(
+            (array) ($intent['requested_ids'] ?? []),
+            true,
+            (array) ($intent['excluded_ids'] ?? [])
+        );
+        if (!hash_equals(
+            (string) ($intent['intent_sha256'] ?? ''),
+            (string) $current['intent_sha256']
+        )) {
+            throw new \RuntimeException(
+                'duo: WooCommerce product visibility changed during provider execution; recovery_required'
+            );
+        }
+        $projection = $current;
+        $projection['merchant'] = $intent['merchant'] ?? [];
+        $expected = $this->expected_visibility_projection($projection);
+        $terms = $this->visibility_term_map(
+            $this->visibility_requires_pos($current, $expected)
+        );
+        foreach ($expected as $id => $taxonomies) {
+            foreach ($taxonomies as $taxonomy => $slugs) {
+                sort($slugs, SORT_STRING);
+                if ($this->visibility_relationship_matches(
+                    $current['relationships'][$id][$taxonomy] ?? [],
+                    $slugs,
+                    $taxonomy,
+                    $terms
+                )) {
+                    continue;
+                }
+                $this->reconcile_visibility_taxonomy(
+                    (int) $id,
+                    $taxonomy,
+                    $current['posts'][$id] ?? [],
+                    $current['native'][$id] ?? [],
+                    $current['relationships'][$id][$taxonomy] ?? [],
+                    $slugs,
+                    $terms,
+                    $heartbeat
+                );
+            }
+        }
+        $after = $this->visibility_snapshot(
+            (array) $intent['requested_ids'],
+            true,
+            (array) ($intent['excluded_ids'] ?? [])
+        );
+        $this->assert_visibility_projection($after, $expected, $terms);
+    }
+
+    /**
+     * Reconcile only the relationship subset this provider owns. Root
+     * featured/catalog and supported-root POS terms are authored and already
+     * materialized by Apply; replacing the whole taxonomy from an earlier
+     * snapshot could erase a merchant write that lands immediately before the
+     * native call. Derived root stock/rating and every variation projection
+     * are instead added/removed by exact term id, so an interleaved authored
+     * edit survives and the final intent fingerprint makes the run loud.
+     *
+     * @param array{post_type?:string,parent_id?:int} $post
+     * @param array<string,mixed> $native
+     * @param list<array{slug:string,term_id:int,term_taxonomy_id:int,term_order:int}> $rows
+     * @param list<string> $wanted
+     * @param array<string,array<string,array{term_id:int,term_taxonomy_id:int}>> $terms
+     */
+    private function reconcile_visibility_taxonomy(
+        int $id,
+        string $taxonomy,
+        array $post,
+        array $native,
+        array $rows,
+        array $wanted,
+        array $terms,
+        ?callable $heartbeat
+    ): void {
+        $current = $this->visibility_slugs($rows);
+        $mutable = $taxonomy === 'product_visibility'
+            ? self::PRODUCT_VISIBILITY_TERMS
+            : ['pos-hidden'];
+
+        if (($post['post_type'] ?? null) === 'product' && $taxonomy === 'product_visibility') {
+            $currentMerchant = array_values(array_intersect($current, self::MERCHANT_VISIBILITY_TERMS));
+            $wantedMerchant = array_values(array_intersect($wanted, self::MERCHANT_VISIBILITY_TERMS));
+            sort($currentMerchant, SORT_STRING);
+            sort($wantedMerchant, SORT_STRING);
+            if ($currentMerchant !== $wantedMerchant) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce product_visibility merchant intent changed before repair for product $id; recovery_required"
+                );
+            }
+            $mutable = self::DERIVED_VISIBILITY_TERMS;
+        } elseif (($post['post_type'] ?? null) === 'product' && $taxonomy === 'pos_product_visibility') {
+            $supported = in_array($native['type'] ?? null, ['simple', 'variable'], true)
+                && ($native['downloadable'] ?? null) === false;
+            if ($supported) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce supported-root POS merchant intent changed before repair for product $id; recovery_required"
+                );
+            }
+            // POS is not a merchant surface on downloadable or unsupported
+            // roots. Removing that one impossible relationship is safe; the
+            // product type/downloadable fingerprint is checked again below.
+            $mutable = ['pos-hidden'];
+        }
+
+        $currentMutable = array_values(array_intersect($current, $mutable));
+        $wantedMutable = array_values(array_intersect($wanted, $mutable));
+        sort($currentMutable, SORT_STRING);
+        sort($wantedMutable, SORT_STRING);
+        $remove = array_values(array_diff($currentMutable, $wantedMutable));
+        $add = array_values(array_diff($wantedMutable, $currentMutable));
+
+        if ($remove !== []) {
+            $termIds = $this->visibility_term_ids($taxonomy, $remove, $terms);
+            $removed = \wp_remove_object_terms($id, $termIds, $taxonomy);
+            if (is_wp_error($removed) || $removed !== true) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce $taxonomy native relationship write failed for product $id; recovery_required"
+                );
+            }
+            $this->invalidate_product_caches($id);
+            $this->heartbeat($heartbeat);
+        }
+        if ($add !== []) {
+            $termIds = $this->visibility_term_ids($taxonomy, $add, $terms);
+            $expectedTt = array_map(
+                static fn(string $slug): int => $terms[$taxonomy][$slug]['term_taxonomy_id'],
+                $add
+            );
+            $written = \wp_add_object_terms($id, $termIds, $taxonomy);
+            if (is_wp_error($written) || !is_array($written)) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce $taxonomy native relationship write failed for product $id; recovery_required"
+                );
+            }
+            $written = array_map('intval', $written);
+            sort($written, SORT_NUMERIC);
+            sort($expectedTt, SORT_NUMERIC);
+            if ($written !== $expectedTt) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce $taxonomy native relationship write returned incomplete state for product $id; recovery_required"
+                );
+            }
+            $this->invalidate_product_caches($id);
+            $this->heartbeat($heartbeat);
+        }
+    }
+
+    /**
+     * @param list<string> $slugs
+     * @param array<string,array<string,array{term_id:int,term_taxonomy_id:int}>> $terms
+     * @return list<int>
+     */
+    private function visibility_term_ids(string $taxonomy, array $slugs, array $terms): array {
+        $ids = [];
+        foreach ($slugs as $slug) {
+            $term = $terms[$taxonomy][$slug] ?? null;
+            if (!is_array($term)) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce $taxonomy lacks a native term for scoped visibility repair"
+                );
+            }
+            $ids[] = $term['term_id'];
+        }
+        return $ids;
+    }
+
+    /** @return array<string,array<string,array{term_id:int,term_taxonomy_id:int}>> */
+    private function visibility_term_map(bool $requirePos): array {
+        global $wpdb;
+        $rows = \Duo\ProviderSdk::checked_get_results(
+            "SELECT t.term_id, t.name, t.slug, tt.term_taxonomy_id, tt.taxonomy "
+            . "FROM {$wpdb->terms} t INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id "
+            . "WHERE tt.taxonomy IN ('product_visibility', 'pos_product_visibility') "
+            . 'ORDER BY tt.taxonomy ASC, t.slug ASC, tt.term_taxonomy_id ASC LIMIT 11',
+            'WooCommerce native visibility-term inventory'
+        );
+        if (count($rows) >= 11) {
+            throw new \RuntimeException(
+                'duo: WooCommerce native visibility-term inventory exceeds exact core cardinality'
+            );
+        }
+        $out = ['product_visibility' => [], 'pos_product_visibility' => []];
+        foreach ($rows as $row) {
+            $taxonomy = $row['taxonomy'] ?? null;
+            $slug = $row['slug'] ?? null;
+            $name = $row['name'] ?? null;
+            $allowed = $taxonomy === 'product_visibility'
+                ? self::PRODUCT_VISIBILITY_TERMS
+                : ($taxonomy === 'pos_product_visibility' ? ['pos-hidden'] : []);
+            if (!is_string($slug) || !is_string($name) || $name !== $slug
+                || !in_array($slug, $allowed, true)
+                || isset($out[$taxonomy][$slug])) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce native visibility-term inventory is malformed or duplicated'
+                );
+            }
+            $out[$taxonomy][$slug] = [
+                'term_id' => $this->visibility_uint($row['term_id'] ?? null, 'term ID'),
+                'term_taxonomy_id' => $this->visibility_uint(
+                    $row['term_taxonomy_id'] ?? null,
+                    'term-taxonomy ID'
+                ),
+            ];
+        }
+        $actual = array_keys($out['product_visibility']);
+        sort($actual, SORT_STRING);
+        $expected = self::PRODUCT_VISIBILITY_TERMS;
+        sort($expected, SORT_STRING);
+        if ($actual !== $expected) {
+            throw new \RuntimeException(
+                'duo: WooCommerce native product_visibility term inventory is incomplete'
+            );
+        }
+        if ($requirePos && !isset($out['pos_product_visibility']['pos-hidden'])) {
+            throw new \RuntimeException(
+                'duo: WooCommerce native pos-hidden term is absent for authored POS visibility'
+            );
+        }
+        return $out;
+    }
+
+    private function visibility_uint(mixed $value, string $field, bool $allowZero = false): int {
+        $raw = is_int($value) || is_string($value) ? (string) $value : '';
+        $maximum = (string) PHP_INT_MAX;
+        if (preg_match($allowZero ? '/^(?:0|[1-9][0-9]*)$/D' : '/^[1-9][0-9]*$/D', $raw) !== 1
+            || strlen($raw) > strlen($maximum)
+            || (strlen($raw) === strlen($maximum) && strcmp($raw, $maximum) > 0)) {
+            throw new \RuntimeException(
+                "duo: WooCommerce product visibility returned noncanonical $field state"
+            );
+        }
+        $parsed = (int) $raw;
+        if ((string) $parsed !== $raw || (!$allowZero && $parsed <= 0)) {
+            throw new \RuntimeException(
+                "duo: WooCommerce product visibility returned noncanonical $field state"
+            );
+        }
+        return $parsed;
+    }
+
+    /**
      * One bounded receipt for both Woo-owned projections this provider now
      * repairs. Download URLs never enter the receipt: the fingerprint binds
      * them without leaking signed query strings or other merchant data.
@@ -697,7 +1562,8 @@ final class WoocommerceProductLookups {
             $this->observe_attribute_lookup_state($lookupIds),
             $this->observe_sale_schedule_state($lookupIds),
             $this->observe_cogs_state($lookupIds),
-            $this->download_directory_state($liveIds, $verifyNative)
+            $this->download_directory_state($liveIds, $verifyNative),
+            $this->visibility_receipt($liveIds, $verifyNative)
         );
     }
 
@@ -1301,8 +2167,36 @@ final class WoocommerceProductLookups {
      *   because a future contract that CAN pass one needs nothing rewritten
      *   here; a null heartbeat is a no-op by construction (heartbeat()).
      */
-    public function regenerate_batch(array $liveIds, array $deletionContext, ?callable $heartbeat = null): void {
+    public function regenerate_batch(
+        array $liveIds,
+        array $deletionContext,
+        ?callable $heartbeat = null,
+        ?array $visibilityIntent = null
+    ): void {
         global $wpdb;
+        $currentVisibility = $this->visibility_snapshot(
+            $liveIds,
+            true,
+            $this->visibility_deletion_ids($deletionContext)
+        );
+        if ($visibilityIntent === null) {
+            $visibilityIntent = $currentVisibility;
+        } elseif (!hash_equals(
+            (string) ($visibilityIntent['intent_sha256'] ?? ''),
+            (string) $currentVisibility['intent_sha256']
+        )) {
+            throw new \RuntimeException(
+                'duo: WooCommerce product visibility changed before native projection; recovery_required'
+            );
+        }
+        // Validate the bounded whole-taxonomy inventory before any lookup,
+        // scheduling, cache, or relationship mutation. A no-op projection is
+        // not permission to bless duplicate/hijacked native term identities,
+        // and a referenced POS term must exist before this provider changes
+        // an otherwise unrelated derived surface.
+        $this->visibility_term_map(
+            $this->visibility_requires_pos($currentVisibility, null)
+        );
         // Typed Woo attribute definitions can be applied after Woo's init
         // registration pass. Refresh the public attribute caches and register
         // any newly-created pa_* taxonomies before wc_get_product() parses
@@ -1700,6 +2594,17 @@ final class WoocommerceProductLookups {
         );
         $this->verify_sale_schedules(array_values($saleIds), $deletionIds, $saleProducts, $heartbeat);
         $this->download_directory_state($liveIds, true);
+
+        // product_visibility is a mixed native projection: featured and the
+        // two catalog-exclusion terms encode authored merchant intent, while
+        // outofstock/rated-* are rebuilt from the product state after every
+        // native price/lookup synchronization above. POS visibility is
+        // authored only on supported roots and every variation inherits the
+        // root. This final provider step rechecks the pre-repair intent, uses
+        // WordPress's taxonomy writer, then verifies raw identities plus WC
+        // CRUD semantics so a competing write anywhere in the invocation
+        // cannot be blessed by the receipt.
+        $this->reconcile_visibility($visibilityIntent, $heartbeat);
     }
 
     /** @param array<int,object> $roots */

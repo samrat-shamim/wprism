@@ -810,7 +810,7 @@ if ($woo !== null) {
         'woocommerce-cache' => ['version' => '1.0.0', 'capabilities' => ['invalidate_cache_groups']],
         'woocommerce-hierarchy-lookups' => ['version' => '1.0.0', 'capabilities' => ['rebuild_hierarchy_lookups']],
         'woocommerce-fulfillment-prerequisites' => ['version' => '1.0.0', 'capabilities' => ['verify_fulfillment_prerequisites']],
-        'woocommerce-product-lookups' => ['version' => '2.0.0', 'capabilities' => ['rebuild_product_lookups']],
+        'woocommerce-product-lookups' => ['version' => '3.0.0', 'capabilities' => ['rebuild_product_lookups']],
     ] as $wooProviderId => $wooContract) {
         $wooDeclaration = $woo->provider_declarations()[$wooProviderId] ?? [];
         check(

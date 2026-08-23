@@ -53,8 +53,11 @@ require_once $root . '/agent/src/Apply/Apply.php';
 
 use Duo\Deletion;
 use Duo\DeleteGuardValueCodec;
+use Duo\Code;
+use Duo\CodeCompatibility;
 use Duo\OptionState;
 use Duo\Policy;
+use Duo\RepositoryCompiler;
 use Duo\Snapshot;
 
 $failures = 0;
@@ -594,8 +597,48 @@ check(($cacheProviderDeclaration['source'] ?? '') === 'manifest'
     && ($cacheProviderDeclaration['version'] ?? '') === '1.0.0',
     'Woo cache provider is manifest-shipped code owned by the version-pinned plugin');
 check(($policy->manifests[0]['version_range']['min'] ?? '') === '11.0.0'
-    && ($policy->manifests[0]['version_range']['max'] ?? '') === '12.0.0',
-    'Woo cache boundary remains pinned to the certified 11.x manifest range');
+    && ($policy->manifests[0]['version_range']['max'] ?? '') === '11.0.2',
+    'Woo cache boundary admits only exact certified 11.0.0 and 11.0.1 artifacts');
+$wooRange = $policy->manifests[0]['version_range'];
+foreach (['11.0.0', '11.0.1'] as $admittedVersion) {
+    check(version_compare($admittedVersion, $wooRange['min'], '>=')
+        && version_compare($admittedVersion, $wooRange['max'], '<'),
+        "exact WooCommerce $admittedVersion is inside the reviewed patch window");
+}
+foreach (['10.9.4', '11.0.2'] as $refusedVersion) {
+    check(!(version_compare($refusedVersion, $wooRange['min'], '>=')
+        && version_compare($refusedVersion, $wooRange['max'], '<')),
+        "adjacent WooCommerce $refusedVersion is outside the reviewed patch window");
+}
+$compatibilityRoot = sys_get_temp_dir() . '/duo-woo-version-boundary-' . bin2hex(random_bytes(8));
+$compatibilityPlugin = $compatibilityRoot . '/plugins/woocommerce/woocommerce.php';
+if (!mkdir(dirname($compatibilityPlugin), 0700, true)) {
+    throw new RuntimeException('could not create Woo version-boundary fixture');
+}
+$resolvedWoo = RepositoryCompiler::resolved_adapters($policy);
+foreach (['11.0.0' => false, '11.0.1' => false, '10.9.4' => true, '11.0.2' => true] as $version => $refused) {
+    file_put_contents(
+        $compatibilityPlugin,
+        "<?php\n/**\n * Plugin Name: WooCommerce\n * Version: $version\n */\n"
+    );
+    $diagnostics = CodeCompatibility::diagnostics(
+        $compatibilityRoot,
+        Code::descriptor_from_source($compatibilityRoot),
+        $resolvedWoo,
+        null
+    );
+    $outside = array_values(array_filter(
+        $diagnostics,
+        static fn(array $row): bool => ($row['code'] ?? '') === 'code_source_outside_version_range'
+            && ($row['path'] ?? '') === 'plugins/woocommerce/woocommerce.php'
+    ));
+    check(($outside !== []) === $refused,
+        "the executable code-source gate " . ($refused ? 'refuses' : 'admits') . " exact WooCommerce $version");
+}
+unlink($compatibilityPlugin);
+rmdir(dirname($compatibilityPlugin));
+rmdir($compatibilityRoot . '/plugins');
+rmdir($compatibilityRoot);
 check(str_contains((string) file_get_contents($root . '/agent/src/Adapter/Providers.php'),
     "\$provider->invoke(\$capability, \$args)"),
     'provider capabilities are invoked through the engine contract, never as an engine-executed string');

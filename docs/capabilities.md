@@ -324,13 +324,13 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 
 ## woocommerce
 
-**Status: experimental.** Production-readiness expansion is in progress for exact WooCommerce 11.0.0 and 11.0.1. Existing evidence covers the product/catalog, upgrade, typed-table, product lookup, lifecycle, fail-closed deletion, fresh-process category/brand hierarchy, COGS receipt, and read-only fulfillment-prerequisite contracts offline. Certification is withheld until the remaining visibility/POS, exact settings/source-union, optional-core boundary, lifecycle, and final-SHA live matrices are complete.
+**Status: experimental.** Production-readiness expansion is in progress for exact WooCommerce 11.0.0 and 11.0.1. Existing evidence covers the product/catalog, upgrade, typed-table, product lookup, lifecycle, fail-closed deletion, fresh-process category/brand hierarchy, COGS, mixed product/POS visibility, and read-only fulfillment-prerequisite contracts offline. Certification is withheld until the exact settings/source-union, optional-core boundary, lifecycle, and final-SHA live matrices are complete.
 
 - **Plugin:** `woocommerce/woocommerce.php`
-- **Version range:** >=11.0.0 <12.0.0
+- **Version range:** >=11.0.0 <11.0.2
 - **Operations:** apply, capture, compile, deploy, plan, promote, recapture, render-api
 - **Lifecycle phases:** retire, activate, verify
-- **Declared entities:** `post_types` (8 keys), `tables` (43 keys), `taxonomies` (7 keys), `taxonomy_patterns` (1 rules)
+- **Declared entities:** `post_types` (8 keys), `tables` (43 keys), `taxonomies` (8 keys), `taxonomy_patterns` (1 rules)
 - **Declared fields:** `options` (48 keys), `option_patterns` (7 rules), `option_name_refs` (1 rules), `post_meta` (72 keys), `meta_patterns` (1 rules), `term_meta` (8 keys), `block_attrs` (1: woocommerce/product-collection)
 - **Adapter hooks:** 4 providers, 6 structured actions, interpreter `woocommerce`
 - **Deletions supported:** none

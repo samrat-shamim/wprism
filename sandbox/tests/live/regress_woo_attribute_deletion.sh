@@ -123,7 +123,7 @@ echo "$APPLY_BASE" | jq -e '
   (.warnings | length) == 3 and
   (.warnings | any(. == "native action fired: transient.delete (verified)")) and
   (.warnings | any(test("^provider capability fired: woocommerce-cache@1\\.0\\.0 invalidate_cache_groups \\([0-9.]+s, verified\\)$"))) and
-  (.warnings | any(test("^provider capability fired: woocommerce-product-lookups@1\\.0\\.0 rebuild_product_lookups \\([0-9.]+s, verified\\)$")))
+  (.warnings | any(test("^provider capability fired: woocommerce-product-lookups@3\\.0\\.0 rebuild_product_lookups \\([0-9.]+s, verified\\)$")))
 ' >/dev/null || fail "baseline apply did not emit exactly the three required successful Woo cache/projection action notices: $APPLY_BASE"
 PRODUCT2=$(wp2 post list --post_type=product --name=attribute-delete-probe-product --field=ID)
 VARIATION2=$(wp2 post list --post_type=product_variation --post_parent="$PRODUCT2" --field=ID)

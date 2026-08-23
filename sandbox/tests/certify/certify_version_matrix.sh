@@ -1775,7 +1775,7 @@ done
 fi
 
 # WooCommerce 11.0.0 is the declared minimum and 11.0.1 is the current exact
-# release below 12.0.0. Certify both artifacts, then upgrade populated 11.0.0
+# release below the exclusive 11.0.2 bound. Certify both artifacts, then upgrade populated 11.0.0
 # environments in place so a fresh 11.0.1 install is not mistaken for upgrade
 # compatibility.
 if [ "$VMATRIX_MANIFEST" = woocommerce ]; then

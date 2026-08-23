@@ -51,12 +51,12 @@
             "exact-artifact-version-matrix"
         ]
     },
-    "reason": "Production-readiness expansion is in progress for exact WooCommerce 11.0.0 and 11.0.1. Existing evidence covers the product/catalog, upgrade, typed-table, product lookup, lifecycle, fail-closed deletion, fresh-process category/brand hierarchy, COGS receipt, and read-only fulfillment-prerequisite contracts offline. Certification is withheld until the remaining visibility/POS, exact settings/source-union, optional-core boundary, lifecycle, and final-SHA live matrices are complete.",
+    "reason": "Production-readiness expansion is in progress for exact WooCommerce 11.0.0 and 11.0.1. Existing evidence covers the product/catalog, upgrade, typed-table, product lookup, lifecycle, fail-closed deletion, fresh-process category/brand hierarchy, COGS, mixed product/POS visibility, and read-only fulfillment-prerequisite contracts offline. Certification is withheld until the exact settings/source-union, optional-core boundary, lifecycle, and final-SHA live matrices are complete.",
     "status": "experimental",
     "supported_versions": {
         "plugin": "woocommerce/woocommerce.php",
         "range": {
-            "max": "12.0.0",
+            "max": "11.0.2",
             "min": "11.0.0"
         }
     },

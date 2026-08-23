@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-/** Exact WooCommerce 11.x product-attribute repository boundary. */
+/** Exact WooCommerce 11.0.0/11.0.1 product-attribute repository boundary. */
 
 if (!defined('DUO_SPEC_VERSION')) {
     define('DUO_SPEC_VERSION', 2);
@@ -93,13 +93,46 @@ function woo_readiness_entity(
 }
 
 /** @return list<array<string,mixed>> */
+function woo_readiness_visibility_terms(): array {
+    $entities = [];
+    foreach ([
+        'exclude-from-search',
+        'exclude-from-catalog',
+        'featured',
+        'outofstock',
+        'rated-1',
+        'rated-2',
+        'rated-3',
+        'rated-4',
+        'rated-5',
+    ] as $index => $slug) {
+        $uuid = sprintf('30000000-0000-4000-8000-%012d', $index + 1);
+        $entities[] = [
+            'type' => 'term',
+            'path' => "state/terms/product_visibility/$uuid--$slug.json",
+            'data' => [
+                'taxonomy' => 'product_visibility',
+                'uuid' => $uuid,
+                'slug' => $slug,
+                'name' => $slug,
+                'meta' => [],
+            ],
+        ];
+    }
+    return $entities;
+}
+
+/** @return list<array<string,mixed>> */
 function woo_readiness_diagnostics(
     Woocommerce $interpreter,
     mixed $value,
     string $type = 'product',
     string $metaKey = '_product_attributes'
 ): array {
-    return $interpreter->repository_diagnostics([woo_readiness_entity($value, $type, $metaKey)]);
+    return $interpreter->repository_diagnostics(array_merge(
+        [woo_readiness_entity($value, $type, $metaKey)],
+        woo_readiness_visibility_terms()
+    ));
 }
 
 /** @return array<string,mixed> */
@@ -126,7 +159,8 @@ function woo_readiness_term_diagnostics(
 ): array {
     return $interpreter->repository_diagnostics(array_merge(
         [woo_readiness_term_entity($taxonomy, $meta)],
-        $relatedPosts
+        $relatedPosts,
+        woo_readiness_visibility_terms()
     ));
 }
 
@@ -191,6 +225,182 @@ duo_check($interpreter instanceof Woocommerce, 'the shipped WooCommerce manifest
 if (!$interpreter instanceof Woocommerce) {
     duo_check_summary('WooCommerce production readiness');
 }
+
+$visibilityTerms = woo_readiness_visibility_terms();
+$visibilityUuids = [];
+foreach ($visibilityTerms as $visibilityTerm) {
+    $visibilityUuids[(string) $visibilityTerm['data']['slug']] = (string) $visibilityTerm['data']['uuid'];
+}
+$posVisibilityUuid = '40000000-0000-4000-8000-000000000001';
+$variableTypeUuid = '40000000-0000-4000-8000-000000000002';
+$posVisibilityTerm = [
+    'type' => 'term',
+    'path' => "state/terms/pos_product_visibility/$posVisibilityUuid--pos-hidden.json",
+    'data' => [
+        'taxonomy' => 'pos_product_visibility',
+        'uuid' => $posVisibilityUuid,
+        'slug' => 'pos-hidden',
+        'name' => 'pos-hidden',
+        'meta' => [],
+    ],
+];
+$variableTypeTerm = [
+    'type' => 'term',
+    'path' => "state/terms/product_type/$variableTypeUuid--variable.json",
+    'data' => [
+        'taxonomy' => 'product_type',
+        'uuid' => $variableTypeUuid,
+        'slug' => 'variable',
+        'name' => 'variable',
+        'meta' => [],
+    ],
+];
+$visibilityParentUuid = '40000000-0000-4000-8000-000000000003';
+$visibilityChildUuid = '40000000-0000-4000-8000-000000000004';
+$visibilityParent = [
+    'type' => 'post',
+    'path' => "state/posts/product/$visibilityParentUuid--visibility-parent.md",
+    'data' => [
+        'type' => 'product',
+        'uuid' => $visibilityParentUuid,
+        'slug' => 'visibility-parent',
+        'meta' => ['_downloadable' => 'no'],
+        'terms' => [
+            'product_type' => [$variableTypeUuid],
+            'product_visibility' => [
+                $visibilityUuids['exclude-from-catalog'],
+                $visibilityUuids['featured'],
+                $visibilityUuids['rated-5'],
+            ],
+            'pos_product_visibility' => [$posVisibilityUuid],
+        ],
+    ],
+    'body' => '',
+];
+$visibilityChild = [
+    'type' => 'post',
+    'path' => "state/posts/product_variation/$visibilityChildUuid--visibility-child.md",
+    'data' => [
+        'type' => 'product_variation',
+        'uuid' => $visibilityChildUuid,
+        'parent' => $visibilityParentUuid,
+        'slug' => 'visibility-child',
+        'meta' => [],
+        'terms' => [
+            'product_visibility' => [$visibilityUuids['outofstock']],
+            'pos_product_visibility' => [$posVisibilityUuid],
+        ],
+    ],
+    'body' => '',
+];
+$visibilityTree = array_merge(
+    [$visibilityParent, $visibilityChild, $posVisibilityTerm, $variableTypeTerm],
+    $visibilityTerms
+);
+duo_check_same(
+    [],
+    $interpreter->repository_diagnostics($visibilityTree),
+    'exact mixed featured/catalog/rating/stock and inherited POS visibility crosses repository readiness'
+);
+
+$missingVisibilityInventory = $visibilityTree;
+array_pop($missingVisibilityInventory);
+$missingVisibilityDiagnostics = $interpreter->repository_diagnostics($missingVisibilityInventory);
+duo_check(
+    str_contains(
+        implode(' | ', woo_readiness_messages($missingVisibilityDiagnostics)),
+        'exactly one of every core product_visibility term'
+    ),
+    'a repository missing one of the exact nine core product-visibility identities refuses readiness'
+);
+$duplicateVisibilityInventory = $visibilityTree;
+$duplicateTerm = $visibilityTerms[0];
+$duplicateTerm['data']['uuid'] = '40000000-0000-4000-8000-000000000005';
+$duplicateTerm['path'] = 'state/terms/product_visibility/40000000-0000-4000-8000-000000000005--duplicate.json';
+$duplicateVisibilityInventory[] = $duplicateTerm;
+duo_check(
+    str_contains(
+        implode(' | ', woo_readiness_messages(
+            $interpreter->repository_diagnostics($duplicateVisibilityInventory)
+        )),
+        'exactly one of every core product_visibility term'
+    ),
+    'a duplicate core product-visibility identity cannot hide behind the right slug'
+);
+
+$badRatedParent = $visibilityParent;
+$badRatedParent['data']['terms']['product_visibility'][] = $visibilityUuids['rated-4'];
+duo_check(
+    str_contains(
+        implode(' | ', woo_readiness_messages($interpreter->repository_diagnostics(array_merge(
+            [$badRatedParent, $visibilityChild, $posVisibilityTerm, $variableTypeTerm],
+            $visibilityTerms
+        )))),
+        'at most one native rated-*'
+    ),
+    'multiple native rating projection terms refuse at the repository boundary'
+);
+$badVariation = $visibilityChild;
+$badVariation['data']['terms']['product_visibility'][] = $visibilityUuids['featured'];
+duo_check(
+    str_contains(
+        implode(' | ', woo_readiness_messages($interpreter->repository_diagnostics(array_merge(
+            [$visibilityParent, $badVariation, $posVisibilityTerm, $variableTypeTerm],
+            $visibilityTerms
+        )))),
+        'variations may carry only'
+    ),
+    'a variation cannot carry root-only featured/catalog/rating projection terms'
+);
+$visibleVariation = $visibilityChild;
+$visibleVariation['data']['terms']['pos_product_visibility'] = [];
+duo_check(
+    str_contains(
+        implode(' | ', woo_readiness_messages($interpreter->repository_diagnostics(array_merge(
+            [$visibilityParent, $visibleVariation, $posVisibilityTerm, $variableTypeTerm],
+            $visibilityTerms
+        )))),
+        'must exactly inherit its variable parent'
+    ),
+    'variation POS visibility must exactly inherit the variable parent intent'
+);
+$downloadablePos = $visibilityParent;
+$downloadablePos['data']['meta']['_downloadable'] = 'yes';
+duo_check(
+    str_contains(
+        implode(' | ', woo_readiness_messages($interpreter->repository_diagnostics(array_merge(
+            [$downloadablePos, $visibilityChild, $posVisibilityTerm, $variableTypeTerm],
+            $visibilityTerms
+        )))),
+        'non-downloadable simple or variable product'
+    ),
+    'downloadable products cannot claim portable POS-hidden intent'
+);
+$duplicateRelationship = $visibilityParent;
+$duplicateRelationship['data']['terms']['product_visibility'][] = $visibilityUuids['featured'];
+duo_check(
+    str_contains(
+        implode(' | ', woo_readiness_messages($interpreter->repository_diagnostics(array_merge(
+            [$duplicateRelationship, $visibilityChild, $posVisibilityTerm, $variableTypeTerm],
+            $visibilityTerms
+        )))),
+        'malformed or duplicate term identity'
+    ),
+    'duplicate visibility references refuse before materialization'
+);
+$missingPosIdentityTree = array_merge(
+    [$visibilityParent, $visibilityChild, $variableTypeTerm],
+    $visibilityTerms
+);
+duo_check(
+    str_contains(
+        implode(' | ', woo_readiness_messages(
+            $interpreter->repository_diagnostics($missingPosIdentityTree)
+        )),
+        'does not resolve to the exact taxonomy'
+    ),
+    'referenced POS visibility requires its exact core pos-hidden identity'
+);
 
 duo_check_same(
     $policy->post_meta_rule('_product_attributes'),
@@ -303,7 +513,7 @@ $GLOBALS['wooReadinessBlogId'] = 1;
 duo_check_same(null, $interpreter->user_meta_rule('customer_preferences', []), 'unrelated user metadata remains unclaimed');
 
 $global = ['pa_duo-size' => woo_readiness_attribute()];
-duo_check_same([], woo_readiness_diagnostics($interpreter, $global), 'the exact WooCommerce 11.x global-attribute row is clean');
+duo_check_same([], woo_readiness_diagnostics($interpreter, $global), 'the exact WooCommerce 11.0.x global-attribute row is clean');
 $multibyteGlobal = ['pa_尺寸' => woo_readiness_attribute(['name' => 'pa_尺寸'])];
 duo_check_same(
     [],
@@ -494,11 +704,10 @@ woo_readiness_reports(
 );
 duo_check_same(
     [],
-    $interpreter->repository_diagnostics([woo_readiness_entity(
-        '2.5',
-        'product_variation',
-        '_cogs_total_value'
-    ), woo_readiness_entity('yes', 'product_variation', '_cogs_value_is_additive')]),
+    $interpreter->repository_diagnostics(array_merge([
+        woo_readiness_entity('2.5', 'product_variation', '_cogs_total_value'),
+        woo_readiness_entity('yes', 'product_variation', '_cogs_value_is_additive'),
+    ], woo_readiness_visibility_terms())),
     'variation Cost of Goods value and additive inheritance marker are jointly valid'
 );
 foreach (['01.00', '1e3', '1.0E+15', '1.0E+309', '1.0E-400', str_repeat('9', 129)] as $badCogsValue) {

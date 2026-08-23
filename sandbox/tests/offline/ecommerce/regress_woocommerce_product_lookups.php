@@ -52,7 +52,7 @@ check($policy->regen_batch('product') === null && $policy->regen_batch('product_
 $declaration = $policy->provider_declarations()['woocommerce-product-lookups'] ?? null;
 check(is_array($declaration)
     && $declaration['source'] === 'manifest'
-    && $declaration['version'] === '2.0.0'
+    && $declaration['version'] === '3.0.0'
     && $declaration['plugin'] === 'woocommerce/woocommerce.php'
     && $declaration['capabilities'] === ['rebuild_product_lookups'],
     'the lookup repair is declared as a manifest-sourced provider pinned to the same plugin the manifest claims');
@@ -77,12 +77,15 @@ $expectedRequires = [
         'as_next_scheduled_action',
         'wp_cache_get',
         'wp_cache_delete',
+        'wp_add_object_terms',
+        'wp_remove_object_terms',
     ],
     'classes' => [
         'Automattic\\WooCommerce\\Internal\\CostOfGoodsSold\\CostOfGoodsSoldController',
         'Automattic\\WooCommerce\\Internal\\ProductDownloads\\ApprovedDirectories\\Register',
         'Automattic\\WooCommerce\\Internal\\ProductAttributesLookup\\LookupDataStore',
         'Automattic\\WooCommerce\\Internal\\Utilities\\URL',
+        'Automattic\\WooCommerce\\Utilities\\NumberUtil',
         'WC_Data_Store',
         'WC_Product_Variable',
         'WC_Product_Grouped',
@@ -103,7 +106,7 @@ $adapter = new \Duo\Providers\WoocommerceProductLookups($policy);
 check($adapter->identity() === [
     'id' => 'woocommerce-product-lookups',
     'plugin' => 'woocommerce/woocommerce.php',
-    'version' => '2.0.0',
+    'version' => '3.0.0',
 ], "the provider's self-reported identity matches its declaration exactly (negotiation compares these)");
 $capabilities = $adapter->capabilities();
 $capability = $capabilities['rebuild_product_lookups'] ?? null;
@@ -241,6 +244,13 @@ $needles = [
     '$value !== (string) $number' => 'COGS repository bytes are restricted to exact native float-writer spellings',
     'variation-only additive Cost of Goods metadata' => 'post-materialization additive state cannot be certified on a base product',
     'Cost of Goods zero that native storage deletes' => 'post-materialization base zero cannot be certified by a scoped receipt',
+    "tt.taxonomy IN ('product_visibility', 'pos_product_visibility')" => 'visibility inventory reads both whole native taxonomies instead of filtering unknown slugs away',
+    'native visibility-term inventory exceeds exact core cardinality' => 'the whole visibility inventory has a strict nine-plus-optional-POS bound',
+    'MERCHANT_VISIBILITY_TERMS' => 'merchant featured/catalog relationships have an explicit immutable subset',
+    'DERIVED_VISIBILITY_TERMS' => 'only stock/rating relationships enter root native repair',
+    'wp_remove_object_terms' => 'derived visibility removals use the exact native incremental writer',
+    'wp_add_object_terms' => 'derived visibility additions use the exact native incremental writer',
+    'supported-root POS merchant intent changed before repair' => 'supported-root POS intent is validated rather than replaced from a stale snapshot',
 ];
 foreach ($needles as $needle => $message) {
     check(is_string($source) && str_contains($source, $needle), $message);
@@ -267,6 +277,7 @@ $retired = [
     'expected_attribute_rows' => 'no Duo-authored attribute lookup row synthesis',
     'append_attribute_rows' => 'no Duo-authored attribute lookup row builder',
     'term_slug_ids' => 'no Duo-authored variation term fallback map',
+    'wp_set_post_terms' => 'no full-taxonomy writer can overwrite concurrent merchant visibility intent',
 ];
 foreach ($retired as $needle => $message) {
     check(is_string($source) && !str_contains($source, $needle), $message);
@@ -310,11 +321,11 @@ $lookupAction = $lookupActions[0] ?? [];
 check(($lookupAction['triggers'] ?? null) === ['post:product', 'post:product_variation'],
     'the lookup action is narrowed to exactly the two post types the regen_dependency declarations covered');
 $effectIds = array_map(static fn(array $e): string => (string) $e['id'], (array) ($lookupAction['effects'] ?? []));
-check(count($effectIds) === 122 && count(array_unique($effectIds)) === 122,
-    'both post types\' supported effect lists remain distinct (61 + 61), including attribute lookup, approved-directory repair, bounded late taxonomy registration filters, and permalink reads — the manifest note '
+check(count($effectIds) === 128 && count(array_unique($effectIds)) === 128,
+    'both post types\' supported effect lists remain distinct (64 + 64), including exact visibility, attribute lookup, approved-directory repair, bounded late taxonomy registration filters, and permalink reads — the manifest note '
         . 'records why product and variation ids stay separate even where they name the same resource');
-check(count(array_filter($effectIds, static fn(string $id): bool => str_starts_with($id, 'woocommerce-product-'))) === 61
-    && count(array_filter($effectIds, static fn(string $id): bool => str_starts_with($id, 'woocommerce-variation-'))) === 61,
+check(count(array_filter($effectIds, static fn(string $id): bool => str_starts_with($id, 'woocommerce-product-'))) === 64
+    && count(array_filter($effectIds, static fn(string $id): bool => str_starts_with($id, 'woocommerce-variation-'))) === 64,
     'and neither half was dropped or renamed on the way');
 $registrationFilterSelector = [
     'scope' => 'external',
@@ -350,7 +361,7 @@ check(array_filter($inventory, static fn(array $row): bool =>
     'the effects inventory now carries them under the rebuild phase of the declaring action, with no '
     . 'orphaned regenerator-phase rows left behind');
 check(count(array_filter($inventory, static fn(array $row): bool =>
-    $row['source'] === 'provider:woocommerce-product-lookups/rebuild_product_lookups')) === 122,
+    $row['source'] === 'provider:woocommerce-product-lookups/rebuild_product_lookups')) === 128,
     'every one of them is attributed to the exact provider capability a recovery operator would re-run');
 
 if ($failures > 0) {

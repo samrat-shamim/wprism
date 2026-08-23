@@ -275,6 +275,14 @@ function woo_effect_product_regenerator(string $postType): array {
     $effects = [
         woo_effect_db_table($prefix . '-posts', 'posts'),
         woo_effect_db_table($prefix . '-postmeta', 'postmeta'),
+        woo_effect_db_table($prefix . '-visibility-relationships', 'term_relationships'),
+        woo_effect_db_table($prefix . '-visibility-term-counts', 'term_taxonomy'),
+        woo_effect_irreversible(
+            $prefix . '-visibility-native-writer',
+            'external',
+            'provider_resource',
+            'woocommerce-product-visibility-writer:v2:wp-add-remove-object-terms,term-count-hooks,relationship-caches'
+        ),
         woo_effect_db_table($prefix . '-download-directories', 'wc_product_download_directories'),
         woo_effect_db_table($prefix . '-meta-lookup', 'wc_product_meta_lookup'),
         woo_effect_db_table($prefix . '-attributes-lookup', 'wc_product_attributes_lookup'),
@@ -505,9 +513,9 @@ usort($expectedWooRows, static fn(array $a, array $b): int => strcmp(
 ));
 woo_effect_check($wooRows === $expectedWooRows, 'Woo manifest compiles the exact lifecycle, rebuild, and regenerator inventory');
 woo_effect_check(
-    count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'restorable')) === 51
-        && count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'irreversible')) === 155
-        && count(array_unique(array_map(static fn(array $row): string => (string) ($row['effect']['id'] ?? ''), $wooRows))) === 206,
+    count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'restorable')) === 55
+        && count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'irreversible')) === 157
+        && count(array_unique(array_map(static fn(array $row): string => (string) ($row['effect']['id'] ?? ''), $wooRows))) === 212,
     'Woo inventory exposes exact transient/version, hierarchy/rewrite, bounded sale-action, and Action Scheduler hook boundaries, keeps every unproven boundary irreversible, and uses unique effect IDs'
 );
 $cacheProviderSource = (string) file_get_contents(dirname(__DIR__, 4) . '/manifests/providers/woocommerce-cache.php');
@@ -695,7 +703,7 @@ woo_effect_check(
         ],
         [
             'id' => 'woocommerce-product-lookups',
-            'version' => '2.0.0',
+            'version' => '3.0.0',
             'source' => 'manifest',
             'plugin' => 'woocommerce/woocommerce.php',
             'requires' => [
@@ -719,12 +727,15 @@ woo_effect_check(
                     'as_next_scheduled_action',
                     'wp_cache_get',
                     'wp_cache_delete',
+                    'wp_add_object_terms',
+                    'wp_remove_object_terms',
                 ],
                 'classes' => [
                     'Automattic\\WooCommerce\\Internal\\CostOfGoodsSold\\CostOfGoodsSoldController',
                     'Automattic\\WooCommerce\\Internal\\ProductDownloads\\ApprovedDirectories\\Register',
                     'Automattic\\WooCommerce\\Internal\\ProductAttributesLookup\\LookupDataStore',
                     'Automattic\\WooCommerce\\Internal\\Utilities\\URL',
+                    'Automattic\\WooCommerce\\Utilities\\NumberUtil',
                     'WC_Data_Store',
                     'WC_Product_Variable',
                     'WC_Product_Grouped',
@@ -784,11 +795,17 @@ foreach (['product', 'product_variation'] as $postType) {
         static fn(array $effect): bool => ($effect['selector']['value'] ?? null)
             === 'woocommerce-attribute-taxonomy-registration-filters:v1'
     ));
+    $visibilityProviderResources = array_values(array_filter(
+        $providerResources,
+        static fn(array $effect): bool => ($effect['selector']['value'] ?? null)
+            === 'woocommerce-product-visibility-writer:v2:wp-add-remove-object-terms,term-count-hooks,relationship-caches'
+    ));
     $providerValue = (string) ($cacheProviderResources[0]['selector']['value'] ?? '');
     woo_effect_check(
-        count($providerResources) === 2
+        count($providerResources) === 3
             && count($cacheProviderResources) === 1
             && count($registrationProviderResources) === 1
+            && count($visibilityProviderResources) === 1
             && $providerValue === (string) woo_effect_product_cache_aggregate(
                 $postType === 'product' ? 'woocommerce-product-cache-provider-resource' : 'woocommerce-variation-cache-provider-resource'
             )['selector']['value']
@@ -797,8 +814,9 @@ foreach (['product', 'product_variation'] as $postType) {
             && str_contains($providerValue, 'wc_product_children')
             && str_contains($providerValue, 'product-transient-version')
             && str_contains($providerValue, 'wc_layered_nav_counts')
-            && !array_key_exists('members', (array) ($registrationProviderResources[0]['selector'] ?? [])),
-        "$postType provider-resource aggregates are explicit, finite, wildcard-free, and do not falsely narrow valid multibyte Woo filter names"
+            && !array_key_exists('members', (array) ($registrationProviderResources[0]['selector'] ?? []))
+            && !array_key_exists('members', (array) ($visibilityProviderResources[0]['selector'] ?? [])),
+        "$postType provider-resource aggregates are explicit, finite, wildcard-free, and include the exact native visibility writer boundary"
     );
     $selectorMatcher = new ReflectionMethod(EffectBundle::class, 'matchesDeclaredSelector');
     $aggregateSelector = (array) ($cacheProviderResources[0]['selector'] ?? []);

@@ -306,12 +306,12 @@
         "deletion": ["manifests/dispositions.json", "sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/offline/adapter/regress_woocommerce_production_readiness.php"]
       },
       "gaps": {
-        "contract-dependency": "Exact 11.0.0/11.0.1 pins and adjacent refusal exist, but the bounded core source-to-manifest field/settings inventory and final shipped-byte matrix are still open.",
+        "contract-dependency": "Exact 11.0.0/11.0.1 pins, real 10.9.4 lower refusal, and executable synthetic 11.0.2 upper refusal close the >=11.0.0 <11.0.2 boundary; the bounded core source-to-manifest field/settings inventory and final shipped-byte matrix are still open.",
         "clean-target": "The existing product fixture does not yet exercise Brands, external products, visibility/POS, COGS, visual term metadata, or the complete portable core settings set.",
         "dirty-target": "Hierarchy and product-lookup hostile-state repair are closed offline, but those remaining authored families lack one clean/hostile target matrix.",
         "identity-references": "Brand, category/attribute image, coupon-brand, and external URL identities are not yet all exercised across divergent large target IDs.",
         "native-behavior": "Frontend/Store API/REST/admin behavior for the newly inventoried normal core surfaces remains to be bound to the final artifact SHA.",
-        "derived-state": "Product-attribute and category/brand hierarchy repairs have exact offline receipts, but visibility/POS and COGS projections plus final live readback remain open.",
+        "derived-state": "Product-attribute, category/brand hierarchy, COGS, and mixed visibility/POS repairs have exact offline receipts; their final exact-artifact live readback remains open.",
         "failure-recovery": "The lookup/hierarchy providers cover injected failures and retries offline; the remaining product/settings surfaces and final live recovery sequence are incomplete.",
         "concurrency-idempotence": "Scoped lookup/hierarchy same-count drift and source races are covered offline, but a final competing-apply matrix over all added families is pending.",
         "lifecycle": "The populated 11.0.0-to-11.0.1 upgrade exists on older shipped bytes; deactivate/uninstall/reinstall and upgrade evidence must be rerun after the surface union is final.",
