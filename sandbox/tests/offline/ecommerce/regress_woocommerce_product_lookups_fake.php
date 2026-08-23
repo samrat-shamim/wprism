@@ -340,6 +340,15 @@ namespace {
         public ?string $failReadContaining = null;
         public bool $failAttributeDelete = false;
         public bool $nullTransactionStateRead = false;
+        public array $lookupColumnDeclarations = self::LOOKUP_COLUMN_DECLARATIONS;
+        public array $lookupReceiptExtraRows = [];
+        public mixed $attributeCountOverride = null;
+        public bool $attributePayloadDropLast = false;
+        public mixed $afterAttributePayload = null;
+        public ?array $groupedParentOverride = null;
+        public mixed $afterDownloadWitness = null;
+        public ?string $downloadMetaKeyOverride = null;
+        public ?array $lookupSchemaRowsOverride = null;
         private bool $transactionActive = false;
         private array $transactionMeta = [];
         private array $transactionMetaLookup = [];
@@ -456,6 +465,13 @@ namespace {
             if (!str_contains($query, "meta_key = '_children'")) {
                 return [];
             }
+            if (is_array($this->groupedParentOverride)) {
+                $rows = $this->groupedParentOverride;
+                if (preg_match('/LIMIT ([0-9]+)$/', trim($query), $limit)) {
+                    $rows = array_slice($rows, 0, (int) $limit[1]);
+                }
+                return $rows;
+            }
             $childId = 0;
             if (preg_match('/i:(\\d+);/', $query, $m)) {
                 $childId = (int) $m[1];
@@ -472,7 +488,11 @@ namespace {
                 }
             }
             ksort($ids, SORT_NUMERIC);
-            return array_values($ids);
+            $rows = array_values($ids);
+            if (preg_match('/LIMIT ([0-9]+)$/', trim($query), $limit)) {
+                $rows = array_slice($rows, 0, (int) $limit[1]);
+            }
+            return $rows;
         }
 
         public function get_results(string $query, $output = null): array {
@@ -614,7 +634,8 @@ namespace {
                                 'post_id' => (string) $id,
                                 'meta_id' => (string) ($id * 100 + ($key === '_cogs_total_value' ? 10 : 20) + $index),
                                 'meta_key' => $key,
-                                'meta_value' => (string) $value,
+                                'meta_value' => substr((string) $value, 0, 129),
+                                'meta_value_bytes' => (string) strlen((string) $value),
                             ];
                         }
                     }
@@ -624,7 +645,8 @@ namespace {
                 ] <=> [
                     (int) $right['post_id'], (string) $right['meta_key'], (int) $right['meta_id'],
                 ]);
-                return $rows;
+                preg_match('/LIMIT ([0-9]+)$/', trim($query), $limit);
+                return array_slice($rows, 0, (int) ($limit[1] ?? count($rows)));
             }
             if (preg_match('/SELECT ID, post_type FROM wp_posts WHERE ID IN \(([0-9, ]+)\) ORDER BY ID ASC/', $query, $match)) {
                 $ids = array_map('intval', preg_split('/\s*,\s*/', trim($match[1])) ?: []);
@@ -647,18 +669,46 @@ namespace {
                     throw new \RuntimeException('fake wpdb could not parse downloadable metadata scope');
                 }
                 $ids = array_map('intval', preg_split('/\s*,\s*/', trim($match[1])) ?: []);
+                $payload = str_contains($query, ' AS meta_key, meta_value,');
                 $rows = [];
                 foreach ($ids as $id) {
                     $values = array_key_exists($id, (array) $fakeDownloadMetaRows)
                         ? (array) $fakeDownloadMetaRows[$id]
                         : (array) ($fakeMeta[$id]['_downloadable_files'] ?? []);
                     foreach ($values as $index => $value) {
-                        $rows[] = [
+                        $row = [
                             'post_id' => (string) $id,
                             'meta_id' => (string) ($id * 10 + $index + 1),
-                            'meta_value' => (string) $value,
+                            'meta_key' => $this->downloadMetaKeyOverride ?? '_downloadable_files',
+                            'meta_value_bytes' => (string) strlen((string) $value),
+                            'meta_sha256' => hash('sha256', (string) $value),
                         ];
+                        if ($payload) {
+                            $row['meta_value'] = (string) $value;
+                            // Preserve the provider SELECT order.
+                            $row = [
+                                'post_id' => $row['post_id'],
+                                'meta_id' => $row['meta_id'],
+                                'meta_key' => $row['meta_key'],
+                                'meta_value' => $row['meta_value'],
+                                'meta_value_bytes' => $row['meta_value_bytes'],
+                                'meta_sha256' => $row['meta_sha256'],
+                            ];
+                        }
+                        $rows[] = $row;
                     }
+                }
+                usort($rows, static fn(array $left, array $right): int => [
+                    (int) $left['post_id'], (int) $left['meta_id'],
+                ] <=> [
+                    (int) $right['post_id'], (int) $right['meta_id'],
+                ]);
+                preg_match('/LIMIT ([0-9]+)$/', trim($query), $limit);
+                $rows = array_slice($rows, 0, (int) ($limit[1] ?? count($rows)));
+                if (!$payload && is_callable($this->afterDownloadWitness)) {
+                    $callback = $this->afterDownloadWitness;
+                    $this->afterDownloadWitness = null;
+                    $callback();
                 }
                 return $rows;
             }
@@ -678,10 +728,15 @@ namespace {
                 return $rows;
             }
             if (preg_match(
-                '/SELECT \\* FROM `wp_wc_product_meta_lookup` WHERE product_id IN \\(([0-9, ]+)\\) ORDER BY product_id ASC/',
+                '/FROM `wp_wc_product_meta_lookup` WHERE product_id IN \\(([0-9, ]+)\\) ORDER BY product_id ASC LIMIT ([0-9]+)/',
                 $query,
                 $match
             )) {
+                if (!preg_match('/^SELECT (.+?) FROM /', $query, $projectionMatch)
+                    || preg_match_all('/`([a-z0-9_]+)`/', $projectionMatch[1], $columnMatch) < 1) {
+                    throw new \RuntimeException('fake wpdb could not parse bounded lookup projection');
+                }
+                $columns = $columnMatch[1];
                 $ids = array_map('intval', preg_split('/\\s*,\\s*/', trim($match[1])) ?: []);
                 $rows = [];
                 foreach ($ids as $id) {
@@ -689,18 +744,30 @@ namespace {
                         continue;
                     }
                     $rows[] = array_map(
-                        static fn($value) => $value === null ? null : (string) $value,
-                        $fakeMetaLookup[$id]
+                        static fn(string $column) => array_key_exists($column, $fakeMetaLookup[$id])
+                            ? ($fakeMetaLookup[$id][$column] === null
+                                ? null
+                                : (string) $fakeMetaLookup[$id][$column])
+                            : null,
+                        $columns
+                    );
+                    $rows[array_key_last($rows)] = array_combine(
+                        $columns,
+                        $rows[array_key_last($rows)]
                     );
                 }
-                return $rows;
+                array_push($rows, ...$this->lookupReceiptExtraRows);
+                return array_slice($rows, 0, (int) $match[2]);
             }
-            if ($query === 'SHOW COLUMNS FROM `wp_wc_product_meta_lookup`') {
-                return array_map(
+            if (str_contains($query, 'FROM information_schema.COLUMNS')
+                && str_contains($query, "BINARY TABLE_NAME = BINARY 'wp_wc_product_meta_lookup'")) {
+                $rows = $this->lookupSchemaRowsOverride ?? array_map(
                     static fn(string $column, string $type): array => ['Field' => $column, 'Type' => $type],
-                    array_keys(self::LOOKUP_COLUMN_DECLARATIONS),
-                    array_values(self::LOOKUP_COLUMN_DECLARATIONS)
+                    array_keys($this->lookupColumnDeclarations),
+                    array_values($this->lookupColumnDeclarations)
                 );
+                preg_match('/LIMIT ([0-9]+)$/', trim($query), $limit);
+                return array_slice($rows, 0, (int) ($limit[1] ?? count($rows)));
             }
             if (preg_match(
                 '/FROM `wp_wc_product_attributes_lookup` WHERE product_or_parent_id IN \\(([0-9, ]+)\\)/',
@@ -718,10 +785,21 @@ namespace {
                     (int) $b['product_or_parent_id'], (int) $b['product_id'], (string) $b['taxonomy'],
                     (int) $b['term_id'], (int) $b['is_variation_attribute'], (int) $b['in_stock'],
                 ]);
-                return array_map(
+                if ($this->attributePayloadDropLast && $rows !== []) {
+                    array_pop($rows);
+                }
+                $result = array_map(
                     static fn(array $row): array => array_map('strval', $row),
-                    $rows
+                    array_slice($rows, 0, preg_match('/LIMIT ([0-9]+)$/', trim($query), $limit)
+                        ? (int) $limit[1]
+                        : count($rows))
                 );
+                if (is_callable($this->afterAttributePayload)) {
+                    $callback = $this->afterAttributePayload;
+                    $this->afterAttributePayload = null;
+                    $callback();
+                }
+                return $result;
             }
             return [];
         }
@@ -818,6 +896,18 @@ namespace {
                     array_keys($fakeMetaLookup),
                     static fn($id): bool => in_array((int) $id, $wanted, true)
                 ));
+            }
+            if (preg_match(
+                '/COUNT\\(\\*\\) FROM `wp_wc_product_attributes_lookup` WHERE product_or_parent_id IN \\(([0-9, ]+)\\)/',
+                $query,
+                $m
+            )) {
+                if ($this->attributeCountOverride !== null) {
+                    return $this->attributeCountOverride;
+                }
+                $wantedParents = array_map('intval', preg_split('/\\s*,\\s*/', trim($m[1])) ?: []);
+                return count(array_filter($fakeAttrLookup, static fn(array $row): bool =>
+                    in_array((int) $row['product_or_parent_id'], $wantedParents, true)));
             }
             if (preg_match(
                 '/COUNT\\(\\*\\) FROM wp_wc_product_attributes_lookup WHERE product_id IN \\(([0-9, ]+)\\) OR product_or_parent_id IN \\(([0-9, ]+)\\)/',
@@ -2771,6 +2861,155 @@ namespace {
     $check($duplicateFailure,
         'duplicate raw download metadata rows refuse instead of selecting an arbitrary value');
 
+    $observeDownloads = new \ReflectionMethod($adapter, 'authored_downloads');
+    $oversizedDownloadMarker = 'download_secret_marker_DO_NOT_ECHO';
+    $fakeDownloadMetaRows[17] = [
+        $oversizedDownloadMarker
+            . str_repeat('x', 1048577 - strlen($oversizedDownloadMarker)),
+    ];
+    $oversizedDownloadMessage = '';
+    try {
+        $observeDownloads->invoke($adapter, [17]);
+    } catch (\Throwable $failure) {
+        $oversizedDownloadMessage = $failure->getMessage();
+    }
+    unset($fakeDownloadMetaRows[17]);
+    $check(str_contains($oversizedDownloadMessage, 'oversized downloadable-file metadata')
+        && !str_contains($oversizedDownloadMessage, $oversizedDownloadMarker),
+        'a single LONGTEXT download value is refused from its compact byte witness without transfer or disclosure');
+
+    $aggregateDownloadIds = range(1000, 1016);
+    $aggregateDownloadValue = str_repeat('x', 1048576);
+    foreach ($aggregateDownloadIds as $aggregateDownloadId) {
+        $fakeDownloadMetaRows[$aggregateDownloadId] = [$aggregateDownloadValue];
+    }
+    $fakeVisibilityQueries = [];
+    $aggregateDownloadMessage = '';
+    try {
+        $observeDownloads->invoke($adapter, $aggregateDownloadIds);
+    } catch (\Throwable $failure) {
+        $aggregateDownloadMessage = $failure->getMessage();
+    }
+    foreach ($aggregateDownloadIds as $aggregateDownloadId) {
+        unset($fakeDownloadMetaRows[$aggregateDownloadId]);
+    }
+    unset($aggregateDownloadValue);
+    $check(str_contains($aggregateDownloadMessage, 'aggregate byte bound')
+        && !array_filter(
+            $fakeVisibilityQueries,
+            static fn(string $query): bool => str_contains($query, ' AS meta_key, meta_value,')
+        ), 'aggregate authored download bytes refuse from compact witnesses before any LONGTEXT payload read');
+
+    $tooManyDownloads = [];
+    for ($index = 0; $index < 1001; $index++) {
+        $rowId = 'download-' . $index;
+        $tooManyDownloads[$rowId] = [
+            'id' => $rowId,
+            'name' => 'n',
+            'file' => 'https://target.example/d/' . $index,
+            'enabled' => true,
+        ];
+    }
+    $fakeDownloadMetaRows[17] = [serialize($tooManyDownloads)];
+    $tooManyDownloadsMessage = '';
+    try {
+        $observeDownloads->invoke($adapter, [17]);
+    } catch (\Throwable $failure) {
+        $tooManyDownloadsMessage = $failure->getMessage();
+    }
+    unset($fakeDownloadMetaRows[17], $tooManyDownloads);
+    $check(str_contains($tooManyDownloadsMessage, 'malformed downloadable-file metadata'),
+        'decoded download rows are bounded per product even when the serialized payload is within its byte cap');
+
+    $aggregateDecodedRows = [];
+    for ($index = 0; $index < 910; $index++) {
+        $rowId = 'd-' . $index;
+        $aggregateDecodedRows[$rowId] = [
+            'id' => $rowId,
+            'name' => 'n',
+            'file' => 'https://target.example/d/' . $index,
+            'enabled' => true,
+        ];
+    }
+    $aggregateDecodedValue = serialize($aggregateDecodedRows);
+    $aggregateDecodedIds = range(1100, 1110);
+    foreach ($aggregateDecodedIds as $aggregateDecodedId) {
+        $fakeDownloadMetaRows[$aggregateDecodedId] = [$aggregateDecodedValue];
+    }
+    $aggregateDecodedMessage = '';
+    try {
+        $observeDownloads->invoke($adapter, $aggregateDecodedIds);
+    } catch (\Throwable $failure) {
+        $aggregateDecodedMessage = $failure->getMessage();
+    }
+    foreach ($aggregateDecodedIds as $aggregateDecodedId) {
+        unset($fakeDownloadMetaRows[$aggregateDecodedId]);
+    }
+    unset($aggregateDecodedRows, $aggregateDecodedValue);
+    $check(str_contains($aggregateDecodedMessage, 'aggregate decoded bound'),
+        'decoded download cardinality is bounded across owners and chunks, not merely per product');
+
+    $downloadBoundCases = [
+        'identity' => [str_repeat('i', 257), 'name', 'https://target.example/file'],
+        'name' => ['bounded-id', str_repeat('n', 4097), 'https://target.example/file'],
+        'file' => ['bounded-id', 'name', 'https://target.example/' . str_repeat('f', 8193)],
+    ];
+    foreach ($downloadBoundCases as $part => [$rowId, $name, $file]) {
+        $fakeDownloadMetaRows[17] = [serialize([
+            $rowId => ['id' => $rowId, 'name' => $name, 'file' => $file, 'enabled' => true],
+        ])];
+        $downloadBoundMessage = '';
+        try {
+            $observeDownloads->invoke($adapter, [17]);
+        } catch (\Throwable $failure) {
+            $downloadBoundMessage = $failure->getMessage();
+        }
+        $check(str_contains($downloadBoundMessage, 'unsupported downloadable-file row'),
+            "decoded download $part bytes have an explicit per-row bound");
+    }
+    unset($fakeDownloadMetaRows[17]);
+
+    $fakeDownloadMetaRows[17] = [$downloadRow($downloadFile)];
+    $wpdb->downloadMetaKeyOverride = '_DOWNLOADABLE_FILES';
+    $downloadAliasMessage = '';
+    try {
+        $observeDownloads->invoke($adapter, [17]);
+    } catch (\Throwable $failure) {
+        $downloadAliasMessage = $failure->getMessage();
+    }
+    $wpdb->downloadMetaKeyOverride = null;
+    $check(str_contains($downloadAliasMessage, 'malformed or aliased state'),
+        'case-insensitive metadata lookup cannot bless a non-binary _downloadable_files alias');
+
+    $sameLengthRacedDownload = $downloadRow(str_replace('catalog.pdf', 'catxlog.pdf', $downloadFile));
+    $wpdb->afterDownloadWitness = static function () use (&$fakeDownloadMetaRows, $sameLengthRacedDownload): void {
+        $fakeDownloadMetaRows[17] = [$sameLengthRacedDownload];
+    };
+    $downloadRaceMessage = '';
+    try {
+        $observeDownloads->invoke($adapter, [17]);
+    } catch (\Throwable $failure) {
+        $downloadRaceMessage = $failure->getMessage();
+    }
+    $fakeDownloadMetaRows[17] = [$downloadRow($downloadFile)];
+    $check(str_contains($downloadRaceMessage, 'changed after its byte witness')
+        || str_contains($downloadRaceMessage, 'identity changed after its byte witness'),
+        'a same-length download metadata write between compact witness and payload read cannot be blessed');
+
+    $wpdb->failReadContaining = ' AS meta_key, meta_value,';
+    $downloadPayloadReadMessage = '';
+    try {
+        $observeDownloads->invoke($adapter, [17]);
+    } catch (\Throwable $failure) {
+        $downloadPayloadReadMessage = $failure->getMessage();
+    }
+    $wpdb->failReadContaining = null;
+    $wpdb->last_error = '';
+    unset($fakeDownloadMetaRows[17]);
+    $check(str_contains($downloadPayloadReadMessage, 'checked read failed')
+        && !str_contains($downloadPayloadReadMessage, $downloadFile),
+        'download payload DB failure is loud and redacted after a valid compact witness');
+
     $downloadScopeArgs = [
         'entities' => [
             'entities' => [['kind' => 'post:product', 'id' => 17]],
@@ -3272,6 +3511,32 @@ namespace {
         && !str_contains($duplicateCogsMessage, '7.12555'),
         'duplicate COGS rows refuse without choosing or disclosing a value');
 
+    $cogsOversizeMarker = 'cogs_oversize_secret_DO_NOT_ECHO';
+    $fakeCogsMetaRows[13]['_cogs_total_value'] = [
+        $cogsOversizeMarker . str_repeat('9', 129 - strlen($cogsOversizeMarker)),
+    ];
+    $cogsOversizeMessage = '';
+    try {
+        $adapter->reconcile_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+    } catch (\Throwable $failure) {
+        $cogsOversizeMessage = $failure->getMessage();
+    }
+    unset($fakeCogsMetaRows[13]);
+    $check(str_contains($cogsOversizeMessage, 'oversized authored Cost of Goods metadata')
+        && !str_contains($cogsOversizeMessage, $cogsOversizeMarker),
+        'oversized COGS is refused from a prefix/length witness without transferring or disclosing the full value');
+
+    $fakeCogsMetaRows[13]['_cogs_total_value'] = ['7', '8', '9'];
+    $cogsSaturationMessage = '';
+    try {
+        $adapter->reconcile_scoped('rebuild_product_lookups', $productScopeArgs, $scopeOperation);
+    } catch (\Throwable $failure) {
+        $cogsSaturationMessage = $failure->getMessage();
+    }
+    unset($fakeCogsMetaRows[13]);
+    $check(str_contains($cogsSaturationMessage, 'saturated its bounded row read'),
+        'hostile duplicate COGS rows cannot exceed the two-keys-per-owner transfer bound');
+
     $fakeCogsMetaRows[13]['_cogs_total_value'] = ['1.0E+15'];
     $overflowCogsMessage = '';
     try {
@@ -3313,6 +3578,149 @@ namespace {
     unset($fakeMeta[13]['_cogs_total_value'], $fakeMetaLookup[13]['cogs_total_value']);
     $cogsController->enabled = false;
     $cogsController->lookupColumnPresent = false;
+
+    $observeLookup = new \ReflectionMethod($adapter, 'observe_lookup_state');
+    $lookupExtra = [];
+    foreach (array_keys(FakeWpdb::LOOKUP_COLUMN_DECLARATIONS) as $column) {
+        $lookupExtra[$column] = array_key_exists($column, $fakeMetaLookup[13])
+            ? ($fakeMetaLookup[13][$column] === null ? null : (string) $fakeMetaLookup[13][$column])
+            : null;
+    }
+    $wpdb->lookupReceiptExtraRows = [$lookupExtra];
+    $lookupSaturationMessage = '';
+    try {
+        $observeLookup->invoke($adapter, [13]);
+    } catch (\Throwable $failure) {
+        $lookupSaturationMessage = $failure->getMessage();
+    }
+    $wpdb->lookupReceiptExtraRows = [];
+    $check(str_contains($lookupSaturationMessage, 'saturated its bounded owner scope'),
+        'duplicate product lookup rows cannot exceed the one-row-per-owner receipt transfer bound');
+
+    $lookupSecret = 'lookup_secret_marker_DO_NOT_ECHO';
+    $originalSku = $fakeMetaLookup[13]['sku'];
+    $fakeMetaLookup[13]['sku'] = $lookupSecret . str_repeat('x', 1025 - strlen($lookupSecret));
+    $lookupOversizeMessage = '';
+    try {
+        $observeLookup->invoke($adapter, [13]);
+    } catch (\Throwable $failure) {
+        $lookupOversizeMessage = $failure->getMessage();
+    }
+    $fakeMetaLookup[13]['sku'] = $originalSku;
+    $check(str_contains($lookupOversizeMessage, 'oversized scalar')
+        && !str_contains($lookupOversizeMessage, $lookupSecret),
+        'oversized lookup scalars refuse without entering receipts or diagnostics');
+
+    $schemaAdapter = new \Duo\Providers\WoocommerceProductLookups($policy);
+    $schemaObserver = new \ReflectionMethod($schemaAdapter, 'observe_lookup_state');
+    $wpdb->lookupColumnDeclarations = FakeWpdb::LOOKUP_COLUMN_DECLARATIONS + [
+        'extension_secret' => 'longtext',
+    ];
+    $fakeMetaLookup[13]['extension_secret'] = 'extension_secret_marker_DO_NOT_TRANSFER';
+    $fakeVisibilityQueries = [];
+    $extensionState = $schemaObserver->invoke($schemaAdapter, [13]);
+    $extensionReceiptQueries = array_filter(
+        $fakeVisibilityQueries,
+        static fn(string $query): bool => str_contains($query, 'FROM `wp_wc_product_meta_lookup`')
+    );
+    unset($fakeMetaLookup[13]['extension_secret']);
+    $check(($extensionState['meta_lookup_rows'] ?? null) === 1
+        && !array_filter(
+            $extensionReceiptQueries,
+            static fn(string $query): bool => str_contains($query, 'extension_secret')
+        ), 'unknown extension lookup columns remain target-owned and are never selected into Duo receipt memory');
+
+    $wpdb->lookupColumnDeclarations = FakeWpdb::LOOKUP_COLUMN_DECLARATIONS;
+    $badTypeDeclarations = FakeWpdb::LOOKUP_COLUMN_DECLARATIONS;
+    $badTypeDeclarations['sku'] = 'longtext';
+    $wpdb->lookupColumnDeclarations = $badTypeDeclarations;
+    $badTypeMessage = '';
+    try {
+        $badTypeAdapter = new \Duo\Providers\WoocommerceProductLookups($policy);
+        (new \ReflectionMethod($badTypeAdapter, 'observe_lookup_state'))->invoke($badTypeAdapter, [13]);
+    } catch (\Throwable $failure) {
+        $badTypeMessage = $failure->getMessage();
+    }
+    $check(str_contains($badTypeMessage, "core column 'sku' has an incompatible type"),
+        'lookup receipt projection refuses an incompatible exact core column type');
+
+    $wpdb->lookupColumnDeclarations = FakeWpdb::LOOKUP_COLUMN_DECLARATIONS;
+    unset($wpdb->lookupColumnDeclarations['tax_class']);
+    $missingCoreMessage = '';
+    try {
+        $missingCoreAdapter = new \Duo\Providers\WoocommerceProductLookups($policy);
+        (new \ReflectionMethod($missingCoreAdapter, 'observe_lookup_state'))->invoke($missingCoreAdapter, [13]);
+    } catch (\Throwable $failure) {
+        $missingCoreMessage = $failure->getMessage();
+    }
+    $check(str_contains($missingCoreMessage, 'missing one or more exact core columns'),
+        'lookup receipt projection refuses a partial core schema');
+
+    $wpdb->lookupColumnDeclarations = FakeWpdb::LOOKUP_COLUMN_DECLARATIONS;
+    $wpdb->lookupSchemaRowsOverride = array_map(
+        static fn(string $column, string $type): array => ['Field' => $column, 'Type' => $type],
+        array_keys(FakeWpdb::LOOKUP_COLUMN_DECLARATIONS),
+        array_values(FakeWpdb::LOOKUP_COLUMN_DECLARATIONS)
+    );
+    $wpdb->lookupSchemaRowsOverride[] = ['Field' => 'product_id', 'Type' => 'bigint(20)'];
+    $duplicateSchemaMessage = '';
+    try {
+        $duplicateSchemaAdapter = new \Duo\Providers\WoocommerceProductLookups($policy);
+        (new \ReflectionMethod($duplicateSchemaAdapter, 'observe_lookup_state'))->invoke($duplicateSchemaAdapter, [13]);
+    } catch (\Throwable $failure) {
+        $duplicateSchemaMessage = $failure->getMessage();
+    }
+    $wpdb->lookupSchemaRowsOverride = null;
+    $check(str_contains($duplicateSchemaMessage, 'unusable column name'),
+        'duplicate schema rows cannot overwrite a prior core-column declaration');
+
+    $oversizedSchema = FakeWpdb::LOOKUP_COLUMN_DECLARATIONS;
+    for ($columnIndex = count($oversizedSchema); $columnIndex < 4097; $columnIndex++) {
+        $oversizedSchema['extension_' . $columnIndex] = 'longtext';
+    }
+    $wpdb->lookupColumnDeclarations = $oversizedSchema;
+    $fakeVisibilityQueries = [];
+    $oversizedSchemaMessage = '';
+    try {
+        $oversizedSchemaAdapter = new \Duo\Providers\WoocommerceProductLookups($policy);
+        (new \ReflectionMethod($oversizedSchemaAdapter, 'observe_lookup_state'))->invoke($oversizedSchemaAdapter, [13]);
+    } catch (\Throwable $failure) {
+        $oversizedSchemaMessage = $failure->getMessage();
+    }
+    unset($oversizedSchema);
+    $check(str_contains($oversizedSchemaMessage, 'oversized column inventory')
+        && (bool) array_filter(
+            $fakeVisibilityQueries,
+            static fn(string $query): bool => str_contains($query, 'information_schema.COLUMNS')
+                && str_contains($query, 'LIMIT 4097')
+        ), 'hostile lookup schemas are cut off by an exact bounded information-schema projection');
+
+    $wpdb->lookupColumnDeclarations = FakeWpdb::LOOKUP_COLUMN_DECLARATIONS;
+    $wpdb->failReadContaining = 'information_schema.COLUMNS';
+    $schemaReadMessage = '';
+    try {
+        $schemaReadAdapter = new \Duo\Providers\WoocommerceProductLookups($policy);
+        (new \ReflectionMethod($schemaReadAdapter, 'observe_lookup_state'))->invoke($schemaReadAdapter, [13]);
+    } catch (\Throwable $failure) {
+        $schemaReadMessage = $failure->getMessage();
+    }
+    $wpdb->failReadContaining = null;
+    $wpdb->last_error = '';
+    $check(str_contains($schemaReadMessage, 'checked read failed')
+        && !str_contains($schemaReadMessage, 'information_schema'),
+        'lookup schema DB failure is loud while its SQL and driver detail remain redacted');
+
+    $wpdb->prefix = 'wp_bad`identifier_';
+    $badTableMessage = '';
+    try {
+        $badTableAdapter = new \Duo\Providers\WoocommerceProductLookups($policy);
+        (new \ReflectionMethod($badTableAdapter, 'observe_lookup_state'))->invoke($badTableAdapter, [13]);
+    } catch (\Throwable $failure) {
+        $badTableMessage = $failure->getMessage();
+    }
+    $wpdb->prefix = 'wp_';
+    $check(str_contains($badTableMessage, 'unusable WooCommerce product lookup table name'),
+        'a backtick-bearing database prefix is refused before lookup-schema interpolation');
 
     $attributeRowKey = array_key_first(array_filter(
         $fakeAttrLookup,
@@ -3367,6 +3775,92 @@ namespace {
     foreach ($largeAttributeScope as $id) {
         unset($fakeProducts[$id], $fakeProductCache[$id]);
     }
+
+    $wpdb->attributeCountOverride = 200001;
+    $attributeBoundMessage = '';
+    try {
+        $observeAttributes->invoke($adapter, [13]);
+    } catch (\Throwable $failure) {
+        $attributeBoundMessage = $failure->getMessage();
+    }
+    $wpdb->attributeCountOverride = null;
+    $check(str_contains($attributeBoundMessage, 'cardinality exceeds its bounded count'),
+        'attribute lookup cardinality is refused from a compact COUNT witness before row transfer');
+
+    $wpdb->attributeCountOverride = '0001';
+    $attributeNoncanonicalCountMessage = '';
+    try {
+        $observeAttributes->invoke($adapter, [13]);
+    } catch (\Throwable $failure) {
+        $attributeNoncanonicalCountMessage = $failure->getMessage();
+    }
+    $wpdb->attributeCountOverride = null;
+    $check(str_contains($attributeNoncanonicalCountMessage, 'not a canonical database integer'),
+        'malformed attribute COUNT bytes cannot be loosely cast into a trusted transfer limit');
+
+    $wpdb->attributePayloadDropLast = true;
+    $attributeRaceMessage = '';
+    try {
+        $observeAttributes->invoke($adapter, [13]);
+    } catch (\Throwable $failure) {
+        $attributeRaceMessage = $failure->getMessage();
+    }
+    $wpdb->attributePayloadDropLast = false;
+    $check(str_contains($attributeRaceMessage, 'changed after its cardinality witness'),
+        'attribute lookup rows disappearing after the COUNT witness cannot produce a false receipt');
+
+    $attributeRaceKey = array_key_first(array_filter(
+        $fakeAttrLookup,
+        static fn(array $row): bool => (int) $row['product_or_parent_id'] === 13
+    ));
+    $originalAttributeRaceRow = $fakeAttrLookup[$attributeRaceKey];
+    $wpdb->afterAttributePayload = static function () use (&$fakeAttrLookup, $attributeRaceKey): void {
+        $fakeAttrLookup[$attributeRaceKey]['term_id'] = 102;
+    };
+    $attributeSameCountRaceMessage = '';
+    try {
+        $observeAttributes->invoke($adapter, [13]);
+    } catch (\Throwable $failure) {
+        $attributeSameCountRaceMessage = $failure->getMessage();
+    }
+    $fakeAttrLookup[$attributeRaceKey] = $originalAttributeRaceRow;
+    $check(str_contains($attributeSameCountRaceMessage, 'changed during bounded readback'),
+        'same-count attribute row replacement between cardinality/payload reads cannot be blessed');
+
+    $wpdb->failReadContaining = 'SELECT COUNT(*) FROM `wp_wc_product_attributes_lookup`';
+    $attributeCountReadMessage = '';
+    try {
+        $observeAttributes->invoke($adapter, [13]);
+    } catch (\Throwable $failure) {
+        $attributeCountReadMessage = $failure->getMessage();
+    }
+    $wpdb->failReadContaining = null;
+    $wpdb->last_error = '';
+    $check(str_contains($attributeCountReadMessage, 'checked read failed')
+        && !str_contains($attributeCountReadMessage, 'wc_product_attributes_lookup'),
+        'attribute cardinality DB failure is loud with bounded redacted diagnostics');
+
+    $wpdb->failReadContaining = 'SELECT product_id, product_or_parent_id, taxonomy';
+    $attributePayloadReadMessage = '';
+    try {
+        $observeAttributes->invoke($adapter, [13]);
+    } catch (\Throwable $failure) {
+        $attributePayloadReadMessage = $failure->getMessage();
+    }
+    $wpdb->failReadContaining = null;
+    $wpdb->last_error = '';
+    $check(str_contains($attributePayloadReadMessage, 'checked read failed')
+        && !str_contains($attributePayloadReadMessage, 'wc_product_attributes_lookup'),
+        'attribute payload DB failure cannot turn its prior cardinality witness into evidence');
+
+    $attributeOwnerBoundMessage = '';
+    try {
+        $observeAttributes->invoke($adapter, range(1, 50001));
+    } catch (\Throwable $failure) {
+        $attributeOwnerBoundMessage = $failure->getMessage();
+    }
+    $check(str_contains($attributeOwnerBoundMessage, 'exceeds its bounded product scope'),
+        'attribute lookup owner expansion refuses an over-bound repository scope before SQL');
 
     $fakeSaleSchedules['wc_product_end_scheduled_sale'][13] = $futureSale + 1;
     $saleDrift = $adapter->reconcile_scoped(
@@ -3432,6 +3926,28 @@ namespace {
     $wpdb->failReadContaining = null;
     $check($groupedReadFailedClosed,
         'grouped-parent discovery fails closed when its database read fails');
+
+    $wpdb->groupedParentOverride = range(1, 50001);
+    $groupedBoundMessage = '';
+    try {
+        $groupedDiscovery->invoke($adapter, 11);
+    } catch (\Throwable $failure) {
+        $groupedBoundMessage = $failure->getMessage();
+    }
+    $wpdb->groupedParentOverride = null;
+    $check(str_contains($groupedBoundMessage, 'exceeds its bounded owner scope'),
+        'grouped-parent reverse discovery stops at MAX+1 instead of transferring a catalog-wide result');
+
+    $wpdb->groupedParentOverride = ['0007'];
+    $groupedMalformedMessage = '';
+    try {
+        $groupedDiscovery->invoke($adapter, 11);
+    } catch (\Throwable $failure) {
+        $groupedMalformedMessage = $failure->getMessage();
+    }
+    $wpdb->groupedParentOverride = null;
+    $check(str_contains($groupedMalformedMessage, 'not a canonical database integer'),
+        'grouped-parent IDs use canonical bounded integer parsing rather than loose casts');
 
     $verifyExactState = new \ReflectionMethod($adapter, 'verify_exact_state');
     $verifyExactStateArgs = [WC_Data_Store::load('product'), [], [], [999 => 999], null];

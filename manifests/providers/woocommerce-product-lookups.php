@@ -42,10 +42,52 @@ final class WoocommerceProductLookups {
     /** @var array<string,string>|null column => validated SQL cast */
     private ?array $lookupColumnCasts = null;
 
+    /** @var list<string>|null exact core columns safe to transfer */
+    private ?array $lookupReadColumns = null;
+
     private const META_LOOKUP = 'wc_product_meta_lookup';
     private const ATTRIBUTE_LOOKUP = 'wc_product_attributes_lookup';
     private const CAPABILITY = 'rebuild_product_lookups';
+    private const MAX_SCOPED_PRODUCTS = 50000;
     private const MAX_VISIBILITY_PRODUCTS = 50000;
+    private const MAX_ATTRIBUTE_LOOKUP_ROWS = 200000;
+    private const MAX_GROUPED_PARENTS = 50000;
+    private const MAX_LOOKUP_SCALAR_BYTES = 1024;
+    private const MAX_LOOKUP_ROW_BYTES = 16384;
+    private const MAX_TABLE_COLUMNS = 4096;
+    private const MAX_COGS_VALUE_BYTES = 128;
+    private const MAX_DOWNLOAD_META_BYTES_PER_PRODUCT = 1048576;
+    private const MAX_DOWNLOAD_META_BYTES = 16777216;
+    private const MAX_DOWNLOADS_PER_PRODUCT = 1000;
+    private const MAX_DOWNLOADS = 10000;
+    private const MAX_DOWNLOAD_ID_BYTES = 256;
+    private const MAX_DOWNLOAD_NAME_BYTES = 4096;
+    private const MAX_DOWNLOAD_FILE_BYTES = 8192;
+    private const MAX_DOWNLOAD_ID_BYTES_TOTAL = 1048576;
+    private const MAX_DOWNLOAD_NAME_BYTES_TOTAL = 4194304;
+    private const MAX_DOWNLOAD_FILE_BYTES_TOTAL = 16777216;
+    private const TABLE_IDENTIFIER_PATTERN = '/^[A-Za-z0-9_]{1,64}$/D';
+
+    /** @var array<string,string> exact 11.0.0/11.0.1 core column => type grammar */
+    private const LOOKUP_CORE_COLUMN_TYPES = [
+        'product_id' => '/^bigint(?:\(20\))?$/D',
+        'sku' => '/^varchar\(100\)$/D',
+        'global_unique_id' => '/^varchar\(100\)$/D',
+        'virtual' => '/^tinyint(?:\(1\))?$/D',
+        'downloadable' => '/^tinyint(?:\(1\))?$/D',
+        'min_price' => '/^decimal\(19,4\)$/D',
+        'max_price' => '/^decimal\(19,4\)$/D',
+        'onsale' => '/^tinyint(?:\(1\))?$/D',
+        'stock_quantity' => '/^double$/D',
+        'stock_status' => '/^varchar\(100\)$/D',
+        'rating_count' => '/^bigint(?:\(20\))?$/D',
+        'average_rating' => '/^decimal\(3,2\)$/D',
+        'total_sales' => '/^bigint(?:\(20\))?$/D',
+        'tax_status' => '/^varchar\(100\)$/D',
+        'tax_class' => '/^varchar\(100\)$/D',
+        // Feature-gated and added by the exact native COGS lifecycle.
+        'cogs_total_value' => '/^decimal\(19,4\)$/D',
+    ];
     private const CORE_PRODUCT_TYPES = [
         'simple',
         'grouped',
@@ -441,17 +483,33 @@ final class WoocommerceProductLookups {
             static fn(int $id): bool => $id > 0
         )));
         sort($ids, SORT_NUMERIC);
+        $this->assert_scoped_product_count($ids, 'product lookup receipt observation');
+        $table = $this->prefixed_table(self::META_LOOKUP);
+        $columns = $this->lookup_read_columns($table);
+        $projection = implode(', ', array_map(
+            static fn(string $column): string => "`$column`",
+            $columns
+        ));
         $rowsById = [];
         foreach (array_chunk($ids, 200) as $chunk) {
             $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
+            $limit = count($chunk) + 1;
             $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
-                "SELECT * FROM `{$wpdb->prefix}" . self::META_LOOKUP . "` "
-                . "WHERE product_id IN ($placeholders) ORDER BY product_id ASC",
+                "SELECT $projection FROM `$table` "
+                . "WHERE product_id IN ($placeholders) ORDER BY product_id ASC LIMIT $limit",
                 ...$chunk
             ), 'product lookup receipt observation');
+            if (count($rows) >= $limit) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce product lookup receipt read saturated its bounded owner scope'
+                );
+            }
             foreach ($rows as $row) {
-                $productId = (int) ($row['product_id'] ?? 0);
-                if ($productId <= 0 || !in_array($productId, $chunk, true)) {
+                $productId = $this->strict_positive_db_uint(
+                    $row['product_id'] ?? null,
+                    'product lookup owner'
+                );
+                if (!in_array($productId, $chunk, true)) {
                     throw new \RuntimeException(
                         'duo: WooCommerce product lookup receipt read returned an out-of-scope owner'
                     );
@@ -462,13 +520,33 @@ final class WoocommerceProductLookups {
                     );
                 }
                 $normalized = [];
+                $rowBytes = 0;
+                if (array_keys($row) !== $columns) {
+                    throw new \RuntimeException(
+                        "duo: WooCommerce product lookup receipt read returned an unexpected row shape for product $productId"
+                    );
+                }
                 foreach ($row as $column => $value) {
                     if (!is_string($column) || $column === '' || (!is_string($value) && $value !== null)) {
                         throw new \RuntimeException(
                             "duo: WooCommerce product lookup receipt read returned non-scalar state for product $productId"
                         );
                     }
+                    if ($value !== null) {
+                        $bytes = strlen($value);
+                        if ($bytes > self::MAX_LOOKUP_SCALAR_BYTES) {
+                            throw new \RuntimeException(
+                                "duo: WooCommerce product lookup receipt read returned an oversized scalar for product $productId"
+                            );
+                        }
+                        $rowBytes += $bytes;
+                    }
                     $normalized[$column] = $value;
+                }
+                if ($rowBytes > self::MAX_LOOKUP_ROW_BYTES) {
+                    throw new \RuntimeException(
+                        "duo: WooCommerce product lookup receipt read returned an oversized row for product $productId"
+                    );
                 }
                 ksort($normalized, SORT_STRING);
                 $rowsById[$productId] = $normalized;
@@ -511,27 +589,87 @@ final class WoocommerceProductLookups {
     private function observe_attribute_lookup_state(array $ids): array {
         global $wpdb;
         $scope = $this->expand_attribute_scope_ids($ids);
+        $table = $this->prefixed_table(self::ATTRIBUTE_LOOKUP);
         $rows = [];
+        $rowCount = 0;
         foreach (array_chunk($scope, 200) as $chunk) {
             $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
-            $chunkRows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+            $countValue = \Duo\ProviderSdk::checked_get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM `$table` "
+                . "WHERE product_or_parent_id IN ($placeholders)",
+                ...$chunk
+            ), 'product attribute lookup receipt cardinality witness');
+            $chunkCount = $this->strict_bounded_db_count(
+                $countValue,
+                self::MAX_ATTRIBUTE_LOOKUP_ROWS,
+                'product attribute lookup receipt cardinality'
+            );
+            if ($rowCount + $chunkCount > self::MAX_ATTRIBUTE_LOOKUP_ROWS) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce product attribute lookup receipt exceeds its aggregate row bound'
+                );
+            }
+            if ($chunkCount === 0) {
+                continue;
+            }
+            $limit = $chunkCount + 1;
+            $payloadQuery = $wpdb->prepare(
                 "SELECT product_id, product_or_parent_id, taxonomy, term_id, is_variation_attribute, in_stock "
-                . "FROM `{$wpdb->prefix}" . self::ATTRIBUTE_LOOKUP . "` "
+                . "FROM `$table` "
                 . "WHERE product_or_parent_id IN ($placeholders) "
                 . 'ORDER BY product_or_parent_id ASC, product_id ASC, taxonomy ASC, term_id ASC, '
-                . 'is_variation_attribute ASC, in_stock ASC',
+                . "is_variation_attribute ASC, in_stock ASC LIMIT $limit",
                 ...$chunk
-            ), 'product attribute lookup receipt observation');
+            );
+            $chunkRows = \Duo\ProviderSdk::checked_get_results(
+                $payloadQuery,
+                'product attribute lookup receipt observation'
+            );
+            if (count($chunkRows) !== $chunkCount) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce product attribute lookup receipt changed after its cardinality witness'
+                );
+            }
+            $chunkState = [];
             foreach ($chunkRows as $row) {
                 $normalized = $this->normalize_attribute_lookup_row($row, $chunk);
                 $key = implode("\0", $normalized);
-                if (isset($rows[$key])) {
+                if (isset($chunkState[$key]) || isset($rows[$key])) {
                     throw new \RuntimeException(
                         'duo: WooCommerce product attribute lookup receipt read returned duplicate scoped rows'
                     );
                 }
-                $rows[$key] = $normalized;
+                $chunkState[$key] = $normalized;
             }
+            $confirmedRows = \Duo\ProviderSdk::checked_get_results(
+                $payloadQuery,
+                'product attribute lookup receipt stability verification'
+            );
+            if (count($confirmedRows) !== $chunkCount) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce product attribute lookup receipt changed during bounded readback'
+                );
+            }
+            $confirmedState = [];
+            foreach ($confirmedRows as $row) {
+                $normalized = $this->normalize_attribute_lookup_row($row, $chunk);
+                $key = implode("\0", $normalized);
+                if (isset($confirmedState[$key])) {
+                    throw new \RuntimeException(
+                        'duo: WooCommerce product attribute lookup receipt read returned duplicate scoped rows'
+                    );
+                }
+                $confirmedState[$key] = $normalized;
+            }
+            ksort($chunkState, SORT_STRING);
+            ksort($confirmedState, SORT_STRING);
+            if ($confirmedState !== $chunkState) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce product attribute lookup receipt changed during bounded readback'
+                );
+            }
+            $rows += $confirmedState;
+            $rowCount += $chunkCount;
         }
         ksort($rows, SORT_STRING);
 
@@ -561,22 +699,38 @@ final class WoocommerceProductLookups {
                 $scope[$id] = $id;
             }
         }
+        $this->assert_scoped_product_count(array_values($scope), 'product attribute lookup owner scope');
         foreach (array_chunk(array_values($scope), 200) as $chunk) {
             $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
+            $limit = count($chunk) + 1;
             $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
-                "SELECT ID, post_parent FROM {$wpdb->posts} WHERE ID IN ($placeholders) ORDER BY ID ASC",
+                "SELECT ID, post_parent FROM {$wpdb->posts} WHERE ID IN ($placeholders) "
+                . "ORDER BY ID ASC LIMIT $limit",
                 ...$chunk
             ), 'product attribute lookup owner expansion');
+            if (count($rows) >= $limit) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce product attribute lookup owner expansion saturated its bounded read'
+                );
+            }
             foreach ($rows as $row) {
-                $id = (int) ($row['ID'] ?? 0);
-                $parent = (int) ($row['post_parent'] ?? 0);
-                if ($id <= 0 || !isset($scope[$id])) {
+                $id = $this->strict_positive_db_uint($row['ID'] ?? null, 'attribute lookup post ID');
+                $parent = $this->strict_nonnegative_db_uint(
+                    $row['post_parent'] ?? null,
+                    'attribute lookup parent ID'
+                );
+                if (!isset($scope[$id])) {
                     throw new \RuntimeException(
                         'duo: WooCommerce product attribute lookup owner expansion returned an out-of-scope row'
                     );
                 }
                 if ($parent > 0) {
                     $scope[$parent] = $parent;
+                    if (count($scope) > self::MAX_SCOPED_PRODUCTS) {
+                        throw new \RuntimeException(
+                            'duo: WooCommerce product attribute lookup owner expansion exceeds its product bound'
+                        );
+                    }
                 }
             }
         }
@@ -614,14 +768,15 @@ final class WoocommerceProductLookups {
     }
 
     private function strict_attribute_lookup_uint(mixed $value, string $column): int {
-        if ((!is_int($value) && !is_string($value))
-            || !preg_match('/^[1-9][0-9]*$/D', (string) $value)
-            || (int) $value <= 0) {
+        try {
+            return $this->strict_positive_db_uint($value, "attribute lookup $column");
+        } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                "duo: WooCommerce product attribute lookup receipt read returned invalid $column state"
+                "duo: WooCommerce product attribute lookup receipt read returned invalid $column state",
+                0,
+                $failure
             );
         }
-        return (int) $value;
     }
 
     private function strict_attribute_lookup_flag(mixed $value, string $column): int {
@@ -649,6 +804,7 @@ final class WoocommerceProductLookups {
             static fn(int $id): bool => $id > 0
         )));
         sort($ids, SORT_NUMERIC);
+        $this->assert_scoped_product_count($ids, 'sale schedule observation');
         $fingerprint = hash_init('sha256');
         $actions = 0;
         foreach ($ids as $id) {
@@ -1038,10 +1194,17 @@ final class WoocommerceProductLookups {
         $posts = [];
         foreach (array_chunk($ids, 200) as $chunk) {
             $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
+            $limit = count($chunk) + 1;
             $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
-                "SELECT ID, post_parent, post_type FROM {$wpdb->posts} WHERE ID IN ($placeholders) ORDER BY ID ASC",
+                "SELECT ID, post_parent, post_type FROM {$wpdb->posts} WHERE ID IN ($placeholders) "
+                . "ORDER BY ID ASC LIMIT $limit",
                 ...$chunk
             ), 'WooCommerce product visibility owner discovery');
+            if (count($rows) >= $limit) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce product visibility owner discovery saturated its bounded read'
+                );
+            }
             foreach ($rows as $row) {
                 $id = $this->visibility_uint($row['ID'] ?? null, 'post ID');
                 $parent = $this->visibility_uint($row['post_parent'] ?? null, 'parent ID', true);
@@ -1689,6 +1852,7 @@ final class WoocommerceProductLookups {
             static fn(int $id): bool => $id > 0
         )));
         sort($ids, SORT_NUMERIC);
+        $this->assert_scoped_product_count($ids, 'Cost of Goods metadata observation');
 
         $class = '\\Automattic\\WooCommerce\\Internal\\CostOfGoodsSold\\CostOfGoodsSoldController';
         if (!class_exists($class) || !function_exists('wc_get_container')) {
@@ -1725,23 +1889,44 @@ final class WoocommerceProductLookups {
         $authoredByProduct = [];
         foreach (array_chunk($ids, 200) as $chunk) {
             $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
+            $limit = count($chunk) * 2 + 1;
+            $prefixBytes = self::MAX_COGS_VALUE_BYTES + 1;
             $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
-                "SELECT post_id, meta_id, meta_key, meta_value FROM `{$wpdb->postmeta}` "
+                "SELECT post_id, meta_id, BINARY meta_key AS meta_key, "
+                . "LEFT(meta_value, $prefixBytes) AS meta_value, "
+                . "LENGTH(meta_value) AS meta_value_bytes FROM `{$wpdb->postmeta}` "
                 . "WHERE post_id IN ($placeholders) "
                 . "AND meta_key IN ('_cogs_total_value', '_cogs_value_is_additive') "
-                . 'ORDER BY post_id ASC, meta_key ASC, meta_id ASC',
+                . "ORDER BY post_id ASC, meta_key ASC, meta_id ASC LIMIT $limit",
                 ...$chunk
             ), 'Cost of Goods authored metadata observation');
+            if (count($rows) >= $limit) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce Cost of Goods metadata observation saturated its bounded row read'
+                );
+            }
             foreach ($rows as $row) {
-                $productId = (int) ($row['post_id'] ?? 0);
-                $metaId = (int) ($row['meta_id'] ?? 0);
-                $key = (string) ($row['meta_key'] ?? '');
+                $productId = $this->strict_positive_db_uint($row['post_id'] ?? null, 'COGS owner ID');
+                $metaId = $this->strict_positive_db_uint($row['meta_id'] ?? null, 'COGS meta ID');
+                $key = $row['meta_key'] ?? null;
                 $value = $row['meta_value'] ?? null;
-                if (!in_array($productId, $chunk, true) || $metaId <= 0
+                $valueBytes = $this->strict_bounded_db_count(
+                    $row['meta_value_bytes'] ?? null,
+                    self::MAX_COGS_VALUE_BYTES + 1,
+                    'Cost of Goods metadata byte witness'
+                );
+                if (!in_array($productId, $chunk, true)
+                    || !is_string($key)
                     || !in_array($key, ['_cogs_total_value', '_cogs_value_is_additive'], true)
-                    || !is_string($value)) {
+                    || !is_string($value)
+                    || strlen($value) !== min($valueBytes, $prefixBytes)) {
                     throw new \RuntimeException(
                         'duo: WooCommerce Cost of Goods metadata observation returned malformed or out-of-scope state'
+                    );
+                }
+                if ($valueBytes > self::MAX_COGS_VALUE_BYTES) {
+                    throw new \RuntimeException(
+                        "duo: WooCommerce product $productId has oversized authored Cost of Goods metadata"
                     );
                 }
                 $identity = $productId . ':' . $key;
@@ -1828,12 +2013,19 @@ final class WoocommerceProductLookups {
         $postTypes = [];
         foreach (array_chunk($ids, 200) as $chunk) {
             $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
+            $limit = count($chunk) + 1;
             $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
-                "SELECT ID, post_type FROM {$wpdb->posts} WHERE ID IN ($placeholders) ORDER BY ID ASC",
+                "SELECT ID, post_type FROM {$wpdb->posts} WHERE ID IN ($placeholders) "
+                . "ORDER BY ID ASC LIMIT $limit",
                 ...$chunk
             ), 'Cost of Goods product subtype observation');
+            if (count($rows) >= $limit) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce Cost of Goods subtype observation saturated its bounded owner read'
+                );
+            }
             foreach ($rows as $row) {
-                $id = (int) ($row['ID'] ?? 0);
+                $id = $this->strict_positive_db_uint($row['ID'] ?? null, 'COGS subtype owner ID');
                 $postType = $row['post_type'] ?? null;
                 if (!in_array($id, $chunk, true) || isset($postTypes[$id])
                     || !is_string($postType)
@@ -1972,27 +2164,22 @@ final class WoocommerceProductLookups {
             static fn(int $id): bool => $id > 0
         )));
         sort($ids, SORT_NUMERIC);
+        $this->assert_scoped_product_count($ids, 'downloadable product metadata observation');
         if ($ids === []) {
             return [];
         }
 
         $seenProducts = [];
         $out = [];
+        $rawBytes = 0;
+        $downloadCount = 0;
+        $downloadIdBytes = 0;
+        $downloadNameBytes = 0;
+        $downloadFileBytes = 0;
         foreach (array_chunk($ids, 200) as $chunk) {
-            $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
-            $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
-                "SELECT post_id, meta_id, meta_value FROM `{$wpdb->postmeta}` "
-                . "WHERE meta_key = '_downloadable_files' AND post_id IN ($placeholders) "
-                . 'ORDER BY post_id ASC, meta_id ASC',
-                ...$chunk
-            ), 'downloadable product metadata read');
-            foreach ($rows as $row) {
-                $productId = (int) ($row['post_id'] ?? 0);
-                if ($productId <= 0 || !in_array($productId, $chunk, true)) {
-                    throw new \RuntimeException(
-                        'duo: WooCommerce downloadable product metadata read returned an out-of-scope owner'
-                    );
-                }
+            $witnesses = $this->downloadable_meta_witness($chunk);
+            foreach ($witnesses as $witness) {
+                $productId = $witness['product_id'];
                 if (isset($seenProducts[$productId])) {
                     throw new \RuntimeException(
                         "duo: WooCommerce product $productId has multiple _downloadable_files rows; "
@@ -2000,30 +2187,141 @@ final class WoocommerceProductLookups {
                     );
                 }
                 $seenProducts[$productId] = true;
+                if ($witness['bytes'] > self::MAX_DOWNLOAD_META_BYTES_PER_PRODUCT) {
+                    throw new \RuntimeException(
+                        "duo: WooCommerce product $productId has oversized downloadable-file metadata"
+                    );
+                }
+                $rawBytes += $witness['bytes'];
+                if ($rawBytes > self::MAX_DOWNLOAD_META_BYTES) {
+                    throw new \RuntimeException(
+                        'duo: WooCommerce downloadable-file metadata exceeds the aggregate byte bound'
+                    );
+                }
+            }
+            if ($witnesses === []) {
+                continue;
+            }
+
+            $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
+            $identityConditions = [];
+            $identityArgs = [];
+            foreach ($witnesses as $witness) {
+                $identityConditions[] = '(post_id = %d AND meta_id = %d '
+                    . 'AND LENGTH(meta_value) = %d AND SHA2(meta_value, 256) = %s)';
+                array_push(
+                    $identityArgs,
+                    $witness['product_id'],
+                    $witness['meta_id'],
+                    $witness['bytes'],
+                    $witness['sha256']
+                );
+            }
+            $limit = count($witnesses) + 1;
+            $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+                "SELECT post_id, meta_id, BINARY meta_key AS meta_key, meta_value, "
+                . "LENGTH(meta_value) AS meta_value_bytes, SHA2(meta_value, 256) AS meta_sha256 "
+                . "FROM `{$wpdb->postmeta}` "
+                . "WHERE meta_key = '_downloadable_files' AND post_id IN ($placeholders) "
+                . 'AND (' . implode(' OR ', $identityConditions) . ') '
+                . "ORDER BY post_id ASC, meta_id ASC LIMIT $limit",
+                ...array_merge($chunk, $identityArgs)
+            ), 'downloadable product bounded metadata read');
+            if (count($rows) !== count($witnesses)) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce downloadable product metadata changed after its byte witness'
+                );
+            }
+            $payloadWitnesses = [];
+            foreach ($rows as $row) {
+                $productId = $this->strict_positive_db_uint(
+                    $row['post_id'] ?? null,
+                    'download metadata owner ID'
+                );
+                $metaId = $this->strict_positive_db_uint(
+                    $row['meta_id'] ?? null,
+                    'download metadata row ID'
+                );
+                $valueBytes = $this->strict_bounded_db_count(
+                    $row['meta_value_bytes'] ?? null,
+                    self::MAX_DOWNLOAD_META_BYTES_PER_PRODUCT,
+                    'download metadata byte readback'
+                );
+                $valueHash = $this->strict_db_sha256(
+                    $row['meta_sha256'] ?? null,
+                    'download metadata payload hash'
+                );
+                $value = $row['meta_value'] ?? null;
+                if (!in_array($productId, $chunk, true)
+                    || ($row['meta_key'] ?? null) !== '_downloadable_files'
+                    || !is_string($value)
+                    || strlen($value) !== $valueBytes) {
+                    throw new \RuntimeException(
+                        'duo: WooCommerce downloadable product metadata read returned an out-of-scope owner'
+                    );
+                }
+                $payloadWitnesses[] = [
+                    'product_id' => $productId,
+                    'meta_id' => $metaId,
+                    'bytes' => $valueBytes,
+                    'sha256' => $valueHash,
+                ];
+                $expectedWitness = $witnesses[count($payloadWitnesses) - 1] ?? null;
+                if ($payloadWitnesses[count($payloadWitnesses) - 1] !== $expectedWitness) {
+                    throw new \RuntimeException(
+                        'duo: WooCommerce downloadable product metadata identity changed after its byte witness'
+                    );
+                }
                 $decoded = \Duo\PlainData::decode_serialized(
-                    (string) ($row['meta_value'] ?? ''),
+                    $value,
                     "WooCommerce product $productId downloadable-file metadata"
                 );
-                if (!is_array($decoded) || ($decoded !== [] && array_is_list($decoded))) {
+                if (!is_array($decoded) || ($decoded !== [] && array_is_list($decoded))
+                    || count($decoded) > self::MAX_DOWNLOADS_PER_PRODUCT) {
                     throw new \RuntimeException(
                         "duo: WooCommerce product $productId has malformed downloadable-file metadata"
                     );
                 }
+                $productDownloadCount = 0;
                 foreach ($decoded as $downloadId => $value) {
                     $unknown = is_array($value)
                         ? array_diff(array_keys($value), ['id', 'name', 'file', 'enabled'])
                         : [];
+                    $idBytes = is_string($downloadId) ? strlen($downloadId) : 0;
+                    $nameBytes = is_array($value) && is_string($value['name'] ?? null)
+                        ? strlen($value['name'])
+                        : 0;
+                    $fileBytes = is_array($value) && is_string($value['file'] ?? null)
+                        ? strlen($value['file'])
+                        : 0;
                     if (!is_string($downloadId) || $downloadId === ''
+                        || $idBytes > self::MAX_DOWNLOAD_ID_BYTES
                         || !is_array($value) || array_is_list($value)
                         || $unknown !== []
                         || !is_string($value['name'] ?? null)
+                        || $nameBytes > self::MAX_DOWNLOAD_NAME_BYTES
                         || !is_string($value['file'] ?? null) || $value['file'] === ''
+                        || $fileBytes > self::MAX_DOWNLOAD_FILE_BYTES
                         || (array_key_exists('id', $value)
                             && (!is_string($value['id']) || $value['id'] !== $downloadId))
                         || (array_key_exists('enabled', $value)
                             && (!is_bool($value['enabled']) || $value['enabled'] !== true))) {
                         throw new \RuntimeException(
                             "duo: WooCommerce product $productId has an unsupported downloadable-file row"
+                        );
+                    }
+                    $productDownloadCount++;
+                    $downloadCount++;
+                    $downloadIdBytes += $idBytes;
+                    $downloadNameBytes += $nameBytes;
+                    $downloadFileBytes += $fileBytes;
+                    if ($productDownloadCount > self::MAX_DOWNLOADS_PER_PRODUCT
+                        || $downloadCount > self::MAX_DOWNLOADS
+                        || $downloadIdBytes > self::MAX_DOWNLOAD_ID_BYTES_TOTAL
+                        || $downloadNameBytes > self::MAX_DOWNLOAD_NAME_BYTES_TOTAL
+                        || $downloadFileBytes > self::MAX_DOWNLOAD_FILE_BYTES_TOTAL) {
+                        throw new \RuntimeException(
+                            'duo: WooCommerce downloadable-file collection exceeds its aggregate decoded bound'
                         );
                     }
                     $file = $value['file'];
@@ -2042,6 +2340,11 @@ final class WoocommerceProductLookups {
                     ];
                 }
             }
+            if ($this->downloadable_meta_witness($chunk) !== $witnesses) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce downloadable product metadata changed during bounded readback'
+                );
+            }
         }
         usort($out, static fn(array $left, array $right): int => [
             $left['product_id'], $left['download_id'], $left['name'], $left['file'],
@@ -2049,6 +2352,72 @@ final class WoocommerceProductLookups {
             $right['product_id'], $right['download_id'], $right['name'], $right['file'],
         ]);
         return $out;
+    }
+
+    /**
+     * @param list<int> $chunk
+     * @return list<array{product_id:int,meta_id:int,bytes:int,sha256:string}>
+     */
+    private function downloadable_meta_witness(array $chunk): array {
+        global $wpdb;
+        if ($chunk === []) {
+            return [];
+        }
+        $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
+        $limit = count($chunk) + 1;
+        $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+            "SELECT post_id, meta_id, BINARY meta_key AS meta_key, "
+            . "LENGTH(meta_value) AS meta_value_bytes, SHA2(meta_value, 256) AS meta_sha256 "
+            . "FROM `{$wpdb->postmeta}` "
+            . "WHERE meta_key = '_downloadable_files' AND post_id IN ($placeholders) "
+            . "ORDER BY post_id ASC, meta_id ASC LIMIT $limit",
+            ...$chunk
+        ), 'downloadable product metadata byte witness');
+        $witnesses = [];
+        $owners = [];
+        foreach ($rows as $row) {
+            $productId = $this->strict_positive_db_uint(
+                $row['post_id'] ?? null,
+                'download metadata witness owner ID'
+            );
+            $metaId = $this->strict_positive_db_uint(
+                $row['meta_id'] ?? null,
+                'download metadata witness row ID'
+            );
+            $bytes = $this->strict_nonnegative_db_uint(
+                $row['meta_value_bytes'] ?? null,
+                'download metadata witness bytes'
+            );
+            $valueHash = $this->strict_db_sha256(
+                $row['meta_sha256'] ?? null,
+                'download metadata witness hash'
+            );
+            if (isset($owners[$productId])) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce product $productId has multiple _downloadable_files rows; "
+                    . 'the adapter supports one authored value'
+                );
+            }
+            if (!in_array($productId, $chunk, true)
+                || ($row['meta_key'] ?? null) !== '_downloadable_files') {
+                throw new \RuntimeException(
+                    'duo: WooCommerce downloadable product metadata witness returned malformed or aliased state'
+                );
+            }
+            $owners[$productId] = true;
+            $witnesses[] = [
+                'product_id' => $productId,
+                'meta_id' => $metaId,
+                'bytes' => $bytes,
+                'sha256' => $valueHash,
+            ];
+        }
+        if (count($rows) >= $limit) {
+            throw new \RuntimeException(
+                'duo: WooCommerce downloadable product metadata saturated its bounded owner read'
+            );
+        }
+        return $witnesses;
     }
 
     /** @return object WooCommerce ApprovedDirectories Register */
@@ -2210,6 +2579,11 @@ final class WoocommerceProductLookups {
             if (!is_array($native)) {
                 throw new \RuntimeException(
                     "duo: WooCommerce product $productId returned an unreadable native download collection"
+                );
+            }
+            if (count($native) > self::MAX_DOWNLOADS_PER_PRODUCT) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce product $productId returned an oversized native download collection"
                 );
             }
             $expectedIds = array_keys($expected);
@@ -2765,10 +3139,11 @@ final class WoocommerceProductLookups {
             static fn(int $id): bool => $id > 0
         )));
         sort($ids, SORT_NUMERIC);
+        $table = $this->prefixed_table(self::ATTRIBUTE_LOOKUP);
         foreach (array_chunk($ids, 200) as $chunk) {
             $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
             $result = $wpdb->query($wpdb->prepare(
-                "DELETE FROM `{$wpdb->prefix}" . self::ATTRIBUTE_LOOKUP . "` "
+                "DELETE FROM `$table` "
                 . "WHERE product_id IN ($placeholders) OR product_or_parent_id IN ($placeholders)",
                 ...array_merge($chunk, $chunk)
             ));
@@ -3311,16 +3686,26 @@ final class WoocommerceProductLookups {
              INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
              WHERE pm.meta_key = '_children'
                AND p.post_type = 'product'
-               AND (pm.meta_value LIKE %s OR pm.meta_value LIKE %s)",
+               AND (pm.meta_value LIKE %s OR pm.meta_value LIKE %s)
+             ORDER BY pm.post_id ASC
+             LIMIT " . (self::MAX_GROUPED_PARENTS + 1),
             $integerNeedle,
             $stringNeedle
         ), 'grouped parent discovery');
+        if (count($rows) > self::MAX_GROUPED_PARENTS) {
+            throw new \RuntimeException(
+                'duo: WooCommerce grouped parent discovery exceeds its bounded owner scope'
+            );
+        }
         $ids = [];
         foreach ($rows as $row) {
-            $id = (int) $row;
-            if ($id > 0) {
-                $ids[$id] = $id;
+            $id = $this->strict_positive_db_uint($row, 'grouped parent ID');
+            if (isset($ids[$id])) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce grouped parent discovery returned a duplicate owner'
+                );
             }
+            $ids[$id] = $id;
         }
         ksort($ids, SORT_NUMERIC);
         return array_values($ids);
@@ -3431,18 +3816,18 @@ final class WoocommerceProductLookups {
         ?callable $heartbeat = null
     ): void {
         global $wpdb;
+        $table = $this->prefixed_table(self::META_LOOKUP);
         foreach ($deletionIds as $id) {
             $this->heartbeat($heartbeat);
             $metaCountValue = \Duo\ProviderSdk::checked_get_var($wpdb->prepare(
-                "SELECT COUNT(*) FROM {$wpdb->prefix}" . self::META_LOOKUP . " WHERE product_id = %d",
+                "SELECT COUNT(*) FROM `$table` WHERE product_id = %d",
                 (int) $id
             ), "product lookup deletion verification for product $id");
-            if ($metaCountValue === null) {
-                throw new \RuntimeException(
-                    "duo: WooCommerce product lookup deletion verification returned no count for product $id"
-                );
-            }
-            $metaCount = (int) $metaCountValue;
+            $metaCount = $this->strict_bounded_db_count(
+                $metaCountValue,
+                1,
+                "product lookup deletion count for product $id"
+            );
             if ($metaCount !== 0) {
                 throw new \RuntimeException(
                     "duo: WooCommerce product lookup deletion verification failed for product $id "
@@ -3515,7 +3900,7 @@ final class WoocommerceProductLookups {
      */
     private function verify_meta_row(object $productStore, int $id, ?callable $heartbeat = null): void {
         global $wpdb;
-        $table = $wpdb->prefix . self::META_LOOKUP;
+        $table = $this->prefixed_table(self::META_LOOKUP);
 
         $applied = $this->read_lookup_row($table, $id);
         if ($applied === null) {
@@ -3525,12 +3910,11 @@ final class WoocommerceProductLookups {
             "SELECT COUNT(*) FROM `$table` WHERE product_id = %d",
             $id
         ), "product lookup cardinality verification for product $id");
-        if ($countValue === null) {
-            throw new \RuntimeException(
-                "duo: WooCommerce product lookup cardinality returned no count for product $id"
-            );
-        }
-        $count = (int) $countValue;
+        $count = $this->strict_bounded_db_count(
+            $countValue,
+            2,
+            "product lookup cardinality for product $id"
+        );
         if ($count !== 1) {
             throw new \RuntimeException("duo: WooCommerce product lookup has $count rows for product $id; expected exactly one");
         }
@@ -3572,8 +3956,12 @@ final class WoocommerceProductLookups {
     /** @return array<string,mixed>|null */
     private function read_lookup_row(string $table, int $id): ?array {
         global $wpdb;
+        $projection = implode(', ', array_map(
+            static fn(string $column): string => "`$column`",
+            $this->lookup_read_columns($table)
+        ));
         $row = \Duo\ProviderSdk::checked_get_row($wpdb->prepare(
-            "SELECT * FROM `$table` WHERE product_id = %d LIMIT 1",
+            "SELECT $projection FROM `$table` WHERE product_id = %d LIMIT 1",
             $id
         ), "product lookup verification for product $id");
         return is_array($row) ? $row : null;
@@ -3693,12 +4081,12 @@ final class WoocommerceProductLookups {
             "SELECT COUNT(*) FROM `$table` WHERE " . implode(' AND ', $conditions),
             ...$params
         ), "product lookup value verification for product $id");
-        if ($matches === null) {
-            throw new \RuntimeException(
-                "duo: WooCommerce product lookup value verification returned no count for product $id"
-            );
-        }
-        if ((int) $matches === 1) {
+        $matchCount = $this->strict_bounded_db_count(
+            $matches,
+            1,
+            "product lookup value match count for product $id"
+        );
+        if ($matchCount === 1) {
             return;
         }
         $columns = array_keys($expected);
@@ -3748,22 +4136,44 @@ final class WoocommerceProductLookups {
      * @return array<string,string> column => DECIMAL(precision,scale)
      */
     private function lookup_column_casts(string $table): array {
+        global $wpdb;
         if ($this->lookupColumnCasts !== null) {
             return $this->lookupColumnCasts;
         }
         if (preg_match('/^[a-zA-Z0-9_]{1,64}$/D', $table) !== 1) {
             throw new \RuntimeException('duo: unusable WooCommerce product lookup table name for schema verification');
         }
-        $rows = \Duo\ProviderSdk::checked_get_results(
-            "SHOW COLUMNS FROM `$table`",
+        $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+            'SELECT BINARY COLUMN_NAME AS Field, LOWER(COLUMN_TYPE) AS Type '
+            . 'FROM information_schema.COLUMNS '
+            . 'WHERE TABLE_SCHEMA = DATABASE() AND BINARY TABLE_NAME = BINARY %s '
+            . 'ORDER BY ORDINAL_POSITION ASC LIMIT ' . (self::MAX_TABLE_COLUMNS + 1),
+            $table
+        ),
             'product lookup schema verification'
         );
+        if (count($rows) > self::MAX_TABLE_COLUMNS) {
+            throw new \RuntimeException(
+                'duo: WooCommerce product lookup schema returned an oversized column inventory'
+            );
+        }
         $casts = [];
+        $seen = [];
         foreach ($rows as $row) {
-            $column = (string) ($row['Field'] ?? '');
-            $type = strtolower((string) ($row['Type'] ?? ''));
-            if (preg_match('/^[a-z][a-z0-9_]{0,62}$/D', $column) !== 1) {
+            $column = $row['Field'] ?? null;
+            $rawType = $row['Type'] ?? null;
+            if (!is_string($column) || !is_string($rawType)
+                || preg_match('/^[a-z][a-z0-9_]{0,62}$/D', $column) !== 1
+                || isset($seen[$column]) || strlen($rawType) > 128) {
                 throw new \RuntimeException('duo: WooCommerce product lookup schema returned an unusable column name');
+            }
+            $seen[$column] = true;
+            $type = strtolower(trim($rawType));
+            $coreType = self::LOOKUP_CORE_COLUMN_TYPES[$column] ?? null;
+            if (is_string($coreType) && preg_match($coreType, $type) !== 1) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce product lookup core column '$column' has an incompatible type"
+                );
             }
             if (preg_match('/^decimal\(([1-9][0-9]?),([0-9]{1,2})\)(?: unsigned)?$/D', $type, $matches) !== 1) {
                 continue;
@@ -3777,8 +4187,90 @@ final class WoocommerceProductLookups {
             }
             $casts[$column] = "DECIMAL($precision,$scale)";
         }
+        $required = array_keys(self::LOOKUP_CORE_COLUMN_TYPES);
+        $required = array_values(array_diff($required, ['cogs_total_value']));
+        if (array_diff($required, array_keys($seen)) !== []) {
+            throw new \RuntimeException(
+                'duo: WooCommerce product lookup schema is missing one or more exact core columns'
+            );
+        }
+        $readColumns = [];
+        foreach (array_keys(self::LOOKUP_CORE_COLUMN_TYPES) as $column) {
+            if (isset($seen[$column])) {
+                $readColumns[] = $column;
+            }
+        }
         $this->lookupColumnCasts = $casts;
+        $this->lookupReadColumns = $readColumns;
         return $casts;
+    }
+
+    /** @return list<string> */
+    private function lookup_read_columns(string $table): array {
+        $this->lookup_column_casts($table);
+        if (!is_array($this->lookupReadColumns) || $this->lookupReadColumns === []) {
+            throw new \RuntimeException(
+                'duo: WooCommerce product lookup schema produced no bounded core read projection'
+            );
+        }
+        return $this->lookupReadColumns;
+    }
+
+    private function prefixed_table(string $suffix): string {
+        global $wpdb;
+        $table = is_object($wpdb) && is_string($wpdb->prefix ?? null)
+            ? $wpdb->prefix . $suffix
+            : '';
+        if (preg_match(self::TABLE_IDENTIFIER_PATTERN, $table) !== 1) {
+            throw new \RuntimeException('duo: unusable WooCommerce product lookup table name');
+        }
+        return $table;
+    }
+
+    /** @param list<int> $ids */
+    private function assert_scoped_product_count(array $ids, string $context): void {
+        if (count($ids) > self::MAX_SCOPED_PRODUCTS) {
+            throw new \RuntimeException("duo: WooCommerce $context exceeds its bounded product scope");
+        }
+    }
+
+    private function strict_positive_db_uint(mixed $value, string $context): int {
+        $number = $this->strict_nonnegative_db_uint($value, $context);
+        if ($number < 1) {
+            throw new \RuntimeException("duo: WooCommerce $context is not a positive database integer");
+        }
+        return $number;
+    }
+
+    private function strict_nonnegative_db_uint(mixed $value, string $context): int {
+        if (!is_int($value) && !is_string($value)) {
+            throw new \RuntimeException("duo: WooCommerce $context is not a canonical database integer");
+        }
+        $raw = (string) $value;
+        if (preg_match('/^(?:0|[1-9][0-9]*)$/D', $raw) !== 1
+            || strlen($raw) > strlen((string) PHP_INT_MAX)) {
+            throw new \RuntimeException("duo: WooCommerce $context is not a canonical database integer");
+        }
+        $number = (int) $raw;
+        if ($number < 0 || (string) $number !== $raw) {
+            throw new \RuntimeException("duo: WooCommerce $context exceeds the supported integer boundary");
+        }
+        return $number;
+    }
+
+    private function strict_bounded_db_count(mixed $value, int $maximum, string $context): int {
+        $count = $this->strict_nonnegative_db_uint($value, $context);
+        if ($count > $maximum) {
+            throw new \RuntimeException("duo: WooCommerce $context exceeds its bounded count");
+        }
+        return $count;
+    }
+
+    private function strict_db_sha256(mixed $value, string $context): string {
+        if (!is_string($value) || preg_match('/^[a-fA-F0-9]{64}$/D', $value) !== 1) {
+            throw new \RuntimeException("duo: WooCommerce $context is not an exact SHA-256 witness");
+        }
+        return strtolower($value);
     }
 
 }
