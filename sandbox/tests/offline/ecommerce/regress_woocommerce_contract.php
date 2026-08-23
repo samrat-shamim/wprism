@@ -27,7 +27,8 @@ final class WooContractWpdb {
 
 $GLOBALS['wpdb'] = new WooContractWpdb();
 
-function woo_fail(string $message): never { fwrite(STDERR, "FAIL: $message\n"); exit(1); }
+function woo_fail(string $message): never { fwrite(STDERR, "FAIL: $message\n");
+exit(1); }
 function woo_ok(bool $condition, string $message): void {
     if (!$condition) woo_fail($message);
     echo "ok: $message\n";
@@ -48,6 +49,80 @@ $policy = Policy::from_snapshot([
     'manifests' => [$manifest],
     'site' => ['manifests' => ['woocommerce'], 'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []], 'spec_version' => DUO_SPEC_VERSION],
 ]);
+
+$settingsInventory = json_decode(
+    (string) file_get_contents($root . '/sandbox/tests/fixtures/woocommerce-core-11.0-settings.json'),
+    true,
+    flags: JSON_THROW_ON_ERROR
+);
+$artifactLock = json_decode(
+    (string) file_get_contents($root . '/sandbox/conformance/artifacts.lock.json'),
+    true,
+    flags: JSON_THROW_ON_ERROR
+);
+woo_ok(($settingsInventory['format'] ?? null) === 'duo-woocommerce-settings-inventory/v1',
+    'the source-audited settings inventory uses the exact reviewed schema');
+woo_ok(count((array) ($settingsInventory['literal_ids'] ?? [])) === 147,
+    'the exact 11.0.0/11.0.1 literal settings scan freezes all 147 source ids');
+woo_ok(count((array) ($settingsInventory['source_files'] ?? [])) === 13,
+    'the inventory binds all thirteen source files used by the literal and computed settings audit');
+foreach ((array) ($settingsInventory['source_files'] ?? []) as $sourceFile => $sha256) {
+    woo_ok(
+        is_string($sourceFile) && $sourceFile !== ''
+            && is_string($sha256) && preg_match('/^[0-9a-f]{64}$/D', $sha256) === 1,
+        "$sourceFile carries one exact shared 11.0.0/11.0.1 source digest"
+    );
+}
+foreach ((array) ($settingsInventory['artifacts'] ?? []) as $version => $sha256) {
+    woo_ok(
+        ($artifactLock['plugins']['woocommerce'][$version]['sha256'] ?? null) === $sha256,
+        "settings source inventory is pinned to the official WooCommerce $version artifact"
+    );
+}
+woo_ok(array_keys((array) ($settingsInventory['artifacts'] ?? [])) === ['11.0.0', '11.0.1']
+    && ($manifest['version_range'] ?? null) === ['min' => '11.0.0', 'max' => '11.0.2'],
+    'the source inventory and manifest admit exactly the same two official artifacts');
+
+$inventoryClassifications = array_merge(
+    (array) ($settingsInventory['literal_ids'] ?? []),
+    (array) ($settingsInventory['computed_ids'] ?? [])
+);
+foreach ($inventoryClassifications as $name => $classification) {
+    $rule = $policy->option_rule((string) $name);
+    if (in_array($classification, ['authored', 'runtime', 'derived', 'env'], true)) {
+        woo_ok(($rule['class'] ?? null) === $classification,
+            "$name resolves to its source-audited $classification class");
+        continue;
+    }
+    woo_ok($rule === null, "$name remains unclassified for its explicit $classification boundary");
+    if ($classification !== 'ui') {
+        woo_ok($policy->option_namespace((string) $name) !== null,
+            "$name remains discovery-owned so populated unsupported state fails loudly");
+    }
+}
+woo_ok(($settingsInventory['dynamic_families'] ?? null) === [
+    'woocommerce_<core-email-id>_settings' => 'pending_mixed_record',
+    'woocommerce_email_templates_<core-email-id>_post_id' => 'pending_block_email_editor',
+    'woocommerce_feature_<registered-feature-slug>_enabled' => 'env',
+], 'computed email, template, and feature option families stay explicit in the source union');
+foreach ([
+    'woocommerce_feature_agentic_checkout_enabled',
+    'woocommerce_feature_dual_code_graphql_api_enabled',
+    'woocommerce_feature_fulfillments_enabled',
+    'woocommerce_feature_point_of_sale_staff_enabled',
+    'woocommerce_feature_push_notifications_enabled',
+] as $featureOption) {
+    woo_ok(($policy->option_rule($featureOption)['class'] ?? null) === 'env',
+        "$featureOption is an explicit target platform feature control");
+}
+woo_ok(count((array) ($settingsInventory['feature_option_ids'] ?? [])) === 31,
+    'the inventory freezes every exact core feature option key, including custom-key definitions');
+foreach ((array) ($settingsInventory['feature_option_ids'] ?? []) as $featureOption => $classification) {
+    woo_ok(
+        ($policy->option_rule((string) $featureOption)['class'] ?? null) === $classification,
+        "$featureOption resolves to its exact source-audited feature-option class"
+    );
+}
 
 // DUO-3315: this is a manifest declaration, not an engine convention. The
 // generic engine must obtain Woo's product/variation edge through Policy in
@@ -91,8 +166,19 @@ woocommerce_stock_email_recipient woocommerce_stock_format woocommerce_store_add
 woocommerce_tax_based_on woocommerce_tax_classes woocommerce_tax_display_cart woocommerce_tax_display_shop woocommerce_tax_round_at_subtotal woocommerce_tax_total_display woocommerce_terms_page_id woocommerce_thumbnail_image_width woocommerce_trash_cancelled_orders woocommerce_trash_failed_orders woocommerce_trash_pending_orders woocommerce_unforce_ssl_checkout woocommerce_version woocommerce_weight_unit
 OPTIONS));
 
+$pendingOptionNames = [
+    'woocommerce_cod_settings',
+    'woocommerce_pickup_location_settings',
+];
 foreach ($optionNames as $name) {
     woo_ok($policy->option_namespace($name) !== null, "$name is discovery-owned");
+    if (in_array($name, $pendingOptionNames, true)) {
+        woo_ok(
+            $policy->owned_option_rule($name) === null,
+            "$name remains loudly pending instead of carrying an opaque mixed or reference-bearing record"
+        );
+        continue;
+    }
     woo_ok($policy->owned_option_rule($name) !== null, "$name has an explicit class");
 }
 woo_ok($policy->option_namespace('woocommerce_future_unreviewed') !== null, 'future Woo option remains visible to discovery');
@@ -103,15 +189,17 @@ foreach (['action_scheduler_migration_status', 'woocommerce_paypal_settings', 'w
 foreach (['wc_blocks_db_schema_version', 'wc_customer_stock_notifications_product_sync_notice', 'wc_pending_batch_processes', 'wc_variation_gallery_migration_completed_at', 'woocommerce_admin_notices', 'woocommerce_fulfillments_db_tables_created', 'woocommerce_task_list_tracked_completed_tasks', 'woocommerce_unforce_ssl_checkout'] as $name) {
     woo_ok(($policy->owned_option_rule($name)['class'] ?? '') === 'runtime', "$name stays runtime-local");
 }
-foreach (['wc_brands_show_description', 'woocommerce_brand_permalink', 'woocommerce_catalog_columns', 'woocommerce_catalog_rows', 'woocommerce_cod_settings', 'woocommerce_enable_delayed_account_creation', 'woocommerce_feature_wc_visual_attribute_enabled', 'woocommerce_hooked_blocks_version', 'woocommerce_pickup_location_settings'] as $name) {
+foreach (['wc_brands_show_description', 'woocommerce_brand_permalink', 'woocommerce_catalog_columns', 'woocommerce_catalog_rows', 'woocommerce_enable_delayed_account_creation', 'woocommerce_feature_wc_visual_attribute_enabled', 'woocommerce_hooked_blocks_version'] as $name) {
     woo_ok(($policy->owned_option_rule($name)['class'] ?? '') === 'authored', "$name stays portable merchant-authored state");
 }
 foreach (['woocommerce_catalog_columns', 'woocommerce_catalog_rows'] as $name) {
     woo_ok(($policy->owned_option_rule($name)['lint_ok'] ?? false) === true, "$name is audited as a numeric grid count, not an entity reference");
 }
-woo_ok(($policy->owned_option_rule('woocommerce_cod_settings')['ref'] ?? null) === null, 'core COD settings remain an opaque ref-free settings record');
 woo_ok(($policy->owned_option_rule('woocommerce_hooked_blocks_version')['ref'] ?? null) === null, 'hooked-block rendering policy remains an opaque ref-free authored record');
-woo_ok(($policy->owned_option_rule('woocommerce_pickup_location_settings')['ref'] ?? null) === null, 'local-pickup merchant settings remain an opaque ref-free authored record');
+woo_ok($policy->owned_option_rule('woocommerce_cod_settings') === null,
+    'core COD settings fail closed until method-instance references use the reviewed typed schema');
+woo_ok($policy->owned_option_rule('woocommerce_pickup_location_settings') === null,
+    'local-pickup settings fail closed until native cache convergence is part of apply');
 woo_ok(($policy->option_rule('woocommerce_placeholder_image')['ref'] ?? '') === 'post', 'placeholder image uses portable post identity');
 woo_ok(($policy->option_rule('woocommerce_refund_returns_page_id')['ref'] ?? '') === 'post', 'refund page uses portable post identity');
 woo_ok(($policy->option_rule('woocommerce_flat_rate_41_settings')['ref'] ?? null) === null

@@ -58,6 +58,52 @@ final class Woocommerce {
         'auto_fulfill_virtual',
     ];
 
+    private const YES_NO_OPTIONS = [
+        'auto_fulfill_downloadable',
+        'auto_fulfill_virtual',
+        'woocommerce_customer_stock_notifications_allow_signups',
+        'woocommerce_customer_stock_notifications_create_account_on_signup',
+        'woocommerce_customer_stock_notifications_require_account',
+        'woocommerce_customer_stock_notifications_require_double_opt_in',
+        'woocommerce_enable_order_comments',
+        'woocommerce_graphql_apq_enabled',
+        'woocommerce_graphql_get_endpoint_enabled',
+        'woocommerce_graphql_object_cache_enabled',
+        'woocommerce_graphql_opcache_enabled',
+        'woocommerce_rest_api_enable_cache_headers',
+    ];
+
+    private const ENUM_OPTIONS = [
+        'woocommerce_category_archive_display' => ['', 'subcategories', 'both'],
+        'woocommerce_date_type' => ['date_created', 'date_paid', 'date_completed'],
+        'woocommerce_default_catalog_orderby' => [
+            'menu_order',
+            'popularity',
+            'rating',
+            'date',
+            'price',
+            'price-desc',
+        ],
+        'woocommerce_shop_page_display' => ['', 'subcategories', 'both'],
+    ];
+
+    private const ORDER_STATUS_OPTIONS = [
+        'woocommerce_actionable_order_statuses',
+        'woocommerce_excluded_report_order_statuses',
+    ];
+
+    private const NATIVE_TEXT_OPTIONS = [
+        'woocommerce_default_date_range' => 1024,
+        'woocommerce_email_from_name' => 4096,
+        'woocommerce_pos_store_name' => 4096,
+    ];
+
+    private const POSITIVE_INTEGER_OPTIONS = [
+        'woocommerce_graphql_max_query_complexity',
+        'woocommerce_graphql_max_query_depth',
+        'woocommerce_graphql_query_cache_ttl',
+    ];
+
     private const PRODUCT_VISIBILITY_TERMS = [
         'exclude-from-search',
         'exclude-from-catalog',
@@ -671,21 +717,223 @@ final class Woocommerce {
         $records = (array) ($front['records'] ?? []);
         $path = (string) ($entity['path'] ?? '');
         $out = [];
-        foreach (self::FULFILLMENT_OPTIONS as $name) {
-            $record = $records[$name] ?? null;
-            if (!is_array($record) || ($record['state'] ?? null) !== 'present') {
+        foreach ($records as $name => $record) {
+            if (!is_string($name) || !is_array($record) || ($record['state'] ?? null) !== 'present') {
                 continue;
             }
-            if (!is_string($record['value'] ?? null)
-                || !in_array($record['value'], ['yes', 'no'], true)) {
+            $value = $record['value'] ?? null;
+            $locator = "records.$name.value";
+            if (in_array($name, self::YES_NO_OPTIONS, true)) {
+                if (is_string($value) && in_array($value, ['yes', 'no'], true)) {
+                    continue;
+                }
                 $out[] = $this->diagnostic(
                     $path,
-                    "records.$name.value",
-                    "WooCommerce fulfillment option $name must be exact yes or no"
+                    $locator,
+                    "WooCommerce option $name must be exact yes or no"
                 );
+                continue;
+            }
+            if (array_key_exists($name, self::ENUM_OPTIONS)) {
+                if (!is_string($value) || !in_array($value, self::ENUM_OPTIONS[$name], true)) {
+                    $out[] = $this->diagnostic(
+                        $path,
+                        $locator,
+                        "WooCommerce option $name is outside its exact native value set"
+                    );
+                }
+                continue;
+            }
+            if (in_array($name, self::ORDER_STATUS_OPTIONS, true)) {
+                $out = array_merge($out, $this->order_statuses_diagnostics($path, $locator, $value, $name));
+                continue;
+            }
+            if (array_key_exists($name, self::NATIVE_TEXT_OPTIONS)) {
+                $textDiagnostics = $this->bounded_text_diagnostics(
+                    $path,
+                    $locator,
+                    $value,
+                    self::NATIVE_TEXT_OPTIONS[$name],
+                    "WooCommerce option $name"
+                );
+                $out = array_merge($out, $textDiagnostics);
+                if ($textDiagnostics === [] && is_string($value)) {
+                    $out = array_merge($out, $this->native_text_canonical_diagnostics(
+                        $path,
+                        $locator,
+                        $value,
+                        "WooCommerce option $name"
+                    ));
+                }
+                continue;
+            }
+            if (in_array($name, self::POSITIVE_INTEGER_OPTIONS, true)) {
+                $out = array_merge($out, $this->positive_integer_diagnostics($path, $locator, $value, $name));
+                continue;
+            }
+            if ($name === 'woocommerce_graphql_endpoint_url') {
+                $out = array_merge($out, $this->graphql_endpoint_diagnostics($path, $locator, $value));
+                continue;
+            }
+            if ($name === 'woocommerce_gateway_order') {
+                $out = array_merge($out, $this->gateway_order_diagnostics($path, $locator, $value));
+                continue;
+            }
+            if ($name === 'woocommerce_checkout_terms_and_conditions_checkbox_text') {
+                $out = array_merge($out, $this->native_html_diagnostics(
+                    $path,
+                    $locator,
+                    $value,
+                    16384,
+                    'WooCommerce checkout terms checkbox text'
+                ));
             }
         }
         return $out;
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function order_statuses_diagnostics(
+        string $path,
+        string $locator,
+        mixed $value,
+        string $name
+    ): array {
+        if (!is_array($value) || !array_is_list($value) || count($value) > 128) {
+            return [$this->diagnostic(
+                $path,
+                $locator,
+                "WooCommerce option $name must be a list of at most 128 order-status slugs"
+            )];
+        }
+        $seen = [];
+        foreach ($value as $status) {
+            if (!is_string($status)
+                || strlen($status) > 64
+                || preg_match('/^[a-z0-9][a-z0-9_-]*$/D', $status) !== 1
+                || isset($seen[$status])) {
+                return [$this->diagnostic(
+                    $path,
+                    $locator,
+                    "WooCommerce option $name must contain unique bounded order-status slugs"
+                )];
+            }
+            $seen[$status] = true;
+        }
+        return [];
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function positive_integer_diagnostics(
+        string $path,
+        string $locator,
+        mixed $value,
+        string $name
+    ): array {
+        $normalized = is_string($value) ? ltrim($value, '0') : '';
+        if (!is_string($value)
+            || preg_match('/^[0-9]+$/D', $value) !== 1
+            || strlen($value) > 19
+            || (int) $value < 1
+            || (string) (int) $normalized !== $normalized) {
+            return [$this->diagnostic(
+                $path,
+                $locator,
+                "WooCommerce option $name must be a positive PHP-range integer string"
+            )];
+        }
+        return [];
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function graphql_endpoint_diagnostics(string $path, string $locator, mixed $value): array {
+        $textDiagnostics = $this->bounded_text_diagnostics(
+            $path,
+            $locator,
+            $value,
+            512,
+            'WooCommerce GraphQL endpoint path'
+        );
+        if ($textDiagnostics !== [] || !is_string($value)) {
+            return $textDiagnostics;
+        }
+        $parts = explode('/', $value);
+        if (count($parts) < 2) {
+            return [$this->diagnostic(
+                $path,
+                $locator,
+                'WooCommerce GraphQL endpoint path must contain at least two segments'
+            )];
+        }
+        foreach ($parts as $part) {
+            if ($part === '' || preg_match('/^[A-Za-z0-9_-]+$/D', $part) !== 1) {
+                return [$this->diagnostic(
+                    $path,
+                    $locator,
+                    'WooCommerce GraphQL endpoint path must already equal its native normalized segment grammar'
+                )];
+            }
+        }
+        return [];
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function gateway_order_diagnostics(string $path, string $locator, mixed $value): array {
+        if (!is_array($value) || ($value !== [] && array_is_list($value)) || count($value) > 256) {
+            return [$this->diagnostic(
+                $path,
+                $locator,
+                'WooCommerce gateway order must be a named map of at most 256 stable provider ids'
+            )];
+        }
+        $orders = [];
+        foreach ($value as $gateway => $order) {
+            if (!is_string($gateway)
+                || strlen($gateway) > 128
+                || preg_match('/^[a-z0-9_][a-z0-9_.-]*$/D', $gateway) !== 1
+                || !is_int($order)
+                || $order < 0
+                || $order > 100000
+                || isset($orders[$order])) {
+                return [$this->diagnostic(
+                    $path,
+                    $locator,
+                    'WooCommerce gateway order must contain unique bounded integer positions keyed by stable provider ids'
+                )];
+            }
+            $orders[$order] = true;
+        }
+        return [];
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function native_html_diagnostics(
+        string $path,
+        string $locator,
+        mixed $value,
+        int $maxBytes,
+        string $label
+    ): array {
+        $textDiagnostics = $this->bounded_text_diagnostics($path, $locator, $value, $maxBytes, $label);
+        if ($textDiagnostics !== [] || !is_string($value)) {
+            return $textDiagnostics;
+        }
+        if (!function_exists('wp_kses_post')) {
+            return [$this->diagnostic(
+                $path,
+                $locator,
+                "$label cannot be validated because the native WordPress HTML sanitizer is unavailable"
+            )];
+        }
+        $sanitized = \wp_kses_post($value);
+        if (!is_string($sanitized) || !hash_equals($value, $sanitized)) {
+            return [$this->diagnostic(
+                $path,
+                $locator,
+                "$label must already equal the exact native WordPress HTML-sanitized bytes"
+            )];
+        }
+        return [];
     }
 
     /** @return list<array<string,mixed>> */

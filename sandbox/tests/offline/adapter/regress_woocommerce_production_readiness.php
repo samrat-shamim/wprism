@@ -18,6 +18,7 @@ use Duo\Policy;
 $GLOBALS['wooReadinessBlogId'] = 1;
 $GLOBALS['wooReadinessNativeUrlCalls'] = [];
 $GLOBALS['wooReadinessNativeTextCalls'] = [];
+$GLOBALS['wooReadinessNativeHtmlCalls'] = [];
 if (!function_exists('get_current_blog_id')) {
     function get_current_blog_id(): int {
         return (int) ($GLOBALS['wooReadinessBlogId'] ?? 1);
@@ -50,6 +51,12 @@ if (!function_exists('sanitize_text_field')) {
             $value = (string) preg_replace('/%[a-f0-9]{2}/i', '', $value);
         } while ($value !== $before);
         return trim((string) preg_replace('/ +/', ' ', $value));
+    }
+}
+if (!function_exists('wp_kses_post')) {
+    function wp_kses_post(string $value): string {
+        $GLOBALS['wooReadinessNativeHtmlCalls'][] = $value;
+        return strip_tags($value, '<a><br><em><strong>');
     }
 }
 
@@ -555,6 +562,71 @@ foreach (['auto_fulfill_downloadable', 'auto_fulfill_virtual'] as $optionName) {
         "$optionName uses the reviewed exact authored option rule"
     );
 }
+foreach ([
+    'woocommerce_actionable_order_statuses',
+    'woocommerce_category_archive_display',
+    'woocommerce_checkout_terms_and_conditions_checkbox_text',
+    'woocommerce_customer_stock_notifications_allow_signups',
+    'woocommerce_customer_stock_notifications_create_account_on_signup',
+    'woocommerce_customer_stock_notifications_require_account',
+    'woocommerce_customer_stock_notifications_require_double_opt_in',
+    'woocommerce_date_type',
+    'woocommerce_default_catalog_orderby',
+    'woocommerce_default_date_range',
+    'woocommerce_email_from_name',
+    'woocommerce_enable_order_comments',
+    'woocommerce_excluded_report_order_statuses',
+    'woocommerce_gateway_order',
+    'woocommerce_graphql_apq_enabled',
+    'woocommerce_graphql_endpoint_url',
+    'woocommerce_graphql_get_endpoint_enabled',
+    'woocommerce_graphql_max_query_complexity',
+    'woocommerce_graphql_max_query_depth',
+    'woocommerce_graphql_object_cache_enabled',
+    'woocommerce_graphql_opcache_enabled',
+    'woocommerce_graphql_query_cache_ttl',
+    'woocommerce_pos_store_name',
+    'woocommerce_rest_api_enable_cache_headers',
+    'woocommerce_shop_page_display',
+] as $optionName) {
+    duo_check_same(
+        'authored',
+        $policy->option_rule($optionName)['class'] ?? null,
+        "$optionName is exact portable merchant-authored WooCommerce state"
+    );
+}
+foreach (['woocommerce_actionable_order_statuses', 'woocommerce_excluded_report_order_statuses', 'woocommerce_gateway_order'] as $optionName) {
+    duo_check_same(
+        true,
+        $policy->option_rule($optionName)['plain_data'] ?? null,
+        "$optionName crosses the class-disabled recursive plain-data boundary"
+    );
+}
+foreach (['woocommerce_address_autocomplete_provider', 'woocommerce_rest_api_enable_backend_caching', 'woocommerce_share_key'] as $optionName) {
+    duo_check_same(
+        ['class' => 'env', 'required' => false, 'autoload' => 'preserve'],
+        $policy->meta_rule_for_option($optionName, []),
+        "$optionName stays optional target-environment state"
+    );
+}
+duo_check_same(
+    ['class' => 'derived', 'autoload' => 'preserve'],
+    $policy->meta_rule_for_option('woocommerce_analytics_import_interval', []),
+    'the localized analytics import interval label stays derived'
+);
+foreach ([
+    'woocommerce_cod_settings',
+    'woocommerce_pickup_location_settings',
+    'pickup_location_pickup_locations',
+    'woocommerce_analytics_scheduled_import',
+    'woocommerce_customer_stock_notifications_unverified_deletions_days_threshold',
+] as $pendingOption) {
+    duo_check_same(
+        null,
+        $policy->meta_rule_for_option($pendingOption, []),
+        "$pendingOption remains loud until its typed schema and native side effects are verified"
+    );
+}
 duo_check_same(
     ['class' => 'runtime'],
     $interpreter->user_meta_rule('wc_push_notification_preferences_wp', []),
@@ -929,6 +1001,123 @@ duo_check(
     $badFulfillmentOption !== []
         && str_contains(implode(' | ', woo_readiness_messages($badFulfillmentOption)), 'must be exact yes or no'),
     'malformed automatic-fulfillment option state refuses'
+);
+
+$validSettings = [
+    'woocommerce_actionable_order_statuses' => [
+        'state' => 'present',
+        'value' => ['processing', 'on-hold', 'merchant-review'],
+    ],
+    'woocommerce_category_archive_display' => ['state' => 'present', 'value' => 'both'],
+    'woocommerce_checkout_terms_and_conditions_checkbox_text' => [
+        'state' => 'present',
+        'value' => '<strong>أوافق 東京</strong> [terms]',
+    ],
+    'woocommerce_customer_stock_notifications_allow_signups' => ['state' => 'present', 'value' => 'yes'],
+    'woocommerce_customer_stock_notifications_create_account_on_signup' => ['state' => 'present', 'value' => 'no'],
+    'woocommerce_customer_stock_notifications_require_account' => ['state' => 'present', 'value' => 'no'],
+    'woocommerce_customer_stock_notifications_require_double_opt_in' => ['state' => 'present', 'value' => 'yes'],
+    'woocommerce_date_type' => ['state' => 'present', 'value' => 'date_completed'],
+    'woocommerce_default_catalog_orderby' => ['state' => 'present', 'value' => 'price-desc'],
+    'woocommerce_default_date_range' => [
+        'state' => 'present',
+        'value' => 'period=month&compare=previous_year',
+    ],
+    'woocommerce_email_from_name' => ['state' => 'present', 'value' => 'متجر 東京'],
+    'woocommerce_enable_order_comments' => ['state' => 'present', 'value' => 'yes'],
+    'woocommerce_excluded_report_order_statuses' => [
+        'state' => 'present',
+        'value' => ['pending', 'failed', 'cancelled'],
+    ],
+    'woocommerce_gateway_order' => [
+        'state' => 'present',
+        'value' => ['stripe' => 0, '_wc_offline_payment_methods_group' => 1, 'bacs' => 2, 'cod' => 3],
+    ],
+    'woocommerce_graphql_apq_enabled' => ['state' => 'present', 'value' => 'yes'],
+    'woocommerce_graphql_endpoint_url' => ['state' => 'present', 'value' => 'wc_store/graphql-v2'],
+    'woocommerce_graphql_get_endpoint_enabled' => ['state' => 'present', 'value' => 'no'],
+    'woocommerce_graphql_max_query_complexity' => ['state' => 'present', 'value' => '1000'],
+    'woocommerce_graphql_max_query_depth' => ['state' => 'present', 'value' => '00012'],
+    'woocommerce_graphql_object_cache_enabled' => ['state' => 'present', 'value' => 'yes'],
+    'woocommerce_graphql_opcache_enabled' => ['state' => 'present', 'value' => 'no'],
+    'woocommerce_graphql_query_cache_ttl' => ['state' => 'present', 'value' => '3600'],
+    'woocommerce_pos_store_name' => ['state' => 'present', 'value' => 'فرع 東京'],
+    'woocommerce_rest_api_enable_cache_headers' => ['state' => 'present', 'value' => 'yes'],
+    'woocommerce_shop_page_display' => ['state' => 'present', 'value' => 'subcategories'],
+];
+duo_check_same(
+    [],
+    woo_readiness_option_diagnostics($interpreter, $validSettings),
+    'direct-read Woo settings accept exact native enums, arrays, Unicode, HTML, GraphQL, and gateway-order shapes'
+);
+duo_check_same(
+    [],
+    woo_readiness_option_diagnostics($interpreter, [
+        'woocommerce_gateway_order' => ['state' => 'present', 'value' => []],
+        'woocommerce_shop_page_display' => ['state' => 'present', 'value' => ''],
+        'woocommerce_email_from_name' => ['state' => 'present', 'value' => ''],
+        'woocommerce_graphql_endpoint_url' => ['state' => 'deleted'],
+    ]),
+    'native empty maps/text/enums and option deletion remain portable where the exact writer permits them'
+);
+
+$invalidSettings = [
+    ['woocommerce_rest_api_enable_cache_headers', true, 'exact yes or no'],
+    ['woocommerce_shop_page_display', 'products', 'exact native value set'],
+    ['woocommerce_date_type', 'updated_at', 'exact native value set'],
+    ['woocommerce_default_catalog_orderby', 'random', 'exact native value set'],
+    ['woocommerce_actionable_order_statuses', ['processing', 'processing'], 'unique bounded'],
+    ['woocommerce_actionable_order_statuses', ['processing', 'wc bad'], 'unique bounded'],
+    ['woocommerce_excluded_report_order_statuses', ['key' => 'failed'], 'list of at most'],
+    ['woocommerce_default_date_range', "period=month\nsecret", 'native WordPress text-sanitized'],
+    ['woocommerce_email_from_name', '<b>store</b>', 'native WordPress text-sanitized'],
+    ['woocommerce_graphql_max_query_depth', '0', 'positive PHP-range'],
+    ['woocommerce_graphql_max_query_depth', '-1', 'positive PHP-range'],
+    ['woocommerce_graphql_max_query_depth', '9223372036854775808', 'positive PHP-range'],
+    ['woocommerce_graphql_query_cache_ttl', 60, 'positive PHP-range'],
+    ['woocommerce_graphql_endpoint_url', 'graphql', 'at least two segments'],
+    ['woocommerce_graphql_endpoint_url', '/wc/graphql', 'native normalized segment grammar'],
+    ['woocommerce_graphql_endpoint_url', 'wc//graphql', 'native normalized segment grammar'],
+    ['woocommerce_graphql_endpoint_url', 'wc/গ্রাফ', 'native normalized segment grammar'],
+    ['woocommerce_gateway_order', [0], 'named map'],
+    ['woocommerce_gateway_order', ['cod' => 0, 'bacs' => 0], 'unique bounded integer positions'],
+    ['woocommerce_gateway_order', ['bad key' => 0], 'unique bounded integer positions'],
+    ['woocommerce_gateway_order', ['cod' => '0'], 'unique bounded integer positions'],
+    ['woocommerce_checkout_terms_and_conditions_checkbox_text', '<script>bad</script>', 'HTML-sanitized bytes'],
+];
+foreach ($invalidSettings as [$name, $value, $fragment]) {
+    $diagnostics = woo_readiness_option_diagnostics($interpreter, [
+        $name => ['state' => 'present', 'value' => $value],
+    ]);
+    duo_check(
+        $diagnostics !== []
+            && str_contains(implode(' | ', woo_readiness_messages($diagnostics)), $fragment),
+        "$name rejects malformed repository state at its exact native boundary: $fragment"
+    );
+}
+
+$statusFlood = array_fill(0, 129, 'processing');
+duo_check(
+    str_contains(
+        implode(' | ', woo_readiness_messages(woo_readiness_option_diagnostics($interpreter, [
+            'woocommerce_actionable_order_statuses' => ['state' => 'present', 'value' => $statusFlood],
+        ]))),
+        'at most 128'
+    ),
+    'order-status settings refuse before accepting an unbounded decoded list'
+);
+$settingsSecret = 'settings_secret_marker_DO_NOT_ECHO';
+$settingsSecretDiagnostics = woo_readiness_option_diagnostics($interpreter, [
+    'woocommerce_graphql_endpoint_url' => ['state' => 'present', 'value' => "wc/$settingsSecret!"],
+]);
+duo_check(
+    $settingsSecretDiagnostics !== []
+        && !str_contains(implode(' | ', woo_readiness_messages($settingsSecretDiagnostics)), $settingsSecret),
+    'settings schema refusals identify only the option and shape, never merchant bytes'
+);
+duo_check(
+    $GLOBALS['wooReadinessNativeTextCalls'] !== [] && $GLOBALS['wooReadinessNativeHtmlCalls'] !== [],
+    'settings readiness executes the native text and HTML sanitizer boundaries'
 );
 woo_readiness_reports(
     $interpreter,
