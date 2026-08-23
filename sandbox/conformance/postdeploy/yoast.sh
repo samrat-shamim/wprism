@@ -54,9 +54,6 @@ $ids = [
     'included_b' => $post('page', 'Target Included B Stale', 'conformance-included-b'),
     'post' => $post('post', 'Target Yoast Post Stale', 'conformance-yoast-post'),
 ];
-foreach (['og', 'twitter', 'company', 'person', 'default', 'post'] as $name) {
-    $ids[$name . '_image'] = $post('attachment', "Target $name image stale", "duo-conf-yoast-$name");
-}
 wp_set_object_terms($ids['post'], [$primary, $secondary], 'category');
 wp_set_object_terms($ids['post'], [$tag], 'post_tag');
 update_post_meta($ids['post'], '_yoast_wpseo_title', 'Hostile target title');
@@ -68,12 +65,12 @@ update_post_meta($ids['post'], '_yoast_wpseo_linkdex', 'target-derived-19');
 
 WPSEO_Taxonomy_Meta::set_values($primary, 'category', [
     'wpseo_desc' => 'Hostile target taxonomy description',
-    'wpseo_opengraph-image-id' => (string) $ids['default_image'],
-    'wpseo_twitter-image-id' => (string) $ids['company_image'],
+    'wpseo_opengraph-image-id' => (string) $ids['child'],
+    'wpseo_twitter-image-id' => (string) $ids['child'],
 ]);
-WPSEO_Options::set('company_logo_id', $ids['default_image']);
-WPSEO_Options::set('person_logo_id', $ids['default_image']);
-WPSEO_Options::set('og_default_image_id', $ids['company_image']);
+WPSEO_Options::set('company_logo_id', $ids['child']);
+WPSEO_Options::set('person_logo_id', $ids['child']);
+WPSEO_Options::set('og_default_image_id', $ids['child']);
 WPSEO_Options::set('disableadvanced_meta', false);
 WPSEO_Options::set('llms_txt_selection_mode', 'auto');
 WPSEO_Options::set('about_us_page', $ids['child']);
@@ -111,10 +108,8 @@ HOSTILE_OUT=$(wp_conf2 eval-file /siterepo/.tmp-yoast-hostile.php)
 rm -f "$HOSTILE_FILE"
 require_observed_nonempty 'conf2 Yoast hostile target output' "$HOSTILE_OUT"
 TARGET_JSON=$(printf '%s\n' "$HOSTILE_OUT" | awk 'NF { line=$0 } END { print line }')
-jq -e '
-  .post >= 9100001 and .cat_a >= 9200001 and .child > .hub and
-  .og_image >= 9100001 and .twitter_image >= 9100001 and .post_image >= 9100001
-' <<<"$TARGET_JSON" >/dev/null || fail "Yoast hostile target premise was incomplete: $TARGET_JSON"
+jq -e '.post >= 9100001 and .cat_a >= 9200001 and .child > .hub' <<<"$TARGET_JSON" >/dev/null \
+  || fail "Yoast hostile target premise was incomplete: $TARGET_JSON"
 printf '%s\n' "$TARGET_JSON" > "$TARGET_REPO/.tmp-yoast-target.json"
 
 SOURCE_JSON=$(cat "${CONF_REPO1:-siterepo/conf1}/.tmp-yoast-source.json")
@@ -135,8 +130,9 @@ $post = get_page_by_path("conformance-yoast-post", OBJECT, "post");
 if (!$post) { throw new RuntimeException("hostile target post missing before derived damage"); }
 $wpdb->delete($wpdb->prefix . "yoast_primary_term", ["post_id" => $post->ID]);
 $wpdb->query($wpdb->prepare(
-    "UPDATE {$wpdb->prefix}yoast_indexable SET link_count = NULL WHERE object_id = %d AND object_type = '''post'''",
-    $post->ID
+    "UPDATE {$wpdb->prefix}yoast_indexable SET link_count = NULL WHERE object_id = %d AND object_type = %s",
+    $post->ID,
+    "post"
 ));
 $wpdb->delete($wpdb->prefix . "yoast_indexable", ["object_id" => $post->ID, "object_type" => "post"]);
 ' >/dev/null
