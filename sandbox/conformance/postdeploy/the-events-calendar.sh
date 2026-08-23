@@ -106,6 +106,25 @@ foreach ([
     tribe_update_option($key, $value);
 }
 
+// Duo's materializer does not fire TEC's wp-admin category-save hook. Keep a
+// hostile generated option and a primed plugin cache so the provider must run
+// both native regeneration and native cache invalidation after term-meta apply.
+update_option(
+    'tec_events_category_color_css',
+    '.tribe_events_cat-duo-readiness-category{--tec-color-category-primary:#000000}',
+    true
+);
+$dropdown = tribe(
+    \TEC\Events\Category_Colors\Repositories\Category_Color_Dropdown_Provider::class
+)->get_dropdown_categories();
+$dirty_dropdown = array_values(array_filter(
+    $dropdown,
+    static fn(array $row): bool => ($row['slug'] ?? '') === 'duo-readiness-category'
+));
+if (count($dirty_dropdown) !== 1 || ($dirty_dropdown[0]['primary'] ?? null) !== '#000000') {
+    throw new RuntimeException('TEC hostile target Category Colors cache premise did not land');
+}
+
 echo wp_json_encode([
     'category' => $category_id,
     'dirty_event' => (int) $dirty->ID,

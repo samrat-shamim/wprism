@@ -298,15 +298,15 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 
 ## the-events-calendar
 
-**Status: certified.** Certified for exact free The Events Calendar 6.17.2 and 6.17.3 on single-site WordPress with a populated 6.17.2-to-6.17.3 in-place upgrade, native event/venue/organizer repositories, event-category and Category Colors APIs, divergent greater-than-32-bit post/term identities, post/default-option reference rebinding, long multilingual content and URLs, cross-midnight Asia/Kathmandu and all-day date behavior, currency/settings/native frontend rendering, target credential/runtime/cache sovereignty, stale and missing Custom Tables V1 projection repair, impossible-date/structured-scalar/paid-recurrence/secret refusal, unsupported entity-deletion atomicity, dirty native conflict and forced convergence, injected late database-failure rollback/retry, competing-apply serialization and idempotence, deactivate/reactivate, residue-preserving uninstall, absent-code refusal, exact reinstall, byte-identical recapture, and official 6.17.1 refusal evidence.
+**Status: certified.** Certified for exact free The Events Calendar 6.17.2 and 6.17.3 on single-site WordPress with a populated 6.17.2-to-6.17.3 in-place upgrade, native event/venue/organizer repositories, event-category and Category Colors APIs, divergent greater-than-32-bit post/term identities, post/default-option reference rebinding, long multilingual content and URLs, cross-midnight Asia/Kathmandu and all-day date behavior, currency/settings/native frontend rendering, target credential/runtime/cache sovereignty, stale and missing Custom Tables V1 repair, native Category Colors CSS/dropdown-cache regeneration with injected provider rollback/retry, impossible-date/structured-scalar/paid-recurrence/secret refusal, unsupported entity-deletion atomicity, dirty native conflict and forced convergence, injected late database-failure rollback/retry, competing-apply serialization and idempotence, deactivate/reactivate, residue-preserving uninstall, absent-code refusal, exact reinstall, byte-identical recapture, and official 6.17.1 refusal evidence.
 
 - **Plugin:** `the-events-calendar/the-events-calendar.php`
 - **Version range:** >=6.17.2 <6.17.4
 - **Operations:** apply, capture, compile, deploy, plan, promote, recapture, render-api
 - **Lifecycle phases:** retire, activate, verify
 - **Declared entities:** `post_types` (3: tribe_events, tribe_organizer, tribe_venue), `tables` (3: tec_events, tec_kv_cache, tec_occurrences), `taxonomies` (1: tribe_events_cat)
-- **Declared fields:** `options` (13 keys), `post_meta` (41 keys), `term_meta` (5: tec-events-cat-colors-hidden, tec-events-cat-colors-primary, tec-events-cat-colors-priority, tec-events-cat-colors-secondary, tec-events-cat-colors-text), `interpreter` (`the-events-calendar`)
-- **Adapter hooks:** 1 structured action, interpreter `the-events-calendar`
+- **Declared fields:** `options` (14 keys), `post_meta` (41 keys), `term_meta` (5: tec-events-cat-colors-hidden, tec-events-cat-colors-primary, tec-events-cat-colors-priority, tec-events-cat-colors-secondary, tec-events-cat-colors-text), `interpreter` (`the-events-calendar`)
+- **Adapter hooks:** 1 provider, 2 structured actions, interpreter `the-events-calendar`
 - **Deletions supported:** none
 - **Deletions unsupported:** post:tribe_events, post:tribe_organizer, post:tribe_venue
 - **Exercised by:** `conformance-the-events-calendar`, `exact-artifact-version-matrix`

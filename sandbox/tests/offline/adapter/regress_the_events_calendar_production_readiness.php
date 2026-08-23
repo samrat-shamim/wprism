@@ -10,17 +10,78 @@ if (!defined('DUO_SPEC_VERSION')) {
 require_once __DIR__ . '/../../lib/check.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/../../../../agent/src/Adapter/Providers.php';
 require_once __DIR__ . '/../../../../manifests/interpreters/the-events-calendar.php';
+require_once __DIR__ . '/../../../../manifests/providers/the-events-calendar-category-colors.php';
 require_once __DIR__ . '/../../../../manifests/regenerators/the-events-calendar.php';
 
 use Duo\Interpreters\TheEventsCalendar;
 use Duo\Policy;
+use Duo\Providers\TheEventsCalendarCategoryColors;
 use Duo\Regenerators\TheEventsCalendar as TheEventsCalendarRegenerator;
 
 const TEC_EVENT_UUID = '11111111-1111-4111-8111-111111111111';
 const TEC_VENUE_UUID = '22222222-2222-4222-8222-222222222222';
 const TEC_ORGANIZER_UUID = '33333333-3333-4333-8333-333333333333';
 const TEC_CATEGORY_UUID = '44444444-4444-4444-8444-444444444444';
+
+final class TecReadinessNativeColor {
+    public function __construct(private string $value) {
+        if (preg_match('/^#[0-9a-f]{6}$/iD', $value) !== 1) {
+            throw new InvalidArgumentException('invalid native test color');
+        }
+    }
+
+    public function get_hex_with_hash(): string {
+        return strtolower($this->value);
+    }
+}
+
+final class TecReadinessNativeMarker {}
+
+final class TecReadinessCategoryColorController {
+    public function generate_css(): void {
+        ++$GLOBALS['tec_readiness_cache_busts'];
+        $GLOBALS['tec_readiness_options']['tec_events_category_color_css'] =
+            $GLOBALS['tec_readiness_generated_css'];
+    }
+}
+
+class_alias(TecReadinessNativeColor::class, 'Tribe__Utils__Color');
+foreach ([
+    'TEC\\Events\\Category_Colors\\CSS\\Controller',
+    'TEC\\Events\\Category_Colors\\CSS\\Generator',
+    'TEC\\Events\\Category_Colors\\Repositories\\Category_Color_Dropdown_Provider',
+] as $tecReadinessNativeClass) {
+    class_alias(TecReadinessNativeMarker::class, $tecReadinessNativeClass);
+}
+
+/** @return mixed */
+function get_option(string $name, mixed $default = false): mixed {
+    return $GLOBALS['tec_readiness_options'][$name] ?? $default;
+}
+
+/** @return mixed */
+function get_term_meta(int $termId, string $key, bool $single = false): mixed {
+    return $GLOBALS['tec_readiness_term_meta'][$termId][$key] ?? ($single ? '' : []);
+}
+
+/** @return list<object> */
+function get_terms(array $args = []): array {
+    return $GLOBALS['tec_readiness_terms'];
+}
+
+function is_wp_error(mixed $value): bool {
+    return false;
+}
+
+function sanitize_html_class(string $class): string {
+    return preg_replace('/[^A-Za-z0-9_-]/', '', $class) ?? '';
+}
+
+function tribe(string $class): object {
+    return $GLOBALS['tec_readiness_category_color_controller'];
+}
 
 /** @return array<string,mixed> */
 function tec_readiness_meta(): array {
@@ -262,10 +323,122 @@ duo_check_same('post', $options['sub_keys']['eventsDefaultOrganizerID']['ref'] ?
 foreach (['google_maps_js_api_key', 'eb_security_key', 'meetup_api_key', 'fb_token', 'schema-version', 'earliest_date', 'trash-past-events'] as $key) {
     duo_check(!isset($options['sub_keys'][$key]), "$key remains target-owned rather than leaking or replaying integration/runtime state");
 }
+duo_check_same(
+    'derived',
+    $policy->option_rule('tec_events_category_color_css')['class'] ?? null,
+    'native Category Colors CSS is regenerated rather than captured as authored state'
+);
 $rewriteActions = $policy->actions_for(['option:tribe_events_calendar_options']);
 duo_check_same(1, count($rewriteActions), 'changing portable TEC settings selects one bounded rewrite repair');
 duo_check_same('rewrite.flush', $rewriteActions[0]['action'] ?? null, 'TEC uses the closed engine-owned soft rewrite flush');
 duo_check_same([], $policy->actions_for(['post:tribe_events']), 'event-only writes do not trigger an unrelated global rewrite flush');
+$colorActions = $policy->actions_for(['term:tribe_events_cat']);
+duo_check_same(1, count($colorActions), 'an event-category write selects one bounded native CSS repair');
+duo_check_same('provider', $colorActions[0]['kind'] ?? null, 'Category Colors repair uses a structured provider action');
+duo_check_same(
+    'the-events-calendar-category-colors',
+    $colorActions[0]['provider'] ?? null,
+    'the Category Colors action binds the digest-owned provider identity'
+);
+duo_check_same('regenerate_css', $colorActions[0]['capability'] ?? null, 'the action selects only native CSS regeneration');
+duo_check_same(
+    [
+        ['id' => 'tec-category-colors-css', 'kind' => 'database', 'mode' => 'restorable', 'selector' => [
+            'scope' => 'database_checkpoint', 'type' => 'option', 'value' => 'tec_events_category_color_css',
+        ]],
+        ['id' => 'tec-category-colors-dropdown-cache', 'kind' => 'cache', 'mode' => 'irreversible', 'selector' => [
+            'scope' => 'external', 'type' => 'provider_resource',
+            'value' => 'the-events-calendar-category-colors:v1:dropdown-cache',
+        ]],
+    ],
+    $colorActions[0]['effects'] ?? null,
+    'the generated option is rollback-restorable while TEC owns its external dropdown cache'
+);
+
+$providerDeclarations = $policy->provider_declarations();
+$colorDeclaration = $providerDeclarations['the-events-calendar-category-colors'] ?? null;
+duo_check_same(
+    [
+        'functions' => ['get_option', 'get_term_meta', 'get_terms', 'is_wp_error', 'sanitize_html_class', 'tribe'],
+        'classes' => [
+            'TEC\\Events\\Category_Colors\\CSS\\Controller',
+            'TEC\\Events\\Category_Colors\\CSS\\Generator',
+            'TEC\\Events\\Category_Colors\\Repositories\\Category_Color_Dropdown_Provider',
+            'Tribe__Utils__Color',
+        ],
+    ],
+    $colorDeclaration['requires'] ?? null,
+    'provider negotiation refuses before mutation when the exact 6.17.x native CSS path disappears'
+);
+
+$GLOBALS['tec_readiness_options'] = ['tec_events_category_color_css' => '.tribe_events_cat-readiness{--tec-color-category-primary:#000000}'];
+$GLOBALS['tec_readiness_terms'] = [
+    (object) ['term_id' => 71, 'slug' => 'readiness'],
+    (object) ['term_id' => 72, 'slug' => 'plain-category'],
+];
+$GLOBALS['tec_readiness_term_meta'] = [
+    71 => [
+        'tec-events-cat-colors-primary' => '#123ABC',
+        'tec-events-cat-colors-secondary' => '#fedcba',
+        'tec-events-cat-colors-text' => '#ffffff',
+    ],
+    72 => [],
+];
+$GLOBALS['tec_readiness_generated_css'] = '.tribe_events_cat-readiness{'
+    . '--tec-color-category-primary:#123abc;'
+    . '--tec-color-category-secondary:#fedcba;'
+    . '--tec-color-category-text:#ffffff}';
+$GLOBALS['tec_readiness_cache_busts'] = 0;
+$GLOBALS['tec_readiness_category_color_controller'] = new TecReadinessCategoryColorController();
+
+$colorProvider = new TheEventsCalendarCategoryColors($policy);
+duo_check_same(
+    [
+        'id' => 'the-events-calendar-category-colors',
+        'plugin' => 'the-events-calendar/the-events-calendar.php',
+        'version' => '1.0.0',
+    ],
+    $colorProvider->identity(),
+    'the executable provider identity matches the manifest declaration exactly'
+);
+$colorCapability = $colorProvider->capabilities()['regenerate_css'] ?? null;
+duo_check_same('site', $colorCapability['scope'] ?? null, 'native CSS regeneration is honestly site-scoped');
+duo_check_same(true, $colorCapability['idempotent'] ?? null, 'native CSS regeneration declares idempotence');
+duo_check_same(30, $colorCapability['timeout_seconds'] ?? null, 'the bounded native CSS query/write path has a tight timeout claim');
+$firstColorReceipt = $colorProvider->invoke('regenerate_css', []);
+duo_check_same(true, $firstColorReceipt['verified'] ?? null, 'native CSS regeneration returns a verified structured receipt');
+duo_check_same(1, $GLOBALS['tec_readiness_cache_busts'], 'the provider invokes TEC native controller semantics including cache busting');
+duo_check_same(0, $firstColorReceipt['after']['missing_projection_count'] ?? null, 'readback carries every native selector and color value');
+duo_check_same(1, $firstColorReceipt['after']['colored_category_count'] ?? null, 'the receipt is bounded to counts and digests, not authored payload');
+duo_check(
+    ($firstColorReceipt['before']['css_sha256'] ?? null) !== ($firstColorReceipt['after']['css_sha256'] ?? null),
+    'a hostile stale generated option visibly converges in the receipt'
+);
+$secondColorReceipt = $colorProvider->invoke('regenerate_css', []);
+duo_check_same(
+    $firstColorReceipt['after']['css_sha256'] ?? null,
+    $secondColorReceipt['after']['css_sha256'] ?? null,
+    'a retry is idempotent at the generated CSS projection'
+);
+$operation = ['format' => 'duo-provider-operation/v1', 'id' => 'tec-offline-reconcile'];
+$reconciled = $colorProvider->reconcile_scoped('regenerate_css', [], $operation);
+duo_check_same($operation, $reconciled['operation'] ?? null, 'reconciliation binds its caller-supplied operation envelope');
+duo_check_same(true, $reconciled['verified'] ?? null, 'reconciliation verifies without replaying the native write');
+$GLOBALS['tec_readiness_options']['tec_events_category_color_css'] =
+    '.tribe_events_cat-readiness{--tec-color-category-primary:#123abc}';
+duo_check_throws(
+    static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
+    RuntimeException::class,
+    'reconciliation refuses stale partial native CSS rather than certifying an ambiguous effect',
+    'recovery_required'
+);
+$GLOBALS['tec_readiness_options']['tec_events_category_color_css'] = $GLOBALS['tec_readiness_generated_css'];
+duo_check_throws(
+    static fn() => $colorProvider->invoke('invented_capability', []),
+    RuntimeException::class,
+    'the provider capability surface is closed',
+    'does not implement capability'
+);
 
 duo_check(in_array('tribe_events', $policy->declared_post_types(), true), 'events are in adapter post scope');
 duo_check(in_array('tribe_venue', $policy->declared_post_types(), true), 'venues are in adapter post scope');

@@ -61,6 +61,16 @@ $category_meta = [];
 foreach (['primary', 'secondary', 'text', 'priority', 'hidden'] as $suffix) {
     $category_meta[$suffix] = get_term_meta($category->term_id, 'tec-events-cat-colors-' . $suffix, true);
 }
+$dropdown_rows = tribe(
+    \TEC\Events\Category_Colors\Repositories\Category_Color_Dropdown_Provider::class
+)->get_dropdown_categories();
+$category_dropdown = array_values(array_filter(
+    $dropdown_rows,
+    static fn(array $row): bool => ($row['slug'] ?? '') === $category->slug
+));
+if (count($category_dropdown) !== 1) {
+    throw new RuntimeException('TEC native Category Colors dropdown did not return the fixture category');
+}
 echo wp_json_encode([
     'all_day' => [
         'all_day' => get_post_meta($all_day->ID, '_EventAllDay', true),
@@ -74,9 +84,11 @@ echo wp_json_encode([
     'cache' => $cache,
     'category' => [
         'description' => $category->description,
+        'dropdown' => $category_dropdown[0],
         'id' => (int) $category->term_id,
         'meta' => $category_meta,
     ],
+    'category_css' => get_option('tec_events_category_color_css', null),
     'delete_probe' => (int) $delete_probe->ID,
     'event' => [
         'category_ids' => array_map('intval', wp_get_post_terms($event->ID, 'tribe_events_cat', ['fields' => 'ids'])),
@@ -170,6 +182,7 @@ tec_target_hash() {
       "event"=>$wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}tec_events WHERE post_id=%d",$p->ID),ARRAY_A),
       "occurrence"=>$wpdb->get_results($wpdb->prepare("SELECT * FROM {$wpdb->prefix}tec_occurrences WHERE post_id=%d ORDER BY occurrence_id",$p->ID),ARRAY_A),
       "term"=>$term ? [$term->term_id,$term->name,$term->slug,$term->description,get_term_meta($term->term_id)] : null,
+      "category_css"=>get_option("tec_events_category_color_css",null),
       "option"=>$selected,
     ];
     echo hash("sha256",wp_json_encode($rows,JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
@@ -214,6 +227,12 @@ printf '%s\n' "$TARGET" | jq -e \
   .organizer.email == "events@example.test" and (.organizer.website | startswith($home)) and
   .category.description == "Portable category description — বাংলা — مرحبا" and
   .category.meta == {primary:"#123abc",secondary:"#fedcba",text:"#ffffff",priority:"17",hidden:"0"} and
+  .category.dropdown.primary == "#123abc" and .category.dropdown.slug == "duo-readiness-category" and
+  (.category_css | type == "string") and
+  (.category_css | contains(".tribe_events_cat-duo-readiness-category{")) and
+  (.category_css | contains("--tec-color-category-primary:#123abc")) and
+  (.category_css | contains("--tec-color-category-secondary:#fedcba")) and
+  (.category_css | contains("--tec-color-category-text:#ffffff")) and
   .all_day.all_day == "yes" and .all_day.venue == "" and .all_day.organizer == "" and
   .all_day.occurrence.start_date == .all_day.start and .all_day.occurrence.end_date == .all_day.end and
   .options.events_slug == "calendar-readiness" and .options.single_slug == "readiness-event" and
@@ -235,17 +254,64 @@ require_observed_nonempty "TEC target event response" "$FRONT"
 [ "${#FRONT}" -ge 20000 ] || fail "TEC target event response was suspiciously short (${#FRONT} bytes)"
 grep -qF 'Duo Production Readiness Event 東京' <<<"$FRONT" || fail "TEC target event response lost the title"
 grep -qF 'Portable long event body' <<<"$FRONT" || fail "TEC target event response lost the long body"
-grep -qF '#123abc' <<<"$FRONT" || fail "TEC native Category Colors output did not carry the authored primary color"
+! grep -qF '.tribe_events_cat-duo-readiness-category{' <<<"$FRONT" \
+  || fail "TEC singular event unexpectedly enqueued archive-only Category Colors CSS"
 ARCHIVE=$(curl -fsSL "http://localhost:${CONF2_PORT}/calendar-readiness/") \
   || fail "TEC authored archive slug did not resolve after rewrite repair"
 grep -qF 'Readiness before 東京' <<<"$ARCHIVE" || fail "TEC archive lost authored before HTML"
 grep -qF 'Readiness after বাংলা' <<<"$ARCHIVE" || fail "TEC archive lost authored after HTML"
-pass "single/archive frontends render through authored slugs, long Unicode content, and category colors"
+grep -qF '.tribe_events_cat-duo-readiness-category{' <<<"$ARCHIVE" \
+  || fail "TEC archive did not enqueue the native Category Colors selector"
+grep -qF '#123abc' <<<"$ARCHIVE" || fail "TEC archive did not carry the authored primary category color"
+pass "single/archive frontends follow TEC's singular exclusion and archive-only native Category Colors behavior"
 
 if [ "${TEC_BOUNDARY_ONLY:-0}" = 1 ]; then
   pass "TEC exact-boundary native round trip is clean"
   return 0 2>/dev/null || exit 0
 fi
+
+# Category metadata lands before the native provider action. Reject the
+# provider's option write after those authored rows move, then prove the one
+# apply transaction restores both layers and a retry repairs CSS + plugin cache.
+wp_conf1 eval '
+  $term=get_term_by("slug","duo-readiness-category","tribe_events_cat");
+  if(!$term instanceof WP_Term) throw new RuntimeException("TEC source category disappeared");
+  tribe(\TEC\Events\Category_Colors\Event_Category_Meta::class)
+    ->set_term((int)$term->term_id)
+    ->set("tec-events-cat-colors-primary","#654321")
+    ->save();
+  tribe(\TEC\Events\Category_Colors\CSS\Controller::class)->generate_css();
+  $css=get_option("tec_events_category_color_css","");
+  if(!is_string($css)||!str_contains($css,"#654321")) throw new RuntimeException("TEC source CSS update failed");
+' >/dev/null
+commit_tec_source 'conformance: native TEC Category Colors intent'
+COLOR_FAULT_BEFORE=$(tec_target_hash)
+wp_conf2 db query 'ALTER TABLE wp_options DROP CONSTRAINT IF EXISTS duo_tec_fail_category_css' >/dev/null
+wp_conf2 db query '
+  ALTER TABLE wp_options ADD CONSTRAINT duo_tec_fail_category_css
+  CHECK (option_name <> "tec_events_category_color_css" OR option_value NOT LIKE "%#654321%")
+' >/dev/null
+COLOR_FAULT_RC=0
+COLOR_FAULT_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || COLOR_FAULT_RC=$?
+require_duo_answered "TEC injected Category Colors provider failure" human "$COLOR_FAULT_OUT"
+[ "$COLOR_FAULT_RC" -ne 0 ] && grep -Eq 'Category Colors|recovery_required|missing native projection' <<<"$COLOR_FAULT_OUT" \
+  || fail "TEC injected Category Colors option failure did not surface through the provider: $COLOR_FAULT_OUT"
+[ "$(tec_target_hash)" = "$COLOR_FAULT_BEFORE" ] \
+  || fail "TEC failed Category Colors provider action left partial term-meta/CSS writes"
+[ "$(wp_conf2 eval 'echo null === \Duo\Ledger::kv_get("apply_in_progress") ? "clear" : "retained";')" = retained ] \
+  || fail "TEC failed Category Colors provider action did not retain retry authority"
+wp_conf2 db query 'ALTER TABLE wp_options DROP CONSTRAINT duo_tec_fail_category_css' >/dev/null
+COLOR_RETRY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered "TEC Category Colors retry" json "$COLOR_RETRY"
+jq -e '.canary == "clean" and .verification.result == "pass" and .applied >= 1' <<<"$COLOR_RETRY" >/dev/null \
+  || fail "TEC Category Colors retry did not converge: $COLOR_RETRY"
+COLOR_RECOVERED=$(observe_tec conf2)
+printf '%s\n' "$COLOR_RECOVERED" | jq -e '
+  .category.meta.primary == "#654321" and .category.dropdown.primary == "#654321" and
+  (.category_css | contains("--tec-color-category-primary:#654321")) and
+  (.category_css | contains("--tec-color-category-secondary:#fedcba"))
+' >/dev/null || fail "TEC Category Colors retry did not repair native CSS/dropdown projections: $COLOR_RECOVERED"
+pass "native Category Colors option failure rolls back authored metadata and retries CSS/cache repair cleanly"
 
 # Capture-time schema/secret probes restore exact live bytes and require every
 # refusal to leave the committed repository untouched.
@@ -513,6 +579,8 @@ printf '%s\n' "$RECOVERED" | jq -e '
   .version == "6.17.3" and .event.content == "Concurrent TEC intent 東京 🚀" and
   .event.repository_id == .event.id and
   .event.occurrence.start_date == .event.start and .event.occurrence.end_date == .event.end and
+  .category.meta.primary == "#654321" and .category.dropdown.primary == "#654321" and
+  (.category_css | contains("--tec-color-category-primary:#654321")) and
   .options.maps_key == "target-maps-key-preserved" and .cache == "target-runtime-preserved"
 ' >/dev/null || fail "TEC native state did not survive exact reinstall: $RECOVERED"
 [ "$(wp_conf2 option get duo_tec_neighbor)" = 'target-neighbor-preserved' ] \

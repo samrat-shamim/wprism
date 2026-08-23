@@ -223,14 +223,14 @@
     "the-events-calendar": {
       "readiness": "ready",
       "covered": {
-        "contract-dependency": ["manifests/the-events-calendar.json", "manifests/interpreters/the-events-calendar.php", "manifests/regenerators/the-events-calendar.php", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php"],
+        "contract-dependency": ["manifests/the-events-calendar.json", "manifests/interpreters/the-events-calendar.php", "manifests/providers/the-events-calendar-category-colors.php", "manifests/regenerators/the-events-calendar.php", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php"],
         "clean-target": ["sandbox/conformance/entries/the-events-calendar.json", "sandbox/conformance/seeds/the-events-calendar.sh", "sandbox/conformance/checks/the-events-calendar.sh"],
         "dirty-target": ["sandbox/conformance/postdeploy/the-events-calendar.sh", "sandbox/conformance/checks/the-events-calendar.sh"],
         "identity-references": ["manifests/the-events-calendar.json", "sandbox/conformance/seeds/the-events-calendar.sh", "sandbox/conformance/postdeploy/the-events-calendar.sh", "sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
         "native-behavior": ["sandbox/conformance/seeds/the-events-calendar.sh", "sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
-        "derived-state": ["manifests/regenerators/the-events-calendar.php", "sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/live/regress_tec_regen.sh"],
+        "derived-state": ["manifests/providers/the-events-calendar-category-colors.php", "manifests/regenerators/the-events-calendar.php", "sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/live/regress_tec_regen.sh"],
         "deletion": ["sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php"],
-        "failure-recovery": ["sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/live/regress_tec_regen.sh", "sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php"],
+        "failure-recovery": ["manifests/providers/the-events-calendar-category-colors.php", "sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/live/regress_tec_regen.sh", "sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php"],
         "concurrency-idempotence": ["sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/live/regress_capture_concurrency.sh"],
         "lifecycle": ["sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
         "data-boundary": ["manifests/interpreters/the-events-calendar.php", "sandbox/conformance/seeds/the-events-calendar.sh", "sandbox/conformance/checks/the-events-calendar.sh", "sandbox/tests/offline/adapter/regress_the_events_calendar_production_readiness.php"],

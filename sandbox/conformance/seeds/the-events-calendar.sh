@@ -136,6 +136,17 @@ foreach ([
     }
 }
 
+// Event_Category_Meta::save() deliberately does not run the wp-admin hook
+// that owns Category Colors CSS. Generate through TEC's native controller so
+// the source fixture proves the real derived path while capture excludes it.
+tribe(\TEC\Events\Category_Colors\CSS\Controller::class)->generate_css();
+$category_css = get_option('tec_events_category_color_css', '');
+if (!is_string($category_css)
+    || !str_contains($category_css, '.tribe_events_cat-duo-readiness-category{')
+    || !str_contains($category_css, '#123abc')) {
+    throw new RuntimeException('TEC native source Category Colors CSS did not generate');
+}
+
 global $wpdb;
 foreach ([(int) $event->ID, (int) $all_day->ID, (int) $delete_probe->ID] as $event_id) {
     $occurrences = (int) $wpdb->get_var($wpdb->prepare(
