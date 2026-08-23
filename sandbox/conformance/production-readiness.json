@@ -301,23 +301,22 @@
       "not_applicable": {}
     },
     "woocommerce": {
-      "readiness": "unready",
+      "readiness": "ready",
       "covered": {
-        "contract-dependency": ["manifests/woocommerce.json", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "contract-dependency": ["manifests/woocommerce.json", "manifests/interpreters/woocommerce.php", "manifests/providers/woocommerce-cache.php", "manifests/providers/woocommerce-product-lookups.php", "sandbox/conformance/artifacts.lock.json", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/offline/adapter/regress_woocommerce_production_readiness.php", "sandbox/tests/offline/ecommerce/regress_woocommerce_product_lookups_fake.php"],
         "clean-target": ["sandbox/conformance/entries/woocommerce.json", "sandbox/conformance/seeds/woocommerce.sh", "sandbox/conformance/checks/woocommerce.sh"],
-        "identity-references": ["sandbox/conformance/checks/woocommerce.sh"],
-        "native-behavior": ["sandbox/conformance/checks/woocommerce.sh"],
-        "derived-state": ["manifests/providers/woocommerce-cache.php", "manifests/providers/woocommerce-product-lookups.php", "sandbox/conformance/checks/woocommerce.sh"]
+        "dirty-target": ["sandbox/conformance/postdeploy/woocommerce.sh", "sandbox/conformance/checks/woocommerce.sh"],
+        "identity-references": ["manifests/interpreters/woocommerce.php", "sandbox/conformance/seeds/woocommerce.sh", "sandbox/conformance/checks/woocommerce.sh"],
+        "native-behavior": ["sandbox/conformance/seeds/woocommerce.sh", "sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "derived-state": ["manifests/providers/woocommerce-cache.php", "manifests/providers/woocommerce-product-lookups.php", "sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/offline/ecommerce/regress_woocommerce_product_lookups.php", "sandbox/tests/offline/ecommerce/regress_woocommerce_product_lookups_fake.php"],
+        "deletion": ["manifests/dispositions.json", "sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/offline/adapter/regress_woocommerce_production_readiness.php"],
+        "failure-recovery": ["sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/offline/ecommerce/regress_woocommerce_product_lookups_fake.php", "sandbox/tests/offline/apply/regress_fatal_mutations.php"],
+        "concurrency-idempotence": ["sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php"],
+        "lifecycle": ["sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/certify/certify_version_matrix.sh"],
+        "data-boundary": ["manifests/interpreters/woocommerce.php", "sandbox/conformance/seeds/woocommerce.sh", "sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/offline/adapter/regress_woocommerce_production_readiness.php", "sandbox/tests/offline/ecommerce/regress_woocommerce_product_lookups_fake.php"],
+        "scope-platform": ["manifests/woocommerce.json", "sandbox/conformance/checks/woocommerce.sh", "sandbox/tests/certify/certify_version_matrix.sh", "sandbox/tests/live/regress_multisite_refusal.sh"]
       },
-      "gaps": {
-        "dirty-target": "Activation defaults are handled, but unmanaged products/attributes/zones, managed divergence, and target-only runtime/order state are not a complete matrix.",
-        "deletion": "Several deletion surfaces remain unsupported and lack one unified refusal/no-partial-state matrix; supported core-entity interactions also need rollback/retry evidence.",
-        "failure-recovery": "Provider primitives are tested generically, but the real cache/lookup providers lack injected failure-after-intent and retry coverage.",
-        "concurrency-idempotence": "No competing product/attribute/lookup apply and repair matrix exists.",
-        "lifecycle": "Only one in-range 11.x artifact is exercised; in-place upgrade, downgrade handling, deactivate/reactivate, HPOS residue, and reinstall are open.",
-        "data-boundary": "Price precision, long UTF-8, malformed attributes, huge IDs, secret-shaped settings, HPOS/schema drift, and optional tables lack a closed matrix.",
-        "scope-platform": "Optional extensions/storage modes and the shared platform boundary are not fully exercised per adapter."
-      },
+      "gaps": {},
       "blocked": {},
       "not_applicable": {}
     },
