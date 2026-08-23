@@ -34,6 +34,25 @@
         "role": "certified-boundary"
       }
     },
+    "classic-editor": {
+      "1.6.7": {
+        "url": "https://downloads.wordpress.org/plugin/classic-editor.1.6.7.zip",
+        "sha256": "4b2b45b19c61f627ff8730222692a691023dea3435b35b8db95a2418b45ece65",
+        "role": "refusal-fixture"
+      },
+      "1.7.0": {
+        "url": "https://downloads.wordpress.org/plugin/classic-editor.1.7.0.zip",
+        "sha256": "7cc7799b0b7d820fbb7528dbff8027c736e52513992416cb37279f44d3d9dd77",
+        "role": "certified-boundary"
+      }
+    },
+    "code-snippets": {
+      "3.9.6": {
+        "url": "https://downloads.wordpress.org/plugin/code-snippets.3.9.6.zip",
+        "sha256": "ab5822db426858b43d7c010481a87d0eaffb056cc483e93e057d96f6e6fdd4f4",
+        "role": "exercise-fixture"
+      }
+    },
     "elementor": {
       "3.35.9": {
         "url": "https://downloads.wordpress.org/plugin/elementor.3.35.9.zip",
@@ -68,12 +87,31 @@
         "role": "certified-boundary"
       }
     },
+    "duplicate-post": {
+      "4.7": {
+        "url": "https://downloads.wordpress.org/plugin/duplicate-post.4.7.zip",
+        "sha256": "8cbeebf7c2ee982d2ae33833088ba8ac2391cc316a4dd71800a07f5fa128b418",
+        "role": "exercise-fixture"
+      }
+    },
     "paid-memberships-pro": {
+      "3.8.2": {
+        "url": "https://github.com/strangerstudios/paid-memberships-pro/archive/refs/tags/3.8.2.zip",
+        "sha256": "3394676b0b2bb786cc9e445ffe4d01a8ce79b7372a7211ec2a8bed797675bf48",
+        "role": "refusal-fixture",
+        "archive_root": "paid-memberships-pro-3.8.2"
+      },
       "3.8.3": {
         "url": "https://github.com/strangerstudios/paid-memberships-pro/archive/refs/tags/3.8.3.zip",
         "sha256": "6c3acc683939e01f203037334c16dddd146aaa30e01e09c41c6503705c1db7bf",
-        "role": "exercise-fixture",
+        "role": "certified-boundary",
         "archive_root": "paid-memberships-pro-3.8.3"
+      },
+      "3.8.4": {
+        "url": "https://github.com/strangerstudios/paid-memberships-pro/archive/refs/tags/3.8.4.zip",
+        "sha256": "caf8c275f3e0d9c7d652ab10636ac39f986f7c61e2d393804f329d6772e4687b",
+        "role": "refusal-fixture",
+        "archive_root": "paid-memberships-pro-3.8.4"
       }
     },
     "polylang": {
@@ -91,6 +129,25 @@
         "url": "https://downloads.wordpress.org/plugin/polylang.3.8.6.zip",
         "sha256": "dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa",
         "role": "certified-boundary"
+      }
+    },
+    "tinymce-advanced": {
+      "5.9.0": {
+        "url": "https://downloads.wordpress.org/plugin/tinymce-advanced.5.9.0.zip",
+        "sha256": "6940ab196194ad7f1c99a8242ed390f77ddd526f49c205d128e42c3802e0d7d8",
+        "role": "refusal-fixture"
+      },
+      "5.9.2": {
+        "url": "https://downloads.wordpress.org/plugin/tinymce-advanced.5.9.2.zip",
+        "sha256": "ec4c6635dc9d0f9c27d0256d7b83b3655b5904c936748604c698d256fbfd69c7",
+        "role": "certified-boundary"
+      }
+    },
+    "the-events-calendar": {
+      "6.17.2": {
+        "url": "https://downloads.wordpress.org/plugin/the-events-calendar.6.17.2.zip",
+        "sha256": "f67f2668fc777505a6e0f2cc8c7c39db869a1b186b2444f9d5e138d32bcaabaa",
+        "role": "exercise-fixture"
       }
     },
     "woocommerce": {
@@ -126,6 +183,13 @@
       "2.0.0.4": {
         "url": "https://downloads.wordpress.org/plugin/wpforms-lite.2.0.0.4.zip",
         "sha256": "3deaa115c6ed18fe3ef21f327239cf9573f78f97b1f4cc8204abfaf910689608",
+        "role": "exercise-fixture"
+      }
+    },
+    "wps-hide-login": {
+      "1.9.19": {
+        "url": "https://downloads.wordpress.org/plugin/wps-hide-login.1.9.19.zip",
+        "sha256": "34e99ee6032f5863b278aef690ebbfdb00290beb4eacbdae3ab931eb719b3a58",
         "role": "exercise-fixture"
       }
     }

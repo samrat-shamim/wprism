@@ -18,6 +18,60 @@
         {"operation": "delete", "reason": "No ACF-specific deletion selector is declared.", "surface": "deletions.*"}
       ]
     },
+    "advanced-editor-tools": {
+      "capabilities": {
+        "deletion_semantics": {"supported": [], "unsupported": ["plugin-specific entity deletes"]},
+        "entity_sections": [],
+        "field_sections": ["options"],
+        "lifecycle_phases": ["retire", "activate", "verify"],
+        "operations": ["capture", "compile", "plan", "deploy", "apply", "recapture", "render-api"]
+      },
+      "default_authored_keyspaces": [],
+      "evidence": {"bundle_schema": "duo-subject-certification-bundle/v1", "tests": ["conformance-advanced-editor-tools", "exact-artifact-version-matrix"]},
+      "reason": "Certified for exact Advanced Editor Tools 5.9.2 with sanitized four-toolbar/admin settings, hostile target convergence, plugin-visible editor behavior, option deletion, lifecycle recovery, conflict/idempotence, and official 5.9.0 refusal evidence.",
+      "status": "certified",
+      "supported_versions": {"plugin": "tinymce-advanced/tinymce-advanced.php", "range": {"max": "5.9.3", "min": "5.9.2"}},
+      "unsupported": [
+        {"operation": "delete", "reason": "The adapter owns option state only; no Advanced Editor Tools entity deletion selector exists beyond generic authored-option deletion through apply --with-deletes.", "surface": "deletions.*"}
+      ]
+    },
+    "classic-editor": {
+      "capabilities": {
+        "deletion_semantics": {"supported": [], "unsupported": ["plugin-specific entity deletes"]},
+        "entity_sections": [],
+        "field_sections": ["options"],
+        "lifecycle_phases": ["retire", "activate", "verify"],
+        "operations": ["capture", "compile", "plan", "deploy", "apply", "recapture", "render-api"]
+      },
+      "default_authored_keyspaces": [],
+      "evidence": {"bundle_schema": "duo-subject-certification-bundle/v1", "tests": ["conformance-classic-editor", "exact-artifact-version-matrix"]},
+      "reason": "Certified for exact Classic Editor 1.7.0 on single-site WordPress with both editor-routing branches, hostile target convergence, option deletion, source-faithful uninstall residue recovery, conflict/idempotence, and official 1.6.7 refusal evidence.",
+      "status": "certified",
+      "supported_versions": {"plugin": "classic-editor/classic-editor.php", "range": {"max": "1.7.1", "min": "1.7.0"}},
+      "unsupported": [
+        {"operation": "all", "reason": "Duo v1 refuses multisite, so Classic Editor's network option is outside this adapter.", "surface": "multisite"}
+      ]
+    },
+    "code-snippets": {
+      "capabilities": {
+        "deletion_semantics": {"supported": [], "unsupported": ["table:snippets"]},
+        "entity_sections": ["tables"],
+        "field_sections": ["options", "shortcode_attrs"],
+        "lifecycle_phases": [],
+        "operations": ["capture", "compile", "plan", "recapture"]
+      },
+      "default_authored_keyspaces": [],
+      "evidence": {"bundle_schema": "duo-subject-certification-bundle/v1", "tests": ["conformance-ecosystem-adapter-batch"]},
+      "reason": "Experimental exact-artifact draft: the single-site snippet table and shortcode references are classified, but apply lacks a verified cache and optional flat-file rebuild provider.",
+      "status": "experimental",
+      "supported_versions": {"plugin": "code-snippets/code-snippets.php", "range": {"max": "3.9.7", "min": "3.9.6"}},
+      "unsupported": [
+        {"operation": "apply", "reason": "Raw typed-table writes bypass clean_snippets_cache() and the optional code_snippets/settings_updated flat-file rebuild; no bounded verified provider is shipped.", "surface": "tables.snippets"},
+        {"operation": "delete", "reason": "No race-safe snippet deletion selector or flat-file cleanup contract is declared.", "surface": "tables.snippets"},
+        {"operation": "capture", "reason": "The packaged free artifact checks for a code-snippets/source block but exposes no exact registered block attribute schema to declare.", "surface": "block_attrs.code-snippets/source"},
+        {"operation": "promote", "reason": "No exact-artifact clean-target execution, shortcode render, cache, or flat-file evidence exists.", "surface": "production"}
+      ]
+    },
     "contact-form-7": {
       "capabilities": {
         "deletion_semantics": {"supported": [], "unsupported": ["plugin-specific deletes"]},
@@ -101,17 +155,17 @@
     "paid-memberships-pro": {
       "capabilities": {"deletion_semantics": {"supported": ["table:pmpro_memberships_pages"], "unsupported": ["intent-only composite tables"]}, "entity_sections": ["tables"], "field_sections": ["options", "post_meta"], "lifecycle_phases": [], "operations": ["capture", "compile", "plan", "apply", "delete", "recapture"]},
       "default_authored_keyspaces": [{"reason": "No version-pinned evidence bounds the default metadata keyspace; the whole adapter remains promotion-blocking.", "status": "unsupported", "table": "pmpro_membership_levelmeta"}],
-      "evidence": {"bundle_schema": "duo-subject-certification-bundle/v1", "tests": ["conformance-paid-memberships-pro"]},
-      "reason": "Experimental: conformance exists, but the manifest has no plugin identity/version range and no exact-artifact certification bundle.",
+      "evidence": {"bundle_schema": "duo-subject-certification-bundle/v1", "tests": ["conformance-paid-memberships-pro", "exact-artifact-version-matrix"]},
+      "reason": "Experimental: exact 3.8.3 artifact and version-boundary evidence exist, but intent-only authored tables and an unbounded default metadata keyspace remain promotion-blocking.",
       "status": "experimental",
-      "supported_versions": {"plugin": "unbound", "range": null},
+      "supported_versions": {"plugin": "paid-memberships-pro/paid-memberships-pro.php", "range": {"max": "3.8.4", "min": "3.8.3"}},
       "unsupported": [
         {"operation": "capture", "reason": "Intent marker only; no implemented typed snapshot contract.", "surface": "tables.pmpro_discount_codes"},
         {"operation": "capture", "reason": "Intent marker only; no implemented typed snapshot contract.", "surface": "tables.pmpro_discount_codes_levels"},
         {"operation": "capture", "reason": "Intent marker only; no implemented typed snapshot contract.", "surface": "tables.pmpro_groups"},
         {"operation": "capture", "reason": "Intent marker only; no implemented typed snapshot contract.", "surface": "tables.pmpro_membership_levels_groups"},
         {"operation": "capture", "reason": "Intent marker only; no implemented typed snapshot contract.", "surface": "tables.pmpro_memberships_categories"},
-        {"operation": "promote", "reason": "No exact version/evidence contract exists.", "surface": "production"}
+        {"operation": "promote", "reason": "Intent-only authored tables and an unbounded default metadata keyspace prevent a closed production claim.", "surface": "production"}
       ]
     },
     "polylang": {
@@ -124,12 +178,16 @@
       "unsupported": [{"operation": "delete", "reason": "No Polylang deletion selector is declared.", "surface": "deletions.*"}]
     },
     "the-events-calendar": {
-      "capabilities": {"deletion_semantics": {"supported": [], "unsupported": ["plugin-specific deletes"]}, "entity_sections": ["post_types", "tables"], "field_sections": ["options", "post_meta"], "lifecycle_phases": [], "operations": ["capture", "compile", "plan", "apply", "recapture"]},
+      "capabilities": {"deletion_semantics": {"supported": [], "unsupported": ["plugin-specific deletes"]}, "entity_sections": ["post_types", "tables"], "field_sections": ["options", "post_meta"], "lifecycle_phases": [], "operations": ["capture", "compile", "plan", "deploy", "apply", "recapture", "render-api"]},
       "default_authored_keyspaces": [],
-      "reason": "Experimental: grind evidence exists, but there is no conformance entry, plugin version contract, or current certification bundle.",
+      "evidence": {"bundle_schema": "duo-subject-certification-bundle/v1", "tests": ["conformance-the-events-calendar", "regress-tec-regen"]},
+      "reason": "Experimental exact-artifact target round-trip and hard regeneration-dependency recovery proof; dirty-target, deletion, lifecycle, concurrency, and difficult-value matrices remain open.",
       "status": "experimental",
-      "supported_versions": {"plugin": "unbound", "range": null},
-      "unsupported": [{"operation": "promote", "reason": "No exact version/evidence contract exists.", "surface": "production"}]
+      "supported_versions": {"plugin": "the-events-calendar/the-events-calendar.php", "range": {"max": "6.17.3", "min": "6.17.2"}},
+      "unsupported": [
+        {"operation": "delete", "reason": "Event/venue/organizer deletion, occurrence cleanup, reverse-reference guards, rollback, and retry are not certified.", "surface": "deletions.*"},
+        {"operation": "promote", "reason": "Dirty-target, lifecycle, concurrency, and difficult-value production-readiness scenarios remain open.", "surface": "production"}
+      ]
     },
     "woocommerce": {
       "capabilities": {
@@ -152,6 +210,45 @@
         {"operation": "apply", "reason": "WooCommerce 11.0.0 exposes only a public whole-catalog category lookup rebuild; automatic bounded repair and verification are unavailable, so operators must repair this derived table explicitly.", "surface": "derived.wc_category_lookup"},
         {"operation": "apply", "reason": "WooCommerce 11.0.0 exposes no stable bounded expected-output or independent value-verification API for product-attribute lookup rows, so the verified provider does not mutate this table; operators must run and verify WooCommerce's regeneration explicitly.", "surface": "derived.wc_product_attributes_lookup"},
         {"operation": "capture", "reason": "Orders, customers, sessions, stock reservations, and Action Scheduler rows remain runtime-sovereign.", "surface": "tables.runtime"}
+      ]
+    },
+    "wps-hide-login": {
+      "capabilities": {
+        "deletion_semantics": {"supported": [], "unsupported": ["plugin-specific deletes"]},
+        "entity_sections": [],
+        "field_sections": ["options"],
+        "lifecycle_phases": [],
+        "operations": ["capture", "compile", "plan", "recapture"]
+      },
+      "default_authored_keyspaces": [],
+      "evidence": {"bundle_schema": "duo-subject-certification-bundle/v1", "tests": ["conformance-ecosystem-adapter-batch"]},
+      "reason": "Experimental exact-artifact draft: both single-site route slugs are classified, but the plugin's settings path flushes rewrites and no clean-target routing matrix has established the raw-apply postcondition.",
+      "status": "experimental",
+      "supported_versions": {"plugin": "wps-hide-login/wps-hide-login.php", "range": {"max": "1.9.20", "min": "1.9.19"}},
+      "unsupported": [
+        {"operation": "apply", "reason": "The plugin's own save path flushes rewrite rules; Duo has no verified adapter provider proving and restoring the request-routing postcondition after a raw option write.", "surface": "options.whl_page|whl_redirect_admin"},
+        {"operation": "promote", "reason": "No exact-artifact clean-target login, old-login refusal, and redirect routing matrix exists.", "surface": "production"},
+        {"operation": "all", "reason": "Duo v1 refuses multisite, so network-default route slugs are outside this adapter.", "surface": "multisite"}
+      ]
+    },
+    "yoast-duplicate-post": {
+      "capabilities": {
+        "deletion_semantics": {"supported": [], "unsupported": ["plugin-specific deletes"]},
+        "entity_sections": [],
+        "field_sections": ["options", "post_meta"],
+        "lifecycle_phases": [],
+        "operations": ["capture", "compile", "plan", "recapture"]
+      },
+      "default_authored_keyspaces": [],
+      "evidence": {"bundle_schema": "duo-subject-certification-bundle/v1", "tests": ["conformance-ecosystem-adapter-batch"]},
+      "reason": "Experimental exact-artifact draft: the closed settings registry and durable original-post reference are classified, with offline ref and boundary coverage but no clean-target clone/render conformance.",
+      "status": "experimental",
+      "supported_versions": {"plugin": "duplicate-post/duplicate-post.php", "range": {"max": "4.8", "min": "4.7"}},
+      "unsupported": [
+        {"operation": "delete", "reason": "No plugin-specific duplicated-post deletion semantics are declared.", "surface": "deletions.*"},
+        {"operation": "apply", "reason": "No clean-target clone/reference/settings round-trip has established hook-free option and post-meta apply for this exact artifact.", "surface": "options.*|post_meta._dp_original"},
+        {"operation": "apply", "reason": "In-progress Rewrite & Republish workflow state is runtime-sovereign and is not migrated.", "surface": "post_meta._dp_is_rewrite_republish_copy|_dp_has_rewrite_republish_copy|_dp_has_been_republished|_dp_creation_date_gmt"},
+        {"operation": "promote", "reason": "No exact-artifact clean-target clone, original-link, and settings-render evidence exists.", "surface": "production"}
       ]
     },
     "yoast": {

@@ -7,6 +7,14 @@ This document is the specification the driver implements (originally round-3
 T6); `make grind-adapter-walk` runs it. The certification bundle's wire format
 is [docs/adapter-walk-bundle.md](../adapter-walk-bundle.md).
 
+> **Scope warning:** S2 proves the site-adapter authoring, signing, pinning,
+> release, and recovery flow. Its WPForms manifest is not a reusable platform
+> adapter and does not prove cross-environment form fidelity. The later
+> adversarial review found a source-local id inside the form JSON, a
+> string-typed `formId` block reference the current integer codec cannot
+> preserve, and the omitted `wpforms_form_tag` taxonomy. See
+> [the limitation ledger](../guides/adapter-authoring-limitations.md#wpforms-lite-2004--2005).
+
 `grind_mup.sh` proves the loop works for a site whose plugins the platform
 already knows. This proves the other half of the product: an operator whose
 site runs a plugin Duo has never reviewed can **author, certify and override
@@ -198,7 +206,7 @@ object (the walk reads the pin out of `site.duo.json`, which §3.1 does fix).
 | 2 | Seed `site.duo.json` by hand (the **adoption-seed** shape) | §4 orders `coverage`, `adapter-draft`, `manifest-validate`, `keygen` and `certify` *before* the init they then expect to succeed — so a repository has to exist first. The bytes written are exactly `InitPlanner::existing_config()`'s `adoption-seed` shape, which is the product's own named seam for a repository that predates init, not a way around its `existing_configuration` blocker. No capture runs before init: a ledger row would make the environment initialized in fact, which is a different blocker with a different meaning. |
 | 3 | `duo coverage <env> --format=json` | Reports an invisible option group for `wpforms_`, which is what `--seed` has to consume. |
 | 4 | `duo adapter-draft <repo> --name=wpforms --seed=<coverage.json> --out=adapters/wpforms.json` | The draft exists and carries the seed's option-prefix proposal as an `option_namespaces` entry (§3.5). Running it a second time against the same `--out` refuses (`draft_output_exists`): a draft that silently replaced a hand-finished manifest would destroy the operator's own work. |
-| 5 | jq: finish the draft into a minimal honest manifest | A draft is a proposal; a manifest is a claim. Every rule is one the walk can defend from the installed plugin: `post_types.wpforms` is `authored` with `body: "verbatim"` (WPForms stores each form as a `wpforms` post whose `post_content` is the form's own JSON, and verbatim byte-preserves `post_content` for serialized-data bodies); `wpforms_settings` is the one operator-edited option and the rest of the namespace is `runtime`; the four custom tables are declared `runtime`, the grammar's own word for *declared, deliberately not captured* — the same declaration `manifests/woocommerce.json` makes for Action Scheduler's tables. |
+| 5 | jq: finish the draft into a flow fixture | A draft is a proposal; a manifest is a claim, but this scenario's claim is deliberately local to the trust-flow exercise. `post_types.wpforms` uses `body: "verbatim"` so the walk can drive entity bytes; `wpforms_settings` is selected and the remaining observed namespace/tables are runtime. The limitation ledger records why those declarations do **not** make the fixture a faithful cross-environment WPForms adapter: the body contains a local self id, the block reference is string-typed, and the form-tag taxonomy is omitted. |
 | 6 | `duo manifest-validate <repo>/adapters --site=<repo>` | Reports `[ok] wpforms`. `--site` matters: two of the cross-manifest guards take the site half of policy as input, so validating without it can refuse a manifest the real site accepts. |
 | 7 | `duo init <env> --yes` | Refuses with `adapter_source_uncertified`, and the blocker's remediation names `duo adapter certify` (§3.4). An installed adapter is not a certified one, and this is where that stops being a sentence. |
 | 8 | `duo adapter list --repo=<repo> --format=json` | The freshly installed adapter's row reads `site` / `uncertified`. |

@@ -18,8 +18,8 @@ FRAGMENT=conformance/asserts.sh
 
 # Every require_* invoked anywhere in the hooks both harnesses source...
 # (require_once is PHP inside the hooks' heredocs, not a bash helper.)
-CALLED=$(grep -rhoE '\brequire_[a-z_]+' conformance/seeds/ conformance/postdeploy/ conformance/checks/ | grep -v '^require_once$' | sort -u)
-[ -n "$CALLED" ] || fail "no require_* calls found under conformance/seeds/ + postdeploy/ + checks/ — the grep itself regressed"
+CALLED=$(grep -rhoE '\brequire_[a-z_]+' conformance/seeds/ conformance/postdeploy/ conformance/checks/ conformance/capture-checks/ | grep -v '^require_once$' | sort -u)
+[ -n "$CALLED" ] || fail "no require_* calls found under conformance/seeds/ + postdeploy/ + checks/ + capture-checks/ — the grep itself regressed"
 
 # ...must be defined in the fragment (definition = `name() {`).
 MISSING=""
@@ -41,6 +41,18 @@ pass "both hook-sourcing harnesses source the fragment"
 DUPES=$(grep -rlE '^require_[a-z_]+\(\) \{' conformance/ tests/ | grep -v "^$FRAGMENT\$" | grep -v '^tests/offline/guards/regress_conformance_asserts.sh$' || true)
 [ -z "$DUPES" ] || fail "helper definitions exist outside the fragment (one owner per grammar):$DUPES"
 pass "the fragment is the single definition home"
+
+# A capture-plan profile exists so an experimental adapter can provide live
+# evidence for the operations it actually claims without the harness forcing
+# an unsupported target apply. Pin all three seams: closed mode vocabulary,
+# source-side hook timing, and the early stop before clone/deploy/apply.
+grep -q 'roundtrip|capture-plan' conformance/run.sh \
+  || fail "conformance/run.sh has no closed capture-plan mode vocabulary"
+grep -q 'CAPTURE_CHECK="conformance/capture-checks/\$MANIFEST.sh"' conformance/run.sh \
+  || fail "conformance/run.sh does not invoke the convention-named source-side capture check"
+grep -q 'CONFORMANCE PASSED (%s; capture-plan)' conformance/run.sh \
+  || fail "conformance/run.sh has no explicit successful early terminal before target apply"
+pass "capture-plan mode is closed, convention-hooked, and terminates explicitly before target apply"
 
 # DUO-3391: wiring is necessary but not sufficient for require_duo_answered.
 # Its whole safety argument is that the "answered" marker is BROAD — a narrow

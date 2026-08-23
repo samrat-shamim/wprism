@@ -7,17 +7,20 @@
 # backed by real evidence at ITS OWN edges, not just the one version every
 # other fixture happens to exercise.
 #
-# First seven real plugins: ACF, Contact Form 7, Elementor, Ninja Forms,
-# Polylang, WooCommerce, and Yoast SEO. ACF proved the artifact-sourcing
-# mechanism itself; the others prove the matrix accepts genuinely different
+# First ten real plugins: ACF, Advanced Editor Tools, Classic Editor, Contact
+# Form 7, Elementor, Ninja Forms, Paid Memberships Pro, Polylang, WooCommerce,
+# and Yoast SEO. ACF proved the artifact-sourcing mechanism itself; the others
+# prove the matrix accepts genuinely different
 # plugin content shapes rather than replaying one ACF fixture. This closes the
 # last pinned-manifest boundary that DUO-3223 had explicitly scope-accounted.
 #
-# For EACH boundary version (ACF 6.0.0/6.8.7; CF7 6.0.1/6.1.6; Elementor
-# 4.0.0/4.2.2; Ninja Forms 3.4.34.2/3.14.11; Polylang 3.5/3.8.6;
+# For EACH boundary version (ACF 6.0.0/6.8.7; Advanced Editor Tools 5.9.2;
+# Classic Editor 1.7.0; CF7 6.0.1/6.1.6; Elementor 4.0.0/4.2.2; Ninja Forms
+# 3.4.34.2/3.14.11; PMPro 3.8.3 (with adjacent official-tag refusals);
+# Polylang 3.5/3.8.6;
 # WooCommerce 11.0.0 (the only stable in-range 11.x release); Yoast SEO
 # 28.0/28.2 — all real
-# wp.org releases, confirmed against the plugin-info API, never invented): fresh state, install ONLY from
+# wp.org releases except PMPro's official upstream GitHub tags, never invented): fresh state, install ONLY from
 # a digest-verified artifact (never a bare slug install that silently pulls
 # current), seed real plugin content through that plugin's own API, capture,
 # round-trip deploy/apply, and byte-identical recapture. A failure at either
@@ -78,6 +81,19 @@ wp2() { "${PAIR_COMPOSE[@]}" run --rm -T cli2 sh -c 'umask 000; exec wp "$@"' sh
 GIT1=(git -C "siterepo/${PAIR}1" -c user.name=duo-vmatrix1 -c user.email=vmatrix1@example.test)
 
 . bin/fetch-artifact.sh
+
+normalize_version_matrix_archive_root() { # <service> <plugin|theme> <slug> <archive-root>
+  local service="$1" kind="$2" slug="$3" archive_root="$4" base
+  [ "$archive_root" != "$slug" ] || return 0
+  case "$kind" in
+    plugin) base=/var/www/html/wp-content/plugins ;;
+    theme) base=/var/www/html/wp-content/themes ;;
+    *) fail "invalid version-matrix extension kind for archive-root normalization" ;;
+  esac
+  "${PAIR_COMPOSE[@]}" run --rm -T "$service" sh /duo-harness/artifact-archive-root.sh \
+    "$base" "$archive_root" "$slug" \
+    || fail "could not normalize pinned $kind archive root $archive_root to $slug on $service"
+}
 
 # Every boundary replaces both host-side Git working trees while the pair's
 # CLI processes run as uid 33.  The roots are live bind mounts, so removing a
@@ -355,6 +371,96 @@ check_yoast_content() {
   . conformance/checks/yoast.sh
 }
 
+seed_pmpro_content() {
+  wp_conf1() { wp1 "$@"; }
+  local CONF_REPO1="siterepo/${PAIR}1"
+  local COMPOSE="$PAIR_COMPOSE_STRING"
+  . conformance/seeds/paid-memberships-pro.sh
+  unset -f wp_conf1
+}
+
+check_pmpro_content() {
+  local COMPOSE="$PAIR_COMPOSE_STRING"
+  . conformance/checks/paid-memberships-pro.sh
+}
+
+seed_advanced_editor_tools_content() {
+  wp_conf1() { wp1 "$@"; }
+  local CONF_REPO1="siterepo/${PAIR}1"
+  local COMPOSE="$PAIR_COMPOSE_STRING"
+  . conformance/seeds/advanced-editor-tools.sh
+  unset -f wp_conf1
+}
+
+check_advanced_editor_tools_boundary_content() {
+  local out
+  out=$(wp2 eval '
+    wp_set_current_user(1);
+    $settings = get_option("tadv_settings");
+    $admin = get_option("tadv_admin_settings");
+    echo wp_json_encode([
+      "admin" => $admin,
+      "buttons_1" => array_values(apply_filters("mce_buttons", ["formatselect"], "content")),
+      "buttons_2" => array_values(apply_filters("mce_buttons_2", [], "content")),
+      "buttons_3" => array_values(apply_filters("mce_buttons_3", [], "content")),
+      "buttons_4" => array_values(apply_filters("mce_buttons_4", [], "content")),
+      "classic_buttons" => array_values(apply_filters("mce_buttons", [], "classic-block")),
+      "init" => apply_filters("tiny_mce_before_init", [], "content"),
+      "settings" => $settings,
+    ]);
+  ')
+  require_observed_nonempty "Advanced Editor Tools boundary target behavior" "$out"
+  out=$(printf '%s\n' "$out" | awk 'NF { line=$0 } END { print line }')
+  printf '%s\n' "$out" | jq -e '
+    .buttons_1 == ["bold","italic","underline","strikethrough"] and
+    .buttons_2 == ["bullist","numlist","blockquote","link","unlink"] and
+    .buttons_3 == ["forecolor","backcolor","removeformat","charmap"] and
+    .buttons_4 == ["code","fullscreen","searchreplace"] and
+    .classic_buttons == ["bold","italic","link","undo","redo"] and
+    .settings.toolbar_1 == "bold,italic,underline,strikethrough" and
+    .admin.options == "no_autop,table_resize_bars" and
+    .admin.disabled_editors == "rest_of_wpadmin" and
+    .init.wpautop == false and .init.tadv_noautop == true
+  ' >/dev/null || fail "Advanced Editor Tools boundary target did not consume the applied toolbar/admin settings: $out"
+  pass "Advanced Editor Tools exact boundary drives all four toolbars, Classic block controls, and no-autop behavior on the target"
+}
+
+seed_classic_editor_content() {
+  wp_conf1() { wp1 "$@"; }
+  local CONF_REPO1="siterepo/${PAIR}1"
+  local COMPOSE="$PAIR_COMPOSE_STRING"
+  . conformance/seeds/classic-editor.sh
+  unset -f wp_conf1
+}
+
+check_classic_editor_boundary_content() {
+  local out
+  out=$(wp2 eval '
+    wp_set_current_user(1);
+    $plain = get_page_by_path("classic-editor-plain-fixture", OBJECT, "post");
+    $blocks = get_page_by_path("classic-editor-block-fixture", OBJECT, "post");
+    if (!$plain || !$blocks) { throw new RuntimeException("Classic Editor boundary posts are missing"); }
+    $get_settings = new ReflectionMethod("Classic_Editor", "get_settings");
+    echo wp_json_encode([
+      "allow" => get_option("classic-editor-allow-users"),
+      "block_post_uses_blocks" => (bool) use_block_editor_for_post($blocks),
+      "plain_post_uses_blocks" => (bool) use_block_editor_for_post($plain),
+      "post_type_uses_blocks" => (bool) use_block_editor_for_post_type("post"),
+      "replace" => get_option("classic-editor-replace"),
+      "settings" => $get_settings->invoke(null, "refresh", 1),
+    ]);
+  ')
+  require_observed_nonempty "Classic Editor boundary target behavior" "$out"
+  out=$(printf '%s\n' "$out" | awk 'NF { line=$0 } END { print line }')
+  printf '%s\n' "$out" | jq -e '
+    .replace == "classic" and .allow == "allow" and
+    .settings.editor == "classic" and .settings["allow-users"] == true and
+    .plain_post_uses_blocks == false and .block_post_uses_blocks == true and
+    .post_type_uses_blocks == true
+  ' >/dev/null || fail "Classic Editor boundary target did not consume the applied selection settings: $out"
+  pass "Classic Editor exact boundary selects classic for plain content while preserving block-editor routing for block content"
+}
+
 reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
   # core/theme installed and the site "installed" (unlike `pair.sh reset`,
   # which drops the database entirely and leaves the site UNINSTALLED until
@@ -400,10 +506,23 @@ reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
     }
   ' >/dev/null
   local plugin
-  for plugin in advanced-custom-fields contact-form-7 elementor ninja-forms polylang woocommerce wordpress-seo; do
+  for plugin in advanced-custom-fields classic-editor contact-form-7 elementor ninja-forms paid-memberships-pro polylang tinymce-advanced woocommerce wordpress-seo; do
     "$cli" plugin deactivate "$plugin" >/dev/null 2>&1 || true
     "$cli" plugin delete "$plugin" >/dev/null 2>&1 || true
   done
+  # The two editor adapters are option-only. Classic Editor's exact WP-CLI
+  # activation/uninstall lifecycle retains its settings, while Advanced
+  # Editor Tools can retain legacy rows when code is removed without its
+  # uninstall hook. Clear the complete reviewed ownership sets so a later
+  # exact boundary cannot inherit another case's authored or migration state.
+  "$cli" db query "
+    DELETE FROM wp_options WHERE option_name IN (
+      'classic-editor-allow-users', 'classic-editor-replace',
+      'tadv_admin_settings', 'tadv_allbtns', 'tadv_btns1', 'tadv_btns2',
+      'tadv_btns3', 'tadv_btns4', 'tadv_options', 'tadv_plugins',
+      'tadv_settings', 'tadv_toolbars', 'tadv_version'
+    );
+  " >/dev/null
   # Ninja Forms' custom tables and schema-version options survive plugin
   # deletion. Leaving them behind makes a later boundary inherit an earlier
   # release's schema instead of exercising a fresh install at that boundary.
@@ -428,6 +547,18 @@ reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
          OR option_name LIKE '%pll_languages_list%'
          OR option_name LIKE '%pll_activation_redirect%';
   " >/dev/null
+  # Paid Memberships Pro deliberately retains authored/runtime tables and
+  # options on ordinary deletion. Boundary cases must run the selected tag's
+  # installer against an empty PMPro schema rather than inherit the prior tag.
+  "$cli" eval '
+    global $wpdb;
+    $like = $wpdb->prefix . "pmpro\\_%";
+    foreach ($wpdb->get_col($wpdb->prepare("SHOW TABLES LIKE %s", $like)) as $table) {
+      $safe = str_replace("`", "``", $table);
+      $wpdb->query("DROP TABLE IF EXISTS `{$safe}`");
+    }
+    $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '\''pmpro_%'\'' OR option_name LIKE '\''_transient_pmpro_%'\'' OR option_name LIKE '\''_site_transient_pmpro_%'\''");
+  ' >/dev/null
   # WooCommerce intentionally preserves its schema and setup/runtime options
   # on ordinary plugin deletion. A boundary case must exercise the selected
   # release's own installer, not inherit the preceding release's tables.
@@ -470,6 +601,140 @@ run_elementor_command() {
   rm -f "$command_log"
   return "$rc"
 }
+
+# These patch-bounded editor manifests each admit exactly one real release.
+# Repeating the same bytes under artificial min/max labels would add runtime,
+# not evidence; certify the one admitted artifact once and pair it with an
+# adjacent official-release refusal below.
+if [ "$VMATRIX_MANIFEST" = advanced-editor-tools ]; then
+VMATRIX_CASES=$((VMATRIX_CASES + 1))
+AET_VERSION=5.9.2
+say "boundary: tinymce-advanced $AET_VERSION (only admitted patch)"
+
+reset_env wp1
+reset_env wp2
+reset_case_repositories
+
+say "fetch + verify tinymce-advanced $AET_VERSION (digest-checked artifact only)"
+AET_ARTIFACT_1=$(fetch_artifact tinymce-advanced "$AET_VERSION" cli1)
+AET_ARTIFACT_2=$(fetch_artifact tinymce-advanced "$AET_VERSION" cli2)
+wp1 plugin install "$AET_ARTIFACT_1" --activate >/dev/null
+AET_INSTALLED_1=$(wp1 plugin get tinymce-advanced --field=version)
+[ "$AET_INSTALLED_1" = "$AET_VERSION" ] \
+  || fail "side 1 installed version mismatch: expected $AET_VERSION, got $AET_INSTALLED_1"
+pass "side 1: tinymce-advanced $AET_VERSION installed from verified artifact, active"
+
+cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+{
+  "manifests": ["core", "advanced-editor-tools"],
+  "policy": {
+    "options": {},
+    "post_meta": {},
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "spec_version": 2
+}
+EOF
+cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
+"${GIT1[@]}" init -q -b main
+"${GIT1[@]}" remote add origin "../origin-$PAIR.git"
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "policy: Advanced Editor Tools $AET_VERSION exact-boundary certification"
+"${GIT1[@]}" push -qu origin main
+
+seed_advanced_editor_tools_content
+wp1 duo capture --repo=/siterepo
+wp1 duo lint --repo=/siterepo
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "capture: Advanced Editor Tools $AET_VERSION settings"
+"${GIT1[@]}" push -q origin main
+
+clone_case_target
+wp2 plugin install "$AET_ARTIFACT_2" >/dev/null
+INSTALLED_2=$(wp2 plugin get tinymce-advanced --field=version)
+require_fixture_values INSTALLED_2
+[ "$INSTALLED_2" = "$AET_VERSION" ] \
+  || fail "side 2 installed version mismatch: expected $AET_VERSION, got $INSTALLED_2"
+wp2 duo deploy --repo=/siterepo
+REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
+wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
+  || fail "apply canary not clean at tinymce-advanced $AET_VERSION"
+check_advanced_editor_tools_boundary_content
+
+wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-final
+AET_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
+rm -rf "siterepo/${PAIR}2/.tmp-final"
+[ -z "$AET_DIFF" ] \
+  || fail "byte-identity broken at tinymce-advanced $AET_VERSION: $AET_DIFF"
+pass "Advanced Editor Tools $AET_VERSION deploys, drives native editor behavior, and recaptures byte-identically"
+fi
+
+if [ "$VMATRIX_MANIFEST" = classic-editor ]; then
+VMATRIX_CASES=$((VMATRIX_CASES + 1))
+CLASSIC_VERSION=1.7.0
+say "boundary: classic-editor $CLASSIC_VERSION (only admitted patch)"
+
+reset_env wp1
+reset_env wp2
+reset_case_repositories
+
+say "fetch + verify classic-editor $CLASSIC_VERSION (digest-checked artifact only)"
+CLASSIC_ARTIFACT_1=$(fetch_artifact classic-editor "$CLASSIC_VERSION" cli1)
+CLASSIC_ARTIFACT_2=$(fetch_artifact classic-editor "$CLASSIC_VERSION" cli2)
+wp1 plugin install "$CLASSIC_ARTIFACT_1" --activate >/dev/null
+CLASSIC_INSTALLED_1=$(wp1 plugin get classic-editor --field=version)
+[ "$CLASSIC_INSTALLED_1" = "$CLASSIC_VERSION" ] \
+  || fail "side 1 installed version mismatch: expected $CLASSIC_VERSION, got $CLASSIC_INSTALLED_1"
+pass "side 1: classic-editor $CLASSIC_VERSION installed from verified artifact, active"
+
+cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+{
+  "manifests": ["core", "classic-editor"],
+  "policy": {
+    "options": {},
+    "post_meta": {},
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "spec_version": 2
+}
+EOF
+cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
+"${GIT1[@]}" init -q -b main
+"${GIT1[@]}" remote add origin "../origin-$PAIR.git"
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "policy: Classic Editor $CLASSIC_VERSION exact-boundary certification"
+"${GIT1[@]}" push -qu origin main
+
+seed_classic_editor_content
+wp1 duo capture --repo=/siterepo
+wp1 duo lint --repo=/siterepo
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "capture: Classic Editor $CLASSIC_VERSION settings and routed posts"
+"${GIT1[@]}" push -q origin main
+
+clone_case_target
+wp2 plugin install "$CLASSIC_ARTIFACT_2" >/dev/null
+INSTALLED_2=$(wp2 plugin get classic-editor --field=version)
+require_fixture_values INSTALLED_2
+[ "$INSTALLED_2" = "$CLASSIC_VERSION" ] \
+  || fail "side 2 installed version mismatch: expected $CLASSIC_VERSION, got $INSTALLED_2"
+wp2 duo deploy --repo=/siterepo
+REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
+wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
+  || fail "apply canary not clean at classic-editor $CLASSIC_VERSION"
+check_classic_editor_boundary_content
+
+wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-final
+CLASSIC_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
+rm -rf "siterepo/${PAIR}2/.tmp-final"
+[ -z "$CLASSIC_DIFF" ] \
+  || fail "byte-identity broken at classic-editor $CLASSIC_VERSION: $CLASSIC_DIFF"
+pass "Classic Editor $CLASSIC_VERSION deploys, routes both editor modes natively, and recaptures byte-identically"
+fi
 
 if [ "$VMATRIX_MANIFEST" = acf ]; then
 VMATRIX_CASES=$((VMATRIX_CASES + 1))
@@ -616,6 +881,89 @@ EOF
   [ -z "$DIFF_OUT" ] || fail "byte-identity broken at ninja-forms $NINJA_VERSION: $DIFF_OUT"
   pass "byte-identical recapture at ninja-forms $NINJA_VERSION — the manifest's own declared version_range boundary is proven, not just its currently-installed version"
 done
+fi
+
+# PMPro is no longer distributed through wp.org. Its supported interval is
+# intentionally one exact upstream GitHub tag: 3.8.3 <= version < 3.8.4.
+# Certifying that tag once is the complete positive boundary; the two adjacent
+# real tags are exercised as separate refusal controls below.
+if [ "$VMATRIX_MANIFEST" = paid-memberships-pro ]; then
+VMATRIX_CASES=$((VMATRIX_CASES + 1))
+PMPRO_VERSION=3.8.3
+say "boundary: paid-memberships-pro $PMPRO_VERSION (single admitted upstream tag)"
+
+reset_env wp1
+reset_env wp2
+reset_case_repositories
+
+say "fetch + verify paid-memberships-pro $PMPRO_VERSION from the official upstream tag"
+ARTIFACT_1=$(fetch_artifact paid-memberships-pro "$PMPRO_VERSION" cli1)
+ARTIFACT_2=$(fetch_artifact paid-memberships-pro "$PMPRO_VERSION" cli2)
+pass "verified sha256-pinned upstream artifact resolved for both sides: $ARTIFACT_1"
+
+wp1 plugin install "$ARTIFACT_1" >/dev/null
+normalize_version_matrix_archive_root cli1 plugin paid-memberships-pro paid-memberships-pro-3.8.3
+wp1 plugin activate paid-memberships-pro >/dev/null
+INSTALLED_1=$(wp1 plugin get paid-memberships-pro --field=version)
+[ "$INSTALLED_1" = "$PMPRO_VERSION" ] || fail "side 1 installed version mismatch: expected $PMPRO_VERSION, got $INSTALLED_1"
+pass "side 1: paid-memberships-pro $PMPRO_VERSION installed from verified artifact, active"
+
+cat > "siterepo/${PAIR}1/site.duo.json" <<EOF
+{
+  "manifests": ["core", "paid-memberships-pro"],
+  "policy": {
+    "options": {},
+    "post_meta": {},
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "spec_version": 2
+}
+EOF
+cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
+"${GIT1[@]}" init -q -b main
+"${GIT1[@]}" remote add origin "../origin-$PAIR.git"
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "policy: paid-memberships-pro $PMPRO_VERSION exact-boundary certification"
+"${GIT1[@]}" push -qu origin main
+
+seed_pmpro_content
+wp1 duo capture --repo=/siterepo
+pass "captured on side 1 (paid-memberships-pro $PMPRO_VERSION)"
+wp1 duo lint --repo=/siterepo
+pass "lint: 0 findings"
+
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "capture: paid-memberships-pro $PMPRO_VERSION content"
+"${GIT1[@]}" push -q origin main
+
+clone_case_target
+# Target starts with the exact plugin present but inactive. Deploy must both
+# accept its basename/version and perform the declared activation lifecycle.
+wp2 plugin install "$ARTIFACT_2" >/dev/null
+normalize_version_matrix_archive_root cli2 plugin paid-memberships-pro paid-memberships-pro-3.8.3
+INSTALLED_2=$(wp2 plugin get paid-memberships-pro --field=version)
+require_fixture_values INSTALLED_2
+[ "$INSTALLED_2" = "$PMPRO_VERSION" ] || fail "side 2 installed version mismatch: expected $PMPRO_VERSION, got $INSTALLED_2"
+if wp2 plugin is-active paid-memberships-pro >/dev/null 2>&1; then
+  fail "PMPro target premise must begin inactive"
+fi
+pass "side 2: exact PMPro artifact is installed and deliberately inactive before deploy"
+
+wp2 duo deploy --repo=/siterepo
+wp2 plugin is-active paid-memberships-pro >/dev/null || fail "deploy did not activate the admitted PMPro artifact"
+REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
+wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at paid-memberships-pro $PMPRO_VERSION"
+pass "deploy + apply succeeded on side 2 (paid-memberships-pro $PMPRO_VERSION, inactive-to-active lifecycle, canary clean)"
+
+check_pmpro_content
+
+wp2 duo capture --repo=/siterepo --out="/siterepo/.tmp-final"
+DIFF_OUT=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
+rm -rf "siterepo/${PAIR}2/.tmp-final"
+[ -z "$DIFF_OUT" ] || fail "byte-identity broken at paid-memberships-pro $PMPRO_VERSION: $DIFF_OUT"
+pass "byte-identical recapture at paid-memberships-pro $PMPRO_VERSION — exact upstream artifact, lifecycle, table references, and plugin API are bound together"
 fi
 
 if [ "$VMATRIX_MANIFEST" = elementor ]; then
@@ -1038,6 +1386,138 @@ fi
 # unless --force-code-mismatch is passed. This only needs `duo deploy`
 # (code-only reconciliation), not a full capture/apply round-trip — the
 # refusal fires before any target mutation is attempted.
+if [ "$VMATRIX_MANIFEST" = advanced-editor-tools ]; then
+say "negative control: tinymce-advanced 5.9.0 (adjacent official release below the exact 5.9.2 contract) must be REFUSED"
+reset_env wp1
+reset_case_repositories
+
+AET_IN_RANGE=$(fetch_artifact tinymce-advanced 5.9.2 cli1)
+wp1 plugin install "$AET_IN_RANGE" --activate >/dev/null
+NEGATIVE_INSTALLED=$(wp1 plugin get tinymce-advanced --field=version)
+require_fixture_values NEGATIVE_INSTALLED
+[ "$NEGATIVE_INSTALLED" = "5.9.2" ] \
+  || fail "negative control premise did not install exact tinymce-advanced 5.9.2 bytes"
+cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+{
+  "manifests": ["core", "advanced-editor-tools"],
+  "policy": {
+    "options": {},
+    "post_meta": {},
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "spec_version": 2
+}
+EOF
+cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
+"${GIT1[@]}" init -q -b main
+"${GIT1[@]}" remote add origin "../origin-$PAIR.git"
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "policy: Advanced Editor Tools negative-control pin"
+"${GIT1[@]}" push -qu origin main
+seed_advanced_editor_tools_content
+wp1 duo capture --repo=/siterepo
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "capture: valid Advanced Editor Tools state for negative control"
+"${GIT1[@]}" push -q origin main
+
+wp1 plugin deactivate tinymce-advanced >/dev/null
+wp1 plugin delete tinymce-advanced >/dev/null
+AET_OUT_OF_RANGE=$(fetch_artifact tinymce-advanced 5.9.0 cli1)
+wp1 plugin install "$AET_OUT_OF_RANGE" >/dev/null
+INSTALLED_OOR=$(wp1 plugin get tinymce-advanced --field=version)
+[ "$INSTALLED_OOR" = "5.9.0" ] \
+  || fail "negative control: expected tinymce-advanced 5.9.0 installed, got $INSTALLED_OOR"
+AET_REFUSAL_BEFORE=$(wp1 eval 'echo hash("sha256", wp_json_encode([get_option("tadv_settings", null), get_option("tadv_admin_settings", null)]));')
+require_observed_nonempty "Advanced Editor Tools refusal state baseline" "$AET_REFUSAL_BEFORE"
+set +e
+DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_RC=$?
+set -e
+[ "$DEPLOY_RC" -ne 0 ] \
+  || fail "expected deploy to refuse tinymce-advanced 5.9.0, but it exited 0 (got: $DEPLOY_OUT)"
+grep -Eq "outside_version_range|outside the '.*' manifest's declared version_range" <<<"$DEPLOY_OUT" \
+  || fail "tinymce-advanced 5.9.0 refused for the wrong reason (got: $DEPLOY_OUT)"
+grep -q "tinymce-advanced/tinymce-advanced.php" <<<"$DEPLOY_OUT" \
+  || fail "Advanced Editor Tools refusal did not name the exact basename (got: $DEPLOY_OUT)"
+grep -q "5.9.0" <<<"$DEPLOY_OUT" \
+  || fail "Advanced Editor Tools refusal did not name installed version 5.9.0 (got: $DEPLOY_OUT)"
+if wp1 plugin is-active tinymce-advanced >/dev/null 2>&1; then
+  fail "outside-range tinymce-advanced 5.9.0 was activated before refusal"
+fi
+AET_REFUSAL_AFTER=$(wp1 eval 'echo hash("sha256", wp_json_encode([get_option("tadv_settings", null), get_option("tadv_admin_settings", null)]));')
+[ "$AET_REFUSAL_AFTER" = "$AET_REFUSAL_BEFORE" ] \
+  || fail "Advanced Editor Tools outside-range refusal mutated authored settings"
+printf '%s\n' "$DEPLOY_OUT"
+pass "official tinymce-advanced 5.9.0 is loudly refused, remains inactive, and cannot mutate admitted settings"
+fi
+
+if [ "$VMATRIX_MANIFEST" = classic-editor ]; then
+say "negative control: classic-editor 1.6.7 (adjacent official release below the exact 1.7.0 contract) must be REFUSED"
+reset_env wp1
+reset_case_repositories
+
+CLASSIC_IN_RANGE=$(fetch_artifact classic-editor 1.7.0 cli1)
+wp1 plugin install "$CLASSIC_IN_RANGE" --activate >/dev/null
+NEGATIVE_INSTALLED=$(wp1 plugin get classic-editor --field=version)
+require_fixture_values NEGATIVE_INSTALLED
+[ "$NEGATIVE_INSTALLED" = "1.7.0" ] \
+  || fail "negative control premise did not install exact classic-editor 1.7.0 bytes"
+cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+{
+  "manifests": ["core", "classic-editor"],
+  "policy": {
+    "options": {},
+    "post_meta": {},
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "spec_version": 2
+}
+EOF
+cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
+"${GIT1[@]}" init -q -b main
+"${GIT1[@]}" remote add origin "../origin-$PAIR.git"
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "policy: Classic Editor negative-control pin"
+"${GIT1[@]}" push -qu origin main
+seed_classic_editor_content
+wp1 duo capture --repo=/siterepo
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "capture: valid Classic Editor state for negative control"
+"${GIT1[@]}" push -q origin main
+
+wp1 plugin deactivate classic-editor >/dev/null
+wp1 plugin delete classic-editor >/dev/null
+CLASSIC_OUT_OF_RANGE=$(fetch_artifact classic-editor 1.6.7 cli1)
+wp1 plugin install "$CLASSIC_OUT_OF_RANGE" >/dev/null
+INSTALLED_OOR=$(wp1 plugin get classic-editor --field=version)
+[ "$INSTALLED_OOR" = "1.6.7" ] \
+  || fail "negative control: expected classic-editor 1.6.7 installed, got $INSTALLED_OOR"
+CLASSIC_REFUSAL_BEFORE=$(wp1 eval 'echo hash("sha256", wp_json_encode([get_option("classic-editor-replace", null), get_option("classic-editor-allow-users", null)]));')
+require_observed_nonempty "Classic Editor refusal state baseline" "$CLASSIC_REFUSAL_BEFORE"
+set +e
+DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_RC=$?
+set -e
+[ "$DEPLOY_RC" -ne 0 ] \
+  || fail "expected deploy to refuse classic-editor 1.6.7, but it exited 0 (got: $DEPLOY_OUT)"
+grep -Eq "outside_version_range|outside the '.*' manifest's declared version_range" <<<"$DEPLOY_OUT" \
+  || fail "classic-editor 1.6.7 refused for the wrong reason (got: $DEPLOY_OUT)"
+grep -q "classic-editor/classic-editor.php" <<<"$DEPLOY_OUT" \
+  || fail "Classic Editor refusal did not name the exact basename (got: $DEPLOY_OUT)"
+grep -q "1.6.7" <<<"$DEPLOY_OUT" \
+  || fail "Classic Editor refusal did not name installed version 1.6.7 (got: $DEPLOY_OUT)"
+if wp1 plugin is-active classic-editor >/dev/null 2>&1; then
+  fail "outside-range classic-editor 1.6.7 was activated before refusal"
+fi
+CLASSIC_REFUSAL_AFTER=$(wp1 eval 'echo hash("sha256", wp_json_encode([get_option("classic-editor-replace", null), get_option("classic-editor-allow-users", null)]));')
+[ "$CLASSIC_REFUSAL_AFTER" = "$CLASSIC_REFUSAL_BEFORE" ] \
+  || fail "Classic Editor outside-range refusal mutated authored settings"
+printf '%s\n' "$DEPLOY_OUT"
+pass "official classic-editor 1.6.7 is loudly refused, remains inactive, and cannot mutate admitted settings"
+fi
+
 if [ "$VMATRIX_MANIFEST" = acf ]; then
 say "negative control: acf 5.12.6 (real wp.org release, genuinely below manifests/acf.json's own declared min 6.0.0) must be REFUSED, not silently accepted"
 reset_env wp1
@@ -1244,6 +1724,135 @@ grep -q "ninja-forms/ninja-forms.php" <<<"$DEPLOY_OUT" || fail "refusal did not 
 grep -q "3.3.21.4" <<<"$DEPLOY_OUT" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
 printf '%s\n' "$DEPLOY_OUT"
 pass "confirmed: ninja-forms 3.3.21.4 (real, installed, genuinely below the corrected min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative"
+fi
+
+if [ "$VMATRIX_MANIFEST" = paid-memberships-pro ]; then
+say "negative controls: adjacent official PMPro tags 3.8.2 and 3.8.4 must both be refused by the exact 3.8.3 contract"
+reset_env wp1
+reset_case_repositories
+
+# Capture valid canonical state with admitted bytes, then replace only the
+# installed plugin. Both refusals therefore exercise Deploy::code_mismatch()
+# against real PMPro table/reference content rather than an empty repository.
+IN_RANGE_ARTIFACT=$(fetch_artifact paid-memberships-pro 3.8.3 cli1)
+wp1 plugin install "$IN_RANGE_ARTIFACT" >/dev/null
+normalize_version_matrix_archive_root cli1 plugin paid-memberships-pro paid-memberships-pro-3.8.3
+wp1 plugin activate paid-memberships-pro >/dev/null
+NEGATIVE_INSTALLED=$(wp1 plugin get paid-memberships-pro --field=version)
+require_fixture_values NEGATIVE_INSTALLED
+[ "$NEGATIVE_INSTALLED" = "3.8.3" ] \
+  || fail "negative control premise did not install exact paid-memberships-pro 3.8.3 bytes"
+cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+{
+  "manifests": ["core", "paid-memberships-pro"],
+  "policy": {
+    "options": {},
+    "post_meta": {},
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "spec_version": 2
+}
+EOF
+cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
+"${GIT1[@]}" init -q -b main
+"${GIT1[@]}" remote add origin "../origin-$PAIR.git"
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "policy: paid-memberships-pro negative-control pin"
+"${GIT1[@]}" push -qu origin main
+seed_pmpro_content
+wp1 duo capture --repo=/siterepo
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "capture: valid PMPro state for adjacent-version refusals"
+"${GIT1[@]}" push -q origin main
+
+say "negative control: missing PMPro code refuses before lifecycle mutation"
+wp1 plugin deactivate paid-memberships-pro >/dev/null 2>&1 || true
+wp1 plugin delete paid-memberships-pro >/dev/null
+set +e
+DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_RC=$?
+set -e
+[ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse missing PMPro code, but it exited 0 (got: $DEPLOY_OUT)"
+grep -Eq "code_mismatch|missing_in_code|is not installed" <<<"$DEPLOY_OUT" \
+  || fail "missing PMPro refusal did not name the compatibility gate (got: $DEPLOY_OUT)"
+grep -q "paid-memberships-pro/paid-memberships-pro.php" <<<"$DEPLOY_OUT" \
+  || fail "missing PMPro refusal did not name the exact expected basename (got: $DEPLOY_OUT)"
+if wp1 plugin is-installed paid-memberships-pro >/dev/null 2>&1; then
+  fail "missing-code refusal installed PMPro before returning"
+fi
+pass "confirmed: absent PMPro code is refused and remains absent"
+
+say "negative control: the right exact bytes under the wrong basename refuse rather than being guessed"
+WRONG_BASENAME_ARTIFACT=$(fetch_artifact paid-memberships-pro 3.8.3 cli1)
+wp1 plugin install "$WRONG_BASENAME_ARTIFACT" >/dev/null
+WRONG_BASENAME_VERSION=$(wp1 plugin get paid-memberships-pro-3.8.3 --field=version)
+[ "$WRONG_BASENAME_VERSION" = "3.8.3" ] \
+  || fail "wrong-basename premise did not install official 3.8.3 bytes under the archive root"
+set +e
+DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_RC=$?
+set -e
+[ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse PMPro under the wrong basename, but it exited 0 (got: $DEPLOY_OUT)"
+grep -Eq "code_mismatch|missing_in_code|is not installed" <<<"$DEPLOY_OUT" \
+  || fail "wrong-basename PMPro refusal did not name the compatibility gate (got: $DEPLOY_OUT)"
+grep -q "paid-memberships-pro/paid-memberships-pro.php" <<<"$DEPLOY_OUT" \
+  || fail "wrong-basename PMPro refusal did not name the exact expected basename (got: $DEPLOY_OUT)"
+wp1 plugin is-installed paid-memberships-pro-3.8.3 >/dev/null \
+  || fail "wrong-basename refusal rewrote or removed the installed upstream directory"
+if wp1 plugin is-active paid-memberships-pro-3.8.3 >/dev/null 2>&1; then
+  fail "wrong-basename refusal activated unrecognized PMPro code"
+fi
+pass "confirmed: exact PMPro bytes under paid-memberships-pro-3.8.3 remain inactive and are never accepted as the canonical basename"
+wp1 plugin delete paid-memberships-pro-3.8.3 >/dev/null
+
+say "negative control: an unreadable exact main file refuses before activation"
+UNREADABLE_ARTIFACT=$(fetch_artifact paid-memberships-pro 3.8.3 cli1)
+wp1 plugin install "$UNREADABLE_ARTIFACT" >/dev/null
+normalize_version_matrix_archive_root cli1 plugin paid-memberships-pro paid-memberships-pro-3.8.3
+"${PAIR_COMPOSE[@]}" run --rm -T cli1 sh -c 'chmod 000 /var/www/html/wp-content/plugins/paid-memberships-pro/paid-memberships-pro.php'
+set +e
+DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_RC=$?
+set -e
+"${PAIR_COMPOSE[@]}" run --rm -T cli1 sh -c 'chmod 0644 /var/www/html/wp-content/plugins/paid-memberships-pro/paid-memberships-pro.php'
+[ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse unreadable PMPro code, but it exited 0 (got: $DEPLOY_OUT)"
+grep -Eq "code_mismatch|outside_version_range|unknown version|is not installed" <<<"$DEPLOY_OUT" \
+  || fail "unreadable PMPro refusal did not name the compatibility gate (got: $DEPLOY_OUT)"
+if wp1 plugin is-active paid-memberships-pro >/dev/null 2>&1; then
+  fail "unreadable-plugin refusal activated PMPro before returning"
+fi
+pass "confirmed: unreadable PMPro main-file metadata refuses and remains inactive"
+wp1 plugin delete paid-memberships-pro >/dev/null
+
+for OUT_OF_RANGE_VERSION in 3.8.2 3.8.4; do
+  wp1 plugin deactivate paid-memberships-pro >/dev/null 2>&1 || true
+  wp1 plugin delete paid-memberships-pro >/dev/null
+  OUT_OF_RANGE_ARTIFACT=$(fetch_artifact paid-memberships-pro "$OUT_OF_RANGE_VERSION" cli1)
+  wp1 plugin install "$OUT_OF_RANGE_ARTIFACT" >/dev/null
+  normalize_version_matrix_archive_root cli1 plugin paid-memberships-pro "paid-memberships-pro-$OUT_OF_RANGE_VERSION"
+  INSTALLED_OOR=$(wp1 plugin get paid-memberships-pro --field=version)
+  [ "$INSTALLED_OOR" = "$OUT_OF_RANGE_VERSION" ] \
+    || fail "negative control: expected paid-memberships-pro $OUT_OF_RANGE_VERSION installed, got $INSTALLED_OOR"
+
+  set +e
+  DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+  DEPLOY_RC=$?
+  set -e
+  [ "$DEPLOY_RC" -ne 0 ] \
+    || fail "expected deploy to refuse paid-memberships-pro $OUT_OF_RANGE_VERSION as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"
+  grep -Eq "outside_version_range|outside the '.*' manifest's declared version_range" <<<"$DEPLOY_OUT" \
+    || fail "deploy refused PMPro $OUT_OF_RANGE_VERSION, but not for outside_version_range (got: $DEPLOY_OUT)"
+  grep -q "paid-memberships-pro/paid-memberships-pro.php" <<<"$DEPLOY_OUT" \
+    || fail "PMPro refusal did not name the exact plugin basename (got: $DEPLOY_OUT)"
+  grep -q "$OUT_OF_RANGE_VERSION" <<<"$DEPLOY_OUT" \
+    || fail "PMPro refusal did not name installed version $OUT_OF_RANGE_VERSION (got: $DEPLOY_OUT)"
+  if wp1 plugin is-active paid-memberships-pro >/dev/null 2>&1; then
+    fail "outside-range PMPro $OUT_OF_RANGE_VERSION was activated before deploy refused"
+  fi
+  printf '%s\n' "$DEPLOY_OUT"
+  pass "confirmed: official PMPro $OUT_OF_RANGE_VERSION is loudly refused and remains inactive outside exact range >=3.8.3 <3.8.4"
+done
 fi
 
 if [ "$VMATRIX_MANIFEST" = polylang ]; then

@@ -33,15 +33,20 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 |---|---|---|---|---|
 | [core](#core) | certified | WordPress core | WordPress 7.0.3 (last verified) | apply, capture, compile, delete, deploy, plan, promote, recapture, render-api |
 | [acf](#acf) | certified | `advanced-custom-fields/acf.php` | >=6.0.0 <7.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
+| [advanced-editor-tools](#advanced-editor-tools) | certified | `tinymce-advanced/tinymce-advanced.php` | >=5.9.2 <5.9.3 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
+| [classic-editor](#classic-editor) | certified | `classic-editor/classic-editor.php` | >=1.7.0 <1.7.1 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
+| [code-snippets](#code-snippets) | experimental | `code-snippets/code-snippets.php` | >=3.9.6 <3.9.7 | capture, compile, plan, recapture |
 | [contact-form-7](#contact-form-7) | certified | `contact-form-7/wp-contact-form-7.php` | >=6.0.0 <7.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [duo-agency-cpt](#duo-agency-cpt) | excluded | none declared | fixture only | test-only |
 | [elementor](#elementor) | certified | `elementor/elementor.php` | >=4.0.0 <5.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [ninja-forms](#ninja-forms) | certified | `ninja-forms/ninja-forms.php` | >=3.4.34.2 <4.0.0 | apply, capture, compile, delete, deploy, plan, promote, recapture, render-api |
-| [paid-memberships-pro](#paid-memberships-pro) | experimental | unbound | unbound | apply, capture, compile, delete, plan, recapture |
+| [paid-memberships-pro](#paid-memberships-pro) | experimental | `paid-memberships-pro/paid-memberships-pro.php` | >=3.8.3 <3.8.4 | apply, capture, compile, delete, plan, recapture |
 | [polylang](#polylang) | certified | `polylang/polylang.php` | >=3.5 <4.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
-| [the-events-calendar](#the-events-calendar) | experimental | unbound | unbound | apply, capture, compile, plan, recapture |
+| [the-events-calendar](#the-events-calendar) | experimental | `the-events-calendar/the-events-calendar.php` | >=6.17.2 <6.17.3 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [woocommerce](#woocommerce) | certified | `woocommerce/woocommerce.php` | >=11.0.0 <12.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
+| [wps-hide-login](#wps-hide-login) | experimental | `wps-hide-login/wps-hide-login.php` | >=1.9.19 <1.9.20 | capture, compile, plan, recapture |
 | [yoast](#yoast) | certified | `wordpress-seo/wp-seo.php` | >=28.0 <29.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
+| [yoast-duplicate-post](#yoast-duplicate-post) | experimental | `duplicate-post/duplicate-post.php` | >=4.7 <4.8 | capture, compile, plan, recapture |
 
 ## core
 
@@ -81,6 +86,63 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 **Unsupported, explicitly.**
 
 - `deletions.*` / `delete` — No ACF-specific deletion selector is declared.
+
+## advanced-editor-tools
+
+**Status: certified.** Certified for exact Advanced Editor Tools 5.9.2 with sanitized four-toolbar/admin settings, hostile target convergence, plugin-visible editor behavior, option deletion, lifecycle recovery, conflict/idempotence, and official 5.9.0 refusal evidence.
+
+- **Plugin:** `tinymce-advanced/tinymce-advanced.php`
+- **Version range:** >=5.9.2 <5.9.3
+- **Operations:** apply, capture, compile, deploy, plan, promote, recapture, render-api
+- **Lifecycle phases:** retire, activate, verify
+- **Declared entities:** none
+- **Declared fields:** `options` (11 keys)
+- **Deletions supported:** none
+- **Deletions unsupported:** plugin-specific entity deletes
+- **Exercised by:** `conformance-advanced-editor-tools`, `exact-artifact-version-matrix`
+
+**Unsupported, explicitly.**
+
+- `deletions.*` / `delete` — The adapter owns option state only; no Advanced Editor Tools entity deletion selector exists beyond generic authored-option deletion through apply --with-deletes.
+
+## classic-editor
+
+**Status: certified.** Certified for exact Classic Editor 1.7.0 on single-site WordPress with both editor-routing branches, hostile target convergence, option deletion, source-faithful uninstall residue recovery, conflict/idempotence, and official 1.6.7 refusal evidence.
+
+- **Plugin:** `classic-editor/classic-editor.php`
+- **Version range:** >=1.7.0 <1.7.1
+- **Operations:** apply, capture, compile, deploy, plan, promote, recapture, render-api
+- **Lifecycle phases:** retire, activate, verify
+- **Declared entities:** none
+- **Declared fields:** `options` (2: classic-editor-allow-users, classic-editor-replace)
+- **Deletions supported:** none
+- **Deletions unsupported:** plugin-specific entity deletes
+- **Exercised by:** `conformance-classic-editor`, `exact-artifact-version-matrix`
+
+**Unsupported, explicitly.**
+
+- `multisite` / `all` — Duo v1 refuses multisite, so Classic Editor's network option is outside this adapter.
+
+## code-snippets
+
+**Status: experimental.** Experimental exact-artifact draft: the single-site snippet table and shortcode references are classified, but apply lacks a verified cache and optional flat-file rebuild provider.
+
+- **Plugin:** `code-snippets/code-snippets.php`
+- **Version range:** >=3.9.6 <3.9.7
+- **Operations:** capture, compile, plan, recapture
+- **Lifecycle phases:** none declared
+- **Declared entities:** `tables` (1: snippets)
+- **Declared fields:** `options` (2: code_snippets_settings, code_snippets_version), `shortcode_attrs` (2: code_snippet, code_snippet_source)
+- **Deletions supported:** none
+- **Deletions unsupported:** table:snippets
+- **Exercised by:** `conformance-ecosystem-adapter-batch`
+
+**Unsupported, explicitly.**
+
+- `tables.snippets` / `apply` — Raw typed-table writes bypass clean_snippets_cache() and the optional code_snippets/settings_updated flat-file rebuild; no bounded verified provider is shipped.
+- `tables.snippets` / `delete` — No race-safe snippet deletion selector or flat-file cleanup contract is declared.
+- `block_attrs.code-snippets/source` / `capture` — The packaged free artifact checks for a code-snippets/source block but exposes no exact registered block attribute schema to declare.
+- `production` / `promote` — No exact-artifact clean-target execution, shortcode render, cache, or flat-file evidence exists.
 
 ## contact-form-7
 
@@ -165,17 +227,17 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 
 ## paid-memberships-pro
 
-**Status: experimental.** Experimental: conformance exists, but the manifest has no plugin identity/version range and no exact-artifact certification bundle.
+**Status: experimental.** Experimental: exact 3.8.3 artifact and version-boundary evidence exist, but intent-only authored tables and an unbounded default metadata keyspace remain promotion-blocking.
 
-- **Plugin:** unbound
-- **Version range:** unbound
+- **Plugin:** `paid-memberships-pro/paid-memberships-pro.php`
+- **Version range:** >=3.8.3 <3.8.4
 - **Operations:** apply, capture, compile, delete, plan, recapture
 - **Lifecycle phases:** none declared
 - **Declared entities:** `tables` (15 keys)
 - **Declared fields:** `options` (33 keys), `post_meta` (0 rules)
 - **Deletions supported:** `table:pmpro_memberships_pages`
 - **Deletions unsupported:** intent-only composite tables
-- **Exercised by:** `conformance-paid-memberships-pro`
+- **Exercised by:** `conformance-paid-memberships-pro`, `exact-artifact-version-matrix`
 
 **Default-authored keyspaces.** A table whose unlisted keys default to authored needs its own review; each is recorded with the verdict a reviewer reached.
 
@@ -188,7 +250,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 - `tables.pmpro_groups` / `capture` — Intent marker only; no implemented typed snapshot contract.
 - `tables.pmpro_membership_levels_groups` / `capture` — Intent marker only; no implemented typed snapshot contract.
 - `tables.pmpro_memberships_categories` / `capture` — Intent marker only; no implemented typed snapshot contract.
-- `production` / `promote` — No exact version/evidence contract exists.
+- `production` / `promote` — Intent-only authored tables and an unbounded default metadata keyspace prevent a closed production claim.
 
 ## polylang
 
@@ -211,20 +273,22 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 
 ## the-events-calendar
 
-**Status: experimental.** Experimental: grind evidence exists, but there is no conformance entry, plugin version contract, or current certification bundle.
+**Status: experimental.** Experimental exact-artifact target round-trip and hard regeneration-dependency recovery proof; dirty-target, deletion, lifecycle, concurrency, and difficult-value matrices remain open.
 
-- **Plugin:** unbound
-- **Version range:** unbound
-- **Operations:** apply, capture, compile, plan, recapture
+- **Plugin:** `the-events-calendar/the-events-calendar.php`
+- **Version range:** >=6.17.2 <6.17.3
+- **Operations:** apply, capture, compile, deploy, plan, promote, recapture, render-api
 - **Lifecycle phases:** none declared
 - **Declared entities:** `post_types` (1: tribe_events), `tables` (3: tec_events, tec_kv_cache, tec_occurrences)
 - **Declared fields:** `options` (13 keys), `post_meta` (23 keys)
 - **Deletions supported:** none
 - **Deletions unsupported:** plugin-specific deletes
+- **Exercised by:** `conformance-the-events-calendar`, `regress-tec-regen`
 
 **Unsupported, explicitly.**
 
-- `production` / `promote` — No exact version/evidence contract exists.
+- `deletions.*` / `delete` — Event/venue/organizer deletion, occurrence cleanup, reverse-reference guards, rollback, and retry are not certified.
+- `production` / `promote` — Dirty-target, lifecycle, concurrency, and difficult-value production-readiness scenarios remain open.
 
 ## woocommerce
 
@@ -251,6 +315,26 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 - `derived.wc_product_attributes_lookup` / `apply` — WooCommerce 11.0.0 exposes no stable bounded expected-output or independent value-verification API for product-attribute lookup rows, so the verified provider does not mutate this table; operators must run and verify WooCommerce's regeneration explicitly.
 - `tables.runtime` / `capture` — Orders, customers, sessions, stock reservations, and Action Scheduler rows remain runtime-sovereign.
 
+## wps-hide-login
+
+**Status: experimental.** Experimental exact-artifact draft: both single-site route slugs are classified, but the plugin's settings path flushes rewrites and no clean-target routing matrix has established the raw-apply postcondition.
+
+- **Plugin:** `wps-hide-login/wps-hide-login.php`
+- **Version range:** >=1.9.19 <1.9.20
+- **Operations:** capture, compile, plan, recapture
+- **Lifecycle phases:** none declared
+- **Declared entities:** none
+- **Declared fields:** `options` (3: whl_page, whl_redirect, whl_redirect_admin)
+- **Deletions supported:** none
+- **Deletions unsupported:** plugin-specific deletes
+- **Exercised by:** `conformance-ecosystem-adapter-batch`
+
+**Unsupported, explicitly.**
+
+- `options.whl_page|whl_redirect_admin` / `apply` — The plugin's own save path flushes rewrite rules; Duo has no verified adapter provider proving and restoring the request-routing postcondition after a raw option write.
+- `production` / `promote` — No exact-artifact clean-target login, old-login refusal, and redirect routing matrix exists.
+- `multisite` / `all` — Duo v1 refuses multisite, so network-default route slugs are outside this adapter.
+
 ## yoast
 
 **Status: certified.** Certified authored option/meta refs, target-local derived indexables, API/frontend behavior, and exact artifact boundaries.
@@ -269,6 +353,27 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 **Unsupported, explicitly.**
 
 - `deletions.*` / `delete` — No Yoast-specific deletion selector is declared.
+
+## yoast-duplicate-post
+
+**Status: experimental.** Experimental exact-artifact draft: the closed settings registry and durable original-post reference are classified, with offline ref and boundary coverage but no clean-target clone/render conformance.
+
+- **Plugin:** `duplicate-post/duplicate-post.php`
+- **Version range:** >=4.7 <4.8
+- **Operations:** capture, compile, plan, recapture
+- **Lifecycle phases:** none declared
+- **Declared entities:** none
+- **Declared fields:** `options` (29 keys), `post_meta` (5: _dp_creation_date_gmt, _dp_has_been_republished, _dp_has_rewrite_republish_copy, _dp_is_rewrite_republish_copy, _dp_original)
+- **Deletions supported:** none
+- **Deletions unsupported:** plugin-specific deletes
+- **Exercised by:** `conformance-ecosystem-adapter-batch`
+
+**Unsupported, explicitly.**
+
+- `deletions.*` / `delete` — No plugin-specific duplicated-post deletion semantics are declared.
+- `options.*|post_meta._dp_original` / `apply` — No clean-target clone/reference/settings round-trip has established hook-free option and post-meta apply for this exact artifact.
+- `post_meta._dp_is_rewrite_republish_copy|_dp_has_rewrite_republish_copy|_dp_has_been_republished|_dp_creation_date_gmt` / `apply` — In-progress Rewrite & Republish workflow state is runtime-sovereign and is not migrated.
+- `production` / `promote` — No exact-artifact clean-target clone, original-link, and settings-render evidence exists.
 
 ## Profiles
 

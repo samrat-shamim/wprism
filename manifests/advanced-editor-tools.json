@@ -1,0 +1,25 @@
+{
+  "spec_version": 2,
+  "name": "advanced-editor-tools",
+  "option_autoload": "preserve",
+  "plugin": "tinymce-advanced/tinymce-advanced.php",
+  "version_range": {"min": "5.9.2", "max": "5.9.3"},
+  "notes": [
+    "Adapter-authoring probe 2026-08-22: inspected the official WordPress.org Advanced Editor Tools 5.9.2 artifact (SHA-256 ec4c6635dc9d0f9c27d0256d7b83b3655b5904c936748604c698d256fbfd69c7). The range is intentionally one patch wide: widening requires another artifact probe, not an assumption that persisted settings stayed compatible.",
+    "tinymce-advanced.php load_settings()/save_settings() and tadv_admin.php's built-in JSON import/export identify tadv_settings and tadv_admin_settings as the complete current portable settings pair. Their arrays contain editor option names, plugin names, toolbar button names, and feature flags; the inspected write path contains no entity ids, host-bound paths, or credentials.",
+    "tadv_version is the integer upgrade gate. The eight tadv_options/tadv_toolbars/tadv_plugins/tadv_btns*/tadv_allbtns rows are pre-4.x migration inputs that update_settings() deletes; all are runtime upgrade residue, not current editor configuration. Exact 5.9.2 conformance proves sanitized four-toolbar/admin settings, all excluded runtime rows, plugin-visible TinyMCE filters, uninstall cleanup, exact reinstall recovery, three-way conflict handling, authorized option deletion, and byte-identical recapture."
+  ],
+  "options": {
+    "tadv_admin_settings": {"class": "authored"},
+    "tadv_allbtns": {"class": "runtime"},
+    "tadv_btns1": {"class": "runtime"},
+    "tadv_btns2": {"class": "runtime"},
+    "tadv_btns3": {"class": "runtime"},
+    "tadv_btns4": {"class": "runtime"},
+    "tadv_options": {"class": "runtime"},
+    "tadv_plugins": {"class": "runtime"},
+    "tadv_settings": {"class": "authored"},
+    "tadv_toolbars": {"class": "runtime"},
+    "tadv_version": {"class": "runtime"}
+  }
+}

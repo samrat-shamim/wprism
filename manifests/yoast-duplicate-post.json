@@ -1,0 +1,51 @@
+{
+  "spec_version": 2,
+  "name": "yoast-duplicate-post",
+  "option_autoload": "preserve",
+  "plugin": "duplicate-post/duplicate-post.php",
+  "version_range": {"min": "4.7", "max": "4.8"},
+  "notes": [
+    "Adapter-authoring probe 2026-08-22: inspected the official WordPress.org Yoast Duplicate Post 4.7 artifact (SHA-256 8cbeebf7c2ee982d2ae33833088ba8ac2391cc316a4dd71800a07f5fa128b418). src/admin/options.php is the closed 28-setting registry reproduced below; admin-functions.php supplies the matching defaults and the separate duplicate_post_version upgrade gate.",
+    "The 28 registered options are portable duplication policy and UI choices. Every 0|1 scalar or nested flag is lint_ok because its value space collides with ordinary low WordPress ids but the inspected consumers cast it only as a boolean/number. Role, post-type, taxonomy, and meta-key lists contain stable names, not local database ids.",
+    "_dp_original is durable per-copy provenance used by common-functions.php and the original-post UI; it is a real post reference and therefore requires the original post inside capture scope. The four rewrite-and-republish keys are in-progress workflow state and stay runtime, including _dp_has_rewrite_republish_copy even though its runtime value is numerically reference-shaped.",
+    "The adapter deliberately declares no delete semantics for duplicated posts and no migration of an in-progress Rewrite & Republish session. It remains experimental until clone behavior, the original link, and settings render are exercised on a clean target at the exact artifact boundary."
+  ],
+  "options": {
+    "duplicate_post_blacklist": {"class": "authored"},
+    "duplicate_post_copyattachments": {"class": "authored", "lint_ok": true},
+    "duplicate_post_copyauthor": {"class": "authored", "lint_ok": true},
+    "duplicate_post_copychildren": {"class": "authored", "lint_ok": true},
+    "duplicate_post_copycomments": {"class": "authored", "lint_ok": true},
+    "duplicate_post_copycontent": {"class": "authored", "lint_ok": true},
+    "duplicate_post_copydate": {"class": "authored", "lint_ok": true},
+    "duplicate_post_copyexcerpt": {"class": "authored", "lint_ok": true},
+    "duplicate_post_copyformat": {"class": "authored", "lint_ok": true},
+    "duplicate_post_copymenuorder": {"class": "authored", "lint_ok": true},
+    "duplicate_post_copypassword": {"class": "authored", "lint_ok": true},
+    "duplicate_post_copyslug": {"class": "authored", "lint_ok": true},
+    "duplicate_post_copystatus": {"class": "authored", "lint_ok": true},
+    "duplicate_post_copytemplate": {"class": "authored", "lint_ok": true},
+    "duplicate_post_copythumbnail": {"class": "authored", "lint_ok": true},
+    "duplicate_post_copytitle": {"class": "authored", "lint_ok": true},
+    "duplicate_post_increase_menu_order_by": {"class": "authored", "lint_ok": true},
+    "duplicate_post_roles": {"class": "authored"},
+    "duplicate_post_show_link": {"class": "authored", "lint_ok": true},
+    "duplicate_post_show_link_in": {"class": "authored", "lint_ok": true},
+    "duplicate_post_show_notice": {"class": "authored", "lint_ok": true},
+    "duplicate_post_show_original_column": {"class": "authored", "lint_ok": true},
+    "duplicate_post_show_original_in_post_states": {"class": "authored", "lint_ok": true},
+    "duplicate_post_show_original_meta_box": {"class": "authored", "lint_ok": true},
+    "duplicate_post_taxonomies_blacklist": {"class": "authored"},
+    "duplicate_post_title_prefix": {"class": "authored"},
+    "duplicate_post_title_suffix": {"class": "authored"},
+    "duplicate_post_types_enabled": {"class": "authored"},
+    "duplicate_post_version": {"class": "runtime"}
+  },
+  "post_meta": {
+    "_dp_creation_date_gmt": {"class": "runtime"},
+    "_dp_has_been_republished": {"class": "runtime"},
+    "_dp_has_rewrite_republish_copy": {"class": "runtime"},
+    "_dp_is_rewrite_republish_copy": {"class": "runtime"},
+    "_dp_original": {"class": "authored", "ref": "post"}
+  }
+}
