@@ -15,6 +15,7 @@ final class SnapshotPruner {
     private \Closure $ledgerIdFor;
     private \Closure $strictPositiveLocalId;
     private \Closure $pruneDeadTableMap;
+    private \Closure $pruneDeadCompositeTableMap;
     private \Closure $isCompositeRef;
 
     public function __construct(
@@ -23,6 +24,7 @@ final class SnapshotPruner {
         \Closure $ledgerIdFor,
         \Closure $strictPositiveLocalId,
         \Closure $pruneDeadTableMap,
+        \Closure $pruneDeadCompositeTableMap,
         \Closure $isCompositeRef
     ) {
         $this->policy = $policy;
@@ -30,6 +32,7 @@ final class SnapshotPruner {
         $this->ledgerIdFor = $ledgerIdFor;
         $this->strictPositiveLocalId = $strictPositiveLocalId;
         $this->pruneDeadTableMap = $pruneDeadTableMap;
+        $this->pruneDeadCompositeTableMap = $pruneDeadCompositeTableMap;
         $this->isCompositeRef = $isCompositeRef;
     }
 
@@ -163,16 +166,22 @@ final class SnapshotPruner {
     }
 
     /**
-     * Full-capture pruning for every ordinary mapped/natural-key row table.
-     * Composite-ref rows are excluded because their ledger local_id is a
-     * packed tuple rather than a scalar primary key.
+     * Full-capture pruning for every declared row table. Ordinary mapped and
+     * natural-key rows use their scalar PK; composite_ref rows use their two
+     * identity columns so lifecycle removal/recreation cannot strand a packed
+     * tuple binding from the pre-removal target ids.
      *
      * @param array<string,array> $rowTables validated row-table roster
      */
     public function prune_dead_map(array $rowTables, ?array $repositoryOptions = null): void {
         $tables = [];
+        $compositeTables = [];
         foreach ($rowTables as $name => $decl) {
             if (($this->isCompositeRef)($decl)) {
+                $compositeTables[$decl['id_kind']] = [
+                    'table' => $name,
+                    'columns' => array_values((array) ($decl['identity']['columns'] ?? [])),
+                ];
                 continue;
             }
             $tables[$decl['id_kind']] = ['table' => $name, 'pk' => $decl['pk']];
@@ -182,6 +191,9 @@ final class SnapshotPruner {
                 $tables,
                 $this->option_name_ref_preserved_ids($repositoryOptions)
             );
+        }
+        if ($compositeTables) {
+            ($this->pruneDeadCompositeTableMap)($compositeTables);
         }
     }
 

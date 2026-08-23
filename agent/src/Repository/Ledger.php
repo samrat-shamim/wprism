@@ -549,6 +549,62 @@ final class Ledger {
         }
     }
 
+    /**
+     * Dead-map reconciliation for composite_ref tables. Their ledger local_id
+     * packs two target-local reference ids rather than naming a scalar PK, so
+     * the ordinary single-column join above cannot prove whether the physical
+     * row survived. Decode the packed tuple in SQL and delete only a mapping
+     * whose exact pair is absent. An absent plugin table remains a lifecycle
+     * skip, matching prune_dead_table_map(): activation may recreate it later.
+     *
+     * @param array<string,array{table:string,columns:string[]}> $tables
+     *   id_kind => unprefixed table plus the two identity columns in packing order
+     */
+    public static function prune_dead_composite_table_map(array $tables, int $componentBits): void {
+        global $wpdb;
+        if ($componentBits <= 0 || $componentBits > 31) {
+            throw new \RuntimeException('duo: invalid composite identity component width for ledger pruning');
+        }
+        $componentMask = (1 << $componentBits) - 1;
+        $p = $wpdb->prefix;
+        foreach ($tables as $idKind => $decl) {
+            $rawTable = $decl['table'] ?? null;
+            $rawColumns = $decl['columns'] ?? null;
+            if (!is_string($idKind) || $idKind === '' || !is_string($rawTable)
+                || !is_array($rawColumns) || count($rawColumns) !== 2
+                || !is_string($rawColumns[0] ?? null) || !is_string($rawColumns[1] ?? null)) {
+                throw new \RuntimeException(
+                    "duo: invalid composite identity table declaration for ledger pruning ($idKind)"
+                );
+            }
+            $table = preg_replace('/[^A-Za-z0-9_]/', '', $rawTable);
+            $rawColumns = array_values($rawColumns);
+            $columns = array_map(
+                static fn($column): string => preg_replace('/[^A-Za-z0-9_]/', '', (string) $column),
+                $rawColumns
+            );
+            if ($table === '' || $table !== $rawTable || $columns !== $rawColumns
+                || $columns[0] === '' || $columns[1] === '') {
+                throw new \RuntimeException(
+                    "duo: invalid composite identity table declaration for ledger pruning ($idKind)"
+                );
+            }
+            if (!self::checked_get_var(
+                $wpdb->prepare('SHOW TABLES LIKE %s', $p . $table),
+                'composite typed identity table lookup'
+            )) {
+                continue;
+            }
+            Db::query($wpdb->prepare(
+                "DELETE m FROM {$p}duo_map m LEFT JOIN `{$p}{$table}` src
+                 ON src.`{$columns[0]}` = (m.local_id >> $componentBits)
+                 AND src.`{$columns[1]}` = (m.local_id & $componentMask)
+                 WHERE m.id_kind = %s AND src.`{$columns[0]}` IS NULL",
+                $idKind
+            ), "ledger prune dead $table composite identities");
+        }
+    }
+
     public static function kv_get(string $k): ?string {
         global $wpdb;
         return self::checked_get_var($wpdb->prepare(

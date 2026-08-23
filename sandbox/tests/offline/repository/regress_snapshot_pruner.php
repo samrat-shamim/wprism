@@ -46,6 +46,7 @@ $check(!class_exists(OptionState::class, false), 'SnapshotPruner does not pull i
 require_once __DIR__ . '/../../../../agent/src/Kernel/TransientDbException.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Db.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
+require_once __DIR__ . '/../../../../agent/src/Repository/SnapshotIdentity.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/TableGraph.php';
@@ -62,6 +63,8 @@ final class SnapshotPrunerFakeWpdb {
     public array $queries = [];
     /** @var list<string> */
     public array $reads = [];
+    /** @var list<string> */
+    public array $missingTables = [];
     public bool $optionScanFails = false;
 
     public function prepare(string $sql, ...$args): string {
@@ -89,6 +92,11 @@ final class SnapshotPrunerFakeWpdb {
     public function get_var(string $sql): mixed {
         $this->reads[] = $sql;
         if (str_starts_with($sql, 'SHOW TABLES LIKE')) {
+            foreach ($this->missingTables as $missingTable) {
+                if (str_contains($sql, "'$missingTable'")) {
+                    return null;
+                }
+            }
             return 'present';
         }
         if (preg_match("/SELECT local_id FROM wp_duo_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'/", $sql, $m)) {
@@ -116,7 +124,9 @@ $row = static function (string $kind, string $mode = 'mapped'): array {
         'class' => 'authored_snapshot',
         'id_kind' => $kind,
         'pk' => 'id',
-        'identity' => ['mode' => $mode],
+        'identity' => $mode === 'composite_ref'
+            ? ['mode' => $mode, 'columns' => ['left_id', 'right_id']]
+            : ['mode' => $mode],
         'columns' => [],
         'refs' => [],
     ];
@@ -148,6 +158,12 @@ $makePruner = static fn(): SnapshotPruner => new SnapshotPruner(
     static function (array $tables, array $preserved): void {
         Ledger::prune_dead_table_map($tables, $preserved);
     },
+    static function (array $tables): void {
+        Ledger::prune_dead_composite_table_map(
+            $tables,
+            \Duo\SnapshotIdentity::compositeComponentBits()
+        );
+    },
     static fn(array $decl): bool => TableGraph::is_composite_ref($decl)
 );
 $pruner = $makePruner();
@@ -176,16 +192,39 @@ $wpdb->last_error = '';
 
 $wpdb->queries = [];
 $pruner->prune_dead_map($rowTables, $canonical);
-$check(count($wpdb->queries) === 2,
-    'full pruning covers ordinary mapped and natural-key tables only');
+$check(count($wpdb->queries) === 3,
+    'full pruning covers ordinary, natural-key, and composite-ref tables');
 $check(str_contains($wpdb->queries[0], "m.id_kind = 'thing'")
     && str_contains($wpdb->queries[0], 'm.local_id NOT IN (7,9)'),
     'full pruning carries the exact option-name preservation set into the ledger DELETE');
 $check(str_contains($wpdb->queries[1], "m.id_kind = 'other'")
     && !str_contains($wpdb->queries[1], 'NOT IN'),
     'full pruning includes unrelated ordinary table kinds without widening preservation');
-$check(!str_contains(implode("\n", $wpdb->queries), "m.id_kind = 'join'"),
-    'full pruning excludes packed composite-ref identities');
+$check(str_contains($wpdb->queries[2], "m.id_kind = 'join'")
+    && str_contains($wpdb->queries[2], 'src.`left_id` = (m.local_id >> 31)')
+    && str_contains($wpdb->queries[2], 'src.`right_id` = (m.local_id & 2147483647)'),
+    'full pruning proves packed composite identities against their exact live tuple');
+
+$throws(
+    static fn() => Ledger::prune_dead_composite_table_map([], 0),
+    'invalid composite identity component width',
+    'composite pruning rejects an invalid packing width before SQL'
+);
+$throws(
+    static fn() => Ledger::prune_dead_composite_table_map([
+        'join' => ['table' => 'joins` malicious', 'columns' => ['left_id', 'right_id']],
+    ], 31),
+    'invalid composite identity table declaration',
+    'composite pruning rejects a hostile identifier instead of sanitizing it into SQL'
+);
+$wpdb->queries = [];
+$wpdb->missingTables = ['wp_missing_joins'];
+Ledger::prune_dead_composite_table_map([
+    'missing_join' => ['table' => 'missing_joins', 'columns' => ['left_id', 'right_id']],
+], 31);
+$check($wpdb->queries === [],
+    'composite pruning skips an absent lifecycle-owned table without mutating its ledger');
+$wpdb->missingTables = [];
 
 $wpdb->queries = [];
 $pruner->prune_option_name_ref_map(static fn(): array => $rowTables, $canonical);
@@ -205,6 +244,12 @@ $noRefsPruner = new SnapshotPruner(
     static fn($value): ?int => Policy::strict_positive_local_id($value),
     static function (array $tables, array $preserved): void {
         Ledger::prune_dead_table_map($tables, $preserved);
+    },
+    static function (array $tables): void {
+        Ledger::prune_dead_composite_table_map(
+            $tables,
+            \Duo\SnapshotIdentity::compositeComponentBits()
+        );
     },
     static fn(array $decl): bool => TableGraph::is_composite_ref($decl)
 );
@@ -254,7 +299,8 @@ foreach ($delegates as $method => $call) {
 }
 $factorySource = $methodSource('snapshot_pruner');
 foreach (['OptionState::records', 'Ledger::id_for', 'Policy::strict_positive_local_id',
-    'Ledger::prune_dead_table_map', 'self::is_composite_ref'] as $collaborator) {
+    'Ledger::prune_dead_table_map', 'Ledger::prune_dead_composite_table_map',
+    'SnapshotIdentity::compositeComponentBits', 'self::is_composite_ref'] as $collaborator) {
     $check(str_contains($factorySource, $collaborator),
         "Snapshot pruning adapter injects $collaborator explicitly");
 }
