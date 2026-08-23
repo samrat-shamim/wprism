@@ -101,6 +101,16 @@ fi
 SCRATCH_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/${PAIR}-local-verified.XXXXXX")"
 HERMETIC_ROOT="$SCRATCH_ROOT/hermetic"
 ENVS_FILE="$SCRATCH_ROOT/envs.json"
+# The controller runs as uid 33 with HOME=/ inside wordpress:cli-php8.3, and
+# `duo init` sources the pair's active theme through the host code-artifact
+# cache (cli/src/Code/WpOrgReleases.php:117-127 resolves $XDG_CACHE_HOME, else
+# ~/.cache -- "/.cache" here, which uid 33 cannot create; measured on the first
+# run of this suite, 2026-08-24: "could not create the code artifact cache at
+# /.cache/duo/code-artifacts"). A real operator's host has a cache; give the
+# controller one on scratch, world-writable because the bind mount is owned by
+# the host user and the container writes as uid 33.
+CACHE_DIR="$SCRATCH_ROOT/cache"
+mkdir -p "$CACHE_DIR" && chmod 0777 "$CACHE_DIR"
 # Create the file BEFORE any container bind-mounts it: every helper below
 # mounts $ENVS_FILE at /controller/envs.json, and a bind mount whose host path
 # does not exist yet is created by Docker as a DIRECTORY, after which the later
@@ -210,6 +220,8 @@ DOCKER_COMMON=(
   -v "$HERMETIC_MANIFESTS:/duo-source/manifests:ro"
   -v "$ENVS_FILE:/controller/envs.json:ro"
   -v "$SIGNING_KEY:/controller/signing.key:ro"
+  -e XDG_CACHE_HOME=/controller-cache
+  -v "$CACHE_DIR:/controller-cache"
 )
 
 controller() {
