@@ -472,6 +472,30 @@ final class AdapterRegistry {
             }
         }
 
+        // Topology is a whole-target fact, so it is reported ONCE, at report
+        // level, under `name: 'platform'` -- never as a per-surface reason.
+        // `ready` below is `$blockers === []`, so this is the entire mechanism
+        // that stops `wp duo capabilities` reporting a network as ready; every
+        // `verdict.reasons` stays untouched, so the code never reaches
+        // `ProjectionVocabulary::project()` (which reads
+        // `report()['manifests'][]['verdict']['reasons']` through
+        // `SurfaceCatalog::registryFacts()`, not this list) and the retirement
+        // recorded at cli/src/Contract/ProjectionVocabulary.php:219-235 stands.
+        // `duo-capability-report/v1` gains only a row in an existing list of
+        // open-vocabulary blocker objects, so the change is additive.
+        if (($target['multisite'] ?? false) === true) {
+            $blockers[] = [
+                'name' => 'platform',
+                'status' => 'blocked',
+                'code' => 'site_mode_unsupported',
+                'reason' => 'the evaluated target is a WordPress network; the certified v1 contract is single-site only',
+                'remediation' => 'evaluate a single-site installation',
+                'source' => AdapterSources::SHIPPED,
+                'trust_tier' => 'registry',
+                'certification' => 'registry',
+            ];
+        }
+
         // Evidence authority is always per subject. This makes the absence of
         // one adapter's citation visible without contaminating another row.
         foreach ($rows as $i => &$row) {
@@ -555,6 +579,11 @@ final class AdapterRegistry {
      * authored in the disposition and pinned to the manifest's own
      * `version_range` (ManifestDispositions::validate_entry()), so it is a
      * reviewed fact and stays enforced.
+     *
+     * Topology in particular is still NOT a per-surface reason. It is reported
+     * once, at report level, under `name: 'platform'` with code
+     * `site_mode_unsupported` (see report() above), so no surface row ever
+     * carries a code `ProjectionVocabulary::project()` has no entry for.
      */
     private static function target_reasons(array $claim, array $target): array {
         $reasons = [];

@@ -6,14 +6,15 @@ namespace Duo\Orchestrator;
 require_once __DIR__ . '/../Transport/Transport.php';
 
 /**
- * `duo doctor <env>` — ten rendered rows over exactly four target round
+ * `duo doctor <env>` — eleven rendered rows over exactly four target round
  * trips, because a row and a round trip are not the same thing.
  *
  * Two of the four are true gates: the raw reachability echo (nothing
  * downstream means anything through a broken transport) and `wp core
  * is-installed` (no WordPress-side fact is readable without it). The other
  * two are compositions. SITE_FACTS answers agent presence,
- * DISALLOW_FILE_MODS and the PHP/database/WordPress facts in ONE `wp eval`:
+ * DISALLOW_FILE_MODS, the site topology and the PHP/database/WordPress facts
+ * in ONE `wp eval`:
  * those three were never gates on each other, only siblings under the same
  * `if ($installed)`. One raw script answers the repo-path row and the
  * `.duo-env-values.json` tracked-status row that genuinely IS gated on it —
@@ -53,7 +54,7 @@ final class Doctor {
      */
     private const SITE_FACTS = 'global $wpdb; '
         . '$duo = ["agent" => null, "file_mods" => null, "php" => null, '
-        . '"db_version" => null, "db_engine" => null, "wp" => null]; '
+        . '"db_version" => null, "db_engine" => null, "wp" => null, "site_mode" => null]; '
         . 'try { $duo["agent"] = class_exists("\\Duo\\Capture") ? "duo-ok" : "duo-missing"; } '
         . 'catch (\Throwable $e) {} '
         . 'try { $duo["file_mods"] = (defined("DISALLOW_FILE_MODS") && DISALLOW_FILE_MODS) '
@@ -63,6 +64,12 @@ final class Doctor {
         . 'try { $duo["db_engine"] = stripos((string) $wpdb->db_server_info(), "mariadb") !== false '
         . '? "mariadb" : "mysql"; } catch (\Throwable $e) {} '
         . 'try { $duo["wp"] = (string) get_bloginfo("version"); } catch (\Throwable $e) {} '
+        // Its own try/catch like every sibling above, and function_exists()
+        // rather than a bare call: this snippet also runs under the isolated
+        // control bootstrap, where a caller can reach it before WordPress has
+        // defined is_multisite().
+        . 'try { $duo["site_mode"] = (function_exists("is_multisite") && is_multisite()) '
+        . '? "multisite" : "single-site"; } catch (\Throwable $e) {} '
         . 'echo json_encode($duo);';
 
     /** @return array{ok:bool, checks: list<array{label:string, ok:bool, detail:string, advisory?:bool}>} */
@@ -371,6 +378,33 @@ final class Doctor {
         } else {
             $checks[] = self::check('compatibility baseline (docs/compatibility-baseline.json)', false, 'skipped: WordPress not installed');
         }
+
+        // Deliberately OUTSIDE the `if ($installed)` and baseline nesting
+        // above: this is the row a PRE-ADOPTION target needs most, and a
+        // network must never read as an all-green screen before anything is
+        // installed. Sourced from SITE_FACTS' own key rather than from
+        // compatibility_facts(): that helper returns null if ANY of its four
+        // keys is missing and its [$php,$db,$engine,$wp] destructure is
+        // load-bearing, so a fifth key there would sink three unrelated rows.
+        //
+        // A FAIL, not an advisory, because docs/compatibility-baseline.json's
+        // own _comment already claims "the agent pre-policy gate and duo doctor
+        // block outside these values" and until now that sentence was false for
+        // topology. 'single-site' is hard-coded rather than read from that file:
+        // tools/capability-doc.php:192-199 byte-compares the baseline object
+        // against manifests/capabilities/platform.json's `compatibility` (which
+        // declares exactly database/php/wordpress, enumerated at :200-202), so a
+        // `site_mode` key there would fail `make release-gate`. The declared value lives in that platform
+        // boundary instead, as `"site_mode": "single-site"`
+        // (manifests/capabilities/platform.json:24), and the agent enforces it
+        // through SiteTopology::assert_single_site().
+        $siteMode = $facts['site_mode'] ?? null;
+        $checks[] = self::check(
+            'site topology (' . (is_string($siteMode) ? $siteMode : 'unknown') . ')',
+            $siteMode === 'single-site',
+            $siteMode === 'single-site' ? '' : 'the certified v1 contract is single-site only; the agent pre-policy '
+                . 'gate refuses every mutating command on a network (docs/compatibility-baseline.json).'
+        );
 
         // DUO-3290: surfaced, not run — doctor stays fast and never
         // triggers coverage's own table-enumeration/row-count queries on

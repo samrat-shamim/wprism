@@ -97,6 +97,7 @@ class HealthyDoctorDriver implements EnvironmentDriver {
                 'db_version' => '11.8.8',
                 'db_engine' => 'mariadb',
                 'wp' => '7.0.3',
+                'site_mode' => 'single-site',
             ]) . "\n", 'stderr' => ''];
         }
         return ['exit' => 99, 'stdout' => '', 'stderr' => 'unexpected WordPress probe'];
@@ -183,6 +184,7 @@ $compatibilityCase = static function (array $override): array {
         'db_version' => '11.8.8',
         'db_engine' => 'mariadb',
         'wp' => '7.0.3',
+        'site_mode' => 'single-site',
     ];
     foreach ($override as $key => $value) {
         $facts[$key] = $value;
@@ -225,6 +227,57 @@ foreach ([
         "$label uses the composed four-round-trip doctor path"
     );
 }
+
+// The certified v1 contract is single-site only, and until this row existed a
+// network read as an all-green pre-adoption screen while
+// docs/compatibility-baseline.json already claimed "the agent pre-policy gate
+// and duo doctor block outside these values". A FAIL, not an advisory.
+$multisiteCase = $compatibilityCase(['site_mode' => 'multisite']);
+assert_doctor_command($multisiteCase['exit'] === 1, 'a network is a blocking doctor failure');
+assert_doctor_command(
+    str_contains($multisiteCase['output'], '[FAIL] site topology (multisite)'),
+    'the site-topology row names the observed topology in its label'
+);
+assert_doctor_command(
+    str_contains($multisiteCase['output'], 'the certified v1 contract is single-site only; the agent pre-policy gate refuses every mutating command on a network'),
+    'and states the blocking reason rather than an advisory hint'
+);
+assert_doctor_command(
+    !str_contains($multisiteCase['output'], '[WARN] site topology'),
+    'the row is never rendered as an advisory warning'
+);
+assert_doctor_command(
+    str_contains($multisiteCase['output'], '[PASS] PHP version (8.3.33)')
+        && str_contains($multisiteCase['output'], '[PASS] WordPress core (7.0.3)'),
+    'and a network sinks only its own row: the compatibility rows still answer independently'
+);
+
+// The row is sourced from SITE_FACTS' own key, so a target that could not
+// answer at all reports `unknown` and still fails — fail-closed, like every
+// other blocking row here.
+$unknownTopology = $compatibilityCase([]);
+assert_doctor_command(
+    str_contains($unknownTopology['output'], '[PASS] site topology (single-site)'),
+    'a single-site target passes the topology row'
+);
+$noTopologyDriver = new HealthyDoctorDriver();
+$noTopologyDriver->factsResult = ['exit' => 0, 'stdout' => (string) json_encode([
+    'agent' => 'duo-ok',
+    'file_mods' => 'duo-set',
+    'php' => '8.3.33',
+    'db_version' => '11.8.8',
+    'db_engine' => 'mariadb',
+    'wp' => '7.0.3',
+    'site_mode' => null,
+]) . "\n", 'stderr' => ''];
+ob_start();
+$noTopologyExit = DoctorCommand::run($noTopologyDriver);
+$noTopologyOutput = (string) ob_get_clean();
+assert_doctor_command($noTopologyExit === 1, 'a target-side throw that sank the topology fact is a blocking failure');
+assert_doctor_command(
+    str_contains($noTopologyOutput, '[FAIL] site topology (unknown)'),
+    'and the unreadable answer is labelled unknown rather than guessed single-site'
+);
 
 $missingAgent = new AdoptableDoctorDriver(false);
 ob_start();
@@ -275,6 +328,7 @@ $sunkDb->factsResult = ['exit' => 0, 'stdout' => (string) json_encode([
     'db_version' => null,
     'db_engine' => null,
     'wp' => '7.0.3',
+    'site_mode' => 'single-site',
 ]) . "\n", 'stderr' => ''];
 ob_start();
 $sunkDbExit = DoctorCommand::run($sunkDb);
@@ -360,5 +414,14 @@ assert_doctor_command(($facts['php'] ?? null) === PHP_VERSION, 'a throwing $wpdb
 assert_doctor_command(($facts['wp'] ?? null) === '7.0.3', 'a throwing $wpdb sank the WordPress version field');
 assert_doctor_command(array_key_exists('db_version', $facts) && $facts['db_version'] === null, 'the thrown field did not leave its own null sentinel');
 assert_doctor_command(($facts['db_engine'] ?? null) === 'mariadb', 'the sibling database field did not answer independently of the thrown one');
+// The topology field is computed with function_exists() rather than a bare
+// call: this snippet also runs under the isolated control bootstrap, where
+// is_multisite() may not be defined yet. A bare call would be an Error, and
+// Error is not \Throwable's only subtype the per-field catch sees -- but a
+// snippet that fataled here would sink the whole payload, not one field.
+assert_doctor_command(
+    ($facts['site_mode'] ?? null) === 'single-site',
+    'a throwing $wpdb sank the site-topology field, and an undefined is_multisite() is answered single-site rather than fataling'
+);
 
 echo "PASS: doctor command\n";

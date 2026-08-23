@@ -67,6 +67,21 @@ final class PlatformCompatibility {
         $compatibility = $platform['compatibility'];
         $diagnostics = [];
         $siteMode = (string) $facts['site_mode'];
+        // Deliberately kept even though it is unreachable on the product path:
+        // Policy::load() calls assert_single_site() FIRST and unconditionally
+        // (Policy.php:334-337), so a network is answered by
+        // SiteTopology::assert_single_site() before this runs. This gate cannot
+        // replace it — assert_supported_platform() returns early without
+        // ABSPATH/WPINC/get_bloginfo (Policy.php:290-297), so a topology answer
+        // would become conditional on bootstrap shape; current_facts() throws
+        // probe_refusal('database') first (:31-41), so a network with an
+        // unreadable SELECT VERSION() would be told about its database instead
+        // of its topology; and the aggregate reason code is one
+        // `platform_unsupported` for four axes, which is exactly the
+        // un-actionable answer the typed topology refusal exists to remove.
+        // This diagnostic is the boundary-document and defence-in-depth path,
+        // exercised directly by
+        // sandbox/tests/offline/policy/regress_platform_compatibility.php:115.
         if ($siteMode !== (string) $platform['site_mode']) {
             $diagnostics[] = self::diagnostic(
                 'platform_site_mode_unsupported',

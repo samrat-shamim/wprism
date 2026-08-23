@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../../cli/src/Command/AdoptCommand.php';
 
 use Duo\Orchestrator\AdoptionTransport;
+use Duo\Orchestrator\Adopt;
 use Duo\Orchestrator\AdoptCommand;
 use Duo\Orchestrator\DriverCapability;
 use Duo\Orchestrator\DriverCapabilityReport;
@@ -49,7 +50,12 @@ final class AdoptCommandFakeTransport implements AdoptionTransport, EnvironmentD
     public array $wpArgs = [];
     public int $uploadCalls = 0;
 
-    public function __construct(private string $sourceRoot, private bool $failUpload = false) {}
+    public function __construct(
+        private string $sourceRoot,
+        private bool $failUpload = false,
+        public string $topology = 'duo-single-site',
+        public int $topologyExit = 0
+    ) {}
 
     public function bootstrapCapability(): array {
         return ['supported' => true, 'reason' => 'fixture bootstrap authority', 'remediation' => ''];
@@ -87,6 +93,20 @@ final class AdoptCommandFakeTransport implements AdoptionTransport, EnvironmentD
         if (str_contains($snippet, 'WPMU_PLUGIN_DIR')) {
             return ['exit' => 0, 'stdout' => "/fixture/mu\n", 'stderr' => ''];
         }
+        // The PRE-SWAP topology probe. Answered with plain `wp eval` args in
+        // both branches, never CodeDeploy::controlArgs(): that bootstrap
+        // requires the installed agent at wp-content/mu-plugins/duo/duo.php,
+        // which by construction does not exist yet at this point.
+        // Matched on the probe's own distinctive literal, not on
+        // `is_multisite`: doctor's composed SITE_FACTS eval now names
+        // is_multisite() too, and a looser pattern would shadow it
+        // (first-match-wins).
+        if (str_contains($snippet, 'duo-single-site')) {
+            if ($this->topologyExit !== 0) {
+                return ['exit' => $this->topologyExit, 'stdout' => '', 'stderr' => 'fixture topology probe refused'];
+            }
+            return ['exit' => 0, 'stdout' => $this->topology . "\n", 'stderr' => ''];
+        }
         if (str_contains($snippet, 'DUO_AGENT_VERSION')) {
             $source = (string) file_get_contents($this->sourceRoot . '/agent/duo.php');
             preg_match("/define\\(\\s*'DUO_AGENT_VERSION'\\s*,\\s*'([^']+)'\\s*\\)/", $source, $match);
@@ -106,6 +126,7 @@ final class AdoptCommandFakeTransport implements AdoptionTransport, EnvironmentD
                 'db_version' => '11.8.8',
                 'db_engine' => 'mariadb',
                 'wp' => '7.0.3',
+                'site_mode' => 'single-site',
             ]) . "\n", 'stderr' => ''];
         }
         return ['exit' => 99, 'stdout' => '', 'stderr' => 'unexpected WordPress probe'];
@@ -156,7 +177,9 @@ assert_adopt_command($failedExit === 73, 'archive upload failure preserves the t
 assert_adopt_command(str_contains($failedOutput, 'adopt phase: staged install + transactional doctor'), 'failure prints the adopt phase');
 assert_adopt_command($failed->uploadCalls === 1, 'failed adoption stops at the first upload');
 assert_adopt_command(count($failed->rawScripts) === 1, 'upload failure performs only the transport preflight');
-assert_adopt_command(count($failed->wpArgs) === 2, 'upload failure performs only the WordPress preflight');
+// 2 -> 3: the pre-swap topology probe runs inside the try, ahead of the tar
+// and the upload, so every path past the preflight now carries it.
+assert_adopt_command(count($failed->wpArgs) === 3, 'upload failure performs only the WordPress preflight plus the pre-swap topology probe');
 
 $healthy = new AdoptCommandFakeTransport($sourceRoot);
 ob_start();
@@ -171,6 +194,63 @@ assert_adopt_command($healthy->uploadCalls === 1, 'successful adoption uploads o
 // is doctor's. Adopt's own probe set did not move: the transactional doctor
 // run inside the install transaction now costs 2 raw + 2 wp instead of 3 + 4.
 assert_adopt_command(count($healthy->rawScripts) === 8, 'adoption plus doctor performs the bounded raw probe set (' . count($healthy->rawScripts) . ')');
-assert_adopt_command(count($healthy->wpArgs) === 6, 'adoption plus doctor performs the bounded WordPress probe set (' . count($healthy->wpArgs) . ')');
+assert_adopt_command(count($healthy->wpArgs) === 7, 'adoption plus doctor performs the bounded WordPress probe set (' . count($healthy->wpArgs) . ')');
+
+// The topology question is asked BEFORE the swap, and a network is refused
+// with nothing installed. mu-plugins are network-wide, so the window between
+// the install script and the post-swap Policy probe loads the drop-in on every
+// blog of every request; on a DUO_JOURNAL target that window created per-blog
+// `wp_N_duo_*` tables Adopt::rollbackScript() cannot remove (it restores
+// filesystem paths only, and the shipped tree has no DROP TABLE). Before this,
+// adoption refused only from the post-swap Policy probe -- i.e. after a fully
+// installed, network-wide swap, followed by a rollback whose story did not
+// cover what the window could create.
+// Driven through Adopt::install() rather than AdoptCommand::run(): the refusal
+// PHASE is the fact under test, and install() returns it as data while the
+// command renders it to STDERR.
+$network = new AdoptCommandFakeTransport($sourceRoot, false, 'duo-multisite');
+$networkResult = Adopt::install($network, $sourceRoot);
+assert_adopt_command($networkResult['exit'] !== 0, 'a network refuses adoption');
+assert_adopt_command(
+    $networkResult['phase'] === 'topology probe',
+    "the refusal names the topology probe as its phase (not 'policy verification', which is post-swap): got '"
+        . $networkResult['phase'] . "'"
+);
+assert_adopt_command(
+    str_contains($networkResult['stderr'], 'multisite is unsupported by the certified v1 contract')
+        && str_contains($networkResult['stderr'], 'single-site only'),
+    'the refusal carries the same sentence the agent prints'
+);
+assert_adopt_command($network->uploadCalls === 0, 'a refused network adoption uploads nothing');
+assert_adopt_command(
+    count(array_filter($network->rawScripts, static fn(string $sc): bool => str_contains($sc, 'agent_new='))) === 0,
+    'and never runs the install script, so $swapped never became true'
+);
+assert_adopt_command(
+    count(array_filter($network->rawScripts, static fn(string $sc): bool => str_contains($sc, 'agent_prev='))) === 0,
+    'and never runs a rollback, because there is nothing to roll back'
+);
+assert_adopt_command(
+    count(array_filter(
+        $network->wpArgs,
+        static fn(array $a): bool => str_contains((string) ($a[1] ?? ''), 'duo-policy-ok')
+    )) === 0,
+    'the post-swap Policy probe is never reached'
+);
+assert_adopt_command(
+    count(array_filter(
+        $network->wpArgs,
+        static fn(array $a): bool => in_array('--skip-plugins', $a, true)
+    )) === 0,
+    'and the pre-swap probe never uses the isolated control bootstrap, which requires the not-yet-installed agent'
+);
+
+// Fail-closed: an adoption that cannot establish the topology must not swap
+// either. A probe that exits non-zero is not a single-site answer.
+$unreadable = new AdoptCommandFakeTransport($sourceRoot, false, 'duo-single-site', 77);
+$unreadableResult = Adopt::install($unreadable, $sourceRoot);
+assert_adopt_command($unreadableResult['exit'] === 77, 'an unreadable topology answer preserves the transport exit code');
+assert_adopt_command($unreadableResult['phase'] === 'topology probe', 'and refuses at the same phase');
+assert_adopt_command($unreadable->uploadCalls === 0, 'fail-closed: an unanswerable topology probe uploads nothing');
 
 echo "PASS: adopt command\n";

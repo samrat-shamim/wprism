@@ -66,6 +66,7 @@ final class DoctorTransport extends Transport {
                 'db_version' => '11.8.8',
                 'db_engine' => 'mariadb',
                 'wp' => '7.0.3',
+                'site_mode' => 'single-site',
             ]));
         }
         return ['exit' => 98, 'stdout' => '', 'stderr' => 'unexpected wp command: ' . json_encode($wpArgs)];

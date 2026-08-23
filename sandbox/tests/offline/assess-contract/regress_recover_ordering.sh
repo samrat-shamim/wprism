@@ -152,6 +152,68 @@ grep -Fq 'lease row' "$TMP/noexclusion.txt" \
   && fail 'a refused restore still touched the target' \
   || pass 'a refused restore runs nothing at all — not even step 1'
 
+# ------------------------------------------------------------- topology first
+# `duo recover` is the most destructive verb in the product and was the only one
+# with no topology gate at any layer: step 3 is a stock `wp db import`
+# (CodeDeploy::recoveryDbImportArgs()), which on a network replaces every blog
+# plus wp_users/wp_blogs/wp_sitemeta. The refusal lands where this file's own
+# "Proved BEFORE step 1" doctrine puts every pre-condition: zero steps, no lease
+# touched.
+say 'a network refuses before step 1'
+DUO_RECOVER_STATUS="$TMP/f/status/database-only.json" DUO_TOPOLOGY=multisite \
+  recover "network" --restore=receipt-recover-fixture --writers-excluded --format=json
+STATUS=$?
+[ "$STATUS" = 1 ] && pass 'a multisite target refuses (exit 1)' \
+  || fail "a multisite restore exited $STATUS"
+php -r '
+$doc = json_decode((string) file_get_contents($argv[1]), true);
+if (!is_array($doc)) {
+    fwrite(STDERR, "FAIL: the multisite refusal produced no JSON document\n");
+    exit(1);
+}
+$fail = [];
+if (($doc["format"] ?? null) !== "duo-command-refusal/v1") { $fail[] = "not a duo-command-refusal/v1 envelope"; }
+if (($doc["reason_code"] ?? null) !== "recover_topology_unsupported") {
+    $fail[] = "reason_code is " . var_export($doc["reason_code"] ?? null, true);
+}
+if (!str_contains((string) ($doc["message"] ?? ""), "single-site installations only")) {
+    $fail[] = "the message does not name the single-site boundary";
+}
+if (!str_contains((string) ($doc["remediation"] ?? ""), "restores every blog and the network tables")) {
+    $fail[] = "the remediation does not say what a whole-database import does to a network";
+}
+if ($fail !== []) { fwrite(STDERR, "FAIL: " . implode(" | ", $fail) . "\n"); exit(1); }
+echo "ok: the multisite refusal is one duo-command-refusal/v1 naming recover_topology_unsupported\n";
+' "$TMP/network.txt" || fail 'the multisite refusal envelope is wrong'
+STEPS="$(wp_steps | tr '\n' ' ')"
+[ -z "${STEPS// /}" ] \
+  && pass 'a network drives ZERO steps: no abort, no begin, no db import' \
+  || fail "the multisite refusal still ran steps: $STEPS"
+
+# Fail-closed, deliberately and with no override flag: a target too broken to
+# say whether it is a network is too broken to import a whole database into.
+DUO_RECOVER_STATUS="$TMP/f/status/database-only.json" DUO_TOPOLOGY_EXIT=17 \
+  recover "unknowntopology" --restore=receipt-recover-fixture --writers-excluded --format=json
+STATUS=$?
+[ "$STATUS" = 1 ] && pass 'an unreadable topology answer refuses (exit 1)' \
+  || fail "an unreadable topology answer exited $STATUS"
+grep -Fq '"reason_code":"recover_topology_unknown"' "$TMP/unknowntopology.txt" \
+  && pass 'and gets its own reason code, distinct from a target that said multisite' \
+  || { fail 'an unreadable topology answer did not name recover_topology_unknown'; sed -n '1,10p' "$TMP/unknowntopology.txt" >&2; }
+STEPS="$(wp_steps | tr '\n' ' ')"
+[ -z "${STEPS// /}" ] \
+  && pass 'and drives zero steps as well' \
+  || fail "the unknown-topology refusal still ran steps: $STEPS"
+
+# --list is read-only, so it stays un-gated on a network.
+DUO_RECOVER_STATUS="$TMP/f/status/code.json" DUO_TOPOLOGY=multisite recover "networklist" --list
+STATUS=$?
+[ "$STATUS" = 0 ] && pass '--list stays un-gated on a network: it is read-only' \
+  || { fail "--list on a network exited $STATUS"; sed -n '1,20p' "$TMP/networklist.txt" >&2; }
+grep -Fq 'receipt-recover-fixture' "$TMP/networklist.txt" \
+  && pass 'and still prints the catalog' \
+  || fail '--list on a network printed no catalog'
+
 # --------------------------------------------------------------- code first
 say 'code-first ordering is enforced, not advised'
 DUO_RECOVER_STATUS="$TMP/f/status/code.json" \

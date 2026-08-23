@@ -198,6 +198,32 @@ final class RecoverCommand {
             );
         }
 
+        // Proved BEFORE step 1, where this file's own doctrine puts every
+        // pre-condition (see operatorDirected()'s comment on the checkpoint
+        // read): refusing here drives zero steps and touches no lease. Step 3
+        // is a stock `wp db import` (CodeDeploy::recoveryDbImportArgs()), which
+        // on a network replaces every blog plus wp_users/wp_blogs/wp_sitemeta
+        // — this is the most destructive verb in the product and it was the
+        // only one with no topology gate at any layer. `--list` above stays
+        // un-gated: it is read-only.
+        $topology = $transport->captureWp(CodeDeploy::controlArgs(
+            ['eval', 'echo is_multisite() ? "multisite" : "single-site";']
+        ));
+        $observed = ($topology['exit'] ?? 1) === 0 ? trim((string) ($topology['stdout'] ?? '')) : '';
+        if ($observed !== 'single-site') {
+            // Fail closed on an unreadable answer, deliberately and with no
+            // override flag: a target too broken to say whether it is a network
+            // is too broken to import a whole database into.
+            throw new CommandRefusalException(
+                $observed === '' ? 'recover_topology_unknown' : 'recover_topology_unsupported',
+                $observed === ''
+                    ? 'the target could not answer whether it is a single-site installation, and recovery imports a whole database'
+                    : 'this recovery path restores single-site installations only',
+                'recover a single-site installation; a whole-database import on a network restores every blog and '
+                    . 'the network tables, which is outside the certified v1 contract'
+            );
+        }
+
         $resolved = self::claim($row);
         $claim = $resolved['claim'];
         // Printed BEFORE acting, always, in both channels: the operator has
