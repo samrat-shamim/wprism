@@ -37,8 +37,8 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-env-options-policy regress-shipped-option-declarations regress-export-manifest-roundtrip regress-manifest-reclassification-policy regress-ecommerce-developer-matrix \
 	regress-menu-field-reclassification-policy regress-regen-dependency-policy regress-shortcode-refs \
 	regress-woocommerce-product-lookups regress-woocommerce-product-lookups-fake regress-woocommerce-deletion-authority \
-	regress-woocommerce-regen-engine regress-action-scope regress-provider-contract regress-actions-providers regress-yoast-index-provider regress-core-rewrite-native-action regress-provider-contract-live regress-ecommerce-developer-static regress-ecommerce-extension-migration regress-capture-atomicity \
-	regress-term-meta regress-url-query-refs regress-acf-term-options-fields regress-acf-production-readiness regress-contact-form-7-production-readiness regress-paid-memberships-pro-production-readiness regress-collision \
+	regress-woocommerce-regen-engine regress-action-scope regress-provider-contract regress-actions-providers regress-ninja-forms-form-cache-provider regress-yoast-index-provider regress-core-rewrite-native-action regress-provider-contract-live regress-ecommerce-developer-static regress-ecommerce-extension-migration regress-capture-atomicity \
+	regress-term-meta regress-url-query-refs regress-acf-term-options-fields regress-acf-production-readiness regress-contact-form-7-production-readiness regress-paid-memberships-pro-production-readiness regress-ninja-forms-production-readiness regress-collision \
 	regress-entity-type-width regress-env-set regress-option-ref-scope regress-pmpro-composite-ref \
 	regress-repository-authorization regress-repository-compiler-integration regress-scope-gate \
 	regress-snapshot-meta regress-generic-reference-shapes regress-ssh-adopt regress-tec-regen regress-user-meta \
