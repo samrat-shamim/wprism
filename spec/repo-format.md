@@ -704,16 +704,22 @@ values such as `core/video.tracks`; lint reports
 `unrewritten_registered_text` when a declared path still contains the current
 environment's home URL.
 
-Shortcode rules may additionally declare a positional locator: `position` is a
-zero-based positional argument, `kind` is the canonical entity kind, and
-`lookup` contains the authoritative alternate domain (`post_meta` plus
-`post_type`). Capture resolves the positional value through that exact
-post-meta/post-type pair and emits the ordinary canonical entity token; apply
-resolves the token back to the target row's alternate value. Positional rules
-are closed to static kinds and cannot be combined with named `path`,
-`kind_from`, `tokenize`, or `lint_ok`. A missing, duplicate, non-decimal, or
-wrong-domain alternate value is a hard refusal; raw positional integers never
-remain in canonical state.
+Shortcode rules may additionally bind a plugin-public alternate identity to a
+post. A positional locator declares `position`, static `kind: "post"`, and an
+authoritative `lookup` domain (`post_meta` plus `post_type`). A named
+hash-prefix locator is exactly `{path, kind: "post", required: true, lookup}`;
+its lookup is exactly `{codec: "hex-prefix", post_meta, post_type,
+prefix_length, stored_length}` with
+`1 <= prefix_length <= stored_length <= 128`. Capture resolves the public
+alternate through that exact post-meta/post-type domain and emits the ordinary
+canonical post token; apply restores the target row's alternate. The named
+codec accepts only an exact lowercase-hex prefix, requires exactly one
+attribute occurrence, validates the full stored value, and preflights every
+canonical owner—including forms no page currently embeds—against target
+collisions before mutation. Lookup rules are closed to static post kinds and
+cannot acquire casts, tokenization, lint exemptions, title fallbacks, or extra
+keys. A missing, duplicate, malformed, unmanaged, or wrong-domain alternate is
+a hard refusal; raw alternates never remain in canonical state.
 | `widgets.<t>.settings.*` `class`/`codec`/`ref` | engine | engine change + spec bump | load-time |
 | `dynamic_options.<k>.resolver` | engine | engine change + spec bump (three coordinated edits — see above) | load-time |
 | classification rule `class` (`authored`/`runtime`/`derived`/`env`/`managed`); whole-entity **scope** `class` is the same set minus `managed` | engine | engine change + spec bump | load-time |
@@ -762,6 +768,8 @@ Unclassified state is never silently captured *or* silently skipped; it queues f
 - **Shortcode attributes not codec'd** (spec v0.18, DUO-3259): `shortcode_attrs` deliberately covers only attributes grounded as genuine, currently-reachable references by reading the relevant shortcode callback's WordPress core source directly — not every id-shaped-looking attribute on every shortcode. The legacy `[gallery]` shortcode's `id`/`ids`/`include`/`exclude` are declared (four genuine post refs, confirmed via `gallery_shortcode()`); `[caption]`'s own `id` attribute is deliberately NOT declared — confirmed via `img_caption_shortcode()` directly, it is `sanitize_html_class()`'d and emitted verbatim as a DOM id for CSS/JS targeting only, never parsed back into a numeric attachment reference anywhere in WordPress core, so there is nothing to codec (an explicit-unsupported ruling for a different reason than "hard to build" — see `manifests/core.json`'s own note).
 
   A positional rule uses `{ "kind": "post", "position": <non-negative integer>, "lookup": { "post_meta": "…", "post_type": "…" } }` and is a closed declaration: no named path, cast, type, lint exemption, or extra key is permitted, and one tag cannot mix positional and named rules. The engine locates spans with WordPress's `get_shortcode_atts_regex()` including its required whitespace/end delimiter, then applies the declared callback's argument contract. Because legacy callbacks such as CF7's `[contact-form …]` consume the first value returned by `shortcode_parse_atts()`, any named attribute on a positional tag is refused rather than allowing a later bare span to change callback semantics. Lookup values are canonical positive decimal integers in the intersection of WordPress's bare `DECIMAL` meta-query domain and PHP's integer domain (at most ten digits on 64-bit builds); source and target uniqueness checks use the same numeric cast. A positional shortcode is therefore either fully canonicalized to a post token or fails closed; raw or ambiguous alternates never remain in canonical state.
+
+  A named hash-prefix rule uses `{ "kind": "post", "path": "id", "required": true, "lookup": { "codec": "hex-prefix", "post_meta": "_hash", "post_type": "…", "prefix_length": 7, "stored_length": 64 } }`. This is not a generic truncation helper: both lengths and the lowercase-hex alphabet are part of the declared plugin callback contract. Capture resolves with the database's case-insensitive collision semantics but accepts only a canonical lowercase stored value; apply checks the canonical set and the live target before the first write, then derives the public prefix from the mapped target row. CF7's modern shortcode is the first consumer because its callback reads exactly seven `_hash` characters and otherwise falls back to mutable title matching. Duo requires the native hash identity and refuses that fallback.
 
 The orchestrator surfaces this loop as `duo pending <env>` and `duo classify <env>` (interactive stdin triage; Enter accepts a proposal, explicit keys override, secrets require typing "allow"; `--accept-proposals` for CI, which never auto-authors a secret) — see cli/README.md.
 

@@ -2,9 +2,11 @@
 namespace Duo;
 
 require_once __DIR__ . '/../Policy/Policy.php';
+require_once __DIR__ . '/../Repository/Ledger.php';
+require_once __DIR__ . '/Shortcodes.php';
 require_once __DIR__ . '/Tokens.php';
 
-/** Builds and seals the positional-shortcode alternate lookup for one apply. */
+/** Builds and preflights declared shortcode alternate identities for one apply. */
 final class ShortcodeAlternateRegistrar {
     public function __construct(
         private readonly Policy $policy,
@@ -12,8 +14,12 @@ final class ShortcodeAlternateRegistrar {
     ) {}
 
     public function register(array $tree): void {
-        foreach ($this->policy->shortcode_attr_rules() as $rules) {
+        foreach ($this->policy->shortcode_attr_rules() as $tag => $rules) {
             foreach ($rules as $rule) {
+                if (array_key_exists('lookup', $rule) && array_key_exists('path', $rule)) {
+                    $this->register_named_lookup($tree, (string) $tag, $rule);
+                    continue;
+                }
                 if (!array_key_exists('position', $rule)) {
                     continue;
                 }
@@ -45,5 +51,38 @@ final class ShortcodeAlternateRegistrar {
             }
         }
         $this->tokens->seal_shortcode_alternates();
+    }
+
+    private function register_named_lookup(array $tree, string $tag, array $rule): void {
+        $lookup = $rule['lookup'];
+        $metaKey = (string) $lookup['post_meta'];
+        $postType = (string) $lookup['post_type'];
+        $seen = [];
+        foreach ($tree as $entity) {
+            if (($entity['type'] ?? '') !== 'post' || (($entity['data']['type'] ?? '') !== $postType)) {
+                continue;
+            }
+            $uuid = (string) ($entity['data']['uuid'] ?? '');
+            $meta = (array) ($entity['data']['meta'] ?? []);
+            if (!array_key_exists($metaKey, $meta) || is_array($meta[$metaKey])) {
+                throw new \RuntimeException(
+                    "duo: named shortcode lookup '$metaKey' on $uuid has no unique authored scalar value"
+                );
+            }
+            $targetId = Ledger::id_for($uuid, 'post');
+            $prefix = Shortcodes::assert_named_alternate_target_available(
+                $targetId,
+                $lookup,
+                (string) $meta[$metaKey],
+                $tag,
+                (string) $rule['path']
+            );
+            if (isset($seen[$prefix]) && $seen[$prefix] !== $uuid) {
+                throw new \RuntimeException(
+                    "duo: named shortcode alternate '$prefix' is ambiguous in $postType.$metaKey"
+                );
+            }
+            $seen[$prefix] = $uuid;
+        }
     }
 }

@@ -1,16 +1,17 @@
 {
   "spec_version": 2,
   "name": "contact-form-7",
+  "interpreter": "contact-form-7",
   "plugin": "contact-form-7/wp-contact-form-7.php",
   "version_range": {"min": "6.0.0", "max": "7.0.0"},
   "notes": [
-    "DUO-3222 (version-pinned adapter compatibility contract): plugin/version_range verified live (not guessed) — contact-form-7/wp-contact-form-7.php, re-confirmed at 6.1.6 this session (unchanged from the R1-A grind round's own grounding below — same version, re-verified independently, not assumed stale-and-still-true). Range scoped to the CURRENT major line only (6.x, [6.0.0, 7.0.0)) — widening to cover other major versions is DUO-3224's ratification job, not invented here.",
-    "Grind R1-A: all 8 postmeta keys verified empirically against a real form created via WPCF7_ContactForm::get_template()+save() (CF7 6.1.6's own admin-screen code path, not hand-authored postmeta) and customized mail settings — every value is plain text/merge-tags or a nested object of plain text. _old_cf7_unit_id is the one deliberate alternate identity fact; it is resolved only through the declared post-meta/post-type locator, never as wp_posts.ID.",
-    "CF7 6.1.6's legacy formatter emits [contact-form <old_id> \"<title>\"], and the runtime resolves that positional integer through _old_cf7_unit_id. The positional shortcode_attrs rule canonicalizes that value to the form's post token in post bodies and structured string leaves (including Elementor payloads), then restores the target form's own alternate on apply; missing, duplicate, non-positive, non-decimal, or wrong-domain alternates refuse loudly.",
-    "_hash: a persisted per-form random opaque string (wpcf7_generate_contact_form_hash(), add_post_meta()'d once on first save, never regenerated) — NOT a secret (doesn't match Secrets::HARD_PATTERNS or the suspicious key-name heuristic) and NOT a ref. It matters structurally though: CF7's own shortcode embeds `id=\"<first 7 chars of _hash>\"`, not the numeric post id — WPCF7_ContactForm::find()/hash lookup resolves the shortcode to whichever post currently holds that hash, fresh at every render. Confirmed empirically (grind round R1-A's round-trip): because _hash round-trips as ordinary opaque authored postmeta, a page's `[contact-form-7 id=\"...\"]` shortcode text needs no rewriting at all and resolves correctly on a second environment even though the form's own numeric post id differs there — CF7's embedding is ref-safe by construction, unlike Ninja Forms' block/shortcode (see manifests/ninja-forms.json).",
-    "_form/_mail/_mail_2/_messages/_additional_settings/_locale: CF7's own save() path (contact-form.php save()) writes each contact-form 'property' as its own postmeta key via update_post_meta($post_id, '_'.$prop, ...) — _form is a plain string (the field markup), _mail/_mail_2 are nested arrays (recipient/subject/body/etc, all plain strings — the whole-structure string-leaf tokenizer handles them for free, same as any other authored nested value), _messages is a flat string map, _locale a locale code string, _additional_settings an opaque multi-line string. None observed to ever contain an id in this exploration.",
+    "The admitted line is Contact Form 7 6.x only ([6.0.0, 7.0.0)). The exact wordpress.org 6.0 package (plugin header 6.0, version-equivalent to the declared 6.0.0 lower bound) and 6.1.6 are the boundary artifacts; 5.9.8 is the adjacent installed negative control. Widening to another major requires a new source audit and exact-artifact evidence.",
+    "All current property metadata was produced through WPCF7_ContactForm::get_template()+save(), not hand-authored rows. _form and _additional_settings are strings; _mail/_mail_2 and _messages are closed string-bearing objects and use the recursive plain-data codec so home URLs rebind without changing their serialized types; _locale and _hash have exact plugin-consumed grammars.",
+    "The modern [contact-form-7] callback resolves exactly the first seven lowercase-hex characters of persisted _hash. A raw source prefix can select an unrelated target form, so the required id attribute is canonicalized to the owning post token and restored from the target row. Missing, duplicate, malformed, unmanaged, or source/target-colliding prefixes refuse before publication or mutation; title-only, numeric, and other fallback identity forms remain unsupported rather than relying on mutable titles.",
+    "The legacy formatter emits [contact-form <old_id> \"<title>\"], whose positional integer resolves through _old_cf7_unit_id rather than wp_posts.ID. The positional rule canonicalizes that alternate to the same post token in post bodies and structured string leaves, then restores the target form's own alternate; missing, duplicate, non-positive, non-decimal, overflow, and wrong-domain values refuse loudly.",
+    "CF7 6.x still reads the pre-3.3 unprefixed form/mail/mail_2/messages/additional_settings property names. The digest-bound interpreter admits exactly one current-or-legacy spelling per property and rejects dual or incomplete storage. It also classifies native _config_errors/_config_validation/_flamingo residue as runtime and _constant_contact/_sendinblue integration configuration as environment-owned, only in an anchored CF7 form context; unknown plugin extensions stay unclassified and loud.",
     "The manifest declares the non-public wpcf7_contact_form post type so Capture can discover and gate CF7 forms; site.duo.json still controls the site's broader post_type scope.",
-    "wpcf7 (DUO-3509): checked as part of the undeclared-option sweep and DECLARED env, required:false — CF7's single settings blob, read through WPCF7::get_option()/update_option(), which array_merge() named entries into one wp_options row (load.php:94-124) and delete it wholesale on uninstall (uninstall.php:10). It is not version bookkeeping alone, which is why it is env rather than runtime: reading every WPCF7::update_option() call site in 6.1.7 shows the row mixes `version`, CF7's own upgrade-routine gate (load.php:160/169, the value wpcf7_upgrade() compares against to decide which one-shot migration to run — the same shape yoast.json's note describes for `wpseo`'s `version`, and replaying a stale one across environments would re-run or skip a migration), `bulk_validate`, this environment's own config-validation result set with its counts and timestamp (admin/includes/config-validator.php:99, admin/admin.php:645), `recaptcha_v2_v3_warning`, an admin notice flag (modules/recaptcha/recaptcha.php:203), and — decisively — live third-party credentials: `recaptcha` and `turnstile` sitekey/secret pairs (modules/recaptcha/service.php:210, modules/turnstile/service.php:182) and `stripe` and `sendinblue` API keys (modules/stripe/service.php:92, modules/sendinblue/service.php:73). Those are per-environment secrets an operator configures through CF7's own admin, so the row must never enter canonical state; `required: false` because the row self-populates at activation (wpcf7_install()/wpcf7_upgrade() write `version` before any human touches it) and its optional integrations are not values Duo can checklist. No sub_keys carve-out is declared: nothing observed in the blob is authored-and-portable — CF7's authored content lives entirely in the wpcf7_contact_form CPT and the eight postmeta keys above — and inventing one would be exactly the untested guess this manifest's grind note refuses. Unlike the other DUO-3509 declarations this one also moves THIS manifest's adapter digest, so a site pinning contact-form-7 by content re-pins with it. Two consequences a reviewer should see rather than discover: this is the only DUO-3509 change that moves THIS manifest's adapter digest, so a site pinning contact-form-7 by content re-pins with it; and manifests/dispositions.json's contact-form-7 `field_sections` lists only post_meta and shortcode_attrs, so docs/capabilities.md does NOT advertise this options section until a reviewer adds `options` there. That understates the adapter rather than overstating it (an env option is excluded from capture either way) and adding a reviewed claim was out of DUO-3509's declaration-only scope, but it is a real gap, reported on the issue."
+    "wpcf7 is environment-owned and optional: the one settings blob mixes the installed-version upgrade gate, validation/admin state, and optional reCAPTCHA, Turnstile, Stripe, and Brevo credentials. It never enters canonical state and has no authored sub-key carve-out; target values must survive apply unchanged."
   ],
   "options": {
     "wpcf7": {"class": "env", "required": false}
@@ -21,14 +22,28 @@
     "_hash": {"class": "authored"},
     "_old_cf7_unit_id": {"class": "authored"},
     "_locale": {"class": "authored"},
-    "_mail": {"class": "authored"},
-    "_mail_2": {"class": "authored"},
-    "_messages": {"class": "authored"}
+    "_mail": {"class": "authored", "plain_data": true},
+    "_mail_2": {"class": "authored", "plain_data": true},
+    "_messages": {"class": "authored", "plain_data": true}
   },
   "post_types": {
     "wpcf7_contact_form": {}
   },
   "shortcode_attrs": {
+    "contact-form-7": [
+      {
+        "kind": "post",
+        "lookup": {
+          "codec": "hex-prefix",
+          "post_meta": "_hash",
+          "post_type": "wpcf7_contact_form",
+          "prefix_length": 7,
+          "stored_length": 64
+        },
+        "path": "id",
+        "required": true
+      }
+    ],
     "contact-form": [
       {
         "kind": "post",

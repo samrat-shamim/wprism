@@ -101,6 +101,7 @@ final class FakeWpdb {
     /** @var array<int, array<string, list<string>>> */
     public $postMetaById = [];
     public $injectGetColError = false;
+    public $injectGetResultsError = false;
     /** @var array<int, array{name:string, taxonomy:string}> */
     public $termsById = [];
 
@@ -206,6 +207,35 @@ final class FakeWpdb {
         throw new \RuntimeException("FakeWpdb::get_row: unrecognized query shape: $sql");
     }
 
+    public function get_results($prepared, $output = ARRAY_A) {
+        [$sql, $args] = $this->unwrap($prepared);
+        if ($this->injectGetResultsError) {
+            $this->last_error = 'injected SQL failure';
+            return [];
+        }
+        if (str_contains($sql, 'SELECT pm.post_id, pm.meta_value FROM')
+            && str_contains($sql, $this->postmeta)) {
+            [$key, $postType] = array_pad($args, 2, null);
+            $excluded = array_slice($args, 2);
+            $out = [];
+            foreach ($this->postMetaById as $postId => $meta) {
+                if (($this->postsById[(int) $postId]['post_type'] ?? null) !== $postType
+                    || in_array(
+                        (string) ($this->postsById[(int) $postId]['post_status'] ?? 'publish'),
+                        $excluded,
+                        true
+                    )) {
+                    continue;
+                }
+                foreach ((array) ($meta[$key] ?? []) as $value) {
+                    $out[] = ['post_id' => $postId, 'meta_value' => (string) $value];
+                }
+            }
+            return $out;
+        }
+        throw new \RuntimeException("FakeWpdb::get_results: unrecognized query shape: $sql");
+    }
+
     private function unwrap($prepared): array {
         if (is_array($prepared) && ($prepared['__prepared'] ?? false)) {
             return [$prepared['sql'], $prepared['args']];
@@ -272,6 +302,18 @@ $policy->manifests = [[
         'contact-form' => [
             ['kind' => 'post', 'lookup' => ['post_meta' => '_old_cf7_unit_id', 'post_type' => 'wpcf7_contact_form'], 'position' => 0],
         ],
+        'contact-form-7' => [[
+            'kind' => 'post',
+            'lookup' => [
+                'codec' => 'hex-prefix',
+                'post_meta' => '_hash',
+                'post_type' => 'wpcf7_contact_form',
+                'prefix_length' => 7,
+                'stored_length' => 64,
+            ],
+            'path' => 'id',
+            'required' => true,
+        ]],
     ],
 ]];
 $tokens = new Tokens();
@@ -437,8 +479,12 @@ check(Shortcodes::apply_rewrite_text($legacyCanonical, $policy, $tokens) === $le
 $applyForAlternates = new \Duo\ShortcodeAlternateRegistrar($policy, new Tokens());
 $registerAlternates = new \ReflectionMethod(\Duo\ShortcodeAlternateRegistrar::class, 'register');
 $duplicateAlternateTree = [
-    ['type' => 'post', 'data' => ['type' => 'wpcf7_contact_form', 'uuid' => MAPPED_UUID, 'meta' => ['_old_cf7_unit_id' => '77']]],
-    ['type' => 'post', 'data' => ['type' => 'wpcf7_contact_form', 'uuid' => MAPPED2_UUID, 'meta' => ['_old_cf7_unit_id' => '77']]],
+    ['type' => 'post', 'data' => ['type' => 'wpcf7_contact_form', 'uuid' => MAPPED_UUID, 'meta' => [
+        '_hash' => str_repeat('a', 64), '_old_cf7_unit_id' => '77',
+    ]]],
+    ['type' => 'post', 'data' => ['type' => 'wpcf7_contact_form', 'uuid' => MAPPED2_UUID, 'meta' => [
+        '_hash' => str_repeat('b', 64), '_old_cf7_unit_id' => '77',
+    ]]],
 ];
 $duplicateRefused = false;
 try {
@@ -450,7 +496,9 @@ check($duplicateRefused, 'S1d: Apply refuses duplicate positional alternate valu
 $zeroRefused = false;
 try {
     $registerAlternates->invoke($applyForAlternates, [[
-        'type' => 'post', 'data' => ['type' => 'wpcf7_contact_form', 'uuid' => MAPPED2_UUID, 'meta' => ['_old_cf7_unit_id' => '0']],
+        'type' => 'post', 'data' => ['type' => 'wpcf7_contact_form', 'uuid' => MAPPED2_UUID, 'meta' => [
+            '_hash' => str_repeat('b', 64), '_old_cf7_unit_id' => '0',
+        ]],
     ]]);
 } catch (\Throwable $e) {
     $zeroRefused = str_contains($e->getMessage(), 'malformed positional shortcode alternate');
@@ -498,6 +546,97 @@ try {
     $decimalOverflowRefused = str_contains($e->getMessage(), 'malformed positional shortcode alternate');
 }
 check($decimalOverflowRefused, 'S1d: positional alternates outside CF7 bare-DECIMAL range refuse');
+
+// S1e — CF7 5.8+ uses a seven-byte prefix of its persisted 64-byte _hash
+// as the public shortcode identity. Canonical state carries the post token,
+// and both source and target prefix domains must remain unique.
+$hashA = str_repeat('a', 64);
+$hashB = str_repeat('b', 64);
+$wpdb->postMetaById[MAPPED_ID]['_hash'] = [$hashA];
+$modern = '[contact-form-7 id="aaaaaaa" title="Legacy Form"]';
+$modernCanonical = Shortcodes::capture_rewrite_text($modern, $policy, $tokens);
+check(
+    $modernCanonical === '[contact-form-7 id="{{post:' . MAPPED_UUID . '}}" title="Legacy Form"]',
+    'S1e: CF7 hash prefix canonicalizes to the owning form token'
+);
+check(
+    Shortcodes::apply_rewrite_text($modernCanonical, $policy, $tokens) === $modern,
+    'S1e: CF7 form token restores the target form own seven-byte hash prefix'
+);
+$missingModernIdRefused = false;
+try {
+    Shortcodes::capture_rewrite_text('[contact-form-7 title="Legacy Form"]', $policy, $tokens);
+} catch (\Throwable $e) {
+    $missingModernIdRefused = str_contains($e->getMessage(), 'requires exactly one');
+}
+check($missingModernIdRefused, 'S1e: title-only CF7 fallback refuses instead of using mutable title identity');
+$malformedModernIdRefused = false;
+try {
+    Shortcodes::capture_rewrite_text('[contact-form-7 id="AAAAAAA" title="Legacy Form"]', $policy, $tokens);
+} catch (\Throwable $e) {
+    $malformedModernIdRefused = str_contains($e->getMessage(), 'lowercase hexadecimal');
+}
+check($malformedModernIdRefused, 'S1e: non-canonical CF7 hash prefixes refuse');
+$duplicateModernAttrRefused = false;
+try {
+    Shortcodes::capture_rewrite_text(
+        '[contact-form-7 id="aaaaaaa" id="aaaaaaa" title="Legacy Form"]',
+        $policy,
+        $tokens
+    );
+} catch (\Throwable $e) {
+    $duplicateModernAttrRefused = str_contains($e->getMessage(), 'requires exactly one');
+}
+check($duplicateModernAttrRefused, 'S1e: duplicate CF7 identity attributes refuse rather than relying on parse order');
+$wpdb->postMetaById[MAPPED2_ID] = ['_hash' => ['aaaaaaa' . substr($hashB, 7)]];
+$duplicateModernSourceRefused = false;
+try {
+    Shortcodes::capture_rewrite_text($modern, $policy, $tokens);
+} catch (\Throwable $e) {
+    $duplicateModernSourceRefused = str_contains($e->getMessage(), 'multiple matching forms');
+}
+unset($wpdb->postMetaById[MAPPED2_ID]);
+check($duplicateModernSourceRefused, 'S1e: a duplicate source hash prefix refuses capture');
+$wpdb->postsById[603] = [
+    'post_type' => 'wpcf7_contact_form',
+    'post_title' => 'Trashed Hash Collision',
+    'post_status' => 'trash',
+];
+$wpdb->postMetaById[603] = ['_hash' => ['aaaaaaa' . substr($hashB, 7)]];
+check(
+    Shortcodes::capture_rewrite_text($modern, $policy, $tokens) === $modernCanonical,
+    'S1e: CF7-ineligible trash rows do not collide with modern hash lookup'
+);
+unset($wpdb->postsById[603], $wpdb->postMetaById[603]);
+$wpdb->postMetaById[MAPPED2_ID] = ['_hash' => ['aaaaaaa' . substr($hashB, 7)]];
+$duplicateModernTargetRefused = false;
+try {
+    Shortcodes::apply_rewrite_text($modernCanonical, $policy, $tokens);
+} catch (\Throwable $e) {
+    $duplicateModernTargetRefused = str_contains($e->getMessage(), 'already owned by another');
+}
+unset($wpdb->postMetaById[MAPPED2_ID]);
+check($duplicateModernTargetRefused, 'S1e: a foreign target hash-prefix owner refuses apply');
+$wpdb->postMetaById[MAPPED_ID]['_hash'] = [$hashA, $hashA];
+$duplicateModernRowsRefused = false;
+try {
+    Shortcodes::apply_rewrite_text($modernCanonical, $policy, $tokens);
+} catch (\Throwable $e) {
+    $duplicateModernRowsRefused = str_contains($e->getMessage(), 'duplicate')
+        && str_contains($e->getMessage(), 'metadata rows');
+}
+$wpdb->postMetaById[MAPPED_ID]['_hash'] = [$hashA];
+check($duplicateModernRowsRefused, 'S1e: duplicate target _hash rows on the selected form refuse apply');
+$wpdb->injectGetResultsError = true;
+$modernSqlFailureRefused = false;
+try {
+    Shortcodes::capture_rewrite_text($modern, $policy, $tokens);
+} catch (\Throwable $e) {
+    $modernSqlFailureRefused = str_contains($e->getMessage(), 'collision lookup failed');
+}
+$wpdb->injectGetResultsError = false;
+check($modernSqlFailureRefused, 'S1e: a CF7 hash collision-query failure refuses capture');
+unset($wpdb->postMetaById[MAPPED_ID]['_hash']);
 
 // S2 — unmapped scalar: DROP the attribute (+ its own leading whitespace)
 // entirely, never leave the raw env-local id, matching Blocks.php's own

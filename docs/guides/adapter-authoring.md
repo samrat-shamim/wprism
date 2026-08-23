@@ -634,6 +634,19 @@ plugin faithfully.
    switch a runtime field to authored, and create a conflicting second owner.
    Each false claim must fail for the reason the production path would fail.
 
+For shortcode identities, test the callback's actual lookup rather than the
+shape of its example markup. Ordinary numeric attributes use a named
+`shortcode_attrs` ref. A callback that consumes a positional post-meta
+alternate uses the closed `{kind, position, lookup}` rule. A callback that
+consumes a fixed lowercase-hex prefix of authored post meta uses the closed
+`{kind, path, required: true, lookup: {codec: "hex-prefix", post_meta,
+post_type, prefix_length, stored_length}}` rule. The latter requires one exact
+attribute, validates and collision-checks every owner, and refuses title or
+numeric fallbacks. Do not declare it from example shortcode output alone:
+trace the lookup query, its collation/case behavior, excluded post statuses,
+the stored-value generator, and duplicate-row behavior, then reproduce a
+foreign target collision live.
+
 When any step cannot be represented, keep the adapter experimental or reject
 it. Do not disguise a missing codec as `verbatim`, `runtime`, a broad option
 pattern, or a compatibility fallback. Record the required generic primitive in

@@ -16,7 +16,7 @@
 # last pinned-manifest boundary that DUO-3223 had explicitly scope-accounted.
 #
 # For EACH boundary version (ACF 6.0.0/6.8.7; Advanced Editor Tools 5.9.2;
-# Classic Editor 1.7.0; Code Snippets 3.9.5/3.9.6; CF7 6.0.1/6.1.6; Elementor 4.0.0/4.2.2; Ninja Forms
+# Classic Editor 1.7.0; Code Snippets 3.9.5/3.9.6; CF7 6.0/6.1.6; Elementor 4.0.0/4.2.2; Ninja Forms
 # 3.4.34.2/3.14.11; PMPro 3.8.3 (with adjacent official-tag refusals);
 # Polylang 3.5/3.8.6;
 # WooCommerce 11.0.0 (the only stable in-range 11.x release); Yoast SEO
@@ -1575,7 +1575,7 @@ fi
 
 if [ "$VMATRIX_MANIFEST" = contact-form-7 ]; then
 VMATRIX_CASES=$((VMATRIX_CASES + 1))
-for CF7_VERSION in 6.0.1 6.1.6; do
+for CF7_VERSION in 6.0 6.1.6; do
   say "boundary: contact-form-7 $CF7_VERSION"
 
   reset_env wp1
