@@ -461,7 +461,7 @@ final class TheEventsCalendar {
     private function organizer_block_diagnostics(array $entity, array $meta, array $posts, string $path): array {
         $body = $this->post_body($entity);
         $markerCount = preg_match_all(
-            '/<!--\s+wp:tribe\/event-organizer(?=[\s\/])/D',
+            '/<!--\s+wp:tribe\/event-organizer(?=[\s\/])(?:(?!-->).)*-->/s',
             $body
         );
         if ($markerCount === false) {
@@ -480,13 +480,22 @@ final class TheEventsCalendar {
         }
 
         $organizerBlocks = [];
-        $walk = static function (array $blocks) use (&$walk, &$organizerBlocks): void {
+        $walk = static function (
+            array $blocks,
+            int $depth = 0,
+            ?string $parent = null
+        ) use (&$walk, &$organizerBlocks): void {
             foreach ($blocks as $block) {
                 if (($block['blockName'] ?? null) === 'tribe/event-organizer') {
-                    $organizerBlocks[] = $block;
+                    $organizerBlocks[] = [
+                        'block' => $block,
+                        'depth' => $depth,
+                        'parent' => $parent,
+                    ];
                 }
                 if (is_array($block['innerBlocks'] ?? null) && $block['innerBlocks'] !== []) {
-                    $walk($block['innerBlocks']);
+                    $name = is_string($block['blockName'] ?? null) ? $block['blockName'] : null;
+                    $walk($block['innerBlocks'], $depth + 1, $name);
                 }
             }
         };
@@ -505,13 +514,20 @@ final class TheEventsCalendar {
         $populated = [];
         $seen = [];
         $shapeClean = true;
-        foreach ($organizerBlocks as $i => $block) {
+        foreach ($organizerBlocks as $i => $record) {
+            $block = $record['block'];
+            // Linked_Posts.php:1008-1024 only supplements ordering from
+            // top-level blocks. Nested registered blocks remain portable when
+            // their canonical attributes and authoritative repeated rows agree;
+            // retaining depth here makes that reviewed limitation explicit.
+            $blockLocator = "body.tribe/event-organizer[$i]"
+                . ($record['depth'] > 0 ? ".nested-under-{$record['parent']}" : '');
             $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : [];
             if (array_key_exists('organizers', $attrs)) {
                 $shapeClean = false;
                 $out[] = $this->diagnostic(
                     $path,
-                    "body.tribe/event-organizer[$i].organizers",
+                    "$blockLocator.organizers",
                     'The Events Calendar organizers list is meta-sourced and must not be serialized into block content'
                 );
             }
@@ -519,7 +535,7 @@ final class TheEventsCalendar {
                 $shapeClean = false;
                 $out[] = $this->diagnostic(
                     $path,
-                    "body.tribe/event-organizer[$i]",
+                    $blockLocator,
                     'The Events Calendar dynamic organizer block must not carry nested blocks or authored inner HTML'
                 );
             }
@@ -535,7 +551,7 @@ final class TheEventsCalendar {
                 $shapeClean = false;
                 $out[] = $this->diagnostic(
                     $path,
-                    "body.tribe/event-organizer[$i].organizer",
+                    "$blockLocator.organizer",
                     'The Events Calendar populated organizer block must contain one canonical post UUID token'
                 );
                 continue;
@@ -544,7 +560,7 @@ final class TheEventsCalendar {
                 $shapeClean = false;
                 $out[] = $this->diagnostic(
                     $path,
-                    "body.tribe/event-organizer[$i].organizer",
+                    "$blockLocator.organizer",
                     'The Events Calendar populated organizer blocks must be unique in editor order'
                 );
             }
@@ -554,14 +570,14 @@ final class TheEventsCalendar {
                 $shapeClean = false;
                 $out[] = $this->diagnostic(
                     $path,
-                    "body.tribe/event-organizer[$i].organizer",
+                    "$blockLocator.organizer",
                     'The Events Calendar organizer block UUID must resolve to one captured tribe_organizer post'
                 );
             } elseif ($posts[$m[1]] !== 'tribe_organizer') {
                 $shapeClean = false;
                 $out[] = $this->diagnostic(
                     $path,
-                    "body.tribe/event-organizer[$i].organizer",
+                    "$blockLocator.organizer",
                     "The Events Calendar organizer block must resolve to post type tribe_organizer, not {$posts[$m[1]]}"
                 );
             }

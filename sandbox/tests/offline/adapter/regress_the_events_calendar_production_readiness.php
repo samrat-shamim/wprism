@@ -311,6 +311,7 @@ duo_check_same(
 );
 foreach ([
     'A literal wp:tribe/event-organizer marker is ordinary classic/freeform text.',
+    'A literal <!-- wp:tribe/event-organizer text prefix is not a complete block comment.',
     '<!-- wp:code --><pre class="wp-block-code"><code>&lt;!-- wp:tribe/event-organizer /--&gt;</code></pre><!-- /wp:code -->',
     '<!-- wp:tribe/event-organizer-preview {"organizer":7000000001} /-->',
     '<!-- wp:block {"ref":"{{post:' . TEC_ORGANIZER_UUID . '}}"} /-->',
@@ -327,7 +328,15 @@ $nestedOrganizerBody = '<!-- wp:group --><div class="wp-block-group">'
 duo_check_same(
     [],
     $interpreter->repository_diagnostics(tec_readiness_tree(null, null, null, $nestedOrganizerBody)),
-    'organizer blocks nested in a group retain the same exact ordered grammar'
+    'nested organizer blocks remain coherent because their attributes and authoritative repeated rows agree despite the native top-level-only supplemental reorder scan'
+);
+$nestedReorderedMeta = tec_readiness_meta();
+$nestedReorderedMeta['_EventOrganizerID'] = array_reverse($nestedReorderedMeta['_EventOrganizerID']);
+tec_readiness_refuses(
+    $interpreter,
+    tec_readiness_tree($nestedReorderedMeta, null, null, $nestedOrganizerBody),
+    'must exactly match _EventOrganizerID row order',
+    'nested organizer blocks are inspected recursively and refuse when physical metadata order diverges'
 );
 
 $emptyBlockWithMeta = '<!-- wp:tribe/event-organizer /-->';
@@ -357,7 +366,7 @@ tec_readiness_refuses(
         null,
         null,
         null,
-        '<!-- wp:tribe/event-organizer {"organizer":"{{post:' . TEC_ORGANIZER_UUID . '}}"}'
+        '<!-- wp:tribe/event-organizer ??? -->'
     ),
     'markup must parse as exact registered blocks',
     'a malformed exact organizer comment dropped by parse_blocks refuses rather than becoming freeform content'
