@@ -17,13 +17,13 @@ Duo agent **0.5.0** / repo spec **2**. This document is the whole of what Duo cl
 | Site mode | single-site |
 | Plugin execution | unmodified |
 | Branchable state | only manifest-declared, disposition-reviewed surfaces and operations |
-| WordPress | 7.0.3 (exact exercised) |
+| WordPress | >=6.9.0 <7.1.0 (exercised 6.9.2, 7.0.3) |
 | PHP | >=8.3.0 <8.4.0 |
 | Database | MariaDB >=11.0.0 <12.0.0 |
 
 Multisite is refused before policy load or mutation. Each compatibility axis carries its own reviewed note saying what pins it and what it does not claim:
 
-- **WordPress** — Pinned by the sandbox harness's exact Docker tag (wordpress:7.0.3-php8.3-apache in sandbox/pair.yml). WordPress is one exact exercised value, not a claimed range: the agent pre-policy gate and duo doctor refuse any other core version before mutation. A wider claim requires a real multi-version core matrix.
+- **WordPress** — Pinned by the sandbox harness's exact Docker tags: each key of verified is a core series, and its value is the exact patch a full live proof ran on (6.9 on wordpress:6.9.2-php8.3-apache, 7.0 on wordpress:7.0.3-php8.3-apache -- sandbox/tests/live/regress_core_scope_platform.sh, regress_core_data_boundary.sh, conformance-core). A core is accepted only when it is inside [6.9.0, 7.1.0) AND its MAJOR.MINOR is one of those exercised series, so an unexercised minor line inside the range is still refused rather than claimed by a bare range. Patches inside an exercised series are claimed on exactly the basis PHP 8.3.x and MariaDB 11.x already are here -- one measured runtime per line. last_verified is the newest exercised core and the one sandbox/pair.yml boots by default.
 - **PHP** — Pinned by the sandbox harness's own Docker tags (wordpress:7.0.3-php8.3-apache / wordpress:cli-php8.3 -- see sandbox/pair.yml, sandbox/db.yml, sandbox/docker-compose.yml). Verified live: PHP 8.3.33 as of this writing.
 - **Database** — Pinned by the sandbox harness's own Docker tag (mariadb:11 -- see sandbox/db.yml, sandbox/docker-compose.yml). Verified live: 11.8.8-MariaDB as of this writing. MySQL is not claimed or tested against; a site running MySQL instead of MariaDB is genuinely untested, not merely unpinned.
 
@@ -31,7 +31,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 
 | Manifest | Status | Plugin | Version range | Operations |
 |---|---|---|---|---|
-| [core](#core) | certified | WordPress core | WordPress 7.0.3 (exact exercised) | apply, capture, compile, delete, deploy, plan, promote, recapture, render-api |
+| [core](#core) | certified | WordPress core | WordPress >=6.9.0 <7.1.0 (exercised 6.9.2, 7.0.3) | apply, capture, compile, delete, deploy, plan, promote, recapture, render-api |
 | [acf](#acf) | certified | `advanced-custom-fields/acf.php` | >=6.0.0 <7.0.0 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [advanced-editor-tools](#advanced-editor-tools) | certified | `tinymce-advanced/tinymce-advanced.php` | >=5.9.2 <5.9.3 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
 | [classic-editor](#classic-editor) | certified | `classic-editor/classic-editor.php` | >=1.7.0 <1.7.1 | apply, capture, compile, deploy, plan, promote, recapture, render-api |
@@ -53,7 +53,7 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 **Status: certified.** Certified single-site core authored-state surface; the FSE profile is separately named below.
 
 - **Plugin:** WordPress core
-- **Version range:** WordPress 7.0.3 (exact exercised)
+- **Version range:** WordPress >=6.9.0 <7.1.0 (exercised 6.9.2, 7.0.3)
 - **Operations:** apply, capture, compile, delete, deploy, plan, promote, recapture, render-api
 - **Lifecycle phases:** verify
 - **Declared entities:** `tables` (2: commentmeta, comments), `widgets` (3: block, nav_menu, text)
@@ -403,7 +403,7 @@ A profile is a named subset of one manifest's surface, reviewed and exercised se
 **Status: certified.** Certified core full-site-editing profile for block themes, templates, template parts, navigation, reusable blocks, and theme taxonomies.
 
 - **Manifest:** `core`
-- **Version range:** WordPress 7.0.3 (exact exercised)
+- **Version range:** WordPress >=6.9.0 <7.1.0 (exercised 6.9.2, 7.0.3)
 - **Scope — `post_types`:** `wp_block`, `wp_navigation`, `wp_template`, `wp_template_part`
 - **Scope — `taxonomies`:** `wp_pattern_category`, `wp_template_part_area`, `wp_theme`
 - **Exercised by:** `conformance-fse`

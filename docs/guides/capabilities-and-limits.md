@@ -667,8 +667,10 @@ holds those two copies equal so they cannot drift into two truths.
 Be precise about who enforces which half. The agent pre-policy gate and `duo
 doctor` compare live PHP and database facts against the baseline and **block**
 outside either range; a different database engine is genuinely untested, not
-merely unpinned. WordPress is one exact exercised value because `pair.yml`
-pins 7.0.3; both gates refuse another value rather than inventing a range. The
+merely unpinned. WordPress is a bounded range narrowed to the exercised
+series named in `verified` — a core is admitted only when it is inside
+`[min, max)` *and* its MAJOR.MINOR is one of those series, so a minor line
+inside the window that nobody ran is still refused rather than claimed. The
 *capability report* still enforces none of the three per surface: with the
 measured evidence record gone, `AdapterRegistry::target_reasons()` does not
 re-derive global compatibility as adapter-local reasons. The adapter plugin

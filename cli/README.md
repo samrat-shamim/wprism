@@ -204,8 +204,9 @@ are rejected when the registry is loaded.
   7. installed PHP version is inside `docs/compatibility-baseline.json`'s
      declared range (DUO-3222)
   8. installed database engine/version is inside the same baseline
-  9. installed WordPress core version equals the one exact exercised version
-     in the baseline (a wider claim requires a real core-version matrix)
+  9. installed WordPress core version is inside the same baseline's range AND
+     its MAJOR.MINOR is one of the exercised series that baseline names in
+     `verified` (a minor line inside the range that nobody ran still fails)
 
   Exit 0 only if every check above except the ones that were actually
   advisory on this particular run (6 whenever `DISALLOW_FILE_MODS` is
