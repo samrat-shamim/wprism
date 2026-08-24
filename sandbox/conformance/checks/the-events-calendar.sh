@@ -85,6 +85,42 @@ $hidden_event_ids = array_map(
     'intval',
     tribe(\Tribe\Events\Views\V2\Query\Hide_From_Upcoming_Controller::class)->get_hidden_post_ids()
 );
+$customizer = tribe('customizer');
+if (get_class($customizer) !== 'Tribe__Customizer' || $customizer->ID !== 'tribe_customizer') {
+    throw new RuntimeException('TEC native Customizer service or canonical option identity was overridden');
+}
+global $wp_filter;
+$fallback_hook = $wp_filter['default_option_tribe_customizer'] ?? null;
+if (!$fallback_hook instanceof WP_Hook) {
+    throw new RuntimeException('TEC native Customizer fallback hook is absent or malformed');
+}
+$fallback_callbacks = [];
+foreach ($fallback_hook->callbacks as $priority => $callbacks) {
+    foreach ($callbacks as $callback) {
+        $fallback_callbacks[] = [
+            'accepted_args' => $callback['accepted_args'] ?? null,
+            'function' => $callback['function'] ?? null,
+            'priority' => $priority,
+        ];
+    }
+}
+if (count($fallback_callbacks) !== 1
+    || $fallback_callbacks[0]['priority'] !== 10
+    || $fallback_callbacks[0]['accepted_args'] !== 1
+    || !is_array($fallback_callbacks[0]['function'])
+    || ($fallback_callbacks[0]['function'][0] ?? null) !== $customizer
+    || ($fallback_callbacks[0]['function'][1] ?? null) !== 'maybe_fallback_get_option') {
+    throw new RuntimeException('TEC native Customizer fallback callback topology was extended or overridden');
+}
+$customizer_contract = [
+    'accepted_args' => 1,
+    'callback' => 'Tribe__Customizer::maybe_fallback_get_option',
+    'canonical' => 'tribe_customizer',
+    'class' => get_class($customizer),
+    'hook' => 'default_option_tribe_customizer',
+    'legacy' => 'tribe_events_pro_customizer',
+    'priority' => 10,
+];
 // Editor meta is registered globally, while Classic_Editor.php:131-146 uses
 // register_post_meta('tribe_events', ...); both registries are native contract.
 $registered = array_replace(
@@ -223,6 +259,7 @@ echo wp_json_encode([
         'meta' => $category_meta,
     ],
     'category_css' => get_option('tec_events_category_color_css', null),
+    'customizer_contract' => $customizer_contract,
     'delete_probe' => [
         'all_day' => metadata_exists('post', $delete_probe->ID, '_EventAllDay')
             ? get_post_meta($delete_probe->ID, '_EventAllDay', true)
@@ -421,7 +458,7 @@ tec_target_storage_fingerprint() {
         "SELECT option_id,option_name,option_value,autoload FROM {$wpdb->options} WHERE option_name IN (%s,%s,%s,%s) ORDER BY option_id",
         "tribe_events_calendar_options",
         "tribe_customizer",
-        "tribe_events_customizer",
+        "tribe_events_pro_customizer",
         "tec_events_category_color_css"
       ),
     ];
@@ -524,6 +561,15 @@ printf '%s\n' "$SOURCE" | jq -e '
   .event.organizer_blocks == (.organizers | map(.id)) and
   .all_day.organizer_blocks == [null] and .delete_probe.organizer_blocks == [] and
   .options.blocks_editor == true and
+  .customizer_contract == {
+    accepted_args:1,
+    callback:"Tribe__Customizer::maybe_fallback_get_option",
+    canonical:"tribe_customizer",
+    class:"Tribe__Customizer",
+    hook:"default_option_tribe_customizer",
+    legacy:"tribe_events_pro_customizer",
+    priority:10
+  } and
   .editor_native_contract == {
     block:{registered:true,renderer:"Tribe__Events__Editor__Blocks__Event_Organizer::render"},
     setting:{default:false,key:"toggle_blocks_editor",runtime:true,type:"checkbox_bool",validation:"boolean"}
@@ -635,6 +681,15 @@ printf '%s\n' "$TARGET" | jq -e \
   .editor_native_contract == {
     block:{registered:true,renderer:"Tribe__Events__Editor__Blocks__Event_Organizer::render"},
     setting:{default:false,key:"toggle_blocks_editor",runtime:true,type:"checkbox_bool",validation:"boolean"}
+  } and
+  .customizer_contract == {
+    accepted_args:1,
+    callback:"Tribe__Customizer::maybe_fallback_get_option",
+    canonical:"tribe_customizer",
+    class:"Tribe__Customizer",
+    hook:"default_option_tribe_customizer",
+    legacy:"tribe_events_pro_customizer",
+    priority:10
   } and
   .options.events_slug == "calendar-readiness" and .options.single_slug == "readiness-event" and
   .options.views == ["list","month"] and .options.currency_code == "NPR" and

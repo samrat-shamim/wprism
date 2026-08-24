@@ -275,6 +275,86 @@ if ($tecRoot !== '' || $tecVersion !== '') {
         }
         $tecSources[$relative] = $bytes;
     }
+    $customizer = $tecSources['common/src/Tribe/Customizer.php'] ?? '';
+    $customizerConstructor = tec_option_function_body($customizer, '__construct');
+    $customizerFallback = tec_option_function_body($customizer, 'maybe_fallback_get_option');
+    $customizerGet = tec_option_function_body($customizer, 'get_option');
+    $customizerActive = tec_option_function_body($customizer, 'is_active');
+    $compactPhp = static fn(string $source): string => (string) preg_replace('/\s+/', '', $source);
+    $constructorCompact = $compactPhp($customizerConstructor);
+    $fallbackCompact = $compactPhp($customizerFallback);
+    $getCompact = $compactPhp($customizerGet);
+    $activeCompact = $compactPhp($customizerActive);
+    foreach ([
+        [$constructorCompact, "if(!\$this->is_active()){return;}", 'Customizer activation refusal'],
+        [
+            $constructorCompact,
+            "\$this->ID=apply_filters('tribe_customizer_panel_id','tribe_customizer',\$this);",
+            'canonical Customizer panel/option identity',
+        ],
+        [
+            $constructorCompact,
+            "add_filter(\"default_option_{\$this->ID}\",[\$this,'maybe_fallback_get_option']);",
+            'canonical-row-absence fallback callback',
+        ],
+        [
+            $fallbackCompact,
+            "if(!empty(\$sections)){return\$sections;}returnget_option('tribe_events_pro_customizer',[]);",
+            'legacy Customizer fallback precedence',
+        ],
+        [$getCompact, "\$sections=get_option(\$this->ID,\$default);", 'native canonical Customizer read'],
+        [
+            $getCompact,
+            "apply_filters('tribe_events_pro_customizer_pre_get_option',\$sections,\$search)",
+            'legacy Customizer value filter',
+        ],
+        [
+            $getCompact,
+            "apply_filters('tribe_customizer_pre_get_option',\$sections,\$search)",
+            'canonical Customizer pre-value filter',
+        ],
+        [
+            $getCompact,
+            "apply_filters('tribe_customizer_get_option',\$option,\$search,\$sections)",
+            'canonical Customizer result filter',
+        ],
+        [
+            $activeCompact,
+            "returnapply_filters('tribe_customizer_is_active',true);",
+            'Customizer activation filter',
+        ],
+    ] as [$body, $needle, $label]) {
+        if (!str_contains($body, $needle)) {
+            tec_option_usage("TEC $tecVersion lost exact $label");
+        }
+    }
+    if (!str_contains($customizer, 'final class Tribe__Customizer')
+        || str_contains($customizer, 'tribe_events_customizer')) {
+        tec_option_usage("TEC $tecVersion Customizer class/name topology disagrees with the reviewed boundary");
+    }
+    $customizerFixture = [
+        'canonical_option' => 'tribe_customizer',
+        'legacy_option' => 'tribe_events_pro_customizer',
+        'panel_id_filter' => 'tribe_customizer_panel_id',
+        'activation_filter' => 'tribe_customizer_is_active',
+        'fallback_hook' => 'default_option_tribe_customizer',
+        'callback_class' => 'Tribe__Customizer',
+        'callback_method' => 'maybe_fallback_get_option',
+        'value_filters' => [
+            'tribe_events_pro_customizer_pre_get_option',
+            'tribe_customizer_pre_get_option',
+            'tribe_customizer_get_option',
+        ],
+        'precedence' => [
+            'canonical_present' => 'canonical',
+            'canonical_present_empty' => 'canonical',
+            'canonical_absent_legacy_present' => 'legacy',
+            'canonical_absent_legacy_absent' => 'empty',
+        ],
+    ];
+    if (($fixture['customizer_fallback'] ?? null) !== $customizerFixture) {
+        tec_option_usage('source-derived Customizer fallback topology disagrees with the reviewed fixture');
+    }
     foreach ([
         'common/src/Tribe/Cache.php' =>
             "update_option( 'tribe_last_' . \$action, (float) \$timestamp )",
@@ -311,6 +391,7 @@ fwrite(STDOUT, json_encode([
     'source_files' => $pin,
     'shared_paths' => $derived,
     'last_save_paths' => $lastSaveDerived,
+    'customizer_fallback' => $fixture['customizer_fallback'] ?? null,
     'tec_version' => $tecVersion === '' ? null : $tecVersion,
     'tec_service_sources' => $verifiedTecSources,
     'proved_absent' => $fixture['proved_absent'] ?? null,

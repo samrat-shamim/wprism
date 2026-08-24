@@ -2521,6 +2521,7 @@ duo_check_same(
         'common/src/Tribe/Cache.php',
         'common/src/Tribe/Cache_Listener.php',
         'common/src/Tribe/Container.php',
+        'common/src/Tribe/Customizer.php',
         'common/src/Tribe/Settings_Manager.php',
         'common/src/Common/Libraries/Harbor.php',
         'common/src/Common/Integrations/Harbor/PUE.php',
@@ -2544,18 +2545,77 @@ foreach ([
     'tec-root',
     'tec-version',
     'common/src/Tribe/Cache_Listener.php',
+    'common/src/Tribe/Customizer.php',
     'common/src/Tribe/Settings_Manager.php',
     'common/src/Common/Integrations/Harbor/PUE.php',
     'tribe()->make( Occurrences_Generator::class )',
     'tribe( Configuration::class )',
     "'pue_install_key_event_aggregator'",
     "'WPLANG'",
+    'maybe_fallback_get_option',
+    'tribe_events_pro_customizer',
 ] as $serviceVerifierEvidence) {
     duo_check(
         str_contains($optionHookVerifier, $serviceVerifierEvidence),
         "the exact-source verifier binds native service evidence $serviceVerifierEvidence"
     );
 }
+$expectedCustomizerFallback = [
+    'canonical_option' => 'tribe_customizer',
+    'legacy_option' => 'tribe_events_pro_customizer',
+    'panel_id_filter' => 'tribe_customizer_panel_id',
+    'activation_filter' => 'tribe_customizer_is_active',
+    'fallback_hook' => 'default_option_tribe_customizer',
+    'callback_class' => 'Tribe__Customizer',
+    'callback_method' => 'maybe_fallback_get_option',
+    'value_filters' => [
+        'tribe_events_pro_customizer_pre_get_option',
+        'tribe_customizer_pre_get_option',
+        'tribe_customizer_get_option',
+    ],
+    'precedence' => [
+        'canonical_present' => 'canonical',
+        'canonical_present_empty' => 'canonical',
+        'canonical_absent_legacy_present' => 'legacy',
+        'canonical_absent_legacy_absent' => 'empty',
+    ],
+];
+duo_check_same(
+    $expectedCustomizerFallback,
+    $optionHookFixture['customizer_fallback'] ?? null,
+    'the exact source fixture binds the canonical Customizer row, legacy compatibility input, callback, filters, and precedence'
+);
+$effectiveCustomizer = static function (
+    bool $canonicalPresent,
+    mixed $canonical,
+    bool $legacyPresent,
+    mixed $legacy
+): mixed {
+    // WordPress applies default_option_tribe_customizer only for an absent
+    // canonical row; Tribe__Customizer then reads the legacy row or [].
+    if ($canonicalPresent) {
+        return $canonical;
+    }
+    return $legacyPresent ? $legacy : [];
+};
+foreach ([
+    'canonical populated beats legacy' => [true, ['month_view' => ['event_date_time_color' => '#112233']], true, ['legacy'], ['month_view' => ['event_date_time_color' => '#112233']]],
+    'canonical empty beats populated legacy' => [true, [], true, ['legacy'], []],
+    'absent canonical reads legacy' => [false, null, true, ['global_elements' => ['background_color_choice' => 'custom']], ['global_elements' => ['background_color_choice' => 'custom']]],
+    'both absent resolve to empty' => [false, null, false, null, []],
+] as $label => [$canonicalPresent, $canonical, $legacyPresent, $legacy, $expected]) {
+    duo_check_same(
+        $expected,
+        $effectiveCustomizer($canonicalPresent, $canonical, $legacyPresent, $legacy),
+        "exact Customizer fallback semantics preserve $label"
+    );
+}
+$customizerSourceDigest = $optionHookFixture['tec_service_sources']['6.17.3']['common/src/Tribe/Customizer.php'] ?? null;
+duo_check_same(
+    '83ba4277bb122d476daf5782cd0c2bfc643ad1f875747aa39beba2782aa014c1',
+    $customizerSourceDigest,
+    'both admitted artifacts bind the exact native Customizer callback source bytes'
+);
 $tecRegeneratorSource = (string) file_get_contents(
     $root . '/manifests/regenerators/the-events-calendar.php'
 );
@@ -3562,6 +3622,24 @@ foreach ([
     duo_check(
         str_contains($deletionCheck, $lifecycleEvidence),
         "the standalone TEC lifecycle retains physical/canonical evidence $lifecycleEvidence"
+    );
+}
+duo_check(
+    str_contains($deletionCheck, '"tribe_events_pro_customizer"')
+        && !str_contains($deletionCheck, '"tribe_events_customizer"'),
+    'lifecycle retention fingerprints the exact legacy Customizer fallback row and no nonexistent alias'
+);
+foreach ([
+    '$customizer = tribe(\'customizer\')',
+    'get_class($customizer) !== \'Tribe__Customizer\'',
+    "\$wp_filter['default_option_tribe_customizer']",
+    "(\$fallback_callbacks[0]['function'][0] ?? null) !== \$customizer",
+    "(\$fallback_callbacks[0]['function'][1] ?? null) !== 'maybe_fallback_get_option'",
+    'TEC native Customizer fallback callback topology was extended or overridden',
+] as $customizerLiveEvidence) {
+    duo_check(
+        str_contains($deletionCheck, $customizerLiveEvidence),
+        "both exact artifacts retain native Customizer callback evidence $customizerLiveEvidence"
     );
 }
 duo_check(
