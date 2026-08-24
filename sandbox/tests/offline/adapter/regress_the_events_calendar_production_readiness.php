@@ -5008,6 +5008,45 @@ duo_check(
     ),
     'TEC binds the platform-wide pre-policy network refusal instead of inventing adapter-local multisite behavior'
 );
+$tecMultisiteRefusal = (string) file_get_contents(
+    $root . '/sandbox/tests/live/regress_the_events_calendar_multisite_refusal.sh'
+);
+duo_check_same(
+    1,
+    substr_count($tecMultisiteRefusal, 'for version in 6.17.2 6.17.3; do'),
+    'the candidate-bound TEC network fixture has one exact dual-artifact loop'
+);
+foreach ([
+    'DUO_EXPECTED_SOURCE_SHA must bind the exact lowercase 40-character candidate SHA',
+    '. conformance/seeds/the-events-calendar.sh',
+    'wp1 core multisite-convert',
+    'tec_storage_fingerprint',
+    'tribe_events_calendar_options',
+    'tribe_customizer',
+    'tribe_events_pro_customizer',
+    'tec_events_category_color_css',
+    'widget_tribe-widget-events-list',
+    'SELECT * FROM {$wpdb->prefix}tec_events ORDER BY event_id',
+    'SELECT * FROM {$wpdb->prefix}tec_occurrences ORDER BY occurrence_id',
+] as $tecMultisiteEvidence) {
+    duo_check(
+        str_contains($tecMultisiteRefusal, $tecMultisiteEvidence),
+        "the exact TEC network fixture retains populated refusal evidence $tecMultisiteEvidence"
+    );
+}
+foreach (['capture', 'plan', 'deploy', 'apply'] as $command) {
+    duo_check(
+        str_contains($tecMultisiteRefusal, 'for command in capture plan deploy apply; do')
+            && str_contains($tecMultisiteRefusal, 'wp1 duo "$command" --repo=/siterepo --format=json'),
+        "the exact TEC network fixture drives the typed $command refusal through the product command path"
+    );
+}
+duo_check(
+    str_contains($tecMultisiteRefusal, '[ "$(tec_storage_fingerprint)" = "$baseline" ]')
+        && str_contains($tecMultisiteRefusal, '[ ! -e "$CONF_REPO1/state" ]')
+        && str_contains($tecMultisiteRefusal, 'wp1 plugin is-active the-events-calendar'),
+    'every TEC network command rechecks physical adapter state, repository absence, and code activation'
+);
 
 $regenerator = new TheEventsCalendarRegenerator($policy);
 $GLOBALS['tec_readiness_settings_manager'] = Tribe__Settings_Manager::instance();

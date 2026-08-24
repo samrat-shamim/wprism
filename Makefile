@@ -394,6 +394,13 @@ release-gate:
 regress-multisite-refusal:
 	bash sandbox/tests/live/regress_multisite_refusal.sh
 
+# Exact TEC scope boundary: native-populated 6.17.2 and 6.17.3 sites are
+# converted to real networks before capture/plan/deploy/apply. Candidate SHA,
+# exact artifacts, adapter storage, repository absence, and activation state
+# are re-proved around every typed refusal.
+regress-the-events-calendar-multisite-refusal:
+	bash sandbox/tests/live/regress_the_events_calendar_multisite_refusal.sh
+
 # DUO-3262: optional term/user interpreter hooks plus static-policy fallback;
 # pure PHP fixture manifests/interpreters, no WordPress or docker.
 regress-interpreter-policy:
@@ -2331,6 +2338,7 @@ regress-live-list:
 	@echo "  regress-attachment-portability            pair codexmac3265 8964/8965"
 	@echo "  regress-fatal-mutations-live              pair codexmaca3206 9210/..."
 	@echo "  regress-multisite-refusal                 own disposable pair (parameterized: MULTISITE_PAIR/PORT1/PORT2)"
+	@echo "  regress-the-events-calendar-multisite-refusal own disposable pair (parameterized: TEC_MULTISITE_PAIR/TEC_MULTISITE_PORT1/TEC_MULTISITE_PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate; exact TEC 6.17.2/6.17.3 populated multisite refusal)"
 	@echo "  regress-adapter-theme-range               pair asub3222tr 8918/8919"
 	@echo "  regress-adapter-plugin-range              pair a3487pr 8988/8989 (parameterized: PLUGIN_RANGE_PAIR/PLUGIN_RANGE_PORT1/PLUGIN_RANGE_PORT2)"
 	@echo "  regress-provider-contract-live            pair claudemacb3338 8930/8931"
