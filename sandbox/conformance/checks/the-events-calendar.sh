@@ -630,6 +630,16 @@ tec_target_storage_fingerprint() {
     $queries = [
       "posts" => "SELECT * FROM {$wpdb->posts} WHERE post_type IN (\"tribe_events\",\"tribe_venue\",\"tribe_organizer\") ORDER BY ID",
       "postmeta" => "SELECT pm.* FROM {$wpdb->postmeta} pm INNER JOIN {$wpdb->posts} p ON p.ID=pm.post_id WHERE p.post_type IN (\"tribe_events\",\"tribe_venue\",\"tribe_organizer\") ORDER BY pm.meta_id",
+      "widget_page" => $wpdb->prepare(
+        "SELECT * FROM {$wpdb->posts} WHERE post_type=%s AND post_name=%s ORDER BY ID",
+        "page",
+        "duo-tec-legacy-widget-surface"
+      ),
+      "widget_page_postmeta" => $wpdb->prepare(
+        "SELECT pm.* FROM {$wpdb->postmeta} pm INNER JOIN {$wpdb->posts} p ON p.ID=pm.post_id WHERE p.post_type=%s AND p.post_name=%s ORDER BY pm.meta_id",
+        "page",
+        "duo-tec-legacy-widget-surface"
+      ),
       "terms" => "SELECT t.* FROM {$wpdb->terms} t INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id=t.term_id WHERE tt.taxonomy=\"tribe_events_cat\" ORDER BY t.term_id",
       "term_taxonomy" => "SELECT * FROM {$wpdb->term_taxonomy} WHERE taxonomy=\"tribe_events_cat\" ORDER BY term_taxonomy_id",
       "termmeta" => "SELECT tm.* FROM {$wpdb->termmeta} tm INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id=tm.term_id WHERE tt.taxonomy=\"tribe_events_cat\" ORDER BY tm.meta_id",
@@ -637,10 +647,13 @@ tec_target_storage_fingerprint() {
       "tec_events" => "SELECT * FROM {$wpdb->prefix}tec_events ORDER BY event_id",
       "tec_occurrences" => "SELECT * FROM {$wpdb->prefix}tec_occurrences ORDER BY occurrence_id",
       "options" => $wpdb->prepare(
-        "SELECT option_id,option_name,option_value,autoload FROM {$wpdb->options} WHERE option_name IN (%s,%s,%s) ORDER BY option_id",
+        "SELECT option_id,option_name,option_value,autoload FROM {$wpdb->options} WHERE option_name IN (%s,%s,%s,%s,%s,%s) ORDER BY option_id",
         "tribe_customizer",
         "tribe_events_pro_customizer",
-        "tec_events_category_color_css"
+        "tec_events_category_color_css",
+        "sidebars_widgets",
+        "widget_tribe-widget-events-list",
+        "widget_tribe-widget-events-qr-code"
       ),
     ];
     $fingerprint = [];
