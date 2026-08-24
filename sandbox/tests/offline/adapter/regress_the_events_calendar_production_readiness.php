@@ -2445,6 +2445,7 @@ $organizerPhysicalValues = static function (FakeWpdb $database, int $eventId): a
     ));
 };
 
+$GLOBALS['tec_readiness_wp_cache_deletes'] = 0;
 $GLOBALS['tec_readiness_wp_cache']['post_meta'][$organizerSourceId] = 'stale-organizer-cache';
 $organizerApplyFailure = $applyOrganizerRows(
     $organizerTargetDb,
@@ -2469,6 +2470,10 @@ duo_check_same(
 duo_check(
     !array_key_exists($organizerSourceId, $GLOBALS['tec_readiness_wp_cache']['post_meta'] ?? []),
     'TEC repeated organizer materialization purges stale same-process post-meta cache bytes'
+);
+duo_check(
+    $GLOBALS['tec_readiness_wp_cache_deletes'] > 0,
+    'TEC repeated organizer materialization reaches the checked shared cache-delete primitive'
 );
 
 $rowsAfterFirstOrganizerApply = $organizerTargetInner->rows($organizerTargetInner->postmeta);
