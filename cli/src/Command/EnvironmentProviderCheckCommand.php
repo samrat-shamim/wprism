@@ -250,16 +250,25 @@ final class EnvironmentProviderCheckCommand {
                 return $this->finish($body);
             }
             $fence = null;
-            // The terminal reap takes its OWN fence, exactly as the
-            // orchestrator's `reap-acquire` path does when the materialization
-            // fence is no longer held (EnvironmentLifecycle.php:1701-1719).
-            $reapFence = $this->act($targetProvider, 'mutation-acquire', $operationId,
+            // The terminal reap takes its OWN fence under its OWN operation
+            // id, exactly as the orchestrator's `reap-acquire` path does when
+            // the materialization fence is no longer held
+            // (EnvironmentLifecycle.php:1700 mints a fresh operation id;
+            // :1719 and :1737 perform the acquire and the reap under it).
+            // The reference provider keys each fence to
+            // resource|generation|operation, so re-using the materialize
+            // operation id here made a conformant provider refuse the second
+            // owner with 'mutation acquire is not idempotent/exclusive' — the
+            // first live run of regress_env_provider_conformance_live.sh
+            // blocked on exactly that.
+            $reapOperationId = self::operationId();
+            $reapFence = $this->act($targetProvider, 'mutation-acquire', $reapOperationId,
                 self::identityInput($identity) + ['mutation_owner' => $reapOwner]);
             if ($reapFence === null) {
                 return $this->finish($body);
             }
             $fence = $reapFence;
-            $reap = $this->act($targetProvider, $reapAction, $operationId,
+            $reap = $this->act($targetProvider, $reapAction, $reapOperationId,
                 self::identityInput($identity) + self::mutationInput($reapFence) + ['compare_and_reap' => true]);
             if ($reap === null) {
                 return $this->finish($body);
@@ -303,12 +312,16 @@ final class EnvironmentProviderCheckCommand {
     ): void {
         if ($held['identity'] !== null) {
             $fence = $held['fence'];
+            // A fresh operation id for the same reason the cycle's own reap
+            // uses one: a fence is keyed per operation, and the fence this
+            // teardown wants may follow a released materialize fence.
+            $teardownOperationId = self::operationId();
             if ($fence === null) {
-                $fence = $this->act($target, 'mutation-acquire', $operationId,
+                $fence = $this->act($target, 'mutation-acquire', $teardownOperationId,
                     self::identityInput($held['identity']) + ['mutation_owner' => $held['reap_owner']], 'teardown ');
             }
             if ($fence !== null) {
-                $this->act($target, $held['reap_action'], $operationId,
+                $this->act($target, $held['reap_action'], $teardownOperationId,
                     self::identityInput($held['identity']) + self::mutationInput($fence)
                         + ['compare_and_reap' => true], 'teardown ');
             }

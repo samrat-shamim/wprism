@@ -160,7 +160,7 @@ function ref_require(bool $condition, string $message): void {
  * @param list<string> $argv
  * @return array{exit:int,stdout:string,stderr:string}
  */
-function ref_run(array $argv, ?string $stdin = null, ?string $cwd = null): array {
+function ref_run(array $argv, ?string $stdin = null, ?string $cwd = null, ?array $env = null): array {
     $pipes = [];
     $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
     $stateLock = $GLOBALS['duo_reference_provider_state_lock'] ?? null;
@@ -174,7 +174,7 @@ function ref_run(array $argv, ?string $stdin = null, ?string $cwd = null): array
         $descriptors,
         $pipes,
         $cwd,
-        null,
+        $env,
         ['bypass_shell' => true]
     );
     if (!is_resource($proc)) throw new RuntimeException('could not start reference provider command');
@@ -256,8 +256,8 @@ function ref_run(array $argv, ?string $stdin = null, ?string $cwd = null): array
 }
 
 /** @param list<string> $argv */
-function ref_checked(array $argv, ?string $stdin = null, ?string $cwd = null): string {
-    $result = ref_run($argv, $stdin, $cwd);
+function ref_checked(array $argv, ?string $stdin = null, ?string $cwd = null, ?array $env = null): string {
+    $result = ref_run($argv, $stdin, $cwd, $env);
     if ($result['exit'] !== 0) {
         throw new RuntimeException(
             'reference provider command failed: ' . implode(' ', $argv) . ' :: ' . trim($result['stderr'])
@@ -814,6 +814,36 @@ function ref_pair_up_command(array $config): array {
  * @param array<string,mixed> $config
  * @return list<string>
  */
+/**
+ * The environment a compose invocation needs on top of the caller's own.
+ *
+ * pair.yml interpolates ${DUO_PAIR} into the cli services' WORDPRESS_DB_NAME
+ * and pair.http.yml interpolates ${DUO_PORT1}/${DUO_PORT2} into port mappings;
+ * pair.sh exports all three for its own compose calls (sandbox/lib/
+ * pair_compose.sh:62 notes callers must re-export them). This provider is NOT
+ * such a caller: it is spawned by the provider-check harness with whatever
+ * environment the operator's shell had, so a bare compose run interpolated
+ * blanks — compose warned 'The "DUO_PORT1" variable is not set' and the cli
+ * container's database name collapsed to wp_2, and `wp option update` died
+ * with 'Error establishing a database connection' (observed as the url-set
+ * BLOCKED verdict in regress_env_provider_conformance_live.sh's first run).
+ * The provider's config names the pair and both ports, so it supplies them.
+ *
+ * @param array<string,mixed> $config @return array<string,string>
+ */
+function ref_compose_environment(array $config): array {
+    $env = [];
+    foreach (getenv() as $key => $value) {
+        if (is_string($value)) $env[(string) $key] = $value;
+    }
+    $env['DUO_PAIR'] = (string) $config['pair'];
+    foreach ($config['environments'] as $environment) {
+        if (($environment['side'] ?? null) === 1) $env['DUO_PORT1'] = (string) $environment['port'];
+        if (($environment['side'] ?? null) === 2) $env['DUO_PORT2'] = (string) $environment['port'];
+    }
+    return $env;
+}
+
 function ref_compose_command(array $config, array $tail): array {
     $argv = ['docker', 'compose', '-p', 'duo-' . (string) $config['pair']];
     foreach ($config['compose_files'] as $file) {
@@ -1710,7 +1740,8 @@ function ref_dispatch(array $request, array $config, array &$state): array {
             ref_checked(
                 ref_compose_command($config, ['run', '--rm', '-T', (string) $environment['service'], 'wp', 'option', 'update', $option, (string) $identity['url'], '--quiet']),
                 null,
-                (string) $config['compose_dir']
+                (string) $config['compose_dir'],
+                ref_compose_environment($config)
             );
         }
         return $identity;

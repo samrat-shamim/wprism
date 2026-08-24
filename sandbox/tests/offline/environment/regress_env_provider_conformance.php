@@ -498,6 +498,29 @@ $identity = [
     'url' => 'https://branch.example.test',
 ];
 $owner = (string) ($input['mutation_owner'] ?? $input['expected_mutation_owner'] ?? 'duo-provider-check-owner-0001');
+// Per-operation fence exclusivity, the property BOTH real providers share:
+// tools/reference-env-provider.php keys each fence to
+// resource|generation|operation and refuses a second owner under the same
+// operation id ('mutation acquire is not idempotent/exclusive'), and the
+// proven duo3324 fixture does the same keyed on environment|operation. The
+// first live run of regress_env_provider_conformance_live.sh blocked on
+// exactly this: the harness re-used the materialize operation id for its
+// terminal reap acquire, which only a stateless stub would grant. Persisting
+// the owner per operation id here makes THIS suite fail against that harness
+// defect instead of leaving it to a live pair to find.
+if ($action === 'mutation-acquire') {
+    $fencesPath = __DIR__ . '/cycle-provider-fences.json';
+    $fences = is_file($fencesPath)
+        ? (array) json_decode((string) file_get_contents($fencesPath), true)
+        : [];
+    $operationId = (string) $request['operation_id'];
+    if (isset($fences[$operationId]) && $fences[$operationId] !== $owner) {
+        fwrite(STDERR, 'cycle provider: mutation acquire is not idempotent/exclusive' . "\n");
+        exit(1);
+    }
+    $fences[$operationId] = $owner;
+    file_put_contents($fencesPath, json_encode($fences));
+}
 $released = $action === 'mutation-release';
 $fence = $identity + [
     'mutation_generation' => 1,
