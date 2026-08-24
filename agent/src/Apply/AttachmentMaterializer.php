@@ -66,6 +66,9 @@ if (!class_exists(Ledger::class, false)) {
  */
 final class AttachmentMaterializer {
     private const ATTACHED_FILE_KEY = '_wp_attached_file';
+    private const FILESYSTEM_MARKER_PREFIX = 'attachment_fs:';
+    private const MAX_FILESYSTEM_MARKERS = 1;
+    private const MAX_FILESYSTEM_MARKER_BYTES = 512;
     private const MAX_ATTACHED_FILE_ROWS = 1000000;
     private const ATTACHED_FILE_LOCK_CHUNK = 512;
     private const MAX_UPLOAD_PATH_BYTES = 1024;
@@ -84,7 +87,9 @@ final class AttachmentMaterializer {
     /** Recover a committed upload publication before target capture. */
     public function recover_pending_filesystem(): void {
         if ($this->filesystem->phase() === null) {
-            $this->filesystem->load_pending();
+            $this->load_pending_filesystem();
+        } else {
+            $this->assert_pending_marker_inventory();
         }
         $identity = $this->filesystem->pending_marker_identity();
         if ($identity === null) return;
@@ -106,12 +111,103 @@ final class AttachmentMaterializer {
 
     /** Load-only scope gate: a scoped apply must never resume a full upload intent. */
     public function load_pending_filesystem(bool $retainLocks = true): bool {
-        $this->filesystem->load_pending();
-        $pending = $this->filesystem->phase() !== null;
-        if ($pending && !$retainLocks) {
+        try {
+            $this->filesystem->load_pending();
+            $this->assert_pending_marker_inventory();
+            $pending = $this->filesystem->phase() !== null;
+            if ($pending && !$retainLocks) {
+                $this->filesystem->end();
+            }
+            return $pending;
+        } catch (\Throwable $failure) {
             $this->filesystem->end();
+            throw $failure;
         }
-        return $pending;
+    }
+
+    /**
+     * Bind the private control journal to the complete raw database marker
+     * inventory before target capture. `duo_kv` values are not option-cache
+     * state, and a marker whose journal was lost or moved is unresolved
+     * post-COMMIT authority rather than permission to start a new apply.
+     */
+    private function assert_pending_marker_inventory(): void {
+        $markers = $this->filesystem_marker_inventory();
+        $journal = $this->filesystem->pending_marker_identity();
+        if ($journal === null) {
+            if ($markers !== []) {
+                throw new \RuntimeException(
+                    'duo: attachment database marker has no matching private control journal; recovery_required'
+                );
+            }
+            return;
+        }
+        if ($markers !== [] && !array_key_exists($journal['key'], $markers)) {
+            throw new \RuntimeException(
+                'duo: attachment database marker and private control journal identities disagree; recovery_required'
+            );
+        }
+    }
+
+    /** @return array<string,string> exact marker key => bounded marker bytes */
+    private function filesystem_marker_inventory(): array {
+        global $wpdb;
+        $table = (string) $wpdb->prefix . 'duo_kv';
+        DeleteGuardEvaluator::assert_table_identifiers(
+            [$table],
+            'attachment durable marker inventory'
+        );
+        $prefixBytes = strlen(self::FILESYSTEM_MARKER_PREFIX);
+        $limit = self::MAX_FILESYSTEM_MARKERS + 1;
+        $wpdb->last_error = '';
+        $rows = $wpdb->get_results($wpdb->prepare(
+            'SELECT k, OCTET_LENGTH(v) AS v_bytes, '
+                . 'CASE WHEN v IS NOT NULL AND OCTET_LENGTH(v) <= %d THEN v ELSE NULL END AS bounded_v '
+                . "FROM `$table` WHERE LOWER(LEFT(k, %d)) = %s "
+                . "ORDER BY BINARY k ASC LIMIT $limit",
+            self::MAX_FILESYSTEM_MARKER_BYTES,
+            $prefixBytes,
+            self::FILESYSTEM_MARKER_PREFIX
+        ), ARRAY_A);
+        if (!is_array($rows)
+            || !array_is_list($rows)
+            || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException('duo: attachment durable marker inventory read failed');
+        }
+        if (count($rows) > self::MAX_FILESYSTEM_MARKERS) {
+            throw new \RuntimeException(
+                'duo: attachment durable marker inventory contains multiple pending authorities; recovery_required'
+            );
+        }
+        $out = [];
+        foreach ($rows as $position => $row) {
+            $bytes = is_array($row)
+                ? $this->canonical_nonnegative_driver_integer($row['v_bytes'] ?? null)
+                : null;
+            $key = is_array($row) ? ($row['k'] ?? null) : null;
+            $value = is_array($row) ? ($row['bounded_v'] ?? null) : null;
+            if (!is_array($row)
+                || array_keys($row) !== ['k', 'v_bytes', 'bounded_v']
+                || !is_string($key)
+                || preg_match('/^attachment_fs:([0-9a-f]{32})$/D', $key, $keyMatch) !== 1
+                || $bytes === null
+                || $bytes > self::MAX_FILESYSTEM_MARKER_BYTES
+                || !is_string($value)
+                || strlen($value) !== $bytes
+                || preg_match(
+                    '#^duo-attachment-filesystem-transaction/v1:([0-9a-f]{32}):'
+                        . '(?:[0-9a-f]{64}|metadata:[0-9a-f]{64}:[0-9a-f]{64})$#D',
+                    $value,
+                    $valueMatch
+                ) !== 1
+                || !hash_equals($keyMatch[1], $valueMatch[1])) {
+                throw new \RuntimeException(
+                    "duo: attachment durable marker inventory returned a malformed row at bounded position $position"
+                );
+            }
+            $out[$key] = $value;
+        }
+        return $out;
     }
 
     /** @param list<array<string,mixed>> $work */

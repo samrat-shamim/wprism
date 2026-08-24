@@ -107,11 +107,15 @@ namespace {
         }
     }
     final class AttachmentAuthorityWpdb {
+        public string $prefix = 'wp_';
         public string $postmeta = 'wp_postmeta';
         public string $last_error = '';
         public bool $savepointExists = false;
+        public bool $failMarkerInventory = false;
         /** @var list<array{meta_id:string,post_id:string,meta_key:string,meta_value:?string}> */
         public array $rows = [];
+        /** @var list<array{k:string,v:?string}> */
+        public array $kvRows = [];
         /** @var list<string> */
         public array $queries = [];
 
@@ -128,6 +132,13 @@ namespace {
         public function get_var(string $sql): mixed {
             $this->queries[] = $sql;
             if (trim($sql) === 'SELECT @@in_transaction') return '1';
+            if (preg_match("/SELECT v FROM wp_duo_kv WHERE k = '((?:''|[^'])*)'/D", $sql, $match) === 1) {
+                $wanted = str_replace("''", "'", $match[1]);
+                foreach ($this->kvRows as $row) {
+                    if (hash_equals($wanted, $row['k'])) return $row['v'];
+                }
+                return null;
+            }
             throw new \RuntimeException("unrecognized attachment authority get_var: $sql");
         }
 
@@ -147,6 +158,30 @@ namespace {
 
         public function get_results(string $sql, mixed $mode): mixed {
             $this->queries[] = $sql;
+            if (str_contains($sql, 'FROM `wp_duo_kv`')) {
+                if ($this->failMarkerInventory) {
+                    $this->last_error = 'SECRET marker inventory failure payload';
+                    return false;
+                }
+                $rows = array_values(array_filter(
+                    $this->kvRows,
+                    static fn(array $row): bool => str_starts_with(
+                        strtolower($row['k']),
+                        'attachment_fs:'
+                    )
+                ));
+                usort($rows, static fn(array $left, array $right): int => strcmp($left['k'], $right['k']));
+                $rows = array_slice($rows, 0, 2);
+                return array_map(static function (array $row): array {
+                    $value = $row['v'];
+                    $bytes = is_string($value) ? strlen($value) : null;
+                    return [
+                        'k' => $row['k'],
+                        'v_bytes' => $bytes === null ? null : (string) $bytes,
+                        'bounded_v' => is_int($bytes) && $bytes <= 512 ? $value : null,
+                    ];
+                }, $rows);
+            }
             if (str_starts_with($sql, 'SHOW INDEX FROM `wp_postmeta`')) {
                 return [[
                     'Key_name' => 'meta_key',
@@ -1195,6 +1230,128 @@ namespace {
 
         $authorityWpdb = new AttachmentAuthorityWpdb();
         $GLOBALS['wpdb'] = $authorityWpdb;
+
+        $orphanIntent = str_repeat('1', 32);
+        $orphanKey = 'attachment_fs:' . $orphanIntent;
+        $orphanValue = 'duo-attachment-filesystem-transaction/v1:' . $orphanIntent
+            . ':' . str_repeat('a', 64);
+        $authorityWpdb->kvRows = [['k' => $orphanKey, 'v' => $orphanValue]];
+        $throws(
+            static fn() => $attachmentMaterializer->load_pending_filesystem(),
+            'has no matching private control journal',
+            'a committed attachment marker whose private journal is lost refuses before target capture'
+        );
+
+        $secondIntent = str_repeat('2', 32);
+        $authorityWpdb->kvRows[] = [
+            'k' => 'attachment_fs:' . $secondIntent,
+            'v' => 'duo-attachment-filesystem-transaction/v1:' . $secondIntent
+                . ':' . str_repeat('b', 64),
+        ];
+        $throws(
+            static fn() => $attachmentMaterializer->load_pending_filesystem(),
+            'contains multiple pending authorities',
+            'multiple raw attachment database markers refuse at the bounded pre-capture inventory'
+        );
+        $check(
+            count(array_filter(
+                $authorityWpdb->queries,
+                static fn(string $query): bool => str_contains($query, 'FROM `wp_duo_kv`')
+                    && str_contains($query, 'CASE WHEN v IS NOT NULL')
+                    && str_contains($query, 'LIMIT 2')
+            )) >= 1,
+            'attachment marker discovery transfers at most two length-gated raw rows without a cache/API shortcut'
+        );
+
+        $authorityWpdb->kvRows = [[
+            'k' => 'ATTACHMENT_FS:' . $orphanIntent,
+            'v' => $orphanValue,
+        ]];
+        $throws(
+            static fn() => $attachmentMaterializer->load_pending_filesystem(),
+            'malformed row',
+            'a collation-equal non-byte-exact attachment marker key cannot hide from raw inventory'
+        );
+        $authorityWpdb->kvRows = [[
+            'k' => $orphanKey,
+            'v' => str_repeat('SECRET', 100),
+        ]];
+        try {
+            $attachmentMaterializer->load_pending_filesystem();
+            $check(false, 'oversized attachment marker values refuse without payload disclosure');
+        } catch (\Throwable $failure) {
+            $check(
+                str_contains($failure->getMessage(), 'malformed row')
+                    && !str_contains($failure->getMessage(), 'SECRET'),
+                'oversized attachment marker values refuse without payload disclosure'
+            );
+        }
+        $authorityWpdb->kvRows = [];
+        $authorityWpdb->failMarkerInventory = true;
+        try {
+            $attachmentMaterializer->load_pending_filesystem();
+            $check(false, 'attachment marker query failures refuse with a redacted diagnostic');
+        } catch (\Throwable $failure) {
+            $check(
+                str_contains($failure->getMessage(), 'inventory read failed')
+                    && !str_contains($failure->getMessage(), 'SECRET'),
+                'attachment marker query failures refuse with a redacted diagnostic'
+            );
+        }
+        $authorityWpdb->failMarkerInventory = false;
+
+        $throws(
+            static fn() => (new AttachmentMaterializer(
+                $policy,
+                $fieldMaterializer,
+                $compiled,
+                $unsafeRepo
+            ))->load_pending_filesystem(),
+            'permits group/other access',
+            'the real pending-load product path refuses an unreadable or unsafe private control root'
+        );
+
+        $pendingRepository = $temporary . '/pending-repository';
+        if (!mkdir($pendingRepository, 0700)) {
+            throw new \RuntimeException('could not create pending attachment marker repository');
+        }
+        $pendingFilesystem = new AttachmentFilesystemTransaction($compiled, $pendingRepository);
+        $pendingFilesystem->prepare($work, $tree, $preflightGenerator);
+        $pendingIdentity = $pendingFilesystem->pending_marker_identity();
+        if (!is_array($pendingIdentity)) {
+            throw new \RuntimeException('pending attachment marker fixture lacks an identity');
+        }
+        $pendingFilesystem->end();
+        $authorityWpdb->kvRows = [['k' => $orphanKey, 'v' => $orphanValue]];
+        $pendingMaterializer = new AttachmentMaterializer(
+            $policy,
+            $fieldMaterializer,
+            $compiled,
+            $pendingRepository
+        );
+        $throws(
+            static fn() => $pendingMaterializer->load_pending_filesystem(),
+            'journal identities disagree',
+            'a database marker for a different intent cannot authorize a private pending journal'
+        );
+        $authorityWpdb->kvRows = [];
+        $retryMaterializer = new AttachmentMaterializer(
+            $policy,
+            $fieldMaterializer,
+            $compiled,
+            $pendingRepository
+        );
+        $check(
+            $retryMaterializer->load_pending_filesystem(),
+            'a refused mismatched inventory releases its lock so the exact markerless rollback can retry'
+        );
+        $retryMaterializer->recover_pending_filesystem();
+        $check(
+            !is_dir($pendingRepository . '/.duo/attachment-filesystem/current'),
+            'markerless pending preparation rolls back through the public recovery path before the retry proceeds'
+        );
+
+        $authorityWpdb->kvRows = [];
         DeleteGuardEvaluator::begin_authored_transaction();
         $globalAuthority = new \ReflectionMethod(
             AttachmentMaterializer::class,
