@@ -405,7 +405,6 @@ foreach ([
     'enable_month_view_cache' => false,
     'trash-past-events' => 3,
     'delete-past-events' => 6,
-    'duo_source_only_secret' => 'source-integration-value-must-not-copy',
     'google_maps_js_api_key' => 'source-maps-key-must-not-copy',
 ] as $key => $value) {
     if (!tribe_update_option($key, $value)) {

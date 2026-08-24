@@ -7241,7 +7241,21 @@ foreach (['post:tribe_events', 'post:tribe_venue', 'post:tribe_organizer', 'term
     );
 }
 $deletionSeed = (string) file_get_contents($root . '/sandbox/conformance/seeds/the-events-calendar.sh');
+$deletionPostdeploy = (string) file_get_contents($root . '/sandbox/conformance/postdeploy/the-events-calendar.sh');
 $deletionCheck = (string) file_get_contents($root . '/sandbox/conformance/checks/the-events-calendar.sh');
+foreach (['duo_source_only_secret', 'duo_target_only_runtime'] as $undeclaredFixtureKey) {
+    duo_check(
+        !str_contains($deletionSeed, $undeclaredFixtureKey)
+            && !str_contains($deletionPostdeploy, $undeclaredFixtureKey)
+            && !str_contains($deletionCheck, $undeclaredFixtureKey),
+        "the exact live fixture never bypasses the closed main-option registry with synthetic sibling $undeclaredFixtureKey"
+    );
+}
+duo_check(
+    str_contains($deletionSeed, "'google_maps_js_api_key' => 'source-maps-key-must-not-copy'")
+        && str_contains($deletionPostdeploy, "'google_maps_js_api_key' => 'target-maps-key-preserved'"),
+    'the exact live fixture proves source exclusion and target preservation through a declared env sibling'
+);
 foreach ([
     'Duo Unsupported Delete Probe',
     'Duo Unsupported Delete Venue',

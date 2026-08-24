@@ -216,7 +216,6 @@ foreach ([
     'tec_seo_out_of_range_behavior' => 'hard_404',
     'google_maps_js_api_key' => 'target-maps-key-preserved',
     'eb_security_key' => 'target-event-aggregator-secret-preserved',
-    'duo_target_only_runtime' => 'target-option-preserved',
 ] as $key => $value) {
     tribe_update_option($key, $value);
 }

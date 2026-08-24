@@ -557,8 +557,6 @@ echo wp_json_encode([
         'maps_key' => $option['google_maps_js_api_key'] ?? null,
         'seo_behavior' => $option['tec_seo_out_of_range_behavior'] ?? null,
         'single_slug' => $option['singleEventSlug'] ?? null,
-        'source_only' => $option['duo_source_only_secret'] ?? null,
-        'target_only' => $option['duo_target_only_runtime'] ?? null,
         'timezone_mode' => $option['tribe_events_timezone_mode'] ?? null,
         'trash_past' => $option['trash-past-events'] ?? null,
         'views' => $option['tribeEnableViews'] ?? null,
@@ -604,7 +602,7 @@ tec_target_hash() {
     if(!$p) throw new RuntimeException("TEC hash event missing");
     $term=get_term_by("slug","duo-readiness-category","tribe_events_cat");
     $option=(array)get_option("tribe_events_calendar_options",[]);
-    $selected=[]; foreach(["eventsSlug","singleEventSlug","tribeEnableViews","viewOption","eventsDefaultVenueID","eventsDefaultOrganizerID","google_maps_js_api_key","eb_security_key","duo_target_only_runtime"] as $k){$selected[$k]=$option[$k]??null;}
+    $selected=[]; foreach(["eventsSlug","singleEventSlug","tribeEnableViews","viewOption","eventsDefaultVenueID","eventsDefaultOrganizerID","google_maps_js_api_key","eb_security_key"] as $k){$selected[$k]=$option[$k]??null;}
     $rows=[
       "post"=>$wpdb->get_row($wpdb->prepare("SELECT ID,post_title,post_name,post_status,post_content FROM {$wpdb->posts} WHERE ID=%d",$p->ID),ARRAY_A),
       "meta"=>$wpdb->get_results($wpdb->prepare("SELECT meta_key,meta_value FROM {$wpdb->postmeta} WHERE post_id=%d ORDER BY meta_key,meta_id",$p->ID),ARRAY_A),
@@ -1001,8 +999,7 @@ jq -e '
   ($o | has("delete-past-events") | not) and
   ($o | has("eventsDefaultVenueID") | not) and
   ($o | has("eventsDefaultOrganizerID") | not) and
-  ($o | has("google_maps_js_api_key") | not) and
-  ($o | has("duo_source_only_secret") | not)
+  ($o | has("google_maps_js_api_key") | not)
 ' "$TEC_SOURCE_OPTIONS" >/dev/null \
   || fail "TEC canonical mixed option captured an operational/secret target-owned sibling"
 pass "canonical TEC state preserves ordered organizer rows and status while excluding preview, operational, and secret state"
@@ -1212,7 +1209,6 @@ printf '%s\n' "$TARGET" | jq -e \
   .options.trash_past == 12 and .options.delete_past == 24 and
   .options.maps_key == "target-maps-key-preserved" and
   .options.eb_secret == "target-event-aggregator-secret-preserved" and
-  .options.target_only == "target-option-preserved" and .options.source_only == null and
   .cache == "target-runtime-preserved" and
   (.event.permalink | contains("/readiness-event/")) and
   .widget_surface.page_id == $dirty.widget_page and
