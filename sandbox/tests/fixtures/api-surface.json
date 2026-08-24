@@ -5282,6 +5282,22 @@
                             "name": "defaultAuthor",
                             "type": "?int",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "commitScopedAuthoring",
+                            "type": "?Closure",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rollbackScopedAuthoring",
+                            "type": "?Closure",
+                            "variadic": false
                         }
                     ],
                     "return_type": null,
@@ -5291,6 +5307,12 @@
             },
             "parent": null,
             "properties": {
+                "commitScopedAuthoring": {
+                    "readonly": true,
+                    "static": false,
+                    "type": "?Closure",
+                    "visibility": "public"
+                },
                 "defaultAuthor": {
                     "readonly": true,
                     "static": false,
@@ -5307,6 +5329,12 @@
                     "readonly": true,
                     "static": false,
                     "type": "bool",
+                    "visibility": "public"
+                },
+                "rollbackScopedAuthoring": {
+                    "readonly": true,
+                    "static": false,
+                    "type": "?Closure",
                     "visibility": "public"
                 },
                 "scopeContract": {
@@ -51086,7 +51114,7 @@
                     "static": true,
                     "visibility": "public"
                 },
-                "authored_readback_hash": {
+                "authored_ledger_map_hash": {
                     "abstract": false,
                     "final": false,
                     "parameters": [
@@ -51910,6 +51938,48 @@
                             "has_default": true,
                             "name": "expectedCanonical",
                             "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "Duo\\ScopedApplySession",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "commit_authored_receipt": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "receipt",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "Duo\\ScopedApplySession",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "commit_desired_authoring": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "intent",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "receipt",
+                            "type": "array",
                             "variadic": false
                         }
                     ],
@@ -53107,6 +53177,23 @@
                         }
                     ],
                     "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "recheck_target_observation": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "observer",
+                            "type": "callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": false,
                     "visibility": "public"
                 }

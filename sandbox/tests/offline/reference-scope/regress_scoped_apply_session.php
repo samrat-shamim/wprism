@@ -223,9 +223,13 @@ $expectThrow(
     'intent bound to a different lease is refused'
 );
 
-$session->transition(ScopedApplySession::PHASE_AUTHORED_COMMITTED);
 $receipt = $intent + ['after_hash' => $h('after')];
-$session->append_receipt($receipt);
+$session->commit_authored_receipt($receipt);
+$check(
+    $session->phase() === ScopedApplySession::PHASE_AUTHORED_COMMITTED
+        && count($session->receipts()) === 1,
+    'authored phase and ordinal-one receipt publish in one storage CAS'
+);
 $beforeReceiptBytes = $session->canonical();
 $session->append_receipt($receipt);
 $check($session->canonical() === $beforeReceiptBytes, 'duplicate identical receipt is byte-stable and append-only');
@@ -362,9 +366,13 @@ $expectThrow(
 );
 $externalStore = new ScopedApplySessionMemoryStore();
 $externalSession = ScopedApplySession::begin($externalStore, $externalAuthority);
+$externalSession->transition(ScopedApplySession::PHASE_AUTHORING);
+$externalIntent = $intent;
+$externalIntent['authority_hash'] = $externalAuthority['authority_hash'];
+$externalIntent['lease_hash'] = ScopedApplySession::lease_hash($externalAuthority['lease']);
+$externalSession->append_intent($externalIntent);
+$externalSession->commit_authored_receipt($externalIntent + ['after_hash' => $h('external-author-after')]);
 foreach ([
-    ScopedApplySession::PHASE_AUTHORING,
-    ScopedApplySession::PHASE_AUTHORED_COMMITTED,
     ScopedApplySession::PHASE_EFFECTS_PENDING,
     ScopedApplySession::PHASE_VERIFYING,
 ] as $phase) {
@@ -476,13 +484,15 @@ $expectThrow(
     'recovery cannot resume an earlier or skipped phase'
 );
 $recovery->resume(ScopedApplySession::PHASE_AUTHORING);
-$recovery->transition(ScopedApplySession::PHASE_AUTHORED_COMMITTED);
+$recovery->append_intent($intent);
+$recovery->commit_authored_receipt($receipt);
 $check($recovery->phase() === ScopedApplySession::PHASE_AUTHORED_COMMITTED, 'recovery resumes only the exact recorded phase');
 
 $recordedRecoveryStore = new ScopedApplySessionMemoryStore();
 $recordedRecovery = ScopedApplySession::begin($recordedRecoveryStore, $authority);
 $recordedRecovery->transition(ScopedApplySession::PHASE_AUTHORING);
-$recordedRecovery->transition(ScopedApplySession::PHASE_AUTHORED_COMMITTED);
+$recordedRecovery->append_intent($intent);
+$recordedRecovery->commit_authored_receipt($receipt);
 $recordedRecovery->transition(ScopedApplySession::PHASE_EFFECTS_PENDING);
 $recordedRecovery->recover($h('recorded-recovery-cause'));
 $check(

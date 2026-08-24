@@ -99,6 +99,13 @@ final class AuthoredTransactionExecutor {
         $scopeContract = $request->scopeContract;
         $performTransaction = $request->performTransaction;
         $defaultAuthor = $request->defaultAuthor;
+        $commitScopedAuthoring = $request->commitScopedAuthoring;
+        $rollbackScopedAuthoring = $request->rollbackScopedAuthoring;
+        $requiresScopedParticipant = $scoped && $performTransaction;
+        if (($commitScopedAuthoring !== null) !== $requiresScopedParticipant
+            || ($rollbackScopedAuthoring !== null) !== $requiresScopedParticipant) {
+            throw new \RuntimeException('duo: authored transaction received an invalid scoped commit participant');
+        }
         $attachmentIds = $this->attachmentMaterializer->pending_attachment_ids();
         $regenContext = [];
         if ($scoped && !$performTransaction) {
@@ -115,6 +122,7 @@ final class AuthoredTransactionExecutor {
         CacheInvalidationTransaction::assert_local_cache('authored apply');
 
         $transactionStarted = false;
+        $scopedCommitParticipantStarted = false;
         Canary::arm();
         try {
             $this->attachmentMaterializer->prepare_filesystem($work, $tree);
@@ -301,6 +309,14 @@ final class AuthoredTransactionExecutor {
             DeleteGuardEvaluator::assert_transaction_isolation(
                 'authored transaction final commit boundary'
             );
+            if ($commitScopedAuthoring !== null) {
+                // This participant updates the scoped session row through the
+                // same wpdb connection and transaction as authored state. Its
+                // one CAS therefore cannot certify a map generation that the
+                // authored COMMIT later rolls back (DUO-3618).
+                $scopedCommitParticipantStarted = true;
+                $commitScopedAuthoring();
+            }
             Db::commit('apply transaction commit');
             $transactionStarted = false;
             $postCommitFailures = [];
@@ -400,6 +416,19 @@ final class AuthoredTransactionExecutor {
                         $attachmentFailure = $attachmentRollbackFailure;
                     }
                 }
+                $scopedSessionFailure = null;
+                if ($rollbackFailure === null
+                    && $scopedCommitParticipantStarted
+                    && $rollbackScopedAuthoring !== null) {
+                    try {
+                        // The in-memory session adopted the uncommitted CAS.
+                        // Reload only after the database rollback is positively
+                        // confirmed, never through an uncertain outcome.
+                        $rollbackScopedAuthoring();
+                    } catch (\Throwable $scopedRollbackFailure) {
+                        $scopedSessionFailure = $scopedRollbackFailure;
+                    }
+                }
                 try {
                     CacheInvalidationTransaction::finish();
                 } catch (\Throwable $cachePurgeFailure) {
@@ -408,6 +437,7 @@ final class AuthoredTransactionExecutor {
                 if ($participantFailure !== null
                     || $rollbackFailure !== null
                     || $attachmentFailure !== null
+                    || $scopedSessionFailure !== null
                     || $cacheFailure !== null) {
                     Canary::disarm();
                     if ($rollbackFailure instanceof DatabaseMutationException
@@ -420,6 +450,7 @@ final class AuthoredTransactionExecutor {
                         'participant' => $participantFailure,
                         'database-rollback' => $rollbackFailure,
                         'attachment-filesystem' => $attachmentFailure,
+                        'scoped-session' => $scopedSessionFailure,
                         'cache-purge' => $cacheFailure,
                     ] as $label => $recoveryFailure) {
                         if ($recoveryFailure instanceof \Throwable) {

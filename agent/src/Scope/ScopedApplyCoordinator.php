@@ -221,24 +221,14 @@ final class ScopedApplyCoordinator {
         return hash('sha256', Canon::encode($rows));
     }
 
-    /**
-     * Bind the post-author selected content and its physical ledger ownership.
-     * Content alone is insufficient: a retry can observe the same portable
-     * state after a target-local identity-map substitution.
-     */
-    public static function authored_readback_hash(array $observation): string {
+    /** Bind the physical selected map generation committed with authored rows. */
+    public static function authored_ledger_map_hash(array $observation): string {
         $selectedLedgerMapRoot = $observation['selected_ledger_map_root'] ?? null;
-        $selectedStateRoot = $observation['selected_before_root'] ?? null;
         if (!is_string($selectedLedgerMapRoot)
-            || preg_match('/^[a-f0-9]{64}$/D', $selectedLedgerMapRoot) !== 1
-            || !is_string($selectedStateRoot)
-            || preg_match('/^[a-f0-9]{64}$/D', $selectedStateRoot) !== 1) {
-            throw new \RuntimeException('duo: scoped authored readback has malformed selected roots');
+            || preg_match('/^[a-f0-9]{64}$/D', $selectedLedgerMapRoot) !== 1) {
+            throw new \RuntimeException('duo: scoped authored readback has a malformed selected ledger-map root');
         }
-        return hash('sha256', Canon::encode([
-            'selected_ledger_map_root' => $selectedLedgerMapRoot,
-            'selected_state_root' => $selectedStateRoot,
-        ]));
+        return hash('sha256', "duo-scoped-authored-map-witness/v1\0" . $selectedLedgerMapRoot);
     }
 
     public static function assert_recovery_selection(

@@ -12,6 +12,8 @@ final class AuthoredTransactionRequest {
         public readonly bool $scoped,
         public readonly ?array $scopeContract,
         public readonly bool $performTransaction,
-        public readonly ?int $defaultAuthor
+        public readonly ?int $defaultAuthor,
+        public readonly ?\Closure $commitScopedAuthoring,
+        public readonly ?\Closure $rollbackScopedAuthoring
     ) {}
 }

@@ -59,6 +59,20 @@ final class ScopedApplyWorkflow {
         );
     }
 
+    /** Re-gate any normal retained session before surfacing observation drift. */
+    public function recheck_target_observation(callable $observer): array {
+        try {
+            $result = $observer();
+            if (!is_array($result)) {
+                throw new \RuntimeException('duo: scoped target observation returned a malformed result');
+            }
+            return $result;
+        } catch (\Throwable $failure) {
+            $this->recover_once('duo:scoped-target-observation-failed');
+            throw $failure;
+        }
+    }
+
     public function guard_witnesses_hash(array $deleteWork): string {
         return ScopedApplyCoordinator::guard_witnesses_hash($deleteWork);
     }
@@ -106,6 +120,19 @@ final class ScopedApplyWorkflow {
         }
 
         $authority = $this->session->authority();
+        $intents = $this->session->intents();
+        $existingIntent = $intents[0] ?? null;
+        if (is_array($existingIntent)
+            && hash_equals(
+                hash('sha256', 'duo-scoped-authored-transaction/v1'),
+                (string) ($existingIntent['action_hash'] ?? '')
+            )) {
+            $this->recover_once('duo:scoped-obsolete-author-evidence');
+            throw new \RuntimeException(
+                'duo: scoped apply recovery found obsolete v1 author evidence; '
+                . 'restore the retained checkpoint or start a fresh scoped apply before target effects'
+            );
+        }
         if ($preAuthor && $authoredState === 'before') {
             if (!hash_equals(
                 (string) ($authority['target']['selected_before_ledger_map_hash'] ?? ''),
@@ -131,6 +158,37 @@ final class ScopedApplyWorkflow {
             return $effectivePhase;
         }
 
+        if ($preAuthor && $authoredState === 'desired') {
+            if ($effectivePhase !== ScopedApplySession::PHASE_PLANNED
+                || $existingIntent !== null
+                || $this->receipt_at(1) !== null) {
+                $this->recover_once('duo:scoped-unreceipted-authored-state');
+                throw new \RuntimeException(
+                    'duo: scoped apply recovery found desired authored state without its atomic author receipt; '
+                    . 'restore the retained checkpoint before retrying'
+                );
+            }
+            if (!hash_equals(
+                (string) ($authority['target']['selected_before_hash'] ?? ''),
+                (string) ($observation['selected_before_root'] ?? '')
+            ) || !hash_equals(
+                (string) ($authority['target']['selected_before_ledger_map_hash'] ?? ''),
+                (string) ($observation['selected_ledger_map_root'] ?? '')
+            ) || !hash_equals(
+                (string) ($authority['plan']['precondition_hash'] ?? ''),
+                $currentPlanPreconditionHash
+            ) || !hash_equals(
+                (string) ($authority['plan']['guard_witnesses_hash'] ?? ''),
+                $currentGuardWitnessesHash
+            )) {
+                $this->recover_once('duo:scoped-noop-authority-drift');
+                throw new \RuntimeException(
+                    'duo: scoped apply no-op recovery no longer matches its exact pre-author state, map, plan, and guards'
+                );
+            }
+            return $effectivePhase;
+        }
+
         if ($authoredState !== 'desired') {
             $cause = $preAuthor
                 ? 'duo:scoped-authored-boundary-mixed'
@@ -142,32 +200,20 @@ final class ScopedApplyWorkflow {
         }
 
         try {
-            $authoredReadbackHash = ScopedApplyCoordinator::authored_readback_hash($observation);
+            $authoredReadbackHash = ScopedApplyCoordinator::authored_ledger_map_hash($observation);
         } catch (\RuntimeException $failure) {
             $this->recover_once('duo:scoped-authored-receipt-drift');
             throw $failure;
         }
         $expectedReceipt = $this->receipt($authorIntent, $authoredReadbackHash);
-        $intents = $this->session->intents();
-        $existingIntent = $intents[0] ?? null;
-        if ((!$preAuthor && $existingIntent === null)
-            || ($existingIntent !== null
-                && Canon::encode((array) $existingIntent) !== Canon::encode($authorIntent))) {
+        if ($existingIntent === null
+            || Canon::encode((array) $existingIntent) !== Canon::encode($authorIntent)) {
             $this->recover_once('duo:scoped-authored-intent-drift');
             throw new \RuntimeException('duo: scoped apply recovery author intent no longer matches');
         }
         $existingReceipt = $this->receipt_at(1);
-        $missingReceiptMayBeSealed = $effectivePhase === ScopedApplySession::PHASE_AUTHORED_COMMITTED
-            && $existingReceipt === null;
-        if (!$preAuthor && !$missingReceiptMayBeSealed && ($existingReceipt === null
-            || Canon::encode($existingReceipt) !== Canon::encode($expectedReceipt))) {
-            $this->recover_once('duo:scoped-authored-receipt-drift');
-            throw new \RuntimeException(
-                'duo: scoped apply recovery author receipt does not match selected state and identity map'
-            );
-        }
-        if ($preAuthor && $existingReceipt !== null
-            && Canon::encode($existingReceipt) !== Canon::encode($expectedReceipt)) {
+        if ($existingReceipt === null
+            || Canon::encode($existingReceipt) !== Canon::encode($expectedReceipt)) {
             $this->recover_once('duo:scoped-authored-receipt-drift');
             throw new \RuntimeException(
                 'duo: scoped apply recovery author receipt does not match selected state and identity map'

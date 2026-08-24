@@ -992,19 +992,32 @@ the phases `planned`, `authoring`, `authored_committed`, `effects_pending`,
 `verifying`, `complete`, and `recovery_required`. Every mutation intent binds
 the authority, lease generation, ordinal, action, operation, input, effect,
 and before-witness hashes; every receipt repeats that binding and adds an
-after-witness hash. At the authored COMMIT boundary, retry compares a fresh
-target observation: the exact pre-root plus selected ledger map may execute
-once, while exact desired state advances without replay only when ordinal 1's
-author receipt binds both the selected content root and its physical selected
-ledger-map root. A retained recovery phase stays durable until this
-phase-appropriate check completes. Normal `authored_committed`,
-`effects_pending`, and `verifying` retries repeat the same desired-state and
-receipt check, so a crash immediately after recovery resume cannot bypass it;
-pre-author retries instead repeat the locked plan, guard, pre-root, and
-selected-map checks. Post-author retries do not compare the old guard witness,
-because the authorized deletion transaction can legitimately change that
-target state. Any mixed, protected, or receipt/map change becomes
-`recovery_required`.
+after-witness hash. The authored operation identity is
+`duo-scoped-authored-transaction/v2`; an active v1 author intent/receipt is
+obsolete state-only evidence and refuses with checkpoint recovery rather than
+being upgraded from current target bytes. For a real authored transaction,
+ordinal 1's receipt and the `authored_committed` phase are one session-row CAS
+inside the same database transaction as authored rows and ledger mappings. Its
+domain-separated after-witness binds the selected ledger-map root read after
+all authored/map writes; the repeated intent/effect binding already seals the
+desired work and deletions. Thus a committed target cannot exist with an
+`authoring` session and no receipt, and a rolled-back target cannot retain a
+committed receipt. An already-desired no-op uses the same one-CAS phase/receipt
+seal outside an authored transaction only when current selected content, map,
+locked plan, and guards all equal the authority's exact pre-author witnesses.
+
+After COMMIT and attachment publication, a second strict canonical capture
+independently proves desired selected content/media, protected content/map
+roots, and the selected map against ordinal 1 before effects. Every normal
+`authored_committed`, `effects_pending`, and `verifying` retry repeats that
+same capture and receipt check, and any observation failure first restores a
+durable `recovery_required` gate; a crash immediately after recovery resume
+cannot bypass it. Pre-author retries instead repeat the locked plan, guard,
+pre-root, and selected-map checks. `authoring` plus desired state or
+`authored_committed` without ordinal 1 is never inferred or repaired. Post-author
+retries do not compare the old guard witness, because the authorized deletion
+transaction can legitimately change that target state. Any mixed, protected,
+obsolete, or receipt/map change becomes `recovery_required`.
 
 Scoped native/provider effects additionally use
 `duo-scoped-effect-operation/v1`. A provider explicitly advertises scoped

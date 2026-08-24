@@ -679,6 +679,12 @@ final class ScopedApplySession {
             if ($nextPhase === self::PHASE_RECOVERY_REQUIRED) {
                 throw new \RuntimeException('duo: recovery requires the recover() API and a cause hash');
             }
+            if ($current === self::PHASE_AUTHORING
+                && $nextPhase === self::PHASE_AUTHORED_COMMITTED) {
+                throw new \RuntimeException(
+                    'duo: authored commit requires the atomic author-receipt API'
+                );
+            }
             if ($nextPhase === self::PHASE_COMPLETE
                 && ($convergenceHash === null || $terminalTarget === null)) {
                 throw new \RuntimeException(
@@ -886,6 +892,70 @@ final class ScopedApplySession {
                 throw new \RuntimeException('duo: scoped apply receipt ordinal is not append-only');
             }
             $record['receipts'][] = $row;
+            return $record;
+        });
+        return $this;
+    }
+
+    /**
+     * Seal ordinal one and the authored-commit phase in one storage CAS.
+     *
+     * LedgerScopedApplySessionStorage uses the authored transaction's exact
+     * wpdb connection, so this one replacement commits or rolls back with the
+     * selected rows and their duo_map bindings. No later retry may infer this
+     * boundary from desired content alone.
+     */
+    public function commit_authored_receipt(array $receipt): self {
+        $this->mutate(function (array $record) use ($receipt): array {
+            if ((string) $record['phase'] !== self::PHASE_AUTHORING
+                || count($record['intents']) !== 1
+                || $record['receipts'] !== []) {
+                throw new \RuntimeException('duo: scoped authored receipt is outside its atomic commit boundary');
+            }
+            $row = self::normalize_receipt($receipt, $record);
+            if ((int) $row['ordinal'] !== 1) {
+                throw new \RuntimeException('duo: scoped authored receipt ordinal is not one');
+            }
+            $intent = self::row_at($record['intents'], 1);
+            if ($intent === null) {
+                throw new \RuntimeException('duo: scoped authored receipt has no matching intent');
+            }
+            foreach (['authority_hash', 'lease_hash', 'action_hash', 'operation_hash', 'input_hash', 'effect_hash', 'before_hash'] as $key) {
+                if (!hash_equals((string) $intent[$key], (string) $row[$key])) {
+                    throw new \RuntimeException('duo: scoped authored receipt does not match its intent hashes');
+                }
+            }
+            $record['receipts'][] = $row;
+            $record['phase'] = self::PHASE_AUTHORED_COMMITTED;
+            $record['phase_history'][] = self::PHASE_AUTHORED_COMMITTED;
+            return $record;
+        });
+        return $this;
+    }
+
+    /** Seal an already-desired, unchanged pre-map boundary without a DB write. */
+    public function commit_desired_authoring(array $intent, array $receipt): self {
+        $this->mutate(function (array $record) use ($intent, $receipt): array {
+            if ((string) $record['phase'] !== self::PHASE_PLANNED
+                || $record['intents'] !== []
+                || $record['receipts'] !== []) {
+                throw new \RuntimeException('duo: scoped desired authoring is outside its atomic no-op boundary');
+            }
+            $intentRow = self::normalize_intent($intent, $record);
+            $receiptRow = self::normalize_receipt($receipt, $record);
+            if ((int) $intentRow['ordinal'] !== 1 || (int) $receiptRow['ordinal'] !== 1) {
+                throw new \RuntimeException('duo: scoped desired authoring ordinal is not one');
+            }
+            foreach (['authority_hash', 'lease_hash', 'action_hash', 'operation_hash', 'input_hash', 'effect_hash', 'before_hash'] as $key) {
+                if (!hash_equals((string) $intentRow[$key], (string) $receiptRow[$key])) {
+                    throw new \RuntimeException('duo: scoped desired authoring receipt does not match its intent hashes');
+                }
+            }
+            $record['intents'][] = $intentRow;
+            $record['receipts'][] = $receiptRow;
+            $record['phase'] = self::PHASE_AUTHORED_COMMITTED;
+            $record['phase_history'][] = self::PHASE_AUTHORING;
+            $record['phase_history'][] = self::PHASE_AUTHORED_COMMITTED;
             return $record;
         });
         return $this;
