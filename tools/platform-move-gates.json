@@ -291,6 +291,14 @@
    "note": "AGENTS.md rule 2's definition of adapter identity: folds each manifest's JSON, its disposition, and hash_file() of every interpreter/provider/regenerator it names. Every gate on the manifest axis is comparing this function's output; it is the move itself."
   },
   {
+   "site": "agent/src/Policy/ManifestDispositions.php::narrowed_environment",
+   "axes": [
+    "platform"
+   ],
+   "verdict": "gate",
+   "note": "WP-4.6 (spec § v3.5): a spec_version 3 adapter declares the boundary cells it was exercised on, and this refuses \"an adapter may narrow the reviewed environment, never widen it\" for any cell platform.json does not carry. So it is a platform-move gate in the second direction the register cares about: DROPPING an exercised series or an engine from platform.json turns a previously honoured narrowing into a named refusal at claim projection. It gates the CLAIM only -- PlatformCompatibility::assert_supported() takes no manifest and reads no claim, so no runtime assertion moves with it."
+  },
+  {
    "site": "agent/src/Policy/ManifestDispositions.php::platform_boundary",
    "axes": [
     "platform"

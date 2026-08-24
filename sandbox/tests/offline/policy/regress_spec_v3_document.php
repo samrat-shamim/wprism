@@ -22,22 +22,22 @@
  * The two halves are deliberately different in kind:
  *
  *   PART 1 — THE SCOPE BOUNDARY, rule by rule. Facts about the shipped engine
- *   that say, per rule, exactly how much of v3 is in force. WP-4.2 turned two
- *   of them over: the acceptance window (§ v3.1) and the `engine_features`
- *   channel (§ v3.2) are ENFORCED and asserted as such here, with the rest
- *   still asserted UNENFORCED — the define is still 2, the validator still
- *   admits an invented section, the disposition monolith is still one file, the
- *   signature domain is still /v1, the statement is still five members, the
- *   platform trust root is still empty, and no shipped manifest declares v3.
- *   A rider that lands enforcement without moving this suite's expectations is
- *   a rider that landed silently, which is the failure this half prevents; the
- *   window's own behaviour is exercised in depth by
- *   sandbox/tests/offline/policy/regress_spec_window.php, and this file only
- *   pins that the document and the engine agree about which rules are live.
+ *   that say, per rule, exactly how much of v3 is in force. Three rules are
+ *   turned over so far and asserted as ENFORCED here: the acceptance window
+ *   (§ v3.1) and the `engine_features` channel (§ v3.2, WP-4.2 — exercised in
+ *   depth by regress_spec_window.php), and § v3.5's environment narrowing
+ *   (WP-4.6 — enforced for a `spec_version: 3` manifest, inert for v2). The
+ *   rest are still asserted UNENFORCED — the define is still 2, the validator
+ *   still admits an invented section, the disposition monolith is still one
+ *   file, the signature domain is still /v1, the statement is still five
+ *   members, the platform trust root is still empty, and no shipped manifest
+ *   declares v3. A rider that lands enforcement without moving this suite's
+ *   expectations is a rider that landed silently, which is the failure this
+ *   half prevents.
  *
  *   PART 2 — THE DOCUMENT. Every number and name the section states is read
  *   back out of the engine, the manifests, and the platform boundary: the
- *   31-key partition and its three arms, the five compatibility axes, the
+ *   32-key partition and its three arms, the five compatibility axes, the
  *   disposition monolith's measured size, the namespace census, the reserved
  *   refusal texts (which must NOT yet appear in shipped code), and the rider id
  *   each subsection carries. A subsection that loses its rider line, a count
@@ -268,6 +268,45 @@ duo_check(
     'v3.4 NOT enforced: the reviewed claim source is still the single manifests/dispositions.json, with no per-adapter directory'
 );
 
+// v3.5 — the one rule with shipped enforcement, and the two halves that make
+// it flag-day-safe. WP-4.6 is why this suite's PART 1 is no longer uniformly
+// "not enforced": the narrowing is live for a v3 manifest, and INERT for a v2
+// one, so no shipped claim moved.
+require_once $repo . '/agent/src/Policy/ManifestDispositions.php';
+$narrowingPlatform = \Duo\ManifestDispositions::platform_boundary($manifestDir);
+$narrowingSubject = Canon::decode(Canon::read_file($manifestDir . '/classic-editor.json'));
+$narrowingEntry = (array) ((array) json_decode(
+    (string) file_get_contents($manifestDir . '/dispositions.json'),
+    true
+)['manifests']['classic-editor']);
+$narrowingEnvironment = static function (array $manifest) use ($narrowingPlatform, $narrowingEntry): array {
+    return (array) \Duo\ManifestDispositions::claim_from_disposition(
+        $manifest,
+        $narrowingEntry,
+        (array) $narrowingEntry['evidence'],
+        $narrowingPlatform
+    )['environment_assumptions'];
+};
+$wholeBoundaryBytes = Canon::encode($narrowingEnvironment($narrowingSubject));
+$v3Narrowing = $narrowingSubject;
+$v3Narrowing['spec_version'] = 3;
+$v3Narrowing['environment'] = ['php' => [array_key_first($narrowingPlatform['compatibility']['php']['verified'])]];
+duo_check(
+    Canon::encode($narrowingEnvironment($v3Narrowing)) !== $wholeBoundaryBytes,
+    'v3.5 ENFORCED: a spec_version 3 manifest declaring `environment` narrows its own claim (WP-4.6)'
+);
+$v2Narrowing = $v3Narrowing;
+$v2Narrowing['spec_version'] = $specVersion;
+duo_check_same(
+    $wholeBoundaryBytes,
+    Canon::encode($narrowingEnvironment($v2Narrowing)),
+    'v3.5 INERT at v2: the same declaration under this engine\'s own spec version projects the whole boundary, byte for byte'
+);
+duo_check(
+    in_array('environment', AdapterCertification::topLevelKeyPartition()['non_surface_keys'], true),
+    'v3.5 x v3.3: the narrowing channel joined the partition as a non-surface key, in the change that reads it'
+);
+
 // v3.6/v3.7 — the certificate wire is untouched.
 $cert = new ReflectionClass(AdapterCertification::class);
 duo_check_same(
@@ -396,7 +435,12 @@ foreach ($arms as $label => $arm) {
         }
     }
 }
-duo_check_same([], $armGaps, 'v3.3 lists all 31 partition keys under their own arms, with each arm\'s count matching the engine constant');
+duo_check_same(
+    [],
+    $armGaps,
+    'v3.3 lists all ' . count(array_merge(...array_values($partition)))
+        . ' partition keys under their own arms, with each arm\'s count matching the engine constant'
+);
 $report(sprintf(
     'partition as published: %d entity + %d field + %d non-surface = %d keys',
     count($partition['entity_sections']),
@@ -422,6 +466,32 @@ duo_check(
     str_contains($keysBody, '`_draft` is REFUSED at v3')
         && str_contains((string) file_get_contents($repo . '/cli/src/Adapter/AdapterDraft.php'), "\$manifest['_draft'] = self::build_draft("),
     'v3.3 resolves the `_draft` gap as a refusal, and `duo adapter-draft` does still emit that key'
+);
+
+// ---------------------------------------------------------------------------
+// v3.5 — the one subsection whose "Enforced today:" line says yes, and the
+// three facts a reader must be able to check without leaving the page: which
+// axes are narrowable, that v2 is inert, and that the load-time gate is
+// untouched. Asserted as text because the flip of that line is the deliverable
+// half of WP-4.6 that no engine constant can hold.
+// ---------------------------------------------------------------------------
+$narrowingBody = $section('v3.5');
+duo_check(
+    str_contains($narrowingBody, 'Enforced today: yes, for a `spec_version: 3` manifest; inert for v2.'),
+    'v3.5 states its enforcement precisely — live at v3, inert at v2 — rather than a bare "yes"'
+);
+$narrowableGaps = array_values(array_filter(
+    ['database', 'php', 'site_mode', 'wordpress'],
+    static fn(string $axis): bool => !str_contains($narrowingBody, '`' . $axis . '`')
+));
+duo_check_same([], $narrowableGaps, 'v3.5 names all four narrowable axes, which are exactly the four members a claim states');
+duo_check(
+    str_contains($narrowingBody, '`filesystem` and `process` are load-time profiles that no claim states'),
+    'and says why the other two compatibility axes are NOT narrowable, so their absence is a decision rather than an omission'
+);
+duo_check(
+    str_contains($narrowingBody, 'JOINS § v3.3\'s partition as a non-surface key'),
+    'v3.5 records that the channel joined the closed key set in the same change, which is what keeps a narrowing adapter signable'
 );
 
 // ---------------------------------------------------------------------------

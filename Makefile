@@ -363,6 +363,15 @@ regress-fetch-artifact:
 regress-manifest-dispositions:
 	php sandbox/tests/offline/policy/regress_manifest_dispositions.php
 
+# WP-4.6 (spec § v3.5): a spec_version 3 adapter narrows its capability claim to
+# the boundary cells it was exercised on; a WIDER cell refuses by name; the key
+# is inert at v2, so all 16 shipped claims stay byte-identical; and every
+# load-time refusal in PlatformCompatibility::assert_supported() -- all five
+# axes, #560's process axis included -- still fires with a narrowing adapter
+# projected, because narrowing scopes the CLAIM and not the runtime.
+regress-adapter-environment-narrowing:
+	php sandbox/tests/offline/policy/regress_adapter_environment_narrowing.php
+
 # WP-1.2: Policy::load() costs one manifest decode per PIN, never one per
 # manifest in the library. Counted (not timed) against synthetic 100/1,000/
 # 10,000-manifest libraries under sandbox/tmp, through the real engine.

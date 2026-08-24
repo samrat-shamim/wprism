@@ -19,8 +19,8 @@
  * eventual v3 code will consult, never from a list retyped here:
  *
  *   - the closed top-level key set is `AdapterCertification`'s own
- *     ENTITY_SECTIONS (5) + FIELD_SECTIONS (14) + NON_SURFACE_KEYS (12)
- *     partition (:96-106), read by Reflection because they are private and
+ *     ENTITY_SECTIONS (5) + FIELD_SECTIONS (14) + NON_SURFACE_KEYS (13, since
+ *     WP-4.6 added `environment`) partition, read by Reflection because they are private and
  *     private is the point — they are what the signer already enforces by name
  *     in `siteRatification()`'s classify-or-throw loop (:700-713), and a copy
  *     here would be the second definition the register discipline exists to
@@ -59,16 +59,18 @@
  * THE MEASUREMENT THIS SUITE OWES ITS CALLER
  * ------------------------------------------
  * WP-1.6 requires the union of top-level keys actually in use across
- * `manifests/*.json` to be MEASURED against the 31-key signer partition and
+ * `manifests/*.json` to be MEASURED against the 32-key signer partition and
  * the difference ENUMERATED, never assumed. It is measured below and the
  * difference is three findings, each asserted rather than reconciled:
  *
- *   F1  30 of the 31 partition keys are in use across the 16 shipped
+ *   F1  30 of the 32 partition keys are in use across the 16 shipped
  *       manifests, and the union contains NOTHING the partition does not know.
  *       So rule V3-KEYS would refuse zero shipped adapters — the flag day is
- *       clean for this rule, which is the fact the program was assuming.
- *   F2  The one unused partition key is `theme`, and it is UNUSABLE as
- *       shipped: `AdapterContractGrammar::validate_adapter_contract()` (:178)
+ *       clean for this rule, which is the fact the program was assuming. The
+ *       32nd key is WP-4.6's `environment` narrowing channel, admitted in the
+ *       change that reads it (§ v3.5) and declared by none of the 16.
+ *   F2  The other unused partition key is `theme`, and it is UNUSABLE as
+ *       shipped: `AdapterContractGrammar::validate_adapter_contract()` (:45)
  *       demands a `theme_version_range` beside every `theme`, and
  *       `ArtifactPolicyIdentity` folds that key into the adapter identity row
  *       (:152-153) — yet `theme_version_range` is in NO arm of the partition.
@@ -169,15 +171,20 @@ $nonSurfaceKeys = (array) $cert->getConstant('NON_SURFACE_KEYS');
 $closedSet = array_merge($entitySections, $fieldSections, $nonSurfaceKeys);
 sort($closedSet, SORT_STRING);
 
+// 13 non-surface keys, not 12, since WP-4.6: `environment` joined that arm with
+// the narrowing rule that reads it (§ v3.5), because a top-level key in no arm
+// makes its whole adapter unsignable — the same shape F2 measures below for
+// `theme_version_range`. This is the growth rule of § v3.3 exercised once, and
+// it is pinned here so the next arrival is a reviewed edit rather than a drift.
 duo_check_same(
-    [5, 14, 12],
+    [5, 14, 13],
     [count($entitySections), count($fieldSections), count($nonSurfaceKeys)],
-    'the candidate closed key set is the signer partition, read by Reflection: 5 entity + 14 field + 12 non-surface'
+    'the candidate closed key set is the signer partition, read by Reflection: 5 entity + 14 field + 13 non-surface'
 );
 duo_check_same(
-    31,
+    32,
     count(array_unique($closedSet)),
-    'the three arms are disjoint, so the candidate set is exactly 31 keys'
+    'the three arms are disjoint, so the candidate set is exactly 32 keys'
 );
 
 // `siteRatification()` is private and stays private: this suite must exercise
@@ -367,7 +374,16 @@ $report('partition keys no shipped manifest declares: ' . ($knownUnused === [] ?
 // F1 — the difference, enumerated in both directions.
 duo_check_same([], $unknownInUse, 'F1: no shipped manifest declares a top-level key the signer partition does not know');
 duo_check_same(30, count($unionKeys), 'F1: the in-use union is 30 keys');
-duo_check_same(['theme'], $knownUnused, 'F1: the partition/union difference is exactly one key — `theme`, declared by no shipped adapter');
+// Two keys the partition admits and no shipped adapter declares, and they are
+// there for opposite reasons: `theme` predates the library's plugin-only
+// contents, while `environment` is WP-4.6's narrowing channel — admitted in the
+// change that reads it precisely so an adapter that uses it stays signable
+// (rule V3-AXIS below measures that none of the 16 uses it yet).
+duo_check_same(
+    ['environment', 'theme'],
+    $knownUnused,
+    'F1: the partition/union difference is exactly two keys — `environment` and `theme`, declared by no shipped adapter'
+);
 
 // The same measurement over the on-disk synthetic estate, because the flag day
 // hits out-of-tree adapters first and `acme-catalog` is the only one the tree
@@ -634,9 +650,14 @@ $report('compatibility axes a v3 certificate would bind: ' . implode(', ', $axes
 // WP-4.7's axis-bound certificates will sign over.
 duo_check_same(['database', 'filesystem', 'php', 'process', 'wordpress'], $axes, 'V3-AXIS: the boundary declares five compatibility axes today');
 
-// The measured fact WP-4.6 exists to change: every claim carries the SAME
-// environment because ManifestDispositions.php:245-250 copies it verbatim from
-// the one global platform.json. No adapter can narrow anything.
+// The measurement WP-4.6 inherited and must not disturb: every SHIPPED claim
+// still carries the same environment, because none of the 16 declares the
+// narrowing channel WP-4.6 added. Before that rider this was a property of the
+// engine (one global copy, no way to narrow); it is now a property of the
+// LIBRARY, and that is the whole flag-day claim for § v3.5 — the rule landed
+// and moved no shipped claim, digest or certificate by a byte. What narrowing
+// does when an adapter DOES declare it is
+// sandbox/tests/offline/policy/regress_adapter_environment_narrowing.php.
 $distinctEnvironments = [];
 $claimRefusals = [];
 foreach ($entryNames as $entryName) {
@@ -658,22 +679,24 @@ duo_check_same([], array_keys($claimRefusals), 'V3-AXIS: every shipped dispositi
 duo_check_same(
     1,
     count($distinctEnvironments),
-    'V3-AXIS: all 16 claims carry byte-identical `environment_assumptions` — the global copy that makes per-adapter narrowing impossible today'
+    'V3-AXIS: all 16 claims carry byte-identical `environment_assumptions` — none of the shipped 16 narrows, so WP-4.6 moved no shipped claim'
 );
 
-// A narrowing declaration is a NEW top-level manifest key, and the closed set
-// knows no key naming an environment or an axis. So WP-4.6 cannot land after
-// V3-KEYS closes the set without also widening it: the two ride together.
+// The narrowing declaration is a top-level manifest key, so it could not land
+// after V3-KEYS closed the set without also widening it: the two ride together,
+// and WP-4.6 rode first. `environment` is now the ONE partition key naming an
+// environment; a compatibility AXIS name appearing here would be a different
+// rule — a per-axis top-level key nobody specified — so the probe stays.
 $environmentish = array_values(array_intersect(
     $closedSet,
     ['compatibility', 'database', 'environment', 'environment_assumptions', 'filesystem', 'php', 'platform', 'site_mode', 'wordpress']
 ));
 duo_check_same(
-    [],
+    ['environment'],
     $environmentish,
-    'V3-AXIS x V3-KEYS: no partition key names an environment or a compatibility axis, so a narrowing declaration needs the closed set widened in the same change'
+    'V3-AXIS x V3-KEYS: the partition names exactly one environment key — WP-4.6\'s narrowing channel — and no compatibility axis'
 );
-$report('shipped adapters that could declare a narrower environment today: 0 (there is no manifest key for it)');
+$report('shipped adapters that declare a narrower environment today: 0 of 16 (the channel exists and none uses it)');
 
 // What today's certificate binds, and the reason R7 exists: verification is a
 // byte-exact comparison of the WHOLE platform record — AdapterCertification.php

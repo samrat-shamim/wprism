@@ -39,6 +39,22 @@ final class ManifestDispositions {
     public const UNCOVERED_REASON = 'no reviewed disposition entry — a manifest cannot certify itself merely by existing beside the agent';
     public const EVIDENCE_SCHEMA = 'duo-subject-certification-bundle/v1';
 
+    /**
+     * The v3 declaration channel an adapter narrows its environment claim
+     * through (spec/repo-format.md § v3.5), and the four axes it may name.
+     *
+     * The axis list is not a subset of the boundary's five compatibility axes
+     * by accident: it is exactly what claim_from_disposition() projects into
+     * `environment_assumptions` below (`site_mode` plus the `php`, `database`
+     * and `wordpress` compatibility axes). `filesystem` and `process` are
+     * load-time gates that no claim states, so a declaration naming one would
+     * narrow a sentence the claim never makes — refused by name rather than
+     * accepted as a no-op, because an unrecognised declaration that means
+     * nothing is indistinguishable from a deliberate one.
+     */
+    private const ENVIRONMENT_KEY = 'environment';
+    private const ENVIRONMENT_AXES = ['database', 'php', 'site_mode', 'wordpress'];
+
     private array $data;
 
     private function __construct(array $data) {
@@ -335,12 +351,7 @@ final class ManifestDispositions {
                 'scope' => 'only the exact registered surfaces and operations below',
             ],
             'supported_versions' => $disposition['supported_versions'] ?? new \stdClass(),
-            'environment_assumptions' => [
-                'site_mode' => $platform['site_mode'] ?? null,
-                'php' => $platform['compatibility']['php'] ?? new \stdClass(),
-                'database' => $platform['compatibility']['database'] ?? new \stdClass(),
-                'wordpress' => $platform['compatibility']['wordpress'] ?? new \stdClass(),
-            ],
+            'environment_assumptions' => self::narrowed_environment($manifest, $platform),
             'operations' => $operations,
             'surfaces' => $surfaces,
             'lifecycle_phases' => $capabilities['lifecycle_phases'] ?? [],
@@ -349,6 +360,144 @@ final class ManifestDispositions {
             'evidence' => $evidence,
             'platform' => $platform,
         ];
+    }
+
+    /**
+     * `environment_assumptions`: the reviewed boundary's own cells, narrowed by
+     * the adapter's own declaration and never widened by it (spec/repo-format.md
+     * § v3.5).
+     *
+     * Until this function existed the projection was the whole boundary copied
+     * verbatim into every claim, which is why all 16 shipped claims are
+     * byte-identical (measured in regress_spec_v3_dry_run.php under rule
+     * V3-AXIS) and why no adapter could say which cells it actually ran on. A
+     * v3 manifest may declare `"environment": {"php": ["8.3"], …}` — a list of
+     * cell names per axis, the same subset shape `unsupported[]` already uses
+     * for surfaces — and the claim then states that subset instead of the whole
+     * matrix.
+     *
+     * Three properties, in the order they are enforced below:
+     *
+     *   1. an adapter declaring nothing binds the whole current boundary, byte
+     *      for byte — and so does a `spec_version: 2` manifest that declares the
+     *      key anyway. The channel is INERT under this engine exactly as § v3.2's
+     *      feature-declaration channel is; turning that silence into a named
+     *      per-section refusal is WP-4.2's acceptance window, which is the only
+     *      mechanism that can refuse a v3-only section inside a v2 manifest
+     *      without refusing the manifest wholesale;
+     *   2. every declared cell must be one the reviewed boundary carries. A cell
+     *      it does not carry is a WIDER claim and refuses naming BOTH the axis
+     *      and the cell — "environment declaration invalid" would send an author
+     *      to re-read four axes to find one transposed digit;
+     *   3. narrowing scopes the CLAIM and nothing else. This function is a
+     *      projection: it hands PlatformCompatibility nothing and reads nothing
+     *      PlatformCompatibility wrote, so `assert_supported()` still gates
+     *      site_mode, PHP, the database engine and version, the WordPress core,
+     *      the filesystem profile and the process profile against the same
+     *      boundary object, on all five axes, exactly as it does today. A claim
+     *      that says which cells were exercised is strictly more information
+     *      than one that inherits the whole boundary; it is not permission to
+     *      run outside it.
+     *
+     * @param array<string,mixed> $manifest
+     * @param array<string,mixed> $platformBoundary
+     * @return array<string,mixed>
+     */
+    private static function narrowed_environment(array $manifest, array $platformBoundary): array {
+        // The historical four members, in their historical order: the claim
+        // states `site_mode` plus three of the boundary's five compatibility
+        // axes, and an adapter may narrow exactly what the claim states.
+        $assumptions = [
+            'site_mode' => $platformBoundary['site_mode'] ?? null,
+            'php' => $platformBoundary['compatibility']['php'] ?? new \stdClass(),
+            'database' => $platformBoundary['compatibility']['database'] ?? new \stdClass(),
+            'wordpress' => $platformBoundary['compatibility']['wordpress'] ?? new \stdClass(),
+        ];
+        $declared = $manifest[self::ENVIRONMENT_KEY] ?? null;
+        $spec = $manifest['spec_version'] ?? null;
+        if ($declared === null || !is_int($spec) || $spec < 3) {
+            return $assumptions;
+        }
+
+        $name = (string) ($manifest['name'] ?? '');
+        if (!is_array($declared) || array_is_list($declared) || $declared === []) {
+            throw new \RuntimeException(
+                "duo: manifest '$name' environment declaration must be a non-empty object of axis => exercised cells"
+            );
+        }
+        // Sorted, so the refusal an author meets names the same axis whatever
+        // order the declaration happens to be authored in.
+        ksort($declared, SORT_STRING);
+        foreach ($declared as $axis => $cells) {
+            $axis = (string) $axis;
+            if (!in_array($axis, self::ENVIRONMENT_AXES, true)) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' declares environment axis '$axis', which a capability claim does not "
+                    . 'state; narrowable axes are ' . implode(', ', self::ENVIRONMENT_AXES)
+                );
+            }
+            if (!self::string_list($cells, false)) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' environment axis '$axis' must be a non-empty list of distinct cell names"
+                );
+            }
+            // The cell vocabulary is the boundary's OWN, per axis: the exercised
+            // series map for the two ranged axes (a bare range claims minor
+            // lines nobody ran, which is why PlatformCompatibility accepts on
+            // range AND series), the engines map for the database axis whose
+            // range is a function of its engine, and the single reviewed value
+            // for site_mode. A one-value axis can only ever be restated, which
+            // is what makes `"site_mode": ["multisite"]` the clearest possible
+            // demonstration that this channel cannot widen anything.
+            $axisBoundary = is_array($assumptions[$axis] ?? null) ? $assumptions[$axis] : [];
+            $carried = match ($axis) {
+                'site_mode' => is_string($assumptions['site_mode']) ? [$assumptions['site_mode']] : [],
+                'database' => array_map('strval', array_keys(
+                    is_array($axisBoundary['engines'] ?? null) ? $axisBoundary['engines'] : []
+                )),
+                default => array_map('strval', array_keys(
+                    is_array($axisBoundary['verified'] ?? null) ? $axisBoundary['verified'] : []
+                )),
+            };
+            $wider = array_values(array_diff($cells, $carried));
+            if ($wider !== []) {
+                sort($wider, SORT_STRING);
+                throw new \RuntimeException(
+                    "duo: manifest '$name' environment axis '$axis' declares [" . implode(', ', $wider)
+                    . '] which the reviewed platform boundary does not carry ['
+                    . implode(', ', $carried) . '] — an adapter may narrow the reviewed environment, never widen it'
+                );
+            }
+
+            if ($axis === 'site_mode') {
+                continue;
+            }
+            $subset = array_fill_keys($cells, true);
+            if ($axis === 'database') {
+                $axisBoundary['engines'] = array_intersect_key($axisBoundary['engines'], $subset);
+                $assumptions[$axis] = $axisBoundary;
+                continue;
+            }
+            $axisBoundary['verified'] = array_intersect_key($axisBoundary['verified'], $subset);
+            if (array_key_exists('last_verified', $axisBoundary)) {
+                // `last_verified` is the GREATEST exercised runtime on its axis
+                // and must be a member of `verified`
+                // (PlatformCompatibility::valid_wordpress_axis()). Carrying the
+                // boundary's scalar behind a narrowed map would publish a claim
+                // whose newest exercised core is not in its own exercised set —
+                // the one internal contradiction this narrowing could introduce.
+                $newest = '';
+                foreach ($axisBoundary['verified'] as $patch) {
+                    if ($newest === '' || version_compare((string) $patch, $newest, '>')) {
+                        $newest = (string) $patch;
+                    }
+                }
+                $axisBoundary['last_verified'] = $newest;
+            }
+            $assumptions[$axis] = $axisBoundary;
+        }
+
+        return $assumptions;
     }
 
     /**
