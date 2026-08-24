@@ -2,6 +2,7 @@
 namespace Duo;
 
 require_once __DIR__ . '/../Kernel/WpCliChildProcess.php';
+require_once __DIR__ . '/NativeRewriteEffects.php';
 
 /**
  * The closed native-action vocabulary: engine-implemented operations whose
@@ -525,37 +526,72 @@ final class NativeActions {
             );
         }
 
-        $before = self::rewrite_state(false);
-        $structure = self::permalink_structure_state();
-        if (!self::runtime_structure_matches($wp_rewrite->permalink_structure ?? null, $structure)) {
+        $tecEffects = NativeRewriteEffects::prepare();
+        $result = null;
+        $primary = null;
+        try {
+            $before = self::rewrite_state(false);
+            $structure = self::permalink_structure_state();
+            if (!self::runtime_structure_matches($wp_rewrite->permalink_structure ?? null, $structure)) {
+                throw new \RuntimeException(
+                    "duo: native action 'rewrite.flush' fresh WordPress process loaded a permalink runtime "
+                    . 'which disagrees with the checked database row; recovery_required'
+                );
+            }
+            $wp_rewrite->flush_rules(false);
+            $generatedRules = $wp_rewrite->rules ?? null;
+            if (!self::valid_rewrite_rules_value($generatedRules, $structure)) {
+                throw new \RuntimeException(
+                    "duo: native action 'rewrite.flush' did not generate a valid rewrite runtime; "
+                    . 'recovery_required'
+                );
+            }
+            $after = self::rewrite_state(true, $generatedRules);
+            $desired = $structure['present'] ? $structure['value'] : '';
+            if (!hash_equals(hash('sha256', $desired), $after['permalink_hash'])) {
+                throw new \RuntimeException(
+                    "duo: native action 'rewrite.flush' permalink readback changed during regeneration; "
+                    . 'recovery_required'
+                );
+            }
+            $result = [
+                'action' => 'rewrite.flush',
+                'args' => [],
+                'before' => $before,
+                'after' => $after,
+                'verified' => true,
+            ];
+        } catch (\Throwable $failure) {
+            $primary = $failure;
+        }
+        $restoreFailure = null;
+        if ($tecEffects !== null) {
+            try {
+                $tecEffects->restore();
+            } catch (\Throwable $failure) {
+                $restoreFailure = $failure;
+            }
+        }
+        if ($restoreFailure !== null) {
+            $primaryFingerprint = $primary === null
+                ? 'none'
+                : get_class($primary) . ':' . substr(hash('sha256', $primary->getMessage()), 0, 16);
             throw new \RuntimeException(
-                "duo: native action 'rewrite.flush' fresh WordPress process loaded a permalink runtime "
-                . 'which disagrees with the checked database row; recovery_required'
+                'duo: native rewrite could not restore The Events Calendar local runtime; primary='
+                . $primaryFingerprint . '; restore=' . get_class($restoreFailure) . ':'
+                . substr(hash('sha256', $restoreFailure->getMessage()), 0, 16)
+                . '; recovery_required',
+                0,
+                $primary ?? $restoreFailure
             );
         }
-        $wp_rewrite->flush_rules(false);
-        $generatedRules = $wp_rewrite->rules ?? null;
-        if (!self::valid_rewrite_rules_value($generatedRules, $structure)) {
-            throw new \RuntimeException(
-                "duo: native action 'rewrite.flush' did not generate a valid rewrite runtime; "
-                . 'recovery_required'
-            );
+        if ($primary !== null) {
+            throw $primary;
         }
-        $after = self::rewrite_state(true, $generatedRules);
-        $desired = $structure['present'] ? $structure['value'] : '';
-        if (!hash_equals(hash('sha256', $desired), $after['permalink_hash'])) {
-            throw new \RuntimeException(
-                "duo: native action 'rewrite.flush' permalink readback changed during regeneration; "
-                . 'recovery_required'
-            );
+        if (!is_array($result)) {
+            throw new \LogicException('duo: native rewrite completed without a result');
         }
-        return [
-            'action' => 'rewrite.flush',
-            'args' => [],
-            'before' => $before,
-            'after' => $after,
-            'verified' => true,
-        ];
+        return $result;
     }
 
     /** @param array<string,mixed> $after @return array<string,mixed> */

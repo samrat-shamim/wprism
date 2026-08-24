@@ -375,7 +375,9 @@ final class Tribe__Cache_Listener {
         }
     }
 
-    public function generate_rewrite_rules(): void {}
+    public function generate_rewrite_rules(): void {
+        $this->cache->set_last_occurrence('generate_rewrite_rules');
+    }
 }
 
 final class WP_Post {
@@ -386,6 +388,30 @@ final class WP_Post {
     public function __construct(array $row) {
         $this->ID = (int) ($row['ID'] ?? 0);
         $this->post_type = (string) ($row['post_type'] ?? '');
+    }
+}
+
+final class TecReadinessRewriteRuntime {
+    public mixed $permalink_structure = '/events-source/%postname%/';
+    public mixed $rules = null;
+    public int $flushCalls = 0;
+    public bool $malformedAfterGenerate = false;
+
+    public function flush_rules(bool $hard = true): void {
+        if ($hard) {
+            throw new RuntimeException('the TEC rewrite fixture received a hard flush');
+        }
+        $this->flushCalls++;
+        do_action('generate_rewrite_rules', $this);
+        $this->rules = $this->malformedAfterGenerate
+            ? 'malformed-after-generate'
+            : ['^events/?$' => 'index.php?post_type=tribe_events'];
+        update_option('rewrite_rules', $this->rules);
+    }
+
+    public function wp_rewrite_rules(): mixed {
+        $this->rules = get_option('rewrite_rules');
+        return $this->rules;
     }
 }
 
@@ -794,9 +820,31 @@ function wp_strip_all_tags(string $value, bool $removeBreaks = false): string {
     return $removeBreaks ? (string) preg_replace('/[\r\n\t ]+/', ' ', $value) : $value;
 }
 
+function did_action(string $name): int {
+    return $name === 'wp_loaded' ? 1 : 0;
+}
+
+function maybe_unserialize(mixed $value): mixed {
+    if (!is_string($value) || preg_match('/^(?:a|O|s|b|i|d|N):/', $value) !== 1) {
+        return $value;
+    }
+    $decoded = @unserialize($value, ['allowed_classes' => false]);
+    return $decoded === false && $value !== 'b:0;' ? $value : $decoded;
+}
+
+function sanitize_option(string $name, mixed $value): mixed {
+    return apply_filters("sanitize_option_$name", $value, $name, $value);
+}
+
 /** @return mixed */
 function get_option(string $name, mixed $default = false): mixed {
-    if (in_array($name, ['tribe_last_save_post', 'tribe_last_updated_option'], true)) {
+    if (in_array($name, [
+        'permalink_structure',
+        'rewrite_rules',
+        'tribe_last_generate_rewrite_rules',
+        'tribe_last_save_post',
+        'tribe_last_updated_option',
+    ], true)) {
         $pre = apply_filters("pre_option_$name", false, $name, $default);
         $pre = apply_filters('pre_option', $pre, $name, $default);
         if ($pre !== false) {
@@ -807,7 +855,7 @@ function get_option(string $name, mixed $default = false): mixed {
         if ($wpdb instanceof FakeWpdb && $wpdb->hasTable($wpdb->options)) {
             foreach ($wpdb->rows($wpdb->options) as $row) {
                 if (($row['option_name'] ?? null) === $name) {
-                    return apply_filters("option_$name", $row['option_value'], $name);
+                    return apply_filters("option_$name", maybe_unserialize($row['option_value']), $name);
                 }
             }
         }
@@ -817,7 +865,7 @@ function get_option(string $name, mixed $default = false): mixed {
 }
 
 function update_option(string $name, mixed $value, mixed $autoload = null): bool {
-    $value = apply_filters("sanitize_option_$name", $value, $name, $value);
+    $value = sanitize_option($name, $value);
     $old = get_option($name, false);
     $value = apply_filters("pre_update_option_$name", $value, $old, $name);
     $value = apply_filters('pre_update_option', $value, $name, $old);
@@ -826,7 +874,9 @@ function update_option(string $name, mixed $value, mixed $autoload = null): bool
     }
     /** @var FakeWpdb $wpdb */
     $wpdb = $GLOBALS['wpdb'];
-    $stored = is_bool($value) ? ($value ? '1' : '') : (string) $value;
+    $stored = is_array($value) || is_object($value)
+        ? serialize($value)
+        : (is_bool($value) ? ($value ? '1' : '') : (string) $value);
     $existingAutoload = null;
     foreach ($wpdb->rows($wpdb->options) as $row) {
         if (($row['option_name'] ?? null) === $name) {
@@ -2469,6 +2519,46 @@ $optionColorActions = array_values(array_filter(
 ));
 duo_check_same(1, count($nativeRewriteActions), 'portable TEC settings select exactly one native rewrite action');
 duo_check_same('rewrite.flush', $nativeRewriteActions[0]['action'] ?? null, 'TEC uses the closed engine-owned soft rewrite flush');
+duo_check_same(
+    [
+        'tec-rewrite-rules',
+        'tec-last-generate-rewrite-rules',
+        'tec-last-updated-option',
+        'tec-last-save-post',
+        'tec-rewrite-rules-cache',
+        'tec-last-generate-rewrite-rules-cache',
+        'tec-last-updated-option-cache',
+        'tec-last-save-post-cache',
+        'tec-rewrite-listener-runtime',
+        'tec-permalink-pre-option-filter',
+        'tec-permalink-pre-option-generic-filter',
+        'tec-permalink-option-filter',
+        'tec-permalink-default-option-filter',
+        'tec-rewrite-rules-array-filter',
+        'tec-rewrite-generate-hook',
+        'tec-rewrite-generation-runtime',
+        'tec-rewrite-pre-option-filter',
+        'tec-rewrite-preload-filter',
+        'tec-rewrite-cache-preload-filter',
+        'tec-rewrite-alloptions-filter',
+        'tec-rewrite-default-option-filter',
+        'tec-rewrite-sanitize-filter',
+        'tec-rewrite-option-filter',
+        'tec-rewrite-pre-update-filter',
+        'tec-rewrite-pre-update-generic-filter',
+        'tec-rewrite-update-option-hook',
+        'tec-rewrite-autoload-values-filter',
+        'tec-rewrite-default-autoload-filter',
+        'tec-rewrite-autoload-size-filter',
+        'tec-rewrite-update-specific-hook',
+        'tec-rewrite-updated-option-hook',
+        'tec-rewrite-add-option-hook',
+        'tec-rewrite-add-specific-hook',
+        'tec-rewrite-added-option-hook',
+    ],
+    array_column($nativeRewriteActions[0]['effects'] ?? [], 'id'),
+    'TEC checkpoints every rewrite and CacheListener option/cache effect before the fresh child'
+);
 duo_check_same(1, count($optionColorActions), 'portable TEC settings select exactly one Category Colors cache repair');
 duo_check_same(
     'the-events-calendar-category-colors',
@@ -4086,6 +4176,75 @@ foreach ($lastSaveHookTopology as $lastSaveHook) {
     duo_check(
         str_contains($tecRegeneratorSource, "'$lastSaveHook'"),
         "the derived-state regenerator preflights native marker hook $lastSaveHook"
+    );
+}
+$nativeRewriteEffectSource = (string) file_get_contents(
+    $root . '/agent/src/Rebuild/NativeRewriteEffects.php'
+);
+foreach ([
+    'tribe_last_generate_rewrite_rules',
+    'tribe_last_updated_option',
+    'tribe_last_save_post',
+] as $markerName) {
+    foreach ($lastSaveHookTopology as $lastSaveHook) {
+        $markerHook = str_replace('tribe_last_save_post', $markerName, $lastSaveHook);
+        $dynamicPrefix = str_replace($markerName, '', $markerHook);
+        duo_check(
+            str_contains($nativeRewriteEffectSource, "'$markerHook'")
+                || ($dynamicPrefix !== $markerHook
+                    && str_contains($nativeRewriteEffectSource, "'$dynamicPrefix'"))
+                || in_array($markerHook, [
+                    'pre_option',
+                    'pre_wp_load_alloptions',
+                    'pre_cache_alloptions',
+                    'alloptions',
+                    'pre_update_option',
+                    'update_option',
+                    'wp_autoload_values_to_autoload',
+                    'wp_default_autoload_value',
+                    'wp_max_autoloaded_option_size',
+                    'updated_option',
+                    'add_option',
+                    'added_option',
+                ], true),
+            "the native rewrite boundary generalizes the pinned option branch to $markerHook"
+        );
+    }
+}
+$rewriteEffect = null;
+foreach (($manifest['actions'][0]['effects'] ?? []) as $effect) {
+    if (($effect['id'] ?? null) === 'tec-rewrite-generation-runtime') {
+        $rewriteEffect = $effect;
+        break;
+    }
+}
+duo_check_same(
+    $optionHookFixture['rewrite_generation']['exact_hooks'] ?? null,
+    $rewriteEffect['selector']['members']['exact'] ?? null,
+    'the irreversible rewrite aggregate names every exact pinned core generation hook'
+);
+duo_check_same(
+    [$optionHookFixture['rewrite_generation']['dynamic_hook_template'] ?? null],
+    $rewriteEffect['selector']['members']['templates'] ?? null,
+    'the rewrite aggregate admits only the bounded registered-permastruct hook template'
+);
+$declaredRewriteHooks = [];
+foreach (($manifest['actions'][0]['effects'] ?? []) as $effect) {
+    if (($effect['selector']['type'] ?? null) === 'hook') {
+        $declaredRewriteHooks[(string) ($effect['selector']['value'] ?? '')] = true;
+    }
+}
+foreach ($lastSaveHookTopology as $lastSaveHook) {
+    $rewriteHook = str_replace('tribe_last_save_post', 'rewrite_rules', $lastSaveHook);
+    duo_check(
+        isset($declaredRewriteHooks[$rewriteHook]),
+        "the native action inventory includes the pinned rewrite_rules branch hook $rewriteHook"
+    );
+}
+foreach (($optionHookFixture['rewrite_generation']['soft_flush_excludes'] ?? []) as $hardHook) {
+    duo_check(
+        !isset($declaredRewriteHooks[$hardHook]),
+        "the soft native action does not claim unreachable hard-flush hook $hardHook"
     );
 }
 $cssOptionHookTopology = [];
@@ -6532,6 +6691,142 @@ $occurrenceTable = $tecDb->prefix . 'tec_occurrences';
 $postsTable = $tecDb->posts;
 $postMetaTable = $tecDb->postmeta;
 $optionsTable = $tecDb->options;
+$tecDb->seedTable($optionsTable, []);
+
+// NativeActions runs rewrite generation in a fresh WordPress process. This
+// fixture invokes that private child boundary directly so TEC's real hook
+// graph, recursive marker writes, and request-local shutdown flag are proved
+// without weakening the public parent/child receipt transport.
+foreach ([
+    'permalink_structure',
+    'rewrite_rules',
+    'tribe_last_generate_rewrite_rules',
+    'tribe_last_updated_option',
+    'tribe_last_save_post',
+] as $name) {
+    $tecDb->delete($optionsTable, ['option_name' => $name]);
+}
+$tecDb->insert($optionsTable, [
+    'option_name' => 'permalink_structure',
+    'option_value' => '/events-source/%postname%/',
+    'autoload' => 'on',
+]);
+$tecDb->insert($optionsTable, [
+    'option_name' => 'rewrite_rules',
+    'option_value' => serialize(['^old-events/?$' => 'index.php?old=1']),
+    'autoload' => 'on',
+]);
+$GLOBALS['tec_readiness_tribe_vars'] = [];
+$GLOBALS['tec_readiness_expired_transient_deletes'] = 0;
+$GLOBALS['tec_readiness_external_object_cache'] = false;
+$GLOBALS['tec_readiness_wp_cache_gets'] = 0;
+$GLOBALS['tec_readiness_wp_cache_sets'] = 0;
+$GLOBALS['tec_readiness_wp_cache_deletes'] = 0;
+$GLOBALS['tec_readiness_wp_cache'] = [];
+$GLOBALS['wp_rewrite'] = new TecReadinessRewriteRuntime();
+$nativeRewriteChild = new ReflectionMethod(\Duo\NativeActions::class, 'flush_rewrite_in_fresh_process');
+$nativeRewriteReceipt = $nativeRewriteChild->invoke(null);
+duo_check_same(true, $nativeRewriteReceipt['verified'] ?? null, 'TEC-active native rewrite returns only after checked child readback');
+duo_check_same(1, $GLOBALS['wp_rewrite']->flushCalls, 'TEC-active native rewrite invokes the fresh soft flush exactly once');
+$nativeMarkerRows = [];
+foreach ($tecDb->rows($optionsTable) as $row) {
+    $name = $row['option_name'] ?? null;
+    if (in_array($name, [
+        'tribe_last_generate_rewrite_rules',
+        'tribe_last_updated_option',
+        'tribe_last_save_post',
+    ], true)) {
+        $nativeMarkerRows[(string) $name] = $row;
+    }
+}
+duo_check_same(
+    ['tribe_last_generate_rewrite_rules', 'tribe_last_save_post', 'tribe_last_updated_option'],
+    array_keys(array_replace(array_fill_keys([
+        'tribe_last_generate_rewrite_rules',
+        'tribe_last_save_post',
+        'tribe_last_updated_option',
+    ], null), $nativeMarkerRows)),
+    'the exact generate/update/save CacheListener marker roster is physically observable'
+);
+duo_check_same(false, tribe_isset_var('should_delete_expired_transients'), 'native rewrite restores an initially absent transient-purge flag before child shutdown');
+tribe_cache()->maybe_delete_expired_transients();
+duo_check_same(0, $GLOBALS['tec_readiness_expired_transient_deletes'], 'a Duo-created marker never schedules an unreceipted shutdown transient purge');
+
+$beforeFailedRewrite = array_values(array_filter(
+    $tecDb->rows($optionsTable),
+    static fn(array $row): bool => in_array($row['option_name'] ?? null, [
+        'rewrite_rules',
+        'tribe_last_generate_rewrite_rules',
+        'tribe_last_updated_option',
+        'tribe_last_save_post',
+    ], true)
+));
+$GLOBALS['wp_rewrite']->malformedAfterGenerate = true;
+$failedRewrite = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $failedRewrite = $failure;
+}
+duo_check(
+    $failedRewrite instanceof RuntimeException
+        && str_contains($failedRewrite->getMessage(), 'did not generate a valid rewrite runtime'),
+    'a failure after generate+marker writes refuses the TEC-active rewrite receipt'
+);
+duo_check_same(false, tribe_isset_var('should_delete_expired_transients'), 'post-marker failure restores the local purge-flag preimage');
+duo_check(
+    $beforeFailedRewrite !== array_values(array_filter(
+        $tecDb->rows($optionsTable),
+        static fn(array $row): bool => in_array($row['option_name'] ?? null, [
+            'rewrite_rules',
+            'tribe_last_generate_rewrite_rules',
+            'tribe_last_updated_option',
+            'tribe_last_save_post',
+        ], true)
+    )),
+    'post-marker failure leaves changed restorable rows visible to the declared database checkpoint'
+);
+$GLOBALS['wp_rewrite']->malformedAfterGenerate = false;
+$retryRewrite = $nativeRewriteChild->invoke(null);
+duo_check_same(true, $retryRewrite['verified'] ?? null, 'same-process retry after a partial TEC marker effect converges');
+duo_check_same(false, tribe_isset_var('should_delete_expired_transients'), 'retry also restores the exact absent shutdown-flag preimage');
+
+$hostileMarkerCallback = static fn(mixed $value): mixed => $value;
+add_filter('update_option_tribe_last_generate_rewrite_rules', $hostileMarkerCallback, 999, 3);
+$flushesBeforeHostileMarker = $GLOBALS['wp_rewrite']->flushCalls;
+$hostileMarkerFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $hostileMarkerFailure = $failure;
+}
+remove_filter('update_option_tribe_last_generate_rewrite_rules', $hostileMarkerCallback, 999);
+duo_check(
+    $hostileMarkerFailure instanceof RuntimeException
+        && str_contains($hostileMarkerFailure->getMessage(), 'extended marker option topology'),
+    'a hostile marker-specific update callback refuses before native rewrite mutation'
+);
+duo_check_same($flushesBeforeHostileMarker, $GLOBALS['wp_rewrite']->flushCalls, 'marker-hook refusal executes no rewrite callback');
+$postHookRetry = $nativeRewriteChild->invoke(null);
+duo_check_same(true, $postHookRetry['verified'] ?? null, 'removing the hostile marker callback permits exact retry');
+
+$triggerCallback = static fn(array $triggers): array => $triggers;
+add_filter('tribe_cache_last_occurrence_option_triggers', $triggerCallback, 999, 3);
+$flushesBeforeTrigger = $GLOBALS['wp_rewrite']->flushCalls;
+$triggerFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $triggerFailure = $failure;
+}
+remove_filter('tribe_cache_last_occurrence_option_triggers', $triggerCallback, 999);
+duo_check(
+    $triggerFailure instanceof RuntimeException
+        && str_contains($triggerFailure->getMessage(), 'cache-listener trigger filters'),
+    'an extension of TEC recursive trigger filters refuses before rewrite mutation'
+);
+duo_check_same($flushesBeforeTrigger, $GLOBALS['wp_rewrite']->flushCalls, 'trigger-filter refusal executes no native callback');
+
 $tecEventColumns = [
     'event_id' => ['Type' => 'bigint(20) unsigned', 'Null' => 'NO', 'Default' => null, 'Extra' => 'auto_increment'],
     'post_id' => ['Type' => 'bigint(20) unsigned', 'Null' => 'NO', 'Default' => null, 'Extra' => ''],

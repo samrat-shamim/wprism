@@ -5,6 +5,7 @@
   "source_files": {
     "6.9.2": {
       "option_php_sha256": "cde15dc93f943de5884c87b26f0786011c6e43b93440cde1792428029ced9e37",
+      "rewrite_php_sha256": "85c31ed09005f1a3bc5190a9da34cc18b01a433a9ba4ef9cd3198baa4f315755",
       "formatting_php_sha256": "fe6f3c7a4b312f257b3cebee374d8c07d5c3f4df4203d58ee42fd8ae8320b1ce",
       "cache_php_sha256": "a219c2b57cc9990b560c6b497c877db443b7e29239645a6a79b2d76839c46e19",
       "object_cache_php_sha256": "1857b774bd9cfbafbd50a1b1424f7df637d202cf3f2253cda9798d4ad56f3cf0",
@@ -15,6 +16,7 @@
     },
     "7.0.3": {
       "option_php_sha256": "d1daad9a1d19ee438eb6e3b6698b42a3682f6f7ab9626be02f2157a238ea3e2f",
+      "rewrite_php_sha256": "e197e1f2a78b4b6ffffd1687bdedf0c254d2a8cf013f6d8c8e55c0ac53facd3e",
       "formatting_php_sha256": "4e6d1740465e06fc2bbf6deaf666792e60f8c71964d5e5f7b9a6400261144a79",
       "cache_php_sha256": "a219c2b57cc9990b560c6b497c877db443b7e29239645a6a79b2d76839c46e19",
       "object_cache_php_sha256": "1857b774bd9cfbafbd50a1b1424f7df637d202cf3f2253cda9798d4ad56f3cf0",
@@ -25,6 +27,7 @@
     },
     "7.1": {
       "option_php_sha256": "fe3f0b7e115b2a50c31162ed6428abe4088c080b0f71b9678d84806168fe90d0",
+      "rewrite_php_sha256": "e197e1f2a78b4b6ffffd1687bdedf0c254d2a8cf013f6d8c8e55c0ac53facd3e",
       "formatting_php_sha256": "69b5e5acd15fc70582e7edd09c6e201ffdd7f5ab4c5a0b481a9963a0acd604f8",
       "cache_php_sha256": "a219c2b57cc9990b560c6b497c877db443b7e29239645a6a79b2d76839c46e19",
       "object_cache_php_sha256": "1857b774bd9cfbafbd50a1b1424f7df637d202cf3f2253cda9798d4ad56f3cf0",
@@ -109,6 +112,26 @@
       "wp_max_autoloaded_option_size",
       "add_option_tribe_last_save_post",
       "added_option"
+    ]
+  },
+  "rewrite_generation": {
+    "exact_hooks": [
+      "post_rewrite_rules",
+      "date_rewrite_rules",
+      "root_rewrite_rules",
+      "comments_rewrite_rules",
+      "search_rewrite_rules",
+      "author_rewrite_rules",
+      "page_rewrite_rules",
+      "tag_rewrite_rules",
+      "generate_rewrite_rules",
+      "rewrite_rules_array"
+    ],
+    "dynamic_hook_template": "{slug}_rewrite_rules",
+    "soft_flush_excludes": [
+      "mod_rewrite_rules",
+      "iis7_url_rewrite_rules",
+      "flush_rewrite_rules_hard"
     ]
   },
   "tec_service_sources": {

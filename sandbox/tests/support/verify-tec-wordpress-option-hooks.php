@@ -176,6 +176,7 @@ if (!is_array($pin)) {
 }
 $paths = [
     'option_php_sha256' => 'wp-includes/option.php',
+    'rewrite_php_sha256' => 'wp-includes/class-wp-rewrite.php',
     'formatting_php_sha256' => 'wp-includes/formatting.php',
     'cache_php_sha256' => 'wp-includes/cache.php',
     'object_cache_php_sha256' => 'wp-includes/class-wp-object-cache.php',
@@ -302,6 +303,51 @@ $lastSaveDerived = [
 ];
 if (($fixture['last_save_paths'] ?? null) !== $lastSaveDerived) {
     tec_option_usage('native save-post hook topology disagrees with the reviewed fixture');
+}
+$rewriteSource = $sources['wp-includes/class-wp-rewrite.php'];
+$rewriteRules = tec_option_function_body($rewriteSource, 'rewrite_rules');
+$softFlush = tec_option_function_body(
+    $sources['wp-includes/class-wp-rewrite.php'],
+    'flush_rules'
+);
+$rewriteGeneration = [
+    'exact_hooks' => [
+        'post_rewrite_rules',
+        'date_rewrite_rules',
+        'root_rewrite_rules',
+        'comments_rewrite_rules',
+        'search_rewrite_rules',
+        'author_rewrite_rules',
+        'page_rewrite_rules',
+        'tag_rewrite_rules',
+        'generate_rewrite_rules',
+        'rewrite_rules_array',
+    ],
+    'dynamic_hook_template' => '{slug}_rewrite_rules',
+    'soft_flush_excludes' => [
+        'mod_rewrite_rules',
+        'iis7_url_rewrite_rules',
+        'flush_rewrite_rules_hard',
+    ],
+];
+foreach ($rewriteGeneration['exact_hooks'] as $hook) {
+    if (!str_contains($rewriteRules, "'$hook'")) {
+        tec_option_usage("WordPress $version lost exact rewrite-generation hook $hook");
+    }
+}
+if (!str_contains($rewriteRules, '"{$permastructname}_rewrite_rules"')) {
+    tec_option_usage("WordPress $version lost the bounded dynamic permastruct rewrite hook");
+}
+foreach ($rewriteGeneration['soft_flush_excludes'] as $hook) {
+    if (!str_contains($rewriteSource, "'$hook'")) {
+        tec_option_usage("WordPress $version lost reviewed soft-flush branch hook $hook");
+    }
+}
+if (!str_contains($softFlush, "if ( ! \$hard || ! apply_filters( 'flush_rewrite_rules_hard', true ) )")) {
+    tec_option_usage("WordPress $version lost the hard-only filesystem rewrite branch");
+}
+if (($fixture['rewrite_generation'] ?? null) !== $rewriteGeneration) {
+    tec_option_usage('source-derived rewrite generation topology disagrees with the reviewed fixture');
 }
 
 $codeOnly = '';
@@ -1160,6 +1206,7 @@ fwrite(STDOUT, json_encode([
     'source_files' => $pin,
     'shared_paths' => $derived,
     'last_save_paths' => $lastSaveDerived,
+    'rewrite_generation' => $rewriteGeneration,
     'legacy_widget_boundary' => $legacyBoundary,
     'lifecycle_boundary' => $fixture['lifecycle_boundary'] ?? null,
     'customizer_fallback' => $fixture['customizer_fallback'] ?? null,
