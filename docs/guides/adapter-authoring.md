@@ -711,8 +711,21 @@ duo manifest-validate --emit-schema
 ```
 
 prints the closed vocabularies, bounded patterns, and native-action argument
-schemas as one versioned JSON document (`duo-manifest-grammar/v1`) — the raw
+schemas as one versioned JSON document (`duo-manifest-grammar/v2`) — the raw
 material for editor completion, a schema-aware linter, or a review checklist.
+
+v2 adds two blocks v1 could not answer, both derived the same way as the rest.
+`spec_window` is which `spec_version` integers this engine ACCEPTS, measured by
+handing each candidate to the real `validate_adapter_contract()` rather than by
+restating its condition, so a widened or narrowed window shows up here with no
+edit to the emitter. `top_level_keys` is the signer's own closed partition of
+manifest top-level keys — the set that decides whether an adapter can be
+certified at all — published with the one fact an author most needs about it:
+it refuses at signing (`enforced_by`) and the manifest validator does not
+consult it (`not_enforced_by`), so an invented or transposed section name loads
+`ok` here and is unsignable later. Closing that gap is spec v3's V3-KEYS rule
+(`spec/repo-format.md` § v3.3); until it lands, treat `top_level_keys.all` as
+the list to check a new section name against by hand.
 
 Every set in it is read out of the engine at emission time, never written down
 in the emitter. That is the only property that makes it worth trusting: a

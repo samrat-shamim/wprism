@@ -195,6 +195,37 @@ final class AdapterCertification {
     private static ?\Closure $testVerifiedBundleAssetReadHook = null;
 
     /**
+     * The three-arm top-level key partition above, published for readers that
+     * must NAME the set without re-typing it (WP-4.1).
+     *
+     * It is the only closed top-level manifest vocabulary this project has,
+     * and until now the only way to read it was Reflection over three private
+     * consts — which
+     * `sandbox/tests/offline/policy/regress_spec_v3_dry_run.php:165-181` does
+     * precisely because a copy would be the second definition the wire-surface
+     * register exists to forbid. `duo manifest-validate --emit-schema` now
+     * publishes it in `duo-manifest-grammar/v2`, so this accessor exists
+     * rather than a fourth spelling of 31 strings.
+     *
+     * Publishing is NOT enforcement, and this method changes none: the only
+     * consumer of the constants is still siteRatification()'s
+     * classify-or-throw loop (`:779-789`), so a manifest declaring an
+     * unclassifiable key is refused at SIGNING and still admitted by
+     * `ManifestValidator`. Closing that gap is spec v3's V3-KEYS rule
+     * (spec/repo-format.md § v3.3 "The closed top-level key set"), which
+     * WP-4.3 implements by making the validator the partition's second reader.
+     *
+     * @return array{entity_sections: list<string>, field_sections: list<string>, non_surface_keys: list<string>}
+     */
+    public static function topLevelKeyPartition(): array {
+        return [
+            'entity_sections' => self::ENTITY_SECTIONS,
+            'field_sections' => self::FIELD_SECTIONS,
+            'non_surface_keys' => self::NON_SURFACE_KEYS,
+        ];
+    }
+
+    /**
      * A site adapter's certification path is derived, never declared by the
      * adapter or a site pin.  This prevents one certificate from being reused
      * for a different adapter by merely changing a path claim.
