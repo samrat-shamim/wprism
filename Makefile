@@ -2410,6 +2410,20 @@ regress-fixture-makers:
 regress-platform-move-gates:
 	php sandbox/tests/offline/guards/regress_platform_move_gates.php
 
+# The flag-day rehearsal. Nine synthetic site repositories -- bare-name pins,
+# content pins, `source:"site"` overrides, certified site adapters under two
+# operator keys, compiled artifacts, frozen snapshots, a scope contract, an
+# identity sidecar and a recovery checkpoint -- driven against two agent states
+# in child processes (a state is a pair of `define()`s, so it must be a
+# process). It measures what the bump moves rather than arguing it: shipped
+# digests, manifest_hash and site_hash hold; artifact_hash moves fleet-wide;
+# a certified site adapter is withdrawn and its site still loads. It ENUMERATES
+# every `gate` row of tools/platform-move-gates.json, so a gate the estate does
+# not drive is a named gap with a reviewed reason rather than silence. Runs the
+# whole estate four times (build, A, B, A) in about 5s.
+regress-spec-migration-rehearsal:
+	php sandbox/tests/offline/guards/regress_spec_migration_rehearsal.php
+
 regress-init-contract:
 	php sandbox/tests/offline/cli/regress_init_contract.php
 
