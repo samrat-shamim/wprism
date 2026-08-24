@@ -18,9 +18,12 @@ if (!class_exists(CompiledRepository::class, false)) {
  * files are never changed while the authored database transaction can still
  * roll back: prepare freezes exact before-images and absence witnesses, seal
  * writes a marker inside that transaction, and publish runs only after COMMIT.
- * A crash is classified by that marker on the next locked apply. All target
- * path operations reject symlinks/special files, re-prove the frozen bytes,
- * and use a temp file in the destination directory for same-filesystem rename.
+ * A crash is classified by that marker on the next locked apply. One stable
+ * private flock serializes the complete upload authority without accumulating
+ * per-path inodes. All target paths reject aliases, symlinks and special files;
+ * publication preserves or derives a sealed non-world-writable mode, uses a
+ * destination-local temp for same-filesystem rename, and re-proves every byte
+ * and mode at the metadata COMMIT boundary.
  */
 final class AttachmentFilesystemTransaction {
     private const FORMAT = 'duo-attachment-filesystem-transaction/v1';
@@ -30,6 +33,9 @@ final class AttachmentFilesystemTransaction {
     /** Originals + before-images + generated files + metadata for one apply. */
     private const MAX_TRANSACTION_BYTES = 1073741824;
     private const MAX_DERIVATIVES = 512;
+    /** Native sizes + edited backup sizes + attached/original_image. */
+    private const MAX_OWNED_PRIOR_FILES = 1026;
+    private const MAX_DIRECTORY_ENTRIES = 100000;
     private const MAX_RELATIVE_BYTES = 1024;
     private const MAX_METADATA_BYTES = 16777216;
 
@@ -72,6 +78,7 @@ final class AttachmentFilesystemTransaction {
                 );
             }
             $this->journal = $locked;
+            $this->assert_planned_filesystem_aliases($this->journal['rows']);
         } catch (\Throwable $failure) {
             $this->release_locks();
             $this->journal = null;
@@ -195,6 +202,7 @@ final class AttachmentFilesystemTransaction {
             return;
         }
         $this->initialize_roots(true);
+        $this->assert_planned_filesystem_aliases($planned);
         if ($this->journal !== null) {
             $existing = array_map(
                 static fn(array $row): string => (string) $row['attachment_uuid'],
@@ -298,7 +306,7 @@ final class AttachmentFilesystemTransaction {
                 }
                 $owned[$path] = true;
             }
-            if (count($owned) > self::MAX_DERIVATIVES + 1) {
+            if (count($owned) > self::MAX_OWNED_PRIOR_FILES) {
                 throw new \RuntimeException('duo: attachment prior metadata ownership exceeds its file bound');
             }
             $existing = $row['attachment_id'];
@@ -498,13 +506,22 @@ final class AttachmentFilesystemTransaction {
                 $bytes = $this->read_bounded_file($stage, (int) $file['size'], (string) $file['sha256']);
                 $prior = $this->prior_for_target($row, (string) $file['target_path']);
                 $current = $this->observe_path((string) $file['target_path']);
-                if ($this->state_is_desired($current, (string) $file['sha256'])) continue;
+                if ($this->state_is_desired(
+                    $current,
+                    (string) $file['sha256'],
+                    (int) $file['publish_mode']
+                )) continue;
                 if (!$this->states_equal($prior, $current)) {
                     throw new \RuntimeException(
                         'duo: attachment derivative changed after its before-image/absence witness; recovery_required'
                     );
                 }
-                $this->atomic_replace((string) $file['target_path'], $bytes, $prior);
+                $this->atomic_replace(
+                    (string) $file['target_path'],
+                    $bytes,
+                    $prior,
+                    (int) $file['publish_mode']
+                );
             }
         }
         $this->journal['phase'] = 'derivatives_published';
@@ -546,13 +563,24 @@ final class AttachmentFilesystemTransaction {
             || !in_array($this->journal['phase'], ['derivatives_published', 'metadata_committing'], true)) {
             throw new \RuntimeException('duo: attachment metadata transaction lacks published derivative authority');
         }
-        $this->read_generation_manifest();
+        $this->assert_metadata_commit_files();
         $this->journal['phase'] = 'metadata_committing';
         $this->write_journal();
         return [
             'key' => (string) $this->journal['marker_key'],
             'value' => $this->metadata_marker_value($this->journal),
         ];
+    }
+
+    /** Re-prove every published byte/mode at the final DB COMMIT boundary. */
+    public function assert_metadata_commit_files(): void {
+        if ($this->journal === null
+            || !in_array($this->journal['phase'], ['derivatives_published', 'metadata_committing'], true)) {
+            throw new \RuntimeException('duo: attachment metadata byte proof lacks a committing durable phase');
+        }
+        $this->read_generation_manifest();
+        $this->assert_desired_originals();
+        $this->assert_desired_derivatives();
     }
 
     public function metadata_transaction_committed(?string $marker): void {
@@ -685,24 +713,36 @@ final class AttachmentFilesystemTransaction {
             if (str_starts_with($path, self::DIRECTORY . '/') || $path === self::DIRECTORY) {
                 throw new \RuntimeException('duo: attachment upload authority collides with its durable journal namespace');
             }
-            if (isset($originals[$path])) {
-                throw new \RuntimeException('duo: compiled upload authority contains duplicate original paths');
+            $pathIdentity = self::portable_path_identity($path);
+            if (isset($originals[$pathIdentity])) {
+                throw new \RuntimeException(
+                    'duo: compiled upload authority contains duplicate or filesystem-aliased original paths'
+                );
             }
-            $originals[$path] = true;
-            $prefixes[] = ['directory' => $directory, 'prefix' => $prefix];
+            $originals[$pathIdentity] = $path;
+            $prefixes[] = [
+                'directory' => $directory,
+                'directory_identity' => self::portable_path_identity($directory),
+                'prefix' => $prefix,
+                'prefix_identity' => self::portable_path_identity($prefix),
+            ];
         }
         foreach ($prefixes as $leftIndex => $left) {
             foreach ($prefixes as $rightIndex => $right) {
-                if ($leftIndex === $rightIndex || !hash_equals($left['directory'], $right['directory'])) continue;
-                if (str_starts_with($left['prefix'], $right['prefix'])
-                    || str_starts_with($right['prefix'], $left['prefix'])) {
+                if ($leftIndex === $rightIndex
+                    || !hash_equals($left['directory_identity'], $right['directory_identity'])) continue;
+                if (str_starts_with($left['prefix_identity'], $right['prefix_identity'])
+                    || str_starts_with($right['prefix_identity'], $left['prefix_identity'])) {
                     throw new \RuntimeException('duo: compiled attachment derivative authorities overlap');
                 }
             }
-            foreach (array_keys($originals) as $original) {
+            foreach ($originals as $original) {
                 $originalDirectory = dirname($original) === '.' ? '' : dirname($original);
-                if (hash_equals($left['directory'], $originalDirectory)
-                    && str_starts_with(basename($original), $left['prefix'])) {
+                if (hash_equals($left['directory_identity'], self::portable_path_identity($originalDirectory))
+                    && str_starts_with(
+                        self::portable_path_identity(basename($original)),
+                        $left['prefix_identity']
+                    )) {
                     throw new \RuntimeException('duo: attachment original collides with a derivative authority');
                 }
             }
@@ -728,6 +768,7 @@ final class AttachmentFilesystemTransaction {
 
     /** @return array<string,mixed> */
     private function snapshot_path(string $relative, int $position, int $index): array {
+        $this->assert_path_alias_free($relative);
         $path = $this->absolute_path($relative);
         clearstatcache(true, $path);
         $named = @lstat($path);
@@ -735,12 +776,13 @@ final class AttachmentFilesystemTransaction {
             if (file_exists($path) || is_link($path)) {
                 throw new \RuntimeException('duo: attachment prior path has an unreadable filesystem identity');
             }
-            return ['before_image' => null, 'path' => $relative, 'sha256' => null, 'size' => 0, 'state' => 'absent'];
+            return $this->absent_path_state($relative);
         }
         if (is_link($path) || !is_file($path) || (($named['mode'] ?? 0) & 0170000) !== 0100000) {
             throw new \RuntimeException('duo: attachment prior path is a symlink or non-regular file');
         }
         $size = $this->canonical_file_size($named['size'] ?? null);
+        $mode = $this->safe_existing_publication_mode($named);
         if ($size === null || $size > self::MAX_FILE_BYTES) {
             throw new \RuntimeException('duo: attachment prior file exceeds its bounded byte limit');
         }
@@ -755,7 +797,9 @@ final class AttachmentFilesystemTransaction {
             'before_image' => $beforeRelative,
             'dev' => (string) $named['dev'],
             'ino' => (string) $named['ino'],
+            'mode' => $mode,
             'path' => $relative,
+            'publish_mode' => $mode,
             'sha256' => $sha,
             'size' => $size,
             'state' => 'present',
@@ -844,12 +888,20 @@ final class AttachmentFilesystemTransaction {
             $prior = $this->original_prior($row);
             $current = $this->observe_path((string) $row['original_path']);
             if ($row['original_status'] === 'complete') {
-                if (!$this->state_is_desired($current, (string) $row['original_sha256'])) {
+                if (!$this->state_is_desired(
+                    $current,
+                    (string) $row['original_sha256'],
+                    (int) $prior['publish_mode']
+                )) {
                     throw new \RuntimeException('duo: completed attachment original changed after atomic publication; recovery_required');
                 }
                 continue;
             }
-            if ($this->state_is_desired($current, (string) $row['original_sha256'])) {
+            if ($this->state_is_desired(
+                $current,
+                (string) $row['original_sha256'],
+                (int) $prior['publish_mode']
+            )) {
                 // Crash after rename but before the journal phase write.
                 $this->journal['rows'][$position]['original_status'] = 'complete';
                 $this->write_journal();
@@ -858,7 +910,12 @@ final class AttachmentFilesystemTransaction {
             if (!$this->states_equal($prior, $current)) {
                 throw new \RuntimeException('duo: attachment original changed after its before-image was frozen; recovery_required');
             }
-            $this->atomic_replace((string) $row['original_path'], $bytes, $prior);
+            $this->atomic_replace(
+                (string) $row['original_path'],
+                $bytes,
+                $prior,
+                (int) $prior['publish_mode']
+            );
             $this->journal['rows'][$position]['original_status'] = 'complete';
             $this->write_journal();
         }
@@ -867,7 +924,8 @@ final class AttachmentFilesystemTransaction {
         $this->assert_desired_originals();
     }
 
-    private function atomic_replace(string $relative, string $bytes, array $expected): void {
+    private function atomic_replace(string $relative, string $bytes, array $expected, int $publishMode): void {
+        $this->assert_safe_publication_mode($publishMode);
         $this->ensure_parent_directories($relative);
         $target = $this->absolute_path($relative);
         $parent = dirname($target);
@@ -882,6 +940,9 @@ final class AttachmentFilesystemTransaction {
             throw new \RuntimeException('duo: attachment destination temp file could not be created');
         }
         try {
+            if (!@chmod($temp, $publishMode)) {
+                throw new \RuntimeException('duo: attachment destination temp mode could not be sealed');
+            }
             $offset = 0;
             while ($offset < strlen($bytes)) {
                 $written = fwrite($handle, substr($bytes, $offset));
@@ -897,7 +958,8 @@ final class AttachmentFilesystemTransaction {
             $parentStat = $this->contained_directory_identity($parent, 'attachment destination directory');
             if (!is_array($tempStat) || !is_array($parentStat)
                 || !$this->directory_identities_equal($parentIdentity, $parentStat)
-                || (string) ($tempStat['dev'] ?? '') !== (string) ($parentStat['dev'] ?? '')) {
+                || (string) ($tempStat['dev'] ?? '') !== (string) ($parentStat['dev'] ?? '')
+                || (((int) ($tempStat['mode'] ?? 0)) & 0777) !== $publishMode) {
                 throw new \RuntimeException('duo: attachment temp and destination are not on one filesystem');
             }
         } finally {
@@ -924,7 +986,7 @@ final class AttachmentFilesystemTransaction {
         }
         $after = $this->observe_path($relative);
         $desired = hash('sha256', $bytes);
-        if (!$this->state_is_desired($after, $desired)) {
+        if (!$this->state_is_desired($after, $desired, $publishMode)) {
             throw new \RuntimeException('duo: attachment destination atomic replacement failed exact readback');
         }
     }
@@ -948,9 +1010,11 @@ final class AttachmentFilesystemTransaction {
 
     private function assert_desired_originals(): void {
         foreach ($this->journal['rows'] as $row) {
+            $prior = $this->original_prior($row);
             if (!$this->state_is_desired(
                 $this->observe_path((string) $row['original_path']),
-                (string) $row['original_sha256']
+                (string) $row['original_sha256'],
+                (int) $prior['publish_mode']
             )) {
                 throw new \RuntimeException('duo: attachment original publication lacks exact final bytes');
             }
@@ -983,7 +1047,11 @@ final class AttachmentFilesystemTransaction {
                 $current = $this->observe_path((string) $prior['path']);
                 if ($allowCompleted
                     && (string) $prior['path'] === (string) $row['original_path']
-                    && $this->state_is_desired($current, (string) $row['original_sha256'])) {
+                    && $this->state_is_desired(
+                        $current,
+                        (string) $row['original_sha256'],
+                        (int) $prior['publish_mode']
+                    )) {
                     continue;
                 }
                 if (!$this->states_equal($prior, $current)) {
@@ -996,15 +1064,29 @@ final class AttachmentFilesystemTransaction {
     /** @return list<string> */
     private function inventory_paths(array $row): array {
         $paths = [(string) $row['original_path']];
+        $this->assert_path_alias_free((string) $row['original_path']);
         $directory = (string) $row['derivative_directory'];
         $prefix = (string) $row['derivative_prefix'];
+        $prefixIdentity = self::portable_path_identity($prefix);
         $absoluteDirectory = $directory === '' ? $this->root : $this->absolute_path($directory);
         if (file_exists($absoluteDirectory) || is_link($absoluteDirectory)) {
             $this->assert_contained_directory($absoluteDirectory, 'attachment derivative directory');
             $entries = new \FilesystemIterator($absoluteDirectory, \FilesystemIterator::SKIP_DOTS);
+            $entryCount = 0;
             foreach ($entries as $entry) {
+                if (++$entryCount > self::MAX_DIRECTORY_ENTRIES) {
+                    throw new \RuntimeException(
+                        'duo: attachment derivative inventory exceeds its bounded directory-entry limit'
+                    );
+                }
                 $name = $entry->getFilename();
-                if (!str_starts_with($name, $prefix) || $name === $prefix) continue;
+                $aliasMatches = str_starts_with(self::portable_path_identity($name), $prefixIdentity);
+                if ($aliasMatches && !str_starts_with($name, $prefix)) {
+                    throw new \RuntimeException(
+                        'duo: attachment derivative authority has a case/Unicode-normalization filesystem alias'
+                    );
+                }
+                if (!$aliasMatches || $name === $prefix) continue;
                 if (count($paths) >= self::MAX_DERIVATIVES + 1) {
                     throw new \RuntimeException('duo: attachment derivative inventory exceeds its bounded file limit');
                 }
@@ -1050,6 +1132,7 @@ final class AttachmentFilesystemTransaction {
         return [
             'dev' => (string) $stat['dev'],
             'ino' => (string) $stat['ino'],
+            'mode' => $this->safe_existing_publication_mode($stat),
             'path' => $relative,
             'sha256' => $sha,
             'size' => $size,
@@ -1064,15 +1147,78 @@ final class AttachmentFilesystemTransaction {
         }
         if ($expected['state'] === 'absent') return true;
         return ($expected['size'] ?? null) === ($actual['size'] ?? null)
+            && ($expected['mode'] ?? null) === ($actual['mode'] ?? null)
             && is_string($expected['sha256'] ?? null)
             && is_string($actual['sha256'] ?? null)
             && hash_equals($expected['sha256'], $actual['sha256']);
     }
 
-    private function state_is_desired(array $state, string $sha256): bool {
+    private function state_is_desired(array $state, string $sha256, int $publishMode): bool {
         return ($state['state'] ?? null) === 'present'
+            && ($state['mode'] ?? null) === $publishMode
             && is_string($state['sha256'] ?? null)
             && hash_equals($sha256, $state['sha256']);
+    }
+
+    /** @return array{before_image:null,path:string,publish_mode:int,sha256:null,size:0,state:string} */
+    private function absent_path_state(string $relative): array {
+        return [
+            'before_image' => null,
+            'path' => $relative,
+            'publish_mode' => $this->new_publication_mode($relative),
+            'sha256' => null,
+            'size' => 0,
+            'state' => 'absent',
+        ];
+    }
+
+    private function safe_existing_publication_mode(array $stat): int {
+        $raw = $stat['mode'] ?? null;
+        if (!is_int($raw)) {
+            throw new \RuntimeException('duo: attachment file mode witness is malformed');
+        }
+        $mode = $raw & 0777;
+        $this->assert_safe_publication_mode($mode);
+        return $mode;
+    }
+
+    private function new_publication_mode(string $relative): int {
+        $path = $this->absolute_path($relative);
+        $directory = dirname($path);
+        while (!file_exists($directory) && !is_link($directory)) {
+            $parent = dirname($directory);
+            if (hash_equals($parent, $directory)) {
+                throw new \RuntimeException('duo: attachment publication mode lacks a physical parent directory');
+            }
+            $directory = $parent;
+        }
+        $identity = $this->contained_directory_identity($directory, 'attachment publication mode parent');
+        $raw = $identity['mode'] ?? null;
+        if (!is_int($raw)) {
+            throw new \RuntimeException('duo: attachment publication parent mode is malformed');
+        }
+        // WordPress derives upload-file permissions from the containing
+        // directory. Duo additionally clears world-write and positively sets
+        // owner read/write, so a permissive process umask is never authority.
+        $mode = (($raw & 0066) | 0600) & 0664;
+        $this->assert_safe_publication_mode($mode);
+        return $mode;
+    }
+
+    private function is_safe_publication_mode(mixed $mode): bool {
+        return is_int($mode)
+            && $mode >= 0400
+            && $mode <= 0777
+            && ($mode & 0400) !== 0
+            && ($mode & 0002) === 0;
+    }
+
+    private function assert_safe_publication_mode(mixed $mode): void {
+        if (!$this->is_safe_publication_mode($mode)) {
+            throw new \RuntimeException(
+                'duo: attachment publication mode is malformed, unreadable, or world-writable'
+            );
+        }
     }
 
     /** @return array<string,mixed> */
@@ -1128,8 +1274,10 @@ final class AttachmentFilesystemTransaction {
                 ? ''
                 : (string) $row['derivative_directory'] . '/') . $name;
             $this->assert_relative_path($target);
+            $prior = $this->prior_for_target($row, $target);
             $generatedByName[$name] = $size;
             $files[] = [
+                'publish_mode' => (int) $prior['publish_mode'],
                 'sha256' => $sha,
                 'size' => $size,
                 'stage_path' => 'stage/' . $position . '/' . $name,
@@ -1340,7 +1488,9 @@ final class AttachmentFilesystemTransaction {
         $aggregate = 0;
         foreach ($row['files'] as $file) {
             if (!is_array($file)
-                || array_keys($file) !== ['sha256', 'size', 'stage_path', 'target_path']
+                || array_keys($file) !== ['publish_mode', 'sha256', 'size', 'stage_path', 'target_path']
+                || !is_int($file['publish_mode'] ?? null)
+                || !$this->is_safe_publication_mode($file['publish_mode'])
                 || preg_match('/^[0-9a-f]{64}$/D', (string) ($file['sha256'] ?? '')) !== 1
                 || !is_int($file['size'] ?? null)
                 || $file['size'] < 0
@@ -1378,7 +1528,10 @@ final class AttachmentFilesystemTransaction {
         foreach ($this->journal['rows'] as $position => $row) {
             $generated = [];
             foreach ($manifest['rows'][$position]['files'] as $file) {
-                $generated[(string) $file['target_path']] = (string) $file['sha256'];
+                $generated[(string) $file['target_path']] = [
+                    'publish_mode' => (int) $file['publish_mode'],
+                    'sha256' => (string) $file['sha256'],
+                ];
             }
             $allowed = [];
             foreach ($row['prior'] as $prior) $allowed[(string) $prior['path']] = true;
@@ -1393,15 +1546,23 @@ final class AttachmentFilesystemTransaction {
                 $path = (string) $prior['path'];
                 $current = $this->observe_path($path);
                 if (hash_equals($path, (string) $row['original_path'])
-                    && $this->state_is_desired($current, (string) $row['original_sha256'])) {
+                    && $this->state_is_desired(
+                        $current,
+                        (string) $row['original_sha256'],
+                        (int) $this->original_prior($row)['publish_mode']
+                    )) {
                     continue;
                 }
-                if (isset($generated[$path]) && $this->state_is_desired($current, $generated[$path])) continue;
+                if (isset($generated[$path]) && $this->state_is_desired(
+                    $current,
+                    $generated[$path]['sha256'],
+                    $generated[$path]['publish_mode']
+                )) continue;
                 if (!$this->states_equal($prior, $current)) {
                     throw new \RuntimeException('duo: attachment prior file changed before derivative publication');
                 }
             }
-            foreach ($generated as $path => $sha) {
+            foreach ($generated as $path => $desired) {
                 $prior = $this->prior_for_target($row, $path);
                 if (($prior['state'] ?? null) === 'present'
                     && !in_array($path, (array) $row['owned_prior_paths'], true)) {
@@ -1411,7 +1572,11 @@ final class AttachmentFilesystemTransaction {
                 }
                 if ($prior['state'] === 'absent') {
                     $current = $this->observe_path($path);
-                    if (($current['state'] ?? null) !== 'absent' && !$this->state_is_desired($current, $sha)) {
+                    if (($current['state'] ?? null) !== 'absent' && !$this->state_is_desired(
+                        $current,
+                        $desired['sha256'],
+                        $desired['publish_mode']
+                    )) {
                         throw new \RuntimeException('duo: attachment generated target appeared after its absence witness');
                     }
                 }
@@ -1425,7 +1590,8 @@ final class AttachmentFilesystemTransaction {
             foreach ($row['files'] as $file) {
                 if (!$this->state_is_desired(
                     $this->observe_path((string) $file['target_path']),
-                    (string) $file['sha256']
+                    (string) $file['sha256'],
+                    (int) $file['publish_mode']
                 )) {
                     throw new \RuntimeException('duo: attachment derivative publication lacks exact final bytes');
                 }
@@ -1466,7 +1632,7 @@ final class AttachmentFilesystemTransaction {
         foreach ($row['prior'] as $prior) {
             if (hash_equals((string) $prior['path'], $target)) return $prior;
         }
-        return ['before_image' => null, 'path' => $target, 'sha256' => null, 'size' => 0, 'state' => 'absent'];
+        return $this->absent_path_state($target);
     }
 
     private function stage_directory(int $position): string {
@@ -1574,48 +1740,52 @@ final class AttachmentFilesystemTransaction {
 
     private function acquire_journal_locks(): void {
         if ($this->journal === null) return;
+        if ($this->locks !== []) return;
         $lockDirectory = (string) $this->journalRoot . '/locks';
         if (!is_dir($lockDirectory) && !@mkdir($lockDirectory, 0700)) {
             throw new \RuntimeException('duo: attachment filesystem lock directory could not be created');
         }
         $this->assert_private_directory($lockDirectory, 'attachment lock directory');
-        $identities = [];
-        foreach ($this->journal['rows'] as $row) {
-            $identities[] = 'original:' . (string) $row['original_path'];
-            $identities[] = 'derivatives:' . (string) $row['derivative_directory'] . "\0" . (string) $row['derivative_prefix'];
-            foreach ((array) ($row['owned_prior_paths'] ?? []) as $path) {
-                $identities[] = 'original:' . (string) $path;
-            }
-        }
-        $identities = array_values(array_unique($identities));
-        sort($identities, SORT_STRING);
+        $lockPath = $lockDirectory . '/transaction.lock';
         try {
-            foreach ($identities as $identity) {
-                $lockPath = $lockDirectory . '/' . hash('sha256', $identity) . '.lock';
-                $existed = file_exists($lockPath) || is_link($lockPath);
-                $handle = @fopen($lockPath, 'c+b');
-                if (!is_resource($handle)) {
-                    throw new \RuntimeException('duo: attachment destination lock could not be opened');
+            $entryCount = 0;
+            foreach (new \FilesystemIterator($lockDirectory, \FilesystemIterator::SKIP_DOTS) as $entry) {
+                if (++$entryCount > 1 || !hash_equals($entry->getFilename(), 'transaction.lock')) {
+                    throw new \RuntimeException(
+                        'duo: attachment lock registry exceeds its single bounded authority'
+                    );
                 }
-                try {
-                    if (!$existed) {
-                        $this->harden_private_handle($handle, 'attachment destination lock');
-                    }
-                    $opened = fstat($handle);
-                    $named = @lstat($lockPath);
-                    if (!is_array($opened) || !is_array($named) || is_link($lockPath) || !is_file($lockPath)
-                        || (((int) ($named['mode'] ?? 0)) & 0077) !== 0
-                        || (string) ($opened['dev'] ?? '') !== (string) ($named['dev'] ?? '')
-                        || (string) ($opened['ino'] ?? '') !== (string) ($named['ino'] ?? '')
-                        || !flock($handle, LOCK_EX | LOCK_NB)) {
-                        throw new \RuntimeException('duo: attachment destination lock identity is unsafe');
-                    }
-                } catch (\Throwable $failure) {
-                    fclose($handle);
-                    throw $failure;
-                }
-                $this->locks[$identity] = $handle;
             }
+            $existed = file_exists($lockPath) || is_link($lockPath);
+            if (is_link($lockPath)) {
+                throw new \RuntimeException('duo: attachment transaction lock identity is unsafe');
+            }
+            $handle = @fopen($lockPath, 'c+b');
+            if (!is_resource($handle)) {
+                throw new \RuntimeException('duo: attachment transaction lock could not be opened');
+            }
+            try {
+                if (!$existed) {
+                    $this->harden_private_handle($handle, 'attachment transaction lock');
+                }
+                $opened = fstat($handle);
+                $named = @lstat($lockPath);
+                if (!is_array($opened) || !is_array($named) || is_link($lockPath) || !is_file($lockPath)
+                    || (((int) ($named['mode'] ?? 0)) & 0077) !== 0
+                    || ($named['size'] ?? null) !== 0
+                    || (string) ($opened['dev'] ?? '') !== (string) ($named['dev'] ?? '')
+                    || (string) ($opened['ino'] ?? '') !== (string) ($named['ino'] ?? '')
+                    || !flock($handle, LOCK_EX | LOCK_NB)) {
+                    throw new \RuntimeException('duo: attachment transaction lock identity is unsafe');
+                }
+            } catch (\Throwable $failure) {
+                fclose($handle);
+                throw $failure;
+            }
+            // One stable inode serializes every attachment path owned by Duo.
+            // Per-path files are not unlink-safe under flock and accumulate an
+            // unbounded durable inode roster across ordinary renames.
+            $this->locks['transaction'] = $handle;
         } catch (\Throwable $failure) {
             $this->release_locks();
             throw $failure;
@@ -1847,10 +2017,10 @@ final class AttachmentFilesystemTransaction {
                 || !in_array($row['original_status'] ?? null, ['pending', 'complete'], true)
                 || !is_array($row['owned_prior_paths'] ?? null)
                 || !array_is_list($row['owned_prior_paths'])
-                || count($row['owned_prior_paths']) > self::MAX_DERIVATIVES + 1
+                || count($row['owned_prior_paths']) > self::MAX_OWNED_PRIOR_FILES
                 || !is_array($row['prior'] ?? null)
                 || !array_is_list($row['prior'])
-                || count($row['prior']) > self::MAX_DERIVATIVES + 1) {
+                || count($row['prior']) > self::MAX_OWNED_PRIOR_FILES) {
                 throw new \RuntimeException('duo: attachment durable journal row has an invalid closed shape');
             }
             $this->assert_relative_path((string) $row['original_path']);
@@ -1859,11 +2029,12 @@ final class AttachmentFilesystemTransaction {
             }
             $uuid = (string) $row['attachment_uuid'];
             $path = (string) $row['original_path'];
-            if (isset($seenUuid[$uuid]) || isset($seenPath[$path])) {
+            $pathIdentity = self::portable_path_identity($path);
+            if (isset($seenUuid[$uuid]) || isset($seenPath[$pathIdentity])) {
                 throw new \RuntimeException('duo: attachment durable journal has duplicate attachment authority');
             }
             $seenUuid[$uuid] = true;
-            $seenPath[$path] = true;
+            $seenPath[$pathIdentity] = true;
             $seenPrior = [];
             $aggregate = 0;
             foreach ($row['prior'] as $prior) {
@@ -1874,28 +2045,32 @@ final class AttachmentFilesystemTransaction {
                 sort($priorKeys, SORT_STRING);
                 $state = $prior['state'] ?? null;
                 $expectedKeys = $state === 'absent'
-                    ? ['before_image', 'path', 'sha256', 'size', 'state']
-                    : ['before_image', 'dev', 'ino', 'path', 'sha256', 'size', 'state'];
+                    ? ['before_image', 'path', 'publish_mode', 'sha256', 'size', 'state']
+                    : ['before_image', 'dev', 'ino', 'mode', 'path', 'publish_mode', 'sha256', 'size', 'state'];
                 if ($priorKeys !== $expectedKeys
                     || !in_array($state, ['absent', 'present'], true)
                     || !is_string($prior['path'] ?? null)
                     || !is_int($prior['size'] ?? null)
                     || $prior['size'] < 0
                     || $prior['size'] > self::MAX_FILE_BYTES
+                    || !$this->is_safe_publication_mode($prior['publish_mode'] ?? null)
                     || ($state === 'absent'
                         ? ($prior['before_image'] !== null || $prior['sha256'] !== null || $prior['size'] !== 0)
                         : (!is_string($prior['before_image'])
                             || preg_match('/^before\/[0-9]+-[0-9]+\.bin$/D', $prior['before_image']) !== 1
                             || !is_string($prior['dev'] ?? null)
                             || !is_string($prior['ino'] ?? null)
+                            || !is_int($prior['mode'] ?? null)
+                            || $prior['mode'] !== $prior['publish_mode']
                             || preg_match('/^[0-9a-f]{64}$/D', (string) $prior['sha256']) !== 1))) {
                     throw new \RuntimeException('duo: attachment durable prior row has an invalid closed shape');
                 }
                 $this->assert_relative_path($prior['path']);
-                if (isset($seenPrior[$prior['path']])) {
+                $priorIdentity = self::portable_path_identity($prior['path']);
+                if (isset($seenPrior[$priorIdentity])) {
                     throw new \RuntimeException('duo: attachment durable prior inventory has duplicate paths');
                 }
-                $seenPrior[$prior['path']] = true;
+                $seenPrior[$priorIdentity] = true;
                 $aggregate += $prior['size'];
                 if ($aggregate > self::MAX_ATTACHMENT_BYTES) {
                     throw new \RuntimeException('duo: attachment durable prior inventory exceeds its byte limit');
@@ -1911,15 +2086,16 @@ final class AttachmentFilesystemTransaction {
                     throw new \RuntimeException('duo: attachment durable owned-prior roster is malformed');
                 }
                 $this->assert_relative_path($ownedPath);
-                if (isset($seenOwned[$ownedPath]) || !isset($seenPrior[$ownedPath])) {
+                $ownedIdentity = self::portable_path_identity($ownedPath);
+                if (isset($seenOwned[$ownedIdentity]) || !isset($seenPrior[$ownedIdentity])) {
                     throw new \RuntimeException(
                         'duo: attachment durable owned-prior roster is duplicate or lacks a frozen witness'
                     );
                 }
-                $seenOwned[$ownedPath] = true;
+                $seenOwned[$ownedIdentity] = true;
             }
             if ($journal['phase'] !== 'preparing'
-                && (!isset($seenPrior[$path]) || $row['prior'] === [])) {
+                && (!isset($seenPrior[$pathIdentity]) || $row['prior'] === [])) {
                 throw new \RuntimeException('duo: attachment durable journal lacks its original prior witness');
             }
         }
@@ -1998,6 +2174,71 @@ final class AttachmentFilesystemTransaction {
             $this->assert_contained_directory($parent, 'attachment path parent');
         }
         return $path;
+    }
+
+    /** @param list<array<string,mixed>> $rows */
+    private function assert_planned_filesystem_aliases(array $rows): void {
+        foreach ($rows as $row) {
+            $this->assert_path_alias_free((string) $row['original_path']);
+            $directory = (string) $row['derivative_directory'];
+            if ($directory !== '') {
+                $this->assert_path_alias_free($directory);
+            }
+        }
+    }
+
+    /**
+     * Refuse byte-different names that a case-insensitive or normalization-
+     * folding target could resolve as the same upload authority. Directory
+     * enumeration is deliberately bounded before any authored DB mutation.
+     */
+    private function assert_path_alias_free(string $relative): void {
+        $this->assert_relative_path($relative);
+        $directory = (string) $this->root;
+        foreach (explode('/', $relative) as $segment) {
+            if (!is_dir($directory)) return;
+            $wanted = self::portable_path_identity($segment);
+            $exact = false;
+            $count = 0;
+            foreach (new \FilesystemIterator($directory, \FilesystemIterator::SKIP_DOTS) as $entry) {
+                if (++$count > self::MAX_DIRECTORY_ENTRIES) {
+                    throw new \RuntimeException(
+                        'duo: attachment filesystem alias proof exceeds its bounded directory-entry limit'
+                    );
+                }
+                $name = $entry->getFilename();
+                if (!hash_equals($wanted, self::portable_path_identity($name))) continue;
+                if (!hash_equals($segment, $name)) {
+                    throw new \RuntimeException(
+                        'duo: attachment upload authority has a case/Unicode-normalization filesystem alias'
+                    );
+                }
+                $exact = true;
+            }
+            if (!$exact) return;
+            $directory .= '/' . $segment;
+        }
+    }
+
+    public static function portable_path_identity(string $value): string {
+        if (preg_match('//u', $value) !== 1) {
+            throw new \RuntimeException('duo: attachment filesystem alias proof received invalid UTF-8');
+        }
+        if (preg_match('/^[\x00-\x7F]*$/D', $value) === 1) {
+            return strtolower($value);
+        }
+        if (!class_exists(\Normalizer::class)
+            || !function_exists('mb_convert_case')
+            || !defined('MB_CASE_FOLD')) {
+            throw new \RuntimeException(
+                'duo: attachment Unicode filesystem alias proof requires normalization/case-fold support'
+            );
+        }
+        $normalized = \Normalizer::normalize($value, \Normalizer::FORM_C);
+        if (!is_string($normalized)) {
+            throw new \RuntimeException('duo: attachment Unicode filesystem alias normalization failed');
+        }
+        return mb_convert_case($normalized, MB_CASE_FOLD, 'UTF-8');
     }
 
     private function assert_relative_path(string $relative): void {

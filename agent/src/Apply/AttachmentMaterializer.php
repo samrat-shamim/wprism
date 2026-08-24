@@ -44,8 +44,9 @@ if (!class_exists(Ledger::class, false)) {
  *
  * The compiled upload inventory is the only authority for an original file.
  * The authored transaction locks and reconciles the exact attachment row,
- * UUID/file sidecars and prior native metadata ownership, then durably seals
- * that UUID-to-post-ID authority before COMMIT. Originals and native
+ * UUID/file sidecars, the global `_wp_attached_file` collision range, and exact
+ * native metadata/edited-backup ownership, then durably seals that
+ * UUID-to-post-ID authority before COMMIT. Originals and native
  * derivatives publish only after the database outcome is proven; a bounded
  * journal plus exact marker phase makes every crash boundary resumable without
  * inferring ownership from a filename prefix. Native metadata generation is
@@ -64,7 +65,12 @@ if (!class_exists(Ledger::class, false)) {
  * families that the native staging boundary must isolate.
  */
 final class AttachmentMaterializer {
+    private const ATTACHED_FILE_KEY = '_wp_attached_file';
+    private const MAX_ATTACHED_FILE_ROWS = 1000000;
+    private const ATTACHED_FILE_LOCK_CHUNK = 512;
+    private const MAX_UPLOAD_PATH_BYTES = 1024;
     private readonly AttachmentFilesystemTransaction $filesystem;
+    private ?string $attachedFileLockIndex = null;
 
     public function __construct(
         private readonly Policy $policy,
@@ -163,6 +169,7 @@ final class AttachmentMaterializer {
         if ($this->filesystem->phase() === null) {
             $this->filesystem->end();
         }
+        $this->attachedFileLockIndex = null;
     }
 
     /**
@@ -225,15 +232,22 @@ final class AttachmentMaterializer {
             'post_id',
             'attachment managed metadata row locking'
         );
+        $this->assert_global_attached_file_authority($id, $front['file']);
         // _wp_attachment_metadata is rebuilt after COMMIT. Lock it now so a
         // concurrent admin cannot replace the old native projection between
         // authored attachment fields and the durable generation phase.
         $priorMetadataRows = $lock->exact_key_rows($id, '_wp_attachment_metadata');
-        $priorAttachedRows = $lock->exact_key_rows($id, '_wp_attached_file');
-        $ownedPriorPaths = $this->prior_native_owned_paths($priorMetadataRows, $priorAttachedRows);
+        $priorAttachedRows = $lock->exact_key_rows($id, self::ATTACHED_FILE_KEY);
+        $priorBackupRows = $lock->exact_key_rows($id, '_wp_attachment_backup_sizes');
+        $ownedPriorPaths = $this->prior_native_owned_paths(
+            $priorMetadataRows,
+            $priorAttachedRows,
+            $priorBackupRows
+        );
+        $this->assert_global_attached_file_authorities($id, $ownedPriorPaths);
         $this->filesystem->register_attachment($id, $front, $ownedPriorPaths);
         $desired = [
-            '_wp_attached_file' => $front['file'],
+            self::ATTACHED_FILE_KEY => $front['file'],
             '_wp_attachment_image_alt' => (string) ($front['alt'] ?? ''),
         ];
         foreach ($desired as $key => $value) {
@@ -271,6 +285,22 @@ final class AttachmentMaterializer {
                 throw new \RuntimeException("duo: attachment metadata '$key' lacks exact locked readback");
             }
         }
+        foreach ($priorBackupRows as $row) {
+            $metaId = MetaRows::positive_id($row['meta_id'] ?? null);
+            if ($metaId === null) {
+                throw new \RuntimeException('duo: attachment backup metadata has a malformed locked row identity');
+            }
+            Db::delete(
+                $wpdb->postmeta,
+                ['meta_id' => $metaId],
+                null,
+                'apply delete target-local attachment backup metadata after freezing its exact files'
+            );
+        }
+        if ($lock->exact_key_rows($id, '_wp_attachment_backup_sizes') !== []) {
+            throw new \RuntimeException('duo: attachment backup metadata deletion lacks exact locked readback');
+        }
+        $this->assert_global_attached_file_authority($id, $front['file']);
         CacheInvalidationTransaction::queue($id, 'post_meta', 'attachment managed metadata reconciliation');
         CacheInvalidationTransaction::queue_generation('posts', 'attachment managed metadata reconciliation');
     }
@@ -506,6 +536,7 @@ final class AttachmentMaterializer {
             if (!hash_equals($marker['value'], (string) Ledger::kv_get($marker['key']))) {
                 throw new \RuntimeException('duo: attachment metadata marker lacks exact transactional readback');
             }
+            $this->filesystem->assert_metadata_commit_files();
             DeleteGuardEvaluator::assert_transaction_isolation('attachment metadata final commit boundary');
             Db::commit('attachment metadata transaction commit');
             $started = false;
@@ -602,6 +633,128 @@ final class AttachmentMaterializer {
             . substr(hash('sha256', $failure->getMessage()), 0, 16);
     }
 
+    /**
+     * Lock the complete collation-equality `_wp_attached_file` key range in
+     * bounded chunks, then require the desired portable filesystem identity
+     * to belong to this attachment alone. The stock postmeta `meta_key(191)`
+     * index completely covers this 17-character literal; the final empty
+     * page owns its terminal insertion gap under the authored RR transaction.
+     */
+    private function assert_global_attached_file_authority(int $attachmentId, string $desiredPath): void {
+        $this->assert_global_attached_file_authorities($attachmentId, [$desiredPath]);
+    }
+
+    /** @param list<string> $desiredPaths */
+    private function assert_global_attached_file_authorities(int $attachmentId, array $desiredPaths): void {
+        global $wpdb;
+        if ($desiredPaths === []) return;
+        $wanted = [];
+        foreach ($desiredPaths as $desiredPath) {
+            if (!is_string($desiredPath)) {
+                throw new \RuntimeException('duo: attachment desired attached-file roster is malformed');
+            }
+            $this->assert_relative_upload_path($desiredPath, 'desired attached file');
+            $identity = AttachmentFilesystemTransaction::portable_path_identity($desiredPath);
+            if (isset($wanted[$identity]) && !hash_equals($wanted[$identity], $desiredPath)) {
+                throw new \RuntimeException(
+                    'duo: attachment desired attached-file roster contains a case/Unicode-normalization alias'
+                );
+            }
+            $wanted[$identity] = $desiredPath;
+        }
+        $index = $this->attachedFileLockIndex ??= DeleteGuardEvaluator::bounded_prefix_lock_index(
+            $wpdb->postmeta,
+            'meta_key',
+            strlen(self::ATTACHED_FILE_KEY),
+            'attachment global attached-file authority'
+        );
+        $lastMetaId = 0;
+        $seenRows = 0;
+        $owners = [];
+        while (true) {
+            DeleteGuardEvaluator::assert_transaction_isolation('attachment global attached-file authority');
+            $wpdb->last_error = '';
+            $rows = $wpdb->get_results($wpdb->prepare(
+                'SELECT meta_id, post_id, meta_key, OCTET_LENGTH(meta_value) AS meta_value_bytes, '
+                    . 'CASE WHEN meta_value IS NOT NULL AND OCTET_LENGTH(meta_value) <= %d '
+                    . "THEN meta_value ELSE NULL END AS bounded_value FROM `{$wpdb->postmeta}` "
+                    . "FORCE INDEX (`$index`) WHERE meta_key = %s AND meta_id > %d "
+                    . 'ORDER BY meta_key ASC, meta_id ASC LIMIT ' . self::ATTACHED_FILE_LOCK_CHUNK
+                    . ' FOR UPDATE',
+                self::MAX_UPLOAD_PATH_BYTES,
+                self::ATTACHED_FILE_KEY,
+                $lastMetaId
+            ), ARRAY_A);
+            if (!is_array($rows)
+                || !array_is_list($rows)
+                || trim((string) ($wpdb->last_error ?? '')) !== '') {
+                throw new \RuntimeException('duo: attachment global attached-file lock read failed');
+            }
+            if ($rows === []) break;
+            foreach ($rows as $position => $row) {
+                $metaId = is_array($row) ? MetaRows::positive_id($row['meta_id'] ?? null) : null;
+                $ownerId = is_array($row) ? MetaRows::positive_id($row['post_id'] ?? null) : null;
+                $valueBytes = is_array($row)
+                    ? $this->canonical_nonnegative_driver_integer($row['meta_value_bytes'] ?? null)
+                    : null;
+                $bounded = is_array($row) ? ($row['bounded_value'] ?? null) : null;
+                if (!is_array($row)
+                    || array_keys($row) !== ['meta_id', 'post_id', 'meta_key', 'meta_value_bytes', 'bounded_value']
+                    || $metaId === null
+                    || $ownerId === null
+                    || $metaId <= $lastMetaId
+                    || !is_string($row['meta_key'] ?? null)
+                    || !hash_equals(self::ATTACHED_FILE_KEY, $row['meta_key'])
+                    || $valueBytes === null
+                    || !($bounded === null || is_string($bounded))
+                    || ($valueBytes <= self::MAX_UPLOAD_PATH_BYTES
+                        && (!is_string($bounded) || strlen($bounded) !== $valueBytes))
+                    || ($valueBytes > self::MAX_UPLOAD_PATH_BYTES && $bounded !== null)) {
+                    throw new \RuntimeException(
+                        "duo: attachment global attached-file lock returned a malformed or aliased row at bounded position $position"
+                    );
+                }
+                if ($valueBytes > self::MAX_UPLOAD_PATH_BYTES) {
+                    throw new \RuntimeException(
+                        'duo: attachment global attached-file authority contains an oversized path'
+                    );
+                }
+                $lastMetaId = $metaId;
+                if (++$seenRows > self::MAX_ATTACHED_FILE_ROWS) {
+                    throw new \RuntimeException(
+                        'duo: attachment global attached-file authority exceeds its bounded row frontier'
+                    );
+                }
+                if (!is_string($bounded) || !$this->is_relative_upload_path($bounded)) continue;
+                $identity = AttachmentFilesystemTransaction::portable_path_identity($bounded);
+                if (!isset($wanted[$identity])) continue;
+                if (!hash_equals($wanted[$identity], $bounded)) {
+                    throw new \RuntimeException(
+                        'duo: attachment desired file has a global case/Unicode-normalization metadata alias'
+                    );
+                }
+                $owners[$wanted[$identity]][] = $ownerId;
+            }
+            if (count($rows) < self::ATTACHED_FILE_LOCK_CHUNK) break;
+        }
+        foreach ($wanted as $desiredPath) {
+            $pathOwners = $owners[$desiredPath] ?? [];
+            if ($pathOwners !== [] && $pathOwners !== [$attachmentId]) {
+                throw new \RuntimeException(
+                    'duo: attachment desired file is already owned by another or duplicate _wp_attached_file row'
+                );
+            }
+        }
+    }
+
+    private function canonical_nonnegative_driver_integer(mixed $value): ?int {
+        if (!is_string($value) || preg_match('/^(?:0|[1-9][0-9]*)$/D', $value) !== 1) {
+            return null;
+        }
+        $integer = filter_var($value, FILTER_VALIDATE_INT);
+        return is_int($integer) && $integer >= 0 ? $integer : null;
+    }
+
     /** @return list<string> exact frozen manifest authorities for media-hook isolation */
     private function attachment_adapter_manifests(): array {
         $manifests = [];
@@ -624,11 +777,15 @@ final class AttachmentMaterializer {
      *
      * @return list<string>
      */
-    private function prior_native_owned_paths(array $metadataRows, array $attachedRows): array {
-        if (count($metadataRows) > 1 || count($attachedRows) > 1) {
+    private function prior_native_owned_paths(
+        array $metadataRows,
+        array $attachedRows,
+        array $backupRows = []
+    ): array {
+        if (count($metadataRows) > 1 || count($attachedRows) > 1 || count($backupRows) > 1) {
             throw new \RuntimeException('duo: attachment prior native metadata has duplicate exact rows');
         }
-        if ($metadataRows === [] && $attachedRows === []) return [];
+        if ($metadataRows === [] && $attachedRows === [] && $backupRows === []) return [];
         if ($attachedRows === []
             || !is_string($attachedRows[0]['meta_value'] ?? null)
             || $attachedRows[0]['meta_value'] === '') {
@@ -636,63 +793,111 @@ final class AttachmentMaterializer {
         }
         $attached = $attachedRows[0]['meta_value'];
         $this->assert_relative_upload_path($attached, 'prior attached file');
-        if ($metadataRows === []) return [$attached];
-        $raw = $metadataRows[0]['meta_value'] ?? null;
-        if (!is_string($raw) || strlen($raw) > 16777216) {
-            throw new \RuntimeException('duo: attachment prior native metadata is null or oversized');
-        }
-        $metadata = PlainData::decode_serialized($raw, 'attachment prior native metadata');
-        if (!is_array($metadata)) {
-            throw new \RuntimeException('duo: attachment prior native metadata is not an array');
-        }
-        $metadataFile = $metadata['file'] ?? $attached;
-        if (!is_string($metadataFile) || !hash_equals($metadataFile, $attached)) {
-            throw new \RuntimeException('duo: attachment prior metadata file identity disagrees with _wp_attached_file');
-        }
         $directory = dirname($attached) === '.' ? '' : dirname($attached);
         $owned = [$attached => true];
-        $sizes = $metadata['sizes'] ?? [];
-        if (!is_array($sizes) || array_is_list($sizes) || count($sizes) > 512) {
-            throw new \RuntimeException('duo: attachment prior metadata sizes roster is malformed or oversized');
+        if ($metadataRows !== []) {
+            $raw = $metadataRows[0]['meta_value'] ?? null;
+            if (!is_string($raw) || strlen($raw) > 16777216) {
+                throw new \RuntimeException('duo: attachment prior native metadata is null or oversized');
+            }
+            $metadata = PlainData::decode_serialized($raw, 'attachment prior native metadata');
+            if (!is_array($metadata)) {
+                throw new \RuntimeException('duo: attachment prior native metadata is not an array');
+            }
+            $metadataFile = $metadata['file'] ?? $attached;
+            if (!is_string($metadataFile) || !hash_equals($metadataFile, $attached)) {
+                throw new \RuntimeException('duo: attachment prior metadata file identity disagrees with _wp_attached_file');
+            }
+            $sizes = $metadata['sizes'] ?? [];
+            if (!is_array($sizes) || array_is_list($sizes) || count($sizes) > 512) {
+                throw new \RuntimeException('duo: attachment prior metadata sizes roster is malformed or oversized');
+            }
+            foreach ($sizes as $name => $size) {
+                if (!is_string($name)
+                    || strlen($name) > 191
+                    || !is_array($size)
+                    || !is_string($size['file'] ?? null)) {
+                    throw new \RuntimeException('duo: attachment prior metadata contains a malformed size row');
+                }
+                $file = $size['file'];
+                if (!hash_equals($file, basename($file))) {
+                    throw new \RuntimeException('duo: attachment prior metadata size escapes its attached-file directory');
+                }
+                $path = ($directory === '' ? '' : $directory . '/') . $file;
+                $this->assert_relative_upload_path($path, 'prior attachment derivative');
+                $owned[$path] = true;
+            }
+            if (array_key_exists('original_image', $metadata)) {
+                $original = $metadata['original_image'];
+                if (!is_string($original) || !hash_equals($original, basename($original))) {
+                    throw new \RuntimeException('duo: attachment prior metadata original_image is malformed');
+                }
+                $path = ($directory === '' ? '' : $directory . '/') . $original;
+                $this->assert_relative_upload_path($path, 'prior attachment original image');
+                $owned[$path] = true;
+            }
         }
-        foreach ($sizes as $name => $size) {
-            if (!is_string($name)
-                || strlen($name) > 191
-                || !is_array($size)
-                || !is_string($size['file'] ?? null)) {
-                throw new \RuntimeException('duo: attachment prior metadata contains a malformed size row');
+        if ($backupRows !== []) {
+            $raw = $backupRows[0]['meta_value'] ?? null;
+            if (!is_string($raw) || strlen($raw) > 16777216) {
+                throw new \RuntimeException('duo: attachment prior backup metadata is null or oversized');
             }
-            $file = $size['file'];
-            if (!hash_equals($file, basename($file))) {
-                throw new \RuntimeException('duo: attachment prior metadata size escapes its attached-file directory');
+            $backups = PlainData::decode_serialized($raw, 'attachment prior backup metadata');
+            if (!is_array($backups) || array_is_list($backups) || count($backups) > 512) {
+                throw new \RuntimeException('duo: attachment prior backup metadata roster is malformed or oversized');
             }
-            $path = ($directory === '' ? '' : $directory . '/') . $file;
-            $this->assert_relative_upload_path($path, 'prior attachment derivative');
-            $owned[$path] = true;
-        }
-        if (array_key_exists('original_image', $metadata)) {
-            $original = $metadata['original_image'];
-            if (!is_string($original) || !hash_equals($original, basename($original))) {
-                throw new \RuntimeException('duo: attachment prior metadata original_image is malformed');
+            foreach ($backups as $name => $backup) {
+                if (!is_string($name)
+                    || $name === ''
+                    || strlen($name) > 191
+                    || preg_match('/[\x00-\x1F\x7F]/', $name) === 1
+                    || !is_array($backup)
+                    || array_is_list($backup)) {
+                    throw new \RuntimeException('duo: attachment prior backup metadata contains a malformed row');
+                }
+                $keys = array_keys($backup);
+                sort($keys, SORT_STRING);
+                $allowed = ['file', 'filesize', 'height', 'mime-type', 'width'];
+                if (array_diff($keys, $allowed) !== []
+                    || !is_string($backup['file'] ?? null)
+                    || !hash_equals($backup['file'], basename($backup['file']))
+                    || !$this->valid_backup_dimension($backup['width'] ?? null)
+                    || !$this->valid_backup_dimension($backup['height'] ?? null)
+                    || (array_key_exists('filesize', $backup)
+                        && !$this->valid_backup_dimension($backup['filesize']))
+                    || (array_key_exists('mime-type', $backup)
+                        && (!is_string($backup['mime-type'])
+                            || $backup['mime-type'] === ''
+                            || strlen($backup['mime-type']) > 191))) {
+                    throw new \RuntimeException('duo: attachment prior backup metadata contains a malformed row');
+                }
+                $path = ($directory === '' ? '' : $directory . '/') . $backup['file'];
+                $this->assert_relative_upload_path($path, 'prior attachment edited backup');
+                $owned[$path] = true;
             }
-            $path = ($directory === '' ? '' : $directory . '/') . $original;
-            $this->assert_relative_upload_path($path, 'prior attachment original image');
-            $owned[$path] = true;
         }
         return array_keys($owned);
     }
 
+    private function valid_backup_dimension(mixed $value): bool {
+        return is_int($value) && $value >= 0 && $value <= PHP_INT_MAX;
+    }
+
     private function assert_relative_upload_path(string $path, string $purpose): void {
-        $characters = strlen($path) <= 1024 ? preg_match_all('/./us', $path) : false;
+        if (!$this->is_relative_upload_path($path)) {
+            throw new \RuntimeException("duo: attachment $purpose is not a bounded normalized relative path");
+        }
+    }
+
+    private function is_relative_upload_path(string $path): bool {
+        $characters = strlen($path) <= self::MAX_UPLOAD_PATH_BYTES ? preg_match_all('/./us', $path) : false;
         $segments = explode('/', $path);
-        if ($path === ''
+        return !($path === ''
             || str_starts_with($path, '/')
             || str_contains($path, '\\')
             || !is_int($characters)
             || preg_match('/[\x00-\x1F\x7F]/', $path) === 1
             || array_filter($segments, static fn(string $segment): bool =>
-                $segment === '' || $segment === '.' || $segment === '..' || strlen($segment) > 255)) {
-            throw new \RuntimeException("duo: attachment $purpose is not a bounded normalized relative path");
-        }
+                $segment === '' || $segment === '.' || $segment === '..' || strlen($segment) > 255));
     }
 }

@@ -40,6 +40,7 @@ namespace TEC\Common\Integrations\Harbor {
 }
 
 namespace {
+    if (!defined('ARRAY_A')) define('ARRAY_A', 'ARRAY_A');
     /**
      * Product-path regression for the durable attachment filesystem/native
      * metadata boundary. The former extraction-only suite could stay green
@@ -103,6 +104,83 @@ namespace {
         ): never {
             ++$GLOBALS['duo_attachment_adapter_callback_calls'];
             throw new \RuntimeException('TEC request-local chunker callback must never enter the supported topology');
+        }
+    }
+    final class AttachmentAuthorityWpdb {
+        public string $postmeta = 'wp_postmeta';
+        public string $last_error = '';
+        public bool $savepointExists = false;
+        /** @var list<array{meta_id:string,post_id:string,meta_key:string,meta_value:?string}> */
+        public array $rows = [];
+        /** @var list<string> */
+        public array $queries = [];
+
+        public function prepare(string $sql, mixed ...$arguments): string {
+            foreach ($arguments as $argument) {
+                $replacement = is_int($argument)
+                    ? (string) $argument
+                    : "'" . str_replace("'", "''", (string) $argument) . "'";
+                $sql = preg_replace('/%[ds]/', $replacement, $sql, 1);
+            }
+            return $sql;
+        }
+
+        public function get_var(string $sql): mixed {
+            $this->queries[] = $sql;
+            if (trim($sql) === 'SELECT @@in_transaction') return '1';
+            throw new \RuntimeException("unrecognized attachment authority get_var: $sql");
+        }
+
+        public function query(string $sql): int|false {
+            $this->queries[] = $sql;
+            if (preg_match('/^SAVEPOINT `duo_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
+                $this->savepointExists = true;
+                return 1;
+            }
+            if (preg_match('/^RELEASE SAVEPOINT `duo_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
+                if (!$this->savepointExists) return false;
+                $this->savepointExists = false;
+                return 1;
+            }
+            throw new \RuntimeException("unrecognized attachment authority query: $sql");
+        }
+
+        public function get_results(string $sql, mixed $mode): mixed {
+            $this->queries[] = $sql;
+            if (str_starts_with($sql, 'SHOW INDEX FROM `wp_postmeta`')) {
+                return [[
+                    'Key_name' => 'meta_key',
+                    'Seq_in_index' => '1',
+                    'Column_name' => 'meta_key',
+                    'Sub_part' => '191',
+                    'Non_unique' => '1',
+                    'Index_type' => 'BTREE',
+                ]];
+            }
+            if (!str_contains($sql, 'attachment') && !str_contains($sql, 'FROM `wp_postmeta`')) {
+                throw new \RuntimeException("unrecognized attachment authority get_results: $sql");
+            }
+            preg_match('/meta_id > ([0-9]+)/', $sql, $lastMatch);
+            $last = (int) ($lastMatch[1] ?? 0);
+            $rows = array_values(array_filter(
+                $this->rows,
+                static fn(array $row): bool => (int) $row['meta_id'] > $last
+                    && strcasecmp($row['meta_key'], '_wp_attached_file') === 0
+            ));
+            usort($rows, static fn(array $left, array $right): int =>
+                (int) $left['meta_id'] <=> (int) $right['meta_id']);
+            $rows = array_slice($rows, 0, 512);
+            return array_map(static function (array $row): array {
+                $value = $row['meta_value'];
+                $bytes = is_string($value) ? strlen($value) : null;
+                return [
+                    'meta_id' => $row['meta_id'],
+                    'post_id' => $row['post_id'],
+                    'meta_key' => $row['meta_key'],
+                    'meta_value_bytes' => $bytes === null ? null : (string) $bytes,
+                    'bounded_value' => is_int($bytes) && $bytes <= 1024 ? $value : null,
+                ];
+            }, $rows);
         }
     }
     final class PLL_Links_Domain {
@@ -276,6 +354,7 @@ namespace {
     use Duo\AttachmentNativeMetadataGenerator;
     use Duo\CompiledRepository;
     use Duo\Db;
+    use Duo\DeleteGuardEvaluator;
     use Duo\PlainData;
     use Duo\Policy;
     use Duo\Tokens;
@@ -345,10 +424,13 @@ namespace {
 
         $original = $uploads . '/2026/08/photo.png';
         $stale = $uploads . '/2026/08/photo-150x150.png';
+        $backup = $uploads . '/2026/08/photo-e1700000000000.png';
         $neighbor = $uploads . '/2026/08/photo-other.png';
         file_put_contents($original, 'prior-original');
         file_put_contents($stale, 'prior-owned-stale');
+        file_put_contents($backup, 'prior-edited-backup');
         file_put_contents($neighbor, 'unrelated-prefix-neighbor');
+        chmod($original, 0640);
 
         $filesystem = new AttachmentFilesystemTransaction($compiled, $repository);
         $filesystem->load_pending();
@@ -369,11 +451,20 @@ namespace {
         $filesystem->register_attachment(41, $front, [
             '2026/08/photo.png',
             '2026/08/photo-150x150.png',
+            '2026/08/photo-e1700000000000.png',
         ]);
         $authored = $filesystem->seal_authored_transaction();
         $check(is_array($authored) && $filesystem->phase() === 'authored_prepared', 'authored marker seals exact UUID-to-post-ID authority');
-        $filesystem->commit_authored_transaction($authored['value']);
-        $check(file_get_contents($original) === $png, 'compiled original publishes only after the authored COMMIT marker is supplied');
+        $publicationUmask = umask(0000);
+        try {
+            $filesystem->commit_authored_transaction($authored['value']);
+        } finally {
+            umask($publicationUmask);
+        }
+        $check(
+            file_get_contents($original) === $png && (fileperms($original) & 0777) === 0640,
+            'compiled original publishes only after COMMIT and preserves its exact safe prior mode under umask 0000'
+        );
         $filesystem->end();
 
         $filesystem = new AttachmentFilesystemTransaction($compiled, $repository);
@@ -405,7 +496,40 @@ namespace {
                 && ($metadata['filesize'] ?? null) === strlen($png),
             'native metadata is canonicalized to the authored path with exact sealed filesize and no staging path'
         );
-        $filesystem->publish_derivatives();
+        $publicationUmask = umask(0000);
+        try {
+            $filesystem->publish_derivatives();
+        } finally {
+            umask($publicationUmask);
+        }
+        $derivative = $uploads . '/2026/08/photo-300x300.png';
+        $check(
+            (fileperms($derivative) & 0777) === 0600,
+            'a new derivative uses sealed parent-derived permissions and never inherits a world-writable umask'
+        );
+        file_put_contents($original, 'hostile-original-drift');
+        $throws(
+            static fn() => $filesystem->seal_metadata_transaction(),
+            'original publication lacks exact final bytes',
+            'metadata COMMIT sealing re-proves the original bytes after publication'
+        );
+        file_put_contents($original, $png);
+        chmod($original, 0640);
+        file_put_contents($derivative, 'hostile-derivative-drift');
+        $throws(
+            static fn() => $filesystem->seal_metadata_transaction(),
+            'derivative publication lacks exact final bytes',
+            'metadata COMMIT sealing re-proves every derivative byte after publication'
+        );
+        file_put_contents($derivative, $png);
+        chmod($derivative, 0600);
+        chmod($derivative, 0666);
+        $throws(
+            static fn() => $filesystem->seal_metadata_transaction(),
+            'world-writable',
+            'same-hash derivative mode drift cannot be mistaken for a completed crash transition'
+        );
+        chmod($derivative, 0600);
         $metadataMarker = $filesystem->seal_metadata_transaction();
         $check(!hash_equals($authored['value'], $metadataMarker['value']), 'metadata phase atomically uses a distinct generation-bound marker');
         $filesystem->metadata_transaction_committed($metadataMarker['value']);
@@ -416,9 +540,12 @@ namespace {
         $filesystem->recover_pending_with_marker($metadataMarker['value']);
         $check($filesystem->phase() === 'metadata_committed', 'metadata-marker crash recovery resumes without repeating authored publication');
         $filesystem->remove_stale_derivatives($metadataMarker['value']);
-        $check(!file_exists($stale), 'only an exact path owned by prior _wp_attachment_metadata is removed as stale');
+        $check(
+            !file_exists($stale) && !file_exists($backup),
+            'only exact paths owned by prior native metadata and edited backup sizes are removed as stale'
+        );
         $check(file_get_contents($neighbor) === 'unrelated-prefix-neighbor', 'an unrelated same-prefix upload is never inferred to be deletion-owned');
-        $check(is_file($uploads . '/2026/08/photo-300x300.png'), 'sealed native derivative bytes publish at the exact target path');
+        $check(is_file($derivative), 'sealed native derivative bytes publish at the exact target path');
         $filesystem->cleanup_complete(null);
         $filesystem->end();
         $check(!is_dir($repository . '/.duo/attachment-filesystem/current'), 'terminal marker-free cleanup removes the reusable current slot');
@@ -447,6 +574,94 @@ namespace {
         );
         $second->rollback_authored_transaction(null);
         $second->end();
+        $lockFiles = array_map(
+            static fn(\SplFileInfo $entry): string => $entry->getFilename(),
+            iterator_to_array(new \FilesystemIterator(
+                $repository . '/.duo/attachment-filesystem/locks',
+                \FilesystemIterator::SKIP_DOTS
+            ), false)
+        );
+        $check(
+            $lockFiles === ['transaction.lock'],
+            'repeated unique attachment paths retain one stable global lock inode instead of a per-path registry'
+        );
+
+        $aliasUuidA = '5e6f7081-92a3-4bcd-8ef0-123456789abc';
+        $aliasUuidB = '6f708192-a3b4-4cde-8f01-23456789abcd';
+        $aliasFrontA = $front;
+        $aliasFrontA['uuid'] = $aliasUuidA;
+        $aliasFrontA['file'] = '2026/08/Photo.png';
+        $aliasFrontB = $front;
+        $aliasFrontB['uuid'] = $aliasUuidB;
+        $aliasFrontB['file'] = '2026/08/photo.png';
+        $aliasTree = [
+            $aliasUuidA => ['data' => $aliasFrontA, 'type' => 'post'],
+            $aliasUuidB => ['data' => $aliasFrontB, 'type' => 'post'],
+        ];
+        $aliasCompiled = CompiledRepository::create([
+            'media' => [$blob => ['base64' => base64_encode($png), 'sha256' => hash('sha256', $png)]],
+            'tree' => $aliasTree,
+        ]);
+        $throws(
+            static fn() => (new AttachmentFilesystemTransaction($aliasCompiled, $repository))->prepare(
+                [['uuid' => $aliasUuidA], ['uuid' => $aliasUuidB]],
+                $aliasTree,
+                $preflightGenerator
+            ),
+            'filesystem-aliased original paths',
+            'byte-distinct compiled paths that case-fold together refuse before durable or database mutation'
+        );
+
+        $diskAliasUuid = '708192a3-b4c5-4def-8012-3456789abcde';
+        $diskAliasFront = $front;
+        $diskAliasFront['uuid'] = $diskAliasUuid;
+        $diskAliasFront['file'] = '2026/08/alias.png';
+        $diskAliasTree = [$diskAliasUuid => ['data' => $diskAliasFront, 'type' => 'post']];
+        $diskAliasCompiled = CompiledRepository::create([
+            'media' => [$blob => ['base64' => base64_encode($png), 'sha256' => hash('sha256', $png)]],
+            'tree' => $diskAliasTree,
+        ]);
+        file_put_contents($uploads . '/2026/08/Alias.png', 'foreign-case-alias');
+        $throws(
+            static fn() => (new AttachmentFilesystemTransaction($diskAliasCompiled, $repository))->prepare(
+                [['uuid' => $diskAliasUuid]],
+                $diskAliasTree,
+                $preflightGenerator
+            ),
+            'case/Unicode-normalization filesystem alias',
+            'an existing byte-different case alias refuses at the markerless pre-database boundary'
+        );
+        unlink($uploads . '/2026/08/Alias.png');
+
+        if (class_exists(\Normalizer::class) && function_exists('mb_convert_case')) {
+            $unicodeUuidA = '8192a3b4-c5d6-4ef0-8123-456789abcdef';
+            $unicodeUuidB = '92a3b4c5-d6e7-4f01-8234-56789abcdef0';
+            $unicodeFrontA = $front;
+            $unicodeFrontA['uuid'] = $unicodeUuidA;
+            $unicodeFrontA['file'] = "2026/08/caf\u{00E9}.png";
+            $unicodeFrontB = $front;
+            $unicodeFrontB['uuid'] = $unicodeUuidB;
+            $unicodeFrontB['file'] = "2026/08/cafe\u{0301}.png";
+            $unicodeTree = [
+                $unicodeUuidA => ['data' => $unicodeFrontA, 'type' => 'post'],
+                $unicodeUuidB => ['data' => $unicodeFrontB, 'type' => 'post'],
+            ];
+            $unicodeCompiled = CompiledRepository::create([
+                'media' => [$blob => ['base64' => base64_encode($png), 'sha256' => hash('sha256', $png)]],
+                'tree' => $unicodeTree,
+            ]);
+            $throws(
+                static fn() => (new AttachmentFilesystemTransaction($unicodeCompiled, $repository))->prepare(
+                    [['uuid' => $unicodeUuidA], ['uuid' => $unicodeUuidB]],
+                    $unicodeTree,
+                    $preflightGenerator
+                ),
+                'filesystem-aliased original paths',
+                'Unicode normalization aliases refuse before either planned upload path is authored'
+            );
+        } else {
+            $check(true, 'Unicode alias regression is conditionally exercised when normalization support is present');
+        }
 
         $badUuid = '2b3c4d5e-6f70-489a-8bcd-ef0123456789';
         $badBytes = "%PDF-1.4\n%%EOF\n";
@@ -922,6 +1137,184 @@ namespace {
                 === ['policy', 'fieldMaterializer', 'compiled', 'repositoryRoot'],
             'constructor authority binds frozen adapter policy, field materializer, immutable artifact and private repository root'
         );
+
+        $priorOwnership = new \ReflectionMethod(AttachmentMaterializer::class, 'prior_native_owned_paths');
+        $owned = $priorOwnership->invoke(
+            $attachmentMaterializer,
+            [[
+                'meta_id' => '1',
+                'meta_key' => '_wp_attachment_metadata',
+                'meta_value' => serialize([
+                    'file' => '2026/08/photo.png',
+                    'sizes' => ['thumbnail' => ['file' => 'photo-150x150.png']],
+                ]),
+            ]],
+            [[
+                'meta_id' => '2',
+                'meta_key' => '_wp_attached_file',
+                'meta_value' => '2026/08/photo.png',
+            ]],
+            [[
+                'meta_id' => '3',
+                'meta_key' => '_wp_attachment_backup_sizes',
+                'meta_value' => serialize([
+                    'full-orig' => [
+                        'file' => 'photo-e1700000000000.png',
+                        'height' => 1,
+                        'mime-type' => 'image/png',
+                        'width' => 1,
+                    ],
+                ]),
+            ]]
+        );
+        sort($owned, SORT_STRING);
+        $check(
+            $owned === [
+                '2026/08/photo-150x150.png',
+                '2026/08/photo-e1700000000000.png',
+                '2026/08/photo.png',
+            ],
+            'prior _wp_attachment_backup_sizes extends exact stale-file ownership without granting prefix authority'
+        );
+        $throws(
+            static fn() => $priorOwnership->invoke(
+                $attachmentMaterializer,
+                [],
+                [['meta_id' => '2', 'meta_key' => '_wp_attached_file', 'meta_value' => '2026/08/photo.png']],
+                [[
+                    'meta_id' => '3',
+                    'meta_key' => '_wp_attachment_backup_sizes',
+                    'meta_value' => serialize([
+                        'full-orig' => ['file' => '../foreign.png', 'height' => 1, 'width' => 1],
+                    ]),
+                ]]
+            ),
+            'malformed row',
+            'edited backup metadata cannot escape the exact attached-file directory'
+        );
+
+        $authorityWpdb = new AttachmentAuthorityWpdb();
+        $GLOBALS['wpdb'] = $authorityWpdb;
+        DeleteGuardEvaluator::begin_authored_transaction();
+        $globalAuthority = new \ReflectionMethod(
+            AttachmentMaterializer::class,
+            'assert_global_attached_file_authority'
+        );
+        $authorityWpdb->rows = [[
+            'meta_id' => '1',
+            'post_id' => '41',
+            'meta_key' => '_wp_attached_file',
+            'meta_value' => '2026/08/photo.png',
+        ]];
+        $globalAuthority->invoke($attachmentMaterializer, 41, '2026/08/photo.png');
+        $check(
+            count(array_filter(
+                $authorityWpdb->queries,
+                static fn(string $query): bool => str_contains($query, 'LIMIT 512 FOR UPDATE')
+            )) >= 1,
+            'global _wp_attached_file authority uses a bounded prefix-index locking read'
+        );
+        $authorityWpdb->rows[] = [
+            'meta_id' => '2',
+            'post_id' => '42',
+            'meta_key' => '_wp_attached_file',
+            'meta_value' => '2026/08/photo.png',
+        ];
+        $throws(
+            static fn() => $globalAuthority->invoke($attachmentMaterializer, 41, '2026/08/photo.png'),
+            'already owned by another or duplicate',
+            'a second attachment cannot claim an exact globally-owned _wp_attached_file path'
+        );
+        $authorityWpdb->rows = [[
+            'meta_id' => '1',
+            'post_id' => '42',
+            'meta_key' => '_wp_attached_file',
+            'meta_value' => '2026/08/PHOTO.png',
+        ]];
+        $throws(
+            static fn() => $globalAuthority->invoke($attachmentMaterializer, 41, '2026/08/photo.png'),
+            'global case/Unicode-normalization metadata alias',
+            'a byte-different case alias in another attachment refuses before target ownership changes'
+        );
+        if (class_exists(\Normalizer::class) && function_exists('mb_convert_case')) {
+            $authorityWpdb->rows = [[
+                'meta_id' => '1',
+                'post_id' => '42',
+                'meta_key' => '_wp_attached_file',
+                'meta_value' => "2026/08/cafe\u{0301}.png",
+            ]];
+            $throws(
+                static fn() => $globalAuthority->invoke(
+                    $attachmentMaterializer,
+                    41,
+                    "2026/08/caf\u{00E9}.png"
+                ),
+                'global case/Unicode-normalization metadata alias',
+                'a Unicode-normalization metadata alias cannot authorize two physical attachment owners'
+            );
+        }
+        $globalAuthorities = new \ReflectionMethod(
+            AttachmentMaterializer::class,
+            'assert_global_attached_file_authorities'
+        );
+        $authorityWpdb->rows = [[
+            'meta_id' => '1',
+            'post_id' => '42',
+            'meta_key' => '_wp_attached_file',
+            'meta_value' => '2026/08/photo-e1700000000000.png',
+        ]];
+        $throws(
+            static fn() => $globalAuthorities->invoke(
+                $attachmentMaterializer,
+                41,
+                ['2026/08/photo.png', '2026/08/photo-e1700000000000.png']
+            ),
+            'already owned by another or duplicate',
+            'an edited backup path cannot become stale-deletion authority while another attachment owns it'
+        );
+        $authorityWpdb->rows = [[
+            'meta_id' => '1',
+            'post_id' => '42',
+            'meta_key' => '_WP_ATTACHED_FILE',
+            'meta_value' => '2026/08/other.png',
+        ]];
+        $throws(
+            static fn() => $globalAuthority->invoke($attachmentMaterializer, 41, '2026/08/photo.png'),
+            'malformed or aliased row',
+            'a collation-equal non-byte-exact attached-file meta key cannot hide in the global lock range'
+        );
+        $authorityWpdb->rows = [[
+            'meta_id' => '1',
+            'post_id' => '42',
+            'meta_key' => '_wp_attached_file',
+            'meta_value' => str_repeat('a', 1025),
+        ]];
+        $throws(
+            static fn() => $globalAuthority->invoke($attachmentMaterializer, 41, '2026/08/photo.png'),
+            'contains an oversized path',
+            'oversized attached-file state refuses before its LONGTEXT value crosses the driver boundary'
+        );
+        $authorityWpdb->rows = [];
+        for ($metaId = 1; $metaId <= 512; ++$metaId) {
+            $authorityWpdb->rows[] = [
+                'meta_id' => (string) $metaId,
+                'post_id' => (string) (1000 + $metaId),
+                'meta_key' => '_wp_attached_file',
+                'meta_value' => '2026/08/unrelated-' . $metaId . '.png',
+            ];
+        }
+        $authorityWpdb->rows[] = [
+            'meta_id' => '513',
+            'post_id' => '42',
+            'meta_key' => '_wp_attached_file',
+            'meta_value' => '2026/08/photo.png',
+        ];
+        $throws(
+            static fn() => $globalAuthority->invoke($attachmentMaterializer, 41, '2026/08/photo.png'),
+            'already owned by another or duplicate',
+            'global attached-file collision authority cannot be hidden just beyond its first bounded lock page'
+        );
+        DeleteGuardEvaluator::end_authored_transaction();
     } finally {
         $removeTree($temporary);
     }

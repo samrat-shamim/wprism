@@ -472,6 +472,34 @@ final class DeleteGuardEvaluator {
         string $purpose,
         bool $requireUnique = false
     ): string {
+        return self::locking_index($table, $column, $purpose, $requireUnique, null);
+    }
+
+    /**
+     * Resolve a visible first-column BTREE whose declared prefix completely
+     * covers one fixed locking literal. WordPress postmeta normally exposes
+     * `meta_key(191)`: it is not full-width for arbitrary keys, but it is a
+     * complete equality/gap authority for a reviewed 17-character key.
+     */
+    public static function bounded_prefix_lock_index(
+        string $table,
+        string $column,
+        int $minimumPrefixCharacters,
+        string $purpose
+    ): string {
+        if ($minimumPrefixCharacters < 1 || $minimumPrefixCharacters > 65535) {
+            throw new \RuntimeException("duo: $purpose index proof received an invalid prefix frontier");
+        }
+        return self::locking_index($table, $column, $purpose, false, $minimumPrefixCharacters);
+    }
+
+    private static function locking_index(
+        string $table,
+        string $column,
+        string $purpose,
+        bool $requireUnique,
+        ?int $minimumPrefixCharacters
+    ): string {
         global $wpdb;
         if (preg_match('/^[A-Za-z0-9_]{1,64}$/D', $table) !== 1
             || preg_match('/^[A-Za-z0-9_]{1,64}$/D', $column) !== 1) {
@@ -603,7 +631,9 @@ final class DeleteGuardEvaluator {
             if ($first === null
                 || ($requireUnique && count($indexRows) !== 1)
                 || $first['column'] !== $column
-                || $first['sub_part'] !== null
+                || ($minimumPrefixCharacters === null
+                    ? $first['sub_part'] !== null
+                    : ($first['sub_part'] !== null && $first['sub_part'] < $minimumPrefixCharacters))
                 || ($requireUnique && $first['non_unique'] !== 0)
                 || ($first['has_visible'] && $first['visible'] !== 'YES')
                 || ($first['has_ignored'] && $first['ignored'] !== 'NO')
@@ -621,7 +651,10 @@ final class DeleteGuardEvaluator {
         }
         if ($candidates === []) {
             throw new \RuntimeException(
-                "duo: $purpose lacks a visible full-width "
+                "duo: $purpose lacks a visible "
+                . ($minimumPrefixCharacters === null
+                    ? 'full-width '
+                    : "at-least-$minimumPrefixCharacters-character ")
                 . ($requireUnique ? 'unique ' : '')
                 . "first-column index on $column"
             );
