@@ -55,12 +55,15 @@ require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 final class PlatformCompatibility {
     private const FILESYSTEM_PROFILE = 'local-posix-atomic-rename-flock-fsync/v1';
     private const FILESYSTEM_FUNCTIONS = ['chmod', 'flock', 'fsync', 'lstat', 'rename'];
+    private const PROCESS_PROFILE = 'local-posix-process-group-exec/v1';
+    private const PROCESS_FUNCTIONS = ['pcntl_exec', 'posix_kill', 'posix_setsid', 'proc_close', 'proc_open'];
 
     /**
      * @return array{
      *   php:string,
      *   database:array{engine:string,version:string},
      *   filesystem:array{directory_separator:string,functions:array<string,bool>,os_family:string},
+     *   process:array{functions:array<string,bool>,os_family:string},
      *   wordpress:string,
      *   site_mode:string
      * }
@@ -95,6 +98,10 @@ final class PlatformCompatibility {
         foreach (self::FILESYSTEM_FUNCTIONS as $function) {
             $filesystemFunctions[$function] = function_exists($function);
         }
+        $processFunctions = [];
+        foreach (self::PROCESS_FUNCTIONS as $function) {
+            $processFunctions[$function] = function_exists($function);
+        }
         return [
             'php' => PHP_VERSION,
             'database' => [
@@ -104,6 +111,10 @@ final class PlatformCompatibility {
             'filesystem' => [
                 'directory_separator' => DIRECTORY_SEPARATOR,
                 'functions' => $filesystemFunctions,
+                'os_family' => PHP_OS_FAMILY,
+            ],
+            'process' => [
+                'functions' => $processFunctions,
                 'os_family' => PHP_OS_FAMILY,
             ],
             'wordpress' => $wordpress,
@@ -117,6 +128,7 @@ final class PlatformCompatibility {
      *   php:string,
      *   database:array{engine:string,version:string},
      *   filesystem:array{directory_separator:string,functions:array<string,bool>,os_family:string},
+     *   process:array{functions:array<string,bool>,os_family:string},
      *   wordpress:string,
      *   site_mode:string
      * } $facts
@@ -231,6 +243,33 @@ final class PlatformCompatibility {
             );
         }
 
+        $process = $facts['process'];
+        $processBoundary = $compatibility['process'];
+        if (!in_array($process['os_family'], $processBoundary['os_families'], true)) {
+            $diagnostics[] = self::diagnostic(
+                'platform_process_os_unsupported',
+                'process.os_family',
+                $process['os_family'],
+                implode(', ', $processBoundary['os_families']),
+                'the PHP operating-system family is outside the exercised process-group profile'
+            );
+        }
+        $missingProcessFunctions = [];
+        foreach ($processBoundary['required_functions'] as $function) {
+            if (($process['functions'][$function] ?? false) !== true) {
+                $missingProcessFunctions[] = $function;
+            }
+        }
+        if ($missingProcessFunctions !== []) {
+            $diagnostics[] = self::diagnostic(
+                'platform_process_function_unsupported',
+                'process.functions',
+                'missing ' . implode(', ', $missingProcessFunctions),
+                'available ' . implode(', ', $processBoundary['required_functions']),
+                'the PHP process lacks a function required by bounded WP-CLI process-group execution'
+            );
+        }
+
         $wordpress = (string) $facts['wordpress'];
         $wordpressBoundary = $compatibility['wordpress'];
         if (!self::exercised_supported($wordpress, $wordpressBoundary)) {
@@ -265,16 +304,19 @@ final class PlatformCompatibility {
         $php = is_array($compatibility) ? ($compatibility['php'] ?? null) : null;
         $database = is_array($compatibility) ? ($compatibility['database'] ?? null) : null;
         $filesystem = is_array($compatibility) ? ($compatibility['filesystem'] ?? null) : null;
+        $process = is_array($compatibility) ? ($compatibility['process'] ?? null) : null;
         $wordpress = is_array($compatibility) ? ($compatibility['wordpress'] ?? null) : null;
         if (($platform['site_mode'] ?? null) !== 'single-site'
             || !is_array($compatibility) || array_is_list($compatibility)
             || !is_array($php) || array_is_list($php)
             || !is_array($database) || array_is_list($database)
             || !is_array($filesystem) || array_is_list($filesystem)
+            || !is_array($process) || array_is_list($process)
             || !is_array($wordpress) || array_is_list($wordpress)
             || !self::valid_exercised_axis($php)
             || !self::valid_database_axis($database)
             || !self::valid_filesystem_axis($filesystem)
+            || !self::valid_process_axis($process)
             || !self::valid_wordpress_axis($wordpress)) {
             throw new CommandRefusalException(
                 'platform_boundary_invalid',
@@ -294,9 +336,13 @@ final class PlatformCompatibility {
     private static function assert_facts_shape(array $facts): void {
         $database = $facts['database'] ?? null;
         $filesystem = $facts['filesystem'] ?? null;
+        $process = $facts['process'] ?? null;
         $filesystemFunctions = is_array($filesystem) ? ($filesystem['functions'] ?? null) : null;
+        $processFunctions = is_array($process) ? ($process['functions'] ?? null) : null;
         $functionKeys = is_array($filesystemFunctions) ? array_keys($filesystemFunctions) : [];
         sort($functionKeys, SORT_STRING);
+        $processFunctionKeys = is_array($processFunctions) ? array_keys($processFunctions) : [];
+        sort($processFunctionKeys, SORT_STRING);
         if (!is_string($facts['php'] ?? null) || $facts['php'] === ''
             || !is_array($database)
             || !in_array($database['engine'] ?? null, ['MariaDB', 'MySQL'], true)
@@ -310,11 +356,22 @@ final class PlatformCompatibility {
             || strlen($filesystem['os_family']) > 32
             || !is_array($filesystemFunctions) || array_is_list($filesystemFunctions)
             || $functionKeys !== self::FILESYSTEM_FUNCTIONS
+            || !is_array($process) || array_is_list($process)
+            || !is_string($process['os_family'] ?? null)
+            || $process['os_family'] === ''
+            || strlen($process['os_family']) > 32
+            || !is_array($processFunctions) || array_is_list($processFunctions)
+            || $processFunctionKeys !== self::PROCESS_FUNCTIONS
             || !is_string($facts['wordpress'] ?? null) || $facts['wordpress'] === ''
             || !in_array($facts['site_mode'] ?? null, ['single-site', 'multisite'], true)) {
             throw self::probe_refusal('platform');
         }
         foreach ($filesystemFunctions as $available) {
+            if (!is_bool($available)) {
+                throw self::probe_refusal('platform');
+            }
+        }
+        foreach ($processFunctions as $available) {
             if (!is_bool($available)) {
                 throw self::probe_refusal('platform');
             }
@@ -339,6 +396,22 @@ final class PlatformCompatibility {
             return false;
         }
         return true;
+    }
+
+    /** @param array<string,mixed> $process */
+    private static function valid_process_axis(array $process): bool {
+        $keys = array_keys($process);
+        sort($keys, SORT_STRING);
+        return $keys === ['note', 'os_families', 'profile', 'required_functions']
+            && ($process['profile'] ?? null) === self::PROCESS_PROFILE
+            && is_string($process['note'] ?? null)
+            && trim($process['note']) !== ''
+            && is_array($process['os_families'] ?? null)
+            && array_is_list($process['os_families'])
+            && $process['os_families'] === ['Darwin', 'Linux']
+            && is_array($process['required_functions'] ?? null)
+            && array_is_list($process['required_functions'])
+            && $process['required_functions'] === self::PROCESS_FUNCTIONS;
     }
 
     /**

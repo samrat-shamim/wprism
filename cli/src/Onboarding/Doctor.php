@@ -13,7 +13,7 @@ require_once __DIR__ . '/../Transport/Transport.php';
  * downstream means anything through a broken transport) and `wp core
  * is-installed` (no WordPress-side fact is readable without it). The other
  * two are compositions. SITE_FACTS answers agent presence,
- * DISALLOW_FILE_MODS, the site topology and the PHP/database/filesystem/WordPress facts
+     * DISALLOW_FILE_MODS, the site topology and the PHP/database/filesystem/process/WordPress facts
  * in ONE `wp eval`:
  * those three were never gates on each other, only siblings under the same
  * `if ($installed)`. One raw script answers the repo-path row and the
@@ -55,7 +55,7 @@ final class Doctor {
     private const SITE_FACTS = 'global $wpdb; '
         . '$duo = ["agent" => null, "file_mods" => null, "php" => null, '
         . '"db_version" => null, "db_engine" => null, "filesystem" => null, '
-        . '"wp" => null, "site_mode" => null]; '
+        . '"process" => null, "wp" => null, "site_mode" => null]; '
         . 'try { $duo["agent"] = class_exists("\\Duo\\Capture") ? "duo-ok" : "duo-missing"; } '
         . 'catch (\Throwable $e) {} '
         . 'try { $duo["file_mods"] = (defined("DISALLOW_FILE_MODS") && DISALLOW_FILE_MODS) '
@@ -69,6 +69,10 @@ final class Doctor {
         . '"chmod" => function_exists("chmod"), "flock" => function_exists("flock"), '
         . '"fsync" => function_exists("fsync"), "lstat" => function_exists("lstat"), '
         . '"rename" => function_exists("rename")]]; } catch (\Throwable $e) {} '
+        . 'try { $duo["process"] = ["os_family" => PHP_OS_FAMILY, "functions" => ['
+        . '"pcntl_exec" => function_exists("pcntl_exec"), "posix_kill" => function_exists("posix_kill"), '
+        . '"posix_setsid" => function_exists("posix_setsid"), "proc_close" => function_exists("proc_close"), '
+        . '"proc_open" => function_exists("proc_open")]]; } catch (\Throwable $e) {} '
         . 'try { $duo["wp"] = (string) get_bloginfo("version"); } catch (\Throwable $e) {} '
         // Its own try/catch like every sibling above, and function_exists()
         // rather than a bare call: this snippet also runs under the isolated
@@ -465,6 +469,33 @@ final class Doctor {
                                 . ' — docs/compatibility-baseline.json. Actual mutation roots are checked again before writes.'
                         );
                     }
+
+                    $process = $baseline['process'];
+                    $processFacts = self::process_facts($facts);
+                    if ($processFacts === null) {
+                        $checks[] = self::check(
+                            'process group profile (unknown)',
+                            false,
+                            'could not read the OS/function facts required by the bounded WP-CLI process-group profile'
+                        );
+                    } else {
+                        [$osFamily, $functions] = $processFacts;
+                        $missing = [];
+                        foreach ($process['required_functions'] as $function) {
+                            if (($functions[$function] ?? false) !== true) {
+                                $missing[] = $function;
+                            }
+                        }
+                        $processOk = in_array($osFamily, $process['os_families'], true) && $missing === [];
+                        $checks[] = self::check(
+                            "process group profile ($osFamily)",
+                            $processOk,
+                            $processOk ? '' : 'requires OS ' . implode(', ', $process['os_families'])
+                                . ' and functions ' . implode(', ', $process['required_functions'])
+                                . ($missing === [] ? '' : '; missing ' . implode(', ', $missing))
+                                . ' — docs/compatibility-baseline.json. The child transport still validates its own cleanup.'
+                        );
+                    }
                 }
             }
         } else {
@@ -485,7 +516,7 @@ final class Doctor {
         // topology. 'single-site' is hard-coded rather than read from that file:
         // tools/capability-doc.php:192-199 byte-compares the baseline object
         // against manifests/capabilities/platform.json's `compatibility` (which
-        // declares database/filesystem/php/wordpress), so a
+        // declares database/filesystem/php/process/wordpress), so a
         // `site_mode` key there would fail `make release-gate`. The declared value lives in that platform
         // boundary instead, as `"site_mode": "single-site"`
         // (manifests/capabilities/platform.json:24), and the agent enforces it
@@ -611,6 +642,29 @@ final class Doctor {
         return [$filesystem['os_family'], $filesystem['directory_separator'], $functions];
     }
 
+    /** @return ?array{string,array<string,bool>} */
+    private static function process_facts(?array $facts): ?array {
+        $process = is_array($facts) ? ($facts['process'] ?? null) : null;
+        $functions = is_array($process) ? ($process['functions'] ?? null) : null;
+        if (!is_array($process)
+            || !is_string($process['os_family'] ?? null)
+            || $process['os_family'] === ''
+            || !is_array($functions)) {
+            return null;
+        }
+        $keys = array_keys($functions);
+        sort($keys, SORT_STRING);
+        if ($keys !== ['pcntl_exec', 'posix_kill', 'posix_setsid', 'proc_close', 'proc_open']) {
+            return null;
+        }
+        foreach ($functions as $available) {
+            if (!is_bool($available)) {
+                return null;
+            }
+        }
+        return [$process['os_family'], $functions];
+    }
+
     /**
      * The baseline, or null when it cannot state a whole boundary. Every
      * axis's narrowing half is required alongside its bounds — `verified` for
@@ -622,7 +676,7 @@ final class Doctor {
      * runtime instead of the file; a missing `database.engines` would refuse
      * every engine with the same misdirection.
      *
-     * @return ?array{php:array{min:string,max:string,verified:array<string,string>}, database:array{engines:array<string,array{min:string,max:string}>}, filesystem:array{directory_separator:string,os_families:list<string>,profile:string,required_functions:list<string>}, wordpress:array{min:string,max:string,verified:array<string,string>,last_verified:string}}
+     * @return ?array{php:array{min:string,max:string,verified:array<string,string>}, database:array{engines:array<string,array{min:string,max:string}>}, filesystem:array{directory_separator:string,os_families:list<string>,profile:string,required_functions:list<string>}, process:array{os_families:list<string>,profile:string,required_functions:list<string>}, wordpress:array{min:string,max:string,verified:array<string,string>,last_verified:string}}
      */
     private static function read_baseline(): ?array {
         $file = dirname(__DIR__, 3) . '/docs/compatibility-baseline.json';
@@ -639,6 +693,10 @@ final class Doctor {
             || ($data['filesystem']['profile'] ?? null) !== 'local-posix-atomic-rename-flock-fsync/v1'
             || ($data['filesystem']['os_families'] ?? null) !== ['Darwin', 'Linux']
             || ($data['filesystem']['required_functions'] ?? null) !== ['chmod', 'flock', 'fsync', 'lstat', 'rename']
+            || !is_array($data['process'] ?? null)
+            || ($data['process']['profile'] ?? null) !== 'local-posix-process-group-exec/v1'
+            || ($data['process']['os_families'] ?? null) !== ['Darwin', 'Linux']
+            || ($data['process']['required_functions'] ?? null) !== ['pcntl_exec', 'posix_kill', 'posix_setsid', 'proc_close', 'proc_open']
             || !isset($data['wordpress']['min'], $data['wordpress']['max'])
             || !is_array($data['wordpress']['verified'] ?? null) || $data['wordpress']['verified'] === []) {
             return null;

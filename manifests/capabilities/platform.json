@@ -42,6 +42,21 @@
                     "8.4": "8.4.24"
                 }
             },
+            "process": {
+                "note": "The bounded WP-CLI child transport requires a local POSIX process-group profile: Darwin and Linux with process creation, replacement, session creation, and process-group signalling. A missing function or another OS family refuses before policy load; the child transport still validates its own descriptors, timeout, exit status, and cleanup at runtime.",
+                "os_families": [
+                    "Darwin",
+                    "Linux"
+                ],
+                "profile": "local-posix-process-group-exec/v1",
+                "required_functions": [
+                    "pcntl_exec",
+                    "posix_kill",
+                    "posix_setsid",
+                    "proc_close",
+                    "proc_open"
+                ]
+            },
             "wordpress": {
                 "last_verified": "7.1",
                 "max": "7.2.0",

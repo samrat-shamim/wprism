@@ -54,7 +54,7 @@ declare(strict_types=1);
  *   - platform.json's agent_version/spec_version must equal agent/duo.php's
  *     defines, and its compatibility block must equal
  *     docs/compatibility-baseline.json (which cli/src/Onboarding/Doctor.php
- *     reads at runtime for its BLOCKING PHP/database check). Those are two
+ *     reads at runtime for its BLOCKING PHP/database/filesystem/process checks). Those are two
  *     copies of the same pins on disk; this equality is what stops them
  *     drifting into two different truths.
  */
@@ -194,7 +194,7 @@ function capdoc_platform(string $repo): array {
     if (Canon::encode($platform['compatibility']) !== Canon::encode($baseline)) {
         throw new RuntimeException(
             'platform boundary compatibility disagrees with docs/compatibility-baseline.json; that file is not '
-            . 'documentation -- cli/src/Onboarding/Doctor.php reads it at runtime for the blocking PHP/database check'
+            . 'documentation -- cli/src/Onboarding/Doctor.php reads it at runtime for the blocking compatibility checks'
         );
     }
     // An EXACT per-axis key set, deliberately not a subset check: this array
@@ -207,6 +207,7 @@ function capdoc_platform(string $repo): array {
     foreach (['database' => ['engines', 'note'],
               'filesystem' => ['directory_separator', 'note', 'os_families', 'profile', 'required_functions'],
               'php' => ['max', 'min', 'note', 'verified'],
+              'process' => ['note', 'os_families', 'profile', 'required_functions'],
               'wordpress' => ['last_verified', 'max', 'min', 'note', 'verified']] as $axis => $axisKeys) {
         $found = array_keys($platform['compatibility'][$axis] ?? []);
         sort($found, SORT_STRING);
@@ -394,6 +395,12 @@ function capdoc_filesystem_label(array $filesystem): string {
         . '; functions ' . implode(', ', array_map('strval', $filesystem['required_functions'])) . ')';
 }
 
+function capdoc_process_label(array $process): string {
+    return (string) $process['profile']
+        . ' (OS ' . implode(', ', array_map('strval', $process['os_families']))
+        . '; functions ' . implode(', ', array_map('strval', $process['required_functions'])) . ')';
+}
+
 /**
  * A supported_versions entry keyed by `wordpress` pins the claim to core
  * rather than to a plugin artifact; platform.json's wordpress axis is the one
@@ -476,13 +483,15 @@ function capdoc_platform_section(array $platform): string {
     $out .= '| WordPress | ' . capdoc_cell(capdoc_exercised_label($compatibility['wordpress'])) . " |\n";
     $out .= '| PHP | ' . capdoc_cell(capdoc_exercised_label($compatibility['php'])) . " |\n";
     $out .= '| Database | ' . capdoc_cell(capdoc_database_label($compatibility['database'])) . " |\n";
-    $out .= '| Filesystem | ' . capdoc_cell(capdoc_filesystem_label($compatibility['filesystem'])) . " |\n\n";
+    $out .= '| Filesystem | ' . capdoc_cell(capdoc_filesystem_label($compatibility['filesystem'])) . " |\n";
+    $out .= '| Process | ' . capdoc_cell(capdoc_process_label($compatibility['process'])) . " |\n\n";
     $out .= 'Multisite is refused before policy load or mutation. Each compatibility axis carries its own reviewed '
         . "note saying what pins it and what it does not claim:\n\n";
     $out .= '- **WordPress** — ' . $compatibility['wordpress']['note'] . "\n";
     $out .= '- **PHP** — ' . $compatibility['php']['note'] . "\n";
     $out .= '- **Database** — ' . $compatibility['database']['note'] . "\n";
     $out .= '- **Filesystem** — ' . $compatibility['filesystem']['note'] . "\n";
+    $out .= '- **Process** — ' . $compatibility['process']['note'] . "\n";
     return $out;
 }
 

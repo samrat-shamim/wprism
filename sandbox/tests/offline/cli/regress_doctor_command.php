@@ -114,6 +114,10 @@ class HealthyDoctorDriver implements EnvironmentDriver {
                     'os_family' => 'Linux',
                     'functions' => ['chmod' => true, 'flock' => true, 'fsync' => true, 'lstat' => true, 'rename' => true],
                 ],
+                'process' => [
+                    'os_family' => 'Linux',
+                    'functions' => ['pcntl_exec' => true, 'posix_kill' => true, 'posix_setsid' => true, 'proc_close' => true, 'proc_open' => true],
+                ],
                 'wp' => '7.0.3',
                 'site_mode' => 'single-site',
             ]) . "\n", 'stderr' => ''];
@@ -211,6 +215,10 @@ $compatibilityCase = static function (array $override): array {
             'directory_separator' => '/',
             'os_family' => 'Linux',
             'functions' => ['chmod' => true, 'flock' => true, 'fsync' => true, 'lstat' => true, 'rename' => true],
+        ],
+        'process' => [
+            'os_family' => 'Linux',
+            'functions' => ['pcntl_exec' => true, 'posix_kill' => true, 'posix_setsid' => true, 'proc_close' => true, 'proc_open' => true],
         ],
         'wp' => '7.0.3',
         'site_mode' => 'single-site',
@@ -382,6 +390,26 @@ assert_doctor_command(
         && str_contains($missingFsync['output'], 'missing fsync'),
     'doctor blocks a process missing one durable-filesystem function and names it'
 );
+$missingProcessFunction = $compatibilityCase(['process' => [
+    'os_family' => 'Linux',
+    'functions' => ['pcntl_exec' => false, 'posix_kill' => true, 'posix_setsid' => true, 'proc_close' => true, 'proc_open' => true],
+]]);
+assert_doctor_command(
+    $missingProcessFunction['exit'] === 1
+        && str_contains($missingProcessFunction['output'], '[FAIL] process group profile (Linux)')
+        && str_contains($missingProcessFunction['output'], 'missing pcntl_exec'),
+    'doctor blocks a process missing one process-group function and names it'
+);
+$windowsProcess = $compatibilityCase(['process' => [
+    'os_family' => 'Windows',
+    'functions' => ['pcntl_exec' => true, 'posix_kill' => true, 'posix_setsid' => true, 'proc_close' => true, 'proc_open' => true],
+]]);
+assert_doctor_command(
+    $windowsProcess['exit'] === 1
+        && str_contains($windowsProcess['output'], '[FAIL] process group profile (Windows)')
+        && str_contains($windowsProcess['output'], 'requires OS Darwin, Linux'),
+    'doctor blocks an unexercised process-group OS and names the declared requirement'
+);
 $noTopologyDriver = new HealthyDoctorDriver();
 $noTopologyDriver->factsResult = ['exit' => 0, 'stdout' => (string) json_encode([
     'agent' => 'duo-ok',
@@ -393,6 +421,10 @@ $noTopologyDriver->factsResult = ['exit' => 0, 'stdout' => (string) json_encode(
         'directory_separator' => '/',
         'os_family' => 'Linux',
         'functions' => ['chmod' => true, 'flock' => true, 'fsync' => true, 'lstat' => true, 'rename' => true],
+    ],
+    'process' => [
+        'os_family' => 'Linux',
+        'functions' => ['pcntl_exec' => true, 'posix_kill' => true, 'posix_setsid' => true, 'proc_close' => true, 'proc_open' => true],
     ],
     'wp' => '7.0.3',
     'site_mode' => null,
