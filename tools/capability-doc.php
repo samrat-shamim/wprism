@@ -136,11 +136,15 @@ function capdoc_manifests(string $dir): array {
             continue;
         }
         $manifest = capdoc_read_json($file);
-        // ManifestDispositions::load() keys coverage by FILE BASENAME while
-        // AdapterRegistry keys the loaded library by the manifest's own `name`.
+        // This file keys the library by FILE BASENAME — capdoc_cross_check()
+        // compares that key set against the reviewed names — while the agent
+        // keys it by the manifest's own `name`
+        // (ManifestDispositions::entry(), assert_covers(), AdapterRegistry).
         // The two are the same string for every shipped manifest; a
         // divergence would silently give one manifest two identities, so it is
-        // refused here rather than rendered under whichever key won.
+        // refused here rather than rendered under whichever key won. The agent
+        // refuses the same disagreement on its own path, one adapter at a
+        // time, in AdapterSources::assert_declared_name().
         $declared = $manifest['name'] ?? null;
         if ($declared !== $name) {
             throw new RuntimeException(

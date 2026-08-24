@@ -116,7 +116,14 @@ final class ManifestDispositions {
         $missing = [];
         foreach ($manifests as $manifest) {
             $name = (string) ($manifest['name'] ?? '');
-            if (!isset($this->data['manifests'][$name])) {
+            // array_key_exists, not isset: a reviewed entry authored as JSON
+            // `null` is PRESENT and malformed, not absent. isset() folded it
+            // into the coverage list, so `"core": null` answered "manifest
+            // disposition coverage mismatch; missing=[core]" — an operator
+            // sent to add an entry that is already there — where the
+            // per-entry validator says exactly what is wrong with it:
+            // "manifest disposition 'core' must be an object".
+            if (!array_key_exists($name, $this->data['manifests'])) {
                 $missing[] = $name;
             }
         }
@@ -130,6 +137,39 @@ final class ManifestDispositions {
             $name = (string) ($manifest['name'] ?? '');
             self::validate_entry($name, $this->data['manifests'][$name], $manifest);
         }
+    }
+
+    /**
+     * The same per-entry rules, at PROJECTION time, for a reader that got its
+     * entry from entry() instead of from assert_covers().
+     *
+     * assert_covers() runs over the PINNED shipped subset, which is the right
+     * scope for "may this site USE this adapter" and the wrong scope for every
+     * caller that projects a claim from an entry it looked up by name:
+     * AdapterRegistry::shipped_claim() (the funnel under capability_claim() and
+     * report(), so `wp duo capabilities --all` and the adapter catalog), and
+     * blockers()/report() below. Until this call existed those readers
+     * projected UNVALIDATED reviewed bytes. Measured against a woocommerce
+     * entry tampered four ways and read back through `wp duo capabilities
+     * --all`: evidence deleted printed `certified`/`verified` with
+     * `evidence: []`; an invented `entity_section` printed `certified` and
+     * listed the invention among its surfaces; a fabricated version range
+     * printed `certified` over a range the manifest does not declare; and with
+     * `capabilities` deleted, report() below reached `$entry['capabilities']
+     * ['entity_sections']` and produced two PHP warnings and
+     * "resolve_sections(): Argument #2 ($sections) must be of type array, null
+     * given" — a TypeError where a refusal belongs.
+     *
+     * It delegates rather than re-checks: one validator means the wording an
+     * operator meets at projection is the wording load time used, and a tenth
+     * rule added to validate_entry() is enforced on both paths by construction.
+     *
+     * Static because its callers hold arrays and not this object —
+     * AdapterRegistry::shipped_claim() is a static projection over
+     * (manifest, disposition, platform) with no registry instance in scope.
+     */
+    public static function assert_entry(string $name, array $entry, array $manifest): void {
+        self::validate_entry($name, $entry, $manifest);
     }
 
     /** Revalidate frozen bytes without reopening the mutable manifest dir. */
@@ -362,6 +402,12 @@ final class ManifestDispositions {
                 ];
                 continue;
             }
+            // The entry EXISTS; whether it is well-formed is a separate
+            // question, and this method answers "is anything blocking" from
+            // its `status`/`reason` alone. A malformed entry that reached here
+            // would be read for a status it has no right to declare, so it
+            // refuses in the validator's own words instead.
+            self::assert_entry($name, $entry, $manifest);
             if (($entry['status'] ?? null) === 'certified') {
                 continue;
             }
@@ -394,6 +440,10 @@ final class ManifestDispositions {
                 ];
                 continue;
             }
+            // Ahead of the two capabilities reads below, which are where an
+            // entry with `capabilities` deleted produced two PHP warnings and
+            // a TypeError out of resolve_sections() instead of a refusal.
+            self::assert_entry($name, $entry, $manifest);
             $resolved = $entry;
             $resolved['name'] = $name;
             $resolved['entities'] = self::resolve_sections(
@@ -407,11 +457,17 @@ final class ManifestDispositions {
             unset($resolved['capabilities']['entity_sections'], $resolved['capabilities']['field_sections']);
             $rows[] = $resolved;
         }
+        // One call, read twice. `ready` and `blockers` are two projections of
+        // the same list by definition, and since blockers() now revalidates
+        // every entry it walks (assert_entry above), computing it twice would
+        // pay the per-entry rules a third time over one report for no answer
+        // that is not already in hand.
+        $blockers = $this->blockers($manifests);
         return [
             'schema_version' => self::FORMAT,
             'registry_sha256' => $this->sha256(),
-            'ready' => $this->blockers($manifests) === [],
-            'blockers' => $this->blockers($manifests),
+            'ready' => $blockers === [],
+            'blockers' => $blockers,
             'manifests' => $rows,
             'profiles' => $this->profiles(),
         ];

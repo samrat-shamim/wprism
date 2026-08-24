@@ -2349,6 +2349,42 @@ check(
         && $fseUncertified['advisory']['code'] === 'fse_profile_not_certified',
     'an uncertified FSE profile is not proposed either'
 );
+// WP-1.2 review F3: a certified profile can name a manifest that is not there.
+// validate_profiles() resolves `profile.manifest` against the registry's OWN
+// declared names and never against the directory, so a reviewed entry that
+// outlived its manifest keeps its profile valid, and since disposition
+// coverage stopped being a whole-directory runtime check no load notices
+// either. `make release-gate` bounds that for the shipped library at authoring
+// time; a library this repository did not author reaches a running site with
+// no such gate. The target is therefore resolved where the profile is
+// CONSUMED, against the manifests the site actually installed — and NOT at
+// load against the pinned subset, which would refuse a correct library (a site
+// pinning only woocommerce legitimately leaves `fse` -> `core` unpinned).
+$fseTargeted = ['fse' => [
+    'manifest' => 'core',
+    'scope' => $fseProfiles['fse']['scope'],
+    'status' => 'certified',
+]];
+$fseResolved = \Duo\InitPlanner::fse_profile_scope(true, $fseTargeted, ['core', 'woocommerce']);
+check(
+    is_array($fseResolved) && $fseResolved['scope'] === $fseTargeted['fse']['scope']
+        && $fseResolved['advisory']['code'] === 'fse_profile_scope_selected',
+    'a certified FSE profile whose manifest IS installed proposes its scope exactly as before'
+);
+$fseGhost = \Duo\InitPlanner::fse_profile_scope(true, $fseTargeted, ['woocommerce']);
+check(
+    is_array($fseGhost) && $fseGhost['scope'] === null
+        && $fseGhost['advisory']['code'] === 'fse_profile_not_certified'
+        && str_contains($fseGhost['advisory']['reason'], "names the adapter 'core', which this site has not installed")
+        && str_contains($fseGhost['advisory']['remediation'], "install the adapter 'core'"),
+    "but one naming a manifest this site does not install proposes NOTHING and names the ghost, rather than putting "
+    . "core's site-editor types under a profile whose adapter is absent"
+);
+check(
+    is_array(\Duo\InitPlanner::fse_profile_scope(true, $fseTargeted)['scope']),
+    'and with no manifest set in hand there is nothing to resolve against, so the profile is honoured as it was — '
+    . 'the guard bounds a library it can see, it does not refuse for want of one'
+);
 
 // T7 grind A4: a STRUCTURAL declaration (no class) is authored data the
 // adapter understands — Contact Form 7's `wpcf7_contact_form: {}`, Polylang's

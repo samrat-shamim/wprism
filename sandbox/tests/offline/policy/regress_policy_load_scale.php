@@ -322,14 +322,36 @@ namespace {
         ))
     );
 
-    echo "\n== the library is never materialised in memory; what remains is the registry ==\n";
+    echo "\n== manifest CONTENT is never materialised; the residual term is the directory scan ==\n";
     // The same 10,000 manifest files, with a registry that reviews only the two
-    // adapters a pin can name. Nothing else about the fixture moves, so the
-    // difference between this measurement and the covered one above attributes
-    // the memory exactly: the manifests cost nothing because they are never
-    // opened, and the residual O(library) term is the reviewed registry
-    // DOCUMENT — one document by design, decoded once, held by the Policy, and
-    // not what this work package is about.
+    // adapters a pin can name — so the reviewed document is a constant and
+    // anything that still grows with the library is something else.
+    //
+    // WHAT THE RESIDUAL ACTUALLY IS. Attributed by measuring each step of
+    // Policy::load() alone against this same lean fixture at 100 / 1,000 /
+    // 10,000 files, rather than inferred from the difference between two
+    // registries:
+    //
+    //   ManifestDispositions::load()   9,584 bytes retained at EVERY size
+    //   AdapterSources::discover()     13,248 -> 607,584 -> 7,174,240 peak
+    //   Policy::load() (whole)         83,544 -> 645,112 -> 7,175,480 peak
+    //
+    // (A separate attribution harness, one step per child process, so its
+    // whole-load figure sits a few percent under the number the assertion
+    // below prints from this suite's own child — process overhead, not a
+    // different mechanism. What is being read off it is the SHAPE: flat versus
+    // linear.)
+    //
+    // The reviewed document is flat; discover() is the whole O(library) term.
+    // It stats the directory and retains one origins row per file it finds
+    // (name, source, path) so a pin can be resolved and a shadowed name
+    // refused, which is a fact about every file in the directory by
+    // construction — the property AdapterSources' header calls a broken
+    // INSTALLATION rather than an unusable adapter. It is O(names), not
+    // O(bytes): none of these files is opened or decoded, which is what the
+    // read-list and decode-count assertions above pin and what the two
+    // assertions below bound. Narrowing the scan is a separate question from
+    // this work package, which is about DECODES.
     //
     // This variant is also the semantic half at scale: 10,000 unreviewed files
     // sitting in the library, and a covered pin still resolves. The pre-WP-1.2
@@ -359,23 +381,27 @@ namespace {
         'and they are neither read nor refused: still 2 decodes, counted ' . $leanMeasurement['decodes']
     );
     // Stated against a measured quantity rather than an absolute ceiling that
-    // would rot across PHP builds and hosts.
+    // would rot across PHP builds and hosts. Both bounds are the scan's, not
+    // the registry's — see the attribution above — so they say what they can
+    // honestly say: whatever the scan costs per NAME, it stays under what the
+    // library holds in BYTES, because no manifest is ever opened.
     duo_check(
         $leanMeasurement['peak_delta'] < $unreadBytes,
-        'the load peaks at ' . number_format($leanMeasurement['peak_delta']) . ' bytes, under the '
-        . number_format($unreadBytes) . ' bytes of manifest it never opened'
+        'the load peaks at ' . number_format($leanMeasurement['peak_delta'])
+        . ' bytes — the adapter-source scan, one origins row per file — under the '
+        . number_format($unreadBytes) . ' bytes of manifest content it never opened'
     );
     duo_check(
         $leanMeasurement['retained_delta'] < $unreadBytes,
         'and the loaded policy retains ' . number_format($leanMeasurement['retained_delta'])
-        . ' bytes — a pin, not a library'
+        . ' bytes: those origins, plus ONE decoded manifest per pin — never the library\'s manifest content'
     );
     duo_check(
         $leanMeasurement['peak_delta'] * 4 < ($measurements[10000]['peak_delta'] ?? 0),
-        'over the identical 10,000 files, a 10,001-entry registry costs '
-        . number_format($measurements[10000]['peak_delta'] ?? 0) . ' bytes against a 2-entry registry\'s '
-        . number_format($leanMeasurement['peak_delta']) . ': the per-manifest term that survives is the reviewed '
-        . 'document, not the manifest'
+        'and the reviewed document is a SECOND per-entry term on top of that scan: over the identical 10,000 files a '
+        . '10,001-entry registry costs ' . number_format($measurements[10000]['peak_delta'] ?? 0)
+        . ' bytes against a 2-entry registry\'s ' . number_format($leanMeasurement['peak_delta'])
+        . ', while the manifests themselves cost the same nothing in both'
     );
 
     if (duo_check_failed() === 0) {

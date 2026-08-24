@@ -497,9 +497,50 @@ check(
     'a library-wide capability report answers the uncovered manifest with an unsupported row and '
     . '`missing_disposition_entry` rather than refusing the whole command over it'
 );
-// The other direction, which no longer has a runtime reader at all: a reviewed
-// entry whose manifest is gone. $fixture holds core.json and the uncovered
-// probe; $data reviews all 16 shipped names.
+// WP-1.2 review F7: the same library moved a SURVEY word, and this pins it
+// deliberately rather than leaving it as an unremarked side effect.
+// AdapterSources::has_reviewed_registry() answers "did the registry load at
+// all", and before WP-1.2 an uncovered file made load() throw, so
+// `duo adapter list` over this directory reported every shipped row with
+// certification `null` — "no reviewed status known" — on account of a file
+// that has nothing to do with any of them. The registry loads now, so the word
+// is `registry` for both rows, INCLUDING the uncovered one: the survey's
+// question is about the library's document, not about this adapter's entry.
+// The judgement on the uncovered adapter is not lost, it is where it belongs —
+// the capability verdict asserted immediately above, `blocked` with
+// `missing_disposition_entry`. Two rows, two different questions, and the row
+// that reads `registry` here is the row that reads `blocked` there.
+$uncoveredSurvey = [];
+foreach (\Duo\AdapterSources::survey(null)['adapters'] as $row) {
+    $uncoveredSurvey[(string) $row['name']] = $row;
+}
+check(
+    count($uncoveredSurvey) === 2
+        && ($uncoveredSurvey['core']['certification'] ?? null) === 'registry'
+        && ($uncoveredSurvey['uncovered-adapter']['certification'] ?? null) === 'registry'
+        // array_key_exists, not `?? …`: the value under test IS null, and the
+        // null-coalescing operator fires on exactly that.
+        && array_key_exists('disposition_status', $uncoveredSurvey['uncovered-adapter'])
+        && $uncoveredSurvey['uncovered-adapter']['disposition_status'] === null
+        && ($uncoveredSurvey['core']['disposition_status'] ?? null) === 'certified',
+    'the survey reports `registry` for both rows — the registry DID load — while the uncovered row carries no '
+    . 'disposition status, so the reviewed verdict is read from the capability report and never from this word'
+);
+// The other direction: a reviewed entry whose manifest is gone. $fixture holds
+// core.json and the uncovered probe; $data reviews all 16 shipped names.
+//
+// No LOAD refuses it — assert_covers() validates what it was handed, so a
+// dangling entry is invisible to the pinned path by construction. What bounds
+// it is `make release-gate` (capdoc_cross_check(), watched by tests/Tooling/
+// CapabilityDocCoverageTest.php), and that is an IN-REPO authoring bound over
+// the shipped library, not a runtime one: on a site running a library this
+// repository did not author, a dangling entry survives. The one consumer that
+// would act on it is `profiles` — validate_profiles() resolves each profile's
+// `manifest` against the registry's own declared names, never against the
+// directory — and that is guarded where the profile is consumed rather than at
+// load, since the pinned subset is the wrong set to resolve against (a site
+// pinning only woocommerce leaves `fse` -> `core` unpinned and correct). The
+// guard is asserted below.
 Canon::write_file($fixture . '/dispositions.json', Canon::encode($data));
 check(
     count(Policy::load(null, ['core'])->manifests) === 1,
@@ -646,6 +687,145 @@ check(
 );
 Canon::write_file($fixture . '/dispositions.json', Canon::encode($coreRegistry));
 
+echo "\n== a reviewed entry is validated where it is PROJECTED, not only where it is pinned ==\n";
+// WP-1.2 review F1. Splitting coverage moved the per-entry rules onto the
+// PINNED subset, and every reader that resolves an entry by NAME was left
+// projecting reviewed bytes nothing had checked: AdapterRegistry::
+// shipped_claim() (the funnel under capability_claim() and report(), so `wp
+// duo capabilities --all` and `duo adapter inspect`) and ManifestDispositions
+// ::blockers()/report(). Measured on this exact fixture before the fix, a
+// woocommerce entry tampered after review answered `wp duo capabilities --all`
+// with `certified`/`verified` — evidence deleted printed `evidence: []`, an
+// invented entity_section printed the invention among its surfaces, and a
+// fabricated version range printed a range woocommerce.json does not declare.
+//
+// woocommerce and not core, because two of the nine rules only exist for a
+// manifest that names a `plugin`: core.json declares none, so the version
+// cross-check cannot fire on it at all and a group built on core would assert
+// three rules while claiming four.
+$tamperFixture = sys_get_temp_dir() . '/duo_dispositions_tamper_' . bin2hex(random_bytes(5));
+mkdir($tamperFixture . '/capabilities', 0777, true);
+register_shutdown_function(fn() => remove_fixture_tree($tamperFixture));
+copy($manifestDir . '/woocommerce.json', $tamperFixture . '/woocommerce.json');
+copy($manifestDir . '/capabilities/platform.json', $tamperFixture . '/capabilities/platform.json');
+$wooManifest = $manifestsByName['woocommerce'];
+$wooRegistry = [
+    'format' => ManifestDispositions::FORMAT,
+    'manifests' => ['woocommerce' => $data['manifests']['woocommerce']],
+    'profiles' => [],
+];
+$writeTamper = function (callable $edit) use ($tamperFixture, $wooRegistry): void {
+    $registry = $wooRegistry;
+    $registry['manifests']['woocommerce'] = $edit($registry['manifests']['woocommerce']);
+    Canon::write_file($tamperFixture . '/dispositions.json', Canon::encode($registry));
+    putenv("DUO_MANIFESTS_DIR=$tamperFixture");
+};
+/**
+ * The library view through the PRODUCT path, exactly the idiom the group above
+ * uses. A refusal here is the envelope `wp duo capabilities --all` prints and
+ * halts on; anything else is a report, and a report is the defect.
+ */
+$tamperedAll = function (callable $edit) use ($writeTamper): array {
+    $writeTamper($edit);
+    WP_CLI::$lines = [];
+    $threw = false;
+    try {
+        (new Duo\Cli())->capabilities([], ['all' => true, 'format' => 'json']);
+    } catch (Throwable $e) {
+        $threw = true;
+    }
+    $out = json_decode(WP_CLI::$lines[0] ?? '', true);
+    return [
+        'refused' => $threw && ($out['ok'] ?? null) === false,
+        'row' => is_array($out['manifests'][0] ?? null) ? $out['manifests'][0] : [],
+    ];
+};
+/** The same tamper, one frame in, where the refusal SENTENCE is readable. */
+$tamperedSentence = function (callable $edit) use ($writeTamper, $tamperFixture, $wooManifest): string {
+    $writeTamper($edit);
+    return message_of(fn() => AdapterRegistry::report(
+        ManifestDispositions::load($tamperFixture),
+        [$wooManifest],
+        ['operation' => 'promote']
+    ));
+};
+// The guard has to admit the untampered library, or the four refusals below
+// prove only that something is broken.
+$untampered = $tamperedAll(fn(array $entry): array => $entry);
+check(
+    $untampered['refused'] === false
+        && ($untampered['row']['status'] ?? null) === 'certified'
+        && ($untampered['row']['plugin_execution']['status'] ?? null) === 'verified'
+        // Through Canon::encode on both sides, which is how validate_entry()
+        // itself compares these two: dispositions.json is canonical (max
+        // before min) and woocommerce.json is authored (min before max), so
+        // `===` on the arrays would compare key ORDER and fail on a range that
+        // agrees.
+        && Canon::encode($untampered['row']['supported_versions']['range'] ?? null)
+            === Canon::encode($wooManifest['version_range'] ?? null),
+    'the reviewed library still projects its certified woocommerce claim, over the range its manifest declares'
+);
+foreach ([
+    'evidence deleted — a certified claim citing nothing' => [
+        function (array $entry): array { unset($entry['evidence']); return $entry; },
+        "duo: certified manifest disposition 'woocommerce' lacks current bundle evidence",
+    ],
+    'an invented entity_section — a surface no manifest carries' => [
+        function (array $entry): array {
+            $entry['capabilities']['entity_sections'][] = 'invented_section';
+            return $entry;
+        },
+        "duo: manifest disposition 'woocommerce' names absent manifest section 'invented_section'",
+    ],
+    'a fabricated version range — a claim over versions nobody reviewed' => [
+        function (array $entry): array {
+            $entry['supported_versions']['range'] = ['max' => '99.0.0', 'min' => '1.0.0'];
+            return $entry;
+        },
+        "duo: certified manifest disposition 'woocommerce' versions disagree with its manifest contract",
+    ],
+    'capabilities deleted outright' => [
+        function (array $entry): array { unset($entry['capabilities']); return $entry; },
+        "duo: manifest disposition 'woocommerce' has a malformed required field",
+    ],
+] as $label => [$edit, $expected]) {
+    check($tamperedAll($edit)['refused'] === true, "$label REFUSES the library view instead of projecting a claim");
+    check(
+        $tamperedSentence($edit) === $expected,
+        "and in the words load time uses, unchanged — $label ($expected)"
+    );
+}
+// The fourth tamper had a second, worse shape: ManifestDispositions::report()
+// reached $entry['capabilities']['entity_sections'] on an entry that has no
+// `capabilities` and produced two PHP warnings and "resolve_sections():
+// Argument #2 ($sections) must be of type array, null given" — a TypeError
+// where a refusal belongs. Driven directly because that is the method that
+// crashed.
+$writeTamper(function (array $entry): array { unset($entry['capabilities']); return $entry; });
+check(
+    message_of(fn() => ManifestDispositions::load($tamperFixture)->report([$wooManifest]))
+        === "duo: manifest disposition 'woocommerce' has a malformed required field",
+    'report() refuses that entry in the validator\'s words rather than dying inside resolve_sections()'
+);
+check(
+    message_of(fn() => ManifestDispositions::load($tamperFixture)->blockers([$wooManifest]))
+        === "duo: manifest disposition 'woocommerce' has a malformed required field",
+    'and blockers() refuses it too, so `ready` can never be computed from an entry nothing validated'
+);
+// WP-1.2 review F5. A reviewed entry authored as JSON `null` is PRESENT and
+// malformed, not absent. assert_covers() tested it with isset(), which is
+// false for null, so it was folded into the coverage list and answered
+// "coverage mismatch; missing=[woocommerce]" — an operator sent to add an
+// entry that is already sitting in the file. array_key_exists puts it back in
+// front of the per-entry validator, which says what is actually wrong with it.
+$writeTamper(fn(array $entry): ?array => null);
+check(
+    message_of(fn() => Policy::load(null, ['woocommerce']))
+        === "duo: manifest disposition 'woocommerce' must be an object",
+    'a null reviewed entry is refused as malformed, not reported as missing'
+);
+putenv("DUO_MANIFESTS_DIR=$manifestDir");
+
 echo "\n== omissions fail loud; CLI/status/promotion consume the same result ==\n";
 putenv("DUO_MANIFESTS_DIR=$manifestDir");
 WP_CLI::$lines = [];
@@ -714,8 +894,15 @@ foreach ($manifests as $m) {
     $e = $registry->entry((string) ($m['name'] ?? ''));
     if (($e['status'] ?? null) === 'certified') { $certifiedName = (string) $m['name']; break; }
 }
+// The REAL manifest bytes, not `['name' => $certifiedName]`. blockers() now
+// revalidates the entry it found against the manifest it was handed (review
+// F1), and the nine rules cross-check the entry's reviewed sections against
+// that manifest's own sections — so a name-only stub is not a lighter fixture,
+// it is a manifest missing every section its entry reviews, and it refuses
+// with "names absent manifest section 'post_types'". Handing over the bytes
+// this adapter actually ships is what the assertion meant all along.
 check(
-    $certifiedName !== null && $registry->blockers([['name' => $certifiedName]]) === [],
+    $certifiedName !== null && $registry->blockers([$manifestsByName[$certifiedName]]) === [],
     'DUO-3372: a certified manifest is still not a blocker (the uncovered fix did not turn the certified skip into a row)'
 );
 

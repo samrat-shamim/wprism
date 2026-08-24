@@ -143,10 +143,22 @@ final class CapabilityDocCoverageTest extends TestCase
     }
 
     /**
-     * The direction the runtime can no longer see at all: a reviewed entry
-     * whose manifest is gone. `assert_covers()` validates what it was given,
-     * so nothing on the pinned path would ever notice this; the gate is the
-     * only reader left.
+     * The direction no LOAD can see: a reviewed entry whose manifest is gone.
+     * `assert_covers()` validates what it was handed, so a dangling entry is
+     * invisible to the pinned path by construction, and this gate is what
+     * bounds it IN-REPO — for the shipped library only, at authoring time.
+     *
+     * It is not a runtime guarantee, and the distinction matters for any
+     * library that did not come from this repository: a dangling entry
+     * survives on such a site, and the one consumer that would act on it is
+     * `profiles`, whose `manifest` validate_profiles() resolves against the
+     * registry's OWN declared names rather than against the directory. That is
+     * guarded where the profile is CONSUMED — InitPlanner::fse_profile_scope()
+     * resolves the target against the manifests actually installed and
+     * degrades to its `fse_profile_not_certified` advisory rather than
+     * proposing scope from a ghost — because resolving it at load against the
+     * pinned subset would refuse a correct library (a site pinning only
+     * woocommerce leaves `fse` -> `core` unpinned).
      */
     public function testAReviewedEntryThatOutlivedItsManifestFailsTheGate(): void
     {
