@@ -51,7 +51,7 @@
             "exact-artifact-version-matrix"
         ]
     },
-    "reason": "Production-readiness expansion is in progress for exact WooCommerce 11.0.0 and 11.0.1. Existing evidence covers the product/catalog, upgrade, typed-table, product lookup, lifecycle, fail-closed deletion, fresh-process category/brand hierarchy, COGS, mixed product/POS visibility, read-only fulfillment prerequisites, and crash-safe analytics/stock-retention scheduler projections offline. Certification is withheld until the remaining settings/source-union, optional-core boundary, lifecycle, and final-SHA live matrices are complete.",
+    "reason": "Production-readiness expansion is in progress for exact WooCommerce 11.0.0 and 11.0.1. Existing evidence covers the product/catalog, typed tables, product lookup, fail-closed deletion, fresh-process category/brand hierarchy, COGS, mixed product/POS visibility, read-only fulfillment prerequisites, crash-safe analytics/stock-retention scheduling, the complete exact settings source union, and optional-core populated-state boundaries offline. Certification is withheld until the portable mixed-subkey settings seam is integrated where applicable, lifecycle evidence is rerun on final bytes, and the final-SHA exact live matrix is complete.",
     "status": "experimental",
     "supported_versions": {
         "plugin": "woocommerce/woocommerce.php",
@@ -80,6 +80,26 @@
             "operation": "delete",
             "reason": "Shipping-zone and tax-rate rows require version-pinned WooCommerce API, cache, child-row, and option-name effects that are not a closed semantic delete contract.",
             "surface": "tables.woocommerce_shipping_zone_locations|woocommerce_shipping_zone_methods|woocommerce_shipping_zones|woocommerce_tax_rate_locations|woocommerce_tax_rates"
+        },
+        {
+            "operation": "capture",
+            "reason": "Built-in BACS, cheque, and COD settings are plugin-managed records with secret bank fields or shipping-zone method references; populated records fail closed until the reviewed closed-subkey and typed-reference contract can preserve only portable fields.",
+            "surface": "options.woocommerce_bacs_accounts|woocommerce_bacs_settings|woocommerce_cheque_settings|woocommerce_cod_settings"
+        },
+        {
+            "operation": "capture",
+            "reason": "Core email settings mix portable merchant content with target contact identity and feature-conditional schemas. Every exact 11.0.x core email id and field is inventoried, but populated records fail closed until the reviewed closed-subkey contract is integrated; addon ids and unknown fields remain unsupported.",
+            "surface": "options.woocommerce_<core-email-id>_settings"
+        },
+        {
+            "operation": "capture",
+            "reason": "Coming-soon visibility writes cross an irreversible global-cache and cart-page edge-invalidation boundary; direct option transport is refused until that exact native effect has a bounded receipt and retry contract.",
+            "surface": "options.woocommerce_coming_soon|woocommerce_private_link|woocommerce_store_pages_only"
+        },
+        {
+            "operation": "capture",
+            "reason": "Thumbnail-cropping changes can kill and rebuild an attachment background queue whose target-wide file and attachment effects are not bounded by this adapter. Populated settings fail closed instead of silently skipping native regeneration.",
+            "surface": "options.woocommerce_thumbnail_cropping|woocommerce_thumbnail_cropping_custom_width|woocommerce_thumbnail_cropping_custom_height"
         },
         {
             "operation": "capture",

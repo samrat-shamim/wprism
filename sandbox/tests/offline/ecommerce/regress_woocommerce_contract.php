@@ -64,8 +64,8 @@ woo_ok(($settingsInventory['format'] ?? null) === 'duo-woocommerce-settings-inve
     'the source-audited settings inventory uses the exact reviewed schema');
 woo_ok(count((array) ($settingsInventory['literal_ids'] ?? [])) === 147,
     'the exact 11.0.0/11.0.1 literal settings scan freezes all 147 source ids');
-woo_ok(count((array) ($settingsInventory['source_files'] ?? [])) === 35,
-    'the inventory binds all thirty-five source files used by settings, pickup, and scheduler behavior audits');
+woo_ok(count((array) ($settingsInventory['source_files'] ?? [])) === 66,
+    'the inventory binds all sixty-six exact settings, gateway, email, pickup, scheduler, launch, and image-regeneration sources');
 foreach ((array) ($settingsInventory['source_files'] ?? []) as $sourceFile => $sha256) {
     woo_ok(
         is_string($sourceFile) && $sourceFile !== ''
@@ -123,8 +123,8 @@ foreach ($inventoryClassifications as $name => $classification) {
     }
 }
 woo_ok(($settingsInventory['dynamic_families'] ?? null) === [
-    'woocommerce_<core-email-id>_settings' => 'pending_mixed_record',
-    'woocommerce_email_templates_<core-email-id>_post_id' => 'pending_block_email_editor',
+    'woocommerce_<core-email-id>_settings' => 'fail_closed_mixed_record',
+    'woocommerce_email_templates_<core-email-id>_post_id' => 'fail_closed_block_email_editor',
     'woocommerce_feature_<registered-feature-slug>_enabled' => 'env',
 ], 'computed email, template, and feature option families stay explicit in the source union');
 foreach ([
@@ -144,6 +144,121 @@ foreach ((array) ($settingsInventory['feature_option_ids'] ?? []) as $featureOpt
         ($policy->option_rule((string) $featureOption)['class'] ?? null) === $classification,
         "$featureOption resolves to its exact source-audited feature-option class"
     );
+}
+
+$closedRecords = (array) ($settingsInventory['closed_records'] ?? []);
+$gatewayRecords = (array) ($closedRecords['gateway_settings'] ?? []);
+woo_ok(array_keys($gatewayRecords) === [
+    'woocommerce_bacs_accounts',
+    'woocommerce_bacs_settings',
+    'woocommerce_cheque_settings',
+    'woocommerce_cod_settings',
+], 'the source union enumerates every built-in gateway-owned settings record');
+foreach ($gatewayRecords as $optionName => $record) {
+    woo_ok($policy->option_rule((string) $optionName) === null
+        && ($policy->option_namespace((string) $optionName)['owner'] ?? null) === 'woocommerce',
+        "$optionName is an explicit populated-source fail-closed boundary");
+    woo_ok(is_string($record['boundary'] ?? null) && str_contains((string) $record['boundary'], 'fail_closed')
+        || ($record['boundary'] ?? null) === 'secret_target_owned',
+        "$optionName records why opaque transport is not authorized");
+}
+woo_ok(($gatewayRecords['woocommerce_bacs_accounts']['fields'] ?? null) === [
+    'account_name', 'account_number', 'bank_name', 'sort_code', 'iban', 'bic',
+], 'BACS account rows freeze all six bank-detail fields as target-owned secrets');
+woo_ok(($gatewayRecords['woocommerce_cod_settings']['reference_fields'] ?? null) === [
+    'enable_for_methods' => 'wc_zone_method[]',
+], 'COD shipping-method restrictions are typed zone-method references, never opaque strings');
+
+$emailInventory = (array) ($closedRecords['email_settings'] ?? []);
+$emailRecords = (array) ($emailInventory['records'] ?? []);
+$emailFieldClasses = (array) ($emailInventory['field_classes'] ?? []);
+woo_ok(array_keys($emailRecords) === [
+    'woocommerce_admin_payment_gateway_enabled_settings',
+    'woocommerce_cancelled_order_settings',
+    'woocommerce_customer_abandoned_cart_recovery_settings',
+    'woocommerce_customer_cancelled_order_settings',
+    'woocommerce_customer_completed_order_settings',
+    'woocommerce_customer_failed_order_settings',
+    'woocommerce_customer_fulfillment_created_settings',
+    'woocommerce_customer_fulfillment_deleted_settings',
+    'woocommerce_customer_fulfillment_updated_settings',
+    'woocommerce_customer_invoice_settings',
+    'woocommerce_customer_new_account_settings',
+    'woocommerce_customer_note_settings',
+    'woocommerce_customer_on_hold_order_settings',
+    'woocommerce_customer_pos_completed_order_settings',
+    'woocommerce_customer_pos_refunded_order_settings',
+    'woocommerce_customer_processing_order_settings',
+    'woocommerce_customer_refunded_order_settings',
+    'woocommerce_customer_reset_password_settings',
+    'woocommerce_customer_review_request_settings',
+    'woocommerce_failed_order_settings',
+    'woocommerce_new_order_settings',
+], 'WC_Emails freezes all twenty-one distinct core settings option records by exact id');
+woo_ok($emailFieldClasses === [
+    'additional_content' => 'authored',
+    'automated' => 'authored',
+    'bcc' => 'authored',
+    'cc' => 'authored',
+    'delay_days' => 'authored',
+    'email_type' => 'authored',
+    'enabled' => 'authored',
+    'heading' => 'authored',
+    'heading_full' => 'authored',
+    'heading_paid' => 'authored',
+    'heading_partial' => 'authored',
+    'preheader' => 'authored',
+    'recipient' => 'env',
+    'subject' => 'authored',
+    'subject_full' => 'authored',
+    'subject_paid' => 'authored',
+    'subject_partial' => 'authored',
+], 'every exact core email subkey has one portable or target-environment ruling');
+woo_ok(count(array_filter(
+    array_keys((array) ($settingsInventory['source_files'] ?? [])),
+    static fn(string $path): bool => str_starts_with($path, 'includes/emails/class-wc-email')
+)) === 23
+    && isset($settingsInventory['source_files']['includes/class-wc-emails.php']),
+    'the exact source union binds WC_Emails, the base email class, and every registered core email implementation');
+foreach ($emailRecords as $optionName => $record) {
+    woo_ok(preg_match('/^woocommerce_[a-z0-9_]+_settings$/D', (string) $optionName) === 1,
+        "$optionName uses the exact WC_Settings_API option-key grammar");
+    woo_ok($policy->option_rule((string) $optionName) === null
+        && ($policy->option_namespace((string) $optionName)['owner'] ?? null) === 'woocommerce',
+        "$optionName fails closed until the reviewed mixed-subkey seam is present");
+    $fields = (array) ($record['fields'] ?? []);
+    woo_ok($fields !== [] && count($fields) === count(array_unique($fields)),
+        "$optionName has a nonempty duplicate-free native field inventory");
+    foreach ($fields as $field) {
+        woo_ok(isset($emailFieldClasses[$field]), "$optionName field $field has an authored or environment ruling");
+    }
+}
+woo_ok(($emailFieldClasses['recipient'] ?? null) === 'env'
+    && ($emailFieldClasses['cc'] ?? null) === 'authored'
+    && ($emailFieldClasses['bcc'] ?? null) === 'authored'
+    && ($emailFieldClasses['preheader'] ?? null) === 'authored',
+    'admin recipient identity stays target-local while merchant CC/BCC/preheader content is explicitly classified');
+woo_ok(($emailRecords['woocommerce_customer_refunded_order_settings']['availability'] ?? null)
+        === 'always; also backs feature:block_email_editor customer_partially_refunded_order'
+    && !isset($emailRecords['woocommerce_customer_partially_refunded_order_settings']),
+    'the block-editor partial-refund class reuses the parent customer_refunded_order settings key exactly');
+foreach (['woocommerce_addon_gateway_settings', 'woocommerce_customer_partially_refunded_order_settings'] as $nearMiss) {
+    woo_ok($policy->option_rule($nearMiss) === null
+        && ($policy->option_namespace($nearMiss)['owner'] ?? null) === 'woocommerce',
+        "$nearMiss remains a loud addon or non-writer boundary");
+}
+
+$sideEffectBoundaries = (array) ($closedRecords['native_side_effect_options'] ?? []);
+woo_ok(array_keys($sideEffectBoundaries) === ['coming_soon', 'thumbnail_cropping'],
+    'launch-store and thumbnail regeneration are the two remaining exact native side-effect record families');
+foreach ($sideEffectBoundaries as $family => $record) {
+    woo_ok(is_string($record['boundary'] ?? null) && str_starts_with((string) $record['boundary'], 'fail_closed_'),
+        "$family has an explicit safe production boundary rather than an unverified direct write");
+    foreach ((array) ($record['options'] ?? []) as $optionName) {
+        woo_ok($policy->option_rule((string) $optionName) === null
+            && ($policy->option_namespace((string) $optionName)['owner'] ?? null) === 'woocommerce',
+            "$optionName refuses populated capture before its irreversible native effects");
+    }
 }
 
 // DUO-3315: this is a manifest declaration, not an engine convention. The
@@ -188,20 +303,20 @@ woocommerce_stock_email_recipient woocommerce_stock_format woocommerce_store_add
 woocommerce_tax_based_on woocommerce_tax_classes woocommerce_tax_display_cart woocommerce_tax_display_shop woocommerce_tax_round_at_subtotal woocommerce_tax_total_display woocommerce_terms_page_id woocommerce_thumbnail_image_width woocommerce_trash_cancelled_orders woocommerce_trash_failed_orders woocommerce_trash_pending_orders woocommerce_unforce_ssl_checkout woocommerce_version woocommerce_weight_unit
 OPTIONS));
 
-$pendingOptionNames = ['woocommerce_cod_settings'];
+$failClosedOptionNames = ['woocommerce_cod_settings'];
 foreach ($optionNames as $name) {
     woo_ok($policy->option_namespace($name) !== null, "$name is discovery-owned");
-    if (in_array($name, $pendingOptionNames, true)) {
+    if (in_array($name, $failClosedOptionNames, true)) {
         woo_ok(
             $policy->owned_option_rule($name) === null,
-            "$name remains loudly pending instead of carrying an opaque mixed or reference-bearing record"
+            "$name stays explicitly fail-closed instead of carrying an opaque mixed or reference-bearing record"
         );
         continue;
     }
     woo_ok($policy->owned_option_rule($name) !== null, "$name has an explicit class");
 }
 woo_ok($policy->option_namespace('woocommerce_future_unreviewed') !== null, 'future Woo option remains visible to discovery');
-woo_ok($policy->owned_option_rule('woocommerce_future_unreviewed') === null, 'future Woo option is pending, never silently classified');
+woo_ok($policy->owned_option_rule('woocommerce_future_unreviewed') === null, 'future Woo option remains loud, never silently classified');
 foreach (['action_scheduler_migration_status', 'woocommerce_paypal_settings', 'woocommerce_maxmind_geolocation_settings', 'woocommerce_email_from_address', 'woocommerce_stock_email_recipient'] as $name) {
     woo_ok(($policy->owned_option_rule($name)['class'] ?? '') === 'env', "$name stays environment-local");
 }

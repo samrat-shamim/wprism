@@ -13,9 +13,37 @@
     "includes/admin/settings/class-wc-settings-general.php": "af94c9c9e3c63b0d4383e9e610d8beceb16997cf09729c24de7483ec2899f55c",
     "includes/admin/settings/class-wc-settings-point-of-sale.php": "d5212fd523f39322c6e598ed329215afc52a3e057c610af38076a14c1139dfc7",
     "includes/admin/settings/class-wc-settings-products.php": "9adf211140e0acb5d5ae8df71a16cca36fe4e29e28752e42a30678183448aae8",
+    "includes/class-wc-emails.php": "b9c4df549a23249c2401a764d80fdb5b93e0923882fd518d3e5e789faf253ccd",
     "includes/class-wc-install.php": "b498f502b9f94204625d4fe8f4c745930c5f37d1af46f4064f561ab2c1b5fbdc",
+    "includes/class-wc-regenerate-images.php": "8211a8d6771a553b42799691815c2566415e762790de45d8148cb10dfe66dc5e",
     "includes/class-wc-shipping-rate.php": "4d39531e7e2ed2ffa47868e03f9d2cbac213c508cbd708f5530ade25146238eb",
     "includes/customizer/class-wc-shop-customizer.php": "6ad7b3e724e21bdc0723b2385a4a5aab13b4cf26527f7d9b56a30270309f4e53",
+    "includes/emails/class-wc-email-admin-payment-gateway-enabled.php": "11b1a5922ec0d0acd8f63e422d219207e7178003786b45ac741f895237cdee4f",
+    "includes/emails/class-wc-email-cancelled-order.php": "45c822584e27f196647a4f21de28c787db1fb3fda0a0ae5a69f8fc74b8c75503",
+    "includes/emails/class-wc-email-customer-abandoned-cart-recovery.php": "ccc10601286d36a598529c0f20b1efc4a8637c6771e32eadf7fa412b482b15ab",
+    "includes/emails/class-wc-email-customer-cancelled-order.php": "f1a44afbcff0f60bd217b7c948d0a7eefbdc08526212a5af55ffcccd25266180",
+    "includes/emails/class-wc-email-customer-completed-order.php": "def57602f28ddf135da6406e9039d82f28da7ff8b48d53090ddcaa46812e8769",
+    "includes/emails/class-wc-email-customer-failed-order.php": "14faff5e92839ccb9cbf309bf881d98cfde28971b762677aa1c18816e885d510",
+    "includes/emails/class-wc-email-customer-fulfillment-created.php": "b783d53b85feca7c803eb21dbb0d8b19e1d78c38cb9b9b32fced677c798ac459",
+    "includes/emails/class-wc-email-customer-fulfillment-deleted.php": "d944f379e1bd79bda89c702d93b219211b94dbda5976208036e88bcb7ef00b57",
+    "includes/emails/class-wc-email-customer-fulfillment-updated.php": "a4d3757f6ad4a131af2b894c6bd2450861be1a58930ee3f275bfdeee97e39a2a",
+    "includes/emails/class-wc-email-customer-invoice.php": "57802cc47d0235987c0247be10f609e9ed445814ae19a63654beb378bb9e86ad",
+    "includes/emails/class-wc-email-customer-new-account.php": "34a9e11645d1f1d24dfdd66d634e22aa892a111f511df90bff3cbde50bab74cc",
+    "includes/emails/class-wc-email-customer-note.php": "579f6b5d7fd97b34d4791e3c7f2a9229c3b0e81777d0e4f23094e56d0b7dcddd",
+    "includes/emails/class-wc-email-customer-on-hold-order.php": "e2917df469b6b89c14935c0a748aed7d66b2ad38f836b9ccd00c3cb8db6f7ef9",
+    "includes/emails/class-wc-email-customer-partially-refunded-order.php": "127d09d1cc9b9b9da9edcc09c1d376da054f8305bc92ee890c4af380f251aa7c",
+    "includes/emails/class-wc-email-customer-pos-completed-order.php": "13fb55b279b332be6fb7b20187b89969c5ed7ebf47e3a55f4197c6d58be0f320",
+    "includes/emails/class-wc-email-customer-pos-refunded-order.php": "5690fc519f53a3474da1ef0a9ccfa039d2a4b05d857c6f28fc0d26464bd722b2",
+    "includes/emails/class-wc-email-customer-processing-order.php": "0ca84ab9339e2a551ff76d272d196bfa78ed33262b1efc33f1c809f13c226eb1",
+    "includes/emails/class-wc-email-customer-refunded-order.php": "e29bce2d5565b4e56802b7cb63b810c44daae5145223f9c625d7e8c9eae5dec8",
+    "includes/emails/class-wc-email-customer-reset-password.php": "bf30aa618c3cd813972be2cd490bf1e98d8effc0ae422825af8daa82ab60f539",
+    "includes/emails/class-wc-email-customer-review-request.php": "b3d22e9a5e83cd9dd2b332bf2d7bf4b545973655c6fcc3b1642611c3b234bb67",
+    "includes/emails/class-wc-email-failed-order.php": "39582ed9f70d7c1a171304a5f2d7788d79166e313d8af106f347cbbcd7f663aa",
+    "includes/emails/class-wc-email-new-order.php": "1b5e8f18cf7669b2c6d7ce4bd0dce8e13976500996c8c62aab2d66abd26485ea",
+    "includes/emails/class-wc-email.php": "3a6e7ef296ed22440edb9eeec5532e60aad0f8578a4924735691d91f98836473",
+    "includes/gateways/bacs/class-wc-gateway-bacs.php": "21c1efd94efea53df9a5ec164ac5e16c7f0fde079c55da8dd3589c9917ac0114",
+    "includes/gateways/cheque/class-wc-gateway-cheque.php": "038ce57304d769e4c45144177d0b86197748378a9e3f7d14e541342450ed0fcb",
+    "includes/gateways/cod/class-wc-gateway-cod.php": "5664e8b5489b4ec58e9840d4c93c10937778c0f150f197f78e765c15b95acd37",
     "includes/queue/class-wc-action-queue.php": "bb0a9a15659fa8cf8ddf7281a214dd12d7ef6c4b8c266711c1bcc24f46e14f10",
     "includes/wc-formatting-functions.php": "c3576416420bbfb6893ad5164ccf8c439b7e731c337c04b32e058ac6a0809d41",
     "packages/action-scheduler/classes/ActionScheduler_ActionFactory.php": "9316e8fc027e7eca88eb53918288d6b6dafbfc50a59db7c31aa2c4ea16dcf776",
@@ -26,9 +54,10 @@
     "packages/action-scheduler/classes/data-stores/ActionScheduler_DBStore.php": "23e5ca462db869b2e5f4114edd116565822c963b45dfe8572cbe69803f101144",
     "packages/action-scheduler/classes/schema/ActionScheduler_LoggerSchema.php": "12311d4a842b3ecb7602fcae7ea957d03b83a1f9f1f8a1746bc7dab453f26890",
     "packages/action-scheduler/classes/schema/ActionScheduler_StoreSchema.php": "c917c87ed0680f2a7881c56e7a60f8bd087dcd04497a597f388150735faf0c05",
+    "src/Admin/API/LaunchYourStore.php": "68915a78a51a44b6ce707c0fce0fadaef8ad773ec512a6fa483a1ddac28bd4ce",
+    "src/Admin/Features/LaunchYourStore.php": "941dbddf38a638df0fa6162bd440f87daa3a5f3855ba713b3478464db3ba96bd",
     "src/Admin/Features/Features.php": "095b85cd1c689dd7e712ce4b011eaf168d01e5b18fa21cf4e3bc1fba3d439fcc",
     "src/Admin/Schedulers/SchedulerTraits.php": "fa94da88dc1d4c367dddcf68435f3a6abad92ab27514b2f4ad04395a6e1d1a94",
-    "src/Admin/Features/LaunchYourStore.php": "941dbddf38a638df0fa6162bd440f87daa3a5f3855ba713b3478464db3ba96bd",
     "src/Api/Infrastructure/Main.php": "5ae0290104c03b8cd75f230149a24151ef38d6b116c13059f9060ea852ae3b1d",
     "src/Blocks/Shipping/PickupLocation.php": "8f8f1f4a9c24ff43d495811808c0b300ed6342f010c1750ee4583925bb9c3e47",
     "src/Blocks/Shipping/ShippingController.php": "44b301c1ef87eb38ba1da57d55e25674d2d5ac25a66757bb47a19147f96be4b1",
@@ -37,6 +66,8 @@
     "src/Internal/Api/Settings.php": "b5d39a8f1069d2aedd9d51d712c723295dde57d87edaf8cc76ff415a96b56aa3",
     "src/Internal/DataStores/Orders/CustomOrdersTableController.php": "b4d1a6772b064de9be6a80750074b0a9e371514f58131a1701cad6cd52ccb8bf",
     "src/Internal/DataStores/Orders/DataSynchronizer.php": "a10ff8e2e5820deeb5a032cccfc2ffca09a5134e3e87e388e0262a89a8805234",
+    "src/Internal/ComingSoon/ComingSoonCacheInvalidator.php": "2122decc0e5ac2701acb778ef79cd6cfcbdc2c5408c107e9ccc5a4f20be3d59c",
+    "src/Internal/ComingSoon/ComingSoonHelper.php": "10ba25e60f3fa2cbb55fc56f47bc2ef7ea424a7f77d3925f8faeafccac5309f7",
     "src/Internal/Features/FeaturesController.php": "c39f44ebd0928be1c3f3a5066422defa5623705dc44f440f4572595def5866b2",
     "src/Internal/StockNotifications/DataRetentionController.php": "22873bc914fae710dc9f5464057a67bd784cb7c2986e122fd5b5cfeffc5e0e0f",
     "src/StoreApi/Utilities/LocalPickupUtils.php": "5c7057ed826e3aa79993f117d3b969ef7a6a78e57826e521f148bd451a86a81a"
@@ -195,13 +226,13 @@
     "auto_fulfill_virtual": "authored",
     "current_theme_supports_woocommerce": "env",
     "pickup_location_pickup_locations": "authored",
-    "woocommerce_bacs_accounts": "pending_secret_record",
-    "woocommerce_bacs_settings": "pending_mixed_record",
+    "woocommerce_bacs_accounts": "fail_closed_secret_record",
+    "woocommerce_bacs_settings": "fail_closed_mixed_record",
     "woocommerce_category_archive_display": "authored",
-    "woocommerce_cheque_settings": "pending_mixed_record",
+    "woocommerce_cheque_settings": "fail_closed_native_record",
     "woocommerce_checkout_terms_and_conditions_checkbox_text": "authored",
-    "woocommerce_cod_settings": "pending_mixed_record",
-    "woocommerce_coming_soon": "pending_native_side_effect",
+    "woocommerce_cod_settings": "fail_closed_reference_record",
+    "woocommerce_coming_soon": "fail_closed_irreversible_side_effect",
     "woocommerce_default_catalog_orderby": "authored",
     "woocommerce_enable_order_comments": "authored",
     "woocommerce_gateway_order": "authored",
@@ -214,18 +245,100 @@
     "woocommerce_graphql_opcache_enabled": "authored",
     "woocommerce_graphql_query_cache_ttl": "authored",
     "woocommerce_pickup_location_settings": "authored",
-    "woocommerce_private_link": "pending_native_side_effect",
+    "woocommerce_private_link": "fail_closed_irreversible_side_effect",
     "woocommerce_share_key": "env",
     "woocommerce_shop_page_display": "authored",
-    "woocommerce_store_pages_only": "pending_native_side_effect",
-    "woocommerce_thumbnail_cropping": "pending_native_side_effect",
-    "woocommerce_thumbnail_cropping_custom_height": "pending_native_side_effect",
-    "woocommerce_thumbnail_cropping_custom_width": "pending_native_side_effect"
+    "woocommerce_store_pages_only": "fail_closed_irreversible_side_effect",
+    "woocommerce_thumbnail_cropping": "fail_closed_unbounded_native_side_effect",
+    "woocommerce_thumbnail_cropping_custom_height": "fail_closed_unbounded_native_side_effect",
+    "woocommerce_thumbnail_cropping_custom_width": "fail_closed_unbounded_native_side_effect"
   },
   "dynamic_families": {
-    "woocommerce_<core-email-id>_settings": "pending_mixed_record",
-    "woocommerce_email_templates_<core-email-id>_post_id": "pending_block_email_editor",
+    "woocommerce_<core-email-id>_settings": "fail_closed_mixed_record",
+    "woocommerce_email_templates_<core-email-id>_post_id": "fail_closed_block_email_editor",
     "woocommerce_feature_<registered-feature-slug>_enabled": "env"
+  },
+  "closed_records": {
+    "gateway_settings": {
+      "woocommerce_bacs_accounts": {
+        "boundary": "secret_target_owned",
+        "fields": ["account_name", "account_number", "bank_name", "sort_code", "iban", "bic"]
+      },
+      "woocommerce_bacs_settings": {
+        "authored_fields": ["enabled", "title", "description", "instructions"],
+        "secret_legacy_fields": ["account_name", "account_number", "bank_name", "sort_code", "iban", "bic"],
+        "boundary": "mixed_record_fail_closed"
+      },
+      "woocommerce_cheque_settings": {
+        "authored_fields": ["enabled", "title", "description", "instructions"],
+        "boundary": "native_record_fail_closed"
+      },
+      "woocommerce_cod_settings": {
+        "authored_fields": ["enabled", "title", "description", "instructions", "enable_for_virtual"],
+        "reference_fields": {"enable_for_methods": "wc_zone_method[]"},
+        "boundary": "reference_record_fail_closed"
+      }
+    },
+    "email_settings": {
+      "field_classes": {
+        "additional_content": "authored",
+        "automated": "authored",
+        "bcc": "authored",
+        "cc": "authored",
+        "delay_days": "authored",
+        "email_type": "authored",
+        "enabled": "authored",
+        "heading": "authored",
+        "heading_full": "authored",
+        "heading_paid": "authored",
+        "heading_partial": "authored",
+        "preheader": "authored",
+        "recipient": "env",
+        "subject": "authored",
+        "subject_full": "authored",
+        "subject_paid": "authored",
+        "subject_partial": "authored"
+      },
+      "conditional_fields": {
+        "woocommerce_feature_block_email_editor_enabled": ["preheader"],
+        "woocommerce_feature_email_improvements_enabled": ["cc", "bcc"]
+      },
+      "records": {
+        "woocommerce_admin_payment_gateway_enabled_settings": {"availability": "always", "fields": ["enabled", "recipient", "subject", "heading", "additional_content", "email_type", "cc", "bcc", "preheader"]},
+        "woocommerce_cancelled_order_settings": {"availability": "always", "fields": ["enabled", "recipient", "subject", "heading", "additional_content", "email_type", "cc", "bcc", "preheader"]},
+        "woocommerce_customer_abandoned_cart_recovery_settings": {"availability": "feature:abandoned_cart_recovery", "fields": ["enabled", "automated", "subject", "heading", "additional_content", "email_type"]},
+        "woocommerce_customer_cancelled_order_settings": {"availability": "always", "fields": ["enabled", "subject", "heading", "additional_content", "email_type", "cc", "bcc", "preheader"]},
+        "woocommerce_customer_completed_order_settings": {"availability": "always", "fields": ["enabled", "subject", "heading", "additional_content", "email_type", "cc", "bcc", "preheader"]},
+        "woocommerce_customer_failed_order_settings": {"availability": "always", "fields": ["enabled", "subject", "heading", "additional_content", "email_type", "cc", "bcc", "preheader"]},
+        "woocommerce_customer_fulfillment_created_settings": {"availability": "feature:fulfillments", "fields": ["enabled", "subject", "heading", "additional_content", "email_type", "cc", "bcc", "preheader"]},
+        "woocommerce_customer_fulfillment_deleted_settings": {"availability": "feature:fulfillments", "fields": ["enabled", "subject", "heading", "additional_content", "email_type", "cc", "bcc", "preheader"]},
+        "woocommerce_customer_fulfillment_updated_settings": {"availability": "feature:fulfillments", "fields": ["enabled", "subject", "heading", "additional_content", "email_type", "cc", "bcc", "preheader"]},
+        "woocommerce_customer_invoice_settings": {"availability": "always", "fields": ["subject", "heading", "subject_paid", "heading_paid", "additional_content", "email_type", "cc", "bcc", "preheader"]},
+        "woocommerce_customer_new_account_settings": {"availability": "always", "fields": ["enabled", "subject", "heading", "additional_content", "email_type", "cc", "bcc", "preheader"]},
+        "woocommerce_customer_note_settings": {"availability": "always", "fields": ["enabled", "subject", "heading", "additional_content", "email_type", "cc", "bcc", "preheader"]},
+        "woocommerce_customer_on_hold_order_settings": {"availability": "always", "fields": ["enabled", "subject", "heading", "additional_content", "email_type", "cc", "bcc", "preheader"]},
+        "woocommerce_customer_pos_completed_order_settings": {"availability": "always", "fields": ["subject", "heading", "additional_content", "email_type", "cc", "bcc"]},
+        "woocommerce_customer_pos_refunded_order_settings": {"availability": "always", "fields": ["subject_full", "subject_partial", "heading_full", "heading_partial", "additional_content", "email_type", "cc", "bcc", "preheader"]},
+        "woocommerce_customer_processing_order_settings": {"availability": "always", "fields": ["enabled", "subject", "heading", "additional_content", "email_type", "cc", "bcc", "preheader"]},
+        "woocommerce_customer_refunded_order_settings": {"availability": "always; also backs feature:block_email_editor customer_partially_refunded_order", "fields": ["enabled", "subject_full", "subject_partial", "heading_full", "heading_partial", "additional_content", "email_type", "cc", "bcc", "preheader"]},
+        "woocommerce_customer_reset_password_settings": {"availability": "always", "fields": ["enabled", "subject", "heading", "additional_content", "email_type", "cc", "bcc", "preheader"]},
+        "woocommerce_customer_review_request_settings": {"availability": "feature:customer_review_request", "fields": ["enabled", "delay_days", "subject", "heading", "additional_content", "email_type", "cc", "bcc", "preheader"]},
+        "woocommerce_failed_order_settings": {"availability": "always", "fields": ["enabled", "recipient", "subject", "heading", "additional_content", "email_type", "cc", "bcc", "preheader"]},
+        "woocommerce_new_order_settings": {"availability": "always", "fields": ["enabled", "recipient", "subject", "heading", "additional_content", "email_type", "cc", "bcc", "preheader"]}
+      },
+      "unknown_email_ids": "fail_closed",
+      "unknown_fields": "fail_closed"
+    },
+    "native_side_effect_options": {
+      "coming_soon": {
+        "options": ["woocommerce_coming_soon", "woocommerce_private_link", "woocommerce_store_pages_only"],
+        "boundary": "fail_closed_without_verified_cache_and_cart_edge_invalidation"
+      },
+      "thumbnail_cropping": {
+        "options": ["woocommerce_thumbnail_cropping", "woocommerce_thumbnail_cropping_custom_width", "woocommerce_thumbnail_cropping_custom_height"],
+        "boundary": "fail_closed_without_bounded_attachment_queue_regeneration"
+      }
+    }
   },
   "feature_option_ids": {
     "wc_feature_woocommerce_additional_variation_images_enabled": "env",

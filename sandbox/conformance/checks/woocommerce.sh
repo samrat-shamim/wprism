@@ -274,36 +274,15 @@ grep -qE '(^|\|)taxclass=conformance-reduced-rate(\||$)' <<<"$SHIPPING_OUT" \
 pass "conf2 resolves shipping-zone methods, rematerialized instance-option names, custom tax class, and tax rate through WooCommerce APIs"
 
 MERCHANT_SETTINGS_OUT=$($COMPOSE run --rm -T cli2 wp eval '
-$settings = (array) get_option("woocommerce_cod_settings", []);
-$gateways = WC()->payment_gateways()->payment_gateways();
-$cod = $gateways["cod"] ?? null;
 echo wp_json_encode([
   "calc_taxes" => (string) get_option("woocommerce_calc_taxes", ""),
-  "enabled" => (string) ($settings["enabled"] ?? ""),
-  "title" => (string) ($settings["title"] ?? ""),
-  "description" => (string) ($settings["description"] ?? ""),
-  "instructions" => (string) ($settings["instructions"] ?? ""),
-  "enable_for_methods" => array_values((array) ($settings["enable_for_methods"] ?? [])),
-  "enable_for_virtual" => (string) ($settings["enable_for_virtual"] ?? ""),
-  "gateway_enabled" => $cod ? (string) $cod->enabled : "missing",
-  "gateway_title" => $cod ? (string) $cod->title : "missing",
 ]);
 ' 2>&1 | tail -1)
 require_observed_nonempty "conf2 WooCommerce merchant-settings observation" "$MERCHANT_SETTINGS_OUT"
 echo "conf2 merchant-settings check: $MERCHANT_SETTINGS_OUT"
-echo "$MERCHANT_SETTINGS_OUT" | jq -e '
-  .calc_taxes == "yes" and
-  .enabled == "yes" and
-  .title == "Conformance COD Desk" and
-  .description == "Pay at the conformance desk." and
-  .instructions == "Use code CONF-COD-7 at pickup." and
-  .enable_for_methods == [] and
-  .enable_for_virtual == "yes" and
-  .gateway_enabled == "yes" and
-  .gateway_title == "Conformance COD Desk"
-' >/dev/null \
-  || fail "conf2 merchant Woo settings did not round-trip through the option and COD gateway APIs (got: $MERCHANT_SETTINGS_OUT)"
-pass "conf2 preserves authored tax enablement and distinctive COD settings through WooCommerce's option and gateway APIs"
+echo "$MERCHANT_SETTINGS_OUT" | jq -e '.calc_taxes == "yes"' >/dev/null \
+  || fail "conf2 merchant Woo tax setting did not round-trip (got: $MERCHANT_SETTINGS_OUT)"
+pass "conf2 preserves the portable authored tax-enablement setting"
 
 LOCAL_PICKUP_OUT=$($COMPOSE run --rm -T cli2 wp eval '
 $admin = get_user_by("login", "admin");
@@ -652,7 +631,7 @@ woocommerce_storage_hash() {
     );
     $state["options"]=$wpdb->get_results(
       "SELECT option_name,option_value,autoload FROM {$wpdb->options} WHERE option_name IN (" .
-      "\"pickup_location_pickup_locations\",\"woocommerce_calc_taxes\",\"woocommerce_cod_settings\"," .
+      "\"pickup_location_pickup_locations\",\"woocommerce_calc_taxes\"," .
       "\"woocommerce_paypal_settings\",\"woocommerce_pickup_location_settings\"," .
       "\"woocommerce_price_num_decimals\",\"duo_target_environment_neighbor\") ORDER BY option_name",
       ARRAY_A
@@ -737,8 +716,8 @@ jq -e --argjson ids "$TARGET_ADOPT" '
   || fail 'WooCommerce coupon adoption fixture reused the source identity'
 pass 'hostile same-slug product and coupon rows retain target identities while repository-authored native values converge'
 
-# Corrupt structured product metadata, introduce a credential-shaped checkout
-# setting, and remove one repository product row. Each independent capture must
+# Corrupt structured product metadata, introduce a populated unsupported
+# gateway record, and remove one repository product row. Each independent capture must
 # refuse before changing canonical state; exact raw restoration must recapture
 # byte-identically.
 CAPTURE_BASELINE=$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)
@@ -767,31 +746,26 @@ wp_conf1 eval "
   clean_post_cache(\$id);
 " >/dev/null
 
-COD_BACKUP=$(wp_conf1 eval '
-  global $wpdb; echo base64_encode((string)$wpdb->get_var(
-    "SELECT option_value FROM {$wpdb->options} WHERE option_name=\"woocommerce_cod_settings\""
-  ));
-')
-require_observed_nonempty 'WooCommerce raw COD option backup' "$COD_BACKUP"
 FAKE_SECRET='AKIAABCDEFGHIJKLMNOP'
 wp_conf1 eval '
-  $settings=(array)get_option("woocommerce_cod_settings",[]);
-  $settings["instructions"]="AKIAABCDEFGHIJKLMNOP";
-  update_option("woocommerce_cod_settings",$settings);
+  update_option("woocommerce_cod_settings", [
+    "enabled" => "yes",
+    "title" => "Unsupported COD boundary",
+    "description" => "Pay on delivery",
+    "instructions" => "AKIAABCDEFGHIJKLMNOP",
+    "enable_for_methods" => ["flat_rate:3147484001"],
+    "enable_for_virtual" => "yes",
+  ]);
 ' >/dev/null
 SECRET_RC=0
 SECRET_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || SECRET_RC=$?
-require_duo_answered 'WooCommerce credential-shaped checkout capture' human "$SECRET_OUT"
-[ "$SECRET_RC" -ne 0 ] && grep -q 'secret guard tripped' <<<"$SECRET_OUT" \
+require_duo_answered 'WooCommerce populated COD boundary capture' human "$SECRET_OUT"
+[ "$SECRET_RC" -ne 0 ] && grep -Eq 'woocommerce_cod_settings|unclassified option' <<<"$SECRET_OUT" \
   && ! grep -Fq "$FAKE_SECRET" <<<"$SECRET_OUT" \
-  || fail "WooCommerce credential-shaped checkout setting did not refuse and redact: $SECRET_OUT"
+  || fail "WooCommerce populated COD record did not refuse and redact: $SECRET_OUT"
 [ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$CAPTURE_BASELINE" ] \
-  || fail 'WooCommerce secret refusal partially published canonical state'
-wp_conf1 eval "
-  global \$wpdb;
-  \$wpdb->update(\$wpdb->options,['option_value'=>base64_decode('$COD_BACKUP')],['option_name'=>'woocommerce_cod_settings']);
-  wp_cache_delete('woocommerce_cod_settings','options');
-" >/dev/null
+  || fail 'WooCommerce unsupported gateway refusal partially published canonical state'
+wp_conf1 option delete woocommerce_cod_settings >/dev/null
 
 DELETE_ROW=$(wp_conf1 eval '
   global $wpdb; $id=wc_get_product_id_by_sku("CONF-ADOPT-PRODUCT");
@@ -821,7 +795,7 @@ wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-woocommerce-restored 
 diff -r "$CONF_REPO1/state" "$CONF_REPO1/.tmp-woocommerce-restored" \
   || fail 'WooCommerce source did not restore byte-identically after malformed/secret/deletion probes'
 rm -rf "$CONF_REPO1/.tmp-woocommerce-restored"
-pass 'malformed attributes, credential-shaped checkout data, and unsupported product deletion refuse atomically and redact values'
+pass 'malformed attributes, populated mixed gateway data, and unsupported product deletion refuse atomically and redact values'
 
 # Both branches edit one managed native price. Unforced application must be
 # byte-still on the target; explicit repository authority must converge without

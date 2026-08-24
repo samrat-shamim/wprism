@@ -41,6 +41,14 @@ use Duo\Tokens;
 use DuoTest\FakeWpdb;
 use DuoTest\WpStore;
 
+final class WooOptionalWakeupCanary {
+    public static int $wakeups = 0;
+
+    public function __wakeup(): void {
+        ++self::$wakeups;
+    }
+}
+
 $root = dirname(__DIR__, 4);
 $manifest = json_decode(
     (string) file_get_contents($root . '/manifests/woocommerce.json'),
@@ -54,6 +62,11 @@ $dispositions = json_decode(
 );
 $inventory = json_decode(
     (string) file_get_contents($root . '/sandbox/tests/fixtures/woocommerce-core-11.0-optional.json'),
+    true,
+    flags: JSON_THROW_ON_ERROR
+);
+$settingsInventory = json_decode(
+    (string) file_get_contents($root . '/sandbox/tests/fixtures/woocommerce-core-11.0-settings.json'),
     true,
     flags: JSON_THROW_ON_ERROR
 );
@@ -149,6 +162,15 @@ duo_check_same('capture', $unsupported['post_types.woo_email'] ?? null,
     'the reviewed disposition names the populated Block Email Editor post boundary');
 duo_check_same('capture', $unsupported['options.woocommerce_email_templates_*_post_id'] ?? null,
     'the reviewed disposition names the target-local Block Email Editor mapping boundary');
+foreach ([
+    'options.woocommerce_bacs_accounts|woocommerce_bacs_settings|woocommerce_cheque_settings|woocommerce_cod_settings',
+    'options.woocommerce_<core-email-id>_settings',
+    'options.woocommerce_coming_soon|woocommerce_private_link|woocommerce_store_pages_only',
+    'options.woocommerce_thumbnail_cropping|woocommerce_thumbnail_cropping_custom_width|woocommerce_thumbnail_cropping_custom_height',
+] as $surface) {
+    duo_check_same('capture', $unsupported[$surface] ?? null,
+        "$surface is a reviewed populated-source fail-closed boundary");
+}
 
 foreach ((array) ($inventory['families']['fulfillments']['runtime_tables'] ?? []) as $table) {
     duo_check_same('runtime', $manifest['tables'][$table]['class'] ?? null, "$table remains runtime fulfillment state");
@@ -206,7 +228,10 @@ duo_check_same([], (new ScopeDiscovery($policy))->gaps(),
 
 $mappingMarker = 'mapping_value_secret_DO_NOT_ECHO';
 $credentialMarker = 'migration_api_secret_DO_NOT_ECHO';
-$wpdb->seedTable('wp_options', [
+$gatewayMarker = 'gateway_boundary_payload_DO_NOT_ECHO';
+$emailMarker = 'email_boundary_payload_DO_NOT_ECHO';
+$sideEffectMarker = 'side_effect_payload_DO_NOT_ECHO';
+$optionRows = [
     ['option_id' => 1, 'option_name' => 'woocommerce_email_templates_new_order_post_id', 'option_value' => $mappingMarker, 'autoload' => 'yes'],
     ['option_id' => 2, 'option_name' => 'woocommerce_email_templates_addon_gateway_post_id', 'option_value' => '999', 'autoload' => 'yes'],
     ['option_id' => 3, 'option_name' => 'wc_email_sync_backfill_completed_tracked', 'option_value' => 'yes', 'autoload' => 'no'],
@@ -216,7 +241,60 @@ $wpdb->seedTable('wp_options', [
     ['option_id' => 7, 'option_name' => 'wc_migrator_credentials_shopify', 'option_value' => json_encode(['token' => $credentialMarker]), 'autoload' => 'yes'],
     ['option_id' => 8, 'option_name' => 'wc_migrator_credentials_partner_extension', 'option_value' => json_encode(['token' => $credentialMarker]), 'autoload' => 'yes'],
     ['option_id' => 9, 'option_name' => 'wc_migrator_credentials_bad/slash', 'option_value' => 'near-miss', 'autoload' => 'yes'],
-]);
+];
+$nextOptionId = 10;
+$gatewayRecords = (array) ($settingsInventory['closed_records']['gateway_settings'] ?? []);
+foreach (array_keys($gatewayRecords) as $optionName) {
+    $value = $optionName === 'woocommerce_bacs_accounts'
+        ? [['account_name' => $gatewayMarker, 'account_number' => '000', 'bank_name' => 'Bank', 'sort_code' => '', 'iban' => '', 'bic' => '']]
+        : ['enabled' => 'yes', 'title' => $gatewayMarker];
+    $optionRows[] = [
+        'option_id' => $nextOptionId++,
+        'option_name' => $optionName,
+        'option_value' => serialize($value),
+        'autoload' => 'yes',
+    ];
+}
+$emailRecords = (array) ($settingsInventory['closed_records']['email_settings']['records'] ?? []);
+$tooDeep = 'leaf';
+for ($depth = 0; $depth < 300; ++$depth) {
+    $tooDeep = [$tooDeep];
+}
+$hostileEmailPayloads = [
+    'woocommerce_new_order_settings' => serialize(new WooOptionalWakeupCanary()),
+    'woocommerce_cancelled_order_settings' => 'a:0:{}trailing-bytes',
+    'woocommerce_failed_order_settings' => 'a:1:{i:0;R:1;}',
+    'woocommerce_customer_failed_order_settings' => serialize($tooDeep),
+];
+foreach (array_keys($emailRecords) as $optionName) {
+    $optionRows[] = [
+        'option_id' => $nextOptionId++,
+        'option_name' => $optionName,
+        'option_value' => $hostileEmailPayloads[$optionName]
+            ?? serialize(['enabled' => 'yes', 'subject' => $emailMarker]),
+        'autoload' => 'no',
+    ];
+}
+$addonEmailOption = 'woocommerce_extension_delivery_notice_settings';
+$optionRows[] = [
+    'option_id' => $nextOptionId++,
+    'option_name' => $addonEmailOption,
+    'option_value' => serialize(['unknown_extension_field' => $emailMarker]),
+    'autoload' => 'yes',
+];
+$sideEffectOptions = [];
+foreach ((array) ($settingsInventory['closed_records']['native_side_effect_options'] ?? []) as $record) {
+    foreach ((array) ($record['options'] ?? []) as $optionName) {
+        $sideEffectOptions[] = $optionName;
+        $optionRows[] = [
+            'option_id' => $nextOptionId++,
+            'option_name' => $optionName,
+            'option_value' => $optionName === 'woocommerce_thumbnail_cropping' ? 'custom' : $sideEffectMarker,
+            'autoload' => 'yes',
+        ];
+    }
+}
+$wpdb->seedTable('wp_options', $optionRows);
 
 $tokens = new Tokens();
 $tokens->policy = $policy;
@@ -233,17 +311,31 @@ $capture = new OptionsCapture(
 $captureResult = $capture->capture(false, false, null, [], false, true);
 $pending = $captureResult['unclassified'];
 sort($pending, SORT_STRING);
-duo_check_same([
-    'options:wc_migrator_credentials_bad/slash (owner candidate woocommerce; namespace matched without a classification)',
-    'options:woocommerce_email_templates_addon_gateway_post_id (owner candidate woocommerce; namespace matched without a classification)',
-    'options:woocommerce_email_templates_new_order_post_id (owner candidate woocommerce; namespace matched without a classification)',
-], $pending, 'real option capture refuses core/orphan/add-on email mappings and malformed credential near-misses');
+$expectedPendingNames = array_merge(
+    ['wc_migrator_credentials_bad/slash', 'woocommerce_email_templates_addon_gateway_post_id', 'woocommerce_email_templates_new_order_post_id'],
+    array_keys($gatewayRecords),
+    array_keys($emailRecords),
+    [$addonEmailOption],
+    $sideEffectOptions
+);
+sort($expectedPendingNames, SORT_STRING);
+$expectedPending = array_map(
+    static fn(string $name): string => "options:$name (owner candidate woocommerce; namespace matched without a classification)",
+    $expectedPendingNames
+);
+duo_check_same($expectedPending, $pending,
+    'real option capture atomically refuses every exact mixed/secret/reference/side-effect record and addon near-miss');
+duo_check_same(0, WooOptionalWakeupCanary::$wakeups,
+    'fail-closed option discovery never decodes object, trailing, reference-shaped, or over-deep record bytes');
 $captureEvidence = json_encode($captureResult, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 duo_check(
     is_string($captureEvidence)
         && !str_contains($captureEvidence, $mappingMarker)
-        && !str_contains($captureEvidence, $credentialMarker),
-    'capture refusal and repository output never echo mapping values or migrator credentials'
+        && !str_contains($captureEvidence, $credentialMarker)
+        && !str_contains($captureEvidence, $gatewayMarker)
+        && !str_contains($captureEvidence, $emailMarker)
+        && !str_contains($captureEvidence, $sideEffectMarker),
+    'capture refusal and repository output never echo mapping, credential, bank, email, or side-effect values'
 );
 duo_check_same([], $secretCalls,
     'runtime, environment-secret, and fail-closed optional state never enters the authored secret/capture callback');
