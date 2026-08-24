@@ -370,7 +370,7 @@ function tec_readiness_native_boundary(string $boundary): void {
     if ($action === 'state_probe_error') {
         $wpdb->failNextQuery(
             'hostile transaction-state error AKIAABCDEFGHIJKLMNOP',
-            'SELECT @@in_transaction'
+            'SELECT CONNECTION_ID() AS connection_id, @@in_transaction AS in_transaction'
         );
         return;
     }
@@ -4494,6 +4494,48 @@ duo_check(
 );
 duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'option read failure precedes plugin code');
 
+$resetTecDerived();
+$tecDb->query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+duo_check_same(
+    ['session' => 'REPEATABLE-READ', 'next' => 'READ-COMMITTED', 'active' => null],
+    $tecDb->transactionIsolationState(),
+    'the isolation fixture begins with a hidden one-shot READ COMMITTED override'
+);
+$tecDb->resetLog();
+$observedOwnerLockIsolation = null;
+$tecDb->onQuery(static function (string $sql, string $method, FakeWpdb $db) use (
+    &$observedOwnerLockIsolation
+): null {
+    if ($observedOwnerLockIsolation === null && str_contains($sql, ' FOR UPDATE')) {
+        $observedOwnerLockIsolation = $db->transactionIsolationState()['active'];
+    }
+    return null;
+});
+$regenerator->regenerate($tecEventId);
+$isolationQueries = $tecDb->queries();
+$overridePosition = array_search(
+    'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ',
+    $isolationQueries,
+    true
+);
+$startPosition = array_search('START TRANSACTION', $isolationQueries, true);
+duo_check(
+    is_int($overridePosition)
+        && is_int($startPosition)
+        && $overridePosition < $startPosition,
+    'regeneration replaces a hidden one-shot isolation override immediately before START'
+);
+duo_check_same(
+    'REPEATABLE-READ',
+    $observedOwnerLockIsolation,
+    'the first physical owner-range lock runs under the regenerator-owned isolation'
+);
+duo_check_same(
+    ['session' => 'REPEATABLE-READ', 'next' => null, 'active' => null],
+    $tecDb->transactionIsolationState(),
+    'a committed regeneration leaves no one-shot or active isolation state behind'
+);
+
 foreach (['before_false', 'before_throw', 'after_false', 'after_throw'] as $startOutcome) {
     $resetTecDerived();
     $beforeStartFailure = $tecPhysicalState();
@@ -4511,6 +4553,11 @@ foreach (['before_false', 'before_throw', 'after_false', 'after_throw'] as $star
         "START $startOutcome leaves exact event, occurrence, option, and autoload preimages"
     );
     duo_check_same('0', $tecDb->get_var('SELECT @@in_transaction'), "START $startOutcome leaves no transaction owner");
+    duo_check_same(
+        ['session' => 'REPEATABLE-READ', 'next' => null, 'active' => null],
+        $tecDb->transactionIsolationState(),
+        "START $startOutcome consumes every attempted one-shot isolation override"
+    );
     duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], "START $startOutcome precedes native reads");
     $regenerator->regenerate($tecEventId);
     duo_check_same(
@@ -4554,6 +4601,17 @@ foreach ([
         "COMMIT $commitPreimageOutcome restores exact derived, marker, autoload, and neighbor bytes"
     );
     duo_check_same('0', $tecDb->get_var('SELECT @@in_transaction'), "COMMIT $commitPreimageOutcome releases every lock");
+    if ($commitPreimageOutcome === 'before_false') {
+        duo_check_same(
+            2,
+            count(array_filter(
+                $tecDb->queries(),
+                static fn(string $sql): bool =>
+                    $sql === 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ'
+            )),
+            'ambiguous-COMMIT verification establishes its own one-shot isolation too'
+        );
+    }
     $regenerator->regenerate($tecEventId);
     duo_check_same(
         '2026-11-02 15:15:00',
@@ -4561,6 +4619,36 @@ foreach ([
         "same-process retry converges after COMMIT $commitPreimageOutcome"
     );
 }
+
+$resetTecDerived();
+$beforeBetweenProbeReconnect = $tecPhysicalState();
+$tecDb->injectTransactionOutcome('COMMIT', 'success_no_apply_reconnect_before_state');
+$failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
+$betweenProbeQueries = $tecDb->queries();
+duo_check(
+    str_contains($failure, 'recovery_required')
+        && str_contains($failure, 'rollback')
+        && strlen($failure) < 300,
+    'a reconnect before the post-COMMIT state witness cannot bless a truthy no-apply response'
+);
+duo_check_same(
+    $beforeBetweenProbeReconnect,
+    $tecPhysicalState(),
+    'the reconnect-before-state case retains the exact transaction preimage'
+);
+$transactionStateQueries = array_values(array_filter(
+    $betweenProbeQueries,
+    static fn(string $sql): bool => str_contains(strtolower($sql), 'in_transaction')
+));
+duo_check(
+    $transactionStateQueries !== []
+        && count(array_filter(
+            $transactionStateQueries,
+            static fn(string $sql): bool =>
+                $sql !== 'SELECT CONNECTION_ID() AS connection_id, @@in_transaction AS in_transaction'
+        )) === 0,
+    'every product-path transaction state witness binds connection identity in the same SQL row'
+);
 
 foreach (['after_false', 'after_throw', 'success_probe_error'] as $commitAppliedOutcome) {
     $resetTecDerived();

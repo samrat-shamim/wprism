@@ -45,6 +45,10 @@ final class TheEventsCalendar {
 
     private const EVENT_DATA_FILTER = 'tec_events_custom_tables_v1_event_data_from_post';
     private const LAST_SAVE_OPTION = 'tribe_last_save_post';
+    private const SESSION_STATE_QUERY =
+        'SELECT CONNECTION_ID() AS connection_id, @@in_transaction AS in_transaction';
+    private const TRANSACTION_ISOLATION_COMMAND =
+        'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ';
     private const CONFIGURATION_CLASS = 'TEC\\Common\\Configuration\\Configuration';
     private const OCCURRENCES_GENERATOR_CLASS =
         'TEC\\Events\\Custom_Tables\\V1\\Events\\Occurrences\\Occurrences_Generator';
@@ -251,8 +255,13 @@ final class TheEventsCalendar {
         }
 
         $this->assertDatabaseRuntime();
-        $this->assertTransactionState(false, 'before regeneration');
-        $preflightConnectionId = $this->connectionId('before transaction start');
+        $preflightSession = $this->transactionSession('before regeneration');
+        if ($preflightSession['in_transaction']) {
+            throw new \RuntimeException(
+                'duo: TEC derived-state transaction continuity was lost before regeneration; recovery_required'
+            );
+        }
+        $preflightConnectionId = $preflightSession['connection_id'];
         $nativeRuntime = $this->prepareNativeRuntime();
         // The preflight above proves there is no caller-owned transaction to
         // damage. From this point an apparently failed START is ambiguous, so
@@ -267,15 +276,8 @@ final class TheEventsCalendar {
         $initialDerivedWitness = null;
         $connectionId = $preflightConnectionId;
         try {
-            $this->transactionCommand('START TRANSACTION', 'start');
-            $this->assertTransactionState(true, 'after transaction start');
-            $connectionId = $this->connectionId('after transaction start');
-            if (!hash_equals($preflightConnectionId, $connectionId)) {
-                throw new \RuntimeException(
-                    'duo: TEC derived-state database connection changed during transaction start; recovery_required'
-                );
-            }
-            $this->assertTransactionIsolation();
+            $this->beginRepeatableReadTransaction($preflightConnectionId, 'start');
+            $connectionId = $preflightConnectionId;
             [$eventTable, $occurrenceTable] = $this->assertNativeTableSchemas();
             [
                 $postsTable,
@@ -525,12 +527,7 @@ final class TheEventsCalendar {
             $commitFailure = null;
             try {
                 $this->transactionCommand('COMMIT', 'commit');
-                $this->assertConnectionId($connectionId, 'after commit response');
-                if ($this->transactionState('after commit response')) {
-                    throw new \RuntimeException(
-                        'duo: TEC derived-state COMMIT reported success while its transaction remained active'
-                    );
-                }
+                $this->assertTransactionSession($connectionId, false, 'after commit response');
                 $commitCommandSucceeded = true;
             } catch (\Throwable $failure) {
                 $commitFailure = $failure;
@@ -571,8 +568,7 @@ final class TheEventsCalendar {
             // before post-commit checks so recovery never issues a misleading
             // ROLLBACK on a new or reconnected session.
             $transactionMayBeOpen = false;
-            $this->assertConnectionId($connectionId, 'after classified commit');
-            $this->assertTransactionState(false, 'after classified commit');
+            $this->assertTransactionSession($connectionId, false, 'after classified commit');
             $this->purgeSourceCaches($localId);
         } catch (\Throwable $failure) {
             $cleanupFailures = [];
@@ -695,7 +691,7 @@ final class TheEventsCalendar {
             );
         }
         global $wpdb;
-        foreach (['get_results', 'get_var', 'prepare', 'query', 'esc_like'] as $method) {
+        foreach (['get_results', 'get_row', 'get_var', 'prepare', 'query', 'esc_like'] as $method) {
             if (!is_object($wpdb) || !is_callable([$wpdb, $method])) {
                 throw new \RuntimeException(
                     'duo: TEC derived-state regeneration requires the exact WordPress database connection'
@@ -1229,11 +1225,75 @@ final class TheEventsCalendar {
         }
     }
 
-    private function transactionState(string $phase): bool {
+    /**
+     * A session may carry a one-shot READ COMMITTED characteristic even when
+     * @@transaction_isolation still reports its REPEATABLE READ default.
+     * Replace that pending characteristic immediately before START, then
+     * prove the exact session stayed active. If START is ambiguous, consume
+     * any still-pending characteristic on the same session before returning.
+     */
+    private function beginRepeatableReadTransaction(string $connectionId, string $phase): void {
+        $this->assertSessionIsolation(
+            $connectionId,
+            false,
+            "before $phase isolation override"
+        );
+        try {
+            $this->transactionCommand(
+                self::TRANSACTION_ISOLATION_COMMAND,
+                "$phase isolation override"
+            );
+            $this->transactionCommand('START TRANSACTION', $phase);
+            $this->assertTransactionSession($connectionId, true, "after $phase");
+            $this->assertSessionIsolation(
+                $connectionId,
+                true,
+                "after $phase isolation override"
+            );
+        } catch (\Throwable $failure) {
+            $settled = $this->settleRollback($connectionId);
+            if (!$settled || !$this->consumePendingIsolation($connectionId)) {
+                throw new \RuntimeException(
+                    "duo: TEC derived-state $phase isolation cleanup requires recovery",
+                    0,
+                    $failure
+                );
+            }
+            throw $failure;
+        }
+    }
+
+    /**
+     * START then ROLLBACK is deliberately data-free: it consumes either the
+     * pending one-shot override or the admitted session default, so a failed
+     * regenerator cannot alter the next caller's transaction characteristics.
+     */
+    private function consumePendingIsolation(string $connectionId): bool {
+        try {
+            $this->assertTransactionSession(
+                $connectionId,
+                false,
+                'before isolation cleanup transaction'
+            );
+            $this->transactionCommand('START TRANSACTION', 'isolation cleanup start');
+            $this->assertTransactionSession(
+                $connectionId,
+                true,
+                'during isolation cleanup transaction'
+            );
+            return $this->settleRollback($connectionId);
+        } catch (\Throwable) {
+            $this->settleRollback($connectionId);
+            return false;
+        }
+    }
+
+    /** @return array{connection_id:string,in_transaction:bool} */
+    private function transactionSession(string $phase): array {
         global $wpdb;
         $wpdb->last_error = '';
         try {
-            $state = $wpdb->get_var('SELECT @@in_transaction');
+            $session = $wpdb->get_row(self::SESSION_STATE_QUERY, ARRAY_A);
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
                 "duo: TEC derived-state transaction continuity probe raised during $phase; recovery_required",
@@ -1242,17 +1302,35 @@ final class TheEventsCalendar {
             );
         }
         if ($wpdb->last_error !== ''
-            || !is_string($state)
-            || !in_array($state, ['0', '1'], true)) {
+            || !is_array($session)
+            || array_keys($session) !== ['connection_id', 'in_transaction']
+            || !is_string($session['connection_id'])
+            || preg_match('/^[1-9][0-9]*$/D', $session['connection_id']) !== 1
+            || strlen($session['connection_id']) > 20
+            || !is_string($session['in_transaction'])
+            || !in_array($session['in_transaction'], ['0', '1'], true)) {
             throw new \RuntimeException(
                 "duo: TEC derived-state transaction continuity was unavailable $phase; recovery_required"
             );
         }
-        return $state === '1';
+        return [
+            'connection_id' => $session['connection_id'],
+            'in_transaction' => $session['in_transaction'] === '1',
+        ];
     }
 
-    private function assertTransactionState(bool $expected, string $phase): void {
-        if ($this->transactionState($phase) !== $expected) {
+    private function assertTransactionSession(
+        string $expectedConnectionId,
+        bool $expectedTransaction,
+        string $phase
+    ): void {
+        $session = $this->transactionSession($phase);
+        if (!hash_equals($expectedConnectionId, $session['connection_id'])) {
+            throw new \RuntimeException(
+                "duo: TEC derived-state database connection changed $phase; recovery_required"
+            );
+        }
+        if ($session['in_transaction'] !== $expectedTransaction) {
             throw new \RuntimeException(
                 "duo: TEC derived-state transaction continuity was lost $phase; recovery_required"
             );
@@ -1275,8 +1353,11 @@ final class TheEventsCalendar {
                 // server apply from a failure that left the transaction open.
             }
             try {
-                $this->assertConnectionId($connectionId, 'during rollback recovery');
-                if (!$this->transactionState('during rollback recovery')) {
+                $session = $this->transactionSession('during rollback recovery');
+                if (!hash_equals($connectionId, $session['connection_id'])) {
+                    return false;
+                }
+                if (!$session['in_transaction']) {
                     return true;
                 }
             } catch (\Throwable) {
@@ -1308,8 +1389,13 @@ final class TheEventsCalendar {
         string $optionNameIndex
     ): string {
         try {
-            $this->assertConnectionId($connectionId, 'after ambiguous commit');
-            $wasActive = $this->transactionState('after ambiguous commit');
+            $session = $this->transactionSession('after ambiguous commit');
+            if (!hash_equals($connectionId, $session['connection_id'])) {
+                throw new \RuntimeException(
+                    'duo: TEC derived-state database connection changed after ambiguous commit; recovery_required'
+                );
+            }
+            $wasActive = $session['in_transaction'];
             if ($wasActive && !$this->settleRollback($connectionId)) {
                 throw new \RuntimeException(
                     'duo: TEC derived-state ambiguous commit left an uncloseable transaction'
@@ -1368,10 +1454,10 @@ final class TheEventsCalendar {
     ): string {
         $verificationOpen = true;
         try {
-            $this->transactionCommand('START TRANSACTION', 'commit-outcome verification start');
-            $this->assertConnectionId($connectionId, 'during commit-outcome verification');
-            $this->assertTransactionState(true, 'during commit-outcome verification');
-            $this->assertTransactionIsolation();
+            $this->beginRepeatableReadTransaction(
+                $connectionId,
+                'commit-outcome verification start'
+            );
             if ($this->assertNativeTableSchemas() !== [$eventTable, $occurrenceTable]
                 || $this->assertSourceTableSchemas() !== [
                     $postsTable,
@@ -1447,30 +1533,11 @@ final class TheEventsCalendar {
         }
     }
 
-    private function connectionId(string $phase): string {
-        global $wpdb;
-        $wpdb->last_error = '';
-        $connectionId = $wpdb->get_var('SELECT CONNECTION_ID()');
-        if ($wpdb->last_error !== ''
-            || !is_string($connectionId)
-            || preg_match('/^[1-9][0-9]*$/D', $connectionId) !== 1
-            || strlen($connectionId) > 20) {
-            throw new \RuntimeException(
-                "duo: TEC derived-state database connection identity was unavailable $phase; recovery_required"
-            );
-        }
-        return $connectionId;
-    }
-
-    private function assertConnectionId(string $expected, string $phase): void {
-        if (!hash_equals($expected, $this->connectionId($phase))) {
-            throw new \RuntimeException(
-                "duo: TEC derived-state database connection changed $phase; recovery_required"
-            );
-        }
-    }
-
-    private function assertTransactionIsolation(): void {
+    private function assertSessionIsolation(
+        string $connectionId,
+        bool $expectedTransaction,
+        string $phase
+    ): void {
         global $wpdb;
         $wpdb->last_error = '';
         $isolation = $wpdb->get_var('SELECT @@transaction_isolation');
@@ -1485,6 +1552,11 @@ final class TheEventsCalendar {
                 'duo: TEC derived-state locking requires REPEATABLE-READ or SERIALIZABLE isolation'
             );
         }
+        $this->assertTransactionSession(
+            $connectionId,
+            $expectedTransaction,
+            $phase
+        );
     }
 
     /** @return array{0:string,1:string,2:string,3:string,4:string} */
@@ -1837,8 +1909,7 @@ final class TheEventsCalendar {
             );
         }
         $this->assertNativeHookTopology(true, $nativeRuntime['listener']);
-        $this->assertConnectionId($connectionId, "after $call");
-        $this->assertTransactionState(true, "after $call");
+        $this->assertTransactionSession($connectionId, true, "after $call");
         $externalCache = wp_using_ext_object_cache();
         if (!is_bool($externalCache) || $externalCache) {
             throw new \RuntimeException(
@@ -1864,6 +1935,10 @@ final class TheEventsCalendar {
                 "duo: TEC native save-post cache marker changed during $call; recovery_required"
             );
         }
+        // The source and option witnesses are separate statements. Re-prove
+        // the exact server session after them so an automatic reconnect
+        // cannot turn the next native write into an unlocked operation.
+        $this->assertTransactionSession($connectionId, true, "after $call witness");
     }
 
     /** @param array<string,mixed> $eventData @return array<string,string> */

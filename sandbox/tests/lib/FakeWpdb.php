@@ -228,6 +228,8 @@ final class FakeWpdb {
     private array $getResultsReturnOverrides = [];
     /** @var list<array{command:string,outcome:string}> one-shot transaction ambiguity probes */
     private array $transactionOutcomes = [];
+    /** Reconnect immediately before the next transaction-state-bearing SELECT. */
+    private bool $reconnectBeforeTransactionState = false;
     /**
      * Row snapshot taken at START TRANSACTION. Deliberately does NOT include
      * $autoIncrement -- see execTransaction().
@@ -262,8 +264,12 @@ final class FakeWpdb {
 
     /** Full server banner returned by SELECT VERSION(). */
     private string $serverVersion = '8.0.36';
-    /** Session isolation returned by the MariaDB/MySQL system-variable probe. */
+    /** Session default returned by the MariaDB/MySQL system-variable probe. */
     private string $transactionIsolation = 'REPEATABLE-READ';
+    /** One-shot SET TRANSACTION characteristic consumed by the next boundary. */
+    private ?string $nextTransactionIsolation = null;
+    /** Isolation selected when the current transaction began. */
+    private ?string $activeTransactionIsolation = null;
 
     /** @var array<string,int> lock name => holding connection id */
     private array $heldLocks = [];
@@ -421,6 +427,15 @@ final class FakeWpdb {
         return $this;
     }
 
+    /** @return array{session:string,next:?string,active:?string} */
+    public function transactionIsolationState(): array {
+        return [
+            'session' => $this->transactionIsolation,
+            'next' => $this->nextTransactionIsolation,
+            'active' => $this->activeTransactionIsolation,
+        ];
+    }
+
     /** Result GET_LOCK() reports; 0 makes the engine's lock acquisition fail. */
     public function setLockResult(int $result): self {
         $this->lockResult = $result;
@@ -443,6 +458,9 @@ final class FakeWpdb {
         }
         $this->connectionId = $id;
         $this->heldLocks = [];
+        $this->reconnectBeforeTransactionState = false;
+        $this->nextTransactionIsolation = null;
+        $this->activeTransactionIsolation = null;
         return $this;
     }
 
@@ -512,6 +530,7 @@ final class FakeWpdb {
             'after_reconnect',
             'inactive_false',
             'success_no_apply',
+            'success_no_apply_reconnect_before_state',
             'success_probe_error',
             'success_no_apply_probe_error',
         ];
@@ -933,6 +952,7 @@ final class FakeWpdb {
         }
         if (in_array($transactionOutcome, [
             'success_no_apply',
+            'success_no_apply_reconnect_before_state',
             'success_no_apply_probe_error',
         ], true)) {
             $trimmed = rtrim(trim($sql), "; \t\n\r");
@@ -954,8 +974,14 @@ final class FakeWpdb {
         ], true)) {
             $this->failNextQuery(
                 'injected transaction-state probe failure after truthy COMMIT response',
-                'SELECT @@in_transaction'
+                'SELECT CONNECTION_ID() AS connection_id, @@in_transaction AS in_transaction'
             );
+        }
+        if ($transactionOutcome === 'success_no_apply_reconnect_before_state') {
+            // A legacy connection-id query still observes the old owner, then
+            // the following state query sees one idle replacement session.
+            // An atomic session query instead observes both replacement facts.
+            $this->reconnectBeforeTransactionState = true;
         }
         if ($transactionOutcome === 'after_reconnect') {
             $this->setConnectionId($this->connectionId + 1);
@@ -1299,6 +1325,22 @@ final class FakeWpdb {
             || strcasecmp($trimmed, 'SELECT @@tx_isolation') === 0) {
             return ['kind' => 'rows', 'rows' => [['isolation' => $this->transactionIsolation]]];
         }
+        if (strcasecmp(
+            $trimmed,
+            'SELECT CONNECTION_ID() AS connection_id, @@in_transaction AS in_transaction'
+        ) === 0) {
+            if ($this->reconnectBeforeTransactionState) {
+                $this->reconnectBeforeTransactionState = false;
+                $this->setConnectionId($this->connectionId + 1);
+            }
+            return [
+                'kind' => 'rows',
+                'rows' => [[
+                    'connection_id' => (string) $this->connectionId,
+                    'in_transaction' => $this->transactionSnapshot === null ? '0' : '1',
+                ]],
+            ];
+        }
         $this->currentSql = $trimmed;
         $head = preg_match('/^[A-Za-z_]+/', $trimmed, $m) === 1 ? strtoupper($m[0]) : '';
         switch ($head) {
@@ -1308,6 +1350,18 @@ final class FakeWpdb {
             case 'TRUNCATE':
                 return $this->execDdl($head);
             case 'SET':
+                if (preg_match(
+                    '/^SET\s+TRANSACTION\s+ISOLATION\s+LEVEL\s+'
+                    . '(READ\s+COMMITTED|REPEATABLE\s+READ|SERIALIZABLE)$/iD',
+                    $trimmed,
+                    $isolationMatch
+                ) === 1) {
+                    $this->nextTransactionIsolation = strtoupper(
+                        preg_replace('/\s+/', '-', $isolationMatch[1]) ?? $isolationMatch[1]
+                    );
+                }
+                $this->ddlLog[] = $trimmed;
+                return ['kind' => 'ok'];
             case 'LOCK':
             case 'UNLOCK':
             case 'ANALYZE':
@@ -2630,12 +2684,20 @@ final class FakeWpdb {
     private function execTransaction(string $head): array {
         if ($head === 'START' || $head === 'BEGIN') {
             $this->transactionSnapshot = $this->store;
+            $this->activeTransactionIsolation =
+                $this->nextTransactionIsolation ?? $this->transactionIsolation;
+            $this->nextTransactionIsolation = null;
             return ['kind' => 'ok'];
         }
         if ($head === 'ROLLBACK' && $this->transactionSnapshot !== null) {
             $this->store = $this->transactionSnapshot;
         }
         $this->transactionSnapshot = null;
+        $this->activeTransactionIsolation = null;
+        // A transaction boundary consumes a still-pending one-shot SET. The
+        // TEC recovery regression also starts and rolls back one data-free
+        // cleanup transaction so this property is observed, not assumed.
+        $this->nextTransactionIsolation = null;
         return ['kind' => 'ok'];
     }
 
