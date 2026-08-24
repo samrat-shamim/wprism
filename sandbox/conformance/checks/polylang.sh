@@ -181,8 +181,10 @@ jq -e --arg version "$POLYLANG_EXPECTED_VERSION" '
   .language_terms.en.locale == "en_US" and .language_terms.en.rtl == false and
   .language_terms.fr.locale == "fr_FR" and .language_terms.fr.name == "Français 東京" and .language_terms.fr.rtl == false and
   .language_terms.ar.locale == "ar" and .language_terms.ar.name == "العربية 🚀" and .language_terms.ar.rtl == true and
-  .options.default_lang == "en" and .options.media_support == 1 and
+  .options.browser == false and .options.default_lang == "en" and .options.force_lang == 1 and
+  .options.hide_default == false and .options.media_support == 1 and
   .options.post_types == [] and .options.taxonomies == [] and
+  .options.redirect_lang == false and .options.rewrite == true and
   .options.sync == ["taxonomies","post_meta","post_date"] and
   .posts.en.language == "en" and .posts.fr.language == "fr" and .posts.ar.language == "ar" and
   .posts.en.content_bytes > 50000 and .posts.fr.content_bytes > 50000 and .posts.ar.content_bytes > 50000 and
@@ -211,7 +213,8 @@ if [ -f "$TARGET_IDS_FILE" ]; then
     .menus.en == $observed.menus.en.id
   ' <<<"$TARGET_IDS" >/dev/null || fail "Polylang apply replaced rather than adopted hostile target identities: premise=$TARGET_IDS observed=$TARGET"
   jq -e '
-    .options.force_lang == 0 and .options.hide_default == 1 and .options.browser == 1 and
+    .options.browser == false and .options.force_lang == 1 and .options.hide_default == false and
+    .options.redirect_lang == false and .options.rewrite == true and
     .options.neighbor == "target-preserved-東京-🚀" and
     .runtime.language_from_content == "target-runtime-sentinel" and
     .runtime.language_taxonomies == ["target-runtime-taxonomy-cache"] and

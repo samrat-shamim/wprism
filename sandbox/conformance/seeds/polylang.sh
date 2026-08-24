@@ -46,8 +46,13 @@ if (!is_array($options)) {
     throw new RuntimeException('Polylang source option is not an array');
 }
 $options['default_lang'] = 'en';
+$options['browser'] = false;
+$options['force_lang'] = 1;
+$options['hide_default'] = false;
 $options['media_support'] = 1;
 $options['post_types'] = [];
+$options['redirect_lang'] = false;
+$options['rewrite'] = true;
 $options['taxonomies'] = [];
 $options['sync'] = ['taxonomies', 'post_meta', 'post_date'];
 update_option('polylang', $options);
@@ -269,16 +274,21 @@ printf '%s\n' "$SEED_JSON" > "$SOURCE_REPO/.tmp-polylang-source.json"
 # Polylang snapshots its option into the plugin singleton before the authoring
 # calls above. Media/menu callbacks in that same request can persist the stale
 # singleton at shutdown, overwriting a direct option update. A fresh native
-# request is the real settings boundary and makes the six portable values the
+# request is the real settings boundary and makes all eleven portable values the
 # input to every subsequent Polylang request (the same process rule its admin
 # settings page relies on after redirect).
 wp_conf1 eval '
   $fixture=json_decode(file_get_contents("/siterepo/.tmp-polylang-source.json"),true,512,JSON_THROW_ON_ERROR);
   $option=get_option("polylang");
   if (!is_array($option)) throw new RuntimeException("Polylang option missing after authoring request");
+  $option["browser"]=false;
   $option["default_lang"]="en";
+  $option["force_lang"]=1;
+  $option["hide_default"]=false;
   $option["media_support"]=1;
   $option["post_types"]=[];
+  $option["redirect_lang"]=false;
+  $option["rewrite"]=true;
   $option["taxonomies"]=[];
   $option["sync"]=["taxonomies","post_meta","post_date"];
   $option["nav_menus"]=[get_option("stylesheet")=>["primary"=>$fixture["menus"]]];
@@ -289,7 +299,8 @@ wp_conf1 eval '
 OPTION_FILE="$SOURCE_REPO/.tmp-polylang-source-option.json"
 wp_conf1 option get polylang --format=json | awk 'NF { line=$0 } END { print line }' > "$OPTION_FILE"
 jq -e '
-  .default_lang == "en" and .media_support == 1 and
+  .browser == false and .default_lang == "en" and .force_lang == 1 and
+  .hide_default == false and .media_support == 1 and .redirect_lang == false and .rewrite == true and
   .sync == ["taxonomies","post_meta","post_date"] and
   (.nav_menus | type == "object")
 ' "$OPTION_FILE" >/dev/null || fail 'Polylang portable option premise did not persist through the plugin storage path'

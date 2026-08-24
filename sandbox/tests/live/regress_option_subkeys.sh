@@ -13,9 +13,10 @@
 # default `asub3233`/:8910/:8911, parameterized -- see DUO-3276 note below
 # -- the driver never tears it down):
 #   (1) capture carves out ONLY the declared portable sub-keys of `polylang`
-#       (default_lang/media_support/nav_menus/post_types/sync/taxonomies) —
-#       none of force_lang/domains/hide_default/rewrite/redirect_lang/browser/
-#       first_activation/previous_version/version enter canonical state;
+#       (browser/default_lang/force_lang/hide_default/media_support/nav_menus/
+#       post_types/redirect_lang/rewrite/sync/taxonomies) — none of domains/
+#       first_activation/language_taxonomies/previous_version/uninstall/version
+#       enter canonical state;
 #       nav_menus' per-language menu-term-ids are
 #       correctly tokenized (json_refs, kind: term).
 #   (2) apply on a genuinely fresh target (Polylang installed+active,
@@ -270,8 +271,13 @@ PLL()->model->languages->add(['locale'=>'de_DE','slug'=>'de','name'=>'Deutsch'])
 say "side1: enable project/project_type for translation via the polylang option's post_types/taxonomies sub-keys (a real admin action, done ONCE here -- the fresh target below gets this AUTOMATICALLY via duo apply, never by hand)"
 wp1 eval "
 \$o = get_option('polylang');
+\$o['browser'] = false;
 \$o['default_lang'] = 'en';
+\$o['force_lang'] = 1;
+\$o['hide_default'] = false;
 \$o['post_types'] = array_values(array_unique(array_merge(\$o['post_types'] ?? [], ['project'])));
+\$o['redirect_lang'] = false;
+\$o['rewrite'] = true;
 \$o['taxonomies'] = array_values(array_unique(array_merge(\$o['taxonomies'] ?? [], ['project_type'])));
 update_option('polylang', \$o);
 "
@@ -351,12 +357,12 @@ say "(1) capture: sub_keys carves out ONLY the declared keys"
 wp1 duo capture --repo=/siterepo >/dev/null
 assert_language_descriptions 1 "after source capture"
 POLYLANG_KEYS=$(python3 -c "import json; d=json.load(open('siterepo/${PAIR}1/state/options/core.json'))['records']; print(sorted(d['polylang']['value'].keys()))")
-[ "$POLYLANG_KEYS" = "['default_lang', 'media_support', 'nav_menus', 'post_types', 'sync', 'taxonomies']" ] || fail "expected captured polylang option to carry EXACTLY [default_lang, media_support, nav_menus, post_types, sync, taxonomies], got: $POLYLANG_KEYS"
-for excluded in force_lang domains hide_default rewrite redirect_lang browser first_activation previous_version version; do
+[ "$POLYLANG_KEYS" = "['browser', 'default_lang', 'force_lang', 'hide_default', 'media_support', 'nav_menus', 'post_types', 'redirect_lang', 'rewrite', 'sync', 'taxonomies']" ] || fail "expected captured polylang option to carry EXACTLY its eleven reviewed portable keys, got: $POLYLANG_KEYS"
+for excluded in domains first_activation language_taxonomies previous_version uninstall version; do
   python3 -c "import json,sys; d=json.load(open('siterepo/${PAIR}1/state/options/core.json'))['records']; sys.exit(1 if '$excluded' in d['polylang']['value'] else 0)" \
     || fail "excluded sub-key '$excluded' leaked into captured polylang option"
 done
-pass "captured polylang option carries exactly six reviewed portable sub-keys -- every env-bound/bookkeeping sibling excluded"
+pass "captured polylang option carries exactly eleven reviewed portable sub-keys -- every env-bound/bookkeeping sibling excluded"
 
 WPSEO_KEYS=$(python3 -c "import json; d=json.load(open('siterepo/${PAIR}1/state/options/core.json'))['records']; print(sorted(d['wpseo']['value'].keys()))")
 [ "$WPSEO_KEYS" = "['disableadvanced_meta']" ] || fail "expected captured wpseo option to carry EXACTLY [disableadvanced_meta], got: $WPSEO_KEYS"
@@ -402,7 +408,7 @@ say "DUO-3282/DUO-3338: this apply's own polylang.json action (DUO-3272's nav_me
 grep -q "provider capability fired: polylang-nav-menus@" <<<"$APPLY1" || fail "expected an unconditional 'provider capability fired' confirmation line in apply's warnings (got no match in: $APPLY1)"
 pass "confirmed: Apply::rebuild() reports back per-declaration with the provider identity and its value-level verification, no more inferring it indirectly from a declaration's own side-effect table"
 
-say "(6) sub-key merge, re-asserted directly against the database: side2's OWN pre-existing polylang/wpseo bookkeeping survives untouched"
+say "(6) sub-key merge, re-asserted directly against the database: every authored Polylang key converges while side2's env/bookkeeping siblings survive untouched"
 POLYLANG_AFTER=$(wp2 option get polylang --format=json | tail -1)
 echo "side2 polylang option AFTER apply: $POLYLANG_AFTER"
 POLYLANG_CAPTURED=$(python3 -c "import json; print(json.dumps(json.load(open('siterepo/${PAIR}1/state/options/core.json'))['records']['polylang']['value']))")
@@ -411,30 +417,24 @@ import json, sys
 before = json.loads(sys.argv[1])
 after = json.loads(sys.argv[2])
 captured = json.loads(sys.argv[3])
-for key in ["force_lang", "domains", "hide_default", "rewrite", "redirect_lang", "browser",
-            "first_activation", "previous_version", "version"]:
+for key in ["domains", "first_activation", "language_taxonomies", "previous_version", "uninstall", "version"]:
     if before.get(key) != after.get(key):
         print(f"CLOBBERED: {key} was {before.get(key)!r}, now {after.get(key)!r}")
         sys.exit(1)
-for key in ["default_lang", "media_support", "sync"]:
+for key in ["browser", "default_lang", "force_lang", "hide_default", "media_support", "post_types",
+            "redirect_lang", "rewrite", "sync", "taxonomies"]:
     if after.get(key) != captured.get(key):
         print(f"PORTABLE KEY MISMATCH: {key} expected {captured.get(key)!r}, got {after.get(key)!r}")
         sys.exit(1)
-if after.get("post_types") != ["project"]:
-    print(f"post_types did not merge in correctly: {after.get('post_types')!r}")
-    sys.exit(1)
-if after.get("taxonomies") != ["project_type"]:
-    print(f"taxonomies did not merge in correctly: {after.get('taxonomies')!r}")
-    sys.exit(1)
 nav = after.get("nav_menus") or {}
 ids = list(nav.get("twentytwentyone", {}).get("primary", {}).values())
 if len(ids) != 2 or len(set(ids)) != 2:
     print(f"nav_menus did not merge in two distinct local menu ids: {nav!r}")
     sys.exit(1)
-print("MERGE OK: every excluded sibling byte-identical; post_types/taxonomies/nav_menus correctly overlaid")
+print("MERGE OK: every authored scalar/list key converged; env/bookkeeping siblings remain byte-identical; nav_menus uses target-local ids")
 PYEOF
 [ $? -eq 0 ] || fail "sub-key merge check failed (see output above)"
-pass "excluded siblings (force_lang, hide_default, rewrite, ..., first_activation, version, ...) survived apply untouched; post_types/taxonomies/nav_menus correctly merged in with side2's OWN local menu-term-ids"
+pass "all eleven authored Polylang keys converged; only env/bookkeeping siblings survived untouched; nav_menus uses side2's OWN local menu-term-ids"
 
 WPSEO_AFTER=$(wp2 option get wpseo --format=json | tail -1)
 python3 -c "

@@ -108,9 +108,14 @@ $options = get_option('polylang');
 if (!is_array($options)) {
     throw new RuntimeException('Polylang target option is not an array');
 }
+$options['browser'] = true;
 $options['default_lang'] = 'ar';
+$options['force_lang'] = 1;
+$options['hide_default'] = true;
 $options['media_support'] = 0;
 $options['post_types'] = ['target_runtime_type'];
+$options['redirect_lang'] = true;
+$options['rewrite'] = false;
 $options['taxonomies'] = ['target_runtime_taxonomy'];
 $options['sync'] = ['comment_status'];
 $options['nav_menus'] = [];
