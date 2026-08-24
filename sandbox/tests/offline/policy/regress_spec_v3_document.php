@@ -371,6 +371,78 @@ duo_check_same(
     'v3.7: the platform trust root is still EMPTY — the flag day\'s standing precondition, re-checked here on every run'
 );
 
+// v3.8 IS enforced (WP-4.9), and it is gated on TWO DOCUMENTS THAT DO NOT
+// EXIST rather than on `spec_version` — so what has to stay true is the shape
+// of that gate: both documents absent, both statement kinds domain-separated,
+// and the certification wire untouched by either.
+$v38Body = $section('v3.8');
+duo_check(
+    str_contains($v38Body, 'Enforced today: YES'),
+    'and § v3.8 says so in its own Enforced-today line: a rider that landed a certificate authority without '
+    . 'moving this line would have landed silently, which is exactly what PART 1 exists to prevent'
+);
+duo_check_same(
+    "duo-adapter-authority-delegation-signature/v1\0",
+    (string) $cert->getConstant('SIGNATURE_DOMAIN_DELEGATION'),
+    'v3.8 ENFORCED: a delegation is its own NUL-terminated domain-separated statement kind (register rows '
+    . 'R-01/R-04), never a new arm inside the certification verifier'
+);
+duo_check_same(
+    "duo-adapter-authority-revocation-signature/v1\0",
+    (string) $cert->getConstant('SIGNATURE_DOMAIN_REVOCATION'),
+    'and a revocation is a THIRD kind, because its subject set is larger than a delegation\'s — it can name a '
+    . 'key nobody delegated'
+);
+$v38Domains = [
+    (string) $cert->getConstant('SIGNATURE_DOMAIN'),
+    (string) $cert->getConstant('SIGNATURE_DOMAIN_AUTHORITIES'),
+    (string) $cert->getConstant('SIGNATURE_DOMAIN_DELEGATION'),
+    (string) $cert->getConstant('SIGNATURE_DOMAIN_REVOCATION'),
+];
+$v38Prefixes = [];
+foreach ($v38Domains as $one) {
+    foreach ($v38Domains as $other) {
+        if ($one !== $other && str_starts_with($other, rtrim($one, "\0"))) {
+            $v38Prefixes[] = $one;
+        }
+    }
+}
+duo_check_same(
+    [],
+    $v38Prefixes,
+    'and no one of the four adapter-side domains is a prefix of another: the property that stops a delegation '
+    . 'being replayed as the authority half of a certificate'
+);
+duo_check(
+    !file_exists($manifestDir . '/capabilities/adapter-revocations.json')
+        && (glob($manifestDir . '/**/delegations.json') ?: []) === []
+        && !file_exists($manifestDir . '/delegations.json'),
+    'v3.8: BOTH gating documents are absent from the shipped library — the out-of-band revocation record and '
+    . 'the delegation document — which is why an agent that meets neither behaves exactly as it does today'
+);
+duo_check(
+    str_contains($certSource, 'private static function delegatedKeys(')
+        && str_contains($certSource, "private const DELEGATION_DEPTH = 1;")
+        && str_contains($certSource, 'which is itself a delegate')
+        && str_contains($certSource, ' level and a delegate may not delegate'),
+    'v3.8 depth-1 is shipped code, and the bound is in the VERIFIER as a constant rather than a policy: a '
+    . 'delegator that is itself a delegate is refused by name rather than by failing to resolve'
+);
+duo_check(
+    str_contains($certSource, 'private static function assertNotRevoked(')
+        && str_contains($certSource, 'This channel reaches the frozen path, which a status flip in the operator'),
+    'v3.8 typed revocation is shipped code, and its refusal STATES THE DISTINCTION the section promises — an '
+    . 'operator can tell which of the two revocation mechanisms answered'
+);
+$v38Register = (string) file_get_contents($repo . '/docs/wire-surface.md');
+duo_check(
+    str_contains($v38Register, '### R-25 — Delegation is depth-1')
+        && str_contains($v38Register, '### R-26 — Typed revocation')
+        && str_contains($v38Body, 'Register rows R-25 and R-26'),
+    'and both register rows exist and are the ones § v3.8 names: a new signed surface without a register row '
+    . 'is the exact failure docs/wire-surface.md is generated to prevent'
+);
+
 // The no-restamp rule, which is what makes the whole bump digest-neutral.
 $declaredVersions = [];
 foreach (glob($manifestDir . '/*.json') ?: [] as $file) {

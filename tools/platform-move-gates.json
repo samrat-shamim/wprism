@@ -89,6 +89,14 @@
    "note": "the shipped authority file wins the key-id namespace: a site trust root claiming a reviewed key id refuses. Needs no repository at all, which is why the frozen path can still run it."
   },
   {
+   "site": "agent/src/Adapter/AdapterCertification.php::assertNotRevoked",
+   "axes": [
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "refuses \"authority key '<id>' is revoked by the platform-signed revocation record at capabilities/adapter-revocations.json\" when the typed out-of-band document (spec/repo-format.md § v3.8, WP-4.9) names the selected key's fingerprint and its effective_at has arrived. It is the ONE seat that reaches an already-frozen snapshot for a site-rooted key, because that document is agent-owned where the site's own adapters/authorities.json is not; its sentence states that distinction, so the operator-own-key asymmetry stays legible rather than silently closed."
+  },
+  {
    "site": "agent/src/Adapter/AdapterCertification.php::authority",
    "axes": [
     "authority"
@@ -111,6 +119,14 @@
    ],
    "verdict": "gate",
    "note": "refuses \"agent capability platform boundary disagrees with the loaded agent\" on an agent_version/spec_version divergence, and is the TYPED read whose canonicalHash is the platform_sha256 inside every signed statement."
+  },
+  {
+   "site": "agent/src/Adapter/AdapterCertification.php::revocations",
+   "axes": [
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "the reader for capabilities/adapter-revocations.json: refuses an unsupported root, a revocation version it does not implement, a signer the SHIPPED platform root does not carry, a revoked signer, and a signature that does not verify. A file that exists and is not a readable signed document REFUSES rather than reading as an absent one -- laundering unreadable revocation bytes into \"no revocations\" would make deleting a signature the cheapest way to un-revoke a burnt key. Absence itself is a legitimate answer and is the shipped state."
   },
   {
    "site": "agent/src/Adapter/AdapterCertification.php::sign",
@@ -155,6 +171,14 @@
    ],
    "verdict": "gate",
    "note": "ANCHOR. Refuses \"certification platform boundary disagrees with the current agent-owned platform\" — one platform.json byte invalidates every signed adapter certificate on the fleet. Carries the one asymmetry between the two roots: a frozen site-rooted certificate is re-bound to the authority record the SIGNATURE covers because verifyFrozen() reopens no mutable site file."
+  },
+  {
+   "site": "agent/src/Adapter/AdapterCertification.php::verifyDelegation",
+   "axes": [
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "the depth-1 delegation verifier (spec/repo-format.md § v3.8, WP-4.9). Refuses a delegator that is itself a delegate BY NAME, a delegator absent from the shipped platform root, a claimed site trust root, a delegator fingerprint that is not the current record's, a revoked delegator on either revocation channel, and any grant that widens its delegator's adapter_names, trust_tiers or window. It is on the authority axis in both directions: it READS the shipped authority record to bind the delegator, and it MINTS the derived record a delegated certificate is then judged against."
   },
   {
    "site": "agent/src/Adapter/AdapterRegistry.php::capability_claim",

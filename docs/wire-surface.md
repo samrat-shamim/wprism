@@ -28,6 +28,8 @@ statement of another?
 |---|---|---|---|
 | site adapter certification (`duo-adapter-certification/v1`) | `duo-site-adapter-certification-signature/v1\0` | domain &#124;&#124; `Canon::encode(statement)` — the whole five-member statement | `AdapterCertification::SIGNATURE_DOMAIN` |
 | authorities envelope (`duo-adapter-authorities/v2`) | `duo-adapter-authorities-signature/v1\0` | domain &#124;&#124; `Canon::encode({format, keys})` — the document minus its own signature | `AdapterCertification::SIGNATURE_DOMAIN_AUTHORITIES` |
+| `duo-adapter-authority-delegations/v1` | `duo-adapter-authority-delegation-signature/v1\0` | domain &#124;&#124; `Canon::encode(statement)` — one delegation statement — the grant, both key identities and the window | `AdapterCertification::SIGNATURE_DOMAIN_DELEGATION` |
+| `duo-adapter-authority-revocations/v1` | `duo-adapter-authority-revocation-signature/v1\0` | domain &#124;&#124; `Canon::encode(statement)` — the whole revocation statement — every entry at once, so no row can be dropped | `AdapterCertification::SIGNATURE_DOMAIN_REVOCATION` |
 | contract attestation (`duo-contract-attestation/v1`) | `duo-contract-attestation-signature/v1\0` | domain &#124;&#124; `Canon::encode({attested_digest, format})` | `ContractAttestation::SIGNATURE_DOMAIN` |
 | rollback receipt / event (`duo-rollback-receipt/v2`, `duo-rollback-event/v1`) | **none** — proved at generation time | `CanonicalJson::encode(payload)` with nothing prepended | `RollbackControl::sign()` |
 
@@ -149,13 +151,13 @@ and its cost are written down.
 
 **Reserved.** Expiry on the CERTIFICATE itself, as opposed to the authority that signed it, is still a statement member (R-06) and therefore a new format, not a field. A future skew allowance would have to be a REFUSAL widening, which no deployed verifier would apply to an artifact it already holds.
 
-### R-15 — Revocation is one status word per key, and nothing else
+### R-15 — Revocation is per KEY, never per certificate, on both of its two channels
 
-**Shipped now.** Both roots: `status` is `trusted` or `revoked`, per KEY, in the authority file. There is no per-certificate revocation, no serial number, no revocation list, no timestamp — checked by grep across all three signing files. A revoked site key still verifies inside an already-frozen snapshot, because frozen verification reopens no mutable site file (AdapterCertification.php:976-999); a revoked platform key stops verifying frozen snapshots immediately.
+**Shipped now.** Channel 1, in the authority file: `status` is `trusted` or `revoked`, per key, in a document that ships inside the agent archive. Channel 2, added by WP-4.9 and detailed in R-26: a platform-signed `duo-adapter-authority-revocations/v1` document installed out of band. Neither has a serial number and neither can revoke ONE certificate — every entry names key material. A revoked site key still verifies inside an already-frozen snapshot through channel 1, because frozen verification reopens no mutable site file (`verifyCertificate()`'s site branch, AdapterCertification.php:1338-1379); channel 2 and a revoked platform key both DO reach a frozen snapshot.
 
-**Why it cannot change.** Revoking a key revokes EVERY artifact it ever signed, retroactively and all at once — there is no way to revoke one certificate, and holders have no channel to learn that a key moved except by re-reading the root. Operators sign under per-adapter keys or accept that blast radius; that trade is fixed the moment a second adapter is signed under one key.
+**Why it cannot change.** Revoking a key revokes EVERY artifact it ever signed, retroactively and all at once — there is no way to revoke one certificate, on either channel. Operators sign under per-adapter keys or accept that blast radius; that trade is fixed the moment a second adapter is signed under one key. What WP-4.9 changed is REACHABILITY, not granularity: holders now have a channel that does not wait for an agent release and that a frozen snapshot can read. Going back — removing channel 2 — would silently restore the frozen-path gap for every vendor key already federated by copy.
 
-**Reserved.** A revocation list needs a new authorities `format` (R-10). Per-certificate revocation needs an identifier the statement does not carry (R-06), so it is a v3 statement type, not an addition.
+**Reserved.** Per-certificate revocation still needs an identifier the statement does not carry (R-06), so it remains a v3 statement type rather than an addition. A third channel is not reserved: two are already the maximum an operator can reason about, and R-26 states which one answers where.
 
 ### R-16 — One algorithm, no negotiation, and canonical base64
 
@@ -196,6 +198,22 @@ and its cost are written down.
 **Why it cannot change.** All four land together because they are one document: a holder who accepts a v2 record accepts all of them, and shipping any one later would be a second flag day for whoever already holds a v2 file. The fingerprint rule cannot be relaxed afterwards without admitting ids that were unrepresentable when the trust decision was made; it cannot be tightened (a longer fingerprint) without orphaning every id already issued. The window is mandatory because `assertExactKeys()` refuses missing and unknown alike, so an optional member has no honest home in the set — a holder wanting no expiry stays at v1, where there is none. An EMPTY v2 registry is unrepresentable by construction: the envelope signature names a key inside the document, so a registry with no keys has nothing that could sign it. That is what lets the shipped empty root stay v1 and byte-identical.
 
 **Reserved.** The envelope signature proves the document was assembled WHOLE by a holder of a key it carries — nobody else can append a key, widen a scope list, move a window or flip a status in it. It is deliberately NOT a chain to an off-document root: delegation is its own signed statement type with its own domain (spec/repo-format.md § v3.8), never a member or an arm inside this one.
+
+### R-25 — Delegation is depth-1, and the bound is in the verifier rather than in a policy
+
+**Shipped now.** A `duo-adapter-authority-delegations/v1` document at `adapters/delegations.json` holds a map of `{signature, statement}` objects. The signed statement is `{adapter_names, delegate, delegator, format, not_after, not_before, trust_tiers, version}`, with `delegate` `{algorithm, key_id, public_key}` and `delegator` `{fingerprint, key_id, trust_root}`, under domain `duo-adapter-authority-delegation-signature/v1\0`. Verification chains exactly 1 level: a delegator that is itself a delegate is refused BY NAME before it is looked up. A delegator is resolved ONLY in `duo-adapter-authorities/v1`'s shipped file, so a site key cannot delegate; the grant may only narrow the delegator's `adapter_names`, `trust_tiers` and window; and a delegated key resolves under trust root `site`, not a third word.
+
+**Why it cannot change.** The depth bound is inside the VERIFIER, not a configurable maximum, and that is what makes it a property rather than a setting: every holder of this agent enforces it identically and no document can ask for more. Raising it later would admit paths that were unrepresentable when the trust decision was made — a delegate that could not delegate yesterday could hand on a grant tomorrow, retroactively, with nothing in the field re-reviewed. Lowering it to zero orphans every delegation already issued. The narrow-only rule is the same shape: it is a grammar restriction, so a widening grant is unrepresentable rather than merely refused by review, and relaxing it would silently widen every grant in the field at the next verification.
+
+**Reserved.** Nothing about depth. A vendor that must hand on authority enrolls its sub-vendor with the platform root directly, which is one review rather than an unbounded path. The extension channel for the statement itself is `version`, inside the signature: a grammar this engine does not implement is refused BY VERSION rather than read as corruption.
+
+### R-26 — Typed revocation, and the one channel that reaches a frozen snapshot
+
+**Shipped now.** A `duo-adapter-authority-revocations/v1` document, envelope `{format, signature, statement}`, statement `{format, issued_at, revocations, version}`, each entry `{effective_at, fingerprint, key_id, reason}`, under domain `duo-adapter-authority-revocation-signature/v1\0`. It is installed at `capabilities/adapter-revocations.json` in the agent's MANIFEST LIBRARY — the only path frozen verification holds — is signed by a key the shipped platform root carries, and ships ABSENT. An entry binds `fingerprint` = `sha256(public_key)`, never the key id. The signer's own window is deliberately not applied.
+
+**Why it cannot change.** The FINGERPRINT binding cannot be exchanged for an id binding afterwards: an id can be re-minted over new key material, so an id-bound revocation would be escapable by rotating a name. Absence meaning "nothing is revoked" is equally fixed — every deployed agent already reads it that way, so a future "absent means refuse" would brick every site that never installed one. And the reachability itself is one-way: this is the only channel that reaches an already-frozen snapshot for a site-rooted key, so removing it restores a gap for every vendor key already federated by copy, silently.
+
+**Reserved.** The signer's window is unapplied ON PURPOSE and that is not an oversight to fix later: applying it would let a lapsed window RESURRECT the exact identities this document exists to burn. A future per-certificate revocation still needs R-06's missing identifier. What this document deliberately does NOT do is revoke the operator's own self-minted site key through a channel the operator does not control — that asymmetry is preserved, and every refusal it raises says so in its own sentence.
 
 ## 3. The grammars, as the shipped validators answer them
 
@@ -245,6 +263,18 @@ regenerates this document and, in doing so, reads the change.
 |---|---|---|---|
 | `agent/src/Adapter/AdapterCertification.php` | `verifyFrozen()` | `frozen certification envelope` | `certificate_json`, `certificate_sha256`, `format` |
 | `agent/src/Adapter/AdapterCertification.php` | `verifyCertificate()` | `certification authority binding` | `fingerprint`, `key_id`, `record`, `record_sha256`, `trust_root` |
+| `agent/src/Adapter/AdapterCertification.php` | `delegatedKeys()` | `$label` (`DELEGATIONS_ENVELOPE_KEYS`) | `delegations`, `format` |
+| `agent/src/Adapter/AdapterCertification.php` | `verifyDelegation()` | `$label` (`DELEGATION_KEYS`) | `signature`, `statement` |
+| `agent/src/Adapter/AdapterCertification.php` | `verifyDelegation()` | `$label statement` (`DELEGATION_STATEMENT_KEYS`) | `adapter_names`, `delegate`, `delegator`, `format`, `not_after`, `not_before`, `trust_tiers`, `version` |
+| `agent/src/Adapter/AdapterCertification.php` | `verifyDelegation()` | `$label delegate` (`DELEGATION_DELEGATE_KEYS`) | `algorithm`, `key_id`, `public_key` |
+| `agent/src/Adapter/AdapterCertification.php` | `verifyDelegation()` | `$label delegator` (`DELEGATION_DELEGATOR_KEYS`) | `fingerprint`, `key_id`, `trust_root` |
+| `agent/src/Adapter/AdapterCertification.php` | `verifyDelegation()` | `$label signature` (`DELEGATION_SIGNATURE_KEYS`) | `key_id`, `value` |
+| `agent/src/Adapter/AdapterCertification.php` | `revocations()` | `$label` (`REVOCATIONS_ENVELOPE_KEYS`) | `format`, `signature`, `statement` |
+| `agent/src/Adapter/AdapterCertification.php` | `revocations()` | `$label statement` (`REVOCATION_STATEMENT_KEYS`) | `format`, `issued_at`, `revocations`, `version` |
+| `agent/src/Adapter/AdapterCertification.php` | `revocations()` | `$label signature` (`AUTHORITIES_SIGNATURE_KEYS`) | `key_id`, `value` |
+| `agent/src/Adapter/AdapterCertification.php` | `revocations()` | `$label entry $index` (`REVOCATION_ENTRY_KEYS`) | `effective_at`, `fingerprint`, `key_id`, `reason` |
+| `agent/src/Adapter/AdapterCertification.php` | `signDelegation()` | `adapter certification delegation statement` (`DELEGATION_STATEMENT_KEYS`) | `adapter_names`, `delegate`, `delegator`, `format`, `not_after`, `not_before`, `trust_tiers`, `version` |
+| `agent/src/Adapter/AdapterCertification.php` | `signRevocations()` | `adapter certification revocation statement` (`REVOCATION_STATEMENT_KEYS`) | `format`, `issued_at`, `revocations`, `version` |
 | `agent/src/Adapter/AdapterCertification.php` | `authorityKeys()` | `$label` (`AUTHORITIES_ENVELOPE_KEYS`) | `format`, `keys` |
 | `agent/src/Adapter/AdapterCertification.php` | `authorityKeys()` | `$label` (`AUTHORITIES_ENVELOPE_V2_KEYS`) | `format`, `keys`, `signature` |
 | `agent/src/Adapter/AdapterCertification.php` | `validateAuthorityRecord()` | `$label` (`AUTHORITY_RECORD_KEYS`) | `adapter_names`, `algorithm`, `public_key`, `scope`, `status`, `trust_tiers` |
@@ -291,8 +321,9 @@ printing a register it cannot stand behind:
 3. **No unregistered domain exists.** Every `duo-…-signature/vN` literal in those trees is
    one of the domains in §1, and none is a prefix of another.
 4. **The bounded vocabularies are still bounded.** `AdapterCertification`'s expiry
-   vocabulary is exactly `not_after`/`not_before` judged against `$now ?? time()`, and no
-   signing file carries revocation-list vocabulary (R-14, R-15).
+   vocabulary is exactly `not_after`/`not_before` judged against `$now ?? time()`; the typed
+   revocation entry is exactly `{effective_at, fingerprint, key_id, reason}` and lives in
+   exactly one signing file; `revoked_at` and CRL vocabulary appear in none (R-14, R-15, R-26).
 5. **The rollback signature really is domain-free.** A signature is minted and verified
    against the unprefixed canonical payload at generation time (R-03).
 6. **The spec-version window has not accumulated.** The shipped validator is probed over

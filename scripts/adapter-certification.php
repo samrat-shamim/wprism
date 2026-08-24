@@ -152,6 +152,15 @@ function cert_cli_write_certificate(string $repo, string $name, string $certific
     return AdapterCertify::writeCertificate($repo, $name, $certificate);
 }
 
+/** A real regular file, resolved, so a signer never reads through a link. */
+function cert_cli_existing_file(string $path, string $flag): string {
+    $resolved = realpath($path);
+    if ($resolved === false || !is_file($resolved) || is_link($path)) {
+        throw new RuntimeException("$flag must name an existing regular file: $path");
+    }
+    return $resolved;
+}
+
 function cert_cli_secret_file(string $path): string {
     // The class returns RAW key bytes; AdapterCertification::sign() takes the
     // encoded form it decodes itself, so re-encode rather than widening the
@@ -275,9 +284,37 @@ try {
             ]));
             break;
 
+        case 'delegation-sign':
+            // Depth-1 delegation (spec § v3.8). Signs the statement it is
+            // handed and prints the `{signature, statement}` object an operator
+            // installs under adapters/delegations.json — printed rather than
+            // written, because one file holds several delegations and the
+            // producer has no business deciding which ones a repository keeps.
+            cert_cli_require($args, ['statement', 'authority', 'secret-key-file']);
+            fwrite(STDOUT, AdapterCertification::signDelegation(
+                (string) file_get_contents(cert_cli_existing_file($args['statement'], '--statement')),
+                $args['authority'],
+                cert_cli_secret_file($args['secret-key-file'])
+            ));
+            break;
+
+        case 'revocations-sign':
+            // The out-of-band revocation channel (spec § v3.8). Prints the whole
+            // installable document; the operator drops it at the manifest
+            // library's capabilities/adapter-revocations.json, which is the one
+            // path the frozen verifier holds.
+            cert_cli_require($args, ['statement', 'authority', 'secret-key-file']);
+            fwrite(STDOUT, AdapterCertification::signRevocations(
+                (string) file_get_contents(cert_cli_existing_file($args['statement'], '--statement')),
+                $args['authority'],
+                cert_cli_secret_file($args['secret-key-file'])
+            ));
+            break;
+
         default:
             throw new RuntimeException(
-                "unknown command '$command'; expected sign, sign-site, verify, verify-frozen, or authorities-sign"
+                "unknown command '$command'; expected sign, sign-site, verify, verify-frozen, authorities-sign,"
+                . ' delegation-sign, or revocations-sign'
             );
     }
 } catch (Throwable $e) {
