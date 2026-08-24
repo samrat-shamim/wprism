@@ -35,6 +35,7 @@ final class LockingFakeWpdb {
     public int $num_rows = 0;
 
     private bool $activeTransaction = false;
+    private string $connectionId = '8101';
     private bool $nextRepeatableRead = false;
     private bool $savepointExists = false;
     /** @var array<string,string> */
@@ -87,6 +88,9 @@ final class LockingFakeWpdb {
 
     public function get_var(string $sql, int $x = 0, int $y = 0): mixed {
         $this->last_error = '';
+        if (trim($sql) === 'SELECT CONNECTION_ID()') {
+            return $this->connectionId;
+        }
         if (trim($sql) === 'SELECT @@in_transaction') {
             return $this->activeTransaction ? '1' : '0';
         }

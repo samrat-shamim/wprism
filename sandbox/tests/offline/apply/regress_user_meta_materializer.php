@@ -164,29 +164,30 @@ final class UserMetaMaterializerWpdb {
             ], array_slice($rows, 0, 3));
         }
         if (str_contains($sql, 'FROM `wp_usermeta` FORCE INDEX (`user_id`)')) {
-            $preflight = str_contains($sql, 'OCTET_LENGTH(meta_key)');
+            $sizePreflight = str_contains($sql, 'OCTET_LENGTH(meta_key)');
+            $hashWitness = str_contains($sql, 'SHA2(meta_key, 256)');
             if ($this->forcedMetaRows !== null) {
                 if ($this->forcedMetaRows === 'oversized-value') {
                     return [['meta_id' => '51', 'meta_key_bytes' => '15',
-                        'meta_value_bytes' => (string) (MetaRows::MAX_META_VALUE_BYTES + 1),
-                        'meta_key_sha256' => hash('sha256', 'description_en'),
-                        'meta_value_sha256' => hash('sha256', 'value')]];
+                        'meta_value_bytes' => (string) (MetaRows::MAX_META_VALUE_BYTES + 1)]];
                 }
                 $forced = $this->forcedRead($this->forcedMetaRows, 'meta');
-                if ($preflight && is_array($forced) && array_is_list($forced)) {
-                    return array_map(static function ($row) {
+                if (($sizePreflight || $hashWitness) && is_array($forced) && array_is_list($forced)) {
+                    return array_map(static function ($row) use ($sizePreflight) {
                         if (!is_array($row)
                             || array_keys($row) !== ['meta_id', 'meta_key', 'meta_value']
                             || !is_string($row['meta_key'] ?? null)
                             || !(is_string($row['meta_value'] ?? null) || ($row['meta_value'] ?? null) === null)) {
                             return $row;
                         }
-                        return [
+                        return $sizePreflight ? [
                             'meta_id' => $row['meta_id'],
                             'meta_key_bytes' => (string) strlen($row['meta_key']),
                             'meta_value_bytes' => $row['meta_value'] === null
                                 ? null
                                 : (string) strlen($row['meta_value']),
+                        ] : [
+                            'meta_id' => $row['meta_id'],
                             'meta_key_sha256' => hash('sha256', $row['meta_key']),
                             'meta_value_sha256' => $row['meta_value'] === null
                                 ? null
@@ -201,12 +202,14 @@ final class UserMetaMaterializerWpdb {
             $rows = array_values(array_filter($this->metaRows,
                 static fn(array $row): bool => $row['user_id'] === $owner));
             usort($rows, static fn(array $a, array $b): int => $a['umeta_id'] <=> $b['umeta_id']);
-            return array_map(static fn(array $row): array => $preflight ? [
+            return array_map(static fn(array $row): array => $sizePreflight ? [
                 'meta_id' => (string) $row['umeta_id'],
                 'meta_key_bytes' => (string) strlen($row['meta_key']),
                 'meta_value_bytes' => $row['meta_value'] === null
                     ? null
                     : (string) strlen($row['meta_value']),
+            ] : ($hashWitness ? [
+                'meta_id' => (string) $row['umeta_id'],
                 'meta_key_sha256' => hash('sha256', $row['meta_key']),
                 'meta_value_sha256' => $row['meta_value'] === null
                     ? null
@@ -215,7 +218,7 @@ final class UserMetaMaterializerWpdb {
                 'meta_id' => (string) $row['umeta_id'],
                 'meta_key' => $row['meta_key'],
                 'meta_value' => $row['meta_value'],
-            ], $rows);
+            ]), $rows);
         }
         throw new RuntimeException("unrecognized get_results query: $sql");
     }
@@ -367,10 +370,12 @@ $ownerLock = static fn(string $sql): bool => str_contains($sql, 'FROM `wp_userme
     && str_contains($sql, 'LIMIT 100001 FOR UPDATE');
 $check(count(array_filter($wpdb->queries, $loginLock)) === 1,
     'exact-login identity uses one bounded indexed FOR UPDATE range');
-$check(count(array_filter($wpdb->queries, $ownerLock)) === 2
+$check(count(array_filter($wpdb->queries, $ownerLock)) === 3
     && count(array_filter($wpdb->queries,
-        static fn(string $sql): bool => str_contains($sql, 'OCTET_LENGTH(meta_key)'))) === 1,
-    'compact size witness and full user-meta owner range/terminal gap are locked before writes');
+        static fn(string $sql): bool => str_contains($sql, 'OCTET_LENGTH(meta_key)'))) === 1
+    && count(array_filter($wpdb->queries,
+        static fn(string $sql): bool => str_contains($sql, 'SHA2(meta_key, 256)'))) === 1,
+    'bounded size, hash, and payload witnesses lock the complete user-meta owner range before writes');
 
 $wpdb->queries = [];
 $field->begin_authored_transaction();
@@ -381,7 +386,7 @@ $check(
         && count(array_filter($wpdb->queries, static fn(string $sql): bool => str_starts_with($sql, 'SHOW INDEX FROM `wp_users`'))) === 1
         && count(array_filter($wpdb->queries, static fn(string $sql): bool => str_starts_with($sql, 'SHOW INDEX FROM `wp_usermeta`'))) === 1
         && count(array_filter($wpdb->queries, $loginLock)) === 2
-        && count(array_filter($wpdb->queries, $ownerLock)) === 4,
+        && count(array_filter($wpdb->queries, $ownerLock)) === 6,
     'multi-user transaction reuses engine/index descriptors while locking each login and owner independently'
 );
 

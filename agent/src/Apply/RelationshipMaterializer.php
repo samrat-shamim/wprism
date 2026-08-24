@@ -285,10 +285,10 @@ final class RelationshipMaterializer {
         );
         $wpdb->last_error = '';
         $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT tr.term_taxonomy_id, tr.term_order, tt.taxonomy "
+            'SELECT tr.term_taxonomy_id, tr.term_order, tt.taxonomy '
             . "FROM {$wpdb->term_relationships} tr FORCE INDEX (`$index`) "
             . "LEFT JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id "
-            . "WHERE tr.object_id = %d "
+            . 'WHERE tr.object_id = %d '
             . 'ORDER BY tr.term_taxonomy_id ASC LIMIT ' . (self::MAX_OWNER_RELATIONSHIPS + 1)
             . ' FOR UPDATE',
             $objectId

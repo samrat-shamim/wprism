@@ -109,19 +109,25 @@ final class OptionsMaterializerFakeWpdb {
             $name = str_replace("''", "'", (string) ($match[1] ?? ''));
             $row = $this->optionRows[$name] ?? null;
             if ($row === null) return [];
-            return str_contains($query, 'OCTET_LENGTH(option_value)')
-                ? [[
+            if (str_contains($query, 'OCTET_LENGTH(option_value)')) {
+                return [[
                     'option_name' => $name,
                     'option_value_bytes' => (string) strlen($row['option_value']),
-                    'option_value_sha256' => hash('sha256', $row['option_value']),
                     'autoload_bytes' => (string) strlen($row['autoload']),
-                    'autoload_sha256' => hash('sha256', $row['autoload']),
-                ]]
-                : [[
-                    'option_name' => $name,
-                    'option_value' => $row['option_value'],
-                    'autoload' => $row['autoload'],
                 ]];
+            }
+            if (str_contains($query, 'SHA2(option_value, 256)')) {
+                return [[
+                    'option_name' => $name,
+                    'option_value_sha256' => hash('sha256', $row['option_value']),
+                    'autoload_sha256' => hash('sha256', $row['autoload']),
+                ]];
+            }
+            return [[
+                'option_name' => $name,
+                'option_value' => $row['option_value'],
+                'autoload' => $row['autoload'],
+            ]];
         }
         return [];
     }

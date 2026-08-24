@@ -71,6 +71,7 @@ return [
     'Duo\\Coverage' => 'src/Review/Coverage.php',
     'Duo\\CrossManifestGuards' => 'src/Policy/CrossManifestGuards.php',
     'Duo\\DatabaseMutationException' => 'src/Kernel/Db.php',
+    'Duo\\DatabaseTransactionOutcomeException' => 'src/Kernel/Db.php',
     'Duo\\Db' => 'src/Kernel/Db.php',
     'Duo\\DeleteExecutor' => 'src/Delete/DeleteExecutor.php',
     'Duo\\DeleteGuardEvaluator' => 'src/Delete/DeleteGuardEvaluator.php',

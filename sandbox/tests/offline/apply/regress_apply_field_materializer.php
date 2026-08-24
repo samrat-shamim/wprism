@@ -174,8 +174,13 @@ final class ApplyFieldMaterializerFakeWpdb {
                 return array_map(static fn(array $row): array => [
                     'option_name' => (string) $row['option_name'],
                     'option_value_bytes' => (string) strlen((string) $row['option_value']),
-                    'option_value_sha256' => hash('sha256', (string) $row['option_value']),
                     'autoload_bytes' => (string) strlen((string) $row['autoload']),
+                ], $rows);
+            }
+            if (str_contains($sql, 'SHA2(option_value, 256)')) {
+                return array_map(static fn(array $row): array => [
+                    'option_name' => (string) $row['option_name'],
+                    'option_value_sha256' => hash('sha256', (string) $row['option_value']),
                     'autoload_sha256' => hash('sha256', (string) $row['autoload']),
                 ], $rows);
             }
@@ -203,6 +208,7 @@ final class ApplyFieldMaterializerFakeWpdb {
                 ], $rows);
             }
             $preflight = str_contains($sql, 'OCTET_LENGTH(meta_key)');
+            $hashWitness = str_contains($sql, 'SHA2(meta_key, 256)');
             if ($this->forcedMetaRead !== null) {
                 if ($this->forcedMetaRead === 'false') return false;
                 if ($this->forcedMetaRead === 'null') return null;
@@ -213,8 +219,6 @@ final class ApplyFieldMaterializerFakeWpdb {
                 if ($this->forcedMetaRead === 'oversize') {
                     return array_fill(0, \Duo\MetaRows::MAX_OWNER_ROWS + 1, [
                         'meta_id' => '1', 'meta_key_bytes' => '7', 'meta_value_bytes' => '5',
-                        'meta_key_sha256' => hash('sha256', 'catalog'),
-                        'meta_value_sha256' => hash('sha256', 'value'),
                     ]);
                 }
                 if ($this->forcedMetaRead === 'oversized-value') {
@@ -222,9 +226,18 @@ final class ApplyFieldMaterializerFakeWpdb {
                         'meta_id' => '1',
                         'meta_key_bytes' => '7',
                         'meta_value_bytes' => (string) (\Duo\MetaRows::MAX_META_VALUE_BYTES + 1),
-                        'meta_key_sha256' => hash('sha256', 'catalog'),
-                        'meta_value_sha256' => hash('sha256', 'value'),
                     ]];
+                }
+                if ($this->forcedMetaRead === 'aggregate-overflow') {
+                    $aggregateRows = [];
+                    for ($metaId = 1; $metaId <= 5; ++$metaId) {
+                        $aggregateRows[] = [
+                            'meta_id' => (string) $metaId,
+                            'meta_key_bytes' => '1',
+                            'meta_value_bytes' => (string) \Duo\MetaRows::MAX_META_VALUE_BYTES,
+                        ];
+                    }
+                    return $aggregateRows;
                 }
                 return $this->forcedMetaRead;
             }
@@ -241,6 +254,8 @@ final class ApplyFieldMaterializerFakeWpdb {
                 'meta_value_bytes' => $row['meta_value'] === null
                     ? null
                     : (string) strlen((string) $row['meta_value']),
+            ] : ($hashWitness ? [
+                'meta_id' => (string) $row['meta_id'],
                 'meta_key_sha256' => hash('sha256', (string) $row['meta_key']),
                 'meta_value_sha256' => $row['meta_value'] === null
                     ? null
@@ -249,7 +264,7 @@ final class ApplyFieldMaterializerFakeWpdb {
                 'meta_id' => (string) $row['meta_id'],
                 'meta_key' => $row['meta_key'],
                 'meta_value' => $row['meta_value'],
-            ], $rows);
+            ]), $rows);
         }
         throw new RuntimeException("unrecognized get_results query: $sql");
     }
@@ -515,24 +530,28 @@ $check(
         static fn(string $sql): bool => str_contains($sql, 'FORCE INDEX (`term_id`)')
             && str_contains($sql, '`term_id` = 31')
             && str_contains($sql, 'LIMIT 100001 FOR UPDATE')
-    )) === 2
+    )) === 3
         && count(array_filter(
             $wpdb->queries,
             static fn(string $sql): bool => str_contains($sql, 'OCTET_LENGTH(meta_key)')
                 && str_contains($sql, '`term_id` = 31')
         )) === 1,
-    'term-meta product path locks a compact size witness then its full owner range and terminal gap'
+    'term-meta product path locks a bounded size roster, hash witness, full owner range, and terminal gap'
 );
 $check(
     $cacheEvents === [['term_meta', '31']],
     'term-meta reconciliation purges the same-process WordPress cache while accepting an already-absent cache key'
 );
 
-foreach (['false', 'null', 'error', 'oversize', 'oversized-value'] as $failureMode) {
+foreach (['false', 'null', 'error', 'oversize', 'oversized-value', 'aggregate-overflow'] as $failureMode) {
     $beforeRows = $wpdb->termMetaRows;
     $beforeFullReads = count(array_filter(
         $wpdb->queries,
         static fn(string $sql): bool => str_contains($sql, 'meta_key, meta_value')
+    ));
+    $beforeHashReads = count(array_filter(
+        $wpdb->queries,
+        static fn(string $sql): bool => str_contains($sql, 'SHA2(meta_key, 256)')
     ));
     $wpdb->forcedMetaRead = $failureMode;
     $wpdb->last_error = 'stale prior driver error';
@@ -545,6 +564,7 @@ foreach (['false', 'null', 'error', 'oversize', 'oversized-value'] as $failureMo
             match ($failureMode) {
                 'oversize' => 'bounded owner-row limit',
                 'oversized-value' => 'size preflight found an oversized value',
+                'aggregate-overflow' => 'bounded owner-byte limit',
                 default => 'checked metadata size preflight failed',
             }
         );
@@ -553,13 +573,20 @@ foreach (['false', 'null', 'error', 'oversize', 'oversized-value'] as $failureMo
         $lockedReadRefused && $wpdb->termMetaRows === $beforeRows,
         "term-meta $failureMode locked-read failure performs no mutation"
     );
-    if ($failureMode === 'oversized-value') {
+    if (in_array($failureMode, ['oversized-value', 'aggregate-overflow'], true)) {
         $check(
             count(array_filter(
                 $wpdb->queries,
                 static fn(string $sql): bool => str_contains($sql, 'meta_key, meta_value')
             )) === $beforeFullReads,
-            'term-meta oversized LONGTEXT refuses before a full-value transfer'
+            "term-meta $failureMode refuses before a full-value transfer"
+        );
+        $check(
+            count(array_filter(
+                $wpdb->queries,
+                static fn(string $sql): bool => str_contains($sql, 'SHA2(meta_key, 256)')
+            )) === $beforeHashReads,
+            "term-meta $failureMode refuses before database hashing"
         );
     }
 }

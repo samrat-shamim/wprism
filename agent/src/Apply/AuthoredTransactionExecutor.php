@@ -320,6 +320,41 @@ final class AuthoredTransactionExecutor {
             }
         } catch (\Throwable $failure) {
             if ($transactionStarted) {
+                $transactionStateFailure = null;
+                $transactionActive = null;
+                try {
+                    $transactionActive = Db::transaction_active(
+                        'authored transaction recovery boundary'
+                    );
+                } catch (\Throwable $stateFailure) {
+                    $transactionStateFailure = $stateFailure;
+                }
+                if ($transactionStateFailure !== null || $transactionActive !== true) {
+                    $cacheFailure = null;
+                    try {
+                        CacheInvalidationTransaction::finish();
+                    } catch (\Throwable $cachePurgeFailure) {
+                        $cacheFailure = $cachePurgeFailure;
+                    }
+                    Db::forget_transaction_tracking();
+                    Canary::disarm();
+                    $recovery = [
+                        'original=' . self::failure_fingerprint($failure),
+                        'transaction-state=' . ($transactionStateFailure !== null
+                            ? self::failure_fingerprint($transactionStateFailure)
+                            : 'ended-before-rollback'),
+                    ];
+                    if ($cacheFailure !== null) {
+                        $recovery[] = 'cache-purge=' . self::failure_fingerprint($cacheFailure);
+                    }
+                    throw new \RuntimeException(
+                        'duo: authored transaction ended or changed connection before recovery; '
+                        . 'rollback participants were not run through autocommit; recovery_required; '
+                        . implode('; ', $recovery),
+                        0,
+                        $failure
+                    );
+                }
                 $participantFailure = null;
                 $rollbackFailure = null;
                 $cacheFailure = null;

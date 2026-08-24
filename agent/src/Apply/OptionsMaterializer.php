@@ -176,7 +176,7 @@ final class OptionsMaterializer {
                     $realName,
                     'authored option deletion readback'
                 ) !== null) {
-                    throw new \RuntimeException("duo: authored option deletion retained the exact locked row");
+                    throw new \RuntimeException('duo: authored option deletion retained the exact locked row');
                 }
                 continue;
             }

@@ -105,6 +105,11 @@ final class TermMetaFakeWpdb {
                     'meta_value_bytes' => $row['meta_value'] === null
                         ? null
                         : (string) strlen((string) $row['meta_value']),
+                ], $rows);
+            }
+            if (str_contains($sql, 'SHA2(meta_key, 256)')) {
+                return array_map(static fn(array $row): array => [
+                    'meta_id' => (string) $row['meta_id'],
                     'meta_key_sha256' => hash('sha256', $row['meta_key']),
                     'meta_value_sha256' => $row['meta_value'] === null
                         ? null

@@ -131,7 +131,9 @@ namespace Duo {
             if (str_contains($sql, 'FROM `wp_postmeta`')) {
                 $postId = (int) ($args[0] ?? 0);
                 $preflight = str_contains($sql, 'OCTET_LENGTH(meta_key)');
-                $this->events[] = "query:post-meta:$postId:" . ($preflight ? 'size' : 'value');
+                $hashWitness = str_contains($sql, 'SHA2(meta_key, 256)');
+                $this->events[] = "query:post-meta:$postId:"
+                    . ($preflight ? 'size' : ($hashWitness ? 'hash' : 'value'));
                 $rows = $postId === 10
                     ? [
                         ['meta_id' => '1', 'meta_key' => '_wp_attached_file', 'meta_value' => 'ignored.jpg'],
@@ -141,16 +143,21 @@ namespace Duo {
                     : [
                         ['meta_id' => '4', 'meta_key' => 'shared_unknown', 'meta_value' => 'menu value'],
                     ];
-                if (!$preflight) {
-                    return $rows;
+                if ($preflight) {
+                    return array_map(static fn(array $row): array => [
+                        'meta_id' => $row['meta_id'],
+                        'meta_key_bytes' => (string) strlen($row['meta_key']),
+                        'meta_value_bytes' => (string) strlen($row['meta_value']),
+                    ], $rows);
                 }
-                return array_map(static fn(array $row): array => [
-                    'meta_id' => $row['meta_id'],
-                    'meta_key_bytes' => (string) strlen($row['meta_key']),
-                    'meta_value_bytes' => (string) strlen($row['meta_value']),
-                    'meta_key_sha256' => hash('sha256', $row['meta_key']),
-                    'meta_value_sha256' => hash('sha256', $row['meta_value']),
-                ], $rows);
+                if ($hashWitness) {
+                    return array_map(static fn(array $row): array => [
+                        'meta_id' => $row['meta_id'],
+                        'meta_key_sha256' => hash('sha256', $row['meta_key']),
+                        'meta_value_sha256' => hash('sha256', $row['meta_value']),
+                    ], $rows);
+                }
+                return $rows;
             }
             if (str_contains($sql, 'SELECT COUNT(*) AS row_count')
                 && str_contains($sql, 'FROM wp_terms t')) {
@@ -172,21 +179,28 @@ namespace Duo {
             }
             if (str_contains($sql, 'FROM `wp_termmeta`')) {
                 $preflight = str_contains($sql, 'OCTET_LENGTH(meta_key)');
-                $this->events[] = 'query:term-meta:20:' . ($preflight ? 'size' : 'value');
+                $hashWitness = str_contains($sql, 'SHA2(meta_key, 256)');
+                $this->events[] = 'query:term-meta:20:'
+                    . ($preflight ? 'size' : ($hashWitness ? 'hash' : 'value'));
                 $rows = [
                     ['meta_id' => '5', 'meta_key' => 'known_term', 'meta_value' => 'classified'],
                     ['meta_id' => '6', 'meta_key' => 'unknown_term', 'meta_value' => serialize(['future' => true])],
                 ];
-                if (!$preflight) {
-                    return $rows;
+                if ($preflight) {
+                    return array_map(static fn(array $row): array => [
+                        'meta_id' => $row['meta_id'],
+                        'meta_key_bytes' => (string) strlen($row['meta_key']),
+                        'meta_value_bytes' => (string) strlen($row['meta_value']),
+                    ], $rows);
                 }
-                return array_map(static fn(array $row): array => [
-                    'meta_id' => $row['meta_id'],
-                    'meta_key_bytes' => (string) strlen($row['meta_key']),
-                    'meta_value_bytes' => (string) strlen($row['meta_value']),
-                    'meta_key_sha256' => hash('sha256', $row['meta_key']),
-                    'meta_value_sha256' => hash('sha256', $row['meta_value']),
-                ], $rows);
+                if ($hashWitness) {
+                    return array_map(static fn(array $row): array => [
+                        'meta_id' => $row['meta_id'],
+                        'meta_key_sha256' => hash('sha256', $row['meta_key']),
+                        'meta_value_sha256' => hash('sha256', $row['meta_value']),
+                    ], $rows);
+                }
+                return $rows;
             }
             throw new \RuntimeException('unexpected gate-scanner query: ' . $sql);
         }
@@ -277,12 +291,15 @@ namespace Duo {
         'query:options', 'checkpoint',
         'query:post-size', 'checkpoint',
         'query:posts', 'checkpoint',
-        'query:post-meta:10:size', 'checkpoint', 'query:post-meta:10:value', 'checkpoint',
+        'query:post-meta:10:size', 'checkpoint', 'query:post-meta:10:hash', 'checkpoint',
+        'query:post-meta:10:value', 'checkpoint',
         'query:term-size', 'checkpoint',
         'query:terms', 'checkpoint',
-        'query:term-meta:20:size', 'checkpoint', 'query:term-meta:20:value', 'checkpoint',
+        'query:term-meta:20:size', 'checkpoint', 'query:term-meta:20:hash', 'checkpoint',
+        'query:term-meta:20:value', 'checkpoint',
         'query:menu-items', 'checkpoint',
-        'query:post-meta:30:size', 'checkpoint', 'query:post-meta:30:value', 'checkpoint',
+        'query:post-meta:30:size', 'checkpoint', 'query:post-meta:30:hash', 'checkpoint',
+        'query:post-meta:30:value', 'checkpoint',
     ], 'every scanner query preserves its immediate read checkpoint and frozen order');
 
     echo "REGRESS_CAPTURE_GATE_SCANNER PASSED\n";

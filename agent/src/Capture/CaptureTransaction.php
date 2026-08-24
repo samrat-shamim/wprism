@@ -223,22 +223,13 @@ final class CaptureTransaction {
                 // between attempts; never let a prior check authorize a new
                 // snapshot whose read set no longer provides MVCC.
                 self::assert_engine_support($policy, $optionsOnly);
-                // WITH CONSISTENT SNAPSHOT does not itself upgrade a session
-                // configured for READ COMMITTED. Control the immediately
-                // following transaction explicitly; ordinary WP accounts can
-                // execute this one-shot SET without PROCESS privileges.
-                Db::query(
-                    'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ',
-                    'capture transaction isolation'
-                );
-                self::check_transient_db_error('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
-                Db::query('START TRANSACTION WITH CONSISTENT SNAPSHOT', 'capture transaction start');
-                // Mark the transaction open immediately after query() returns:
-                // the following checkpoint can still report a transient
-                // driver error even though START succeeded and therefore
-                // needs a rollback before retrying.
+                // Db binds the one-shot REPEATABLE READ control, START
+                // outcome, connection identity, and later COMMIT/ROLLBACK to
+                // one exact server transaction. A false client result after
+                // an applied START is safe only because that active state is
+                // positively proven on the same connection.
+                Db::start_consistent_snapshot('capture transaction start');
                 $transactionOpen = true;
-                self::check_transient_db_error('START TRANSACTION WITH CONSISTENT SNAPSHOT');
                 $result = $fn();
                 if (isset($phase['state_dir'], $phase['intent'])
                     && is_string($phase['state_dir']) && is_array($phase['intent'])) {
@@ -253,23 +244,27 @@ final class CaptureTransaction {
                     );
                 }
                 $commitAttempted = true;
-                Db::commit('capture transaction commit');
-                // A successful COMMIT closes the transaction even if its
-                // post-query error checkpoint reports a stale driver message;
-                // never issue ROLLBACK after that commit. If the checkpoint
-                // does report an error, the commit outcome is ambiguous: the
-                // callback must not be retried because the database may have
-                // accepted its writes already.
-                $transactionOpen = false;
                 try {
-                    self::check_transient_db_error('COMMIT');
-                } catch (\Throwable $commitCheck) {
+                    Db::commit('capture transaction commit');
+                } catch (DatabaseTransactionOutcomeException $outcome) {
                     throw self::commit_outcome_uncertain(
-                        'duo: capture commit outcome uncertain — COMMIT returned, but its database error '
-                        . 'checkpoint failed; refusing to retry because the candidate may already be durable',
-                        $commitCheck
+                        'duo: capture commit outcome uncertain — the exact transaction or connection '
+                            . 'could not be proven after COMMIT; refusing to retry because candidate DML '
+                            . 'may already be durable',
+                        $outcome
                     );
+                } catch (DatabaseMutationException|TransientDbException $notCommitted) {
+                    // Db throws these terminal classes only while the same
+                    // transaction is still positively active. Roll it back
+                    // before the outer retry/refusal branch; a reconnect or
+                    // applied-but-false COMMIT takes the outcome exception
+                    // above instead.
+                    Db::rollback('capture transaction rollback after refused commit');
+                    $transactionOpen = false;
+                    $commitAttempted = false;
+                    throw $notCommitted;
                 }
+                $transactionOpen = false;
                 return $result;
             } catch (TransientDbException $e) {
                 if ($commitAttempted) {

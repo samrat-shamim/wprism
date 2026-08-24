@@ -130,6 +130,18 @@ final class LifecycleOptionsFakeWpdb {
         [$sql, $args] = $this->unwrap($sql);
         $this->queries[] = $sql;
         $this->queryCalls[] = ['sql' => $sql, 'args' => $args];
+        if ($sql === 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ') {
+            return 1;
+        }
+        if (str_starts_with($sql, 'START TRANSACTION')) {
+            $this->transactionState = '1';
+            return 1;
+        }
+        if ($sql === 'COMMIT' || $sql === 'ROLLBACK') {
+            $this->transactionState = '0';
+            $this->savepointExists = false;
+            return 1;
+        }
         if (preg_match('/^SAVEPOINT `duo_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
             $this->savepointExists = true;
             return 1;
@@ -224,6 +236,26 @@ final class LifecycleOptionsFakeWpdb {
                 ];
             }
             return $rows;
+        }
+        if (str_contains($sql, 'SHA2(option_value, 256)')
+            && str_contains($sql, 'autoload_sha256')
+            && !str_contains($sql, 'option_value_bytes')
+            && $args !== []) {
+            $requested = (string) $args[0];
+            $rows = [];
+            foreach ($this->optionRows as $name => $row) {
+                if (strcasecmp($name, $requested) !== 0) continue;
+                $rows[] = [
+                    'option_name' => $name,
+                    'option_value_sha256' => is_string($row['option_value'])
+                        ? hash('sha256', $row['option_value'])
+                        : 'malformed',
+                    'autoload_sha256' => is_string($row['autoload'])
+                        ? hash('sha256', $row['autoload'])
+                        : 'malformed',
+                ];
+            }
+            return array_slice($rows, 0, 2);
         }
         if (str_contains($sql, 'option_value_bytes') && $args !== []) {
             $requested = (string) $args[0];
@@ -398,6 +430,9 @@ final class LifecycleOptionsFakeWpdb {
     public function get_var($query) {
         [$sql, $args] = $this->unwrap($query);
         $this->queries[] = $sql;
+        if (trim($sql) === 'SELECT CONNECTION_ID()') {
+            return '8401';
+        }
         if (trim($sql) === 'SELECT @@in_transaction') {
             if ($this->transactionStateError) {
                 $this->last_error = 'simulated transaction-state failure';
@@ -1139,8 +1174,8 @@ foreach ([
     ));
     $check(
         $raceRefused && $nativeState->setter_calls === 0
-            && count($markerLocks) === ($markerRow === null ? 1 : 2),
-        "native companion $race state refuses behind compact-size and exact-value row/gap locks despite stale object cache"
+            && count($markerLocks) === ($markerRow === null ? 1 : 3),
+        "native companion $race state refuses behind size, hash, and payload row/gap locks despite stale object cache"
     );
 }
 
@@ -1354,6 +1389,7 @@ $wpdb->optionRows = [
 // 1. The clean-install lifecycle boundary does not enter Snapshot::capture,
 // even though the frozen manifest declares a plugin-owned table absent here.
 $wpdb->queries = [];
+$wpdb->transactionState = '0';
 $lifecycle = Capture::snapshot_options_core('/unused', false, $compiled, $policy(true));
 $check(isset($lifecycle['options/core']), 'lifecycle options snapshot succeeds with a declared missing typed table');
 $check(
@@ -1694,6 +1730,8 @@ $wpdb->optionRows = [
         'selected' => [], 'protected' => ['block-9'], 'array_version' => 3,
     ]), 'autoload' => 'yes'],
 ];
+$wpdb->transactionState = '1';
+$fieldMaterializer->begin_authored_transaction();
 SidebarState::begin_authored_transaction(
     static fn(string $name, string $purpose): ?array =>
         \Duo\CacheInvalidationTransaction::lock_option_row($name, $purpose),
@@ -1751,6 +1789,8 @@ SidebarState::finalize_sidebar(
     true
 );
 SidebarState::end_authored_transaction();
+$fieldMaterializer->end_authored_transaction();
+$wpdb->transactionState = '0';
 $widgetOptionWrites = [];
 foreach ($wpdb->writes as $write) {
     if (($write['table'] ?? null) !== 'wp_options') continue;

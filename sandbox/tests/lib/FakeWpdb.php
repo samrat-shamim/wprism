@@ -1097,6 +1097,12 @@ final class FakeWpdb {
         if ($trimmed === '') {
             throw new \LogicException('FakeWpdb: empty SQL statement');
         }
+        if (strcasecmp($trimmed, 'SELECT @@in_transaction') === 0) {
+            return [
+                'kind' => 'rows',
+                'rows' => [['@@in_transaction' => $this->transactionSnapshot === null ? '0' : '1']],
+            ];
+        }
         $this->currentSql = $trimmed;
         $head = preg_match('/^[A-Za-z_]+/', $trimmed, $m) === 1 ? strtoupper($m[0]) : '';
         switch ($head) {

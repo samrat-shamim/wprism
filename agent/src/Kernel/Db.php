@@ -18,12 +18,33 @@ final class DatabaseMutationException extends \RuntimeException {
 }
 
 /**
+ * A transaction control statement crossed a connection/outcome boundary
+ * that cannot be repaired by issuing another SQL statement. Retrying a
+ * COMMIT or running rollback callbacks can corrupt either the committed or
+ * rolled-back world, so callers must stop with recovery_required.
+ */
+final class DatabaseTransactionOutcomeException extends \RuntimeException {
+    public string $transactionContext;
+
+    public function __construct(string $context, ?\Throwable $previous = null) {
+        $this->transactionContext = $context;
+        parent::__construct(
+            "duo: database transaction outcome is uncertain: $context; recovery_required",
+            0,
+            $previous
+        );
+    }
+}
+
+/**
  * The only sanctioned path for product database mutations. WordPress's wpdb
  * methods return false rather than throwing, while 0 is a valid successful
  * result for UPDATE/DELETE, so every method below uses the strict false
  * check and retains an operation-level (never value-level) context.
  */
 final class Db {
+    private static ?string $transactionConnectionId = null;
+
     private static function before(string $context): void {
         // Deterministic integration-test seam. Both switches are required so
         // a stray context variable can never affect a normal installation.
@@ -88,7 +109,9 @@ final class Db {
     }
 
     public static function start(string $context = 'transaction start'): void {
-        self::query('START TRANSACTION', $context);
+        self::before($context);
+        $connectionId = self::prepare_transaction_start($context);
+        self::start_control('START TRANSACTION', $context, $connectionId);
     }
 
     /** Start a write transaction whose exact next-transaction isolation is controlled. */
@@ -98,19 +121,69 @@ final class Db {
         // information_schema.innodb_trx requires PROCESS on ordinary WP DB
         // accounts. SET TRANSACTION is accepted by those accounts and applies
         // only to the immediately following START TRANSACTION.
-        self::query(
-            'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ',
-            $context . ' isolation'
+        self::before($context . ' isolation');
+        $connectionId = self::prepare_transaction_start($context);
+        self::set_next_transaction_repeatable_read($context, $connectionId);
+        self::before($context);
+        self::start_control('START TRANSACTION', $context, $connectionId);
+    }
+
+    /** Start a repeatable-read consistent snapshot through the same outcome proof. */
+    public static function start_consistent_snapshot(string $context = 'transaction start'): void {
+        self::before($context . ' isolation');
+        $connectionId = self::prepare_transaction_start($context);
+        self::set_next_transaction_repeatable_read($context, $connectionId);
+        self::before($context);
+        self::start_control(
+            'START TRANSACTION WITH CONSISTENT SNAPSHOT',
+            $context,
+            $connectionId
         );
-        self::query('START TRANSACTION', $context);
+    }
+
+    /** Start a server-enforced read-only snapshot with exact outcome proof. */
+    public static function start_read_only_consistent_snapshot(
+        string $context = 'read-only transaction start'
+    ): void {
+        self::before($context . ' isolation');
+        $connectionId = self::prepare_transaction_start($context);
+        self::set_next_transaction_repeatable_read($context, $connectionId);
+        self::before($context);
+        self::start_control(
+            'START TRANSACTION READ ONLY, WITH CONSISTENT SNAPSHOT',
+            $context,
+            $connectionId
+        );
     }
 
     public static function commit(string $context = 'transaction commit'): void {
-        self::query('COMMIT', $context);
+        self::finish_transaction('COMMIT', $context);
     }
 
     public static function rollback(string $context = 'transaction rollback'): void {
-        self::query('ROLLBACK', $context);
+        self::finish_transaction('ROLLBACK', $context);
+    }
+
+    /**
+     * Recheck the exact connection and active state tracked by start*().
+     * Callers use this before invoking rollback participants: an already
+     * ended transaction must never be "restored" through autocommit writes.
+     */
+    public static function transaction_active(string $context): bool {
+        $expected = self::$transactionConnectionId;
+        if ($expected === null) {
+            throw new DatabaseTransactionOutcomeException($context . ' has no tracked transaction identity');
+        }
+        $state = self::transaction_state($context . ' state proof');
+        if (!hash_equals($expected, $state['connection_id'])) {
+            throw new DatabaseTransactionOutcomeException($context . ' changed database connection');
+        }
+        return $state['active'];
+    }
+
+    /** Forget only process-local tracking after a terminal recovery refusal. */
+    public static function forget_transaction_tracking(): void {
+        self::$transactionConnectionId = null;
     }
 
     /** Deterministic failure seam for required non-SQL phases in live tests. */
@@ -124,5 +197,149 @@ final class Db {
         return $prefix !== '' && str_starts_with($table, $prefix)
             ? substr($table, strlen($prefix))
             : $table;
+    }
+
+    private static function prepare_transaction_start(string $context): string {
+        $state = self::transaction_state($context . ' preflight');
+        if (self::$transactionConnectionId !== null) {
+            if (!hash_equals(self::$transactionConnectionId, $state['connection_id'])) {
+                throw new DatabaseTransactionOutcomeException(
+                    $context . ' found unresolved transaction state on a replaced connection'
+                );
+            }
+            if ($state['active']) {
+                throw new DatabaseMutationException($context . ' found an already-active transaction');
+            }
+            self::$transactionConnectionId = null;
+        }
+        if ($state['active']) {
+            throw new DatabaseMutationException($context . ' requires an idle database connection');
+        }
+        return $state['connection_id'];
+    }
+
+    private static function set_next_transaction_repeatable_read(
+        string $context,
+        string $connectionId
+    ): void {
+        self::query(
+            'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ',
+            $context . ' isolation'
+        );
+        $state = self::transaction_state($context . ' isolation connection proof');
+        if (!hash_equals($connectionId, $state['connection_id']) || $state['active']) {
+            throw new DatabaseTransactionOutcomeException(
+                $context . ' isolation control did not remain on the idle connection'
+            );
+        }
+    }
+
+    private static function start_control(string $sql, string $context, string $connectionId): void {
+        global $wpdb;
+        if (property_exists($wpdb, 'last_error')) {
+            $wpdb->last_error = '';
+        }
+        $result = $wpdb->query($sql);
+        $queryError = trim((string) ($wpdb->last_error ?? ''));
+        try {
+            $state = self::transaction_state($context . ' outcome proof');
+        } catch (\Throwable $proofFailure) {
+            throw new DatabaseTransactionOutcomeException(
+                $context . ' could not prove whether START was applied',
+                $proofFailure
+            );
+        }
+        if (!hash_equals($connectionId, $state['connection_id'])) {
+            throw new DatabaseTransactionOutcomeException($context . ' changed connection while starting');
+        }
+        if ($state['active']) {
+            // The server state is authoritative even if the client returned
+            // false after applying START. The tracked identity lets later
+            // COMMIT/ROLLBACK distinguish connection replacement.
+            self::$transactionConnectionId = $connectionId;
+            return;
+        }
+        if ($result === false || $queryError !== '') {
+            self::throw_control_failure($context, $queryError);
+        }
+        throw new DatabaseTransactionOutcomeException($context . ' reported success without starting');
+    }
+
+    private static function finish_transaction(string $sql, string $context): void {
+        global $wpdb;
+        self::before($context);
+        $expected = self::$transactionConnectionId;
+        if ($expected === null) {
+            throw new DatabaseTransactionOutcomeException($context . ' has no tracked transaction identity');
+        }
+        $before = self::transaction_state($context . ' preflight');
+        if (!hash_equals($expected, $before['connection_id'])) {
+            throw new DatabaseTransactionOutcomeException($context . ' database connection changed before control');
+        }
+        if (!$before['active']) {
+            throw new DatabaseTransactionOutcomeException($context . ' transaction ended before control');
+        }
+
+        if (property_exists($wpdb, 'last_error')) {
+            $wpdb->last_error = '';
+        }
+        $result = $wpdb->query($sql);
+        $queryError = trim((string) ($wpdb->last_error ?? ''));
+        try {
+            $after = self::transaction_state($context . ' outcome proof');
+        } catch (\Throwable $proofFailure) {
+            throw new DatabaseTransactionOutcomeException(
+                $context . ' could not prove the terminal transaction outcome',
+                $proofFailure
+            );
+        }
+        if (!hash_equals($expected, $after['connection_id'])) {
+            throw new DatabaseTransactionOutcomeException($context . ' database connection changed during control');
+        }
+        if (!$after['active']) {
+            // Same-connection active->inactive is the exact server outcome.
+            // A false client result after application must not cause a
+            // second COMMIT or an autocommit rollback participant.
+            self::$transactionConnectionId = null;
+            return;
+        }
+        if ($result === false || $queryError !== '') {
+            self::throw_control_failure($context, $queryError);
+        }
+        throw new DatabaseTransactionOutcomeException($context . ' reported success without ending');
+    }
+
+    private static function throw_control_failure(string $context, string $driverError): never {
+        if (stripos($driverError, 'Deadlock found') !== false
+            || stripos($driverError, 'Lock wait timeout') !== false) {
+            throw new TransientDbException("duo: transient DB contention at $context");
+        }
+        throw new DatabaseMutationException($context);
+    }
+
+    /** @return array{connection_id:string,active:bool} */
+    private static function transaction_state(string $context): array {
+        global $wpdb;
+        if (property_exists($wpdb, 'last_error')) {
+            $wpdb->last_error = '';
+        }
+        $connectionId = $wpdb->get_var('SELECT CONNECTION_ID()');
+        $connectionError = trim((string) ($wpdb->last_error ?? ''));
+        if (!is_string($connectionId)
+            || preg_match('/^[1-9][0-9]*$/D', $connectionId) !== 1
+            || $connectionError !== '') {
+            throw new DatabaseTransactionOutcomeException($context . ' returned a malformed connection identity');
+        }
+        if (property_exists($wpdb, 'last_error')) {
+            $wpdb->last_error = '';
+        }
+        $active = $wpdb->get_var('SELECT @@in_transaction');
+        $activeError = trim((string) ($wpdb->last_error ?? ''));
+        if (!is_string($active)
+            || !in_array($active, ['0', '1'], true)
+            || $activeError !== '') {
+            throw new DatabaseTransactionOutcomeException($context . ' returned malformed transaction state');
+        }
+        return ['connection_id' => $connectionId, 'active' => $active === '1'];
     }
 }

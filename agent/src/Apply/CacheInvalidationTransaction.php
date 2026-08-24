@@ -222,8 +222,7 @@ final class CacheInvalidationTransaction {
         $wpdb->last_error = '';
         $sizes = $wpdb->get_results($wpdb->prepare(
             'SELECT option_name, OCTET_LENGTH(option_value) AS option_value_bytes, '
-            . 'SHA2(option_value, 256) AS option_value_sha256, '
-            . "OCTET_LENGTH(autoload) AS autoload_bytes, SHA2(autoload, 256) AS autoload_sha256 $predicate",
+            . "OCTET_LENGTH(autoload) AS autoload_bytes $predicate",
             $name
         ), ARRAY_A);
         if (!is_array($sizes)
@@ -238,21 +237,42 @@ final class CacheInvalidationTransaction {
         $size = $sizes[0];
         $valueBytes = is_array($size) ? self::canonical_size($size['option_value_bytes'] ?? null) : null;
         $autoloadBytes = is_array($size) ? self::canonical_size($size['autoload_bytes'] ?? null) : null;
-        $valueHash = is_array($size) ? self::canonical_sha256($size['option_value_sha256'] ?? null) : null;
-        $autoloadHash = is_array($size) ? self::canonical_sha256($size['autoload_sha256'] ?? null) : null;
         if (!is_array($size)
-            || array_keys($size) !== [
-                'option_name', 'option_value_bytes', 'option_value_sha256', 'autoload_bytes', 'autoload_sha256',
-            ]
+            || array_keys($size) !== ['option_name', 'option_value_bytes', 'autoload_bytes']
             || !is_string($size['option_name'] ?? null)
             || !hash_equals($name, $size['option_name'])
             || $valueBytes === null
-            || $valueHash === null
             || $autoloadBytes === null
-            || $autoloadHash === null
             || $valueBytes > self::MAX_OPTION_VALUE_BYTES
             || $autoloadBytes > self::MAX_AUTOLOAD_BYTES) {
             throw new \RuntimeException("duo: $purpose compact option lock row is malformed, aliased, or oversized");
+        }
+        $wpdb->last_error = '';
+        $hashRows = $wpdb->get_results($wpdb->prepare(
+            'SELECT option_name, SHA2(option_value, 256) AS option_value_sha256, '
+            . "SHA2(autoload, 256) AS autoload_sha256 $predicate",
+            $name
+        ), ARRAY_A);
+        if (!is_array($hashRows)
+            || !array_is_list($hashRows)
+            || count($hashRows) !== 1
+            || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException("duo: $purpose bounded option hash witness failed or changed");
+        }
+        $hashRow = $hashRows[0];
+        $valueHash = is_array($hashRow)
+            ? self::canonical_sha256($hashRow['option_value_sha256'] ?? null)
+            : null;
+        $autoloadHash = is_array($hashRow)
+            ? self::canonical_sha256($hashRow['autoload_sha256'] ?? null)
+            : null;
+        if (!is_array($hashRow)
+            || array_keys($hashRow) !== ['option_name', 'option_value_sha256', 'autoload_sha256']
+            || !is_string($hashRow['option_name'] ?? null)
+            || !hash_equals($name, $hashRow['option_name'])
+            || $valueHash === null
+            || $autoloadHash === null) {
+            throw new \RuntimeException("duo: $purpose bounded option hash witness is malformed or aliased");
         }
         $wpdb->last_error = '';
         $rows = $wpdb->get_results($wpdb->prepare(

@@ -53,9 +53,7 @@ final class MetaRows {
         }
         $preflight = $wpdb->get_results($wpdb->prepare(
             "SELECT `$idColumn` AS meta_id, OCTET_LENGTH(meta_key) AS meta_key_bytes, "
-            . 'OCTET_LENGTH(meta_value) AS meta_value_bytes, '
-            . 'SHA2(meta_key, 256) AS meta_key_sha256, '
-            . "SHA2(meta_value, 256) AS meta_value_sha256 $from",
+            . "OCTET_LENGTH(meta_value) AS meta_value_bytes $from",
             $ownerId
         ), ARRAY_A);
         if ($afterRead !== null) {
@@ -79,21 +77,11 @@ final class MetaRows {
             $valueBytes = is_array($row) && ($row['meta_value_bytes'] ?? null) === null
                 ? null
                 : (is_array($row) ? self::nonnegative_size($row['meta_value_bytes'] ?? null) : null);
-            $keyHash = is_array($row) ? self::sha256($row['meta_key_sha256'] ?? null) : null;
-            $valueHash = is_array($row) && ($row['meta_value_sha256'] ?? null) === null
-                ? null
-                : (is_array($row) ? self::sha256($row['meta_value_sha256'] ?? null) : null);
             if (!is_array($row)
-                || array_keys($row) !== [
-                    'meta_id', 'meta_key_bytes', 'meta_value_bytes',
-                    'meta_key_sha256', 'meta_value_sha256',
-                ]
+                || array_keys($row) !== ['meta_id', 'meta_key_bytes', 'meta_value_bytes']
                 || $id === null
                 || $keyBytes === null
-                || ($row['meta_value_bytes'] !== null && $valueBytes === null)
-                || $keyHash === null
-                || (($row['meta_value_sha256'] === null) !== ($row['meta_value_bytes'] === null))
-                || ($row['meta_value_sha256'] !== null && $valueHash === null)) {
+                || ($row['meta_value_bytes'] !== null && $valueBytes === null)) {
                 throw new \RuntimeException(
                     "duo: $purpose metadata size preflight returned a malformed row at bounded position $position"
                 );
@@ -119,9 +107,49 @@ final class MetaRows {
                 'meta_id' => $row['meta_id'],
                 'key_bytes' => $keyBytes,
                 'value_bytes' => $valueBytes,
-                'key_sha256' => $keyHash,
-                'value_sha256' => $valueHash,
             ];
+        }
+
+        // Only the already-bounded roster reaches SHA2. Hashing in the first
+        // query would let one hostile owner make the server hash up to
+        // MAX_OWNER_ROWS × MAX_META_VALUE_BYTES before PHP could enforce the
+        // 64 MiB aggregate frontier.
+        if (property_exists($wpdb, 'last_error')) {
+            $wpdb->last_error = '';
+        }
+        $hashRows = $wpdb->get_results($wpdb->prepare(
+            "SELECT `$idColumn` AS meta_id, SHA2(meta_key, 256) AS meta_key_sha256, "
+            . "SHA2(meta_value, 256) AS meta_value_sha256 $from",
+            $ownerId
+        ), ARRAY_A);
+        if ($afterRead !== null) {
+            $afterRead("$purpose metadata hash witness");
+        }
+        if (!is_array($hashRows)
+            || !array_is_list($hashRows)
+            || trim((string) ($wpdb->last_error ?? '')) !== ''
+            || count($hashRows) !== count($expected)) {
+            throw new \RuntimeException("duo: $purpose checked metadata hash witness failed or changed");
+        }
+        foreach ($hashRows as $position => $row) {
+            $keyHash = is_array($row) ? self::sha256($row['meta_key_sha256'] ?? null) : null;
+            $valueHash = is_array($row) && ($row['meta_value_sha256'] ?? null) === null
+                ? null
+                : (is_array($row) ? self::sha256($row['meta_value_sha256'] ?? null) : null);
+            $witness = $expected[$position];
+            if (!is_array($row)
+                || array_keys($row) !== ['meta_id', 'meta_key_sha256', 'meta_value_sha256']
+                || self::positive_id($row['meta_id'] ?? null) === null
+                || !hash_equals($witness['meta_id'], $row['meta_id'])
+                || $keyHash === null
+                || (($row['meta_value_sha256'] === null) !== ($witness['value_bytes'] === null))
+                || ($row['meta_value_sha256'] !== null && $valueHash === null)) {
+                throw new \RuntimeException(
+                    "duo: $purpose metadata hash witness returned a malformed or changed row at bounded position $position"
+                );
+            }
+            $expected[$position]['key_sha256'] = $keyHash;
+            $expected[$position]['value_sha256'] = $valueHash;
         }
 
         if (property_exists($wpdb, 'last_error')) {

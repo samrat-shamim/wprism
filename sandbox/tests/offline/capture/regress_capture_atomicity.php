@@ -56,6 +56,7 @@ final class CaptureAtomicityFakeWpdb {
     public ?string $activeIsolation = null;
     public ?string $engineAfterStartFailure = null;
     public ?string $commitCheckpointError = null;
+    public bool $replaceConnectionOnCommit = false;
     /** @var array<string,string> table name -> storage engine */
     public array $tableEngines = [];
     /** @var list<string> logical wpdb-property.column locations hidden from schema inventory */
@@ -123,6 +124,7 @@ final class CaptureAtomicityFakeWpdb {
             if ($this->failStartAfterOpen) {
                 $this->failStartAfterOpen = false;
                 $this->last_error = 'Deadlock found when trying to get lock';
+                return false;
             }
             return true;
         }
@@ -133,6 +135,10 @@ final class CaptureAtomicityFakeWpdb {
             if ($this->commitCheckpointError !== null) {
                 $this->last_error = $this->commitCheckpointError;
                 $this->commitCheckpointError = null;
+            }
+            if ($this->replaceConnectionOnCommit) {
+                $this->connectionId++;
+                $this->replaceConnectionOnCommit = false;
             }
             return true;
         }
@@ -232,7 +238,10 @@ final class CaptureAtomicityFakeWpdb {
     public function get_var(string $sql) {
         $this->last_error = '';
         if (strcasecmp($sql, 'SELECT CONNECTION_ID()') === 0) {
-            return $this->connectionId;
+            return (string) $this->connectionId;
+        }
+        if (strcasecmp($sql, 'SELECT @@in_transaction') === 0) {
+            return $this->transactionSnapshot === null ? '0' : '1';
         }
         if (preg_match("/SELECT GET_LOCK\('([^']+)', 0\)/i", $sql)) {
             if ($this->fenceBusy) {
@@ -363,12 +372,9 @@ assert_capture_atomicity(
     'Capture directly loads its transaction collaborator without bootstrap-order coupling'
 );
 assert_capture_atomicity(
-    str_contains($transactionSource, "'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ'")
-        && str_contains($transactionSource, "Db::query('START TRANSACTION WITH CONSISTENT SNAPSHOT'")
-        && strpos($transactionSource, "'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ'")
-            < strpos($transactionSource, "Db::query('START TRANSACTION WITH CONSISTENT SNAPSHOT'")
+    str_contains($transactionSource, "Db::start_consistent_snapshot('capture transaction start')")
         && !str_contains($captureSource, "Db::query('START TRANSACTION WITH CONSISTENT SNAPSHOT'"),
-    'the consistent-read protocol pins one-shot repeatable-read isolation immediately before snapshot start'
+    'the consistent-read protocol delegates one-shot isolation and exact START outcome to Db'
 );
 $transactionRun = new ReflectionMethod(CaptureTransaction::class, 'run');
 assert_capture_atomicity(
@@ -623,9 +629,10 @@ assert_capture_atomicity($wpdb->starts === 2, 'a transient START failure enters 
 assert_capture_atomicity($callbackRuns === 1, 'the capture callback is not run against the failed transaction start');
 assert_capture_atomicity($wpdb->commits === 1 && $wpdb->rollbacks === 0, 'a pre-open START failure does not issue a spurious rollback');
 
-// A driver can report a transient error at the START checkpoint after the
-// transaction has actually opened. This second injection proves the wrapper
-// rolls that snapshot back before retrying too.
+// A driver can return false after the server has actually opened START. The
+// same-connection active-state proof is authoritative: replaying or rolling
+// back this healthy snapshot merely because the client result was false would
+// mix two different database observations.
 $wpdb->starts = $wpdb->commits = $wpdb->rollbacks = 0;
 $wpdb->ddlQueries = 0;
 $wpdb->failStartAfterOpen = true;
@@ -639,11 +646,13 @@ $result = $invokeConsistentSnapshot(static function () use (&$wpdb): array {
     $wpdb->kv['stable'] = 'candidate';
     return ['retried' => true];
 });
-assert_capture_atomicity($result === ['retried' => true], 'post-open START checkpoint contention retries successfully');
-assert_capture_atomicity($wpdb->rollbacks === 1, 'post-open START checkpoint retry rolls back the opened snapshot');
-assert_capture_atomicity($wpdb->commits === 1, 'the retry commits exactly one successful snapshot');
-assert_capture_atomicity($wpdb->kv === ['stable' => 'candidate'], 'the successful retry owns the committed candidate mutation');
-assert_capture_atomicity($beforeRetry['map'] === $wpdb->map && $beforeRetry['state'] === $wpdb->state, 'post-open START rollback restores untouched map/state before retry');
+assert_capture_atomicity($result === ['retried' => true], 'an applied-but-false START proceeds on its proven exact snapshot');
+assert_capture_atomicity($wpdb->starts === 1 && $wpdb->rollbacks === 0,
+    'an applied-but-false START is neither replayed nor spuriously rolled back');
+assert_capture_atomicity($wpdb->commits === 1, 'the proven started snapshot commits exactly once');
+assert_capture_atomicity($wpdb->kv === ['stable' => 'candidate'], 'the proven snapshot owns the committed candidate mutation');
+assert_capture_atomicity($beforeRetry['map'] === $wpdb->map && $beforeRetry['state'] === $wpdb->state,
+    'the applied-but-false START preserves untouched map/state in the same snapshot');
 
 // A normal COMMIT is a terminal success: its callback is not rerun and no
 // rollback is attempted after the driver has accepted COMMIT.
@@ -657,28 +666,49 @@ assert_capture_atomicity($result === ['committed' => true], 'a successful COMMIT
 assert_capture_atomicity($callbackRuns === 1 && $wpdb->starts === 1, 'a successful COMMIT runs the callback exactly once');
 assert_capture_atomicity($wpdb->commits === 1 && $wpdb->rollbacks === 0, 'a successful COMMIT has no rollback');
 
-// If COMMIT returns but the following checkpoint reports contention, the
-// outcome is ambiguous: the server may already have committed the writes.
-// The wrapper must fail closed, never retrying the callback or rolling back.
+// A client-side error string after the same server connection positively
+// proves active->inactive cannot turn a durable commit into an ambiguous
+// retry. The exact server outcome wins over the stale client diagnostic.
 $wpdb->starts = $wpdb->commits = $wpdb->rollbacks = 0;
 $wpdb->commitCheckpointError = 'Deadlock found when trying to get lock';
 $callbackRuns = 0;
-$ambiguousCommit = null;
+$committedAfterClientError = $invokeConsistentSnapshot(static function () use (&$callbackRuns, &$wpdb): array {
+    $callbackRuns++;
+    $wpdb->kv['client_error_candidate'] = 'durable';
+    return ['committed' => true];
+});
+assert_capture_atomicity($committedAfterClientError === ['committed' => true],
+    'same-connection active-to-inactive proof accepts a committed result despite a stale client error');
+assert_capture_atomicity($callbackRuns === 1 && $wpdb->starts === 1,
+    'an outcome-proven COMMIT never replays the callback');
+assert_capture_atomicity($wpdb->commits === 1 && $wpdb->rollbacks === 0,
+    'an outcome-proven COMMIT never runs a compensating rollback');
+
+// A reconnect during COMMIT destroys that proof. Capture must translate the
+// exact Db outcome exception into its durable recovery refusal and never run
+// rollback or replay on the replacement connection.
+$wpdb->starts = $wpdb->commits = $wpdb->rollbacks = 0;
+$wpdb->replaceConnectionOnCommit = true;
+$callbackRuns = 0;
+$uncertainCommit = null;
 try {
-    $invokeConsistentSnapshot(static function () use (&$callbackRuns, &$wpdb): array {
+    $invokeConsistentSnapshot(static function () use (&$callbackRuns): array {
         $callbackRuns++;
-        $wpdb->kv['ambiguous_candidate'] = 'may-be-durable';
-        return ['ambiguous' => true];
+        return ['must-not-return' => true];
     });
-} catch (ReflectionException $e) {
-    throw $e;
-} catch (Throwable $e) {
-    $ambiguousCommit = $e;
+} catch (Throwable $failure) {
+    $uncertainCommit = $failure;
 }
-assert_capture_atomicity($ambiguousCommit instanceof RuntimeException, 'an ambiguous COMMIT fails closed');
-assert_capture_atomicity($ambiguousCommit !== null && str_contains($ambiguousCommit->getMessage(), 'commit outcome uncertain'), 'an ambiguous COMMIT names the uncertain outcome');
-assert_capture_atomicity($callbackRuns === 1 && $wpdb->starts === 1, 'an ambiguous COMMIT never retries the callback');
-assert_capture_atomicity($wpdb->commits === 1 && $wpdb->rollbacks === 0, 'an ambiguous COMMIT never rolls back after COMMIT returned');
+assert_capture_atomicity(
+    $uncertainCommit instanceof CommandRefusalException
+        && $uncertainCommit->reasonCode === 'capture_commit_uncertain',
+    'a connection replacement during COMMIT becomes the typed capture recovery refusal'
+);
+assert_capture_atomicity($callbackRuns === 1 && $wpdb->starts === 1,
+    'an uncertain reconnected COMMIT never replays the candidate');
+assert_capture_atomicity($wpdb->commits === 1 && $wpdb->rollbacks === 0,
+    'an uncertain reconnected COMMIT never rolls back on the replacement connection');
+Db::forget_transaction_tracking();
 
 // The production publication sequence keeps the database transaction open
 // across the retained-backup swap, writes the intent-bound commit marker as

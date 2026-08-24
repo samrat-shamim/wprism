@@ -329,7 +329,7 @@ final class TermMaterializer {
         $placeholders = implode(',', array_fill(0, count($taxonomies), '%s'));
         $wpdb->last_error = '';
         $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT tr.term_taxonomy_id, tt.taxonomy, tt.term_id "
+            'SELECT tr.term_taxonomy_id, tt.taxonomy, tt.term_id '
             . "FROM {$wpdb->term_relationships} tr FORCE INDEX (`{$this->relationshipLockIndex}`) "
             . "JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id "
             . "WHERE tr.object_id = %d AND tt.taxonomy IN ($placeholders) "

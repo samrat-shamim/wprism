@@ -1,6 +1,10 @@
 <?php
 namespace Duo;
 
+if (!class_exists(Db::class, false)) {
+    require_once __DIR__ . '/../Kernel/Db.php';
+}
+
 /** Versioned disaster-recovery sidecar for environment-bound identity. */
 final class IdentityBackup {
     public const FORMAT = 'duo-identity-ledger/v1';
@@ -10,16 +14,10 @@ final class IdentityBackup {
         $policy = Policy::load($repo);
         $compiled = RepositoryCompiler::compile($repo, $policy);
         $tables = self::tables_by_kind($policy);
-        global $wpdb;
-        self::query(
-            'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ',
-            'pinning identity export snapshot isolation'
-        );
-        self::query(
-            'START TRANSACTION WITH CONSISTENT SNAPSHOT',
-            'starting identity export snapshot'
-        );
+        $transactionStarted = false;
         try {
+            Db::start_consistent_snapshot('starting identity export snapshot');
+            $transactionStarted = true;
             Identity::assert_embedded_unique();
             Ledger::prune_dead_map();
             Snapshot::prune_dead_map($policy);
@@ -55,10 +53,12 @@ final class IdentityBackup {
                 'states' => $states,
             ];
             $artifact['integrity_sha256'] = self::hash($artifact);
-            $wpdb->query('COMMIT');
-            self::assert_db('committing identity export snapshot');
+            Db::commit('committing identity export snapshot');
+            $transactionStarted = false;
         } catch (\Throwable $t) {
-            $wpdb->query('ROLLBACK');
+            if ($transactionStarted) {
+                self::rollback_after_failure($t, 'rolling back identity export snapshot');
+            }
             throw $t;
         }
         return $artifact;
@@ -83,15 +83,10 @@ final class IdentityBackup {
             }
         }
         global $wpdb;
-        self::query(
-            'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ',
-            'pinning identity import snapshot isolation'
-        );
-        self::query(
-            'START TRANSACTION WITH CONSISTENT SNAPSHOT',
-            'starting identity import transaction'
-        );
+        $transactionStarted = false;
         try {
+            Db::start_consistent_snapshot('starting identity import transaction');
+            $transactionStarted = true;
             Identity::assert_embedded_unique();
             $maps = self::validate_maps($artifact['maps'] ?? null, self::tables_by_kind($policy));
             $states = self::validate_states($artifact['states'] ?? null);
@@ -127,10 +122,14 @@ final class IdentityBackup {
                 }
             }
 
-            $wpdb->query("DELETE FROM {$wpdb->prefix}duo_map");
-            self::assert_db('clearing identity mappings for restore');
-            $wpdb->query("DELETE FROM {$wpdb->prefix}duo_state");
-            self::assert_db('clearing sync state for restore');
+            Db::query(
+                "DELETE FROM {$wpdb->prefix}duo_map",
+                'clearing identity mappings for restore'
+            );
+            Db::query(
+                "DELETE FROM {$wpdb->prefix}duo_state",
+                'clearing sync state for restore'
+            );
             foreach ($incomingPlain as $row) {
                 Ledger::set($row['uuid'], $row['entity_type'], $row['id_kind'], $row['local_id']);
             }
@@ -144,10 +143,12 @@ final class IdentityBackup {
             if ($wpdb->last_error) {
                 throw new \RuntimeException("duo: failed restoring applied revision: {$wpdb->last_error}");
             }
-            $wpdb->query('COMMIT');
-            self::assert_db('committing identity import');
+            Db::commit('committing identity import');
+            $transactionStarted = false;
         } catch (\Throwable $t) {
-            $wpdb->query('ROLLBACK');
+            if ($transactionStarted) {
+                self::rollback_after_failure($t, 'rolling back identity import');
+            }
             throw $t;
         }
         return [
@@ -366,25 +367,42 @@ final class IdentityBackup {
         self::assert_identifier($metaTable, "$purpose table");
         self::assert_identifier($ownerColumn, "$purpose owner column");
         $rows = self::checked_rows($wpdb->prepare(
-            "SELECT meta_id, OCTET_LENGTH(meta_key) AS meta_key_bytes, "
-            . "OCTET_LENGTH(meta_value) AS meta_value_bytes, SHA2(meta_value, 256) AS meta_value_sha256 "
+            'SELECT meta_id, meta_key, OCTET_LENGTH(meta_key) AS meta_key_bytes, '
+            . 'OCTET_LENGTH(meta_value) AS meta_value_bytes '
             . "FROM `$metaTable` WHERE `$ownerColumn` = %d "
-            . "AND BINARY meta_key = BINARY '_duo_uuid' ORDER BY meta_id ASC LIMIT 2",
+            . "AND meta_key = '_duo_uuid' ORDER BY meta_id ASC LIMIT 3",
             $ownerId
         ), $purpose);
-        $expectedHash = hash('sha256', $uuid);
         if (count($rows) !== 1
             || !is_array($rows[0])
             || array_keys($rows[0]) !== [
-                'meta_id', 'meta_key_bytes', 'meta_value_bytes', 'meta_value_sha256',
+                'meta_id', 'meta_key', 'meta_key_bytes', 'meta_value_bytes',
             ]
-            || self::positive_integer($rows[0]['meta_id'] ?? null) === null
+            || ($metaId = self::positive_integer($rows[0]['meta_id'] ?? null)) === null
+            || !is_string($rows[0]['meta_key'] ?? null)
+            || !hash_equals('_duo_uuid', $rows[0]['meta_key'])
             || self::nonnegative_integer($rows[0]['meta_key_bytes'] ?? null) !== strlen('_duo_uuid')
-            || self::nonnegative_integer($rows[0]['meta_value_bytes'] ?? null) !== strlen($uuid)
-            || !is_string($rows[0]['meta_value_sha256'] ?? null)
-            || !hash_equals($expectedHash, $rows[0]['meta_value_sha256'])) {
+            || self::nonnegative_integer($rows[0]['meta_value_bytes'] ?? null) !== strlen($uuid)) {
             throw new \RuntimeException(
                 "duo: embedded identity does not verify for $uuid ($purpose:$ownerId)"
+            );
+        }
+        $payload = self::checked_rows($wpdb->prepare(
+            "SELECT meta_id, meta_key, meta_value FROM `$metaTable` "
+            . "WHERE `$ownerColumn` = %d AND meta_id = %d ORDER BY meta_id ASC LIMIT 2",
+            $ownerId,
+            $metaId
+        ), $purpose . ' bounded payload');
+        if (count($payload) !== 1
+            || !is_array($payload[0])
+            || array_keys($payload[0]) !== ['meta_id', 'meta_key', 'meta_value']
+            || self::positive_integer($payload[0]['meta_id'] ?? null) !== $metaId
+            || !is_string($payload[0]['meta_key'] ?? null)
+            || !hash_equals('_duo_uuid', $payload[0]['meta_key'])
+            || !is_string($payload[0]['meta_value'] ?? null)
+            || !hash_equals($uuid, $payload[0]['meta_value'])) {
+            throw new \RuntimeException(
+                "duo: embedded identity bounded payload does not verify for $uuid ($purpose:$ownerId)"
             );
         }
     }
@@ -425,19 +443,45 @@ final class IdentityBackup {
         return hash('sha256', Canon::encode($artifact));
     }
 
-    private static function assert_db(string $action): void {
-        global $wpdb;
-        if ($wpdb->last_error) {
-            throw new \RuntimeException("duo: database error while $action: {$wpdb->last_error}");
+    private static function rollback_after_failure(\Throwable $primary, string $context): void {
+        try {
+            $active = Db::transaction_active($context . ' boundary');
+        } catch (\Throwable $stateFailure) {
+            Db::forget_transaction_tracking();
+            throw new \RuntimeException(
+                'duo: identity transaction recovery could not prove the original transaction; '
+                . 'recovery_required; original=' . self::failure_fingerprint($primary)
+                . '; state=' . self::failure_fingerprint($stateFailure),
+                0,
+                $primary
+            );
+        }
+        if (!$active) {
+            Db::forget_transaction_tracking();
+            throw new \RuntimeException(
+                'duo: identity transaction ended before rollback; recovery_required; original='
+                . self::failure_fingerprint($primary),
+                0,
+                $primary
+            );
+        }
+        try {
+            Db::rollback($context);
+        } catch (\Throwable $rollbackFailure) {
+            Db::forget_transaction_tracking();
+            throw new \RuntimeException(
+                'duo: identity transaction rollback failed; recovery_required; original='
+                . self::failure_fingerprint($primary)
+                . '; rollback=' . self::failure_fingerprint($rollbackFailure),
+                0,
+                $primary
+            );
         }
     }
 
-    /** Checked transaction-control query without leaking driver SQL/value text. */
-    private static function query(string $sql, string $action): void {
-        global $wpdb;
-        $wpdb->last_error = '';
-        if ($wpdb->query($sql) === false || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException("duo: database error while $action");
-        }
+    private static function failure_fingerprint(\Throwable $failure): string {
+        $message = $failure->getMessage();
+        return get_class($failure) . ':' . strlen($message) . ':'
+            . substr(hash('sha256', $message), 0, 16);
     }
 }

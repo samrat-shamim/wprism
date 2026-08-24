@@ -188,7 +188,11 @@ foreach (token_get_all($source) as $token) {
     if (is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT, T_WHITESPACE], true)) continue;
     $code .= is_array($token) ? $token[1] : $token;
 }
-check_re(str_contains($source, 'START TRANSACTION READ ONLY, WITH CONSISTENT SNAPSHOT'), 'missing read-only consistent snapshot');
+check_re(
+    str_contains($source, "Db::start_read_only_consistent_snapshot('starting read-only production snapshot')")
+        && !str_contains($source, "self::query(\$wpdb, 'START TRANSACTION"),
+    'read-only export delegates exact isolation, connection, and transaction outcome proof to Db'
+);
 check_re(preg_match('/Ledger::(?:ensure|set|forget|prune_state|prune_dead_map|prune_dead_table_map|kv_set|kv_delete)\(/', $code) !== 1, 'exporter calls a forbidden ledger mutation');
 check_re(preg_match('/Snapshot::(?:repair_truncated_entity_types|prune_dead_map|prune_option_name_ref_map)\(/', $code) !== 1, 'exporter calls a forbidden snapshot repair');
 check_re(!str_contains($code, 'Canon::write_file('), 'exporter writes filesystem state');

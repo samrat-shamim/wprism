@@ -136,8 +136,10 @@ final class EntityMetaWpdbFixture {
         }
         $this->sql[] = $sql;
         $isPost = str_contains($sql, 'FROM `wp_postmeta`');
-        $preflight = str_contains($sql, 'OCTET_LENGTH(meta_key)');
-        $this->events[] = ($isPost ? 'query:post:' : 'query:term:') . ($preflight ? 'size' : 'value');
+        $sizePreflight = str_contains($sql, 'OCTET_LENGTH(meta_key)');
+        $hashWitness = str_contains($sql, 'SHA2(meta_key, 256)');
+        $phase = $sizePreflight ? 'size' : ($hashWitness ? 'hash' : 'value');
+        $this->events[] = ($isPost ? 'query:post:' : 'query:term:') . $phase;
         if ($this->forcedResult !== null) {
             if ($this->forcedResult === 'false') {
                 return false;
@@ -154,8 +156,6 @@ final class EntityMetaWpdbFixture {
                     'meta_id' => '1',
                     'meta_key_bytes' => '7',
                     'meta_value_bytes' => '5',
-                    'meta_key_sha256' => hash('sha256', 'fixture'),
-                    'meta_value_sha256' => hash('sha256', 'value'),
                 ]);
             }
             if ($this->forcedResult === 'oversized-value') {
@@ -163,25 +163,25 @@ final class EntityMetaWpdbFixture {
                     'meta_id' => '1',
                     'meta_key_bytes' => '7',
                     'meta_value_bytes' => (string) (\Duo\MetaRows::MAX_META_VALUE_BYTES + 1),
-                    'meta_key_sha256' => hash('sha256', 'fixture'),
-                    'meta_value_sha256' => hash('sha256', 'value'),
                 ]];
             }
             $forced = $this->forcedResult;
-            if ($preflight && is_array($forced) && array_is_list($forced)) {
-                return array_map(static function ($row) {
+            if (($sizePreflight || $hashWitness) && is_array($forced) && array_is_list($forced)) {
+                return array_map(static function ($row) use ($sizePreflight) {
                     if (!is_array($row)
                         || array_keys($row) !== ['meta_id', 'meta_key', 'meta_value']
                         || !is_string($row['meta_key'] ?? null)
                         || !(is_string($row['meta_value'] ?? null) || ($row['meta_value'] ?? null) === null)) {
                         return $row;
                     }
-                    return [
+                    return $sizePreflight ? [
                         'meta_id' => $row['meta_id'],
                         'meta_key_bytes' => (string) strlen($row['meta_key']),
                         'meta_value_bytes' => $row['meta_value'] === null
                             ? null
                             : (string) strlen($row['meta_value']),
+                    ] : [
+                        'meta_id' => $row['meta_id'],
                         'meta_key_sha256' => hash('sha256', $row['meta_key']),
                         'meta_value_sha256' => $row['meta_value'] === null
                             ? null
@@ -204,12 +204,14 @@ final class EntityMetaWpdbFixture {
                 : $left['meta_id'] <=> $right['meta_id'];
         });
         $projected = array_map(
-            static fn(array $row): array => $preflight ? [
+            static fn(array $row): array => $sizePreflight ? [
                 'meta_id' => (string) $row['meta_id'],
                 'meta_key_bytes' => (string) strlen($row['meta_key']),
                 'meta_value_bytes' => $row['meta_value'] === null
                     ? null
                     : (string) strlen($row['meta_value']),
+            ] : ($hashWitness ? [
+                'meta_id' => (string) $row['meta_id'],
                 'meta_key_sha256' => hash('sha256', $row['meta_key']),
                 'meta_value_sha256' => $row['meta_value'] === null
                     ? null
@@ -218,10 +220,10 @@ final class EntityMetaWpdbFixture {
                 'meta_id' => (string) $row['meta_id'],
                 'meta_key' => $row['meta_key'],
                 'meta_value' => $row['meta_value'],
-            ],
+            ]),
             $rows
         );
-        if ($preflight && $this->mutateSameLengthAfterPreflight && $rows !== []) {
+        if ($hashWitness && $this->mutateSameLengthAfterPreflight && $rows !== []) {
             $this->mutateSameLengthAfterPreflight = false;
             if ($isPost) {
                 $store =& $this->postRows;
@@ -305,21 +307,25 @@ $check($termByKey === [
 ],
     'term grouped context keeps every value in key/meta_id order');
 $check(array_map($normalizeSql, $wpdb->sql) === [
-    'SELECT `meta_id` AS meta_id, OCTET_LENGTH(meta_key) AS meta_key_bytes, OCTET_LENGTH(meta_value) AS meta_value_bytes, SHA2(meta_key, 256) AS meta_key_sha256, SHA2(meta_value, 256) AS meta_value_sha256 FROM `wp_postmeta` WHERE `post_id` = 7 ORDER BY `meta_id` ASC LIMIT 100001',
+    'SELECT `meta_id` AS meta_id, OCTET_LENGTH(meta_key) AS meta_key_bytes, OCTET_LENGTH(meta_value) AS meta_value_bytes FROM `wp_postmeta` WHERE `post_id` = 7 ORDER BY `meta_id` ASC LIMIT 100001',
+    'SELECT `meta_id` AS meta_id, SHA2(meta_key, 256) AS meta_key_sha256, SHA2(meta_value, 256) AS meta_value_sha256 FROM `wp_postmeta` WHERE `post_id` = 7 ORDER BY `meta_id` ASC LIMIT 100001',
     'SELECT `meta_id` AS meta_id, meta_key, meta_value FROM `wp_postmeta` WHERE `post_id` = 7 ORDER BY `meta_id` ASC LIMIT 100001',
-    'SELECT `meta_id` AS meta_id, OCTET_LENGTH(meta_key) AS meta_key_bytes, OCTET_LENGTH(meta_value) AS meta_value_bytes, SHA2(meta_key, 256) AS meta_key_sha256, SHA2(meta_value, 256) AS meta_value_sha256 FROM `wp_postmeta` WHERE `post_id` = 7 ORDER BY `meta_id` ASC LIMIT 100001',
+    'SELECT `meta_id` AS meta_id, OCTET_LENGTH(meta_key) AS meta_key_bytes, OCTET_LENGTH(meta_value) AS meta_value_bytes FROM `wp_postmeta` WHERE `post_id` = 7 ORDER BY `meta_id` ASC LIMIT 100001',
+    'SELECT `meta_id` AS meta_id, SHA2(meta_key, 256) AS meta_key_sha256, SHA2(meta_value, 256) AS meta_value_sha256 FROM `wp_postmeta` WHERE `post_id` = 7 ORDER BY `meta_id` ASC LIMIT 100001',
     'SELECT `meta_id` AS meta_id, meta_key, meta_value FROM `wp_postmeta` WHERE `post_id` = 7 ORDER BY `meta_id` ASC LIMIT 100001',
-    'SELECT `meta_id` AS meta_id, OCTET_LENGTH(meta_key) AS meta_key_bytes, OCTET_LENGTH(meta_value) AS meta_value_bytes, SHA2(meta_key, 256) AS meta_key_sha256, SHA2(meta_value, 256) AS meta_value_sha256 FROM `wp_termmeta` WHERE `term_id` = 9 ORDER BY `meta_id` ASC LIMIT 100001',
+    'SELECT `meta_id` AS meta_id, OCTET_LENGTH(meta_key) AS meta_key_bytes, OCTET_LENGTH(meta_value) AS meta_value_bytes FROM `wp_termmeta` WHERE `term_id` = 9 ORDER BY `meta_id` ASC LIMIT 100001',
+    'SELECT `meta_id` AS meta_id, SHA2(meta_key, 256) AS meta_key_sha256, SHA2(meta_value, 256) AS meta_value_sha256 FROM `wp_termmeta` WHERE `term_id` = 9 ORDER BY `meta_id` ASC LIMIT 100001',
     'SELECT `meta_id` AS meta_id, meta_key, meta_value FROM `wp_termmeta` WHERE `term_id` = 9 ORDER BY `meta_id` ASC LIMIT 100001',
-    'SELECT `meta_id` AS meta_id, OCTET_LENGTH(meta_key) AS meta_key_bytes, OCTET_LENGTH(meta_value) AS meta_value_bytes, SHA2(meta_key, 256) AS meta_key_sha256, SHA2(meta_value, 256) AS meta_value_sha256 FROM `wp_termmeta` WHERE `term_id` = 9 ORDER BY `meta_id` ASC LIMIT 100001',
+    'SELECT `meta_id` AS meta_id, OCTET_LENGTH(meta_key) AS meta_key_bytes, OCTET_LENGTH(meta_value) AS meta_value_bytes FROM `wp_termmeta` WHERE `term_id` = 9 ORDER BY `meta_id` ASC LIMIT 100001',
+    'SELECT `meta_id` AS meta_id, SHA2(meta_key, 256) AS meta_key_sha256, SHA2(meta_value, 256) AS meta_value_sha256 FROM `wp_termmeta` WHERE `term_id` = 9 ORDER BY `meta_id` ASC LIMIT 100001',
     'SELECT `meta_id` AS meta_id, meta_key, meta_value FROM `wp_termmeta` WHERE `term_id` = 9 ORDER BY `meta_id` ASC LIMIT 100001',
-], 'all four reads preflight compact byte witnesses before deterministic full-value reads');
+], 'all four reads bound sizes, then hashes, before deterministic full-value reads');
 $check($wpdb->events === [
-    'query:post:size', 'checkpoint', 'query:post:value', 'checkpoint',
-    'query:post:size', 'checkpoint', 'query:post:value', 'checkpoint',
-    'query:term:size', 'checkpoint', 'query:term:value', 'checkpoint',
-    'query:term:size', 'checkpoint', 'query:term:value', 'checkpoint',
-], 'observation checkpoints run immediately after each compact and full metadata read');
+    'query:post:size', 'checkpoint', 'query:post:hash', 'checkpoint', 'query:post:value', 'checkpoint',
+    'query:post:size', 'checkpoint', 'query:post:hash', 'checkpoint', 'query:post:value', 'checkpoint',
+    'query:term:size', 'checkpoint', 'query:term:hash', 'checkpoint', 'query:term:value', 'checkpoint',
+    'query:term:size', 'checkpoint', 'query:term:hash', 'checkpoint', 'query:term:value', 'checkpoint',
+], 'observation checkpoints run immediately after each size, hash, and payload metadata read');
 
 foreach (['false', 'null', 'error'] as $failureMode) {
     $wpdb->forcedResult = $failureMode;

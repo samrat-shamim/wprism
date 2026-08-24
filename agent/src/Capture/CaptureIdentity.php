@@ -112,7 +112,7 @@ final class CaptureIdentity {
             $wpdb->last_error = '';
         }
         $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT meta_key, LEFT(meta_value, 37) AS meta_value, OCTET_LENGTH(meta_value) AS meta_value_bytes "
+            'SELECT meta_key, LEFT(meta_value, 37) AS meta_value, OCTET_LENGTH(meta_value) AS meta_value_bytes '
             . "FROM `$table` WHERE `$ownerColumn` = %d AND meta_key = %s ORDER BY meta_id ASC LIMIT 3",
             $ownerId,
             '_duo_uuid'

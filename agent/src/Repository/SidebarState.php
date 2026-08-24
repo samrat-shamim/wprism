@@ -248,8 +248,8 @@ final class SidebarState {
         global $wpdb;
         $wpdb->last_error = '';
         $preflight = $wpdb->get_results(
-            "SELECT option_name, OCTET_LENGTH(option_value) AS option_value_bytes, "
-            . "SHA2(option_value, 256) AS option_value_sha256 "
+            'SELECT option_name, OCTET_LENGTH(option_value) AS option_value_bytes, '
+            . 'SHA2(option_value, 256) AS option_value_sha256 '
             . "FROM {$wpdb->options} WHERE option_name LIKE 'widget\\_%' "
             . 'ORDER BY option_name ASC, option_id ASC LIMIT ' . (self::MAX_WIDGET_FAMILIES + 1),
             ARRAY_A
@@ -409,7 +409,7 @@ final class SidebarState {
             foreach ($keys as $position => $instanceKey) {
                 if (!is_string($instanceKey) || self::parse_widget_instance_key($instanceKey) === null) {
                     throw new \RuntimeException(
-                        "duo: option sidebars_widgets sidebar identity fingerprint "
+                        'duo: option sidebars_widgets sidebar identity fingerprint '
                         . self::identity_fingerprint($sidebar)
                         . " has a malformed widget assignment at position $position"
                     );
