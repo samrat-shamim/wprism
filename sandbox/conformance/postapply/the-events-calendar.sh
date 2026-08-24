@@ -15,18 +15,16 @@ tec_postapply_cutoff_sentinel() {
   [ -f "$target_ids_file" ] \
     || fail "TEC target identity premise is missing: $target_ids_file"
   target_ids=$(cat "$target_ids_file")
+  expected=$(jq -c '.cutoff_sentinel' <<<"$target_ids")
+  sentinel_id=$(jq -er '.id' <<<"$expected")
+  require_fixture_ids sentinel_id
 
   sentinel=$(wp_conf2 eval '
-$posts = get_posts([
-    "post_type" => "tribe_events",
-    "post_status" => "any",
-    "posts_per_page" => 2,
-    "title" => "Duo Target Local All Day Cutoff Sentinel",
-]);
-if (count($posts) !== 1) {
-    throw new RuntimeException("target-local cutoff sentinel cardinality changed");
+$id = '"$sentinel_id"';
+$post = get_post($id);
+if (!$post instanceof WP_Post || (int) $post->ID !== $id) {
+    throw new RuntimeException("target-local cutoff sentinel identity changed");
 }
-$post = $posts[0];
 $meta = [];
 foreach (["_EventAllDay", "_EventStartDate", "_EventEndDate", "_EventDuration"] as $key) {
     $meta[$key] = get_post_meta($post->ID, $key, true);
@@ -43,13 +41,10 @@ echo wp_json_encode([
 ') || fail 'TEC target-local cutoff sentinel could not be observed after apply'
   require_observed_nonempty 'TEC target-local cutoff sentinel after apply' "$sentinel"
   sentinel_json=$(printf '%s\n' "$sentinel" | awk 'NF { line=$0 } END { print line }')
-  expected=$(jq -c '.cutoff_sentinel' <<<"$target_ids")
   jq -e --argjson expected "$expected" '. == $expected' <<<"$sentinel_json" >/dev/null \
     || fail 'TEC hook-bypassing settings apply mutated or deleted the target-local all-day sentinel'
   pass 'TEC preserved the target-local multi-day-cutoff setting and all-day event bytes without invoking broad native callbacks'
 
-  sentinel_id=$(jq -er '.id' <<<"$sentinel_json")
-  require_fixture_ids sentinel_id
   wp_conf2 eval '
 global $wpdb;
 $id = '"$sentinel_id"';

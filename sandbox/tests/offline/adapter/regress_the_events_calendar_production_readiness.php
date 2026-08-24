@@ -8009,7 +8009,9 @@ duo_check(
     'the exact TEC check has no caller-relative host-PHP dependency'
 );
 foreach ([
+    "expected=$(jq -c '.cutoff_sentinel'",
     'sentinel_id=$(jq -er',
+    '$post = get_post($id)',
     'wp_delete_post($id, true)',
     'SELECT COUNT(*) FROM {$wpdb->term_relationships} WHERE object_id=%d',
     'target-local cutoff sentinel cleanup retained durable owner rows',
@@ -8021,13 +8023,18 @@ foreach ([
     );
 }
 duo_check(
+    !str_contains($sentinelPostapply, 'get_posts(')
+        && !str_contains($sentinelPostapply, '"title" => "Duo Target Local All Day Cutoff Sentinel"'),
+    'the exact post-apply witness reads its sealed target ID instead of entering TEC filtered event discovery'
+);
+duo_check(
     strpos($sentinelPostapply, 'TEC hook-bypassing settings apply mutated or deleted the target-local all-day sentinel')
         < strpos($sentinelPostapply, 'wp_delete_post($id, true)'),
     'the exact post-apply hook removes its target-local sentinel only after its byte-preservation proof'
 );
 duo_check(
-    !str_contains($deletionCheck, 'Duo Target Local All Day Cutoff Sentinel')
-        && str_contains($sentinelPostapply, 'Duo Target Local All Day Cutoff Sentinel'),
+    !str_contains($deletionCheck, 'tec_postapply_cutoff_sentinel')
+        && str_contains($sentinelPostapply, 'tec_postapply_cutoff_sentinel'),
     'the render check cannot run the target-local sentinel proof after generic canonical recapture'
 );
 duo_check(
