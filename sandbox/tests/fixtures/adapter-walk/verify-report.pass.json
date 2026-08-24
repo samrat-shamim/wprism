@@ -30,7 +30,7 @@
             "url": "/?page_id=1"
         }
     ],
-    "plan_digest": "sha256:c9631de5eb7e0487dea7cb18ad9514c77692d5d1ffef29724eec8bd31fda0d45",
+    "plan_digest": "sha256:d9fcd96a9faa6b337c42effeba05ddb300b72105c7ec3a048936a5a57b027a80",
     "uncovered_surfaces": [],
     "verdict": "pass"
 }

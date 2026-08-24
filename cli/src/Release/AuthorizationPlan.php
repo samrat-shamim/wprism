@@ -46,11 +46,24 @@ use Duo\CommandRefusalException;
  * §2.3.1 shows an illustrative document, not a closed schema. Three keys are
  * added, each because a §2.3 requirement has nowhere else to live:
  *
- *  - **`inputs_digest`** — `{plan_sha256, target_facts_sha256}`. §2.3 step 3
- *    invalidates authorization on *any* difference between the frozen plan
- *    and a recomputed one. The frozen document must therefore carry a digest
- *    of every input it was computed from, or "recompute and compare" reduces
- *    to comparing the handful of fields that happened to be printed.
+ *  - **`inputs_digest`** — `{conditions_sha256, plan_sha256,
+ *    target_facts_sha256}`. §2.3 step 3 invalidates authorization on *any*
+ *    difference between the frozen plan and a recomputed one. The frozen
+ *    document must therefore carry a digest of every input it was computed
+ *    from, or "recompute and compare" reduces to comparing the handful of
+ *    fields that happened to be printed. `conditions_sha256` is the third key
+ *    and the one this build added: `plan_sha256` and `target_facts_sha256`
+ *    are recomputed from a fresh target read, but `capabilities` was COPIED
+ *    into the frozen plan and therefore re-hashed to its own frozen value by
+ *    construction — so the two conditions §1.3 promises are "re-evaluated at
+ *    the mutation gate" could not move the comparison at all. It digests the
+ *    per-MANIFEST condition vector (`conditionVector()`), because that is the
+ *    only projection of a condition the gate can recompute: the gate re-reads
+ *    one `wp duo capabilities` document and has no surface join.
+ *    `validate()` deliberately does NOT require the key, so a plan frozen by
+ *    an older build still reads back for `duo verify --plan=<digest>`; a
+ *    missing key compares `''` at the gate and refuses loudly as
+ *    `plan_changed` rather than being defaulted away.
  *  - **`recovery_profile.claim`** — the `duo-recovery-claim/v1` array,
  *    embedded verbatim instead of flattened into `restores` /
  *    `does_not_restore` / `writer_exclusion` / `maximum_loss_boundary`.
@@ -199,6 +212,7 @@ final class AuthorizationPlan {
             'format' => self::FORMAT,
             'frozen_at' => (string) $inputs['frozen_at'],
             'inputs_digest' => [
+                'conditions_sha256' => self::conditionsDigest($inputs['capabilities']),
                 'plan_sha256' => 'sha256:' . hash('sha256', Canon::encode($plan)),
                 'target_facts_sha256' => 'sha256:' . hash('sha256', Canon::encode($inputs['target'])),
             ],
@@ -478,6 +492,7 @@ final class AuthorizationPlan {
             'code_revision_from' => (string) ($inputs['target']['code_revision_from'] ?? ''),
             'contract_digest' => $contract === null ? '' : (string) ($contract['contract_digest'] ?? ''),
             'environment' => (string) $inputs['environment'],
+            'conditions_sha256' => self::conditionsDigest($inputs['capabilities']),
             'plan_sha256' => 'sha256:' . hash('sha256', Canon::encode($inputs['plan'])),
             'target_facts_sha256' => 'sha256:' . hash('sha256', Canon::encode($inputs['target'])),
         ];
@@ -501,6 +516,7 @@ final class AuthorizationPlan {
             'code_revision_from' => (string) ($planDocument['code_revision_from'] ?? ''),
             'contract_digest' => (string) ($planDocument['contract_digest'] ?? ''),
             'environment' => (string) ($planDocument['environment'] ?? ''),
+            'conditions_sha256' => (string) ($planDocument['inputs_digest']['conditions_sha256'] ?? ''),
             'plan_sha256' => (string) ($planDocument['inputs_digest']['plan_sha256'] ?? ''),
             'target_facts_sha256' => (string) ($planDocument['inputs_digest']['target_facts_sha256'] ?? ''),
         ];
@@ -523,6 +539,284 @@ final class AuthorizationPlan {
                 [['changed_fields' => $changed]]
             );
         }
+    }
+
+    /**
+     * The per-MANIFEST condition vector a frozen plan is digested over.
+     *
+     * Per manifest, not per surface, and that is forced rather than chosen:
+     * the mutation gate re-observes conditions by re-reading ONE
+     * `wp duo capabilities` document (`AssessCommand::capabilityReport()`),
+     * which knows manifests and knows nothing about which surface a claim was
+     * joined to — `SurfaceCatalog::catalog()` needs the inventory and the
+     * contract to make that join, and running it again at the gate would be a
+     * second full assessment inside the confirmation window. Grouping both
+     * sides the same way is what makes the frozen digest and the gate-time
+     * digest comparable at all.
+     *
+     * Rows are deduped and sorted inside each manifest, so two surfaces
+     * carrying the same adapter's one condition contribute one entry and the
+     * digest does not move when a surface is added to scope without changing
+     * a single observation.
+     *
+     * `rechecked_at` is deliberately NOT in the vector: it is the constant
+     * word `mutation gate`, a label rather than an observation, and a value
+     * that never varies contributes nothing to a comparison.
+     *
+     * @param list<array<string,mixed>> $capabilities the plan's capability rows
+     * @return array<string,list<array<string,mixed>>>
+     */
+    public static function conditionVector(array $capabilities): array {
+        $byManifest = [];
+        foreach ($capabilities as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            foreach ((array) ($row['conditions'] ?? []) as $condition) {
+                // A prose condition is a plan frozen by a build older than the
+                // gate. It contributes nothing here rather than being coerced
+                // into a fact vector nobody observed; the gate refuses it out
+                // loud as uncheckable (recheckConditions() below).
+                if (!is_array($condition)) {
+                    continue;
+                }
+                $byManifest[(string) ($condition['manifest'] ?? '')][] = self::conditionFacts($condition);
+            }
+        }
+        foreach ($byManifest as $manifest => $rows) {
+            $unique = [];
+            foreach ($rows as $facts) {
+                $unique[Canon::encode($facts)] = $facts;
+            }
+            ksort($unique, SORT_STRING);
+            $byManifest[$manifest] = array_values($unique);
+        }
+        ksort($byManifest, SORT_STRING);
+
+        return $byManifest;
+    }
+
+    /**
+     * The frozen capability rows with every condition replaced by what the
+     * target reports NOW, for the same manifest.
+     *
+     * This is what `currentFacts()` is handed at the mutation gate, and it is
+     * the fail-closed backstop behind `recheckConditions()`: even if the named
+     * refusal below missed a shape, `reverify()`'s digest comparison still
+     * refuses, because the vector it hashes is built from the fresh
+     * observation rather than from the copy the plan already carried.
+     *
+     * @param list<array<string,mixed>> $capabilities
+     * @param array<string,list<array<string,mixed>>> $observedByManifest
+     * @return list<array<string,mixed>>
+     */
+    public static function withObservedConditions(array $capabilities, array $observedByManifest): array {
+        $out = [];
+        foreach ($capabilities as $row) {
+            if (is_array($row)) {
+                $manifest = (string) ($row['manifest'] ?? '');
+                $row['conditions'] = $manifest === ''
+                    ? []
+                    : array_values($observedByManifest[$manifest] ?? []);
+            }
+            $out[] = $row;
+        }
+
+        return $out;
+    }
+
+    /**
+     * Re-check every machine-checkable condition the frozen plan names,
+     * against the target as it is at the mutation gate.
+     *
+     * The product spec is one sentence and this method is it:
+     * *"execution is permitted only when every named, machine-checkable
+     * condition is satisfied and rechecked at the mutation gate. An unmet or
+     * uncheckable condition blocks."* (docs/product-spec.md:302-303.)
+     *
+     * Two named refusals, both post-freeze failure class `capability_expired`
+     * and therefore next action `requalify`:
+     *
+     *  - **`release_condition_uncheckable`** — a manifest the plan named is
+     *    absent from the fresh report, or a condition row carries no `subject`
+     *    to re-probe. Uncheckable blocks; it never passes quietly.
+     *  - **`release_condition_changed`** — an observation moved, a condition
+     *    appeared for a plan-named manifest, or one was withdrawn.
+     *
+     * Both are raised BEFORE `reverify()`'s generic `plan_changed`, and that
+     * ordering is the whole point of having them: `plan_changed` is documented
+     * as "a post-freeze failure that mutated nothing", which is exactly why
+     * its next action is `retry` (ReleaseCommand.php:444-446). Telling an
+     * operator to retry after a plugin was deactivated sends them straight
+     * into an identical refusal — the argument `NextAction`'s own docblock
+     * makes about never letting one failure class acquire two answers.
+     *
+     * The diagnostics name `code`, `subject`, `manifest` and `state`, and
+     * never an observed VALUE. Same public-envelope rule `reverify()` states
+     * above: a refusal an operator pastes into a ticket must not carry a fact
+     * about the target that the operator did not choose to publish.
+     *
+     * @param array<string,mixed> $planDocument a frozen plan
+     * @param array<string,list<array<string,mixed>>> $observedByManifest from
+     *        `SurfaceCatalog::conditionsByManifest()` on a freshly read report
+     * @param string $at the instant the re-observation was made
+     * @return array{at:string,checked:int,conditions:int,manifests:list<string>}
+     */
+    public static function recheckConditions(array $planDocument, array $observedByManifest, string $at): array {
+        $capabilities = is_array($planDocument['capabilities'] ?? null) ? $planDocument['capabilities'] : [];
+        $frozen = [];
+        foreach ($capabilities as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $manifest = (string) ($row['manifest'] ?? '');
+            $conditions = (array) ($row['conditions'] ?? []);
+            if ($manifest === '') {
+                // A surface no claim covers names no manifest and therefore
+                // carries no condition to re-check. It is not silently
+                // skipped: if such a row DID carry conditions, the plan is
+                // shaped in a way this gate cannot re-probe, and that blocks.
+                if ($conditions !== []) {
+                    throw self::conditionRefusal(
+                        'release_condition_uncheckable',
+                        'a condition in the frozen plan names no manifest, so it cannot be re-observed',
+                        [['manifest' => '', 'state' => 'unattributed']]
+                    );
+                }
+                continue;
+            }
+            $frozen[$manifest] = array_merge($frozen[$manifest] ?? [], $conditions);
+        }
+
+        $names = array_keys($frozen);
+        sort($names, SORT_STRING);
+        $rowCount = 0;
+        foreach ($names as $manifest) {
+            if (!array_key_exists($manifest, $observedByManifest)) {
+                throw self::conditionRefusal(
+                    'release_condition_uncheckable',
+                    'a manifest this release was authorized against is absent from the capability report the '
+                        . 'target answers with now, so its conditions cannot be re-observed',
+                    [['manifest' => $manifest, 'state' => 'absent_from_report']]
+                );
+            }
+            $frozenRows = self::conditionIndex($frozen[$manifest], $manifest);
+            $observedRows = self::conditionIndex($observedByManifest[$manifest], $manifest);
+            foreach ($observedRows as $key => $facts) {
+                if (!array_key_exists($key, $frozenRows)) {
+                    throw self::conditionDrift($manifest, $facts, 'appeared');
+                }
+                if (!hash_equals(Canon::encode($frozenRows[$key]), Canon::encode($facts))) {
+                    throw self::conditionDrift($manifest, $facts, 'moved');
+                }
+            }
+            foreach ($frozenRows as $key => $facts) {
+                if (!array_key_exists($key, $observedRows)) {
+                    throw self::conditionDrift($manifest, $facts, 'withdrawn');
+                }
+            }
+            $rowCount += count($observedRows);
+        }
+
+        return ['at' => $at, 'checked' => count($names), 'conditions' => $rowCount, 'manifests' => $names];
+    }
+
+    /**
+     * The five compared facts of one condition row, normalized.
+     *
+     * @param array<string,mixed> $condition
+     * @return array<string,mixed>
+     */
+    private static function conditionFacts(array $condition): array {
+        return [
+            'check' => (string) ($condition['check'] ?? ''),
+            'code' => (string) ($condition['code'] ?? ''),
+            'observed' => (string) ($condition['observed'] ?? ''),
+            'satisfied' => (bool) ($condition['satisfied'] ?? false),
+            'subject' => (string) ($condition['subject'] ?? ''),
+        ];
+    }
+
+    /** `sha256:` over the canonical per-manifest condition vector. */
+    private static function conditionsDigest(array $capabilities): string {
+        return 'sha256:' . hash('sha256', Canon::encode(self::conditionVector($capabilities)));
+    }
+
+    /**
+     * One manifest's condition rows, keyed by the identity the gate compares
+     * on — `<code>\0<subject>`. A row with no subject names nothing to
+     * re-probe and refuses here rather than being compared as if it had.
+     *
+     * @param array<int,mixed> $conditions
+     * @return array<string,array<string,mixed>>
+     */
+    private static function conditionIndex(array $conditions, string $manifest): array {
+        $index = [];
+        foreach ($conditions as $condition) {
+            if (!is_array($condition)) {
+                // A prose condition: a plan frozen before conditions carried
+                // machine facts, or a report from an agent that does not emit
+                // them. Either way there is nothing to re-observe.
+                throw self::conditionRefusal(
+                    'release_condition_uncheckable',
+                    'a condition carries prose only, with no code or subject this build can re-observe',
+                    [['manifest' => $manifest, 'state' => 'not_machine_checkable']]
+                );
+            }
+            $facts = self::conditionFacts($condition);
+            if ($facts['subject'] === '' || $facts['code'] === '') {
+                throw self::conditionRefusal(
+                    'release_condition_uncheckable',
+                    'a condition names no subject to re-observe at the mutation gate',
+                    [[
+                        'code' => $facts['code'],
+                        'manifest' => $manifest,
+                        'state' => 'no_subject',
+                        'subject' => $facts['subject'],
+                    ]]
+                );
+            }
+            $index[$facts['code'] . "\0" . $facts['subject']] = $facts;
+        }
+
+        return $index;
+    }
+
+    /**
+     * @param array<string,mixed> $facts a conditionFacts() row
+     */
+    private static function conditionDrift(string $manifest, array $facts, string $state): CommandRefusalException {
+        return self::conditionRefusal(
+            'release_condition_changed',
+            'a condition this release was authorized against no longer holds on the target, so that '
+                . 'authorization no longer applies',
+            // `code`, `subject`, `manifest`, `state` — and never the observed
+            // value. reverify()'s rule, restated: this is a public envelope.
+            [[
+                'code' => (string) $facts['code'],
+                'manifest' => $manifest,
+                'state' => $state,
+                'subject' => (string) $facts['subject'],
+            ]]
+        );
+    }
+
+    /**
+     * @param list<array<string,mixed>> $diagnostics
+     */
+    private static function conditionRefusal(
+        string $code,
+        string $message,
+        array $diagnostics
+    ): CommandRefusalException {
+        return new CommandRefusalException(
+            $code,
+            $message,
+            'nothing was written. Re-run duo assess to re-observe the target, then duo release to freeze a '
+                . 'fresh authorization plan against the conditions that hold now. Do not retry this release: it '
+                . 'was authorized against a condition the target no longer reports.',
+            $diagnostics
+        );
     }
 
     /**

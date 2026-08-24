@@ -594,15 +594,40 @@ final class AdapterRegistry {
             $installed = isset($target['plugins'][$plugin])
                 ? (string) $target['plugins'][$plugin]
                 : TargetProbe::installed_plugin_version($plugin);
+            // The three machine facts the mutation gate re-observes each of
+            // these conditions against. They ride BESIDE `message`, whose bytes
+            // are unchanged: every prose consumer (the projection's
+            // `conditions` list, the blocker rows, docs/assess-vocabulary.md's
+            // table) reads the sentence and is untouched, while
+            // `SurfaceCatalog::conditionRows()` reads these and mints the row
+            // `AuthorizationPlanRenderer::conditionLine()` (:387-401) has
+            // always known how to print and nothing has ever produced. Without
+            // `subject` the gate has no name to re-probe and the condition is
+            // uncheckable, which docs/product-spec.md:302-303 says must block.
             if ($installed === null || !self::inside_range($installed, $range)) {
                 $reasons[] = self::reason(
                     'plugin_version_mismatch',
-                    "$plugin " . ($installed ?? '(missing)') . ' is outside the certified range'
+                    "$plugin " . ($installed ?? '(missing)') . ' is outside the certified range',
+                    '',
+                    [
+                        'check' => self::certified_window($plugin, $range),
+                        // '' rather than '(missing)': `observed` is compared,
+                        // never rendered as a sentence, and an unreadable
+                        // plugin that later reports a version must register at
+                        // the gate as a MOVED observation.
+                        'observed' => $installed ?? '',
+                        'subject' => $plugin,
+                    ]
                 );
             }
             if (isset($target['active_plugins'])
                 && !in_array($plugin, (array) $target['active_plugins'], true)) {
-                $reasons[] = self::reason('plugin_not_active', "$plugin is not active on the evaluated target");
+                $reasons[] = self::reason(
+                    'plugin_not_active',
+                    "$plugin is not active on the evaluated target",
+                    '',
+                    ['check' => "$plugin active", 'observed' => 'inactive', 'subject' => $plugin]
+                );
             }
         }
         return $reasons;
@@ -637,11 +662,42 @@ final class AdapterRegistry {
      * `remediation` in a blocker row already reads as "no specific action
      * beyond the reason itself".
      */
-    private static function reason(string $code, string $message, string $remediation = ''): array {
+    private static function reason(
+        string $code,
+        string $message,
+        string $remediation = '',
+        array $facts = []
+    ): array {
         $reason = ['code' => $code, 'message' => $message];
         if ($remediation !== '') {
             $reason['remediation'] = $remediation;
         }
+        // Additive and closed: only the three keys the mutation gate re-probes
+        // against, and only where the raising site actually observed them. A
+        // reason that carries none is byte-identical to what this build
+        // shipped before, so `surface_reason()`, `report()`'s blocker rows and
+        // every prose consumer see exactly the document they always saw.
+        foreach (['check', 'observed', 'subject'] as $key) {
+            if (array_key_exists($key, $facts)) {
+                $reason[$key] = (string) $facts[$key];
+            }
+        }
         return $reason;
+    }
+
+    /**
+     * The certified plugin window as one printable check, e.g.
+     * `woocommerce in 10.0.0-11.0.0` — min inclusive, max exclusive, exactly
+     * the arithmetic inside_range() above applies. A claim whose range is
+     * unreadable still names its subject rather than printing half a window:
+     * the host COMPARES this string at the gate, it never parses it.
+     *
+     * @param mixed $range
+     */
+    private static function certified_window(string $plugin, $range): string {
+        if (!is_array($range) || !is_string($range['min'] ?? null) || !is_string($range['max'] ?? null)) {
+            return $plugin . ' inside its certified range';
+        }
+        return $plugin . ' in ' . $range['min'] . '-' . $range['max'];
     }
 }

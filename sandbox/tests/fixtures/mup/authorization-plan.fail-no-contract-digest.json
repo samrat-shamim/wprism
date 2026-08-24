@@ -18,6 +18,7 @@
         {
             "certification_provenance": "Platform-certified",
             "conditions": [],
+            "manifest": "core",
             "name": "core",
             "operation": "promote",
             "readiness": "Ready"
@@ -43,6 +44,7 @@
     "format": "duo-authorization-plan/v1",
     "frozen_at": "2026-08-17T09:14:02Z",
     "inputs_digest": {
+        "conditions_sha256": "sha256:37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
         "plan_sha256": "sha256:584648f2727f5256670dc123087c3c36fcfaf83d1a349c5cac54daeba691c399",
         "target_facts_sha256": "sha256:6d7e1e6ba396dce932c29c966679d6eb611377a1d144000f15017ae0b961829b"
     },
@@ -71,7 +73,7 @@
             "environment-bound state drift (1)"
         ]
     },
-    "plan_digest": "sha256:a71ee8373817cd1618ab3fcc86d4f16a0b9d5e8fa11e7931c5f22eab748a54f6",
+    "plan_digest": "sha256:001745ed23e639e89dd704d93947c96986ead1c863c126c12342437832c00257",
     "recovery_profile": {
         "checkpoint_at": "2026-08-17T09:14:02Z",
         "claim": {

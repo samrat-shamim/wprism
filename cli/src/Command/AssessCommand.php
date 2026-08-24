@@ -268,19 +268,7 @@ final class AssessCommand {
         $composition[] = 'capabilities';
         $registryReports = [];
         foreach (self::registryOperations($operations) as $registryOperation) {
-            $registryReports[$registryOperation] = self::agentJson(
-                $driver,
-                [
-                    // --adoption-preview: on an adoption seed the agent answers
-                    // against the init proposal — the same policy the inventory
-                    // above was projected against — so surfaces and claims join
-                    // (T7 grind A4); on an init-owned repository it is inert.
-                    'duo', 'capabilities', '--repo=' . $driver->repoPath(),
-                    '--operation=' . $registryOperation, '--adoption-preview', '--format=json',
-                ],
-                'assess_registry_unavailable',
-                'the target could not evaluate its reviewed capability claims for this operation'
-            );
+            $registryReports[$registryOperation] = self::capabilityReport($driver, $registryOperation);
         }
 
         $composition[] = 'adapter-catalog';
@@ -337,6 +325,41 @@ final class AssessCommand {
             'operations' => $operations,
             'composition' => $composition,
         ];
+    }
+
+    /**
+     * ONE reviewed-capability read from the target, for one registry
+     * operation.
+     *
+     * Extracted from the loop above so the mutation gate can re-observe
+     * through IDENTICAL argv. That is structural, not tidiness: the gate's
+     * whole job is to compare a condition observed at freeze with the same
+     * condition observed now, and two call sites that drifted by one flag
+     * (`--adoption-preview` being the one that matters — on an adoption seed
+     * it decides which policy the claims are answered against, T7 grind A4)
+     * would make the comparison a comparison of two different questions.
+     *
+     * It is a targeted re-probe rather than a fresh `assess()`: no doctor, no
+     * inventory, no bootstrap, no init probe — one `wp duo capabilities` call
+     * standing between the operator's confirmation and the first mutating
+     * call.
+     *
+     * @return array<string,mixed> an `AdapterRegistry::report()` document
+     */
+    public static function capabilityReport(EnvironmentDriver $driver, string $registryOperation): array {
+        return self::agentJson(
+            $driver,
+            [
+                // --adoption-preview: on an adoption seed the agent answers
+                // against the init proposal — the same policy the inventory
+                // was projected against — so surfaces and claims join
+                // (T7 grind A4); on an init-owned repository it is inert.
+                'duo', 'capabilities', '--repo=' . $driver->repoPath(),
+                '--operation=' . $registryOperation, '--adoption-preview', '--format=json',
+            ],
+            'assess_registry_unavailable',
+            'the target could not evaluate its reviewed capability claims for this operation'
+        );
     }
 
     /**

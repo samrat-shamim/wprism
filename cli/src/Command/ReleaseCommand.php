@@ -11,6 +11,7 @@ require_once __DIR__ . '/../Plan/PlanSummary.php';
 require_once __DIR__ . '/../Contract/ApplicationContract.php';
 require_once __DIR__ . '/../Contract/ContractStore.php';
 require_once __DIR__ . '/../Contract/ProjectionVocabulary.php';
+require_once __DIR__ . '/../Assess/SurfaceCatalog.php';
 require_once __DIR__ . '/../Recovery/RecoveryClaim.php';
 require_once __DIR__ . '/../Recovery/RollbackAuthority.php';
 require_once __DIR__ . '/../Recovery/RecoveryProfileSelection.php';
@@ -88,9 +89,23 @@ use Duo\CommandRefusalException;
  *     having mutated nothing, and otherwise the confirmed plan is written to
  *     `.duo/releases/<plan_digest>.json` in the LOCAL site repository BEFORE
  *     any target mutation — the spec's "durably bind and present".
- *  6. **Execute**, with `AuthorizationPlan::reverify()` immediately before the
- *     mutating call: any difference between the frozen plan and the target as
- *     it is at that instant invalidates the authorization (`plan_changed`).
+ *  6. **Execute**, with the mutation gate immediately before the mutating
+ *     call and after the operator's confirmation. FOUR facts are re-observed
+ *     against the target as it is at that instant, not three: the agent plan
+ *     envelope, the target `HEAD`, the target artifact hash, and — through one
+ *     `AssessCommand::capabilityReport()` read — the reviewed capability
+ *     claims. The fourth is what closes the spec's condition sentence
+ *     (docs/product-spec.md:302-303): `capabilities` was copied into the
+ *     frozen plan, so before this build every condition it named re-hashed to
+ *     its own frozen value and a plugin deactivated or downgraded inside the
+ *     confirmation window released anyway. The refusals, in the order they are
+ *     raised: `evidence_not_current` (the reviewed library moved),
+ *     `capability_expired` (a named condition drifted, was withdrawn, appeared
+ *     or cannot be re-observed), then the generic `plan_changed`. The
+ *     condition refusals come FIRST deliberately — `plan_changed` answers
+ *     `retry`, and a retry after a plugin was deactivated walks into an
+ *     identical refusal, so the failure that has a real remedy must be the one
+ *     that names itself.
  *  7. **Verify** through `VerifyCommand`'s own mechanism and record the
  *     outcome.
  *
@@ -354,7 +369,9 @@ final class ReleaseCommand {
 
         $inputs = [
             'authority' => self::authority($plan, $scope),
-            'capabilities' => self::capabilities($inScope),
+            'capabilities' => self::capabilities($inScope, is_array($assessment['catalog']['facts'] ?? null)
+                ? $assessment['catalog']['facts']
+                : []),
             'contract' => $contract,
             'deletion_semantics' => self::deletionSemantics($assessment),
             'environment' => $driver->name(),
@@ -433,12 +450,83 @@ final class ReleaseCommand {
         // confirmation. Any difference invalidates that authorization; the
         // window this closes is exactly the time a human spent reading the
         // page (product spec, *Authorization*).
+        //
+        // Four facts are re-observed, and until this build only the first
+        // three were: the agent plan envelope, the target `HEAD`, the target
+        // artifact hash — and now the reviewed capability claims. The fourth
+        // was the hole. `capabilities` was COPIED from `prepare()` into
+        // `$current`, so every condition the plan named re-hashed to its own
+        // frozen value by construction and a plugin deactivated or downgraded
+        // during the confirmation window authorized a production mutation
+        // anyway (product spec: "execution is permitted only when every named,
+        // machine-checkable condition is satisfied and rechecked at the
+        // mutation gate", docs/product-spec.md:302-303).
+        $registryOperation = SurfaceCatalog::REGISTRY_OPERATION[self::OPERATION];
+        $recheckedAt = gmdate('Y-m-d\TH:i:s\Z');
         try {
             $current = $prepared['inputs'];
             $current['plan'] = self::targetPlan($driver);
             $current['target']['code_revision_from'] = self::targetHead($driver);
             $current['target']['head_revision'] = $current['target']['code_revision_from'];
             $current['target']['artifact_hash'] = self::targetArtifactHash($driver);
+            // ONE `wp duo capabilities` read, through the SAME helper the
+            // freeze-time assessment used, so freeze and gate observe through
+            // identical argv (`AssessCommand::capabilityReport()` states why
+            // that is structural). A targeted re-probe, not a second assess:
+            // no doctor, no inventory, no bootstrap.
+            $observed = AssessCommand::capabilityReport($driver, $registryOperation);
+        } catch (CommandRefusalException $refusal) {
+            // The target cannot answer what its reviewed claims are right now.
+            // Every condition the plan names is therefore UNCHECKABLE, and the
+            // spec's rule for an uncheckable condition is that it blocks — so
+            // this is not a transport retry, it is a requalification.
+            return self::fail($driver, $digest, 'capability_expired', $json, $refusal);
+        }
+
+        $frozenRegistry = (string) ($prepared['assessment']['registry_reports'][$registryOperation]['registry_sha256']
+            ?? '');
+        $currentRegistry = (string) ($observed['registry_sha256'] ?? '');
+        if ($frozenRegistry !== '' && !hash_equals($frozenRegistry, $currentRegistry)) {
+            // The reviewed disposition library the target answers from moved
+            // inside the confirmation window, so the claims this release was
+            // authorized against are not the claims in force. `requalify`, and
+            // the diagnostics name the fact that moved, never its value.
+            return self::fail($driver, $digest, 'evidence_not_current', $json, new CommandRefusalException(
+                'release_evidence_not_current',
+                'the reviewed capability library the target answers from moved after the authorization plan was '
+                    . 'frozen, so this release was authorized against claims that are no longer in force',
+                'nothing was written. Re-run duo assess to re-read the reviewed claims, review the plan again, '
+                    . 'then duo release.',
+                [['changed_fields' => ['registry_sha256']]]
+            ));
+        }
+
+        $observedConditions = SurfaceCatalog::conditionsByManifest($observed);
+        $rechecked = null;
+        try {
+            // Raised BEFORE reverify()'s generic `plan_changed` on purpose:
+            // `plan_changed` is documented as "a post-freeze failure that
+            // mutated nothing" and therefore answers `retry` (its branch is
+            // the last one in this method),
+            // and telling an operator to retry after a plugin was deactivated
+            // sends them into an identical refusal. `capability_expired` is
+            // the class that already carries the right sentence and the right
+            // action (NextAction.php:43,77,101) and, until this call site, had
+            // nothing in the tree that could reach it.
+            $rechecked = AuthorizationPlan::recheckConditions($document, $observedConditions, $recheckedAt);
+        } catch (CommandRefusalException $refusal) {
+            return self::fail($driver, $digest, 'capability_expired', $json, $refusal);
+        }
+
+        try {
+            // The fail-closed backstop. `currentFacts()` is fed the FRESHLY
+            // observed condition rows rather than the copy the plan carried,
+            // so `inputs_digest.conditions_sha256` is a real comparison even
+            // if the named refusal above missed a shape.
+            $current['capabilities'] = AuthorizationPlan::withObservedConditions(
+                $current['capabilities'],
+                $observedConditions
+            );
             AuthorizationPlan::reverify($document, AuthorizationPlan::currentFacts($current));
         } catch (CommandRefusalException $refusal) {
             // `plan_changed` is a post-freeze failure that mutated nothing,
@@ -474,7 +562,7 @@ final class ReleaseCommand {
             echo $line . "\n";
         }
 
-        $outcome = ReleaseOutcome::released($driver->name(), $digest, $report);
+        $outcome = ReleaseOutcome::released($driver->name(), $digest, $report, $rechecked);
         ReleaseOutcome::validate($outcome);
         if ($json) {
             echo ReleaseOutcome::encode($outcome);
@@ -535,6 +623,15 @@ final class ReleaseCommand {
 
     /**
      * Report a post-freeze failure with its one documented next action.
+     *
+     * The refusal's own reason code reaches STDERR in BOTH formats, and that
+     * ordering is the fix, not a detail: `--format=json` used to return before
+     * this write, so a machine-readable run printed the failure CLASS and
+     * nothing that named the refusal. Two of this command's refusals now share
+     * one class (`release_condition_changed` and
+     * `release_condition_uncheckable` are both `capability_expired`), so
+     * without the code neither channel could say which one happened. STDOUT
+     * stays the machine channel and is untouched by this line.
      */
     private static function fail(
         EnvironmentDriver $driver,
@@ -543,15 +640,26 @@ final class ReleaseCommand {
         bool $json,
         ?CommandRefusalException $refusal
     ): int {
-        $outcome = ReleaseOutcome::failedAfterFreeze($driver->name(), $planDigest, $failureClass);
+        $outcome = ReleaseOutcome::failedAfterFreeze(
+            $driver->name(),
+            $planDigest,
+            $failureClass,
+            null,
+            $refusal === null ? null : [
+                'diagnostics' => $refusal->diagnostics,
+                'message' => $refusal->publicMessage,
+                'reason_code' => $refusal->reasonCode,
+                'remediation' => $refusal->remediation,
+            ]
+        );
         ReleaseOutcome::validate($outcome);
+        if ($refusal !== null) {
+            fwrite(STDERR, '[' . $refusal->reasonCode . '] ' . $refusal->publicMessage . "\n");
+        }
         if ($json) {
             echo ReleaseOutcome::encode($outcome);
 
             return 1;
-        }
-        if ($refusal !== null) {
-            fwrite(STDERR, '[' . $refusal->reasonCode . '] ' . $refusal->publicMessage . "\n");
         }
         foreach (ReleaseOutcome::humanLines($outcome) as $line) {
             fwrite(STDERR, $line . "\n");
@@ -904,18 +1012,33 @@ final class ReleaseCommand {
      * @param list<array<string,mixed>> $rows
      * @return list<array<string,mixed>>
      */
-    private static function capabilities(array $rows): array {
+    private static function capabilities(array $rows, array $facts): array {
         $out = [];
         foreach ($rows as $row) {
             $operation = $row['operations'][self::OPERATION] ?? null;
             if (!is_array($operation)) {
                 continue;
             }
+            $vector = $facts[(string) ($row['id'] ?? '')][self::OPERATION] ?? [];
             $out[] = [
                 'certification_provenance' => (string) ($operation['certification_provenance'] ?? ''),
+                // STRUCTURED rows, not the projection's prose. The projection
+                // keeps the prose (SurfaceCatalog::registryFacts()), which is
+                // what `duo assess`, `projection.json` and MUP §1.3's
+                // readiness word read and what makes those bytes unmoved by
+                // this. The frozen plan needs the machine facts instead: a
+                // prose sentence re-hashes to its own frozen value at the
+                // mutation gate, which is precisely how a plugin deactivated
+                // during the confirmation window used to pass.
                 'conditions' => array_values(
-                    is_array($operation['conditions'] ?? null) ? $operation['conditions'] : []
+                    is_array($vector['conditions'] ?? null) ? $vector['conditions'] : []
                 ),
+                // The claim the row's readiness rests on, carried even where
+                // it raises no condition today: the gate must be able to see a
+                // condition that APPEARS during the confirmation window, and
+                // an appearing condition has no frozen row to appear against
+                // unless the manifest was named at freeze.
+                'manifest' => (string) ($vector['manifest'] ?? ''),
                 'name' => (string) ($row['label'] ?? $row['id'] ?? ''),
                 'operation' => self::OPERATION,
                 'readiness' => (string) ($operation['readiness'] ?? ''),
