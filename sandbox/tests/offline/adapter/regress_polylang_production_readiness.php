@@ -556,15 +556,7 @@ namespace {
             'stderr' => '',
         ];
         $GLOBALS['pll_command_throw'] = null;
-        $nativeProjection = [
-            'registry' => [
-                'raw_count' => 0,
-                'raw_hash' => hash('sha256', serialize([])),
-                'native_count' => 0,
-                'native_hash' => hash('sha256', serialize([])),
-            ],
-            'catalogs' => [],
-        ];
+        $nativeProjection = ['catalogs' => []];
         $GLOBALS['pll_native_command_result'] = (object) [
             'return_code' => 0,
             'stdout' => 'DUO_PLL_NATIVE:' . base64_encode((string) json_encode($nativeProjection)) . "\n",
@@ -615,7 +607,7 @@ namespace {
             'args' => [],
             'reads' => [
                 'option:polylang', 'option:stylesheet', 'option:default_category',
-                'option:permalink_structure', 'option:rewrite_rules', 'option:polylang_wpml_strings',
+                'option:permalink_structure', 'option:rewrite_rules',
                 'term:language', 'entity:nav-menu',
             ],
             'writes' => ['entity:theme-mods-nav-menu-locations', 'option:default_category', 'option:rewrite_rules'],
@@ -907,6 +899,23 @@ namespace {
         JSON_THROW_ON_ERROR
     );
     $nativeSubKeys = $manifest['options']['polylang']['sub_keys'];
+    duo_check(
+        !array_key_exists('polylang_wpml_strings', $manifest['options']),
+        'unobserved populated WPML registry remains outside Polylang authored ownership'
+    );
+    duo_check(
+        !in_array('option:polylang_wpml_strings', $manifest['actions'][0]['triggers'] ?? [], true),
+        'unobserved WPML registry cannot trigger a provider-side native read or effect'
+    );
+    duo_check_throws(
+        static fn(): ?array => $interpreter->option_rule(
+            'polylang_wpml_strings',
+            ['polylang_wpml_strings' => serialize(['unreviewed' => 'fixture'])]
+        ),
+        \RuntimeException::class,
+        'populated WPML registry refuses through the closed unreviewed-option boundary',
+        'contains an unreviewed row'
+    );
     $nativeBefore = [
         'force_lang' => 1,
         'domains' => ['en' => 'https://target.example.test'],

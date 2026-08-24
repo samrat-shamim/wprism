@@ -77,15 +77,7 @@ namespace {
                     'stderr' => '',
                 ];
             }
-            $projection = [
-                'registry' => [
-                    'raw_count' => 0,
-                    'raw_hash' => hash('sha256', serialize([])),
-                    'native_count' => 0,
-                    'native_hash' => hash('sha256', serialize([])),
-                ],
-                'catalogs' => [],
-            ];
+            $projection = ['catalogs' => []];
             return (object) [
                 'return_code' => 0,
                 'stdout' => 'DUO_PLL_NATIVE:'
@@ -136,15 +128,7 @@ namespace Duo {
                 || $stderrLimit !== 131072) {
                 throw new \RuntimeException('fixture received an invalid bounded catalog-child contract');
             }
-            $projection = [
-                'registry' => [
-                    'raw_count' => 0,
-                    'raw_hash' => hash('sha256', serialize([])),
-                    'native_count' => 0,
-                    'native_hash' => hash('sha256', serialize([])),
-                ],
-                'catalogs' => [],
-            ];
+            $projection = ['catalogs' => []];
             return [
                 'return_code' => 0,
                 'stdout' => 'DUO_PLL_NATIVE:'

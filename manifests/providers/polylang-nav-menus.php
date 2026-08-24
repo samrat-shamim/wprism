@@ -29,7 +29,7 @@ final class PolylangNavMenus {
     private const NAV_MAX_TOTAL_BYTES = 4194304;
     private const CATALOG_MAX_ROWS = 10000;
     private const CATALOG_MAX_TOTAL_BYTES = 16777216;
-    private const WPML_CHILD_PREFIX = 'DUO_PLL_NATIVE:';
+    private const CATALOG_CHILD_PREFIX = 'DUO_PLL_NATIVE:';
     private Policy $policy;
 
     public function __construct(Policy $policy) {
@@ -55,7 +55,6 @@ final class PolylangNavMenus {
                     'option:default_category',
                     'option:permalink_structure',
                     'option:rewrite_rules',
-                    'option:polylang_wpml_strings',
                     'term:language',
                     'entity:nav-menu',
                 ],
@@ -430,30 +429,13 @@ final class PolylangNavMenus {
     private function verify_fresh_native_catalogs(): string {
         $expected = $this->catalog_projection(true);
         $code = <<<'PHP'
-$registry = get_option('polylang_wpml_strings', array());
-$registry = is_array($registry) ? $registry : null;
 $runtime = function_exists('PLL') ? PLL() : null;
 $model = is_object($runtime) ? ($runtime->model ?? null) : null;
 $languages = is_object($model) && is_callable(array($model, 'get_languages_list'))
     ? $model->get_languages_list()
     : null;
-$projection = array('registry' => null, 'catalogs' => array());
-if (is_array($registry) && is_array($languages)) {
-    $native = array();
-    if ($languages === array()) {
-        $native = $registry;
-    } elseif (class_exists('PLL_WPML_Compat')) {
-        $compat = PLL_WPML_Compat::instance();
-        $native = is_callable(array($compat, 'get_strings')) ? $compat->get_strings(array()) : null;
-    }
-    if (is_array($native)) {
-        $projection['registry'] = array(
-            'raw_count' => count($registry),
-            'raw_hash' => hash('sha256', serialize($registry)),
-            'native_count' => count($native),
-            'native_hash' => hash('sha256', serialize($native)),
-        );
-    }
+$projection = array('catalogs' => array());
+if (is_array($languages)) {
     foreach ($languages as $language) {
         if (!is_object($language) || !is_string($language->slug ?? null) || !is_int($language->term_id ?? null)) {
             $projection = null;
@@ -516,12 +498,12 @@ PHP;
             );
         }
         $line = substr($stdout, 0, -1);
-        if (!str_starts_with($line, self::WPML_CHILD_PREFIX)) {
+        if (!str_starts_with($line, self::CATALOG_CHILD_PREFIX)) {
             throw new \RuntimeException(
                 'duo: Polylang native registry/catalog verification child returned no exact receipt; recovery_required'
             );
         }
-        $encoded = substr($line, strlen(self::WPML_CHILD_PREFIX));
+        $encoded = substr($line, strlen(self::CATALOG_CHILD_PREFIX));
         $json = base64_decode($encoded, true);
         $observed = is_string($json) && hash_equals(base64_encode($json), $encoded)
             ? json_decode($json, true)
@@ -535,23 +517,9 @@ PHP;
         return hash('sha256', serialize($observed));
     }
 
-    /** @return array{registry:array,catalogs:array<string,array>} */
+    /** @return array{catalogs:array<string,array>} */
     private function catalog_projection(bool $fresh): array {
-        $registry = get_option('polylang_wpml_strings', []);
-        if (!is_array($registry) || ($registry !== [] && array_is_list($registry))
-            || count($registry) > self::CATALOG_MAX_ROWS) {
-            throw new \RuntimeException('duo: Polylang WPML registry is invalid or over the bounded frontier');
-        }
         $bytes = 0;
-        foreach ($registry as $key => $row) {
-            if (!is_string($key) || preg_match('/^[0-9a-f]{32}$/D', $key) !== 1 || !is_array($row)) {
-                throw new \RuntimeException('duo: Polylang WPML registry contains a malformed row');
-            }
-            $bytes += strlen(serialize($row));
-            if ($bytes > self::CATALOG_MAX_TOTAL_BYTES) {
-                throw new \RuntimeException('duo: Polylang WPML registry exceeds the bounded byte frontier');
-            }
-        }
         $runtime = PLL();
         $model = is_object($runtime) ? ($runtime->model ?? null) : null;
         $languages = is_object($model) && is_callable([$model, 'get_languages_list'])
@@ -599,14 +567,6 @@ PHP;
             ];
         }
         ksort($catalogs, SORT_STRING);
-        return [
-            'registry' => [
-                'raw_count' => count($registry),
-                'raw_hash' => hash('sha256', serialize($registry)),
-                'native_count' => count($registry),
-                'native_hash' => hash('sha256', serialize($registry)),
-            ],
-            'catalogs' => $catalogs,
-        ];
+        return ['catalogs' => $catalogs];
     }
 }

@@ -29,9 +29,6 @@ final class Polylang {
     private const NAV_MAX_TOTAL_BYTES = 4194304;
     private const THEME_COMPONENT_MAX_BYTES = 764;
     private const NAV_LOCATION_MAX_BYTES = 764;
-    private const WPML_REGISTRY_MAX_ROWS = 10000;
-    private const WPML_REGISTRY_MAX_COMPONENT_BYTES = 1048576;
-    private const WPML_REGISTRY_MAX_TOTAL_BYTES = 16777216;
     private const WIDGET_TITLE_MAX_BYTES = 1048576;
     private const MENU_KEYS = [
         'dropdown',
@@ -156,12 +153,6 @@ final class Polylang {
                 );
             }
             return null; // The exact static mixed-option rule owns the row.
-        }
-        if ($name === 'polylang_wpml_strings') {
-            $value = PlainData::decode($allOptions[$name] ?? '', 'Polylang WPML string registry');
-            $this->assert_wpml_registry($value, 'live polylang_wpml_strings');
-            $this->assert_live_wpml_registry($value);
-            return ['class' => 'authored', 'plain_data' => true];
         }
         if ($name === 'polylang_licenses') {
             return ['class' => 'env'];
@@ -988,35 +979,6 @@ final class Polylang {
         }
     }
 
-    /** @param array<string,mixed> $registry */
-    private function assert_live_wpml_registry(array $registry): void {
-        $runtime = function_exists('PLL') ? PLL() : null;
-        $model = is_object($runtime) ? ($runtime->model ?? null) : null;
-        $hasLanguages = is_object($model)
-            && is_callable([$model, 'has_languages'])
-            && $model->has_languages();
-        if (!$hasLanguages) {
-            return; // The 3.8.x loader deliberately leaves WPML compatibility dormant until a language exists.
-        }
-        if (!class_exists('PLL_WPML_Compat') || !is_callable(['PLL_WPML_Compat', 'instance'])) {
-            throw new \RuntimeException(
-                'duo: populated Polylang WPML registry cannot prove the native compatibility runtime'
-            );
-        }
-        $compat = \PLL_WPML_Compat::instance();
-        if (!is_object($compat) || !is_callable([$compat, 'get_strings'])) {
-            throw new \RuntimeException(
-                'duo: Polylang WPML registry cannot prove PLL_WPML_Compat::get_strings()'
-            );
-        }
-        $visible = $compat->get_strings([]);
-        if (!is_array($visible) || $visible !== $registry) {
-            throw new \RuntimeException(
-                'duo: Polylang WPML registry raw storage disagrees with the native process-local registry'
-            );
-        }
-    }
-
     private function assert_source_language_flags(mixed $runtime): void {
         $model = is_object($runtime) ? ($runtime->model ?? null) : null;
         if (!is_object($model) || !is_callable([$model, 'get_languages_list'])) {
@@ -1049,57 +1011,6 @@ final class Polylang {
                 throw new \RuntimeException(
                     "duo: Polylang language '$slug' names a flag code that is unavailable in this deployed artifact"
                 );
-            }
-        }
-    }
-
-    private function assert_wpml_registry(mixed $value, string $where): void {
-        if (!is_array($value) || ($value !== [] && array_is_list($value))) {
-            throw new \RuntimeException("duo: Polylang $where must be an object keyed by native md5 identity");
-        }
-        if (count($value) > self::WPML_REGISTRY_MAX_ROWS) {
-            throw new \RuntimeException("duo: Polylang $where exceeds the bounded row limit");
-        }
-        $bytes = 0;
-        foreach ($value as $identity => $row) {
-            if (!is_string($identity)
-                || preg_match('/^[0-9a-f]{32}$/D', $identity) !== 1
-                || !is_array($row)
-                || array_is_list($row)) {
-                throw new \RuntimeException("duo: Polylang $where contains a malformed native registry row");
-            }
-            $keys = array_keys($row);
-            sort($keys, SORT_STRING);
-            if ($keys !== ['context', 'icl', 'multiline', 'name', 'string']) {
-                throw new \RuntimeException(
-                    "duo: Polylang $where rows must contain exactly context, icl, multiline, name, string"
-                );
-            }
-            if ($row['icl'] !== true || $row['multiline'] !== true) {
-                throw new \RuntimeException("duo: Polylang $where native flags must be literal true");
-            }
-            foreach (['context', 'name', 'string'] as $component) {
-                $part = $row[$component];
-                if (!is_string($part)
-                    || strlen($part) > self::WPML_REGISTRY_MAX_COMPONENT_BYTES
-                    || preg_match('//u', $part) !== 1
-                    || preg_match('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', $part) === 1) {
-                    throw new \RuntimeException(
-                        "duo: Polylang $where.$component must be bounded valid UTF-8 without unsafe controls"
-                    );
-                }
-                $bytes += strlen($part);
-            }
-            if ($row['string'] === '' || $row['string'] === '0') {
-                throw new \RuntimeException(
-                    "duo: Polylang $where.string must satisfy icl_register_string()'s non-falsy input boundary"
-                );
-            }
-            if (!hash_equals($identity, md5($row['context'] . ' | ' . $row['name']))) {
-                throw new \RuntimeException("duo: Polylang $where row identity does not match md5(context | name)");
-            }
-            if ($bytes > self::WPML_REGISTRY_MAX_TOTAL_BYTES) {
-                throw new \RuntimeException("duo: Polylang $where exceeds the bounded byte limit");
             }
         }
     }
@@ -1202,22 +1113,6 @@ final class Polylang {
                             'code' => 'adapter_schema_content_mismatch',
                             'path' => (string) ($entity['path'] ?? 'state/options/core.json'),
                             'locator' => 'records.polylang.value',
-                            'message' => $e->getMessage(),
-                        ];
-                    }
-                }
-                $wpmlRecord = is_array($records) ? ($records['polylang_wpml_strings'] ?? null) : null;
-                if (($wpmlRecord['state'] ?? null) === 'present') {
-                    try {
-                        $this->assert_wpml_registry(
-                            $wpmlRecord['value'] ?? null,
-                            'repository polylang_wpml_strings'
-                        );
-                    } catch (\RuntimeException $e) {
-                        $out[] = [
-                            'code' => 'adapter_schema_content_mismatch',
-                            'path' => (string) ($entity['path'] ?? 'state/options/core.json'),
-                            'locator' => 'records.polylang_wpml_strings.value',
                             'message' => $e->getMessage(),
                         ];
                     }

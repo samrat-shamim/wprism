@@ -43,7 +43,7 @@
       "provider": "polylang-nav-menus",
       "capability": "synchronize_runtime",
       "args": {},
-      "triggers": ["option:polylang", "option:polylang_wpml_strings", "term:language"],
+      "triggers": ["option:polylang", "term:language"],
       "effects": [
         {"id": "polylang-runtime-options", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "table", "value": "options"}},
         {"id": "polylang-runtime-option-cache", "kind": "cache", "mode": "irreversible", "selector": {"scope": "external", "type": "provider_resource", "value": "wordpress-options:v2:polylang-derived-state"}},
@@ -67,10 +67,6 @@
     "polylang_licenses": {
       "class": "env",
       "required": false
-    },
-    "polylang_wpml_strings": {
-      "class": "authored",
-      "plain_data": true
     },
     "polylang": {
       "class": "env",
