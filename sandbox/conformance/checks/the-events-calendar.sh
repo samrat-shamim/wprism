@@ -1690,6 +1690,56 @@ tec_set_source_category_primary() { # <#rrggbb>
   " >/dev/null
 }
 
+TEC_COLOR_PRECOMMIT_SCOPE=''
+TEC_COLOR_SCOPE=''
+TEC_COLOR_KV_CONSTRAINT_MAY_EXIST=0
+TEC_COLOR_CSS_CONSTRAINT_MAY_EXIST=0
+TEC_COLOR_ABA_MAY_BE_REKEYED=0
+restore_tec_scoped_color_faults() {
+  if [ "${TEC_COLOR_KV_CONSTRAINT_MAY_EXIST:-0}" -eq 1 ]; then
+    wp_conf2 db query \
+      'ALTER TABLE wp_duo_kv DROP CONSTRAINT IF EXISTS duo_tec_fail_scoped_receipt' \
+      >/dev/null 2>&1 || true
+    TEC_COLOR_KV_CONSTRAINT_MAY_EXIST=0
+  fi
+  if [ "${TEC_COLOR_CSS_CONSTRAINT_MAY_EXIST:-0}" -eq 1 ]; then
+    wp_conf2 db query \
+      'ALTER TABLE wp_options DROP CONSTRAINT IF EXISTS duo_tec_fail_category_css' \
+      >/dev/null 2>&1 || true
+    TEC_COLOR_CSS_CONSTRAINT_MAY_EXIST=0
+  fi
+  if [ "${TEC_COLOR_ABA_MAY_BE_REKEYED:-0}" -eq 1 ] \
+    && [[ "${COLOR_ABA_OLD_ID:-}" =~ ^[1-9][0-9]*$ ]] \
+    && [[ "${COLOR_ABA_NEW_ID:-}" =~ ^[1-9][0-9]*$ ]] \
+    && [[ "${TEC_COLOR_UUID:-}" =~ ^[a-f0-9-]{36}$ ]]; then
+    wp_conf2 db query "
+      START TRANSACTION;
+      UPDATE wp_duo_map SET local_id=${COLOR_ABA_OLD_ID}
+        WHERE uuid='${TEC_COLOR_UUID}' AND id_kind='term' AND local_id=${COLOR_ABA_NEW_ID};
+      UPDATE wp_termmeta SET term_id=${COLOR_ABA_OLD_ID} WHERE term_id=${COLOR_ABA_NEW_ID};
+      UPDATE wp_term_taxonomy SET term_id=${COLOR_ABA_OLD_ID}
+        WHERE term_id=${COLOR_ABA_NEW_ID} AND taxonomy='tribe_events_cat';
+      UPDATE wp_terms SET term_id=${COLOR_ABA_OLD_ID} WHERE term_id=${COLOR_ABA_NEW_ID};
+      COMMIT;
+    " >/dev/null 2>&1 || true
+    TEC_COLOR_ABA_MAY_BE_REKEYED=0
+  fi
+  if [[ "${COLOR_ABA_AUTOINCREMENT:-}" =~ ^[1-9][0-9]*$ ]]; then
+    wp_conf2 db query \
+      "ALTER TABLE wp_terms AUTO_INCREMENT=${COLOR_ABA_AUTOINCREMENT}" \
+      >/dev/null 2>&1 || true
+  fi
+  [ -z "${TEC_COLOR_PRECOMMIT_SCOPE:-}" ] || rm -f -- "$TEC_COLOR_PRECOMMIT_SCOPE"
+  [ -z "${TEC_COLOR_SCOPE:-}" ] || rm -f -- "$TEC_COLOR_SCOPE"
+}
+cleanup_tec_scoped_color_faults() {
+  local status=$?
+  trap - EXIT
+  restore_tec_scoped_color_faults
+  exit "$status"
+}
+trap cleanup_tec_scoped_color_faults EXIT
+
 TEC_COLOR_UUID=$(tec_category_uuid)
 TEC_COLOR_PRECOMMIT_SCOPE="${CONF_REPO2:-siterepo/conf2}/.tmp-tec-category-colors-precommit.scope.json"
 tec_set_source_category_primary '#456789'
@@ -1697,6 +1747,7 @@ commit_tec_source 'conformance: scoped TEC Category Colors atomic author intent'
 tec_category_scope "$TEC_COLOR_PRECOMMIT_SCOPE" "$TEC_COLOR_UUID"
 COLOR_ATOMIC_BEFORE=$(tec_scoped_color_storage_hash "$TEC_COLOR_UUID")
 wp_conf2 db query 'ALTER TABLE wp_duo_kv DROP CONSTRAINT IF EXISTS duo_tec_fail_scoped_receipt' >/dev/null
+TEC_COLOR_KV_CONSTRAINT_MAY_EXIST=1
 wp_conf2 db query '
   ALTER TABLE wp_duo_kv ADD CONSTRAINT duo_tec_fail_scoped_receipt
   CHECK (k <> "scoped_apply_session" OR v NOT LIKE "%\"phase\":\"authored_committed\"%")
@@ -1718,6 +1769,7 @@ printf '%s\n' "$COLOR_ATOMIC_SESSION" | jq -e '
   .author_receipt_after == null and .author_matches == false
 ' >/dev/null || fail "TEC failed atomic author receipt did not retain only retryable authoring intent: $COLOR_ATOMIC_SESSION"
 wp_conf2 db query 'ALTER TABLE wp_duo_kv DROP CONSTRAINT duo_tec_fail_scoped_receipt' >/dev/null
+TEC_COLOR_KV_CONSTRAINT_MAY_EXIST=0
 COLOR_ATOMIC_RETRY=$(wp_conf2 duo apply --repo=/siterepo \
   --scope-contract=/siterepo/.tmp-tec-category-colors-precommit.scope.json \
   --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
@@ -1747,6 +1799,7 @@ printf '%s\n' "$COLOR_FAULT_BEFORE" | jq -e '
 COLOR_FAULT_REV_BEFORE=$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')
 require_observed_nonempty "TEC applied revision before Category Colors fault" "$COLOR_FAULT_REV_BEFORE"
 wp_conf2 db query 'ALTER TABLE wp_options DROP CONSTRAINT IF EXISTS duo_tec_fail_category_css' >/dev/null
+TEC_COLOR_CSS_CONSTRAINT_MAY_EXIST=1
 wp_conf2 db query '
   ALTER TABLE wp_options ADD CONSTRAINT duo_tec_fail_category_css
   CHECK (option_name <> "tec_events_category_color_css" OR option_value NOT LIKE "%#654321%")
@@ -1775,6 +1828,7 @@ printf '%s\n' "$COLOR_FAULT_SESSION" | jq -e '
   .author_action == "duo-scoped-authored-transaction/v2" and .author_matches == true
 ' >/dev/null || fail "TEC failed Category Colors provider action did not retain exact scoped recovery authority: $COLOR_FAULT_SESSION"
 wp_conf2 db query 'ALTER TABLE wp_options DROP CONSTRAINT duo_tec_fail_category_css' >/dev/null
+TEC_COLOR_CSS_CONSTRAINT_MAY_EXIST=0
 
 COLOR_ABA_OLD_ID=$(wp_conf2 db query "
   SELECT local_id FROM wp_duo_map
@@ -1794,6 +1848,7 @@ COLOR_ABA_CSS_BEFORE=$(wp_conf2 db query "
   SELECT SHA2(CONCAT(option_id,0x00,option_value,0x00,autoload),256)
   FROM wp_options WHERE option_name='tec_events_category_color_css'
 " --skip-column-names | tr -d '[:space:]')
+TEC_COLOR_ABA_MAY_BE_REKEYED=1
 wp_conf2 db query "
   START TRANSACTION;
   UPDATE wp_terms SET term_id=${COLOR_ABA_NEW_ID} WHERE term_id=${COLOR_ABA_OLD_ID};
@@ -1836,6 +1891,7 @@ wp_conf2 db query "
   COMMIT;
 " >/dev/null
 wp_conf2 db query "ALTER TABLE wp_terms AUTO_INCREMENT=${COLOR_ABA_AUTOINCREMENT}" >/dev/null
+TEC_COLOR_ABA_MAY_BE_REKEYED=0
 COLOR_ABA_SESSION_RESTORED=$(tec_scoped_session_evidence)
 printf '%s\n' "$COLOR_ABA_SESSION_RESTORED" | jq -e '.author_matches == true' >/dev/null \
   || fail "TEC selected-map ABA inverse did not restore the exact atomic author map witness: $COLOR_ABA_SESSION_RESTORED"
@@ -1854,6 +1910,8 @@ printf '%s\n' "$COLOR_RECOVERED" | jq -e '
   (.category_css | contains("--tec-color-category-secondary:#fedcba"))
 ' >/dev/null || fail "TEC Category Colors retry did not repair native CSS/dropdown projections: $COLOR_RECOVERED"
 rm -f "$TEC_COLOR_SCOPE"
+restore_tec_scoped_color_faults
+trap - EXIT
 pass "scoped Category Colors recovery refuses a selected-map ABA before effects, then inverse/retry converges"
 
 # Capture-time schema/secret probes restore exact live bytes. Post bodies may

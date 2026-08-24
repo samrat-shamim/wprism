@@ -7922,12 +7922,31 @@ foreach ([
     'TEC selected-map ABA refusal replayed the Category Colors CSS effect',
     'ALTER TABLE wp_terms AUTO_INCREMENT=${COLOR_ABA_AUTOINCREMENT}',
     '.author_matches == true',
+    'trap cleanup_tec_scoped_color_faults EXIT',
+    'restore_tec_scoped_color_faults',
+    'DROP CONSTRAINT IF EXISTS duo_tec_fail_scoped_receipt',
+    'DROP CONSTRAINT IF EXISTS duo_tec_fail_category_css',
+    'TEC_COLOR_ABA_MAY_BE_REKEYED=1',
+    'TEC_COLOR_ABA_MAY_BE_REKEYED=0',
 ] as $scopedCategoryRecoveryEvidence) {
     duo_check(
         str_contains($deletionCheck, $scopedCategoryRecoveryEvidence),
         "the exact live matrix binds scoped Category Colors recovery evidence $scopedCategoryRecoveryEvidence"
     );
 }
+$colorCleanupAt = strpos($deletionCheck, 'trap cleanup_tec_scoped_color_faults EXIT');
+$colorFirstConstraintAt = strpos($deletionCheck, 'ADD CONSTRAINT duo_tec_fail_scoped_receipt');
+$colorAbaAt = strpos($deletionCheck, 'UPDATE wp_terms SET term_id=${COLOR_ABA_NEW_ID}');
+$colorCleanupRestoreAt = strrpos($deletionCheck, 'restore_tec_scoped_color_faults');
+$colorCleanupDisarmAt = strpos($deletionCheck, 'trap - EXIT', $colorCleanupRestoreAt ?: 0);
+duo_check(
+    $colorCleanupAt !== false
+        && $colorCleanupAt < $colorFirstConstraintAt
+        && $colorFirstConstraintAt < $colorAbaAt
+        && $colorAbaAt < $colorCleanupRestoreAt
+        && $colorCleanupRestoreAt < $colorCleanupDisarmAt,
+    'the exact TEC scoped fault cleanup arms before mutation and restores every reversible fault before disarming'
+);
 $atomicColorBeforeAt = strpos($deletionCheck, 'COLOR_ATOMIC_BEFORE=$(tec_scoped_color_storage_hash');
 $atomicColorConstraintAt = strpos($deletionCheck, 'ADD CONSTRAINT duo_tec_fail_scoped_receipt');
 $atomicColorApplyAt = strpos($deletionCheck, 'COLOR_ATOMIC_OUT=$(wp_conf2 duo apply');
@@ -7949,7 +7968,7 @@ $colorAbaWriteAt = strpos($deletionCheck, 'UPDATE wp_terms SET term_id=${COLOR_A
 $colorAbaWitnessAt = strpos($deletionCheck, 'COLOR_ABA_SESSION_DRIFT=$(tec_scoped_session_evidence)');
 $colorAbaRefusalAt = strpos($deletionCheck, 'COLOR_ABA_OUT=$(wp_conf2 duo apply');
 $colorAbaNoEffectAt = strpos($deletionCheck, 'TEC selected-map ABA refusal replayed the Category Colors CSS effect');
-$colorAbaInverseAt = strpos($deletionCheck, 'UPDATE wp_duo_map SET local_id=${COLOR_ABA_OLD_ID}');
+$colorAbaInverseAt = strrpos($deletionCheck, 'UPDATE wp_duo_map SET local_id=${COLOR_ABA_OLD_ID}');
 $colorAbaRestoredAt = strpos($deletionCheck, 'COLOR_ABA_SESSION_RESTORED=$(tec_scoped_session_evidence)');
 $colorProviderRetryAt = strpos($deletionCheck, 'COLOR_RETRY=$(wp_conf2 duo apply');
 duo_check(
