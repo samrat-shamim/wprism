@@ -1140,6 +1140,7 @@
           "ActionProviderGrammar",
           "AdapterContractGrammar",
           "AdapterObservation",
+          "AdapterProbe",
           "AdapterRegistry"
         ],
         "depends_on": [
@@ -1152,12 +1153,13 @@
           "Review"
         ],
         "exceptions": [],
-        "file_count": 10,
+        "file_count": 11,
         "files": [
           "ActionProviderGrammar.php",
           "AdapterCertification.php",
           "AdapterContractGrammar.php",
           "AdapterObservation.php",
+          "AdapterProbe.php",
           "AdapterRegistry.php",
           "AdapterSources.php",
           "ProviderActionBatchBuilder.php",

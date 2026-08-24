@@ -1109,10 +1109,12 @@ namespace {
     // 27 with DUO-3326's `code-preflight` plus scoped promotion's two
     // orchestrator-only handoff commands; 28 with round-3 MUP §4.5's
     // `assess-inventory`; 29 with DUO-3499's read-only `code-inventory`, which
-    // reports one repository's lockable code components for `duo code-classify`.
+    // reports one repository's lockable code components for `duo code-classify`;
+    // 30 with `adapter-probe`, the read-only live-schema half `duo adapter-draft
+    // --evidence=` consumes.
     // Every advertised handler is covered by the common envelope contract, so
     // this count moves with the set rather than around it.
-    check(count($advertised) === 29, 'every one of the 29 --format=json commands was scanned (' . count($advertised) . ')');
+    check(count($advertised) === 30, 'every one of the 30 --format=json commands was scanned (' . count($advertised) . ')');
 
     // Each newly enveloped command got a reviewed remediation arm, because the
     // default arm promises to "correct the named blocker" on exactly the path

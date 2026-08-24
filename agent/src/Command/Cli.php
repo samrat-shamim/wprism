@@ -14,7 +14,7 @@ require_once __DIR__ . '/../Review/PlanView.php';
 use WP_CLI;
 
 /**
- * wp duo <capture|refresh-export|plan|explain|apply|scope|capabilities|adapter-observe|adapter-survey|orphans|deploy|code-preflight|code-stage|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|journal-reset|code-inventory>
+ * wp duo <capture|refresh-export|plan|explain|apply|scope|capabilities|adapter-observe|adapter-probe|adapter-survey|orphans|deploy|code-preflight|code-stage|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|journal-reset|code-inventory>
  */
 final class Cli {
     private const REFUSAL_FORMAT = 'duo-command-refusal/v1';
@@ -437,6 +437,7 @@ final class Cli {
             // things an operator can inspect and fix.
             'capabilities' => 'inspect the manifest disposition registry, the platform boundary, and this repository\'s manifest pins, then correct that input before reporting capabilities again',
             'adapter-observe' => 'inspect private target evidence and restore the existing provenance-journal prerequisite or policy inputs before collecting a new adapter observation',
+            'adapter-probe' => 'inspect the named unprefixed tables and this target\'s own schema reads (SHOW COLUMNS, SHOW INDEX, information_schema), then correct that selection or access before probing again',
             'adapter-survey' => 'inspect the agent manifest library and, if --repo was given, that repository\'s site.duo.json and adapters/ source, then correct the unreadable or malformed input before surveying again',
             default => "correct the named $command blocker, then retry the command",
         };
@@ -3001,6 +3002,114 @@ final class Cli {
         WP_CLI::line('policy readiness: ' . $document['policy']['readiness']);
         WP_CLI::line('observation hash: ' . $document['observation_hash']);
         WP_CLI::line('deferred: proposal evidence only; see --format=json for the closed limitations');
+    }
+
+    /**
+     * Live SCHEMA facts for the tables one adapter draft proposes.
+     *
+     * `duo adapter-draft` is WordPress-free, so its typed-table candidates
+     * carry NAMED questions instead of live facts: column types and
+     * nullability, the real PRIMARY KEY, delete-guard index coverage,
+     * declared foreign keys, an EAV twin, and natural-key uniqueness across
+     * the whole keyspace. This is the only half that can answer them, and
+     * `duo adapter-draft --evidence=<file>` is what consumes the answer.
+     *
+     * It answers; it never decides. The document declares `authority: false`,
+     * carries no `class`/identity/deletion word at all, and the host
+     * validates it against a closed key set before a single row lands in
+     * `_draft.evidence[]` — where nothing Policy loads will ever read it.
+     *
+     * ## OPTIONS
+     * --tables=<names> : Comma-separated unprefixed table names, as a manifest's `tables` section spells them.
+     * [--natural-keys=<pairs>] : Comma-separated `<table>.<column>` pairs whose keyspace-wide uniqueness to measure.
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand adapter-probe
+     */
+    public function adapter_probe($args, $assoc) {
+        // Same entry-point discipline as adapter-observe: a read-only verb
+        // must not leave the journal's shutdown flush attached, or asking a
+        // target what its schema is becomes a later Duo INSERT — including on
+        // an argument refusal, where bootstrap has already buffered.
+        Journal::suspend_for_observation();
+        $document = null;
+        try {
+            require_once __DIR__ . '/../Adapter/AdapterProbe.php';
+            if ($args !== [] || array_diff(array_keys($assoc), ['tables', 'natural-keys', 'format']) !== []) {
+                throw new CommandRefusalException(
+                    'invalid_arguments',
+                    'adapter-probe accepts only --tables=<names>, optional --natural-keys=<table.column,…> and optional --format=json',
+                    'name the tables one adapter draft proposes, then rerun adapter-probe',
+                    [],
+                    'adapter-probe received unsupported positional arguments or flags'
+                );
+            }
+            if (!is_string($assoc['tables'] ?? null) || trim((string) $assoc['tables']) === '') {
+                throw CommandRefusalException::invalidArgument('adapter-probe', '--tables');
+            }
+            if (array_key_exists('format', $assoc) && $assoc['format'] !== 'json') {
+                throw new CommandRefusalException(
+                    'invalid_arguments',
+                    'adapter-probe accepts only --format=json',
+                    'omit --format for the human summary, or use --format=json for the document adapter-draft consumes',
+                    [],
+                    'adapter-probe received an unsupported output format'
+                );
+            }
+            $tables = array_values(array_filter(array_map('trim', explode(',', (string) $assoc['tables'])), 'strlen'));
+            $naturalKeys = [];
+            foreach (explode(',', (string) ($assoc['natural-keys'] ?? '')) as $pair) {
+                $pair = trim($pair);
+                if ($pair === '') {
+                    continue;
+                }
+                // One dot, one meaning: `<table>.<column>`. A pair that does
+                // not say both is refused rather than half-read, because a
+                // silently dropped column is a question that stays unanswered
+                // while the document looks complete.
+                $parts = explode('.', $pair);
+                if (count($parts) !== 2 || $parts[0] === '' || $parts[1] === '') {
+                    throw CommandRefusalException::invalidArgument('adapter-probe', '--natural-keys');
+                }
+                $naturalKeys[$parts[0]] = $parts[1];
+            }
+            $document = AdapterProbe::report($tables, $naturalKeys);
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'adapter-probe');
+            if ($t instanceof CommandRefusalException) {
+                WP_CLI::error($t->publicMessage);
+            }
+            // A raw Throwable here can carry a server identifier or a path;
+            // the JSON form above is the sole transport form.
+            WP_CLI::error('adapter probe refused; inspect the named tables and this target\'s schema access before retrying');
+        }
+        if (!is_array($document)) {
+            // Unreachable on a target: every arm of the catch above halts.
+            // It exists so the output path below can never be entered
+            // without a document in a process that replaced WP_CLI's error
+            // handler, rather than printing a half-built one.
+            throw new \RuntimeException('duo: adapter-probe reached its output path without a document');
+        }
+
+        if (($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(rtrim(Canon::encode($document), "\n"));
+            return;
+        }
+
+        WP_CLI::line('adapter probe');
+        WP_CLI::line('format: ' . AdapterProbe::FORMAT);
+        WP_CLI::line('authority: false; redaction: ' . AdapterProbe::REDACTION);
+        foreach ($document['tables'] as $table => $facts) {
+            WP_CLI::line(sprintf(
+                '%s: %s',
+                $table,
+                empty($facts['present'])
+                    ? 'absent on this target'
+                    : count($facts['columns']) . ' column(s), pk (' . implode(', ', $facts['primary_key']) . ')'
+            ));
+        }
+        WP_CLI::line('probe hash: ' . $document['probe_hash']);
+        WP_CLI::line('deferred: schema facts only; see --format=json for the closed limitations');
     }
 
     /**

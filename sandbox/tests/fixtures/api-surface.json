@@ -1,5 +1,5 @@
 {
-    "class_count": 368,
+    "class_count": 369,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -305,6 +305,70 @@
                             "has_default": false,
                             "name": "repo",
                             "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\AdapterProbe": {
+            "abstract": false,
+            "constants": {
+                "FORMAT": {
+                    "value_repr": "duo-adapter-probe/v1"
+                },
+                "MAX_TABLES": {
+                    "value_repr": 64
+                },
+                "REDACTION": {
+                    "value_repr": "values_omitted"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "hash_document": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "report": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "tables",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "naturalKeys",
+                            "type": "array",
                             "variadic": false
                         }
                     ],
@@ -7477,6 +7541,31 @@
             "kind": "class",
             "methods": {
                 "adapter_observe": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": null,
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "assoc",
+                            "type": null,
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": null,
+                    "static": false,
+                    "visibility": "public"
+                },
+                "adapter_probe": {
                     "abstract": false,
                     "final": false,
                     "parameters": [
@@ -19849,6 +19938,9 @@
                 },
                 "GAP_REPORT_FORMAT": {
                     "value_repr": "duo-adapter-draft-gap-report/v1"
+                },
+                "PROBE_FORMAT": {
+                    "value_repr": "duo-adapter-probe/v1"
                 },
                 "SEED_COVERAGE_FORMAT": {
                     "value_repr": "duo-coverage-report/v1"

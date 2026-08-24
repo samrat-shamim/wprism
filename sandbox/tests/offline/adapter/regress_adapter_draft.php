@@ -1104,6 +1104,186 @@ echo "\n== 8b. secret screen: heuristic (suspicious) tier fires on the REAL key;
     check($forced['exit'] === 0, '--force regenerates over it (exit ' . $forced['exit'] . ': ' . substr($forced['stderr'], 0, 200) . ')');
 }
 
+echo "\n== 10. --evidence: a duo-adapter-probe/v1 document answers the NAMED questions and promotes nothing ==\n";
+// ---------------------------------------------------------------------------
+// WP-2.1. `--evidence=` used to be accepted and explicitly ignored. It now
+// takes the live half's own document (`wp duo adapter-probe --format=json`),
+// and the property under test is the one the seam exists to protect: live
+// facts land as `evidence[]` rows at confidence 1.0 answering the questions
+// the offline proposer NAMED, and NOTHING else moves. The probe is built here
+// through the REAL emitter's hash function, so a draft that accepts this
+// document accepts what the target actually writes.
+require_once $repo . '/agent/src/Adapter/AdapterProbe.php';
+{
+    $t = "$root/t10-evidence";
+    $lib = make_lib("$t/lib");
+    make_site("$t/repo");
+    wrj("$t/repo/state/tables/rooms/r1.json", ['table' => 'rooms', 'columns' => ['id' => 1, 'code' => 'A1']]);
+    wrj("$t/repo/state/tables/rooms/r2.json", ['table' => 'rooms', 'columns' => ['id' => 2, 'code' => 'B2']]);
+
+    $bare = gen_draft("$t/repo", 'rooms-draft', $lib);
+    $bareCandidate = ($bare['_draft']['proposals']['tables'] ?? [])[0] ?? [];
+    check(
+        H::json_has($bareCandidate['questions'] ?? [], '[table_schema]')
+            && H::json_has($bareCandidate['questions'] ?? [], '[natural_key_uniqueness]')
+            && H::json_has($bareCandidate['questions'] ?? [], '[lock_index]')
+            && H::json_has($bareCandidate['questions'] ?? [], '[foreign_keys]')
+            && H::json_has($bareCandidate['questions'] ?? [], '[eav_twin]'),
+        'without --evidence every live deferral is NAMED, so an answer can attach to it'
+    );
+    check(
+        str_contains((string) ($bare['_draft']['evidence_seam'] ?? ''), 'no --evidence given'),
+        'the seam says plainly that no live document was consumed'
+    );
+
+    // The live target disagrees with the offline structural guess: the real
+    // PRIMARY KEY is `code`, not the `id` the proposer inferred from the
+    // sampled row files.
+    $probe = [
+        'authority' => false,
+        'deferred' => ['a probe proposes no class, identity, deletion authority or capability'],
+        'format' => 'duo-adapter-probe/v1',
+        'redaction' => 'values_omitted',
+        'tables' => [
+            'rooms' => [
+                'columns' => [
+                    'code' => ['nullable' => false, 'type' => 'varchar(191)'],
+                    'id' => ['nullable' => false, 'type' => 'bigint(20) unsigned'],
+                ],
+                'eav_twin' => [
+                    'key_column' => 'meta_key',
+                    'parent_column' => 'room_id',
+                    'table' => 'roomsmeta',
+                    'value_column' => 'meta_value',
+                ],
+                'foreign_keys' => ['venue_id' => 'wp_venues'],
+                'index_coverage' => [
+                    'code' => ['index' => 'code_unique', 'prefix' => null],
+                    'id' => ['index' => 'PRIMARY', 'prefix' => null],
+                ],
+                'natural_key' => ['column' => 'code', 'distinct' => 12, 'rows' => 12, 'unique' => true],
+                'present' => true,
+                'primary_key' => ['code'],
+                'unique_keys' => ['code_unique' => ['code']],
+            ],
+            'never_proposed' => ['present' => false],
+        ],
+        'target' => ['agent_version' => '0.0.0-test', 'spec_version' => SPEC],
+    ];
+    $probe['probe_hash'] = \Duo\AdapterProbe::hash_document($probe);
+    $probePath = "$t/probe.json";
+    wr($probePath, \Duo\Canon::encode($probe));
+
+    $answered = gen_draft("$t/repo", 'rooms-draft', $lib, ['--evidence=' . $probePath]);
+    $candidate = ($answered['_draft']['proposals']['tables'] ?? [])[0] ?? [];
+    $rows = [];
+    foreach (($candidate['evidence'] ?? []) as $row) {
+        if (($row['source'] ?? '') === 'duo-adapter-probe/v1') {
+            $rows[$row['locator']] = $row;
+        }
+    }
+    check(count($rows) === 7, 'every live fact family landed as its own evidence row (' . count($rows) . ')');
+    check(
+        array_values(array_unique(array_map(static fn(array $r) => $r['confidence'], $rows))) === [1],
+        'every probe row carries confidence 1.0 — an observed fact is certain in a way its proposal is not'
+    );
+
+    // Answered BY NAME: each row names a question the candidate actually asks.
+    $asked = [];
+    foreach (($candidate['questions'] ?? []) as $question) {
+        if (preg_match('/^\[([a-z_]+)\]/', (string) $question, $m) === 1) {
+            $asked[$m[1]] = true;
+        }
+    }
+    $unanswerable = [];
+    foreach ($rows as $locator => $row) {
+        if (!isset($asked[(string) ($row['question'] ?? '')])) {
+            $unanswerable[] = $locator . ' => ' . ($row['question'] ?? '(none)');
+        }
+    }
+    check($unanswerable === [], 'every probe row answers a question the candidate NAMED: ' . json_encode($unanswerable));
+    check(
+        ($rows['tables.rooms.pk']['question'] ?? '') === 'table_schema'
+            && str_contains((string) ($rows['tables.rooms.pk']['observation'] ?? ''), 'the live PRIMARY KEY is (code)'),
+        'the real PRIMARY KEY is reported against the table_schema question'
+    );
+    check(
+        ($rows['tables.rooms.index_coverage']['question'] ?? '') === 'lock_index'
+            && ($rows['tables.rooms.foreign_keys']['question'] ?? '') === 'foreign_keys'
+            && ($rows['tables.rooms.eav_twin']['question'] ?? '') === 'eav_twin'
+            && ($rows['tables.rooms.natural_key.code']['question'] ?? '') === 'natural_key_uniqueness',
+        'index coverage, foreign keys, the EAV twin and the keyspace count each answer their own named question'
+    );
+
+    // PROMOTES NOTHING. The fragment is byte-identical to the unanswered run:
+    // the live PK disagrees with the guess and the guess still stands, the
+    // per-column class hints stay `runtime`, and identity stays a proposal.
+    check(
+        same_canon($bareCandidate['candidate'], $candidate['candidate']),
+        'the candidate FRAGMENT is unchanged by the probe — a live fact is evidence, never a promotion'
+    );
+    check(
+        ($candidate['candidate']['pk'] ?? null) === 'id',
+        "the disagreeing offline pk guess STANDS at 'id' and is only contradicted in evidence"
+    );
+    check(
+        ($candidate['candidate']['columns']['code']['class'] ?? null) === 'authored'
+            && ($candidate['candidate']['identity']['mode'] ?? null) === 'natural_key',
+        'the offline classification and identity proposal are exactly what they were'
+    );
+    check(
+        ($candidate['status'] ?? '') === 'proposal' && ($candidate['confidence'] ?? null) === ($bareCandidate['confidence'] ?? null),
+        'status stays `proposal` and the CANDIDATE confidence stays the guess it was'
+    );
+    check(
+        !isset($answered['deletions']) && !isset($answered['tables']),
+        'no live section was written: a probe never advertises a table or a deletion'
+    );
+    check(
+        str_contains((string) ($answered['_draft']['evidence_seam'] ?? ''), 'duo-adapter-probe/v1 consumed')
+            && str_contains((string) ($answered['_draft']['evidence_seam'] ?? ''), $probe['probe_hash'])
+            && str_contains((string) ($answered['_draft']['evidence_seam'] ?? ''), 'Probed but not proposed here: never_proposed'),
+        'the seam records the consumed document by hash and names the probed table nothing proposed'
+    );
+
+    // Inertness is preserved: evidence rows carry no blind-walk trigger key.
+    $md = "$t/md";
+    make_lib($md);
+    wr($md . '/rooms-draft.json', json_encode($answered, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    $validated = duo(['manifest-validate', $md, '--manifest=rooms-draft', '--pins=rooms-draft,core']);
+    check(
+        $validated['exit'] === 0,
+        'a draft carrying probe evidence still validates (exit ' . $validated['exit'] . ': ' . trim($validated['stderr']) . ')'
+    );
+
+    // The load-bearing refusal: a document that tries to classify.
+    $forged = $probe;
+    $forged['tables']['rooms']['class'] = 'authored_snapshot';
+    $forged['probe_hash'] = \Duo\AdapterProbe::hash_document($forged);
+    wr("$t/forged.json", \Duo\Canon::encode($forged));
+    $refused = duo(['adapter-draft', "$t/repo", '--name=rooms-draft', '--format=json', '--evidence=' . "$t/forged.json"], $lib);
+    check(
+        $refused['exit'] === 2 && str_contains($refused['stderr'], 'outside the closed probe vocabulary'),
+        'a probe document carrying a `class` refuses the whole run (got: ' . trim($refused['stderr']) . ')'
+    );
+
+    $tampered = $probe;
+    $tampered['tables']['rooms']['primary_key'] = ['id'];
+    wr("$t/tampered.json", \Duo\Canon::encode($tampered));
+    $stale = duo(['adapter-draft', "$t/repo", '--name=rooms-draft', '--format=json', '--evidence=' . "$t/tampered.json"], $lib);
+    check(
+        $stale['exit'] === 2 && str_contains($stale['stderr'], 'probe_hash does not describe the document'),
+        'a hand-edited fact is refused rather than attached at confidence 1.0'
+    );
+
+    wr("$t/not-a-probe.json", json_encode(['format' => 'duo-coverage-report/v1']));
+    $wrongFormat = duo(['adapter-draft', "$t/repo", '--name=rooms-draft', '--format=json', '--evidence=' . "$t/not-a-probe.json"], $lib);
+    check(
+        $wrongFormat['exit'] === 2 && str_contains($wrongFormat['stderr'], 'duo-adapter-probe/v1'),
+        'a document of another format is refused by name'
+    );
+}
+
 echo "\n";
 if ($failures > 0) {
     echo "FAIL: $failures check(s) failed\n";

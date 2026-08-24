@@ -624,6 +624,17 @@ regress-manifest-validate:
 regress-adapter-draft:
 	bash sandbox/tests/offline/adapter/regress_adapter_draft.sh
 
+# WP-2.1: `wp duo adapter-probe`, the live half of adapter-draft's `--evidence=`
+# seam. Emits duo-adapter-probe/v1 -- real PK, column types/nullability, unique
+# keys, per-column index coverage in DeleteGuardEvaluator::lock_index()'s own
+# terms, FOREIGN KEY presence, EAV twin shape and one COUNT vs COUNT DISTINCT --
+# and proposes nothing. Offline: the shared FakeWpdb for the SHOW TABLES/SHOW
+# COLUMNS half, recorded fixtures for the three statements it deliberately
+# declines (SHOW INDEX, information_schema, COUNT(DISTINCT col)), and the real
+# AdapterDraft consumer for the seam.
+regress-adapter-probe:
+	php sandbox/tests/offline/adapter/regress_adapter_probe.php
+
 # DUO-3408: the shared conformance assertion fragment -- every require_*
 # helper the seeds/postdeploy hooks call must be defined in ONE fragment both
 # sourcing harnesses load, or bundle leg 12 dies at `command not found`.
