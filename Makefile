@@ -58,7 +58,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-environment-materializer-live \
 	regress-env-provider-conformance-live \
 	regress-frozen-materialization-promotion \
-	regress-woo-attribute-deletion regress-bundle-coverage regress-suite-wiring \
+	regress-woo-attribute-deletion regress-bundle-coverage regress-suite-wiring regress-platform-move-gates \
 	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification \
 	regress-post-field-classification regress-woocommerce-contract regress-init-contract regress-duo-init regress-duo3316-contract \
 	regress-refresh-export-unit regress-vocabulary-ownership regress-parent-scoped-natural-key regress-close-gate-parent-count \
@@ -2369,6 +2369,20 @@ regress-suite-wiring:
 # its own grind rejected -- because nothing ran a maker and compared. This does.
 regress-fixture-makers:
 	bash sandbox/tests/offline/guards/regress_fixture_makers.sh
+
+# The one guard in this directory aimed at the PRODUCT rather than the estate.
+# AGENTS.md rule 2 names one refusal a manifests/ byte trips
+# (compiled_artifact_manifest_mismatch) and rule 8 names one more; the tree
+# actually carries 44 gates across 76 sites on the platform/manifest/authority
+# axes. This re-derives that candidate set from the tree on every run and
+# refuses a site the reviewed register in tools/platform-move-gates.json does
+# not carry, so "the gate nobody enumerated" fails here instead of on a
+# customer site. The register's 6 exclusions are the same discipline pointed
+# the other way -- a deliberate drop is a reviewed line, and widening the
+# predicate until it absorbs one fails too. See the suite header for the
+# predicate, its two arms, and the measured reason they stay narrow.
+regress-platform-move-gates:
+	php sandbox/tests/offline/guards/regress_platform_move_gates.php
 
 regress-init-contract:
 	php sandbox/tests/offline/cli/regress_init_contract.php
