@@ -88,7 +88,8 @@
           "TransientDbException",
           "UrlQueryReferenceCodec",
           "MetaRows",
-          "MediaPayloadAuthority"
+          "MediaPayloadAuthority",
+          "WpCliChildProcess"
         ],
         "depends_on": [
           "Kernel"
@@ -144,7 +145,8 @@
           "TransientDbException.php",
           "UrlQueryReferenceCodec.php",
           "UserMetaState.php",
-          "Uuid.php"
+          "Uuid.php",
+          "WpCliChildProcess.php"
         ]
       },
       "Policy": {
