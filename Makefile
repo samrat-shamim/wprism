@@ -362,6 +362,12 @@ regress-fetch-artifact:
 regress-manifest-dispositions:
 	php sandbox/tests/offline/policy/regress_manifest_dispositions.php
 
+# WP-1.2: Policy::load() costs one manifest decode per PIN, never one per
+# manifest in the library. Counted (not timed) against synthetic 100/1,000/
+# 10,000-manifest libraries under sandbox/tmp, through the real engine.
+regress-policy-load-scale:
+	php sandbox/tests/offline/policy/regress_policy_load_scale.php
+
 # The one agent-side platform pre-policy gate: every inclusive/exclusive
 # PHP/MariaDB edge, both halves of the WordPress range-plus-exercised-series
 # predicate (including a boundary with a deliberate series hole) and every

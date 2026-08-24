@@ -237,7 +237,15 @@ final class InitPlanner {
         // active theme is a block theme, and say so; when the profile is not
         // certified or the registry is unreadable, say that instead and leave
         // the types to `duo classify`.
-        $fse = self::fse_profile_scope();
+        //
+        // $manifests is passed because the profile's `manifest` is resolved
+        // against the registry's own declared names and never against the
+        // directory: a reviewed entry that outlived its manifest keeps the
+        // profile valid, and nothing on the load path notices since coverage
+        // stopped being a whole-directory check. These are the adapters this
+        // site actually installed, which is the set a proposal may be built
+        // from.
+        $fse = self::fse_profile_scope(null, null, array_keys($manifests));
         if ($fse !== null) {
             if ($fse['scope'] !== null) {
                 $postTypes = array_merge($postTypes, $fse['scope']['post_types']);
@@ -905,9 +913,34 @@ final class InitPlanner {
      * The certified core FSE profile's scope for a block theme, or null when
      * the active theme is classic (nothing to propose, nothing to say).
      *
+     * $manifestNames is the library the caller actually loaded, and it is what
+     * keeps this from proposing scope out of a GHOST. validate_profiles()
+     * resolves `profile.manifest` against the registry's own declared names,
+     * never against the directory, so a reviewed entry that outlived its
+     * manifest keeps its profile valid; since WP-1.2 that direction has no
+     * runtime reader either (assert_covers() validates what it was handed), so
+     * a library whose `profiles.fse` points at an adapter that is not
+     * installed would put core's site-editor types — wp_template,
+     * wp_template_part, wp_navigation, wp_block and their taxonomies — under a
+     * proposal backed by nothing. `make release-gate` bounds that for the
+     * SHIPPED library only; an out-of-repo library reaches a running site with
+     * no such gate in front of it. Resolving here rather than at load is
+     * deliberate: the pinned subset is the wrong set to resolve against — a
+     * site legitimately pinning one plugin adapter and nothing else leaves
+     * `fse` -> `core` unpinned, and refusing that load would refuse a correct
+     * library.
+     *
+     * Passing null means "no library in hand", which leaves the target alone;
+     * InitPlanner::plan() passes array_keys() of the manifests it discovered.
+     *
+     * @param ?list<string> $manifestNames
      * @return ?array{scope:?array{post_types:list<string>,taxonomies:list<string>},advisory:array<string,string>}
      */
-    public static function fse_profile_scope(?bool $blockTheme = null, ?array $profiles = null): ?array {
+    public static function fse_profile_scope(
+        ?bool $blockTheme = null,
+        ?array $profiles = null,
+        ?array $manifestNames = null
+    ): ?array {
         $blockTheme ??= function_exists('wp_is_block_theme') && wp_is_block_theme();
         if (!$blockTheme) {
             return null;
@@ -923,18 +956,35 @@ final class InitPlanner {
         }
         $fse = is_array($profiles['fse'] ?? null) ? $profiles['fse'] : null;
         $scope = is_array($fse['scope'] ?? null) ? $fse['scope'] : null;
-        if ($fse === null || ($fse['status'] ?? null) !== 'certified' || $scope === null) {
+        $target = is_string($fse['manifest'] ?? null) ? $fse['manifest'] : '';
+        $dangling = $fse !== null && $manifestNames !== null && !in_array($target, $manifestNames, true);
+        if ($fse === null || ($fse['status'] ?? null) !== 'certified' || $scope === null || $dangling) {
             return [
                 'scope' => null,
                 'advisory' => [
                     'code' => 'fse_profile_not_certified',
                     'extension' => 'profile:fse',
                     'kind' => 'profile',
-                    'reason' => "the active theme '$stylesheet' is a block theme, but this library carries no certified "
-                        . 'core FSE profile; site-editor customisations (templates, template parts, navigation, '
-                        . 'patterns) are left out of the proposed scope',
-                    'remediation' => 'install a library whose dispositions certify profiles.fse, or decide those types '
-                        . 'with duo classify after init',
+                    // Same code, because the operator-facing consequence is
+                    // identical — nothing is proposed and `duo classify`
+                    // decides — but not the same sentence: "carries no
+                    // certified profile" would be false about a library whose
+                    // profile IS certified and whose adapter is simply absent,
+                    // and would send the operator to install a profile they
+                    // already have.
+                    'reason' => $dangling
+                        ? "the active theme '$stylesheet' is a block theme, and this library's core FSE profile "
+                            . "names the adapter '$target', which this site has not installed; scope is not proposed "
+                            . 'from a manifest that is not here, so site-editor customisations (templates, template '
+                            . 'parts, navigation, patterns) are left out of the proposed scope'
+                        : "the active theme '$stylesheet' is a block theme, but this library carries no certified "
+                            . 'core FSE profile; site-editor customisations (templates, template parts, navigation, '
+                            . 'patterns) are left out of the proposed scope',
+                    'remediation' => $dangling
+                        ? "install the adapter '$target' that this library's dispositions review, or decide those "
+                            . 'types with duo classify after init'
+                        : 'install a library whose dispositions certify profiles.fse, or decide those types '
+                            . 'with duo classify after init',
                 ],
             ];
         }

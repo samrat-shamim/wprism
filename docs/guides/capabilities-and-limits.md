@@ -23,13 +23,17 @@ named live conformance suites under `sandbox/conformance/` *exercise* it. It
 does not mean a bundle digest seals the claim to a run, an artifact set, or a
 closure. That apparatus is gone; what replaces it is four cross-checks
 `capability-doc.php` refuses on, each mirroring a rule
-`agent/src/Policy/ManifestDispositions.php` enforces at load time — so the
-document cannot describe a library the agent would reject:
+`agent/src/Policy/ManifestDispositions.php` enforces at load time — except the
+first, where this gate is the only enforcement there is — so the document
+cannot describe a library the agent would reject:
 
 - disposition coverage is an **exact** set, not a subset. A manifest reaches
   the document only through a reviewed entry, and a reviewed entry cannot
-  outlive its manifest (`duo: manifest disposition coverage mismatch;
-  missing=[…], extra=[…]`).
+  outlive its manifest (`manifest disposition coverage mismatch; missing=[…],
+  extra=[…]`). This one is not a mirror: it is the only reader of the
+  directory-wide rule. The agent proves the same coverage against the adapters
+  a repository **pins**, in the same words, so an unreviewed file in the
+  library refuses the pin that names it rather than every pin beside it.
 - a disposition naming a plugin must agree with that manifest's own `plugin`
   and `version_range` bytes, so the published range is the range the agent
   will actually admit.

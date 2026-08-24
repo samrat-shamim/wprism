@@ -95,6 +95,29 @@ function duo_cert_library_bytes(string $manifestDir): array {
 }
 
 /**
+ * Every manifest of a library, decoded, keyed by FILE basename.
+ *
+ * Keyed by basename rather than by the manifest's own `name` on purpose: a
+ * disagreement between the two keyings is not this helper's rule to state
+ * (AdapterSources::assert_declared_name() owns it), and keying by basename
+ * makes such a manifest surface as an uncovered name in assert_covers()
+ * instead of being silently filed under a key the registry never used.
+ *
+ * @return array<string,array<string,mixed>>
+ */
+function duo_cert_library_manifests(string $manifestDir): array {
+    $out = [];
+    foreach (glob(rtrim($manifestDir, '/') . '/*.json') ?: [] as $file) {
+        $name = basename($file, '.json');
+        if ($name !== 'dispositions') {
+            $out[$name] = \Duo\Canon::decode(\Duo\Canon::read_file($file));
+        }
+    }
+    ksort($out, SORT_STRING);
+    return $out;
+}
+
+/**
  * Copy the shipped manifest library to $root/manifests and return that path.
  *
  * Asserted, not assumed, before the caller gets it back: byte-identical to the
@@ -117,10 +140,15 @@ function duo_cert_hermetic_library(string $repo, string $root): string {
 /**
  * The fixture's own premise check.
  *
- * `ManifestDispositions::load()` is the real loader, not a re-implementation:
- * it is the one that refuses a coverage mismatch, a malformed entry, or a
- * certified claim with no evidence citation, so running it here is what makes
- * "this library loads" mean the same thing to the fixture as to the product.
+ * `ManifestDispositions::load()` plus `assert_covers()` is the real loader,
+ * not a re-implementation: they are what refuses a malformed entry or a
+ * certified claim with no evidence citation, so running them here is what
+ * makes "this library loads" mean the same thing to the fixture as to the
+ * product. `assert_covers()` is handed EVERY manifest in the directory
+ * because that is the fixture's premise (a whole, complete library) where
+ * `Policy::load()`'s premise is narrower (the pinned shipped subset) — the
+ * split WP-1.2 made; the reverse direction, a reviewed entry whose manifest
+ * is gone, is asserted right after it for the same reason.
  */
 function duo_cert_assert_loadable(string $shippedDir, string $manifestDir): void {
     $shippedBytes = duo_cert_library_bytes($shippedDir);
@@ -139,6 +167,18 @@ function duo_cert_assert_loadable(string $shippedDir, string $manifestDir): void
     if ($dispositions->data() !== ManifestDispositions::load($shippedDir)?->data()) {
         throw new RuntimeException(
             'certification fixture manufacture failed: the hermetic dispositions differ from the shipped ones'
+        );
+    }
+    $manifests = duo_cert_library_manifests($manifestDir);
+    $dispositions->assert_covers(array_values($manifests));
+    $reviewed = array_keys($dispositions->data()['manifests']);
+    $present = array_keys($manifests);
+    sort($reviewed, SORT_STRING);
+    sort($present, SORT_STRING);
+    if ($reviewed !== $present) {
+        throw new RuntimeException(
+            'certification fixture manufacture failed: reviewed entries with no manifest: ['
+            . implode(',', array_diff($reviewed, $present)) . ']'
         );
     }
     // Reads capabilities/platform.json and refuses a boundary naming a

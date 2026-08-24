@@ -53,6 +53,20 @@ function expect_throw(callable $fn, string $needle, string $message): void {
         check(str_contains($e->getMessage(), $needle), "$message ({$e->getMessage()})");
     }
 }
+/**
+ * The refusal SENTENCE, for the checks that compare bytes rather than a
+ * needle. A refusal whose wording is the contract (AGENTS.md rule 8) has to be
+ * asserted whole; str_contains() would pass on a sentence that had quietly
+ * gained or lost a clause.
+ */
+function message_of(callable $fn): string {
+    try {
+        $fn();
+    } catch (Throwable $e) {
+        return $e->getMessage();
+    }
+    return '<no refusal thrown>';
+}
 function remove_fixture_tree(string $path): void {
     if (!is_dir($path)) { return; }
     foreach (new FilesystemIterator($path) as $item) {
@@ -398,9 +412,421 @@ check(
     . 'no artifact identity'
 );
 
-echo "\n== omissions fail loud; CLI/status/promotion consume the same result ==\n";
+echo "\n== WP-1.2: the coverage rule fires on the PIN; directory exactness is an authoring gate ==\n";
+// The doctrine this file states in its own header — "a manifest cannot certify
+// itself merely by existing beside the agent" — is a rule about a PINNED
+// manifest, and this group is where the distinction is pinned down. Before
+// WP-1.2 `load()` globbed and decoded every `*.json` beside the dispositions
+// and refused on a two-way set difference, so ONE unreviewed file refused every
+// unrelated pin along with itself (18 decodes for a one-pin load of the shipped
+// 16-manifest library, and a refusal about a manifest nobody asked for). The
+// rule split rather than relaxed:
+//   runtime   — you may not USE an unreviewed adapter: assert_covers() over the
+//               pinned shipped subset, same refusal class, same sentence;
+//   authoring — the shipped library is exactly reviewed, both directions:
+//               `make release-gate` (tools/capability-doc.php's
+//               capdoc_cross_check(), asserted by tests/Tooling/
+//               CapabilityDocCoverageTest.php) plus the whole-library check
+//               below, which runs in the merge gate on every change.
+Canon::write_file($fixture . '/dispositions.json', Canon::encode($coreRegistry));
+$registryShaBeforeUncovered = hash('sha256', Canon::encode($coreRegistry));
+Canon::write_file(
+    $fixture . '/uncovered-adapter.json',
+    Canon::encode([
+        'name' => 'uncovered-adapter',
+        'spec_version' => DUO_SPEC_VERSION,
+        'option_autoload' => 'preserve',
+        'options' => ['uncovered_adapter_layout' => ['class' => 'authored']],
+    ])
+);
+putenv("DUO_MANIFESTS_DIR=$fixture");
+check(
+    count(Policy::load(null, ['core'])->manifests) === 1,
+    'an uncovered manifest merely SITTING in the library no longer refuses an unrelated pin'
+);
+check(
+    ManifestDispositions::load($fixture)?->sha256() === $registryShaBeforeUncovered,
+    'and it moves no reviewed byte: the registry a host contract pins is the same content address it was'
+);
+// Byte-identical, asserted with === on the whole sentence rather than a needle:
+// this is the refusal an operator meets, docs/guides/adapter-authoring.md
+// quotes it verbatim, and AGENTS.md rule 8 says a refusal that is not the
+// subject of the change does not move. `extra=[]` is part of those bytes; the
+// reviewed-entry-with-no-manifest direction it used to carry is now the repo
+// gate's, and no runtime caller can populate it.
+check(
+    message_of(fn() => Policy::load(null, ['uncovered-adapter']))
+        === 'duo: manifest disposition coverage mismatch; missing=[uncovered-adapter], extra=[]',
+    'PINNING it still refuses, in the same words — the doctrine is about a pinned manifest and it did not move'
+);
+$authoringSentence = (string) file_get_contents("$repo/docs/guides/adapter-authoring.md");
+check(
+    str_contains($authoringSentence, 'duo: manifest disposition coverage mismatch; missing=['),
+    'and the authoring guide still quotes that sentence, so the operator-facing text and the engine agree'
+);
+// The library-wide REPORT is where the uncovered manifest surfaces instead:
+// `wp duo capabilities --all` used to die on load()'s coverage check before it
+// could describe anything, so DUO-3372's synthesized row was unreachable except
+// by direct call (the group at the bottom of this file). It is the narrower
+// loud answer that replaced the wider refusal — a row, and a report that is not
+// ready — never a silent omission.
+WP_CLI::$lines = [];
+$uncoveredReport = null;
+try {
+    (new Duo\Cli())->capabilities([], ['all' => true, 'format' => 'json']);
+    $uncoveredReport = json_decode(WP_CLI::$lines[0] ?? '', true);
+} catch (Throwable $e) {
+    $uncoveredReport = ['refused' => $e->getMessage()];
+}
+$uncoveredRow = null;
+foreach (($uncoveredReport['manifests'] ?? []) as $row) {
+    if (($row['name'] ?? null) === 'uncovered-adapter') {
+        $uncoveredRow = $row;
+    }
+}
+check(
+    ($uncoveredReport['ready'] ?? null) === false
+        && count($uncoveredReport['manifests'] ?? []) === 2
+        && ($uncoveredRow['status'] ?? null) === 'unsupported'
+        && ($uncoveredRow['verdict']['status'] ?? null) === 'blocked'
+        && in_array(
+            'missing_disposition_entry',
+            array_column($uncoveredRow['verdict']['reasons'] ?? [], 'code'),
+            true
+        ),
+    'a library-wide capability report answers the uncovered manifest with an unsupported row and '
+    . '`missing_disposition_entry` rather than refusing the whole command over it'
+);
+// WP-1.2 review F7: the same library moved a SURVEY word, and this pins it
+// deliberately rather than leaving it as an unremarked side effect.
+// AdapterSources::has_reviewed_registry() answers "did the registry load at
+// all", and before WP-1.2 an uncovered file made load() throw, so
+// `duo adapter list` over this directory reported every shipped row with
+// certification `null` — "no reviewed status known" — on account of a file
+// that has nothing to do with any of them. The registry loads now, so the word
+// is `registry` for both rows, INCLUDING the uncovered one: the survey's
+// question is about the library's document, not about this adapter's entry.
+// The judgement on the uncovered adapter is not lost, it is where it belongs —
+// the capability verdict asserted immediately above, `blocked` with
+// `missing_disposition_entry`. Two rows, two different questions, and the row
+// that reads `registry` here is the row that reads `blocked` there.
+$uncoveredSurvey = [];
+foreach (\Duo\AdapterSources::survey(null)['adapters'] as $row) {
+    $uncoveredSurvey[(string) $row['name']] = $row;
+}
+check(
+    count($uncoveredSurvey) === 2
+        && ($uncoveredSurvey['core']['certification'] ?? null) === 'registry'
+        && ($uncoveredSurvey['uncovered-adapter']['certification'] ?? null) === 'registry'
+        // array_key_exists, not `?? …`: the value under test IS null, and the
+        // null-coalescing operator fires on exactly that.
+        && array_key_exists('disposition_status', $uncoveredSurvey['uncovered-adapter'])
+        && $uncoveredSurvey['uncovered-adapter']['disposition_status'] === null
+        && ($uncoveredSurvey['core']['disposition_status'] ?? null) === 'certified',
+    'the survey reports `registry` for both rows — the registry DID load — while the uncovered row carries no '
+    . 'disposition status, so the reviewed verdict is read from the capability report and never from this word'
+);
+// The other direction: a reviewed entry whose manifest is gone. $fixture holds
+// core.json and the uncovered probe; $data reviews all 16 shipped names.
+//
+// No LOAD refuses it — assert_covers() validates what it was handed, so a
+// dangling entry is invisible to the pinned path by construction. What bounds
+// it is `make release-gate` (capdoc_cross_check(), watched by tests/Tooling/
+// CapabilityDocCoverageTest.php), and that is an IN-REPO authoring bound over
+// the shipped library, not a runtime one: on a site running a library this
+// repository did not author, a dangling entry survives. The one consumer that
+// would act on it is `profiles` — validate_profiles() resolves each profile's
+// `manifest` against the registry's own declared names, never against the
+// directory — and that is guarded where the profile is consumed rather than at
+// load, since the pinned subset is the wrong set to resolve against (a site
+// pinning only woocommerce leaves `fse` -> `core` unpinned and correct). The
+// guard is asserted below.
 Canon::write_file($fixture . '/dispositions.json', Canon::encode($data));
-expect_throw(fn() => ManifestDispositions::load($fixture), 'coverage mismatch', 'a shipped manifest without a matching exact registry set fails closed');
+check(
+    count(Policy::load(null, ['core'])->manifests) === 1,
+    'a reviewed entry that outlived its manifest is no longer a runtime refusal either — it is release-gate work'
+);
+unlink($fixture . '/uncovered-adapter.json');
+putenv("DUO_MANIFESTS_DIR=$manifestDir");
+// The authoring half, over the REAL shipped library, through the REAL loader.
+// This is the merge gate's copy of the exactness rule that left the runtime:
+// every shipped manifest is reviewed (assert_covers, which is also the nine
+// per-entry rules), and every reviewed entry has a shipped manifest.
+$shippedNames = array_map(fn(string $path): string => basename($path, '.json'), $manifestFiles);
+$reviewedNames = array_keys($data['manifests']);
+sort($shippedNames, SORT_STRING);
+sort($reviewedNames, SORT_STRING);
+check($shippedNames === $reviewedNames, 'the shipped library is exactly reviewed, one entry per manifest, both ways');
+$coverageRefusal = message_of(fn() => $registry->assert_covers($manifests));
+check(
+    $coverageRefusal === '<no refusal thrown>',
+    "and every one of those entries passes the real per-entry validator against its manifest ($coverageRefusal)"
+);
+// The two reporting projections did not move for the library that ships. They
+// are computed from the registry BYTES and the manifests handed in, and
+// neither ever depended on the directory walk that left load(); this pins that
+// they still say the same thing about all sixteen. Derived from the statuses
+// rather than transcribed, so the assertion keeps its meaning when the library
+// gains an adapter.
+$expectedBlockers = [];
+foreach ($manifests as $manifest) {
+    $name = (string) $manifest['name'];
+    if (($data['manifests'][$name]['status'] ?? null) !== 'certified') {
+        $expectedBlockers[] = [
+            'name' => $name,
+            'status' => (string) $data['manifests'][$name]['status'],
+            'reason' => (string) $data['manifests'][$name]['reason'],
+        ];
+    }
+}
+$shippedReport = $registry->report($manifests);
+check(
+    $registry->blockers($manifests) === $expectedBlockers
+        && $shippedReport['blockers'] === $expectedBlockers
+        && $shippedReport['ready'] === ($expectedBlockers === [])
+        && count($shippedReport['manifests']) === count($manifests)
+        && array_column($shippedReport['manifests'], 'name') === array_column($manifests, 'name')
+        && !in_array(
+            ManifestDispositions::STATUS_UNCOVERED,
+            array_column($shippedReport['manifests'], 'status'),
+            true
+        ),
+    'blockers() and report() are unchanged for the shipped set: one row per manifest, the reviewed status verbatim, '
+    . 'and no synthesized `uncovered` row anywhere in a library that is exactly reviewed'
+);
+// The nine per-entry rules are unmoved: they still run, and they still run on
+// the PRODUCT path — Policy::load() on a pinned adapter — for every rule the
+// core manifest can express. Each variant edits only the reviewed entry.
+$coreEntryVariant = function (callable $edit) use ($fixture, $coreRegistry): string {
+    $variant = $coreRegistry;
+    $variant['manifests']['core'] = $edit($variant['manifests']['core']);
+    Canon::write_file($fixture . '/dispositions.json', Canon::encode($variant));
+    putenv("DUO_MANIFESTS_DIR=$fixture");
+    return message_of(fn() => Policy::load(null, ['core']));
+};
+foreach ([
+    'a reviewed entry that is not an object at all' => [
+        fn(array $entry): array => ['not', 'an', 'object'],
+        "duo: manifest disposition 'core' must be an object",
+    ],
+    'a blank reason — the human wrote down nothing' => [
+        function (array $entry): array { $entry['reason'] = '   '; return $entry; },
+        "duo: manifest disposition 'core' has a malformed required field",
+    ],
+    'an empty unsupported list — a claim with no stated boundary' => [
+        function (array $entry): array { $entry['unsupported'] = []; return $entry; },
+        "duo: manifest disposition 'core' has a malformed required field",
+    ],
+    'a capability block missing one of its five keys' => [
+        function (array $entry): array { unset($entry['capabilities']['lifecycle_phases']); return $entry; },
+        "duo: manifest disposition 'core' capabilities are malformed",
+    ],
+    'deletion semantics that name only what is supported' => [
+        function (array $entry): array { unset($entry['capabilities']['deletion_semantics']['unsupported']); return $entry; },
+        "duo: manifest disposition 'core' deletion semantics are malformed",
+    ],
+    'a reviewed section the manifest does not have' => [
+        function (array $entry): array {
+            $entry['capabilities']['entity_sections'][] = 'invented_section';
+            return $entry;
+        },
+        "duo: manifest disposition 'core' names absent manifest section 'invented_section'",
+    ],
+    'an unsupported row with no prose reason' => [
+        function (array $entry): array { $entry['unsupported'][0]['reason'] = ''; return $entry; },
+        "duo: manifest disposition 'core' unsupported[0] is malformed",
+    ],
+    'a certified claim whose evidence citation is gone' => [
+        function (array $entry): array { unset($entry['evidence']); return $entry; },
+        "duo: certified manifest disposition 'core' lacks current bundle evidence",
+    ],
+] as $label => [$edit, $expected]) {
+    check($coreEntryVariant($edit) === $expected, "$label is refused on the pinned path ($expected)");
+}
+// The two table-shaped rules core cannot express, driven through the same
+// public entry point Policy::load() uses. load() needs no manifest FILE beside
+// the registry any more, which is what makes this a two-file fixture.
+$tableProbe = function (array $manifest, array $entry) use ($fixture): string {
+    Canon::write_file($fixture . '/dispositions.json', Canon::encode([
+        'format' => ManifestDispositions::FORMAT,
+        'manifests' => ['table-probe' => $entry],
+        'profiles' => [],
+    ]));
+    return message_of(fn() => ManifestDispositions::load($fixture)->assert_covers([$manifest]));
+};
+$probeEntry = [
+    'capabilities' => [
+        'deletion_semantics' => ['supported' => [], 'unsupported' => ['nothing is deletable here']],
+        'entity_sections' => [],
+        'field_sections' => [],
+        'lifecycle_phases' => [],
+        'operations' => ['apply'],
+    ],
+    'default_authored_keyspaces' => [],
+    'reason' => 'Synthetic entry for the two table-shaped per-entry rules.',
+    'status' => 'experimental',
+    'supported_versions' => ['plugin' => 'probe/probe.php', 'range' => ['max' => '2.0.0', 'min' => '1.0.0']],
+    // Deliberately NOT `tables.probe`: naming that surface is exactly what the
+    // intent-only rule below demands, so a probe that named it would assert
+    // nothing.
+    'unsupported' => [['operation' => 'apply', 'reason' => 'fixture', 'surface' => 'options.probe_option']],
+];
+check(
+    $tableProbe(
+        ['name' => 'table-probe', 'tables' => ['probe' => ['class' => 'authored_typed_snapshot_post_v1']]],
+        $probeEntry
+    ) === "duo: manifest disposition 'table-probe' must mark intent-only table 'probe' unsupported",
+    'an intent-only typed table with no reviewed limitation is still refused'
+);
+check(
+    $tableProbe(
+        ['name' => 'table-probe', 'tables' => ['probe' => ['class' => 'authored_snapshot', 'default_class' => 'authored']]],
+        $probeEntry
+    ) === "duo: manifest disposition 'table-probe' omits default authored keyspace 'probe'",
+    'a default-authored keyspace with no reviewed justification is still refused'
+);
+Canon::write_file($fixture . '/dispositions.json', Canon::encode($coreRegistry));
+
+echo "\n== a reviewed entry is validated where it is PROJECTED, not only where it is pinned ==\n";
+// WP-1.2 review F1. Splitting coverage moved the per-entry rules onto the
+// PINNED subset, and every reader that resolves an entry by NAME was left
+// projecting reviewed bytes nothing had checked: AdapterRegistry::
+// shipped_claim() (the funnel under capability_claim() and report(), so `wp
+// duo capabilities --all` and `duo adapter inspect`) and ManifestDispositions
+// ::blockers()/report(). Measured on this exact fixture before the fix, a
+// woocommerce entry tampered after review answered `wp duo capabilities --all`
+// with `certified`/`verified` — evidence deleted printed `evidence: []`, an
+// invented entity_section printed the invention among its surfaces, and a
+// fabricated version range printed a range woocommerce.json does not declare.
+//
+// woocommerce and not core, because two of the nine rules only exist for a
+// manifest that names a `plugin`: core.json declares none, so the version
+// cross-check cannot fire on it at all and a group built on core would assert
+// three rules while claiming four.
+$tamperFixture = sys_get_temp_dir() . '/duo_dispositions_tamper_' . bin2hex(random_bytes(5));
+mkdir($tamperFixture . '/capabilities', 0777, true);
+register_shutdown_function(fn() => remove_fixture_tree($tamperFixture));
+copy($manifestDir . '/woocommerce.json', $tamperFixture . '/woocommerce.json');
+copy($manifestDir . '/capabilities/platform.json', $tamperFixture . '/capabilities/platform.json');
+$wooManifest = $manifestsByName['woocommerce'];
+$wooRegistry = [
+    'format' => ManifestDispositions::FORMAT,
+    'manifests' => ['woocommerce' => $data['manifests']['woocommerce']],
+    'profiles' => [],
+];
+$writeTamper = function (callable $edit) use ($tamperFixture, $wooRegistry): void {
+    $registry = $wooRegistry;
+    $registry['manifests']['woocommerce'] = $edit($registry['manifests']['woocommerce']);
+    Canon::write_file($tamperFixture . '/dispositions.json', Canon::encode($registry));
+    putenv("DUO_MANIFESTS_DIR=$tamperFixture");
+};
+/**
+ * The library view through the PRODUCT path, exactly the idiom the group above
+ * uses. A refusal here is the envelope `wp duo capabilities --all` prints and
+ * halts on; anything else is a report, and a report is the defect.
+ */
+$tamperedAll = function (callable $edit) use ($writeTamper): array {
+    $writeTamper($edit);
+    WP_CLI::$lines = [];
+    $threw = false;
+    try {
+        (new Duo\Cli())->capabilities([], ['all' => true, 'format' => 'json']);
+    } catch (Throwable $e) {
+        $threw = true;
+    }
+    $out = json_decode(WP_CLI::$lines[0] ?? '', true);
+    return [
+        'refused' => $threw && ($out['ok'] ?? null) === false,
+        'row' => is_array($out['manifests'][0] ?? null) ? $out['manifests'][0] : [],
+    ];
+};
+/** The same tamper, one frame in, where the refusal SENTENCE is readable. */
+$tamperedSentence = function (callable $edit) use ($writeTamper, $tamperFixture, $wooManifest): string {
+    $writeTamper($edit);
+    return message_of(fn() => AdapterRegistry::report(
+        ManifestDispositions::load($tamperFixture),
+        [$wooManifest],
+        ['operation' => 'promote']
+    ));
+};
+// The guard has to admit the untampered library, or the four refusals below
+// prove only that something is broken.
+$untampered = $tamperedAll(fn(array $entry): array => $entry);
+check(
+    $untampered['refused'] === false
+        && ($untampered['row']['status'] ?? null) === 'certified'
+        && ($untampered['row']['plugin_execution']['status'] ?? null) === 'verified'
+        // Through Canon::encode on both sides, which is how validate_entry()
+        // itself compares these two: dispositions.json is canonical (max
+        // before min) and woocommerce.json is authored (min before max), so
+        // `===` on the arrays would compare key ORDER and fail on a range that
+        // agrees.
+        && Canon::encode($untampered['row']['supported_versions']['range'] ?? null)
+            === Canon::encode($wooManifest['version_range'] ?? null),
+    'the reviewed library still projects its certified woocommerce claim, over the range its manifest declares'
+);
+foreach ([
+    'evidence deleted — a certified claim citing nothing' => [
+        function (array $entry): array { unset($entry['evidence']); return $entry; },
+        "duo: certified manifest disposition 'woocommerce' lacks current bundle evidence",
+    ],
+    'an invented entity_section — a surface no manifest carries' => [
+        function (array $entry): array {
+            $entry['capabilities']['entity_sections'][] = 'invented_section';
+            return $entry;
+        },
+        "duo: manifest disposition 'woocommerce' names absent manifest section 'invented_section'",
+    ],
+    'a fabricated version range — a claim over versions nobody reviewed' => [
+        function (array $entry): array {
+            $entry['supported_versions']['range'] = ['max' => '99.0.0', 'min' => '1.0.0'];
+            return $entry;
+        },
+        "duo: certified manifest disposition 'woocommerce' versions disagree with its manifest contract",
+    ],
+    'capabilities deleted outright' => [
+        function (array $entry): array { unset($entry['capabilities']); return $entry; },
+        "duo: manifest disposition 'woocommerce' has a malformed required field",
+    ],
+] as $label => [$edit, $expected]) {
+    check($tamperedAll($edit)['refused'] === true, "$label REFUSES the library view instead of projecting a claim");
+    check(
+        $tamperedSentence($edit) === $expected,
+        "and in the words load time uses, unchanged — $label ($expected)"
+    );
+}
+// The fourth tamper had a second, worse shape: ManifestDispositions::report()
+// reached $entry['capabilities']['entity_sections'] on an entry that has no
+// `capabilities` and produced two PHP warnings and "resolve_sections():
+// Argument #2 ($sections) must be of type array, null given" — a TypeError
+// where a refusal belongs. Driven directly because that is the method that
+// crashed.
+$writeTamper(function (array $entry): array { unset($entry['capabilities']); return $entry; });
+check(
+    message_of(fn() => ManifestDispositions::load($tamperFixture)->report([$wooManifest]))
+        === "duo: manifest disposition 'woocommerce' has a malformed required field",
+    'report() refuses that entry in the validator\'s words rather than dying inside resolve_sections()'
+);
+check(
+    message_of(fn() => ManifestDispositions::load($tamperFixture)->blockers([$wooManifest]))
+        === "duo: manifest disposition 'woocommerce' has a malformed required field",
+    'and blockers() refuses it too, so `ready` can never be computed from an entry nothing validated'
+);
+// WP-1.2 review F5. A reviewed entry authored as JSON `null` is PRESENT and
+// malformed, not absent. assert_covers() tested it with isset(), which is
+// false for null, so it was folded into the coverage list and answered
+// "coverage mismatch; missing=[woocommerce]" — an operator sent to add an
+// entry that is already sitting in the file. array_key_exists puts it back in
+// front of the per-entry validator, which says what is actually wrong with it.
+$writeTamper(fn(array $entry): ?array => null);
+check(
+    message_of(fn() => Policy::load(null, ['woocommerce']))
+        === "duo: manifest disposition 'woocommerce' must be an object",
+    'a null reviewed entry is refused as malformed, not reported as missing'
+);
+putenv("DUO_MANIFESTS_DIR=$manifestDir");
+
+echo "\n== omissions fail loud; CLI/status/promotion consume the same result ==\n";
 putenv("DUO_MANIFESTS_DIR=$manifestDir");
 WP_CLI::$lines = [];
 (new Duo\Cli())->capabilities([], ['all' => true, 'format' => 'json']);
@@ -435,11 +861,13 @@ $hostBlockers = CodeDeploy::dispositionBlockers([
 ]);
 check(($hostBlockers[0]['name'] ?? null) === 'core', 'host promotion gate refuses the same synthetic experimental disposition');
 
-// DUO-3372: blockers()/report() are unreachable on the live path (load()'s
-// one-for-one coverage check refuses an uncovered manifest first), so they are
-// tested by DIRECT call. An uncovered manifest must be a fail-closed BLOCKER,
-// never a silent skip — the file's own doctrine is "a manifest cannot certify
-// itself merely by existing beside the agent".
+// DUO-3372: an uncovered manifest must be a fail-closed BLOCKER, never a
+// silent skip — the file's own doctrine is "a manifest cannot certify itself
+// merely by existing beside the agent". Tested by DIRECT call because these two
+// methods take the manifests they are given: since WP-1.2 they are also
+// REACHABLE through a library-wide report (`wp duo capabilities --all` over a
+// directory holding an unreviewed file), where load() used to refuse the whole
+// command first.
 $uncovered = ['name' => 'no-such-uncovered-adapter'];
 $directBlockers = $registry->blockers([$uncovered]);
 check(
@@ -466,8 +894,15 @@ foreach ($manifests as $m) {
     $e = $registry->entry((string) ($m['name'] ?? ''));
     if (($e['status'] ?? null) === 'certified') { $certifiedName = (string) $m['name']; break; }
 }
+// The REAL manifest bytes, not `['name' => $certifiedName]`. blockers() now
+// revalidates the entry it found against the manifest it was handed (review
+// F1), and the nine rules cross-check the entry's reviewed sections against
+// that manifest's own sections — so a name-only stub is not a lighter fixture,
+// it is a manifest missing every section its entry reviews, and it refuses
+// with "names absent manifest section 'post_types'". Handing over the bytes
+// this adapter actually ships is what the assertion meant all along.
 check(
-    $certifiedName !== null && $registry->blockers([['name' => $certifiedName]]) === [],
+    $certifiedName !== null && $registry->blockers([$manifestsByName[$certifiedName]]) === [],
     'DUO-3372: a certified manifest is still not a blocker (the uncovered fix did not turn the certified skip into a row)'
 );
 
