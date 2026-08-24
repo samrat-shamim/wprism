@@ -159,20 +159,24 @@ final class AdapterObservation {
         return defined('DUO_SPEC_VERSION') ? (int) DUO_SPEC_VERSION : 0;
     }
 
-    /** The only prerequisite probe is a read.  No Ledger repair is permitted. */
+    /**
+     * The only prerequisite probe is a read.  No Ledger repair is permitted.
+     *
+     * The probe itself moved to Journal::table_state() when a second read-only
+     * reader (EffectDeclarationCoverage) needed the identical SHOW TABLES /
+     * last_error discipline; what stays here is this command's own refusal
+     * contract, which is not shareable — `adapter_observation_prerequisite_absent`
+     * and `adapter_observation_journal_unreadable` are its public reason codes.
+     * `unusable` (no usable $wpdb) and `absent` (usable $wpdb, no table) keep
+     * folding into the one prerequisite refusal this command has always raised.
+     */
     private static function assert_journal_prerequisite(): void {
         global $wpdb;
-        if (!is_object($wpdb) || !is_string($wpdb->prefix ?? null)
-            || !method_exists($wpdb, 'prepare') || !method_exists($wpdb, 'get_var')) {
-            self::refuse_prerequisite();
-        }
-        $table = $wpdb->prefix . 'duo_journal';
-        $found = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
-        $readError = $wpdb->last_error ?? '';
-        if (!is_string($readError) || $readError !== '' || $found === false) {
+        $state = Journal::table_state($wpdb);
+        if ($state === 'unreadable') {
             self::refuse_journal_read_error();
         }
-        if (!is_string($found) || $found !== $table) {
+        if ($state !== 'present') {
             self::refuse_prerequisite();
         }
     }

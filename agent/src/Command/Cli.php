@@ -14,7 +14,7 @@ require_once __DIR__ . '/../Review/PlanView.php';
 use WP_CLI;
 
 /**
- * wp duo <capture|refresh-export|plan|explain|apply|scope|capabilities|adapter-observe|adapter-probe|adapter-survey|orphans|deploy|code-preflight|code-stage|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|journal-reset|code-inventory>
+ * wp duo <capture|refresh-export|plan|explain|apply|scope|capabilities|adapter-observe|adapter-probe|adapter-survey|orphans|deploy|code-preflight|code-stage|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|effect-coverage|journal-reset|code-inventory>
  */
 final class Cli {
     private const REFUSAL_FORMAT = 'duo-command-refusal/v1';
@@ -424,6 +424,10 @@ final class Cli {
             'orphans' => 'inspect the declared authored_snapshot table and its structural ref columns, then name one listed orphan row and exactly one of --delete or --reparent before retrying',
             'verify-canonical' => 'inspect the parent apply frozen policy snapshot, compiled artifact, and expected artifact hash, then rerun verification from that exact apply',
             'journal-report' => 'inspect the provenance journal tables and the pinned manifests named by --manifests, then correct that selection before reporting again',
+            // Report-only: its refusals are the journal prerequisite and the
+            // manifest selection, never a scoring verdict, so the arm names
+            // exactly those two and nothing about effects.
+            'effect-coverage' => 'inspect the provenance journal prerequisite and the pinned manifests named by --manifests, then restore the journal or correct that selection before scoring effect declarations again',
             'pending' => 'inspect the repository policy and provenance journal state, then correct the policy or ledger blocker before scanning the review queue again',
             'coverage' => 'inspect the repository policy and this environment\'s database access, then correct that blocker before reporting coverage again',
             'classify' => 'inspect the rejected --set spec and the repository policy file, then correct its section, key, class, or secret override before writing rules again',
@@ -2182,6 +2186,76 @@ final class Cli {
             'agreement on manifest-classified writes: %s%% (agree %d / disagree %d), abstained %d, unclassified (the review queue) %d',
             $report['agreement_pct'] ?? 'n/a',
             $report['agree'], $report['disagree'], $report['abstain'], $report['unclassified']
+        ));
+    }
+
+    /**
+     * Score declared effects[] against the writes the journal observed.
+     *
+     * Report-only by construction: it names writes no declaration covers and
+     * declarations nothing exercised, and refuses nothing. The split is
+     * journal-report's — Review owns the aggregation, this method only
+     * formats it — because the journal is a target-local table and only the
+     * agent can read it.
+     *
+     * ## OPTIONS
+     * [--manifests=<names>] : comma-separated, default "core".
+     * [--json]           : JSON output (wp-cli rewrites this to --format=json).
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand effect-coverage
+     */
+    public function effect_coverage($args, $assoc) {
+        $names = array_filter(explode(',', $assoc['manifests'] ?? 'core'));
+        // Initialized ahead of the try for adapter-probe's reason (:3438): a
+        // WP_CLI::error() that a replaced handler does not treat as fatal must
+        // not fall through into a half-built report.
+        $report = null;
+        try {
+            $report = EffectDeclarationCoverage::report($names);
+        } catch (\Throwable $t) {
+            // The only refusals here are the journal prerequisite and
+            // manifest resolution — never a scoring verdict, which is the
+            // whole point of a report-only scorer.
+            self::halt_json_failure($t, $assoc, 'effect-coverage');
+            WP_CLI::error($t->getMessage());
+        }
+        if (!is_array($report)) {
+            // Unreachable on a target: the catch above always halts.
+            throw new \RuntimeException('duo: effect-coverage reached its output path without a report');
+        }
+        if (isset($assoc['json']) || ($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(json_encode($report, JSON_UNESCAPED_SLASHES));
+            return;
+        }
+        foreach ($report['adapters'] as $a) {
+            WP_CLI::line(sprintf(
+                '%-24s effects=%-4d observable=%-3d exercised=%-3d unexercised=%-3d writes=%-5d outside_declaration=%-3d %s',
+                $a['adapter'], $a['declared_effects'], $a['observable_effects'],
+                $a['exercised_effects'], count($a['unexercised_effects']),
+                $a['observations'], count($a['outside_declaration']),
+                $a['scorable'] ? '' : '(no journal-observable effect declared — not scored)'
+            ));
+            foreach ($a['outside_declaration'] as $f) {
+                WP_CLI::line(sprintf(
+                    '    outside_declaration %s / %s n=%d',
+                    $f['table'], $f['item'] !== '' ? $f['item'] : '—', $f['observations']
+                ));
+            }
+        }
+        foreach ($report['unattributed'] as $u) {
+            WP_CLI::line(sprintf(
+                'unattributed             %s / %s n=%d',
+                $u['table'], $u['item'] !== '' ? $u['item'] : '—', $u['observations']
+            ));
+        }
+        WP_CLI::line('');
+        WP_CLI::success(sprintf(
+            'report only, nothing blocked: %d of %d adapters scorable, %d writes outside every declared effect over %d scored surfaces (rate %s), %d declarations unexercised (not an error)',
+            $report['totals']['scorable_adapters'], $report['totals']['adapters'],
+            $report['totals']['outside_declaration'], $report['baseline']['scored_surfaces'],
+            $report['baseline']['outside_declaration_rate'] ?? 'n/a',
+            $report['totals']['unexercised']
         ));
     }
 

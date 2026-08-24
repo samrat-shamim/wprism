@@ -1111,10 +1111,12 @@ namespace {
     // `assess-inventory`; 29 with DUO-3499's read-only `code-inventory`, which
     // reports one repository's lockable code components for `duo code-classify`;
     // 30 with `adapter-probe`, the read-only live-schema half `duo adapter-draft
-    // --evidence=` consumes.
+    // --evidence=` consumes; 31 with WP-3.2's report-only `effect-coverage`,
+    // whose only refusals are the journal prerequisite and manifest resolution
+    // — a scoring verdict is never one, which is the point of that command.
     // Every advertised handler is covered by the common envelope contract, so
     // this count moves with the set rather than around it.
-    check(count($advertised) === 30, 'every one of the 30 --format=json commands was scanned (' . count($advertised) . ')');
+    check(count($advertised) === 31, 'every one of the 31 --format=json commands was scanned (' . count($advertised) . ')');
 
     // Each newly enveloped command got a reviewed remediation arm, because the
     // default arm promises to "correct the named blocker" on exactly the path
@@ -1124,7 +1126,7 @@ namespace {
     foreach ([
         'code-preflight', 'promotion-begin', 'promotion-abort', 'promotion-begin-scoped',
         'promotion-complete-scoped', 'env-set', 'orphans', 'verify-canonical',
-        'journal-report', 'pending', 'coverage', 'classify', 'lint', 'capabilities',
+        'journal-report', 'effect-coverage', 'pending', 'coverage', 'classify', 'lint', 'capabilities',
     ] as $command) {
         $arm = (string) $armed->invoke(null, $command);
         check(
