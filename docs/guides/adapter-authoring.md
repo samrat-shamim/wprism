@@ -1044,6 +1044,7 @@ own key:
 duo adapter keygen --out=<secret-key-file> [--key-id=<id>]
 duo adapter certify <site-repo> --name=<n> --secret-key-file=<f> [--key-id=<id>] [--reason=<text>] [--pin [--adopt-scope]]
 duo adapter pin <site-repo> --name=<n> [--source=site|plugin] [--adopt-scope]
+duo adapter adopt-scope <site-repo>... --name=<n> [--dry-run]
 ```
 
 `certify` binds the signed statement to `manifests/capabilities/platform.json`
@@ -1208,6 +1209,59 @@ companion as edited and look at it, rather than assuming the agent moved.
 any adapter in a repository whose `adapters/authorities.json` names it. Back it
 up where you back up deploy keys; production-grade custody (HSMs, rotation,
 revocation workflow) is out of scope for this profile.
+
+### Adopting an adapter's scope across a fleet
+
+The opt-in above rides on the pin, which is right for the site that *authored*
+the adapter and wrong for the fleet that consumes it: adding one adapter to N
+sites meant N hand edits of `site.duo.json`. `adopt-scope` is that same opt-in
+over a repository **set**:
+
+```sh
+duo adapter adopt-scope ~/sites/acme ~/sites/beta ~/sites/gamma --name=acme-catalog --dry-run
+duo adapter adopt-scope ~/sites/acme ~/sites/beta ~/sites/gamma --name=acme-catalog
+```
+
+```
+adapter:    acme-catalog
+repos:      3
+
+/Users/you/sites/acme
+  + policy.scope.post_type.acme_item = {"class": "authored"}
+
+/Users/you/sites/beta
+  ! policy.scope.post_type.acme_item = {"class": "runtime"} — capture will skip post_type acme_item
+
+/Users/you/sites/gamma
+  = every surface this adapter declares is already in site.duo.json's authored scope
+
+adopted:    1 repo(s), 1 authored scope rule(s)
+settled:    1 repo(s) had already decided every surface
+shadowed:   1 repo(s) record a decision this command never overwrites — a recorded site rule outranks every manifest
+  to override one, per site: duo adapter pin <site-repo> --name=acme-catalog --adopt-scope
+```
+
+It writes the same `{"class":"authored"}` node through the same writer the pin
+uses, so a repository it touches is byte-identical to one the single-repo verb
+adopted. Four properties are worth knowing before you point it at a fleet:
+
+- **Scope follows the pin.** Every repository must already resolve the
+  adapter; one that does not refuses the *whole* set, unwritten, naming the
+  repositories and the `duo adapter pin` that fixes each. Writing scope for an
+  adapter a site never pinned would opt it into types nothing can classify.
+- **Write-only-where-absent is unchanged.** A class a site recorded is
+  printed and left alone. `--adopt-scope` is refused here on purpose:
+  overriding a recorded decision is a per-site reviewed act, and one flag that
+  flipped it across a fleet is exactly the multiplied consequence this verb
+  exists to avoid.
+- **Per-repository atomic.** Each `site.duo.json` is written whole through the
+  same `tempnam`+`rename` the certificate and the pin use. A failure stops the
+  walk and reports which repositories were adopted and which were untouched —
+  every one of them is one or the other, never half-written.
+- **Idempotent.** Re-running is the remedy for any partial run, and a second
+  run over an adopted set writes no rule and no byte.
+
+`--dry-run` reports the same plan and writes nothing.
 
 ### Promoting a plugin-bundled adapter
 
