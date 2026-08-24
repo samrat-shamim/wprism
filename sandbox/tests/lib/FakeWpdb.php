@@ -1842,7 +1842,10 @@ final class FakeWpdb {
         $args = array_map(fn(array $arg): mixed => $this->evalOperand($arg, $row, $ctx), $node['args']);
         return match ($node['name']) {
             'LENGTH', 'OCTET_LENGTH', 'CHAR_LENGTH' => $args[0] === null ? null : strlen((string) $args[0]),
-            'LEFT' => $this->leftFunction($args),
+            'LEFT' => $this->leftFunction(
+                $args,
+                isset($node['args'][0]) && self::isBinary($node['args'][0])
+            ),
             'SHA2' => $this->sha2Function($args),
             // Advisory locks are a live-MySQL concern; the fake reports a
             // configurable, deterministic result so the engine's lock branch
@@ -1860,18 +1863,78 @@ final class FakeWpdb {
         };
     }
 
-    private function leftFunction(array $args): ?string {
+    private function leftFunction(array $args, bool $binary): ?string {
         if (count($args) !== 2 || !is_int($args[1]) || $args[1] < 0) {
             throw $this->unsupported('LEFT() argument shape');
         }
         if ($args[0] === null) {
             return null;
         }
-        $characters = preg_split('//u', (string) $args[0], -1, PREG_SPLIT_NO_EMPTY);
-        if (!is_array($characters)) {
-            throw $this->unsupported('LEFT() invalid UTF-8 input');
+        $value = (string) $args[0];
+        if ($binary) {
+            return substr($value, 0, $args[1]);
         }
-        return implode('', array_slice($characters, 0, $args[1]));
+
+        // MySQL LEFT(text,n) counts characters, while LEFT(BINARY text,n)
+        // counts bytes. Walk strict UTF-8 without preg_split(): expanding an
+        // 8 MiB bounded-read witness into one PHP zval per character exceeds
+        // the corpus's 128 MiB memory limit before the refusal can run.
+        $bytes = strlen($value);
+        $offset = 0;
+        $characters = 0;
+        $prefixBytes = 0;
+        while ($offset < $bytes) {
+            $width = $this->utf8CharacterWidth($value, $offset, $bytes);
+            if ($characters < $args[1]) {
+                $prefixBytes = $offset + $width;
+            }
+            $offset += $width;
+            ++$characters;
+        }
+        return substr($value, 0, $prefixBytes);
+    }
+
+    private function utf8CharacterWidth(string $value, int $offset, int $bytes): int {
+        $first = ord($value[$offset]);
+        if ($first <= 0x7f) {
+            return 1;
+        }
+        if ($first >= 0xc2 && $first <= 0xdf
+            && self::utf8ByteInRange($value, $offset + 1, $bytes, 0x80, 0xbf)) {
+            return 2;
+        }
+        if ($first >= 0xe0 && $first <= 0xef) {
+            $secondMin = $first === 0xe0 ? 0xa0 : 0x80;
+            $secondMax = $first === 0xed ? 0x9f : 0xbf;
+            if (self::utf8ByteInRange($value, $offset + 1, $bytes, $secondMin, $secondMax)
+                && self::utf8ByteInRange($value, $offset + 2, $bytes, 0x80, 0xbf)) {
+                return 3;
+            }
+        }
+        if ($first >= 0xf0 && $first <= 0xf4) {
+            $secondMin = $first === 0xf0 ? 0x90 : 0x80;
+            $secondMax = $first === 0xf4 ? 0x8f : 0xbf;
+            if (self::utf8ByteInRange($value, $offset + 1, $bytes, $secondMin, $secondMax)
+                && self::utf8ByteInRange($value, $offset + 2, $bytes, 0x80, 0xbf)
+                && self::utf8ByteInRange($value, $offset + 3, $bytes, 0x80, 0xbf)) {
+                return 4;
+            }
+        }
+        throw $this->unsupported('LEFT() invalid UTF-8 input');
+    }
+
+    private static function utf8ByteInRange(
+        string $value,
+        int $offset,
+        int $bytes,
+        int $minimum,
+        int $maximum
+    ): bool {
+        if ($offset >= $bytes) {
+            return false;
+        }
+        $byte = ord($value[$offset]);
+        return $byte >= $minimum && $byte <= $maximum;
     }
 
     private function sha2Function(array $args): ?string {
