@@ -222,6 +222,17 @@ final class AdapterCatalog {
      * @return int 0 healthy, 1 a refusal/blocker/grammar error was surfaced, 2 usage/IO
      */
     public static function run(array $args): int {
+        // `doctor --migration` is a different question with a different
+        // document (`duo-migration-preflight/v1`), so it gets its own owner and
+        // its own parser rather than a branch inside the loop below. Same
+        // split, same reason as `AdapterCertify::VERBS` in cli/duo: keeping the
+        // read-only catalog's flag loop and every refusal string it produces
+        // exactly where they were is what stops a new mode from moving the
+        // output of an existing one (AGENTS.md rule 8).
+        if (in_array('--migration', $args, true)) {
+            return MigrationPreflight::run($args);
+        }
+
         $verb = null;
         $name = null;
         $repoArg = null;

@@ -61,6 +61,10 @@ require __DIR__ . '/src/Adapter/ManifestValidate.php';
 require __DIR__ . '/src/Adapter/LintTree.php';
 require __DIR__ . '/src/Adapter/AdapterDraft.php';
 require __DIR__ . '/src/Adapter/AdapterCatalog.php';
+// `doctor --migration`'s owner. Plain `require` beside its caller for the same
+// reason the block above states: AdapterCatalog.php names the class but does
+// not require it, so this shell is the single load point.
+require __DIR__ . '/src/Adapter/MigrationPreflight.php';
 require __DIR__ . '/src/Adapter/AdapterObservation.php';
 require __DIR__ . '/src/Adapter/AdapterCertify.php';
 // RefreshPlan lands as a separately-reviewable semantic layer. Keep this
@@ -281,6 +285,9 @@ Usage:
   duo adapter list [--repo=<site-repo>] [--format=json]
   duo adapter inspect <name> [--repo=<site-repo>] [--format=json]
   duo adapter doctor [--repo=<site-repo>] [--format=json]
+  duo adapter doctor --migration --repo=<site-repo> [--artifact=<artifact.json>]
+                     [--scope-contract=<scope-contract.json>]
+                     [--snapshot=<snapshot.json>] [--format=json]
   duo adapter keygen --out=<secret-key-file> [--key-id=<id>]
   duo adapter certify <site-repo> --name=<n> --secret-key-file=<f>
                       [--key-id=<id>] [--reason=<text>] [--pin [--adopt-scope]]
@@ -512,6 +519,40 @@ Verbs:
                           target, the manifest-shipped PHP it deliberately does
                           not load, and the cross-manifest guards that belong to
                           a pin set.
+  adapter doctor          The blast radius of an agent bump, on ONE site, BEFORE
+    --migration           the bump: every certificate and whether it still
+    --repo=<site-repo>    matches the target platform (and whether its signing
+    [--artifact=<f>]      key id is reachable, by id — never by reading the
+    [--scope-contract=<f>]
+    [--snapshot=<f>]      key), every {name,source,digest} pin and whether it
+    [--format=json]       would move, every host contract pinning
+                          registry_sha256, and the four identity values held
+                          against target. Emits `duo-migration-preflight/v1`.
+                          THE TARGET IS THIS PROCESS: run it from the release
+                          you are about to ship. Every verdict is a shipped gate
+                          CALLED — AdapterCertification::verifyFile,
+                          ArtifactPolicyIdentity::resolved_adapters,
+                          ScopeContract::assert_associated,
+                          ContractAttestation::verify,
+                          ContractProjection::generate — never a rule restated
+                          here, because a restated rule drifts and the drift
+                          surfaces as a false green.
+                          Two movements it predicts that nothing else will tell
+                          you (both MEASURED by the flag-day rehearsal):
+                          artifact_hash moves for EVERY site, even under full
+                          digest neutrality, because
+                          resolved_adapters[*].capability.platform.agent_version
+                          is inside the compiled document — so scope contracts
+                          and everything else pinning it need re-projection; and
+                          a site holding a CERTIFIED SITE ADAPTER also moves its
+                          own manifest_hash and revision_hash, because the
+                          withdrawal moves the certificate-derived digest.
+                          The held documents are named explicitly and every
+                          unanswered question is a `deferred` row. A certificate
+                          or pin shape it cannot classify is an `unclassified`
+                          row and NO green verdict is printed for that site:
+                          exit 0 only when nothing moves and nothing is
+                          unclassified, 1 for any finding, 2 usage/IO.
   adapter keygen          Mint the CUSTOMER-ORGANIZATION Ed25519 key that
     --out=<secret-file>   certifies this repository's own adapters. The secret
     [--key-id=<id>]       is written to the path you name at mode 0600 and

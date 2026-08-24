@@ -1421,7 +1421,8 @@
           "AdapterDraft",
           "AdapterObservation",
           "LintTree",
-          "ManifestValidate"
+          "ManifestValidate",
+          "MigrationPreflight"
         ],
         "depends_on": [
           "Adapter",
@@ -1435,14 +1436,15 @@
           "agent:Review"
         ],
         "exceptions": [],
-        "file_count": 6,
+        "file_count": 7,
         "files": [
           "AdapterCatalog.php",
           "AdapterCertify.php",
           "AdapterDraft.php",
           "AdapterObservation.php",
           "LintTree.php",
-          "ManifestValidate.php"
+          "ManifestValidate.php",
+          "MigrationPreflight.php"
         ]
       },
       "Code": {

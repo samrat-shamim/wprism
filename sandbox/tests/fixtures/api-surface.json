@@ -1,5 +1,5 @@
 {
-    "class_count": 378,
+    "class_count": 379,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -29888,6 +29888,42 @@
                     "visibility": "public"
                 }
             },
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\MigrationPreflight": {
+            "abstract": false,
+            "constants": {
+                "FORMAT": {
+                    "value_repr": "duo-migration-preflight/v1"
+                },
+                "VERB": {
+                    "value_repr": "doctor"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
             "readonly": false
         },
         "Duo\\Orchestrator\\NextAction": {

@@ -485,6 +485,50 @@
    "note": "refuses a symlinked or non-duo-adapter-authorities/v1 site trust root, a key id already registered, and a revoked key — the site root's write gate."
   },
   {
+   "site": "cli/src/Adapter/MigrationPreflight.php::certificates",
+   "axes": [
+    "platform",
+    "manifest",
+    "authority"
+   ],
+   "verdict": "gate",
+   "note": "`duo adapter doctor --migration`'s certificate half. It does not own a refusal -- AdapterCertification::verifyCertificate (an anchor here) owns it -- but it CLASSIFIES that refusal into the blast radius: a StalePlatformSiteAdapterCertificate becomes four predicted invalidation rows (the withdrawal, the certificate-derived digest, and this site's manifest_hash and revision_hash), and an outcome this preflight has no reviewed migration answer for becomes an `unclassified` row that makes a green verdict impossible. It also answers the authority axis by ID: whether the signing key id is reachable in the site or platform trust root, over identifiers, never over key bytes."
+  },
+  {
+   "site": "cli/src/Adapter/MigrationPreflight.php::identity",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "the held-versus-target comparison of the four identity values (artifact_hash, manifest_hash, revision_hash, site_hash) plus each resolved adapter digest. Both halves are gate outputs -- CompiledRepository::from_array() for the held document, RepositoryCompiler::compile() for the target -- and a moved value becomes a predicted invalidation row rather than a refusal, because a preflight's job is to enumerate the bump BEFORE it happens. The refusal an operator meets on the deployed site is CompiledArtifactReader::read_artifact()'s, called here and reported with its own reason code."
+  },
+  {
+   "site": "cli/src/Adapter/MigrationPreflight.php::render",
+   "axes": [
+    "platform",
+    "manifest"
+   ],
+   "verdict": "carrier",
+   "note": "the human renderer. It PRINTS platform_sha256, registry_sha256 and the four identity values and compares none of them -- every verdict on the page was decided by report(), certificates() and identity() above, which are the gates. Registered so a comparison added to the renderer is a reviewed change and not an invisible second opinion."
+  },
+  {
+   "site": "cli/src/Adapter/MigrationPreflight.php::report",
+   "axes": [
+    "platform",
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "where the preflight's own verdict is decided. It observes the target platform digest (ContractAttestation::currentPlatformDigest) and the reviewed registry hash (ManifestDispositions::sha256), assembles every sub-verdict, and its `match(true)` resolves status to refused/unclassified/moves/ok -- only `ok` exits 0. An unclassified certificate or pin shape can never reach `ok`, which is the refuse-to-classify posture this verb exists to hold."
+  },
+  {
+   "site": "cli/src/Adapter/MigrationPreflight.php::snapshot",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "the frozen half: Policy::from_snapshot() re-derives a promoted site's certificates against the boundary now installed, so resolved_adapters()/is_certified() on the rehydrated policy report a claim the bump withdraws while the frozen record still says certified. That difference becomes a frozen_certificate_withdrawn invalidation row; a snapshot the target cannot rehydrate at all becomes an `unclassified` row rather than a clean one."
+  },
+  {
    "site": "cli/src/Assess/AssessReport.php::proposalSeed",
    "axes": [
     "manifest"

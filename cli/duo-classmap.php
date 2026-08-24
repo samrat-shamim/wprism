@@ -78,6 +78,7 @@ return [
     'Duo\\Orchestrator\\MergeCheck' => 'src/Refresh/MergeCheck.php',
     'Duo\\Orchestrator\\MergeCheckCommand' => 'src/Command/MergeCheckCommand.php',
     'Duo\\Orchestrator\\MergeCheckRefusal' => 'src/Refresh/MergeCheck.php',
+    'Duo\\Orchestrator\\MigrationPreflight' => 'src/Adapter/MigrationPreflight.php',
     'Duo\\Orchestrator\\NextAction' => 'src/Release/NextAction.php',
     'Duo\\Orchestrator\\PassthroughCommand' => 'src/Command/PassthroughCommand.php',
     'Duo\\Orchestrator\\Pending' => 'src/Onboarding/Pending.php',
