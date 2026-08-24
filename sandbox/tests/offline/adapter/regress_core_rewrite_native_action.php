@@ -402,6 +402,15 @@ duo_check(
     'the fake observes the exact native rewrite/update extension points inventoried by core.json'
 );
 
+$evidenceRows = $wpdb->optionRows;
+$evidenceLaunches = $GLOBALS['core_rewrite_child_launches'];
+$evidenceFlushes = $GLOBALS['core_rewrite_child_flushes'];
+$readOnlyEvidence = Duo\NativeActions::rewrite_evidence();
+duo_check_same($first['after'], $readOnlyEvidence, 'the public read-only accessor returns the exact validated-after projection');
+duo_check_same($evidenceRows, $wpdb->optionRows, 'read-only rewrite evidence performs no durable mutation');
+duo_check_same($evidenceLaunches, $GLOBALS['core_rewrite_child_launches'], 'read-only rewrite evidence launches no child process');
+duo_check_same($evidenceFlushes, $GLOBALS['core_rewrite_child_flushes'], 'read-only rewrite evidence generates no rewrite rules');
+
 $stableRows = $wpdb->optionRows;
 $second = Duo\NativeActions::execute('rewrite.flush', []);
 duo_check_same($stableRows, $wpdb->optionRows, 'an immediate retry is byte-idempotent in persistent storage');

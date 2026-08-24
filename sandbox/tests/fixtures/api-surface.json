@@ -19941,6 +19941,14 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "rewrite_evidence": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "scoped_action_digest": {
                     "abstract": false,
                     "final": false,
