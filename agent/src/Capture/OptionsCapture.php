@@ -374,6 +374,15 @@ final class OptionsCapture {
             $ruleSource,
             $allOptionValues
         );
+        // `absent_autoload` authorizes storage only when native
+        // normalization actually supplied authored defaults. An absent row
+        // normalized to [] remains absence; otherwise a target-local fallback
+        // can be shadowed by a manufactured present-empty primary row. A
+        // physically present empty blob still reaches OptionState::present()
+        // below and therefore retains explicit authored-removal intent.
+        if ($row === null && $rawAuthored === []) {
+            return;
+        }
         $sourceAutoload = $row['autoload'] ?? ($rule['absent_autoload'] ?? null);
         if ($row === null && $sourceAutoload === null) {
             if ($rawAuthored !== []) {
