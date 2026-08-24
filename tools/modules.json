@@ -1262,9 +1262,10 @@
       },
       "Plan": {
         "layer": "kernel",
-        "purpose": "The plan wire contract and its operator/JSON renderings, with no I/O of its own.",
+        "purpose": "The plan wire contract and its operator/JSON renderings, with no I/O of its own, plus `HumanViewLimit` -- the one `--limit=<1..200>` grammar and `N more (use --format=json)` tail every human view shares (DUO-3521). It sits at this rung because `cli:Plan` is the lowest one: `cli:Assess`, `cli:Release` and `cli:Rehearse` are engine and reference downward to it, where a shared class in the surface module `cli:Command` would have made all three reference upward (rule 3).",
         "status": "populated",
         "entry_points": [
+          "HumanViewLimit",
           "PlanContract",
           "PlanSummary",
           "PlanView"
@@ -1273,8 +1274,9 @@
           "Plan"
         ],
         "exceptions": [],
-        "file_count": 3,
+        "file_count": 4,
         "files": [
+          "HumanViewLimit.php",
           "PlanContract.php",
           "PlanSummary.php",
           "PlanView.php"

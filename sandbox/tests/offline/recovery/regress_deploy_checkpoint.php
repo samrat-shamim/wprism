@@ -167,15 +167,18 @@ function run_deploy_checkpoint(DeployCheckpointDriver $driver, array $extra): ar
                 $callbacks[] = "abort:$owner:$hash";
                 return true;
             },
+            // DUO-3525 narrowed this callback to (driver, checkpoint,
+            // codeMayHaveChanged). The recovery guidance names one verb —
+            // `duo recover <env> --restore=<id> …`, whose `<id>` is the
+            // checkpoint's own basename — so the lease identity is no longer
+            // an input to what is PRINTED. `abort` above still receives it,
+            // and this suite still asserts that pair on that call.
             static function (
                 EnvironmentDriver $t,
                 string $checkpoint,
-                bool $codeMayHaveChanged,
-                string $owner,
-                string $hash
+                bool $codeMayHaveChanged
             ) use (&$callbacks): void {
-                $callbacks[] = 'recovery:' . $checkpoint . ':' . ($codeMayHaveChanged ? 'code' : 'nocode')
-                    . ":$owner:$hash";
+                $callbacks[] = 'recovery:' . $checkpoint . ':' . ($codeMayHaveChanged ? 'code' : 'nocode');
             }
         );
     } finally {
@@ -295,9 +298,9 @@ duo_check_same(8, $stageFailResult['exit'], 'a code-stage exit propagates unchan
 duo_check_same(
     ['scope', 'fence:checkpoint-fixture', 'run-id',
         'abort:' . DEPLOY_CHECKPOINT_RUN_ID . ':' . DEPLOY_CHECKPOINT_HASH,
-        'recovery:' . $checkpointPath . ':code:' . DEPLOY_CHECKPOINT_RUN_ID . ':' . DEPLOY_CHECKPOINT_HASH],
+        'recovery:' . $checkpointPath . ':code'],
     $stageFailResult['callbacks'],
-    'a post-checkpoint stage failure prints the four numbered steps for THIS checkpoint and lease pair'
+    'a post-checkpoint stage failure guides recovery of THIS checkpoint, after aborting THIS lease pair'
 );
 
 // ------------------------------------------------------------- --no-checkpoint

@@ -5,6 +5,7 @@ namespace Duo\Orchestrator;
 
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/../Onboarding/Pending.php';
+require_once __DIR__ . '/../Plan/HumanViewLimit.php';
 
 /** Host command handler for the pending review queue. */
 final class PendingCommand {
@@ -34,11 +35,30 @@ final class PendingCommand {
     }
 
     public static function run(EnvironmentDriver $driver, array $extra, ?callable $renderRefusal = null): int {
+        // `--format=json` still streams the target's COMPLETE document: it is
+        // what the human view's cut line points at, and bounding it would
+        // make the remedy a lie (DUO-3521).
         if (in_array('--format=json', $extra, true)) {
             return $driver->streamWp(['duo', 'pending', '--repo=' . $driver->repoPath(), '--format=json']);
         }
-        if ($extra !== []) {
-            fwrite(STDERR, 'duo: pending: unknown flag(s): ' . implode(' ', $extra) . "\n");
+        try {
+            $limit = HumanViewLimit::parse(
+                $extra,
+                static fn(): \RuntimeException => new \RuntimeException(
+                    'duo: pending: --limit must be given once as --limit=N with N between 1 and '
+                        . HumanViewLimit::MAX_LIMIT
+                )
+            );
+        } catch (\RuntimeException $e) {
+            fwrite(STDERR, $e->getMessage() . "\n");
+            return 1;
+        }
+        $unknown = array_values(array_filter(
+            $extra,
+            static fn(string $arg): bool => !str_starts_with($arg, '--limit=')
+        ));
+        if ($unknown !== []) {
+            fwrite(STDERR, 'duo: pending: unknown flag(s): ' . implode(' ', $unknown) . "\n");
             return 1;
         }
         $result = self::fetch($driver, $renderRefusal);
@@ -49,7 +69,7 @@ final class PendingCommand {
             echo "review queue is empty\n";
             return 0;
         }
-        foreach (Pending::render($result['items'])['lines'] as $line) {
+        foreach (Pending::render($result['items'], $limit)['lines'] as $line) {
             echo $line . "\n";
         }
         return 0;

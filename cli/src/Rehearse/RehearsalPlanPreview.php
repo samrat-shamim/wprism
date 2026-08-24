@@ -6,6 +6,7 @@ namespace Duo\Orchestrator;
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 require_once dirname(__DIR__) . '/Plan/PlanContract.php';
+require_once dirname(__DIR__) . '/Plan/HumanViewLimit.php';
 require_once dirname(__DIR__) . '/Contract/ProjectionVocabulary.php';
 require_once __DIR__ . '/RehearsalDisclosure.php';
 
@@ -102,11 +103,11 @@ use Duo\CommandRefusalException;
 final class RehearsalPlanPreview {
     public const FORMAT = 'duo-rehearsal-preview/v1';
 
-    /** MUP §4.6: default rows per section, the same bound `PlanView` uses. */
-    public const DEFAULT_LIMIT = 50;
+    /** MUP §4.6: default rows per section. One source (DUO-3521). */
+    public const DEFAULT_LIMIT = HumanViewLimit::DEFAULT_LIMIT;
 
-    /** MUP §4.6 / `PlanView::MAX_LIMIT` / `AssessRenderer::MAX_LIMIT`. */
-    public const MAX_LIMIT = 200;
+    /** MUP §4.6: the same closed ceiling every human view publishes. */
+    public const MAX_LIMIT = HumanViewLimit::MAX_LIMIT;
 
     /**
      * `duo-assess-inventory/v1`'s `policy.surface_groups[].kind` vocabulary
@@ -283,26 +284,8 @@ final class RehearsalPlanPreview {
      * @param list<string> $args
      */
     public static function limitFromArgs(array $args): int {
-        $limit = self::DEFAULT_LIMIT;
-        $seen = false;
-        foreach ($args as $arg) {
-            if (!is_string($arg) || !str_starts_with($arg, '--limit')) {
-                continue;
-            }
-            if ($seen || !str_starts_with($arg, '--limit=')) {
-                throw self::limitRefusal();
-            }
-            $seen = true;
-            $raw = substr($arg, strlen('--limit='));
-            // Exactly `PlanView::parseLimit()`'s grammar: 1..200, decimal,
-            // no leading zeros, no sign, no whitespace.
-            if (preg_match('/^(?:[1-9]|[1-9][0-9]|1[0-9]{2}|200)$/D', $raw) !== 1) {
-                throw self::limitRefusal();
-            }
-            $limit = (int) $raw;
-        }
-
-        return $limit;
+        // One grammar (`HumanViewLimit`), this class's own refusal bytes.
+        return HumanViewLimit::parse($args, static fn(): CommandRefusalException => self::limitRefusal());
     }
 
     /**

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Duo\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
+require_once dirname(__DIR__) . '/Plan/HumanViewLimit.php';
 require_once __DIR__ . '/AuthorizationPlan.php';
 
 use Duo\CommandRefusalException;
@@ -41,17 +42,20 @@ use Duo\CommandRefusalException;
  *
  * MUP §4.6: `DEFAULT_LIMIT` rows per section, `--limit=1..200`, and an
  * `N more (use --format=json)` tail whenever a section was cut. The grammar
- * is spelled exactly as `PlanView` and `AssessRenderer` spell it so an
- * operator learns one rule; it is re-implemented rather than shared because
- * `cli:Release` may not reference `cli:Assess` (module map rule 9), and a
- * duplicated seven-line parser is a smaller price than an upward module edge.
+ * and both numbers now come from `HumanViewLimit` (Plan/HumanViewLimit.php)
+ * so an operator learns one rule from one place. This docblock used to argue
+ * that a duplicated seven-line parser was cheaper than an upward module edge
+ * — true of `cli:Assess`, which is `engine` like `cli:Release`; the shared
+ * class avoids the edge entirely by living in `cli:Plan`, which is `kernel`
+ * and therefore DOWNWARD from here (tools/modules.json rule 3). The refusal
+ * `refuseLimit()` throws stays this class's own, so no envelope byte moves.
  */
 final class AuthorizationPlanRenderer {
-    /** MUP §4.6: default rows per section. */
-    public const DEFAULT_LIMIT = 50;
+    /** MUP §4.6: default rows per section. One source (DUO-3521). */
+    public const DEFAULT_LIMIT = HumanViewLimit::DEFAULT_LIMIT;
 
-    /** MUP §4.6 / `PlanView::MAX_LIMIT`: the same closed ceiling. */
-    public const MAX_LIMIT = 200;
+    /** MUP §4.6: the same closed ceiling every human view publishes. */
+    public const MAX_LIMIT = HumanViewLimit::MAX_LIMIT;
 
     /**
      * The section order, which is the product spec's own bullet order.
@@ -76,23 +80,8 @@ final class AuthorizationPlanRenderer {
      * @param list<string> $args
      */
     public static function limitFromArgs(array $args): int {
-        $limit = self::DEFAULT_LIMIT;
-        $seen = false;
-        foreach ($args as $arg) {
-            if (!is_string($arg) || !str_starts_with($arg, '--limit')) {
-                continue;
-            }
-            if ($seen || !str_starts_with($arg, '--limit=')) {
-                throw self::refuseLimit();
-            }
-            $seen = true;
-            if (preg_match('/^(?:[1-9]|[1-9][0-9]|1[0-9]{2}|200)$/D', substr($arg, strlen('--limit='))) !== 1) {
-                throw self::refuseLimit();
-            }
-            $limit = (int) substr($arg, strlen('--limit='));
-        }
-
-        return $limit;
+        // One grammar (`HumanViewLimit`), this class's own refusal bytes.
+        return HumanViewLimit::parse($args, static fn(): CommandRefusalException => self::refuseLimit());
     }
 
     /**

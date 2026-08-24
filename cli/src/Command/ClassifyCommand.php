@@ -7,6 +7,7 @@ require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/PendingCommand.php';
 require_once __DIR__ . '/../Onboarding/Triage.php';
 require_once __DIR__ . '/../Onboarding/ClassificationBatch.php';
+require_once __DIR__ . '/../Plan/HumanViewLimit.php';
 
 /** Host command handler for the pending-queue classification workflow. */
 final class ClassifyCommand {
@@ -29,8 +30,26 @@ final class ClassifyCommand {
         $exportBatch = null;
         $applyBatch = null;
         $unknown = [];
+        // DUO-3521: the two skipped-item listings below printed one line per
+        // item with no ceiling, and on a first classification pass the
+        // secret-flagged set can be the size of the queue. Same flag, same
+        // grammar, same `N more (use --format=json)` tail as every other
+        // human view; `--format=json` on `duo pending` is the complete list
+        // the tail points at.
+        try {
+            $limit = HumanViewLimit::parse(
+                $extra,
+                static fn(): \RuntimeException => new \RuntimeException(
+                    'duo: classify: --limit must be given once as --limit=N with N between 1 and '
+                        . HumanViewLimit::MAX_LIMIT
+                )
+            );
+        } catch (\RuntimeException $e) {
+            fwrite(STDERR, $e->getMessage() . "\n");
+            return 1;
+        }
         foreach ($extra as $arg) {
-            if ($arg === '--accept-proposals') {
+            if ($arg === '--accept-proposals' || str_starts_with($arg, '--limit=')) {
                 continue;
             }
             if (str_starts_with($arg, '--export-batch=')) {
@@ -80,7 +99,7 @@ final class ClassifyCommand {
             return self::exportBatch($driver, $res['items'], $exportBatch);
         }
         return $acceptProposals
-            ? self::acceptProposals($driver, $res['items'])
+            ? self::acceptProposals($driver, $res['items'], $limit)
             : self::interactive($driver, $res['items']);
     }
 
@@ -179,7 +198,11 @@ final class ClassifyCommand {
      *
      * @param list<array<string,mixed>> $items
      */
-    private static function acceptProposals(EnvironmentDriver $driver, array $items): int {
+    private static function acceptProposals(
+        EnvironmentDriver $driver,
+        array $items,
+        int $limit = HumanViewLimit::DEFAULT_LIMIT
+    ): int {
         $result = Triage::acceptProposals($items);
         $decisions = $result['decisions'];
         $secretSkipped = $result['secretSkipped'];
@@ -196,9 +219,7 @@ final class ClassifyCommand {
         if ($secretSkipped) {
             fwrite(STDERR, 'duo: classify --accept-proposals: skipped ' . count($secretSkipped)
                 . " secret-flagged item(s) proposed authored -- these need a human (\`duo classify {$driver->name()}\`):\n");
-            foreach ($secretSkipped as $s) {
-                fwrite(STDERR, "  - $s\n");
-            }
+            self::writeBounded($secretSkipped, $limit);
             return $exit !== 0 ? $exit : 2;
         }
 
@@ -209,9 +230,7 @@ final class ClassifyCommand {
         if ($storageSkipped) {
             fwrite(STDERR, 'duo: classify --accept-proposals: skipped ' . count($storageSkipped)
                 . " option item(s) whose proposed class needs a decision no proposal carries -- these need a human (\`duo classify {$driver->name()}\`):\n");
-            foreach ($storageSkipped as $s) {
-                fwrite(STDERR, "  - $s\n");
-            }
+            self::writeBounded($storageSkipped, $limit);
             return $exit !== 0 ? $exit : 2;
         }
 
@@ -219,6 +238,25 @@ final class ClassifyCommand {
             printf("%d accepted.\n", count($decisions));
         }
         return $exit;
+    }
+
+    /**
+     * One bounded skipped-item listing, with the shared tail line.
+     *
+     * The count in the sentence above each list is the TRUE total and stays
+     * that way: what is bounded is the sample, never the number.
+     *
+     * @param list<string> $rows
+     */
+    private static function writeBounded(array $rows, int $limit): void {
+        $shown = array_slice($rows, 0, max(1, $limit));
+        foreach ($shown as $s) {
+            fwrite(STDERR, "  - $s\n");
+        }
+        $cut = HumanViewLimit::cut(count($rows), count($shown));
+        if ($cut !== null) {
+            fwrite(STDERR, $cut . "\n");
+        }
     }
 
     /** @param list<array{section:string,key:string,class:string,ref?:string,cast?:string,autoload?:string,required?:bool}> $decisions */

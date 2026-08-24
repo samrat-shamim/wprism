@@ -30,10 +30,16 @@ final class DeployCommand {
      * @param callable():string $runIdFactory
      * @param callable(EnvironmentDriver,array<string,mixed>,string,string):void $compensateUncertainBegin
      * @param callable(EnvironmentDriver,string,string):bool $abort
-     * @param callable(EnvironmentDriver,string,bool,string,string):void $printRecovery
-     *        a verb-aware `print_promotion_recovery` (cli/duo:3272). It arrives
-     *        as a collaborator for the same reason the other five do: this
-     *        handler stays callable without loading cli/duo's globals.
+     * @param callable(EnvironmentDriver,string,bool):void $printRecovery
+     *        a verb-aware `print_promotion_recovery` (cli/duo:3311-3384). It
+     *        arrives as a collaborator for the same reason the other five do:
+     *        this handler stays callable without loading cli/duo's globals.
+     *        It takes no owner and no artifact hash: since DUO-3525 the
+     *        recovery guidance names one verb — `duo recover <env>
+     *        --restore=<id> --writers-excluded --operator-directed` — whose
+     *        `<id>` is the checkpoint's own basename, so the lease identity is
+     *        no longer an input to what gets PRINTED. `$abort` above still
+     *        takes it, because that call actually uses it.
      */
     public static function run(
         EnvironmentDriver $transport,
@@ -132,7 +138,8 @@ final class DeployCommand {
             // (cli/duo:2385-2388). The dump therefore contains the promotion
             // lease row this deploy just took, which is the whole reason
             // `duo recover`'s four steps re-take that same (owner,
-            // artifact_hash) pair before importing (cli/duo:3289-3297). Taken
+            // artifact_hash) pair before importing
+            // (RecoverCommand.php:113 ORDERED_STEPS). Taken
             // before promotion-begin the dump would carry no lease row or a
             // stale one; taken after code-stage it would already describe
             // mutated code.
@@ -227,7 +234,7 @@ final class DeployCommand {
      * stream byte for byte.
      *
      * @param callable(EnvironmentDriver,string,string):bool $abort
-     * @param callable(EnvironmentDriver,string,bool,string,string):void $printRecovery
+     * @param callable(EnvironmentDriver,string,bool):void $printRecovery
      */
     private static function cleanupAndGuide(
         EnvironmentDriver $transport,
@@ -245,7 +252,7 @@ final class DeployCommand {
         }
         if ($clean) {
             fwrite(STDERR, "duo: deploy: promotion lease cleanup confirmed\n");
-            $printRecovery($transport, $checkpoint, $codeMayHaveChanged, $runId, $artifactHash);
+            $printRecovery($transport, $checkpoint, $codeMayHaveChanged);
             return;
         }
         fwrite(STDERR, "duo: deploy: do not begin checkpoint recovery until the exact lease cleanup command above succeeds. Expiry lets a different promotion owner recover the target; it does not authorize this checkpoint restore.\n");

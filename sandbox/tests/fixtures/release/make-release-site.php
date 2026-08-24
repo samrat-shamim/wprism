@@ -292,6 +292,13 @@ case " $* " in
       for a in "$@"; do case "$a" in --out=*) out="${a#--out=}" ;; esac; done
       [ -n "$out" ] && cp "$DUO_FIXTURES/compile.json" "$out"
       cat "$DUO_FIXTURES/compile.json"; exit 0 ;;
+  *" duo pending "*)
+      # DUO-3521: the review queue, so a suite can drive `duo pending`'s
+      # bounded human view against a queue it chose the size of.
+      # `DUO_PENDING` names a JSON file; without it the queue is empty,
+      # which is what every suite that does not set it saw before.
+      if [ -n "${DUO_PENDING:-}" ]; then cat "$DUO_PENDING"; else printf '[]\n'; fi
+      exit 0 ;;
   *" duo promotion-begin "*) exit "${DUO_BEGIN_EXIT:-0}" ;;
   *" duo promotion-abort "*) exit "${DUO_ABORT_EXIT:-0}" ;;
   *" duo deploy "*) exit "${DUO_LIFECYCLE_EXIT:-0}" ;;
