@@ -63,11 +63,22 @@ declare(strict_types=1);
  *   3. `AdapterCertification` still has no expiry vocabulary at all (row
  *      R-14 says so, and says what it would cost to add);
  *   4. no revocation-list vocabulary exists anywhere in the signing files
- *      (row R-15).
+ *      (row R-15);
+ *   5. the shipped `spec_version` acceptance window is exactly {N-1, N} — the
+ *      floor is `DUO_SPEC_VERSION - 1` and never deeper (row R-18), measured
+ *      by probing the shipped validator rather than by reading its condition.
  *
  * A new signed surface therefore cannot be added quietly: it fails gate 1 or 2
  * until it is registered, and any moved constant fails the byte-compare with
  * the first differing line named.
+ *
+ * Two rows here are not about a signature (R-17, R-19) and one is not either
+ * (R-18). They are in the register because it is the list of decisions an
+ * external party's bytes make permanent, and a bare `id_kind`, a declared
+ * engine feature name and an accepted `spec_version` are each inside bytes this
+ * product cannot rewrite afterwards — captured state and `duo_map` rows for the
+ * first, the manifest bytes an adapter digest folds for the second, and every
+ * adapter in the field authored against the window for the third.
  */
 
 // $_SERVER['argv'] rather than the bare superglobal, for the reason
@@ -86,10 +97,27 @@ $repo = $wsRoot !== null && $wsRoot !== '' ? $wsRoot : dirname(__DIR__);
 
 require_once $repo . '/agent/src/Adapter/AdapterCertification.php';
 require_once $repo . '/agent/src/Kernel/ReferenceKindGrammar.php';
+require_once $repo . '/agent/src/Adapter/AdapterContractGrammar.php';
 require_once $repo . '/cli/src/Contract/ContractAttestation.php';
 require_once $repo . '/recovery/rollback-control.php';
 
+// The spec-version window (R-18) is a CONDITION inside the shipped validator,
+// not a list, so the only honest way to project it is to run that validator —
+// which needs the define the engine itself reads. Parsed out of agent/duo.php
+// exactly as tools/capability-doc.php:118-127 parses it, rather than requiring
+// the drop-in: agent/duo.php returns immediately outside WordPress
+// (agent/duo.php:8), so the defines would never be reached.
+if (!defined('DUO_SPEC_VERSION')) {
+    $wsDuo = (string) file_get_contents($repo . '/agent/duo.php');
+    if (preg_match("/define\('DUO_SPEC_VERSION', ([0-9]+)\)/", $wsDuo, $wsSpec) !== 1) {
+        fwrite(STDERR, "wire-surface: agent/duo.php no longer declares DUO_SPEC_VERSION; row R-18 projects it\n");
+        exit(1);
+    }
+    define('DUO_SPEC_VERSION', (int) $wsSpec[1]);
+}
+
 use Duo\AdapterCertification;
+use Duo\AdapterContractGrammar;
 use Duo\AdapterSources;
 use Duo\Canon;
 use Duo\Orchestrator\ApplicationContract;
@@ -388,6 +416,65 @@ function ws_assert_reserved_absences(string $repo): void {
             . 'as the one clock an expiry is judged against'
         );
     }
+}
+
+/**
+ * The `spec_version` integers the shipped validator ACCEPTS, measured.
+ *
+ * Probed over N-3 … N+2 rather than over the window's own two integers, so a
+ * window that widened DOWNWARD shows up as a longer list instead of being
+ * clipped by the range that asked. A minimal manifest is the right probe
+ * subject because every other check in `validate_adapter_contract()` is keyed
+ * on a declaration it does not carry, so the only verdict measured is the
+ * version one — the same argument ManifestValidate::specWindow() states for the
+ * identical technique.
+ *
+ * @return list<int>
+ */
+function ws_spec_window(): array {
+    $supported = DUO_SPEC_VERSION;
+    $accepted = [];
+    for ($candidate = $supported - 3; $candidate <= $supported + 2; $candidate++) {
+        try {
+            AdapterContractGrammar::validate_adapter_contract([
+                'name' => 'wire-surface-probe',
+                'spec_version' => $candidate,
+            ]);
+            $accepted[] = $candidate;
+        } catch (Throwable) {
+            // Outside the window. The refusal is the author's coordinate, not
+            // this register's; `duo manifest-validate` prints it verbatim.
+        }
+    }
+
+    return $accepted;
+}
+
+/**
+ * Gate 5: the acceptance window's FLOOR is exactly `DUO_SPEC_VERSION - 1`.
+ *
+ * The window exists so that a format change stages one adapter at a time
+ * instead of being a flag day (spec/repo-format.md § v3.1). The failure that
+ * would quietly undo it is not a narrowing — a narrowing refuses loudly, on
+ * every site holding an N-1 manifest — but an ACCUMULATION: an engine that
+ * kept accepting N-2 "for one more release" turns a staging channel into
+ * permanent tolerance, and nothing about the extra integer is visible in any
+ * refusal, any document or any suite that only asks whether N-1 loads. So the
+ * equality is asserted here, where `make release-gate` runs it, and closing the
+ * window stays its own dated decision (§ v3.12) rather than a side effect of the
+ * next release.
+ */
+function ws_assert_spec_window(): void {
+    $expected = [DUO_SPEC_VERSION - 1, DUO_SPEC_VERSION];
+    $accepted = ws_spec_window();
+    if ($accepted === $expected) {
+        return;
+    }
+    ws_fail(
+        'the shipped spec_version acceptance window is {' . implode(', ', $accepted) . '}, not {'
+        . implode(', ', $expected) . '} — row R-18 records the floor as exactly DUO_SPEC_VERSION - 1, so '
+        . 'N-2 can never accumulate by inattention and a widened window is a reviewed change here first'
+    );
 }
 
 /** @return list<string> */
@@ -832,6 +919,46 @@ function ws_rows(): array {
         'reserved' => 'A convention (a vendor-shaped name) can be recommended to authors at any time; a '
             . 'RULE cannot be introduced without invalidating existing captures.',
     ];
+    $rows[] = [
+        'id' => 'R-18',
+        'title' => 'The `spec_version` acceptance window is exactly {N-1, N}',
+        'now' => 'Measured by handing candidate integers to the shipped '
+            . '`AdapterContractGrammar::validate_adapter_contract()`: this engine accepts `'
+            . implode('`, `', array_map('strval', ws_spec_window())) . '` and refuses every other integer '
+            . 'wholesale, naming the window. An absent or non-integer `spec_version` keeps the older '
+            . 'refusal, because it is not a version and so is not outside anything. A manifest inside the '
+            . 'window that declares a section this engine implements only at a HIGHER version refuses '
+            . 'naming the section (`' . implode('`, `', array_keys(AdapterContractGrammar::section_min_spec()))
+            . '` today).',
+        'permanent' => 'The floor is DUO_SPEC_VERSION - 1 and never deeper, checked at generation time. '
+            . 'Narrowing the window later refuses every adapter in the field that took it at its word, which '
+            . 'is a flag day of exactly the kind the window exists to end; widening it to N-2 costs nothing '
+            . 'on the day it is done and converts a staging channel with an expiry into permanent tolerance '
+            . 'that no refusal, document or suite would report. So the equality is the gate, not the '
+            . 'intention.',
+        'reserved' => 'Closing the window is its own dated decision (spec/repo-format.md § v3.12), gated on '
+            . 'no v2-declaring pinned manifests in the fleet plus at least one grammar section shipped '
+            . 'post-v3 through `engine_features` with no version bump — the replacement proven before the '
+            . 'thing it replaces is retired.',
+    ];
+    $rows[] = [
+        'id' => 'R-19',
+        'title' => 'Engine feature names are engine-owned, and permanent once declared',
+        'now' => 'This engine implements `' . implode('`, `', AdapterContractGrammar::implemented_features())
+            . '`. A manifest declares names through the top-level `engine_features` list; an engine lacking '
+            . 'a listed name refuses THAT ADAPTER, naming the feature. An adapter declares a name and never '
+            . 'mints one: a name nothing implements is refused as unimplemented rather than admitted as '
+            . 'forward-looking.',
+        'permanent' => 'A declared feature name is inside the manifest bytes '
+            . '`ArtifactPolicyIdentity::manifest_rows()` folds into that adapter\'s `digest`, which every '
+            . '`site.duo.json` content pin and every certificate\'s `adapter.canonical_sha256` binds. '
+            . 'Renaming or re-spelling a feature therefore moves the digest of every manifest that declares '
+            . 'it and invalidates their pins and certificates at once — the same irreversibility R-17 '
+            . 'records for `id_kind`, reached through a different door.',
+        'reserved' => 'The `/vN` suffix is the change channel: a feature whose meaning moves is a NEW name '
+            . 'implemented beside the old one, never an edit of it, so a manifest that declared the old name '
+            . 'keeps its bytes and its digest.',
+    ];
 
     return $rows;
 }
@@ -903,6 +1030,7 @@ function ws_build(string $repo): string {
     ws_assert_signing_files($repo);
     ws_assert_reserved_absences($repo);
     ws_assert_rollback_is_domain_free();
+    ws_assert_spec_window();
     $domains = [
         (string) ws_const(AdapterCertification::class, 'SIGNATURE_DOMAIN'),
         (string) ws_const(ContractAttestation::class, 'SIGNATURE_DOMAIN'),
@@ -992,7 +1120,7 @@ function ws_build(string $repo): string {
     }
 
     $out .= "\n## 5. What the checker proves, and what it does not\n\n";
-    $out .= "`php tools/wire-surface.php --check` proves five things and refuses the run rather than\n";
+    $out .= "`php tools/wire-surface.php --check` proves six things and refuses the run rather than\n";
     $out .= "printing a register it cannot stand behind:\n\n";
     $out .= "1. **Every value above is the shipped value.** The document is rebuilt from the code and\n";
     $out .= "   byte-compared; a moved constant, a renamed key, a widened grammar or a reworded refusal\n";
@@ -1005,7 +1133,10 @@ function ws_build(string $repo): string {
     $out .= "4. **The two reserved absences are still absences.** `AdapterCertification` carries no\n";
     $out .= "   expiry vocabulary and no signing file carries revocation-list vocabulary (R-14, R-15).\n";
     $out .= "5. **The rollback signature really is domain-free.** A signature is minted and verified\n";
-    $out .= "   against the unprefixed canonical payload at generation time (R-03).\n\n";
+    $out .= "   against the unprefixed canonical payload at generation time (R-03).\n";
+    $out .= "6. **The spec-version window has not accumulated.** The shipped validator is probed over\n";
+    $out .= '   N-3 … N+2 and must accept exactly {N-1, N} — floor `DUO_SPEC_VERSION - 1`, never deeper'
+        . " (R-18).\n\n";
     $out .= "What it does not prove: that the decisions are *right*, that any artifact in the field was\n";
     $out .= "signed under these exact rules, or that a holder's verifier implements them. The rationale\n";
     $out .= "halves of §2 are prose, reviewed by a human, and the register is only as good as the review\n";

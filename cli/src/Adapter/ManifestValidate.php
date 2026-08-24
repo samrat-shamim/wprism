@@ -704,20 +704,26 @@ final class ManifestValidate {
      * Which `spec_version` integers this engine accepts — MEASURED by asking
      * the shipped refusal, never by restating its condition (WP-4.1).
      *
-     * The condition is one line —
-     * `if (!is_int($spec) || $spec !== $supported)`
-     * (AdapterContractGrammar.php:26) — and writing `[DUO_SPEC_VERSION]` here
-     * would be a second copy of it that stays right only until the day the
-     * window changes, which is precisely the day a consumer needs this
-     * document to be right. So each candidate integer is handed to the real
-     * validator on a minimal manifest and the ACCEPTED ones are reported. That
-     * is the technique `tools/wire-surface.php` already uses for the grammars
-     * it publishes: run the shipped refusal and print what it answers.
+     * The condition is a few lines inside
+     * `AdapterContractGrammar::validate_adapter_contract()`, and writing the
+     * answer here — `[DUO_SPEC_VERSION]` when this was written, now
+     * `[DUO_SPEC_VERSION - 1, DUO_SPEC_VERSION]` — would be a second copy of it
+     * that stays right only until the day the window changes, which is
+     * precisely the day a consumer needs this document to be right. The window
+     * HAS since changed (WP-4.2), and this block followed it with no edit here;
+     * that is the whole argument for the technique, now with a measurement
+     * behind it. So each candidate integer is handed to the real validator on a
+     * minimal manifest and the ACCEPTED ones are reported — the technique
+     * `tools/wire-surface.php` already uses for the grammars it publishes: run
+     * the shipped refusal and print what it answers.
      *
      * The probe window is deliberately wider than the engine's own answer
      * (N-2 … N+1) so a widened window shows up as a wider `accepted` list
      * rather than as a silently clipped one, and `probed` publishes the range
-     * so a reader can tell "refused" from "never asked".
+     * so a reader can tell "refused" from "never asked". N-2 in particular is
+     * ASKED and refused today, which is what makes "the floor is exactly N-1" a
+     * measurement here rather than an assumption; `tools/wire-surface.php`
+     * refuses the release on that same equality (register row R-18).
      *
      * A minimal manifest is the right probe subject because every other check
      * in `validate_adapter_contract()` is keyed on a declaration this manifest
@@ -726,8 +732,10 @@ final class ManifestValidate {
      * the spec-version one.
      *
      * `n_minus_1_accepted` is the fact spec v3's acceptance window (WP-4.2)
-     * turns from false to true; it is REPORTED here, never assumed, and the
-     * status line names the section that specifies it.
+     * turned from false to true; it is REPORTED here, never assumed, and the
+     * status line names the section that specifies it. Because it is measured,
+     * the day WP-4.2 shipped the window this block moved with no edit here —
+     * which is the property the technique was chosen for.
      *
      * @return array<string,mixed>
      */
@@ -757,9 +765,11 @@ final class ManifestValidate {
             'accepted' => $accepted,
             'n_minus_1_accepted' => in_array($supported - 1, $accepted, true),
             'enforced_by' => 'Duo\\AdapterContractGrammar::validate_adapter_contract()',
-            'status' => 'This engine accepts exactly the integers in `accepted`; absent and declared-wrong are '
-                . 'the same refusal. The N/N-1 acceptance window is SPECIFIED in spec/repo-format.md '
-                . '"Spec v3" § v3.1 and is NOT enforced here — WP-4.2 implements it.',
+            'status' => 'This engine accepts exactly the integers in `accepted`. The N/N-1 acceptance window '
+                . '(spec/repo-format.md "Spec v3" § v3.1) is ENFORCED here: an integer outside the window '
+                . 'refuses wholesale naming the window, a manifest inside it that declares a section this '
+                . 'engine implements only at a higher version refuses naming the section, and an absent or '
+                . 'non-integer `spec_version` keeps the older refusal because it is not a version at all.',
         ];
     }
 

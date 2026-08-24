@@ -1,7 +1,8 @@
 <?php
 /**
  * The spec-v3 section of `spec/repo-format.md`, held against the tree it
- * describes — and held to describing nothing this engine enforces yet.
+ * describes — and held, rule by rule, to describing exactly what this engine
+ * does and does not enforce.
  *
  * WHY THIS SUITE EXISTS
  * ---------------------
@@ -12,19 +13,27 @@
  * cannot be GENERATED — it is a design argument, and the argument is the
  * deliverable — so it gets the other available discipline instead: every
  * measurable claim it makes is re-measured here from the shipped tree, and
- * every rule it states is asserted to be UNENFORCED, because WP-4.1's scope
- * boundary is spec text and schema emission only.
+ * every rule it states is asserted ENFORCED or UNENFORCED to match its own
+ * `Enforced today:` line. WP-4.1's scope boundary was spec text and schema
+ * emission only, so every rule started unenforced; WP-4.2 turned § v3.1 and
+ * § v3.2 over, and this file is where a rider's claim to have done that is
+ * checked against the engine.
  *
  * The two halves are deliberately different in kind:
  *
- *   PART 1 — THE SCOPE BOUNDARY. Eleven facts about the shipped engine that
- *   together say "v3 is not in force": the define is still 2, the window still
- *   refuses N-1, `engine_features` is read by nothing, the validator still
+ *   PART 1 — THE SCOPE BOUNDARY, rule by rule. Facts about the shipped engine
+ *   that say, per rule, exactly how much of v3 is in force. WP-4.2 turned two
+ *   of them over: the acceptance window (§ v3.1) and the `engine_features`
+ *   channel (§ v3.2) are ENFORCED and asserted as such here, with the rest
+ *   still asserted UNENFORCED — the define is still 2, the validator still
  *   admits an invented section, the disposition monolith is still one file, the
  *   signature domain is still /v1, the statement is still five members, the
  *   platform trust root is still empty, and no shipped manifest declares v3.
  *   A rider that lands enforcement without moving this suite's expectations is
- *   a rider that landed silently, which is the failure this half prevents.
+ *   a rider that landed silently, which is the failure this half prevents; the
+ *   window's own behaviour is exercised in depth by
+ *   sandbox/tests/offline/policy/regress_spec_window.php, and this file only
+ *   pins that the document and the engine agree about which rules are live.
  *
  *   PART 2 — THE DOCUMENT. Every number and name the section states is read
  *   back out of the engine, the manifests, and the platform boundary: the
@@ -68,7 +77,7 @@ $section = static function (string $id) use ($spec): string {
     return (string) preg_replace('/\s+/', ' ', $m[0]);
 };
 
-echo "\nPART 1 — THE SCOPE BOUNDARY: v3 is specified and NOT enforced\n";
+echo "\nPART 1 — THE SCOPE BOUNDARY: which v3 rules are in force, rule by rule\n";
 
 // ---------------------------------------------------------------------------
 // The defines. WP-4.1 changes neither, and AGENTS.md rule 8 binds them to
@@ -80,7 +89,7 @@ $specVersion = (int) ($m[1] ?? 0);
 preg_match("/define\('DUO_AGENT_VERSION', '([^']+)'\)/", $duoSource, $m);
 $agentVersion = (string) ($m[1] ?? '');
 
-duo_check_same(2, $specVersion, 'DUO_SPEC_VERSION is still 2 — WP-4.1 is spec text and schema emission, and the flip is WP-4.12');
+duo_check_same(2, $specVersion, 'DUO_SPEC_VERSION is still 2 — the window and the channel ride ahead of the bump, and the flip is WP-4.12 alone');
 
 $platform = json_decode((string) file_get_contents($manifestDir . '/capabilities/platform.json'), true);
 $platform = is_array($platform['platform'] ?? null) ? $platform['platform'] : [];
@@ -91,7 +100,8 @@ duo_check_same(
 );
 
 // ---------------------------------------------------------------------------
-// Each v3 rule, asserted UNENFORCED against the shipped trees.
+// Each v3 rule, asserted against the shipped trees to match its own
+// `Enforced today:` line — enforced for § v3.1/§ v3.2, unenforced for the rest.
 // ---------------------------------------------------------------------------
 require_once $repo . '/agent/src/Kernel/Canon.php';
 require_once $repo . '/agent/src/Kernel/OptionState.php';
@@ -122,23 +132,37 @@ $contractVerdict = static function (array $manifest): ?string {
     }
 };
 
-// v3.1 — the acceptance window does not exist: N-1 is refused exactly like a
-// version that never existed, which is the whole reason the window is a rule
-// and not a tolerance.
-$nMinusOne = $contractVerdict(['name' => 'v3-window-probe', 'spec_version' => $specVersion - 1]);
-duo_check(
-    is_string($nMinusOne) && str_contains($nMinusOne, 'requires spec_version ' . $specVersion),
-    'v3.1 NOT enforced: a manifest declaring N-1 is still refused wholesale by the exact-equality check'
+// v3.1 — ENFORCED (WP-4.2). N-1 loads, and the two integers around the window
+// refuse naming it. This is the one rule of the twelve whose flip could not
+// wait for the version bump: an engine that installs the window only on the
+// day it needs it has already had the flag day.
+duo_check_same(
+    null,
+    $contractVerdict(['name' => 'v3-window-probe', 'spec_version' => $specVersion - 1]),
+    'v3.1 ENFORCED: a manifest declaring N-1 loads — the acceptance window, and the behaviour WP-4.2 added'
 );
 duo_check_same(
     null,
     $contractVerdict(['name' => 'v3-window-probe', 'spec_version' => $specVersion]),
     'v3.1: and N itself still loads, so the probe is measuring the window and not something else'
 );
+$outside = $contractVerdict(['name' => 'v3-window-probe', 'spec_version' => $specVersion - 2]);
+duo_check(
+    is_string($outside)
+        && str_contains($outside, 'accepts spec_version {' . ($specVersion - 1) . ', ' . $specVersion . '}'),
+    'v3.1: N-2 refuses WHOLESALE, naming the window — the floor is exactly N-1 and never deeper'
+);
+duo_check(
+    is_string($absent = $contractVerdict(['name' => 'v3-window-probe']))
+        && str_contains($absent, 'requires spec_version ' . $specVersion),
+    'v3.1: and an ABSENT spec_version keeps its own older refusal, because it is not a version and so is not outside anything'
+);
 
-// v3.2 — the declaration channel is read by nothing shipped. `Adopt.php` tars
-// exactly `agent manifests recovery`, so "no reader across those three trees"
-// means no reader any deployment can have.
+// v3.2 — ENFORCED (WP-4.2). The channel now has exactly one reader across the
+// three trees `Adopt.php` tars (`agent manifests recovery`), which is the
+// grammar that implements it. A SECOND reader appearing here is the alarm this
+// assertion exists for: it would mean the feature vocabulary acquired a
+// consumer that could disagree with the one definition.
 $featureReaders = [];
 foreach (['agent/src', 'cli/src', 'recovery'] as $tree) {
     $walk = new RecursiveIteratorIterator(
@@ -156,7 +180,25 @@ foreach (['agent/src', 'cli/src', 'recovery'] as $tree) {
     }
 }
 sort($featureReaders, SORT_STRING);
-duo_check_same([], $featureReaders, 'v3.2 NOT enforced: nothing under agent/, cli/ or recovery/ reads `engine_features`');
+duo_check_same(
+    ['agent/src/Adapter/AdapterContractGrammar.php'],
+    $featureReaders,
+    'v3.2 ENFORCED: the channel has exactly one shipped reader — the grammar that owns the feature vocabulary'
+);
+duo_check_same(
+    ['spec-window/v1'],
+    AdapterContractGrammar::implemented_features(),
+    'v3.2: and the vocabulary carries one IMPLEMENTED feature, so "declared and implemented admits" is a path something walks'
+);
+$unimplemented = $contractVerdict([
+    'name' => 'v3-feature-probe',
+    'spec_version' => $specVersion,
+    'engine_features' => ['acme-thing/v1'],
+]);
+duo_check(
+    is_string($unimplemented) && str_contains($unimplemented, "the section 'engine_features'"),
+    'v3.2 x v3.1: at DUO_SPEC_VERSION ' . $specVersion . ' the key is a v3-only SECTION, so declaring it refuses by section name — the channel opens with the flip'
+);
 
 // v3.3 — the closed key set still refuses in exactly one place. The validator
 // admitting an invented section is the measured defect the rule closes.
@@ -277,7 +319,7 @@ echo "\nPART 2 — THE DOCUMENT: every measurable claim re-measured from the tre
 // Structure: the section, its subsections, and the rider each one names.
 // ---------------------------------------------------------------------------
 duo_check(
-    str_contains($spec, '## Spec v3 — the windowed format (SPECIFIED HERE, NOT YET IN FORCE)'),
+    str_contains($spec, '## Spec v3 — the windowed format (SPECIFIED HERE; THE WINDOW IS IN FORCE, THE REST IS NOT)'),
     'the spec carries the v3 section, and its heading states the status in the heading itself'
 );
 

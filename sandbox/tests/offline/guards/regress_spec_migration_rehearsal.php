@@ -83,11 +83,16 @@
  *     same command that minted it.
  *
  * SCOPE LIMIT, STATED RATHER THAN IMPLIED. State B moves `DUO_AGENT_VERSION`
- * and `platform.json`; it does NOT move `DUO_SPEC_VERSION`.
- * `AdapterContractGrammar` is exact equality today, so a v3 agent refuses every
- * v2 manifest by name and EVERY site in this estate would be unloadable — which
- * is not a rehearsal finding but the reason WP-4.2's acceptance window is the
- * one rider that cannot be cut. When that window ships, this suite's state B
+ * and `platform.json`; it does NOT move `DUO_SPEC_VERSION`. Until WP-4.2 that
+ * limit was forced: `AdapterContractGrammar` was exact equality, so a v3 agent
+ * refused every v2 manifest by name and EVERY site in this estate would have
+ * been unloadable — which was not a rehearsal finding but the reason the
+ * acceptance window was the one rider that could not be cut. The window has
+ * since shipped ({N-1, N}, spec/repo-format.md § v3.1; pinned at both spec eras
+ * by sandbox/tests/offline/policy/regress_spec_window.php), so the blocker is
+ * gone and the limit is now a SCOPE choice: moving the spec half of state B is
+ * the flip itself and belongs to WP-4.12, together with the `platform.json`
+ * restatement that AGENTS.md rule 8 binds to it. When that rider lands, state B
  * gains the spec half and the same estate answers the same question.
  */
 declare(strict_types=1);

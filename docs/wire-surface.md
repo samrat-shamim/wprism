@@ -171,6 +171,22 @@ is where that decision and its cost are written down.
 
 **Reserved.** A convention (a vendor-shaped name) can be recommended to authors at any time; a RULE cannot be introduced without invalidating existing captures.
 
+### R-18 — The `spec_version` acceptance window is exactly {N-1, N}
+
+**Shipped now.** Measured by handing candidate integers to the shipped `AdapterContractGrammar::validate_adapter_contract()`: this engine accepts `1`, `2` and refuses every other integer wholesale, naming the window. An absent or non-integer `spec_version` keeps the older refusal, because it is not a version and so is not outside anything. A manifest inside the window that declares a section this engine implements only at a HIGHER version refuses naming the section (`engine_features` today).
+
+**Why it cannot change.** The floor is DUO_SPEC_VERSION - 1 and never deeper, checked at generation time. Narrowing the window later refuses every adapter in the field that took it at its word, which is a flag day of exactly the kind the window exists to end; widening it to N-2 costs nothing on the day it is done and converts a staging channel with an expiry into permanent tolerance that no refusal, document or suite would report. So the equality is the gate, not the intention.
+
+**Reserved.** Closing the window is its own dated decision (spec/repo-format.md § v3.12), gated on no v2-declaring pinned manifests in the fleet plus at least one grammar section shipped post-v3 through `engine_features` with no version bump — the replacement proven before the thing it replaces is retired.
+
+### R-19 — Engine feature names are engine-owned, and permanent once declared
+
+**Shipped now.** This engine implements `spec-window/v1`. A manifest declares names through the top-level `engine_features` list; an engine lacking a listed name refuses THAT ADAPTER, naming the feature. An adapter declares a name and never mints one: a name nothing implements is refused as unimplemented rather than admitted as forward-looking.
+
+**Why it cannot change.** A declared feature name is inside the manifest bytes `ArtifactPolicyIdentity::manifest_rows()` folds into that adapter's `digest`, which every `site.duo.json` content pin and every certificate's `adapter.canonical_sha256` binds. Renaming or re-spelling a feature therefore moves the digest of every manifest that declares it and invalidates their pins and certificates at once — the same irreversibility R-17 records for `id_kind`, reached through a different door.
+
+**Reserved.** The `/vN` suffix is the change channel: a feature whose meaning moves is a NEW name implemented beside the old one, never an edit of it, so a manifest that declared the old name keeps its bytes and its digest.
+
 ## 3. The grammars, as the shipped validators answer them
 
 ### 3.1 Key ids, three roots
@@ -251,7 +267,7 @@ regenerates this document and, in doing so, reads the change.
 
 ## 5. What the checker proves, and what it does not
 
-`php tools/wire-surface.php --check` proves five things and refuses the run rather than
+`php tools/wire-surface.php --check` proves six things and refuses the run rather than
 printing a register it cannot stand behind:
 
 1. **Every value above is the shipped value.** The document is rebuilt from the code and
@@ -265,6 +281,8 @@ printing a register it cannot stand behind:
    expiry vocabulary and no signing file carries revocation-list vocabulary (R-14, R-15).
 5. **The rollback signature really is domain-free.** A signature is minted and verified
    against the unprefixed canonical payload at generation time (R-03).
+6. **The spec-version window has not accumulated.** The shipped validator is probed over
+   N-3 … N+2 and must accept exactly {N-1, N} — floor `DUO_SPEC_VERSION - 1`, never deeper (R-18).
 
 What it does not prove: that the decisions are *right*, that any artifact in the field was
 signed under these exact rules, or that a holder's verifier implements them. The rationale

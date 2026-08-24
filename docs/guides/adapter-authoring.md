@@ -143,8 +143,14 @@ as small as a real adapter gets. Stripped of its notes, it is six keys:
 }
 ```
 
-- `spec_version` must equal the engine's own `DUO_SPEC_VERSION` **exactly**.
-  Absent and declared-wrong are the same failure, both refused at load.
+- `spec_version` must be inside the engine's acceptance window — its own
+  `DUO_SPEC_VERSION` (**N**) or the one before it (**N-1**), and nothing deeper
+  (`spec/repo-format.md` § v3.1). An integer outside the window refuses at load
+  and names the window; an ABSENT or non-integer value is a different failure
+  with its own message, because it is not a version at all. Declare N unless you
+  are deliberately staging an older manifest across an engine move. Ask the
+  engine rather than guessing: `duo manifest-validate --emit-schema` prints the
+  accepted set in `spec_window`, measured from the shipped refusal.
 - `plugin` is the plugin basename; `version_range` is `{min, max}` with min
   inclusive and max exclusive, checked with two `version_compare()` calls. One
   plugin per manifest. Declaring a plugin without a well-formed range is
@@ -718,7 +724,16 @@ v2 adds two blocks v1 could not answer, both derived the same way as the rest.
 `spec_window` is which `spec_version` integers this engine ACCEPTS, measured by
 handing each candidate to the real `validate_adapter_contract()` rather than by
 restating its condition, so a widened or narrowed window shows up here with no
-edit to the emitter. `top_level_keys` is the signer's own closed partition of
+edit to the emitter. Read it before you pick a `spec_version`: the engine
+accepts N and N-1 (`spec/repo-format.md` § v3.1), an integer outside that window
+refuses wholesale and names the window, and an ABSENT or non-integer
+`spec_version` gets its own separate refusal — it is not a version, so it is not
+outside anything. Declaring a section this engine implements only at a HIGHER
+version refuses by SECTION NAME, which is how a format change stages one adapter
+at a time instead of arriving as a flag day; the top-level `engine_features`
+list (§ v3.2) is the first such section, and a name in it that no engine
+implements is refused as unimplemented rather than admitted as forward-looking.
+`top_level_keys` is the signer's own closed partition of
 manifest top-level keys — the set that decides whether an adapter can be
 certified at all — published with the one fact an author most needs about it:
 it refuses at signing (`enforced_by`) and the manifest validator does not
