@@ -16,6 +16,7 @@ declare(strict_types=1);
  */
 
 require_once __DIR__ . '/../../lib/check.php';
+require_once __DIR__ . '/../../support/wp_cli_child_process_fake.php';
 
 define('DUO_SPEC_VERSION', 2);
 define('ARRAY_A', 'ARRAY_A');
@@ -29,6 +30,8 @@ $GLOBALS['core_rewrite_mutate_structure'] = false;
 $GLOBALS['core_rewrite_child_launches'] = 0;
 $GLOBALS['core_rewrite_child_flushes'] = 0;
 $GLOBALS['core_rewrite_child_hard_flushes'] = 0;
+$GLOBALS['core_rewrite_child_stdout_prefix'] = '';
+$GLOBALS['core_rewrite_child_stderr'] = '';
 
 function did_action(string $hook): int {
     return $hook === 'wp_loaded' ? (int) $GLOBALS['core_rewrite_wp_loaded'] : 0;
@@ -232,6 +235,8 @@ final class CoreRewriteRuntime {
 }
 
 final class WP_CLI {
+    use \DuoTest\WpCliChildRuntime;
+
     /** @param array<string,mixed> $args */
     public static function runcommand(string $command, array $args): object {
         global $wp_rewrite;
@@ -254,8 +259,9 @@ final class WP_CLI {
             ];
             return (object) [
                 'return_code' => 0,
-                'stdout' => json_encode($report, JSON_THROW_ON_ERROR),
-                'stderr' => '',
+                'stdout' => $GLOBALS['core_rewrite_child_stdout_prefix']
+                    . json_encode($report, JSON_THROW_ON_ERROR),
+                'stderr' => $GLOBALS['core_rewrite_child_stderr'],
             ];
         } catch (Throwable $failure) {
             return (object) [
@@ -291,6 +297,9 @@ function core_rewrite_reset(string|false $structure = '/source/%postname%/'): vo
     $GLOBALS['core_rewrite_child_launches'] = 0;
     $GLOBALS['core_rewrite_child_flushes'] = 0;
     $GLOBALS['core_rewrite_child_hard_flushes'] = 0;
+    $GLOBALS['core_rewrite_child_stdout_prefix'] = '';
+    $GLOBALS['core_rewrite_child_stderr'] = '';
+    $GLOBALS['duo_wp_cli_child_fake_stderr_first'] = false;
 }
 
 /** @param callable():mixed $callback */
@@ -567,5 +576,34 @@ core_rewrite_refuses(
     'missing WordPress rewrite runtime refuses with an actionable boundary message'
 );
 $wp_rewrite = $savedRuntime;
+
+core_rewrite_reset();
+$GLOBALS['core_rewrite_child_stdout_prefix'] = str_repeat('credential-shaped-boot-output-', 12000);
+$overflowMessage = '';
+try {
+    Duo\NativeActions::execute('rewrite.flush', []);
+} catch (RuntimeException $failure) {
+    $overflowMessage = $failure->getMessage();
+}
+duo_check(
+    str_contains($overflowMessage, 'could not launch its fresh WordPress process')
+        && !str_contains($overflowMessage, 'credential-shaped'),
+    'native rewrite refuses oversized child boot output through the product path without leaking it'
+);
+
+core_rewrite_reset();
+$GLOBALS['core_rewrite_child_stderr'] = str_repeat('w', 100000);
+$GLOBALS['duo_wp_cli_child_fake_stderr_first'] = true;
+$warningMessage = '';
+try {
+    Duo\NativeActions::execute('rewrite.flush', []);
+} catch (RuntimeException $failure) {
+    $warningMessage = $failure->getMessage();
+}
+duo_check(
+    str_contains($warningMessage, 'emitted a warning') && !str_contains($warningMessage, str_repeat('w', 32)),
+    'stderr-first output larger than a pipe drains concurrently then reaches the native warning refusal'
+);
+$GLOBALS['duo_wp_cli_child_fake_stderr_first'] = false;
 
 duo_check_summary('core rewrite native action');
