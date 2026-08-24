@@ -3498,99 +3498,155 @@ duo_check_same(
     'the two JavaScript-era Events Bar keys are known target-owned residue rather than inferred authored settings'
 );
 
-$normalizeCustomizerSparseMap = static function (mixed $raw) use ($customizerSections): array {
-    $maxNodes = 128;
-    $maxOptionBytes = 65536;
-    $maxSettingBytes = 4096;
-    $nodes = 0;
-    $bytes = 0;
-    $measure = null;
-    $measure = static function (mixed $value, int $depth = 0) use (
-        &$measure,
-        &$nodes,
-        &$bytes,
-        $maxNodes,
-        $maxOptionBytes,
-        $maxSettingBytes
-    ): void {
-        if (++$nodes > $maxNodes || $depth > 2) {
-            throw new RuntimeException('TEC Customizer map exceeds the bounded shape frontier');
-        }
-        if (is_string($value)) {
-            if (strlen($value) > $maxSettingBytes) {
-                throw new RuntimeException('TEC Customizer setting exceeds the bounded byte frontier');
-            }
-            if (preg_match('//u', $value) !== 1) {
-                throw new RuntimeException('TEC Customizer setting is not valid UTF-8');
-            }
-            $bytes += strlen($value);
-        } elseif (is_array($value)) {
-            foreach ($value as $key => $child) {
-                if (!is_string($key) || preg_match('//u', $key) !== 1) {
-                    throw new RuntimeException('TEC Customizer map contains a malformed key');
-                }
-                $bytes += strlen($key);
-                $measure($child, $depth + 1);
-            }
-        } else {
-            throw new RuntimeException('TEC Customizer map contains a non-string leaf');
-        }
-        if ($bytes > $maxOptionBytes) {
-            throw new RuntimeException('TEC Customizer map exceeds the bounded byte frontier');
-        }
-    };
-    $measure($raw);
-    if (!is_array($raw) || ($raw !== [] && array_is_list($raw))) {
-        throw new RuntimeException('TEC Customizer storage is not a sparse section map');
-    }
-
-    $sectionsById = [];
-    foreach (($customizerSections['sections'] ?? []) as $section) {
-        $sectionsById[(string) ($section['id'] ?? '')] = (array) ($section['settings'] ?? []);
-    }
-    $targetOwned = [];
-    foreach (($customizerSections['target_owned_residue'] ?? []) as $sectionId => $settings) {
-        $targetOwned[(string) $sectionId] = array_fill_keys((array) $settings, true);
-    }
-    $normalized = [];
-    foreach ($raw as $sectionId => $settings) {
-        if (!isset($sectionsById[$sectionId])) {
-            throw new RuntimeException('TEC Customizer storage contains an undeclared section');
-        }
-        if (!is_array($settings) || ($settings !== [] && array_is_list($settings))) {
-            throw new RuntimeException('TEC Customizer section is not a sparse setting map');
-        }
-        $normalized[$sectionId] = [];
-        foreach ($settings as $setting => $value) {
-            if (isset($targetOwned[$sectionId][$setting])) {
-                continue;
-            }
-            $tuple = $sectionsById[$sectionId][$setting] ?? null;
-            if (!is_array($tuple)) {
-                throw new RuntimeException('TEC Customizer section contains an undeclared setting');
-            }
-            if (!is_string($value)) {
-                throw new RuntimeException('TEC Customizer setting is not scalar text');
-            }
-            $sanitizer = $tuple[0] ?? null;
-            if ($sanitizer === 'sanitize_key') {
-                $sanitized = preg_replace('/[^a-z0-9_\-]/', '', strtolower($value));
-                if (!is_string($sanitized)) {
-                    throw new RuntimeException('TEC Customizer key sanitizer failed');
-                }
-            } elseif ($sanitizer === 'sanitize_hex_color') {
-                if ($value !== '' && preg_match('/^#(?:[A-Fa-f0-9]{3}){1,2}$/D', $value) !== 1) {
-                    throw new RuntimeException('TEC Customizer color is outside the native sanitizer grammar');
-                }
-                $sanitized = $value;
-            } else {
-                throw new RuntimeException('TEC Customizer setting uses an unreviewed sanitizer');
-            }
-            $normalized[$sectionId][$setting] = $sanitized;
-        }
-    }
-    return $normalized;
+$customizerDeclaredSubKeys = [];
+foreach (($customizerSections['sections'] ?? []) as $section) {
+    $customizerDeclaredSubKeys[(string) ($section['id'] ?? '')] = [
+        'class' => 'authored',
+        'plain_data' => true,
+    ];
+}
+$normalizeCustomizerSparseMap = static function (mixed $raw) use (
+    $customizerDeclaredSubKeys,
+    $interpreter
+): array {
+    return $interpreter->normalize_captured_option_sub_keys(
+        'tribe_customizer',
+        is_array($raw) ? $raw : [],
+        $customizerDeclaredSubKeys,
+        ['tribe_customizer' => serialize($raw)]
+    );
 };
+foreach (($customizerSections['sections'] ?? []) as $service => $section) {
+    $sectionId = (string) ($section['id'] ?? '');
+    $rawSettings = [];
+    $expectedSettings = [];
+    foreach ((array) ($section['settings'] ?? []) as $setting => $tuple) {
+        $rawSettings[(string) $setting] = ($tuple[0] ?? null) === 'sanitize_key'
+            ? 'VALUE !!'
+            : '#A1b2C3';
+        $expectedSettings[(string) $setting] = ($tuple[0] ?? null) === 'sanitize_key'
+            ? 'value'
+            : '#A1b2C3';
+    }
+    duo_check_same(
+        [$sectionId => $expectedSettings],
+        $normalizeCustomizerSparseMap([$sectionId => $rawSettings]),
+        "the shipped interpreter implements every exact native sanitizer in $service"
+    );
+}
+$legacyCustomizer = [
+    'global_elements' => ['background_color_choice' => 'CUSTOM !!'],
+    'single_event' => ['post_title_color' => '#A1b2C3'],
+];
+duo_check_same(
+    [
+        'global_elements' => ['background_color_choice' => 'custom'],
+        'single_event' => ['post_title_color' => '#A1b2C3'],
+    ],
+    $interpreter->normalize_captured_option_sub_keys(
+        'tribe_customizer',
+        [],
+        $customizerDeclaredSubKeys,
+        ['tribe_events_pro_customizer' => serialize($legacyCustomizer)]
+    ),
+    'an absent canonical row captures the exact legacy compatibility map through the same raw snapshot'
+);
+$canonicalCustomizer = ['month_view' => ['grid_lines_color' => '#445566']];
+duo_check_same(
+    $canonicalCustomizer,
+    $interpreter->normalize_captured_option_sub_keys(
+        'tribe_customizer',
+        $canonicalCustomizer,
+        $customizerDeclaredSubKeys,
+        [
+            'tribe_customizer' => serialize($canonicalCustomizer),
+            'tribe_events_pro_customizer' => serialize($legacyCustomizer),
+        ]
+    ),
+    'a populated canonical Customizer row wins over conflicting legacy compatibility bytes'
+);
+duo_check_same(
+    [],
+    $interpreter->normalize_captured_option_sub_keys(
+        'tribe_customizer',
+        [],
+        $customizerDeclaredSubKeys,
+        [
+            'tribe_customizer' => serialize([]),
+            'tribe_events_pro_customizer' => serialize($legacyCustomizer),
+        ]
+    ),
+    'a persisted empty canonical Customizer row wins over populated legacy compatibility storage'
+);
+duo_check_same(
+    [],
+    $interpreter->normalize_captured_option_sub_keys(
+        'tribe_customizer',
+        [],
+        $customizerDeclaredSubKeys,
+        []
+    ),
+    'absent canonical and legacy Customizer rows remain one sparse empty map without manufactured defaults'
+);
+duo_check_same(
+    ['toggle_blocks_editor' => '1'],
+    $interpreter->normalize_captured_option_sub_keys(
+        'tribe_events_calendar_options',
+        ['toggle_blocks_editor' => '1'],
+        [],
+        []
+    ),
+    'the Customizer hook leaves every non-Canonical parent option byte-for-byte outside its adapter-local scope'
+);
+foreach ([
+    'canonical snapshot value drift' => [
+        ['month_view' => ['grid_lines_color' => '#112233']],
+        ['tribe_customizer' => serialize(['month_view' => ['grid_lines_color' => '#445566']])],
+    ],
+    'canonical presence drift' => [
+        ['month_view' => []],
+        [],
+    ],
+] as $label => [$rawAuthored, $snapshot]) {
+    duo_check_throws(
+        static fn(): array => $interpreter->normalize_captured_option_sub_keys(
+            'tribe_customizer',
+            $rawAuthored,
+            $customizerDeclaredSubKeys,
+            $snapshot
+        ),
+        RuntimeException::class,
+        "the Customizer snapshot binding refuses $label instead of selecting a hybrid canonical/legacy view",
+        'snapshot disagrees'
+    );
+}
+foreach ([
+    'missing section declaration' => array_diff_key($customizerDeclaredSubKeys, ['month_view' => true]),
+    'extension section declaration' => array_replace(
+        $customizerDeclaredSubKeys,
+        ['future_extension' => ['class' => 'authored', 'plain_data' => true]]
+    ),
+    'non-plain section declaration' => array_replace(
+        $customizerDeclaredSubKeys,
+        ['month_view' => ['class' => 'authored']]
+    ),
+    'target-owned section declaration' => array_replace(
+        $customizerDeclaredSubKeys,
+        ['month_view' => ['class' => 'env', 'plain_data' => true]]
+    ),
+] as $label => $declaration) {
+    duo_check_throws(
+        static fn(): array => $interpreter->normalize_captured_option_sub_keys(
+            'tribe_customizer',
+            [],
+            $declaration,
+            ['tribe_customizer' => serialize([])]
+        ),
+        RuntimeException::class,
+        "the Customizer interpreter refuses $label before reading plugin storage",
+        'Customizer'
+    );
+}
 foreach ([
     'empty top-level map' => [[], []],
     'one empty section' => [['month_view' => []], ['month_view' => []]],
@@ -3634,6 +3690,7 @@ foreach ([
     'unknown empty setting' => ['month_view' => ['future_setting' => '']],
     'nested setting value' => ['month_view' => ['grid_lines_color' => ['#112233']]],
     'object setting value' => ['month_view' => ['grid_lines_color' => new stdClass()]],
+    'nested target-owned residue' => ['tec_events_bar' => ['view_selector_background_color' => []]],
     'invalid native color' => ['month_view' => ['grid_lines_color' => 'red']],
     'invalid UTF-8 setting' => ['global_elements' => ['font_family' => "\xC3\x28"]],
     'oversized setting' => ['global_elements' => ['font_family' => str_repeat('a', 4097)]],
@@ -3642,9 +3699,62 @@ foreach ([
         static fn(): array => $normalizeCustomizerSparseMap($raw),
         RuntimeException::class,
         "the reviewed sparse Customizer grammar refuses $label",
-        'TEC Customizer'
+        'Customizer'
     );
 }
+$customizerCredential = 'AKIAABCDEFGHIJKLMNOP';
+try {
+    $normalizeCustomizerSparseMap([
+        'global_elements' => ['font_family' => $customizerCredential],
+    ]);
+    duo_check(false, 'a credential-shaped Customizer setting refuses before native sanitizer normalization');
+} catch (RuntimeException $e) {
+    duo_check(
+        str_contains($e->getMessage(), 'credential-shaped')
+            && !str_contains($e->getMessage(), $customizerCredential)
+            && strlen($e->getMessage()) < 256,
+        'a credential-shaped Customizer setting refuses with one bounded diagnostic and no source bytes'
+    );
+}
+$referencedColor = '#112233';
+$referencedCustomizer = [
+    'month_view' => [
+        'grid_lines_color' => &$referencedColor,
+        'grid_hover_color' => &$referencedColor,
+    ],
+];
+foreach ([
+    'non-string row bytes' => [],
+    'noncanonical surrounding whitespace' => ' a:0:{}',
+    'trailing serialized payload' => 'a:0:{} trailing',
+    'duplicate serialized section keys' => 'a:2:{s:10:"month_view";a:0:{}s:10:"month_view";a:0:{}}',
+    'serialized object payload' => serialize(new stdClass()),
+    'serialized shared reference payload' => serialize($referencedCustomizer),
+    'oversized raw row' => str_repeat('x', 65537),
+] as $label => $rawStorage) {
+    duo_check_throws(
+        static fn(): array => $interpreter->normalize_captured_option_sub_keys(
+            'tribe_customizer',
+            [],
+            $customizerDeclaredSubKeys,
+            ['tribe_customizer' => $rawStorage]
+        ),
+        RuntimeException::class,
+        "the exact Customizer storage boundary refuses $label",
+        'Customizer'
+    );
+}
+duo_check_throws(
+    static fn(): array => $interpreter->normalize_captured_option_sub_keys(
+        'tribe_customizer',
+        [],
+        $customizerDeclaredSubKeys,
+        ['tribe_events_pro_customizer' => 'a:0:{} trailing']
+    ),
+    RuntimeException::class,
+    'the legacy compatibility input crosses the same canonical serialized-data boundary as the current row',
+    'legacy compatibility Customizer'
+);
 $oversizedCustomizer = [];
 foreach (($customizerSections['sections'] ?? []) as $section) {
     $sectionId = (string) ($section['id'] ?? '');
@@ -3655,8 +3765,8 @@ foreach (($customizerSections['sections'] ?? []) as $section) {
 duo_check_throws(
     static fn(): array => $normalizeCustomizerSparseMap($oversizedCustomizer),
     RuntimeException::class,
-    'the reviewed sparse Customizer grammar refuses aggregate option overflow before sanitizer dispatch',
-    'exceeds the bounded byte frontier'
+    'the reviewed sparse Customizer grammar refuses its bounded raw or aggregate option frontier before sanitizer dispatch',
+    'Customizer'
 );
 $tecRegeneratorSource = (string) file_get_contents(
     $root . '/manifests/regenerators/the-events-calendar.php'

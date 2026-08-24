@@ -19,6 +19,58 @@ use Duo\Tokens;
  * to manufacture an occurrence from contradictory authored inputs.
  */
 final class TheEventsCalendar {
+    private const CUSTOMIZER_CANONICAL_OPTION = 'tribe_customizer';
+    private const CUSTOMIZER_LEGACY_OPTION = 'tribe_events_pro_customizer';
+    private const CUSTOMIZER_MAX_NODES = 128;
+    private const CUSTOMIZER_MAX_OPTION_BYTES = 65536;
+    private const CUSTOMIZER_MAX_SETTING_BYTES = 4096;
+    private const CUSTOMIZER_SETTINGS = [
+        'global_elements' => [
+            'font_family' => 'key',
+            'font_size' => 'key',
+            'font_size_base' => 'key',
+            'event_title_color' => 'color',
+            'event_date_time_color' => 'color',
+            'link_color' => 'color',
+            'background_color_choice' => 'key',
+            'background_color' => 'color',
+            'accent_color' => 'color',
+        ],
+        'month_view' => [
+            'grid_lines_color' => 'color',
+            'grid_hover_color' => 'color',
+            'grid_background_color_choice' => 'key',
+            'grid_background_color' => 'color',
+            'tooltip_background_color' => 'key',
+            'days_of_week_color' => 'color',
+            'date_marker_color' => 'color',
+            'multiday_event_bar_color_choice' => 'key',
+            'multiday_event_bar_color' => 'color',
+        ],
+        'tec_events_bar' => [
+            'events_bar_background_color_choice' => 'key',
+            'events_bar_background_color' => 'color',
+            'events_bar_border_color_choice' => 'key',
+            'events_bar_border_color' => 'color',
+            'events_bar_icon_color_choice' => 'key',
+            'events_bar_icon_color' => 'color',
+            'events_bar_text_color' => 'color',
+            'find_events_button_color_choice' => 'key',
+            'find_events_button_color' => 'color',
+            'find_events_button_text_color' => 'color',
+        ],
+        'single_event' => [
+            'post_title_color_choice' => 'key',
+            'post_title_color' => 'color',
+            'details_bg_color' => 'color',
+        ],
+    ];
+    private const CUSTOMIZER_TARGET_OWNED_SETTINGS = [
+        'tec_events_bar' => [
+            'view_selector_background_color',
+            'view_selector_background_color_choice',
+        ],
+    ];
     private const LEGACY_WIDGET_BLOCK = 'core/legacy-widget';
     private const LEGACY_WIDGET_CODEC = 'the-events-calendar/v1';
     private const LIST_WIDGET = 'tribe-widget-events-list';
@@ -125,6 +177,55 @@ final class TheEventsCalendar {
         }
 
         return null;
+    }
+
+    /**
+     * Canonicalize the exact free Views V2 Customizer storage surface. The
+     * raw snapshot and primary row are one CaptureTransaction MVCC view;
+     * array_key_exists therefore distinguishes a persisted empty canonical
+     * map from absence before the legacy compatibility input is considered.
+     *
+     * @return array<string,mixed>
+     */
+    public function normalize_captured_option_sub_keys(
+        string $name,
+        array $rawAuthored,
+        array $declaredSubKeys,
+        array $rawOptionSnapshot
+    ): array {
+        if ($name !== self::CUSTOMIZER_CANONICAL_OPTION) {
+            return $rawAuthored;
+        }
+        $this->assert_customizer_sub_key_declaration($declaredSubKeys);
+
+        if (array_key_exists(self::CUSTOMIZER_CANONICAL_OPTION, $rawOptionSnapshot)) {
+            $source = $this->decode_customizer_storage(
+                $rawOptionSnapshot[self::CUSTOMIZER_CANONICAL_OPTION],
+                'canonical'
+            );
+            // The exact primary row is read separately for its autoload. The
+            // product path supplies both reads from one repeatable snapshot;
+            // this equality additionally rejects any non-empty disagreement.
+            if ($source !== $rawAuthored) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar canonical Customizer snapshot disagrees with its exact authored row'
+                );
+            }
+            return $this->normalize_customizer_sparse_map($source);
+        }
+
+        if ($rawAuthored !== []) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar absent canonical Customizer snapshot disagrees with its exact authored row'
+            );
+        }
+        if (!array_key_exists(self::CUSTOMIZER_LEGACY_OPTION, $rawOptionSnapshot)) {
+            return [];
+        }
+        return $this->normalize_customizer_sparse_map($this->decode_customizer_storage(
+            $rawOptionSnapshot[self::CUSTOMIZER_LEGACY_OPTION],
+            'legacy compatibility'
+        ));
     }
 
     /**
@@ -1625,6 +1726,174 @@ final class TheEventsCalendar {
     private function is_sanitized_separator(string $value): bool {
         return preg_match('//u', $value) === 1
             && strip_tags(htmlspecialchars_decode($value, ENT_QUOTES)) === $value;
+    }
+
+    /** @param array<string,mixed> $declaredSubKeys */
+    private function assert_customizer_sub_key_declaration(array $declaredSubKeys): void {
+        $actual = array_keys($declaredSubKeys);
+        $expected = array_keys(self::CUSTOMIZER_SETTINGS);
+        sort($actual, SORT_STRING);
+        sort($expected, SORT_STRING);
+        if ($actual !== $expected) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar Customizer declaration is not the exact four-section free-plugin registry'
+            );
+        }
+        foreach ($expected as $section) {
+            $rule = $declaredSubKeys[$section] ?? null;
+            $keys = is_array($rule) ? array_keys($rule) : [];
+            sort($keys, SORT_STRING);
+            if (!is_array($rule)
+                || $keys !== ['class', 'plain_data']
+                || ($rule['class'] ?? null) !== 'authored'
+                || ($rule['plain_data'] ?? null) !== true) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar Customizer section declaration must use the exact authored plain-data grammar'
+                );
+            }
+        }
+    }
+
+    /** @return array<string,mixed> */
+    private function decode_customizer_storage(mixed $raw, string $source): array {
+        if (!is_string($raw)
+            || $raw !== trim($raw)
+            || strlen($raw) > self::CUSTOMIZER_MAX_OPTION_BYTES) {
+            throw new \RuntimeException(
+                "duo: The Events Calendar $source Customizer storage is not bounded canonical serialized data"
+            );
+        }
+        $decoded = PlainData::decode_serialized(
+            $raw,
+            "The Events Calendar $source Customizer storage"
+        );
+        if (!is_array($decoded) || ($decoded !== [] && array_is_list($decoded))) {
+            throw new \RuntimeException(
+                "duo: The Events Calendar $source Customizer storage is not a sparse section map"
+            );
+        }
+        return $decoded;
+    }
+
+    /** @return array<string,array<string,string>> */
+    private function normalize_customizer_sparse_map(array $raw): array {
+        PlainData::assert($raw, 'The Events Calendar Customizer storage');
+        $nodes = 0;
+        $bytes = 0;
+        $this->measure_customizer_value($raw, 0, $nodes, $bytes);
+        if (Secrets::hard_match_deep($raw) !== null) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar Customizer storage contains a credential-shaped value'
+            );
+        }
+        if ($raw !== [] && array_is_list($raw)) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar Customizer storage is not a sparse section map'
+            );
+        }
+
+        $normalized = [];
+        foreach ($raw as $section => $settings) {
+            if (!is_string($section) || !array_key_exists($section, self::CUSTOMIZER_SETTINGS)) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar Customizer storage contains an undeclared section'
+                );
+            }
+            if (!is_array($settings) || ($settings !== [] && array_is_list($settings))) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar Customizer section is not a sparse setting map'
+                );
+            }
+
+            $normalized[$section] = [];
+            foreach ($settings as $setting => $value) {
+                if (!is_string($setting) || !is_string($value)) {
+                    throw new \RuntimeException(
+                        'duo: The Events Calendar Customizer setting is not scalar text'
+                    );
+                }
+                if (in_array(
+                    $setting,
+                    self::CUSTOMIZER_TARGET_OWNED_SETTINGS[$section] ?? [],
+                    true
+                )) {
+                    continue;
+                }
+                $sanitizer = self::CUSTOMIZER_SETTINGS[$section][$setting] ?? null;
+                if ($sanitizer === null) {
+                    throw new \RuntimeException(
+                        'duo: The Events Calendar Customizer section contains an undeclared setting'
+                    );
+                }
+                if ($sanitizer === 'key') {
+                    $sanitized = preg_replace('/[^a-z0-9_\-]/', '', strtolower($value));
+                    if (!is_string($sanitized)) {
+                        throw new \RuntimeException(
+                            'duo: The Events Calendar Customizer key sanitizer failed'
+                        );
+                    }
+                } elseif ($sanitizer === 'color') {
+                    if ($value !== '' && preg_match('/^#(?:[A-Fa-f0-9]{3}){1,2}$/D', $value) !== 1) {
+                        throw new \RuntimeException(
+                            'duo: The Events Calendar Customizer color is outside the native sanitizer grammar'
+                        );
+                    }
+                    $sanitized = $value;
+                } else {
+                    throw new \RuntimeException(
+                        'duo: The Events Calendar Customizer setting uses an unreviewed sanitizer'
+                    );
+                }
+                $normalized[$section][$setting] = $sanitized;
+            }
+        }
+        return $normalized;
+    }
+
+    private function measure_customizer_value(
+        mixed $value,
+        int $depth,
+        int &$nodes,
+        int &$bytes
+    ): void {
+        ++$nodes;
+        if ($nodes > self::CUSTOMIZER_MAX_NODES || $depth > 2) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar Customizer map exceeds the bounded shape frontier'
+            );
+        }
+        if (is_string($value)) {
+            if (strlen($value) > self::CUSTOMIZER_MAX_SETTING_BYTES) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar Customizer setting exceeds the bounded byte frontier'
+                );
+            }
+            if (preg_match('//u', $value) !== 1) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar Customizer setting is not valid UTF-8'
+                );
+            }
+            $bytes += strlen($value);
+        } elseif (is_array($value)) {
+            foreach ($value as $key => $child) {
+                if (!is_string($key) || preg_match('//u', $key) !== 1) {
+                    throw new \RuntimeException(
+                        'duo: The Events Calendar Customizer map contains a malformed key'
+                    );
+                }
+                $bytes += strlen($key);
+                $this->measure_customizer_value($child, $depth + 1, $nodes, $bytes);
+            }
+        } else {
+            throw new \RuntimeException(
+                'duo: The Events Calendar Customizer map contains a non-string leaf'
+            );
+        }
+        if ($bytes > self::CUSTOMIZER_MAX_OPTION_BYTES) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar Customizer map exceeds the bounded byte frontier'
+            );
+        }
     }
 
     private function refuse_computed_option_name(string $family, string $name): never {
