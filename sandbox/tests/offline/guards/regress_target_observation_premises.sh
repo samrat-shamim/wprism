@@ -8,6 +8,14 @@
 # helper at the read site.
 #
 # This is an offline source contract.  It does not run Docker or a pair.
+#
+# WP-2.3 moved the Ninja Forms and The Events Calendar per-plugin function
+# bodies out of tests/certify/certify_version_matrix.sh into
+# tests/certify/matrix.d/<plugin>.sh (sourced by the driver; see that
+# driver's own header). The premises those functions establish moved with
+# them, so their `file` column below points at the plugin file, not the
+# driver -- a byte-identical, no-logic-change split (the driver's if/elif
+# case bodies, where the remaining premises below still live, did not move).
 set -euo pipefail
 cd "$(dirname "$0")/../../.." # -> sandbox/
 
@@ -135,15 +143,15 @@ OBSERVATIONS=(
   'tests/certify/certify_adversarial_matrix.sh|require_observed_nonempty "B ledger local id after refused duplicate plan"'
   'tests/certify/certify_adversarial_matrix.sh|require_fixture_ids LOC_LOCAL'
   'tests/certify/certify_adversarial_matrix.sh|require_observed_nonempty "restored ledger local id after identity import"'
-  'tests/certify/certify_version_matrix.sh|require_observed_nonempty "side 2 Ninja Forms careers page"'
-  'tests/certify/certify_version_matrix.sh|require_observed_nonempty "side 2 Ninja Forms model API"'
+  'tests/certify/matrix.d/ninja-forms.sh|require_observed_nonempty "side 2 Ninja Forms careers page"'
+  'tests/certify/matrix.d/ninja-forms.sh|require_observed_nonempty "side 2 Ninja Forms model API"'
   'tests/certify/certify_version_matrix.sh|require_observed_nonempty "CF7 $CF7_VERSION target legacy page"'
-  'tests/certify/certify_version_matrix.sh|require_fixture_ids form_id'
+  'tests/certify/matrix.d/ninja-forms.sh|require_fixture_ids form_id'
   'tests/certify/certify_version_matrix.sh|require_fixture_ids TARGET_FORM_ID TARGET_MODERN_ID TARGET_LEGACY_ID'
   'tests/certify/certify_version_matrix.sh|require_fixture_values TARGET_OLD_ID'
   'tests/certify/certify_version_matrix.sh|require_fixture_values INSTALLED_2'
   'tests/certify/certify_version_matrix.sh|require_fixture_values NEGATIVE_INSTALLED'
-  'tests/certify/certify_version_matrix.sh|require_observed_nonempty "The Events Calendar $label target behavior"'
+  'tests/certify/matrix.d/the-events-calendar.sh|require_observed_nonempty "The Events Calendar $label target behavior"'
   'tests/certify/certify_version_matrix.sh|require_observed_nonempty "The Events Calendar 6.17.2 source upgrade baseline"'
   'tests/certify/certify_version_matrix.sh|require_observed_nonempty "The Events Calendar 6.17.2 target upgrade baseline"'
   'tests/certify/certify_version_matrix.sh|require_duo_answered "The Events Calendar out-of-band 6.17.2 to 6.17.3 upgrade refusal" human'
@@ -233,8 +241,8 @@ FIXTURES=(
   'tests/certify/certify_deletion_matrix.sh|require_fixture_ids ORDER_B'
   'tests/certify/certify_deletion_matrix.sh|require_fixture_ids FORM_B FIELD_B ACTION_B'
   'tests/certify/certify_deletion_matrix.sh|require_fixture_ids LEVEL_B PAGE_B'
-  'tests/certify/certify_version_matrix.sh|require_fixture_values source_ids target_ids'
-  'tests/certify/certify_version_matrix.sh|require_fixture_ids dirty_id'
+  'tests/certify/matrix.d/the-events-calendar.sh|require_fixture_values source_ids target_ids'
+  'tests/certify/matrix.d/the-events-calendar.sh|require_fixture_ids dirty_id'
 )
 for item in "${FIXTURES[@]}"; do
   guard "${item%%|*}" "${item#*|}"
