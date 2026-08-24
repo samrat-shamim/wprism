@@ -795,8 +795,9 @@ if ($woo !== null) {
             'provider:woocommerce-scheduler-settings/reconcile_analytics_import_schedule',
             'provider:woocommerce-scheduler-settings/reconcile_stock_notification_retention',
             'provider:woocommerce-product-lookups/rebuild_product_lookups',
+            'native:rewrite.flush',
         ],
-        'WooCommerce declares the exact transient, hierarchy/route, fulfillment, scheduler, and product lookup actions in order'
+        'WooCommerce declares the exact transient, hierarchy/route, fulfillment, scheduler, product lookup, and review-route actions in order'
     );
     // DUO-3342 added the second declaration by MIGRATING a dispatch rather than
     // by adding a repair: the product lookup rebuild reached the same adapter

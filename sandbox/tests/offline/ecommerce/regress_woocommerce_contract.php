@@ -211,6 +211,17 @@ foreach ($inventoryClassifications as $name => $classification) {
             "$name resolves to its source-audited portable post identity");
         continue;
     }
+    if ($classification === 'closed_mixed_record') {
+        woo_ok(
+            ($rule['class'] ?? null) === 'env'
+                && ($rule['required'] ?? null) === false
+                && ($rule['closed_sub_keys'] ?? null) === true
+                && ($rule['absent_autoload'] ?? null) === 'yes'
+                && is_array($rule['sub_keys'] ?? null),
+            "$name resolves through its source-audited native closed sibling registry"
+        );
+        continue;
+    }
     woo_ok($rule === null, "$name remains unclassified for its explicit $classification boundary");
     if ($classification !== 'ui') {
         woo_ok($policy->option_namespace((string) $name) !== null,
@@ -219,7 +230,7 @@ foreach ($inventoryClassifications as $name => $classification) {
 }
 woo_ok(($settingsInventory['dynamic_families'] ?? null) === [
     'wc_stock_notifications_cycle_state_<product-id>' => 'runtime',
-    'woocommerce_<core-email-id>_settings' => 'fail_closed_mixed_record',
+    'woocommerce_<core-email-id>_settings' => 'closed_mixed_record',
     'woocommerce_email_templates_<core-email-id>_post_id' => 'fail_closed_block_email_editor',
     'woocommerce_feature_<registered-feature-slug>_enabled' => 'env',
 ], 'computed stock-cycle, email, template, and feature option families stay explicit in the source union');
@@ -258,12 +269,15 @@ foreach ($gatewayRecords as $optionName => $record) {
             "$optionName never becomes a universal capture blocker");
         continue;
     }
-    woo_ok($policy->option_rule((string) $optionName) === null
-        && ($policy->option_namespace((string) $optionName)['owner'] ?? null) === 'woocommerce',
-        "$optionName stays fail-closed until shared closed-subkey dispatch lands");
+    $rule = $policy->option_rule((string) $optionName);
+    woo_ok(($rule['class'] ?? null) === 'env'
+        && ($rule['required'] ?? null) === false
+        && ($rule['closed_sub_keys'] ?? null) === true
+        && ($rule['absent_autoload'] ?? null) === 'yes',
+        "$optionName uses native closed-subkey materialization while retaining target-owned siblings");
     woo_ok(is_string($record['boundary'] ?? null)
-        && str_contains((string) $record['boundary'], 'pending_shared_dispatch'),
-        "$optionName has an adapter-native contract awaiting only shared dispatch");
+        && str_ends_with((string) $record['boundary'], 'closed_sub_keys'),
+        "$optionName has a complete adapter-native closed sibling contract");
 }
 woo_ok(($gatewayRecords['woocommerce_bacs_accounts']['fields'] ?? null) === [
     'account_name', 'account_number', 'bank_name', 'sort_code', 'iban', 'bic',
@@ -337,9 +351,12 @@ woo_ok(count(array_filter(
 foreach ($emailRecords as $optionName => $record) {
     woo_ok(preg_match('/^woocommerce_[a-z0-9_]+_settings$/D', (string) $optionName) === 1,
         "$optionName uses the exact WC_Settings_API option-key grammar");
-    woo_ok($policy->option_rule((string) $optionName) === null
-        && ($policy->option_namespace((string) $optionName)['owner'] ?? null) === 'woocommerce',
-        "$optionName fails closed until the reviewed mixed-subkey seam is present");
+    $rule = $policy->option_rule((string) $optionName);
+    woo_ok(($rule['class'] ?? null) === 'env'
+        && ($rule['required'] ?? null) === false
+        && ($rule['closed_sub_keys'] ?? null) === true
+        && ($rule['absent_autoload'] ?? null) === 'yes',
+        "$optionName resolves through the reviewed mixed-subkey seam");
     $fields = (array) ($record['fields'] ?? []);
     woo_ok($fields !== [] && count($fields) === count(array_unique($fields)),
         "$optionName has a nonempty duplicate-free native field inventory");
@@ -456,16 +473,8 @@ woocommerce_stock_email_recipient woocommerce_stock_format woocommerce_store_add
 woocommerce_tax_based_on woocommerce_tax_classes woocommerce_tax_display_cart woocommerce_tax_display_shop woocommerce_tax_round_at_subtotal woocommerce_tax_total_display woocommerce_terms_page_id woocommerce_thumbnail_image_width woocommerce_trash_cancelled_orders woocommerce_trash_failed_orders woocommerce_trash_pending_orders woocommerce_unforce_ssl_checkout woocommerce_version woocommerce_weight_unit
 OPTIONS));
 
-$failClosedOptionNames = ['woocommerce_cod_settings'];
 foreach ($optionNames as $name) {
     woo_ok($policy->option_namespace($name) !== null, "$name is discovery-owned");
-    if (in_array($name, $failClosedOptionNames, true)) {
-        woo_ok(
-            $policy->owned_option_rule($name) === null,
-            "$name stays explicitly fail-closed instead of carrying an opaque mixed or reference-bearing record"
-        );
-        continue;
-    }
     woo_ok($policy->owned_option_rule($name) !== null, "$name has an explicit class");
 }
 woo_ok($policy->option_namespace('woocommerce_future_unreviewed') !== null, 'future Woo option remains visible to discovery');
@@ -505,8 +514,10 @@ foreach (['woocommerce_catalog_columns', 'woocommerce_catalog_rows'] as $name) {
     woo_ok(($policy->owned_option_rule($name)['lint_ok'] ?? false) === true, "$name is audited as a numeric grid count, not an entity reference");
 }
 woo_ok(($policy->owned_option_rule('woocommerce_hooked_blocks_version')['ref'] ?? null) === null, 'hooked-block rendering policy remains an opaque ref-free authored record');
-woo_ok($policy->owned_option_rule('woocommerce_cod_settings') === null,
-    'core COD settings fail closed until method-instance references use the reviewed typed schema');
+woo_ok(($policy->owned_option_rule('woocommerce_cod_settings')['closed_sub_keys'] ?? null) === true
+    && ($policy->owned_option_rule('woocommerce_cod_settings')['sub_keys']['enable_for_methods']['json_refs'] ?? null)
+        === [['path' => '$.*.instance_id', 'kind' => 'wc_zone_method']],
+    'core COD settings bind method-instance references through the reviewed typed closed schema');
 foreach (['pickup_location_pickup_locations', 'woocommerce_pickup_location_settings'] as $name) {
     woo_ok(($policy->option_rule($name)['class'] ?? null) === 'authored'
         && ($policy->option_rule($name)['plain_data'] ?? null) === true,

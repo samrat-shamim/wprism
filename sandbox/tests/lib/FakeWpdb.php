@@ -1933,6 +1933,10 @@ final class FakeWpdb {
             return ['kind' => 'ok'];
         }
         if ($head === 'SELECT') {
+            $optionStats = $this->boundedOptionStats($trimmed);
+            if ($optionStats !== null) {
+                return ['kind' => 'rows', 'rows' => [$optionStats]];
+            }
             $schemaCount = $this->boundedSchemaCount($trimmed);
             if ($schemaCount !== null) {
                 return ['kind' => 'rows', 'rows' => [['COUNT(*)' => $schemaCount]]];
@@ -1985,6 +1989,47 @@ final class FakeWpdb {
             'SHOW' => $this->execShow(),
             default => throw $this->unsupported('statement type ' . ($head === '' ? '(none)' : $head)),
         };
+    }
+
+    /** Exact compact witness used before OptionsCapture transfers option rows. */
+    private function boundedOptionStats(string $sql): ?array {
+        if (preg_match(
+            '/^SELECT COUNT\(\*\) AS row_count, '
+            . 'COALESCE\(SUM\(OCTET_LENGTH\(option_name\) \+ OCTET_LENGTH\(option_value\)\), 0\) AS total_bytes, '
+            . 'COALESCE\(MAX\(OCTET_LENGTH\(option_name\)\), 0\) AS max_name_bytes, '
+            . 'COALESCE\(MAX\(CHAR_LENGTH\(option_name\)\), 0\) AS max_name_characters, '
+            . 'COALESCE\(MAX\(OCTET_LENGTH\(option_value\)\), 0\) AS max_value_bytes '
+            . 'FROM `?([A-Za-z0-9_]{1,64})`?$/D',
+            $sql,
+            $matches
+        ) !== 1) {
+            return null;
+        }
+        $rows = $this->store[$this->requireTable($matches[1])];
+        $totalBytes = 0;
+        $maxNameBytes = 0;
+        $maxNameCharacters = 0;
+        $maxValueBytes = 0;
+        foreach ($rows as $row) {
+            $name = (string) ($row['option_name'] ?? '');
+            $value = (string) ($row['option_value'] ?? '');
+            $nameBytes = strlen($name);
+            $valueBytes = strlen($value);
+            $characters = preg_match('//u', $name) === 1
+                ? preg_match_all('/./us', $name)
+                : $nameBytes;
+            $totalBytes += $nameBytes + $valueBytes;
+            $maxNameBytes = max($maxNameBytes, $nameBytes);
+            $maxNameCharacters = max($maxNameCharacters, is_int($characters) ? $characters : 0);
+            $maxValueBytes = max($maxValueBytes, $valueBytes);
+        }
+        return [
+            'row_count' => count($rows),
+            'total_bytes' => $totalBytes,
+            'max_name_bytes' => $maxNameBytes,
+            'max_name_characters' => $maxNameCharacters,
+            'max_value_bytes' => $maxValueBytes,
+        ];
     }
 
     /** Exact compact witness used before a bounded SHOW schema transfer. */
@@ -2271,6 +2316,7 @@ final class FakeWpdb {
         if ($this->acceptKeyword('GROUP')) {
             $this->expectKeyword('BY');
             do {
+                $this->acceptKeyword('BINARY');
                 $group[] = $this->parseColumnRef()['name'];
             } while ($this->acceptOp(','));
         }
@@ -2495,6 +2541,7 @@ final class FakeWpdb {
         $this->expectKeyword('BY');
         $order = [];
         do {
+            $binary = $this->acceptKeyword('BINARY');
             $column = $this->parseColumnRef();
             $dir = 1;
             if ($this->acceptKeyword('DESC')) {
@@ -2502,7 +2549,7 @@ final class FakeWpdb {
             } else {
                 $this->acceptKeyword('ASC');
             }
-            $order[] = ['column' => $column, 'dir' => $dir];
+            $order[] = ['column' => $column, 'dir' => $dir, 'binary' => $binary];
         } while ($this->acceptOp(','));
         return $order;
     }
@@ -3119,7 +3166,7 @@ final class FakeWpdb {
         return $out;
     }
 
-    /** @param list<array{column:array,dir:int}> $order */
+    /** @param list<array{column:array,dir:int,binary:bool}> $order */
     private function sortRows(array $rows, array $order, array $ctx): array {
         usort($rows, function (array $a, array $b) use ($order, $ctx): int {
             foreach ($order as $term) {
@@ -3135,7 +3182,9 @@ final class FakeWpdb {
                 if ($right === null) {
                     return $term['dir'];
                 }
-                $cmp = self::compare($left, $right) ?? 0;
+                $cmp = $term['binary']
+                    ? (self::compareBinary($left, $right) ?? 0)
+                    : (self::compare($left, $right) ?? 0);
                 if ($cmp !== 0) {
                     return $cmp * $term['dir'];
                 }

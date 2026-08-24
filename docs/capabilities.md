@@ -324,14 +324,14 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 
 ## woocommerce
 
-**Status: experimental.** Production-readiness expansion is in progress for exact WooCommerce 11.0.0 and 11.0.1. Existing evidence covers the product/catalog, typed tables, product lookup, fail-closed deletion, fresh-process category/brand hierarchy, COGS, mixed product/POS visibility, read-only fulfillment prerequisites, crash-safe analytics/stock-retention scheduling, the complete exact settings source union, and optional-core populated-state boundaries offline. Certification is withheld until the portable mixed-subkey settings seam is integrated where applicable, lifecycle evidence is rerun on final bytes, and the final-SHA exact live matrix is complete.
+**Status: experimental.** Production-readiness expansion is in progress for exact WooCommerce 11.0.0 and 11.0.1. Existing evidence covers the product/catalog, typed tables, product lookup, fail-closed deletion, fresh-process category/brand hierarchy, COGS, mixed product/POS visibility, read-only fulfillment prerequisites, crash-safe analytics/stock-retention scheduling, portable closed-subkey gateway/email settings, the reviewed visible settings source union, and optional-core populated-state boundaries offline. Certification is withheld until the remaining operational/source-union classifications are closed, lifecycle evidence is rerun on final bytes, and the final-SHA exact live matrix is complete.
 
 - **Plugin:** `woocommerce/woocommerce.php`
 - **Version range:** >=11.0.0 <11.0.2
 - **Operations:** apply, capture, compile, deploy, plan, promote, recapture, render-api
 - **Lifecycle phases:** retire, activate, verify
 - **Declared entities:** `post_types` (9 keys), `tables` (43 keys), `taxonomies` (8 keys), `taxonomy_patterns` (1 rules)
-- **Declared fields:** `options` (97 keys), `option_patterns` (8 rules), `option_name_refs` (1 rules), `post_meta` (72 keys), `meta_patterns` (1 rules), `term_meta` (8 keys), `block_attrs` (1: woocommerce/product-collection)
+- **Declared fields:** `options` (125 keys), `option_patterns` (8 rules), `option_name_refs` (1 rules), `post_meta` (72 keys), `meta_patterns` (1 rules), `term_meta` (8 keys), `block_attrs` (1: woocommerce/product-collection)
 - **Adapter hooks:** 5 providers, 9 structured actions, interpreter `woocommerce`
 - **Deletions supported:** none
 - **Deletions unsupported:** post:product, post:product_variation, table:woocommerce_attribute_taxonomies, table:woocommerce_shipping_zone_locations, table:woocommerce_shipping_zone_methods, table:woocommerce_shipping_zones, table:woocommerce_tax_rate_locations, table:woocommerce_tax_rates
@@ -343,8 +343,6 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 - `post_types.product_variation` / `delete` — Variation reverse references and parent/group relationships share the same open WooCommerce extension boundary as products.
 - `tables.woocommerce_attribute_taxonomies` / `delete` — The v1 guard/cascade grammar cannot express WooCommerce global-attribute semantic deletion.
 - `tables.woocommerce_shipping_zone_locations|woocommerce_shipping_zone_methods|woocommerce_shipping_zones|woocommerce_tax_rate_locations|woocommerce_tax_rates` / `delete` — Shipping-zone and tax-rate rows require version-pinned WooCommerce API, cache, child-row, and option-name effects that are not a closed semantic delete contract.
-- `options.woocommerce_bacs_settings|woocommerce_cheque_settings|woocommerce_cod_settings` / `capture` — Built-in BACS, cheque, and COD settings are plugin-managed records with target-owned legacy bank fields or shipping-zone method references; populated records fail closed until the reviewed closed-subkey and typed-reference contract can preserve only portable fields. The separate woocommerce_bacs_accounts bank-detail list is already target-environment-owned and never enters canonical state.
-- `options.woocommerce_<core-email-id>_settings` / `capture` — Core email settings mix portable merchant content with target contact identity and feature-conditional schemas. Every exact 11.0.x core email id and field is inventoried, but populated records fail closed until the reviewed closed-subkey contract is integrated; addon ids and unknown fields remain unsupported.
 - `post_types.woo_email` / `capture` — Block Email Editor posts contain merchant-authored block content and versioned merge metadata for which no portable update/rebase contract is certified; populated rows fail closed with count-only scope evidence.
 - `options.woocommerce_email_templates_*_post_id` / `capture` — Block Email Editor mapping options embed target-local woo_email post ids and remain discovery-owned until the post/content merge contract is supported.
 - `tables.runtime` / `capture` — Orders, customers, sessions, stock reservations, and Action Scheduler rows remain runtime-sovereign.

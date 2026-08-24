@@ -314,8 +314,8 @@ foreach ([
     'options.woocommerce_bacs_settings|woocommerce_cheque_settings|woocommerce_cod_settings',
     'options.woocommerce_<core-email-id>_settings',
 ] as $surface) {
-    duo_check_same('capture', $unsupported[$surface] ?? null,
-        "$surface is a reviewed populated-source fail-closed boundary");
+    duo_check(!array_key_exists($surface, $unsupported),
+        "$surface graduated from its populated-source refusal into the closed native registry");
 }
 duo_check_same(
     'env',
@@ -387,21 +387,53 @@ $mixedRules = static function (string $name) use ($settingsInventory): array {
     return $rules;
 };
 
+$mixedOptionNames = array_merge(
+    ['woocommerce_bacs_settings', 'woocommerce_cheque_settings', 'woocommerce_cod_settings'],
+    array_keys((array) ($settingsInventory['closed_records']['email_settings']['records'] ?? []))
+);
+foreach ($mixedOptionNames as $optionName) {
+    $rule = $policy->option_rule((string) $optionName);
+    duo_check(
+        ($rule['class'] ?? null) === 'env'
+            && ($rule['required'] ?? null) === false
+            && ($rule['autoload'] ?? null) === 'preserve'
+            && ($rule['absent_autoload'] ?? null) === 'yes'
+            && ($rule['closed_sub_keys'] ?? null) === true
+            && ($rule['sub_keys'] ?? null) === $mixedRules((string) $optionName),
+        "$optionName resolves through the exact digest-bound closed sibling registry"
+    );
+}
+duo_check_same(
+    [
+        'option_name',
+        'raw_authored',
+        'declared_sub_keys',
+        'desired_authored_keys',
+    ],
+    $nativeContract['projection_arguments'] ?? null,
+    'the Woo projector consumes the shared four-argument sparse-presence contract'
+);
+
 $materializeMixed = static function (
     string $name,
     array $captured,
     array $subKeys,
     string $autoload,
     ?array $targetValue
-) use ($woocommerceInterpreter): array {
+) use ($policy): array {
+    $effectiveRule = $policy->option_rule($name);
+    if (!is_array($effectiveRule) || ($effectiveRule['sub_keys'] ?? null) !== $subKeys) {
+        throw new RuntimeException("missing exact manifest-owned mixed option rule for $name");
+    }
     $written = null;
     $writeCalls = 0;
     $finalizeCalls = 0;
     $runtimeRestore = null;
-    $handled = $woocommerceInterpreter->materialize_option_sub_keys(
+    $handled = $policy->materialize_option_sub_keys_via_interpreter(
         $name,
         $captured,
-        $subKeys,
+        $effectiveRule,
+        'woocommerce',
         $autoload,
         $targetValue,
         static function (string $companion): ?array {
@@ -432,10 +464,12 @@ $materializeMixed = static function (
             $rawAuthored[(string) $field] = $written[(string) $field];
         }
     }
-    $projected = $woocommerceInterpreter->project_materialized_option_sub_keys(
+    $projected = $policy->project_materialized_option_sub_keys_via_interpreter(
         $name,
         $rawAuthored,
-        $subKeys
+        $effectiveRule,
+        'woocommerce',
+        array_keys($captured)
     );
     return [
         'handled' => $handled,
@@ -458,6 +492,7 @@ $emailTypeValues = [
 $GLOBALS['wooMixedNativeCalls'] = [];
 $emailRecords = (array) ($settingsInventory['closed_records']['email_settings']['records'] ?? []);
 $emailFieldTypes = (array) ($settingsInventory['closed_records']['email_settings']['field_types'] ?? []);
+$emailFieldClasses = (array) ($settingsInventory['closed_records']['email_settings']['field_classes'] ?? []);
 foreach ($emailRecords as $optionName => $record) {
     $rawRecord = [];
     $captured = [];
@@ -696,6 +731,31 @@ duo_check_same(
     $chequeResult['written'],
     'cheque native materialization removes every absent authored sibling and preserves exact inline safe text'
 );
+duo_check_same(
+    ['enabled' => 'no'],
+    $woocommerceInterpreter->project_materialized_option_sub_keys(
+        'woocommerce_cheque_settings',
+        ['enabled' => 'no', 'title' => '<span>Physical carrier</span>'],
+        $gatewayRules['woocommerce_cheque_settings'],
+        ['enabled']
+    ),
+    'the four-argument projector may omit a native physical carrier that is absent from desired authored state'
+);
+foreach ([
+    'duplicate desired key' => ['enabled', 'enabled'],
+    'target-owned desired key' => ['account_name'],
+] as $label => $desiredKeys) {
+    duo_check_throws(
+        static fn() => $woocommerceInterpreter->project_materialized_option_sub_keys(
+            'woocommerce_bacs_settings',
+            ['enabled' => 'no'],
+            $gatewayRules['woocommerce_bacs_settings'],
+            $desiredKeys
+        ),
+        RuntimeException::class,
+        "mixed-option $label refuses at the adapter-owned sparse projection boundary"
+    );
+}
 
 WC_Shipping_Zones::$methods = [
     17 => new WC_Shipping_Flat_Rate('flat_rate', 17),
@@ -1135,8 +1195,10 @@ duo_check_same([], (new ScopeDiscovery($policy))->gaps(),
 
 $mappingMarker = 'mapping_value_secret_DO_NOT_ECHO';
 $credentialMarker = 'migration_api_secret_DO_NOT_ECHO';
-$gatewayMarker = 'gateway_boundary_payload_DO_NOT_ECHO';
-$emailMarker = 'email_boundary_payload_DO_NOT_ECHO';
+$gatewayMarker = 'portable_gateway_title';
+$bankMarker = 'TARGET-BANK-SECRET-DO_NOT-ECHO';
+$emailMarker = 'portable_email_content';
+$recipientMarker = 'TARGET-RECIPIENT-DO-NOT-ECHO@example.test';
 $sideEffectMarker = 'side_effect_payload_DO_NOT_ECHO';
 $thumbnailOptions = [
     'woocommerce_thumbnail_cropping' => 'custom',
@@ -1161,9 +1223,39 @@ $optionRows = [
 $nextOptionId = 13;
 $gatewayRecords = (array) ($settingsInventory['closed_records']['gateway_settings'] ?? []);
 foreach (array_keys($gatewayRecords) as $optionName) {
-    $value = $optionName === 'woocommerce_bacs_accounts'
-        ? [['account_name' => $gatewayMarker, 'account_number' => '000', 'bank_name' => 'Bank', 'sort_code' => '', 'iban' => '', 'bic' => '']]
-        : ['enabled' => 'yes', 'title' => $gatewayMarker];
+    $value = match ($optionName) {
+        'woocommerce_bacs_accounts' => [[
+            'account_name' => $bankMarker,
+            'account_number' => '000',
+            'bank_name' => 'Bank',
+            'sort_code' => '',
+            'iban' => '',
+            'bic' => '',
+        ]],
+        'woocommerce_bacs_settings' => [
+            'enabled' => 'yes',
+            'title' => '<span>' . $gatewayMarker . '</span>',
+            'description' => '<p>Bank transfer</p>',
+            'instructions' => '<p>Use the reference</p>',
+            'account_details' => '',
+            'account_name' => $bankMarker,
+        ],
+        'woocommerce_cheque_settings' => [
+            'enabled' => 'yes',
+            'title' => '<span>' . $gatewayMarker . '</span>',
+            'description' => '<p>Cheque payment</p>',
+            'instructions' => '<p>Mail the cheque</p>',
+        ],
+        'woocommerce_cod_settings' => [
+            'enabled' => 'yes',
+            'title' => '<span>' . $gatewayMarker . '</span>',
+            'description' => '<p>Cash on delivery</p>',
+            'instructions' => '<p>Pay the courier</p>',
+            'enable_for_methods' => '',
+            'enable_for_virtual' => 'no',
+        ],
+        default => throw new RuntimeException("unexpected gateway record $optionName"),
+    };
     $optionRows[] = [
         'option_id' => $nextOptionId++,
         'option_name' => $optionName,
@@ -1172,23 +1264,28 @@ foreach (array_keys($gatewayRecords) as $optionName) {
     ];
 }
 $emailRecords = (array) ($settingsInventory['closed_records']['email_settings']['records'] ?? []);
-$tooDeep = 'leaf';
-for ($depth = 0; $depth < 300; ++$depth) {
-    $tooDeep = [$tooDeep];
-}
-$hostileEmailPayloads = [
-    'woocommerce_new_order_settings' => serialize(new WooOptionalWakeupCanary()),
-    'woocommerce_cancelled_order_settings' => 'a:0:{}trailing-bytes',
-    'woocommerce_failed_order_settings' => 'a:1:{i:0;R:1;}',
-    'woocommerce_customer_failed_order_settings' => serialize($tooDeep),
+$captureEmailValues = [
+    'checkbox' => 'yes',
+    'delay_days' => '14',
+    'email_type' => 'multipart',
+    'env_text' => $recipientMarker,
+    'text' => $emailMarker . ' ✓',
+    'textarea' => '<p>' . $emailMarker . ' <strong>✓</strong></p>',
 ];
-foreach (array_keys($emailRecords) as $optionName) {
+foreach ($emailRecords as $optionName => $record) {
+    $value = [];
+    foreach ((array) ($record['fields'] ?? []) as $field) {
+        $type = (string) ($emailFieldTypes[$field] ?? '');
+        if (!array_key_exists($type, $captureEmailValues)) {
+            throw new RuntimeException("missing capture value for $optionName.$field ($type)");
+        }
+        $value[(string) $field] = $captureEmailValues[$type];
+    }
     $optionRows[] = [
         'option_id' => $nextOptionId++,
         'option_name' => $optionName,
-        'option_value' => $hostileEmailPayloads[$optionName]
-            ?? serialize(['enabled' => 'yes', 'subject' => $emailMarker]),
-        'autoload' => 'no',
+        'option_value' => serialize($value),
+        'autoload' => 'yes',
     ];
 }
 $addonEmailOption = 'woocommerce_extension_delivery_notice_settings';
@@ -1232,13 +1329,38 @@ $capture = new OptionsCapture(
     static fn(int $id, string $kind, bool $force): ?string => null,
     static fn(Policy $candidatePolicy, string $kind, int $id): bool => false
 );
+$tooDeep = 'leaf';
+for ($depth = 0; $depth < 300; ++$depth) {
+    $tooDeep = [$tooDeep];
+}
+$hostileMixedProductRows = [
+    'object wakeup payload' => serialize(new WooOptionalWakeupCanary()),
+    'trailing serialized bytes' => 'a:0:{}trailing-bytes',
+    'recursive reference graph' => 'a:1:{i:0;R:1;}',
+    'over-deep graph' => serialize($tooDeep),
+    'unknown sibling' => serialize(['enabled' => 'yes', 'extension_secret_key' => 'DO-NOT-ECHO']),
+];
+foreach ($hostileMixedProductRows as $label => $wire) {
+    $wpdb->seedTable('wp_options', [[
+        'option_id' => 1,
+        'option_name' => 'woocommerce_new_order_settings',
+        'option_value' => $wire,
+        'autoload' => 'yes',
+    ]]);
+    duo_check_throws(
+        static fn() => $capture->capture(false, false, null, [], false, true),
+        RuntimeException::class,
+        "real mixed-option capture refuses $label before canonical publication"
+    );
+}
+duo_check_same(0, WooOptionalWakeupCanary::$wakeups,
+    'real closed mixed-option capture executes no object wakeup hooks');
+$wpdb->seedTable('wp_options', $optionRows);
 $captureResult = $capture->capture(false, false, null, [], false, true);
 $pending = $captureResult['unclassified'];
 sort($pending, SORT_STRING);
 $expectedPendingNames = array_merge(
     ['wc_migrator_credentials_bad/slash', 'wc_stock_notifications_cycle_state_01', 'woocommerce_email_templates_addon_gateway_post_id', 'woocommerce_email_templates_new_order_post_id'],
-    array_values(array_diff(array_keys($gatewayRecords), ['woocommerce_bacs_accounts'])),
-    array_keys($emailRecords),
     [$addonEmailOption]
 );
 sort($expectedPendingNames, SORT_STRING);
@@ -1247,28 +1369,59 @@ $expectedPending = array_map(
     $expectedPendingNames
 );
 duo_check_same($expectedPending, $pending,
-    'real option capture atomically refuses every exact mixed/secret/reference record and addon near-miss while deployment-local launch state remains clean');
-duo_check_same(0, WooOptionalWakeupCanary::$wakeups,
-    'fail-closed option discovery never decodes object, trailing, reference-shaped, or over-deep record bytes');
+    'real option capture accepts exact core mixed records while addon/template/near-miss state remains loudly unclassified');
+$bacsCapturedRecord = $captureResult['document']['records']['woocommerce_bacs_settings']['value'] ?? null;
+$newOrderCapturedRecord = $captureResult['document']['records']['woocommerce_new_order_settings']['value'] ?? null;
+duo_check(is_array($bacsCapturedRecord)
+    && ($bacsCapturedRecord['title'] ?? null) === '<span>' . $gatewayMarker . '</span>'
+    && !array_key_exists('account_name', $bacsCapturedRecord)
+    && !array_key_exists('account_details', $bacsCapturedRecord),
+    'real capture publishes portable BACS content while excluding bank identity and derived carriers');
+duo_check(is_array($newOrderCapturedRecord)
+    && ($newOrderCapturedRecord['subject'] ?? null) === $emailMarker . ' ✓'
+    && !array_key_exists('recipient', $newOrderCapturedRecord),
+    'real capture publishes merchant email content while excluding target recipient identity');
+$capturedMixedCount = count(array_filter(
+    $mixedOptionNames,
+    static fn(string $name): bool => array_key_exists($name, (array) ($captureResult['document']['records'] ?? []))
+));
+duo_check_same(count($mixedOptionNames), $capturedMixedCount,
+    'every exact core gateway/email settings record crosses the real closed-subkey capture path');
 $captureEvidence = json_encode($captureResult, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 duo_check(
     is_string($captureEvidence)
         && !str_contains($captureEvidence, $mappingMarker)
         && !str_contains($captureEvidence, $credentialMarker)
-        && !str_contains($captureEvidence, $gatewayMarker)
-        && !str_contains($captureEvidence, $emailMarker)
+        && !str_contains($captureEvidence, $bankMarker)
+        && !str_contains($captureEvidence, $recipientMarker)
         && !str_contains($captureEvidence, $sideEffectMarker),
-    'capture refusal and repository output never echo mapping, credential, bank, email, or side-effect values'
+    'capture refusal and repository output never echo mapping, credential, bank, recipient, or side-effect values'
 );
-duo_check_same(
-    array_map(
-        static fn(string $name, string $value): array => ['options', $name, $value, 'authored'],
-        array_keys($thumbnailOptions),
-        array_values($thumbnailOptions)
-    ),
+$expectedGuardKeys = array_keys($thumbnailOptions);
+foreach (['woocommerce_bacs_settings', 'woocommerce_cheque_settings'] as $optionName) {
+    foreach ((array) ($settingsInventory['closed_records']['gateway_settings'][$optionName]['authored_fields'] ?? []) as $field) {
+        $expectedGuardKeys[] = $optionName . '.' . $field;
+    }
+}
+foreach (['enabled', 'title', 'description', 'instructions', 'enable_for_virtual'] as $field) {
+    $expectedGuardKeys[] = 'woocommerce_cod_settings.' . $field;
+}
+foreach ($emailRecords as $optionName => $record) {
+    foreach ((array) ($record['fields'] ?? []) as $field) {
+        if (($emailFieldClasses[$field] ?? null) === 'authored') {
+            $expectedGuardKeys[] = $optionName . '.' . $field;
+        }
+    }
+}
+$actualGuardKeys = array_map(static fn(array $call): string => (string) ($call[1] ?? ''), $secretCalls);
+sort($expectedGuardKeys, SORT_STRING);
+sort($actualGuardKeys, SORT_STRING);
+duo_check_same($expectedGuardKeys, $actualGuardKeys,
+    'the real capture secret guard sees every portable mixed/thumbnail field and no target-owned sibling');
+duo_check(count(array_filter(
     $secretCalls,
-    'only portable thumbnail values enter the authored guard while runtime, environment-secret, and fail-closed optional state never does'
-);
+    static fn(array $call): bool => ($call[3] ?? null) === 'authored'
+)) === count($secretCalls), 'every real mixed-option guard call retains the authored sibling class');
 foreach ($targetEnvironmentOptions as $optionName) {
     duo_check_same('env', $policy->option_rule((string) $optionName)['class'] ?? null,
         "$optionName is explicitly deployment-local and never enters repository state");

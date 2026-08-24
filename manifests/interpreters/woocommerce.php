@@ -435,7 +435,8 @@ final class Woocommerce {
     public function project_materialized_option_sub_keys(
         string $name,
         array $rawAuthored,
-        array $subKeys
+        array $subKeys,
+        array $desiredAuthoredKeys
     ): array {
         $fields = $this->mixed_option_fields($name);
         if ($fields === null) {
@@ -443,6 +444,22 @@ final class Woocommerce {
         }
         $this->assert_mixed_sub_key_contract($name, $fields, $subKeys);
         $this->assert_mixed_record_keys($name, $rawAuthored, $fields, 'finalized authored storage');
+        if (!array_is_list($desiredAuthoredKeys)) {
+            throw new \RuntimeException(
+                "duo: WooCommerce mixed option '$name' projection requires an exact desired authored-key list"
+            );
+        }
+        $desired = [];
+        foreach ($desiredAuthoredKeys as $position => $key) {
+            if (!is_string($key)
+                || isset($desired[$key])
+                || (($subKeys[$key]['class'] ?? null) !== 'authored')) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce mixed option '$name' projection has a malformed desired key at position $position"
+                );
+            }
+            $desired[$key] = true;
+        }
         $api = $this->native_settings_api();
         $projected = [];
         foreach ($rawAuthored as $key => $value) {
@@ -464,7 +481,17 @@ final class Woocommerce {
                 $value,
                 'finalized target'
             );
+            if (!isset($desired[(string) $key])) {
+                continue;
+            }
             $projected[(string) $key] = $value;
+        }
+        foreach ($desired as $key => $_present) {
+            if (!array_key_exists($key, $projected)) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce mixed option '$name' projection is missing a desired authored sibling"
+                );
+            }
         }
         ksort($projected, SORT_STRING);
         return $projected;

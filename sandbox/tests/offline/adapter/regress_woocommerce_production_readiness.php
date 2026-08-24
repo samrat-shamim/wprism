@@ -635,13 +635,13 @@ duo_check_same(
     $policy->meta_rule_for_option('woocommerce_analytics_import_interval', []),
     'the localized analytics import interval label stays derived'
 );
-foreach (['woocommerce_cod_settings'] as $pendingOption) {
-    duo_check_same(
-        null,
-        $policy->meta_rule_for_option($pendingOption, []),
-        "$pendingOption remains loud until its typed schema and native side effects are verified"
-    );
-}
+$codRule = $policy->meta_rule_for_option('woocommerce_cod_settings', []);
+duo_check_same(
+    true,
+    ($codRule['closed_sub_keys'] ?? null) === true
+        && ($codRule['sub_keys']['enable_for_methods']['json_refs'][0]['kind'] ?? null) === 'wc_zone_method',
+    'COD settings use the closed native record boundary with typed shipping-zone method references'
+);
 foreach ([
     'woocommerce_analytics_scheduled_import',
     'woocommerce_customer_stock_notifications_unverified_deletions_days_threshold',
