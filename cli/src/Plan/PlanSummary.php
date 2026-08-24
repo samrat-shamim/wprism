@@ -150,9 +150,20 @@ final class PlanSummary {
             static fn(array $r): bool => ($r['issue'] ?? null) !== 'code_revision_stale'
                 && !empty($r['non_forceable'])
         ));
+        // WP-2.8: the graduated verdict is its own bucket for rendering and is
+        // subtracted from `ok` below. It arrives inside code_mismatch because
+        // it IS the same finding, answered — so it must stay counted in the
+        // `N code_mismatch` summary line and visible in JSON, while the
+        // CODE_MISMATCH block's own remedy sentence ("duo apply will refuse
+        // until resolved") would be false about it.
+        $graduatedVersionRange = array_values(array_filter(
+            $codeMismatch,
+            static fn(array $r): bool => ($r['issue'] ?? null) === PlanContract::GRADUATED_VERSION_RANGE
+        ));
         $forceableCodeMismatch = array_values(array_filter(
             $codeMismatch,
             static fn(array $r): bool => ($r['issue'] ?? null) !== 'code_revision_stale'
+                && ($r['issue'] ?? null) !== PlanContract::GRADUATED_VERSION_RANGE
                 && empty($r['non_forceable'])
         ));
         $codeDrift = $plan['code_drift'] ?? [];
@@ -324,6 +335,19 @@ final class PlanSummary {
             }
             // Verbatim match of agent/src/Command/Cli.php's plan() warning.
             $lines[] = 'code_mismatch findings — duo apply will refuse until resolved (or run with --force-code-mismatch)';
+        }
+
+        // WP-2.8: rendered as loudly as the block above and with the same row
+        // shape, under a heading that states the opposite conclusion. Silence
+        // here would be the silent pass the verdict exists to not be; folding
+        // it into CODE_MISMATCH would print a remedy sentence that is false.
+        if ($graduatedVersionRange) {
+            $lines[] = 'VERSION_RANGE_GRADUATED (outside the declared window, and this site recorded per-release '
+                . 'probe evidence that no declared surface moved — not a blocker):';
+            foreach ($graduatedVersionRange as $r) {
+                $what = $r['plugin'] ?? $r['theme'] ?? '?';
+                $lines[] = '  - ' . strtoupper((string) ($r['issue'] ?? '?')) . ' ' . $what . ': ' . ($r['message'] ?? '');
+            }
         }
 
         if ($codeDrift) {
@@ -607,7 +631,14 @@ final class PlanSummary {
         $ok = $counts['conflict'] === 0
             && $counts['delete_conflict'] === 0
             && $counts['collision'] === 0
-            && count($codeMismatch) === 0
+            // WP-2.8: every code_mismatch row still blocks readiness EXCEPT
+            // the graduated verdict, which is the one row in that bucket the
+            // site has already answered with recorded per-release probe
+            // evidence. Subtracting rather than filtering the bucket keeps the
+            // `N code_mismatch` count line and the JSON envelope unchanged: a
+            // status that stayed red here would leave "safe to promote?"
+            // answering no to the exact condition this verdict resolves.
+            && count($codeMismatch) - count($graduatedVersionRange) === 0
             && count($codeDrift) === 0
             && !$incompleteApply
             && !$incompleteLifecycle

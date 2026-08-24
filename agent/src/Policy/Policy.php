@@ -118,6 +118,11 @@ require_once __DIR__ . '/ManifestValidator.php';
 // validation sequence for live and frozen loaders, required here so both
 // entry points retain the same standalone load graph and refusal order.
 require_once __DIR__ . '/SitePolicyValidator.php';
+// WP-2.8: the optional recorded per-release probe evidence block, whose key
+// name Policy's own accessor reads. Required directly rather than leaned on
+// through SitePolicyValidator above, so this file's class references stay
+// self-satisfied the way every other agent/src file's are.
+require_once __DIR__ . '/VersionEvidenceGrammar.php';
 // DUO-3348 slice 36: live and frozen loads share one post-local-load
 // validation/pin-binding sequence, so keep its refusal order in one place.
 require_once __DIR__ . '/PolicyLoadFinalizer.php';
@@ -815,6 +820,22 @@ final class Policy {
         return is_array($code) && ($code['format'] ?? null) === 2 && is_string($code['lock'] ?? null)
             ? $code['lock']
             : null;
+    }
+
+    /**
+     * WP-2.8: the recorded per-release probe outcomes this site holds, read
+     * straight off the declaration for the same reason code_config() is —
+     * VersionEvidenceGrammar already refused every other shape at load time
+     * (SitePolicyValidator.php), on the live and the frozen path alike, so
+     * Policy keeps no evidence grammar of its own. An absent key is an empty
+     * block, which is what makes "no evidence" the default: the graduated
+     * verdict cannot fire, and outside_version_range refuses unchanged.
+     *
+     * @return array<string,mixed> keyed by plugin basename, exactly as version_ranges() is
+     */
+    public function adapter_version_evidence(): array {
+        $block = $this->site[VersionEvidenceGrammar::SITE_KEY] ?? null;
+        return is_array($block) ? $block : [];
     }
 
     /** @return array{rule:?array, source:?string} Policy's compatibility facade over PolicyRuleResolver. */

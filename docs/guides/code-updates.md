@@ -107,6 +107,63 @@ the same shape with `kind: "theme"`.
 **Remedy**: install or vendor the missing plugin, deploy the code first, or —
 knowing exactly what you are overriding — pass `--force-code-mismatch`.
 
+#### The third state: `version_range_graduated`
+
+`outside_version_range` is the finding an ordinary WordPress auto-update
+produces, and its only two exits are heavy: widen the manifest's range (a
+reviewed edit across `manifests/<name>.json` and `manifests/dispositions.json`
+that every deployed site then re-pins against) or force past it with no
+evidence at all. There is a third, and it is evidence-bound.
+
+Record what `duo adapter boundary` probed into your `site.duo.json`:
+
+```json
+"adapter_version_evidence": {
+  "advanced-custom-fields/acf.php": {
+    "manifest": "acf",
+    "slug": "advanced-custom-fields",
+    "releases": ["6.8.7", "6.9.0", "6.9.1"],
+    "outcomes": [
+      {"version": "6.9.0", "outcome": "green", "signature": "recapture 3f2a…"},
+      {"version": "6.9.1", "outcome": "green", "signature": "recapture 3f2a…"}
+    ]
+  }
+}
+```
+
+A probe is `green` only when that exact release installed, seeded, and
+recaptured byte-identically under this adapter's declared surfaces — the same
+round trip a certification run performs. When **every** recorded release
+between the declared window and the installed one probed green, the finding
+becomes `version_range_graduated`: deploy and apply stop refusing over it, and
+both report it on every run with each release and its recorded signature named.
+`wp duo plan` prints it under its own `VERSION_RANGE_GRADUATED` heading, and
+`duo status` and `duo release` stop counting it against "safe to promote" —
+the row is still in the `code_mismatch` bucket and still in its count, because
+it is the same finding, answered.
+
+Everything else still blocks, with the `outside_version_range` message
+unchanged: no evidence at all, evidence that stops short of the installed
+version, a release the recorded list does not name, a version header WordPress
+could not read, evidence recorded against a different adapter, and any
+`boot-fatal`, `round-trip-diverges` or `artifact-unresolved` row in the
+interval. Silence is never treated as a pass — that is the whole design.
+
+Two things this does **not** do. It does not widen the range: the manifest
+still says what it was certified for, and the verdict says so in its own
+message. And it is not `--force-code-mismatch` by another name — that flag is
+unchanged, is still the only way past a real `outside_version_range`, and the
+graduated verdict is never reported as forced.
+
+This answers the compatibility question and only that one. A version that
+changed here without Duo doing it is still `code_drift` (§2 below), a separate
+provenance question with its own consent gate — accepting an installed version
+as the new baseline stays a deliberate act, exactly as it was.
+
+Adding the block moves your site's `site_hash`, so recompile and re-pin after
+editing it. It moves no state revision: evidence names no option, meta key,
+post type or table.
+
 ### 2. `code_drift` — code changed here, outside Duo
 
 Raised when a plugin or theme's installed version differs from the baseline

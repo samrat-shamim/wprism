@@ -987,6 +987,15 @@ regress-convergence-verifier:
 regress-apply-drift-convergence:
 	php sandbox/tests/offline/apply/regress_apply_drift_convergence.php
 
+# WP-2.8: the graduated outside_version_range verdict — the third state between
+# "inside the certified window" and "deploy blocked", and the four ways it must
+# refuse to fire. Most of the suite is the refusals: a verdict that assumed
+# benignity when nothing was recorded would be the silent fallback rule 9
+# forbids, so absent, partial and contradicted evidence each still block with
+# the pre-existing message byte-for-byte.
+regress-graduated-version-range:
+	php sandbox/tests/offline/apply/regress_graduated_version_range.php
+
 # DUO-3502: a FULL apply without --with-deletes performs no planned deletion at
 # all — ApplyPreparationCoordinator refused only the scoped case, the executor
 # skipped its delete block, and the revision was still recorded as applied — so

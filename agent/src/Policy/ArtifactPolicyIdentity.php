@@ -18,6 +18,13 @@ if (!$canonWasPreloaded && !class_exists(ManifestDispositions::class, false)) {
 if (!class_exists(Policy::class, false)) {
     require_once __DIR__ . '/Policy.php';
 }
+// WP-2.8: state_site_hash() names this grammar's site key directly. Guarded
+// the same way its neighbours are, because the stubbed refusal path above can
+// leave a Policy stub in place that never loaded the real grammar; the file
+// itself requires nothing, so loading it here costs no graph.
+if (!class_exists(VersionEvidenceGrammar::class, false)) {
+    require_once __DIR__ . '/VersionEvidenceGrammar.php';
+}
 unset($canonWasPreloaded);
 
 /**
@@ -42,10 +49,18 @@ final class ArtifactPolicyIdentity {
      * site_hash() and therefore by the outer compiled artifact, but it must
      * not move revision_hash: enabling or disabling identical code bytes is
      * not a canonical database-state change.
+     *
+     * WP-2.8's recorded probe evidence is unset for exactly that reason and no
+     * other. It decides whether a deploy REFUSES an installed plugin version
+     * (VersionEvidenceGrammar), so site_hash() still binds it and an artifact
+     * compiled before the evidence landed is correctly rejected; but it names
+     * no option, meta key, post type or table, so it cannot move one byte of
+     * canonical state. Both unsets are no-ops on a site that declares neither
+     * key, which is why no existing revision_hash moves.
      */
     public static function state_site_hash(Policy $policy): string {
         $site = $policy->site;
-        unset($site['code']);
+        unset($site['code'], $site[VersionEvidenceGrammar::SITE_KEY]);
         return hash('sha256', Canon::encode($site));
     }
 

@@ -50,6 +50,21 @@ namespace Duo\Orchestrator;
  * so its rows are legitimately not objects.
  */
 final class PlanContract {
+    /**
+     * WP-2.8's graduated `outside_version_range` verdict, as it arrives on the
+     * wire in the `code_mismatch` bucket.
+     *
+     * Spelled here rather than imported from
+     * `agent/src/Policy/VersionEvidenceGrammar.php`: `cli:Plan` declares
+     * `depends_on: ["Plan"]` in tools/modules.json and reaches no agent module,
+     * for the same reason REQUIRED_BUCKETS above lists bucket names as literals
+     * — a host renders a plan JSON document that may have come from an OLDER
+     * agent, so the wire word is the contract, not the emitter's constant. An
+     * agent that never mints it simply never sends it, and every branch below
+     * is a no-op.
+     */
+    public const GRADUATED_VERSION_RANGE = 'version_range_graduated';
+
     private const CATEGORY_SUMMARY_FORMAT = 'duo-plan-category-summary/v1';
 
     /** @var list<string> */

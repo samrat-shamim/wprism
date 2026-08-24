@@ -2,6 +2,11 @@
 namespace Duo;
 
 require_once __DIR__ . '/Deploy.php';
+// WP-2.8: the site-declared per-release probe evidence the graduated
+// outside_version_range verdict reads. A leaf grammar file that requires
+// nothing of its own, so unlike the Code.php require this class deliberately
+// avoids (see below) it widens no static-scan closure.
+require_once __DIR__ . '/../Policy/VersionEvidenceGrammar.php';
 // Circular with Deploy.php (which requires this file too) — safe: PHP marks
 // a require_once path included the instant its own require begins, so by
 // the time Deploy.php's own require_once of this file executes, this file
@@ -155,6 +160,18 @@ final class LifecyclePlanner {
                     $r = $ranges[$plugin];
                     $installed = (string) ($allPlugins[$plugin]['Version'] ?? '');
                     if ($installed === '' || !Deploy::in_range($installed, $r['min'], $r['max'])) {
+                        // WP-2.8's third state. graduated_version_range()
+                        // returns rows only when this site has RECORDED probe
+                        // evidence covering every release between the declared
+                        // window and these exact bytes; null — the absent, the
+                        // partial, and the contradicted case alike — falls
+                        // through to the refusal below with its message
+                        // unchanged to the byte (rule 8).
+                        $graduated = self::graduated_version_range($policy, $plugin, $r, $installed);
+                        if ($graduated !== null) {
+                            $rows[] = self::graduated_row($plugin, $r, $installed, $graduated);
+                            continue;
+                        }
                         $rows[] = [
                             'issue' => 'outside_version_range',
                             'kind' => 'plugin',
@@ -520,6 +537,119 @@ final class LifecyclePlanner {
         }
         self::record_code_versions($policy);
         return [];
+    }
+
+    /**
+     * WP-2.8: the recorded per-release evidence that graduates ONE
+     * `outside_version_range` finding, or null.
+     *
+     * The verdict is a composition of facts this class already computes, not a
+     * new judgement: `Deploy::in_range()` is the same window predicate the
+     * finding above used and the same one provider negotiation uses, so
+     * "outside the certified window" has exactly one definition here. What is
+     * added is the interval walk — every RECORDED release lying outside that
+     * window between it and the installed bytes, inclusive — and the demand
+     * that each one probed green.
+     *
+     * Four separate refusals, each returning null so the pinned
+     * `outside_version_range` message fires unchanged:
+     *
+     *   - an unreadable installed version. get_plugins() returned no Version
+     *     header; there is nothing for evidence to be ABOUT, and the finding
+     *     above already fires on that alone.
+     *   - no entry for this plugin under this manifest (VersionEvidenceGrammar
+     *     ::entry()). This is the rule-9 guard and the reason this mechanism is
+     *     not a silent fallback: absence of evidence refuses.
+     *   - the installed release is not in the recorded release list. The list
+     *     is what makes an unprobed release detectable; bytes it never names
+     *     are unevidenced, not benign.
+     *   - any release in the interval that is unprobed, or probed non-green.
+     *     `boot-fatal`/`round-trip-diverges` are a declared surface that DID
+     *     move; `artifact-unresolved` is a fact about a download and is not
+     *     evidence either way (AdapterBoundary.php:94-99). All three block, and
+     *     so does silence — the window's interior is probed, never exhausted.
+     *
+     * @param array{min:string,max:string,manifest:string} $range
+     * @return ?list<array{version:string,outcome:string,signature:string}> non-empty on graduation
+     */
+    private static function graduated_version_range(
+        Policy $policy,
+        string $plugin,
+        array $range,
+        string $installed
+    ): ?array {
+        if ($installed === '') {
+            return null;
+        }
+        $entry = VersionEvidenceGrammar::entry(
+            $policy->adapter_version_evidence(),
+            $plugin,
+            $range['manifest']
+        );
+        if ($entry === null || !in_array($installed, $entry['releases'], true)) {
+            return null;
+        }
+        // Below min and above max are both "outside", and a host downgrade is
+        // as real as a host auto-update, so the interval is taken toward the
+        // window from whichever side the installed bytes sit on.
+        $below = version_compare($installed, $range['min'], '<');
+        $rows = [];
+        foreach ($entry['releases'] as $version) {
+            if (Deploy::in_range($version, $range['min'], $range['max'])) {
+                continue; // inside the declared window: already vouched for by the manifest
+            }
+            $inInterval = $below
+                ? version_compare($version, $installed, '>=') && version_compare($version, $range['min'], '<')
+                : version_compare($version, $installed, '<=') && version_compare($version, $range['max'], '>=');
+            if (!$inInterval) {
+                continue;
+            }
+            $row = $entry['outcomes'][$version] ?? null;
+            if ($row === null || $row['outcome'] !== VersionEvidenceGrammar::OUTCOME_GREEN) {
+                return null;
+            }
+            $rows[] = $row;
+        }
+        // Unreachable while the installed release is outside the window and in
+        // the recorded list — it is its own interval member. Kept because a
+        // graduation carrying no evidence rows would be precisely the silent
+        // pass this verdict exists to not be.
+        return $rows === [] ? null : $rows;
+    }
+
+    /**
+     * The graduated finding. Deliberately a DISTINCT issue name rather than a
+     * suppressed one: Deploy and Apply both stop refusing on it, so it has to
+     * remain visible in `--format=json`, in the plan's code_mismatch bucket,
+     * and as its own reported line on every run. The message carries the
+     * per-release evidence verbatim, including each probe's recorded
+     * signature, and states the limit of what that evidence proves.
+     *
+     * @param array{min:string,max:string,manifest:string} $range
+     * @param list<array{version:string,outcome:string,signature:string}> $evidence
+     * @return array<string,mixed>
+     */
+    private static function graduated_row(string $plugin, array $range, string $installed, array $evidence): array {
+        $named = implode('; ', array_map(
+            static fn(array $row): string => "{$row['version']} {$row['outcome']} ({$row['signature']})",
+            $evidence
+        ));
+        return [
+            'issue' => VersionEvidenceGrammar::VERDICT,
+            'kind' => 'plugin',
+            'plugin' => $plugin,
+            'installed_version' => $installed,
+            'version_range' => ['min' => $range['min'], 'max' => $range['max']],
+            'manifest' => $range['manifest'],
+            'evidence' => $evidence,
+            'message' => "$plugin $installed is active in this environment, outside the '{$range['manifest']}' "
+                . "manifest's declared version_range (>={$range['min']} <{$range['max']}, pinned by "
+                . 'site.duo.json), and is NOT blocked: every release this site recorded between that window and '
+                . "these bytes probed green under this adapter's own declared surfaces — $named. That is "
+                . 'evidence about exactly those releases and nothing else: a release with no recorded probe '
+                . 'blocks, and so does one that boot-fataled, diverged on recapture, or could not be resolved. '
+                . "This verdict does not widen the manifest's range, which stays a reviewed human edit.",
+        ];
     }
 
     /** @param array<string,array{min:string,max:string,manifest:string}> $ranges @param list<array<string,mixed>> $rows */

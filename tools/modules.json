@@ -252,7 +252,7 @@
             ]
           }
         ],
-        "file_count": 20,
+        "file_count": 21,
         "files": [
           "ArtifactPolicyIdentity.php",
           "CodeConfigGrammar.php",
@@ -273,7 +273,8 @@
           "ScopeContract.php",
           "ScopeDiscovery.php",
           "ScopeGrammar.php",
-          "SitePolicyValidator.php"
+          "SitePolicyValidator.php",
+          "VersionEvidenceGrammar.php"
         ]
       },
       "Grammar": {

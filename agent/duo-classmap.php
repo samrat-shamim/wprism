@@ -270,6 +270,7 @@ return [
     'Duo\\UserMetaMaterializer' => 'src/Apply/UserMetaMaterializer.php',
     'Duo\\UserMetaState' => 'src/Kernel/UserMetaState.php',
     'Duo\\Uuid' => 'src/Kernel/Uuid.php',
+    'Duo\\VersionEvidenceGrammar' => 'src/Policy/VersionEvidenceGrammar.php',
     'Duo\\WidgetTypeResolver' => 'src/Grammar/WidgetTypeResolver.php',
     'Duo\\WpCliChildProcess' => 'src/Kernel/WpCliChildProcess.php',
 ];
