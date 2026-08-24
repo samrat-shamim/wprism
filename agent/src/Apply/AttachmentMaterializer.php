@@ -916,7 +916,9 @@ final class AttachmentMaterializer {
                 throw new \RuntimeException('duo: attachment prior metadata file identity disagrees with _wp_attached_file');
             }
             $sizes = $metadata['sizes'] ?? [];
-            if (!is_array($sizes) || array_is_list($sizes) || count($sizes) > 512) {
+            if (!is_array($sizes)
+                || ($sizes !== [] && array_is_list($sizes))
+                || count($sizes) > 512) {
                 throw new \RuntimeException('duo: attachment prior metadata sizes roster is malformed or oversized');
             }
             foreach ($sizes as $name => $size) {

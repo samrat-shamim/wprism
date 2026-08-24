@@ -245,6 +245,7 @@ namespace {
     $GLOBALS['duo_attachment_big_guard_seen'] = false;
     $GLOBALS['duo_attachment_generate_calls'] = 0;
     $GLOBALS['duo_attachment_adapter_callback_calls'] = 0;
+    $GLOBALS['wpdb'] = new AttachmentAuthorityWpdb();
 
     function duo_attachment_filter_id(callable $callback): string {
         return $callback instanceof \Closure
@@ -498,13 +499,23 @@ namespace {
         $filesystem->recover_pending_with_marker($authored['value']);
         $check($filesystem->phase() === 'originals_published', 'authored-marker crash recovery resumes at exact post-COMMIT original bytes');
 
-        $generator = new AttachmentNativeMetadataGenerator(static fn(int $id): string => 'image/png');
+        $generator = new AttachmentNativeMetadataGenerator(static function (int $id): string {
+            DeleteGuardEvaluator::assert_transaction_isolation(
+                'native attachment metadata target-lock regression'
+            );
+            return 'image/png';
+        });
         $GLOBALS['duo_attachment_size_calls'] = 0;
         $GLOBALS['duo_attachment_mutate_size_call'] = 0;
         $GLOBALS['duo_attachment_big_guard_seen'] = false;
         $GLOBALS['duo_attachment_generate_calls'] = 0;
         $filesystem->generate_metadata($generator);
-        $check(Db::$starts === 1 && Db::$rollbacks === 1, 'native generator always settles its rollback-only metadata transaction');
+        $check(
+            Db::$starts === 1
+                && Db::$rollbacks === 1
+                && !$GLOBALS['wpdb']->savepointExists,
+            'native generator establishes target-lock continuity and settles its rollback-only metadata transaction'
+        );
         $check(
             $GLOBALS['duo_attachment_generate_calls'] === 1,
             'one durable metadata phase invokes wp_generate_attachment_metadata exactly once'
@@ -1198,6 +1209,26 @@ namespace {
                 '2026/08/photo.png',
             ],
             'prior _wp_attachment_backup_sizes extends exact stale-file ownership without granting prefix authority'
+        );
+        $emptySizesOwned = $priorOwnership->invoke(
+            $attachmentMaterializer,
+            [[
+                'meta_id' => '1',
+                'meta_key' => '_wp_attachment_metadata',
+                'meta_value' => serialize([
+                    'file' => '2026/08/photo.png',
+                    'sizes' => [],
+                ]),
+            ]],
+            [[
+                'meta_id' => '2',
+                'meta_key' => '_wp_attached_file',
+                'meta_value' => '2026/08/photo.png',
+            ]]
+        );
+        $check(
+            $emptySizesOwned === ['2026/08/photo.png'],
+            'valid Core metadata with an empty sizes map owns only its exact attached file'
         );
         $throws(
             static fn() => $priorOwnership->invoke(

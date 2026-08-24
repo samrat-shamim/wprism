@@ -9,6 +9,9 @@ if (!class_exists(Db::class, false)) {
 if (!class_exists(PlainData::class, false)) {
     require_once __DIR__ . '/../Kernel/PlainData.php';
 }
+if (!class_exists(DeleteGuardEvaluator::class, false)) {
+    require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
+}
 require_once __DIR__ . '/../Kernel/MediaPayloadAuthority.php';
 
 /**
@@ -347,6 +350,7 @@ final class AttachmentNativeMetadataGenerator {
         };
 
         $transactionStarted = false;
+        $transactionContinuityStarted = false;
         $guardInstalled = false;
         $bigImageGuardInstalled = false;
         $bufferLevel = ob_get_level();
@@ -383,6 +387,8 @@ final class AttachmentNativeMetadataGenerator {
             $priorUmask = umask(0077);
             Db::start_repeatable_read('native attachment metadata rollback-only transaction start');
             $transactionStarted = true;
+            DeleteGuardEvaluator::begin_authored_transaction();
+            $transactionContinuityStarted = true;
             $mime = ($this->lockTarget)($attachmentId);
             if (!is_string($mime) || $mime === '' || strlen($mime) > 191) {
                 throw new \RuntimeException('duo: native attachment metadata target lock returned a malformed MIME type');
@@ -461,6 +467,13 @@ final class AttachmentNativeMetadataGenerator {
                     Db::rollback('native attachment metadata rollback-only transaction rollback');
                 } catch (\Throwable $failure) {
                     $cleanupFailures[] = 'database-rollback=' . self::failure_fingerprint($failure);
+                }
+            }
+            if ($transactionContinuityStarted) {
+                try {
+                    DeleteGuardEvaluator::end_authored_transaction();
+                } catch (\Throwable $failure) {
+                    $cleanupFailures[] = 'transaction-continuity=' . self::failure_fingerprint($failure);
                 }
             }
             if ($adapterQuarantine !== null) {
