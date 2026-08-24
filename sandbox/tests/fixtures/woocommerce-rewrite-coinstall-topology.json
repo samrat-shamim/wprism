@@ -1,0 +1,190 @@
+{
+  "format": "duo-woocommerce-rewrite-coinstall-topology/v1",
+  "artifacts": {
+    "polylang": {
+      "version": "3.8.6",
+      "sha256": "dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa"
+    },
+    "the-events-calendar": {
+      "version": "6.17.2",
+      "sha256": "f67f2668fc777505a6e0f2cc8c7c39db869a1b186b2444f9d5e138d32bcaabaa"
+    },
+    "woocommerce": {
+      "version": "11.0.1",
+      "sha256": "da189b6616c610d15a2106f93151dab81b78f83e075bcefce221ac0d00b4fa21"
+    },
+    "wordpress-seo": {
+      "version": "28.3",
+      "sha256": "381edc1603147bd76af81341f21c9155ff3e9f6ce29ed20886d889fb9d6744fb"
+    }
+  },
+  "source_files": [
+    {
+      "plugin": "woocommerce",
+      "path": "includes/wc-core-functions.php",
+      "sha256": "17bf218326de339c872eba8c9f855b73bb1c7874053c36774c35ef222927e684"
+    },
+    {
+      "plugin": "woocommerce",
+      "path": "includes/wc-formatting-functions.php",
+      "sha256": "c3576416420bbfb6893ad5164ccf8c439b7e731c337c04b32e058ac6a0809d41"
+    },
+    {
+      "plugin": "woocommerce",
+      "path": "includes/class-woocommerce.php",
+      "sha256": "2f3a95ae78217be16fa1f272c1fad4d3faecfd02939041a861d65826bb3f4cb7"
+    },
+    {
+      "plugin": "woocommerce",
+      "path": "src/Internal/Features/FeaturesController.php",
+      "sha256": "c39f44ebd0928be1c3f3a5066422defa5623705dc44f440f4572595def5866b2"
+    },
+    {
+      "plugin": "woocommerce",
+      "path": "src/Internal/DataStores/Orders/DataSynchronizer.php",
+      "sha256": "a10ff8e2e5820deeb5a032cccfc2ffca09a5134e3e87e388e0262a89a8805234"
+    },
+    {
+      "plugin": "woocommerce",
+      "path": "src/Internal/DataStores/Orders/CustomOrdersTableController.php",
+      "sha256": "b4d1a6772b064de9be6a80750074b0a9e371514f58131a1701cad6cd52ccb8bf"
+    },
+    {
+      "plugin": "wordpress-seo",
+      "path": "inc/class-yoast-dynamic-rewrites.php",
+      "sha256": "3b07ec0af1f94269b2a5a98bba078edbee73e1697aeeed119ae12ff4a3ca7553"
+    },
+    {
+      "plugin": "wordpress-seo",
+      "path": "wp-seo-main.php",
+      "sha256": "5ecb2632b7997782e7efda714ab11e4a1ca479a8f3277c8e3137600bcb575ff1"
+    },
+    {
+      "plugin": "polylang",
+      "path": "src/links-directory.php",
+      "sha256": "5cadce6a89e87278bdd021d8f049d9c4e511acecc6c6366808740f04027d2dc0"
+    },
+    {
+      "plugin": "the-events-calendar",
+      "path": "common/src/Tribe/Cache_Listener.php",
+      "sha256": "14a63e60db2f047b7dd62fa708d464b170d87485227cc63583c989a45fcb248b"
+    },
+    {
+      "plugin": "the-events-calendar",
+      "path": "common/src/Tribe/Settings_Manager.php",
+      "sha256": "9f51c59cfa2398a66958159db4a66368aa728f4428295dc07dabb834396f9591"
+    },
+    {
+      "plugin": "the-events-calendar",
+      "path": "src/Tribe/Aggregator.php",
+      "sha256": "cdd66b28165dda1f45fa79ddb6aeddf22dd3b3bc44fa2a71365e6f39c7173288"
+    },
+    {
+      "plugin": "the-events-calendar",
+      "path": "src/Tribe/Views/V2/Hooks.php",
+      "sha256": "d746a05d4e7979a0bbdae0938f009d0012e550d605c4a331a1cd288e7b746b5f"
+    },
+    {
+      "plugin": "the-events-calendar",
+      "path": "common/src/Common/Integrations/Harbor/PUE.php",
+      "sha256": "abe0ef81332c52aff2983b8f78700169dbcfbeb663497af84e681be245629988"
+    },
+    {
+      "plugin": "the-events-calendar",
+      "path": "common/src/Tribe/Rewrite.php",
+      "sha256": "0e198faca151aeca66680e916a038eab5c264f7d0ee6472d8f07d1845d0a7b9a"
+    },
+    {
+      "plugin": "the-events-calendar",
+      "path": "src/Tribe/Main.php",
+      "sha256": "3f7b3c50960071a350077ee1c72bd342ebe4613c374913522361371ca30aaa94"
+    }
+  ],
+  "static_callbacks": [
+    {"hook": "rewrite_rules_array", "callback": "wc_fix_rewrite_rules", "priority": 10, "accepted_args": 1},
+    {"hook": "updated_option", "callback": "Automattic\\WooCommerce\\Internal\\Features\\FeaturesController::process_updated_option", "priority": 999, "accepted_args": 3},
+    {"hook": "added_option", "callback": "Automattic\\WooCommerce\\Internal\\Features\\FeaturesController::process_added_option", "priority": 999, "accepted_args": 3},
+    {"hook": "updated_option", "callback": "Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer::process_updated_option", "priority": 999, "accepted_args": 3},
+    {"hook": "added_option", "callback": "Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer::process_added_option", "priority": 999, "accepted_args": 2},
+    {"hook": "updated_option", "callback": "Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController::process_updated_option", "priority": 999, "accepted_args": 3},
+    {"hook": "updated_option", "callback": "Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController::process_updated_option_fts_index", "priority": 999, "accepted_args": 3},
+    {"hook": "pre_update_option", "callback": "Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController::process_pre_update_option", "priority": 999, "accepted_args": 3},
+    {"hook": "option_rewrite_rules", "callback": "Yoast_Dynamic_Rewrites::filter_rewrite_rules_option", "priority": 10, "accepted_args": 1},
+    {"hook": "sanitize_option_rewrite_rules", "callback": "Yoast_Dynamic_Rewrites::sanitize_rewrite_rules_option", "priority": 10, "accepted_args": 1},
+    {"hook": "generate_rewrite_rules", "callback": "Tribe__Cache_Listener::generate_rewrite_rules", "priority": 10, "accepted_args": 1},
+    {"hook": "updated_option", "callback": "Tribe__Settings_Manager::update_options_cache", "priority": 10, "accepted_args": 3},
+    {"hook": "updated_option", "callback": "Tribe__Cache_Listener::update_last_updated_option", "priority": 10, "accepted_args": 3},
+    {"hook": "updated_option", "callback": "Tribe__Cache_Listener::update_last_save_post", "priority": 10, "accepted_args": 3},
+    {"hook": "updated_option", "callback": "Tribe__Events__Aggregator::action_purge_transients", "priority": 10, "accepted_args": 1},
+    {"hook": "updated_option", "callback": "Tribe\\Events\\Views\\V2\\Hooks::action_save_wplang", "priority": 10, "accepted_args": 3},
+    {"hook": "generate_rewrite_rules", "callback": "Tribe__Rewrite::filter_generate", "priority": 10, "accepted_args": 1},
+    {"hook": "rewrite_rules_array", "callback": "Tribe__Rewrite::filter_rewrite_rules_array", "priority": 25, "accepted_args": 1}
+  ],
+  "marker_option_topology": {
+    "updated_option": [
+      {"callback": "Tribe__Settings_Manager::update_options_cache", "priority": 10, "accepted_args": 3},
+      {"callback": "Tribe__Cache_Listener::update_last_updated_option", "priority": 10, "accepted_args": 3},
+      {"callback": "Tribe__Cache_Listener::update_last_save_post", "priority": 10, "accepted_args": 3},
+      {"callback": "Tribe__Events__Aggregator::action_purge_transients", "priority": 10, "accepted_args": 1},
+      {"callback": "Tribe\\Events\\Views\\V2\\Hooks::action_save_wplang", "priority": 10, "accepted_args": 3}
+    ],
+    "pre_option": {
+      "optional_callback": "TEC\\Common\\Integrations\\Harbor\\PUE::filter_pre_get_option",
+      "priority": 10,
+      "accepted_args": 3
+    },
+    "wp_default_autoload_value": {
+      "callback": "wp_filter_default_autoload_value_via_option_size",
+      "priority": 5,
+      "accepted_args": 4
+    }
+  },
+  "woocommerce_normal_option_topology": {
+    "updated_option": [
+      {"callback": "Automattic\\WooCommerce\\Internal\\Features\\FeaturesController::process_updated_option", "priority": 999, "accepted_args": 3},
+      {"callback": "Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer::process_updated_option", "priority": 999, "accepted_args": 3},
+      {"callback": "Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController::process_updated_option", "priority": 999, "accepted_args": 3},
+      {"callback": "Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController::process_updated_option_fts_index", "priority": 999, "accepted_args": 3}
+    ],
+    "pre_update_option": [
+      {"callback": "Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController::process_pre_update_option", "priority": 999, "accepted_args": 3}
+    ],
+    "added_option": [
+      {"callback": "Automattic\\WooCommerce\\Internal\\Features\\FeaturesController::process_added_option", "priority": 999, "accepted_args": 3},
+      {"callback": "Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer::process_added_option", "priority": 999, "accepted_args": 2}
+    ]
+  },
+  "dynamic_callback_containers": [
+    {
+      "hook": "rewrite_rules_array",
+      "callback": "PLL_Links_Directory::rewrite_rules",
+      "priority": 10,
+      "accepted_args": 1,
+      "activation": "at least one Polylang language, wp_loaded, and directory permalink links"
+    },
+    {
+      "hook": "{type}_rewrite_rules",
+      "callback": "PLL_Links_Directory::rewrite_rules",
+      "priority": 10,
+      "accepted_args": 1,
+      "activation": "each name returned by the filtered pll_rewrite_rules type set"
+    },
+    {
+      "hook": "pll_modify_rewrite_rule",
+      "callback": "third-party filter chain",
+      "priority": "open",
+      "accepted_args": 4,
+      "arguments": ["bool", "array<string,string>", "string", "string|false"]
+    }
+  ],
+  "durable_effects": [
+    "rewrite_rules",
+    "tribe_last_generate_rewrite_rules",
+    "tribe_last_save_post",
+    "tribe_last_updated_option"
+  ],
+  "runtime_effects": [
+    "the-events-calendar-cache-purge-request:v1",
+    "wordpress-option:v1:rewrite_rules"
+  ]
+}

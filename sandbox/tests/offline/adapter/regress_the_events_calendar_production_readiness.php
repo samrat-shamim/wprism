@@ -3420,6 +3420,97 @@ $optionHookFixture = json_decode(
     512,
     JSON_THROW_ON_ERROR
 );
+$wooRewriteTopology = json_decode(
+    (string) file_get_contents(
+        $root . '/sandbox/tests/fixtures/woocommerce-rewrite-coinstall-topology.json'
+    ),
+    true,
+    512,
+    JSON_THROW_ON_ERROR
+);
+duo_check_same(
+    '11.0.1',
+    $wooRewriteTopology['artifacts']['woocommerce']['version'] ?? null,
+    'the TEC rewrite co-install contract is pinned to exact WooCommerce 11.0.1'
+);
+$wooSourceHashes = [];
+foreach (($wooRewriteTopology['source_files'] ?? []) as $sourceFile) {
+    if (($sourceFile['plugin'] ?? null) === 'woocommerce') {
+        $wooSourceHashes[(string) ($sourceFile['path'] ?? '')] = $sourceFile['sha256'] ?? null;
+    }
+}
+duo_check_same(
+    [
+        'includes/class-woocommerce.php' =>
+            '2f3a95ae78217be16fa1f272c1fad4d3faecfd02939041a861d65826bb3f4cb7',
+        'src/Internal/Features/FeaturesController.php' =>
+            'c39f44ebd0928be1c3f3a5066422defa5623705dc44f440f4572595def5866b2',
+        'src/Internal/DataStores/Orders/DataSynchronizer.php' =>
+            'a10ff8e2e5820deeb5a032cccfc2ffca09a5134e3e87e388e0262a89a8805234',
+        'src/Internal/DataStores/Orders/CustomOrdersTableController.php' =>
+            'b4d1a6772b064de9be6a80750074b0a9e371514f58131a1701cad6cd52ccb8bf',
+    ],
+    array_intersect_key($wooSourceHashes, array_fill_keys([
+        'includes/class-woocommerce.php',
+        'src/Internal/Features/FeaturesController.php',
+        'src/Internal/DataStores/Orders/DataSynchronizer.php',
+        'src/Internal/DataStores/Orders/CustomOrdersTableController.php',
+    ], true)),
+    'the exact Woo container and three no-op option services are source-hash bound'
+);
+duo_check_same(
+    [
+        [
+            'callback' => 'Automattic\\WooCommerce\\Internal\\Features\\FeaturesController::process_updated_option',
+            'priority' => 999,
+            'accepted_args' => 3,
+        ],
+        [
+            'callback' => 'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer::process_updated_option',
+            'priority' => 999,
+            'accepted_args' => 3,
+        ],
+        [
+            'callback' => 'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController::process_updated_option',
+            'priority' => 999,
+            'accepted_args' => 3,
+        ],
+        [
+            'callback' => 'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController::process_updated_option_fts_index',
+            'priority' => 999,
+            'accepted_args' => 3,
+        ],
+    ],
+    $wooRewriteTopology['woocommerce_normal_option_topology']['updated_option'] ?? null,
+    'the source fixture pins the exact four normal Woo updated-option callbacks'
+);
+duo_check_same(
+    [
+        [
+            'callback' => 'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController::process_pre_update_option',
+            'priority' => 999,
+            'accepted_args' => 3,
+        ],
+    ],
+    $wooRewriteTopology['woocommerce_normal_option_topology']['pre_update_option'] ?? null,
+    'the source fixture pins the exact normal Woo pre-update callback'
+);
+duo_check_same(
+    [
+        [
+            'callback' => 'Automattic\\WooCommerce\\Internal\\Features\\FeaturesController::process_added_option',
+            'priority' => 999,
+            'accepted_args' => 3,
+        ],
+        [
+            'callback' => 'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer::process_added_option',
+            'priority' => 999,
+            'accepted_args' => 2,
+        ],
+    ],
+    $wooRewriteTopology['woocommerce_normal_option_topology']['added_option'] ?? null,
+    'the source fixture pins the exact normal Woo add-option callbacks'
+);
 duo_check_same(
     ['6.9.2', '7.0.3', '7.1'],
     array_keys($optionHookFixture['source_files'] ?? []),
@@ -4181,6 +4272,17 @@ foreach ($lastSaveHookTopology as $lastSaveHook) {
 $nativeRewriteEffectSource = (string) file_get_contents(
     $root . '/agent/src/Rebuild/NativeRewriteEffects.php'
 );
+foreach (array_intersect_key($wooSourceHashes, array_fill_keys([
+    'includes/class-woocommerce.php',
+    'src/Internal/Features/FeaturesController.php',
+    'src/Internal/DataStores/Orders/DataSynchronizer.php',
+    'src/Internal/DataStores/Orders/CustomOrdersTableController.php',
+], true)) as $wooSourceHash) {
+    duo_check(
+        is_string($wooSourceHash) && str_contains($nativeRewriteEffectSource, $wooSourceHash),
+        'the shipped rewrite boundary cites each exact Woo service/bootstrap source hash it admits'
+    );
+}
 foreach ([
     'tribe_last_generate_rewrite_rules',
     'tribe_last_updated_option',
@@ -6826,6 +6928,170 @@ duo_check(
     'an extension of TEC recursive trigger filters refuses before rewrite mutation'
 );
 duo_check_same($flushesBeforeTrigger, $GLOBALS['wp_rewrite']->flushCalls, 'trigger-filter refusal executes no native callback');
+
+// Load Woo only at this product boundary: PHP cannot unload functions/classes,
+// and the earlier TEC-only cells intentionally prove the supported absent-
+// integration topology before this exact normal 11.0.1 co-install is visible.
+require_once __DIR__ . '/../../support/tec-woo-option-callbacks.php';
+$wooServices = tec_readiness_install_woo_option_callbacks();
+$GLOBALS['tec_readiness_woo_calls'] = [];
+$tecDb->update(
+    $optionsTable,
+    ['option_value' => serialize(['^woo-existing/?$' => 'index.php?woo=old'])],
+    ['option_name' => 'rewrite_rules']
+);
+$wooUpdatedReceipt = $nativeRewriteChild->invoke(null);
+duo_check_same(
+    true,
+    $wooUpdatedReceipt['verified'] ?? null,
+    'the exact normal Woo callback union permits the TEC rewrite product path'
+);
+$wooMarkerNames = [
+    'tribe_last_generate_rewrite_rules',
+    'tribe_last_updated_option',
+    'tribe_last_save_post',
+];
+$wooUpdatedMethods = [
+    \Automattic\WooCommerce\Internal\Features\FeaturesController::class
+        . '::process_updated_option',
+    \Automattic\WooCommerce\Internal\DataStores\Orders\DataSynchronizer::class
+        . '::process_updated_option',
+    \Automattic\WooCommerce\Internal\DataStores\Orders\CustomOrdersTableController::class
+        . '::process_updated_option',
+    \Automattic\WooCommerce\Internal\DataStores\Orders\CustomOrdersTableController::class
+        . '::process_updated_option_fts_index',
+];
+foreach ($wooUpdatedMethods as $method) {
+    foreach ($wooMarkerNames as $markerName) {
+        duo_check(
+            in_array([$method, $markerName], $GLOBALS['tec_readiness_woo_calls'], true),
+            "the exact normal Woo callback $method executes its source-proven no-op for $markerName"
+        );
+    }
+}
+duo_check_same(
+    false,
+    tribe_isset_var('should_delete_expired_transients'),
+    'the accepted Woo co-install does not weaken TEC local purge-flag restoration'
+);
+
+foreach ($wooMarkerNames as $markerName) {
+    $tecDb->delete($optionsTable, ['option_name' => $markerName]);
+}
+$tecDb->update(
+    $optionsTable,
+    ['option_value' => serialize(['^woo-absent/?$' => 'index.php?woo=old'])],
+    ['option_name' => 'rewrite_rules']
+);
+$GLOBALS['tec_readiness_woo_calls'] = [];
+$wooAddedReceipt = $nativeRewriteChild->invoke(null);
+duo_check_same(true, $wooAddedReceipt['verified'] ?? null, 'the Woo co-install permits absent marker add paths');
+foreach ([
+    \Automattic\WooCommerce\Internal\Features\FeaturesController::class
+        . '::process_added_option',
+    \Automattic\WooCommerce\Internal\DataStores\Orders\DataSynchronizer::class
+        . '::process_added_option',
+] as $method) {
+    foreach ($wooMarkerNames as $markerName) {
+        duo_check(
+            in_array([$method, $markerName], $GLOBALS['tec_readiness_woo_calls'], true),
+            "the exact normal Woo add callback $method executes its source-proven no-op for $markerName"
+        );
+    }
+}
+
+$foreignFeatures = new \Automattic\WooCommerce\Internal\Features\FeaturesController();
+remove_action('updated_option', [$wooServices['features'], 'process_updated_option'], 999);
+add_action('updated_option', [$foreignFeatures, 'process_updated_option'], 999, 3);
+$flushesBeforeForeignWoo = $GLOBALS['wp_rewrite']->flushCalls;
+$foreignWooFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $foreignWooFailure = $failure;
+}
+remove_action('updated_option', [$foreignFeatures, 'process_updated_option'], 999);
+add_action('updated_option', [$wooServices['features'], 'process_updated_option'], 999, 3);
+duo_check(
+    $foreignWooFailure instanceof RuntimeException
+        && str_contains($foreignWooFailure->getMessage(), 'extended or substituted updated-option callbacks'),
+    'a same-class foreign Woo callback refuses before TEC rewrite mutation'
+);
+duo_check_same(
+    $flushesBeforeForeignWoo,
+    $GLOBALS['wp_rewrite']->flushCalls,
+    'the same-class Woo callback refusal executes no native rewrite callback'
+);
+
+remove_action('added_option', [$wooServices['synchronizer'], 'process_added_option'], 999);
+$flushesBeforeMissingWoo = $GLOBALS['wp_rewrite']->flushCalls;
+$missingWooFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $missingWooFailure = $failure;
+}
+add_action('added_option', [$wooServices['synchronizer'], 'process_added_option'], 999, 2);
+duo_check(
+    $missingWooFailure instanceof RuntimeException
+        && str_contains($missingWooFailure->getMessage(), 'incomplete WooCommerce added_option callbacks'),
+    'an incomplete normal Woo add-option topology refuses before native mutation'
+);
+duo_check_same(
+    $flushesBeforeMissingWoo,
+    $GLOBALS['wp_rewrite']->flushCalls,
+    'the incomplete Woo topology does not start rewrite generation'
+);
+
+$settingsTracker = new WC_Settings_Tracking();
+add_action('update_option', [$settingsTracker, 'track_setting_change'], 10, 3);
+$flushesBeforeTracking = $GLOBALS['wp_rewrite']->flushCalls;
+$trackingFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $trackingFailure = $failure;
+}
+remove_action('update_option', [$settingsTracker, 'track_setting_change'], 10);
+duo_check(
+    $trackingFailure instanceof RuntimeException
+        && str_contains($trackingFailure->getMessage(), 'extended marker option topology'),
+    'request-conditional Woo settings tracking remains unsupported and refuses before mutation'
+);
+duo_check_same(
+    $flushesBeforeTracking,
+    $GLOBALS['wp_rewrite']->flushCalls,
+    'the request-conditional settings callback cannot execute rewrite or marker effects'
+);
+$trackingRetry = $nativeRewriteChild->invoke(null);
+duo_check_same(true, $trackingRetry['verified'] ?? null, 'removing request-conditional tracking permits retry');
+
+$canonicalWooContainer = $wooServices['container'];
+$driftWooContainer = static function () use ($wooServices): void {
+    $GLOBALS['wc_container'] = new \Automattic\WooCommerce\Container([
+        get_class($wooServices['features']) => $wooServices['features'],
+        get_class($wooServices['synchronizer']) => $wooServices['synchronizer'],
+        get_class($wooServices['custom_orders']) => $wooServices['custom_orders'],
+    ]);
+};
+add_action('generate_rewrite_rules', $driftWooContainer, 20, 1);
+$wooDriftFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $wooDriftFailure = $failure;
+}
+remove_action('generate_rewrite_rules', $driftWooContainer, 20);
+$GLOBALS['wc_container'] = $canonicalWooContainer;
+duo_check(
+    $wooDriftFailure instanceof RuntimeException
+        && str_contains($wooDriftFailure->getMessage(), 'could not restore The Events Calendar local runtime'),
+    'Woo container drift after prepare refuses the post-effect receipt during exact restoration'
+);
+$wooDriftRetry = $nativeRewriteChild->invoke(null);
+duo_check_same(true, $wooDriftRetry['verified'] ?? null, 'restoring the exact Woo container permits retry');
+
+tec_readiness_remove_woo_option_callbacks($wooServices);
 
 $tecEventColumns = [
     'event_id' => ['Type' => 'bigint(20) unsigned', 'Null' => 'NO', 'Default' => null, 'Extra' => 'auto_increment'],
