@@ -933,6 +933,7 @@ foreach ([
     'native rewrite callback identity differs from source services',
     '$GLOBALS["wc_container"]',
     'Tribe__Cache_Listener::instance()',
+    'The Events Calendar rewrite-generation callback differs from the cache-listener singleton',
     '"callbacks"=>"exact-singletons"',
     'Polylang dynamic rewrite callback differs from the directory links model',
     '.links_model=="PLL_Links_Directory"',
