@@ -188,7 +188,8 @@ $services = new ApplyServices(
             ?string $previous,
             string $context
         ): void {},
-    )
+    ),
+    '/fixture/repo'
 );
 
 /**

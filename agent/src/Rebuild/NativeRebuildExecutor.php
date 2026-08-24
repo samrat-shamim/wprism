@@ -10,6 +10,9 @@ if (!class_exists(Ledger::class, false)) {
 if (!class_exists(Db::class, false)) {
     require_once __DIR__ . '/../Kernel/Db.php';
 }
+if (!class_exists(AttachmentMaterializer::class, false)) {
+    require_once __DIR__ . '/../Apply/AttachmentMaterializer.php';
+}
 
 /**
  * Rebuilds WordPress-owned derived state after the authored transaction:
@@ -19,7 +22,11 @@ final class NativeRebuildExecutor {
     /** @var \Closure(string,string,int,string,?string,?string,string):void */
     private readonly \Closure $upsertMeta;
 
-    public function __construct(private readonly Policy $policy, \Closure $upsertMeta) {
+    public function __construct(
+        private readonly Policy $policy,
+        \Closure $upsertMeta,
+        private readonly ?AttachmentMaterializer $attachmentMaterializer = null
+    ) {
         $this->upsertMeta = $upsertMeta;
     }
 
@@ -99,40 +106,12 @@ final class NativeRebuildExecutor {
             }
         }
 
-        foreach (array_filter($attachmentIds) as $id) {
-            Db::checkpoint('rebuild attachment metadata');
-            try {
-                if (!function_exists('wp_generate_attachment_metadata')) {
-                    require_once ABSPATH . 'wp-admin/includes/image.php';
-                    require_once ABSPATH . 'wp-admin/includes/file.php';
-                    require_once ABSPATH . 'wp-admin/includes/media.php';
-                }
-                $file = get_attached_file($id);
-                if (!$file || !is_file($file)) {
-                    throw new \RuntimeException('attached file is missing');
-                }
-                $meta = wp_generate_attachment_metadata($id, $file);
-                if ($meta === false || is_wp_error($meta)) {
-                    throw new \RuntimeException('metadata generator reported failure');
-                }
-                if ($meta !== []) {
-                    ($this->upsertMeta)(
-                        $wpdb->postmeta,
-                        'post_id',
-                        (int) $id,
-                        '_wp_attachment_metadata',
-                        maybe_serialize($meta),
-                        'rebuild attachment metadata',
-                        'meta_id'
-                    );
-                }
-            } catch (\Throwable $t) {
-                throw new \RuntimeException(
-                    "duo: required attachment metadata rebuild failed for attachment $id",
-                    0,
-                    $t
-                );
+        if (array_filter($attachmentIds) !== []) {
+            if ($this->attachmentMaterializer === null) {
+                throw new \RuntimeException('duo: attachment metadata rebuild lacks its durable materializer');
             }
+            Db::checkpoint('rebuild attachment metadata');
+            $this->attachmentMaterializer->finalize_native_metadata($attachmentIds);
         }
     }
 

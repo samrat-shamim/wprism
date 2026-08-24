@@ -61,7 +61,7 @@ $tokens = (new ReflectionClass(Tokens::class))->newInstanceWithoutConstructor();
 $fieldMaterializer = new ApplyFieldMaterializer($policy, $tokens);
 $relationshipMaterializer = new RelationshipMaterializer($policy, $fieldMaterializer);
 $compiled = (new ReflectionClass(CompiledRepository::class))->newInstanceWithoutConstructor();
-$attachmentMaterializer = new AttachmentMaterializer($fieldMaterializer, $compiled);
+$attachmentMaterializer = new AttachmentMaterializer($fieldMaterializer, $compiled, '/fixture/repository');
 $postMaterializer = new PostMaterializer($policy, $tokens, $fieldMaterializer, $relationshipMaterializer, $attachmentMaterializer);
 
 $check($postMaterializer instanceof PostMaterializer, 'PostMaterializer is directly constructible with (Policy, Tokens, ApplyFieldMaterializer, RelationshipMaterializer, AttachmentMaterializer)');

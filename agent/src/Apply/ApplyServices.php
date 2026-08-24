@@ -63,7 +63,8 @@ final class ApplyServices {
     public function __construct(
         private readonly Policy $policy,
         private readonly CompiledRepository $compiled,
-        private readonly ApplyServiceCallbacks $callbacks
+        private readonly ApplyServiceCallbacks $callbacks,
+        private readonly string $repositoryRoot
     ) {
         $this->tokens = new Tokens();
         $this->tokens->policy = $policy;
@@ -125,7 +126,8 @@ final class ApplyServices {
     public function attachment_materializer(): AttachmentMaterializer {
         return $this->attachmentMaterializer ??= new AttachmentMaterializer(
             $this->field_materializer(),
-            $this->compiled
+            $this->compiled,
+            $this->repositoryRoot
         );
     }
 
@@ -181,7 +183,8 @@ final class ApplyServices {
     public function native_rebuild_executor(): NativeRebuildExecutor {
         return $this->nativeRebuildExecutor ??= new NativeRebuildExecutor(
             $this->policy,
-            $this->callbacks->upsertMeta
+            $this->callbacks->upsertMeta,
+            $this->attachment_materializer()
         );
     }
 
@@ -217,6 +220,7 @@ final class ApplyServices {
             $this->entity_adopter(),
             $this->term_materializer(),
             $this->post_materializer(),
+            $this->attachment_materializer(),
             $this->menu_materializer(),
             $this->options_materializer(),
             $this->user_meta_materializer(),

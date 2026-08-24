@@ -719,7 +719,7 @@
             ]
           }
         ],
-        "file_count": 29,
+        "file_count": 31,
         "files": [
           "Apply.php",
           "ApplyFieldMaterializer.php",
@@ -734,7 +734,9 @@
           "ApplyServiceCallbacks.php",
           "ApplyServices.php",
           "ApplyWorkset.php",
+          "AttachmentFilesystemTransaction.php",
           "AttachmentMaterializer.php",
+          "AttachmentNativeMetadataGenerator.php",
           "AuthoredTransactionExecutor.php",
           "AuthoredTransactionRequest.php",
           "CacheInvalidationTransaction.php",

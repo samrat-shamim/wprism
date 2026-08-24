@@ -9,6 +9,7 @@ require_once __DIR__ . '/EntityAdopter.php';
 require_once __DIR__ . '/MenuMaterializer.php';
 require_once __DIR__ . '/OptionsMaterializer.php';
 require_once __DIR__ . '/PostMaterializer.php';
+require_once __DIR__ . '/AttachmentMaterializer.php';
 require_once __DIR__ . '/../Adapter/ProviderActionBatchBuilder.php';
 require_once __DIR__ . '/../Rebuild/RegenerationContextStore.php';
 require_once __DIR__ . '/../Scope/ScopedApply.php';
@@ -62,6 +63,7 @@ final class AuthoredTransactionExecutor {
         private readonly EntityAdopter $adopter,
         private readonly TermMaterializer $termMaterializer,
         private readonly PostMaterializer $postMaterializer,
+        private readonly AttachmentMaterializer $attachmentMaterializer,
         private readonly MenuMaterializer $menuMaterializer,
         private readonly OptionsMaterializer $optionsMaterializer,
         private readonly UserMetaMaterializer $userMetaMaterializer,
@@ -97,7 +99,7 @@ final class AuthoredTransactionExecutor {
         $scopeContract = $request->scopeContract;
         $performTransaction = $request->performTransaction;
         $defaultAuthor = $request->defaultAuthor;
-        $attachmentIds = [];
+        $attachmentIds = $this->attachmentMaterializer->pending_attachment_ids();
         $regenContext = [];
         if ($scoped && !$performTransaction) {
             return ['attachment_ids' => $attachmentIds, 'regen_context' => $regenContext];
@@ -115,6 +117,7 @@ final class AuthoredTransactionExecutor {
         $transactionStarted = false;
         Canary::arm();
         try {
+            $this->attachmentMaterializer->prepare_filesystem($work, $tree);
             Db::start_repeatable_read('apply transaction start');
             $transactionStarted = true;
             $this->fieldMaterializer->begin_authored_transaction();
@@ -283,6 +286,12 @@ final class AuthoredTransactionExecutor {
                 }
             }
 
+            // The durable marker binds the complete registered attachment
+            // UUID=>post-ID mapping. Its write belongs to this same authored
+            // transaction; filesystem publication cannot start before the
+            // commit outcome is confirmed below.
+            $this->attachmentMaterializer->seal_authored_transaction();
+
             $violations = Canary::violations();
             if ($violations) {
                 throw new \RuntimeException(
@@ -296,6 +305,8 @@ final class AuthoredTransactionExecutor {
             $transactionStarted = false;
             $postCommitFailures = [];
             foreach ([
+                'attachment-filesystem' => fn(): mixed =>
+                    $this->attachmentMaterializer->commit_authored_transaction(),
                 'options-participant' => fn(): mixed => $this->optionsMaterializer->commit_authored_transaction(),
                 'cache-purge' => static fn(): mixed => CacheInvalidationTransaction::finish(),
             ] as $label => $participant) {
@@ -319,6 +330,20 @@ final class AuthoredTransactionExecutor {
                 );
             }
         } catch (\Throwable $failure) {
+            if (!$transactionStarted) {
+                try {
+                    $this->attachmentMaterializer->rollback_prepared_filesystem();
+                } catch (\Throwable $preparationFailure) {
+                    Canary::disarm();
+                    throw new \RuntimeException(
+                        'duo: attachment preparation cleanup failed before the authored transaction; recovery_required; '
+                        . 'original=' . self::failure_fingerprint($failure)
+                        . '; attachment=' . self::failure_fingerprint($preparationFailure),
+                        0,
+                        $failure
+                    );
+                }
+            }
             if ($transactionStarted) {
                 $transactionStateFailure = null;
                 $transactionActive = null;
@@ -367,12 +392,23 @@ final class AuthoredTransactionExecutor {
                 } catch (\Throwable $rollback) {
                     $rollbackFailure = $rollback;
                 }
+                $attachmentFailure = null;
+                if ($rollbackFailure === null) {
+                    try {
+                        $this->attachmentMaterializer->rollback_authored_transaction();
+                    } catch (\Throwable $attachmentRollbackFailure) {
+                        $attachmentFailure = $attachmentRollbackFailure;
+                    }
+                }
                 try {
                     CacheInvalidationTransaction::finish();
                 } catch (\Throwable $cachePurgeFailure) {
                     $cacheFailure = $cachePurgeFailure;
                 }
-                if ($participantFailure !== null || $rollbackFailure !== null || $cacheFailure !== null) {
+                if ($participantFailure !== null
+                    || $rollbackFailure !== null
+                    || $attachmentFailure !== null
+                    || $cacheFailure !== null) {
                     Canary::disarm();
                     if ($rollbackFailure instanceof DatabaseMutationException
                         && $participantFailure === null
@@ -383,6 +419,7 @@ final class AuthoredTransactionExecutor {
                     foreach ([
                         'participant' => $participantFailure,
                         'database-rollback' => $rollbackFailure,
+                        'attachment-filesystem' => $attachmentFailure,
                         'cache-purge' => $cacheFailure,
                     ] as $label => $recoveryFailure) {
                         if ($recoveryFailure instanceof \Throwable) {
@@ -407,6 +444,7 @@ final class AuthoredTransactionExecutor {
             $this->termMaterializer->end_authored_transaction();
             $this->fieldMaterializer->end_authored_transaction();
             $this->optionsMaterializer->end_authored_transaction();
+            $this->attachmentMaterializer->end_authored_transaction();
             SidebarState::end_authored_transaction();
             CacheInvalidationTransaction::end();
         }
