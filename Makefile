@@ -49,6 +49,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-refresh-compile-refs \
 	regress-refresh-rebase \
 	regress-refresh-field-diff \
+	regress-merge-check \
 	regress-environment-driver \
 	regress-environment-lifecycle \
 	regress-environment-materializer \
@@ -1947,6 +1948,13 @@ regress-refresh-rebase:
 regress-refresh-field-diff:
 	php sandbox/tests/offline/refresh/regress_refresh_field_diff.php
 
+# DUO merge-check: the env-free half of the merge story. Drives the real
+# `duo merge-check` executable against real Git fixtures, so the exit-code
+# contract a customer's CI binds to (0/1/2/3) is asserted as a process
+# result rather than as a return value.
+regress-merge-check:
+	php sandbox/tests/offline/refresh/regress_merge_check.php
+
 regress-rollback-authority:
 	php sandbox/tests/offline/recovery/regress_rollback_authority.php
 
@@ -2221,7 +2229,7 @@ regress-user-meta:
 # closed signed SSH crash-matrix evidence verifier.
 regress-offline-all:
 	@bash sandbox/tests/offline_diagnostics_guard.sh "$(MAKE)" --no-print-directory regress-offline-corpus
-	@echo "regress-offline-all: 290 offline suites green"
+	@echo "regress-offline-all: 291 offline suites green"
 
 regress-offline-corpus: code-half-unit \
 	regress-adopt-rollback regress-local-bootstrap regress-capture-publish regress-adapter-contract regress-adapter-sources regress-site-adapter-certification regress-ecosystem-adapter-batch regress-code-snippets-state-provider regress-yoast-duplicate-post-role-provider regress-yoast-index-provider regress-elementor-css-provider regress-adapter-production-readiness regress-manifest-dispositions regress-platform-compatibility regress-topology-gate regress-interpreter-policy regress-proof-legacy-pair \
@@ -2231,7 +2239,7 @@ regress-offline-corpus: code-half-unit \
 	regress-dynamic-options-policy regress-option-name-reference-resolver regress-deletion-capability-resolver regress-taxonomy-pattern-resolver regress-taxonomy-keyspace-resolver regress-taxonomy-description-reference-resolver regress-taxonomy-object-type-option-resolver regress-widget-type-resolver regress-table-declaration-resolver regress-content-attribute-rule-resolver regress-policy-rule-resolver regress-exact-option-resolver regress-option-namespace-resolver regress-taxonomy-object-keyspace regress-env-options-policy regress-export-manifest-roundtrip regress-policy-writer regress-manifest-validator regress-site-policy-validator regress-policy-load-finalizer regress-artifact-policy-identity regress-compiled-artifact-reader regress-repository-media-catalog regress-repository-schema-validator regress-repository-deletion-parser regress-repository-entity-parser regress-repository-identity-registry regress-repository-reference-graph-validator regress-repository-portable-shape-validator regress-repository-menu-location-validator regress-repository-state-file-catalog regress-post-type-relation-resolver regress-shipped-option-declarations \
 	regress-manifest-reclassification-policy regress-menu-field-reclassification-policy \
 	regress-regen-dependency-policy regress-shortcode-refs regress-term-meta regress-url-query-refs \
-	regress-option-name-refs-wiring regress-natural-key-rename regress-classification-batch regress-refresh-orchestration regress-refresh-compile-refs regress-refresh-rebase regress-refresh-field-diff \
+	regress-option-name-refs-wiring regress-natural-key-rename regress-classification-batch regress-refresh-orchestration regress-refresh-compile-refs regress-refresh-rebase regress-refresh-field-diff regress-merge-check \
 	regress-coverage-offline regress-bundle-coverage regress-suite-wiring regress-fixture-makers regress-rollback-authority regress-recovery-transport regress-local-verified-rollback \
 	regress-recovery-executor regress-checkpoint-bundle regress-deploy-checkpoint regress-code-release regress-upload-bundle \
 	regress-effect-bundle regress-woocommerce-effect-contract regress-woocommerce-product-lookups \
@@ -2243,7 +2251,7 @@ regress-offline-corpus: code-half-unit \
 	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-elementor-dead-guard regress-elementor-matrix-reset regress-grind-r1c-manifest-preserve regress-observation-guards regress-live-exit-code-contract regress-target-observation-premises regress-bound-helper regress-control-plane-seams regress-recovery-protocol regress-scoped-apply-session regress-scoped-apply-live-cleanup regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-ssh-adopt-evidence-retention regress-scope-wire regress-manifest-grammar regress-compiled-artifact regress-code-descriptor-compiler regress-code-config-grammar regress-menu-materializer regress-adapter-registry regress-agent-src-requires regress-user-meta-materializer regress-pin-resolver regress-term-materializer regress-action-provider-grammar regress-options-materializer regress-cross-manifest-guards regress-relationship-materializer regress-attachment-materializer regress-post-materializer regress-sub-key-grammar regress-delete-executor regress-delete-guard-value-codec regress-delete-guard-evaluator regress-scope-discovery regress-table-graph regress-table-schema regress-snapshot-identity regress-typed-table-capture regress-typed-table-materializer regress-snapshot-pruner regress-taxonomy-grammar regress-option-reference-grammar regress-post-type-grammar regress-discovery-grammar regress-reference-keyspace-grammar regress-reference-kind-grammar regress-offline-diagnostics regress-promotion-abort-reason regress-delete-authorization-receipt \
 	regress-code-source-lock regress-code-lock-compile-gate regress-init-code-split regress-code-classify regress-code-resolve regress-code-resolve-push \
 	regress-code-import regress-checkpoint-prune
-	@echo "regress-offline-corpus: 289 offline suites green"
+	@echo "regress-offline-corpus: 290 offline suites green"
 
 regress-offline-diagnostics:
 	bash sandbox/tests/offline/guards/regress_offline_diagnostics.sh

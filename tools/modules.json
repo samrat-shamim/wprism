@@ -1285,6 +1285,7 @@
         "purpose": "The B/P/W refresh planner, field diff and local state materializer that reconciles git, production and working state.",
         "status": "populated",
         "entry_points": [
+          "MergeCheck",
           "Refresh",
           "RefreshFieldDiff"
         ],
@@ -1298,8 +1299,9 @@
           "agent:Scope"
         ],
         "exceptions": [],
-        "file_count": 4,
+        "file_count": 5,
         "files": [
+          "MergeCheck.php",
           "Refresh.php",
           "RefreshFieldDiff.php",
           "RefreshPlan.php",
@@ -1468,7 +1470,7 @@
           "agent:Policy"
         ],
         "exceptions": [],
-        "file_count": 28,
+        "file_count": 29,
         "files": [
           "AdoptCommand.php",
           "AssessCommand.php",
@@ -1487,6 +1489,7 @@
           "EnvironmentCommandPreflight.php",
           "EnvironmentListCommand.php",
           "InitCommand.php",
+          "MergeCheckCommand.php",
           "PassthroughCommand.php",
           "PendingCommand.php",
           "PromoteCommand.php",

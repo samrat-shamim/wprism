@@ -205,11 +205,21 @@ private exact-byte materialization input; object/list values are not
 normalized. Record-atomic rows use the same closed presence/equality vocabulary
 without publishing their semantic hashes.
 
-The narrow v1 field surface covers ordinary post scalar groups and term
-name/description/parent. A post body, attachment/media, menu/sidebar/options,
+The narrow v1 field surface covers ordinary post scalar groups, term
+name/description/parent, and whole top-level blocks of a post body. An
+attachment/media record, menu/sidebar/options,
 user metadata, typed table, tombstone, or opaque container remains a single
 record decision, so one interaction can include both field and record-atomic
-conflicts. A live B record with an absent P or W side is unavailable to field
+conflicts.
+
+A post body composes only when both sides left the block sequence alone —
+same block count, same block name at each position, same bytes between the
+blocks — and only by swapping whole top-level blocks. Two editors on different
+blocks of one page therefore keep both edits with nothing to answer. Anything
+else is one record decision under its own reason, so you can tell which
+happened: `body_changed` (not a block document), `body_structure_changed` (a
+block was added, removed, moved, or retyped), or `body_block_overlap` (you both
+changed the same block). Nothing is ever merged inside a block. A live B record with an absent P or W side is unavailable to field
 mode before any diff or choice is published; use the legacy whole-record
 resolver for that absence.
 
@@ -257,6 +267,84 @@ legacy `--resolve`; use one resolver
 contract per run. The materializer copies exact selected source token bytes
 into a branch-byte scaffold, then strict-compiles in the disposable worktree;
 it does not decode/re-encode a mixed post or term document.
+
+## Merge, with no environment at all
+
+`git merge` is still git's job. What Duo adds is the question you can only ask
+afterwards — *is the tree I now have coherent, and does it disagree with the
+other branch anywhere that matters?* — and `duo merge-check` answers it without
+an environment, a registry, or a transport. That matters most at exactly the
+moment every other verb refuses: you have just merged, production is behind a
+VPN you are not on, and the tree in front of you is the thing you need judged.
+
+```sh
+git merge feature/pricing-page
+duo merge-check
+```
+
+That is validation mode. It compiles the committed tree with the same
+repository compiler `duo capture` and `duo deploy` use, and refuses structural
+incoherence by name — two files claiming one uuid, a typed reference pointing
+at nothing, a media catalog entry that does not verify, a code lock digest that
+does not match. It prints the compiler's own diagnostic; nothing is
+paraphrased.
+
+Point it at a second ref to get the conflict report:
+
+```sh
+duo merge-check --ref=HEAD --against=origin/production
+```
+
+It compiles both refs and their merge base, runs the same B/P/W planner
+`duo refresh` runs, and prints the same five category counts and the same
+conflict rows — `--ref` is the "branch" side and `--against` is the
+"production" side, so `branch-only` still reads "changed only on mine".
+`--base=<ref>` overrides the computed merge base when the two branches have
+no useful common ancestor.
+
+### The exit-code contract
+
+This is the part a CI job binds to, so it is fixed:
+
+| code | meaning |
+| --- | --- |
+| 0 | compiled and coherent; with `--against`, zero conflicting entries |
+| 1 | refusal — the tree does not compile, or a ref does not resolve |
+| 2 | usage error |
+| 3 | the tree compiled and the plan is valid, and conflicts need a human |
+
+3 is an **answer**, not a failure. Under `--format=json` it emits the
+`duo-merge-check/v1` success document with `verdict: "conflicts"` — never a
+refusal envelope — so a pipeline can separate "a person owes me a merge
+decision" from "my checkout is broken" without reading prose. Every refusal
+does emit `duo-command-refusal/v1` under `--format=json`, so there is exactly
+one parseable document for every outcome.
+
+### Cross-branch plugin version skew
+
+Locked component versions are overwritten, never merged, so two branches can
+disagree about which WooCommerce a merged state tree was captured against.
+merge-check reads each ref's `code/duo-code.lock.json` and reports the
+difference as a warning in `code_skew[]`. It **warns and does not change the
+exit code**, matching `duo apply`, which warns on the same mismatch. The remedy
+is ordering: merge code first, run migrations, re-capture, then merge state.
+
+### What it deliberately does not do
+
+- **It never authorizes anything.** Its plan is marked advisory inside the
+  bytes its own `plan_hash` covers, so it cannot be confused with a refresh
+  plan and cannot drive `duo rebase`. Materializing against production stays
+  `duo rebase <production-env> --production-ref=<ref>`, which is authorized by
+  a live production read for a reason.
+- **It validates a committed ref.** With a dirty canonical partition it refuses
+  and tells you to commit the merge — compiling the last commit while your
+  `state/` holds uncommitted bytes would be a confidently wrong answer. A
+  completed `git merge` leaves you clean anyway.
+- **No field-level diff, and no scoped mode.** Both need evidence only a live
+  production export can produce. `duo refresh --field-diff` remains the field
+  surface.
+- **Conflicts are presented by WordPress identity, entity type and reason.**
+  Presenting them by URL and business consequence is not shipped.
 
 ## Plan and status
 

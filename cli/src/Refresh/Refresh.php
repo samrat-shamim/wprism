@@ -216,10 +216,12 @@ final class Refresh {
                 $journal->append($runId, 'field-policy-verified', [
                     'projection_hash' => $candidatePolicy['projection_hash'] ?? null,
                 ]);
+                self::assertAuthorizingPlan($prepared['plan']);
                 $receipt = self::planner('materializeFieldResolved', [
                     $prepared['plan'], $worktree, $fieldBundle, $fieldResolution,
                 ]);
             } else {
+                self::assertAuthorizingPlan($prepared['plan']);
                 $receipt = self::planner('materialize', [$prepared['plan'], $worktree, $resolution]);
             }
             if (!is_array($receipt)
@@ -735,7 +737,7 @@ final class Refresh {
      * `code_resolve_*` refusal rather than by a second offline mode invented
      * here.
      */
-    private static function materializeLockedCode(string $worktree): ?array {
+    public static function materializeLockedCode(string $worktree): ?array {
         $lock = CodeResolver::declaredLock($worktree);
         if ($lock === null) {
             return null;
@@ -891,6 +893,37 @@ final class Refresh {
         }
     }
 
+    /**
+     * Refuse to materialize from a plan that carries no production authority.
+     *
+     * `MergeCheck` assembles B/P/W entirely from Git refs and marks the
+     * result by putting `advisory: true` and `production_source: 'git-ref'`
+     * into the plan CONTEXT, which `RefreshPlan::plan()` folds into the bytes
+     * `plan_hash` covers (RefreshPlan.php:456-464 `$safeContext`) — so an
+     * advisory plan cannot be relabelled without changing its own hash, and
+     * an advisory `plan_hash` can never collide with a refresh one.
+     *
+     * This is belt-and-braces, deliberately. The structural fact that already
+     * makes the mistake impossible is that a plan never round-trips from
+     * disk: `RefreshRunJournal` has `writePlan()` (:1076) and no reader at
+     * all, so the only plan `rebase()` can materialize is the one its own
+     * `prepare()` just built from a live `refresh-export`. This guard states
+     * that invariant positively at the two entries that write, so a future
+     * `--continue`/`--from-plan` path cannot acquire the hole by omission.
+     */
+    public static function assertAuthorizingPlan(array $plan): void {
+        $context = $plan['context'] ?? null;
+        if (!is_array($context)) {
+            return;
+        }
+        if (($context['advisory'] ?? null) === true || array_key_exists('production_source', $context)) {
+            throw new \RuntimeException(
+                'a merge-check plan is advisory and carries no production authority; '
+                . 'run duo rebase <production-env> --production-ref=<ref> to materialize'
+            );
+        }
+    }
+
     /** @param array<string,mixed> $plan @param array<string,mixed> $context */
     private static function assertPlanContext(array $plan, array $context): void {
         $actual = $plan['context'] ?? null;
@@ -911,7 +944,18 @@ final class Refresh {
         }
     }
 
-    private static function removeWorktree(string $root, string $path, bool $prune = true): void {
+    /**
+     * Public for its second caller, `MergeCheck::run()` (cli/src/Refresh/MergeCheck.php).
+     *
+     * This and the three helpers below are the transport-free half of this
+     * class: they run `git` in a child process and nothing else — no
+     * environment, no registry, no target. `merge-check` needs exactly that
+     * half and nothing above it, so promoting these four is the whole seam
+     * rather than a second copy of them living beside this file (AGENTS.md
+     * rule 9). Behaviour is unchanged and no diagnostic string moves; the
+     * only thing this edit changes is who may call them.
+     */
+    public static function removeWorktree(string $root, string $path, bool $prune = true): void {
         $result = self::run(['git', '-C', $root, 'worktree', 'remove', '--force', $path]);
         if ($result['exit'] !== 0 && (is_dir($path) || is_file($path . '/.git'))) {
             throw new \RuntimeException("could not remove refresh worktree '$path': " . self::reason($result));
@@ -921,8 +965,8 @@ final class Refresh {
         }
     }
 
-    /** @return array{exit:int,stdout:string,stderr:string} */
-    private static function run(array $command, ?string $cwd = null): array {
+    /** Transport-free; see removeWorktree(). @return array{exit:int,stdout:string,stderr:string} */
+    public static function run(array $command, ?string $cwd = null): array {
         $pipes = [];
         $proc = proc_open($command, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $cwd, null, ['bypass_shell' => true]);
         if (!is_resource($proc)) {
@@ -936,14 +980,16 @@ final class Refresh {
         return ['exit' => proc_close($proc), 'stdout' => $stdout, 'stderr' => $stderr];
     }
 
-    private static function git(string $cwd, array $args): void {
+    /** Transport-free; see removeWorktree(). */
+    public static function git(string $cwd, array $args): void {
         $result = self::run(array_merge(['git', '-C', $cwd], $args));
         if ($result['exit'] !== 0) {
             throw new \RuntimeException('git ' . implode(' ', $args) . ' failed: ' . self::reason($result));
         }
     }
 
-    private static function gitStdout(string $cwd, array $args): string {
+    /** Transport-free; see removeWorktree(). */
+    public static function gitStdout(string $cwd, array $args): string {
         $result = self::run(array_merge(['git', '-C', $cwd], $args));
         if ($result['exit'] !== 0) {
             throw new \RuntimeException('git ' . implode(' ', $args) . ' failed: ' . self::reason($result));

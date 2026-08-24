@@ -1984,9 +1984,24 @@ namespace {
     check(!str_contains($refreshScope['stdout'], 'PRODUCTION-REF-OMITTED')
         && !str_contains($refreshScope['stdout'], 'PRIVATE-SCOPE-OMITTED'),
         'scoped field-diff JSON refusal omits supplied production and scope inputs');
+    // `--format=json` WITHOUT `--field-diff` used to be an argument refusal:
+    // the machine caller could never read the semantic plan as a document at
+    // all. It is now a valid request that reaches the planner, so its refusal
+    // names the artifact that was unavailable instead of blaming the
+    // arguments — the distinction this check exists to hold.
+    $refreshPlanJson = $runHost([
+        'refresh', 'status-fixture', '--envs-file=' . $registry,
+        '--production-ref=PRIVATE-PRODUCTION-REF-OMITTED', '--format=json',
+    ], $tmp);
+    $refreshPlanJsonPayload = json_decode($refreshPlanJson['stdout'], true);
+    check($refreshPlanJson['status'] === 1 && $refreshPlanJson['stderr'] === ''
+        && is_array($refreshPlanJsonPayload)
+        && ($refreshPlanJsonPayload['reason_code'] ?? null) === 'plan_unavailable'
+        && !str_contains($refreshPlanJson['stdout'], 'PRIVATE-PRODUCTION-REF-OMITTED'),
+        'plan JSON without --field-diff refuses as an unavailable plan, not as invalid arguments');
     $refreshInvalid = $runHost([
         'refresh', 'status-fixture', '--envs-file=' . $registry,
-        '--production-ref=production', '--format=json',
+        '--production-ref=production', '--not-a-refresh-flag=1', '--format=json',
     ], $tmp);
     $refreshInvalidPayload = json_decode($refreshInvalid['stdout'], true);
     check($refreshInvalid['status'] === 1 && $refreshInvalid['stderr'] === ''
