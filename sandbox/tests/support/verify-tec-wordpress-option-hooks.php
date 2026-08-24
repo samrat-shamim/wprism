@@ -483,6 +483,90 @@ if ($tecRoot !== '' || $tecVersion !== '') {
         }
     }
 
+    $rewrite = $tecSources['src/Tribe/Rewrite.php'] ?? '';
+    $rewriteCompact = $compactPhp($rewrite);
+    $rewriteHooks = $compactPhp(tec_option_function_body($rewrite, 'add_hooks'));
+    $rewriteConsumer = $compactPhp(tec_option_function_body($rewrite, 'maybe_delayed_flush_rewrite_rules'));
+    foreach ([
+        [
+            $rewriteCompact,
+            "constKEY_DELAYED_FLUSH_REWRITE_RULES='_tribe_events_delayed_flush_rewrite_rules';",
+            'delayed rewrite transient identity',
+        ],
+        [
+            $rewriteHooks,
+            "add_action('wp_loaded',[$" . "this,'maybe_delayed_flush_rewrite_rules']);",
+            'delayed rewrite request hook',
+        ],
+        [
+            $rewriteConsumer,
+            'tribe_is_truthy(get_transient(static::KEY_DELAYED_FLUSH_REWRITE_RULES))',
+            'delayed rewrite transient read',
+        ],
+        [
+            $rewriteConsumer,
+            'delete_transient(static::KEY_DELAYED_FLUSH_REWRITE_RULES);',
+            'delayed rewrite transient consumption',
+        ],
+        [$rewriteConsumer, 'flush_rewrite_rules();', 'delayed rewrite terminal effect'],
+    ] as [$body, $needle, $label]) {
+        if (!str_contains($body, $needle)) {
+            tec_option_usage("TEC $tecVersion lifecycle source lost exact $label");
+        }
+    }
+    $rewriteDelete = strpos(
+        $rewriteConsumer,
+        'delete_transient(static::KEY_DELAYED_FLUSH_REWRITE_RULES);'
+    );
+    $rewriteFlush = strpos($rewriteConsumer, 'flush_rewrite_rules();');
+    if ($rewriteDelete === false || $rewriteFlush === false || $rewriteDelete >= $rewriteFlush) {
+        tec_option_usage("TEC $tecVersion delayed rewrite transient is no longer consumed before its effect");
+    }
+
+    $eventsController = $compactPhp($tecSources['src/Events/Controller.php'] ?? '');
+    $onboarding = $tecSources['src/Events/Admin/Onboarding/Controller.php'] ?? '';
+    $onboardingHooks = $compactPhp(tec_option_function_body($onboarding, 'add_actions'));
+    $onboardingConsumer = $compactPhp(
+        tec_option_function_body($onboarding, 'maybe_redirect_to_guided_setup_on_activation')
+    );
+    foreach ([
+        [
+            $eventsController,
+            '[Admin_Onboarding_Controller::class]',
+            'onboarding controller registration',
+        ],
+        [
+            $onboardingHooks,
+            "add_action('tec_admin_headers_about_to_be_sent',[$" . "this,'maybe_redirect_to_guided_setup_on_activation']);",
+            'activation redirect request hook',
+        ],
+        [
+            $onboardingConsumer,
+            "get_transient('_tribe_events_activation_redirect')",
+            'activation redirect transient read',
+        ],
+        [
+            $onboardingConsumer,
+            "null!==tec_get_request_var('activate-multi')",
+            'bulk activation terminal branch',
+        ],
+        [
+            $onboardingConsumer,
+            '!current_user_can(tribe(Landing_Page::class)->required_capability())',
+            'eligible-admin consumption guard',
+        ],
+    ] as [$body, $needle, $label]) {
+        if (!str_contains($body, $needle)) {
+            tec_option_usage("TEC $tecVersion lifecycle source lost exact $label");
+        }
+    }
+    if (substr_count(
+        $onboardingConsumer,
+        "delete_transient('_tribe_events_activation_redirect');"
+    ) !== 2) {
+        tec_option_usage("TEC $tecVersion activation redirect transient terminal branches drifted");
+    }
+
     $abstractDeactivation = $tecSources['common/src/Tribe/Abstract_Deactivation.php'] ?? '';
     $abstractDispatch = $compactPhp(tec_option_function_body($abstractDeactivation, 'deactivate'));
     $abstractRewrite = $compactPhp(tec_option_function_body($abstractDeactivation, 'flush_rewrite_rules'));
@@ -612,6 +696,22 @@ if ($tecRoot !== '' || $tecVersion !== '') {
             'single_site_transients' => [
                 '_tribe_events_delayed_flush_rewrite_rules' => ['yes', 0],
                 '_tribe_events_activation_redirect' => [1, 30],
+            ],
+            'transient_ownership' => [
+                '_tribe_events_delayed_flush_rewrite_rules' => [
+                    'ownership' => 'runtime/request-consumed',
+                    'consumer' => 'Tribe__Events__Rewrite::maybe_delayed_flush_rewrite_rules',
+                    'hook' => 'wp_loaded',
+                    'terminal' => 'delete transient before flush_rewrite_rules on the next loaded request',
+                    'stable_portable_receipt' => false,
+                ],
+                '_tribe_events_activation_redirect' => [
+                    'ownership' => 'runtime/request-consumed',
+                    'consumer' => 'TEC\\Events\\Admin\\Onboarding\\Controller::maybe_redirect_to_guided_setup_on_activation',
+                    'hook' => 'tec_admin_headers_about_to_be_sent',
+                    'terminal' => 'delete on bulk activation or the next eligible admin-header request; otherwise expire after 30 seconds',
+                    'stable_portable_receipt' => false,
+                ],
             ],
             'clears_legacy_ct1_transient' => 'tec_custom_tables_v1_initialized',
         ],

@@ -3221,6 +3221,8 @@ duo_check_same(
         'src/Events/Custom_Tables/V1/Models/Builder.php',
         'src/Events/Custom_Tables/V1/Events/Occurrences/Occurrences_Generator.php',
         'src/Events/Custom_Tables/V1/Provider.php',
+        'src/Events/Admin/Onboarding/Controller.php',
+        'src/Events/Controller.php',
         'src/Tribe/Aggregator.php',
         'src/Tribe/Aggregator/Record/Queue_Processor.php',
         'src/Tribe/Aggregator/Records.php',
@@ -3228,6 +3230,7 @@ duo_check_same(
         'src/Tribe/Deactivation.php',
         'src/Tribe/Event_Cleaner_Scheduler.php',
         'src/Tribe/Main.php',
+        'src/Tribe/Rewrite.php',
         'src/Tribe/Updater.php',
         'src/Tribe/Views/V2/Customizer/Hooks.php',
         'src/Tribe/Views/V2/Customizer/Section/Events_Bar.php',
@@ -3276,6 +3279,9 @@ foreach ([
     'register_activation_hook',
     'register_deactivation_hook',
     'clear_ct1_activation_state',
+    'maybe_delayed_flush_rewrite_rules',
+    'maybe_redirect_to_guided_setup_on_activation',
+    'runtime/request-consumed',
     'lifecycle schema-version reset drifted',
     'tribe_schedule_transient_purge',
     'tribe_aggregator_single_process_insert_records',
@@ -3289,6 +3295,39 @@ foreach ([
 }
 $lifecycleBoundary = $optionHookFixture['lifecycle_boundary'] ?? null;
 duo_check(is_array($lifecycleBoundary), 'the exact fixture carries the TEC lifecycle boundary');
+duo_check_same(
+    [
+        '_tribe_events_delayed_flush_rewrite_rules' => [
+            'ownership' => 'runtime/request-consumed',
+            'consumer' => 'Tribe__Events__Rewrite::maybe_delayed_flush_rewrite_rules',
+            'hook' => 'wp_loaded',
+            'terminal' => 'delete transient before flush_rewrite_rules on the next loaded request',
+            'stable_portable_receipt' => false,
+        ],
+        '_tribe_events_activation_redirect' => [
+            'ownership' => 'runtime/request-consumed',
+            'consumer' => 'TEC\\Events\\Admin\\Onboarding\\Controller::maybe_redirect_to_guided_setup_on_activation',
+            'hook' => 'tec_admin_headers_about_to_be_sent',
+            'terminal' => 'delete on bulk activation or the next eligible admin-header request; otherwise expire after 30 seconds',
+            'stable_portable_receipt' => false,
+        ],
+    ],
+    $lifecycleBoundary['activation']['transient_ownership'] ?? null,
+    'activation transients are exact request-consumed runtime rather than portable lifecycle receipts'
+);
+$lifecyclePolicy = Policy::load(null, ['core', 'the-events-calendar']);
+foreach ([
+    '_transient__tribe_events_delayed_flush_rewrite_rules',
+    '_transient_timeout__tribe_events_delayed_flush_rewrite_rules',
+    '_transient__tribe_events_activation_redirect',
+    '_transient_timeout__tribe_events_activation_redirect',
+] as $activationTransientRow) {
+    duo_check_same(
+        'derived',
+        $lifecyclePolicy->option_rule($activationTransientRow)['class'] ?? null,
+        "$activationTransientRow remains excluded by the core transient policy"
+    );
+}
 duo_check_same(
     [
         'tribe_schedule_transient_purge',
