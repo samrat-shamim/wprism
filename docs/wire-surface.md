@@ -181,7 +181,15 @@ and its cost are written down.
 
 **Reserved.** Closing the window is its own dated decision (spec/repo-format.md § v3.12), gated on no v2-declaring pinned manifests in the fleet plus at least one grammar section shipped post-v3 through `engine_features` with no version bump — the replacement proven before the thing it replaces is retired.
 
-### R-19 — The v2 authority record, and the four decisions it fixes at once
+### R-19 — Engine feature names are engine-owned, and permanent once declared
+
+**Shipped now.** This engine implements `spec-window/v1`. A manifest declares names through the top-level `engine_features` list; an engine lacking a listed name refuses THAT ADAPTER, naming the feature. An adapter declares a name and never mints one: a name nothing implements is refused as unimplemented rather than admitted as forward-looking.
+
+**Why it cannot change.** A declared feature name is inside the manifest bytes `ArtifactPolicyIdentity::manifest_rows()` folds into that adapter's `digest`, which every `site.duo.json` content pin and every certificate's `adapter.canonical_sha256` binds. Renaming or re-spelling a feature therefore moves the digest of every manifest that declares it and invalidates their pins and certificates at once — the same irreversibility R-17 records for `id_kind`, reached through a different door.
+
+**Reserved.** The `/vN` suffix is the change channel: a feature whose meaning moves is a NEW name implemented beside the old one, never an edit of it, so a manifest that declared the old name keeps its bytes and its digest.
+
+### R-20 — The v2 authority record, and the four decisions it fixes at once
 
 **Shipped now.** `duo-adapter-authorities/v2` records are `{adapter_names, algorithm, not_after, not_before, public_key, record_version, scope, status, trust_tiers}`, inside the envelope `{format, keys, signature}` whose `signature` is `{key_id, value}`. A key id must END in the first 12 hex characters of `sha256(public_key)`; an `adapter_names` entry is an exact name or a `<vendor>-*` namespace; the window is judged as R-14 states; and the envelope signature is made by a key the document itself carries. `record_version: 2` restates the envelope format inside every record, and a disagreement between the two refuses. v1 records and v1 documents keep today's behaviour byte for byte — the four rules read only a record that declared `record_version`.
 

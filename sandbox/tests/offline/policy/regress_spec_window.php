@@ -511,6 +511,16 @@ foreach (['agent', 'cli', 'recovery'] as $tree) {
 @mkdir($mutantRoot . '/tools', 0777, true);
 copy($repo . '/docs/wire-surface.md', $mutantRoot . '/docs/wire-surface.md');
 copy($repo . '/tools/wire-surface.php', $mutantRoot . '/tools/wire-surface.php');
+// WP-4.8's gate 6 reads the SHIPPED authorities document under --root, so the
+// copy must carry it or every --check below refuses on that gate before the
+// window gate's verdict is even reachable for the baseline/restore cases. The
+// file, not the whole manifests tree: this suite's subject is the window, and
+// the one document gate 6 names is the one document the copy needs.
+@mkdir($mutantRoot . '/manifests/capabilities', 0777, true);
+copy(
+    $repo . '/manifests/capabilities/adapter-authorities.json',
+    $mutantRoot . '/manifests/capabilities/adapter-authorities.json'
+);
 
 $baseline = $run([PHP_BINARY, $mutantRoot . '/tools/wire-surface.php', '--check', '--root=' . $mutantRoot]);
 duo_check_same(0, $baseline['exit'], 'the untouched copy passes the same check, so any refusal below is the mutation and nothing else');

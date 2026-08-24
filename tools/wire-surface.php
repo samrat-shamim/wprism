@@ -1075,6 +1075,14 @@ function ws_rows(): array {
         'reserved' => 'The `/vN` suffix is the change channel: a feature whose meaning moves is a NEW name '
             . 'implemented beside the old one, never an edit of it, so a manifest that declared the old name '
             . 'keeps its bytes and its digest.',
+    ];
+    // WP-4.8's rider authored this row as R-18 in its own worktree, unaware
+    // WP-4.2 had claimed R-18/R-19 in a sibling; the integrator renumbered it
+    // R-20 at merge. Register ids are ordinal bookkeeping, not signed wire —
+    // nothing on disk or in a certificate embeds them — so the renumber moves
+    // no identity; the generated document and its suites follow this constant.
+    $rows[] = [
+        'id' => 'R-20',
         'title' => 'The v2 authority record, and the four decisions it fixes at once',
         'now' => '`' . AdapterCertification::AUTHORITIES_FORMAT_V2 . '` records are '
             . ws_set($sets, 'AUTHORITY_RECORD_V2_KEYS') . ', inside the envelope '
