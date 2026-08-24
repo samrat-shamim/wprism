@@ -14,6 +14,9 @@ namespace {
     $GLOBALS['pll_command_throw'] = null;
     $GLOBALS['pll_after_command'] = null;
     $GLOBALS['pll_command_calls'] = [];
+    $GLOBALS['pll_child_calls'] = [];
+    $GLOBALS['pll_child_throw'] = null;
+    $GLOBALS['pll_child_result'] = null;
     $GLOBALS['pll_cache_deletes'] = [];
     $GLOBALS['pll_cache_delete_result'] = true;
     $GLOBALS['pll_option_cache'] = [];
@@ -341,6 +344,28 @@ namespace {
 namespace Duo {
     final class Policy {}
 
+    /**
+     * The generic transport owns process groups, concurrent pipe draining and
+     * limits. This product fixture records only the fixed caller contract so
+     * it can refuse a widened timeout/output boundary without reimplementing
+     * a second process fake (the generic transport suite covers descendants).
+     */
+    final class WpCliChildProcess {
+        /** @return array{return_code:int,stdout:string,stderr:string} */
+        public static function capture(
+            string $command,
+            int $timeoutSeconds,
+            int $stdoutLimit,
+            int $stderrLimit
+        ): array {
+            $GLOBALS['pll_child_calls'][] = [$command, $timeoutSeconds, $stdoutLimit, $stderrLimit];
+            if ($GLOBALS['pll_child_throw'] instanceof \Throwable) {
+                throw $GLOBALS['pll_child_throw'];
+            }
+            return $GLOBALS['pll_child_result'];
+        }
+    }
+
     final class Providers {
         public const SCOPED_OPERATION_FORMAT = 'duo-scoped-effect-operation/v1';
     }
@@ -545,6 +570,12 @@ namespace {
             'stdout' => 'DUO_PLL_NATIVE:' . base64_encode((string) json_encode($nativeProjection)) . "\n",
             'stderr' => '',
         ];
+        $GLOBALS['pll_child_result'] = [
+            'return_code' => 0,
+            'stdout' => 'DUO_PLL_NATIVE:' . base64_encode((string) json_encode($nativeProjection)) . "\n",
+            'stderr' => '',
+        ];
+        $GLOBALS['pll_child_throw'] = null;
         $GLOBALS['pll_after_command'] = static function (): void {
             $GLOBALS['pll_options']['rewrite_rules'] = [
                 '^fr/?$' => 'index.php?lang=fr',
@@ -552,6 +583,7 @@ namespace {
             ];
         };
         $GLOBALS['pll_command_calls'] = [];
+        $GLOBALS['pll_child_calls'] = [];
         $GLOBALS['pll_cache_deletes'] = [];
         $GLOBALS['pll_option_cache'] = [];
         $GLOBALS['pll_retain_theme_mod'] = false;
@@ -633,15 +665,14 @@ namespace {
         'receipt publishes bounded fingerprints rather than option contents'
     );
     duo_check(
-        count($GLOBALS['pll_command_calls']) === 2
+        count($GLOBALS['pll_command_calls']) === 1
             && ($GLOBALS['pll_command_calls'][0] ?? null) === [
                 'rewrite flush', ['launch' => true, 'return' => 'all', 'exit_error' => false],
             ]
-            && str_starts_with((string) ($GLOBALS['pll_command_calls'][1][0] ?? ''), 'eval ')
-            && ($GLOBALS['pll_command_calls'][1][1] ?? null) === [
-                'launch' => true, 'return' => 'all', 'exit_error' => false,
-            ],
-        'provider uses isolated native rewrite and fresh registry/catalog verification children'
+            && count($GLOBALS['pll_child_calls']) === 1
+            && str_starts_with((string) ($GLOBALS['pll_child_calls'][0][0] ?? ''), 'eval ')
+            && array_slice($GLOBALS['pll_child_calls'][0] ?? [], 1) === [120, 262144, 131072],
+        'provider uses a bounded fresh catalog-verification child with fixed process limits'
     );
     duo_check_same(
         [['rewrite_rules', 'options'], ['alloptions', 'options']],
@@ -654,6 +685,69 @@ namespace {
         'provider receipt excludes authored, target-owned, and rewrite-rule bytes'
     );
 
+    $provider = pll_reset();
+    $GLOBALS['pll_child_throw'] = new \RuntimeException('fixture transport timeout secret');
+    try {
+        $provider->invoke('synchronize_runtime', []);
+        duo_check(false, 'bounded catalog-child launch failure refuses');
+    } catch (\RuntimeException $e) {
+        duo_check(
+            $e->getMessage() === 'duo: Polylang native registry/catalog verification child could not start; recovery_required'
+                && $e->getPrevious() === null
+                && !str_contains($e->getMessage(), 'fixture transport timeout secret'),
+            'bounded catalog-child timeout failure stays redacted at the provider boundary'
+        );
+    }
+
+    $provider = pll_reset();
+    $GLOBALS['pll_child_result'] = [
+        'return_code' => 70,
+        'stdout' => 'child stdout secret',
+        'stderr' => 'child stderr secret',
+    ];
+    try {
+        $provider->invoke('synchronize_runtime', []);
+        duo_check(false, 'nonzero bounded catalog child refuses');
+    } catch (\RuntimeException $e) {
+        duo_check(
+            $e->getMessage() === 'duo: Polylang native registry/catalog verification child failed; recovery_required'
+                && !str_contains($e->getMessage(), 'secret'),
+            'nonzero bounded catalog child never exposes captured output'
+        );
+    }
+
+    $provider = pll_reset();
+    $GLOBALS['pll_child_result']['stderr'] = 'child stderr secret';
+    try {
+        $provider->invoke('synchronize_runtime', []);
+        duo_check(false, 'stderr-bearing bounded catalog child refuses');
+    } catch (\RuntimeException $e) {
+        duo_check(
+            $e->getMessage() === 'duo: Polylang native registry/catalog verification child failed; recovery_required'
+                && !str_contains($e->getMessage(), 'secret'),
+            'bounded catalog-child stderr is redacted from the provider refusal'
+        );
+    }
+
+    $validCatalogReceipt = $GLOBALS['pll_child_result']['stdout'];
+    foreach ([
+        "notice\n" . $validCatalogReceipt,
+        $validCatalogReceipt . "\n",
+        str_replace("\n", "\r\n", $validCatalogReceipt),
+        substr($validCatalogReceipt, 0, -1) . " \n",
+    ] as $label => $stdout) {
+        $provider = pll_reset();
+        $GLOBALS['pll_child_result']['stdout'] = $stdout;
+        duo_check_throws(
+            static fn(): array => $provider->invoke('synchronize_runtime', []),
+            \RuntimeException::class,
+            "catalog child noncanonical receipt #$label refuses before a provider receipt",
+            'recovery_required'
+        );
+    }
+
+    $provider = pll_reset();
+    $provider->invoke('synchronize_runtime', []);
     $GLOBALS['pll_after_command'] = static function (): void {};
     $idempotent = $provider->invoke('synchronize_runtime', []);
     duo_check(

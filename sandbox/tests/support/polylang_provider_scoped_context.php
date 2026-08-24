@@ -121,6 +121,38 @@ namespace Duo {
     final class Policy {
         public const SURFACE_PATTERN = '/^(post|term|table|option|entity):[a-z0-9][a-z0-9._-]{0,127}$/D';
     }
+
+    final class WpCliChildProcess {
+        /** @return array{return_code:int,stdout:string,stderr:string} */
+        public static function capture(
+            string $command,
+            int $timeoutSeconds,
+            int $stdoutLimit,
+            int $stderrLimit
+        ): array {
+            if (!str_starts_with($command, 'eval ')
+                || $timeoutSeconds !== 120
+                || $stdoutLimit !== 262144
+                || $stderrLimit !== 131072) {
+                throw new \RuntimeException('fixture received an invalid bounded catalog-child contract');
+            }
+            $projection = [
+                'registry' => [
+                    'raw_count' => 0,
+                    'raw_hash' => hash('sha256', serialize([])),
+                    'native_count' => 0,
+                    'native_hash' => hash('sha256', serialize([])),
+                ],
+                'catalogs' => [],
+            ];
+            return [
+                'return_code' => 0,
+                'stdout' => 'DUO_PLL_NATIVE:'
+                    . base64_encode((string) json_encode($projection)) . "\n",
+                'stderr' => '',
+            ];
+        }
+    }
 }
 
 namespace {

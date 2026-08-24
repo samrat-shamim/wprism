@@ -2,6 +2,11 @@
 namespace Duo\Providers;
 
 use Duo\Policy;
+use Duo\WpCliChildProcess;
+
+if (!class_exists(WpCliChildProcess::class, false)) {
+    require_once __DIR__ . '/../../agent/src/Kernel/WpCliChildProcess.php';
+}
 
 /**
  * Close Polylang's hook-free apply gap for its three derived projections.
@@ -482,37 +487,45 @@ if (is_array($projection)) {
 echo 'DUO_PLL_NATIVE:' . base64_encode(wp_json_encode($projection)) . "\n";
 PHP;
         try {
-            $result = \WP_CLI::runcommand('eval ' . escapeshellarg($code), [
-                'launch' => true,
-                'return' => 'all',
-                'exit_error' => false,
-            ]);
-        } catch (\Throwable $failure) {
+            // The projection is hashes/counts for at most 512 languages, so
+            // 256KiB admits every reviewed receipt while rejecting a plugin
+            // warning flood before WP-CLI's sequential return=all capture can
+            // deadlock or retain unbounded output (WP-CLI 2.12.0 :1607-1669).
+            $result = WpCliChildProcess::capture(
+                'eval ' . escapeshellarg($code),
+                120,
+                262144,
+                131072
+            );
+        } catch (\Throwable) {
             throw new \RuntimeException(
-                'duo: Polylang native registry/catalog verification child could not start',
-                0,
-                $failure
+                'duo: Polylang native registry/catalog verification child could not start; recovery_required'
             );
         }
-        if (!is_object($result)
-            || !is_int($result->return_code ?? null)
-            || !is_string($result->stdout ?? null)
-            || !is_string($result->stderr ?? null)
-            || $result->return_code !== 0
-            || $result->stderr !== '') {
+        if ($result['return_code'] !== 0 || $result['stderr'] !== '') {
             throw new \RuntimeException(
                 'duo: Polylang native registry/catalog verification child failed; recovery_required'
             );
         }
-        $line = rtrim($result->stdout, "\r\n");
+        $stdout = $result['stdout'];
+        if (!str_ends_with($stdout, "\n")
+            || str_contains(substr($stdout, 0, -1), "\n")
+            || str_contains($stdout, "\r")) {
+            throw new \RuntimeException(
+                'duo: Polylang native registry/catalog verification child returned no exact receipt; recovery_required'
+            );
+        }
+        $line = substr($stdout, 0, -1);
         if (!str_starts_with($line, self::WPML_CHILD_PREFIX)) {
             throw new \RuntimeException(
-                'duo: Polylang native registry/catalog verification child returned no exact receipt'
+                'duo: Polylang native registry/catalog verification child returned no exact receipt; recovery_required'
             );
         }
         $encoded = substr($line, strlen(self::WPML_CHILD_PREFIX));
         $json = base64_decode($encoded, true);
-        $observed = is_string($json) ? json_decode($json, true) : null;
+        $observed = is_string($json) && hash_equals(base64_encode($json), $encoded)
+            ? json_decode($json, true)
+            : null;
         if (!is_array($observed) || $observed !== $expected) {
             throw new \RuntimeException(
                 'duo: Polylang fresh native registry/catalog projection disagrees with exact persisted state; '
