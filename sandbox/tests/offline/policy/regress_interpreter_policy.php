@@ -202,6 +202,10 @@ $ownerState = (object) [
     'side_effects' => 0,
     'normalize_calls' => 0,
     'normalized' => null,
+    'projection_calls' => 0,
+    'projection_mode' => 'identity',
+    'projection_value' => null,
+    'projection_args' => null,
 ];
 $nonOwnerState = (object) ['calls' => 0, 'result' => true, 'side_effects' => 0];
 $ownerInterpreter = new class ($ownerState) {
@@ -228,6 +232,17 @@ $ownerInterpreter = new class ($ownerState) {
     ): array {
         ++$this->state->normalize_calls;
         return is_array($this->state->normalized) ? $this->state->normalized : $captured;
+    }
+    public function project_materialized_option_sub_keys(
+        string $name,
+        array $rawAuthored,
+        array $declaredSubKeys
+    ) {
+        ++$this->state->projection_calls;
+        $this->state->projection_args = [$name, $rawAuthored, $declaredSubKeys];
+        return $this->state->projection_mode === 'identity'
+            ? $rawAuthored
+            : $this->state->projection_value;
     }
 };
 $nonOwnerInterpreter = new class ($nonOwnerState) {
@@ -308,6 +323,78 @@ check_throws(
     'native capture normalization cannot turn authored presence into silent absence'
 );
 $ownerState->normalized = null;
+
+$ownerState->projection_mode = 'value';
+$ownerState->projection_value = ['portable' => 'canonical'];
+check(
+    $nativePolicy->project_materialized_option_sub_keys_via_interpreter(
+        'native_blob',
+        ['portable' => 'native-storage'],
+        $nativeRule,
+        'native-owner'
+    ) === ['portable' => 'canonical']
+        && $ownerState->projection_calls === 1
+        && $ownerState->projection_args === [
+            'native_blob',
+            ['portable' => 'native-storage'],
+            $nativeSubKeys,
+        ],
+    'the exact native owner may project only raw authored siblings through the declared sub-key roster'
+);
+
+$identityInterpreter = new class {
+    public function materialize_option_sub_keys(
+        string $name,
+        array $captured,
+        array $subKeys,
+        string $autoload,
+        ?array $targetValue,
+        \Closure $lockTargetOption,
+        \Closure $finalizeStorage,
+        \Closure $restoreStorage
+    ): bool {
+        return true;
+    }
+};
+$interpreterInstances->setValue($nativePolicy, [
+    'native-owner' => $identityInterpreter,
+    'hostile-non-owner' => $nonOwnerInterpreter,
+]);
+check(
+    $nativePolicy->project_materialized_option_sub_keys_via_interpreter(
+        'native_blob',
+        ['portable' => 'native-storage'],
+        $nativeRule,
+        'native-owner'
+    ) === ['portable' => 'native-storage'],
+    'an exact native owner with no optional projection method uses the identity projection'
+);
+$interpreterInstances->setValue($nativePolicy, [
+    'native-owner' => $ownerInterpreter,
+    'hostile-non-owner' => $nonOwnerInterpreter,
+]);
+
+foreach ([
+    'non-array' => [true, 'object-shaped array'],
+    'list' => [['unexpected-list-value'], 'object-shaped array'],
+    'added key' => [['portable' => 'native-storage', 'added' => true], 'preserve the exact authored key set'],
+    'dropped key' => [[], 'preserve the exact authored key set'],
+    'non-plain value' => [['portable' => new stdClass()], 'PHP object'],
+] as $case => [$projection, $message]) {
+    $ownerState->projection_value = $projection;
+    check_throws(
+        fn() => $nativePolicy->project_materialized_option_sub_keys_via_interpreter(
+            'native_blob',
+            ['portable' => 'native-storage'],
+            $nativeRule,
+            'native-owner'
+        ),
+        $message,
+        "native materialization projection refuses a $case"
+    );
+}
+$ownerState->projection_mode = 'identity';
+$ownerState->projection_value = null;
 
 $ownerState->calls = 0;
 $nonOwnerState->calls = 0;

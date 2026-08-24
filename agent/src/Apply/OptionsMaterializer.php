@@ -885,9 +885,55 @@ final class OptionsMaterializer {
                 $verifiedValue,
                 'native materialized target'
             );
+            $rawAuthored = [];
+            foreach ($subKeys as $subKey => $subRule) {
+                $key = (string) $subKey;
+                if (($subRule['class'] ?? null) === 'authored'
+                    && array_key_exists($key, $verifiedValue)) {
+                    $rawAuthored[$key] = $verifiedValue[$key];
+                }
+            }
+            $projectedAuthored = $this->policy->project_materialized_option_sub_keys_via_interpreter(
+                $name,
+                $rawAuthored,
+                $rule,
+                $ruleSource
+            );
+            // Projection is digest-bound but still arbitrary plugin PHP. It
+            // runs after the first finalized-row read because those raw
+            // authored values are its only input, so re-prove continuity and
+            // every byte witness after it returns. The comparisons below may
+            // use $verifiedValue only once this second proof establishes that
+            // the row and companions are unchanged.
+            DeleteGuardEvaluator::assert_transaction_isolation(
+                'native mixed-option post-projection verification'
+            );
+            foreach ($companionWitnesses as $companionName => $companionWitness) {
+                $currentCompanion = CacheInvalidationTransaction::lock_option_row(
+                    (string) $companionName,
+                    "native option materializer for '$name' companion post-projection verification"
+                );
+                if ($currentCompanion !== $companionWitness) {
+                    throw new \RuntimeException(
+                        "duo: native option materializer for '$name' changed a locked companion option"
+                    );
+                }
+            }
+            $postProjectionRow = CacheInvalidationTransaction::lock_option_row(
+                $name,
+                'native mixed-option post-projection raw storage verification'
+            );
+            if ($postProjectionRow === null
+                || !hash_equals($finalizedRow['option_name'], $postProjectionRow['option_name'])
+                || !hash_equals($finalizedRow['option_value'], $postProjectionRow['option_value'])
+                || !hash_equals($finalizedRow['autoload'], $postProjectionRow['autoload'])) {
+                throw new \RuntimeException(
+                    "duo: native option materializer for '$name' changed storage after finalization; recovery_required"
+                );
+            }
             foreach ($materialized as $subKey => $desiredValue) {
-                if (!array_key_exists($subKey, $verifiedValue)
-                    || $verifiedValue[$subKey] !== $desiredValue) {
+                if (!array_key_exists($subKey, $projectedAuthored)
+                    || $projectedAuthored[$subKey] !== $desiredValue) {
                     throw new \RuntimeException(
                         "duo: native option materializer for '$name' did not persist the exact authored group"
                     );

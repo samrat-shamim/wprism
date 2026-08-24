@@ -1043,6 +1043,10 @@ $nativeState = (object) [
     'write_primary' => true,
     'delete_before_finalize' => false,
     'transaction_after_setter' => null,
+    'projection_mode' => 'identity',
+    'projection_calls' => 0,
+    'projection_input' => null,
+    'mutate_target_sibling' => false,
 ];
 $nativeInterpreter = new class ($nativeState) {
     public function __construct(private object $state) {}
@@ -1077,7 +1081,18 @@ $nativeInterpreter = new class ($nativeState) {
             $wpdb->transactionState = $this->state->transaction_after_setter;
         }
         if ($this->state->write_primary) {
-            $writeStorage($captured);
+            $storage = $captured;
+            foreach ($subKeys as $subKey => $subRule) {
+                if (($subRule['class'] ?? null) !== 'authored'
+                    && is_array($targetValue)
+                    && array_key_exists((string) $subKey, $targetValue)) {
+                    $storage[(string) $subKey] = $targetValue[(string) $subKey];
+                }
+            }
+            if ($this->state->mutate_target_sibling) {
+                $storage['runtime'] = 'clobbered';
+            }
+            $writeStorage($storage);
         }
         if ($this->state->delete_before_finalize) {
             global $wpdb;
@@ -1088,12 +1103,47 @@ $nativeInterpreter = new class ($nativeState) {
         }
         return true;
     }
+
+    public function project_materialized_option_sub_keys(
+        string $name,
+        array $rawAuthored,
+        array $declaredSubKeys
+    ) {
+        ++$this->state->projection_calls;
+        $this->state->projection_input = [$name, $rawAuthored, $declaredSubKeys];
+        global $wpdb;
+        if ($this->state->projection_mode === 'restart-transaction') {
+            $wpdb->query('COMMIT');
+            $wpdb->query('START TRANSACTION');
+        } elseif ($this->state->projection_mode === 'rewrite-authored') {
+            $wpdb->optionRows[$name]['option_value'] = serialize([
+                'portable' => 'projection-rewrite',
+                'runtime' => 'keep',
+            ]);
+        } elseif ($this->state->projection_mode === 'rewrite-target') {
+            $wpdb->optionRows[$name]['option_value'] = serialize([
+                'portable' => 'desired',
+                'runtime' => 'projection-rewrite',
+            ]);
+        } elseif ($this->state->projection_mode === 'delete-primary') {
+            unset($wpdb->optionRows[$name]);
+        } elseif ($this->state->projection_mode === 'rewrite-companion') {
+            $wpdb->optionRows['pll_language_from_content_available']['option_value'] = 'no';
+        }
+        if ($this->state->projection_mode === 'mismatch') {
+            return array_replace($rawAuthored, ['portable' => 'projection-mismatch']);
+        }
+        return $rawAuthored;
+    }
 };
 $nativePolicy = new Policy();
 $nativeRule = [
     'class' => 'env',
     'closed_sub_keys' => true,
-    'sub_keys' => ['portable' => ['class' => 'authored']],
+    'sub_keys' => [
+        'portable' => ['class' => 'authored'],
+        'runtime' => ['class' => 'runtime'],
+    ],
     'autoload' => 'yes',
 ];
 $nativePolicy->manifests = [[
@@ -1104,7 +1154,10 @@ $nativePolicy->manifests = [[
         'native_blob' => [
             'class' => 'env',
             'closed_sub_keys' => true,
-            'sub_keys' => ['portable' => ['class' => 'authored']],
+            'sub_keys' => [
+                'portable' => ['class' => 'authored'],
+                'runtime' => ['class' => 'runtime'],
+            ],
         ],
         'pll_language_from_content_available' => ['class' => 'runtime'],
     ],
@@ -1201,6 +1254,114 @@ $check(
     $nativeState->setter_calls === 1,
     'an inserted exact-yes companion is observed only after its row lock and then permits native setters'
 );
+
+$wpdb->optionRows['native_blob'] = [
+    'option_value' => serialize(['portable' => 'old', 'runtime' => 'keep']),
+    'autoload' => 'yes',
+];
+$projectionMismatchBefore = $wpdb->optionRows;
+$nativeState->projection_mode = 'mismatch';
+$nativeState->projection_calls = 0;
+$nativeState->projection_input = null;
+try {
+    $invokeNative();
+    $projectionMismatchRefused = false;
+} catch (Throwable $failure) {
+    $projectionMismatchRefused = str_contains($failure->getMessage(), 'did not persist the exact authored group');
+}
+$nativeState->projection_mode = 'identity';
+$check(
+    $projectionMismatchRefused
+        && $nativeState->projection_calls === 1
+        && ($nativeState->projection_input[1] ?? null) === ['portable' => 'desired']
+        && ($nativeState->projection_input[2] ?? null) === $nativeRule['sub_keys']
+        && $wpdb->optionRows === $projectionMismatchBefore,
+    'native projection mismatch refuses and rolls storage back after receiving only finalized authored siblings'
+);
+
+$nativeState->mutate_target_sibling = true;
+$nativeState->projection_calls = 0;
+$nativeState->projection_input = null;
+try {
+    $invokeNative();
+    $projectedTargetMutationRefused = false;
+} catch (Throwable $failure) {
+    $projectedTargetMutationRefused = str_contains($failure->getMessage(), 'changed a target-owned sibling');
+}
+$nativeState->mutate_target_sibling = false;
+$check(
+    $projectedTargetMutationRefused
+        && $nativeState->projection_calls === 1
+        && ($nativeState->projection_input[1] ?? null) === ['portable' => 'desired']
+        && !array_key_exists('runtime', (array) ($nativeState->projection_input[1] ?? []))
+        && $wpdb->optionRows === $projectionMismatchBefore,
+    'an authored projection cannot hide raw mutation of a target-owned sibling, and rollback remains exact'
+);
+
+foreach ([
+    'rewrite-authored' => 'changed storage after finalization',
+    'rewrite-target' => 'changed storage after finalization',
+    'delete-primary' => 'changed storage after finalization',
+    'rewrite-companion' => 'changed a locked companion option',
+    'restart-transaction' => 'recovery_required',
+] as $projectionAttack => $expectedFailure) {
+    $wpdb->optionRows['native_blob'] = [
+        'option_value' => serialize(['portable' => 'old', 'runtime' => 'keep']),
+        'autoload' => 'yes',
+    ];
+    $wpdb->optionRows['pll_language_from_content_available'] = [
+        'option_value' => 'yes',
+        'autoload' => 'no',
+    ];
+    $attackBefore = $wpdb->optionRows;
+    $nativeState->projection_mode = $projectionAttack;
+    $nativeState->projection_calls = 0;
+    try {
+        $invokeNative();
+        $projectionAttackRefused = false;
+        $projectionAttackMessage = '';
+    } catch (Throwable $failure) {
+        $projectionAttackMessage = $failure->getMessage();
+        $projectionAttackRefused = str_contains($projectionAttackMessage, $expectedFailure);
+    }
+    $afterProjectionFailure = $wpdb->optionRows;
+    $nativeState->projection_mode = 'identity';
+
+    if ($projectionAttack === 'restart-transaction') {
+        // A callback that committed the authored transaction cannot be
+        // compensated in-process; the recovery_required result is the exact
+        // contract. Reset only this content-free fake before later cases.
+        $wpdb->optionRows = $attackBefore;
+        $wpdb->transactionState = '1';
+        $wpdb->last_error = '';
+        $fieldMaterializer->end_authored_transaction();
+        $fieldMaterializer->begin_authored_transaction();
+        $rollbackOutcomeExact = str_contains($projectionAttackMessage, 'recovery_required');
+    } elseif ($projectionAttack === 'rewrite-companion') {
+        // Plugin SQL is restored by the outer database ROLLBACK; this fake has
+        // no transactional row journal, so model that one outcome after
+        // proving the primary runtime/storage participant already restored.
+        $primaryRestored = ($afterProjectionFailure['native_blob'] ?? null)
+            === ($attackBefore['native_blob'] ?? null);
+        $wpdb->optionRows = $attackBefore;
+        $rollbackOutcomeExact = $primaryRestored && $wpdb->optionRows === $attackBefore;
+    } else {
+        // Re-inserting a deleted row changes this fake map's iteration order,
+        // not physical option identity or bytes. Compare the complete exact
+        // row set in canonical option-name order.
+        $orderedAfter = $afterProjectionFailure;
+        $orderedBefore = $attackBefore;
+        ksort($orderedAfter, SORT_STRING);
+        ksort($orderedBefore, SORT_STRING);
+        $rollbackOutcomeExact = $orderedAfter === $orderedBefore;
+    }
+    $check(
+        $projectionAttackRefused
+            && $nativeState->projection_calls === 1
+            && $rollbackOutcomeExact,
+        "projection callback $projectionAttack is caught by the post-projection proof without blessing stale bytes"
+    );
+}
 
 $exactMarkerRow = $wpdb->optionRows['pll_language_from_content_available'];
 unset($wpdb->optionRows['pll_language_from_content_available']);

@@ -1819,6 +1819,58 @@ final class Policy {
     }
 
     /**
+     * Project plugin-native stored authored siblings onto their canonical
+     * materialized comparison shape after a native mixed-option write.
+     *
+     * The exact native owner is resolved through materialize_option_sub_keys,
+     * so an optional projection hook inherits the same digest-bound authority.
+     * It receives no target-owned sibling bytes and may change values only:
+     * presence remains an engine-owned postcondition, and every returned value
+     * stays inside the bounded plain-data grammar.
+     */
+    public function project_materialized_option_sub_keys_via_interpreter(
+        string $name,
+        array $rawAuthored,
+        array $effectiveRule,
+        ?string $effectiveSource
+    ): array {
+        $candidate = $this->option_sub_key_interpreter_candidate(
+            $name,
+            $effectiveRule,
+            $effectiveSource,
+            'materialize_option_sub_keys',
+            'native materialization projection'
+        );
+        if ($candidate === null
+            || !method_exists($candidate['interpreter'], 'project_materialized_option_sub_keys')) {
+            return $rawAuthored;
+        }
+        $projected = $candidate['interpreter']->project_materialized_option_sub_keys(
+            $name,
+            $rawAuthored,
+            (array) ($effectiveRule['sub_keys'] ?? [])
+        );
+        if (!is_array($projected) || ($projected !== [] && array_is_list($projected))) {
+            throw new \RuntimeException(
+                "duo: interpreter '{$candidate['interpreter_name']}' project_materialized_option_sub_keys() "
+                . 'must return an object-shaped array'
+            );
+        }
+        PlainData::assert($projected, "interpreter-projected materialized option '$name'");
+        $rawKeys = array_keys($rawAuthored);
+        $projectedKeys = array_keys($projected);
+        sort($rawKeys, SORT_STRING);
+        sort($projectedKeys, SORT_STRING);
+        if ($rawKeys !== $projectedKeys) {
+            throw new \RuntimeException(
+                "duo: interpreter '{$candidate['interpreter_name']}' project_materialized_option_sub_keys() "
+                . "must preserve the exact authored key set for option '$name'"
+            );
+        }
+        return $projected;
+    }
+
+    /**
      * Exact target-owned companions a digest-bound native materializer must
      * observe. The engine resolves the full owner before calling this pure
      * roster hook so every row/gap can be locked in canonical byte order
