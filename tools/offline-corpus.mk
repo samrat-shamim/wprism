@@ -276,6 +276,7 @@ regress-offline-corpus: code-half-unit \
 	regress-site-policy-validator \
 	regress-snapshot-identity \
 	regress-snapshot-pruner \
+	regress-spec-v3-dry-run \
 	regress-ssh-adopt-evidence-retention \
 	regress-ssh-rollback-certification \
 	regress-state-handoff-verifier \
