@@ -111,7 +111,7 @@ knowing exactly what you are overriding — pass `--force-code-mismatch`.
 
 `outside_version_range` is the finding an ordinary WordPress auto-update
 produces, and its only two exits are heavy: widen the manifest's range (a
-reviewed edit across `manifests/<name>.json` and `manifests/dispositions.json`
+reviewed edit across `manifests/<name>.json` and `manifests/dispositions/<name>.json`
 that every deployed site then re-pins against) or force past it with no
 evidence at all. There is a third, and it is evidence-bound.
 

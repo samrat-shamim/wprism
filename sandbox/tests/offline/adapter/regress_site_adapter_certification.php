@@ -1874,8 +1874,8 @@ PHP
     // other. Both are certified, which is the harder case — a contaminating
     // read would go unnoticed if one of them were failing anyway.
     $shippedCoreCitation = Canon::decode(
-        Canon::read_file($integrationManifests . '/dispositions.json')
-    )['manifests']['core']['evidence'] ?? null;
+        Canon::read_file($integrationManifests . '/dispositions/core.json')
+    )['evidence'] ?? null;
     cert_check(
         ($mixedReport['evidence_scope'] ?? null) === 'per_subject'
         && $mixedReport['evidence'] === null

@@ -685,7 +685,7 @@ are rejected when the registry is loaded.
 
 - **`duo capabilities <env> [--operation=<op>] [--surface=<surface>]`
   `[--format=json]`** — resolves the repository's exact manifest pins against
-  [the reviewed dispositions](../manifests/dispositions.json). It evaluates the
+  [the reviewed dispositions](../manifests/dispositions/). It evaluates the
   adapter's authored status, the operation, the exact state surface, and the
   installed plugin version against the reviewed window. The document's
   `schema_version` is `duo-capability-report/v1` — the retired

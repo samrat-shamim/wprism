@@ -21,13 +21,13 @@ declare(strict_types=1);
  * gone. The single source is now exactly four files:
  *
  *   manifests/*.json                      what each adapter DECLARES it covers
- *   manifests/dispositions.json           the reviewed status/reason per manifest
+ *   manifests/dispositions/<name>.json    the reviewed status/reason per manifest
  *   manifests/capabilities/platform.json  the one platform/environment boundary
  *   agent/duo.php                         DUO_AGENT_VERSION / DUO_SPEC_VERSION
  *
  * So a status in the generated document now means: declared by the manifest,
- * reviewed into dispositions.json by a human who wrote down why, and exercised
- * by the named conformance suites against a live pair. It does NOT mean a
+ * reviewed into manifests/dispositions/ by a human who wrote down why, and
+ * exercised by the named conformance suites against a live pair. It does NOT mean a
  * bundle digest binds that claim to a closure, an artifact set, or a specific
  * run. No sentence emitted here may imply otherwise -- capdoc_preamble() and
  * capdoc_readme_block() hold the wording that states the narrowing, and are
@@ -90,7 +90,8 @@ const CAPDOC_README_FILE = '/README.md';
 const CAPDOC_README_BEGIN = '<!-- BEGIN GENERATED CAPABILITY SUMMARY -->';
 const CAPDOC_README_END = '<!-- END GENERATED CAPABILITY SUMMARY -->';
 const CAPDOC_MANIFEST_DIR = '/manifests';
-const CAPDOC_DISPOSITIONS_FILE = '/manifests/dispositions.json';
+const CAPDOC_DISPOSITIONS_DIR = '/manifests/dispositions';
+const CAPDOC_DISPOSITIONS_PROFILES = 'profiles';
 const CAPDOC_PLATFORM_FILE = '/manifests/capabilities/platform.json';
 const CAPDOC_BASELINE_FILE = '/docs/compatibility-baseline.json';
 const CAPDOC_DISPOSITIONS_FORMAT = 'duo-manifest-dispositions/v1';
@@ -133,7 +134,15 @@ function capdoc_manifests(string $dir): array {
     foreach (glob(rtrim($dir, '/') . '/*.json') ?: [] as $file) {
         $name = basename($file, '.json');
         if ($name === 'dispositions') {
-            continue;
+            // Refused, not skipped. WP-4.4 moved the reviewed claim source to
+            // manifests/dispositions/ and the agent now refuses a library that
+            // still carries this file (ManifestDispositions::load()); skipping
+            // it here — the pre-split behaviour — would let `make
+            // release-gate` pass over a library no agent will load.
+            throw new RuntimeException(
+                'manifests/dispositions.json is the pre-split reviewed claim source and is no longer read; the '
+                . 'reviewed entries live one per adapter under ' . CAPDOC_DISPOSITIONS_DIR . '/'
+            );
         }
         $manifest = capdoc_read_json($file);
         // This file keys the library by FILE BASENAME — capdoc_cross_check()
@@ -157,19 +166,38 @@ function capdoc_manifests(string $dir): array {
     return $out;
 }
 
+/**
+ * The reviewed claim source, reassembled from its per-subject documents.
+ *
+ * WP-4.4 moved it out of one `dispositions.json` and into one document per
+ * adapter (spec/repo-format.md § v3.4). This projector reads the directory
+ * ITSELF rather than calling ManifestDispositions::load(), for the reason the
+ * header states about every other input here: `make release-gate` must be able
+ * to refuse a library the agent would reject, and a generator that shares the
+ * agent's reader can only ever agree with it. What it must NOT do is drift on
+ * the reassembly — the shape below is exactly what the agent's data() returns,
+ * so `capdoc_cross_check()` and every projection over it read the same array
+ * they read before the split, which is why the generated document is
+ * byte-identical across the move.
+ */
 function capdoc_dispositions(string $repo): array {
-    $data = capdoc_read_json($repo . CAPDOC_DISPOSITIONS_FILE);
-    $keys = array_keys($data);
-    sort($keys, SORT_STRING);
-    if ($keys !== ['format', 'manifests', 'profiles']
-        || ($data['format'] ?? null) !== CAPDOC_DISPOSITIONS_FORMAT
-        || !is_array($data['manifests']) || array_is_list($data['manifests'])
-        || !is_array($data['profiles'])
-        || (array_is_list($data['profiles']) && $data['profiles'] !== [])) {
-        throw new RuntimeException(
-            'manifests/dispositions.json must contain exactly format, manifests, and profiles for '
-            . CAPDOC_DISPOSITIONS_FORMAT
-        );
+    $dir = $repo . CAPDOC_DISPOSITIONS_DIR;
+    if (!is_dir($dir)) {
+        throw new RuntimeException('missing reviewed claim source directory: ' . CAPDOC_DISPOSITIONS_DIR);
+    }
+    $data = ['format' => CAPDOC_DISPOSITIONS_FORMAT, 'manifests' => [], 'profiles' => []];
+    foreach (glob($dir . '/*.json') ?: [] as $file) {
+        $name = basename($file, '.json');
+        if ($name === CAPDOC_DISPOSITIONS_PROFILES) {
+            $profiles = capdoc_read_json($file);
+            $data['profiles'] = $profiles;
+            continue;
+        }
+        $data['manifests'][$name] = capdoc_read_json($file);
+    }
+    ksort($data['manifests'], SORT_STRING);
+    if ($data['manifests'] === []) {
+        throw new RuntimeException(CAPDOC_DISPOSITIONS_DIR . '/ declares no reviewed adapter');
     }
     return $data;
 }
@@ -476,7 +504,7 @@ function capdoc_preamble(array $platform): string {
     return 'Duo agent **' . $platform['agent_version'] . '** / repo spec **' . $platform['spec_version']
         . "**. This document is the whole of what Duo claims; nothing outside it is supported.\n\n"
         . '**How to read a claim.** Each adapter below is *manifest-declared* — its own `manifests/<name>.json` '
-        . 'states the exact surfaces it covers — *disposition-reviewed* — `manifests/dispositions.json` records a '
+        . 'states the exact surfaces it covers — *disposition-reviewed* — `manifests/dispositions/` records a '
         . 'status and the written reason a reviewer gave it — and *conformance-tested*, by the named suites running '
         . 'against a live WordPress pair in the sandbox. A status is that review plus those runs. It is **not** an '
         . 'attestation: no digest binds a claim here to a particular closure, artifact set, or test run, so treat '
@@ -587,7 +615,7 @@ function capdoc_manifest_section(
         ? 'none stated'
         : implode(', ', $unsupportedDeletes)) . "\n";
 
-    // dispositions.json still carries the suite names each reviewed claim was
+    // the reviewed entries still carry the suite names each reviewed claim was
     // exercised by. They are named here because "conformance-tested" is only a
     // checkable statement if the reader can see which runs are meant.
     $tests = $entry['evidence']['tests'] ?? null;
@@ -656,7 +684,7 @@ function capdoc_profiles_section(array $profiles, array $platform): string {
 /** @param array<string,array> $manifests */
 function capdoc_doc(array $manifests, array $dispositions, array $platform): string {
     $out = "# Duo capability boundary\n\n";
-    $out .= '<!-- Generated by tools/capability-doc.php from manifests/*.json + manifests/dispositions.json; '
+    $out .= '<!-- Generated by tools/capability-doc.php from manifests/*.json + manifests/dispositions/*.json; '
         . "do not hand-edit. Run `php tools/capability-doc.php generate` after changing either. -->\n\n";
     $out .= capdoc_preamble($platform) . "\n";
     $out .= capdoc_platform_section($platform) . "\n";
@@ -694,7 +722,7 @@ function capdoc_readme_block(array $manifests, array $dispositions, array $platf
         . "<!-- Generated by tools/capability-doc.php; do not hand-edit. -->\n\n"
         . "| Manifest | Status | Plugin | Version range |\n|---|---|---|---|\n" . $rows . "\n"
         . "Every claim above is declared by the adapter's own manifest, reviewed into "
-        . '`manifests/dispositions.json` with a written reason, and exercised by named conformance suites against a '
+        . '`manifests/dispositions/` with a written reason, and exercised by named conformance suites against a '
         . 'live WordPress pair — a reviewed, tested declaration rather than an attestation sealed to a '
         . 'content-addressed evidence bundle. Outside a declared surface, version range, or operation Duo refuses '
         . 'by default instead of guessing; the exact surfaces, operations, and explicit unsupported boundaries are '

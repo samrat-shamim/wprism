@@ -44,7 +44,7 @@ These guides describe only what exists at the commit that publishes them.
 - **Generated documents are linked, never copied.** The capability matrix
   lives in [../capabilities.md](../capabilities.md), which
   `php tools/capability-doc.php generate` writes from the manifests and
-  `manifests/dispositions.json`. `make release-gate` is exactly
+  `manifests/dispositions/`. `make release-gate` is exactly
   `capability-doc.php --check` then `classmap-generate.php --check`, so a
   hand-edit of either generated document fails the gate. No guide restates a
   row of the matrix; a stale hand-copy of a capability claim is worse than no

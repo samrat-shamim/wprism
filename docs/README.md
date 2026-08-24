@@ -10,7 +10,7 @@ The normative wire contract is not here — it is
 | Path | What it is | Who reads it |
 |---|---|---|
 | [guides/](guides/README.md) | Ten task-shaped operator guides (quickstart → assess → daily-workflow → release → limits; recovery, code-updates, adapter-authoring, internals). Every command in them is mechanically checked against the shipped CLI. | Operators, first |
-| [capabilities.md](capabilities.md) | **Generated** — the certified capability matrix. Written by `tools/capability-doc.php` from the manifests + `manifests/dispositions.json`; `make release-gate` byte-compares it. Never hand-edited. | Anyone asking "will Duo manage this?" |
+| [capabilities.md](capabilities.md) | **Generated** — the certified capability matrix. Written by `tools/capability-doc.php` from the manifests + `manifests/dispositions/`; `make release-gate` byte-compares it. Never hand-edited. | Anyone asking "will Duo manage this?" |
 | [adoption.md](adoption.md) | The SSH adoption contract in full: installing and upgrading Duo on an existing WordPress host. | Operators adopting a real host |
 | [product-spec.md](product-spec.md) | The product specification — customer operations, the versionability contract, the vocabularies, safety invariants, non-goals. Carries its own amendment record. | Anyone arguing about what Duo *is* |
 | [roadmap.md](roadmap.md) | Owner roadmap: thesis, horizons, standing decisions. Changes only by owner commit. | Direction, not detail |

@@ -38,7 +38,7 @@ allowed to state its own freshness would let the adapter nobody has probed
 declare itself current. The command refuses such a document by name.
 
 Nothing here is a manifest input. The range in `manifests/<name>.json` and its
-Canon-byte-equal restatement in `manifests/dispositions.json` stay one reviewed
+Canon-byte-equal restatement in `manifests/dispositions/<name>.json` stay one reviewed
 human edit (`agent/src/Policy/ManifestDispositions.php:632-637`).
 
 ## The second reader (WP-2.8)

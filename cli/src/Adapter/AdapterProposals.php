@@ -378,7 +378,7 @@ final class AdapterProposals {
 
     private const REVIEW_REQUIRED = [
         'manifest_edit' => 'not-performed',
-        'files' => ['manifests/<name>.json', 'manifests/dispositions.json'],
+        'files' => ['manifests/<name>.json', 'manifests/dispositions/<name>.json'],
         'why' => 'Both edits above are PROPOSED. Applying them is a reviewed human act because AGENTS.md rule 2 '
             . 'makes a byte under manifests/ adapter identity: ArtifactPolicyIdentity::manifest_rows() folds each '
             . 'manifest and its disposition into the digest every deployed site pins against, so a job that '
@@ -433,8 +433,8 @@ final class AdapterProposals {
                 'proposed' => $range,
             ],
             [
-                'file' => 'manifests/dispositions.json',
-                'pointer' => '/manifests/' . $adapter['name'] . '/supported_versions',
+                'file' => 'manifests/dispositions/' . $adapter['name'] . '.json',
+                'pointer' => '/supported_versions',
                 'current' => $adapter['supported_versions'],
                 'proposed' => $proposedSupported,
             ],
@@ -707,22 +707,29 @@ final class AdapterProposals {
         if (!is_dir($dir)) {
             throw new \RuntimeException("the manifest library directory '$dir' does not exist");
         }
+        // One document per subject since WP-4.4 (spec/repo-format.md § v3.4).
+        // Read here rather than through ManifestDispositions::load() for the
+        // reason this whole class is separate from the agent: it proposes
+        // edits to a library it must be able to read even when that library
+        // would not LOAD, so it takes the entries it finds and validates
+        // nothing the agent owns.
         $dispositions = [];
-        $file = $dir . '/dispositions.json';
-        if (is_file($file)) {
-            $data = Canon::decode(self::readFile($file));
-            if (!is_array($data) || !is_array($data['manifests'] ?? null)) {
-                throw new \RuntimeException("dispositions document '$file' carries no 'manifests' object");
+        $subjects = $dir . '/dispositions';
+        foreach (is_dir($subjects) ? (glob($subjects . '/*.json') ?: []) : [] as $file) {
+            $subject = basename($file, '.json');
+            if ($subject === 'profiles') {
+                continue;
             }
-            $dispositions = $data['manifests'];
+            $entry = Canon::decode(self::readFile($file));
+            if (!is_array($entry)) {
+                throw new \RuntimeException("disposition document '$file' is not an object");
+            }
+            $dispositions[$subject] = $entry;
         }
 
         $library = [];
         foreach (glob($dir . '/*.json') ?: [] as $path) {
             $name = basename($path, '.json');
-            if ($name === 'dispositions') {
-                continue;
-            }
             $manifest = Canon::decode(self::readFile($path));
             if (!is_array($manifest)) {
                 continue;

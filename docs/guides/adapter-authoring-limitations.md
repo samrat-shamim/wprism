@@ -4,7 +4,7 @@
 
 This ledger records plugin state shapes that the current generic grammar cannot represent faithfully. An entry is a platform boundary, not a plugin-specific branch request: the remedy must be a reusable primitive with adversarial coverage before any affected adapter is promoted.
 
-The source probes below used official WordPress.org artifacts on 2026-08-22. They are deliberately separate from `manifests/dispositions.json`: a rejected candidate is not shipped adapter identity and makes no capability claim.
+The source probes below used official WordPress.org artifacts on 2026-08-22. They are deliberately separate from `manifests/dispositions/`: a rejected candidate is not shipped adapter identity and makes no capability claim.
 
 Every coordinate names its `primitive_required` from a closed vocabulary in the ledger, so two candidates blocked on the same missing thing are ONE countable primitive rather than two lookalike sentences. That is what makes the next table a ranking instead of a wishlist.
 
@@ -49,7 +49,7 @@ Required platform work: an explicit structured-leaf text codec independent of fa
 - Code Snippets 3.9.6: typed rows and shortcode refs are representable, but direct table writes bypass the plugin's object-cache cleanup and optional flat-file execution rebuild. `manifests/code-snippets.json` therefore does not claim apply.
 - WPS Hide Login 1.9.19: both route slugs are representable, but the plugin's own settings path flushes rewrite rules. A clean-target request matrix must establish the required postcondition before apply is claimed.
 
-These are explicit promotion blockers in `manifests/dispositions.json`, not silent caveats. `conformance-ecosystem-adapter-batch` exercises their exact artifacts through capture, compile, plan, deterministic recapture, and live plugin readback only. Its `capture-plan` mode stops before target mutation, so none of these entries claims apply.
+These are explicit promotion blockers in `manifests/dispositions/`, not silent caveats. `conformance-ecosystem-adapter-batch` exercises their exact artifacts through capture, compile, plan, deterministic recapture, and live plugin readback only. Its `capture-plan` mode stops before target mutation, so none of these entries claims apply.
 
 ## Closed engine gaps
 

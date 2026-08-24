@@ -328,18 +328,35 @@ $adapterUnsupported = [
  *
  * A real target reports the hash of the library it was adopted with, so an
  * agreeing fixture has to carry the real number rather than a memorable one:
- * `duo assess` reads the host half from the live `manifests/dispositions.json`
- * and there is no flag that redirects it. Before DUO-3484 this fixture
+ * `duo assess` reads the host half from the live `manifests/dispositions/`
+ * documents and there is no flag that redirects it. Before DUO-3484 this fixture
  * reported a hand-written `eeee…` and the suites still passed, which is the
  * defect: nothing compared the two numbers.
  */
 $root = dirname(__DIR__, 4);
 require_once $root . '/agent/src/Kernel/Canon.php';
-$dispositions = json_decode((string) file_get_contents($root . '/manifests/dispositions.json'), true);
-if (!is_array($dispositions)) {
-    fwrite(STDERR, "make-fixture: manifests/dispositions.json is unreadable\n");
+// Reassembled exactly as ManifestDispositions::data() does since WP-4.4 — one
+// document per subject plus the profiles map — so `registry_sha256` here is
+// still the number a running agent computes.
+$dispositions = ['format' => 'duo-manifest-dispositions/v1', 'manifests' => [], 'profiles' => []];
+foreach (glob($root . '/manifests/dispositions/*.json') ?: [] as $document) {
+    $subject = basename($document, '.json');
+    $decoded = json_decode((string) file_get_contents($document), true);
+    if (!is_array($decoded)) {
+        fwrite(STDERR, "make-fixture: $document is unreadable\n");
+        exit(2);
+    }
+    if ($subject === 'profiles') {
+        $dispositions['profiles'] = $decoded;
+        continue;
+    }
+    $dispositions['manifests'][$subject] = $decoded;
+}
+if ($dispositions['manifests'] === []) {
+    fwrite(STDERR, "make-fixture: manifests/dispositions/ is unreadable\n");
     exit(2);
 }
+ksort($dispositions['manifests'], SORT_STRING);
 $hostRegistrySha = hash('sha256', \Duo\Canon::encode($dispositions));
 // The skewed library: a different content address, and nothing else. What
 // makes the mid-upgrade window legitimate is precisely that the target is

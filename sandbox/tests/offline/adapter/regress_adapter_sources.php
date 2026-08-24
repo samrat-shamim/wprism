@@ -234,6 +234,19 @@ function library_variant(callable $mutate): string {
     return "$root/manifests";
 }
 
+/**
+ * Strip a variant library's reviewed claim source entirely — the state a custom
+ * or test manifest directory really reaches. One `unlink()` did this while the
+ * source was one document; WP-4.4 made it a directory (spec/repo-format.md
+ * § v3.4), so the whole directory goes.
+ */
+function remove_library_dispositions(string $dir): void {
+    foreach (glob("$dir/dispositions/*.json") ?: [] as $document) {
+        unlink($document);
+    }
+    @rmdir("$dir/dispositions");
+}
+
 /** Rewrite one JSON file of a variant library through $edit, via Canon. */
 function edit_json(string $file, callable $edit): void {
     Canon::write_file($file, Canon::encode($edit(Canon::decode(Canon::read_file($file)))));
@@ -262,7 +275,8 @@ check(
 check(
     array_key_exists('capabilities/platform.json', $fixtureBytes)
     && array_key_exists('capabilities/adapter-authorities.json', $fixtureBytes)
-    && array_key_exists('dispositions.json', $fixtureBytes)
+    && array_key_exists('dispositions/core.json', $fixtureBytes)
+    && array_key_exists('dispositions/profiles.json', $fixtureBytes)
     && $fixtureBytes === array_filter(
         $fixtureBytes,
         fn(string $relative): bool => !str_starts_with($relative, 'capabilities/scoped/')
@@ -278,13 +292,22 @@ check(
 // definition of "which review decided this" is the whole failure the retired
 // generated registry was.
 $fixtureDispositions = \Duo\ManifestDispositions::load($shippedDir);
+$shippedRegistry = ['format' => \Duo\ManifestDispositions::FORMAT, 'manifests' => [], 'profiles' => []];
+foreach (glob("$realManifests/dispositions/*.json") ?: [] as $document) {
+    $subject = basename($document, '.json');
+    $decoded = Canon::decode(Canon::read_file($document));
+    if ($subject === 'profiles') {
+        $shippedRegistry['profiles'] = $decoded;
+        continue;
+    }
+    $shippedRegistry['manifests'][$subject] = $decoded;
+}
+ksort($shippedRegistry['manifests'], SORT_STRING);
 check(
     $fixtureDispositions !== null
-    && hash_equals(
-        $fixtureDispositions->sha256(),
-        hash('sha256', Canon::encode(Canon::decode(Canon::read_file("$realManifests/dispositions.json"))))
-    ),
-    'registry_sha256 addresses exactly the shipped dispositions.json bytes, read through the real loader'
+    && hash_equals($fixtureDispositions->sha256(), hash('sha256', Canon::encode($shippedRegistry))),
+    'registry_sha256 addresses exactly the shipped manifests/dispositions/ bytes reassembled, read through the real '
+    . 'loader — the number did not move when WP-4.4 split the document'
 );
 
 // ======================================================================
@@ -403,7 +426,7 @@ check(
     ($coreRow['evidence_scope'] ?? null) === 'authored_disposition'
     && ($siteRow['evidence_scope'] ?? null) === 'none'
     && ($coreRow['evidence'] ?? null)
-        === (Canon::decode(Canon::read_file("$shippedDir/dispositions.json"))['manifests']['core']['evidence'] ?? null)
+        === (Canon::decode(Canon::read_file("$shippedDir/dispositions/core.json"))['evidence'] ?? null)
     && ($siteRow['evidence'] ?? null) === [],
     'a shipped row cites the reviewed disposition VERBATIM — the authored bundle schema and named tests, with no '
     . 'status this code decided — and an unsigned site row inherits none of it'
@@ -514,9 +537,9 @@ echo "\n== the certified verdict above is earned: a broken review still refuses 
 // always the actual gate: the reviewed bytes, and the platform they describe.
 
 putenv('DUO_MANIFESTS_DIR=' . library_variant(function (string $dir): void {
-    edit_json("$dir/dispositions.json", function (array $dispositions): array {
-        unset($dispositions['manifests']['core']['evidence']);
-        return $dispositions;
+    edit_json("$dir/dispositions/core.json", function (array $entry): array {
+        unset($entry['evidence']);
+        return $entry;
     });
 }));
 expect_throw(
@@ -526,9 +549,9 @@ expect_throw(
     . 'and an assertion, and nothing else vouches for it now'
 );
 putenv('DUO_MANIFESTS_DIR=' . library_variant(function (string $dir): void {
-    edit_json("$dir/dispositions.json", function (array $dispositions): array {
-        $dispositions['manifests']['core']['evidence']['tests'] = [];
-        return $dispositions;
+    edit_json("$dir/dispositions/core.json", function (array $entry): array {
+        $entry['evidence']['tests'] = [];
+        return $entry;
     });
 }));
 expect_throw(
@@ -537,9 +560,9 @@ expect_throw(
     'and an empty test list is the same refusal — a citation naming nothing cites nothing'
 );
 putenv('DUO_MANIFESTS_DIR=' . library_variant(function (string $dir): void {
-    edit_json("$dir/dispositions.json", function (array $dispositions): array {
-        $dispositions['manifests']['core']['status'] = 'ratified';
-        return $dispositions;
+    edit_json("$dir/dispositions/core.json", function (array $entry): array {
+        $entry['status'] = 'ratified';
+        return $entry;
     });
 }));
 expect_throw(
@@ -551,9 +574,9 @@ expect_throw(
 // it back would let a library launder "nobody reviewed this" into a reviewed
 // answer about itself.
 putenv('DUO_MANIFESTS_DIR=' . library_variant(function (string $dir): void {
-    edit_json("$dir/dispositions.json", function (array $dispositions): array {
-        $dispositions['manifests']['core']['status'] = \Duo\ManifestDispositions::STATUS_UNCOVERED;
-        return $dispositions;
+    edit_json("$dir/dispositions/core.json", function (array $entry): array {
+        $entry['status'] = \Duo\ManifestDispositions::STATUS_UNCOVERED;
+        return $entry;
     });
 }));
 expect_throw(
@@ -897,6 +920,22 @@ expect_throw(
     )),
     'cannot supply certification data for itself',
     'a site adapter source shipping its own dispositions.json is refused — an adapter cannot certify itself'
+);
+// The SAME refusal for the split layout. WP-4.4 made the agent's own reviewed
+// claim source a directory, so an operator copying that shape into their site
+// source is making exactly the claim the refusal above exists for — and a
+// directory the engine never reads is inert bytes they believe in, which is the
+// failure mode this source refuses everywhere else. The retired file name stays
+// covered beside it because an older copied library is what puts it there.
+expect_throw(
+    fn() => Policy::load(fresh_site(
+        ['core'],
+        ['acme-widget' => site_adapter('acme-widget')],
+        ['adapters/dispositions/acme-widget.json' => ['status' => 'certified']]
+    )),
+    'cannot supply certification data for itself',
+    'and a site adapter source shipping a dispositions/ DIRECTORY is refused in the same sentence — the split '
+    . 'layout cannot be used to self-certify either'
 );
 expect_throw(
     fn() => Policy::load(fresh_site(
@@ -1630,7 +1669,7 @@ expect_throw(
         [$overlay->manifests[1]]
     ),
     'malformed required field',
-    'a provenance record pasted into dispositions.json is refused rather than accepted as a self-certification'
+    'a provenance record pasted into a reviewed disposition is refused rather than accepted as a self-certification'
 );
 
 // ======================================================================
@@ -1653,14 +1692,14 @@ foreach ($plainReport['manifests'] ?? [] as $row) {
         $plainRows[$row['name']] = $row;
     }
 }
-$shippedDispositions = Canon::decode(Canon::read_file("$shippedDir/dispositions.json"))['manifests'];
+$shippedWooEntry = Canon::decode(Canon::read_file("$shippedDir/dispositions/woocommerce.json"));
 check(
     ($plainReport['evidence_scope'] ?? null) === 'per_subject'
     && ($plainReport['evidence'] ?? null) === null
     && is_array($plainReport['platform'] ?? null)
     && ($plainRows['core']['evidence_scope'] ?? null) === 'authored_disposition'
     && ($plainRows['woocommerce']['evidence_scope'] ?? null) === 'authored_disposition'
-    && ($plainRows['woocommerce']['evidence'] ?? null) === ($shippedDispositions['woocommerce']['evidence'] ?? null)
+    && ($plainRows['woocommerce']['evidence'] ?? null) === ($shippedWooEntry['evidence'] ?? null)
     && !array_key_exists('status', $plainRows['woocommerce']['evidence'] ?? []),
     'each shipped row names its own claim authority — the authored disposition, cited verbatim, with no synthesized '
     . 'currency status: a `current` here would be the agent vouching for itself'
@@ -1710,7 +1749,7 @@ echo "\n== a library with no reviewed dispositions at all reports itself unrevie
 // says so in as many words), and the report has to SAY that rather than read
 // the absence as nothing to block on.
 $unreviewedDir = library_variant(function (string $dir): void {
-    unlink("$dir/dispositions.json");
+    remove_library_dispositions($dir);
 });
 putenv("DUO_MANIFESTS_DIR=$unreviewedDir");
 $unreviewedPolicy = Policy::load(fresh_site(['core']));
@@ -1723,7 +1762,8 @@ check(
     && array_key_exists('registry_sha256', $unreviewedReport)
     && $unreviewedReport['registry_sha256'] === null
     && ($unreviewedReport['manifests'] ?? null) === [],
-    'a library with no dispositions document loads, and answers with the one unreviewed blocker, a null content '
+    'a library with no reviewed dispositions directory loads, and answers with the one unreviewed blocker, a null '
+    . 'content '
     . 'address, and no rows — it defers its certification to nothing, and says so instead of reading green'
 );
 $unreviewedSurvey = [];
@@ -1766,7 +1806,7 @@ check(
 // also the honest shape of the situation: a hand-assembled library, incomplete
 // in more than one way.
 $brokenProviderDir = library_variant(function (string $dir): void {
-    unlink("$dir/dispositions.json");
+    remove_library_dispositions($dir);
     unlink("$dir/providers/woocommerce-cache.php");
 });
 putenv("DUO_MANIFESTS_DIR=$brokenProviderDir");

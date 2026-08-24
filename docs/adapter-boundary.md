@@ -164,7 +164,7 @@ adapter diagnostics.
 
 Those six words are this doctrine's, and the shipped vocabulary is smaller by
 design — a status word minted to match prose would read as reviewed evidence
-next to `dispositions.json`, which is precisely the substitution the
+next to `dispositions/`, which is precisely the substitution the
 certification separation exists to refuse (`agent/src/Adapter/AdapterSources.php`
 states the same rationale for the fourth word `uncertified`). So the mapping is
 stated here instead of being invented in code:
@@ -179,7 +179,7 @@ stated here instead of being invented in code:
 > "There is no CapabilityRegistry.php to require any more"); the reporter is
 > `AdapterRegistry::report()` in `agent/src/Adapter/AdapterRegistry.php`,
 > emitting `duo-capability-report/v1` (`:57`), and the reviewed claim source is
-> the hand-authored `manifests/dispositions.json`. The blocker code for a name
+> the hand-authored `manifests/dispositions/`. The blocker code for a name
 > with no reviewed entry is `missing_disposition_entry` (`:392`), not
 > `missing_registry_entry`. Every row below is restated against what ships
 > today. The doctrine above is unchanged: it never required a particular
@@ -187,7 +187,7 @@ stated here instead of being invented in code:
 
 | Doctrine word | Where it is visibly reported today |
 |---|---|
-| certified | `dispositions.json` status `certified` + a `certified` verdict from `AdapterRegistry::report()`; `duo adapter list` disposition column |
+| certified | `dispositions/<name>.json` status `certified` + a `certified` verdict from `AdapterRegistry::report()`; `duo adapter list` disposition column |
 | exercised | not a status. The evidence facts behind it are printed by `duo adapter inspect` under "verification (the facts that exist, not a scale)": `evidence.bundle_schema`, `plugin_execution.status` (`verified`/`unverified`/`not-a-product-claim`), and each cited test **id and nothing else** — a verdict word there would be a result that process did not produce (`cli/src/Adapter/AdapterCatalog.php:1052-1063`). The retired `evidence.status` (`current`/`candidate`) conjunct is gone with the apparatus that set it (`cli/src/Transport/CodeDeploy.php:191-194` records why keeping it would now refuse every claim) |
 | uncertified | the fourth status word, carried by an out-of-tree adapter's synthesized provenance record; blocker code `adapter_source_uncertified` |
 | incompatible | two separate code sets, deliberately not merged: a **certification** verdict from `AdapterRegistry::report()` whose reason names the mismatch (`plugin_version_mismatch`, `plugin_not_active` — the two `target_reasons()` raises today, `agent/src/Adapter/AdapterRegistry.php:559-579`), and a **negotiation** problem row from `Providers::diagnose()` (`outside_version_range`, `identity_mismatch`, `contract_shape`, `malformed_capability`, `invalid_capability_args`, `non_idempotent_capability`). The five platform-axis codes this row used to name — `wordpress_version_mismatch`, `php_version_mismatch`, `database_version_mismatch`, `theme_version_mismatch`, `revision_not_certified` — were raised against the generated evidence record's measured axes and went with it; `multisite_unsupported` survives only as an *init* refusal (`agent/src/Init/InitPlanner.php:340`), because topology is now judged once for the whole assessment rather than per surface (`cli/src/Contract/ProjectionVocabulary.php:219-235`) |

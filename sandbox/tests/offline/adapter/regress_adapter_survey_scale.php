@@ -228,9 +228,13 @@ namespace {
                 $libraryGlobs++;
             }
         }
+        // Counted as the reviewed SOURCE, which is a directory of one document
+        // per subject since WP-4.4 — not one file whose single read stood for
+        // the whole library.
+        $registryPrefix = rtrim($scaleLibrary, '/') . '/dispositions/';
         $registryReads = 0;
         foreach ($reads as $read) {
-            if ($read === rtrim($scaleLibrary, '/') . '/dispositions.json') {
+            if (str_starts_with($read, $registryPrefix)) {
                 $registryReads++;
             }
         }
@@ -310,11 +314,14 @@ namespace {
             ]));
             $entries[$name] = survey_scale_entry();
         }
-        file_put_contents("$dir/dispositions.json", (string) json_encode([
-            'format' => 'duo-manifest-dispositions/v1',
-            'manifests' => $entries,
-            'profiles' => new stdClass(),
-        ]));
+        // One document per subject since WP-4.4 (spec/repo-format.md § v3.4).
+        $subjects = "$dir/dispositions";
+        if (!is_dir($subjects) && !mkdir($subjects, 0o777, true) && !is_dir($subjects)) {
+            throw new RuntimeException("cannot create the synthetic disposition directory at $subjects");
+        }
+        foreach ($entries as $name => $entry) {
+            file_put_contents("$subjects/$name.json", (string) json_encode($entry));
+        }
         return $dir;
     }
 
@@ -406,41 +413,60 @@ namespace {
             "all $n rows are surveyed and every one of them reaches grammar ok: "
             . json_encode($measurement['statuses'])
         );
+        // WP-4.4 reshaped this number without changing its SHAPE. The reviewed
+        // source used to be one document, so two discover() calls read it
+        // twice whatever the library held — but that one read decoded every
+        // entry in it, so the BYTES were already linear in the library. Since
+        // the split it is one document per subject, and a whole-library survey
+        // asks after every subject: 2n reads of the same total bytes, cached
+        // per instance so no subject is ever opened twice by one discover().
+        // What this suite exists to refuse is the QUADRATIC shape — a reviewed
+        // read per (row, row) pair — and 2n is what proves it absent.
         duo_check(
-            $measurement['registry_reads'] === 2,
-            "the reviewed registry is read exactly twice for $n adapters (survey + scan handle), not once per row; "
-            . 'counted ' . $measurement['registry_reads']
+            $measurement['registry_reads'] === 2 * $n,
+            "the reviewed source is read once per surveyed subject per discover() — 2 x $n for $n adapters (survey "
+            . '+ scan handle), never once per ROW PAIR; counted ' . $measurement['registry_reads']
         );
         duo_check(
-            $measurement['library_globs'] === 6,
-            "and the library directory is enumerated exactly 6 times for $n adapters — the survey's own collect scan, "
-            . "the handle's one discover, and the two witness passes that each name the adapters and the "
-            . 'capabilities directory; counted ' . $measurement['library_globs']
+            $measurement['library_globs'] === 8,
+            "and the library directory is enumerated exactly 8 times for $n adapters — the survey's own collect scan, "
+            . "the handle's one discover, and the two witness passes that each name the adapters, the reviewed "
+            . 'subjects and the capabilities directory; counted ' . $measurement['library_globs']
         );
     }
 
     echo "\n== the counted work is LINEAR in the library, which is the sub-quadratic claim ==\n";
+    $registryPerAdapter = [];
+    foreach ($sizes as $n) {
+        $registryPerAdapter[$n] = ($measurements[$n]['registry_reads'] ?? 0) / max(1, $n);
+    }
     duo_check(
         count($measurements) === count($sizes)
             && count(array_unique(array_column($measurements, 'library_globs'))) === 1
-            && count(array_unique(array_column($measurements, 'registry_reads'))) === 1,
-        'a library 4x larger costs the same whole-library work: ' . implode(', ', array_map(
+            && count(array_unique($registryPerAdapter)) === 1,
+        'a library 4x larger costs the same whole-library enumeration and the same reviewed reads PER SUBJECT: '
+        . implode(', ', array_map(
             static fn(int $n): string => "$n => " . ($measurements[$n]['library_globs'] ?? '?') . ' globs / '
                 . ($measurements[$n]['registry_reads'] ?? '?') . ' registry reads',
             $sizes
         ))
     );
     // Per-adapter work is the half that MUST grow: each row still reads and
-    // validates its own manifest, which is the verdict the survey is for. Two
-    // decodes per row plus the two registry decodes, exactly.
+    // validates its own manifest, which is the verdict the survey is for.
+    // Exactly four decodes per row and NO whole-library constant: two
+    // manifests (survey + scan handle) and, since WP-4.4, that subject's own
+    // reviewed document twice beside them. The two decodes that used to sit
+    // outside this term were the monolith's, and each of them decoded every
+    // entry in the library — so the bytes did not move, only where they are
+    // counted.
     $perRow = [];
     foreach ($sizes as $n) {
-        $perRow[$n] = ($measurements[$n]['decodes'] ?? 0) - 2 * $n;
+        $perRow[$n] = ($measurements[$n]['decodes'] ?? 0) / max(1, $n);
     }
     duo_check(
-        count(array_unique($perRow)) === 1 && (int) reset($perRow) === 2,
-        'decodes are exactly 2 per surveyed adapter plus the 2 registry decodes — the per-row half of the cost is '
-        . 'untouched: ' . implode(', ', array_map(
+        count(array_unique($perRow)) === 1 && (int) reset($perRow) === 4,
+        'decodes are exactly 4 per surveyed adapter and nothing beside them — two manifests and two reviewed '
+        . 'documents, one pair per discover(): ' . implode(', ', array_map(
             static fn(int $n): string => "$n => " . ($measurements[$n]['decodes'] ?? '?') . ' decodes',
             $sizes
         ))
@@ -475,7 +501,7 @@ namespace {
             'every file the scan opened under the library or the repository is named by scan_dependencies()'
         );
         duo_check(
-            $repoMeasurement['registry_reads'] === 2 && $repoMeasurement['library_globs'] === 6,
+            $repoMeasurement['registry_reads'] === 2 * 125 && $repoMeasurement['library_globs'] === 8,
             'and the repository half changes none of the whole-library counts: '
             . $repoMeasurement['registry_reads'] . ' registry reads, ' . $repoMeasurement['library_globs'] . ' globs'
         );

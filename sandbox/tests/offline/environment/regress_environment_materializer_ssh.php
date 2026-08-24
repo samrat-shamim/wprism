@@ -99,7 +99,7 @@ try {
     // Keep this fixture generic and self-contained: a tiny test manifest
     // owns one explicit tombstone, while the shipped disposition/registry
     // files are omitted so the fixture does not claim product certification.
-    ssh_proof_remove($repo . '/manifests/dispositions.json');
+    ssh_proof_remove($repo . '/manifests/dispositions');
     ssh_proof_remove($repo . '/manifests/capabilities');
     ssh_proof_write($repo . '/manifests/ssh-proof.json', json_encode([
         'deletions' => ['post:attachment' => [

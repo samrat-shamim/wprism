@@ -528,7 +528,7 @@ say "the adopted target carries the reviewed manifest library it will be gated o
 # already there. Asserted before the scoped promotion so a library that failed
 # to land is diagnosed here rather than as an unexplained capability refusal
 # eight commands later. Nothing is written; the product gate is untouched.
-if ! ssh_fixture 'php -r '\''$m="/var/www/html/wp-content/mu-plugins/manifests"; $p=json_decode(file_get_contents("$m/capabilities/platform.json"),true,512,JSON_THROW_ON_ERROR); if(($p["format"]??null)!=="duo-platform-boundary/v1")exit(1); $d=json_decode(file_get_contents("$m/dispositions.json"),true,512,JSON_THROW_ON_ERROR); foreach(($d["manifests"]??[]) as $v){if(($v["status"]??null)==="certified"&&count($v["evidence"]["tests"]??[])<1)exit(1);} exit(0);'\'''; then
+if ! ssh_fixture 'php -r '\''$m="/var/www/html/wp-content/mu-plugins/manifests"; $p=json_decode(file_get_contents("$m/capabilities/platform.json"),true,512,JSON_THROW_ON_ERROR); if(($p["format"]??null)!=="duo-platform-boundary/v1")exit(1); foreach(glob("$m/dispositions/*.json") as $f){$v=json_decode(file_get_contents($f),true,512,JSON_THROW_ON_ERROR); if(($v["status"]??null)==="certified"&&count($v["evidence"]["tests"]??[])<1)exit(1);} exit(0);'\'''; then
   fail "the adopted target has no reviewed manifest library: platform boundary or disposition evidence citation is missing"
 fi
 pass "target carries the shipped platform boundary and a cited disposition for every certified claim"

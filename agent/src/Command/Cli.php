@@ -3716,16 +3716,18 @@ final class Cli {
                     throw new \RuntimeException("duo: $dir has no external manifest disposition registry");
                 }
                 $manifests = [];
+                // No `dispositions.json` filter any more: WP-4.4 moved the
+                // reviewed claim source into `dispositions/`, which this glob
+                // does not match, and ManifestDispositions::load() above has
+                // already refused a library that still carries the file.
                 foreach (glob(rtrim($dir, '/') . '/*.json') ?: [] as $file) {
-                    if (basename($file) !== 'dispositions.json') {
-                        $manifest = Canon::decode(Canon::read_file($file));
-                        // DUO-3371: this path loads the library without Policy::load(),
-                        // so it must hold the same name==basename rule itself — a
-                        // mismatch otherwise surfaces as a malformed registry claim
-                        // that never says the name field is wrong.
-                        AdapterSources::assert_declared_name($manifest, basename($file, '.json'), AdapterSources::SHIPPED, $file);
-                        $manifests[] = $manifest;
-                    }
+                    $manifest = Canon::decode(Canon::read_file($file));
+                    // DUO-3371: this path loads the library without Policy::load(),
+                    // so it must hold the same name==basename rule itself — a
+                    // mismatch otherwise surfaces as a malformed registry claim
+                    // that never says the name field is wrong.
+                    AdapterSources::assert_declared_name($manifest, basename($file, '.json'), AdapterSources::SHIPPED, $file);
+                    $manifests[] = $manifest;
                 }
                 // DUO-3339: real provenance, not the absent-sources default.
                 // Every row here IS shipped, so the source word does not

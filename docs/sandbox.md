@@ -561,7 +561,7 @@ registry import that published them — is retired. No content-addressed bundle
 stands behind a product claim any more, and no byte change expires anything.
 
 What stands behind a claim now is a reviewed entry in
-`manifests/dispositions.json` plus live conformance that is run continuously
+`manifests/dispositions/` plus live conformance that is run continuously
 rather than sealed into a record. `make conformance-<name>` runs one entry
 (`sandbox/conformance/run.sh <name>`; the entries are
 `sandbox/conformance/entries/*.json`), and `CONF_EXPECTED_SOURCE_SHA` is how a

@@ -1,0 +1,55 @@
+{
+    "capabilities": {
+        "deletion_semantics": {
+            "supported": [],
+            "unsupported": [
+                "plugin-specific deletes"
+            ]
+        },
+        "entity_sections": [
+            "taxonomies"
+        ],
+        "field_sections": [
+            "options",
+            "menu_fields"
+        ],
+        "lifecycle_phases": [
+            "retire",
+            "activate",
+            "verify"
+        ],
+        "operations": [
+            "capture",
+            "compile",
+            "plan",
+            "deploy",
+            "apply",
+            "recapture",
+            "render-api"
+        ]
+    },
+    "default_authored_keyspaces": [],
+    "evidence": {
+        "bundle_schema": "duo-subject-certification-bundle/v1",
+        "tests": [
+            "conformance-polylang",
+            "exact-artifact-version-matrix"
+        ]
+    },
+    "reason": "Certified bilingual entity/ref behavior and rendered output at both admitted boundaries.",
+    "status": "certified",
+    "supported_versions": {
+        "plugin": "polylang/polylang.php",
+        "range": {
+            "max": "4.0.0",
+            "min": "3.5"
+        }
+    },
+    "unsupported": [
+        {
+            "operation": "delete",
+            "reason": "No Polylang deletion selector is declared.",
+            "surface": "deletions.*"
+        }
+    ]
+}

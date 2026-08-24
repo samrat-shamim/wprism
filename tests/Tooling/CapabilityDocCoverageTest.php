@@ -51,14 +51,13 @@ final class CapabilityDocCoverageTest extends TestCase
     {
         $repo = self::repoRoot();
         $root = sys_get_temp_dir() . '/duo_capdoc_' . bin2hex(random_bytes(6));
-        foreach (['tools', 'manifests/capabilities', 'agent/src/Kernel', 'docs'] as $dir) {
+        foreach (['tools', 'manifests/capabilities', 'manifests/dispositions', 'agent/src/Kernel', 'docs'] as $dir) {
             self::assertTrue(mkdir("$root/$dir", 0o777, true), "could not create $root/$dir");
         }
         foreach ([
             'tools/capability-doc.php',
             'agent/src/Kernel/Canon.php',
             'agent/duo.php',
-            'manifests/dispositions.json',
             'manifests/capabilities/platform.json',
             'docs/capabilities.md',
             'docs/compatibility-baseline.json',
@@ -68,6 +67,12 @@ final class CapabilityDocCoverageTest extends TestCase
         }
         foreach (glob("$repo/manifests/*.json") ?: [] as $manifest) {
             self::assertTrue(copy($manifest, "$root/manifests/" . basename($manifest)));
+        }
+        // One reviewed document per subject since WP-4.4 (spec § v3.4): the
+        // staged library has to carry the whole directory, because
+        // capdoc_dispositions() reads the listing, not one file.
+        foreach (glob("$repo/manifests/dispositions/*.json") ?: [] as $document) {
+            self::assertTrue(copy($document, "$root/manifests/dispositions/" . basename($document)));
         }
         return $root;
     }

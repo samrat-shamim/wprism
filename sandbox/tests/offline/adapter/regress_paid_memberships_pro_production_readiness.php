@@ -129,13 +129,14 @@ namespace {
 
     $manifestPath = __DIR__ . '/../../../../manifests/paid-memberships-pro.json';
     $manifest = json_decode((string) file_get_contents($manifestPath), true, 512, JSON_THROW_ON_ERROR);
-    $dispositions = json_decode(
-        (string) file_get_contents(__DIR__ . '/../../../../manifests/dispositions.json'),
+    // Addressed per subject since WP-4.4: this adapter's reviewed entry is
+    // its own document (spec/repo-format.md § v3.4).
+    $disposition = json_decode(
+        (string) file_get_contents(__DIR__ . '/../../../../manifests/dispositions/paid-memberships-pro.json'),
         true,
         512,
         JSON_THROW_ON_ERROR
     );
-    $disposition = $dispositions['manifests']['paid-memberships-pro'] ?? [];
     duo_check(
         ($disposition['status'] ?? null) === 'certified'
             && ($disposition['capabilities']['lifecycle_phases'] ?? null) === ['retire', 'activate', 'verify']

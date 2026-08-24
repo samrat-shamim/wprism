@@ -30,7 +30,9 @@ manifest cannot certify itself merely by existing beside the agent`. See
 ```
 manifests/
   <name>.json                        # the manifest; basename is the pin name
-  dispositions.json                  # the reviewed support boundary; NOT a manifest
+  dispositions/<name>.json           # one adapter's reviewed support boundary;
+                                     #   NOT a manifest
+  dispositions/profiles.json         # the reviewed profiles map
   interpreters/<name>.php            # \Duo\Interpreters\<Name>
   regenerators/<name>.php            # \Duo\Regenerators\<Name>
   providers/<id>.php                 # \Duo\Providers\<Id>
@@ -65,8 +67,12 @@ Four rules that will bite you if you learn them the hard way:
   The same sentence refuses a site-installed adapter (see below), and
   `duo manifest-validate <dir>` reports it per manifest offline, before any
   target is contacted.
-- **`dispositions.json` is excluded from manifest globbing.** It is reviewed
-  data *about* manifests, not a manifest.
+- **`dispositions/` is not matched by manifest globbing.** It is reviewed data
+  *about* manifests, not a manifest. A leftover `dispositions.json` beside it —
+  the pre-WP-4.4 monolith — refuses the load by name rather than being ignored:
+  ratification bytes nothing reads are the failure mode this library refuses
+  everywhere else. Inside the directory, a file not named for a canonical
+  adapter slug refuses too, and `profiles` is reserved for the profiles map.
 - **A regression fixture is marked by its disposition, not by its name.** Give
   it `"status": "excluded"` and the generated document prints it as shipping
   "for regression use only" and carrying no product claim; the projected claim
@@ -196,7 +202,7 @@ evidence about a plugin.
 sentence a reviewer needs — "6.0.0 installs, round-trips and recaptures
 byte-identically; 5.12.6 fatals with this signature" — plus
 `artifacts.lock.json` rows in that file's own three-role vocabulary. Writing the
-range, and restating it in `manifests/dispositions.json` so the two stay
+range, and restating it in `manifests/dispositions/<name>.json` so the two stay
 Canon-byte-equal, remains one reviewed human edit; every proposed endpoint is a
 release that probed green, and a recorded failure inside the proposed window
 blocks the proposal rather than narrowing it by guess.
@@ -217,7 +223,7 @@ ledger, deriving each adapter's anchor from its own newest green probe rather
 than from a flag, and emits two things.
 
 The first is a proposed range bump as **both** edits — `version_range` in the
-manifest and `supported_versions` in `manifests/dispositions.json` — built from
+manifest and `supported_versions` in `manifests/dispositions/<name>.json` — built from
 one value, so they agree on the canonical bytes
 `ManifestDispositions::validate_entry()` compares. It is a review packet, never
 a commit: a byte under `manifests/` is adapter identity, so a job that widened a
@@ -1075,8 +1081,10 @@ finding behind every assertion, and the manifests those rounds produced
 
 ## Dispositions: the reviewed claim source
 
-`manifests/dispositions.json` (`duo-manifest-dispositions/v1`) is separate from
-every manifest **so that declaration cannot imply certification**. It is
+`manifests/dispositions/` (`duo-manifest-dispositions/v1`) is separate from
+every manifest **so that declaration cannot imply certification**. Each adapter
+owns one document, `manifests/dispositions/<name>.json`, holding its entry
+verbatim; `manifests/dispositions/profiles.json` holds the profiles map. It is
 hand-authored and reviewed, and it is the *only* authored source of a product
 capability claim: `ManifestDispositions::claim_from_disposition()` projects the
 claim, `AdapterRegistry` evaluates that projection against a live target, and
@@ -1146,7 +1154,7 @@ file.
 1. **Write the manifest** at `manifests/<name>.json`. `php cli/duo
    manifest-validate manifests --manifest=<name>` runs the engine's real
    validators over it offline, with no WordPress and no environment.
-2. **Add the reviewed entry** to `manifests/dispositions.json`, with a
+2. **Add the reviewed entry** at `manifests/dispositions/<name>.json`, with a
    `reason` a human wrote. Coverage is exact, so this is not optional
    bookkeeping — see the refusal above.
 3. **Add the conformance checks.** Add
@@ -1178,8 +1186,8 @@ file.
    never restate their rows in prose — a hand-copied claim is exactly the
    failure mode the generator exists to prevent.
 
-A profile (`fse` is the shipped one) follows the same shape under
-`dispositions.json`'s `profiles` key, with its own conformance entry.
+A profile (`fse` is the shipped one) follows the same shape inside
+`dispositions/profiles.json`, with its own conformance entry.
 
 **A shipped manifest is a shipped byte sequence.** Before you edit an existing
 one, read [the identity warning above](#editing-a-shipped-manifest-moves-its-identity):

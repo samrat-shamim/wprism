@@ -501,7 +501,7 @@ final class AssessReport {
         return new CommandRefusalException(
             'assess_report_unbuildable',
             $message,
-            'rerun assess after repairing the target inventory or restoring manifests/dispositions.json'
+            'rerun assess after repairing the target inventory or restoring manifests/dispositions/'
         );
     }
 }

@@ -67,6 +67,29 @@ function message_of(callable $fn): string {
     }
     return '<no refusal thrown>';
 }
+/**
+ * Publish a whole-registry array into the split layout WP-4.4 shipped: one
+ * `dispositions/<name>.json` per subject plus `dispositions/profiles.json`
+ * (spec/repo-format.md § v3.4). The directory is emptied first, so a registry
+ * that drops a subject drops its document — the state a reader must be able to
+ * reach to prove the coverage refusal still fires.
+ */
+function write_registry(string $manifestDir, array $registry): void {
+    $dir = $manifestDir . '/dispositions';
+    if (!is_dir($dir) && !mkdir($dir, 0777, true) && !is_dir($dir)) {
+        throw new RuntimeException("cannot create $dir");
+    }
+    foreach (glob($dir . '/*.json') ?: [] as $stale) {
+        unlink($stale);
+    }
+    foreach ($registry['manifests'] as $name => $entry) {
+        Canon::write_file($dir . '/' . $name . '.json', Canon::encode($entry));
+    }
+    if (($registry['profiles'] ?? []) !== []) {
+        Canon::write_file($dir . '/profiles.json', Canon::encode($registry['profiles']));
+    }
+}
+
 function remove_fixture_tree(string $path): void {
     if (!is_dir($path)) { return; }
     foreach (new FilesystemIterator($path) as $item) {
@@ -84,10 +107,9 @@ $manifestDir = $repo . '/manifests';
 putenv("DUO_MANIFESTS_DIR=$manifestDir");
 $registry = ManifestDispositions::load($manifestDir);
 $data = $registry->data();
-$manifestFiles = array_values(array_filter(
-    glob($manifestDir . '/*.json') ?: [],
-    fn(string $path): bool => basename($path) !== 'dispositions.json'
-));
+// No `dispositions.json` filter: WP-4.4 moved the reviewed claim source into
+// manifests/dispositions/, which this glob does not match.
+$manifestFiles = array_values(glob($manifestDir . '/*.json') ?: []);
 $manifests = array_map(fn(string $path): array => Canon::decode(Canon::read_file($path)), $manifestFiles);
 $manifestsByName = [];
 foreach ($manifests as $manifest) {
@@ -372,7 +394,7 @@ $coreRegistry['profiles'] = [];
 $experimentalRegistry = $coreRegistry;
 $experimentalRegistry['manifests']['core']['status'] = 'experimental';
 $experimentalRegistry['manifests']['core']['reason'] = 'Synthetic experimental disposition for blocker-path evidence.';
-Canon::write_file($fixture . '/dispositions.json', Canon::encode($experimentalRegistry));
+write_registry($fixture, $experimentalRegistry);
 putenv("DUO_MANIFESTS_DIR=$fixture");
 $experimentalPolicy = Policy::load(null, ['core']);
 $experimentalBlockers = $experimentalPolicy->adapter_readiness_blockers();
@@ -385,7 +407,7 @@ check(
     $experimentalPolicy->capability_report()['ready'] === false,
     'synthetic experimental capability output can never report ready'
 );
-Canon::write_file($fixture . '/dispositions.json', Canon::encode($coreRegistry));
+write_registry($fixture, $coreRegistry);
 $before = RepositoryCompiler::resolved_adapters(Policy::load(null, ['core']))[0]['digest'];
 $beforeSha = ManifestDispositions::load($fixture)->sha256();
 // One document to edit now. The former version of this check had to rewrite
@@ -393,7 +415,7 @@ $beforeSha = ManifestDispositions::load($fixture)->sha256();
 // `adapter_digest` alongside the edit, or the load refused before the digest
 // could be compared — that bookkeeping was the mirror this refactor removed.
 $coreRegistry['manifests']['core']['reason'] .= ' Reviewed wording change.';
-Canon::write_file($fixture . '/dispositions.json', Canon::encode($coreRegistry));
+write_registry($fixture, $coreRegistry);
 $after = RepositoryCompiler::resolved_adapters(Policy::load(null, ['core']))[0]['digest'];
 check($before !== $after, 'changing only disposition bytes moves the per-adapter digest');
 check(
@@ -428,7 +450,7 @@ echo "\n== WP-1.2: the coverage rule fires on the PIN; directory exactness is an
 //               capdoc_cross_check(), asserted by tests/Tooling/
 //               CapabilityDocCoverageTest.php) plus the whole-library check
 //               below, which runs in the merge gate on every change.
-Canon::write_file($fixture . '/dispositions.json', Canon::encode($coreRegistry));
+write_registry($fixture, $coreRegistry);
 $registryShaBeforeUncovered = hash('sha256', Canon::encode($coreRegistry));
 Canon::write_file(
     $fixture . '/uncovered-adapter.json',
@@ -541,7 +563,7 @@ check(
 // load, since the pinned subset is the wrong set to resolve against (a site
 // pinning only woocommerce leaves `fse` -> `core` unpinned and correct). The
 // guard is asserted below.
-Canon::write_file($fixture . '/dispositions.json', Canon::encode($data));
+write_registry($fixture, $data);
 check(
     count(Policy::load(null, ['core'])->manifests) === 1,
     'a reviewed entry that outlived its manifest is no longer a runtime refusal either — it is release-gate work'
@@ -600,7 +622,7 @@ check(
 $coreEntryVariant = function (callable $edit) use ($fixture, $coreRegistry): string {
     $variant = $coreRegistry;
     $variant['manifests']['core'] = $edit($variant['manifests']['core']);
-    Canon::write_file($fixture . '/dispositions.json', Canon::encode($variant));
+    write_registry($fixture, $variant);
     putenv("DUO_MANIFESTS_DIR=$fixture");
     return message_of(fn() => Policy::load(null, ['core']));
 };
@@ -647,11 +669,11 @@ foreach ([
 // public entry point Policy::load() uses. load() needs no manifest FILE beside
 // the registry any more, which is what makes this a two-file fixture.
 $tableProbe = function (array $manifest, array $entry) use ($fixture): string {
-    Canon::write_file($fixture . '/dispositions.json', Canon::encode([
+    write_registry($fixture, [
         'format' => ManifestDispositions::FORMAT,
         'manifests' => ['table-probe' => $entry],
         'profiles' => [],
-    ]));
+    ]);
     return message_of(fn() => ManifestDispositions::load($fixture)->assert_covers([$manifest]));
 };
 $probeEntry = [
@@ -685,7 +707,7 @@ check(
     ) === "duo: manifest disposition 'table-probe' omits default authored keyspace 'probe'",
     'a default-authored keyspace with no reviewed justification is still refused'
 );
-Canon::write_file($fixture . '/dispositions.json', Canon::encode($coreRegistry));
+write_registry($fixture, $coreRegistry);
 
 echo "\n== a reviewed entry is validated where it is PROJECTED, not only where it is pinned ==\n";
 // WP-1.2 review F1. Splitting coverage moved the per-entry rules onto the
@@ -717,7 +739,7 @@ $wooRegistry = [
 $writeTamper = function (callable $edit) use ($tamperFixture, $wooRegistry): void {
     $registry = $wooRegistry;
     $registry['manifests']['woocommerce'] = $edit($registry['manifests']['woocommerce']);
-    Canon::write_file($tamperFixture . '/dispositions.json', Canon::encode($registry));
+    write_registry($tamperFixture, $registry);
     putenv("DUO_MANIFESTS_DIR=$tamperFixture");
 };
 /**
@@ -757,7 +779,7 @@ check(
         && ($untampered['row']['status'] ?? null) === 'certified'
         && ($untampered['row']['plugin_execution']['status'] ?? null) === 'verified'
         // Through Canon::encode on both sides, which is how validate_entry()
-        // itself compares these two: dispositions.json is canonical (max
+        // itself compares these two: the reviewed entry is canonical (max
         // before min) and woocommerce.json is authored (min before max), so
         // `===` on the arrays would compare key ORDER and fail on a range that
         // agrees.

@@ -2,7 +2,7 @@
 
 This is the work contract for taking every shipped product adapter beyond its
 current bounded capability disposition. It is deliberately separate from
-`manifests/dispositions.json`: a disposition records a reviewed product claim,
+`manifests/dispositions/`: a disposition records a reviewed product claim,
 while this matrix records the additional hostile evidence required by the
 production-readiness goal. It is neither a generated registry nor an
 attestation that a test ran.
