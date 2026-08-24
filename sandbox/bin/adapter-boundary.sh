@@ -53,11 +53,25 @@
 # tests/certify/certify_version_matrix.sh` fails at the SAME acf 6.0.0 apply on
 # the same source, with the same refusal ("duo: authored post meta
 # '_duo_related' disagrees with the locked target context"). So the probe is
-# faithful to the certify case down to its failure, and the ACF round-trip is
-# broken independently of this script. The remaining reset difference from that
-# script is deliberate: its per-plugin option/table teardown covers the fourteen
-# subjects it certifies, and a single-subject bisector reaches the same clean
-# start by deleting its own subject.
+# faithful to the certify case down to its failure, and the ACF round-trip was
+# broken independently of this script.
+#
+# That refusal has since been root-caused and fixed (ACF-MATRIX-FIX): main #556
+# (18f32d13) rechecked every authored key against the target's PRE-WRITE rows
+# under the owner range lock, which rejects each sibling-classified interpreter
+# key on an owner the apply is about to create — an ACF value meta and its
+# '_<field>' pointer classify each other, and a new post has neither yet. Both
+# materializers now classify against the map the reconciliation establishes,
+# and `VMATRIX_MANIFEST=acf bash tests/certify/certify_version_matrix.sh` passes
+# end to end (both 6.0.0 and 6.8.7 boundaries, ~0.11 pair-hours). The
+# `round-trip-diverges` outcome recorded above therefore predates the fix:
+# re-run this loop before trusting it, because the anchor it refused is the
+# thing that changed.
+#
+# The remaining reset difference from that script is deliberate: its per-plugin
+# option/table teardown covers the fourteen subjects it certifies, and a
+# single-subject bisector reaches the same clean start by deleting its own
+# subject.
 set -euo pipefail
 cd "$(dirname "$0")/.."   # -> sandbox/
 

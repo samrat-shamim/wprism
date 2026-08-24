@@ -1066,6 +1066,17 @@ regress-snapshot-pruner:
 regress-apply-field-materializer:
 	php sandbox/tests/offline/apply/regress_apply_field_materializer.php
 
+# The locked target context an authored meta roster is rechecked against once
+# the owner range lock is held. #556 (18f32d13) added that recheck against the
+# PRE-WRITE rows, which rejects every sibling-classified interpreter key on an
+# owner an apply is about to create -- `VMATRIX_MANIFEST=acf bash
+# sandbox/tests/certify/certify_version_matrix.sh` died at the acf 6.0.0 target
+# apply with "duo: authored post meta '_duo_related' disagrees with the locked
+# target context". Drives the real manifests/interpreters/acf.php through the
+# post, term and user materializers, and keeps #556's two protections pinned.
+regress-authored-meta-context:
+	php sandbox/tests/offline/apply/regress_authored_meta_context.php
+
 # DUO-3347 slice 4: MenuMaterializer was extracted from Apply's menu entity
 # reconciliation (finalize_menu/assign_locations), on top of slice 3's shared
 # ApplyFieldMaterializer. Deliberately a wiring/shape proof only -- full
