@@ -90,6 +90,7 @@ return [
     'Duo\\DiscoveryGrammar' => 'src/Policy/DiscoveryGrammar.php',
     'Duo\\DurableFilesystem' => 'src/Kernel/DurableFilesystem.php',
     'Duo\\DynamicOptionResolver' => 'src/Grammar/DynamicOptionResolver.php',
+    'Duo\\EffectDeclarationCoverage' => 'src/Review/EffectDeclarationCoverage.php',
     'Duo\\EntityAdopter' => 'src/Apply/EntityAdopter.php',
     'Duo\\EntityMetaCapture' => 'src/Capture/EntityMetaCapture.php',
     'Duo\\ExactOptionResolver' => 'src/Grammar/ExactOptionResolver.php',

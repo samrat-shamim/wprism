@@ -127,6 +127,7 @@ regress-offline-corpus: code-half-unit \
 	regress-ecommerce-extension-migration \
 	regress-ecosystem-adapter-batch \
 	regress-effect-bundle \
+	regress-effect-declaration-coverage \
 	regress-elementor-css-provider \
 	regress-elementor-dead-guard \
 	regress-elementor-matrix-reset \

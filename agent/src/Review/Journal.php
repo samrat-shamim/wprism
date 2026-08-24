@@ -247,6 +247,45 @@ final class Journal {
     // ---------------------------------------------------------------- report
 
     /**
+     * Presence of the provenance journal table, as a FACT rather than a verdict.
+     *
+     * Two readers need this probe and each owns a different refusal contract
+     * for the answer — AdapterObservation's
+     * `adapter_observation_prerequisite_absent`/`..._unreadable` pair
+     * (AdapterObservation.php:180-206) and EffectDeclarationCoverage's own —
+     * so what they share is the probe, never the prose: a reason code IS the
+     * command's public contract and cannot be borrowed.
+     *
+     * `unusable` and `absent` stay separate answers because they are different
+     * facts (no usable `$wpdb` at all, versus a usable one whose journal table
+     * is not there); AdapterObservation folds both into its one prerequisite
+     * refusal, which is exactly the behaviour it had before this extraction.
+     *
+     * Never repairs: no `Ledger::ensure()` on this path. A missing table is
+     * evidence no report can honestly claim to have read, not an invitation to
+     * create one.
+     *
+     * @return 'absent'|'present'|'unreadable'|'unusable'
+     */
+    public static function table_state(mixed $wpdb): string {
+        if (!is_object($wpdb) || !is_string($wpdb->prefix ?? null)
+            || !method_exists($wpdb, 'prepare') || !method_exists($wpdb, 'get_var')) {
+            return 'unusable';
+        }
+        $table = $wpdb->prefix . 'duo_journal';
+        $found = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
+        $readError = $wpdb->last_error ?? '';
+        // A failed probe is not evidence that the table is absent: reporting
+        // `absent` here would let a broken database read be published as "this
+        // site performed no writes", the exact silent-zero this whole read-only
+        // path exists to refuse.
+        if (!is_string($readError) || $readError !== '' || $found === false) {
+            return 'unreadable';
+        }
+        return is_string($found) && $found === $table ? 'present' : 'absent';
+    }
+
+    /**
      * Aggregate proposals and score them against manifest ground truth.
      * Manifest-classified rows measure agreement (provenance is moot there);
      * unclassified rows ARE the product surface: the review queue.
@@ -347,16 +386,41 @@ final class Journal {
      *  (options/postmeta/termmeta -> manifest+policy class) instead of
      *  re-deriving it — report()'s own behavior/output is unchanged. */
     public static function ground_truth(Policy $policy, string $tbl, string $item): ?string {
+        return self::ground_truth_details($policy, $tbl, $item)['class'];
+    }
+
+    /**
+     * The same lookup, plus the manifest the winning rule came FROM.
+     *
+     * The `_details()` siblings on Policy return `{rule, source}` from exactly
+     * the resolvers `option_rule()`/`post_meta_rule()`/`term_meta_rule()`/
+     * `table_rule()` already call, so this is one lookup reported two ways
+     * rather than a second walk: `ground_truth()` above now delegates here and
+     * keeps returning only the class, so no existing caller's answer moves.
+     *
+     * `source` is the ATTRIBUTION channel a journal row otherwise lacks — the
+     * table has no adapter column, and EffectDeclarationCoverage has to know
+     * whose territory a write is in before it can say anything about whose
+     * `effects[]` should have declared it. It is null whenever the class is
+     * null, because a source without a rule names a manifest that classified
+     * nothing.
+     *
+     * @return array{class:?string, source:?string}
+     */
+    public static function ground_truth_details(Policy $policy, string $tbl, string $item): array {
         if ($tbl === 'options' && $item !== '') {
-            return $policy->option_rule($item)['class'] ?? null;
+            $details = $policy->option_rule_details($item);
+        } elseif ($tbl === 'postmeta' && $item !== '') {
+            $details = $policy->post_meta_rule_details($item);
+        } elseif ($tbl === 'termmeta' && $item !== '') {
+            $details = $policy->term_meta_rule_details($item);
+        } else {
+            $details = $policy->declared_table_details($tbl);
         }
-        if ($tbl === 'postmeta' && $item !== '') {
-            return $policy->post_meta_rule($item)['class'] ?? null;
-        }
-        if ($tbl === 'termmeta' && $item !== '') {
-            return $policy->term_meta_rule($item)['class'] ?? null;
-        }
-        $t = $policy->table_rule($tbl);
-        return $t['class'] ?? null;
+        $rule = $details['rule'] ?? null;
+        return [
+            'class' => is_array($rule) ? ($rule['class'] ?? null) : null,
+            'source' => is_array($rule) ? ($details['source'] ?? null) : null,
+        ];
     }
 }

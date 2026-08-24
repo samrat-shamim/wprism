@@ -2063,6 +2063,12 @@ regress-upload-bundle:
 regress-effect-bundle:
 	php sandbox/tests/offline/recovery/regress_effect_bundle.php
 
+# WP-3.2: declared effects[] scored against observed journal writes, report-only.
+# Beside regress-effect-bundle because it scores the same inventory
+# EffectBundle.php:9-13 calls "the entire authority".
+regress-effect-declaration-coverage:
+	php sandbox/tests/offline/recovery/regress_effect_declaration_coverage.php
+
 regress-woocommerce-effect-contract:
 	php sandbox/tests/offline/ecommerce/regress_woocommerce_effect_contract.php
 

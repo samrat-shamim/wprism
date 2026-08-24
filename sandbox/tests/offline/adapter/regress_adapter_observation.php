@@ -215,6 +215,18 @@ namespace Duo {
         public function post_meta_rule(string $key): array { return []; }
         public function term_meta_rule(string $key): array { return []; }
         public function table_rule(string $table): array { return []; }
+        // WP-3.2: Journal::ground_truth() delegates to ground_truth_details(),
+        // which asks the `_details()` siblings for the DECLARING manifest as
+        // well as the class. This shadow must carry the same surface as the
+        // real Policy or the delegation fatals here instead of in production.
+        /** @return array{rule:?array, source:?string} */
+        public function option_rule_details(string $key): array { return ['rule' => null, 'source' => null]; }
+        /** @return array{rule:?array, source:?string} */
+        public function post_meta_rule_details(string $key): array { return ['rule' => null, 'source' => null]; }
+        /** @return array{rule:?array, source:?string} */
+        public function term_meta_rule_details(string $key): array { return ['rule' => null, 'source' => null]; }
+        /** @return array{rule:?array, source:?string} */
+        public function declared_table_details(string $table): array { return ['rule' => null, 'source' => null]; }
 
         /** @return array<string,mixed> */
         public function capability_report(array $query = []): array {

@@ -788,6 +788,21 @@ final class Policy {
         return $this->rule('term_meta', $key);
     }
 
+    /**
+     * The missing third `_details()` sibling of the options/post_meta pair.
+     *
+     * Journal::ground_truth_details() dispatches over exactly the four
+     * sections Journal::ground_truth() always has — options, postmeta,
+     * termmeta, then the table rule — and needs the declaring manifest for
+     * each. Three of the four already published one; term_meta did not, so a
+     * termmeta write would have had to be dropped from attribution silently.
+     *
+     * @return array{rule:?array, source:?string}
+     */
+    public function term_meta_rule_details(string $key): array {
+        return $this->rule_details('term_meta', $key);
+    }
+
     public function user_meta_rule(string $key): ?array {
         return $this->rule('user_meta', $key);
     }

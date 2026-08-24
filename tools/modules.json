@@ -1058,11 +1058,12 @@
       },
       "Review": {
         "layer": "engine",
-        "purpose": "Read-only projections over plans and state — lint and its reference scanners, coverage, pending, journal, orphans, canary, convergence verification and refresh export.",
+        "purpose": "Read-only projections over plans and state — lint and its reference scanners, coverage, pending, journal, effect-declaration coverage, orphans, canary, convergence verification and refresh export.",
         "status": "populated",
         "entry_points": [
           "Canary",
           "ConvergenceVerifier",
+          "EffectDeclarationCoverage",
           "Journal",
           "Lint",
           "Pending",
@@ -1112,12 +1113,13 @@
             ]
           }
         ],
-        "file_count": 17,
+        "file_count": 18,
         "files": [
           "BlockReferenceScanner.php",
           "Canary.php",
           "ConvergenceVerifier.php",
           "Coverage.php",
+          "EffectDeclarationCoverage.php",
           "Journal.php",
           "Lint.php",
           "LintFinding.php",

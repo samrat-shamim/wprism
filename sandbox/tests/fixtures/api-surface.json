@@ -1,5 +1,5 @@
 {
-    "class_count": 373,
+    "class_count": 374,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -8490,6 +8490,31 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "effect_coverage": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": null,
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "assoc",
+                            "type": null,
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": null,
+                    "static": false,
+                    "visibility": "public"
+                },
                 "env_set": {
                     "abstract": false,
                     "final": false,
@@ -14253,6 +14278,78 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\EffectDeclarationCoverage": {
+            "abstract": false,
+            "constants": {
+                "EFFECT_VERDICTS": {
+                    "value_repr": [
+                        "exercised",
+                        "unexercised",
+                        "unobservable"
+                    ]
+                },
+                "FORMAT": {
+                    "value_repr": "duo-effect-declaration-coverage/v1"
+                },
+                "WRITE_VERDICTS": {
+                    "value_repr": [
+                        "classified",
+                        "declared",
+                        "outside_declaration"
+                    ]
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "from_facts": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "policy",
+                            "type": "Duo\\Policy",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "journal",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "report": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifestNames",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\EntityAdopter": {
             "abstract": false,
             "constants": [],
@@ -16854,6 +16951,39 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "ground_truth_details": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "policy",
+                            "type": "Duo\\Policy",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "tbl",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "item",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "observe": {
                     "abstract": false,
                     "final": false,
@@ -16910,6 +17040,23 @@
                     "final": false,
                     "parameters": [],
                     "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "table_state": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "wpdb",
+                            "type": "mixed",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
                     "static": true,
                     "visibility": "public"
                 }
@@ -40306,6 +40453,23 @@
                         }
                     ],
                     "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "term_meta_rule_details": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "key",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": false,
                     "visibility": "public"
                 },
