@@ -65,6 +65,7 @@ namespace Duo {
         /** @return array<string,array<string,mixed>> */
         public function widget_types(): array { return $this->widgets; }
         public function taxonomy_object_keyspace(string $taxonomy): string { return 'term'; }
+        public function taxonomy_term_group_is_authored(string $taxonomy): bool { return false; }
     }
 }
 
