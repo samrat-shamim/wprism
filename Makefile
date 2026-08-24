@@ -8,7 +8,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-offline-all regress-offline-corpus regress-offline-diagnostics
 .PHONY: regress-lifecycle-options-snapshot
 .PHONY: regress-core-lifecycle regress-core-data-boundary regress-core-scope-platform regress-core-scope-database
-.PHONY: regress-platform-compatibility regress-topology-gate regress-spec-v3-dry-run
+.PHONY: regress-platform-compatibility regress-topology-gate regress-spec-v3-dry-run regress-spec-v3-document
 .PHONY: regress-cli-json-refusals regress-fleet-census regress-typed-refusal-envelopes regress-agent-subcommand-names regress-command-output regress-environment-command-preflight regress-environment-command regress-passthrough-command regress-environment-command-options regress-driver-capabilities-command regress-environment-list-command regress-doctor-command regress-migration-preflight regress-adopt-command regress-pending-command regress-classify-command regress-capture-command regress-deploy-command regress-deploy-checkpoint regress-promote-command regress-status-command regress-scope-command regress-refresh-command regress-rebase-command
 .PHONY: regress-plan-explain
 .PHONY: regress-plan-category-summary regress-plan-category-summary-live regress-plugin-adapter-source regress-scoped-apply-live regress-scoped-apply-live-cleanup regress-scope-chain-stability
@@ -387,6 +387,17 @@ regress-topology-gate:
 # every rule input read from the shipped constants the v3 code will consult.
 regress-spec-v3-dry-run:
 	php sandbox/tests/offline/policy/regress_spec_v3_dry_run.php
+
+# WP-4.1: spec/repo-format.md's v3 section, held against the tree it describes
+# and held to describing nothing this engine enforces. A v3 section cannot be
+# GENERATED the way the capability document and the wire-surface register are
+# -- it is a design argument -- so every measurable claim in it (the 31-key
+# partition, the five compatibility axes, the disposition monolith's size, the
+# 44-identity namespace census, the reserved refusal texts) is re-measured from
+# the shipped tree, and each rule is separately asserted UNENFORCED, so a rider
+# cannot land enforcement without moving this suite's expectations.
+regress-spec-v3-document:
+	php sandbox/tests/offline/policy/regress_spec_v3_document.php
 
 regress-adapter-sources:
 	bash sandbox/tests/offline/adapter/regress_adapter_sources.sh

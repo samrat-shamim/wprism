@@ -1,6 +1,6 @@
 # Duo Site-Repo Format
 
-*Status: **normative** — the authoritative contract for site repositories; where narrative documents (README, DESIGN.md) and this spec disagree, this spec wins. The wire-format grammar version is the `spec_version` integer in `site.duo.json` — currently `2` — which must equal the engine's own `DUO_SPEC_VERSION` exactly (see "Adapter compatibility contract" below). The "spec v1"/"spec v0.x" markers throughout are this document's own draft-history labels — they record when a rule was introduced and are NOT the wire version.*
+*Status: **normative** — the authoritative contract for site repositories; where narrative documents (README, DESIGN.md) and this spec disagree, this spec wins. The wire-format grammar version is the `spec_version` integer in `site.duo.json` — currently `2` — which must equal the engine's own `DUO_SPEC_VERSION` exactly (see "Adapter compatibility contract" below). The "spec v1"/"spec v0.x" markers throughout are this document's own draft-history labels — they record when a rule was introduced and are NOT the wire version. The "Spec v3" section near the end is the one part of this document that is **specified and not yet enforced**: it states the next wire version's rules, each carrying the work package that implements it and what the engine does today, and nothing in it is in force while `DUO_SPEC_VERSION` is `2`.*
 
 A **site repo** is a git repository holding the branchable partition of one WordPress site: code, canonical state, media, and policy. Environments (any WP install with the Duo agent) materialize it; their runtime data never enters it.
 
@@ -603,7 +603,7 @@ artifact rather than a provider-specific or plugin-specific substitute.
 
 **`rewrite.flush` fresh-process correction (DUO-3509):** the later structured-actions paragraph's sentence saying this action reinitializes the loaded apply runtime, and the execution-context bound saying every native action stays in-process, record the first offline-green design and are superseded for this one action. WordPress assembles post-type, taxonomy, endpoint, and plugin rewrite registrations during bootstrap; live dirty-target evidence proved a late `WP_Rewrite::init()` can retain permastructs built under the old front while clearing unrelated registration buckets. `rewrite.flush` therefore launches a fixed engine-owned `wp eval` child with no manifest-controlled command or argument. That child boots after the authored option commit, executes `flush_rules(false)`, compares the generated native representation with a checked database read, and emits only the closed `duo-rewrite-flush-fresh/v1` hash/count/type envelope. Pretty permalinks produce an ordered rules array; plain or absent permalink structures produce WordPress 7.0.3's exact empty-string `rewrite_rules` sentinel. The parent validates the exact type plus hash/count and independently checks the durable row; a nonzero exit, malformed evidence, or any child warning refuses with `recovery_required`. It never requests a hard flush, so `.htaccess`/web.config remain target-owned. Other native actions and providers retain the in-process rule stated below, except providers whose own reviewed implementation explicitly launches a plugin CLI command.
 
-Everything in this section is refusable offline: `duo manifest-validate <manifests-dir> [--site=<site-repo>]` drives these same validators with no WordPress, database, or environment present, and `duo manifest-validate --emit-schema` prints the closed VALUE vocabularies and the named subset of bounded patterns below as a versioned JSON document read out of the engine itself, with a `coverage` field naming what it omits — see [docs/guides/adapter-authoring.md § Checking the grammar offline](../docs/guides/adapter-authoring.md#checking-the-grammar-offline). `--site` matters because two guards (the ref/token/ledger kind vocabularies, and conflicting option rules) read `site.duo.json`'s policy half as input, so without it a manifest valid on its real site can be refused. It is an authoring aid, not a gate, and it reports the checks that need a live target — plus that missing site half — as explicitly deferred.
+Everything in this section is refusable offline: `duo manifest-validate <manifests-dir> [--site=<site-repo>]` drives these same validators with no WordPress, database, or environment present, and `duo manifest-validate --emit-schema` prints the closed VALUE vocabularies and the named subset of bounded patterns below as a versioned JSON document read out of the engine itself (`duo-manifest-grammar/v2`, which additionally publishes `spec_window` — the `spec_version` integers this engine accepts, MEASURED by probing the shipped refusal — and `top_level_keys`, the signer's own closed partition with the two places it does and does not refuse), with a `coverage` field naming what it omits — see [docs/guides/adapter-authoring.md § Checking the grammar offline](../docs/guides/adapter-authoring.md#checking-the-grammar-offline). `--site` matters because two guards (the ref/token/ledger kind vocabularies, and conflicting option rules) read `site.duo.json`'s policy half as input, so without it a manifest valid on its real site can be refused. It is an authoring aid, not a gate, and it reports the checks that need a live target — plus that missing site half — as explicitly deferred.
 
 `manifests/<name>.json` in the platform repo (shipped with the agent; version-range pinning lands with the plugin-manifest workstream):
 
@@ -659,7 +659,7 @@ Extended manifest capabilities (spec v0.5):
 - **Sub-keyed options** (spec v0.14, DUO-3233): a manifest option rule may declare `"sub_keys": {"<name>": {...rule...}, ...}` — NAMED sub-keys of one option's array value classified and captured/applied **independently of the whole option and of each other**, using the same rule vocabulary as a top-level option/meta rule (`class`, `ref`, `json_refs`, `key_refs`, `plain_data`, `cast`, `allow_secret`). `sub_keys` and `class: authored` are mutually exclusive on the same rule — a whole-option-authored value has no sub-key carve-out to speak of, and mixing the two leaves "authored the whole thing" vs. "authored named pieces of it" undefined. Whole-value behavior fields (`ref`, `json_refs`, `key_refs`, `json_encoded`, `cast`, `plain_data`, `order_preserving`, `allow_secret`, or `lint_ok`) are also invalid on an exact or dynamic sub-keyed parent because consumers intentionally use the named sub-key rules; accepting them would silently ignore a declaration. The exact parent may still carry its actual container contract (`class`, the required flag for `env`, and `autoload`); a dynamic parent carries its resolver/prefix/autoload contract. A sub-key rule cannot itself declare another `sub_keys` map; the grammar is exactly one level because capture/apply merge only named children of the live option. Capture reads the live option, keeps only the entries whose sub-rule is `authored` (everything else — including any key genuinely absent from the manifest — is left out of state entirely, not merely excluded), and applies the ordinary ref/json_refs/key_refs/plain-data/secret-guard machinery per sub-key exactly as it would to a same-shaped top-level rule. Apply reads the **target's own live value** of the option (defaulting to `[]` with a warning if the option is absent there), overlays only the captured sub-keys' resolved values on top of it, and writes the merged array back — every sibling key on the target, declared or not, whole-option class `env`/`runtime`/`derived` or otherwise, survives byte-for-byte untouched. Repository authorization mirrors the split: an option carrying `sub_keys` is authorized key-by-key against the declared sub-rules (any key present in a captured value with no `authored` sub-rule is refused by name — `option_sub_key` surface, not folded into the whole-option `class` check). `wp duo lint`'s bare-id scan is likewise sub-key aware: a `json_refs`/`key_refs`-declared sub-key gets the deep structural scan; a plain sub-key gets the ordinary shallow scan one level in. Motivating case: Polylang's `polylang` option and Yoast's `wpseo` option each mix authored configuration with per-environment bookkeeping that must never travel, inside the SAME option blob — `sub_keys` lets a manifest tell those apart without capturing the whole blob (silently clobbering another environment's own bookkeeping on apply) or excluding it whole (silently losing real authored configuration).
 - **Dynamic option names** (spec v0.20, DUO-3264): `"dynamic_options": {"<key>": {"prefix": "<literal>", "resolver": "<resolver>", "sub_keys": {...}, "autoload"?: "..."}}` — for an option whose NAME is computed from environment state rather than declared literally (`theme_mods_<active stylesheet>`). The declaration is `sub_keys`-shaped and carries no top-level `class` of its own: the containing blob is **always** `env` (a hardcoded engine decision, not a manifest field — a dynamic-name blob is environment-local by construction except the keys the manifest names), and each declared sub-key classifies independently with the ordinary rule vocabulary. Exactly one live name is ever read: the one the resolver currently produces. Every other live name sharing the same `prefix` — a `theme_mods_*` row for a theme that is not currently active — is environment-local residue by the same declaration, never captured and never reported unclassified. `resolver` is a **closed, engine-owned vocabulary** (v1: exactly `active_stylesheet`), because a resolver is engine code, not data: admitting one costs three coordinated engine edits — the allowlist entry (`SubKeyGrammar::DYNAMIC_OPTION_RESOLVERS`), the capture-side match arm that computes the live value, and the apply-side map entry that supplies it — and every one of them is mandatory. A manifest declaring a resolver the engine cannot resolve is refused at load; a *declared* resolver that some engine call site fails to supply a value for is a loud engine-wiring error, never a silently unclassified option.
 - **Widgets** (spec v0.19, DUO-3278): `"widgets": {"<id_base>": {"settings": {"<field>": {"class": "authored", "codec"?: "blocks", "ref"?: "term", "allow_secret"?: true}}}}` — a closed per-type registry of the settings fields Duo will carry for a widget instance. The type key is WordPress's own `id_base` (the `widget_<type>` option name), matching `^[a-z0-9_-]+$`; its derived ledger kind must fit `duo_map.id_kind`. `settings` is an allowlist and is mandatory: capture refuses any live setting the map does not name, so an absent map makes every instance of that type uncapturable rather than partially captured. Every named field declares `class: authored` — a settings map has no meaning for a field it is not carrying, so exclusion is expressed by leaving the field out. `codec` and `ref` are **closed, engine-owned vocabularies** (`blocks` and `term` respectively) and are mutually exclusive on one field: a value is either a structured document the engine decodes or a single entity reference it resolves. An undeclared widget type is reported, never guessed; its instances stay unmanaged.
-- **Adapter compatibility contract** (spec v0.15, DUO-3222/DUO-3247): a manifest MUST declare `"spec_version"` (int, the wire-format grammar it was authored against) equal to the engine's own `DUO_SPEC_VERSION` exactly — absent and declared-wrong are the same failure, both refused at load time. (This was not always true: at v1/DUO-3222, while `DUO_SPEC_VERSION` had exactly one historical value, an absent declaration was lenient — it can't be "wrong" when nothing else it could have meant existed yet — with an explicit, written pre-commitment to flip the moment a second historical value existed to be silently wrong about; DUO-3210 performed that bump, DUO-3247 actioned the pre-committed flip.) A manifest may additionally declare `"plugin"`/`"version_range"` (unchanged from spec v0.9's original mechanic) and `"theme"`/`"theme_version_range"`, the exact same `{min,max}` (min inclusive, max exclusive) shape mirrored for themes: one theme per manifest, matching one plugin per manifest. `Policy::load()` rejects, at load time, before any target contact: a `plugin`/`theme` declared without a well-formed matching range (no latest/wildcard/unbounded support is certifiable); a malformed range (missing min/max, non-string, min not strictly less than max); and two pinned manifests naming the same plugin or theme with different ranges (conflicting ownership — manifest precedence may never depend on pin order, so this is refused outright, with no composition/override grammar in v1). The compiled artifact (`RepositoryCompiler`) records a `resolved_adapters` array — one row per pinned manifest, carrying its name, a per-manifest content digest (the same bytes `manifest_hash()` already folds into its one combined hash, now also exposed individually), and its declared identity/range facts. This is compilation staying honest about what it validated — declaration validity and non-ambiguity, reproducible and artifact-hashed — not a live-environment match, which stays `Deploy::code_mismatch()`'s job: it checks a declared `theme_version_range` against the environment's actual installed theme version exactly as it already does for plugins, producing the identical `outside_version_range`/`missing_in_code` finding shape with `kind: "theme"`.
+- **Adapter compatibility contract** (spec v0.15, DUO-3222/DUO-3247; the next version's window is specified in "Spec v3" § v3.1 and is not in force): a manifest MUST declare `"spec_version"` (int, the wire-format grammar it was authored against) equal to the engine's own `DUO_SPEC_VERSION` exactly — absent and declared-wrong are the same failure, both refused at load time. (This was not always true: at v1/DUO-3222, while `DUO_SPEC_VERSION` had exactly one historical value, an absent declaration was lenient — it can't be "wrong" when nothing else it could have meant existed yet — with an explicit, written pre-commitment to flip the moment a second historical value existed to be silently wrong about; DUO-3210 performed that bump, DUO-3247 actioned the pre-committed flip.) A manifest may additionally declare `"plugin"`/`"version_range"` (unchanged from spec v0.9's original mechanic) and `"theme"`/`"theme_version_range"`, the exact same `{min,max}` (min inclusive, max exclusive) shape mirrored for themes: one theme per manifest, matching one plugin per manifest. `Policy::load()` rejects, at load time, before any target contact: a `plugin`/`theme` declared without a well-formed matching range (no latest/wildcard/unbounded support is certifiable); a malformed range (missing min/max, non-string, min not strictly less than max); and two pinned manifests naming the same plugin or theme with different ranges (conflicting ownership — manifest precedence may never depend on pin order, so this is refused outright, with no composition/override grammar in v1). The compiled artifact (`RepositoryCompiler`) records a `resolved_adapters` array — one row per pinned manifest, carrying its name, a per-manifest content digest (the same bytes `manifest_hash()` already folds into its one combined hash, now also exposed individually), and its declared identity/range facts. This is compilation staying honest about what it validated — declaration validity and non-ambiguity, reproducible and artifact-hashed — not a live-environment match, which stays `Deploy::code_mismatch()`'s job: it checks a declared `theme_version_range` against the environment's actual installed theme version exactly as it already does for plugins, producing the identical `outside_version_range`/`missing_in_code` finding shape with `kind: "theme"`.
 - **External manifest disposition and capability contracts** (DUO-3224/DUO-3227): [manifests/dispositions.json](../manifests/dispositions.json) is separate from every manifest so declaration cannot imply certification. It has exact one-for-one coverage of the shipped manifest JSON files and classifies each `certified`, `experimental`, or `excluded`, naming supported versions, entity/field sections, operations, lifecycle phases, deletion semantics, explicit unsupported behavior, and every manifest table whose default keyspace is authored. Intent-only table declarations must appear as unsupported rather than implemented. **Retired:** the `duo-subject-certification-bundle/v1` evidence records every certified manifest and profile once owned, and the generated `manifests/capabilities/registry.json` projection of `manifests/capabilities/evidence.json`, are gone with no successor document — no content-addressed evidence stands behind a claim any more. The reviewed disposition is the whole claim source, and `AdapterRegistry::report()` computes the product-facing projection (`duo-capability-report/v1`) from it plus per-adapter provenance on each call. Disposition bytes are frozen in the policy snapshot (`duo-policy-snapshot/v6`, which rejects v5's frozen capability record rather than ignoring it — a snapshot carrying a record this agent no longer checks must not verify as if it had been checked); compiled adapters carry the same claim used by host promotion. `wp duo capabilities --repo=<p> [--operation=<op>] [--surface=<surface>] [--format=json]` evaluates the selected target; `--all` reports the shipped library; `--revision` is refused by name rather than accepted and ignored, because it selected an evidence-bound platform revision nothing binds any more. Missing/experimental/excluded claims, an unregistered operation or surface, target version mismatch, or multisite keeps readiness non-green. Plugin execution without source modification is a separate registry field from authored-state branchability. Custom test/operator manifest directories without a disposition registry retain legacy policy behavior but make no certified product claim. A new WordPress extension adds its manifest, disposition, convention-discovered conformance/custom test, and artifact-lock entries; nothing on the path contains an extension-name allowlist.
 - **Out-of-tree adapter sources and certification** (DUO-3314): a site repository may install adapters of its own in `adapters/<name>.json`. This is a SECOND adapter source that **overlays** the shipped library — additional pinnable adapters, never replacements — so the shipped directory's one-for-one disposition coverage above is unchanged, and a repository with no `adapters/` directory behaves exactly as before. File names, pins, certificates, authority key ids, ratification maps, and frozen records share one canonical lowercase-ASCII slug identity (letter/digit endpoints; internal letters, digits, dots, underscores, and hyphens; **at least one lowercase letter**). Numeric-only identities are refused before lookup because PHP would coerce a numeric JSON object key into an integer map key. Path-like, hidden, uppercase, and Unicode variants also refuse rather than being normalized into a different identity. Discovery scans every source and refuses before any pin resolves: a site adapter whose file name collides with a shipped manifest (shadowing), whose declared `name` disagrees with its own file name (ambiguous identity), or whose declared name a shipped manifest already declares. The shipped library is held to the same identity rule (DUO-3371): a pinned shipped manifest whose declared `name` is not its file basename is refused at load, before any validator, with the same ambiguous-identity sentence. `adapters/dispositions.json`, `adapters/capabilities`, `adapters/{interpreters,providers,regenerators}`, symlinks, unreserved nested `*.json`, and extension near-misses such as `.JSON` are refused rather than ignored — an adapter cannot ratify itself, and the engine never loads code from this source. **A data-only manifest acquires no executable privileges**: an out-of-tree manifest declaring `interpreter`, a `regen_dependency.regenerator`, or a `providers[].source: "manifest"` is refused with remediation, because all three resolve inside the agent's own manifest directory. `providers[].source: "plugin"` remains available — its `plugin` must use the same safe WordPress basename grammar as a top-level plugin claim even when the adapter has no top-level plugin/version-range claim; that code's runtime trust anchor is the installed, active, version-bounded plugin plus the provider negotiation/receipt contract, and its live tree is deliberately not digest-bound by the manifest engine.
 
@@ -754,6 +754,464 @@ Three precedence families exist, and they are not interchangeable. A new vocabul
 3. **Last pin wins, plus site policy last** — the two bulk table/widget enumerations: `tables` (site `policy.tables` overrides a manifest declaration wholesale) and `widgets` (no site layer at all — a site repository has no `policy.widgets`, so the last pinned manifest is simply last). This disagrees with family 1 for the same underlying data and is a known, documented inconsistency rather than a design (`Policy::declared_tables()` says so in its own docblock); it is called out here so a new vocabulary does not inherit it by accident.
 
 Adapter-owned extension may never grant one adapter authority over another's state. The rule for the four bulk **named-declaration** surfaces — `post_types.<t>`, `tables.<t>`, `taxonomies.<t>`, `widgets.<t>` — is **one owner per name**: two pinned manifests (including `core`) declaring the same name refuse at load unless their declarations are byte-identical, since a redundant restatement has no winner to pick. There is no composition grammar for these surfaces in v1 (`taxonomies.<t>`'s description_refs/object_type/class lookups are all first-pin-wins with no precedence layer, so it carries the identical hazard); reclassifying an individual FIELD of another adapter's surface is what the family-1 precedence layers exist for, never a whole-declaration takeover. The post-type surface additionally keeps a per-KEY contradiction guard, which fires first because it can name the exact contradicting key (`post_types.<t>.body` and so on) instead of only the name. `site.duo.json`'s own `policy.tables` is exempt from the rule, because it is the site's own last-word authority over its own state rather than a second adapter reaching into the first. The other load-time guards in the same family: one owner per option namespace, per plugin/theme version claim, per provider id, and per table `id_kind`; a provider-kind action may only name a provider its OWN manifest declares; an adapter widens the ref-kind vocabulary only by declaring a table it owns; and the two surfaces that name a `duo_map` keyspace directly (`deletions[].guards[].id_kind`/`source_id_kind`, `option_name_refs[].id_kind`) are closed against the ledger's own long spellings plus the declared table kinds.
+
+## Spec v3 — the windowed format (SPECIFIED HERE, NOT YET IN FORCE)
+
+*Status of this whole section: **normative text with zero enforcement behind it***. `DUO_SPEC_VERSION` is
+`2` (`agent/duo.php:13`), `manifests/capabilities/platform.json` restates that `2`, and every rule below
+is refused by nothing today. This section exists so that the engine change which turns each rule on is a
+review against written text rather than a design decision taken inside a diff. Nothing here changes what
+this engine accepts, what any command prints, or one byte of any shipped manifest.
+
+**Why a v3 at all, and why it is meant to be the last one.** The wire version is checked by exact
+equality — `if (!is_int($spec) || $spec !== $supported)` (`agent/src/Adapter/AdapterContractGrammar.php:23-32`) —
+so an absent declaration and a declaration one version behind produce the identical refusal, and every
+format change is therefore a flag day for every adapter anyone has authored. v3's first rule (§ v3.1)
+installs an acceptance window; every later format change stages through that window or through the
+per-adapter feature channel (§ v3.2), one adapter at a time, and needs no further bump. The measured
+cost of getting this wrong is in `sandbox/tests/offline/policy/regress_spec_v3_dry_run.php`, which
+evaluates each candidate rule against the whole shipped library before any of them is enabled.
+
+**How to read a v3 subsection.** Each one carries a `Rider:` line naming the work package that implements
+it and an `Enforced today:` line naming what the engine actually does now. That is the deferred-rows
+discipline applied to a specification: a reader can tell, per rule, whether they are reading a contract
+the engine keeps or a contract it has only promised. A rule with no shipped enforcement may not be relied
+on by an adapter author, and an engine claiming to implement one must satisfy its rider's own acceptance
+evidence before this line changes.
+
+| § | rule | rider | enforced today |
+|---|---|---|---|
+| v3.1 | N/N-1 acceptance window, per-section refusal by name | WP-4.2 | no — exact equality only |
+| v3.2 | `engine_features` declaration channel | WP-4.2 | no — the key is inert |
+| v3.3 | closed top-level key set and its growth rule | WP-4.3 | signing only, never the validator |
+| v3.4 | per-adapter disposition addressing; per-subject registry pins | WP-4.4 / WP-4.5 | no — one monolith, one whole-document hash |
+| v3.5 | per-adapter environment narrowing | WP-4.6 | no — one global copy into every claim |
+| v3.6 | certificates bind exercised axes; in-statement version; domain `/v2` | WP-4.7 | no — whole-`platform.json` byte equality |
+| v3.7 | authority record v2, and the platform root's identity-only binding | WP-4.8 | no — 6-key record, whole-record platform binding |
+| v3.8 | depth-1 delegation and typed revocation | WP-4.9 | no — no chain, one `status` word per key |
+| v3.9 | namespace grammar and the closed grandfather list | WP-4.10 | no — one flat identity grammar |
+| v3.10 | reserved-but-refusing slots | WP-4.11 | partly — the graduated verdict already shipped |
+| v3.11 | the executable lane's evidence contract (gate G5) | WP-7.1 (shut) | n/a — the lane is shut and the reservations refuse |
+
+The flip itself — the two defines, the migration verbs, the cohorted rollout and the rollback rehearsal —
+is WP-4.12 and is described in § v3.12.
+
+### v3.1 The acceptance window: N and N-1
+
+**Rider: WP-4.2. Enforced today: no.** `validate_adapter_contract()` accepts exactly `DUO_SPEC_VERSION`.
+
+A v3 engine accepts a manifest declaring `spec_version` ∈ {N, N-1}, where N is the engine's own
+`DUO_SPEC_VERSION`. The floor is exactly N-1 and never deeper: the release gate asserts the equality, so
+N-2 can never accumulate by inattention, and closing the window is its own dated decision (§ v3.12), not
+a side effect of the next release.
+
+Three refusals, and the difference between them is the whole point of the window:
+
+- an absent or non-integer `spec_version` keeps today's refusal, byte for byte. It is not a version, so
+  there is no window to be inside;
+- a version outside {N, N-1} refuses **wholesale**, naming the window it is outside;
+- a manifest inside the window that declares a section the engine only implements at a HIGHER version
+  refuses **per section, by name**, and the refusal is scoped to that adapter. The rest of the pin set
+  loads. This is the same `SCOPE_ADAPTER` posture the plugin-bundled source already uses so that one
+  third party's defect cannot take an installation down (see "Plugin-bundled adapters" above).
+
+A window is not tolerance. It is a staging channel with an expiry, and a v3-only section inside a v2
+manifest is refused by name — never ignored, never silently defaulted. The failure this rule exists to
+prevent is the one "Vocabulary ownership and extension" already states for values: an unrecognised
+declaration that means nothing is indistinguishable from a deliberate one, which is how a transposed
+letter drops a plugin's authored rows out of canonical state.
+
+### v3.2 `engine_features` — the declaration channel
+
+**Rider: WP-4.2. Enforced today: no.** Nothing in `agent/`, `cli/` or `recovery/` reads the key, and no
+shipped manifest declares it (measured in `regress_spec_v3_dry_run.php` under rule V3-FEAT).
+
+A manifest may declare `"engine_features": ["<feature>", …]`, a sorted list of the engine features its
+declarations depend on. An engine that implements every listed feature loads the adapter; an engine that
+lacks one refuses **that adapter, naming the feature and the adapter**, and loads the rest of the pin set.
+
+This is what keeps the closed key set (§ v3.3) from becoming the next flag day. A post-v3 primitive ships
+as: an engine feature name, a manifest key the feature claims, and a refusal for the engine that does not
+have it. An older v3 engine meeting a manifest that uses the primitive says so by name instead of
+mis-reading the declaration, and no version integer moves anywhere.
+
+Feature names are engine-owned: an adapter may declare one, never mint one. A name nothing implements is
+refused as unimplemented rather than admitted as forward-looking — the honest-refusal posture, which is
+what distinguishes this channel from `authored_typed_snapshot_post_v1`, the existing declared-but-not-
+implemented marker (see "Custom tables" above), whose one honest property is that it captures nothing and
+says so.
+
+### v3.3 The closed top-level key set, and how it grows
+
+**Rider: WP-4.3. Enforced today: at signing only.** The set exists, is maintained, and refuses — but only
+in `AdapterCertification::siteRatification()` (`agent/src/Adapter/AdapterCertification.php:816`), which
+most authors reach long after the typo. `ManifestValidator` does not consult it, so a manifest carrying
+`totally_made_up_section` and a transposed `optoins` validates `[ok]` today and is then unsignable
+(measured, both halves, in `regress_spec_v3_dry_run.php` under rule V3-KEYS).
+
+At `spec_version: 3` the top-level key set is CLOSED: a key in no arm of the partition refuses at load,
+by name. v2 manifests keep today's open behaviour exactly, so no shipped manifest changes behaviour by a
+byte.
+
+The set has one definition, not two. It is the signer's own three-arm partition
+(`AdapterCertification.php:173-183`), published by `AdapterCertification::topLevelKeyPartition()`
+(`:220`) and emitted by `duo manifest-validate --emit-schema` as `duo-manifest-grammar/v2`'s
+`top_level_keys` block. The arms are kept apart because a key's arm decides what a derived ratification
+says about it — an entity section becomes a covered surface, a non-surface key covers nothing — so
+flattening them would publish less than the engine knows:
+
+- **entity sections** (5): `post_types`, `tables`, `taxonomies`, `taxonomy_patterns`, `widgets`;
+- **field sections** (14): `block_attrs`, `dynamic_options`, `interpreter`, `menu_fields`,
+  `meta_patterns`, `option_name_refs`, `option_namespaces`, `option_patterns`, `options`, `post_meta`,
+  `post_meta_patterns`, `shortcode_attrs`, `term_meta`, `user_meta`;
+- **non-surface keys** (12, declaring no branchable state surface of their own): `actions`, `deletions`,
+  `lifecycle_effects`, `name`, `note`, `notes`, `option_autoload`, `plugin`, `providers`, `spec_version`,
+  `theme`, `version_range`.
+
+**The growth rule.** A closed set that cannot grow is the next flag day. It grows in exactly one way: a
+key claimed by a declared `engine_features` value the engine IMPLEMENTS is admitted; a key claimed by a
+declared feature the engine does NOT implement refuses by feature name (§ v3.2); a key nothing claims
+refuses as an unrecognised section. Those three verdicts are distinct and each is pinned by suite. There
+is no fourth answer, and in particular there is no "unknown keys are ignored" answer — that is the
+behaviour v3 removes.
+
+**Two reviewed decisions, resolved here rather than left as findings.** WP-1.6's dry run measured the
+partition against every key in use and found the difference in both directions. Both findings are settled
+as follows, and a rider implementing § v3.3 implements these with it:
+
+1. **`theme_version_range` JOINS the partition, as a non-surface key.** The partition knows `theme` but
+   not its mandatory companion, while `validate_adapter_contract()` (`AdapterContractGrammar.php:45`)
+   refuses a `theme` declared without a `theme_version_range` and `ArtifactPolicyIdentity` folds the range
+   into the adapter identity row (`agent/src/Policy/ArtifactPolicyIdentity.php:167-168`). A theme adapter
+   therefore validates and is then unsignable — the partition is incomplete against the shipped grammar by
+   exactly one key. It is a field-adjacent contract key with precisely the standing `version_range`
+   already has (a bound on the subject, not a state surface), so it takes `version_range`'s arm. No
+   shipped adapter declares `theme`, so admitting it moves no digest and no certificate.
+2. **`_draft` is REFUSED at v3, as an authoring artifact.** `duo adapter-draft` writes a top-level
+   `_draft` into the manifest it hands the author (`cli/src/Adapter/AdapterDraft.php:379`); the key is in
+   no arm, so draft output is unsignable today and would be refused by name at v3. That refusal is
+   correct and is kept: a `_draft` sidecar is a proposal record for a human, its contents are inert by
+   construction, and admitting it into the closed set would put unreviewed proposals inside the identity
+   row every certificate covers. The remedy is that a draft is STRIPPED before install —
+   `duo manifest-validate` already reports the sidecar's facts/proposals/unsupported counts on every run,
+   and a v3 refusal names `_draft` and says to strip it. A drafting tool may keep the sidecar in its own
+   working copy; a manifest with a `_draft` key is not installable at v3.
+
+### v3.4 Per-adapter disposition addressing, and per-subject registry pins
+
+**Riders: WP-4.4 (layout) and WP-4.5 (addressing). Enforced today: no.** `manifests/dispositions.json` is
+one document — 302 lines, 37,707 bytes, 16 entries plus one `profiles` row (`fse`) — and one missing
+entry refuses `Policy::load()` for every site and every unrelated adapter.
+
+At v3 the reviewed claim source is addressed per subject:
+
+```
+manifests/dispositions/<name>.json     # one document per adapter, the entry verbatim
+manifests/dispositions/profiles.json   # the profiles map, keyed independently of the manifest glob
+```
+
+Each document carries the entry's DECODED array unchanged, so `Canon::encode` of the disposition member
+is byte-identical before and after and no adapter digest moves. That is the invariant the whole flag day
+rests on: `ArtifactPolicyIdentity::manifest_rows()` folds each manifest's own disposition into that
+adapter's row (`:82`) and the row hashed is its `digest` (`:162`), so a canonical-encoding difference of
+one byte in one document would move that adapter's digest and every `site.duo.json` pin naming it.
+Every v3 disposition key (§ v3.5's axis narrowing, § v3.10's reviewer evidence, an expiry) is OPTIONAL
+with a default that reproduces today's value exactly.
+
+Refusals are preserved, not relaxed: a document missing for a PINNED adapter refuses by name, exactly as
+the monolith's coverage-mismatch does today. The existing external-entry validator
+(`ManifestDispositions::validate_external_entry()`) is the seam — it already validates one entry living
+outside the monolith, on the site-certificate path — so the split is a layout change against proven
+semantics rather than a second long-lived validator.
+
+**Registry pins address subjects, not the document.** A host contract's `evidence_pins.registry_sha256`
+is `hash('sha256', Canon::encode($whole_document))` (`agent/src/Policy/ManifestDispositions.php:207-208`),
+so a one-space edit to one adapter's `reason` invalidates a contract that pins no adapter at all — the
+projection says so in its own words: "It proves that something moved and nothing about what"
+(`cli/src/Contract/ContractProjection.php:186-189`). At v3 the pin is per subject (per-subject digests, or
+a Merkle root over the per-subject rows). The narrowing may only ever remove refusals that are PROVABLY
+unrelated: an edit attributable to no pinned subject still invalidates fail-closed, which is the branch
+`ContractProjection::invalidation()` already implements as `whole-contract` and which stays.
+
+### v3.5 Per-adapter environment narrowing, never widening
+
+**Rider: WP-4.6. Enforced today: no.** `claim_from_disposition()` copies `environment_assumptions`
+verbatim out of the single global `platform.json` into every claim
+(`agent/src/Policy/ManifestDispositions.php:338-343`), so all 16 shipped claims carry byte-identical
+environment assumptions and no adapter can state anything about the cells it actually ran on.
+
+At v3 an adapter may declare an environment that is a SUBSET of the reviewed platform boundary — the same
+subset shape `unsupported[]` already uses for surfaces — and that declaration narrows the CLAIM only:
+
+- a narrower declaration is honoured and reported;
+- a WIDER one refuses by name. An adapter may never claim a cell the reviewed boundary does not carry;
+- an adapter declaring nothing binds the whole current boundary, which is today's behaviour exactly.
+
+Narrowing relaxes no load-time assertion. `PlatformCompatibility::assert_supported()` still gates
+`site_mode`, PHP, database engine and version, WordPress version, the filesystem profile and the process
+profile exactly as it does now. A claim that says which cells were exercised is strictly more information
+than one that inherits the whole boundary; it is not permission to run outside it.
+
+### v3.6 Certificates bind exercised axes, carry an in-statement version, and move to domain `/v2`
+
+**Rider: WP-4.7. Enforced today: no.** Verification is `hash_equals(Canon::encode($platform),
+Canon::encode($statementTyped->platform))` (`AdapterCertification.php:1155`) — the WHOLE platform record,
+byte for byte — so every agent release invalidates every certificate in existence, including patch
+releases that move no axis anyone exercised.
+
+A v3 certificate binds:
+
+- `spec_version` — the grammar gate, unchanged. A certificate never verifies across a grammar bump;
+- a digest of the **compatibility axes** the certificate was exercised against. The boundary declares
+  five as of #560 — `database`, `filesystem`, `php`, `process`, `wordpress` — each with its own `verified`
+  series, and `process` is the newest (the bounded WP-CLI child transport's POSIX process-group profile).
+  A new axis is a reviewed sentence in this section, never a silent widening of what a certificate signs
+  over;
+- a `version` field INSIDE the signed statement, so a future wire change is refused BY VERSION rather
+  than read as corruption. This is the member the current statement cannot grow (see below), which is why
+  it must be added in the same change that changes the binding.
+
+`SIGNATURE_DOMAIN` moves to `duo-site-adapter-certification-signature/v2\0` because the binding semantics
+changed. Per the irreversibility register's R-01, a v2 domain is a NEW statement type verified BESIDE the
+v1 one, never an edit of it: an agent may verify both, and a certificate says which it is by the bytes it
+was signed over. A v1-domain statement met by a v3 agent degrades to `uncertified` by name (the typed
+withdrawal `SupersededWireSiteAdapterCertificate` already exists for exactly this shape) — never a
+whole-source refusal that would take the site's unrelated adapters down with it.
+
+The honesty property is carried by the axes, not by `agent_version`: a claim may not describe a runtime
+nobody ran, and after this change it states WHICH runtime cells it covers. Recording a newly exercised
+PHP patch adds coverage and invalidates nothing; changing a bound axis invalidates.
+
+### v3.7 Authority record v2, and the platform root's identity-only binding
+
+**Rider: WP-4.8. Enforced today: no.** The shipped record is exactly six keys — `adapter_names`,
+`algorithm`, `public_key`, `scope`, `status`, `trust_tiers` (`AdapterCertification::validateAuthorityRecord()`,
+`:1541`) — under the `duo-adapter-authorities/v1` envelope (`:124`), with no expiry vocabulary anywhere on
+the certification path (irreversibility register R-14) and revocation expressed as one `status` word per
+key (R-15). `manifests/capabilities/adapter-authorities.json` is `{"keys":{}}` and stays empty through the
+flag day: issuing one key freezes this wire format in a stranger's hands.
+
+Five changes, one grammar:
+
+1. **Key ids are fingerprint-derived by grammar, not by keygen default.** `keyId()` is nothing but the
+   shared identity slug check (`:1214`), while the host side already DERIVES
+   `site-<first 12 hex of sha256(public key)>` as a default an operator may override
+   (`cli/src/Adapter/AdapterCertify.php:1240-1242`). At v3 the derivation
+   is the grammar: an id that does not match its own key material is refused, so a squatted or misleading
+   id is unrepresentable rather than merely discouraged. Existing certificates keep verifying under
+   whatever id they were signed with, because `key_id` is already inside the signature.
+2. **`not_after`, with a NAMED clock source and a stated implausible-clock posture.** The clock is the
+   verifying host's own wall clock, named in the refusal. There is no skew allowance in either direction —
+   the same posture contract attestation already ships (R-14) — and an implausible clock (one before the
+   record's own issuance instant) REFUSES rather than resurrecting an expired record. Expiry introduces a
+   date-bricking failure mode into a protocol that has never had one, so it is reported as fleet health
+   well before it fires: approaching expiry is a census row, not a surprise on a Tuesday.
+3. **`adapter_names` admits a namespace PATTERN beside exact names**, evaluated at the same live scope
+   check the shipped code performs (`assertAuthorityScope()`, `:1598`). A pattern may only narrow what an
+   authority can certify relative to what it was granted; scope can never widen through a pattern.
+4. **The authorities document gains a signed envelope**, byte-checked by `make release-gate` the way the
+   generated capability document and the classmap already are. An unsigned or tampered authorities file
+   refuses.
+5. **The platform root adopts the site root's identity-only record binding.** Today the site branch binds
+   `authorityIdentity()` — everything but the scope lists (`:1666`, used at `:1640`) — because the site
+   trust root is a living registry: binding the whole record would invalidate every earlier certificate
+   under that key the moment a second adapter is certified. The platform branch binds the whole record
+   (`:1651`), justified by a premise enrollment falsifies — that the shipped file never grows under an
+   operator's hand. It will grow, once per enrolled vendor, and each growth would silently re-sign the
+   fleet's certificates. The platform root therefore binds identity too, and the second-enrollment case is
+   a named regression rather than an inference.
+
+Per R-08, a future root chooses one of the two bindings at the moment its first certificate is signed and
+never after. This change is possible only because the platform root has never signed one.
+
+### v3.8 Depth-1 delegated authorities, and typed revocation
+
+**Rider: WP-4.9. Enforced today: no.** There is no chain, no cross-signing and no path validation, by
+deliberate design.
+
+A v3 **delegation document** is a new domain-separated signed statement type in which a platform key
+delegates a namespace pattern, a tier set and a validity window to a vendor key, installable site-side. It
+gets its own signature domain constant, never a new arm inside the certification verifier — the same
+reason `SIGNATURE_DOMAIN` exists at all: a statement of one kind must not be able to verify as a statement
+of another (R-01, R-04). `ContractAttestation` is the proof this pattern replicates: a second
+operator-provisioned Ed25519 root with its own format, scope and domain.
+
+The rules are refusals, and the refusal matrix is the acceptance criterion:
+
+- verification chains **exactly one level**. A two-level chain refuses BY NAME rather than merely failing;
+- a delegation may only NARROW its delegator's namespace and tier set;
+- an expired delegation refuses; a delegation signed under a site key rather than a platform key refuses;
+- a revoked delegator invalidates its delegates.
+
+**Revocation becomes typed and reachable.** Today it is one `status` word per key in a file that ships
+inside the agent archive — `Adopt.php:149` tars exactly `agent manifests recovery` — so revocation
+latency is agent-release latency, which is the wrong cadence for the one direction that matters under
+compromise. v3 adds a typed revocation record carrying its own timestamp and reason, and a distribution
+channel that is NOT the agent release. It also closes the frozen-path gap: `verifyFrozen()` (`:337`)
+re-binds a site-rooted certificate to the authority record the SIGNATURE covers, because the frozen path
+reopens no mutable file — reasoned as correct while that root is the operator's own, a premise that fails
+the moment federation-by-copy puts a VENDOR key in a site root. A revoked vendor key held in a site root
+stops verifying on the frozen path; the operator-own-key asymmetry is preserved, with its reason text
+stating the distinction.
+
+### v3.9 The namespace grammar, and the closed grandfather list
+
+**Rider: WP-4.10. Enforced today: no.** One shared identity grammar (`AdapterSources::assert_name()`,
+`agent/src/Adapter/AdapterSources.php:3155`) governs adapter names, authority key ids, pins, ratification
+maps and frozen records, and `id_kind` uniqueness across pinned manifests is load-bearing for correctness
+because `duo_map` is keyed by `(id_kind, local_id)`
+(`agent/src/Policy/CrossManifestGuards.php:429-453`) — with prose advice as its entire remediation.
+
+At v3, `<vendor>-<name>` is a RESERVED form in the three flat identity spaces — adapter names,
+`tables.<t>.id_kind` and `providers[].id` — and a prefixed identity is bound to the certifying authority's
+namespace scope. An authority scoped to `acme-*` cannot certify `zeta-foo`. Squatting therefore requires
+holding a key rather than being first, which is the same property fingerprint-derived key ids give
+(§ v3.7); the two decisions reinforce each other.
+
+**Unprefixed names stay legal, and the reserved set is a CLOSED ENUMERATED LIST living in `agent/src`** —
+never under `manifests/`, where it would become a rule-2 identity input folded into every adapter row.
+A release-gate check pins the list's location and membership; a seventeenth unprefixed adapter name cannot
+be added without editing it in review.
+
+The list ENUMERATES rather than tests shape, and the measurement is why (`regress_spec_v3_dry_run.php`,
+rule V3-NS, against the shipped library):
+
+- 16 adapter names, 18 `id_kind`s, 10 provider ids = 44 identities, all of which already pass the one
+  shared grammar;
+- a bare `<vendor>-<name>` refusal would break **24** of them — the 6 adapter names carrying no hyphen at
+  all (`acf`, `core`, `elementor`, `polylang`, `woocommerce`, `yoast`) and all 18 `id_kind`s, every one of
+  which is underscore-separated;
+- the other 10 adapter names ARE hyphen-shaped without being vendor-prefixed (`the-events-calendar` is not
+  vendor `the`), so a shape test admits the wrong ones. The grandfather list therefore carries all 16
+  names and all 18 `id_kind`s;
+- all 10 provider ids are already hyphen-shaped with a plugin-slug first segment — the one space where the
+  convention is de facto in force.
+
+**`id_kind` prefixing can never become a RULE, and v3 does not make it one.** The irreversibility register
+rules on this at R-17: captured state and `duo_map` rows embed the BARE kind, so a prefix rule introduced
+later would have to rewrite every token in every branch of every site — the one migration this product
+cannot perform, because the branches are the customer's data. The register reserves the CONVENTION and
+refuses the RULE. So the 18 shipped kinds are a permanent floor, not a break list, and v3's contribution
+in that space is a reserved form bound to an authority scope plus the unchanged uniqueness refusal.
+
+### v3.10 Reserved-but-refusing slots
+
+**Rider: WP-4.11. Enforced today: partly.** The graduated verdict below already shipped; the other four
+slots do not exist, so a document using one is refused by the closed key set it lands in rather than by a
+message naming the gate.
+
+v3 ships attachment points that REFUSE, each with a pinned message naming the gate that would open it.
+Reserving an attachment point — a member slot or a vocabulary value, never a schema — is what makes each
+later opening a policy flip proven by suite instead of a second flag day; the detail of what eventually
+rides on it arrives through `engine_features` (§ v3.2), so the reservation need only be right about WHERE
+an extension attaches.
+
+| slot | where it attaches | pinned refusal |
+|---|---|---|
+| manifest `package` | manifest top level, inside the closed key set | `duo: manifest '<name>' declares 'package' — the executable adapter lane is reserved and shut. It opens only at gate G5 (spec/repo-format.md § v3.11), never by declaring the key` |
+| statement `code_digest` | the signed certification statement | `duo: site adapter certification statement declares 'code_digest' — a signed binding over adapter code is reserved and shut; it opens with the executable lane at gate G5` |
+| statement `delegated_authority` | the signed certification statement | `duo: site adapter certification statement declares 'delegated_authority' — delegated authority is verified through its own signed delegation document, not through a member of this statement (spec/repo-format.md § v3.8)` |
+| certification word `reviewer_signed` | the certification vocabulary | `duo: certification 'reviewer_signed' is reserved — the reviewer tier opens at gate G4 with an 'evidence.reviewer' bundle, and no engine mints it today` |
+| `evidence.reviewer` | the bundle evidence object | `duo: <label>.evidence declares 'reviewer' — the reviewer evidence member is reserved; it is admitted when the reviewer tier opens at gate G4` |
+
+Two consequences worth stating. First, the signed statement is exactly five members today — `adapter`,
+`authority`, `bundle`, `platform`, `ratification` (`AdapterCertification::assertStatementShape()`,
+`:1763-1765`) — checked with a MISSING-and-UNKNOWN refusal, which is register row R-06: a sixth member
+changes the signed bytes AND is refused by every deployed verifier. Reserving the two statement members
+above is therefore only possible in the same change that moves the statement wire (§ v3.6), and it is the
+last opportunity to reserve anything there. Second, the bundle evidence object is likewise closed —
+`exercised`, `grammar`, `reason` (`:2049`) — and the certification and observation vocabularies refuse a
+whole document on an unrecognised word, which is exactly why the slot must exist before any policy can
+flip into it.
+
+**Already delivered, and recorded here so the reservation is not re-taken:** the graduated
+`outside_version_range` verdict shipped as `version_range_graduated` (WP-2.8), a third evidence-bound
+state between "inside the certified window" and "deploy blocked", minted only when every recorded release
+between the declared window and the installed bytes probed green. It is a shipped word, not a reserved
+one.
+
+### v3.11 The executable lane: what gate G5 requires
+
+**Rider: WP-7.1, which is gated shut. Enforced today: the lane does not exist and its channels refuse.**
+
+**The default answer is NO, and a gate that never opens is a legitimate outcome.** This section records
+the evidence contract so that opening the lane is a reviewed change against written conditions rather than
+a judgement call inside a pull request. v3 reserves the attachment points (§ v3.10) and ships no lane.
+
+Today an out-of-tree manifest acquires no executable privileges at all: declaring `interpreter`, a
+`regen_dependency.regenerator`, or `providers[].source: "manifest"` is refused with remediation
+(`AdapterSources::assert_out_of_tree_contract()`, `agent/src/Adapter/AdapterSources.php:3479`), because
+all three resolve inside the agent's own manifest directory. `providers[].source: "plugin"` remains
+available and is the only decentralized code path — its trust anchor is an installed, active,
+version-bounded plugin plus the provider negotiation and receipt contract, which is a working channel for
+any party that owns the plugin.
+
+The lane opens only when ALL SEVEN of the following hold. They are independently verifiable and none is
+substitutable for another:
+
+1. **Declarative sufficiency.** The engine-gap ledger shows a residual demand that still requires
+   executable repair AFTER the declarative primitives land, and the `compatibility_shim` share of NEWLY
+   authored adapters has fallen below a threshold stated in advance of the measurement. The baseline is
+   today's, measured over the shipped library: 11 of the 16 adapters name manifest-shipped hook code, and
+   that code is 13 files totalling 5,755 lines under `manifests/{interpreters,providers,regenerators}`.
+2. **Falsifiable effects.** Declared-effect verification is live and REFUSING, with a measured
+   false-refusal rate on the shipped 16 below a stated threshold — because the compiled inventory is
+   recovery's entire authority, and under-declaring `effects[]` is the cheapest way for an adapter to pass.
+3. **Checked receipts.** The engine independently re-reads a capability's own declared `writes` surfaces
+   around `invoke()`, so `verified: true` is a check rather than an assertion third-party code makes about
+   itself.
+4. **Exercised revocation at speed.** Revocation-to-effect latency measured on the rehearsal fleet
+   (§ v3.8), because revoking executable code matters more than revoking a data claim.
+5. **A named isolation posture.** A real answer for memory, time and process bounds on third-party
+   provider and interpreter execution — either a bound with a suite behind it, or a written statement that
+   none is constructible and why the lane should open anyway.
+6. **Demonstrated parity.** A third party has produced a platform-admissible `exercised: true` bundle
+   using the shipped adapter test kit, verified at distance from an evidence repository that is not this
+   one.
+7. **Clean reservations.** § v3.10's suite still refuses with its pinned messages, and the full refusal
+   suite for the opened lane is authored and green on a branch — so the flip is a policy change proven by
+   test, not a format break taken on faith.
+
+If any condition is unmet the lane stays shut and the answer is more declarative primitives, never a
+relaxed gate.
+
+### v3.12 What v3 does NOT change
+
+The bump is engineered to move no adapter digest, and the exclusions are the reason that is achievable.
+The flip itself — `DUO_SPEC_VERSION` 2 → 3 and `DUO_AGENT_VERSION` in lockstep with
+`manifests/capabilities/platform.json`, the migration verbs, the cohorted rollout and the rollback
+rehearsal — is **WP-4.12**, and none of it is in force here.
+
+- **No shipped manifest is re-stamped to `spec_version: 3`.** This is the central exclusion and the reason
+  the bump is survivable and reversible. Stamping moves every manifest's bytes, therefore every adapter
+  digest, therefore every `manifest_hash`, therefore every deployed site's
+  `compiled_artifact_manifest_mismatch` (`agent/src/Repository/CompiledArtifactReader.php:56`) and every
+  `site.duo.json` content pin — simultaneously, for zero capability gained on the day it is paid. The
+  shipped library stays at `spec_version: 2` inside the window (§ v3.1) and migrates one adapter at a
+  time, each moving only its own digest and only for the sites that pin it.
+- **The platform trust root stays empty.** `manifests/capabilities/adapter-authorities.json` remains
+  `{"keys":{}}` through the flag day (§ v3.7).
+- **The executable lane does not open** (§ v3.11). Only its reservations ride.
+- **No new declarative primitive rides the bump.** Each is a v3-only section that stages through the
+  window the bump installs, one at a time — which is also the cheapest available proof that v3 was the
+  last flag day.
+- **Nothing widens the platform boundary.** v3 makes a NARROWER environment declarable (§ v3.5); it never
+  widens what the boundary CLAIMS. `site_mode: single-site` is unchanged.
+- **v2 acceptance is not retired.** Removing the old version on the day the window is installed would make
+  v3 a flag day of exactly the kind this section exists to end. The window closes by a dated decision,
+  gated on fleet telemetry showing no v2-declaring pinned manifests plus at least one grammar section
+  shipped post-v3 through `engine_features` with no bump — the replacement mechanism proven before the
+  thing it replaces is retired.
+
+Rollback, until that dated decision, is the shipped atomic bundle swap run backwards: redeploying the
+prior `agent manifests recovery` archive restores the v2 agent AND the v2 monolithic dispositions
+together. It is clean only because the flag day is digest-neutral — no adapter declares v3 and no digest
+moved, so every pin matches, every compiled artifact verifies, and `platform.json` reverts to the bytes
+every pre-flag certificate signed over. Exactly two acts make it lossy: the first shipped manifest stamped
+`spec_version: 3`, and the first certificate re-signed under § v3.6's wire. A mixed state is already
+unreachable through the supported path — `ManifestDispositions::platform_boundary()` throws "platform
+version disagrees with the loaded agent" the moment the defines and `platform.json` disagree
+(`agent/src/Policy/ManifestDispositions.php:240`), which is the same equality `make release-gate` checks.
 
 ## Ledger tables (per environment, never in the repo)
 

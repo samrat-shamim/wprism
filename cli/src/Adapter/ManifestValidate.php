@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Duo\Orchestrator;
 
+use Duo\AdapterCertification;
+use Duo\AdapterContractGrammar;
 use Duo\AdapterSources;
 use Duo\Canon;
 use Duo\NativeActions;
@@ -56,8 +58,12 @@ use Duo\Policy;
  * The emitted grammar document (`--emit-schema`) follows the same rule one step
  * further: every closed set in it is read from the engine at emission time
  * (Policy::closed_vocabularies(), Policy::grammar_patterns(),
- * NativeActions::vocabulary()/arg_schemas()). None of it is authored here, so
- * it cannot describe a grammar the engine stopped enforcing.
+ * NativeActions::vocabulary()/arg_schemas(),
+ * AdapterCertification::topLevelKeyPartition()), and the one set the engine
+ * keeps as a CONDITION rather than as a list — which `spec_version` integers it
+ * accepts — is measured by running the shipped refusal over candidate integers
+ * (specWindow()). None of it is authored here, so it cannot describe a grammar
+ * the engine stopped enforcing.
  *
  * Trust boundary: point this command only at a manifests directory trusted
  * as much as the agent's own — validating a manifest that declares an
@@ -70,8 +76,19 @@ final class ManifestValidate {
     /** Envelope of the validation report (both output modes carry it). */
     public const FORMAT = 'duo-manifest-validation/v1';
 
-    /** Envelope of the emitted grammar document. */
-    public const SCHEMA = 'duo-manifest-grammar/v1';
+    /**
+     * Envelope of the emitted grammar document.
+     *
+     * v2 (WP-4.1) adds two derived blocks the v1 document could not answer and
+     * an author had to read source for: `spec_window` — which `spec_version`
+     * integers this engine ACCEPTS, measured by running the shipped refusal
+     * rather than restated — and `top_level_keys`, the signer's own three-arm
+     * partition. Both are additive; every v1 field keeps its name, its
+     * contents and its order, so a consumer that only reads `vocabularies`,
+     * `patterns`, `native_actions`, `coverage` and `deferred` is unaffected by
+     * the bump.
+     */
+    public const SCHEMA = 'duo-manifest-grammar/v2';
 
     /**
      * The two engine refusals whose verdict is a function of the SITE half of
@@ -637,6 +654,8 @@ final class ManifestValidate {
                 'Duo\\Policy::grammar_patterns()',
                 'Duo\\NativeActions::vocabulary()',
                 'Duo\\NativeActions::arg_schemas()',
+                'Duo\\AdapterContractGrammar::validate_adapter_contract() (probed)',
+                'Duo\\AdapterCertification::topLevelKeyPartition()',
             ],
             // Every consumer of this document is entitled to know what it does
             // NOT describe, in the document rather than in a guide it may never
@@ -664,13 +683,124 @@ final class ManifestValidate {
                         . 'BASE only; the declared half is a property of one pin set plus one site.duo.json, '
                         . 'reported per run by `duo manifest-validate <manifests-dir> [--site=<repo>]`',
                 ],
+                'spec_window' => 'MEASURED, not declared — the accepted set is whatever the shipped '
+                    . 'validate_adapter_contract() answers over the probed integers, so a widened or narrowed '
+                    . 'window moves this block with no edit here.',
+                'top_level_keys' => 'The SIGNER\'s partition. It is what refuses at certificate signing time; '
+                    . 'the manifest validator does not consult it yet, so this block describes a closed set that '
+                    . 'is not enforced on the load path (see `enforced_by`).',
             ],
+            'spec_window' => self::specWindow(),
+            'top_level_keys' => self::topLevelKeys(),
             'vocabularies' => Policy::closed_vocabularies(),
             'patterns' => Policy::grammar_patterns(),
             'native_actions' => $actions,
             'deferred' => self::deferred(),
         ]) . "\n";
         return 0;
+    }
+
+    /**
+     * Which `spec_version` integers this engine accepts — MEASURED by asking
+     * the shipped refusal, never by restating its condition (WP-4.1).
+     *
+     * The condition is one line —
+     * `if (!is_int($spec) || $spec !== $supported)`
+     * (AdapterContractGrammar.php:26) — and writing `[DUO_SPEC_VERSION]` here
+     * would be a second copy of it that stays right only until the day the
+     * window changes, which is precisely the day a consumer needs this
+     * document to be right. So each candidate integer is handed to the real
+     * validator on a minimal manifest and the ACCEPTED ones are reported. That
+     * is the technique `tools/wire-surface.php` already uses for the grammars
+     * it publishes: run the shipped refusal and print what it answers.
+     *
+     * The probe window is deliberately wider than the engine's own answer
+     * (N-2 … N+1) so a widened window shows up as a wider `accepted` list
+     * rather than as a silently clipped one, and `probed` publishes the range
+     * so a reader can tell "refused" from "never asked".
+     *
+     * A minimal manifest is the right probe subject because every other check
+     * in `validate_adapter_contract()` is keyed on a declaration this manifest
+     * does not carry (`interpreter`, `plugin`/`version_range`,
+     * `theme`/`theme_version_range`), so the only verdict being measured is
+     * the spec-version one.
+     *
+     * `n_minus_1_accepted` is the fact spec v3's acceptance window (WP-4.2)
+     * turns from false to true; it is REPORTED here, never assumed, and the
+     * status line names the section that specifies it.
+     *
+     * @return array<string,mixed>
+     */
+    private static function specWindow(): array {
+        $supported = DUO_SPEC_VERSION;
+        $probed = [];
+        $accepted = [];
+        for ($candidate = $supported - 2; $candidate <= $supported + 1; $candidate++) {
+            $probed[] = $candidate;
+            try {
+                AdapterContractGrammar::validate_adapter_contract([
+                    'name' => 'duo-manifest-grammar-probe',
+                    'spec_version' => $candidate,
+                ]);
+                $accepted[] = $candidate;
+            } catch (\Throwable) {
+                // Refused: this integer is outside the shipped window. The
+                // message is the author's coordinate, not this document's —
+                // running the command on a real manifest prints it verbatim.
+            }
+        }
+
+        return [
+            'declared_by' => 'the manifest\'s own top-level `spec_version` (int)',
+            'engine_supported' => $supported,
+            'probed' => $probed,
+            'accepted' => $accepted,
+            'n_minus_1_accepted' => in_array($supported - 1, $accepted, true),
+            'enforced_by' => 'Duo\\AdapterContractGrammar::validate_adapter_contract()',
+            'status' => 'This engine accepts exactly the integers in `accepted`; absent and declared-wrong are '
+                . 'the same refusal. The N/N-1 acceptance window is SPECIFIED in spec/repo-format.md '
+                . '"Spec v3" § v3.1 and is NOT enforced here — WP-4.2 implements it.',
+        ];
+    }
+
+    /**
+     * The closed top-level manifest key set, read from the engine constant the
+     * signer classifies against (WP-4.1).
+     *
+     * Published because an author has no other way to learn it: the partition
+     * is private to `AdapterCertification`, and the only place it speaks is a
+     * certificate-signing run, which most authors reach long after the typo.
+     * `enforced_by`/`not_enforced_by` are in the document rather than in a
+     * guide, because the honest statement of this set is that it refuses in
+     * one place and is silently admitted in the other — a `totally_made_up_
+     * section` validates `ok` today and is then unsignable.
+     *
+     * The three arms are kept apart rather than merged: a key's ARM decides
+     * what a derived ratification says about it (an entity section becomes a
+     * covered surface; a non-surface key covers nothing), so flattening them
+     * would publish less than the engine knows. `all` is the merged, sorted
+     * set for a consumer that only wants membership.
+     *
+     * @return array<string,mixed>
+     */
+    private static function topLevelKeys(): array {
+        $partition = AdapterCertification::topLevelKeyPartition();
+        $all = array_merge(
+            $partition['entity_sections'],
+            $partition['field_sections'],
+            $partition['non_surface_keys']
+        );
+        sort($all, SORT_STRING);
+
+        return $partition + [
+            'all' => $all,
+            'enforced_by' => 'Duo\\AdapterCertification::siteRatification() — signing refuses a key it cannot '
+                . 'classify, by name',
+            'not_enforced_by' => 'Duo\\ManifestValidator::validate_manifest() — an unrecognised top-level key '
+                . 'loads and does nothing, which is why a transposed section name is inert rather than loud',
+            'status' => 'Closing that gap is SPECIFIED in spec/repo-format.md "Spec v3" § v3.3 and is NOT '
+                . 'enforced here — WP-4.3 implements it, for `spec_version: 3` manifests only.',
+        ];
     }
 
     /** @param array<string,mixed> $report */
@@ -794,6 +924,14 @@ final class ManifestValidate {
         // itself. The other three are what Policy::load() reaches: canonical
         // decoding, the autoload vocabulary, and the external review document
         // it consults when the directory carries one.
+        //
+        // AdapterCertification joined the list for --emit-schema (WP-4.1),
+        // which publishes its top-level key partition. It was already inside
+        // the static require closure this command's guard scans (signed
+        // site-adapter validation reaches it from AdapterSources), so nothing
+        // new enters the WordPress-reach allowlist — it is simply loaded up
+        // front now instead of on the first signed-adapter path, which is the
+        // cheapest way for the emitter to name a class it does not own.
         $duoAgentClassmap = require $repo . '/agent/duo-classmap.php';
         if (!is_array($duoAgentClassmap)) {
             throw new \RuntimeException('manifest-validate: agent/duo-classmap.php did not return a map');
@@ -802,7 +940,7 @@ final class ManifestValidate {
         foreach ($duoAgentClassmap as $duoAgentPath) {
             $duoAgentFiles[basename((string) $duoAgentPath, '.php')] = (string) $duoAgentPath;
         }
-        foreach (['Canon', 'OptionState', 'ManifestDispositions', 'Policy'] as $class) {
+        foreach (['Canon', 'OptionState', 'ManifestDispositions', 'Policy', 'AdapterCertification'] as $class) {
             $duoAgentFile = $duoAgentFiles[$class] ?? null;
             if (!is_string($duoAgentFile)) {
                 throw new \RuntimeException('manifest-validate: agent source ' . $class . '.php is absent from agent/duo-classmap.php');

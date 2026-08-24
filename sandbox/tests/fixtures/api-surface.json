@@ -30138,7 +30138,7 @@
                     "value_repr": "duo-manifest-validation/v1"
                 },
                 "SCHEMA": {
-                    "value_repr": "duo-manifest-grammar/v1"
+                    "value_repr": "duo-manifest-grammar/v2"
                 }
             },
             "final": true,
