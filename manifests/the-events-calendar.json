@@ -165,6 +165,7 @@
     "tribe_events_calendar_options": {
       "class": "env",
       "required": false,
+      "closed_sub_keys": true,
       "sub_keys": {
         "allow_duplicate_venues": {"class": "env"},
         "category-color-custom-css": {"class": "authored"},
@@ -327,6 +328,18 @@
     "tribe_events_import_log": {"class": "runtime"},
     "tribe_events_import_type": {"class": "runtime"},
     "tribe_events_importer_offset": {"class": "runtime"},
+    "tribe_customizer": {
+      "class": "env",
+      "required": false,
+      "absent_autoload": "auto-on",
+      "closed_sub_keys": true,
+      "sub_keys": {
+        "global_elements": {"class": "authored", "plain_data": true},
+        "month_view": {"class": "authored", "plain_data": true},
+        "tec_events_bar": {"class": "authored", "plain_data": true},
+        "single_event": {"class": "authored", "plain_data": true}
+      }
+    },
     "tribe_events_pro_customizer": {"class": "runtime"},
     "tribe_last_generate_rewrite_rules": {"class": "runtime"},
     "tribe_last_save_post": {"class": "runtime"},

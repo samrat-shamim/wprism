@@ -298,14 +298,14 @@ Multisite is refused before policy load or mutation. Each compatibility axis car
 
 ## the-events-calendar
 
-**Status: experimental.** Experimental while the production-readiness candidate is integrated and rerun. Deterministic offline coverage exists for the reviewed free-plugin grammar, ordered organizer rows, registered metadata, event status/map wires, Category Colors, Custom Tables V1 verification, settings inventory, malformed inputs, and loud extension boundaries, but the shared mixed-option and checked repeated-meta seams plus final candidate-bound 6.17.2/6.17.3 clean/dirty, deletion atomicity, rollback/retry, concurrency, lifecycle, native render/API, data-boundary, optional-runtime, and multisite evidence remain open. The adapter cannot certify or promote until every ledger family is green on one clean shipped SHA.
+**Status: experimental.** Experimental while the production-readiness candidate is integrated and rerun. Deterministic offline coverage exists for the reviewed free-plugin grammar, canonical/legacy Customizer precedence and sparse materialization, ordered organizer grammar, registered metadata, event status/map wires, Category Colors, Custom Tables V1 verification, settings inventory, malformed inputs, and loud extension boundaries, but the checked repeated-meta seam plus final candidate-bound 6.17.2/6.17.3 clean/dirty, deletion atomicity, rollback/retry, concurrency, lifecycle, native render/API, data-boundary, optional-runtime, and multisite evidence remain open. The adapter cannot certify or promote until every ledger family is green on one clean shipped SHA.
 
 - **Plugin:** `the-events-calendar/the-events-calendar.php`
 - **Version range:** >=6.17.2 <6.17.4
 - **Operations:** apply, capture, compile, deploy, plan, promote, recapture, render-api
 - **Lifecycle phases:** retire, activate, verify
 - **Declared entities:** `post_types` (3: tribe_events, tribe_organizer, tribe_venue), `tables` (3: tec_events, tec_kv_cache, tec_occurrences), `taxonomies` (1: tribe_events_cat)
-- **Declared fields:** `options` (56 keys), `post_meta` (48 keys), `term_meta` (5: tec-events-cat-colors-hidden, tec-events-cat-colors-primary, tec-events-cat-colors-priority, tec-events-cat-colors-secondary, tec-events-cat-colors-text), `block_attrs` (2: core/legacy-widget, tribe/event-organizer), `interpreter` (`the-events-calendar`)
+- **Declared fields:** `options` (57 keys), `post_meta` (48 keys), `term_meta` (5: tec-events-cat-colors-hidden, tec-events-cat-colors-primary, tec-events-cat-colors-priority, tec-events-cat-colors-secondary, tec-events-cat-colors-text), `block_attrs` (2: core/legacy-widget, tribe/event-organizer), `interpreter` (`the-events-calendar`)
 - **Adapter hooks:** 1 provider, 2 structured actions, interpreter `the-events-calendar`
 - **Deletions supported:** none
 - **Deletions unsupported:** post:tribe_events, post:tribe_organizer, post:tribe_venue, term:tribe_events_cat

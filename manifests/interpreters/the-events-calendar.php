@@ -19,8 +19,10 @@ use Duo\Tokens;
  * to manufacture an occurrence from contradictory authored inputs.
  */
 final class TheEventsCalendar {
+    private const CALENDAR_OPTIONS = 'tribe_events_calendar_options';
     private const CUSTOMIZER_CANONICAL_OPTION = 'tribe_customizer';
     private const CUSTOMIZER_LEGACY_OPTION = 'tribe_events_pro_customizer';
+    private const SETTINGS_CACHE_KEY = 'Tribe__Settings_Manager:option_cache';
     private const CUSTOMIZER_MAX_NODES = 128;
     private const CUSTOMIZER_MAX_OPTION_BYTES = 65536;
     private const CUSTOMIZER_MAX_SETTING_BYTES = 4096;
@@ -226,6 +228,77 @@ final class TheEventsCalendar {
             $rawOptionSnapshot[self::CUSTOMIZER_LEGACY_OPTION],
             'legacy compatibility'
         ));
+    }
+
+    /**
+     * Materialize both closed TEC mixed options through one digest-bound
+     * owner. Free TEC exposes no whole-Customizer setter: WP_Customize_Setting
+     * ultimately replaces the canonical option, so the engine-owned checked
+     * row writer is the only hook-free transactional primitive. The nested
+     * Events Bar residue is target-owned and therefore merged explicitly.
+     */
+    public function materialize_option_sub_keys(
+        string $name,
+        array $captured,
+        array $declaredSubKeys,
+        string $autoload,
+        ?array $targetValue,
+        \Closure $lockTargetOption,
+        \Closure $finalizeStorage,
+        \Closure $restoreStorage,
+        ?\Closure $registerRuntimeRestore = null,
+        ?\Closure $writeStorage = null
+    ): bool {
+        if (!in_array($name, [self::CALENDAR_OPTIONS, self::CUSTOMIZER_CANONICAL_OPTION], true)) {
+            return false;
+        }
+        if ($registerRuntimeRestore === null || $writeStorage === null) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar mixed-option writer lacks engine-owned storage/recovery authority'
+            );
+        }
+
+        if ($name === self::CUSTOMIZER_CANONICAL_OPTION) {
+            $this->assert_customizer_sub_key_declaration($declaredSubKeys);
+            $this->assert_customizer_runtime();
+            $storage = $this->customizer_materialized_storage($captured, $targetValue);
+            $registerRuntimeRestore(static function (): void {});
+        } else {
+            $storage = $this->ordinary_closed_mixed_storage($captured, $declaredSubKeys, $targetValue);
+            $this->invalidate_settings_cache_with_rollback($registerRuntimeRestore);
+        }
+
+        $writeStorage($storage);
+        $finalizeStorage();
+        return true;
+    }
+
+    /**
+     * Remove only a target-owned nested carrier from the verification view.
+     * An explicitly desired empty section remains meaningful; an absent
+     * section may disappear even when the same physical residue keeps its
+     * container present on the target.
+     *
+     * @return array<string,mixed>
+     */
+    public function project_materialized_option_sub_keys(
+        string $name,
+        array $rawAuthored,
+        array $declaredSubKeys,
+        array $desiredAuthoredKeys
+    ): array {
+        if ($name !== self::CUSTOMIZER_CANONICAL_OPTION) {
+            return $rawAuthored;
+        }
+        $this->assert_customizer_sub_key_declaration($declaredSubKeys);
+        $desired = array_fill_keys($desiredAuthoredKeys, true);
+        $projected = $this->normalize_customizer_sparse_map($rawAuthored);
+        foreach ($projected as $section => $settings) {
+            if ($settings === [] && !isset($desired[$section])) {
+                unset($projected[$section]);
+            }
+        }
+        return $projected;
     }
 
     /**
@@ -1726,6 +1799,247 @@ final class TheEventsCalendar {
     private function is_sanitized_separator(string $value): bool {
         return preg_match('//u', $value) === 1
             && strip_tags(htmlspecialchars_decode($value, ENT_QUOTES)) === $value;
+    }
+
+    /** @return array<string,mixed> */
+    private function ordinary_closed_mixed_storage(
+        array $captured,
+        array $declaredSubKeys,
+        ?array $targetValue
+    ): array {
+        $storage = $targetValue ?? [];
+        PlainData::assert($storage, 'The Events Calendar target mixed option');
+        if ($storage !== [] && array_is_list($storage)) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar target mixed option is not an object-shaped sibling map'
+            );
+        }
+        foreach ($declaredSubKeys as $subKey => $subRule) {
+            if (($subRule['class'] ?? null) === 'authored') {
+                unset($storage[(string) $subKey]);
+            }
+        }
+        foreach ($captured as $subKey => $value) {
+            if (!is_string($subKey)
+                || (($declaredSubKeys[$subKey]['class'] ?? null) !== 'authored')) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar mixed option contains an undeclared/non-authored desired sibling'
+                );
+            }
+            $storage[$subKey] = $value;
+        }
+        return $storage;
+    }
+
+    /** @return array<string,mixed> */
+    private function customizer_materialized_storage(array $captured, ?array $targetValue): array {
+        if ($this->normalize_customizer_sparse_map($captured) !== $captured) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar desired Customizer map is not in exact native-normalized form'
+            );
+        }
+
+        $residue = [];
+        if ($targetValue !== null) {
+            // The validation result deliberately is not the merge base: all
+            // server-owned settings are authored and must be replaced or
+            // deleted. Only the two reviewed JS-era values survive.
+            $this->normalize_customizer_sparse_map($targetValue);
+            foreach (self::CUSTOMIZER_TARGET_OWNED_SETTINGS as $section => $settings) {
+                $targetSection = $targetValue[$section] ?? null;
+                if (!is_array($targetSection)) {
+                    continue;
+                }
+                foreach ($settings as $setting) {
+                    if (array_key_exists($setting, $targetSection)) {
+                        $residue[$section][$setting] = $targetSection[$setting];
+                    }
+                }
+            }
+        }
+
+        $storage = $captured;
+        foreach ($residue as $section => $settings) {
+            if (!array_key_exists($section, $storage)) {
+                $storage[$section] = [];
+            }
+            foreach ($settings as $setting => $value) {
+                $storage[$section][$setting] = $value;
+            }
+        }
+        return $storage;
+    }
+
+    /**
+     * The adapter reads raw rows, but site behavior still depends on TEC's
+     * exact canonical-option singleton and its sole legacy fallback callback.
+     * Extensions on any value/identity hook can make those bytes mean
+     * something else, so refuse that topology before the checked row write.
+     */
+    private function assert_customizer_runtime(): void {
+        if (!function_exists('tribe')) {
+            throw new \RuntimeException('duo: The Events Calendar Customizer service is unavailable');
+        }
+        try {
+            $customizer = tribe('customizer');
+            $sameCustomizer = tribe('customizer');
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar Customizer service lookup failed',
+                0,
+                $failure
+            );
+        }
+        if (!is_object($customizer)
+            || get_class($customizer) !== 'Tribe__Customizer'
+            || $sameCustomizer !== $customizer
+            || !isset($customizer->ID)
+            || $customizer->ID !== self::CUSTOMIZER_CANONICAL_OPTION) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar Customizer service identity was extended or overridden'
+            );
+        }
+
+        global $wp_filter;
+        $fallbackHook = is_array($wp_filter ?? null)
+            ? ($wp_filter['default_option_' . self::CUSTOMIZER_CANONICAL_OPTION] ?? null)
+            : null;
+        if (!is_object($fallbackHook)
+            || get_class($fallbackHook) !== 'WP_Hook'
+            || !is_array($fallbackHook->callbacks ?? null)) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar Customizer fallback hook is absent or malformed'
+            );
+        }
+        $callbacks = [];
+        foreach ($fallbackHook->callbacks as $priority => $records) {
+            if (!is_array($records)) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar Customizer fallback callback topology is malformed'
+                );
+            }
+            foreach ($records as $record) {
+                $callbacks[] = [$priority, $record];
+            }
+        }
+        $record = $callbacks[0][1] ?? null;
+        $callback = is_array($record) ? ($record['function'] ?? null) : null;
+        if (count($callbacks) !== 1
+            || ($callbacks[0][0] ?? null) !== 10
+            || !is_array($record)
+            || array_keys($record) !== ['function', 'accepted_args']
+            || ($record['accepted_args'] ?? null) !== 1
+            || !is_array($callback)
+            || count($callback) !== 2
+            || ($callback[0] ?? null) !== $customizer
+            || ($callback[1] ?? null) !== 'maybe_fallback_get_option') {
+            throw new \RuntimeException(
+                'duo: The Events Calendar Customizer fallback callback topology was extended or overridden'
+            );
+        }
+
+        foreach ([
+            'tribe_events_pro_customizer_is_active',
+            'tribe_customizer_is_active',
+            'tribe_customizer_panel_id',
+            'tribe_events_pro_customizer_pre_get_option',
+            'tribe_customizer_pre_get_option',
+            'tribe_customizer_get_option',
+            'pre_option_' . self::CUSTOMIZER_CANONICAL_OPTION,
+            'option_' . self::CUSTOMIZER_CANONICAL_OPTION,
+            'pre_option_' . self::CUSTOMIZER_LEGACY_OPTION,
+            'default_option_' . self::CUSTOMIZER_LEGACY_OPTION,
+            'option_' . self::CUSTOMIZER_LEGACY_OPTION,
+        ] as $hookName) {
+            $hook = is_array($wp_filter ?? null) ? ($wp_filter[$hookName] ?? null) : null;
+            if (is_object($hook)
+                && is_array($hook->callbacks ?? null)
+                && $hook->callbacks !== []) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar Customizer value/identity hook topology is extended'
+                );
+            }
+        }
+    }
+
+    /**
+     * Raw writes intentionally bypass updated_option. Forget TEC's request-
+     * local Settings Manager cache so post-commit reads load durable bytes;
+     * rollback restores its exact prior presence/value before DB rollback.
+     */
+    private function invalidate_settings_cache_with_rollback(\Closure $registerRuntimeRestore): void {
+        global $wp_filter;
+        $updatedHook = is_array($wp_filter ?? null) ? ($wp_filter['updated_option'] ?? null) : null;
+        $matches = [];
+        if (is_object($updatedHook)
+            && get_class($updatedHook) === 'WP_Hook'
+            && is_array($updatedHook->callbacks ?? null)) {
+            foreach ($updatedHook->callbacks as $priority => $records) {
+                if (!is_array($records)) {
+                    continue;
+                }
+                foreach ($records as $record) {
+                    $callback = is_array($record) ? ($record['function'] ?? null) : null;
+                    if (is_array($callback)
+                        && is_object($callback[0] ?? null)
+                        && get_class($callback[0]) === 'Tribe__Settings_Manager'
+                        && ($callback[1] ?? null) === 'update_options_cache') {
+                        $matches[] = [$priority, $record, $callback[0]];
+                    }
+                }
+            }
+        }
+        if (count($matches) !== 1
+            || ($matches[0][0] ?? null) !== 10
+            || (($matches[0][1]['accepted_args'] ?? null) !== 3)
+            || !class_exists('Tribe__Settings_Manager', false)
+            || !method_exists('Tribe__Settings_Manager', 'instance')) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar settings-cache callback topology is absent or extended'
+            );
+        }
+        $manager = \Tribe__Settings_Manager::instance();
+        if (!is_object($manager)
+            || get_class($manager) !== 'Tribe__Settings_Manager'
+            || ($matches[0][2] ?? null) !== $manager) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar settings-cache singleton identity was substituted'
+            );
+        }
+        foreach (['tribe_isset_var', 'tribe_get_var', 'tribe_set_var', 'tribe_unset_var'] as $function) {
+            if (!function_exists($function)) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar settings-cache primitive is unavailable'
+                );
+            }
+        }
+
+        $wasPresent = tribe_isset_var(self::SETTINGS_CACHE_KEY);
+        $before = $wasPresent ? tribe_get_var(self::SETTINGS_CACHE_KEY) : null;
+        $registerRuntimeRestore(static function () use ($wasPresent, $before): void {
+            if ($wasPresent) {
+                tribe_set_var(self::SETTINGS_CACHE_KEY, $before);
+                if (!tribe_isset_var(self::SETTINGS_CACHE_KEY)
+                    || tribe_get_var(self::SETTINGS_CACHE_KEY) !== $before) {
+                    throw new \RuntimeException(
+                        'duo: The Events Calendar settings cache could not restore its exact prior value'
+                    );
+                }
+                return;
+            }
+            tribe_unset_var(self::SETTINGS_CACHE_KEY);
+            if (tribe_isset_var(self::SETTINGS_CACHE_KEY)) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar settings cache could not restore exact absence'
+                );
+            }
+        });
+        tribe_unset_var(self::SETTINGS_CACHE_KEY);
+        if (tribe_isset_var(self::SETTINGS_CACHE_KEY)) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar settings cache could not be invalidated before storage materialization'
+            );
+        }
     }
 
     /** @param array<string,mixed> $declaredSubKeys */

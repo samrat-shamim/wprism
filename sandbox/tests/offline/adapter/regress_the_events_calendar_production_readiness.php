@@ -124,6 +124,22 @@ final class Tribe__Settings_Manager {
     }
 }
 
+final class Tribe__Customizer {
+    public string $ID = 'tribe_customizer';
+
+    public function __construct(bool $registerFallback = true) {
+        if ($registerFallback) {
+            add_filter('default_option_tribe_customizer', [$this, 'maybe_fallback_get_option']);
+        }
+    }
+
+    public function maybe_fallback_get_option(mixed $sections): mixed {
+        return !empty($sections)
+            ? $sections
+            : get_option('tribe_events_pro_customizer', []);
+    }
+}
+
 final class Tribe__Cache {
     public const NON_PERSISTENT = -1;
     public const SCHEDULED_EVENT_DELETE_TRANSIENT = 'tribe_schedule_transient_purge';
@@ -427,7 +443,9 @@ if (!defined('DUO_SPEC_VERSION')) {
 }
 
 require_once __DIR__ . '/../../lib/check.php';
+require_once __DIR__ . '/../../lib/wp_stubs.php';
 require_once __DIR__ . '/../../lib/FakeWpdb.php';
+require_once __DIR__ . '/../../lib/LockingFakeWpdb.php';
 require_once __DIR__ . '/../../support/wp-block-parser-stub.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
@@ -439,6 +457,10 @@ require_once __DIR__ . '/../../../../agent/src/Repository/SidebarState.php';
 require_once __DIR__ . '/../../../../agent/src/Promotion/Deploy.php';
 require_once __DIR__ . '/../../../../agent/src/Adapter/Providers.php';
 require_once __DIR__ . '/../../../../agent/src/Capture/EntityMetaCapture.php';
+require_once __DIR__ . '/../../../../agent/src/Capture/OptionsCapture.php';
+require_once __DIR__ . '/../../../../agent/src/Kernel/TransientDbException.php';
+require_once __DIR__ . '/../../../../agent/src/Kernel/Db.php';
+require_once __DIR__ . '/../../../../agent/src/Apply/OptionsMaterializer.php';
 require_once __DIR__ . '/../../../../manifests/interpreters/the-events-calendar.php';
 require_once __DIR__ . '/../../../../manifests/providers/the-events-calendar-category-colors.php';
 require_once __DIR__ . '/../../../../manifests/regenerators/the-events-calendar.php';
@@ -452,6 +474,7 @@ use Duo\Tokens;
 use Duo\Providers\TheEventsCalendarCategoryColors;
 use Duo\Regenerators\TheEventsCalendar as TheEventsCalendarRegenerator;
 use DuoTest\FakeWpdb;
+use DuoTest\LockingFakeWpdb;
 
 const TEC_EVENT_UUID = '11111111-1111-4111-8111-111111111111';
 const TEC_VENUE_UUID = '22222222-2222-4222-8222-222222222222';
@@ -986,6 +1009,7 @@ function tribe(?string $class = null): object {
         return $GLOBALS['tec_readiness_native_container']->make($class);
     }
     return match ($class) {
+        'customizer' => $GLOBALS['tec_readiness_customizer'],
         'TEC\\Events\\Category_Colors\\CSS\\Generator' =>
             $GLOBALS['tec_readiness_category_color_generator'],
         'TEC\\Events\\Category_Colors\\Repositories\\Category_Color_Dropdown_Provider' =>
@@ -2004,6 +2028,7 @@ foreach (['_VenueLat', '_VenueLng'] as $key) {
 $options = $policy->option_rule('tribe_events_calendar_options');
 duo_check_same('env', $options['class'] ?? null, 'the mixed TEC option remains target-owned as a whole');
 duo_check_same('preserve', $options['autoload'] ?? null, 'the mixed TEC option preserves live autoload semantics');
+duo_check_same(true, $options['closed_sub_keys'] ?? null, 'the exact main settings sibling registry is closed');
 foreach (['eventsSlug', 'tribeEnableViews', 'category-color-enable-frontend', 'tec_seo_out_of_range_behavior'] as $key) {
     duo_check_same('authored', $options['sub_keys'][$key]['class'] ?? null, "$key is one reviewed portable setting sub-key");
 }
@@ -2218,6 +2243,7 @@ $expectedTopLevelOptionClasses = [
         'tec_timed_tec_custom_tables_v1_initialized',
         'tec_timed_tribe_supports_async_process',
         'tec_zapier_api_keys',
+        'tribe_customizer',
         'tribe_events_calendar_options',
         'tribe_promoter_auth_key',
         'tribe_systeminfo_optin',
@@ -3676,6 +3702,20 @@ foreach (($customizerSections['sections'] ?? []) as $section) {
         'plain_data' => true,
     ];
 }
+$customizerRule = $policy->option_rule('tribe_customizer');
+duo_check_same('env', $customizerRule['class'] ?? null, 'the canonical Customizer parent stays mixed/target-owned');
+duo_check_same(true, $customizerRule['closed_sub_keys'] ?? null, 'the four-section Customizer registry is closed');
+duo_check_same(
+    'auto-on',
+    $customizerRule['absent_autoload'] ?? null,
+    'an absent canonical row uses the exact pinned-core first-save autoload wire'
+);
+duo_check_same(
+    $customizerDeclaredSubKeys,
+    $customizerRule['sub_keys'] ?? null,
+    'the manifest and exact source fixture declare the same four Customizer section carriers'
+);
+$GLOBALS['tec_readiness_customizer'] = new Tribe__Customizer();
 $normalizeCustomizerSparseMap = static function (mixed $raw) use (
     $customizerDeclaredSubKeys,
     $interpreter
@@ -4824,6 +4864,393 @@ duo_check_same(
     $cacheBustsAfterEqualPriority + 2,
     $GLOBALS['tec_readiness_cache_busts'],
     'only explicit provider invocations replayed native cache mutation'
+);
+
+/** @return ?array{state:string,autoload:string,value:array} */
+function tec_readiness_capture_customizer_record(
+    Policy $policy,
+    bool $canonicalPresent,
+    array $canonical,
+    bool $legacyPresent,
+    array $legacy,
+    string $canonicalAutoload = 'auto-on'
+): ?array {
+    $savedDb = $GLOBALS['wpdb'] ?? null;
+    $db = FakeWpdb::install();
+    $rows = [];
+    $rawOptionSnapshot = [];
+    $optionId = 1;
+    if ($canonicalPresent) {
+        $row = [
+            'option_id' => $optionId++,
+            'option_name' => 'tribe_customizer',
+            'option_value' => serialize($canonical),
+            'autoload' => $canonicalAutoload,
+        ];
+        $rows[] = $row;
+        $rawOptionSnapshot[$row['option_name']] = $row['option_value'];
+    }
+    if ($legacyPresent) {
+        $row = [
+            'option_id' => $optionId,
+            'option_name' => 'tribe_events_pro_customizer',
+            'option_value' => serialize($legacy),
+            'autoload' => 'off',
+        ];
+        $rows[] = $row;
+        $rawOptionSnapshot[$row['option_name']] = $row['option_value'];
+    }
+    $db->seedTable($db->options, $rows);
+    $transactionStarted = false;
+    try {
+        \Duo\Db::start_read_only_consistent_snapshot('TEC Customizer capture fixture');
+        $transactionStarted = true;
+        $capture = new \Duo\OptionsCapture(
+            $policy,
+            new Tokens('https://source.example', 'https://source.example/uploads'),
+            static function (): void {},
+            static fn(): ?string => null,
+            static fn(): bool => false
+        );
+        $rule = $policy->sub_keyed_options()['tribe_customizer'] ?? null;
+        duo_check(is_array($rule), 'the product capture fixture resolves the declared Customizer mixed-option rule');
+        $details = $policy->option_rule_details('tribe_customizer');
+        $source = is_string($details['source'] ?? null) ? $details['source'] : null;
+        $liveCanonicalNames = [];
+        $out = [];
+        $captureSubKeys = new ReflectionMethod($capture, 'capture_option_sub_keys');
+        // The shared FakeWpdb deliberately has no SUM/COALESCE aggregate
+        // grammar. Invoke the exact private product method with the complete
+        // same-snapshot raw map rather than teaching this adapter suite a
+        // bespoke SQL answer; OptionsCapture's namespace reader has its own
+        // bounded-reader regressions.
+        $captureSubKeys->invokeArgs($capture, [
+            'tribe_customizer',
+            $rule,
+            $source,
+            $rawOptionSnapshot,
+            false,
+            &$liveCanonicalNames,
+            &$out,
+        ]);
+        return $out['tribe_customizer'] ?? null;
+    } finally {
+        if ($transactionStarted) {
+            \Duo\Db::rollback('TEC Customizer capture fixture rollback');
+        }
+        $GLOBALS['wpdb'] = $savedDb;
+    }
+}
+
+/**
+ * @return array{
+ *   row:?array{option_id:mixed,option_name:mixed,option_value:mixed,autoload:mixed},
+ *   failure:?Throwable,warnings:list<string>,settings_cache_present:bool,settings_cache:mixed
+ * }
+ */
+function tec_readiness_materialize_mixed_option(
+    Policy $policy,
+    string $name,
+    array $desired,
+    ?array $target,
+    string $desiredAutoload = 'auto-on',
+    string $targetAutoload = 'off',
+    bool $settingsCachePresent = false,
+    mixed $settingsCache = null,
+    string $cacheDeleteMode = ''
+): array {
+    $savedDb = $GLOBALS['wpdb'] ?? null;
+    $savedTribeVars = $GLOBALS['tec_readiness_tribe_vars'] ?? [];
+    $savedWpCache = $GLOBALS['tec_readiness_wp_cache'] ?? [];
+    $savedCacheDeletesPresent = array_key_exists('tec_readiness_wp_cache_deletes', $GLOBALS);
+    $savedCacheDeletes = $GLOBALS['tec_readiness_wp_cache_deletes'] ?? 0;
+    $savedCacheMode = $GLOBALS['tec_readiness_wp_cache_delete_mode'] ?? '';
+    $db = new LockingFakeWpdb(new FakeWpdb());
+    $GLOBALS['wpdb'] = $db;
+    $db->addInnoDbTable($db->options)
+        ->addIndex($db->options, 'option_name', 'option_name', true);
+    $db->seedTable($db->options, []);
+    if ($target !== null) {
+        $db->seedTable($db->options, [[
+            'option_id' => 1,
+            'option_name' => $name,
+            'option_value' => serialize($target),
+            'autoload' => $targetAutoload,
+        ]]);
+    }
+    if ($settingsCachePresent) {
+        tribe_set_var('Tribe__Settings_Manager:option_cache', $settingsCache);
+    } else {
+        tribe_unset_var('Tribe__Settings_Manager:option_cache');
+    }
+    $GLOBALS['tec_readiness_wp_cache_delete_mode'] = $cacheDeleteMode;
+    $GLOBALS['tec_readiness_wp_cache_deletes'] = $savedCacheDeletes;
+    $tokens = new Tokens('https://target.example', 'https://target.example/uploads');
+    $fieldMaterializer = new \Duo\ApplyFieldMaterializer($policy, $tokens);
+    $optionsMaterializer = new \Duo\OptionsMaterializer($policy, $tokens, $fieldMaterializer);
+    $transactionStarted = false;
+    $participantsStarted = false;
+    $cacheStarted = false;
+    $failure = null;
+    $warnings = [];
+    try {
+        \Duo\Db::start_repeatable_read('TEC mixed-option fixture apply');
+        $transactionStarted = true;
+        $fieldMaterializer->begin_authored_transaction();
+        $optionsMaterializer->begin_authored_transaction();
+        $participantsStarted = true;
+        \Duo\CacheInvalidationTransaction::begin();
+        $cacheStarted = true;
+        $optionsMaterializer->apply_options(
+            \Duo\OptionState::document([
+                $name => \Duo\OptionState::present($desired, $desiredAutoload),
+            ]),
+            false,
+            $warnings
+        );
+        \Duo\Db::commit('TEC mixed-option fixture commit');
+        $transactionStarted = false;
+        $optionsMaterializer->commit_authored_transaction();
+        \Duo\CacheInvalidationTransaction::finish();
+    } catch (Throwable $caught) {
+        $failure = $caught;
+        if ($transactionStarted) {
+            try {
+                if ($participantsStarted) {
+                    $optionsMaterializer->rollback_authored_transaction();
+                }
+            } finally {
+                \Duo\Db::rollback('TEC mixed-option fixture rollback');
+                $transactionStarted = false;
+                if ($cacheStarted) {
+                    \Duo\CacheInvalidationTransaction::finish();
+                }
+            }
+        }
+    }
+    $row = null;
+    foreach ($db->rows($db->options) as $candidate) {
+        if (($candidate['option_name'] ?? null) === $name) {
+            $row = $candidate;
+            break;
+        }
+    }
+    $settingsPresentAfter = tribe_isset_var('Tribe__Settings_Manager:option_cache');
+    $settingsAfter = $settingsPresentAfter
+        ? tribe_get_var('Tribe__Settings_Manager:option_cache')
+        : null;
+    if ($participantsStarted) {
+        $optionsMaterializer->end_authored_transaction();
+        $fieldMaterializer->end_authored_transaction();
+    }
+    if ($cacheStarted) {
+        \Duo\CacheInvalidationTransaction::end();
+    }
+    $GLOBALS['wpdb'] = $savedDb;
+    $GLOBALS['tec_readiness_tribe_vars'] = $savedTribeVars;
+    $GLOBALS['tec_readiness_wp_cache'] = $savedWpCache;
+    if ($savedCacheDeletesPresent) {
+        $GLOBALS['tec_readiness_wp_cache_deletes'] = $savedCacheDeletes;
+    } else {
+        unset($GLOBALS['tec_readiness_wp_cache_deletes']);
+    }
+    $GLOBALS['tec_readiness_wp_cache_delete_mode'] = $savedCacheMode;
+    return [
+        'row' => $row,
+        'failure' => $failure,
+        'warnings' => $warnings,
+        'settings_cache_present' => $settingsPresentAfter,
+        'settings_cache' => $settingsAfter,
+    ];
+}
+
+/** @return array<string,mixed> */
+$decodeMixedRow = static function (array $result): array {
+    $wire = $result['row']['option_value'] ?? null;
+    duo_check(is_string($wire), 'the native mixed-option fixture retained one string storage row');
+    $decoded = is_string($wire) ? \Duo\PlainData::decode($wire, 'TEC mixed-option fixture') : null;
+    duo_check(is_array($decoded), 'the native mixed-option fixture retained one array-shaped storage value');
+    return is_array($decoded) ? $decoded : [];
+};
+
+$legacyFallback = ['global_elements' => ['background_color_choice' => 'CUSTOM !!']];
+duo_check_same(
+    [
+        'state' => 'present',
+        'autoload' => 'auto-on',
+        'value' => ['global_elements' => ['background_color_choice' => 'custom']],
+    ],
+    tec_readiness_capture_customizer_record($policy, false, [], true, $legacyFallback),
+    'the product capture path canonicalizes a legacy-only Customizer row into the current record'
+);
+duo_check_same(
+    ['state' => 'present', 'autoload' => 'off', 'value' => []],
+    tec_readiness_capture_customizer_record($policy, true, [], true, $legacyFallback, 'off'),
+    'the product capture path gives a persisted empty current row precedence over populated legacy bytes'
+);
+duo_check_same(
+    ['state' => 'present', 'autoload' => 'auto-on', 'value' => []],
+    tec_readiness_capture_customizer_record($policy, false, [], false, []),
+    'the product capture path represents both absent rows as one canonical sparse empty intent'
+);
+
+$customizerResidue = [
+    'view_selector_background_color' => '#abcdef',
+    'view_selector_background_color_choice' => 'custom',
+];
+$residueCarrier = ['tec_events_bar' => $customizerResidue];
+$customizerCases = [
+    'absent desired and absent target' => [[], null, []],
+    'absent desired with target residue carrier' => [[], $residueCarrier, $residueCarrier],
+    'explicit empty desired with the same residue carrier' => [
+        ['tec_events_bar' => []],
+        $residueCarrier,
+        $residueCarrier,
+    ],
+    'authored source with target residue' => [
+        ['global_elements' => ['background_color' => '#112233']],
+        $residueCarrier,
+        [
+            'global_elements' => ['background_color' => '#112233'],
+            'tec_events_bar' => $customizerResidue,
+        ],
+    ],
+    'authored source replaces dirty target and preserves residue' => [
+        ['tec_events_bar' => ['events_bar_text_color' => '#123456']],
+        [
+            'month_view' => ['grid_lines_color' => '#999999'],
+            'tec_events_bar' => ['events_bar_text_color' => '#654321'] + $customizerResidue,
+        ],
+        ['tec_events_bar' => ['events_bar_text_color' => '#123456'] + $customizerResidue],
+    ],
+    'last authored inner deletion preserves the physical residue carrier' => [
+        ['tec_events_bar' => []],
+        ['tec_events_bar' => ['events_bar_text_color' => '#654321'] + $customizerResidue],
+        $residueCarrier,
+    ],
+];
+$customizerResults = [];
+foreach ($customizerCases as $label => [$desired, $target, $expected]) {
+    $result = tec_readiness_materialize_mixed_option($policy, 'tribe_customizer', $desired, $target);
+    duo_check_same(null, $result['failure'], "Customizer $label succeeds through the native product materializer");
+    duo_check_same([], $result['warnings'], "Customizer $label emits no generic absent-target fallback warning");
+    duo_check_same($expected, $decodeMixedRow($result), "Customizer $label persists the exact sparse carrier semantics");
+    $customizerResults[$label] = $result;
+}
+duo_check_same(
+    $customizerResults['absent desired with target residue carrier']['row']['option_value'] ?? null,
+    $customizerResults['explicit empty desired with the same residue carrier']['row']['option_value'] ?? null,
+    'identical physical residue bytes verify as absent or explicit-empty only through the engine-owned desired-key roster'
+);
+
+$unknownCustomizerTarget = ['tec_events_bar' => ['future_extension_setting' => 'leave-me']];
+$unknownCustomizer = tec_readiness_materialize_mixed_option(
+    $policy,
+    'tribe_customizer',
+    ['tec_events_bar' => ['events_bar_text_color' => '#123456']],
+    $unknownCustomizerTarget
+);
+duo_check(
+    $unknownCustomizer['failure'] instanceof RuntimeException
+        && str_contains($unknownCustomizer['failure']->getMessage(), 'undeclared setting'),
+    'an unknown nested Customizer setting refuses through the product materializer before replacement'
+);
+duo_check_same(
+    $unknownCustomizerTarget,
+    $decodeMixedRow($unknownCustomizer),
+    'unknown nested Customizer refusal preserves exact target bytes for same-process repair'
+);
+$unknownCustomizerRetry = tec_readiness_materialize_mixed_option(
+    $policy,
+    'tribe_customizer',
+    ['tec_events_bar' => ['events_bar_text_color' => '#123456']],
+    $residueCarrier
+);
+duo_check_same(null, $unknownCustomizerRetry['failure'], 'same-process retry after removing an unknown setting converges');
+
+$hostileCustomizerFilter = static fn(mixed $value): mixed => $value;
+add_filter('tribe_customizer_get_option', $hostileCustomizerFilter);
+$hookRefusalTarget = ['month_view' => ['grid_lines_color' => '#999999']];
+$hookRefusal = tec_readiness_materialize_mixed_option(
+    $policy,
+    'tribe_customizer',
+    ['month_view' => ['grid_lines_color' => '#112233']],
+    $hookRefusalTarget
+);
+remove_filter('tribe_customizer_get_option', $hostileCustomizerFilter);
+duo_check(
+    $hookRefusal['failure'] instanceof RuntimeException
+        && str_contains($hookRefusal['failure']->getMessage(), 'hook topology is extended'),
+    'an unsupported Customizer value callback refuses before adapter storage mutation'
+);
+duo_check_same(
+    $hookRefusalTarget,
+    $decodeMixedRow($hookRefusal),
+    'unsupported Customizer callback refusal preserves the exact dirty target row'
+);
+
+$rollbackTarget = ['tec_events_bar' => ['events_bar_text_color' => '#654321'] + $customizerResidue];
+$rollbackCustomizer = tec_readiness_materialize_mixed_option(
+    $policy,
+    'tribe_customizer',
+    ['tec_events_bar' => ['events_bar_text_color' => '#123456']],
+    $rollbackTarget,
+    'auto-on',
+    'off',
+    false,
+    null,
+    'one_throw'
+);
+duo_check($rollbackCustomizer['failure'] instanceof RuntimeException, 'an injected post-write cache failure aborts Customizer apply');
+duo_check_same($rollbackTarget, $decodeMixedRow($rollbackCustomizer), 'Customizer rollback restores exact raw target bytes');
+duo_check_same('off', $rollbackCustomizer['row']['autoload'] ?? null, 'Customizer rollback restores exact target autoload');
+$rollbackCustomizerRetry = tec_readiness_materialize_mixed_option(
+    $policy,
+    'tribe_customizer',
+    ['tec_events_bar' => ['events_bar_text_color' => '#123456']],
+    $rollbackTarget
+);
+duo_check_same(null, $rollbackCustomizerRetry['failure'], 'same-process Customizer retry converges after rollback');
+
+$GLOBALS['tec_readiness_settings_manager'] = Tribe__Settings_Manager::instance();
+$mainTarget = ['eventsSlug' => 'dirty-events', 'debugEvents' => true];
+$mainSettings = tec_readiness_materialize_mixed_option(
+    $policy,
+    'tribe_events_calendar_options',
+    ['eventsSlug' => 'portable-events'],
+    $mainTarget,
+    'on',
+    'off',
+    true,
+    ['eventsSlug' => 'stale-cache']
+);
+duo_check_same(null, $mainSettings['failure'], 'the closed main settings blob materializes through the exact interpreter owner');
+duo_check_same(
+    ['debugEvents' => true, 'eventsSlug' => 'portable-events'],
+    $decodeMixedRow($mainSettings),
+    'main settings replace authored siblings and preserve target-owned operational state'
+);
+duo_check_same(false, $mainSettings['settings_cache_present'], 'successful raw main-settings write leaves the TEC request cache absent');
+
+$mainRollback = tec_readiness_materialize_mixed_option(
+    $policy,
+    'tribe_events_calendar_options',
+    ['eventsSlug' => 'portable-events'],
+    $mainTarget,
+    'on',
+    'off',
+    true,
+    ['eventsSlug' => 'exact-preimage'],
+    'one_throw'
+);
+duo_check($mainRollback['failure'] instanceof RuntimeException, 'an injected main-settings cache failure aborts apply');
+duo_check_same($mainTarget, $decodeMixedRow($mainRollback), 'main-settings rollback restores exact raw storage');
+duo_check_same('off', $mainRollback['row']['autoload'] ?? null, 'main-settings rollback restores exact autoload');
+duo_check_same(true, $mainRollback['settings_cache_present'], 'main-settings rollback restores cache presence');
+duo_check_same(
+    ['eventsSlug' => 'exact-preimage'],
+    $mainRollback['settings_cache'],
+    'main-settings rollback restores the exact process-local cache value'
 );
 
 duo_check(in_array('tribe_events', $policy->declared_post_types(), true), 'events are in adapter post scope');
