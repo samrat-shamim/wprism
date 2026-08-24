@@ -479,6 +479,24 @@ $recovery->resume(ScopedApplySession::PHASE_AUTHORING);
 $recovery->transition(ScopedApplySession::PHASE_AUTHORED_COMMITTED);
 $check($recovery->phase() === ScopedApplySession::PHASE_AUTHORED_COMMITTED, 'recovery resumes only the exact recorded phase');
 
+$recordedRecoveryStore = new ScopedApplySessionMemoryStore();
+$recordedRecovery = ScopedApplySession::begin($recordedRecoveryStore, $authority);
+$recordedRecovery->transition(ScopedApplySession::PHASE_AUTHORING);
+$recordedRecovery->transition(ScopedApplySession::PHASE_AUTHORED_COMMITTED);
+$recordedRecovery->transition(ScopedApplySession::PHASE_EFFECTS_PENDING);
+$recordedRecovery->recover($h('recorded-recovery-cause'));
+$recordedRecovery->resume_recorded_recovery();
+$check(
+    $recordedRecovery->phase() === ScopedApplySession::PHASE_EFFECTS_PENDING
+        && $recordedRecovery->to_array()['recovery'] === null,
+    'product recovery resumes only the exact phase sealed in the retained record'
+);
+$expectThrow(
+    static fn() => $recordedRecovery->resume_recorded_recovery(),
+    'no recovery gate',
+    'the phase-sealed recovery resume cannot be replayed after its one durable CAS'
+);
+
 echo "scoped apply session checks: $checks\n";
 if ($failures !== 0) {
     fwrite(STDERR, "FAIL: $failures scoped apply session checks failed\n");

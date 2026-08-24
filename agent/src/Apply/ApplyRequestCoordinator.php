@@ -1203,9 +1203,14 @@ final class ApplyRequestCoordinator {
                 $authority
             );
             if ($this->scopedWorkflow->session->is_recovery_required()) {
-                throw new \RuntimeException(
-                    'duo: scoped apply session requires operator reconciliation of its exact retained authority before retry'
-                );
+                // begin() has rebound the exact immutable authority only
+                // after preparation re-proved the selected action/capability
+                // set and this block re-proved code plus protected target
+                // roots. Resume the phase recorded by that durable session;
+                // the downstream authored/effect paths then reconcile their
+                // own exact receipts before deciding whether any operation is
+                // absent and eligible for invocation.
+                $this->scopedWorkflow->session->resume_recorded_recovery();
             }
             if ($this->scopedWorkflow->session->phase() === ScopedApplySession::PHASE_PLANNED) {
                 $this->scopedWorkflow->session->transition(ScopedApplySession::PHASE_AUTHORING);

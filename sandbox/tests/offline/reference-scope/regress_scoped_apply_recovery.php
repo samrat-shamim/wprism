@@ -37,7 +37,8 @@ foreach ([
     'ReferenceGraph', 'CodeCompatibility', 'RepositoryCompiler',
     'ScopeClosure', 'CanonicalSurfaces', 'Deletion', 'SidebarState', 'Snapshot',
     'RepositoryAuthorization', 'Tokens', 'ScopeContract',
-    'ScopedStateOverlay', 'ScopedApplySession', 'CommandRefusal', 'ScopedApply', 'Providers',
+    'ScopedStateOverlay', 'ScopedApplySession', 'CommandRefusal', 'ScopedApply', 'ScopedApplyCoordinator',
+    'Providers', 'ProviderActionBatchBuilder', 'RebuildActionDispatcher',
     'Canary', 'Ledger', 'PromotionLock', 'Apply',
 ] as $file) {
     $duoAgentFile = $duoAgentFiles[$file] ?? null;
@@ -339,6 +340,10 @@ function update_option(string $name, mixed $value, mixed $autoload = null): bool
 function wp_cache_get(string $key, string $group = '', bool $force = false, mixed &$found = null): mixed {
     $found = array_key_exists($key, $GLOBALS['scoped_recovery_cache'][$group] ?? []);
     return $found ? $GLOBALS['scoped_recovery_cache'][$group][$key] : false;
+}
+
+function wp_cache_flush(): bool {
+    return true;
 }
 
 function delete_transient(string $name): bool {
@@ -1824,6 +1829,261 @@ $expectThrow(
     'an existing outer receipt is accepted only after a fresh reviewed effect readback still matches it'
 );
 
+// Drive the same recovery through the real product dispatcher. The session
+// resumes only after the selected action/capability evidence is re-proved;
+// the dispatcher then decides from the durable inner operation whether to
+// reconcile, invoke once, or leave an unknowable intent recovery_required.
+$dispatchAction = [
+    'kind' => 'provider',
+    'manifest' => 'scoped-recovery',
+    'index' => 0,
+    'provider' => 'scoped-recovery',
+    'capability' => 'repair',
+    'args' => [],
+    'triggers' => ['option:scoped_recovery'],
+    'effects' => [[
+        'id' => 'scoped-recovery-effect',
+        'kind' => 'external',
+        'mode' => 'irreversible',
+        'selector' => [
+            'scope' => 'external',
+            'type' => 'provider_resource',
+            'value' => 'scoped-recovery:v1',
+        ],
+    ]],
+];
+$dispatchCapabilityDigest = Providers::scoped_capability_digest(
+    'scoped-recovery',
+    'repair',
+    $providerDecl
+);
+$dispatchProvider = new ScopedRecoveryProvider();
+$dispatchNegotiation = [
+    'providers' => ['scoped-recovery' => $dispatchProvider],
+    'capabilities' => ['scoped-recovery' => ['repair' => $providerDecl]],
+    'scoped_capabilities' => ['scoped-recovery' => ['repair' => [
+        'operation_envelope' => Providers::SCOPED_OPERATION_FORMAT,
+        'receipt_format' => Providers::SCOPED_RECEIPT_FORMAT,
+        'capability_digest' => $dispatchCapabilityDigest,
+    ]]],
+];
+$dispatchActionRow = [
+    'manifest' => 'scoped-recovery',
+    'index' => 0,
+    'declaration_hash' => hash('sha256', Canon::encode($dispatchAction)),
+];
+$dispatchSelection = [
+    'work_hash' => ScopedApplySession::hash_value([]),
+    'work_items' => [],
+    'deletions_hash' => ScopedApplySession::hash_value([]),
+    'deletion_items' => [],
+    'action_declarations_hash' => ScopedApplySession::hash_value([$dispatchActionRow]),
+    'action_items' => [$dispatchActionRow],
+    'capabilities_hash' => ScopedApplySession::hash_value($dispatchNegotiation['scoped_capabilities']),
+    'effects_hash' => ScopedApplySession::hash_value([[
+        'action_hash' => hash('sha256', Canon::encode($dispatchActionRow)),
+        'effect_hash' => hash('sha256', Canon::encode($dispatchAction['effects'][0])),
+    ]]),
+    'effect_items' => [[
+        'action_hash' => hash('sha256', Canon::encode($dispatchActionRow)),
+        'effect_hash' => hash('sha256', Canon::encode($dispatchAction['effects'][0])),
+    ]],
+    'ledger_map_identity_hashes' => [],
+    'ledger_map_identity_set_hash' => ScopedApplySession::hash_value([]),
+];
+$makeDispatchRecovery = static function (string $label) use (
+    $contract,
+    $compiled,
+    $dispatchSelection,
+    $hash,
+    $protectedRoot,
+    $selectedBeforeRoot
+): array {
+    $authority = ScopedApplySession::make_authority(
+        $contract['scope_hash'],
+        [
+            'artifact_hash' => $compiled->artifact_hash(),
+            'state_revision_hash' => $compiled->revision_hash(),
+            'manifest_hash' => $compiled->manifest_hash(),
+        ],
+        [
+            'owner' => 'dispatch-recovery-owner',
+            'artifact_hash' => $compiled->artifact_hash(),
+            'session_id' => 'dispatch-recovery-' . $label,
+        ],
+        [
+            'selected_before_hash' => $selectedBeforeRoot,
+            'selected_before_ledger_map_hash' => $hash('dispatch-selected-map-' . $label),
+            'protected_ledger_map_hash' => $hash('dispatch-protected-map-' . $label),
+            'protected_out_of_scope_hash' => $protectedRoot,
+            'ledger_roots_hash' => $hash('dispatch-ledger-roots-' . $label),
+        ],
+        [
+            'precondition_hash' => $hash('dispatch-preconditions-' . $label),
+            'guard_witnesses_hash' => $hash('dispatch-guards-' . $label),
+        ],
+        $dispatchSelection,
+        $hash('dispatch-code-' . $label)
+    );
+    $store = new ScopedRecoveryMemoryStore();
+    $session = ScopedApplySession::begin($store, $authority);
+    $session->transition(ScopedApplySession::PHASE_AUTHORING);
+    $author = \Duo\ScopedApplyCoordinator::intent(
+        $session,
+        1,
+        'dispatch-author',
+        'dispatch-author-operation',
+        $hash('dispatch-author-input-' . $label),
+        $hash('dispatch-author-effect-' . $label),
+        $selectedBeforeRoot
+    );
+    $session->append_intent($author);
+    $session->transition(ScopedApplySession::PHASE_AUTHORED_COMMITTED);
+    $session->append_receipt(\Duo\ScopedApplyCoordinator::receipt(
+        $author,
+        $hash('dispatch-author-after-' . $label)
+    ));
+    $session->transition(ScopedApplySession::PHASE_EFFECTS_PENDING);
+    $core = \Duo\ScopedApplyCoordinator::intent(
+        $session,
+        2,
+        'dispatch-core',
+        'dispatch-core-operation',
+        $hash('dispatch-core-input-' . $label),
+        $hash('dispatch-core-effect-' . $label),
+        $selectedBeforeRoot
+    );
+    $session->append_intent($core);
+    $session->append_receipt(\Duo\ScopedApplyCoordinator::receipt(
+        $core,
+        $hash('dispatch-core-after-' . $label)
+    ));
+    $session->recover($hash('dispatch-recovery-cause-' . $label));
+    return [$store, $authority, $session];
+};
+$dispatch = new \Duo\RebuildActionDispatcher(
+    $policy,
+    new \Duo\ProviderActionBatchBuilder($policy, []),
+    static function (): void {}
+);
+$driveScopedDispatch = static function (ScopedApplySession $session) use (
+    $dispatch,
+    $dispatchAction,
+    $dispatchNegotiation,
+    $selectedBeforeRoot
+): array {
+    $warnings = [];
+    $receipts = [];
+    $failure = null;
+    try {
+        $dispatch->dispatch(
+            [$dispatchAction],
+            $dispatchNegotiation,
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+            true,
+            $session,
+            ['selected_before_root' => $selectedBeforeRoot],
+            $warnings,
+            $receipts
+        );
+    } catch (Throwable $caught) {
+        $failure = $caught;
+    }
+    return ['failure' => $failure, 'warnings' => $warnings, 'receipts' => $receipts];
+};
+
+[$dispatchStore, $dispatchAuthority, $dispatchSession] = $makeDispatchRecovery('verified');
+\Duo\ScopedApplyCoordinator::assert_recovery_selection(
+    $dispatchSession,
+    [$dispatchAction],
+    $dispatchNegotiation
+);
+$dispatchSession->resume_recorded_recovery();
+$firstDispatch = $driveScopedDispatch($dispatchSession);
+$check(
+    $firstDispatch['failure'] === null
+        && $dispatchProvider->invocations === 1
+        && $dispatchProvider->reconciliations === 0
+        && count($dispatchSession->receipts()) === 3,
+    'product dispatcher invokes an absent scoped operation once after phase-exact recovery resume'
+);
+$dispatchSession->recover($hash('dispatch-lost-response'));
+$reopenedDispatch = ScopedApplySession::begin($dispatchStore, $dispatchAuthority);
+\Duo\ScopedApplyCoordinator::assert_recovery_selection(
+    $reopenedDispatch,
+    [$dispatchAction],
+    $dispatchNegotiation
+);
+$reopenedDispatch->resume_recorded_recovery();
+$secondDispatch = $driveScopedDispatch($reopenedDispatch);
+$check(
+    $secondDispatch['failure'] === null
+        && $dispatchProvider->invocations === 1
+        && $dispatchProvider->reconciliations === 1
+        && count($reopenedDispatch->receipts()) === 3,
+    'product dispatcher reconciles a verified retained effect without a second invocation'
+);
+
+[, , $changedSelectionSession] = $makeDispatchRecovery('changed-selection');
+$changedAction = $dispatchAction;
+$changedAction['args'] = ['changed' => true];
+$expectThrow(
+    static fn() => \Duo\ScopedApplyCoordinator::assert_recovery_selection(
+        $changedSelectionSession,
+        [$changedAction],
+        $dispatchNegotiation
+    ),
+    'action/capability evidence changed',
+    'changed selected action evidence refuses before product recovery resume'
+);
+$check(
+    $changedSelectionSession->is_recovery_required(),
+    'a changed action/capability recheck leaves the retained recovery gate untouched'
+);
+
+[$intentStore, $intentAuthority, $intentSession] = $makeDispatchRecovery('intent-only');
+$intentOperation = \Duo\ScopedApplyCoordinator::effect_operation(
+    $intentSession,
+    3,
+    Providers::scoped_input_hash($dispatchAction, $providerDecl),
+    \Duo\ScopedApplyCoordinator::action_effect_hash($dispatchAction)
+);
+Providers::begin_scoped_operation('scoped-recovery', 'repair', $intentOperation);
+\Duo\ScopedApplyCoordinator::assert_recovery_selection(
+    $intentSession,
+    [$dispatchAction],
+    $dispatchNegotiation
+);
+$intentSession->resume_recorded_recovery();
+$intentFirst = $driveScopedDispatch($intentSession);
+$check(
+    $intentFirst['failure'] instanceof RuntimeException
+        && str_contains($intentFirst['failure']->getMessage(), 'durable intent without a verified receipt')
+        && $intentSession->is_recovery_required(),
+    'product dispatcher keeps an intent-only effect recovery_required instead of invoking it'
+);
+$intentRetry = ScopedApplySession::begin($intentStore, $intentAuthority);
+\Duo\ScopedApplyCoordinator::assert_recovery_selection(
+    $intentRetry,
+    [$dispatchAction],
+    $dispatchNegotiation
+);
+$intentRetry->resume_recorded_recovery();
+$intentSecond = $driveScopedDispatch($intentRetry);
+$check(
+    $intentSecond['failure'] instanceof RuntimeException
+        && $intentRetry->is_recovery_required()
+        && $dispatchProvider->invocations === 1
+        && $dispatchProvider->reconciliations === 1,
+    'same-process retry never re-invokes or reconciles an unknowable intent-only effect'
+);
+
 // Native transient delete uses the same operation receipt channel and must
 // not infer execution merely from an absent transient.
 $nativeName = 'scoped_recovery_native';
@@ -2187,12 +2447,28 @@ $check(
 );
 $codeWitnessCheckAt = strpos($applySource, "'duo:scoped-code-witness-changed'");
 $sessionBeginAt = strpos($applySource, 'ScopedApplySession::begin(');
+$protectedTargetCheckAt = strpos($applySource, "'duo:scoped-protected-target-drift'");
+$recordedRecoveryResumeAt = strpos($applySource, '->resume_recorded_recovery();');
+$selectionRecheckAt = strpos($preparationSource, '->assert_recovery_selection(');
 $check(
     substr_count($applySource . $scopedCoordinatorSource, 'ScopedApply::code_witness_hash(') === 2
         && $codeWitnessCheckAt !== false
         && $sessionBeginAt !== false
         && $codeWitnessCheckAt < $sessionBeginAt,
     'recovery re-proves the sealed code/lifecycle witness before opening or advancing target mutation state'
+);
+$check(
+    $selectionRecheckAt !== false
+        && $codeWitnessCheckAt !== false
+        && $protectedTargetCheckAt !== false
+        && $sessionBeginAt !== false
+        && $recordedRecoveryResumeAt !== false
+        && $preparedAt !== false
+        && $preparedAt < $codeWitnessCheckAt
+        && $codeWitnessCheckAt < $protectedTargetCheckAt
+        && $protectedTargetCheckAt < $sessionBeginAt
+        && $sessionBeginAt < $recordedRecoveryResumeAt,
+    'product recovery resumes the recorded phase only after selected action/capability, code, and protected-root rechecks'
 );
 
 if ($failures !== 0) {

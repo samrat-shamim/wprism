@@ -52405,6 +52405,14 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "resume_recorded_recovery": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "Duo\\ScopedApplySession",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "resume_recovery": {
                     "abstract": false,
                     "final": false,

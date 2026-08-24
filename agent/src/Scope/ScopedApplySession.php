@@ -784,6 +784,33 @@ final class ScopedApplySession {
     }
 
     /**
+     * Resume the phase sealed into the durable recovery record itself.
+     *
+     * The product apply path has already re-proved the immutable authority,
+     * selected action/capability set, code witness, and protected target
+     * roots before it reaches this call. Keeping the phase lookup and CAS in
+     * this protocol prevents that caller from parsing canonical session bytes
+     * or supplying a phase chosen outside the retained record.
+     */
+    public function resume_recorded_recovery(): self {
+        $this->mutate(function (array $record): array {
+            if ((string) $record['phase'] !== self::PHASE_RECOVERY_REQUIRED
+                || !is_array($record['recovery'])) {
+                throw new \RuntimeException('duo: scoped apply session has no recovery gate to resume');
+            }
+            $from = (string) ($record['recovery']['from_phase'] ?? '');
+            if (!isset(self::NEXT_PHASE[$from])) {
+                throw new \RuntimeException('duo: scoped apply recovery retained an invalid resume phase');
+            }
+            $record['phase'] = $from;
+            $record['phase_history'][] = $from;
+            $record['recovery'] = null;
+            return $record;
+        });
+        return $this;
+    }
+
+    /**
      * Append one mutation intent. The row's ordinal is one-based and must be
      * contiguous. Replaying an identical row is a byte-stable no-op.
      *
