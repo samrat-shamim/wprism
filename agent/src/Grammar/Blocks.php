@@ -13,7 +13,9 @@ require_once __DIR__ . '/../Kernel/ReferenceScopeClassifier.php';
  * is a fixed point after the first normalization, which the capture-twice
  * determinism test asserts.
  *
- * block_attrs rules come in three shapes, freely mixed per block name:
+ * block_attrs rules come in four shapes. The first three may be freely mixed
+ * per block name; a whole-block codec is exclusive because it owns the exact
+ * attribute object rather than one independently rewritten leaf:
  * - a static ref: {"kind": "post"|"term"|"tt", "path": ..., "type": "int"|"int[]"}
  * - a polymorphic ref, kind dispatched from a sibling attribute:
  *   {"kind_from": {"attr": ..., "map": {sibling-value: kind}, "default"?: kind},
@@ -29,6 +31,10 @@ require_once __DIR__ . '/../Kernel/ReferenceScopeClassifier.php';
  *   (self-closing blocks like core/navigation-link carry no inner content at
  *   all), so this is the only way a URL-shaped attribute gets rebound across
  *   environments.
+ * - a manifest-bound whole-block codec:
+ *   {"codec": manifest-interpreter-name, "path": ...}. Every declared rule
+ *   for that block must name the same codec, and its paths are the closed set
+ *   the codec may return after capture/apply.
  *
  * A "kind"/"kind_from" ref's id_to_token() failing is either DANGLING (no
  * ledger row for that id at all — deleted target, or never existed) or
@@ -104,7 +110,51 @@ final class Blocks {
         // null-name nodes. PHP 8.4 deprecates null array offsets, so normalize
         // only the dispatch key; the block itself stays byte-faithful.
         $name = is_string($block['blockName'] ?? null) ? $block['blockName'] : '';
-        foreach ($rules[$name] ?? [] as $rule) {
+        $declaredRules = $rules[$name] ?? [];
+        $codec = null;
+        $codecPaths = [];
+        foreach ($declaredRules as $rule) {
+            if (!array_key_exists('codec', $rule)) {
+                continue;
+            }
+            if (!is_string($rule['codec']) || $rule['codec'] === ''
+                || ($codec !== null && !hash_equals($codec, $rule['codec']))) {
+                throw new \RuntimeException("duo: block '$name' has an invalid or mixed whole-block codec registry");
+            }
+            $codec = $rule['codec'];
+            $codecPaths[(string) $rule['path']] = true;
+        }
+        if ($codec !== null) {
+            if (count($codecPaths) !== count($declaredRules)) {
+                throw new \RuntimeException(
+                    "duo: block '$name' mixes whole-block codec and per-attribute rules at runtime"
+                );
+            }
+            $interpreter = $policy->interpreters()[$codec] ?? null;
+            $method = $capture ? 'capture_block_attributes' : 'apply_block_attributes';
+            if (!is_object($interpreter) || !method_exists($interpreter, $method)) {
+                throw new \RuntimeException(
+                    "duo: block '$name' codec '$codec' must implement $method(array, Tokens): array"
+                );
+            }
+            $rewritten = $capture
+                ? $interpreter->$method($block, $tokens, $forceUnresolvedRefs, $postLabel)
+                : $interpreter->$method($block, $tokens);
+            if (!is_array($rewritten) || ($rewritten !== [] && array_is_list($rewritten))) {
+                throw new \RuntimeException(
+                    "duo: block '$name' codec '$codec' returned a malformed attribute object"
+                );
+            }
+            foreach (array_keys($rewritten) as $path) {
+                if (!is_string($path) || !isset($codecPaths[$path])) {
+                    throw new \RuntimeException(
+                        "duo: block '$name' codec '$codec' returned an undeclared attribute"
+                    );
+                }
+            }
+            $block['attrs'] = $rewritten;
+        }
+        foreach ($codec === null ? $declaredRules : [] as $rule) {
             $path = $rule['path'];
             if (!isset($block['attrs'][$path])) {
                 continue;

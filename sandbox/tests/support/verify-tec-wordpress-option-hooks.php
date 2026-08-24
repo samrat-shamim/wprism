@@ -383,6 +383,7 @@ foreach ([
     [$legacySave, 'base64_decode( $request[\'instance\'][\'encoded\'] )', 'REST widget save decode'],
     [$legacySave, 'hash_equals( wp_hash( $serialized_instance )', 'REST widget save hash'],
     [$legacySave, '"widget-$id_base" => array(', 'widget_<idBase> settings write input'],
+    [$legacyEncode, '$serialized_instance = serialize( $instance )', 'REST canonical instance serialization'],
 ] as [$body, $needle, $label]) {
     tec_option_require_call($body, $needle, "legacy-widget $label");
 }
@@ -393,7 +394,16 @@ if (!is_array($legacyBoundary)
     || ($legacyBoundary['stored_id_form']['storage'] ?? null) !== ['sidebars_widgets', 'widget_<idBase>']
     || ($legacyBoundary['embedded_form']['encoded'] ?? null) !== 'base64(PHP-serialized-instance)'
     || ($legacyBoundary['embedded_form']['hash'] ?? null) !== 'wp_hash(serialized-instance)'
-    || ($legacyBoundary['embedded_form']['target_rebinding_required'] ?? null) !== true) {
+    || ($legacyBoundary['embedded_form']['target_rebinding_required'] ?? null) !== true
+    || ($legacyBoundary['embedded_form']['codec'] ?? null) !== 'the-events-calendar/v1'
+    || ($legacyBoundary['embedded_form']['limits'] ?? null) !== [
+        'serialized_bytes' => 16384,
+        'encoded_bytes' => 21848,
+        'string_bytes' => 4096,
+        'depth' => 6,
+        'nodes' => 64,
+    ]
+    || ($legacyBoundary['duo_status']['portable'] ?? null) !== true) {
     tec_option_usage('reviewed legacy-widget storage boundary is malformed');
 }
 
@@ -493,6 +503,75 @@ if ($tecRoot !== '' || $tecVersion !== '') {
             'render_block_data' => 'enable_rendering_widget_copied',
         ]) {
         tec_option_usage("TEC $tecVersion legacy-widget identity fixture drifted");
+    }
+    $listWidget = $tecSources['src/Tribe/Views/V2/Widgets/Widget_List.php'] ?? '';
+    $qrWidget = $tecSources['src/Tribe/Views/V2/Widgets/Widget_QR_Code.php'] ?? '';
+    $commonWidget = $tecSources['common/src/Tribe/Widget/Widget_Abstract.php'] ?? '';
+    $compact = static fn(string $source): string => (string) preg_replace('/\s+/', '', $source);
+    $listUpdate = $compact(tec_option_function_body($listWidget, 'update'));
+    $listFields = $compact(tec_option_function_body($listWidget, 'setup_admin_fields'));
+    foreach ([
+        "\$updated_instance['title']=wp_strip_all_tags(\$new_instance['title']);",
+        "\$updated_instance['limit']=\$new_instance['limit'];",
+        "\$updated_instance['no_upcoming_events']=!empty(\$new_instance['no_upcoming_events']);",
+        "\$updated_instance['featured_events_only']=!empty(\$new_instance['featured_events_only']);",
+        "\$updated_instance['jsonld_enable']=!empty(\$new_instance['jsonld_enable']);",
+        "\$updated_instance['tribe_is_list_widget']=!empty(\$new_instance['tribe_is_list_widget']);",
+    ] as $needle) {
+        if (!str_contains($listUpdate, $needle)) {
+            tec_option_usage("TEC $tecVersion list-widget storage grammar drifted");
+        }
+    }
+    foreach (["'min'=>1", "'max'=>10", "'step'=>1"] as $needle) {
+        if (!str_contains($listFields, $needle)) {
+            tec_option_usage("TEC $tecVersion list-widget limit frontier drifted");
+        }
+    }
+    $qrUpdate = $compact(tec_option_function_body($qrWidget, 'update'));
+    $qrFields = $compact(tec_option_function_body($qrWidget, 'setup_admin_fields'));
+    foreach ([
+        "\$updated_instance['widget_title']=wp_strip_all_tags(\$new_instance['widget_title']);",
+        "\$updated_instance['qr_code_size']=sanitize_text_field(\$new_instance['qr_code_size']);",
+        "\$updated_instance['redirection']=sanitize_text_field(\$new_instance['redirection']);",
+        "\$updated_instance['event_id']=absint(\$new_instance['event_id']??0);",
+        "\$updated_instance['series_id']=absint(\$new_instance['series_id']??0);",
+    ] as $needle) {
+        if (!str_contains($qrUpdate, $needle)) {
+            tec_option_usage("TEC $tecVersion QR-widget storage grammar drifted");
+        }
+    }
+    foreach (['4', '8', '12', '16', '20', '24', '28', 'current', 'upcoming', 'specific'] as $value) {
+        if (!str_contains($qrFields, "'value'=>'$value'")) {
+            tec_option_usage("TEC $tecVersion QR-widget native menu drifted");
+        }
+    }
+    $filterUpdated = $compact(tec_option_function_body($commonWidget, 'filter_updated_instance'));
+    foreach ([
+        "apply_filters('tribe_widget_updated_instance',\$updated_instance,\$new_instance,\$this)",
+        'apply_filters("tribe_widget_{$widget_slug}_updated_instance",$updated_instance,$new_instance,$this)',
+        "apply_filters('tec_events_qr_widget_options',\$options)",
+        "apply_filters('tec_events_qr_widget_fields',\$fields)",
+    ] as $needle) {
+        $haystack = str_starts_with($needle, "apply_filters('tec_events_qr_") ? $qrFields : $filterUpdated;
+        if (!str_contains($haystack, $needle)) {
+            tec_option_usage("TEC $tecVersion widget extension-refusal topology drifted");
+        }
+    }
+    if (($legacyBoundary['widget_types'] ?? null) !== [
+        'tribe-widget-events-list' => [
+            'settings' => ['title', 'limit', 'no_upcoming_events', 'featured_events_only', 'jsonld_enable', 'tribe_is_list_widget'],
+            'limit' => [1, 10],
+            'booleans' => ['no_upcoming_events', 'featured_events_only', 'jsonld_enable', 'tribe_is_list_widget'],
+        ],
+        'tribe-widget-events-qr-code' => [
+            'settings' => ['widget_title', 'qr_code_size', 'redirection', 'event_id', 'series_id'],
+            'qr_code_size' => ['4', '8', '12', '16', '20', '24', '28'],
+            'redirection' => ['current', 'upcoming', 'specific'],
+            'event_ref' => 'post:tribe_events',
+            'series_ref' => 'free-plugin-absence',
+        ],
+    ]) {
+        tec_option_usage("TEC $tecVersion reviewed legacy-widget schema fixture drifted");
     }
     $customizer = $tecSources['common/src/Tribe/Customizer.php'] ?? '';
     $customizerConstructor = tec_option_function_body($customizer, '__construct');

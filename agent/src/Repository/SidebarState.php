@@ -557,10 +557,13 @@ final class SidebarState {
                 $out[$key] = Blocks::capture_rewrite(
                     $value, $policy, $tokens, $forceUnresolvedRefs, "sidebar '$sidebar'"
                 );
-            } elseif (($rule['ref'] ?? '') === 'term') {
-                $id = (int) $value;
-                $out[$key] = $id > 0 ? ($tokens->id_to_token($id, 'term')
-                    ?? throw new \RuntimeException("duo: widget_$type setting '$key' references unmanaged term $id")) : null;
+            } elseif (in_array(($rule['ref'] ?? ''), ['term', 'post'], true)) {
+                $kind = (string) $rule['ref'];
+                $id = self::captured_reference_id($value, $type, (string) $key, $sidebar, $kind);
+                $out[$key] = $id === null ? null : ($tokens->id_to_token($id, $kind)
+                    ?? throw new \RuntimeException(
+                        "duo: widget_$type setting '$key' references an unmanaged $kind row"
+                    ));
             } else {
                 $out[$key] = self::rewrite_strings($value, fn(string $s): string => $tokens->tokenize_text($s));
             }
@@ -575,13 +578,57 @@ final class SidebarState {
             $rule = (array) (($decl['settings'] ?? [])[$key] ?? []);
             if (($rule['codec'] ?? '') === 'blocks') {
                 $out[$key] = Blocks::apply_rewrite((string) $value, $policy, $tokens);
-            } elseif (($rule['ref'] ?? '') === 'term') {
-                $out[$key] = $value === null ? 0 : $tokens->token_to_id((string) $value);
+            } elseif (in_array(($rule['ref'] ?? ''), ['term', 'post'], true)) {
+                $kind = (string) $rule['ref'];
+                if ($value === null) {
+                    $out[$key] = 0;
+                    continue;
+                }
+                if (!is_string($value)
+                    || preg_match('/^\{\{' . preg_quote($kind, '/') . ':[0-9a-f-]{36}\}\}$/D', $value) !== 1) {
+                    throw new \RuntimeException(
+                        "duo: widget_$type setting '$key' must be null or one canonical {{"
+                        . $kind . ':uuid}} token'
+                    );
+                }
+                $out[$key] = $tokens->token_to_id($value);
             } else {
                 $out[$key] = self::rewrite_strings($value, fn(string $s): string => $tokens->detokenize_text($s));
             }
         }
         return $out;
+    }
+
+    /**
+     * WordPress widget options come from legacy form input and may preserve a
+     * canonical decimal string, while the normal update path stores an int.
+     * Admit only those two exact positive forms plus WordPress's four unset
+     * spellings; a loose `(int)` cast would turn booleans, floats, garbage,
+     * leading zeroes, and overflow into a different entity reference.
+     */
+    private static function captured_reference_id(
+        mixed $value,
+        string $type,
+        string $key,
+        string $sidebar,
+        string $kind
+    ): ?int {
+        if (in_array($value, [null, '', 0, '0'], true)) {
+            return null;
+        }
+        if (is_int($value) && $value > 0) {
+            return $value;
+        }
+        if (is_string($value)
+            && preg_match('/^[1-9][0-9]*$/D', $value) === 1
+            && (string) (int) $value === $value
+            && (int) $value > 0) {
+            return (int) $value;
+        }
+        throw new \RuntimeException(
+            "duo: widget_$type setting '$key' in sidebar '$sidebar' must be an exact positive $kind id "
+            . 'or the native unset value'
+        );
     }
 
     private static function rewrite_strings($value, callable $rewrite) {

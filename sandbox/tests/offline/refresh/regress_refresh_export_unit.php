@@ -93,7 +93,7 @@ final class RefreshExportReadOnlyWpdb {
         };
         $add('wp_duo_map', 'uuid', 'char(36)', 36);
         $add('wp_duo_map', 'entity_type', 'varchar(64)', 64);
-        $add('wp_duo_map', 'id_kind', 'varchar(32)', 32);
+        $add('wp_duo_map', 'id_kind', 'varchar(64)', 64);
         $add('wp_duo_map', 'local_id', 'bigint(20) unsigned', 0);
         $add('wp_duo_state', 'uuid', 'varchar(64)', 64);
         $add('wp_duo_state', 'entity_type', 'varchar(64)', 64);

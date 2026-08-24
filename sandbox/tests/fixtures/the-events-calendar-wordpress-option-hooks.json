@@ -197,7 +197,29 @@
       "id_bases": ["tribe-widget-events-list", "tribe-widget-events-qr-code"],
       "encoded": "base64(PHP-serialized-instance)",
       "hash": "wp_hash(serialized-instance)",
-      "target_rebinding_required": true
+      "target_rebinding_required": true,
+      "codec": "the-events-calendar/v1",
+      "limits": {
+        "serialized_bytes": 16384,
+        "encoded_bytes": 21848,
+        "string_bytes": 4096,
+        "depth": 6,
+        "nodes": 64
+      }
+    },
+    "widget_types": {
+      "tribe-widget-events-list": {
+        "settings": ["title", "limit", "no_upcoming_events", "featured_events_only", "jsonld_enable", "tribe_is_list_widget"],
+        "limit": [1, 10],
+        "booleans": ["no_upcoming_events", "featured_events_only", "jsonld_enable", "tribe_is_list_widget"]
+      },
+      "tribe-widget-events-qr-code": {
+        "settings": ["widget_title", "qr_code_size", "redirection", "event_id", "series_id"],
+        "qr_code_size": ["4", "8", "12", "16", "20", "24", "28"],
+        "redirection": ["current", "upcoming", "specific"],
+        "event_ref": "post:tribe_events",
+        "series_ref": "free-plugin-absence"
+      }
     },
     "callbacks": {
       "rest_pre_dispatch": "enable_widget_copy_paste",
@@ -209,8 +231,8 @@
       "6.17.3": "unserializes with allowed_classes=false and rejects nested objects before re-signing"
     },
     "duo_status": {
-      "portable": false,
-      "reason": "The shipped core block grammar still refuses id, idBase, and instance; production readiness requires a bounded TEC widget codec that validates plain decoded settings, rebases SidebarState IDs and event references, and re-signs with the target salt."
+      "portable": true,
+      "reason": "The TEC manifest owns all three attributes as one closed codec: stored IDs bind to exact SidebarState widget kinds, embedded settings cross bounded plain-data and native scalar validation, source hashes are discarded, and target bytes are re-signed with wp_hash()."
     }
   },
   "customizer_fallback": {

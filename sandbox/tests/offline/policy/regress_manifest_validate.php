@@ -1619,6 +1619,50 @@ refuses(
     'a tokenize codec outside the published set is refused with the published set printed back'
 );
 
+refuses(
+    solo_b(['block_attrs' => ['acme/b' => [['path' => 'id', 'codec' => 'b']]]]),
+    "codec must equal the declaring manifest's own non-empty interpreter name",
+    'a whole-block codec cannot exist without one exact same-manifest interpreter owner'
+);
+refuses(
+    solo_b([
+        'interpreter' => 'b',
+        'block_attrs' => ['acme/b' => [
+            ['path' => 'id', 'codec' => 'b'],
+            ['path' => 'title', 'tokenize' => 'text'],
+        ]],
+    ]),
+    'cannot mix a whole-block codec with per-attribute dispositions',
+    'one block cannot split interdependent attributes between a codec and generic rewrites'
+);
+refuses(
+    solo_b([
+        'interpreter' => 'b',
+        'shortcode_attrs' => ['acme_b' => [['path' => 'id', 'codec' => 'b']]],
+    ]),
+    'codec is supported only for block_attrs',
+    'the whole-block codec disposition cannot silently widen shortcode byte splicing'
+);
+refuses(
+    solo_b([
+        'interpreter' => 'b',
+        'block_attrs' => ['acme/b' => [['path' => 'id', 'codec' => 'b', 'type' => 'int']]],
+    ]),
+    'codec rules have a closed vocabulary: exactly {codec,path}',
+    'whole-block codec rules reject generic type aliases and every undeclared key'
+);
+refuses(
+    solo_b([
+        'interpreter' => 'b',
+        'block_attrs' => ['acme/b' => [
+            ['path' => 'id', 'codec' => 'b'],
+            ['path' => 'id', 'codec' => 'b'],
+        ]],
+    ]),
+    'duplicates codec-owned attribute',
+    'duplicate codec paths refuse rather than making the returned attribute allowlist ambiguous'
+);
+
 $covered['widget_setting_codecs'] = true;
 foreach ($vocabularies['widget_setting_codecs'] as $codec) {
     accepts(
@@ -1639,7 +1683,7 @@ foreach ($vocabularies['widget_setting_refs'] as $ref) {
     );
 }
 refuses(
-    solo_b(['widgets' => ['acme_b' => ['settings' => ['owner' => ['class' => 'authored', 'ref' => 'post']]]]]),
+    solo_b(['widgets' => ['acme_b' => ['settings' => ['owner' => ['class' => 'authored', 'ref' => 'user']]]]]),
     'ref vocabulary is closed and engine-owned (' . implode(', ', $vocabularies['widget_setting_refs']) . ')',
     'a widget settings ref kind outside the published set is refused with the published set printed back — narrower than the general ref vocabulary, deliberately'
 );

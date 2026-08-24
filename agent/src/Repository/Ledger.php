@@ -30,9 +30,10 @@ final class Ledger {
      * for rows already corrupted under the old width).
      */
     private const ENTITY_TYPE_WIDTH = 64;
-    /** Long enough for the closed widget_<type> family (longest core member:
-     * widget_media_gallery, 20) and declared custom-table kinds. */
-    public const ID_KIND_WIDTH = 32;
+    /** Long enough for the closed widget_<type> family (including plugin id
+     * bases such as widget_tribe-widget-events-qr-code, 34) and the database's
+     * own 64-byte identifier ceiling for declared custom-table kinds. */
+    public const ID_KIND_WIDTH = 64;
     /**
      * MySQL and MariaDB cap physical table identifiers at 64 characters.
      * Journal's SQL recognizer accepts only single-byte identifier characters,

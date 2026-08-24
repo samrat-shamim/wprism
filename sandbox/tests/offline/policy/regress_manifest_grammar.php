@@ -277,6 +277,9 @@ $assertPasses(fn() => ManifestGrammar::assert_widget_grammar('acme_widget', [
 $assertPasses(fn() => ManifestGrammar::assert_widget_grammar('acme_widget', [
     'settings' => ['cat' => ['class' => 'authored', 'ref' => 'term']],
 ]), 'widget: valid ref=term setting');
+$assertPasses(fn() => ManifestGrammar::assert_widget_grammar('acme_widget', [
+    'settings' => ['event' => ['class' => 'authored', 'ref' => 'post']],
+]), 'widget: valid ref=post setting');
 
 $assertThrows(fn() => ManifestGrammar::assert_widget_grammar('Bad Type!', ['settings' => ['x' => ['class' => 'authored']]]),
     'names an invalid widget type', 'widget: type fails id_base pattern');
@@ -290,7 +293,7 @@ $assertThrows(fn() => ManifestGrammar::assert_widget_grammar('acme_widget', [
     'settings' => ['x' => ['class' => 'authored', 'codec' => 'xml']],
 ]), 'codec vocabulary is closed', 'widget: unknown codec');
 $assertThrows(fn() => ManifestGrammar::assert_widget_grammar('acme_widget', [
-    'settings' => ['x' => ['class' => 'authored', 'ref' => 'post']],
+    'settings' => ['x' => ['class' => 'authored', 'ref' => 'user']],
 ]), 'ref vocabulary is closed', 'widget: unknown ref');
 $assertThrows(fn() => ManifestGrammar::assert_widget_grammar('acme_widget', [
     'settings' => ['x' => ['class' => 'authored', 'codec' => 'blocks', 'ref' => 'term']],
@@ -303,7 +306,7 @@ $check(ManifestGrammar::tableClasses() === ['authored_snapshot', 'authored_snaps
 $check(ManifestGrammar::identityModes() === ['mapped', 'natural_key', 'composite_ref'],
     'identityModes(): exact closed vocabulary');
 $check(ManifestGrammar::widgetSettingCodecs() === ['blocks'], 'widgetSettingCodecs(): exact closed vocabulary');
-$check(ManifestGrammar::widgetSettingRefs() === ['term'], 'widgetSettingRefs(): exact closed vocabulary');
+$check(ManifestGrammar::widgetSettingRefs() === ['term', 'post'], 'widgetSettingRefs(): exact closed vocabulary');
 
 // --------------------------------------------------------- aggregate loaders
 

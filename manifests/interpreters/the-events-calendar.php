@@ -4,7 +4,13 @@ declare(strict_types=1);
 namespace Duo\Interpreters;
 
 use Duo\Canon;
+use Duo\IdentityTokenCodec;
+use Duo\Ledger;
+use Duo\PlainData;
 use Duo\Policy;
+use Duo\Secrets;
+use Duo\SidebarState;
+use Duo\Tokens;
 
 /**
  * Exact repository constraints for the free TEC 6.17.2/6.17.3 storage
@@ -13,6 +19,18 @@ use Duo\Policy;
  * to manufacture an occurrence from contradictory authored inputs.
  */
 final class TheEventsCalendar {
+    private const LEGACY_WIDGET_BLOCK = 'core/legacy-widget';
+    private const LEGACY_WIDGET_CODEC = 'the-events-calendar/v1';
+    private const LIST_WIDGET = 'tribe-widget-events-list';
+    private const QR_WIDGET = 'tribe-widget-events-qr-code';
+    private const WIDGET_HASH_BYTES = 32;
+    private const WIDGET_MAX_DEPTH = 6;
+    private const WIDGET_MAX_ENCODED_BYTES = 21848;
+    private const WIDGET_MAX_KEY_BYTES = 64;
+    private const WIDGET_MAX_NODES = 64;
+    private const WIDGET_MAX_SERIALIZED_BYTES = 16384;
+    private const WIDGET_MAX_STRING_BYTES = 4096;
+
     private const IMPORT_COLUMN_OPTIONS = [
         'tribe_events_import_column_mapping',
         'tribe_events_import_column_mapping_events',
@@ -109,12 +127,183 @@ final class TheEventsCalendar {
         return null;
     }
 
+    /**
+     * Capture the two exact core/legacy-widget storage forms used by free TEC.
+     * Stored instances bind to SidebarState's durable widget identity; copied
+     * instances are decoded as bounded plain data and lose their source salt.
+     *
+     * @return array<string,mixed>
+     */
+    public function capture_block_attributes(
+        array $block,
+        Tokens $tokens,
+        bool $forceUnresolvedRefs = false,
+        string $postLabel = ''
+    ): array {
+        $this->assert_widget_block_shell($block);
+        $attrs = $this->widget_attrs($block);
+        if ($attrs === []) {
+            return [];
+        }
+
+        if (array_key_exists('id', $attrs)) {
+            $this->assert_exact_keys($attrs, ['id'], 'stored legacy widget attributes');
+            [$idBase, $localId] = $this->physical_widget_id($attrs['id']);
+            $uuid = Ledger::uuid_for($localId, SidebarState::kind($idBase));
+            if ($uuid === null) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar stored legacy widget has no durable SidebarState identity'
+                );
+            }
+            return [
+                'id' => '{{widget:' . $uuid . '}}',
+                'idBase' => $idBase,
+            ];
+        }
+
+        if (!array_key_exists('idBase', $attrs)) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar legacy widget must use the exact stored-id or embedded-instance form'
+            );
+        }
+        $idBase = $this->widget_id_base($attrs['idBase']);
+        if (!array_key_exists('instance', $attrs) || $attrs['instance'] === null) {
+            $this->assert_exact_keys(
+                $attrs,
+                array_key_exists('instance', $attrs) ? ['idBase', 'instance'] : ['idBase'],
+                'empty embedded legacy widget attributes'
+            );
+            return ['idBase' => $idBase];
+        }
+
+        $this->assert_exact_keys($attrs, ['idBase', 'instance'], 'embedded legacy widget attributes');
+        if (!is_array($attrs['instance']) || array_is_list($attrs['instance'])) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar embedded legacy widget instance must be one closed attribute object'
+            );
+        }
+        $instance = $attrs['instance'];
+        $this->assert_exact_keys($instance, ['encoded', 'hash'], 'embedded legacy widget instance');
+        if (!is_string($instance['encoded'])
+            || strlen($instance['encoded']) > self::WIDGET_MAX_ENCODED_BYTES
+            || $instance['encoded'] === ''
+            || preg_match('/^(?:[A-Za-z0-9+\/]{4})*(?:[A-Za-z0-9+\/]{2}==|[A-Za-z0-9+\/]{3}=)?$/D', $instance['encoded']) !== 1) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar embedded legacy widget payload is not bounded canonical base64'
+            );
+        }
+        $serialized = base64_decode($instance['encoded'], true);
+        if (!is_string($serialized)
+            || base64_encode($serialized) !== $instance['encoded']
+            || strlen($serialized) > self::WIDGET_MAX_SERIALIZED_BYTES) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar embedded legacy widget payload exceeds or violates its storage grammar'
+            );
+        }
+        $this->assert_widget_hash($serialized, $instance['hash']);
+        $settings = PlainData::decode_serialized($serialized, 'The Events Calendar embedded legacy widget');
+        if (!is_array($settings) || ($settings !== [] && array_is_list($settings))) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar embedded legacy widget must decode to one plain settings object'
+            );
+        }
+        $this->assert_bounded_widget_value($settings, 'embedded legacy widget settings');
+        $portable = $this->capture_widget_settings($idBase, $settings, $tokens);
+
+        return [
+            'idBase' => $idBase,
+            'instance' => [
+                'duo' => self::LEGACY_WIDGET_CODEC,
+                'settings' => $portable,
+            ],
+        ];
+    }
+
+    /**
+     * Materialize canonical TEC legacy-widget attributes for the target.
+     * The only generated payload is the bounded native instance plus a fresh
+     * target wp_hash; source encoded bytes and hashes are never retained.
+     *
+     * @return array<string,mixed>
+     */
+    public function apply_block_attributes(array $block, Tokens $tokens): array {
+        $this->assert_widget_block_shell($block);
+        $attrs = $this->widget_attrs($block);
+        if ($attrs === []) {
+            return [];
+        }
+
+        if (array_key_exists('id', $attrs)) {
+            $this->assert_exact_keys($attrs, ['id', 'idBase'], 'canonical stored legacy widget attributes');
+            $idBase = $this->widget_id_base($attrs['idBase']);
+            if (!is_string($attrs['id'])
+                || preg_match('/^\{\{widget:([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\}\}$/D', $attrs['id'], $match) !== 1) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar stored legacy widget identity must be one canonical widget token'
+                );
+            }
+            $localId = Ledger::id_for($match[1], SidebarState::kind($idBase));
+            if ($localId === null || $localId <= 0) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar stored legacy widget identity is not bound on the target'
+                );
+            }
+            return ['id' => $idBase . '-' . $localId];
+        }
+
+        if (!array_key_exists('idBase', $attrs)) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar canonical legacy widget has no reviewed identity form'
+            );
+        }
+        $idBase = $this->widget_id_base($attrs['idBase']);
+        if (!array_key_exists('instance', $attrs)) {
+            $this->assert_exact_keys($attrs, ['idBase'], 'canonical empty legacy widget attributes');
+            return ['idBase' => $idBase];
+        }
+
+        $this->assert_exact_keys($attrs, ['idBase', 'instance'], 'canonical embedded legacy widget attributes');
+        if (!is_array($attrs['instance']) || array_is_list($attrs['instance'])) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar canonical embedded widget instance is malformed'
+            );
+        }
+        $instance = $attrs['instance'];
+        $this->assert_exact_keys($instance, ['duo', 'settings'], 'canonical embedded legacy widget instance');
+        if (($instance['duo'] ?? null) !== self::LEGACY_WIDGET_CODEC
+            || !is_array($instance['settings'])
+            || ($instance['settings'] !== [] && array_is_list($instance['settings']))) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar canonical embedded widget codec marker or settings object is invalid'
+            );
+        }
+        $this->assert_bounded_widget_value($instance['settings'], 'canonical embedded widget settings');
+        $settings = $this->apply_widget_settings($idBase, $instance['settings'], $tokens);
+        $serialized = serialize($settings);
+        if (strlen($serialized) > self::WIDGET_MAX_SERIALIZED_BYTES) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar target widget instance exceeds the reviewed storage budget'
+            );
+        }
+        $hash = $this->widget_hash($serialized);
+
+        return [
+            'idBase' => $idBase,
+            'instance' => [
+                'encoded' => base64_encode($serialized),
+                'hash' => $hash,
+            ],
+        ];
+    }
+
     /** @return list<array<string,mixed>> */
     public function repository_diagnostics(array $tree): array {
         $posts = [];
+        $postEntities = [];
         $events = [];
         $linkedPosts = [];
         $terms = [];
+        $widgets = [];
         foreach ($tree as $entity) {
             if (($entity['type'] ?? '') === 'post') {
                 $front = $this->post_front($entity);
@@ -122,10 +311,21 @@ final class TheEventsCalendar {
                 if ($uuid !== '') {
                     $posts[$uuid] = (string) ($front['type'] ?? '');
                 }
+                $postEntities[] = [$entity, $front];
                 if (($front['type'] ?? '') === 'tribe_events') {
                     $events[] = [$entity, $front];
                 } elseif (in_array(($front['type'] ?? ''), ['tribe_venue', 'tribe_organizer'], true)) {
                     $linkedPosts[] = [$entity, $front];
+                }
+                continue;
+            }
+            if (($entity['type'] ?? '') === SidebarState::ENTITY_TYPE) {
+                foreach ((array) (($entity['data']['widgets'] ?? [])) as $widget) {
+                    $uuid = (string) ($widget['uuid'] ?? '');
+                    $type = (string) ($widget['type'] ?? '');
+                    if ($uuid !== '') {
+                        $widgets[$uuid] = $type;
+                    }
                 }
                 continue;
             }
@@ -138,6 +338,46 @@ final class TheEventsCalendar {
         }
 
         $out = [];
+        foreach ($tree as $entity) {
+            if (($entity['type'] ?? '') !== SidebarState::ENTITY_TYPE) {
+                continue;
+            }
+            $path = (string) ($entity['path'] ?? '');
+            foreach ((array) (($entity['data']['widgets'] ?? [])) as $index => $widget) {
+                $type = (string) ($widget['type'] ?? '');
+                if (!in_array($type, [self::LIST_WIDGET, self::QR_WIDGET], true)) {
+                    continue;
+                }
+                $settings = $widget['settings'] ?? null;
+                if (!is_array($settings) || ($settings !== [] && array_is_list($settings))) {
+                    $out[] = $this->diagnostic(
+                        $path,
+                        "widgets[$index].settings",
+                        'The Events Calendar widget settings must be one closed canonical object'
+                    );
+                    continue;
+                }
+                foreach ($this->repository_widget_settings_diagnostics(
+                    $type,
+                    $settings,
+                    $posts,
+                    $path,
+                    "widgets[$index].settings"
+                ) as $diagnostic) {
+                    $out[] = $diagnostic;
+                }
+            }
+        }
+        foreach ($postEntities as [$entity]) {
+            foreach ($this->legacy_widget_block_diagnostics(
+                $entity,
+                $posts,
+                $widgets,
+                (string) ($entity['path'] ?? '')
+            ) as $diagnostic) {
+                $out[] = $diagnostic;
+            }
+        }
         foreach ($events as [$entity, $front]) {
             $path = (string) ($entity['path'] ?? '');
             $meta = (array) ($front['meta'] ?? []);
@@ -514,6 +754,648 @@ final class TheEventsCalendar {
             }
         }
         return $out;
+    }
+
+    /** @return list<array{code:string,path:string,locator:string,message:string}> */
+    private function legacy_widget_block_diagnostics(
+        array $entity,
+        array $posts,
+        array $widgets,
+        string $path
+    ): array {
+        $body = $this->post_body($entity);
+        $markerCount = $this->legacy_widget_marker_count($body);
+        if ($markerCount === 0) {
+            return [];
+        }
+        if (!function_exists('parse_blocks')) {
+            return [$this->diagnostic(
+                $path,
+                'body.core/legacy-widget',
+                'The Events Calendar legacy-widget contract requires the native WordPress block parser'
+            )];
+        }
+        $blocks = [];
+        $walk = static function (array $nodes) use (&$walk, &$blocks): void {
+            foreach ($nodes as $node) {
+                if (($node['blockName'] ?? null) === self::LEGACY_WIDGET_BLOCK) {
+                    $blocks[] = $node;
+                }
+                if (is_array($node['innerBlocks'] ?? null) && $node['innerBlocks'] !== []) {
+                    $walk($node['innerBlocks']);
+                }
+            }
+        };
+        $walk(parse_blocks($body));
+        if (count($blocks) !== $markerCount) {
+            return [$this->diagnostic(
+                $path,
+                'body.core/legacy-widget',
+                'The Events Calendar legacy-widget markup must parse as exact registered blocks'
+            )];
+        }
+
+        $out = [];
+        foreach ($blocks as $index => $block) {
+            $locator = "body.core/legacy-widget[$index]";
+            try {
+                $this->assert_widget_block_shell($block);
+                $attrs = $this->widget_attrs($block);
+            } catch (\Throwable) {
+                $out[] = $this->diagnostic(
+                    $path,
+                    $locator,
+                    'The Events Calendar legacy widget must remain one exact self-closing canonical block'
+                );
+                continue;
+            }
+            if ($attrs === []) {
+                continue;
+            }
+            if (array_key_exists('id', $attrs)) {
+                try {
+                    $this->assert_exact_keys($attrs, ['id', 'idBase'], 'canonical stored legacy widget attributes');
+                    $idBase = $this->widget_id_base($attrs['idBase']);
+                } catch (\Throwable) {
+                    $out[] = $this->diagnostic(
+                        $path,
+                        "$locator.attrs",
+                        'The Events Calendar stored legacy widget canonical shape is invalid'
+                    );
+                    continue;
+                }
+                if (!is_string($attrs['id'])
+                    || preg_match('/^\{\{widget:([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\}\}$/D', $attrs['id'], $match) !== 1) {
+                    $out[] = $this->diagnostic(
+                        $path,
+                        "$locator.attrs.id",
+                        'The Events Calendar stored legacy widget identity must be one canonical widget token'
+                    );
+                } elseif (!isset($widgets[$match[1]])) {
+                    $out[] = $this->diagnostic(
+                        $path,
+                        "$locator.attrs.id",
+                        'The Events Calendar stored legacy widget identity must resolve to one captured sidebar widget'
+                    );
+                } elseif ($widgets[$match[1]] !== $idBase) {
+                    $out[] = $this->diagnostic(
+                        $path,
+                        "$locator.attrs.idBase",
+                        'The Events Calendar stored legacy widget identity and idBase disagree'
+                    );
+                }
+                continue;
+            }
+
+            if (!array_key_exists('idBase', $attrs)) {
+                $out[] = $this->diagnostic(
+                    $path,
+                    "$locator.attrs",
+                    'The Events Calendar legacy widget has no reviewed canonical identity form'
+                );
+                continue;
+            }
+            try {
+                $idBase = $this->widget_id_base($attrs['idBase']);
+            } catch (\Throwable) {
+                $out[] = $this->diagnostic(
+                    $path,
+                    "$locator.attrs.idBase",
+                    'The Events Calendar legacy widget idBase is outside the exact free-plugin registry'
+                );
+                continue;
+            }
+            if (!array_key_exists('instance', $attrs)) {
+                try {
+                    $this->assert_exact_keys($attrs, ['idBase'], 'canonical empty legacy widget attributes');
+                } catch (\Throwable) {
+                    $out[] = $this->diagnostic(
+                        $path,
+                        "$locator.attrs",
+                        'The Events Calendar empty embedded widget carries an undeclared attribute'
+                    );
+                }
+                continue;
+            }
+            try {
+                $this->assert_exact_keys($attrs, ['idBase', 'instance'], 'canonical embedded legacy widget attributes');
+                if (!is_array($attrs['instance']) || array_is_list($attrs['instance'])) {
+                    throw new \RuntimeException('invalid instance');
+                }
+                $instance = $attrs['instance'];
+                $this->assert_exact_keys($instance, ['duo', 'settings'], 'canonical embedded legacy widget instance');
+                if (($instance['duo'] ?? null) !== self::LEGACY_WIDGET_CODEC
+                    || !is_array($instance['settings'])
+                    || ($instance['settings'] !== [] && array_is_list($instance['settings']))) {
+                    throw new \RuntimeException('invalid codec settings');
+                }
+                $this->assert_bounded_widget_value($instance['settings'], 'canonical embedded widget settings');
+            } catch (\Throwable) {
+                $out[] = $this->diagnostic(
+                    $path,
+                    "$locator.attrs.instance",
+                    'The Events Calendar embedded legacy widget canonical envelope is invalid'
+                );
+                continue;
+            }
+            foreach ($this->repository_widget_settings_diagnostics(
+                $idBase,
+                $instance['settings'],
+                $posts,
+                $path,
+                "$locator.attrs.instance.settings"
+            ) as $diagnostic) {
+                $out[] = $diagnostic;
+            }
+        }
+        return $out;
+    }
+
+    /** @return list<array{code:string,path:string,locator:string,message:string}> */
+    private function repository_widget_settings_diagnostics(
+        string $idBase,
+        array $settings,
+        array $posts,
+        string $path,
+        string $locator
+    ): array {
+        $out = [];
+        $allowed = $idBase === self::LIST_WIDGET
+            ? ['title', 'limit', 'no_upcoming_events', 'featured_events_only', 'jsonld_enable', 'tribe_is_list_widget']
+            : ['widget_title', 'qr_code_size', 'redirection', 'event_id', 'series_id'];
+        try {
+            $this->assert_known_setting_keys($settings, $allowed, 'canonical');
+            $this->assert_bounded_widget_value($settings, 'canonical widget settings');
+        } catch (\Throwable) {
+            return [$this->diagnostic(
+                $path,
+                $locator,
+                'The Events Calendar widget settings exceed or escape the closed native schema'
+            )];
+        }
+        foreach ($settings as $key => $value) {
+            $valid = true;
+            if (in_array($key, ['title', 'widget_title'], true)) {
+                try {
+                    $this->assert_widget_title($value, $key);
+                } catch (\Throwable) {
+                    $valid = false;
+                }
+            } elseif ($key === 'limit') {
+                try {
+                    $this->widget_limit($value);
+                } catch (\Throwable) {
+                    $valid = false;
+                }
+            } elseif (in_array($key, ['no_upcoming_events', 'featured_events_only', 'jsonld_enable', 'tribe_is_list_widget'], true)) {
+                $valid = is_bool($value);
+            } elseif ($key === 'qr_code_size') {
+                $valid = is_string($value) && in_array($value, ['4', '8', '12', '16', '20', '24', '28'], true);
+            } elseif ($key === 'redirection') {
+                $valid = is_string($value) && in_array($value, ['current', 'upcoming', 'specific'], true);
+            } elseif ($key === 'series_id') {
+                $valid = $value === null;
+            } elseif ($key === 'event_id') {
+                if ($value === null) {
+                    $valid = true;
+                } elseif (!is_string($value)
+                    || preg_match('/^\{\{post:([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\}\}$/D', $value, $match) !== 1) {
+                    $valid = false;
+                } elseif (!isset($posts[$match[1]]) || $posts[$match[1]] !== 'tribe_events') {
+                    $out[] = $this->diagnostic(
+                        $path,
+                        "$locator.event_id",
+                        'The Events Calendar QR widget event token must resolve to one captured tribe_events post'
+                    );
+                    continue;
+                }
+            }
+            if (!$valid) {
+                $out[] = $this->diagnostic(
+                    $path,
+                    "$locator.$key",
+                    'The Events Calendar widget setting violates its exact native scalar contract'
+                );
+            }
+        }
+        if (($settings['redirection'] ?? null) === 'specific' && ($settings['event_id'] ?? null) === null) {
+            $out[] = $this->diagnostic(
+                $path,
+                "$locator.event_id",
+                'The Events Calendar QR widget specific redirection requires one event token'
+            );
+        }
+        return $out;
+    }
+
+    private function legacy_widget_marker_count(string $body): int {
+        $opening = '<!--';
+        // Core block comments omit the `core/` namespace even though the
+        // native parser restores blockName=core/legacy-widget.
+        $name = 'wp:legacy-widget';
+        $whitespace = " \t\r\n\f\v";
+        $offset = 0;
+        $count = 0;
+        $length = strlen($body);
+        while ($offset < $length && ($start = strpos($body, $opening, $offset)) !== false) {
+            $end = strpos($body, '-->', $start + strlen($opening));
+            if ($end === false) {
+                break;
+            }
+            $cursor = $start + strlen($opening);
+            if ($cursor < $end && str_contains($whitespace, $body[$cursor])) {
+                $cursor += strspn($body, $whitespace, $cursor, $end - $cursor);
+                if ($cursor + strlen($name) <= $end
+                    && substr_compare($body, $name, $cursor, strlen($name)) === 0) {
+                    $cursor += strlen($name);
+                    if ($cursor < $end
+                        && ($body[$cursor] === '/' || str_contains($whitespace, $body[$cursor]))) {
+                        ++$count;
+                    }
+                }
+            }
+            $offset = $end + 3;
+        }
+        return $count;
+    }
+
+    private function assert_widget_block_shell(array $block): void {
+        if (($block['blockName'] ?? null) !== self::LEGACY_WIDGET_BLOCK
+            || !is_array($block['innerBlocks'] ?? null)
+            || ($block['innerBlocks'] ?? []) !== []
+            || !is_string($block['innerHTML'] ?? null)
+            || trim((string) $block['innerHTML']) !== ''
+            || !is_array($block['innerContent'] ?? null)
+            || ($block['innerContent'] ?? []) !== []) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar legacy widget must be one exact self-closing core block'
+            );
+        }
+    }
+
+    /** @return array<string,mixed> */
+    private function widget_attrs(array $block): array {
+        $attrs = $block['attrs'] ?? null;
+        if (!is_array($attrs) || ($attrs !== [] && array_is_list($attrs))) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar legacy widget attributes must be one closed object'
+            );
+        }
+        foreach (array_keys($attrs) as $key) {
+            if (!is_string($key)) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar legacy widget attributes contain a non-string key'
+                );
+            }
+        }
+        return $attrs;
+    }
+
+    private function assert_exact_keys(array $value, array $expected, string $context): void {
+        $actual = array_keys($value);
+        foreach ($actual as $key) {
+            if (!is_string($key)) {
+                throw new \RuntimeException("duo: The Events Calendar $context has a non-string key");
+            }
+        }
+        sort($actual, SORT_STRING);
+        sort($expected, SORT_STRING);
+        if ($actual !== $expected) {
+            throw new \RuntimeException("duo: The Events Calendar $context has an unknown or missing field");
+        }
+    }
+
+    private function widget_id_base(mixed $value): string {
+        if (!is_string($value) || !in_array($value, [self::LIST_WIDGET, self::QR_WIDGET], true)) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar legacy widget idBase is not one exact free-plugin widget type'
+            );
+        }
+        return $value;
+    }
+
+    /** @return array{string,int} */
+    private function physical_widget_id(mixed $value): array {
+        if (!is_string($value)
+            || preg_match(
+                '/^(' . preg_quote(self::LIST_WIDGET, '/') . '|' . preg_quote(self::QR_WIDGET, '/')
+                . ')-([1-9][0-9]*)$/D',
+                $value,
+                $match
+            ) !== 1
+            || (string) (int) $match[2] !== $match[2]
+            || (int) $match[2] <= 0) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar stored legacy widget id must use one supported idBase and canonical positive instance'
+            );
+        }
+        return [$match[1], (int) $match[2]];
+    }
+
+    private function assert_widget_hash(string $serialized, mixed $hash): void {
+        if (!is_string($hash)
+            || strlen($hash) !== self::WIDGET_HASH_BYTES
+            || preg_match('/^[a-f0-9]{32}$/D', $hash) !== 1
+            || !hash_equals($this->widget_hash($serialized), $hash)) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar embedded legacy widget source hash is missing or invalid'
+            );
+        }
+    }
+
+    private function widget_hash(string $serialized): string {
+        if (!function_exists('wp_hash')) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar legacy widget codec requires the native WordPress hash service'
+            );
+        }
+        $hash = wp_hash($serialized);
+        if (!is_string($hash)
+            || strlen($hash) !== self::WIDGET_HASH_BYTES
+            || preg_match('/^[a-f0-9]{32}$/D', $hash) !== 1) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar legacy widget hash service returned an unsupported receipt'
+            );
+        }
+        return $hash;
+    }
+
+    private function assert_bounded_widget_value(mixed $value, string $context): void {
+        $nodes = 0;
+        $walk = function (mixed $current, int $depth) use (&$walk, &$nodes, $context): void {
+            ++$nodes;
+            if ($nodes > self::WIDGET_MAX_NODES || $depth > self::WIDGET_MAX_DEPTH) {
+                throw new \RuntimeException(
+                    "duo: The Events Calendar $context exceeds its closed depth or node budget"
+                );
+            }
+            if (is_object($current) || is_resource($current) || is_float($current)) {
+                throw new \RuntimeException(
+                    "duo: The Events Calendar $context contains an unsupported value type"
+                );
+            }
+            if (is_string($current)) {
+                $this->assert_safe_widget_string($current, $context);
+                return;
+            }
+            if (!is_array($current)) {
+                return;
+            }
+            foreach ($current as $key => $child) {
+                if (!is_string($key) || $key === '' || strlen($key) > self::WIDGET_MAX_KEY_BYTES) {
+                    throw new \RuntimeException(
+                        "duo: The Events Calendar $context contains an invalid settings key"
+                    );
+                }
+                if (class_exists('ReflectionReference')
+                    && \ReflectionReference::fromArrayElement($current, $key) !== null) {
+                    throw new \RuntimeException(
+                        "duo: The Events Calendar $context contains a PHP reference"
+                    );
+                }
+                $walk($child, $depth + 1);
+            }
+        };
+        $walk($value, 0);
+    }
+
+    private function assert_safe_widget_string(string $value, string $context): void {
+        if (strlen($value) > self::WIDGET_MAX_STRING_BYTES
+            || preg_match('//u', $value) !== 1
+            || preg_match('/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/D', $value) === 1) {
+            throw new \RuntimeException(
+                "duo: The Events Calendar $context contains an over-budget or invalid text value"
+            );
+        }
+        if (Secrets::hard_match($value) !== null) {
+            throw new \RuntimeException(
+                "duo: The Events Calendar $context contains a hard credential; refusing capture"
+            );
+        }
+        if (preg_match('/(?:javascript|data)\s*:/iD', $value) === 1
+            || preg_match('#https?://[^/\s:@]+:[^/\s@]+@#iD', $value) === 1) {
+            throw new \RuntimeException(
+                "duo: The Events Calendar $context contains an unsafe URL shape"
+            );
+        }
+    }
+
+    /** @return array<string,mixed> */
+    private function capture_widget_settings(string $idBase, array $settings, Tokens $tokens): array {
+        $allowed = $idBase === self::LIST_WIDGET
+            ? ['title', 'limit', 'no_upcoming_events', 'featured_events_only', 'jsonld_enable', 'tribe_is_list_widget']
+            : ['widget_title', 'qr_code_size', 'redirection', 'event_id', 'series_id'];
+        $this->assert_known_setting_keys($settings, $allowed, 'physical');
+        $out = [];
+        foreach ($allowed as $key) {
+            if (!array_key_exists($key, $settings)) {
+                continue;
+            }
+            $value = $settings[$key];
+            if (($idBase === self::LIST_WIDGET && $key === 'title')
+                || ($idBase === self::QR_WIDGET && $key === 'widget_title')) {
+                $this->assert_widget_title($value, $key);
+                $out[$key] = $tokens->tokenize_text($value, "TEC legacy widget $key");
+                continue;
+            }
+            if ($key === 'limit') {
+                $out[$key] = $this->widget_limit($value);
+                continue;
+            }
+            if (in_array($key, ['no_upcoming_events', 'featured_events_only', 'jsonld_enable', 'tribe_is_list_widget'], true)) {
+                if (!is_bool($value)) {
+                    throw new \RuntimeException(
+                        "duo: The Events Calendar list widget setting '$key' must be a native boolean"
+                    );
+                }
+                $out[$key] = $value;
+                continue;
+            }
+            if ($key === 'qr_code_size') {
+                if (!is_string($value) || !in_array($value, ['4', '8', '12', '16', '20', '24', '28'], true)) {
+                    throw new \RuntimeException(
+                        'duo: The Events Calendar QR widget size is outside its exact native menu'
+                    );
+                }
+                $out[$key] = $value;
+                continue;
+            }
+            if ($key === 'redirection') {
+                if (!is_string($value) || !in_array($value, ['current', 'upcoming', 'specific'], true)) {
+                    throw new \RuntimeException(
+                        'duo: The Events Calendar QR widget redirection is outside its exact native menu'
+                    );
+                }
+                $out[$key] = $value;
+                continue;
+            }
+            if ($key === 'event_id') {
+                $id = $this->native_widget_reference_id($value, 'event_id');
+                $out[$key] = $id === null ? null : ($tokens->id_to_token($id, 'post')
+                    ?? throw new \RuntimeException(
+                        'duo: The Events Calendar QR widget event reference is not managed by this repository'
+                    ));
+                continue;
+            }
+            if ($key === 'series_id') {
+                if ($this->native_widget_reference_id($value, 'series_id') !== null) {
+                    throw new \RuntimeException(
+                        'duo: The Events Calendar QR widget series reference requires the licensed recurrence surface'
+                    );
+                }
+                $out[$key] = null;
+            }
+        }
+        if (($out['redirection'] ?? null) === 'specific' && ($out['event_id'] ?? null) === null) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar QR widget specific redirection requires one managed event'
+            );
+        }
+        return $out;
+    }
+
+    /** @return array<string,mixed> */
+    private function apply_widget_settings(string $idBase, array $settings, Tokens $tokens): array {
+        $allowed = $idBase === self::LIST_WIDGET
+            ? ['title', 'limit', 'no_upcoming_events', 'featured_events_only', 'jsonld_enable', 'tribe_is_list_widget']
+            : ['widget_title', 'qr_code_size', 'redirection', 'event_id', 'series_id'];
+        $this->assert_known_setting_keys($settings, $allowed, 'canonical');
+        $out = [];
+        foreach ($allowed as $key) {
+            if (!array_key_exists($key, $settings)) {
+                continue;
+            }
+            $value = $settings[$key];
+            if (($idBase === self::LIST_WIDGET && $key === 'title')
+                || ($idBase === self::QR_WIDGET && $key === 'widget_title')) {
+                if (!is_string($value)) {
+                    throw new \RuntimeException(
+                        "duo: The Events Calendar canonical widget setting '$key' must be a string"
+                    );
+                }
+                $value = $tokens->detokenize_text($value);
+                $this->assert_widget_title($value, $key);
+                $out[$key] = $value;
+                continue;
+            }
+            if ($key === 'limit') {
+                $out[$key] = $this->widget_limit($value);
+                continue;
+            }
+            if (in_array($key, ['no_upcoming_events', 'featured_events_only', 'jsonld_enable', 'tribe_is_list_widget'], true)) {
+                if (!is_bool($value)) {
+                    throw new \RuntimeException(
+                        "duo: The Events Calendar canonical list widget setting '$key' must be boolean"
+                    );
+                }
+                $out[$key] = $value;
+                continue;
+            }
+            if ($key === 'qr_code_size') {
+                if (!is_string($value) || !in_array($value, ['4', '8', '12', '16', '20', '24', '28'], true)) {
+                    throw new \RuntimeException('duo: The Events Calendar canonical QR widget size is invalid');
+                }
+                $out[$key] = $value;
+                continue;
+            }
+            if ($key === 'redirection') {
+                if (!is_string($value) || !in_array($value, ['current', 'upcoming', 'specific'], true)) {
+                    throw new \RuntimeException('duo: The Events Calendar canonical QR widget redirection is invalid');
+                }
+                $out[$key] = $value;
+                continue;
+            }
+            if ($key === 'event_id') {
+                if ($value === null) {
+                    $out[$key] = 0;
+                    continue;
+                }
+                if (!is_string($value)) {
+                    throw new \RuntimeException(
+                        'duo: The Events Calendar canonical QR widget event must be null or one post token'
+                    );
+                }
+                $decoded = IdentityTokenCodec::decode($value);
+                if ($decoded['kind'] !== 'post') {
+                    throw new \RuntimeException(
+                        'duo: The Events Calendar canonical QR widget event must use the post keyspace'
+                    );
+                }
+                $out[$key] = $tokens->token_to_id($value);
+                continue;
+            }
+            if ($key === 'series_id') {
+                if ($value !== null) {
+                    throw new \RuntimeException(
+                        'duo: The Events Calendar canonical QR widget series state is outside the free adapter'
+                    );
+                }
+                $out[$key] = 0;
+            }
+        }
+        if (($settings['redirection'] ?? null) === 'specific' && ($settings['event_id'] ?? null) === null) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar canonical QR widget specific redirection requires one event token'
+            );
+        }
+        $this->assert_bounded_widget_value($out, 'target embedded widget settings');
+        return $out;
+    }
+
+    private function assert_known_setting_keys(array $settings, array $allowed, string $form): void {
+        foreach (array_keys($settings) as $key) {
+            if (!is_string($key) || !in_array($key, $allowed, true)) {
+                throw new \RuntimeException(
+                    "duo: The Events Calendar $form legacy widget contains an undeclared setting"
+                );
+            }
+        }
+    }
+
+    private function assert_widget_title(mixed $value, string $key): void {
+        if (!is_string($value) || !function_exists('wp_strip_all_tags')) {
+            throw new \RuntimeException(
+                "duo: The Events Calendar widget setting '$key' requires one native sanitized string"
+            );
+        }
+        $this->assert_safe_widget_string($value, "widget setting '$key'");
+        if (wp_strip_all_tags($value) !== $value
+            || preg_match('/^(?:[aOsidbCE]:|N;)/D', trim($value)) === 1) {
+            throw new \RuntimeException(
+                "duo: The Events Calendar widget setting '$key' is not one native plain-text value"
+            );
+        }
+    }
+
+    private function widget_limit(mixed $value): int|string {
+        if (is_int($value) && $value >= 1 && $value <= 10) {
+            return $value;
+        }
+        if (is_string($value)
+            && preg_match('/^(?:[1-9]|10)$/D', $value) === 1) {
+            return $value;
+        }
+        throw new \RuntimeException(
+            'duo: The Events Calendar list widget limit must be the exact native integer range 1..10'
+        );
+    }
+
+    private function native_widget_reference_id(mixed $value, string $key): ?int {
+        if (in_array($value, [null, '', 0, '0'], true)) {
+            return null;
+        }
+        if (is_int($value) && $value > 0) {
+            return $value;
+        }
+        if (is_string($value)
+            && preg_match('/^[1-9][0-9]*$/D', $value) === 1
+            && (string) (int) $value === $value
+            && (int) $value > 0) {
+            return (int) $value;
+        }
+        throw new \RuntimeException(
+            "duo: The Events Calendar QR widget '$key' must be an exact positive id or native unset value"
+        );
     }
 
     /** @return array<string,mixed> */

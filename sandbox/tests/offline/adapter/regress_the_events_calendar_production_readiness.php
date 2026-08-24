@@ -430,7 +430,12 @@ require_once __DIR__ . '/../../lib/check.php';
 require_once __DIR__ . '/../../lib/FakeWpdb.php';
 require_once __DIR__ . '/../../support/wp-block-parser-stub.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
+require_once __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
+require_once __DIR__ . '/../../../../agent/src/Grammar/Tokens.php';
+require_once __DIR__ . '/../../../../agent/src/Grammar/Blocks.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/../../../../agent/src/Repository/Snapshot.php';
+require_once __DIR__ . '/../../../../agent/src/Repository/SidebarState.php';
 require_once __DIR__ . '/../../../../agent/src/Adapter/Providers.php';
 require_once __DIR__ . '/../../../../agent/src/Capture/EntityMetaCapture.php';
 require_once __DIR__ . '/../../../../manifests/interpreters/the-events-calendar.php';
@@ -438,8 +443,10 @@ require_once __DIR__ . '/../../../../manifests/providers/the-events-calendar-cat
 require_once __DIR__ . '/../../../../manifests/regenerators/the-events-calendar.php';
 
 use Duo\Interpreters\TheEventsCalendar;
+use Duo\Blocks;
 use Duo\EntityMetaCapture;
 use Duo\Policy;
+use Duo\Tokens;
 use Duo\Providers\TheEventsCalendarCategoryColors;
 use Duo\Regenerators\TheEventsCalendar as TheEventsCalendarRegenerator;
 use DuoTest\FakeWpdb;
@@ -449,6 +456,14 @@ const TEC_VENUE_UUID = '22222222-2222-4222-8222-222222222222';
 const TEC_ORGANIZER_UUID = '33333333-3333-4333-8333-333333333333';
 const TEC_ORGANIZER_TWO_UUID = '55555555-5555-4555-8555-555555555555';
 const TEC_CATEGORY_UUID = '44444444-4444-4444-8444-444444444444';
+const TEC_LIST_WIDGET_UUID = '66666666-6666-4666-8666-666666666666';
+const TEC_QR_WIDGET_UUID = '77777777-7777-4777-8777-777777777777';
+
+final class TecReadinessWidgetWakeupProbe {
+    public function __wakeup(): void {
+        ++$GLOBALS['tec_readiness_widget_wakeups'];
+    }
+}
 
 final class TecReadinessNativeColor {
     public function __construct(private string $value) {
@@ -680,6 +695,24 @@ final class TecReadinessOccurrenceSaver {
 
 class_alias(TecReadinessNativeColor::class, 'Tribe__Utils__Color');
 class_alias(TecReadinessEventModel::class, 'TEC\Events\Custom_Tables\V1\Models\Event');
+
+function untrailingslashit(string $value): string {
+    return rtrim($value, '/\\');
+}
+
+function wp_upload_dir(mixed $time = null, bool $create = true): array {
+    return ['baseurl' => 'https://source.example/uploads'];
+}
+
+function wp_hash(string $data, string $scheme = 'auth'): string {
+    return hash_hmac('md5', $data, (string) ($GLOBALS['tec_readiness_widget_salt'] ?? 'source-widget-salt'));
+}
+
+function wp_strip_all_tags(string $value, bool $removeBreaks = false): string {
+    $value = preg_replace('@<(script|style)[^>]*?>.*?</\\1>@si', '', $value) ?? '';
+    $value = strip_tags($value);
+    return $removeBreaks ? (string) preg_replace('/[\r\n\t ]+/', ' ', $value) : $value;
+}
 
 /** @return mixed */
 function get_option(string $name, mixed $default = false): mixed {
@@ -1220,6 +1253,20 @@ function tec_readiness_organizer_blocks(array $tokens, bool $prependEmpty = fals
             . ' /-->';
     }
     return implode("\n", $blocks);
+}
+
+function tec_readiness_legacy_widget_block(array $attrs): string {
+    return '<!-- wp:legacy-widget '
+        . json_encode($attrs, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)
+        . ' /-->';
+}
+
+function tec_readiness_embedded_widget(array $settings): array {
+    $serialized = serialize($settings);
+    return [
+        'encoded' => base64_encode($serialized),
+        'hash' => wp_hash($serialized),
+    ];
 }
 
 /** @return list<string> */
@@ -2308,6 +2355,620 @@ duo_check(
     'the shipped provider honestly declares the direct exact Generator-then-dropdown contract instead of claiming controller dispatch'
 );
 
+$widgetDb = FakeWpdb::install();
+$widgetMapTable = $widgetDb->prefix . 'duo_map';
+$sourceWidgetRows = [
+    [
+        'uuid' => TEC_LIST_WIDGET_UUID,
+        'entity_type' => 'widget',
+        'id_kind' => 'widget_tribe-widget-events-list',
+        'local_id' => 7000000001,
+    ],
+    [
+        'uuid' => TEC_QR_WIDGET_UUID,
+        'entity_type' => 'widget',
+        'id_kind' => 'widget_tribe-widget-events-qr-code',
+        'local_id' => 7000000002,
+    ],
+    [
+        'uuid' => TEC_EVENT_UUID,
+        'entity_type' => 'post',
+        'id_kind' => 'post',
+        'local_id' => 7100000001,
+    ],
+];
+$widgetDb->seedTable($widgetMapTable, $sourceWidgetRows);
+$GLOBALS['tec_readiness_widget_salt'] = 'source-widget-salt';
+$sourceWidgetTokens = new Tokens('https://source.example', 'https://source.example/uploads');
+$sourceWidgetTokens->policy = $policy;
+
+$sourceStoredList = tec_readiness_legacy_widget_block([
+    'id' => 'tribe-widget-events-list-7000000001',
+]);
+$sourceStoredQr = tec_readiness_legacy_widget_block([
+    'id' => 'tribe-widget-events-qr-code-7000000002',
+]);
+$sourceEmbeddedListSettings = [
+    'title' => 'Calendar https://source.example/events and https://source.example/uploads/banner.png',
+    'limit' => '10',
+    'no_upcoming_events' => false,
+    'featured_events_only' => true,
+    'jsonld_enable' => true,
+    'tribe_is_list_widget' => true,
+];
+$sourceEmbeddedQrSettings = [
+    'widget_title' => 'Event QR',
+    'qr_code_size' => '28',
+    'redirection' => 'specific',
+    'event_id' => 7100000001,
+    'series_id' => 0,
+];
+$sourceEmbeddedList = tec_readiness_legacy_widget_block([
+    'idBase' => 'tribe-widget-events-list',
+    'instance' => tec_readiness_embedded_widget($sourceEmbeddedListSettings),
+]);
+$sourceEmbeddedQr = tec_readiness_legacy_widget_block([
+    'idBase' => 'tribe-widget-events-qr-code',
+    'instance' => tec_readiness_embedded_widget($sourceEmbeddedQrSettings),
+]);
+$canonicalStoredList = Blocks::capture_rewrite(
+    $sourceStoredList,
+    $policy,
+    $sourceWidgetTokens,
+    false,
+    'page with a TEC stored list widget'
+);
+$canonicalStoredQr = Blocks::capture_rewrite(
+    $sourceStoredQr,
+    $policy,
+    $sourceWidgetTokens,
+    false,
+    'page with a TEC stored QR widget'
+);
+$canonicalEmbeddedList = Blocks::capture_rewrite(
+    $sourceEmbeddedList,
+    $policy,
+    $sourceWidgetTokens,
+    false,
+    'page with an embedded TEC list widget'
+);
+$canonicalEmbeddedQr = Blocks::capture_rewrite(
+    $sourceEmbeddedQr,
+    $policy,
+    $sourceWidgetTokens,
+    false,
+    'page with an embedded TEC QR widget'
+);
+$storedListAttrs = parse_blocks($canonicalStoredList)[0]['attrs'] ?? [];
+$storedQrAttrs = parse_blocks($canonicalStoredQr)[0]['attrs'] ?? [];
+$embeddedListAttrs = parse_blocks($canonicalEmbeddedList)[0]['attrs'] ?? [];
+$embeddedQrAttrs = parse_blocks($canonicalEmbeddedQr)[0]['attrs'] ?? [];
+duo_check_same(
+    [
+        'id' => '{{widget:' . TEC_LIST_WIDGET_UUID . '}}',
+        'idBase' => 'tribe-widget-events-list',
+    ],
+    $storedListAttrs,
+    'stored TEC list blocks capture through SidebarState identity instead of retaining a local widget counter'
+);
+duo_check_same(
+    [
+        'id' => '{{widget:' . TEC_QR_WIDGET_UUID . '}}',
+        'idBase' => 'tribe-widget-events-qr-code',
+    ],
+    $storedQrAttrs,
+    'stored TEC QR blocks bind their longer exact widget id_kind without truncation'
+);
+duo_check_same(
+    'the-events-calendar/v1',
+    $embeddedListAttrs['instance']['duo'] ?? null,
+    'embedded TEC widget capture replaces raw encoded bytes with the manifest-bound codec marker'
+);
+duo_check_same(
+    [
+        'title' => 'Calendar {{home}}/events and {{uploads}}/banner.png',
+        'limit' => '10',
+        'no_upcoming_events' => false,
+        'featured_events_only' => true,
+        'jsonld_enable' => true,
+        'tribe_is_list_widget' => true,
+    ],
+    $embeddedListAttrs['instance']['settings'] ?? null,
+    'embedded list settings use closed native types and portable URL tokens without retaining source payload bytes'
+);
+duo_check_same(
+    '{{post:' . TEC_EVENT_UUID . '}}',
+    $embeddedQrAttrs['instance']['settings']['event_id'] ?? null,
+    'embedded QR event selection becomes one portable post token'
+);
+duo_check(
+    array_key_exists('series_id', $embeddedQrAttrs['instance']['settings'] ?? [])
+        && $embeddedQrAttrs['instance']['settings']['series_id'] === null,
+    'the free QR widget represents its licensed series surface only as exact absence'
+);
+duo_check(
+    !str_contains($canonicalEmbeddedList, base64_encode(serialize($sourceEmbeddedListSettings)))
+        && !str_contains($canonicalEmbeddedList, wp_hash(serialize($sourceEmbeddedListSettings))),
+    'canonical embedded widgets retain neither source serialized payload nor source salt receipt'
+);
+
+$targetWidgetRows = $sourceWidgetRows;
+$targetWidgetRows[0]['local_id'] = 8000000001;
+$targetWidgetRows[1]['local_id'] = 8000000002;
+$targetWidgetRows[2]['local_id'] = 8100000001;
+$widgetDb->seedTable($widgetMapTable, $targetWidgetRows);
+$GLOBALS['tec_readiness_widget_salt'] = 'target-widget-salt';
+$targetWidgetTokens = new Tokens('https://target.example', 'https://target.example/media');
+$targetStoredList = Blocks::apply_rewrite($canonicalStoredList, $policy, $targetWidgetTokens);
+$targetStoredQr = Blocks::apply_rewrite($canonicalStoredQr, $policy, $targetWidgetTokens);
+$targetEmbeddedList = Blocks::apply_rewrite($canonicalEmbeddedList, $policy, $targetWidgetTokens);
+$targetEmbeddedQr = Blocks::apply_rewrite($canonicalEmbeddedQr, $policy, $targetWidgetTokens);
+duo_check_same(
+    ['id' => 'tribe-widget-events-list-8000000001'],
+    parse_blocks($targetStoredList)[0]['attrs'] ?? null,
+    'stored list apply resolves the exact target-local widget counter and emits no authored codec metadata'
+);
+duo_check_same(
+    ['id' => 'tribe-widget-events-qr-code-8000000002'],
+    parse_blocks($targetStoredQr)[0]['attrs'] ?? null,
+    'stored QR apply resolves a divergent large target-local widget counter'
+);
+$targetListPhysical = parse_blocks($targetEmbeddedList)[0]['attrs']['instance'] ?? [];
+$targetQrPhysical = parse_blocks($targetEmbeddedQr)[0]['attrs']['instance'] ?? [];
+$targetListSerialized = base64_decode((string) ($targetListPhysical['encoded'] ?? ''), true);
+$targetQrSerialized = base64_decode((string) ($targetQrPhysical['encoded'] ?? ''), true);
+duo_check(
+    is_string($targetListSerialized)
+        && hash_equals(wp_hash($targetListSerialized), (string) ($targetListPhysical['hash'] ?? '')),
+    'embedded list apply emits one target-salted WordPress receipt over exact generated bytes'
+);
+duo_check_same(
+    [
+        'title' => 'Calendar https://target.example/events and https://target.example/media/banner.png',
+        'limit' => '10',
+        'no_upcoming_events' => false,
+        'featured_events_only' => true,
+        'jsonld_enable' => true,
+        'tribe_is_list_widget' => true,
+    ],
+    is_string($targetListSerialized) ? unserialize($targetListSerialized, ['allowed_classes' => false]) : null,
+    'embedded list apply reconstructs only the reviewed native settings in fixed order for the target'
+);
+duo_check(
+    is_string($targetQrSerialized)
+        && hash_equals(wp_hash($targetQrSerialized), (string) ($targetQrPhysical['hash'] ?? '')),
+    'embedded QR apply discards the source receipt and re-signs against the target salt'
+);
+duo_check_same(
+    [
+        'widget_title' => 'Event QR',
+        'qr_code_size' => '28',
+        'redirection' => 'specific',
+        'event_id' => 8100000001,
+        'series_id' => 0,
+    ],
+    is_string($targetQrSerialized) ? unserialize($targetQrSerialized, ['allowed_classes' => false]) : null,
+    'embedded QR apply resolves its event to a divergent large target post ID and preserves native scalar wires'
+);
+$targetWidgetTokens->policy = $policy;
+duo_check_same(
+    $canonicalStoredList,
+    Blocks::capture_rewrite($targetStoredList, $policy, $targetWidgetTokens),
+    'stored widget capture-apply-recapture is a byte-exact canonical fixed point'
+);
+duo_check_same(
+    $canonicalEmbeddedList,
+    Blocks::capture_rewrite($targetEmbeddedList, $policy, $targetWidgetTokens),
+    'embedded list capture-apply-recapture is a byte-exact canonical fixed point across salts and URLs'
+);
+duo_check_same(
+    $canonicalEmbeddedQr,
+    Blocks::capture_rewrite($targetEmbeddedQr, $policy, $targetWidgetTokens),
+    'embedded QR capture-apply-recapture is a byte-exact canonical fixed point across divergent event IDs'
+);
+$widgetDb->seedTable($widgetDb->options, [
+    [
+        'option_id' => 1,
+        'option_name' => 'sidebars_widgets',
+        'option_value' => serialize([
+            'primary' => [
+                'tribe-widget-events-list-8000000001',
+                'tribe-widget-events-qr-code-8000000002',
+            ],
+            'array_version' => 3,
+        ]),
+        'autoload' => 'yes',
+    ],
+    [
+        'option_id' => 2,
+        'option_name' => 'widget_tribe-widget-events-list',
+        'option_value' => serialize([
+            8000000001 => [
+                'title' => 'Calendar https://target.example/events',
+                'limit' => '10',
+                'no_upcoming_events' => false,
+                'featured_events_only' => true,
+                'jsonld_enable' => true,
+                'tribe_is_list_widget' => true,
+            ],
+            '_multiwidget' => 1,
+        ]),
+        'autoload' => 'yes',
+    ],
+    [
+        'option_id' => 3,
+        'option_name' => 'widget_tribe-widget-events-qr-code',
+        'option_value' => serialize([
+            8000000002 => [
+                'widget_title' => 'Event QR',
+                'qr_code_size' => '28',
+                'redirection' => 'specific',
+                'event_id' => 8100000001,
+                'series_id' => 0,
+            ],
+            '_multiwidget' => 1,
+        ]),
+        'autoload' => 'yes',
+    ],
+]);
+$capturedTecSidebars = \Duo\SidebarState::capture($policy, $targetWidgetTokens, false);
+$capturedTecWidgets = $capturedTecSidebars['entities'][0]['content'] ?? '';
+$capturedTecSidebarData = json_decode((string) $capturedTecWidgets, true, 32, JSON_THROW_ON_ERROR);
+duo_check_same(
+    [TEC_LIST_WIDGET_UUID, TEC_QR_WIDGET_UUID],
+    array_column($capturedTecSidebarData['widgets'] ?? [], 'uuid'),
+    'SidebarState captures both exact TEC physical widget kinds with durable ledger identities'
+);
+duo_check_same(
+    '{{post:' . TEC_EVENT_UUID . '}}',
+    $capturedTecSidebarData['widgets'][1]['settings']['event_id'] ?? null,
+    'SidebarState captures the QR event selection through the declared post-reference grammar'
+);
+duo_check_same(
+    'Calendar {{home}}/events',
+    $capturedTecSidebarData['widgets'][0]['settings']['title'] ?? null,
+    'SidebarState tokenizes TEC widget authored text independently of the embedded block codec'
+);
+duo_check_same(
+    '<!-- wp:legacy-widget /-->',
+    Blocks::capture_rewrite('<!-- wp:legacy-widget /-->', $policy, $targetWidgetTokens),
+    'the registered completely empty legacy-widget placeholder remains a byte-exact no-op'
+);
+duo_check_same(
+    ['idBase' => 'tribe-widget-events-list'],
+    parse_blocks(Blocks::capture_rewrite(
+        tec_readiness_legacy_widget_block(['idBase' => 'tribe-widget-events-list']),
+        $policy,
+        $targetWidgetTokens
+    ))[0]['attrs'] ?? null,
+    'an embedded widget with no instance uses the exact registered idBase-only form'
+);
+duo_check_same(
+    ['idBase' => 'tribe-widget-events-list'],
+    parse_blocks(Blocks::capture_rewrite(
+        tec_readiness_legacy_widget_block(['idBase' => 'tribe-widget-events-list', 'instance' => null]),
+        $policy,
+        $targetWidgetTokens
+    ))[0]['attrs'] ?? null,
+    'an explicit registered null instance canonicalizes to the same idBase-only form'
+);
+duo_check_same(
+    [],
+    parse_blocks(Blocks::capture_rewrite(
+        tec_readiness_legacy_widget_block([
+            'idBase' => 'tribe-widget-events-list',
+            'instance' => tec_readiness_embedded_widget([]),
+        ]),
+        $policy,
+        $targetWidgetTokens
+    ))[0]['attrs']['instance']['settings'] ?? null,
+    'a native empty serialized settings object remains supported without inferred defaults'
+);
+
+$capturePhysicalWidget = static function (array $attrs) use ($policy, $targetWidgetTokens): string {
+    return Blocks::capture_rewrite(
+        tec_readiness_legacy_widget_block($attrs),
+        $policy,
+        $targetWidgetTokens,
+        false,
+        'hostile TEC legacy widget fixture'
+    );
+};
+$rawEmbeddedWidget = static function (string $idBase, string $serialized, ?string $hash = null): array {
+    return [
+        'idBase' => $idBase,
+        'instance' => [
+            'encoded' => base64_encode($serialized),
+            'hash' => $hash ?? wp_hash($serialized),
+        ],
+    ];
+};
+foreach ([
+    [['id' => 'text-1'], 'supported idBase', 'a non-TEC stored legacy widget remains outside the TEC codec'],
+    [['idBase' => 'text'], 'free-plugin widget type', 'a non-TEC embedded legacy widget remains outside the TEC codec'],
+    [['id' => 'tribe-widget-events-list-0'], 'canonical positive instance', 'stored widget zero is not normalized into an identity'],
+    [['id' => 'tribe-widget-events-list-01'], 'canonical positive instance', 'stored widget leading-zero counters refuse'],
+    [['id' => 'tribe-widget-events-list-999999999999999999999999'], 'canonical positive instance', 'stored widget overflow refuses before an integer cast'],
+    [[
+        'id' => 'tribe-widget-events-list-8000000001',
+        'idBase' => 'tribe-widget-events-list',
+    ], 'unknown or missing field', 'mixed stored and embedded identity forms refuse'],
+    [['idBase' => 'tribe-widget-events-list', 'instance' => []], 'closed attribute object', 'an embedded instance cannot omit encoded/hash receipts'],
+    [['idBase' => 'tribe-widget-events-list', 'instance' => ['encoded' => '***', 'hash' => str_repeat('0', 32)]], 'canonical base64', 'invalid base64 refuses before native decode'],
+] as [$attrs, $needle, $message]) {
+    duo_check_throws(
+        static fn(): string => $capturePhysicalWidget($attrs),
+        RuntimeException::class,
+        $message,
+        $needle
+    );
+}
+
+$validListSerialized = serialize(['title' => 'Safe', 'limit' => 5]);
+duo_check_throws(
+    static fn(): string => $capturePhysicalWidget($rawEmbeddedWidget(
+        'tribe-widget-events-list',
+        $validListSerialized,
+        str_repeat('0', 32)
+    )),
+    RuntimeException::class,
+    'a stale or foreign source salt refuses before decoded settings can be trusted',
+    'source hash is missing or invalid'
+);
+duo_check_throws(
+    static fn(): string => $capturePhysicalWidget($rawEmbeddedWidget(
+        'tribe-widget-events-list',
+        $validListSerialized,
+        strtoupper(wp_hash($validListSerialized))
+    )),
+    RuntimeException::class,
+    'uppercase hash aliases refuse instead of weakening the exact receipt grammar',
+    'source hash is missing or invalid'
+);
+duo_check_throws(
+    static fn(): string => $capturePhysicalWidget($rawEmbeddedWidget(
+        'tribe-widget-events-list',
+        $validListSerialized . 'trailing'
+    )),
+    RuntimeException::class,
+    'a valid serialized prefix with trailing payload refuses',
+    'trailing or noncanonical'
+);
+duo_check_throws(
+    static fn(): string => $capturePhysicalWidget($rawEmbeddedWidget(
+        'tribe-widget-events-list',
+        serialize('scalar')
+    )),
+    RuntimeException::class,
+    'a serialized scalar cannot masquerade as widget settings',
+    'decode to one plain settings object'
+);
+$GLOBALS['tec_readiness_widget_wakeups'] = 0;
+$objectSerialized = serialize(['title' => new TecReadinessWidgetWakeupProbe()]);
+duo_check_throws(
+    static fn(): string => $capturePhysicalWidget($rawEmbeddedWidget(
+        'tribe-widget-events-list',
+        $objectSerialized
+    )),
+    RuntimeException::class,
+    'nested objects refuse under both TEC artifact contracts',
+    'PHP object'
+);
+duo_check_same(
+    0,
+    $GLOBALS['tec_readiness_widget_wakeups'],
+    'the codec disables classes before inspecting a 6.17.2-compatible hostile object payload'
+);
+$referencedTitle = 'shared';
+$referencedSettings = ['title' => &$referencedTitle, 'limit' => &$referencedTitle];
+duo_check_throws(
+    static fn(): string => $capturePhysicalWidget($rawEmbeddedWidget(
+        'tribe-widget-events-list',
+        serialize($referencedSettings)
+    )),
+    RuntimeException::class,
+    'PHP reference aliases refuse before settings normalization',
+    'PHP reference'
+);
+$recursiveSettings = [];
+$recursiveSettings['title'] = &$recursiveSettings;
+duo_check_throws(
+    static fn(): string => $capturePhysicalWidget($rawEmbeddedWidget(
+        'tribe-widget-events-list',
+        serialize($recursiveSettings)
+    )),
+    RuntimeException::class,
+    'recursive serialized settings refuse without recursive traversal',
+    'PHP reference or recursive array'
+);
+$deepWidgetValue = 'leaf';
+for ($widgetDepth = 0; $widgetDepth < 8; ++$widgetDepth) {
+    $deepWidgetValue = ['nested' => $deepWidgetValue];
+}
+duo_check_throws(
+    static fn(): string => $capturePhysicalWidget($rawEmbeddedWidget(
+        'tribe-widget-events-list',
+        serialize(['title' => $deepWidgetValue])
+    )),
+    RuntimeException::class,
+    'deep plain arrays refuse at the codec frontier even without an object',
+    'depth or node budget'
+);
+$oversizedWidgetSerialized = serialize(['title' => str_repeat('x', 17000)]);
+duo_check_throws(
+    static fn(): string => $capturePhysicalWidget($rawEmbeddedWidget(
+        'tribe-widget-events-list',
+        $oversizedWidgetSerialized
+    )),
+    RuntimeException::class,
+    'oversized encoded widget bytes refuse before unserialize',
+    'payload is not bounded canonical base64'
+);
+
+foreach ([
+    [['title' => '<b>markup</b>', 'limit' => 5], 'plain-text value', 'list titles must already match native stripping'],
+    [['title' => 'a:1:{s:1:"x";s:1:"y";}', 'limit' => 5], 'plain-text value', 'serialized-looking nested text refuses'],
+    [['title' => 'x', 'limit' => 0], 'integer range 1..10', 'list limit below the native UI frontier refuses'],
+    [['title' => 'x', 'limit' => 11], 'integer range 1..10', 'list limit above the native UI frontier refuses'],
+    [['title' => 'x', 'limit' => '05'], 'integer range 1..10', 'list limit aliases refuse'],
+    [['title' => 'x', 'limit' => 5, 'jsonld_enable' => 1], 'native boolean', 'list boolean aliases refuse'],
+    [['title' => 'x', 'limit' => 5, 'filter_added' => true], 'undeclared setting', 'filter-added list settings remain a loud extension boundary'],
+] as [$settings, $needle, $message]) {
+    duo_check_throws(
+        static fn(): string => $capturePhysicalWidget([
+            'idBase' => 'tribe-widget-events-list',
+            'instance' => tec_readiness_embedded_widget($settings),
+        ]),
+        RuntimeException::class,
+        $message,
+        $needle
+    );
+}
+foreach ([
+    [['widget_title' => 'x', 'qr_code_size' => '5'], 'exact native menu', 'QR size outside the exact menu refuses'],
+    [['widget_title' => 'x', 'redirection' => 'filter-added'], 'exact native menu', 'filter-added QR redirection choices remain outside contract'],
+    [['widget_title' => 'x', 'redirection' => 'specific', 'event_id' => 0], 'requires one managed event', 'specific QR redirection cannot silently fall back without an event'],
+    [['widget_title' => 'x', 'redirection' => 'current', 'series_id' => 44], 'licensed recurrence surface', 'positive QR series IDs refuse as licensed state'],
+    [['widget_title' => 'x', 'redirection' => 'current', 'event_id' => '071'], 'exact positive id', 'QR event ID aliases refuse before tokenization'],
+    [['widget_title' => 'x', 'redirection' => 'current', 'event_id' => 9999999999], 'not managed', 'QR event references outside the repository refuse'],
+    [['widget_title' => 'x', 'redirection' => 'current', 'foreign' => 'value'], 'undeclared setting', 'filter-added QR settings remain a loud extension boundary'],
+] as [$settings, $needle, $message]) {
+    duo_check_throws(
+        static fn(): string => $capturePhysicalWidget([
+            'idBase' => 'tribe-widget-events-qr-code',
+            'instance' => tec_readiness_embedded_widget($settings),
+        ]),
+        RuntimeException::class,
+        $message,
+        $needle
+    );
+}
+foreach ([
+    'https://user:credential@source.example/private',
+    'javascript:alert(1)',
+    'data:text/html;base64,PHNjcmlwdD4=',
+    'ghp_abcdefghijklmnopqrstuvwxyz123456',
+] as $hostileWidgetTitle) {
+    try {
+        $capturePhysicalWidget([
+            'idBase' => 'tribe-widget-events-list',
+            'instance' => tec_readiness_embedded_widget(['title' => $hostileWidgetTitle, 'limit' => 5]),
+        ]);
+        $hostileWidgetRefusal = '';
+    } catch (Throwable $failure) {
+        $hostileWidgetRefusal = $failure->getMessage();
+    }
+    duo_check(
+        $hostileWidgetRefusal !== ''
+            && strlen($hostileWidgetRefusal) < 220
+            && !str_contains($hostileWidgetRefusal, $hostileWidgetTitle)
+            && !str_contains($hostileWidgetRefusal, 'ghp_'),
+        'URL, credential, scheme, and secret refusals are bounded and never echo authored widget payloads'
+    );
+}
+
+$malformedCanonicalWidget = tec_readiness_legacy_widget_block([
+    'idBase' => 'tribe-widget-events-list',
+    'instance' => tec_readiness_embedded_widget(['title' => 'raw physical bytes', 'limit' => 5]),
+]);
+duo_check_throws(
+    static fn(): string => Blocks::apply_rewrite($malformedCanonicalWidget, $policy, $targetWidgetTokens),
+    RuntimeException::class,
+    'apply refuses hand-authored physical encoded/hash bytes in canonical state',
+    'unknown or missing field'
+);
+$wrongCodecWidget = tec_readiness_legacy_widget_block([
+    'idBase' => 'tribe-widget-events-list',
+    'instance' => ['duo' => 'foreign/v1', 'settings' => []],
+]);
+duo_check_throws(
+    static fn(): string => Blocks::apply_rewrite($wrongCodecWidget, $policy, $targetWidgetTokens),
+    RuntimeException::class,
+    'apply refuses a foreign canonical widget codec marker',
+    'codec marker'
+);
+$unboundWidgetRows = array_values(array_filter(
+    $targetWidgetRows,
+    static fn(array $row): bool => $row['uuid'] !== TEC_LIST_WIDGET_UUID
+));
+$widgetDb->seedTable($widgetMapTable, $unboundWidgetRows);
+duo_check_throws(
+    static fn(): string => Blocks::apply_rewrite($canonicalStoredList, $policy, $targetWidgetTokens),
+    RuntimeException::class,
+    'stored widget apply refuses when the target SidebarState identity disappeared',
+    'not bound on the target'
+);
+$widgetDb->seedTable($widgetMapTable, $targetWidgetRows);
+$canonicalWidgetBody = implode("\n", [
+    $canonicalStoredList,
+    $canonicalStoredQr,
+    $canonicalEmbeddedList,
+    $canonicalEmbeddedQr,
+]);
+$widgetRepositoryTree = tec_readiness_tree(eventBody: $canonicalWidgetBody);
+$widgetRepositoryTree[] = [
+    'type' => 'sidebar',
+    'path' => 'sidebars/primary.json',
+    'data' => [
+        'widgets' => [
+            [
+                'uuid' => TEC_LIST_WIDGET_UUID,
+                'type' => 'tribe-widget-events-list',
+                'settings' => [
+                    'title' => 'Calendar {{home}}/events',
+                    'limit' => '10',
+                    'no_upcoming_events' => false,
+                    'featured_events_only' => true,
+                    'jsonld_enable' => true,
+                    'tribe_is_list_widget' => true,
+                ],
+            ],
+            [
+                'uuid' => TEC_QR_WIDGET_UUID,
+                'type' => 'tribe-widget-events-qr-code',
+                'settings' => [
+                    'widget_title' => 'Event QR',
+                    'qr_code_size' => '28',
+                    'redirection' => 'specific',
+                    'event_id' => '{{post:' . TEC_EVENT_UUID . '}}',
+                    'series_id' => null,
+                ],
+            ],
+        ],
+    ],
+];
+duo_check_same(
+    [],
+    $interpreter->repository_diagnostics($widgetRepositoryTree),
+    'repository compilation binds stored widget tokens to exact SidebarState owners and QR tokens to tribe_events'
+);
+$wrongWidgetOwnerTree = $widgetRepositoryTree;
+$wrongWidgetOwnerTree[array_key_last($wrongWidgetOwnerTree)]['data']['widgets'][0]['type'] = 'tribe-widget-events-qr-code';
+tec_readiness_refuses(
+    $interpreter,
+    $wrongWidgetOwnerTree,
+    'identity and idBase disagree',
+    'a stored widget token cannot be laundered through a different TEC widget idBase'
+);
+$wrongWidgetEventTree = $widgetRepositoryTree;
+$wrongWidgetEventTree[0]['data']['type'] = 'tribe_venue';
+tec_readiness_refuses(
+    $interpreter,
+    $wrongWidgetEventTree,
+    'must resolve to one captured tribe_events post',
+    'a QR event token resolving to the wrong post type refuses at repository compilation'
+);
+$orphanWidgetTree = array_values(array_filter(
+    $widgetRepositoryTree,
+    static fn(array $entity): bool => ($entity['type'] ?? '') !== 'sidebar'
+));
+tec_readiness_refuses(
+    $interpreter,
+    $orphanWidgetTree,
+    'must resolve to one captured sidebar widget',
+    'a stored widget block without a selected SidebarState owner refuses'
+);
+
 $GLOBALS['tec_readiness_options'] = ['tec_events_category_color_css' => '.tribe_events_cat-readiness{--tec-color-category-primary:#000000}'];
 $GLOBALS['tec_readiness_terms'] = [
     (object) ['term_id' => 71, 'slug' => 'readiness', 'name' => 'Readiness'],
@@ -2620,6 +3281,35 @@ duo_check_same(
 );
 duo_check_same(
     [
+        'serialized_bytes' => 16384,
+        'encoded_bytes' => 21848,
+        'string_bytes' => 4096,
+        'depth' => 6,
+        'nodes' => 64,
+    ],
+    $legacyWidgetBoundary['embedded_form']['limits'] ?? null,
+    'the embedded codec frontier is bounded independently of PHP and request memory limits'
+);
+duo_check_same(
+    [
+        'tribe-widget-events-list' => [
+            'settings' => ['title', 'limit', 'no_upcoming_events', 'featured_events_only', 'jsonld_enable', 'tribe_is_list_widget'],
+            'limit' => [1, 10],
+            'booleans' => ['no_upcoming_events', 'featured_events_only', 'jsonld_enable', 'tribe_is_list_widget'],
+        ],
+        'tribe-widget-events-qr-code' => [
+            'settings' => ['widget_title', 'qr_code_size', 'redirection', 'event_id', 'series_id'],
+            'qr_code_size' => ['4', '8', '12', '16', '20', '24', '28'],
+            'redirection' => ['current', 'upcoming', 'specific'],
+            'event_ref' => 'post:tribe_events',
+            'series_ref' => 'free-plugin-absence',
+        ],
+    ],
+    $legacyWidgetBoundary['widget_types'] ?? null,
+    'the source fixture closes both free TEC widget setting grammars and licensed-series boundary'
+);
+duo_check_same(
+    [
         'rest_pre_dispatch' => 'enable_widget_copy_paste',
         'rest_dispatch_request' => 'enable_saving_widget_copied',
         'render_block_data' => 'enable_rendering_widget_copied',
@@ -2628,9 +3318,9 @@ duo_check_same(
     'the state-bearing copy/save/render callback topology is closed'
 );
 duo_check_same(
-    false,
+    true,
     $legacyWidgetBoundary['duo_status']['portable'] ?? null,
-    'the source audit cannot silently promote legacy-widget while its codec is still absent'
+    'the source audit promotes legacy-widget only with the shipped bounded target-rebinding codec'
 );
 $coreManifest = json_decode(
     (string) file_get_contents($root . '/manifests/core.json'),
@@ -2646,7 +3336,45 @@ duo_check(
             static fn(array $rule): bool => is_string($rule['unsupported'] ?? null)
                 && $rule['unsupported'] !== ''
         )) === 3,
-    'the shipped grammar still loudly refuses all three legacy-widget attributes pending the reviewed codec'
+    'the core-only grammar still loudly refuses all three legacy-widget attributes outside the TEC adapter'
+);
+$activeLegacyWidgetRules = $policy->block_attr_rules()['core/legacy-widget'] ?? [];
+duo_check_same(
+    [
+        ['codec' => 'the-events-calendar', 'path' => 'id'],
+        ['codec' => 'the-events-calendar', 'path' => 'idBase'],
+        ['codec' => 'the-events-calendar', 'path' => 'instance'],
+    ],
+    $activeLegacyWidgetRules,
+    'the active TEC policy assigns the three interdependent legacy-widget attributes to one manifest-bound codec'
+);
+duo_check_same(
+    [
+        'tribe-widget-events-list' => [
+            'settings' => [
+                'title' => ['class' => 'authored'],
+                'limit' => ['class' => 'authored'],
+                'no_upcoming_events' => ['class' => 'authored'],
+                'featured_events_only' => ['class' => 'authored'],
+                'jsonld_enable' => ['class' => 'authored'],
+                'tribe_is_list_widget' => ['class' => 'authored'],
+            ],
+        ],
+        'tribe-widget-events-qr-code' => [
+            'settings' => [
+                'widget_title' => ['class' => 'authored'],
+                'qr_code_size' => ['class' => 'authored'],
+                'redirection' => ['class' => 'authored'],
+                'event_id' => ['class' => 'authored', 'ref' => 'post'],
+                'series_id' => ['class' => 'authored'],
+            ],
+        ],
+    ],
+    array_intersect_key(
+        $policy->widget_types(),
+        array_flip(['tribe-widget-events-list', 'tribe-widget-events-qr-code'])
+    ),
+    'SidebarState declares every exact native TEC widget setting and the QR event reference'
 );
 $expectedCustomizerFallback = [
     'canonical_option' => 'tribe_customizer',

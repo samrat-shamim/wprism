@@ -16872,7 +16872,7 @@
             "abstract": false,
             "constants": {
                 "ID_KIND_WIDTH": {
-                    "value_repr": 32
+                    "value_repr": 64
                 },
                 "KIND_POST": {
                     "value_repr": "post"

@@ -153,8 +153,23 @@ final class ReferenceGraph {
 
             $type = (string) $entity['type'];
             if ($type === 'post') {
-                self::walk_tokens($entity['body'], 'body', static function (string $token, string $locator) use ($emit): void {
+                // A whole-block codec may need one structural reference kind
+                // which cannot be registered globally (TEC's stored legacy
+                // widget is the concrete case). Count only tokens parsed from
+                // attributes the manifest assigns to that codec. The same
+                // spelling in freeform/body text or an undeclared attribute
+                // stays on the ordinary token path and therefore refuses as
+                // an unregistered kind; a codec declaration cannot widen the
+                // repository token vocabulary outside its owned structure.
+                $codecWidgetTokens = self::codec_widget_token_counts((string) $entity['body'], $policy);
+                self::walk_tokens($entity['body'], 'body', static function (string $token, string $locator) use ($emit, &$codecWidgetTokens): void {
                     $uuid = preg_match('/^\{\{[a-z][a-z0-9_]*:(.+)\}\}$/', $token, $m) === 1 ? $m[1] : '';
+                    if (preg_match('/^\{\{widget:([^{}]+)\}\}$/D', $token, $widget) === 1
+                        && ($codecWidgetTokens[$token] ?? 0) > 0) {
+                        --$codecWidgetTokens[$token];
+                        $emit($locator, self::REL_REFERENCE, self::CHECK_RAW, $widget[1], ['widget'], $token);
+                        return;
+                    }
                     $emit($locator, self::REL_REFERENCE, self::CHECK_TOKEN, $uuid, [], $token);
                 });
                 foreach ((array) ($entity['data']['terms'] ?? []) as $tax => $termUuids) {
@@ -205,6 +220,61 @@ final class ReferenceGraph {
             }
         }
         return $edges;
+    }
+
+    /**
+     * @return array<string,int> exact {{widget:uuid}} token => occurrence count
+     */
+    private static function codec_widget_token_counts(string $body, Policy $policy): array {
+        if ($body === '' || !function_exists('parse_blocks')) {
+            return [];
+        }
+        $counts = [];
+        $rules = $policy->block_attr_rules();
+        foreach (parse_blocks($body) as $block) {
+            if (is_array($block)) {
+                self::collect_codec_widget_tokens($block, $rules, $counts);
+            }
+        }
+        return $counts;
+    }
+
+    /**
+     * @param array<string,mixed> $block
+     * @param array<string,array> $rules
+     * @param array<string,int> $counts
+     */
+    private static function collect_codec_widget_tokens(array $block, array $rules, array &$counts): void {
+        $name = is_string($block['blockName'] ?? null) ? $block['blockName'] : '';
+        $declared = $rules[$name] ?? [];
+        $codecPaths = [];
+        foreach ($declared as $rule) {
+            if (!is_array($rule) || !array_key_exists('codec', $rule) || !is_string($rule['path'] ?? null)) {
+                continue;
+            }
+            $codecPaths[(string) $rule['path']] = true;
+        }
+        // AttributeGrammar makes codec ownership exclusive. Re-prove the
+        // shape here because frozen/custom policies and narrow test doubles
+        // can reach the graph without having run the live manifest loader.
+        if ($codecPaths !== [] && count($codecPaths) === count($declared)) {
+            $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : [];
+            foreach (array_keys($codecPaths) as $path) {
+                if (!array_key_exists($path, $attrs)) {
+                    continue;
+                }
+                self::walk_tokens($attrs[$path], 'codec', static function (string $token) use (&$counts): void {
+                    if (preg_match('/^\{\{widget:[^{}]+\}\}$/D', $token) === 1) {
+                        $counts[$token] = ($counts[$token] ?? 0) + 1;
+                    }
+                });
+            }
+        }
+        foreach ((array) ($block['innerBlocks'] ?? []) as $inner) {
+            if (is_array($inner)) {
+                self::collect_codec_widget_tokens($inner, $rules, $counts);
+            }
+        }
     }
 
     private static function walk_tokens($value, string $locator, callable $visit): void {

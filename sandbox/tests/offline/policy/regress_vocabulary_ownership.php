@@ -857,14 +857,18 @@ refuse_pair(
     'codec vocabulary is closed and engine-owned',
     'an unsupported widget settings codec is refused at load, not at the first sidebar capture'
 );
+load_pair(manifest_b(['widgets' => ['acme_b' => ['settings' => [
+    'owner' => ['class' => 'authored', 'ref' => 'post'],
+]]]]));
+check(true, 'widget settings accept post references because plugin widgets commonly select authored posts');
 refuse_pair(
-    manifest_b(['widgets' => ['acme_b' => ['settings' => ['owner' => ['class' => 'authored', 'ref' => 'post']]]]]),
+    manifest_b(['widgets' => ['acme_b' => ['settings' => ['owner' => ['class' => 'authored', 'ref' => 'user']]]]]),
     'ref vocabulary is closed and engine-owned',
-    'a widget settings ref kind outside the engine-implemented one is refused'
+    'a widget settings ref kind outside the term/post materializer is refused'
 );
 refuse_pair(
     manifest_b(['block_attrs' => ['acme/b' => [['path' => 'id', 'type' => 'int']]]]),
-    'declares none of kind, kind_from, tokenize, unsupported, or lint_ok',
+    'declares none of kind, kind_from, tokenize, unsupported, codec, or lint_ok',
     'a block attribute rule with no disposition is refused here instead of throwing mid-capture on whichever post carried the block first'
 );
 refuse_pair(
@@ -931,7 +935,7 @@ expect_throw(
     'an explicitly-NULL codec is refused through the sidebar path too (isset() used to read a declared null as absent)'
 );
 expect_throw(
-    fn() => SidebarState::assert_policy($widgetPolicy([str_repeat('m', 30) => ['settings' => [
+    fn() => SidebarState::assert_policy($widgetPolicy([str_repeat('m', 58) => ['settings' => [
         'title' => ['class' => 'authored'],
     ]]])),
     'exceeds duo_map.id_kind',
