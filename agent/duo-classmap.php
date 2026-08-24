@@ -171,6 +171,7 @@ return [
     'Duo\\ProviderActionBatchBuilder' => 'src/Adapter/ProviderActionBatchBuilder.php',
     'Duo\\ProviderPackagingException' => 'src/Adapter/Providers.php',
     'Duo\\ProviderSdk' => 'src/Adapter/ProviderSdk.php',
+    'Duo\\ProviderSurfaces' => 'src/Adapter/ProviderSurfaces.php',
     'Duo\\Providers' => 'src/Adapter/Providers.php',
     'Duo\\PublicationJournal' => 'src/Publication/PublicationJournal.php',
     'Duo\\PublicationRecord' => 'src/Publication/PublicationJournal.php',

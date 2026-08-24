@@ -239,6 +239,13 @@ require $root . '/agent/src/Adapter/Providers.php';
 // two-renderer lockstep for plan rows, so it is driven directly below.
 require $root . '/cli/src/Plan/PlanSummary.php';
 require __DIR__ . '/../../lib/frozen_policy.php';
+// Providers::invoke() now reads the capability's own declared `option:`
+// surfaces either side of the call, so the invocation drives below need a
+// $wpdb that INTERPRETS that read against seeded rows rather than one that
+// pattern-matches a transcribed statement — a fake answering []
+// indistinguishably from a real absent row would pin the new refusals green
+// without ever exercising them.
+require __DIR__ . '/../../lib/FakeWpdb.php';
 
 $failures = 0;
 $check = static function (bool $condition, string $message) use (&$failures): void {
@@ -280,6 +287,12 @@ final class ProbeCache {
     public static ?string $invokeThrows = null;
     public static mixed $receiptOverride = null;
     public static float $sleepSeconds = 0.0;
+    // DUO-3.3: real wp_options writes the capability performs INSIDE invoke(),
+    // so the engine's own before/after reading of the declared surfaces has
+    // something to disagree with. option name => new value, or null to delete
+    // the row. Empty by default, so every check written before this one sees
+    // the same inert provider it was written against.
+    public static array $optionWrites = [];
 
     public function __construct(\Duo\Policy $policy) {}
 
@@ -318,6 +331,24 @@ final class ProbeCache {
         }
         if (self::$sleepSeconds > 0.0) {
             usleep((int) (self::$sleepSeconds * 1000000));
+        }
+        // Written before the receipt is chosen, so an over-budget or malformed
+        // receipt still leaves a real surface change behind it — which is what
+        // makes the precedence checks below prove an ordering rather than an
+        // absence.
+        global $wpdb;
+        foreach (self::$optionWrites as $name => $value) {
+            if ($value === null) {
+                $wpdb->delete('options', ['option_name' => $name]);
+                continue;
+            }
+            if ($wpdb->update('options', ['option_value' => $value], ['option_name' => $name]) === 0) {
+                $wpdb->insert('options', [
+                    'option_name' => $name,
+                    'option_value' => $value,
+                    'autoload' => 'yes',
+                ]);
+            }
         }
         if (self::$receiptOverride !== null) {
             return self::$receiptOverride;
@@ -460,6 +491,7 @@ $reset = static function (): void {
     \Duo\Providers\ProbeCache::$invokeThrows = null;
     \Duo\Providers\ProbeCache::$receiptOverride = null;
     \Duo\Providers\ProbeCache::$sleepSeconds = 0.0;
+    \Duo\Providers\ProbeCache::$optionWrites = [];
 };
 
 echo "\n== closed native-action vocabulary ==\n";
@@ -703,8 +735,16 @@ $selected = $policy->actions_for(['post:probe']);
 $check(count($selected) === 1, 'the unscoped probe action is selected by a non-empty surface set');
 $check($policy->actions_for([]) === [], 'an empty surface set selects nothing, so nothing is negotiated');
 $negotiation = \Duo\Providers::negotiate($policy, $policy->actions_for([]));
-$check($negotiation === ['problems' => [], 'providers' => [], 'capabilities' => []],
-    'a run selecting no provider action touches no provider code at all');
+// `surface_observation` is the fourth key negotiation carries: per bound
+// capability, which of its declared surfaces the engine will read either side
+// of invoke(). Nothing bound here, so it is empty for the same reason the other
+// three are — the exact equality is what proves no provider code ran.
+$check($negotiation === [
+    'problems' => [],
+    'providers' => [],
+    'capabilities' => [],
+    'surface_observation' => [],
+], 'a run selecting no provider action touches no provider code at all');
 
 $negotiation = \Duo\Providers::negotiate($policy, $selected);
 $check($negotiation['problems'] === [], 'an installed, active, in-range provider with a matching identity negotiates clean');
@@ -1478,6 +1518,19 @@ $check(($p['code'] ?? '') === 'entity_scope_unresolvable_trigger'
 $reset();
 $policy = $policyFor($manifest);
 
+// The target every invocation drive from here to the Apply section runs
+// against. ProbeCache declares `reads: [option:probe_setting]`, so the engine
+// observes that one row either side of every invoke() below; a $wpdb that
+// could not answer would refuse ahead of the provider call and displace the
+// receipt refusals this section exists to pin. `probe_written` is deliberately
+// NOT seeded — it is the surface a capability declares under `writes` further
+// down, and its absence is the "before" half of the observed delta.
+$optionsBaseline = [
+    ['option_id' => 1, 'option_name' => 'probe_setting', 'option_value' => 'declared-read', 'autoload' => 'yes'],
+];
+$wpdb = \DuoTest\FakeWpdb::install();
+$wpdb->seedTable('options', $optionsBaseline);
+
 echo "\n== invocation: receipts, value-level verification, and the timeout budget ==\n";
 $reset();
 $policy = $policyFor($manifest);
@@ -1567,6 +1620,259 @@ try {
         . $t->getMessage() . ')');
 }
 \Duo\Providers\ProbeCache::$sleepSeconds = 0.0;
+
+// ======================================================================
+// WP-3.3: the receipt is checked against the engine's OWN reading of the
+// surfaces the capability declared.
+//
+// Everything above this point takes `verified === true` on trust: the receipt's
+// `before`/`after` are provider bytes, so "a receipt must prove the state it
+// wrote" could only ever mean "the provider says it did". The engine now reads
+// each declared `option:` surface either side of invoke() and compares its two
+// readings, which is a fact the provider did not author.
+//
+// The reach is deliberately narrow and is stated rather than implied: only
+// `option:<name>` names an extent this engine can witness both COMPLETELY (a
+// partial witness cannot tell "unchanged" from "a change I cannot see", and the
+// unshown-write refusal is exactly a claim that nothing changed) and AFFORDABLY
+// (a complete witness over `table:postmeta` or `post:product` is a core-table
+// scan, twice per invoke, on every apply). So the nine shipped adapters — whose
+// writes are all `table:`/`entity:` — pay zero queries and keep byte-identical
+// receipts, and negotiation publishes which of their surfaces the check did not
+// reach instead of leaving the gap unsaid.
+// ======================================================================
+
+echo "\n== WP-3.3: the receipt, checked against the declared surfaces ==\n";
+$reset();
+$wpdb->seedTable('options', $optionsBaseline);
+
+// The declaration grammar's five kinds, and which of them this engine has a
+// complete bounded reader for. A behaviour pin rather than a constant pin:
+// widening this is what would make the refusals below unsound, so the property
+// under guard is what observable() ANSWERS.
+$check(\Duo\ProviderSurfaces::observable('option:probe_setting') === true
+    && \Duo\ProviderSurfaces::observable('table:postmeta') === false
+    && \Duo\ProviderSurfaces::observable('post:product') === false
+    && \Duo\ProviderSurfaces::observable('term:probe_tax') === false
+    && \Duo\ProviderSurfaces::observable('entity:probe-cache-groups') === false,
+    'exactly one of the five declared surface kinds is observable: `option:` names a bounded extent, the other four name a table, a post type, a taxonomy or an adapter-minted name');
+
+// The plan is decided from the DECLARATION alone — no query, no target, no
+// provider call — which is what lets negotiation publish it read-only and
+// invoke() re-derive the identical one instead of the two agreeing by
+// convention.
+$shippedShapePlan = \Duo\ProviderSurfaces::observation_plan($declaration);
+$check($shippedShapePlan['watched'] === ['option:probe_setting']
+    && $shippedShapePlan['writes'] === []
+    && $shippedShapePlan['read_only'] === ['option:probe_setting']
+    && $shippedShapePlan['unobservable'] === ['entity:probe-cache-groups']
+    && $shippedShapePlan['writes_fully_observable'] === false,
+    'a capability declaring an `option:` read and an `entity:` write is watched on the read and NAMED as unobservable on the write — the engine says which half of the declaration its check reaches');
+
+// The measured cost, as a number rather than an impression: one checked read
+// per watched surface per pass, two passes per invoke.
+$check($shippedShapePlan['queries_per_invoke'] === 2,
+    'the declared cost of the check is 2 queries per invoke for this capability (1 watched surface x 2 passes)');
+
+// Counted by the reader's own statement rather than by the log length, so the
+// number is the ENGINE's added cost and stays that even when the drive also
+// makes the provider write.
+$observationQueries = static fn(): int => count(array_filter(
+    $wpdb->queries(),
+    static fn(string $sql): bool => str_contains($sql, 'SHA2(option_value, 256)')
+));
+$wpdb->resetLog();
+$reset();
+$observedReceipt = \Duo\Providers::invoke($provider, $action, $declaration, []);
+$measuredQueries = $observationQueries();
+$check($measuredQueries === 2 && count($wpdb->queries()) === 2,
+    "and the MEASURED cost matches it: $measuredQueries added queries across one invoke, and nothing else ran, so a future regression in the reader's query count is visible here rather than on a customer's target");
+
+// The shipped library's shape: every declared surface is one this engine has no
+// reader for, so the observation is silent — observe() returns before it
+// touches $wpdb at all. This is the check that keeps the nine shipped provider
+// suites' cost claim honest.
+$opaqueDeclaration = ['reads' => ['table:posts'], 'writes' => ['entity:probe-cache-groups']] + $declaration;
+$wpdb->resetLog();
+$reset();
+$opaqueReceipt = \Duo\Providers::invoke($provider, $action, $opaqueDeclaration, []);
+$check($wpdb->queries() === []
+    && \Duo\ProviderSurfaces::observation_plan($opaqueDeclaration)['queries_per_invoke'] === 0,
+    'a capability whose declared surfaces are all `table:`/`post:`/`entity:` costs ZERO added queries — the nine shipped adapters pay nothing for a check that cannot reach them');
+$check(array_diff_key($observedReceipt, ['duration_seconds' => true])
+    === array_diff_key($opaqueReceipt, ['duration_seconds' => true]),
+    'and the receipt an observed capability publishes is byte-identical to the unobserved one: the check refuses or it is invisible, it never edits');
+
+// ---- the observed delta: a write the surface DOES show ----
+// `option:probe_written` is absent in the baseline, so the provider creating it
+// is a real, engine-measured change on a surface the capability itself named
+// under `writes`.
+$writesDeclaration = ['writes' => ['option:probe_written']] + $declaration;
+$reset();
+\Duo\Providers\ProbeCache::$optionWrites = ['probe_written' => 'landed'];
+$wpdb->resetLog();
+$deltaReceipt = \Duo\Providers::invoke($provider, $action, $writesDeclaration, []);
+$check(array_diff_key($deltaReceipt, ['duration_seconds' => true])
+    === array_diff_key($observedReceipt, ['duration_seconds' => true]),
+    'a receipt whose claimed change the declared writes surface actually shows passes, and publishes the same bytes it always did');
+$check($observationQueries() === 4,
+    'costing 4 added queries (2 watched surfaces x 2 passes) — the number a wider reader would move, recorded so the move is visible');
+
+// ---- the write the surface does NOT show ----
+$reset();
+$wpdb->seedTable('options', $optionsBaseline);
+try {
+    \Duo\Providers::invoke($provider, $action, $writesDeclaration, []);
+    $check(false, 'a receipt claiming a value-level change its own declared writes surface does not show is refused');
+} catch (\Throwable $t) {
+    $check(str_contains($t->getMessage(), "provider 'probe-cache' capability 'flush'")
+        && str_contains($t->getMessage(), 'declared writes surfaces do not show')
+        && str_contains($t->getMessage(), 'option:probe_written unchanged')
+        && !str_contains($t->getMessage(), "\n"),
+        'a receipt claiming a value-level change its own declared writes surface does not show is refused, naming the surface that stayed put (message: '
+        . $t->getMessage() . ')');
+}
+
+// The converged case is not a claim to have written anything, so the same
+// unmoved surface is no contradiction.
+$reset();
+\Duo\Providers\ProbeCache::$receiptOverride = ['before' => ['groups' => []], 'after' => ['groups' => []], 'verified' => true];
+$convergedReceipt = \Duo\Providers::invoke($provider, $action, $writesDeclaration, []);
+$check(($convergedReceipt['verified'] ?? null) === true,
+    'a receipt reporting before === after passes with the surface unmoved: `already converged` is not a write claim, and only the positive claim is checkable');
+
+// The risk this check carries, mitigated where the declaration is made: one
+// unobservable surface in `writes` means the write may legitimately have landed
+// where this engine cannot see, so the refusal does not fire at all rather than
+// punishing a provider for the reader's gap.
+$reset();
+$mixedDeclaration = ['writes' => ['option:probe_written', 'entity:probe-cache-groups']] + $declaration;
+$mixedPlan = \Duo\ProviderSurfaces::observation_plan($mixedDeclaration);
+$mixedReceipt = \Duo\Providers::invoke($provider, $action, $mixedDeclaration, []);
+$check($mixedPlan['writes_fully_observable'] === false
+    && $mixedPlan['unobservable'] === ['entity:probe-cache-groups']
+    && ($mixedReceipt['verified'] ?? null) === true,
+    'a capability with even one unobservable surface among its writes is never refused for an unshown write — the gap is the reader\'s, and it is named in the plan instead');
+
+// ---- the surface the capability declared it would only READ ----
+$reset();
+\Duo\Providers\ProbeCache::$optionWrites = ['probe_setting' => 'scribbled-by-the-provider'];
+try {
+    \Duo\Providers::invoke($provider, $action, $declaration, []);
+    $check(false, 'a provider that changes a surface it declared under reads is refused');
+} catch (\Throwable $t) {
+    $check(str_contains($t->getMessage(), "provider 'probe-cache' capability 'flush'")
+        && str_contains($t->getMessage(), "declared 'option:probe_setting' under reads")
+        && str_contains($t->getMessage(), 'the surface changed across the call')
+        && !str_contains($t->getMessage(), 'scribbled-by-the-provider')
+        && !str_contains($t->getMessage(), "\n"),
+        'a provider that changes a surface it declared under reads is refused, naming the surface without carrying the value it wrote (message: '
+        . $t->getMessage() . ')');
+}
+// autoload is part of the row, so flipping it alone is still a write to the
+// surface: a witness that only digested option_value would report this
+// unchanged and let the scribble through.
+$reset();
+$wpdb->seedTable('options', $optionsBaseline);
+$witnessBeforeFlip = \Duo\ProviderSurfaces::observe(['option:probe_setting'], 'probe-cache', 'flush');
+$wpdb->update('options', ['autoload' => 'no'], ['option_name' => 'probe_setting']);
+$check($witnessBeforeFlip !== \Duo\ProviderSurfaces::observe(['option:probe_setting'], 'probe-cache', 'flush'),
+    'the witness folds autoload as well as the value: an apply that left an option\'s bytes alone and made it autoload changed the surface, and a value-only witness would report it unchanged');
+$wpdb->seedTable('options', $optionsBaseline);
+
+// ---- precedence: the three refusals this section inherited still win ----
+// Each case arms a REAL surface violation and then also breaks the receipt, so
+// what it proves is an ordering rather than the absence of a second fault.
+$precedence = static function (callable $arm, string $needle, string $absent, string $label) use (
+    $check, $provider, $action, $declaration, $reset, $wpdb, $optionsBaseline
+): void {
+    $reset();
+    $wpdb->seedTable('options', $optionsBaseline);
+    \Duo\Providers\ProbeCache::$optionWrites = ['probe_setting' => 'scribbled-by-the-provider'];
+    $arm();
+    try {
+        \Duo\Providers::invoke($provider, $action, ['timeout_seconds' => 1] + $declaration, []);
+        $check(false, $label);
+    } catch (\Throwable $t) {
+        $check(str_contains($t->getMessage(), $needle) && !str_contains($t->getMessage(), $absent),
+            $label . ' (message: ' . $t->getMessage() . ')');
+    }
+};
+$precedence(
+    static fn() => \Duo\Providers\ProbeCache::$receiptOverride = ['ok' => true],
+    'exactly before, after, and verified are required',
+    'declared \'option:probe_setting\' under reads',
+    'a malformed receipt still refuses as malformed, even with a real read-only surface violation behind it'
+);
+$precedence(
+    static fn() => \Duo\Providers\ProbeCache::$receiptOverride = ['before' => [], 'after' => [], 'verified' => false],
+    'a receipt must prove the state it wrote, not that a call returned',
+    'declared \'option:probe_setting\' under reads',
+    'an unverified receipt still refuses as unverified, ahead of the surface check that would also have refused it'
+);
+// Worth the second wall-clock second for the same reason the budget check above
+// is worth the first: the post-hoc budget is the refusal the surface check was
+// most likely to displace, because both are decided after the call returns.
+$precedence(
+    static fn() => \Duo\Providers\ProbeCache::$sleepSeconds = 1.1,
+    'overran its declared budget',
+    'declared \'option:probe_setting\' under reads',
+    'an over-budget invocation still refuses as over-budget: the surface check is decided strictly after all three'
+);
+$reset();
+
+// ---- an unread surface must never pass as an unchanged one ----
+// Injected on the BEFORE pass, so the refusal lands ahead of the provider call:
+// a target that cannot answer the engine's checked read is a fact discovered
+// before the mutation, not one discovered in the middle of it.
+$wpdb->seedTable('options', $optionsBaseline);
+$callsBefore = count($provider->calls);
+$wpdb->failNextQuery('injected surface observation failure', 'probe_setting');
+try {
+    \Duo\Providers::invoke($provider, $action, $declaration, []);
+    $check(false, 'a failed checked read of a declared surface refuses before the provider is called');
+} catch (\Throwable $t) {
+    $check(str_contains($t->getMessage(), 'provider checked read failed')
+        && str_contains($t->getMessage(), "surface observation for provider 'probe-cache' capability 'flush'")
+        && !str_contains($t->getMessage(), 'injected surface observation failure')
+        && count($provider->calls) === $callsBefore,
+        'a failed checked read of a declared surface refuses through ProviderSdk\'s hygiene contract and BEFORE the provider is called (message: '
+        . $t->getMessage() . ')');
+}
+
+// Two collation-equal rows mean the extent the witness claims to cover
+// completely is not the extent it read, and completeness is the whole
+// justification for the unshown-write refusal — so it refuses rather than
+// picking one, the same verdict CacheInvalidationTransaction reaches.
+$reset();
+$wpdb->seedTable('options', [
+    ['option_id' => 1, 'option_name' => 'probe_setting', 'option_value' => 'declared-read', 'autoload' => 'yes'],
+    ['option_id' => 2, 'option_name' => 'probe_setting', 'option_value' => 'the-duplicate', 'autoload' => 'yes'],
+]);
+try {
+    \Duo\Providers::invoke($provider, $action, $declaration, []);
+    $check(false, 'an ambiguous collation-equal option row refuses rather than folding to one witness');
+} catch (\Throwable $t) {
+    $check(str_contains($t->getMessage(), 'could not be checked against its own declared surfaces')
+        && str_contains($t->getMessage(), 'an unread surface must not pass as an unchanged one')
+        && !str_contains($t->getMessage(), 'the-duplicate'),
+        'an ambiguous collation-equal option row refuses rather than folding to one witness, without carrying either row\'s value (message: '
+        . $t->getMessage() . ')');
+}
+
+// Negotiation is the read-only half: the plan is published there, before Apply
+// has mutated anything, and computing it touches the target zero times.
+$reset();
+$wpdb->seedTable('options', $optionsBaseline);
+$wpdb->resetLog();
+$observationNegotiation = \Duo\Providers::negotiate($policy, [$action]);
+$check($observationNegotiation['surface_observation']['probe-cache']['flush'] === $shippedShapePlan
+    && $wpdb->queries() === [],
+    'negotiation publishes the same plan invoke() re-derives, and reaches it with zero queries — an unobservable declared surface is legible at read-only negotiation time, not discovered mid-mutation');
+
+$reset();
+$wpdb->seedTable('options', $optionsBaseline);
+$wpdb->resetLog();
 
 // ======================================================================
 // DUO-3383: publication bounds on a SUCCESSFUL receipt.

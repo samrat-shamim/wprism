@@ -8,6 +8,11 @@ require_once __DIR__ . '/../Kernel/Canon.php';
 // in the way CommandRefusal.php pulls in Secrets.php — this file's callers all
 // load it directly, so it cannot rely on someone else having loaded the screen.
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
+// The engine's own reading of the surfaces a capability declared, which is
+// what turns invoke()'s `verified === true` gate from a claim into a check.
+// Required here for the same reason as the two above: every caller of this
+// file loads it directly, so it cannot assume someone else loaded the observer.
+require_once __DIR__ . '/ProviderSurfaces.php';
 
 /**
  * Plugin-owned provider contract: discovery, negotiation, and invocation of
@@ -273,7 +278,7 @@ final class Providers {
      * identical situation.
      *
      * @param list<array<string,mixed>> $selectedActions Policy::actions_for()
-     * @return array{problems:list<array<string,mixed>>, providers:array<string,object>, capabilities:array<string,array<string,array<string,mixed>>>}
+     * @return array{problems:list<array<string,mixed>>, providers:array<string,object>, capabilities:array<string,array<string,array<string,mixed>>>, surface_observation:array<string,array<string,array<string,mixed>>>}
      */
     public static function negotiate(Policy $policy, array $selectedActions): array {
         return self::diagnose($policy, $selectedActions);
@@ -333,7 +338,7 @@ final class Providers {
      * until its adapter explicitly supports operation receipts.
      *
      * @param list<array<string,mixed>> $selectedActions Policy::actions_for()
-     * @return array{problems:list<array<string,mixed>>, providers:array<string,object>, capabilities:array<string,array<string,array<string,mixed>>>, scoped_capabilities:array<string,array<string,array{operation_envelope:string,receipt_format:string,capability_digest:string}>>}
+     * @return array{problems:list<array<string,mixed>>, providers:array<string,object>, capabilities:array<string,array<string,array<string,mixed>>>, surface_observation:array<string,array<string,array<string,mixed>>>, scoped_capabilities:array<string,array<string,array{operation_envelope:string,receipt_format:string,capability_digest:string}>>}
      */
     public static function negotiate_scoped(Policy $policy, array $selectedActions): array {
         // Keep the scoped declaration internal to this opt-in path. Ordinary
@@ -426,8 +431,17 @@ final class Providers {
      * a fact about this environment. problems() below is what turns that into
      * a reportable row for the surfaces that must not die on it.
      *
+     * `surface_observation` is the read-only half of invoke()'s receipt check:
+     * per bound capability, which of its declared `reads`/`writes` surfaces
+     * the engine can read either side of the call, which ones it has no reader
+     * for, and what the check costs in queries. It is computed by
+     * ProviderSurfaces::observation_plan() from the declaration alone — no
+     * query, no provider call — so this stays exactly as read-only as it
+     * claims, and an unobservable surface is a fact available BEFORE the apply
+     * writes anything instead of one the engine runs into mid-mutation.
+     *
      * @param list<array<string,mixed>> $selectedActions Policy::actions_for()
-     * @return array{problems:list<array<string,mixed>>, providers:array<string,object>, capabilities:array<string,array<string,array<string,mixed>>>}
+     * @return array{problems:list<array<string,mixed>>, providers:array<string,object>, capabilities:array<string,array<string,array<string,mixed>>>, surface_observation:array<string,array<string,array<string,mixed>>>}
      */
     public static function diagnose(Policy $policy, array $selectedActions): array {
         return self::diagnose_internal($policy, $selectedActions, false);
@@ -435,7 +449,7 @@ final class Providers {
 
     /**
      * @param list<array<string,mixed>> $selectedActions Policy::actions_for()
-     * @return array{problems:list<array<string,mixed>>, providers:array<string,object>, capabilities:array<string,array<string,array<string,mixed>>>}
+     * @return array{problems:list<array<string,mixed>>, providers:array<string,object>, capabilities:array<string,array<string,array<string,mixed>>>, surface_observation:array<string,array<string,array<string,mixed>>>}
      */
     private static function diagnose_internal(Policy $policy, array $selectedActions, bool $includeScoped): array {
         $declarations = $policy->provider_declarations();
@@ -457,6 +471,7 @@ final class Providers {
         $problems = [];
         $instances = [];
         $capabilities = [];
+        $surfaceObservation = [];
         $channelClaims = [];
         $pluginSupplied = null;
         foreach ($wanted as $id => $wantedActions) {
@@ -589,6 +604,7 @@ final class Providers {
                 continue;
             }
             $bound = [];
+            $observed = [];
             $failed = false;
             foreach ($wantedActions as $action) {
                 // Per ACTION, not per capability: each declaration's own
@@ -620,6 +636,19 @@ final class Providers {
                 $bound[$capability] = $includeScoped
                     ? $advertised[$capability]
                     : self::ordinary_capability_declaration($advertised[$capability]);
+                // Which of this capability's declared surfaces the engine can
+                // actually read either side of invoke(), decided HERE — in the
+                // read-only negotiation, before Apply has mutated anything —
+                // rather than discovered mid-write. Deliberately not a
+                // problem row: a surface this engine has no reader for
+                // (`entity:woocommerce-cache-groups` and every other
+                // adapter-minted name) is the normal shape of a cache-flush
+                // capability, not a defect, and unbinding for it would refuse
+                // most of the shipped library. It is carried BESIDE the
+                // declaration, never inside it: scoped_capability_digest()
+                // hashes the declaration, so a key added there would move
+                // every scoped capability digest.
+                $observed[$capability] = ProviderSurfaces::observation_plan((array) $advertised[$capability]);
                 // Accumulated across providers, resolved after the loop: a
                 // channel collision is a fact about two DIFFERENT capabilities,
                 // which may live in two different providers, so it cannot be
@@ -645,6 +674,7 @@ final class Providers {
             if (!$failed) {
                 $instances[$id] = $provider;
                 $capabilities[$id] = $bound;
+                $surfaceObservation[$id] = $observed;
             }
         }
         $collisions = self::channel_collision_problems($channelClaims);
@@ -660,9 +690,14 @@ final class Providers {
         // emits stays exactly what self::problem() returns — no extra key some
         // renderer has to know to ignore.
         foreach ($collisions['unbind'] as $claimantProvider) {
-            unset($instances[$claimantProvider], $capabilities[$claimantProvider]);
+            unset($instances[$claimantProvider], $capabilities[$claimantProvider], $surfaceObservation[$claimantProvider]);
         }
-        return ['problems' => $problems, 'providers' => $instances, 'capabilities' => $capabilities];
+        return [
+            'problems' => $problems,
+            'providers' => $instances,
+            'capabilities' => $capabilities,
+            'surface_observation' => $surfaceObservation,
+        ];
     }
 
     /**
@@ -933,7 +968,14 @@ final class Providers {
      * WP_CLI::runcommand() exposes no timeout either, so the honest claim is:
      * the declared budget bounds what the receipt may assert about duration
      * and hard-fails an overrun, but it does not stop the work mid-flight. A
-     * process-boundary launch would be needed for real preemption.
+     * process-boundary launch would be needed for real preemption. What the
+     * surface observation below adds is a verdict that does not depend on the
+     * clock at all: a call that finished well inside its budget and wrote
+     * nothing it claimed — or wrote a surface it declared it would only read —
+     * is now caught by evidence rather than escaping because it was fast. An
+     * overrun still refuses as an overrun, first and on the clock, because
+     * that is the refusal an operator acts on and the observation is only
+     * reached by a receipt that already passed it.
      *
      * @param array<string,mixed> $actionEntry one Policy::actions_for() row
      * @param array<string,mixed> $capabilityDecl the negotiated declaration
@@ -941,8 +983,17 @@ final class Providers {
      * The returned `before`/`after` are the PUBLISHED PROJECTION of what the
      * provider observed, not its bytes — see bound_receipt() and the
      * RECEIPT_* bounds. The provider's own value-level comparison already
-     * happened, against the raw values, inside its invoke(); nothing here
-     * compares them, so bounding cannot reach a verification verdict.
+     * happened, against the raw values, inside its invoke(); this file still
+     * cannot interpret those values, which are provider-shaped and mean
+     * nothing here, so bounding still cannot reach a verification verdict.
+     * What it can do is compare its OWN reading of the surfaces the capability
+     * declared, either side of the call (ProviderSurfaces::observe()), and
+     * refuse a receipt those readings contradict. That check reaches exactly
+     * the surfaces ProviderSurfaces has a complete, bounded reader for —
+     * `option:` today — so a capability whose declared surfaces are all
+     * `table:`/`post:`/`entity:` is bounded by the clock and the receipt shape
+     * as before; negotiation publishes which surfaces those are under
+     * `surface_observation`, so the gap is stated rather than implied.
      *
      * @param array<string,mixed> $context engine batch channels the caller
      *   assembled, keyed by channel name — exactly the declared
@@ -973,6 +1024,17 @@ final class Providers {
                 . 'receive a batch'
             );
         }
+        // Read the declared surfaces BEFORE the clock starts, for two reasons:
+        // a target that cannot answer these checked reads refuses here, ahead
+        // of any provider work rather than after it, and the engine's own
+        // queries are not charged to the budget the receipt is measured
+        // against below. This read is silent for every capability that
+        // declared no `option:` surface — observation_plan() watches nothing,
+        // and observe() returns before it touches $wpdb — so it costs the nine
+        // shipped adapters exactly zero queries for the surfaces they declare
+        // as `table:`/`post:`/`entity:`.
+        $observation = ProviderSurfaces::observation_plan($capabilityDecl);
+        $before = ProviderSurfaces::observe($observation['watched'], $id, $capability);
         $started = microtime(true);
         try {
             $receipt = $provider->invoke($capability, $args);
@@ -1003,10 +1065,66 @@ final class Providers {
                 . 'legitimately this large, or reduce the batch it is given'
             );
         }
-        // Last, so every refusal above keeps the precedence and the wording
-        // regress_provider_contract.php pins: a receipt that is malformed,
-        // unverified, or over budget is refused as such, and only a receipt
-        // that already passed all three is projected for publication.
+        // The second reading runs only after those three, so the precedence
+        // and the wording regress_provider_contract.php pins are untouched: a
+        // receipt that is malformed, unverified, or over budget is still
+        // refused as such, and a failed checked read here cannot displace any
+        // of them. Everything below is a check on a receipt that already
+        // passed all three.
+        $after = ProviderSurfaces::observe($observation['watched'], $id, $capability);
+        // Proven-positive before proven-negative. A read-only surface that
+        // moved is a fact the engine measured; the unshown-write refusal is a
+        // claim about an absence, so it is the weaker of the two and goes
+        // second. Surface names are Policy::SURFACE_PATTERN-bounded
+        // (Policy.php:217 — lowercase, no whitespace, no control bytes) and
+        // are the provider's own declaration rather than target state, so
+        // naming one carries no provider bytes into the message.
+        foreach ($observation['read_only'] as $surface) {
+            if ($before[$surface] !== $after[$surface]) {
+                throw new \RuntimeException(
+                    "duo: provider '$id' capability '$capability' declared '$surface' under reads but the "
+                    . 'surface changed across the call — a capability may only change what it declared in '
+                    . "writes; declare '$surface' there if this capability writes it, or re-run the apply if "
+                    . 'another process on this target wrote it'
+                );
+            }
+        }
+        // Only when every declared write surface is one the engine can read
+        // completely: with an unobservable surface in the list the write may
+        // legitimately have landed somewhere this engine cannot see, and
+        // refusing then would punish a provider for the reader's gap.
+        //
+        // `before !== after` is the receipt's own claim to have written
+        // something, and it is read RAW rather than from bound_receipt()'s
+        // projection only because the raw values are already in hand; the
+        // projection is injective by construction (see bound_receipt() and the
+        // witness digest below it), so the two comparisons agree.
+        //
+        // The mirror case — `before === after` while a declared write surface
+        // moved — is deliberately NOT a refusal. `before`/`after` are the
+        // provider's own chosen projection of what it compared, not a claim
+        // about every byte of the surface, so a capability that rewrote a row
+        // and honestly reports the two projections equal is not lying. Only
+        // the positive claim ("I changed something") is checkable against a
+        // surface that shows nothing changed.
+        if ($observation['writes_fully_observable'] && $receipt['before'] !== $receipt['after']) {
+            $unchanged = [];
+            foreach ($observation['writes'] as $surface) {
+                if ($before[$surface] === $after[$surface]) {
+                    $unchanged[] = $surface;
+                }
+            }
+            if (count($unchanged) === count($observation['writes'])) {
+                throw new \RuntimeException(
+                    "duo: provider '$id' capability '$capability' reported a value-level change that its own "
+                    . 'declared writes surfaces do not show (' . implode(', ', $unchanged) . ' unchanged) — a '
+                    . 'receipt must prove the state it wrote; declare the surface the capability actually '
+                    . 'writes, or return before === after when the target was already converged'
+                );
+            }
+        }
+        // Bounding stays last, so a receipt that is both unpublishable and
+        // any of the above is still refused as the earlier fault.
         return self::bound_receipt($receipt, $id, $capability) + ['duration_seconds' => round($elapsed, 3)];
     }
 
