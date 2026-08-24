@@ -56,6 +56,39 @@ final class ReferenceRules {
     /** Validate an ordinary option/meta/attached-meta rule's ref fields. */
     public static function value_rule(array $rule, string $where): void {
         $structured = array_key_exists('json_refs', $rule) || array_key_exists('key_refs', $rule);
+        if (array_key_exists('repeated_rows', $rule)) {
+            $repeated = $rule['repeated_rows'];
+            if (!is_array($repeated) || array_is_list($repeated)
+                || count($repeated) !== 3
+                || array_diff_key($repeated, ['cardinality' => true, 'duplicates' => true, 'order' => true])
+                || ($repeated['cardinality'] ?? null) !== 'one_or_more'
+                || ($repeated['duplicates'] ?? null) !== 'forbid'
+                || ($repeated['order'] ?? null) !== 'preserve') {
+                throw new \RuntimeException(
+                    "duo: $where.repeated_rows must be exactly "
+                    . '{cardinality: one_or_more, duplicates: forbid, order: preserve}'
+                );
+            }
+            if (($rule['class'] ?? null) !== 'authored') {
+                throw new \RuntimeException("duo: $where.repeated_rows is valid only for authored metadata");
+            }
+            if (!empty($rule['order_preserving'])) {
+                throw new \RuntimeException(
+                    "duo: $where cannot combine repeated_rows with order_preserving; repeated row order is already explicit"
+                );
+            }
+            if ($structured || !empty($rule['plain_data']) || ($rule['cast'] ?? null) === 'csv') {
+                throw new \RuntimeException(
+                    "duo: $where repeated_rows requires one scalar value per database row; "
+                    . 'structured, plain_data, and csv codecs are ambiguous'
+                );
+            }
+            if (is_string($rule['ref'] ?? null) && str_ends_with($rule['ref'], '[]')) {
+                throw new \RuntimeException(
+                    "duo: $where cannot combine repeated_rows with an array ref; one repeated database row must hold one value"
+                );
+            }
+        }
         if (array_key_exists('cast', $rule)
             && (!is_string($rule['cast']) || !in_array($rule['cast'], ['string', 'csv'], true))) {
             throw new \RuntimeException("duo: $where.cast must be 'string' or 'csv'");

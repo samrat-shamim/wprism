@@ -72,11 +72,7 @@ final class RepositoryPortableShapeValidator {
                 $meta = (array) ($d['meta'] ?? []);
                 foreach ($meta as $key => $value) {
                     $rule = $this->policy->meta_rule_for_post((string) $key, $meta) ?? [];
-                    if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
-                        $this->validate_structured_rule($value, $rule, $path, 'meta.' . $key);
-                    } elseif (!empty($rule['ref'])) {
-                        $this->validate_declared_ref($value, (string) $rule['ref'], $path, 'meta.' . $key);
-                    }
+                    $this->validate_meta_value($value, $rule, $path, 'meta.' . $key);
                 }
             } elseif ($entity['type'] === 'menu') {
                 foreach ((array) ($d['items'] ?? []) as $i => $item) {
@@ -99,11 +95,7 @@ final class RepositoryPortableShapeValidator {
                 $meta = (array) ($d['meta'] ?? []);
                 foreach ($meta as $key => $value) {
                     $rule = $this->policy->meta_rule_for_term((string) $key, $meta) ?? [];
-                    if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
-                        $this->validate_structured_rule($value, $rule, $path, 'meta.' . $key);
-                    } elseif (!empty($rule['ref'])) {
-                        $this->validate_declared_ref($value, (string) $rule['ref'], $path, 'meta.' . $key);
-                    }
+                    $this->validate_meta_value($value, $rule, $path, 'meta.' . $key);
                 }
             } elseif ($entity['type'] === 'options') {
                 // DUO-3263: an interpreter-classified option's ref kind (ACF's
@@ -208,6 +200,76 @@ final class RepositoryPortableShapeValidator {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    /** Validate one canonical post/term meta value, including explicit repeated database rows. */
+    private function validate_meta_value($value, array $rule, string $path, string $locator): void {
+        if (!array_key_exists('repeated_rows', $rule)) {
+            if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+                $this->validate_structured_rule($value, $rule, $path, $locator);
+            } elseif (!empty($rule['ref'])) {
+                $this->validate_declared_ref($value, (string) $rule['ref'], $path, $locator);
+            }
+            return;
+        }
+        if (!is_array($value) || !array_is_list($value) || $value === []) {
+            $this->add(
+                'schema_content_mismatch',
+                $path,
+                $locator,
+                'repeated-row authored meta must be a non-empty canonical list'
+            );
+            return;
+        }
+        $seen = [];
+        foreach ($value as $i => $one) {
+            if (!is_scalar($one)) {
+                $this->add(
+                    'schema_content_mismatch',
+                    $path,
+                    $locator . "[$i]",
+                    'each repeated authored meta row must contain one scalar canonical value'
+                );
+                continue;
+            }
+            if (is_string($one)) {
+                try {
+                    $decoded = PlainData::decode($one, "$path $locator[$i]");
+                } catch (\RuntimeException) {
+                    $this->add(
+                        'schema_content_mismatch',
+                        $path,
+                        $locator . "[$i]",
+                        'each repeated authored meta row must be one canonical decoded scalar value'
+                    );
+                    continue;
+                }
+                if ($decoded !== $one) {
+                    $this->add(
+                        'schema_content_mismatch',
+                        $path,
+                        $locator . "[$i]",
+                        'each repeated authored meta row must be one canonical decoded scalar value'
+                    );
+                    continue;
+                }
+            }
+            $fingerprint = "v\0" . serialize($one);
+            if (isset($seen[$fingerprint])) {
+                $this->add(
+                    'schema_content_mismatch',
+                    $path,
+                    $locator . "[$i]",
+                    'repeated-row authored meta values must be unique'
+                );
+            }
+            $seen[$fingerprint] = true;
+            if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+                $this->validate_structured_rule($one, $rule, $path, $locator . "[$i]");
+            } elseif (!empty($rule['ref'])) {
+                $this->validate_declared_ref($one, (string) $rule['ref'], $path, $locator . "[$i]");
             }
         }
     }

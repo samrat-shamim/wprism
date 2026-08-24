@@ -185,6 +185,8 @@ $flatMeta = [
         '_menu_item_classes' => serialize(['cta', '', 7]),
         '_menu_item_xfn' => 'friend',
         '_plugin_icon_post' => '9',
+        '_plugin_badges' => 'first',
+        '_PLUGIN_BADGES' => 'target-alias',
     ],
     101 => [
         '_menu_item_type' => 'post_type',
@@ -207,6 +209,7 @@ foreach ($flatMeta as $id => $map) {
         $byKeyMeta[$id][$key] = [$value];
     }
 }
+$byKeyMeta[100]['_plugin_badges'] = ['first', 'second'];
 
 $policy = new MenuCaptureFakePolicy();
 $tokens = new MenuCaptureFakeTokens();
@@ -251,7 +254,11 @@ $capture = new MenuCapture(
         string $prefix
     ) use (&$classificationCalls): array {
         $classificationCalls[] = [$key, $values, $siblings, $owner, $prefix];
-        return $key === '_plugin_icon_post' ? [true, '{{post:portable-plugin-value}}'] : [false, null];
+        return match ($key) {
+            '_plugin_icon_post' => [true, '{{post:portable-plugin-value}}'],
+            '_plugin_badges' => [true, ['first', 'second']],
+            default => [false, null],
+        };
     }
 );
 
@@ -275,8 +282,10 @@ $check(array_keys($items) === ['item-100', 'item-101', 'item-102'],
 $check(
     ($items['item-100']['ref'] ?? null) === 'text:https://source.test/?p=9'
         && ($items['item-100']['classes'] ?? null) === ['cta', '7']
-        && ($items['item-100']['meta']['_plugin_icon_post'] ?? null) === '{{post:portable-plugin-value}}',
-    'custom URL, classes, and authored plugin meta retain their exact projection semantics'
+        && ($items['item-100']['meta']['_plugin_icon_post'] ?? null) === '{{post:portable-plugin-value}}'
+        && ($items['item-100']['meta']['_plugin_badges'] ?? null) === ['first', 'second']
+        && !array_key_exists('_PLUGIN_BADGES', $items['item-100']['meta'] ?? []),
+    'custom URL, classes, scalar/repeated authored plugin meta, and byte-distinct alias omission retain exact projection semantics'
 );
 $check(
     ($items['item-101']['ref'] ?? null) === '{{post:post-nine}}'
@@ -326,6 +335,19 @@ $check(
         && $pluginCalls[0][3] === "menu 'primary-menu' item 100"
         && $pluginCalls[0][4] === 'menu_item_meta',
     'every item key reaches the shared classifier with first-value sibling context and loud-gate prefix'
+);
+$badgeCalls = array_values(array_filter(
+    $classificationCalls,
+    static fn(array $call): bool => in_array($call[0], ['_plugin_badges', '_PLUGIN_BADGES'], true)
+));
+$check(
+    count($badgeCalls) === 2
+        && $badgeCalls[0][0] === '_plugin_badges'
+        && $badgeCalls[0][1] === ['first', 'second']
+        && $badgeCalls[0][2]['_plugin_badges'] === 'first'
+        && $badgeCalls[1][0] === '_PLUGIN_BADGES'
+        && $badgeCalls[1][1] === ['target-alias'],
+    'menu-item capture forwards all repeated rows in meta_id order and keeps a byte-distinct key alias separate'
 );
 
 $normalizedMenuSql = 'SELECT t.term_id, t.name, t.slug, tt.term_taxonomy_id, tt.taxonomy, tt.description, tt.parent'

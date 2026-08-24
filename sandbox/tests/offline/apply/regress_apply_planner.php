@@ -193,6 +193,45 @@ $check(
     'observed comparison: repository and target changes become a typed conflict'
 );
 
+$hashPolicy = new Policy();
+$hashPolicy->site = ['policy' => []];
+$metaTokens = [
+    '{{post:00000000-0000-4000-8000-000000000001}}',
+    '{{post:00000000-0000-4000-8000-000000000002}}',
+    '{{post:00000000-0000-4000-8000-000000000003}}',
+];
+$hashFront = [
+    'uuid' => '00000000-0000-4000-8000-000000000010',
+    'type' => 'fixture',
+    'meta' => ['ordered_rows' => $metaTokens],
+    'terms' => [],
+];
+$baseRepeatedHash = hash('sha256', Canon::post_hash_basis($hashFront, '', $hashPolicy));
+$repositoryFront = $hashFront;
+$repositoryFront['meta']['ordered_rows'] = [$metaTokens[1], $metaTokens[0], $metaTokens[2]];
+$repositoryRepeatedHash = hash('sha256', Canon::post_hash_basis($repositoryFront, '', $hashPolicy));
+$targetFront = $hashFront;
+$targetFront['meta']['ordered_rows'] = [$metaTokens[0], $metaTokens[2], $metaTokens[1]];
+$targetRepeatedHash = hash('sha256', Canon::post_hash_basis($targetFront, '', $hashPolicy));
+$repeatedConflict = ApplyPlanner::classify_observed(
+    $comparisonRow,
+    $repositoryRepeatedHash,
+    ['hash' => $targetRepeatedHash],
+    $baseRepeatedHash,
+    $targetRepeatedHash
+);
+$check(
+    count(array_unique([$baseRepeatedHash, $repositoryRepeatedHash, $targetRepeatedHash])) === 3,
+    'ordered repeated-row lists are list-sensitive authored post hash input even when membership is unchanged'
+);
+$check(
+    $repeatedConflict['bucket'] === 'conflict'
+        && $repeatedConflict['row']['conflict_view']['base']['content_hash'] === $baseRepeatedHash
+        && $repeatedConflict['row']['conflict_view']['repository']['content_hash'] === $repositoryRepeatedHash
+        && $repeatedConflict['row']['conflict_view']['target']['content_hash'] === $targetRepeatedHash,
+    'independent repository and target row reorders produce the ordinary bounded three-way conflict evidence'
+);
+
 // --------------------------------------------- recreated-reference projection
 
 $recreatedTarget = Uuid::v5(Uuid::NAMESPACE_DUO, 'reference-rebind-target');

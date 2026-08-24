@@ -224,13 +224,23 @@ $front = [
         'classes' => [],
         'xfn' => '',
         'parent' => null,
-        'meta' => [],
+        'meta' => ['_menu_badges' => ['first', 'second']],
     ]],
 ];
 $runtimePolicy = new Policy();
 $runtimePolicy->site = ['policy' => [
     'post_types' => [],
     'taxonomies' => [],
+    'post_meta' => [
+        '_menu_badges' => [
+            'class' => 'authored',
+            'repeated_rows' => [
+                'cardinality' => 'one_or_more',
+                'duplicates' => 'forbid',
+                'order' => 'preserve',
+            ],
+        ],
+    ],
     'menu_fields' => ['locations' => ['class' => 'derived']],
 ]];
 $runtimeTokens = new Tokens('https://target.test', 'https://target.test/wp-content/uploads');
@@ -331,7 +341,11 @@ $runMenu = static function (\DuoTest\LockingFakeWpdb $db) use (
 
 $orphanDb = $menuDb(
     [['ID' => 30, 'post_type' => 'nav_menu_item']],
-    [['meta_id' => 1, 'post_id' => 30, 'meta_key' => '_duo_uuid', 'meta_value' => $itemUuid]],
+    [
+        ['meta_id' => 1, 'post_id' => 30, 'meta_key' => '_duo_uuid', 'meta_value' => $itemUuid],
+        ['meta_id' => 2, 'post_id' => 30, 'meta_key' => '_MENU_BADGES', 'meta_value' => 'target-alias'],
+        ['meta_id' => 3, 'post_id' => 30, 'meta_key' => '_menu_badges', 'meta_value' => 'stale'],
+    ],
     []
 );
 $orphanResult = $runMenu($orphanDb);
@@ -350,6 +364,19 @@ if (!$orphanOk && $orphanResult['failure'] instanceof Throwable) {
 $check(
     $orphanOk,
     'a ledger-resolved exact unattached nav_menu_item is locked, attached, fully materialized, and read back'
+);
+$menuBadgeRows = array_values(array_filter(
+    $orphanResult['rows']['postmeta'],
+    static fn(array $row): bool => (int) $row['post_id'] === 30 && $row['meta_key'] === '_menu_badges'
+));
+$menuBadgeAliasRows = array_values(array_filter(
+    $orphanResult['rows']['postmeta'],
+    static fn(array $row): bool => (int) $row['post_id'] === 30 && $row['meta_key'] === '_MENU_BADGES'
+));
+$check(
+    array_column($menuBadgeRows, 'meta_value') === ['first', 'second']
+        && array_column($menuBadgeAliasRows, 'meta_value') === ['target-alias'],
+    'the real nav-menu-item product path applies ordered post_meta rows while preserving a byte-distinct key alias'
 );
 
 $missingResult = $runMenu($menuDb([], [], []));

@@ -38,6 +38,7 @@ function wp_cache_delete($key, $group = ''): bool {
 
 require_once __DIR__ . '/../../../../agent/src/Kernel/TransientDbException.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Db.php';
+require_once __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/ApplyFieldMaterializer.php';
 
 use Duo\ApplyFieldMaterializer;
@@ -64,6 +65,17 @@ final class ApplyFieldMaterializerFakeWpdb {
     public array $termMetaRows = [];
     /** @var list<array<string,mixed>> */
     public array $optionRows = [];
+    /** @var list<string> */
+    public array $mutations = [];
+    public bool $failNextRepeatedInsert = false;
+    public bool $retainNextMetaDelete = false;
+    public bool $dropNextMetaInsert = false;
+    public int $reorderAfterMetaInserts = 0;
+    public ?string $mutateMetaAfterSize = null;
+    public ?string $mutateMetaAfterHash = null;
+    public ?string $mutateMetaTable = null;
+    /** @var array<string,int> */
+    public array $idByUuid = [];
 
     public function prepare(string $sql, ...$args): string {
         foreach ($args as $arg) {
@@ -92,6 +104,12 @@ final class ApplyFieldMaterializerFakeWpdb {
 
     public function get_var(string $sql) {
         $this->queries[] = $sql;
+        if (str_contains($sql, 'SELECT local_id FROM wp_duo_map')) {
+            preg_match("/uuid = '([^']+)'/", $sql, $match);
+            return isset($this->idByUuid[(string) ($match[1] ?? '')])
+                ? (string) $this->idByUuid[(string) $match[1]]
+                : null;
+        }
         if (trim($sql) === 'SELECT @@in_transaction') {
             return $this->inTransaction ? '1' : '0';
         }
@@ -138,8 +156,19 @@ final class ApplyFieldMaterializerFakeWpdb {
         if (str_contains($sql, 'information_schema.TABLES')) {
             return [
                 ['TABLE_NAME' => $this->options, 'ENGINE' => 'InnoDB'],
+                ['TABLE_NAME' => $this->postmeta, 'ENGINE' => 'InnoDB'],
                 ['TABLE_NAME' => $this->termmeta, 'ENGINE' => 'InnoDB'],
             ];
+        }
+        if (str_starts_with($sql, 'SHOW INDEX FROM `wp_postmeta`')) {
+            return [[
+                'Key_name' => 'post_id',
+                'Seq_in_index' => '1',
+                'Column_name' => 'post_id',
+                'Sub_part' => null,
+                'Non_unique' => '1',
+                'Index_type' => 'BTREE',
+            ]];
         }
         if (str_starts_with($sql, 'SHOW INDEX FROM `wp_termmeta`')) {
             return [[
@@ -190,15 +219,19 @@ final class ApplyFieldMaterializerFakeWpdb {
                 'autoload' => (string) $row['autoload'],
             ], $rows);
         }
-        if (str_contains($sql, 'FROM `wp_termmeta` FORCE INDEX (`term_id`)')) {
+        if (str_contains($sql, 'FROM `wp_termmeta` FORCE INDEX (`term_id`)')
+            || str_contains($sql, 'FROM `wp_postmeta` FORCE INDEX (`post_id`)')) {
+            $isPostMeta = str_contains($sql, 'FROM `wp_postmeta`');
+            $ownerColumn = $isPostMeta ? 'post_id' : 'term_id';
+            $rowsProperty = $isPostMeta ? 'postMetaRows' : 'termMetaRows';
             if (str_contains($sql, 'AS meta_id, meta_key') && str_contains($sql, 'AND meta_key =')) {
-                preg_match('/`term_id` = ([0-9]+)/', $sql, $ownerMatch);
+                preg_match('/`' . $ownerColumn . '` = ([0-9]+)/', $sql, $ownerMatch);
                 preg_match("/meta_key = '((?:''|[^'])*)'/", $sql, $keyMatch);
-                $termId = (int) ($ownerMatch[1] ?? 0);
+                $ownerId = (int) ($ownerMatch[1] ?? 0);
                 $key = str_replace("''", "'", (string) ($keyMatch[1] ?? ''));
                 $rows = array_values(array_filter(
-                    $this->termMetaRows,
-                    static fn(array $row): bool => (int) $row['term_id'] === $termId
+                    $this->{$rowsProperty},
+                    static fn(array $row): bool => (int) $row[$ownerColumn] === $ownerId
                         && strcasecmp((string) $row['meta_key'], $key) === 0
                 ));
                 usort($rows, static fn(array $a, array $b): int => (int) $a['meta_id'] <=> (int) $b['meta_id']);
@@ -241,14 +274,14 @@ final class ApplyFieldMaterializerFakeWpdb {
                 }
                 return $this->forcedMetaRead;
             }
-            preg_match('/`term_id` = ([0-9]+)/', $sql, $match);
-            $termId = (int) ($match[1] ?? 0);
+            preg_match('/`' . $ownerColumn . '` = ([0-9]+)/', $sql, $match);
+            $ownerId = (int) ($match[1] ?? 0);
             $rows = array_values(array_filter(
-                $this->termMetaRows,
-                static fn(array $row): bool => (int) $row['term_id'] === $termId
+                $this->{$rowsProperty},
+                static fn(array $row): bool => (int) $row[$ownerColumn] === $ownerId
             ));
             usort($rows, static fn(array $a, array $b): int => (int) $a['meta_id'] <=> (int) $b['meta_id']);
-            return array_map(static fn(array $row): array => $preflight ? [
+            $projected = array_map(static fn(array $row): array => $preflight ? [
                 'meta_id' => (string) $row['meta_id'],
                 'meta_key_bytes' => (string) strlen((string) $row['meta_key']),
                 'meta_value_bytes' => $row['meta_value'] === null
@@ -265,6 +298,20 @@ final class ApplyFieldMaterializerFakeWpdb {
                 'meta_key' => $row['meta_key'],
                 'meta_value' => $row['meta_value'],
             ]), $rows);
+            if ($preflight
+                && $this->mutateMetaAfterSize !== null
+                && ($this->mutateMetaTable === null || $this->mutateMetaTable === $rowsProperty)) {
+                $this->mutateMetaRoster($rowsProperty, $ownerColumn, $ownerId, $this->mutateMetaAfterSize);
+                $this->mutateMetaAfterSize = null;
+                $this->mutateMetaTable = null;
+            } elseif ($hashWitness
+                && $this->mutateMetaAfterHash !== null
+                && ($this->mutateMetaTable === null || $this->mutateMetaTable === $rowsProperty)) {
+                $this->mutateMetaRoster($rowsProperty, $ownerColumn, $ownerId, $this->mutateMetaAfterHash);
+                $this->mutateMetaAfterHash = null;
+                $this->mutateMetaTable = null;
+            }
+            return $projected;
         }
         throw new RuntimeException("unrecognized get_results query: $sql");
     }
@@ -283,6 +330,7 @@ final class ApplyFieldMaterializerFakeWpdb {
     }
 
     public function update(string $table, array $data, array $where, $format = null, $whereFormat = null): int {
+        $this->mutations[] = 'update:' . $table;
         $rows =& $this->rowsFor($table);
         foreach ($rows as &$row) {
             $matches = true;
@@ -300,12 +348,31 @@ final class ApplyFieldMaterializerFakeWpdb {
         return 0;
     }
 
-    public function insert(string $table, array $data, $format = null): int {
+    public function insert(string $table, array $data, $format = null): int|false {
+        if ($this->failNextRepeatedInsert && isset($data['meta_key'])) {
+            $this->failNextRepeatedInsert = false;
+            $this->mutations[] = 'failed-insert:' . $table;
+            return false;
+        }
+        $this->mutations[] = 'insert:' . $table;
+        if ($this->dropNextMetaInsert && str_contains($table, 'meta')) {
+            $this->dropNextMetaInsert = false;
+            return 1;
+        }
         $rows =& $this->rowsFor($table);
         if (str_contains($table, 'meta')) {
             $ids = array_map('intval', array_column($rows, 'meta_id'));
             $this->insert_id = $ids ? max($ids) + 1 : 1;
             $rows[] = ['meta_id' => $this->insert_id] + $data;
+            if ($this->reorderAfterMetaInserts > 0) {
+                --$this->reorderAfterMetaInserts;
+                if ($this->reorderAfterMetaInserts === 0 && count($rows) >= 2) {
+                    $last = count($rows) - 1;
+                    [$rows[$last - 1]['meta_value'], $rows[$last]['meta_value']] = [
+                        $rows[$last]['meta_value'], $rows[$last - 1]['meta_value'],
+                    ];
+                }
+            }
         } else {
             $ids = array_map('intval', array_column($rows, 'option_id'));
             $this->insert_id = $ids ? max($ids) + 1 : 1;
@@ -315,6 +382,11 @@ final class ApplyFieldMaterializerFakeWpdb {
     }
 
     public function delete(string $table, array $where, $whereFormat = null): int {
+        $this->mutations[] = 'delete:' . $table;
+        if ($this->retainNextMetaDelete && str_contains($table, 'meta')) {
+            $this->retainNextMetaDelete = false;
+            return 1;
+        }
         $rows =& $this->rowsFor($table);
         $before = count($rows);
         $rows = array_values(array_filter($rows, static function (array $row) use ($where): bool {
@@ -326,6 +398,51 @@ final class ApplyFieldMaterializerFakeWpdb {
             return false;
         }));
         return $before - count($rows);
+    }
+
+    private function mutateMetaRoster(
+        string $rowsProperty,
+        string $ownerColumn,
+        int $ownerId,
+        string $mode
+    ): void {
+        $rows =& $this->{$rowsProperty};
+        $indexes = [];
+        foreach ($rows as $index => $row) {
+            if ((int) $row[$ownerColumn] === $ownerId) {
+                $indexes[] = $index;
+            }
+        }
+        if ($mode === 'insert') {
+            $ids = array_map('intval', array_column($rows, 'meta_id'));
+            $rows[] = [
+                'meta_id' => $ids === [] ? 1 : max($ids) + 1,
+                $ownerColumn => $ownerId,
+                'meta_key' => '_concurrent',
+                'meta_value' => 'inserted',
+            ];
+            return;
+        }
+        if ($indexes === []) {
+            return;
+        }
+        if ($mode === 'delete') {
+            unset($rows[$indexes[0]]);
+            $rows = array_values($rows);
+            return;
+        }
+        if ($mode === 'update') {
+            $index = $indexes[0];
+            $value = (string) $rows[$index]['meta_value'];
+            $rows[$index]['meta_value'] = $value === '' ? 'x' : strrev($value);
+            return;
+        }
+        if ($mode === 'reorder' && count($indexes) >= 2) {
+            [$first, $second] = [$indexes[0], $indexes[1]];
+            [$rows[$first]['meta_value'], $rows[$second]['meta_value']] = [
+                $rows[$second]['meta_value'], $rows[$first]['meta_value'],
+            ];
+        }
     }
 
     /** @return list<array<string,mixed>> */
@@ -663,6 +780,401 @@ $check(
     'term-meta authored upsert uses only the already locked exact-key rows and never a collation-equality lookup'
 );
 $wpdb->last_error = '';
+
+$repeatedRows = [
+    'cardinality' => 'one_or_more',
+    'duplicates' => 'forbid',
+    'order' => 'preserve',
+];
+$repeatedPolicy = new \Duo\Policy();
+$repeatedPolicy->site = ['policy' => [
+    'post_meta' => [
+        '_organizers' => ['class' => 'authored', 'ref' => 'post', 'repeated_rows' => $repeatedRows],
+        '_scalar' => ['class' => 'authored'],
+        '_old_owned' => ['class' => 'authored'],
+        '_runtime' => ['class' => 'runtime'],
+    ],
+    'term_meta' => [
+        '_related_terms' => ['class' => 'authored', 'ref' => 'term', 'repeated_rows' => $repeatedRows],
+        '_term_runtime' => ['class' => 'runtime'],
+    ],
+]];
+$repeatedTokens = new \Duo\Tokens('https://target.example.test', 'https://target.example.test/wp-content/uploads');
+$repeatedMaterializer = new ApplyFieldMaterializer($repeatedPolicy, $repeatedTokens);
+$repeatedMaterializer->begin_authored_transaction();
+$postUuids = [
+    '00000000-0000-4000-8000-000000000001',
+    '00000000-0000-4000-8000-000000000002',
+    '00000000-0000-4000-8000-000000000003',
+];
+$termUuids = [
+    '00000000-0000-4000-8000-000000000011',
+    '00000000-0000-4000-8000-000000000012',
+];
+$wpdb->idByUuid = [
+    $postUuids[0] => 900000001,
+    $postUuids[1] => 37,
+    $postUuids[2] => 800000003,
+    $termUuids[0] => 700000001,
+    $termUuids[1] => 23,
+];
+$wpdb->postMetaRows = [
+    ['meta_id' => 101, 'post_id' => 91, 'meta_key' => '_organizers', 'meta_value' => '999'],
+    ['meta_id' => 102, 'post_id' => 91, 'meta_key' => '_organizers', 'meta_value' => '37'],
+    ['meta_id' => 103, 'post_id' => 91, 'meta_key' => '_organizers', 'meta_value' => 'stale-extra'],
+    ['meta_id' => 104, 'post_id' => 91, 'meta_key' => '_ORGANIZERS', 'meta_value' => 'alias-preserved'],
+    ['meta_id' => 105, 'post_id' => 91, 'meta_key' => '_runtime', 'meta_value' => "runtime\0bytes"],
+    ['meta_id' => 106, 'post_id' => 91, 'meta_key' => '_old_owned', 'meta_value' => 'delete-me'],
+    ['meta_id' => 107, 'post_id' => 91, 'meta_key' => '_scalar', 'meta_value' => 'same'],
+    ['meta_id' => 108, 'post_id' => 91, 'meta_key' => '_scalar', 'meta_value' => 'duplicate'],
+];
+$postCanonical = array_map(static fn(string $uuid): string => "{{post:$uuid}}", $postUuids);
+$malformedRepeatedCases = [
+    [[], 'non-empty canonical list'],
+    [$postCanonical[0], 'non-empty canonical list'],
+    [[[$postCanonical[0]]], 'requires one scalar value per row'],
+    [['a:1:{i:0;s:5:"value";}'], 'requires canonical decoded scalar values'],
+    [[$postCanonical[0], $postCanonical[0]], 'contains a duplicate value'],
+];
+foreach ($malformedRepeatedCases as [$malformedValue, $expectedFailure]) {
+    $beforeQueries = count($wpdb->queries);
+    $beforeMutations = count($wpdb->mutations);
+    try {
+        $repeatedMaterializer->reconcile_authored_meta(
+            91,
+            ['_organizers' => $malformedValue, '_scalar' => 'same'],
+            'post 91'
+        );
+        $malformedRepeatedRefused = false;
+    } catch (Throwable $failure) {
+        $malformedRepeatedRefused = str_contains($failure->getMessage(), $expectedFailure);
+    }
+    $check(
+        $malformedRepeatedRefused
+            && count($wpdb->queries) === $beforeQueries
+            && count($wpdb->mutations) === $beforeMutations,
+        "direct apply rejects malformed repeated-row value ($expectedFailure) before lock or mutation"
+    );
+}
+
+$contextPolicy = new \Duo\Policy();
+$contextPolicy->site = ['policy' => ['post_meta' => [
+    '_context_old' => ['class' => 'authored'],
+    '_context_mode' => ['class' => 'runtime'],
+]]];
+$contextInterpreter = new class($repeatedRows) {
+    public function __construct(private array $repeatedRows) {}
+    public function post_meta_rule(string $key, array $flat): ?array {
+        if ($key !== '_context_repeated') {
+            return null;
+        }
+        return ($flat['_context_mode'] ?? null) === 'source'
+            ? ['class' => 'authored', 'ref' => 'post', 'repeated_rows' => $this->repeatedRows]
+            : ['class' => 'runtime'];
+    }
+};
+$contextInterpreterInstances = new ReflectionProperty(\Duo\Policy::class, 'interpreterInstances');
+$contextInterpreterInstances->setValue($contextPolicy, ['repeated-context-fixture' => $contextInterpreter]);
+$contextMaterializer = new ApplyFieldMaterializer($contextPolicy, $repeatedTokens);
+$contextMaterializer->begin_authored_transaction();
+$wpdb->postMetaRows[] = [
+    'meta_id' => 109,
+    'post_id' => 92,
+    'meta_key' => '_context_mode',
+    'meta_value' => 'target',
+];
+$wpdb->postMetaRows[] = [
+    'meta_id' => 110,
+    'post_id' => 92,
+    'meta_key' => '_context_old',
+    'meta_value' => 'must-survive-refusal',
+];
+$beforeContextRows = $wpdb->postMetaRows;
+$beforeContextMutations = count($wpdb->mutations);
+try {
+    $contextMaterializer->reconcile_authored_meta(92, [
+        '_context_mode' => 'source',
+        '_context_repeated' => [$postCanonical[0]],
+    ], 'post 92');
+    $targetContextRefused = false;
+} catch (Throwable $failure) {
+    $targetContextRefused = str_contains($failure->getMessage(), 'disagrees with the locked target context');
+}
+$check(
+    $targetContextRefused
+        && $wpdb->postMetaRows === $beforeContextRows
+        && count($wpdb->mutations) === $beforeContextMutations,
+    'locked target-context disagreement refuses before deleting another absent authored key'
+);
+
+$cacheEvents = [];
+$mutationStart = count($wpdb->mutations);
+$queryStart = count($wpdb->queries);
+$repeatedMaterializer->reconcile_authored_meta(
+    91,
+    ['_organizers' => $postCanonical, '_scalar' => 'same'],
+    'post 91'
+);
+$postOrganizerRows = array_values(array_filter(
+    $wpdb->postMetaRows,
+    static fn(array $row): bool => $row['meta_key'] === '_organizers'
+));
+$check(array_column($postOrganizerRows, 'meta_value') === ['900000001', '37', '800000003'],
+    'post apply replaces every byte-exact repeated row in declared order after target ref rebasing');
+$check(count($postOrganizerRows) === 3
+    && count(array_filter($wpdb->postMetaRows,
+        static fn(array $row): bool => $row['meta_key'] === '_scalar')) === 1,
+    'repeated replacement deletes stale exact rows while ordinary scalar duplicate collapse remains first-row-wins');
+$postByKey = [];
+foreach ($wpdb->postMetaRows as $row) {
+    $postByKey[$row['meta_key']][] = $row['meta_value'];
+}
+$check(($postByKey['_runtime'][0] ?? null) === "runtime\0bytes"
+    && ($postByKey['_ORGANIZERS'][0] ?? null) === 'alias-preserved'
+    && !isset($postByKey['_old_owned']),
+    'post reconciliation preserves runtime bytes and a collation-equal key alias while deleting absent exact authored keys');
+$check(count(array_filter(
+    array_slice($wpdb->queries, $queryStart),
+    static fn(string $sql): bool => str_contains($sql, 'OCTET_LENGTH(meta_key)')
+        && str_contains($sql, '`post_id` = 91')
+)) === 2,
+    'post scalar and repeated reconciliation share one lock descriptor and perform initial plus terminal checked owner-range reads');
+$check(count(array_filter(
+    array_slice($wpdb->queries, $queryStart),
+    static fn(string $sql): bool => str_contains($sql, 'meta_key =')
+)) === 0,
+    'post repeated reconciliation never performs a collation-sensitive key lookup');
+$firstMutationCount = count($wpdb->mutations);
+$firstCacheCount = count($cacheEvents);
+$repeatedMaterializer->reconcile_authored_meta(
+    91,
+    ['_organizers' => $postCanonical, '_scalar' => 'same'],
+    'post 91'
+);
+$check(count($wpdb->mutations) === $firstMutationCount,
+    'an exact ordered repeated-row retry is a database no-op');
+$check(count($cacheEvents) === $firstCacheCount + 1,
+    'an exact database retry still purges potentially stale same-process metadata cache state');
+$check($firstMutationCount > $mutationStart && $firstCacheCount > 0,
+    'a divergent ordered set performs checked mutations and invalidates the owner cache');
+
+$beforeFailure = $wpdb->postMetaRows;
+$wpdb->failNextRepeatedInsert = true;
+try {
+    $repeatedMaterializer->reconcile_authored_meta(
+        91,
+        ['_organizers' => [$postCanonical[2], $postCanonical[0], $postCanonical[1]], '_scalar' => 'same'],
+        'post 91'
+    );
+    $failedInsertRefused = false;
+} catch (\Duo\DatabaseMutationException $failure) {
+    $failedInsertRefused = $failure->mutationContext === 'apply insert repeated post 91 meta';
+}
+$check($failedInsertRefused,
+    'a repeated-row insert failure is loud and carries only its bounded operation context');
+$wpdb->postMetaRows = $beforeFailure; // AuthoredTransactionExecutor rolls this exact unit back in production.
+$repeatedMaterializer->reconcile_authored_meta(
+    91,
+    ['_organizers' => [$postCanonical[2], $postCanonical[0], $postCanonical[1]], '_scalar' => 'same'],
+    'post 91'
+);
+$postOrganizerRows = array_values(array_filter(
+    $wpdb->postMetaRows,
+    static fn(array $row): bool => $row['meta_key'] === '_organizers'
+));
+$check(array_column($postOrganizerRows, 'meta_value') === ['800000003', '900000001', '37'],
+    'after transaction rollback, retry deterministically materializes a reorder-only change');
+
+$wireAliasMutationCount = count($wpdb->mutations);
+$wpdb->idByUuid[$postUuids[1]] = $wpdb->idByUuid[$postUuids[0]];
+try {
+    $repeatedMaterializer->reconcile_authored_meta(
+        91,
+        ['_organizers' => [$postCanonical[0], $postCanonical[1]], '_scalar' => 'same'],
+        'post 91'
+    );
+    $wireAliasRefused = false;
+} catch (RuntimeException $failure) {
+    $wireAliasRefused = $failure->getMessage()
+        === "duo: repeated-row authored post 91 meta '_organizers' resolves to a duplicate target wire value";
+}
+$check($wireAliasRefused,
+    'distinct canonical rows that resolve to one target wire value refuse before mutation');
+$check(count($wpdb->mutations) === $wireAliasMutationCount,
+    'target-wire alias refusal leaves the locked physical roster byte-identical');
+$wpdb->idByUuid[$postUuids[1]] = 37;
+
+foreach (['drop-insert', 'reorder'] as $successShapeMode) {
+    $beforeSuccessShapeRows = $wpdb->postMetaRows;
+    $beforeSuccessShapeCache = count($cacheEvents);
+    $successShapeDesired = $successShapeMode === 'drop-insert'
+        ? $postCanonical
+        : [$postCanonical[2], $postCanonical[0], $postCanonical[1]];
+    $successShapeExpected = $successShapeMode === 'drop-insert'
+        ? ['900000001', '37', '800000003']
+        : ['800000003', '900000001', '37'];
+    if ($successShapeMode === 'drop-insert') {
+        $wpdb->dropNextMetaInsert = true;
+    } else {
+        $wpdb->reorderAfterMetaInserts = 3;
+    }
+    try {
+        $repeatedMaterializer->reconcile_authored_meta(
+            91,
+            ['_organizers' => $successShapeDesired, '_scalar' => 'same'],
+            'post 91'
+        );
+        $successShapeReadbackRefused = false;
+    } catch (RuntimeException $failure) {
+        $successShapeReadbackRefused = str_contains($failure->getMessage(), 'failed exact locked readback');
+    }
+    $check(
+        $successShapeReadbackRefused && count($cacheEvents) === $beforeSuccessShapeCache,
+        "a success-shaped repeated-row $successShapeMode is caught by terminal locked readback before cache receipt"
+    );
+    $wpdb->postMetaRows = $beforeSuccessShapeRows; // Model the authored transaction rollback.
+    $repeatedMaterializer->reconcile_authored_meta(
+        91,
+        ['_organizers' => $successShapeDesired, '_scalar' => 'same'],
+        'post 91'
+    );
+    $postOrganizerRows = array_values(array_filter(
+        $wpdb->postMetaRows,
+        static fn(array $row): bool => $row['meta_key'] === '_organizers'
+    ));
+    $check(
+        array_column($postOrganizerRows, 'meta_value') === $successShapeExpected,
+        "rollback followed by retry converges after a success-shaped repeated-row $successShapeMode"
+    );
+}
+
+$wpdb->postMetaRows[] = [
+    'meta_id' => 150,
+    'post_id' => 93,
+    'meta_key' => '_organizers',
+    'meta_value' => '900000001',
+];
+$wpdb->postMetaRows[] = [
+    'meta_id' => 151,
+    'post_id' => 93,
+    'meta_key' => '_ORGANIZERS',
+    'meta_value' => 'alias-survives',
+];
+$beforeRetainedDeleteRows = $wpdb->postMetaRows;
+$beforeRetainedDeleteCache = count($cacheEvents);
+$wpdb->retainNextMetaDelete = true;
+try {
+    $repeatedMaterializer->reconcile_authored_meta(93, [], 'post 93');
+    $retainedDeleteReadbackRefused = false;
+} catch (RuntimeException $failure) {
+    $retainedDeleteReadbackRefused = str_contains($failure->getMessage(), 'failed exact locked readback');
+}
+$check(
+    $retainedDeleteReadbackRefused && count($cacheEvents) === $beforeRetainedDeleteCache,
+    'a success-shaped retained delete cannot bless an omitted repeated key as zero rows'
+);
+$wpdb->postMetaRows = $beforeRetainedDeleteRows; // Model the authored transaction rollback.
+$repeatedMaterializer->reconcile_authored_meta(93, [], 'post 93');
+$check(
+    count(array_filter(
+        $wpdb->postMetaRows,
+        static fn(array $row): bool => (int) ($row['post_id'] ?? 0) === 93
+            && $row['meta_key'] === '_organizers'
+    )) === 0
+        && count(array_filter(
+            $wpdb->postMetaRows,
+            static fn(array $row): bool => (int) ($row['post_id'] ?? 0) === 93
+                && $row['meta_key'] === '_ORGANIZERS'
+        )) === 1,
+    'omitted repeated-row retry proves zero byte-exact rows while preserving a key alias'
+);
+
+$wpdb->termMetaRows = [
+    ['meta_id' => 201, 'term_id' => 71, 'meta_key' => '_related_terms', 'meta_value' => 'old'],
+    ['meta_id' => 202, 'term_id' => 71, 'meta_key' => '_RELATED_TERMS', 'meta_value' => 'alias-preserved'],
+    ['meta_id' => 203, 'term_id' => 71, 'meta_key' => '_term_runtime', 'meta_value' => 'preserve'],
+];
+$termCanonical = array_map(static fn(string $uuid): string => "{{term:$uuid}}", $termUuids);
+$termRepeatedQueryStart = count($wpdb->queries);
+$repeatedMaterializer->reconcile_authored_term_meta(71, ['_related_terms' => $termCanonical]);
+$termRelated = array_values(array_filter(
+    $wpdb->termMetaRows,
+    static fn(array $row): bool => $row['meta_key'] === '_related_terms'
+));
+$check(array_column($termRelated, 'meta_value') === ['700000001', '23']
+    && count(array_filter($wpdb->termMetaRows,
+        static fn(array $row): bool => $row['meta_key'] === '_term_runtime')) === 1
+    && count(array_filter($wpdb->termMetaRows,
+        static fn(array $row): bool => $row['meta_key'] === '_RELATED_TERMS')) === 1,
+    'term metadata shares ordered repeated-row apply while preserving runtime and key-alias rows');
+$check(
+    count(array_filter(
+        array_slice($wpdb->queries, $termRepeatedQueryStart),
+        static fn(string $sql): bool => str_contains($sql, 'OCTET_LENGTH(meta_key)')
+            && str_contains($sql, '`term_id` = 71')
+    )) === 2,
+    'term repeated-row apply performs the same locked initial and terminal owner-range proofs'
+);
+
+$postRowsBeforeConcurrency = $wpdb->postMetaRows;
+$termRowsBeforeConcurrency = $wpdb->termMetaRows;
+foreach (['insert', 'update', 'delete', 'reorder'] as $mode) {
+    foreach ([
+        ['postMetaRows', 'post_id', 191, false],
+        ['termMetaRows', 'term_id', 171, true],
+    ] as [$rowsProperty, $ownerColumn, $ownerId, $termMeta]) {
+        $wpdb->{$rowsProperty} = [[
+            'meta_id' => 301,
+            $ownerColumn => $ownerId,
+            'meta_key' => $termMeta ? '_related_terms' : '_organizers',
+            'meta_value' => '900000001',
+        ], [
+            'meta_id' => 302,
+            $ownerColumn => $ownerId,
+            'meta_key' => $termMeta ? '_related_terms' : '_organizers',
+            'meta_value' => '37',
+        ]];
+        if (in_array($mode, ['update', 'reorder'], true)) {
+            $wpdb->mutateMetaAfterHash = $mode;
+        } else {
+            $wpdb->mutateMetaAfterSize = $mode;
+        }
+        $wpdb->mutateMetaTable = $rowsProperty;
+        $beforeDuoMutations = count($wpdb->mutations);
+        try {
+            if ($termMeta) {
+                $repeatedMaterializer->reconcile_authored_term_meta($ownerId, [
+                    '_related_terms' => $termCanonical,
+                ]);
+            } else {
+                $repeatedMaterializer->reconcile_authored_meta($ownerId, [
+                    '_organizers' => [$postCanonical[0], $postCanonical[1]],
+                ], "post $ownerId");
+            }
+            $concurrentRefused = false;
+        } catch (Throwable $failure) {
+            $concurrentRefused = str_contains($failure->getMessage(), 'hash witness failed or changed')
+                || str_contains($failure->getMessage(), 'malformed or changed row')
+                || str_contains($failure->getMessage(), 'value read disagrees with the bounded size preflight');
+        }
+        $check($concurrentRefused && count($wpdb->mutations) === $beforeDuoMutations,
+            ($termMeta ? 'term' : 'post') . " repeated-row $mode drift between compact/hash reads refuses before Duo mutation");
+    }
+}
+$wpdb->postMetaRows = $postRowsBeforeConcurrency;
+$wpdb->termMetaRows = $termRowsBeforeConcurrency;
+
+$repeatedMaterializer->reconcile_authored_meta(91, ['_scalar' => 'same'], 'post 91');
+$check(count(array_filter(
+    $wpdb->postMetaRows,
+    static fn(array $row): bool => (int) ($row['post_id'] ?? 0) === 91 && $row['meta_key'] === '_organizers'
+)) === 0,
+    'omitting a repeated key deletes every byte-exact owned row and represents zero cardinality as absence');
+$check(count(array_filter(
+    $wpdb->postMetaRows,
+    static fn(array $row): bool => (int) ($row['post_id'] ?? 0) === 91 && $row['meta_key'] === '_ORGANIZERS'
+)) === 1,
+    'deleting an absent repeated key still preserves a collation-equal non-byte-exact alias');
 
 foreach ([
     ['bad-table!', 'post_id', 'meta_id'],

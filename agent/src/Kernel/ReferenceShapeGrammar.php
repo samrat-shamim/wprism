@@ -30,14 +30,20 @@ final class ReferenceShapeGrammar {
                 self::validate_reference_value_rule(
                     $rule,
                     "$label.$section.$name",
-                    $section === 'options'
+                    $section === 'options',
+                    in_array($section, ['post_meta', 'term_meta'], true)
                 );
             }
         }
         foreach (['option_patterns', 'post_meta_patterns', 'meta_patterns', 'option_name_refs'] as $section) {
             foreach (($source[$section] ?? []) as $i => $rule) {
                 if (is_array($rule) && !array_is_list($rule)) {
-                    self::validate_reference_value_rule($rule, "$label.{$section}[$i]");
+                    self::validate_reference_value_rule(
+                        $rule,
+                        "$label.{$section}[$i]",
+                        false,
+                        in_array($section, ['post_meta_patterns', 'meta_patterns'], true)
+                    );
                 }
             }
         }
@@ -77,9 +83,15 @@ final class ReferenceShapeGrammar {
     private static function validate_reference_value_rule(
         array $rule,
         string $where,
-        bool $allowSubKeys = false
+        bool $allowSubKeys = false,
+        bool $allowRepeatedRows = false
     ): void {
         ReferenceRules::value_rule($rule, $where);
+        if (array_key_exists('repeated_rows', $rule) && !$allowRepeatedRows) {
+            throw new \RuntimeException(
+                "duo: $where cannot declare repeated_rows; only post_meta and term_meta storage has repeated rows"
+            );
+        }
         if (array_key_exists('sub_keys', $rule) && !$allowSubKeys) {
             throw new \RuntimeException(
                 "duo: $where cannot declare sub_keys; the one-level sub_keys map belongs only on an exact or dynamic option declaration"
@@ -87,7 +99,7 @@ final class ReferenceShapeGrammar {
         }
         foreach (($rule['sub_keys'] ?? []) as $name => $subRule) {
             if (is_array($subRule) && !array_is_list($subRule)) {
-                self::validate_reference_value_rule($subRule, "$where.sub_keys.$name", false);
+                self::validate_reference_value_rule($subRule, "$where.sub_keys.$name", false, false);
             }
         }
     }
