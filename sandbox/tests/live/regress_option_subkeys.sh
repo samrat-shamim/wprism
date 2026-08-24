@@ -569,7 +569,7 @@ cp siterepo/${PAIR}2/site.duo.json "$HOST_BAD_REPO/site.duo.json"
 # the race" bug this step's own history below already fixed once for
 # missing required OPTION records; this is the same class one directory
 # level up. Copying the whole tree makes every ref this pair's real state
-# actually contains resolvable, isolating the injected 'sync' key as the
+# actually contains resolvable, isolating the injected unreviewed key as the
 # ONLY difference from a genuinely valid repo -- matching the "based on the
 # REAL, already-captured state" intent the note below already commits to.
 cp -r siterepo/${PAIR}2/state "$HOST_BAD_REPO/state"
@@ -595,9 +595,9 @@ cp -r siterepo/${PAIR}2/state "$HOST_BAD_REPO/state"
 # a fabricated single-record fixture reproduces the exact reported
 # symptom byte-for-byte; the SAME fixture with every required option
 # given an explicit record instead correctly reaches assert_tree() and
-# throws `[repository_field_not_authored] ... field=polylang.sync
+# throws `[repository_field_not_authored] ... field=polylang.duo_unreviewed_key
 # classification=unclassified declared_by=polylang` -- matching this
-# step's own existing assertion (`polylang.sync\|option_sub_key`)
+# step's own existing assertion (`polylang.duo_unreviewed_key\|option_sub_key`)
 # unchanged below.
 #
 # Fix: base the smuggled-key fixture on the REAL, already-captured
@@ -605,21 +605,21 @@ cp -r siterepo/${PAIR}2/state "$HOST_BAD_REPO/state"
 # already has a correct record, from the actual capture pipeline --
 # `git -C siterepo/${PAIR}2 pull` a few lines above this step is the
 # last write to this file, and nothing between there and here touches
-# it again) and inject ONLY the undeclared 'sync' key into polylang's
+# it again) and inject ONLY the undeclared `duo_unreviewed_key` into polylang's
 # own value, rather than hand-reconstructing every option's record --
 # robust against this option set changing later, unlike a hardcoded
 # snapshot would be.
-jq '.records.polylang.value.sync = ["taxonomies"]' siterepo/${PAIR}2/state/options/core.json > "$HOST_BAD_REPO/state/options/core.json"
+jq '.records.polylang.value.duo_unreviewed_key = ["taxonomies"]' siterepo/${PAIR}2/state/options/core.json > "$HOST_BAD_REPO/state/options/core.json"
 set +e
 BAD_OUT=$($COMPOSE run --rm -T cli2 wp duo apply --repo="$BAD_REPO" --format=json 2>&1)
 BAD_RC=$?
 set -e
 echo "$BAD_OUT"
-[ "$BAD_RC" -ne 0 ] || fail "expected apply to REFUSE an undeclared polylang sub-key ('sync'), got exit 0"
-grep -qE "polylang.sync|option_sub_key" <<<"$BAD_OUT" || fail "refusal doesn't name the undeclared sub-key (got: $BAD_OUT)"
+[ "$BAD_RC" -ne 0 ] || fail "expected apply to REFUSE an undeclared polylang sub-key ('duo_unreviewed_key'), got exit 0"
+grep -qE "polylang.duo_unreviewed_key|option_sub_key" <<<"$BAD_OUT" || fail "refusal doesn't name the undeclared sub-key (got: $BAD_OUT)"
 normalize_repo_permissions
 rm -rf "$HOST_BAD_REPO"
-pass "an undeclared sub-key ('sync') smuggled into a captured polylang value is refused loudly, naming the offending key"
+pass "an undeclared sub-key ('duo_unreviewed_key') smuggled into a captured polylang value is refused loudly, naming the offending key"
 
 say "(9) negative: wp duo lint flags a bare numeric id smuggled into a PLAIN (no json_refs) sub-key's own value"
 # post_types/taxonomies declare no ref/json_refs/key_refs, so
