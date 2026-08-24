@@ -220,7 +220,12 @@ $ownerInterpreter = new class ($ownerState) {
         ++$this->state->side_effects;
         return $this->state->result;
     }
-    public function normalize_captured_option_sub_keys(string $name, array $captured, array $subKeys): array {
+    public function normalize_captured_option_sub_keys(
+        string $name,
+        array $captured,
+        array $subKeys,
+        array $rawOptionSnapshot
+    ): array {
         ++$this->state->normalize_calls;
         return is_array($this->state->normalized) ? $this->state->normalized : $captured;
     }
@@ -284,7 +289,8 @@ check(
         'native_blob',
         ['portable' => 'raw'],
         $nativeRule,
-        'native-owner'
+        'native-owner',
+        ['native_blob' => serialize(['portable' => 'raw'])]
     ) === ['portable' => 'canonical']
         && $ownerState->normalize_calls === 1,
     'exact native capture normalization may canonicalize an already-captured authored value'
@@ -295,7 +301,8 @@ check_throws(
         'native_blob',
         ['portable' => 'raw'],
         $nativeRule,
-        'native-owner'
+        'native-owner',
+        ['native_blob' => serialize(['portable' => 'raw'])]
     ),
     'dropped already-present authored option',
     'native capture normalization cannot turn authored presence into silent absence'

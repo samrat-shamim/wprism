@@ -342,7 +342,12 @@ $policy->manifests = [[
 $nativeCaptureState = (object) ['raw' => null];
 $nativeCaptureInterpreter = new class ($nativeCaptureState) {
     public function __construct(private object $state) {}
-    public function normalize_captured_option_sub_keys(string $name, array $raw, array $subKeys): array {
+    public function normalize_captured_option_sub_keys(
+        string $name,
+        array $raw,
+        array $subKeys,
+        array $rawOptionSnapshot
+    ): array {
         $this->state->raw = $raw;
         return $raw + [
             'added_ref' => 5,

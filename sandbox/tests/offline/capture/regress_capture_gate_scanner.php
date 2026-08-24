@@ -100,9 +100,33 @@ namespace Duo {
                     ])],
                 ];
             }
-            if (str_contains($sql, 'SELECT * FROM')) {
+            if (str_contains($sql, 'SELECT COUNT(*) AS row_count')
+                && str_contains($sql, 'FROM wp_posts')) {
+                $this->events[] = 'query:post-size';
+                return [['row_count' => '1', 'total_bytes' => '64', 'max_row_bytes' => '64']];
+            }
+            if (str_contains($sql, 'SELECT ID, post_author')) {
                 $this->events[] = 'query:posts';
-                return [(object) ['ID' => 10, 'post_type' => 'page']];
+                return [(object) [
+                    'ID' => '10',
+                    'post_author' => '0',
+                    'post_date' => '2026-01-01 00:00:00',
+                    'post_date_gmt' => '2026-01-01 00:00:00',
+                    'post_content' => '',
+                    'post_title' => 'Fixture',
+                    'post_excerpt' => '',
+                    'post_status' => 'publish',
+                    'comment_status' => 'closed',
+                    'ping_status' => 'closed',
+                    'post_password' => '',
+                    'post_name' => 'fixture',
+                    'post_modified' => '2026-01-01 00:00:00',
+                    'post_modified_gmt' => '2026-01-01 00:00:00',
+                    'post_parent' => '0',
+                    'menu_order' => '0',
+                    'post_type' => 'page',
+                    'post_mime_type' => '',
+                ]];
             }
             if (str_contains($sql, 'FROM `wp_postmeta`')) {
                 $postId = (int) ($args[0] ?? 0);
@@ -124,11 +148,27 @@ namespace Duo {
                     'meta_id' => $row['meta_id'],
                     'meta_key_bytes' => (string) strlen($row['meta_key']),
                     'meta_value_bytes' => (string) strlen($row['meta_value']),
+                    'meta_key_sha256' => hash('sha256', $row['meta_key']),
+                    'meta_value_sha256' => hash('sha256', $row['meta_value']),
                 ], $rows);
             }
-            if (str_contains($sql, 'SELECT t.term_id')) {
+            if (str_contains($sql, 'SELECT COUNT(*) AS row_count')
+                && str_contains($sql, 'FROM wp_terms t')) {
+                $this->events[] = 'query:term-size';
+                return [['row_count' => '1', 'total_bytes' => '48', 'max_row_bytes' => '48']];
+            }
+            if (str_contains($sql, 'SELECT t.term_id, t.name')) {
                 $this->events[] = 'query:terms';
-                return [(object) ['term_id' => 20, 'taxonomy' => 'category']];
+                return [(object) [
+                    'term_id' => '20',
+                    'name' => 'Fixture category',
+                    'slug' => 'fixture-category',
+                    'term_group' => '0',
+                    'term_taxonomy_id' => '21',
+                    'taxonomy' => 'category',
+                    'description' => '',
+                    'parent' => '0',
+                ]];
             }
             if (str_contains($sql, 'FROM `wp_termmeta`')) {
                 $preflight = str_contains($sql, 'OCTET_LENGTH(meta_key)');
@@ -144,6 +184,8 @@ namespace Duo {
                     'meta_id' => $row['meta_id'],
                     'meta_key_bytes' => (string) strlen($row['meta_key']),
                     'meta_value_bytes' => (string) strlen($row['meta_value']),
+                    'meta_key_sha256' => hash('sha256', $row['meta_key']),
+                    'meta_value_sha256' => hash('sha256', $row['meta_value']),
                 ], $rows);
             }
             throw new \RuntimeException('unexpected gate-scanner query: ' . $sql);
@@ -233,12 +275,14 @@ namespace Duo {
         'query:post-gaps', 'checkpoint',
         'query:taxonomy-gaps', 'checkpoint',
         'query:options', 'checkpoint',
+        'query:post-size', 'checkpoint',
         'query:posts', 'checkpoint',
-        'query:post-meta:10:size', 'query:post-meta:10:value', 'checkpoint',
+        'query:post-meta:10:size', 'checkpoint', 'query:post-meta:10:value', 'checkpoint',
+        'query:term-size', 'checkpoint',
         'query:terms', 'checkpoint',
-        'query:term-meta:20:size', 'query:term-meta:20:value', 'checkpoint',
+        'query:term-meta:20:size', 'checkpoint', 'query:term-meta:20:value', 'checkpoint',
         'query:menu-items', 'checkpoint',
-        'query:post-meta:30:size', 'query:post-meta:30:value', 'checkpoint',
+        'query:post-meta:30:size', 'checkpoint', 'query:post-meta:30:value', 'checkpoint',
     ], 'every scanner query preserves its immediate read checkpoint and frozen order');
 
     echo "REGRESS_CAPTURE_GATE_SCANNER PASSED\n";

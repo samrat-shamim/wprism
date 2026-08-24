@@ -101,6 +101,9 @@ final class ApplyFieldMaterializerFakeWpdb {
         if (trim($sql) === 'SELECT 1 FROM `wp_termmeta` LIMIT 1') {
             return '1';
         }
+        if (trim($sql) === 'SELECT 1 FROM `wp_options` LIMIT 1') {
+            return '1';
+        }
         if (str_contains($sql, 'meta_key =') && $this->metaLookupError) {
             $this->last_error = 'simulated meta identity lookup failure';
             return null;
@@ -133,7 +136,10 @@ final class ApplyFieldMaterializerFakeWpdb {
             throw new RuntimeException('fixture expected ARRAY_A');
         }
         if (str_contains($sql, 'information_schema.TABLES')) {
-            return [['TABLE_NAME' => $this->termmeta, 'ENGINE' => 'InnoDB']];
+            return [
+                ['TABLE_NAME' => $this->options, 'ENGINE' => 'InnoDB'],
+                ['TABLE_NAME' => $this->termmeta, 'ENGINE' => 'InnoDB'],
+            ];
         }
         if (str_starts_with($sql, 'SHOW INDEX FROM `wp_termmeta`')) {
             return [[
@@ -145,7 +151,57 @@ final class ApplyFieldMaterializerFakeWpdb {
                 'Index_type' => 'BTREE',
             ]];
         }
+        if (str_starts_with($sql, 'SHOW INDEX FROM `wp_options`')) {
+            return [[
+                'Key_name' => 'option_name',
+                'Seq_in_index' => '1',
+                'Column_name' => 'option_name',
+                'Sub_part' => null,
+                'Non_unique' => '0',
+                'Index_type' => 'BTREE',
+            ]];
+        }
+        if (str_contains($sql, 'FROM wp_options FORCE INDEX (`option_name`)')) {
+            preg_match("/option_name = '((?:''|[^'])*)'/", $sql, $match);
+            $name = str_replace("''", "'", (string) ($match[1] ?? ''));
+            $rows = array_values(array_filter(
+                $this->optionRows,
+                static fn(array $row): bool => strcasecmp((string) $row['option_name'], $name) === 0
+            ));
+            usort($rows, static fn(array $a, array $b): int => (int) $a['option_id'] <=> (int) $b['option_id']);
+            $rows = array_slice($rows, 0, 2);
+            if (str_contains($sql, 'option_value_bytes')) {
+                return array_map(static fn(array $row): array => [
+                    'option_name' => (string) $row['option_name'],
+                    'option_value_bytes' => (string) strlen((string) $row['option_value']),
+                    'option_value_sha256' => hash('sha256', (string) $row['option_value']),
+                    'autoload_bytes' => (string) strlen((string) $row['autoload']),
+                    'autoload_sha256' => hash('sha256', (string) $row['autoload']),
+                ], $rows);
+            }
+            return array_map(static fn(array $row): array => [
+                'option_name' => (string) $row['option_name'],
+                'option_value' => (string) $row['option_value'],
+                'autoload' => (string) $row['autoload'],
+            ], $rows);
+        }
         if (str_contains($sql, 'FROM `wp_termmeta` FORCE INDEX (`term_id`)')) {
+            if (str_contains($sql, 'AS meta_id, meta_key') && str_contains($sql, 'AND meta_key =')) {
+                preg_match('/`term_id` = ([0-9]+)/', $sql, $ownerMatch);
+                preg_match("/meta_key = '((?:''|[^'])*)'/", $sql, $keyMatch);
+                $termId = (int) ($ownerMatch[1] ?? 0);
+                $key = str_replace("''", "'", (string) ($keyMatch[1] ?? ''));
+                $rows = array_values(array_filter(
+                    $this->termMetaRows,
+                    static fn(array $row): bool => (int) $row['term_id'] === $termId
+                        && strcasecmp((string) $row['meta_key'], $key) === 0
+                ));
+                usort($rows, static fn(array $a, array $b): int => (int) $a['meta_id'] <=> (int) $b['meta_id']);
+                return array_map(static fn(array $row): array => [
+                    'meta_id' => (string) $row['meta_id'],
+                    'meta_key' => (string) $row['meta_key'],
+                ], $rows);
+            }
             $preflight = str_contains($sql, 'OCTET_LENGTH(meta_key)');
             if ($this->forcedMetaRead !== null) {
                 if ($this->forcedMetaRead === 'false') return false;
@@ -157,6 +213,8 @@ final class ApplyFieldMaterializerFakeWpdb {
                 if ($this->forcedMetaRead === 'oversize') {
                     return array_fill(0, \Duo\MetaRows::MAX_OWNER_ROWS + 1, [
                         'meta_id' => '1', 'meta_key_bytes' => '7', 'meta_value_bytes' => '5',
+                        'meta_key_sha256' => hash('sha256', 'catalog'),
+                        'meta_value_sha256' => hash('sha256', 'value'),
                     ]);
                 }
                 if ($this->forcedMetaRead === 'oversized-value') {
@@ -164,6 +222,8 @@ final class ApplyFieldMaterializerFakeWpdb {
                         'meta_id' => '1',
                         'meta_key_bytes' => '7',
                         'meta_value_bytes' => (string) (\Duo\MetaRows::MAX_META_VALUE_BYTES + 1),
+                        'meta_key_sha256' => hash('sha256', 'catalog'),
+                        'meta_value_sha256' => hash('sha256', 'value'),
                     ]];
                 }
                 return $this->forcedMetaRead;
@@ -181,6 +241,10 @@ final class ApplyFieldMaterializerFakeWpdb {
                 'meta_value_bytes' => $row['meta_value'] === null
                     ? null
                     : (string) strlen((string) $row['meta_value']),
+                'meta_key_sha256' => hash('sha256', (string) $row['meta_key']),
+                'meta_value_sha256' => $row['meta_value'] === null
+                    ? null
+                    : hash('sha256', (string) $row['meta_value']),
             ] : [
                 'meta_id' => (string) $row['meta_id'],
                 'meta_key' => $row['meta_key'],
@@ -332,6 +396,7 @@ $interpreterInstances->setValue($termPolicy, ['nullable-fixture' => $nullableInt
 $termTokens = new \Duo\Tokens('https://source.test', 'https://source.test/wp-content/uploads');
 $termMaterializer = new ApplyFieldMaterializer($termPolicy, $termTokens);
 $termMaterializer->begin_authored_transaction();
+\Duo\CacheInvalidationTransaction::begin();
 $wpdb->termMetaRows = [[
     'meta_id' => 8,
     'term_id' => 31,
@@ -372,7 +437,39 @@ $wpdb->termMetaRows = [[
     'term_id' => 31,
     'meta_key' => 'NEW_CATALOG',
     'meta_value' => 'preserve-collation-alias',
+], [
+    'meta_id' => 20,
+    'term_id' => 32,
+    'meta_key' => '_duo_uuid',
+    'meta_value' => '11111111-1111-7111-8111-111111111111',
+], [
+    'meta_id' => 21,
+    'term_id' => 32,
+    'meta_key' => '_DUO_UUID',
+    'meta_value' => '11111111-1111-7111-8111-111111111111',
 ]];
+$identityLock = $termMaterializer->meta_owner_range_lock(
+    $wpdb->termmeta,
+    'term_id',
+    'exact identity alias regression'
+);
+try {
+    $identityLock->exact_key_rows(32, '_duo_uuid');
+    $lockedAliasRefused = false;
+} catch (Throwable $failure) {
+    $lockedAliasRefused = str_contains($failure->getMessage(), 'collation-equal non-byte-exact');
+}
+$check($lockedAliasRefused, 'locked metadata exact-key lookup refuses a collation-equal alias');
+$wpdb->termMetaRows = array_values(array_filter(
+    $wpdb->termMetaRows,
+    static fn(array $row): bool => !((int) $row['term_id'] === 32 && $row['meta_key'] === '_DUO_UUID')
+));
+$exactIdentityRows = $identityLock->exact_key_rows(32, '_duo_uuid');
+$check(
+    count($exactIdentityRows) === 1
+        && ($exactIdentityRows[0]['meta_value'] ?? null) === '11111111-1111-7111-8111-111111111111',
+    'locked metadata exact-key lookup binds one byte-exact row to its complete owner-range witness'
+);
 $cacheEvents = [];
 $cacheDeleteResult = false;
 $termMaterializer->reconcile_authored_term_meta(31, [
@@ -416,11 +513,13 @@ $check(
     count(array_filter(
         $wpdb->queries,
         static fn(string $sql): bool => str_contains($sql, 'FORCE INDEX (`term_id`)')
+            && str_contains($sql, '`term_id` = 31')
             && str_contains($sql, 'LIMIT 100001 FOR UPDATE')
     )) === 2
         && count(array_filter(
             $wpdb->queries,
             static fn(string $sql): bool => str_contains($sql, 'OCTET_LENGTH(meta_key)')
+                && str_contains($sql, '`term_id` = 31')
         )) === 1,
     'term-meta product path locks a compact size witness then its full owner range and terminal gap'
 );
@@ -580,8 +679,9 @@ $newOptions = array_values(array_filter($wpdb->optionRows, static fn(array $row)
 $check(count($newOptions) === 1 && $newOptions[0]['option_value'] === 'value', 'upsert_option inserts a missing option');
 $check($cacheEvents === [
     ['options', 'theme_mods_demo'], ['options', 'alloptions'],
-    ['options', 'new_option'], ['options', 'alloptions'],
-], 'upsert_option invalidates the named and alloptions caches for both paths');
+    ['options', 'notoptions'], ['options', 'new_option'],
+    ['options', 'alloptions'], ['options', 'notoptions'],
+], 'upsert_option invalidates the named/alloptions/notoptions composite for both paths');
 
 $check($materializer->option_wire_value(null) === 'N;', 'option_wire_value preserves null');
 $check($materializer->option_wire_value(false) === 'b:0;', 'option_wire_value preserves false');
@@ -590,10 +690,12 @@ $check($materializer->option_wire_value(['x' => 1]) === 'a:1:{s:1:"x";i:1;}',
 $check($materializer->option_wire_value('') === '', 'option_wire_value leaves an empty string empty');
 
 if ($failures) {
+    \Duo\CacheInvalidationTransaction::end();
     echo "\n" . count($failures) . " failure(s):\n";
     foreach ($failures as $failure) {
         echo "  - $failure\n";
     }
     exit(1);
 }
+\Duo\CacheInvalidationTransaction::end();
 echo "\nall ApplyFieldMaterializer checks passed\n";

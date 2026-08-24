@@ -13,57 +13,153 @@ if (!class_exists(Policy::class, false)) {
 if (!class_exists(Snapshot::class, false)) {
     require_once __DIR__ . '/../Repository/Snapshot.php';
 }
+require_once __DIR__ . '/CacheInvalidationTransaction.php';
+require_once __DIR__ . '/ApplyFieldMaterializer.php';
+require_once __DIR__ . '/../Kernel/MetaRows.php';
+require_once __DIR__ . '/../Kernel/Uuid.php';
 
 /** Claims a plan-approved unmanaged row by installing canonical identity. */
 final class EntityAdopter {
     public function __construct(
         private readonly Policy $policy,
-        private readonly array $snapshotRowTables
+        private readonly array $snapshotRowTables,
+        private readonly ApplyFieldMaterializer $fieldMaterializer
     ) {
     }
 
     public function adopt(array $row, array $entity, array &$warnings): void {
         global $wpdb;
         $envId = (int) $row['env_id'];
+        $uuid = (string) ($row['uuid'] ?? '');
+        if ($envId <= 0 || !Uuid::is($uuid)) {
+            throw new \RuntimeException('duo: adoption request has a malformed physical/canonical identity');
+        }
         if (isset($this->snapshotRowTables[$entity['type']])) {
             Snapshot::adopt($this->policy, $row['uuid'], $entity['type'], $envId);
             $warnings[] = "adopted env table row {$entity['type']}:$envId as {$row['uuid']} ({$row['path']})";
             return;
         }
         if ($entity['type'] === 'post') {
-            $existing = $wpdb->get_var($wpdb->prepare(
-                "SELECT meta_id FROM {$wpdb->postmeta} WHERE post_id = %d AND meta_key = '_duo_uuid' LIMIT 1",
-                $envId
-            ));
-            if (!$existing) {
+            $exact = $this->fieldMaterializer->meta_owner_range_lock(
+                $wpdb->postmeta,
+                'post_id',
+                'adopt post identity owner-range locking'
+            )->exact_key_rows($envId, '_duo_uuid');
+            if (count($exact) > 1) {
+                throw new \RuntimeException('duo: adopt post identity found duplicate exact identity rows');
+            }
+            if ($exact !== []
+                && (!is_string($exact[0]['meta_value']) || !hash_equals($uuid, $exact[0]['meta_value']))) {
+                throw new \RuntimeException('duo: adopt post identity contradicts the exact physical identity row');
+            }
+            if ($exact === []) {
                 Db::insert($wpdb->postmeta, [
                     'post_id' => $envId,
                     'meta_key' => '_duo_uuid',
-                    'meta_value' => $row['uuid'],
+                    'meta_value' => $uuid,
                 ], null, 'adopt post identity');
+                CacheInvalidationTransaction::queue($envId, 'post_meta', 'adopt post identity');
+                $this->assert_identity_readback(
+                    $wpdb->postmeta,
+                    'post_id',
+                    $envId,
+                    $uuid,
+                    'adopt post identity'
+                );
             }
-            Ledger::set($row['uuid'], 'post', Ledger::KIND_POST, $envId);
-            $warnings[] = "adopted env post $envId as {$row['uuid']} ({$row['path']})";
+            Ledger::set($uuid, 'post', Ledger::KIND_POST, $envId);
+            $warnings[] = "adopted env post $envId as $uuid ({$row['path']})";
             return;
         }
 
-        $termTaxonomyId = (int) $wpdb->get_var($wpdb->prepare(
-            "SELECT tt.term_taxonomy_id FROM {$wpdb->term_taxonomy} tt WHERE tt.term_id = %d LIMIT 1",
+        $taxonomy = (string) ($entity['data']['taxonomy'] ?? '');
+        if (preg_match('/^[A-Za-z0-9_-]{1,32}$/D', $taxonomy) !== 1) {
+            throw new \RuntimeException('duo: adopt term identity has a malformed taxonomy');
+        }
+        $index = $this->fieldMaterializer->proven_lock_index(
+            $wpdb->term_taxonomy,
+            'term_id',
+            'adopt term taxonomy owner-range locking'
+        );
+        $wpdb->last_error = '';
+        $taxonomyRows = $wpdb->get_results($wpdb->prepare(
+            "SELECT term_taxonomy_id, taxonomy FROM {$wpdb->term_taxonomy} FORCE INDEX (`$index`) "
+            . 'WHERE term_id = %d ORDER BY term_taxonomy_id ASC LIMIT 1025 FOR UPDATE',
             $envId
-        ));
-        $existing = $wpdb->get_var($wpdb->prepare(
-            "SELECT meta_id FROM {$wpdb->termmeta} WHERE term_id = %d AND meta_key = '_duo_uuid' LIMIT 1",
-            $envId
-        ));
-        if (!$existing) {
+        ), ARRAY_A);
+        if (!is_array($taxonomyRows)
+            || !array_is_list($taxonomyRows)
+            || trim((string) ($wpdb->last_error ?? '')) !== ''
+            || count($taxonomyRows) > 1024) {
+            throw new \RuntimeException('duo: adopt term taxonomy owner-range read failed or exceeded its bound');
+        }
+        $termTaxonomyIds = [];
+        foreach ($taxonomyRows as $position => $row) {
+            $id = is_array($row) ? MetaRows::positive_id($row['term_taxonomy_id'] ?? null) : null;
+            $rowTaxonomy = is_array($row) ? ($row['taxonomy'] ?? null) : null;
+            if (!is_array($row)
+                || array_keys($row) !== ['term_taxonomy_id', 'taxonomy']
+                || $id === null
+                || !is_string($rowTaxonomy)
+                || preg_match('/^[A-Za-z0-9_-]{1,32}$/D', $rowTaxonomy) !== 1) {
+                throw new \RuntimeException("duo: adopt term taxonomy owner-range returned a malformed row at position $position");
+            }
+            if (hash_equals($taxonomy, $rowTaxonomy)) {
+                $termTaxonomyIds[] = $id;
+            }
+        }
+        if (count($termTaxonomyIds) !== 1) {
+            throw new \RuntimeException('duo: adopt term identity requires exactly one byte-exact taxonomy row');
+        }
+        $termTaxonomyId = $termTaxonomyIds[0];
+        $exact = $this->fieldMaterializer->meta_owner_range_lock(
+            $wpdb->termmeta,
+            'term_id',
+            'adopt term identity owner-range locking'
+        )->exact_key_rows($envId, '_duo_uuid');
+        if (count($exact) > 1) {
+            throw new \RuntimeException('duo: adopt term identity found duplicate exact identity rows');
+        }
+        if ($exact !== []
+            && (!is_string($exact[0]['meta_value']) || !hash_equals($uuid, $exact[0]['meta_value']))) {
+            throw new \RuntimeException('duo: adopt term identity contradicts the exact physical identity row');
+        }
+        if ($exact === []) {
             Db::insert($wpdb->termmeta, [
                 'term_id' => $envId,
                 'meta_key' => '_duo_uuid',
-                'meta_value' => $row['uuid'],
+                'meta_value' => $uuid,
             ], null, 'adopt term identity');
+            CacheInvalidationTransaction::queue($envId, 'term_meta', 'adopt term identity');
+            $this->assert_identity_readback(
+                $wpdb->termmeta,
+                'term_id',
+                $envId,
+                $uuid,
+                'adopt term identity'
+            );
         }
-        Ledger::set($row['uuid'], $entity['type'], Ledger::KIND_TERM, $envId);
-        Ledger::set($row['uuid'], $entity['type'], Ledger::KIND_TT, $termTaxonomyId);
-        $warnings[] = "adopted env term $envId as {$row['uuid']} ({$row['path']})";
+        Ledger::set($uuid, $entity['type'], Ledger::KIND_TERM, $envId);
+        Ledger::set($uuid, $entity['type'], Ledger::KIND_TT, $termTaxonomyId);
+        $warnings[] = "adopted env term $envId as $uuid ({$row['path']})";
+    }
+
+    private function assert_identity_readback(
+        string $table,
+        string $ownerColumn,
+        int $ownerId,
+        string $uuid,
+        string $purpose
+    ): void {
+        $exact = $this->fieldMaterializer->meta_owner_range_lock(
+            $table,
+            $ownerColumn,
+            "$purpose readback locking"
+        )->exact_key_rows($ownerId, '_duo_uuid');
+        if (count($exact) !== 1
+            || !is_string($exact[0]['meta_value'] ?? null)
+            || !hash_equals($uuid, $exact[0]['meta_value'])) {
+            throw new \RuntimeException("duo: $purpose exact locked readback disagrees with the requested identity");
+        }
     }
 }

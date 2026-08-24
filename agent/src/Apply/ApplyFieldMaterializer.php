@@ -183,7 +183,7 @@ final class ApplyFieldMaterializer {
                 "apply reconcile authored $ownerLabel meta"
             );
         }
-        wp_cache_delete($id, 'post_meta');
+        CacheInvalidationTransaction::queue($id, 'post_meta', "authored $ownerLabel meta reconciliation");
     }
 
     /**
@@ -257,7 +257,7 @@ final class ApplyFieldMaterializer {
                 'apply reconcile authored term meta'
             );
         }
-        wp_cache_delete($termId, 'term_meta');
+        CacheInvalidationTransaction::queue($termId, 'term_meta', 'authored term-meta reconciliation');
     }
 
     /** $value null writes a real SQL NULL — byte-faithful to plugins that store
@@ -321,6 +321,7 @@ final class ApplyFieldMaterializer {
                 $context ?? 'apply insert authored meta'
             );
         }
+        $this->invalidate_meta_owner($table, $objectId, $context ?? 'apply authored meta');
     }
 
     /**
@@ -369,10 +370,8 @@ final class ApplyFieldMaterializer {
     public function upsert_option(string $name, string $value, string $autoload): void {
         global $wpdb;
         CacheInvalidationTransaction::assert_local_option_cache('authored option materialization');
-        $exists = $wpdb->get_var($wpdb->prepare(
-            "SELECT option_id FROM {$wpdb->options} WHERE option_name = %s LIMIT 1", $name
-        ));
-        if ($exists) {
+        $locked = CacheInvalidationTransaction::lock_option_row($name, 'authored option materialization');
+        if ($locked !== null) {
             Db::update(
                 $wpdb->options,
                 ['option_value' => $value, 'autoload' => $autoload],
@@ -390,6 +389,12 @@ final class ApplyFieldMaterializer {
             );
         }
         CacheInvalidationTransaction::queue_option($name, 'authored option materialization');
+        CacheInvalidationTransaction::assert_option_row(
+            $name,
+            $value,
+            $autoload,
+            'authored option materialization readback'
+        );
     }
 
     /**
@@ -404,5 +409,25 @@ final class ApplyFieldMaterializer {
             return serialize($value);
         }
         return (string) maybe_serialize($value);
+    }
+
+    private function invalidate_meta_owner(string $table, int $objectId, string $purpose): void {
+        global $wpdb;
+        $group = match ($table) {
+            $wpdb->postmeta => 'post_meta',
+            $wpdb->termmeta => 'term_meta',
+            $wpdb->usermeta => 'user_meta',
+            default => null,
+        };
+        if ($group === null) {
+            return;
+        }
+        if (CacheInvalidationTransaction::is_active()) {
+            CacheInvalidationTransaction::queue($objectId, $group, $purpose);
+            return;
+        }
+        if (function_exists('wp_cache_delete')) {
+            wp_cache_delete($objectId, $group);
+        }
     }
 }

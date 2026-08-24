@@ -7,6 +7,7 @@ require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/ApplyFieldMaterializer.php';
 require_once __DIR__ . '/RelationshipMaterializer.php';
 require_once __DIR__ . '/AttachmentMaterializer.php';
+require_once __DIR__ . '/CacheInvalidationTransaction.php';
 require_once __DIR__ . '/../Grammar/Blocks.php';
 // Deliberately NOT require_once('Ledger.php') or require_once('Db.php') here:
 // sandbox/tests/offline/code-half/regress_code_revision_enforcement.php and
@@ -123,7 +124,18 @@ final class PostMaterializer {
         ], null, 'apply insert post');
         $id = Db::insert_id('apply insert post');
         Db::insert($wpdb->postmeta, ['post_id' => $id, 'meta_key' => '_duo_uuid', 'meta_value' => $front['uuid']], null, 'apply insert post identity');
+        $identityRows = $this->fieldMaterializer->meta_owner_range_lock(
+            $wpdb->postmeta,
+            'post_id',
+            'apply insert post identity readback'
+        )->exact_key_rows($id, '_duo_uuid');
+        if (count($identityRows) !== 1
+            || !is_string($identityRows[0]['meta_value'] ?? null)
+            || !hash_equals((string) $front['uuid'], $identityRows[0]['meta_value'])) {
+            throw new \RuntimeException('duo: apply insert post identity did not persist one exact requested sidecar');
+        }
         Ledger::set($front['uuid'], 'post', Ledger::KIND_POST, $id);
+        CacheInvalidationTransaction::queue_post($id, (string) $front['type'], 'apply insert post');
         return true;
     }
 
@@ -215,6 +227,7 @@ final class PostMaterializer {
             }
         }
         Db::update($wpdb->posts, $fields, ['ID' => $id], null, null, 'apply update post');
+        CacheInvalidationTransaction::queue_post($id, (string) $front['type'], 'apply update post');
 
         // Authored post-meta is reconciled after the post row, as before. The
         // positional shortcode codec uses the frozen canonical meta map, not a

@@ -153,6 +153,7 @@ require_once __DIR__ . '/../Grammar/PostTypeRelationResolver.php';
  * and unclassified is a loud abort at the call sites (never a silent guess).
  */
 final class Policy {
+    private const MAX_DISCOVERED_TAXONOMIES = 4096;
     /**
      * The one {min,max} version-range predicate, shared by every site that
      * bounds something by an exact, certifiable window: min and max are both
@@ -1351,6 +1352,15 @@ final class Policy {
             ?? $this->pattern_update_count_callback($tax);
     }
 
+    /** Reviewed hierarchy fact used only when the live registry cannot answer. */
+    public function declared_taxonomy_hierarchical(string $tax): ?bool {
+        $exact = $this->taxonomy_pattern_resolver()->declaredRegistration($tax);
+        if ($exact !== null && $exact['hierarchical'] !== null) {
+            return $exact['hierarchical'];
+        }
+        return $this->taxonomy_pattern_resolver()->match($tax)['hierarchical'] ?? null;
+    }
+
     /**
      * Registered taxonomy state can lag a taxonomy_patterns-backed table
      * write until the next request. A version-pinned manifest may declare
@@ -1424,9 +1434,35 @@ final class Policy {
             return $exact;
         }
         global $wpdb;
-        $live = $wpdb->get_col("SELECT DISTINCT taxonomy FROM {$wpdb->term_taxonomy}") ?: [];
+        $wpdb->last_error = '';
+        $liveRows = $wpdb->get_results(
+            "SELECT BINARY taxonomy AS taxonomy FROM {$wpdb->term_taxonomy} "
+            . 'GROUP BY BINARY taxonomy ORDER BY BINARY taxonomy ASC LIMIT '
+            . (self::MAX_DISCOVERED_TAXONOMIES + 1),
+            ARRAY_A
+        );
+        if (!is_array($liveRows)
+            || !array_is_list($liveRows)
+            || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException('duo: taxonomy-pattern scope discovery read failed');
+        }
+        if (count($liveRows) > self::MAX_DISCOVERED_TAXONOMIES) {
+            throw new \RuntimeException('duo: taxonomy-pattern scope discovery exceeds the bounded taxonomy limit');
+        }
+        $live = [];
+        foreach ($liveRows as $position => $row) {
+            $tax = is_array($row) && array_keys($row) === ['taxonomy'] ? $row['taxonomy'] : null;
+            if (!is_string($tax)
+                || preg_match('/^[a-z0-9_-]{1,32}$/D', $tax) !== 1
+                || isset($live[$tax])) {
+                throw new \RuntimeException(
+                    "duo: taxonomy-pattern scope discovery returned a malformed/duplicate row at position $position"
+                );
+            }
+            $live[$tax] = $tax;
+        }
         $matched = [];
-        foreach ($live as $tax) {
+        foreach (array_values($live) as $tax) {
             if (in_array($tax, $exact, true)) {
                 continue;
             }
@@ -1783,16 +1819,65 @@ final class Policy {
     }
 
     /**
+     * Exact target-owned companions a digest-bound native materializer must
+     * observe. The engine resolves the full owner before calling this pure
+     * roster hook so every row/gap can be locked in canonical byte order
+     * before the mutation hook receives control.
+     *
+     * @return list<string>
+     */
+    public function option_sub_key_materialization_companions(
+        string $name,
+        array $effectiveRule,
+        ?string $effectiveSource
+    ): array {
+        $candidate = $this->option_sub_key_interpreter_candidate(
+            $name,
+            $effectiveRule,
+            $effectiveSource,
+            'materialize_option_sub_keys',
+            'native materialization companion discovery'
+        );
+        if ($candidate === null
+            || !method_exists($candidate['interpreter'], 'option_sub_key_materialization_companions')) {
+            return [];
+        }
+        $companions = $candidate['interpreter']->option_sub_key_materialization_companions($name);
+        if (!is_array($companions) || !array_is_list($companions)) {
+            throw new \RuntimeException(
+                "duo: interpreter '{$candidate['interpreter_name']}' option_sub_key_materialization_companions() "
+                . 'must return a list'
+            );
+        }
+        $seen = [];
+        foreach ($companions as $position => $companion) {
+            if (!is_string($companion) || $companion === '' || isset($seen[$companion])) {
+                throw new \RuntimeException(
+                    "duo: interpreter '{$candidate['interpreter_name']}' returned a malformed/duplicate native "
+                    . "option companion at position $position"
+                );
+            }
+            $seen[$companion] = true;
+        }
+        return array_keys($seen);
+    }
+
+    /**
      * Let an exact interpreter fill plugin-native defaults and normalize raw
      * authored siblings before the ordinary secret/ref/text capture codec.
      * The hook never receives repository tokens, and every returned value is
      * subsequently guarded and encoded through the declared sub-key rule.
+     * The final argument is the checked raw option snapshot for this capture
+     * attempt. Passing it explicitly keeps native normalization attempt-scoped:
+     * an interpreter cannot accidentally reuse mutable observations after a
+     * transient retry or when the primary mixed-option row is absent.
      */
     public function normalize_captured_option_sub_keys_via_interpreter(
         string $name,
         array $rawAuthored,
         array $effectiveRule,
-        ?string $effectiveSource
+        ?string $effectiveSource,
+        array $rawOptionSnapshot
     ): array {
         $candidate = $this->option_sub_key_interpreter_candidate(
             $name,
@@ -1807,7 +1892,8 @@ final class Policy {
         $normalized = $candidate['interpreter']->normalize_captured_option_sub_keys(
             $name,
             $rawAuthored,
-            (array) ($effectiveRule['sub_keys'] ?? [])
+            (array) ($effectiveRule['sub_keys'] ?? []),
+            $rawOptionSnapshot
         );
         if (!is_array($normalized) || ($normalized !== [] && array_is_list($normalized))) {
             throw new \RuntimeException(

@@ -23,11 +23,8 @@ final class CaptureIdentity {
         bool $strictReadOnly = false
     ): ?string {
         global $wpdb;
-        $uuid = $wpdb->get_var($wpdb->prepare(
-            "SELECT meta_value FROM {$wpdb->postmeta} WHERE post_id = %d AND meta_key = '_duo_uuid' LIMIT 1",
-            $id
-        ));
-        if (!$uuid) {
+        $uuid = $this->readIdentity($wpdb->postmeta, 'post_id', $id, "post $id");
+        if ($uuid === null) {
             if ($strictReadOnly) {
                 throw new \RuntimeException(
                     "duo: refresh export refused — post $id has no durable _duo_uuid; "
@@ -63,11 +60,8 @@ final class CaptureIdentity {
     ): ?string {
         global $wpdb;
         $termId = (int) $term->term_id;
-        $uuid = $wpdb->get_var($wpdb->prepare(
-            "SELECT meta_value FROM {$wpdb->termmeta} WHERE term_id = %d AND meta_key = '_duo_uuid' LIMIT 1",
-            $termId
-        ));
-        if (!$uuid) {
+        $uuid = $this->readIdentity($wpdb->termmeta, 'term_id', $termId, "term $termId");
+        if ($uuid === null) {
             if ($strictReadOnly) {
                 throw new \RuntimeException(
                     "duo: refresh export refused — term $termId has no durable _duo_uuid; "
@@ -102,5 +96,56 @@ final class CaptureIdentity {
         Ledger::set($uuid, $entityType, Ledger::KIND_TT, (int) $term->term_taxonomy_id);
         ($this->checkTransientDbError)("identity ledger (term_taxonomy) for term $termId");
         return $uuid;
+    }
+
+    private function readIdentity(string $table, string $ownerColumn, int $ownerId, string $owner): ?string {
+        global $wpdb;
+        foreach ([$table, $ownerColumn] as $identifier) {
+            if (preg_match('/^[A-Za-z0-9_]{1,64}$/D', $identifier) !== 1) {
+                throw new \RuntimeException("duo: capture identity for $owner received an unsafe SQL identifier");
+            }
+        }
+        if ($ownerId <= 0) {
+            throw new \RuntimeException("duo: capture identity for $owner received a nonpositive owner identity");
+        }
+        if (property_exists($wpdb, 'last_error')) {
+            $wpdb->last_error = '';
+        }
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT meta_key, LEFT(meta_value, 37) AS meta_value, OCTET_LENGTH(meta_value) AS meta_value_bytes "
+            . "FROM `$table` WHERE `$ownerColumn` = %d AND meta_key = %s ORDER BY meta_id ASC LIMIT 3",
+            $ownerId,
+            '_duo_uuid'
+        ), ARRAY_A);
+        $queryError = trim((string) ($wpdb->last_error ?? ''));
+        ($this->checkTransientDbError)("read _duo_uuid for $owner");
+        if (!is_array($rows) || !array_is_list($rows) || $queryError !== '') {
+            throw new \RuntimeException("duo: capture identity read for $owner failed");
+        }
+        if (count($rows) > 1) {
+            throw new \RuntimeException("duo: capture identity for $owner found ambiguous collation-equal metadata rows");
+        }
+        if ($rows === []) {
+            return null;
+        }
+        $row = $rows[0];
+        $bytes = is_array($row) && is_string($row['meta_value_bytes'] ?? null)
+            && preg_match('/^(?:0|[1-9][0-9]*)$/D', $row['meta_value_bytes']) === 1
+            ? filter_var($row['meta_value_bytes'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]])
+            : false;
+        if (!is_array($row)
+            || array_keys($row) !== ['meta_key', 'meta_value', 'meta_value_bytes']
+            || !is_string($row['meta_key'] ?? null)
+            || !hash_equals('_duo_uuid', $row['meta_key'])
+            || !is_string($row['meta_value'] ?? null)
+            || !is_int($bytes)
+            || $bytes !== strlen($row['meta_value'])
+            || $bytes > 36
+            || !Uuid::is($row['meta_value'])) {
+            throw new \RuntimeException(
+                "duo: capture identity for $owner is aliased, malformed, oversized, or not a canonical UUID"
+            );
+        }
+        return $row['meta_value'];
     }
 }

@@ -159,9 +159,25 @@ final class OptionsMaterializer {
                     throw new \RuntimeException("duo: internal invariant: option tombstone '$name' reached apply without --with-deletes");
                 }
                 global $wpdb;
-                CacheInvalidationTransaction::assert_local_option_cache('authored option deletion');
-                Db::delete($wpdb->options, ['option_name' => $realName], null, 'apply delete authored option');
+                // wp_options normally compares option_name case-insensitively.
+                // Lock the complete equality range and require its one row to
+                // be byte-identical before issuing the equality DELETE; this
+                // makes both the populated row and the absent gap authoritative
+                // and prevents a tombstone for `foo` from deleting `Foo`.
+                $locked = CacheInvalidationTransaction::lock_option_row(
+                    $realName,
+                    'authored option deletion'
+                );
+                if ($locked !== null) {
+                    Db::delete($wpdb->options, ['option_name' => $realName], null, 'apply delete authored option');
+                }
                 CacheInvalidationTransaction::queue_option($realName, 'authored option deletion');
+                if (CacheInvalidationTransaction::lock_option_row(
+                    $realName,
+                    'authored option deletion readback'
+                ) !== null) {
+                    throw new \RuntimeException("duo: authored option deletion retained the exact locked row");
+                }
                 continue;
             }
             $v = $record['value'];
@@ -463,23 +479,40 @@ final class OptionsMaterializer {
         CacheInvalidationTransaction::assert_local_option_cache(
             "mixed-option materialization for '$name'"
         );
-        DeleteGuardEvaluator::assert_table_identifiers([$wpdb->options], 'mixed-option row locking');
-        try {
-            DeleteGuardEvaluator::assert_active_transaction('mixed-option row locking');
-        } catch (\RuntimeException) {
-            throw new \RuntimeException(
-                "duo: mixed-option row locking for '$name' requires an active authored transaction"
+        $companionNames = $this->policy->option_sub_key_materialization_companions(
+            $name,
+            $rule,
+            $ruleSource
+        );
+        foreach ($companionNames as $targetName) {
+            if ($targetName === $name
+                || preg_match('/^[A-Za-z0-9_.:-]{1,191}$/D', $targetName) !== 1) {
+                $fingerprint = 'string:' . strlen($targetName) . ':'
+                    . substr(hash('sha256', $targetName), 0, 16);
+                throw new \RuntimeException(
+                    "duo: native option materializer for '$name' declared an invalid companion lock ($fingerprint)"
+                );
+            }
+            $details = $this->policy->option_rule_details($targetName);
+            $targetRule = $details['rule'] ?? null;
+            if ($ruleSource === null
+                || ($details['source'] ?? null) !== $ruleSource
+                || !in_array(($targetRule['class'] ?? null), ['runtime', 'derived', 'env'], true)) {
+                throw new \RuntimeException(
+                    "duo: native option materializer for '$name' declared an undeclared/non-target-owned companion lock"
+                );
+            }
+        }
+        $lockNames = array_merge([$name], $companionNames);
+        sort($lockNames, SORT_STRING);
+        $lockedOptionRows = [];
+        foreach ($lockNames as $lockName) {
+            $lockedOptionRows[$lockName] = CacheInvalidationTransaction::lock_option_row(
+                $lockName,
+                "native option materializer for '$name' canonical row/gap locking"
             );
         }
-        DeleteGuardEvaluator::assert_innodb_tables([$wpdb->options], 'mixed-option row locking');
-        DeleteGuardEvaluator::assert_transaction_isolation('mixed-option row locking');
-        $lockIndex = DeleteGuardEvaluator::full_width_lock_index(
-            $wpdb->options,
-            'option_name',
-            'mixed-option row locking',
-            true
-        );
-        $row = $this->lock_option_row($name, $lockIndex, 'mixed-option row locking');
+        $row = $lockedOptionRows[$name];
         $raw = is_array($row) ? $row['option_value'] : null;
         $targetAutoload = is_array($row) ? $row['autoload'] : null;
         if ($raw === null) {
@@ -584,7 +617,6 @@ final class OptionsMaterializer {
         };
         $finalizeStorage = function () use (
             $name,
-            $lockIndex,
             &$storageWriteCalls,
             &$finalizeCalls,
             &$finalizedRow
@@ -603,9 +635,8 @@ final class OptionsMaterializer {
             DeleteGuardEvaluator::assert_transaction_isolation(
                 'native mixed-option storage finalization'
             );
-            $row = $this->lock_option_row(
+            $row = CacheInvalidationTransaction::lock_option_row(
                 $name,
-                $lockIndex,
                 'native mixed-option raw storage verification'
             );
             if ($row === null) {
@@ -616,14 +647,13 @@ final class OptionsMaterializer {
             $finalizedRow = $row;
             return $row;
         };
-        $restoreStorage = function () use ($name, $raw, $targetAutoload, $lockIndex): ?array {
+        $restoreStorage = function () use ($name, $raw, $targetAutoload): ?array {
             global $wpdb;
             DeleteGuardEvaluator::assert_transaction_isolation(
                 'native mixed-option storage restoration'
             );
-            $current = $this->lock_option_row(
+            $current = CacheInvalidationTransaction::lock_option_row(
                 $name,
-                $lockIndex,
                 'native mixed-option storage restoration current-row lock'
             );
             if ($raw === null) {
@@ -639,9 +669,8 @@ final class OptionsMaterializer {
                     $name,
                     "native option materializer for '$name' restoration"
                 );
-                $restored = $this->lock_option_row(
+                $restored = CacheInvalidationTransaction::lock_option_row(
                     $name,
-                    $lockIndex,
                     'restored absent native mixed-option raw storage verification'
                 );
                 if ($restored !== null) {
@@ -676,9 +705,8 @@ final class OptionsMaterializer {
                 $name,
                 "native option materializer for '$name' restoration"
             );
-            $restored = $this->lock_option_row(
+            $restored = CacheInvalidationTransaction::lock_option_row(
                 $name,
-                $lockIndex,
                 'restored native mixed-option raw storage verification'
             );
             if ($restored === null
@@ -690,44 +718,23 @@ final class OptionsMaterializer {
             }
             return $restored;
         };
-        $companionWitnesses = [];
+        $companionWitnesses = array_intersect_key(
+            $lockedOptionRows,
+            array_fill_keys($companionNames, true)
+        );
         $lockTargetOption = function (string $targetName) use (
             $name,
-            $ruleSource,
-            $lockIndex,
             &$companionWitnesses
         ): ?array {
-            global $wpdb;
-            if ($targetName === $name
-                || preg_match('/^[A-Za-z0-9_.:-]{1,191}$/D', $targetName) !== 1) {
+            if (!array_key_exists($targetName, $companionWitnesses)) {
                 $fingerprint = 'string:' . strlen($targetName) . ':'
                     . substr(hash('sha256', $targetName), 0, 16);
                 throw new \RuntimeException(
-                    "duo: native option materializer for '$name' requested an invalid companion lock "
-                    . "($fingerprint)"
+                    "duo: native option materializer for '$name' requested a companion outside its canonical "
+                    . "prelocked roster ($fingerprint)"
                 );
             }
-            $details = $this->policy->option_rule_details($targetName);
-            $targetRule = $details['rule'] ?? null;
-            if ($ruleSource === null
-                || ($details['source'] ?? null) !== $ruleSource
-                || !in_array(($targetRule['class'] ?? null), ['runtime', 'derived', 'env'], true)) {
-                throw new \RuntimeException(
-                    "duo: native option materializer for '$name' requested an undeclared/non-target-owned companion lock"
-                );
-            }
-            $targetRow = $this->lock_option_row(
-                $targetName,
-                $lockIndex,
-                "native option materializer for '$name' companion row locking"
-            );
-            if (array_key_exists($targetName, $companionWitnesses)
-                && $companionWitnesses[$targetName] !== $targetRow) {
-                throw new \RuntimeException(
-                    "duo: native option materializer for '$name' changed a companion after locking it"
-                );
-            }
-            $companionWitnesses[$targetName] = $targetRow;
+            $targetRow = $companionWitnesses[$targetName];
             if ($targetRow === null) return null;
             return [
                 'option_value' => $targetRow['option_value'],
@@ -767,16 +774,41 @@ final class OptionsMaterializer {
                     return;
                 }
                 $rolledBack = true;
+                $failures = [];
                 if ($nativeStorageTouched) {
-                    $restoreStorage();
+                    try {
+                        $restoreStorage();
+                    } catch (\Throwable $storageFailure) {
+                        $failures['storage'] = $storageFailure;
+                    }
                 }
                 if ($runtimeRestore instanceof \Closure) {
-                    $runtimeRestore();
+                    try {
+                        $runtimeRestore();
+                    } catch (\Throwable $runtimeFailure) {
+                        $failures['runtime'] = $runtimeFailure;
+                    }
                 }
-                CacheInvalidationTransaction::queue_option(
-                    $name,
-                    "native option materializer for '$name' rollback"
-                );
+                try {
+                    CacheInvalidationTransaction::queue_option(
+                        $name,
+                        "native option materializer for '$name' rollback"
+                    );
+                } catch (\Throwable $cacheFailure) {
+                    $failures['cache'] = $cacheFailure;
+                }
+                if ($failures !== []) {
+                    $fingerprints = [];
+                    foreach ($failures as $label => $rollbackFailure) {
+                        $fingerprints[] = $label . '=' . self::failure_fingerprint($rollbackFailure);
+                    }
+                    throw new \RuntimeException(
+                        "duo: native option materializer for '$name' rollback restoration failed; "
+                        . implode('; ', $fingerprints),
+                        0,
+                        reset($failures)
+                    );
+                }
             };
         };
         $handledNatively = $this->policy->materialize_option_sub_keys_via_interpreter(
@@ -816,9 +848,8 @@ final class OptionsMaterializer {
                 'native mixed-option post-hook verification'
             );
             foreach ($companionWitnesses as $companionName => $companionWitness) {
-                $currentCompanion = $this->lock_option_row(
+                $currentCompanion = CacheInvalidationTransaction::lock_option_row(
                     (string) $companionName,
-                    $lockIndex,
                     "native option materializer for '$name' companion post-hook verification"
                 );
                 if ($currentCompanion !== $companionWitness) {
@@ -827,9 +858,8 @@ final class OptionsMaterializer {
                     );
                 }
             }
-            $verifiedRow = $this->lock_option_row(
+            $verifiedRow = CacheInvalidationTransaction::lock_option_row(
                 $name,
-                $lockIndex,
                 'native mixed-option post-hook raw storage verification'
             );
             if ($verifiedRow === null
@@ -926,8 +956,10 @@ final class OptionsMaterializer {
                 null,
                 'apply update native-authored option autoload'
             );
-            wp_cache_delete($name, 'options');
-            wp_cache_delete('alloptions', 'options');
+            CacheInvalidationTransaction::queue_option(
+                $name,
+                'apply update native-authored option autoload'
+            );
         }
         $stored = $this->read_exact_native_autoload($name);
         if (!hash_equals($autoload, $stored)) {
@@ -937,98 +969,17 @@ final class OptionsMaterializer {
         }
     }
 
-    /**
-     * Lock compact lengths before transferring LONGTEXT, then bind the full
-     * row to that witness inside the same row/gap lock boundary.
-     *
-     * @return ?array{option_name:string,option_value:string,autoload:string}
-     */
-    private function lock_option_row(string $name, string $lockIndex, string $purpose): ?array {
-        global $wpdb;
-        DeleteGuardEvaluator::assert_transaction_isolation($purpose);
-        $predicate = "FROM {$wpdb->options} FORCE INDEX (`$lockIndex`) WHERE option_name = %s "
-            . 'ORDER BY option_id ASC LIMIT 2 FOR UPDATE';
-        $wpdb->last_error = '';
-        $sizes = $wpdb->get_results($wpdb->prepare(
-            'SELECT option_name, OCTET_LENGTH(option_value) AS option_value_bytes, '
-            . "OCTET_LENGTH(autoload) AS autoload_bytes $predicate",
-            $name
-        ), ARRAY_A);
-        if (!is_array($sizes)
-            || !array_is_list($sizes)
-            || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException("duo: $purpose size preflight failed");
-        }
-        if (count($sizes) > 1) {
-            throw new \RuntimeException("duo: $purpose found ambiguous collation-equal rows");
-        }
-        if ($sizes === []) return null;
-        $size = $sizes[0];
-        $valueBytes = is_array($size) ? self::canonical_size($size['option_value_bytes'] ?? null) : null;
-        $autoloadBytes = is_array($size) ? self::canonical_size($size['autoload_bytes'] ?? null) : null;
-        if (!is_array($size)
-            || array_keys($size) !== ['option_name', 'option_value_bytes', 'autoload_bytes']
-            || !is_string($size['option_name'] ?? null)
-            || $valueBytes === null
-            || $autoloadBytes === null
-            || $valueBytes > self::MAX_OPTION_VALUE_BYTES
-            || $autoloadBytes > self::MAX_AUTOLOAD_BYTES) {
-            throw new \RuntimeException("duo: $purpose size preflight returned a malformed or oversized row");
-        }
-        if (!hash_equals($name, $size['option_name'])) {
-            throw new \RuntimeException("duo: $purpose found a collation-equal option_name alias");
-        }
-        $wpdb->last_error = '';
-        $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT option_name, option_value, autoload $predicate",
-            $name
-        ), ARRAY_A);
-        if (!is_array($rows)
-            || !array_is_list($rows)
-            || count($rows) !== 1
-            || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException("duo: $purpose value read failed after size preflight");
-        }
-        $row = $rows[0];
-        if (!is_array($row)
-            || array_keys($row) !== ['option_name', 'option_value', 'autoload']
-            || !is_string($row['option_name'] ?? null)
-            || !is_string($row['option_value'] ?? null)
-            || !is_string($row['autoload'] ?? null)
-            || !hash_equals($name, $row['option_name'])
-            || strlen($row['option_value']) !== $valueBytes
-            || strlen($row['autoload']) !== $autoloadBytes) {
-            throw new \RuntimeException("duo: $purpose value read disagrees with the bounded size preflight");
-        }
-        return $row;
-    }
-
     private function read_exact_native_autoload(string $name): string {
-        global $wpdb;
-        DeleteGuardEvaluator::assert_transaction_isolation(
+        $row = CacheInvalidationTransaction::lock_option_row(
+            $name,
             'native mixed-option autoload verification'
         );
-        $wpdb->last_error = '';
-        $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT option_name, autoload FROM {$wpdb->options} WHERE option_name = %s "
-            . 'ORDER BY option_id ASC LIMIT 2',
-            $name
-        ), ARRAY_A);
-        if (!is_array($rows)
-            || !array_is_list($rows)
-            || count($rows) !== 1
-            || trim((string) ($wpdb->last_error ?? '')) !== '') {
+        if ($row === null) {
             throw new \RuntimeException(
                 "duo: native option materializer for '$name' did not leave one readable option row"
             );
         }
-        $row = $rows[0];
-        if (!is_array($row)
-            || array_keys($row) !== ['option_name', 'autoload']
-            || !is_string($row['option_name'] ?? null)
-            || !is_string($row['autoload'] ?? null)
-            || strlen($row['autoload']) > self::MAX_AUTOLOAD_BYTES
-            || !hash_equals($name, $row['option_name'])) {
+        if (strlen($row['autoload']) > self::MAX_AUTOLOAD_BYTES) {
             throw new \RuntimeException(
                 "duo: native option materializer for '$name' left a malformed/collation-aliased option row"
             );
@@ -1036,9 +987,10 @@ final class OptionsMaterializer {
         return $row['autoload'];
     }
 
-    private static function canonical_size(mixed $value): ?int {
-        if (!is_string($value) || preg_match('/^(?:0|[1-9][0-9]*)$/D', $value) !== 1) return null;
-        $size = filter_var($value, FILTER_VALIDATE_INT);
-        return is_int($size) && $size >= 0 ? $size : null;
+    private static function failure_fingerprint(\Throwable $failure): string {
+        $message = $failure->getMessage();
+        return get_class($failure) . ':' . strlen($message) . ':'
+            . substr(hash('sha256', $message), 0, 16);
     }
+
 }

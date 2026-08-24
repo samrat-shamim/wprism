@@ -5,6 +5,7 @@ require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Grammar/Tokens.php';
 require_once __DIR__ . '/ApplyFieldMaterializer.php';
 require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
+require_once __DIR__ . '/CacheInvalidationTransaction.php';
 // Deliberately NOT require_once('Db.php') or require_once('Ledger.php')
 // here: four suites declare a fake Duo\Ledger (regress_adapter_observation.php,
 // regress_code_revision_enforcement.php, regress_lifecycle_phase_handoff_unit.php,
@@ -90,9 +91,16 @@ final class TermMaterializer {
         if (Ledger::id_for($front['uuid'], Ledger::KIND_TERM) !== null) {
             return;
         }
+        $termGroup = $this->policy->taxonomy_term_group_is_authored((string) $front['taxonomy'])
+            ? (int) $front['term_group']
+            : 0;
+        CacheInvalidationTransaction::assert_term_taxonomy_prepared(
+            (string) $front['taxonomy'],
+            'apply insert term'
+        );
         Db::insert(
             $wpdb->terms,
-            ['name' => $front['name'], 'slug' => $front['slug'], 'term_group' => 0],
+            ['name' => $front['name'], 'slug' => $front['slug'], 'term_group' => $termGroup],
             null,
             'apply insert term'
         );
@@ -110,8 +118,19 @@ final class TermMaterializer {
             'meta_key' => '_duo_uuid',
             'meta_value' => $front['uuid'],
         ], null, 'apply insert term identity');
+        $identityRows = $this->fieldMaterializer->meta_owner_range_lock(
+            $wpdb->termmeta,
+            'term_id',
+            'apply insert term identity readback'
+        )->exact_key_rows($termId, '_duo_uuid');
+        if (count($identityRows) !== 1
+            || !is_string($identityRows[0]['meta_value'] ?? null)
+            || !hash_equals((string) $front['uuid'], $identityRows[0]['meta_value'])) {
+            throw new \RuntimeException('duo: apply insert term identity did not persist one exact requested sidecar');
+        }
         Ledger::set($front['uuid'], $entityType, Ledger::KIND_TERM, $termId);
         Ledger::set($front['uuid'], $entityType, Ledger::KIND_TT, $termTaxonomyId);
+        $this->queue_term_cache($termId, (string) $front['taxonomy'], 'apply insert term');
     }
 
     /** @param string[] $termObjectTaxes policy-scoped taxonomies whose resolved object_keyspace is `term` */
@@ -123,11 +142,20 @@ final class TermMaterializer {
             $parentId = Ledger::id_for($front['parent'], Ledger::KIND_TERM)
                 ?? throw new \RuntimeException("duo: term {$front['slug']}: parent {$front['parent']} not resolvable");
         }
-        Db::update($wpdb->terms, ['name' => $front['name'], 'slug' => $front['slug']], ['term_id' => $termId], null, null, 'apply update term');
+        $termRow = ['name' => $front['name'], 'slug' => $front['slug']];
+        if ($this->policy->taxonomy_term_group_is_authored((string) $front['taxonomy'])) {
+            $termRow['term_group'] = (int) $front['term_group'];
+        }
+        CacheInvalidationTransaction::assert_term_taxonomy_prepared(
+            (string) $front['taxonomy'],
+            'apply update term'
+        );
+        Db::update($wpdb->terms, $termRow, ['term_id' => $termId], null, null, 'apply update term');
         Db::update($wpdb->term_taxonomy, [
             'description' => $this->encode_description($front['taxonomy'], $front['description']),
             'parent' => $parentId,
         ], ['term_id' => $termId, 'taxonomy' => $front['taxonomy']], null, null, 'apply update term taxonomy');
+        $this->queue_term_cache($termId, (string) $front['taxonomy'], 'apply update term');
         $this->fieldMaterializer->reconcile_authored_term_meta($termId, (array) ($front['meta'] ?? []));
         $this->reconcile_term_relationships($termId, $front['taxonomy'], (array) ($front['relationships'] ?? []), $termObjectTaxes);
     }
@@ -143,6 +171,7 @@ final class TermMaterializer {
      * Every other taxonomy keeps the plain detokenize_text() treatment.
      */
     public function encode_description(string $taxonomy, $description): string {
+        $this->policy->taxonomy_description_lint_rule($taxonomy, $description);
         $rule = $this->policy->description_reference_rule($taxonomy);
         if ($rule === null) {
             return $this->tokens->detokenize_text((string) $description);
@@ -220,9 +249,11 @@ final class TermMaterializer {
             }
         }
         foreach ($taxes as $tax) {
-            // Core returns false when no persistent cache entry existed. The
-            // fresh locked DB readback below, not that boolean, proves state.
-            wp_cache_delete($termId, $tax . '_relationships');
+            CacheInvalidationTransaction::queue_relationship(
+                $termId,
+                $tax,
+                'term-object relationship reconciliation'
+            );
         }
         $after = [];
         foreach ($this->locked_relationship_rows(
@@ -240,6 +271,15 @@ final class TermMaterializer {
                 . 'recovery_required'
             );
         }
+    }
+
+    private function queue_term_cache(int $termId, string $taxonomy, string $purpose): void {
+        // clean_term_cache() is not a cache primitive: it regenerates the
+        // hierarchy option, queries the database and fires plugin hooks. Raw
+        // authored mutation may not run those undeclared effects inside the
+        // transaction. The `terms` last_changed token is the hook-free query
+        // generation consumed by WP_Term_Query and is repeated after outcome.
+        CacheInvalidationTransaction::queue_term($termId, $taxonomy, $purpose);
     }
 
     /** @return list<string> */

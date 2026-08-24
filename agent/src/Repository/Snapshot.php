@@ -1220,9 +1220,7 @@ final class Snapshot {
             static fn(int $packed): array => self::unpack_composite_id($packed),
             static fn(array $decl, string $key): bool => self::meta_key_in_keyspace($decl, $key),
             static fn($value) => maybe_serialize($value),
-            static function (string $key, string $group): void {
-                wp_cache_delete($key, $group);
-            }
+            static fn(string $key, string $group): bool => wp_cache_delete($key, $group)
         );
     }
 

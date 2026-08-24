@@ -143,15 +143,39 @@ namespace Duo {
         public string $posts = 'wp_posts';
         public string $terms = 'wp_terms';
         public string $term_taxonomy = 'wp_term_taxonomy';
+        public string $last_error = '';
         /** @var string[] */
         public array $queries = [];
         /** @var string[] */
         public array $events = [];
+        /** @var array<string,mixed> */
+        public array $responses = [];
+        /** @var array<string,string> */
+        public array $errors = [];
 
-        public function get_results(string $sql, mixed $_mode = null): array {
+        public function get_results(string $sql, mixed $_mode = null): mixed {
+            $kind = match (true) {
+                str_contains($sql, 'SELECT post_type, COUNT(*) AS entities') => 'post-gaps',
+                str_contains($sql, 'SELECT taxonomy, COUNT(*) AS entities') => 'taxonomy-gaps',
+                str_contains($sql, 'SELECT COUNT(*) AS row_count') && str_contains($sql, 'FROM wp_posts') => 'post-preflight',
+                str_contains($sql, 'FROM wp_posts') => 'posts',
+                str_contains($sql, 'SELECT COUNT(*) AS row_count') && str_contains($sql, 'FROM wp_terms') => 'term-preflight',
+                str_contains($sql, 'SELECT t.term_id') => 'terms',
+                default => '',
+            };
+            if ($kind === '') {
+                throw new \RuntimeException('unexpected ScopeDiscovery query: ' . $sql);
+            }
+            $this->queries[] = $kind;
+            if (in_array($kind, ['posts', 'terms'], true)) {
+                $this->queries[] = $sql;
+            }
+            $this->events[] = "query:$kind";
+            $this->last_error = $this->errors[$kind] ?? '';
+            if (array_key_exists($kind, $this->responses)) {
+                return $this->responses[$kind];
+            }
             if (str_contains($sql, 'SELECT post_type, COUNT(*) AS entities')) {
-                $this->queries[] = 'post-gaps';
-                $this->events[] = 'query:post-gaps';
                 return [
                     ['post_type' => 'page', 'entities' => '2'],
                     ['post_type' => 'book', 'entities' => '3'],
@@ -161,8 +185,6 @@ namespace Duo {
                 ];
             }
             if (str_contains($sql, 'SELECT taxonomy, COUNT(*) AS entities')) {
-                $this->queries[] = 'taxonomy-gaps';
-                $this->events[] = 'query:taxonomy-gaps';
                 return [
                     ['taxonomy' => 'category', 'entities' => '2'],
                     ['taxonomy' => 'genre', 'entities' => '6'],
@@ -171,19 +193,65 @@ namespace Duo {
                     ['taxonomy' => 'form_group', 'entities' => '1'],
                 ];
             }
+            if ($kind === 'post-preflight') {
+                return [['row_count' => '2', 'total_bytes' => '8192', 'max_row_bytes' => '4096']];
+            }
             if (str_contains($sql, 'SELECT * FROM')) {
-                $this->queries[] = 'posts';
-                $this->queries[] = $sql;
-                $this->events[] = 'query:posts';
-                return [(object) ['ID' => 2], (object) ['ID' => 9]];
+                return [];
+            }
+            if ($kind === 'posts') {
+                $row = static fn(int $id): object => (object) [
+                    'ID' => (string) $id,
+                    'post_author' => '1',
+                    'post_date' => '2026-08-24 00:00:00',
+                    'post_date_gmt' => '2026-08-24 00:00:00',
+                    'post_content' => '',
+                    'post_title' => "Post $id",
+                    'post_excerpt' => '',
+                    'post_status' => 'publish',
+                    'comment_status' => 'closed',
+                    'ping_status' => 'closed',
+                    'post_password' => '',
+                    'post_name' => "post-$id",
+                    'post_modified' => '2026-08-24 00:00:00',
+                    'post_modified_gmt' => '2026-08-24 00:00:00',
+                    'post_parent' => '0',
+                    'menu_order' => '0',
+                    'post_type' => 'page',
+                    'post_mime_type' => '',
+                ];
+                return [$row(2), $row(9)];
+            }
+            if ($kind === 'term-preflight') {
+                return [['row_count' => '2', 'total_bytes' => '8192', 'max_row_bytes' => '4096']];
             }
             if (str_contains($sql, 'SELECT t.term_id')) {
-                $this->queries[] = 'terms';
-                $this->queries[] = $sql;
-                $this->events[] = 'query:terms';
+                $withTermGroup = str_contains($sql, 't.term_group');
                 return [
-                    (object) ['term_id' => 4, 'taxonomy' => 'category'],
-                    (object) ['term_id' => 11, 'taxonomy' => 'term_link'],
+                    (object) array_merge(
+                        [
+                            'term_id' => 4,
+                            'name' => 'General',
+                            'slug' => 'general',
+                            'term_taxonomy_id' => 14,
+                            'taxonomy' => 'category',
+                            'description' => '',
+                            'parent' => '0',
+                        ],
+                        $withTermGroup ? ['term_group' => '0'] : []
+                    ),
+                    (object) array_merge(
+                        [
+                            'term_id' => 11,
+                            'name' => 'Linked',
+                            'slug' => 'linked',
+                            'term_taxonomy_id' => 21,
+                            'taxonomy' => 'term_link',
+                            'description' => '',
+                            'parent' => '4',
+                        ],
+                        $withTermGroup ? ['term_group' => '37'] : []
+                    ),
                 ];
             }
             throw new \RuntimeException('unexpected ScopeDiscovery query: ' . $sql);
@@ -225,37 +293,48 @@ namespace Duo {
         'term discovery returns the database order unchanged'
     );
     $check(
+        array_map(static fn(object $row): int => (int) $row->term_group, $scope['terms']) === [0, 37],
+        'term discovery carries native term_group values into the canonical capture path'
+    );
+    $check(
         $scope['by_post_type'] === ['page' => ['category', 'dynamic_link'], 'attachment' => []],
         'registered and manifest-fallback post taxonomies retain declaration order'
     );
     $check($scope['term_object'] === ['term_link'], 'term-keyspace taxonomy is separated from post relationships');
     $check(
         array_values(array_filter($wpdb->queries, static fn(string $row): bool => !str_starts_with($row, 'SELECT ')))
-            === ['post-gaps', 'taxonomy-gaps', 'posts', 'terms'],
+            === ['post-gaps', 'taxonomy-gaps', 'post-preflight', 'posts', 'term-preflight', 'terms'],
         'complete discovery preserves the frozen gap, post, term read order'
     );
     $check(
         $wpdb->events === [
             'query:post-gaps', 'checkpoint',
             'query:taxonomy-gaps', 'checkpoint',
+            'query:post-preflight', 'checkpoint',
             'query:posts', 'checkpoint',
+            'query:term-preflight', 'checkpoint',
             'query:terms', 'checkpoint',
         ],
         'every live SQL read is immediately checkpointed exactly once'
     );
-    $check($checkpoints === 4, 'complete discovery runs exactly four read checkpoints');
+    $check($checkpoints === 6, 'complete discovery runs exactly six read checkpoints including compact size preflights');
     $postSql = $wpdb->queries[array_search('posts', $wpdb->queries, true) + 1] ?? '';
     $termSql = $wpdb->queries[array_search('terms', $wpdb->queries, true) + 1] ?? '';
     $check(
         str_contains($postSql, "post_type IN ('page')")
             && str_contains($postSql, "post_type = 'attachment' AND post_status = 'inherit'")
-            && str_contains($postSql, 'ORDER BY ID ASC'),
-        'post query preserves authored status/attachment semantics and deterministic ordering'
+            && str_contains($postSql, 'ORDER BY ID ASC')
+            && !str_contains($postSql, 'post_content_filtered')
+            && !str_contains($postSql, 'to_ping')
+            && !str_contains($postSql, 'pinged')
+            && !str_contains($postSql, 'guid'),
+        'post query transfers only downstream-consumed fields, excluding otherwise-unbounded legacy text columns'
     );
     $check(
         str_contains($termSql, "WHERE tt.taxonomy IN ('category','term_link','dynamic_link','missing_link')")
+            && str_contains($termSql, 't.term_group')
             && str_contains($termSql, 'ORDER BY t.term_id ASC'),
-        'term query preserves the policy taxonomy roster and deterministic ordering'
+        'term query preserves taxonomy ordering fields, the policy roster and deterministic entity ordering'
     );
     $check(
         $warnings === [
@@ -325,6 +404,191 @@ namespace Duo {
     $check(
         $wpdb->queries === ['post-gaps', 'taxonomy-gaps'],
         'a scope-gap refusal prevents post, term, taxonomy-ownership, and warning work'
+    );
+
+    foreach ([false, null, ['not-a-list' => true]] as $badResult) {
+        $wpdb = new ScopeDiscoveryWpdbFixture();
+        $wpdb->responses['post-gaps'] = $badResult;
+        $GLOBALS['wpdb'] = $wpdb;
+        $throws(
+            static fn() => (new ScopeDiscovery($policy))->gaps(),
+            'post-type gap discovery read failed',
+            'post-type scope discovery refuses false, null, and non-list driver results'
+        );
+    }
+    $wpdb = new ScopeDiscoveryWpdbFixture();
+    $wpdb->errors['post-gaps'] = 'fixture read error';
+    $GLOBALS['wpdb'] = $wpdb;
+    $throws(
+        static fn() => (new ScopeDiscovery($policy))->gaps(),
+        'post-type gap discovery read failed',
+        'post-type scope discovery refuses a value returned with a database error'
+    );
+    $wpdb = new ScopeDiscoveryWpdbFixture();
+    $wpdb->errors['post-gaps'] = 'fixture read error masked by checkpoint';
+    $GLOBALS['wpdb'] = $wpdb;
+    $throws(
+        static fn() => (new ScopeDiscovery(
+            $policy,
+            static function () use ($wpdb): void {
+                $wpdb->last_error = '';
+            }
+        ))->gaps(),
+        'post-type gap discovery read failed',
+        'scope discovery snapshots the query error before a checkpoint can clear or overwrite last_error'
+    );
+
+    $savedPublicPostTypes = $GLOBALS['scopeDiscoveryPublicPostTypes'];
+    $GLOBALS['scopeDiscoveryPublicPostTypes'] = ['page' => 'page'];
+    $wpdb = new ScopeDiscoveryWpdbFixture();
+    $GLOBALS['wpdb'] = $wpdb;
+    $nativeMapGaps = (new ScopeDiscovery($policy))->gaps();
+    $check(
+        isset($nativeMapGaps['post_type:form_store']),
+        'scope discovery accepts WordPress names-output name=>name maps after exact key/value validation'
+    );
+    $GLOBALS['scopeDiscoveryPublicPostTypes'] = ['page' => 'Page'];
+    $throws(
+        static fn() => (new ScopeDiscovery($policy))->gaps(),
+        'malformed native name map',
+        'scope discovery refuses an aliased WordPress names-output map before candidate expansion'
+    );
+    $GLOBALS['scopeDiscoveryPublicPostTypes'] = array_fill(0, 4097, 'page');
+    $throws(
+        static fn() => (new ScopeDiscovery($policy))->gaps(),
+        'bounded type limit',
+        'scope discovery rejects a saturated runtime post-type roster before candidate expansion'
+    );
+    $GLOBALS['scopeDiscoveryPublicPostTypes'] = $savedPublicPostTypes;
+
+    $savedPluginTaxonomies = $GLOBALS['scopeDiscoveryPluginTaxonomies'];
+    $GLOBALS['scopeDiscoveryPluginTaxonomies'] = ["bad\0taxonomy"];
+    $throws(
+        static fn() => (new ScopeDiscovery($policy))->gaps(),
+        'plugin taxonomy registry contains a malformed',
+        'scope discovery rejects hostile runtime taxonomy names before candidate expansion'
+    );
+    $GLOBALS['scopeDiscoveryPluginTaxonomies'] = $savedPluginTaxonomies;
+
+    foreach ([
+        [['post_type' => 'bad type', 'entities' => '1']],
+        [['post_type' => 'book', 'entities' => '01']],
+        [
+            ['post_type' => 'book', 'entities' => '1'],
+            ['post_type' => 'book', 'entities' => '1'],
+        ],
+    ] as $badRows) {
+        $wpdb = new ScopeDiscoveryWpdbFixture();
+        $wpdb->responses['post-gaps'] = $badRows;
+        $GLOBALS['wpdb'] = $wpdb;
+        $throws(
+            static fn() => (new ScopeDiscovery($policy))->gaps(),
+            'malformed/duplicate row',
+            'post-type scope discovery refuses malformed identities, loose counts, and duplicates'
+        );
+    }
+
+    $wpdb = new ScopeDiscoveryWpdbFixture();
+    $wpdb->responses['post-preflight'] = [[
+        'row_count' => '1000001',
+        'total_bytes' => '8192',
+        'max_row_bytes' => '4096',
+    ]];
+    $GLOBALS['wpdb'] = $wpdb;
+    $throws(
+        static fn() => (new ScopeDiscovery($policy))->posts(),
+        'bounded row/byte frontier',
+        'post scope discovery refuses a saturated compact row-count preflight before payload transfer'
+    );
+    $check(!in_array('posts', $wpdb->queries, true), 'post saturation refuses before the full-value query');
+
+    $wpdb = new ScopeDiscoveryWpdbFixture();
+    $wpdb->responses['post-preflight'] = [[
+        'row_count' => '100000',
+        'total_bytes' => '8192',
+        'max_row_bytes' => '4096',
+    ]];
+    $GLOBALS['wpdb'] = $wpdb;
+    $throws(
+        static fn() => (new ScopeDiscovery($policy))->posts(),
+        'bounded PHP allocation frontier',
+        'post discovery accounts for materialized wpdb object overhead and refuses before payload transfer'
+    );
+    $check(!in_array('posts', $wpdb->queries, true), 'allocation saturation refuses before the full-value query');
+
+    $wpdb = new ScopeDiscoveryWpdbFixture();
+    $wpdb->responses['post-preflight'] = [[
+        'row_count' => '2',
+        'total_bytes' => '268435457',
+        'max_row_bytes' => '4096',
+    ]];
+    $GLOBALS['wpdb'] = $wpdb;
+    $throws(
+        static fn() => (new ScopeDiscovery($policy))->posts(),
+        'bounded row/byte frontier',
+        'post scope discovery refuses aggregate payload bytes before the full-value query'
+    );
+
+    $wpdb = new ScopeDiscoveryWpdbFixture();
+    $wpdb->responses['posts'] = [(object) ['ID' => '2'], (object) ['ID' => '2']];
+    $GLOBALS['wpdb'] = $wpdb;
+    $throws(
+        static fn() => (new ScopeDiscovery($policy))->posts(),
+        'malformed/duplicate row',
+        'post scope discovery refuses duplicate canonical identities after its bounded preflight'
+    );
+
+    $wpdb = new ScopeDiscoveryWpdbFixture();
+    $wpdb->responses['term-preflight'] = [[
+        'row_count' => '2',
+        'total_bytes' => '134217729',
+        'max_row_bytes' => '4096',
+    ]];
+    $GLOBALS['wpdb'] = $wpdb;
+    $throws(
+        static fn() => (new ScopeDiscovery($policy))->terms(),
+        'bounded row/byte frontier',
+        'term scope discovery refuses aggregate payload bytes before the full-value query'
+    );
+    $check(!in_array('terms', $wpdb->queries, true), 'term saturation refuses before the full-value query');
+
+    $wpdb = new ScopeDiscoveryWpdbFixture();
+    $wpdb->responses['terms'] = [
+        (object) [
+            'term_id' => '4',
+            'name' => 'General',
+            'slug' => 'general',
+            'term_group' => '0',
+            'term_taxonomy_id' => '14',
+            'taxonomy' => 'category',
+            'description' => '',
+            'parent' => '01',
+        ],
+        (object) [
+            'term_id' => '11',
+            'name' => 'Linked',
+            'slug' => 'linked',
+            'term_group' => '37',
+            'term_taxonomy_id' => '21',
+            'taxonomy' => 'term_link',
+            'description' => '',
+            'parent' => '4',
+        ],
+    ];
+    $GLOBALS['wpdb'] = $wpdb;
+    $throws(
+        static fn() => (new ScopeDiscovery($policy))->terms(),
+        'malformed/duplicate row',
+        'term scope discovery refuses noncanonical driver identities and parent values'
+    );
+
+    $wpdb = new ScopeDiscoveryWpdbFixture();
+    $wpdb->responses['terms'] = false;
+    $GLOBALS['wpdb'] = $wpdb;
+    $throws(
+        static fn() => (new ScopeDiscovery($policy))->terms(),
+        'term discovery read failed',
+        'term scope discovery refuses a failed payload read instead of publishing an empty roster'
     );
 
     $captureSource = file_get_contents(__DIR__ . '/../../../../agent/src/Capture/Capture.php');

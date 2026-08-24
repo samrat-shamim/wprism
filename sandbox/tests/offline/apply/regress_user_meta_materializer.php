@@ -18,11 +18,29 @@ if (!function_exists('maybe_serialize')) {
     }
 }
 $cacheEvents = [];
+$cacheGenerationEvents = [];
+$cacheGenerationCalls = 0;
+$cacheGenerationThrowAt = null;
 $cacheDeleteResult = false;
+$cacheDeleteCalls = 0;
+$cacheDeleteThrowAt = null;
 function wp_cache_delete($key, $group = ''): bool {
-    global $cacheEvents, $cacheDeleteResult;
+    global $cacheEvents, $cacheDeleteResult, $cacheDeleteCalls, $cacheDeleteThrowAt;
+    ++$cacheDeleteCalls;
     $cacheEvents[] = [(string) $group, (string) $key];
+    if ($cacheDeleteThrowAt === $cacheDeleteCalls) {
+        throw new RuntimeException('fixture first cache primitive failed');
+    }
     return $cacheDeleteResult;
+}
+function wp_cache_set($key, $value, $group = '', $expire = 0): bool {
+    global $cacheGenerationEvents, $cacheGenerationCalls, $cacheGenerationThrowAt;
+    ++$cacheGenerationCalls;
+    $cacheGenerationEvents[] = [(string) $group, (string) $key];
+    if ($cacheGenerationThrowAt === $cacheGenerationCalls) {
+        throw new RuntimeException('fixture last cache primitive failed');
+    }
+    return true;
 }
 
 require_once __DIR__ . '/../../../../agent/src/Kernel/TransientDbException.php';
@@ -150,7 +168,9 @@ final class UserMetaMaterializerWpdb {
             if ($this->forcedMetaRows !== null) {
                 if ($this->forcedMetaRows === 'oversized-value') {
                     return [['meta_id' => '51', 'meta_key_bytes' => '15',
-                        'meta_value_bytes' => (string) (MetaRows::MAX_META_VALUE_BYTES + 1)]];
+                        'meta_value_bytes' => (string) (MetaRows::MAX_META_VALUE_BYTES + 1),
+                        'meta_key_sha256' => hash('sha256', 'description_en'),
+                        'meta_value_sha256' => hash('sha256', 'value')]];
                 }
                 $forced = $this->forcedRead($this->forcedMetaRows, 'meta');
                 if ($preflight && is_array($forced) && array_is_list($forced)) {
@@ -167,6 +187,10 @@ final class UserMetaMaterializerWpdb {
                             'meta_value_bytes' => $row['meta_value'] === null
                                 ? null
                                 : (string) strlen($row['meta_value']),
+                            'meta_key_sha256' => hash('sha256', $row['meta_key']),
+                            'meta_value_sha256' => $row['meta_value'] === null
+                                ? null
+                                : hash('sha256', $row['meta_value']),
                         ];
                     }, $forced);
                 }
@@ -183,6 +207,10 @@ final class UserMetaMaterializerWpdb {
                 'meta_value_bytes' => $row['meta_value'] === null
                     ? null
                     : (string) strlen($row['meta_value']),
+                'meta_key_sha256' => hash('sha256', $row['meta_key']),
+                'meta_value_sha256' => $row['meta_value'] === null
+                    ? null
+                    : hash('sha256', $row['meta_value']),
             ] : [
                 'meta_id' => (string) $row['umeta_id'],
                 'meta_key' => $row['meta_key'],
@@ -281,6 +309,7 @@ $interpreterInstances->setValue($policy, ['nullable-fixture' => $nullableInterpr
 $tokens = new Tokens('https://source.test', 'https://source.test/wp-content/uploads');
 $field = new ApplyFieldMaterializer($policy, $tokens);
 $subject = new UserMetaMaterializer($policy, $tokens, $field);
+\Duo\CacheInvalidationTransaction::begin();
 $wpdb = new UserMetaMaterializerWpdb();
 $wpdb->userRows = [['ID' => 17, 'user_login' => 'Editor'], ['ID' => 18, 'user_login' => 'Viewer']];
 $wpdb->metaRows = [
@@ -327,8 +356,11 @@ $check(
         && count(array_filter($editor, static fn(array $row): bool => $row['meta_key'] === 'nullable_owned')) === 0,
     'product path canonicalizes exact authored rows, preserves collation-equal aliases/runtime SQL NULL, and uses its empty-string first-row context'
 );
-$check($cacheEvents === [['user_meta', '17']],
-    'successful user-meta reconciliation purges the cache while accepting an absent cache key');
+$check(
+    $cacheEvents === [['user_meta', '17']]
+        && $cacheGenerationEvents === [['users', 'last_changed']],
+    'successful user-meta reconciliation purges the owner cache and advances the users query generation'
+);
 $loginLock = static fn(string $sql): bool => str_contains($sql, 'FROM wp_users FORCE INDEX (`user_login_key`)')
     && str_contains($sql, 'LIMIT 3 FOR UPDATE');
 $ownerLock = static fn(string $sql): bool => str_contains($sql, 'FROM `wp_usermeta` FORCE INDEX (`user_id`)')
@@ -457,9 +489,97 @@ $check($failure !== null && str_contains($failure->getMessage(), 'disappeared af
     && $wpdb->metaRows === $beforeMissing,
     'a deleted exact user refuses before orphaning user-meta state');
 
+\Duo\CacheInvalidationTransaction::end();
+\Duo\CacheInvalidationTransaction::begin();
+$cacheEvents = [];
+$cacheGenerationEvents = [];
+$cacheDeleteCalls = 0;
+$cacheDeleteThrowAt = 1;
+try {
+    \Duo\CacheInvalidationTransaction::queue_user_meta(17, 'user-meta composite failure fixture');
+    $compositeFailure = null;
+} catch (Throwable $failure) {
+    $compositeFailure = $failure;
+}
+$check(
+    $compositeFailure !== null
+        && str_contains($compositeFailure->getMessage(), 'complete composite')
+        && $cacheEvents === [['user_meta', '17']]
+        && $cacheGenerationEvents === [['users', 'last_changed']],
+    'a first owner-cache failure still attempts the already-registered users generation'
+);
+$cacheDeleteThrowAt = null;
+\Duo\CacheInvalidationTransaction::finish();
+$check(
+    $cacheEvents === [['user_meta', '17'], ['user_meta', '17']]
+        && $cacheGenerationEvents === [['users', 'last_changed'], ['users', 'last_changed']],
+    'post-outcome finish retries every user-meta composite primitive registered before the failure'
+);
+\Duo\CacheInvalidationTransaction::end();
+\Duo\CacheInvalidationTransaction::begin();
+$cacheEvents = [];
+$cacheGenerationEvents = [];
+$cacheDeleteCalls = 0;
+$cacheDeleteThrowAt = null;
+$cacheGenerationCalls = 0;
+$cacheGenerationThrowAt = 1;
+try {
+    \Duo\CacheInvalidationTransaction::queue_user_meta(17, 'user-meta generation failure fixture');
+    $generationFailure = null;
+} catch (Throwable $failure) {
+    $generationFailure = $failure;
+}
+$check(
+    $generationFailure !== null
+        && str_contains($generationFailure->getMessage(), 'complete composite')
+        && $cacheEvents === [['user_meta', '17']]
+        && $cacheGenerationEvents === [['users', 'last_changed']],
+    'a last generation failure occurs only after the owner-cache primitive was attempted'
+);
+$cacheGenerationThrowAt = null;
+\Duo\CacheInvalidationTransaction::finish();
+$check(
+    $cacheEvents === [['user_meta', '17'], ['user_meta', '17']]
+        && $cacheGenerationEvents === [['users', 'last_changed'], ['users', 'last_changed']],
+    'post-outcome finish retries both user-meta primitives after a last-position failure'
+);
+\Duo\CacheInvalidationTransaction::end();
+\Duo\CacheInvalidationTransaction::begin();
+$cacheEvents = [];
+$cacheGenerationEvents = [];
+$cacheDeleteCalls = 0;
+$cacheDeleteThrowAt = 2;
+$cacheGenerationCalls = 0;
+$cacheGenerationThrowAt = null;
+try {
+    \Duo\CacheInvalidationTransaction::queue_option('fixture_option', 'middle cache failure fixture');
+    $middleFailure = null;
+} catch (Throwable $failure) {
+    $middleFailure = $failure;
+}
+$optionComposite = [
+    ['options', 'fixture_option'],
+    ['options', 'alloptions'],
+    ['options', 'notoptions'],
+];
+$check(
+    $middleFailure !== null
+        && str_contains($middleFailure->getMessage(), 'complete composite')
+        && $cacheEvents === $optionComposite,
+    'a middle primitive failure still attempts every pre-registered member of a larger cache composite'
+);
+$cacheDeleteThrowAt = null;
+\Duo\CacheInvalidationTransaction::finish();
+$check(
+    $cacheEvents === array_merge($optionComposite, $optionComposite),
+    'post-outcome finish retries the complete larger composite after a middle-position failure'
+);
+
 if ($failures) {
+    \Duo\CacheInvalidationTransaction::end();
     echo "\n" . count($failures) . " failure(s):\n";
     foreach ($failures as $failure) echo "  - $failure\n";
     exit(1);
 }
+\Duo\CacheInvalidationTransaction::end();
 echo "\nall UserMetaMaterializer product-path checks passed\n";

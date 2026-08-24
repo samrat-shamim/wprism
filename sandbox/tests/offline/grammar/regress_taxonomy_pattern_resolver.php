@@ -5,6 +5,10 @@
  */
 declare(strict_types=1);
 
+if (!defined('ARRAY_A')) {
+    define('ARRAY_A', 'ARRAY_A');
+}
+
 $root = dirname(__DIR__, 4);
 $resolverPath = "$root/agent/src/Grammar/TaxonomyPatternResolver.php";
 $failures = [];
@@ -73,12 +77,15 @@ $check(
             'match' => '^pa_',
             'object_type' => ['product', 'product_variation'],
             'update_count_callback' => 'wc_update_product_terms',
+            'hierarchical' => null,
             'object_keyspace' => 'term',
             'source' => "manifest 'first' taxonomy_patterns[0]",
         ]
         && ($rules[1]['object_keyspace'] ?? null) === 'post'
         && array_key_exists('update_count_callback', $rules[1])
-        && $rules[1]['update_count_callback'] === null,
+        && $rules[1]['update_count_callback'] === null
+        && array_key_exists('hierarchical', $rules[1])
+        && $rules[1]['hierarchical'] === null,
     'resolver preserves pin/declaration order, normalizes object types, and applies legacy defaults'
 );
 $check(
@@ -111,6 +118,30 @@ $assertThrows(
     'ambiguous taxonomy_patterns contracts',
     'concrete overlapping patterns with distinct object_type contracts refuse instead of choosing pin order'
 );
+
+$patternHierarchy = static function (?bool $first, ?bool $second): TaxonomyPatternResolver {
+    $rule = static function (string $name, ?bool $hierarchical): array {
+        $pattern = [
+            'match' => '^pa_color$',
+            'object_type' => ['product'],
+        ];
+        if ($hierarchical !== null) {
+            $pattern['hierarchical'] = $hierarchical;
+        }
+        return ['name' => $name, 'taxonomy_patterns' => [$pattern]];
+    };
+    return new TaxonomyPatternResolver([
+        $rule('first', $first),
+        $rule('second', $second),
+    ]);
+};
+foreach ([[null, false], [false, null], [null, true], [true, null], [false, true], [true, false]] as [$first, $second]) {
+    $assertThrows(
+        static fn() => $patternHierarchy($first, $second)->match('pa_color'),
+        'ambiguous taxonomy_patterns contracts',
+        'overlapping patterns distinguish omitted, false, and true hierarchy declarations in both source orders'
+    );
+}
 $keyspaceAmbiguous = new TaxonomyPatternResolver([
     $manifests[0],
     [
@@ -150,6 +181,87 @@ $check(
     'Policy builds a fresh resolver for each facade call so public fixture mutations are observed'
 );
 
+final class TaxonomyPatternWpdbFixture {
+    public string $term_taxonomy = 'wp_term_taxonomy';
+    public string $last_error = '';
+    public string $next_error = '';
+    public mixed $result = [
+        ['taxonomy' => 'category'],
+        ['taxonomy' => 'pa_color'],
+        ['taxonomy' => 'pa_size'],
+        ['taxonomy' => 'unowned'],
+    ];
+    public string $query = '';
+
+    public function get_results(string $query, mixed $mode = null): mixed {
+        $this->query = $query;
+        $this->last_error = $this->next_error;
+        return $this->result;
+    }
+}
+
+$scopePolicy = new Duo\Policy();
+$scopePolicy->manifests = [[
+    'name' => 'woocommerce',
+    'taxonomy_patterns' => [[
+        'match' => '^pa_',
+        'object_type' => ['product'],
+    ]],
+]];
+$scopeWpdb = new TaxonomyPatternWpdbFixture();
+$GLOBALS['wpdb'] = $scopeWpdb;
+$check(
+    $scopePolicy->taxonomies() === ['category', 'post_tag', 'pa_color', 'pa_size'],
+    'Policy expands only exact checked live taxonomy names matching a declared pattern'
+);
+$check(
+    str_contains($scopeWpdb->query, 'SELECT BINARY taxonomy AS taxonomy')
+        && str_contains($scopeWpdb->query, 'ORDER BY BINARY taxonomy ASC LIMIT 4097'),
+    'taxonomy-pattern expansion uses a bounded byte-identity query instead of an unchecked get_col scan'
+);
+foreach ([false, null, ['taxonomy' => 'pa_color']] as $badResult) {
+    $scopeWpdb = new TaxonomyPatternWpdbFixture();
+    $scopeWpdb->result = $badResult;
+    $GLOBALS['wpdb'] = $scopeWpdb;
+    $assertThrows(
+        static fn() => $scopePolicy->taxonomies(),
+        'taxonomy-pattern scope discovery read failed',
+        'taxonomy-pattern expansion rejects false, null, and non-list driver results'
+    );
+}
+$scopeWpdb = new TaxonomyPatternWpdbFixture();
+$scopeWpdb->next_error = 'fixture database error';
+$GLOBALS['wpdb'] = $scopeWpdb;
+$assertThrows(
+    static fn() => $scopePolicy->taxonomies(),
+    'taxonomy-pattern scope discovery read failed',
+    'taxonomy-pattern expansion rejects a value returned with a database error'
+);
+foreach ([
+    [['taxonomy' => 'Pa_Color']],
+    [['taxonomy' => "pa_\0color"]],
+    [['taxonomy' => str_repeat('x', 33)]],
+    [['taxonomy' => 'pa_color'], ['taxonomy' => 'pa_color']],
+    [['taxonomy' => 'pa_color', 'extra' => 'x']],
+] as $badRows) {
+    $scopeWpdb = new TaxonomyPatternWpdbFixture();
+    $scopeWpdb->result = $badRows;
+    $GLOBALS['wpdb'] = $scopeWpdb;
+    $assertThrows(
+        static fn() => $scopePolicy->taxonomies(),
+        'malformed/duplicate row',
+        'taxonomy-pattern expansion rejects malformed identities, aliases, extra columns, and duplicates'
+    );
+}
+$scopeWpdb = new TaxonomyPatternWpdbFixture();
+$scopeWpdb->result = array_fill(0, 4097, ['taxonomy' => 'pa_color']);
+$GLOBALS['wpdb'] = $scopeWpdb;
+$assertThrows(
+    static fn() => $scopePolicy->taxonomies(),
+    'bounded taxonomy limit',
+    'taxonomy-pattern expansion rejects saturation before processing live names'
+);
+
 $policySource = (string) file_get_contents("$root/agent/src/Policy/Policy.php");
 $check(
     substr_count($policySource, "require_once __DIR__ . '/../Grammar/TaxonomyPatternResolver.php';") === 1
@@ -167,17 +279,18 @@ $check(
 // ---- round-3 T5: exact registration declarations (taxonomies.<tax>.object_type)
 $exact = new TaxonomyPatternResolver([
     ['name' => 'woocommerce', 'taxonomies' => [
-        'product_cat' => ['class' => 'authored', 'object_type' => ['product'], 'update_count_callback' => '_wc_term_recount'],
+        'product_cat' => ['class' => 'authored', 'object_type' => ['product'], 'update_count_callback' => '_wc_term_recount', 'hierarchical' => true],
         'product_type' => ['class' => 'authored', 'object_type' => ['product_variation', 'product']],
         'product_visibility' => ['class' => 'runtime'],
     ], 'taxonomy_patterns' => [
-        ['match' => '^pa_', 'object_type' => ['product'], 'update_count_callback' => '_update_post_term_count'],
+        ['match' => '^pa_', 'object_type' => ['product'], 'update_count_callback' => '_update_post_term_count', 'hierarchical' => false],
     ]],
 ]);
 $check(
     $exact->declaredRegistration('product_cat') === [
         'object_type' => ['product'],
         'update_count_callback' => '_wc_term_recount',
+        'hierarchical' => true,
         'source' => "manifest 'woocommerce' taxonomies.product_cat",
     ],
     'an exact taxonomies.<tax>.object_type declaration is served with its callback and source'
@@ -186,6 +299,7 @@ $check(
     $exact->declaredRegistration('product_type') === [
         'object_type' => ['product', 'product_variation'],
         'update_count_callback' => null,
+        'hierarchical' => null,
         'source' => "manifest 'woocommerce' taxonomies.product_type",
     ],
     'object types are sorted and a missing callback is null, as for a pattern rule'
@@ -204,12 +318,58 @@ $assertThrows(
     'two manifests declaring different registration facts for one exact taxonomy refuse'
 );
 
+$exactHierarchy = static function (?bool $first, ?bool $second): TaxonomyPatternResolver {
+    $rule = static function (string $name, ?bool $hierarchical): array {
+        $taxonomy = ['class' => 'authored', 'object_type' => ['post']];
+        if ($hierarchical !== null) {
+            $taxonomy['hierarchical'] = $hierarchical;
+        }
+        return ['name' => $name, 'taxonomies' => ['shared' => $taxonomy]];
+    };
+    return new TaxonomyPatternResolver([
+        $rule('first', $first),
+        $rule('second', $second),
+    ]);
+};
+foreach ([[null, false], [false, null], [null, true], [true, null], [false, true], [true, false]] as [$first, $second]) {
+    $assertThrows(
+        static fn() => $exactHierarchy($first, $second)->declaredRegistration('shared'),
+        'ambiguous registration declarations',
+        'exact declarations distinguish omitted, false, and true hierarchy facts in both source orders'
+    );
+}
+
+$exactPatternHierarchy = static function (?bool $exactHierarchy, bool $patternHierarchy): Duo\Policy {
+    $exactRule = ['class' => 'authored', 'object_type' => ['product']];
+    if ($exactHierarchy !== null) {
+        $exactRule['hierarchical'] = $exactHierarchy;
+    }
+    $policy = new Duo\Policy();
+    $policy->manifests = [[
+        'name' => 'taxonomy-owner',
+        'taxonomies' => ['pa_color' => $exactRule],
+        'taxonomy_patterns' => [[
+            'match' => '^pa_',
+            'object_type' => ['product'],
+            'hierarchical' => $patternHierarchy,
+        ]],
+    ]];
+    return $policy;
+};
+$check(
+    $exactPatternHierarchy(null, false)->declared_taxonomy_hierarchical('pa_color') === false
+        && $exactPatternHierarchy(null, true)->declared_taxonomy_hierarchical('pa_color') === true
+        && $exactPatternHierarchy(false, true)->declared_taxonomy_hierarchical('pa_color') === false
+        && $exactPatternHierarchy(true, false)->declared_taxonomy_hierarchical('pa_color') === true,
+    'exact hierarchy facts take strict precedence while an omitted exact fact falls through to the reviewed pattern fact'
+);
+
 $policy = new Duo\Policy();
 $policy->manifests = [
     ['name' => 'woocommerce', 'taxonomies' => [
-        'product_cat' => ['class' => 'authored', 'object_type' => ['product'], 'update_count_callback' => '_wc_term_recount'],
+        'product_cat' => ['class' => 'authored', 'object_type' => ['product'], 'update_count_callback' => '_wc_term_recount', 'hierarchical' => true],
     ], 'taxonomy_patterns' => [
-        ['match' => '^pa_', 'object_type' => ['product'], 'update_count_callback' => '_update_post_term_count'],
+        ['match' => '^pa_', 'object_type' => ['product'], 'update_count_callback' => '_update_post_term_count', 'hierarchical' => false],
     ]],
 ];
 $check(
@@ -217,6 +377,9 @@ $check(
         && $policy->declared_update_count_callback('product_cat') === '_wc_term_recount'
         && $policy->declared_object_type('pa_color') === ['product']
         && $policy->declared_update_count_callback('pa_color') === '_update_post_term_count'
+        && $policy->declared_taxonomy_hierarchical('product_cat') === true
+        && $policy->declared_taxonomy_hierarchical('pa_color') === false
+        && $policy->declared_taxonomy_hierarchical('unknown_tax') === null
         && $policy->declared_object_type('unknown_tax') === null
         && $policy->declared_update_count_callback('unknown_tax') === null
         && $policy->pattern_object_type('product_cat') === null,

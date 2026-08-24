@@ -132,6 +132,7 @@ final class OptionsCapture {
                 $name,
                 $rule,
                 $source,
+                $allOptionValues,
                 $forceUnresolvedRefs,
                 $liveCanonicalNames,
                 $out
@@ -160,6 +161,7 @@ final class OptionsCapture {
                     'autoload' => $resolved['autoload'],
                 ],
                 'dynamic_options',
+                $allOptionValues,
                 $forceUnresolvedRefs,
                 $liveCanonicalNames,
                 $out
@@ -333,6 +335,7 @@ final class OptionsCapture {
         string $name,
         array $rule,
         ?string $ruleSource,
+        array $allOptionValues,
         bool $forceUnresolvedRefs,
         array &$liveCanonicalNames,
         array &$out
@@ -368,7 +371,8 @@ final class OptionsCapture {
             $name,
             $rawAuthored,
             $rule,
-            $ruleSource
+            $ruleSource,
+            $allOptionValues
         );
         $sourceAutoload = $row['autoload'] ?? ($rule['absent_autoload'] ?? null);
         if ($row === null && $sourceAutoload === null) {

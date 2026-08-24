@@ -2,6 +2,8 @@
 namespace Duo;
 
 require_once __DIR__ . '/ApplyFieldMaterializer.php';
+require_once __DIR__ . '/CacheInvalidationTransaction.php';
+require_once __DIR__ . '/../Kernel/MetaRows.php';
 
 /**
  * The menu entity materializer (DUO-3347 slice 4, one of the "Entity
@@ -23,6 +25,9 @@ require_once __DIR__ . '/ApplyFieldMaterializer.php';
  * field_materializer() and convergence_verifier() already established.
  */
 final class MenuMaterializer {
+    private const MAX_MENU_ITEMS = 10000;
+    private const MAX_ITEM_RELATIONSHIPS = 10000;
+
     public function __construct(
         private readonly Policy $policy,
         private readonly Tokens $tokens,
@@ -34,24 +39,38 @@ final class MenuMaterializer {
         global $wpdb;
         $menuTermId = Ledger::id_for($front['uuid'], Ledger::KIND_TERM);
         $menuTt = Ledger::id_for($front['uuid'], Ledger::KIND_TT);
-        Db::update($wpdb->terms, ['name' => $front['name'], 'slug' => $front['slug']], ['term_id' => $menuTermId], null, null, 'apply update menu term');
+        CacheInvalidationTransaction::assert_term_taxonomy_prepared('nav_menu', 'apply update menu term');
+        $this->assert_locked_menu_identity(
+            (int) $menuTermId,
+            (int) $menuTt,
+            (string) $front['slug']
+        );
 
-        // existing env items by uuid
-        $envItems = $wpdb->get_results($wpdb->prepare(
-            "SELECT p.ID, pm.meta_value AS uuid FROM {$wpdb->posts} p
-             JOIN {$wpdb->term_relationships} tr ON tr.object_id = p.ID AND tr.term_taxonomy_id = %d
-             LEFT JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID AND pm.meta_key = '_duo_uuid'
-             WHERE p.post_type = 'nav_menu_item'",
-            $menuTt
-        ), ARRAY_A) ?: [];
+        // The menu relationship index range, every referenced post row and
+        // each postmeta owner range are locked before the complete-set diff.
+        // Otherwise a concurrent editor can insert an item/identity after
+        // observation and have it overwritten or deleted by this pass.
+        $envItems = $this->locked_environment_items((int) $menuTt, (string) $front['slug']);
         $environment = $this->index_environment_items($envItems, (string) $front['slug']);
         $envByUuid = $environment['by_uuid'];
+        $ledgerItems = $this->locked_desired_ledger_items(
+            (array) $front['items'],
+            $envByUuid,
+            (int) $menuTt,
+            (string) $front['slug']
+        );
+
+        // Only after every existing/current-menu and ledger-resolved desired
+        // physical row, identity sidecar, and relationship owner range is
+        // locked may the first authored menu mutation occur.
+        Db::update($wpdb->terms, ['name' => $front['name'], 'slug' => $front['slug']], ['term_id' => $menuTermId], null, null, 'apply update menu term');
+        CacheInvalidationTransaction::queue_term((int) $menuTermId, 'nav_menu', 'apply update menu term');
 
         // pass 1: ensure item rows
         $idByUuid = [];
         foreach ($front['items'] as $item) {
             $iu = $item['uuid'];
-            $id = $envByUuid[$iu] ?? Ledger::id_for($iu, Ledger::KIND_POST);
+            $id = $envByUuid[$iu] ?? ($ledgerItems[$iu] ?? null);
             if ($id === null) {
                 Db::insert($wpdb->posts, [
                     'post_author' => 0, 'post_date' => '1970-01-01 00:00:00', 'post_date_gmt' => '1970-01-01 00:00:00',
@@ -67,10 +86,38 @@ final class MenuMaterializer {
                 ], null, 'apply insert menu item');
                 $id = Db::insert_id('apply insert menu item');
                 Db::insert($wpdb->postmeta, ['post_id' => $id, 'meta_key' => '_duo_uuid', 'meta_value' => $iu], null, 'apply insert menu-item identity');
+                $identityRows = $this->fieldMaterializer->meta_owner_range_lock(
+                    $wpdb->postmeta,
+                    'post_id',
+                    "menu {$front['slug']} inserted item identity readback"
+                )->exact_key_rows($id, '_duo_uuid');
+                if (count($identityRows) !== 1
+                    || !is_string($identityRows[0]['meta_value'] ?? null)
+                    || !hash_equals((string) $iu, $identityRows[0]['meta_value'])) {
+                    throw new \RuntimeException(
+                        "duo: menu {$front['slug']} inserted item $id did not persist one exact requested identity"
+                    );
+                }
                 Db::insert($wpdb->term_relationships, [
                     'object_id' => $id, 'term_taxonomy_id' => $menuTt, 'term_order' => 0,
                 ], null, 'apply attach menu item');
+                CacheInvalidationTransaction::queue_relationship($id, 'nav_menu', 'apply attach menu item');
+            } elseif (!isset($envByUuid[$iu])) {
+                // The preflight admits a ledger-resolved row only when it is
+                // one unattached nav_menu_item with the exact requested UUID.
+                // Attach that recoverable partial insert explicitly; silently
+                // updating it would leave the desired menu membership absent.
+                Db::insert($wpdb->term_relationships, [
+                    'object_id' => $id, 'term_taxonomy_id' => $menuTt, 'term_order' => 0,
+                ], null, 'apply attach recovered menu item');
+                CacheInvalidationTransaction::queue_relationship($id, 'nav_menu', 'apply attach recovered menu item');
             }
+            $this->assert_locked_item_membership(
+                (int) $id,
+                (string) $iu,
+                (int) $menuTt,
+                (string) $front['slug']
+            );
             Ledger::set($iu, 'menu_item', Ledger::KIND_POST, $id);
             $idByUuid[$iu] = $id;
         }
@@ -85,6 +132,7 @@ final class MenuMaterializer {
                 'menu_order' => (int) $item['position'],
                 'post_status' => 'publish',
             ], ['ID' => $id], null, null, 'apply update menu item');
+            CacheInvalidationTransaction::queue_post($id, 'nav_menu_item', 'apply update menu item');
 
             $objectId = 0;
             $url = '';
@@ -111,9 +159,44 @@ final class MenuMaterializer {
                 '_menu_item_url' => $url,
             ];
             global $wpdb;
-            foreach ($metas as $k => $v) {
-                $this->fieldMaterializer->upsert_meta($wpdb->postmeta, 'post_id', $id, $k, $v);
+            $lockedMetaRows = $this->fieldMaterializer->meta_owner_range_lock(
+                $wpdb->postmeta,
+                'post_id',
+                "menu {$front['slug']} item managed-meta locking"
+            )->read((int) $id);
+            $exactMetaIds = [];
+            foreach ($lockedMetaRows as $lockedMetaRow) {
+                $slot = "k\0" . $lockedMetaRow['meta_key'];
+                $exactMetaIds[$slot][] = MetaRows::positive_id($lockedMetaRow['meta_id']);
             }
+            foreach ($metas as $k => $v) {
+                $ids = array_values(array_filter(
+                    $exactMetaIds["k\0" . $k] ?? [],
+                    static fn(?int $metaId): bool => $metaId !== null
+                ));
+                foreach (array_slice($ids, 1) as $duplicateId) {
+                    Db::delete(
+                        $wpdb->postmeta,
+                        ['meta_id' => $duplicateId],
+                        null,
+                        "apply delete duplicate menu-item managed meta '$k'"
+                    );
+                }
+                $this->fieldMaterializer->upsert_locked_authored_meta(
+                    $wpdb->postmeta,
+                    'post_id',
+                    (int) $id,
+                    $k,
+                    $v,
+                    $ids[0] ?? null,
+                    "apply reconcile menu-item managed meta '$k'"
+                );
+            }
+            CacheInvalidationTransaction::queue(
+                (int) $id,
+                'post_meta',
+                "menu {$front['slug']} managed-meta reconciliation"
+            );
 
             // DUO-3266: any OTHER meta a manifest classifies authored on
             // this item (a plugin's own menu-item field, now captured —
@@ -125,6 +208,12 @@ final class MenuMaterializer {
             // acts on rows policy calls 'authored') can't touch them, and
             // capture never puts them in item['meta'] either.
             $this->fieldMaterializer->reconcile_authored_meta($id, (array) ($item['meta'] ?? []), 'menu-item');
+            $this->assert_locked_item_membership(
+                (int) $id,
+                (string) $item['uuid'],
+                (int) $menuTt,
+                (string) $front['slug']
+            );
         }
 
         // The menu file owns the complete item set once the menu itself is
@@ -137,18 +226,11 @@ final class MenuMaterializer {
         // cleanup. Refuse an item shared with another taxonomy instead of
         // deleting a post whose ownership extends outside this menu.
         foreach ($this->obsolete_environment_items($environment['by_id'], $idByUuid) as $id => $uuid) {
-            $wpdb->last_error = '';
-            $otherRelationships = $wpdb->get_col($wpdb->prepare(
-                "SELECT term_taxonomy_id FROM {$wpdb->term_relationships}
-                 WHERE object_id = %d AND term_taxonomy_id <> %d ORDER BY term_taxonomy_id ASC",
-                $id,
-                $menuTt
-            ));
-            if ((string) ($wpdb->last_error ?? '') !== '') {
-                throw new \RuntimeException(
-                    "duo: menu {$front['slug']}: could not verify relationship ownership for target item $id"
-                );
-            }
+            $otherRelationships = $this->locked_other_relationships(
+                (int) $id,
+                (int) $menuTt,
+                (string) $front['slug']
+            );
             if ($otherRelationships !== []) {
                 throw new \RuntimeException(
                     "duo: menu {$front['slug']}: target item $id has relationships outside this menu; refusing destructive reconciliation"
@@ -157,6 +239,8 @@ final class MenuMaterializer {
             Db::delete($wpdb->term_relationships, ['object_id' => $id, 'term_taxonomy_id' => $menuTt], null, 'apply detach removed menu item');
             Db::delete($wpdb->postmeta, ['post_id' => $id], null, 'apply delete removed menu-item meta');
             Db::delete($wpdb->posts, ['ID' => $id], null, 'apply delete removed menu item');
+            CacheInvalidationTransaction::queue_relationship($id, 'nav_menu', 'apply detach removed menu item');
+            CacheInvalidationTransaction::queue_post($id, 'nav_menu_item', 'apply delete removed menu item');
             if ($uuid !== null) {
                 Ledger::forget($uuid);
             }
@@ -180,12 +264,21 @@ final class MenuMaterializer {
     }
 
     public function assign_locations(int $menuTermId, array $locations): void {
-        global $wpdb;
-        $name = 'theme_mods_' . (string) get_option('stylesheet');
-        $raw = $wpdb->get_var($wpdb->prepare(
-            "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1", $name
-        ));
-        $mods = $raw !== null ? PlainData::decode($raw, "option '$name'") : [];
+        $stylesheetRow = CacheInvalidationTransaction::lock_option_row(
+            'stylesheet',
+            'menu location active stylesheet locking'
+        );
+        $stylesheet = $stylesheetRow['option_value'] ?? null;
+        if (!is_string($stylesheet)
+            || $stylesheet === ''
+            || strlen($stylesheet) > 764
+            || preg_match('//u', $stylesheet) !== 1
+            || preg_match('/[\x00-\x1F\x7F]/', $stylesheet) === 1) {
+            throw new \RuntimeException('duo: menu location active stylesheet row is absent or malformed');
+        }
+        $name = 'theme_mods_' . $stylesheet;
+        $locked = CacheInvalidationTransaction::lock_option_row($name, 'menu location theme-mod locking');
+        $mods = $locked !== null ? PlainData::decode($locked['option_value'], "option '$name'") : [];
         if (!is_array($mods)) {
             $mods = [];
         }
@@ -204,6 +297,273 @@ final class MenuMaterializer {
         // that bespoke contract explicit instead of borrowing authored-row
         // policy from state/options/core.json.
         $this->fieldMaterializer->upsert_option($name, serialize($mods), 'yes');
+    }
+
+    private function assert_locked_menu_identity(int $termId, int $termTaxonomyId, string $menuSlug): void {
+        global $wpdb;
+        if ($termId <= 0 || $termTaxonomyId <= 0) {
+            throw new \RuntimeException("duo: menu $menuSlug has no valid physical term/taxonomy identities");
+        }
+        $termIndex = $this->fieldMaterializer->proven_lock_index(
+            $wpdb->terms,
+            'term_id',
+            "menu $menuSlug term identity locking",
+            true
+        );
+        $wpdb->last_error = '';
+        $termRows = $wpdb->get_results($wpdb->prepare(
+            "SELECT term_id FROM {$wpdb->terms} FORCE INDEX (`$termIndex`) "
+            . 'WHERE term_id = %d ORDER BY term_id ASC LIMIT 2 FOR UPDATE',
+            $termId
+        ), ARRAY_A);
+        if (!is_array($termRows)
+            || !array_is_list($termRows)
+            || count($termRows) !== 1
+            || trim((string) ($wpdb->last_error ?? '')) !== ''
+            || !is_array($termRows[0])
+            || array_keys($termRows[0]) !== ['term_id']
+            || MetaRows::positive_id($termRows[0]['term_id'] ?? null) !== $termId) {
+            throw new \RuntimeException("duo: menu $menuSlug exact term identity lock/read failed");
+        }
+
+        $taxonomyIndex = $this->fieldMaterializer->proven_lock_index(
+            $wpdb->term_taxonomy,
+            'term_taxonomy_id',
+            "menu $menuSlug taxonomy identity locking",
+            true
+        );
+        $wpdb->last_error = '';
+        $taxonomyRows = $wpdb->get_results($wpdb->prepare(
+            "SELECT term_taxonomy_id, term_id, taxonomy FROM {$wpdb->term_taxonomy} "
+            . "FORCE INDEX (`$taxonomyIndex`) WHERE term_taxonomy_id = %d "
+            . 'ORDER BY term_taxonomy_id ASC LIMIT 2 FOR UPDATE',
+            $termTaxonomyId
+        ), ARRAY_A);
+        if (!is_array($taxonomyRows)
+            || !array_is_list($taxonomyRows)
+            || count($taxonomyRows) !== 1
+            || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException("duo: menu $menuSlug exact taxonomy identity lock/read failed");
+        }
+        $taxonomyRow = $taxonomyRows[0];
+        if (!is_array($taxonomyRow)
+            || array_keys($taxonomyRow) !== ['term_taxonomy_id', 'term_id', 'taxonomy']
+            || MetaRows::positive_id($taxonomyRow['term_taxonomy_id'] ?? null) !== $termTaxonomyId
+            || MetaRows::positive_id($taxonomyRow['term_id'] ?? null) !== $termId
+            || !is_string($taxonomyRow['taxonomy'] ?? null)
+            || !hash_equals('nav_menu', $taxonomyRow['taxonomy'])) {
+            throw new \RuntimeException("duo: menu $menuSlug taxonomy identity contradicts its term or native taxonomy");
+        }
+    }
+
+    /** @return array<string,int> desired UUID => proven unattached local row */
+    private function locked_desired_ledger_items(
+        array $items,
+        array $environmentByUuid,
+        int $menuTermTaxonomyId,
+        string $menuSlug
+    ): array {
+        $byId = [];
+        foreach ($items as $item) {
+            $uuid = is_array($item) ? ($item['uuid'] ?? null) : null;
+            if (!is_string($uuid) || $uuid === '' || isset($environmentByUuid[$uuid])) {
+                continue;
+            }
+            $id = Ledger::id_for($uuid, Ledger::KIND_POST);
+            if ($id === null) {
+                continue;
+            }
+            if ($id <= 0 || (isset($byId[$id]) && !hash_equals($byId[$id], $uuid))) {
+                throw new \RuntimeException("duo: menu $menuSlug desired ledger identities are malformed or collide");
+            }
+            $byId[$id] = $uuid;
+        }
+        ksort($byId, SORT_NUMERIC);
+        $out = [];
+        foreach ($byId as $id => $uuid) {
+            $this->assert_locked_item_post((int) $id, $menuSlug);
+            $this->assert_locked_item_identity((int) $id, $uuid, $menuSlug);
+            $relationships = $this->locked_item_relationships((int) $id, $menuSlug);
+            if ($relationships !== []) {
+                throw new \RuntimeException(
+                    "duo: menu $menuSlug ledger-resolved desired item $id already belongs to a menu/taxonomy; refusing cross-menu takeover"
+                );
+            }
+            $out[$uuid] = (int) $id;
+        }
+        return $out;
+    }
+
+    private function assert_locked_item_membership(
+        int $itemId,
+        string $uuid,
+        int $menuTermTaxonomyId,
+        string $menuSlug
+    ): void {
+        $this->assert_locked_item_post($itemId, $menuSlug);
+        $this->assert_locked_item_identity($itemId, $uuid, $menuSlug);
+        if ($this->locked_item_relationships($itemId, $menuSlug) !== [$menuTermTaxonomyId]) {
+            throw new \RuntimeException(
+                "duo: menu $menuSlug item $itemId exact locked relationship readback disagrees with desired membership"
+            );
+        }
+    }
+
+    private function assert_locked_item_post(int $itemId, string $menuSlug): void {
+        global $wpdb;
+        $postIndex = $this->fieldMaterializer->proven_lock_index(
+            $wpdb->posts,
+            'ID',
+            "menu $menuSlug item post locking",
+            true
+        );
+        $wpdb->last_error = '';
+        $postRows = $wpdb->get_results($wpdb->prepare(
+            "SELECT ID, post_type FROM {$wpdb->posts} FORCE INDEX (`$postIndex`) "
+            . 'WHERE ID = %d ORDER BY ID ASC LIMIT 2 FOR UPDATE',
+            $itemId
+        ), ARRAY_A);
+        if (!is_array($postRows)
+            || !array_is_list($postRows)
+            || count($postRows) !== 1
+            || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException("duo: menu $menuSlug item $itemId post lock/read failed");
+        }
+        $post = $postRows[0];
+        if (!is_array($post)
+            || array_keys($post) !== ['ID', 'post_type']
+            || MetaRows::positive_id($post['ID'] ?? null) !== $itemId
+            || !is_string($post['post_type'] ?? null)
+            || !hash_equals('nav_menu_item', $post['post_type'])) {
+            throw new \RuntimeException("duo: menu $menuSlug item $itemId is not one exact nav_menu_item row");
+        }
+    }
+
+    private function assert_locked_item_identity(int $itemId, string $uuid, string $menuSlug): void {
+        global $wpdb;
+        $identity = $this->fieldMaterializer->meta_owner_range_lock(
+            $wpdb->postmeta,
+            'post_id',
+            "menu $menuSlug item identity locking"
+        )->exact_key_rows($itemId, '_duo_uuid');
+        if (count($identity) !== 1
+            || !is_string($identity[0]['meta_value'] ?? null)
+            || !hash_equals($uuid, $identity[0]['meta_value'])) {
+            throw new \RuntimeException("duo: menu $menuSlug item $itemId has a missing, duplicate, or contradictory identity");
+        }
+    }
+
+    /** @return list<array{ID:int,uuid:?string}> */
+    private function locked_environment_items(int $menuTermTaxonomyId, string $menuSlug): array {
+        global $wpdb;
+        if ($menuTermTaxonomyId <= 0) {
+            throw new \RuntimeException("duo: menu $menuSlug has no valid term-taxonomy identity");
+        }
+        $relationshipIndex = $this->fieldMaterializer->proven_lock_index(
+            $wpdb->term_relationships,
+            'term_taxonomy_id',
+            "menu $menuSlug item relationship locking"
+        );
+        $wpdb->last_error = '';
+        $relationshipRows = $wpdb->get_results($wpdb->prepare(
+            "SELECT object_id FROM {$wpdb->term_relationships} FORCE INDEX (`$relationshipIndex`) "
+            . 'WHERE term_taxonomy_id = %d ORDER BY object_id ASC LIMIT ' . (self::MAX_MENU_ITEMS + 1)
+            . ' FOR UPDATE',
+            $menuTermTaxonomyId
+        ), ARRAY_A);
+        if (!is_array($relationshipRows)
+            || !array_is_list($relationshipRows)
+            || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException("duo: menu $menuSlug item relationship lock read failed");
+        }
+        if (count($relationshipRows) > self::MAX_MENU_ITEMS) {
+            throw new \RuntimeException("duo: menu $menuSlug exceeds the bounded item limit");
+        }
+
+        $metaLock = $this->fieldMaterializer->meta_owner_range_lock(
+            $wpdb->postmeta,
+            'post_id',
+            "menu $menuSlug item identity locking"
+        );
+        $out = [];
+        $seen = [];
+        foreach ($relationshipRows as $position => $relationshipRow) {
+            $id = is_array($relationshipRow) && array_keys($relationshipRow) === ['object_id']
+                ? MetaRows::positive_id($relationshipRow['object_id'])
+                : null;
+            if ($id === null || isset($seen[$id])) {
+                throw new \RuntimeException(
+                    "duo: menu $menuSlug item relationship lock returned a malformed/duplicate row at position $position"
+                );
+            }
+            $seen[$id] = true;
+            $this->assert_locked_item_post($id, $menuSlug);
+            $exactIdentity = array_column($metaLock->exact_key_rows($id, '_duo_uuid'), 'meta_value');
+            if (count($exactIdentity) > 1) {
+                throw new \RuntimeException("duo: menu $menuSlug item $id has duplicate exact identity rows");
+            }
+            $uuid = $exactIdentity[0] ?? null;
+            if ($uuid !== null && !is_string($uuid)) {
+                throw new \RuntimeException("duo: menu $menuSlug item $id has a malformed identity value");
+            }
+            if ($this->locked_item_relationships($id, $menuSlug) !== [$menuTermTaxonomyId]) {
+                throw new \RuntimeException(
+                    "duo: menu $menuSlug item $id has relationship ownership outside the exact current menu"
+                );
+            }
+            $out[] = ['ID' => $id, 'uuid' => $uuid];
+        }
+        return $out;
+    }
+
+    /** @return list<int> */
+    private function locked_other_relationships(int $itemId, int $menuTt, string $menuSlug): array {
+        return array_values(array_filter(
+            $this->locked_item_relationships($itemId, $menuSlug),
+            static fn(int $termTaxonomyId): bool => $termTaxonomyId !== $menuTt
+        ));
+    }
+
+    /** @return list<int> */
+    private function locked_item_relationships(int $itemId, string $menuSlug): array {
+        global $wpdb;
+        $index = $this->fieldMaterializer->proven_lock_index(
+            $wpdb->term_relationships,
+            'object_id',
+            "menu $menuSlug item relationship ownership locking"
+        );
+        $wpdb->last_error = '';
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT term_taxonomy_id FROM {$wpdb->term_relationships} FORCE INDEX (`$index`) "
+            . 'WHERE object_id = %d ORDER BY term_taxonomy_id ASC LIMIT '
+            . (self::MAX_ITEM_RELATIONSHIPS + 1) . ' FOR UPDATE',
+            $itemId
+        ), ARRAY_A);
+        if (!is_array($rows)
+            || !array_is_list($rows)
+            || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException(
+                "duo: menu $menuSlug: could not lock relationship ownership for target item $itemId"
+            );
+        }
+        if (count($rows) > self::MAX_ITEM_RELATIONSHIPS) {
+            throw new \RuntimeException("duo: menu $menuSlug item $itemId exceeds the relationship bound");
+        }
+        $relationships = [];
+        $seen = [];
+        foreach ($rows as $position => $row) {
+            $tt = is_array($row) && array_keys($row) === ['term_taxonomy_id']
+                ? MetaRows::positive_id($row['term_taxonomy_id'])
+                : null;
+            if ($tt === null || isset($seen[$tt])) {
+                throw new \RuntimeException(
+                    "duo: menu $menuSlug item $itemId has a malformed/duplicate relationship at position $position"
+                );
+            }
+            $seen[$tt] = true;
+            $relationships[] = $tt;
+        }
+        return $relationships;
     }
 
     /**

@@ -238,6 +238,92 @@ $check(str_contains($identity, 'public function ensurePost(')
     && str_contains($identity, 'public function ensureTerm(')
     && str_contains($identity, 'Ledger::require_read_only_mapping('),
     'identity collaborator owns minting plus strict durable-map verification');
+
+// Exercise the real collaborator against the shared row-backed wpdb. The
+// default WordPress metadata collation is case-insensitive, so an alias must
+// be observed in the same equality set and refused rather than ignored/minted
+// over; a failed compact read likewise cannot become "identity absent".
+require_once "$root/sandbox/tests/lib/FakeWpdb.php";
+$identityDb = static function (array $postmeta): \DuoTest\FakeWpdb {
+    $db = new \DuoTest\FakeWpdb();
+    $db->seedTable('wp_postmeta', $postmeta);
+    $db->seedTable('wp_duo_map', [])
+        ->setUniqueKey('wp_duo_map', ['uuid', 'id_kind'])
+        ->setUniqueKey('wp_duo_map', ['id_kind', 'local_id']);
+    return $db;
+};
+$canonicalUuid = '11111111-1111-7111-8111-111111111111';
+$GLOBALS['wpdb'] = $identityDb([[
+    'meta_id' => 1,
+    'post_id' => 7,
+    'meta_key' => '_duo_uuid',
+    'meta_value' => $canonicalUuid,
+]]);
+$runtimeIdentity = new \Duo\CaptureIdentity(static function (string $_purpose): void {});
+$check(
+    $runtimeIdentity->ensurePost(7, 'post', false) === $canonicalUuid,
+    'capture identity accepts one canonical exact sidecar through the real ledger product path'
+);
+
+$GLOBALS['wpdb'] = $identityDb([[
+    'meta_id' => 1,
+    'post_id' => 7,
+    'meta_key' => '_DUO_UUID',
+    'meta_value' => $canonicalUuid,
+]]);
+try {
+    $runtimeIdentity->ensurePost(7, 'post', true);
+    $aliasRefused = false;
+} catch (Throwable $failure) {
+    $aliasRefused = str_contains($failure->getMessage(), 'aliased');
+}
+$check(
+    $aliasRefused && $GLOBALS['wpdb']->rows('wp_duo_map') === [],
+    'capture identity refuses a collation-equal non-byte-exact alias before minting or ledger mutation'
+);
+
+$GLOBALS['wpdb'] = $identityDb([
+    ['meta_id' => 1, 'post_id' => 7, 'meta_key' => '_duo_uuid', 'meta_value' => $canonicalUuid],
+    ['meta_id' => 2, 'post_id' => 7, 'meta_key' => '_DUO_UUID', 'meta_value' => $canonicalUuid],
+]);
+try {
+    $runtimeIdentity->ensurePost(7, 'post', true);
+    $duplicateRefused = false;
+} catch (Throwable $failure) {
+    $duplicateRefused = str_contains($failure->getMessage(), 'ambiguous collation-equal');
+}
+$check($duplicateRefused, 'capture identity refuses an exact-plus-alias equality set instead of choosing one');
+
+$secretShapedIdentity = 'credential=' . str_repeat('X', 80);
+$GLOBALS['wpdb'] = $identityDb([[
+    'meta_id' => 1,
+    'post_id' => 7,
+    'meta_key' => '_duo_uuid',
+    'meta_value' => $secretShapedIdentity,
+]]);
+try {
+    $runtimeIdentity->ensurePost(7, 'post', true);
+    $malformedIdentityMessage = '';
+} catch (Throwable $failure) {
+    $malformedIdentityMessage = $failure->getMessage();
+}
+$check(
+    str_contains($malformedIdentityMessage, 'malformed')
+        && !str_contains($malformedIdentityMessage, 'credential='),
+    'capture identity rejects malformed/oversized bytes without leaking their value'
+);
+
+$GLOBALS['wpdb'] = $identityDb([]);
+$GLOBALS['wpdb']->failNextQuery('simulated identity read failure', 'LEFT(meta_value, 37)');
+try {
+    $runtimeIdentity->ensurePost(7, 'post', true);
+    $identityReadFailureRefused = false;
+} catch (Throwable $failure) {
+    $identityReadFailureRefused = str_contains($failure->getMessage(), 'identity read')
+        && $GLOBALS['wpdb']->rows('wp_postmeta') === []
+        && $GLOBALS['wpdb']->rows('wp_duo_map') === [];
+}
+$check($identityReadFailureRefused, 'capture identity DB failure cannot become an absent row and mint new authority');
 $check(str_contains($post, '$this->mediaCapture->capture(')
     && str_contains($post, '$this->entityMetaCapture->classifyValue('),
     'post collaborator owns post/meta/media projection');

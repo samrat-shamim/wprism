@@ -261,31 +261,35 @@ final class IdentityBackup {
         if ($kind === Ledger::KIND_POST || $kind === Ledger::KIND_TERM) {
             $metaTable = $kind === Ledger::KIND_POST ? $wpdb->postmeta : $wpdb->termmeta;
             $ownerCol = $kind === Ledger::KIND_POST ? 'post_id' : 'term_id';
-            $values = $wpdb->get_col($wpdb->prepare(
-                "SELECT meta_value FROM `$metaTable` WHERE `$ownerCol` = %d AND meta_key = '_duo_uuid' ORDER BY meta_id ASC",
-                $local
-            )) ?: [];
-            if ($values !== [$uuid]) {
-                throw new \RuntimeException("duo: embedded identity does not verify for $uuid ($kind:$local)");
-            }
+            self::assert_embedded_uuid($metaTable, $ownerCol, $local, $uuid, "$kind identity witness");
             return hash('sha256', Canon::encode(['kind' => $kind, 'local_id' => $local, 'uuid' => $uuid]));
         }
         if ($kind === Ledger::KIND_TT) {
-            $termId = $wpdb->get_var($wpdb->prepare(
-                "SELECT term_id FROM {$wpdb->term_taxonomy} WHERE term_taxonomy_id = %d", $local
-            ));
-            if ($termId === null) {
+            self::assert_identifier($wpdb->term_taxonomy, 'term-taxonomy identity witness table');
+            $rows = self::checked_rows($wpdb->prepare(
+                "SELECT term_taxonomy_id, term_id FROM `{$wpdb->term_taxonomy}` "
+                . 'WHERE term_taxonomy_id = %d ORDER BY term_taxonomy_id ASC LIMIT 2',
+                $local
+            ), 'term-taxonomy identity witness');
+            if ($rows === []) {
                 throw new \RuntimeException("duo: term-taxonomy identity row $local is missing");
             }
-            $values = $wpdb->get_col($wpdb->prepare(
-                "SELECT meta_value FROM {$wpdb->termmeta} WHERE term_id = %d AND meta_key = '_duo_uuid' ORDER BY meta_id ASC",
-                (int) $termId
-            )) ?: [];
-            if ($values !== [$uuid]) {
-                throw new \RuntimeException("duo: embedded identity does not verify for $uuid ($kind:$local)");
+            if (count($rows) !== 1
+                || !is_array($rows[0])
+                || array_keys($rows[0]) !== ['term_taxonomy_id', 'term_id']
+                || self::positive_integer($rows[0]['term_taxonomy_id'] ?? null) !== $local
+                || ($termId = self::positive_integer($rows[0]['term_id'] ?? null)) === null) {
+                throw new \RuntimeException('duo: term-taxonomy identity witness returned a malformed/ambiguous row');
             }
+            self::assert_embedded_uuid(
+                $wpdb->termmeta,
+                'term_id',
+                $termId,
+                $uuid,
+                "$kind identity witness"
+            );
             return hash('sha256', Canon::encode([
-                'kind' => $kind, 'local_id' => $local, 'term_id' => (int) $termId, 'uuid' => $uuid,
+                'kind' => $kind, 'local_id' => $local, 'term_id' => $termId, 'uuid' => $uuid,
             ]));
         }
         $widgetType = $tables[$kind]['widget_type'] ?? null;
@@ -349,6 +353,71 @@ final class IdentityBackup {
         return hash('sha256', Canon::encode([
             'kind' => $kind, 'local_id' => $local, 'table' => $decl['table'], 'row' => $row,
         ]));
+    }
+
+    private static function assert_embedded_uuid(
+        string $metaTable,
+        string $ownerColumn,
+        int $ownerId,
+        string $uuid,
+        string $purpose
+    ): void {
+        global $wpdb;
+        self::assert_identifier($metaTable, "$purpose table");
+        self::assert_identifier($ownerColumn, "$purpose owner column");
+        $rows = self::checked_rows($wpdb->prepare(
+            "SELECT meta_id, OCTET_LENGTH(meta_key) AS meta_key_bytes, "
+            . "OCTET_LENGTH(meta_value) AS meta_value_bytes, SHA2(meta_value, 256) AS meta_value_sha256 "
+            . "FROM `$metaTable` WHERE `$ownerColumn` = %d "
+            . "AND BINARY meta_key = BINARY '_duo_uuid' ORDER BY meta_id ASC LIMIT 2",
+            $ownerId
+        ), $purpose);
+        $expectedHash = hash('sha256', $uuid);
+        if (count($rows) !== 1
+            || !is_array($rows[0])
+            || array_keys($rows[0]) !== [
+                'meta_id', 'meta_key_bytes', 'meta_value_bytes', 'meta_value_sha256',
+            ]
+            || self::positive_integer($rows[0]['meta_id'] ?? null) === null
+            || self::nonnegative_integer($rows[0]['meta_key_bytes'] ?? null) !== strlen('_duo_uuid')
+            || self::nonnegative_integer($rows[0]['meta_value_bytes'] ?? null) !== strlen($uuid)
+            || !is_string($rows[0]['meta_value_sha256'] ?? null)
+            || !hash_equals($expectedHash, $rows[0]['meta_value_sha256'])) {
+            throw new \RuntimeException(
+                "duo: embedded identity does not verify for $uuid ($purpose:$ownerId)"
+            );
+        }
+    }
+
+    /** @return list<array<string,mixed>> */
+    private static function checked_rows(string $sql, string $purpose): array {
+        global $wpdb;
+        $wpdb->last_error = '';
+        $rows = $wpdb->get_results($sql, ARRAY_A);
+        if (!is_array($rows)
+            || !array_is_list($rows)
+            || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException("duo: database error while reading $purpose");
+        }
+        return $rows;
+    }
+
+    private static function assert_identifier(string $identifier, string $purpose): void {
+        if (preg_match('/^[A-Za-z0-9_]{1,64}$/D', $identifier) !== 1) {
+            throw new \RuntimeException("duo: $purpose is not a safe database identifier");
+        }
+    }
+
+    private static function positive_integer(mixed $value): ?int {
+        $integer = self::nonnegative_integer($value);
+        return $integer !== null && $integer > 0 ? $integer : null;
+    }
+
+    private static function nonnegative_integer(mixed $value): ?int {
+        if (is_int($value)) return $value >= 0 ? $value : null;
+        if (!is_string($value) || preg_match('/^(?:0|[1-9][0-9]*)$/D', $value) !== 1) return null;
+        $integer = filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
+        return is_int($integer) ? $integer : null;
     }
 
     private static function hash(array $artifact): string {

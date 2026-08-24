@@ -105,6 +105,10 @@ final class TermMetaFakeWpdb {
                     'meta_value_bytes' => $row['meta_value'] === null
                         ? null
                         : (string) strlen((string) $row['meta_value']),
+                    'meta_key_sha256' => hash('sha256', $row['meta_key']),
+                    'meta_value_sha256' => $row['meta_value'] === null
+                        ? null
+                        : hash('sha256', (string) $row['meta_value']),
                 ], $rows);
             }
             return array_map(static fn(array $row): array => [
@@ -243,8 +247,13 @@ $wpdb->rows = [
     ['meta_id' => 13, 'term_id' => 9, 'meta_key' => 'undeclared_plugin_key', 'meta_value' => "opaque\0bytes"],
 ];
 $apply = new \Duo\ApplyFieldMaterializer($policy, $targetTokens);
+$cache = \Duo\CacheInvalidationTransaction::class;
+$cache::begin();
 $apply->begin_authored_transaction();
 $apply->reconcile_authored_term_meta(9, ['thumbnail_id' => $canonical]);
+$cache::finish();
+$apply->end_authored_transaction();
+$cache::end();
 
 $byKey = [];
 foreach ($wpdb->rows as $row) $byKey[$row['meta_key']] = $row['meta_value'];

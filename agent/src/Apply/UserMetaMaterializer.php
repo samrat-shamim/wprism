@@ -8,6 +8,7 @@ require_once __DIR__ . '/../Kernel/StructuredValue.php';
 require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
 require_once __DIR__ . '/../Kernel/MetaRows.php';
 require_once __DIR__ . '/MetaOwnerRangeLock.php';
+require_once __DIR__ . '/CacheInvalidationTransaction.php';
 // Deliberately NOT require_once('Db.php') here: sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php
 // and regress_adapter_observation.php both stub a fake Duo\Db and reach this
 // file transitively through Apply.php without ever loading the real Db.php;
@@ -173,7 +174,10 @@ final class UserMetaMaterializer {
                 'umeta_id'
             );
         }
-        wp_cache_delete($userId, 'user_meta');
+        CacheInvalidationTransaction::queue_user_meta(
+            $userId,
+            "authored user meta reconciliation for exact login '$login'"
+        );
     }
 
     /**

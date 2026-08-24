@@ -39,6 +39,7 @@ return [
     'Duo\\BlockReferenceScanner' => 'src/Review/BlockReferenceScanner.php',
     'Duo\\Blocks' => 'src/Grammar/Blocks.php',
     'Duo\\BoundHelper' => 'src/Publication/PublicationJournal.php',
+    'Duo\\CacheInvalidationTransaction' => 'src/Apply/CacheInvalidationTransaction.php',
     'Duo\\Canary' => 'src/Review/Canary.php',
     'Duo\\Canon' => 'src/Kernel/Canon.php',
     'Duo\\CanonicalSurfaces' => 'src/Repository/CanonicalSurfaces.php',

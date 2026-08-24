@@ -79,6 +79,8 @@ final class PostFieldFakeWpdb {
     public array $updates = [];
     /** @var array<int,array{table:string,data:array}> */
     public array $inserts = [];
+    /** @var list<array{meta_id:int,post_id:int,meta_key:string,meta_value:string}> */
+    public array $metaRows = [];
 
     public function prepare(string $sql, ...$args): string {
         foreach ($args as $arg) {
@@ -124,7 +126,40 @@ final class PostFieldFakeWpdb {
             ]];
         }
         if (str_contains($sql, 'FROM `wp_postmeta` FORCE INDEX')) {
-            return [];
+            preg_match('/`post_id` = ([0-9]+)/', $sql, $ownerMatch);
+            $owner = (int) ($ownerMatch[1] ?? 0);
+            $rows = array_values(array_filter(
+                $this->metaRows,
+                static fn(array $row): bool => $row['post_id'] === $owner
+            ));
+            if (str_contains($sql, 'AND meta_key =')) {
+                preg_match("/meta_key = '((?:''|[^'])*)'/", $sql, $keyMatch);
+                $key = str_replace("''", "'", (string) ($keyMatch[1] ?? ''));
+                return array_map(
+                    static fn(array $row): array => [
+                        'meta_id' => (string) $row['meta_id'],
+                        'meta_key' => $row['meta_key'],
+                    ],
+                    array_values(array_filter(
+                        $rows,
+                        static fn(array $row): bool => strcasecmp($row['meta_key'], $key) === 0
+                    ))
+                );
+            }
+            if (str_contains($sql, 'OCTET_LENGTH(meta_key)')) {
+                return array_map(static fn(array $row): array => [
+                    'meta_id' => (string) $row['meta_id'],
+                    'meta_key_bytes' => (string) strlen($row['meta_key']),
+                    'meta_value_bytes' => (string) strlen($row['meta_value']),
+                    'meta_key_sha256' => hash('sha256', $row['meta_key']),
+                    'meta_value_sha256' => hash('sha256', $row['meta_value']),
+                ], $rows);
+            }
+            return array_map(static fn(array $row): array => [
+                'meta_id' => (string) $row['meta_id'],
+                'meta_key' => $row['meta_key'],
+                'meta_value' => $row['meta_value'],
+            ], $rows);
         }
         return [];
     }
@@ -137,6 +172,14 @@ final class PostFieldFakeWpdb {
     public function insert(string $table, array $data, $format = null): int {
         $this->inserts[] = ['table' => $table, 'data' => $data];
         $this->insert_id++;
+        if ($table === $this->postmeta) {
+            $this->metaRows[] = [
+                'meta_id' => $this->insert_id,
+                'post_id' => (int) $data['post_id'],
+                'meta_key' => (string) $data['meta_key'],
+                'meta_value' => (string) $data['meta_value'],
+            ];
+        }
         return 1;
     }
 
@@ -329,12 +372,13 @@ function option_authorization_diagnostics(Policy $policy, array $document): arra
 function apply_instance(Policy $policy, Tokens $tokens): \Duo\PostMaterializer {
     $fieldMaterializer = new \Duo\ApplyFieldMaterializer($policy, $tokens);
     $fieldMaterializer->begin_authored_transaction();
+    \Duo\CacheInvalidationTransaction::begin();
     $compiled = (new ReflectionClass(CompiledRepository::class))->newInstanceWithoutConstructor();
     return new \Duo\PostMaterializer(
         $policy,
         $tokens,
         $fieldMaterializer,
-        new \Duo\RelationshipMaterializer($policy),
+        new \Duo\RelationshipMaterializer($policy, $fieldMaterializer),
         new \Duo\AttachmentMaterializer($fieldMaterializer, $compiled)
     );
 }
