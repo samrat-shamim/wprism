@@ -20,6 +20,13 @@ case "$WORDPRESS_OFFLINE" in
   *) fail "DUO_WORDPRESS_ORG_OFFLINE must be 0 or 1" ;;
 esac
 export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2"
+# A multisite refusal is still evidence about the mounted agent/manifests
+# candidate. Plumb the optional explicit SHA before reset, whose DROP/CREATE
+# is the first pair mutation; DUO_SOURCE_ROOT remains pair.sh's worktree
+# override when the candidate is not the canonical checkout.
+if [ -n "${MULTISITE_EXPECTED_SOURCE_SHA:-}" ]; then
+  export DUO_EXPECTED_SOURCE_SHA="$MULTISITE_EXPECTED_SOURCE_SHA"
+fi
 COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.artifacts.yml)
 PAIR_UP_FLAGS=(--artifacts)
 if [ "$WORDPRESS_OFFLINE" = 1 ]; then

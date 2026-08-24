@@ -33,7 +33,8 @@
 # Own dedicated pair (vmatrix1 :8870 / vmatrix2 :8871 by default; agents set
 # VMATRIX_PAIR and explicit ports), destroyed only after every assertion below
 # passes (docs/sandbox.md's own convention) — a failing run leaves it up for
-# inspection.
+# inspection. VMATRIX_EXPECTED_SOURCE_SHA forwards the exact candidate gate to
+# pair.sh; pair.sh also accepts DUO_SOURCE_ROOT for an issue worktree mount.
 set -euo pipefail
 cd "$(dirname "$0")/../.."   # -> sandbox/
 
@@ -68,6 +69,13 @@ case "$WORDPRESS_OFFLINE" in
   *) fail "DUO_WORDPRESS_ORG_OFFLINE must be 0 or 1" ;;
 esac
 export DUO_PAIR="$PAIR"
+# A boundary result is evidence only for the agent/manifests bytes that the
+# pair mounts. Export before the first pair.sh call: `up` can allocate the
+# databases and start containers, so setting it later would certify a stale
+# canonical checkout rather than this candidate.
+if [ -n "${VMATRIX_EXPECTED_SOURCE_SHA:-}" ]; then
+  export DUO_EXPECTED_SOURCE_SHA="$VMATRIX_EXPECTED_SOURCE_SHA"
+fi
 PAIR_COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.artifacts.yml)
 PAIR_UP_FLAGS=(--artifacts)
 if [ "$WORDPRESS_OFFLINE" = 1 ]; then
