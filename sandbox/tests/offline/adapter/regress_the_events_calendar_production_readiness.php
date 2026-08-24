@@ -56,6 +56,10 @@ namespace {
 final class Tribe__Cache {
     public function get(string $id): mixed {
         ++$GLOBALS['tec_readiness_cache_reads'];
+        if (($GLOBALS['tec_readiness_cache_read_mode'] ?? '') === 'throw') {
+            $GLOBALS['tec_readiness_cache_read_mode'] = '';
+            throw new \RuntimeException('hostile cache read failure AKIAABCDEFGHIJKLMNOP');
+        }
         return $GLOBALS['tec_readiness_dropdown_rows'];
     }
 }
@@ -126,6 +130,7 @@ final class TecReadinessEventModel {
 
     /** @return mixed */
     public static function data_from_post(int $postId): mixed {
+        $GLOBALS['tec_readiness_event_data_calls'][] = $postId;
         if (($GLOBALS['tec_readiness_regen_mode'] ?? '') === 'non_array_data') {
             return 'credential-shaped-AKIAABCDEFGHIJKLMNOP';
         }
@@ -1640,6 +1645,7 @@ $GLOBALS['tec_readiness_external_object_cache'] = false;
 $GLOBALS['tec_readiness_cache_busts'] = 0;
 $GLOBALS['tec_readiness_cache_reads'] = 0;
 $GLOBALS['tec_readiness_cache_sets'] = 0;
+$GLOBALS['tec_readiness_cache_read_mode'] = '';
 $GLOBALS['tec_readiness_dropdown_get_calls'] = 0;
 $GLOBALS['tec_readiness_color_controller_calls'] = 0;
 $GLOBALS['tec_readiness_color_controller_mode'] = '';
@@ -1912,6 +1918,40 @@ duo_check_same(
     2,
     $GLOBALS['tec_readiness_cache_busts'],
     'a failure before the native dropdown-cache bust does not claim that effect'
+);
+$crashCacheWitness = hash('sha256', serialize($GLOBALS['tec_readiness_dropdown_rows']));
+$crashDropdownGets = $GLOBALS['tec_readiness_dropdown_get_calls'];
+$crashCacheSets = $GLOBALS['tec_readiness_cache_sets'];
+$crashGeneratorCalls = $GLOBALS['tec_readiness_color_controller_calls'];
+duo_check_throws(
+    static fn() => $colorProvider->reconcile_scoped(
+        'regenerate_css',
+        [],
+        ['format' => 'duo-provider-operation/v1', 'id' => 'tec-crash-between-services']
+    ),
+    RuntimeException::class,
+    'recovery refuses a stale populated dropdown cache after a crash between the two native services',
+    'dropdown cache readback is stale or malformed'
+);
+duo_check_same(
+    $crashCacheWitness,
+    hash('sha256', serialize($GLOBALS['tec_readiness_dropdown_rows'])),
+    'crash recovery observes the stale cache without mutating it'
+);
+duo_check_same(
+    $crashDropdownGets,
+    $GLOBALS['tec_readiness_dropdown_get_calls'],
+    'crash recovery never invokes the cache-populating dropdown getter'
+);
+duo_check_same(
+    $crashCacheSets,
+    $GLOBALS['tec_readiness_cache_sets'],
+    'crash recovery never publishes cache bytes'
+);
+duo_check_same(
+    $crashGeneratorCalls,
+    $GLOBALS['tec_readiness_color_controller_calls'],
+    'crash recovery never replays the native CSS generator'
 );
 $afterCssRetry = $colorProvider->invoke('regenerate_css', []);
 duo_check_same(true, $afterCssRetry['verified'] ?? null, 'same-process retry after the partial CSS write converges');
@@ -2244,7 +2284,29 @@ $reconcileGeneratorCalls = $GLOBALS['tec_readiness_color_controller_calls'];
 foreach ([
     'native repopulated cache' => $nativeRepopulatedCache,
     'natural expiry' => false,
-    'populated empty cache' => [],
+] as $cacheStateLabel => $cacheState) {
+    $GLOBALS['tec_readiness_dropdown_rows'] = $cacheState;
+    $cacheStateHash = hash('sha256', serialize($cacheState));
+    $firstReconcile = $colorProvider->reconcile_scoped('regenerate_css', [], $operation);
+    $secondReconcile = $colorProvider->reconcile_scoped('regenerate_css', [], $operation);
+    duo_check_same(
+        $reconciled['after'] ?? null,
+        $firstReconcile['after'] ?? null,
+        "read-only reconciliation accepts $cacheStateLabel while binding durable CSS and dropdown semantics"
+    );
+    duo_check_same(
+        $firstReconcile['after'] ?? null,
+        $secondReconcile['after'] ?? null,
+        "repeated reconciliation remains idempotent across $cacheStateLabel"
+    );
+    duo_check_same(
+        $cacheStateHash,
+        hash('sha256', serialize($GLOBALS['tec_readiness_dropdown_rows'])),
+        "reconciliation does not mutate $cacheStateLabel"
+    );
+}
+foreach ([
+    'stale empty populated cache' => [],
     'stale populated cache' => [[
         'slug' => 'readiness',
         'name' => 'Readiness',
@@ -2259,6 +2321,7 @@ foreach ([
         'primary' => '#111111',
         'hidden' => false,
     ]],
+    'malformed populated cache' => 'hostile-cache-AKIAABCDEFGHIJKLMNOP',
     'oversized populated cache' => array_fill(
         0,
         10001,
@@ -2267,28 +2330,43 @@ foreach ([
 ] as $cacheStateLabel => $cacheState) {
     $GLOBALS['tec_readiness_dropdown_rows'] = $cacheState;
     $cacheStateHash = hash('sha256', serialize($cacheState));
-    $firstReconcile = $colorProvider->reconcile_scoped('regenerate_css', [], $operation);
-    $secondReconcile = $colorProvider->reconcile_scoped('regenerate_css', [], $operation);
-    duo_check_same(
-        $reconciled['after'] ?? null,
-        $firstReconcile['after'] ?? null,
-        "read-only reconciliation ignores $cacheStateLabel while binding durable CSS semantics"
-    );
-    duo_check_same(
-        $firstReconcile['after'] ?? null,
-        $secondReconcile['after'] ?? null,
-        "repeated reconciliation remains idempotent across $cacheStateLabel"
+    duo_check_throws(
+        static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
+        RuntimeException::class,
+        "read-only reconciliation refuses $cacheStateLabel rather than certifying an incomplete cache effect",
+        $cacheStateLabel === 'oversized populated cache'
+            ? 'exceeds the bounded row frontier'
+            : 'dropdown cache readback is stale or malformed'
     );
     duo_check_same(
         $cacheStateHash,
         hash('sha256', serialize($GLOBALS['tec_readiness_dropdown_rows'])),
-        "reconciliation does not mutate $cacheStateLabel"
+        "cache refusal does not mutate $cacheStateLabel"
     );
 }
+$GLOBALS['tec_readiness_dropdown_rows'] = $nativeRepopulatedCache;
+$cacheReadFailureWitness = hash('sha256', serialize($GLOBALS['tec_readiness_dropdown_rows']));
+$GLOBALS['tec_readiness_cache_read_mode'] = 'throw';
+$cacheReadFailure = '';
+try {
+    $colorProvider->reconcile_scoped('regenerate_css', [], $operation);
+} catch (RuntimeException $e) {
+    $cacheReadFailure = $e->getMessage();
+}
+duo_check(
+    str_contains($cacheReadFailure, 'dropdown cache is unreadable')
+        && !str_contains($cacheReadFailure, 'AKIA')
+        && strlen($cacheReadFailure) < 300,
+    'a native cache read failure refuses with a bounded secret-safe recovery diagnostic'
+);
 duo_check_same(
-    $reconcileCacheReads,
-    $GLOBALS['tec_readiness_cache_reads'],
-    'reconciliation never reads the transient dropdown entry or turns a miss into a write'
+    $cacheReadFailureWitness,
+    hash('sha256', serialize($GLOBALS['tec_readiness_dropdown_rows'])),
+    'a native cache read failure cannot mutate the previously populated cache'
+);
+duo_check(
+    $GLOBALS['tec_readiness_cache_reads'] > $reconcileCacheReads,
+    'reconciliation uses only the exact read-only Tribe cache observation seam'
 );
 duo_check_same(
     $reconcileDropdownGets,
@@ -2304,6 +2382,11 @@ duo_check_same(
     $reconcileGeneratorCalls,
     $GLOBALS['tec_readiness_color_controller_calls'],
     'reconciliation never calls the native CSS generator'
+);
+$GLOBALS['tec_readiness_dropdown_rows'] = array_fill(
+    0,
+    10001,
+    $GLOBALS['tec_readiness_generated_dropdown_rows'][0]
 );
 $cacheFrontierGeneratorCalls = $GLOBALS['tec_readiness_color_controller_calls'];
 $cacheFrontierBusts = $GLOBALS['tec_readiness_cache_busts'];
@@ -2654,6 +2737,8 @@ foreach ([
     "\$relevantCount() === 501",
     'safe one-page metadata frontier',
     'the exact 501-row refusal mutated CSS or the populated dropdown cache',
+    'stale_between_services_refused',
+    'recovery certified or mutated a stale cache after the exact first native service',
 ] as $categoryColorsBoundaryEvidence) {
     duo_check(
         str_contains($deletionCheck, $categoryColorsBoundaryEvidence),
@@ -2692,30 +2777,121 @@ $GLOBALS['tec_readiness_post_meta'] = [
 $tecDb = FakeWpdb::install();
 $eventTable = $tecDb->prefix . 'tec_events';
 $occurrenceTable = $tecDb->prefix . 'tec_occurrences';
-$tecDb->setColumns($eventTable, [
-    'event_id' => 'bigint(20) unsigned',
-    'post_id' => 'bigint(20) unsigned',
-    'start_date' => 'varchar(19)',
-    'end_date' => 'varchar(19)',
-    'timezone' => 'varchar(30)',
-    'start_date_utc' => 'varchar(19)',
-    'end_date_utc' => 'varchar(19)',
-    'duration' => 'mediumint(30)',
-    'updated_at' => 'timestamp',
-    'hash' => 'varchar(40)',
-]);
-$tecDb->setColumns($occurrenceTable, [
-    'occurrence_id' => 'bigint(20) unsigned',
-    'event_id' => 'bigint(20) unsigned',
-    'post_id' => 'bigint(20) unsigned',
-    'start_date' => 'datetime',
-    'end_date' => 'datetime',
-    'start_date_utc' => 'datetime',
-    'end_date_utc' => 'datetime',
-    'duration' => 'mediumint(30)',
-    'updated_at' => 'timestamp',
-    'hash' => 'varchar(40)',
-]);
+$tecEventColumns = [
+    'event_id' => ['Type' => 'bigint(20) unsigned', 'Null' => 'NO', 'Default' => null, 'Extra' => 'auto_increment'],
+    'post_id' => ['Type' => 'bigint(20) unsigned', 'Null' => 'NO', 'Default' => null, 'Extra' => ''],
+    'start_date' => ['Type' => 'varchar(19)', 'Null' => 'NO', 'Default' => null, 'Extra' => ''],
+    'end_date' => ['Type' => 'varchar(19)', 'Null' => 'YES', 'Default' => null, 'Extra' => ''],
+    'timezone' => ['Type' => 'varchar(30)', 'Null' => 'NO', 'Default' => 'UTC', 'Extra' => ''],
+    'start_date_utc' => ['Type' => 'varchar(19)', 'Null' => 'NO', 'Default' => null, 'Extra' => ''],
+    'end_date_utc' => ['Type' => 'varchar(19)', 'Null' => 'YES', 'Default' => null, 'Extra' => ''],
+    'duration' => ['Type' => 'mediumint(30)', 'Null' => 'YES', 'Default' => '7200', 'Extra' => ''],
+    'updated_at' => [
+        'Type' => 'timestamp',
+        'Null' => 'YES',
+        'Default' => 'current_timestamp()',
+        'Extra' => 'on update current_timestamp()',
+    ],
+    'hash' => ['Type' => 'varchar(40)', 'Null' => 'NO', 'Default' => null, 'Extra' => ''],
+];
+$tecOccurrenceColumns = [
+    'occurrence_id' => [
+        'Type' => 'bigint(20) unsigned',
+        'Null' => 'NO',
+        'Default' => null,
+        'Extra' => 'auto_increment',
+    ],
+    'event_id' => ['Type' => 'bigint(20) unsigned', 'Null' => 'NO', 'Default' => null, 'Extra' => ''],
+    'post_id' => ['Type' => 'bigint(20) unsigned', 'Null' => 'NO', 'Default' => null, 'Extra' => ''],
+    'start_date' => ['Type' => 'datetime', 'Null' => 'NO', 'Default' => null, 'Extra' => ''],
+    'start_date_utc' => ['Type' => 'datetime', 'Null' => 'NO', 'Default' => null, 'Extra' => ''],
+    'end_date' => ['Type' => 'datetime', 'Null' => 'NO', 'Default' => null, 'Extra' => ''],
+    'end_date_utc' => ['Type' => 'datetime', 'Null' => 'NO', 'Default' => null, 'Extra' => ''],
+    'duration' => ['Type' => 'mediumint(30)', 'Null' => 'YES', 'Default' => '7200', 'Extra' => ''],
+    'hash' => ['Type' => 'varchar(40)', 'Null' => 'NO', 'Default' => null, 'Extra' => ''],
+    'updated_at' => [
+        'Type' => 'timestamp',
+        'Null' => 'YES',
+        'Default' => 'current_timestamp()',
+        'Extra' => 'on update current_timestamp()',
+    ],
+];
+$tecEventIndexes = [
+    [
+        'Key_name' => 'PRIMARY',
+        'Non_unique' => 0,
+        'Seq_in_index' => 1,
+        'Column_name' => 'event_id',
+        'Sub_part' => null,
+        'Index_type' => 'BTREE',
+    ],
+    [
+        'Key_name' => 'post_id',
+        'Non_unique' => 0,
+        'Seq_in_index' => 1,
+        'Column_name' => 'post_id',
+        'Sub_part' => null,
+        'Index_type' => 'BTREE',
+    ],
+];
+$tecOccurrenceIndexes = [
+    [
+        'Key_name' => 'PRIMARY',
+        'Non_unique' => 0,
+        'Seq_in_index' => 1,
+        'Column_name' => 'occurrence_id',
+        'Sub_part' => null,
+        'Index_type' => 'BTREE',
+    ],
+    [
+        'Key_name' => 'event_id',
+        'Non_unique' => 1,
+        'Seq_in_index' => 1,
+        'Column_name' => 'event_id',
+        'Sub_part' => null,
+        'Index_type' => 'BTREE',
+    ],
+    [
+        'Key_name' => 'hash',
+        'Non_unique' => 0,
+        'Seq_in_index' => 1,
+        'Column_name' => 'hash',
+        'Sub_part' => null,
+        'Index_type' => 'BTREE',
+    ],
+];
+foreach ([
+    'idx_wp_tec_occurrences_post_id_dates' => ['post_id', 'end_date', 'start_date'],
+    'idx_wp_tec_occurrences_post_id_dates_utc' => ['post_id', 'end_date_utc', 'start_date_utc'],
+] as $indexName => $columns) {
+    foreach ($columns as $offset => $column) {
+        $tecOccurrenceIndexes[] = [
+            'Key_name' => $indexName,
+            'Non_unique' => 1,
+            'Seq_in_index' => $offset + 1,
+            'Column_name' => $column,
+            'Sub_part' => null,
+            'Index_type' => 'BTREE',
+        ];
+    }
+}
+$configureTecSchema = static function () use (
+    $tecDb,
+    $eventTable,
+    $occurrenceTable,
+    $tecEventColumns,
+    $tecOccurrenceColumns,
+    $tecEventIndexes,
+    $tecOccurrenceIndexes
+): void {
+    $tecDb->setColumnDefinitions($eventTable, $tecEventColumns)
+        ->setColumnDefinitions($occurrenceTable, $tecOccurrenceColumns)
+        ->setIndexes($eventTable, $tecEventIndexes)
+        ->setIndexes($occurrenceTable, $tecOccurrenceIndexes)
+        ->setTableEngine($eventTable, 'InnoDB')
+        ->setTableEngine($occurrenceTable, 'InnoDB');
+};
+$configureTecSchema();
 $tecDb->setPrimaryKey($eventTable, 'event_id')->setPrimaryKey($occurrenceTable, 'occurrence_id');
 $resetTecDerived = static function () use ($tecDb, $eventTable, $occurrenceTable, $tecEventId): void {
     $tecDb->seedTable($eventTable, [
@@ -2774,6 +2950,7 @@ $resetTecDerived = static function () use ($tecDb, $eventTable, $occurrenceTable
     $tecDb->resetLog();
     $GLOBALS['tec_readiness_regen_mode'] = 'ok';
     $GLOBALS['tec_readiness_regen_calls'] = [];
+    $GLOBALS['tec_readiness_event_data_calls'] = [];
 };
 $tecFailure = static function (callable $call): string {
     try {
@@ -2784,6 +2961,187 @@ $tecFailure = static function (callable $call): string {
     duo_check(false, 'expected TEC regenerator failure did not occur');
     return '';
 };
+
+$assertTecSchemaRefusal = static function (
+    string $label,
+    callable $mutateSchema,
+    string $expectedMessage
+) use (
+    $tecDb,
+    $regenerator,
+    $tecEventId,
+    $eventTable,
+    $occurrenceTable,
+    $configureTecSchema,
+    $resetTecDerived,
+    $tecFailure
+): void {
+    $tecDb->prefix = 'wp_';
+    $configureTecSchema();
+    $resetTecDerived();
+    $before = [$tecDb->rows($eventTable), $tecDb->rows($occurrenceTable)];
+    $mutateSchema();
+    $failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
+    $tecDb->prefix = 'wp_';
+    duo_check(
+        str_contains($failure, $expectedMessage) && strlen($failure) < 300,
+        "$label refuses with a bounded schema diagnostic"
+    );
+    duo_check_same(
+        $before,
+        [$tecDb->rows($eventTable), $tecDb->rows($occurrenceTable)],
+        "$label refuses without changing either native custom table"
+    );
+    duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], "$label refuses before native event data reads");
+    duo_check_same([], $GLOBALS['tec_readiness_regen_calls'], "$label refuses before the native upsert boundary");
+    $configureTecSchema();
+};
+
+$assertTecSchemaRefusal(
+    'an unsafe table prefix',
+    static function () use ($tecDb): void {
+        $tecDb->prefix = "wp_bad`\n";
+    },
+    'requires one safe WordPress table prefix'
+);
+$assertTecSchemaRefusal(
+    'a missing prefix-specific table',
+    static function () use ($tecDb): void {
+        $tecDb->prefix = 'wp_2_';
+    },
+    'rejected the tec_events table identity or engine'
+);
+$assertTecSchemaRefusal(
+    'a non-transactional event table',
+    static fn() => $tecDb->setTableEngine($eventTable, 'MyISAM'),
+    'rejected the tec_events table identity or engine'
+);
+$missingEventColumns = $tecEventColumns;
+unset($missingEventColumns['hash']);
+$assertTecSchemaRefusal(
+    'a missing event column',
+    static fn() => $tecDb->setColumnDefinitions($eventTable, $missingEventColumns),
+    'rejected the tec_events column count'
+);
+$extraEventColumns = $tecEventColumns + [
+    'extension_payload' => ['Type' => 'longtext', 'Null' => 'YES', 'Default' => null, 'Extra' => ''],
+];
+$assertTecSchemaRefusal(
+    'an extra event column',
+    static fn() => $tecDb->setColumnDefinitions($eventTable, $extraEventColumns),
+    'rejected the tec_events column count'
+);
+$retypedOccurrenceColumns = $tecOccurrenceColumns;
+$retypedOccurrenceColumns['event_id']['Type'] = 'bigint(20)';
+$assertTecSchemaRefusal(
+    'a retyped occurrence linkage',
+    static fn() => $tecDb->setColumnDefinitions($occurrenceTable, $retypedOccurrenceColumns),
+    'rejected tec_occurrences column event_id'
+);
+$reorderedOccurrenceColumns = ['occurrence_id' => $tecOccurrenceColumns['occurrence_id']];
+$reorderedOccurrenceColumns['post_id'] = $tecOccurrenceColumns['post_id'];
+$reorderedOccurrenceColumns['event_id'] = $tecOccurrenceColumns['event_id'];
+$reorderedOccurrenceColumns += array_diff_key(
+    $tecOccurrenceColumns,
+    ['occurrence_id' => true, 'event_id' => true, 'post_id' => true]
+);
+$assertTecSchemaRefusal(
+    'reordered occurrence columns',
+    static fn() => $tecDb->setColumnDefinitions($occurrenceTable, $reorderedOccurrenceColumns),
+    'rejected tec_occurrences column event_id'
+);
+$eventIndexesWithoutPostId = array_values(array_filter(
+    $tecEventIndexes,
+    static fn(array $row): bool => $row['Key_name'] !== 'post_id'
+));
+$assertTecSchemaRefusal(
+    'a missing unique event post identity',
+    static fn() => $tecDb->setIndexes($eventTable, $eventIndexesWithoutPostId),
+    'rejected required tec_events index post_id'
+);
+$occurrenceIndexesWithoutEventId = array_values(array_filter(
+    $tecOccurrenceIndexes,
+    static fn(array $row): bool => $row['Key_name'] !== 'event_id'
+));
+$assertTecSchemaRefusal(
+    'a missing occurrence event-link index',
+    static fn() => $tecDb->setIndexes($occurrenceTable, $occurrenceIndexesWithoutEventId),
+    'rejected required tec_occurrences index event_id'
+);
+$nonuniqueOccurrenceHash = array_map(
+    static function (array $row): array {
+        if ($row['Key_name'] === 'hash') {
+            $row['Non_unique'] = 1;
+        }
+        return $row;
+    },
+    $tecOccurrenceIndexes
+);
+$assertTecSchemaRefusal(
+    'a nonunique occurrence hash',
+    static fn() => $tecDb->setIndexes($occurrenceTable, $nonuniqueOccurrenceHash),
+    'rejected required tec_occurrences index hash'
+);
+$occurrenceIndexesWithoutUtcRange = array_values(array_filter(
+    $tecOccurrenceIndexes,
+    static fn(array $row): bool => $row['Key_name'] !== 'idx_wp_tec_occurrences_post_id_dates_utc'
+));
+$assertTecSchemaRefusal(
+    'a missing native UTC range index',
+    static fn() => $tecDb->setIndexes($occurrenceTable, $occurrenceIndexesWithoutUtcRange),
+    'rejected required tec_occurrences index idx_wp_tec_occurrences_post_id_dates_utc'
+);
+$unknownUniqueEventIndexes = $tecEventIndexes;
+$unknownUniqueEventIndexes[] = [
+    'Key_name' => 'extension_unique_hash',
+    'Non_unique' => 0,
+    'Seq_in_index' => 1,
+    'Column_name' => 'hash',
+    'Sub_part' => null,
+    'Index_type' => 'BTREE',
+];
+$assertTecSchemaRefusal(
+    'an unreviewed unique event constraint',
+    static fn() => $tecDb->setIndexes($eventTable, $unknownUniqueEventIndexes),
+    'rejected an unknown unique tec_events index'
+);
+foreach ([
+    'status query failure' => 'SHOW TABLE STATUS',
+    'column query failure' => 'SHOW FULL COLUMNS',
+    'index query failure' => 'SHOW INDEX',
+] as $label => $queryFragment) {
+    $assertTecSchemaRefusal(
+        $label,
+        static fn() => $tecDb->failNextQuery(
+            'hostile schema failure AKIAABCDEFGHIJKLMNOP',
+            $queryFragment
+        ),
+        'schema preflight could not read'
+    );
+}
+$assertTecSchemaRefusal(
+    'a compatible driver null schema result',
+    static fn() => $tecDb->returnNextGetResultsAs(null),
+    'schema preflight could not read'
+);
+$assertTecSchemaRefusal(
+    'a malformed table status result',
+    static fn() => $tecDb->returnNextGetResultsAs([[
+        'Name' => $eventTable,
+        'Engine' => ['InnoDB'],
+    ]]),
+    'rejected the tec_events table identity or engine'
+);
+
+$resetTecDerived();
+$tecDb->last_error = 'handled stale schema error';
+$tecDb->setTableEngine('wp_tecXevents', 'MyISAM');
+$regenerator->regenerate($tecEventId);
+duo_check_same(
+    '',
+    $tecDb->last_error,
+    'schema probes clear stale errors and escape LIKE wildcards away from alias table identities'
+);
 
 $resetTecDerived();
 $beforeFilteredRegeneration = [$tecDb->rows($eventTable), $tecDb->rows($occurrenceTable)];
@@ -2983,7 +3341,7 @@ $validEventDriverRow = [
     'hash' => '',
 ];
 $resetTecDerived();
-$tecDb->returnNextGetResultsAs(null);
+$tecDb->returnNextGetResultsAs(null, 'SELECT event_id, post_id');
 duo_check_same(
     'duo: TEC derived-state verification query returned a non-array for tec_events',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
@@ -2991,7 +3349,7 @@ duo_check_same(
 );
 
 $resetTecDerived();
-$tecDb->returnNextGetResultsAs([7 => $validEventDriverRow]);
+$tecDb->returnNextGetResultsAs([7 => $validEventDriverRow], 'SELECT event_id, post_id');
 duo_check_same(
     'duo: TEC derived-state verification query returned a non-list for tec_events',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
@@ -2999,7 +3357,10 @@ duo_check_same(
 );
 
 $resetTecDerived();
-$tecDb->returnNextGetResultsAs([array_diff_key($validEventDriverRow, ['hash' => true])]);
+$tecDb->returnNextGetResultsAs(
+    [array_diff_key($validEventDriverRow, ['hash' => true])],
+    'SELECT event_id, post_id'
+);
 duo_check_same(
     'duo: TEC derived-state verification query returned a malformed driver row for tec_events',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
@@ -3009,7 +3370,7 @@ duo_check_same(
 $resetTecDerived();
 $nonStringEventDriverRow = $validEventDriverRow;
 $nonStringEventDriverRow['event_id'] = 7000000001;
-$tecDb->returnNextGetResultsAs([$nonStringEventDriverRow]);
+$tecDb->returnNextGetResultsAs([$nonStringEventDriverRow], 'SELECT event_id, post_id');
 duo_check_same(
     'duo: TEC derived-state verification query returned a non-string driver value for tec_events',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
@@ -3017,7 +3378,7 @@ duo_check_same(
 );
 
 $resetTecDerived();
-$tecDb->returnNextGetResultsAs([$validEventDriverRow])->returnNextGetResultsAs(false);
+$tecDb->returnNextGetResultsAs(false, 'SELECT occurrence_id, event_id');
 duo_check_same(
     'duo: TEC derived-state verification query returned a non-array for tec_occurrences',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
@@ -3025,7 +3386,7 @@ duo_check_same(
 );
 
 $resetTecDerived();
-$tecDb->returnNextGetResultsAs([$validEventDriverRow])->returnNextGetResultsAs([
+$tecDb->returnNextGetResultsAs([
     9 => [
         'occurrence_id' => '8000000001',
         'event_id' => '7000000001',
@@ -3038,7 +3399,7 @@ $tecDb->returnNextGetResultsAs([$validEventDriverRow])->returnNextGetResultsAs([
         'updated_at' => '2026-08-24 00:00:01',
         'hash' => $expectedOccurrenceHash,
     ],
-]);
+], 'SELECT occurrence_id, event_id');
 duo_check_same(
     'duo: TEC derived-state verification query returned a non-list for tec_occurrences',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),

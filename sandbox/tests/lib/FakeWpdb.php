@@ -94,7 +94,9 @@
  *   UPDATE t SET col = <expr> [, ...] [WHERE <cond>] [LIMIT n]
  *   DELETE FROM t [WHERE <cond>] [LIMIT n]
  *   SHOW TABLES LIKE '<pattern>'      -> the table name, or null
- *   SHOW [FULL] COLUMNS FROM t        -> Field/Type rows (see setColumns)
+ *   SHOW [FULL] COLUMNS FROM t        -> column rows (see setColumns/setColumnDefinitions)
+ *   SHOW INDEX FROM t                 -> configured index rows (see setIndexes)
+ *   SHOW TABLE STATUS LIKE '<name>'   -> configured engine row (see setTableEngine)
  *   START TRANSACTION | BEGIN | COMMIT | ROLLBACK  (single-level, snapshotting)
  *   SET ...                           (accepted no-op)
  *   CREATE / ALTER / DROP / TRUNCATE  (recorded in ddlLog; DROP/TRUNCATE clear rows)
@@ -104,12 +106,11 @@
  * characterizing a query whose behaviour belongs in the live certification,
  * not in an in-memory reimplementation of MySQL.
  *
- * Neither are schema-qualified reads (information_schema.COLUMNS /
- * .STATISTICS) or SHOW INDEX -- parseTableRef() refuses the `db.table` form
- * outright. That is not an oversight to route around: the facts those queries
- * return live in setColumns() / setUniqueKey() / setPrimaryKey(), and a
- * synthetic information_schema fed from them would be asserting this file's
- * bookkeeping rather than the target's schema. Concretely it means
+ * Schema-qualified reads (information_schema.COLUMNS / .STATISTICS) remain
+ * unsupported -- parseTableRef() refuses the `db.table` form outright. SHOW
+ * schema probes are supported only from explicit setColumnDefinitions(),
+ * setIndexes(), and setTableEngine() fixtures; no schema fact is inferred from
+ * stored rows. Concretely it means
  * Ledger::assert_read_only_schema(), Ledger::prune_dead_table_map() (a
  * multi-table DELETE) and Snapshot::assert_all_mapped_rows_managed() (a LEFT
  * JOIN) cannot be migrated to this fake; they stay live-certification paths.
@@ -209,6 +210,12 @@ final class FakeWpdb {
     private array $uniqueKeys = [];
     /** @var array<string,array<string,string>> full table name => column => SQL type */
     private array $columnTypes = [];
+    /** @var array<string,array<string,array{Type:string,Null:string,Default:mixed,Extra:string}>> */
+    private array $columnDefinitions = [];
+    /** @var array<string,list<array{Key_name:string,Non_unique:int,Seq_in_index:int,Column_name:string,Sub_part:?int,Index_type:string}>> */
+    private array $indexes = [];
+    /** @var array<string,string> full table name => storage engine */
+    private array $tableEngines = [];
     /** @var list<array{method:string,sql:string,error:string}> */
     private array $queryLog = [];
     /** @var list<string> */
@@ -217,7 +224,7 @@ final class FakeWpdb {
     private $queryHook = null;
     /** @var list<array{match:?string,error:string,remaining:int}> */
     private array $injectedFailures = [];
-    /** @var list<array|false|null> explicit non-core driver return probes */
+    /** @var list<array{match:?string,value:array|false|null}> explicit non-core driver return probes */
     private array $getResultsReturnOverrides = [];
     /**
      * Row snapshot taken at START TRANSACTION. Deliberately does NOT include
@@ -371,6 +378,40 @@ final class FakeWpdb {
         return $this;
     }
 
+    /**
+     * Configure exact SHOW FULL COLUMNS attributes without inferring schema
+     * from seeded values. Definition order is physical ordinal order.
+     *
+     * @param array<string,array{Type:string,Null:string,Default:mixed,Extra:string}> $definitions
+     */
+    public function setColumnDefinitions(string $table, array $definitions): self {
+        $name = $this->tableName($table);
+        $this->columnDefinitions[$name] = $definitions;
+        $this->columnTypes[$name] = array_map(
+            static fn(array $definition): string => $definition['Type'],
+            $definitions
+        );
+        $this->store[$name] ??= [];
+        return $this;
+    }
+
+    /**
+     * @param list<array{Key_name:string,Non_unique:int,Seq_in_index:int,Column_name:string,Sub_part:?int,Index_type:string}> $indexes
+     */
+    public function setIndexes(string $table, array $indexes): self {
+        $name = $this->tableName($table);
+        $this->indexes[$name] = array_values($indexes);
+        $this->store[$name] ??= [];
+        return $this;
+    }
+
+    public function setTableEngine(string $table, string $engine): self {
+        $name = $this->tableName($table);
+        $this->tableEngines[$name] = $engine;
+        $this->store[$name] ??= [];
+        return $this;
+    }
+
     /** Result GET_LOCK() reports; 0 makes the engine's lock acquisition fail. */
     public function setLockResult(int $result): self {
         $this->lockResult = $result;
@@ -427,14 +468,14 @@ final class FakeWpdb {
     }
 
     /**
-     * Override only the next get_results() return after its SQL executes.
+     * Override the next matching get_results() return after its SQL executes.
      * Core wpdb returns an array; null/false exist solely to prove a caller's
      * fail-closed handling of compatible-but-non-core database drivers.
      *
      * @param array<array-key,mixed>|false|null $value
      */
-    public function returnNextGetResultsAs(array|false|null $value): self {
-        $this->getResultsReturnOverrides[] = $value;
+    public function returnNextGetResultsAs(array|false|null $value, ?string $matching = null): self {
+        $this->getResultsReturnOverrides[] = ['match' => $matching, 'value' => $value];
         return $this;
     }
 
@@ -680,8 +721,12 @@ final class FakeWpdb {
      */
     public function get_results(string $query, string $output = OBJECT): array|false|null {
         $result = $this->run('get_results', $query);
-        if ($this->getResultsReturnOverrides !== []) {
-            return array_shift($this->getResultsReturnOverrides);
+        foreach ($this->getResultsReturnOverrides as $index => $override) {
+            if ($override['match'] !== null && !str_contains($query, $override['match'])) {
+                continue;
+            }
+            array_splice($this->getResultsReturnOverrides, $index, 1);
+            return $override['value'];
         }
         if ($result === null || $result['kind'] !== 'rows') {
             return [];
@@ -2363,6 +2408,25 @@ final class FakeWpdb {
 
     private function execShow(): array {
         $this->expectKeyword('SHOW');
+        if ($this->acceptKeyword('TABLE', 'STATUS')) {
+            $pattern = null;
+            if ($this->acceptKeyword('LIKE')) {
+                $token = $this->peek();
+                if ($token['t'] !== 'str') {
+                    throw $this->unsupported('SHOW TABLE STATUS LIKE expects a string literal');
+                }
+                $this->tp++;
+                $pattern = (string) $token['v'];
+            }
+            $this->expectEnd();
+            $rows = [];
+            foreach (array_keys($this->store) as $name) {
+                if ($pattern === null || self::likeMatches($pattern, $name)) {
+                    $rows[] = ['Name' => $name, 'Engine' => $this->tableEngines[$name] ?? null];
+                }
+            }
+            return ['kind' => 'rows', 'rows' => $rows];
+        }
         if ($this->acceptKeyword('TABLES')) {
             $pattern = null;
             if ($this->acceptKeyword('LIKE')) {
@@ -2389,18 +2453,28 @@ final class FakeWpdb {
             $this->expectEnd();
             $name = $this->requireTable($table);
             $types = $this->columnTypes[$name] ?? [];
+            $definitions = $this->columnDefinitions[$name] ?? [];
             $rows = [];
-            foreach ($this->knownColumns($name) as $column) {
+            $columns = $definitions === [] ? $this->knownColumns($name) : array_keys($definitions);
+            foreach ($columns as $column) {
+                $definition = $definitions[$column] ?? null;
                 $rows[] = [
                     'Field' => $column,
-                    'Type' => $types[$column] ?? 'longtext',
-                    'Null' => 'YES',
+                    'Type' => $definition['Type'] ?? $types[$column] ?? 'longtext',
+                    'Null' => $definition['Null'] ?? 'YES',
                     'Key' => ($this->primaryKeys[$name] ?? null) === $column ? 'PRI' : '',
-                    'Default' => null,
-                    'Extra' => '',
+                    'Default' => $definition['Default'] ?? null,
+                    'Extra' => $definition['Extra'] ?? '',
                 ];
             }
             return ['kind' => 'rows', 'rows' => $rows];
+        }
+        if ($this->acceptKeyword('INDEX') || $this->acceptKeyword('INDEXES') || $this->acceptKeyword('KEYS')) {
+            $this->expectKeyword('FROM');
+            $table = $this->parseTableRef();
+            $this->expectEnd();
+            $name = $this->requireTable($table);
+            return ['kind' => 'rows', 'rows' => $this->indexes[$name] ?? []];
         }
         throw $this->unsupported('SHOW variant');
     }
@@ -2450,7 +2524,14 @@ final class FakeWpdb {
             if ($head === 'CREATE') {
                 $this->store[$name] ??= [];
             } elseif ($head === 'DROP') {
-                unset($this->store[$name], $this->autoIncrement[$name], $this->columnTypes[$name]);
+                unset(
+                    $this->store[$name],
+                    $this->autoIncrement[$name],
+                    $this->columnTypes[$name],
+                    $this->columnDefinitions[$name],
+                    $this->indexes[$name],
+                    $this->tableEngines[$name]
+                );
             } elseif ($head === 'TRUNCATE') {
                 $this->store[$name] = [];
             }

@@ -297,12 +297,8 @@ final class TheEventsCalendarCategoryColors {
         $expectedDropdown = $inventory['dropdown'];
         [$actualCss, $selectorMismatchCount, $valueMismatchCount, $orderMismatchCount, $exactMismatchCount] =
             $this->css_projection($stored, $expected);
-        $cacheProjection = $mode === self::PROJECTION_RECONCILE
-            ? []
-            : $this->dropdown_cache_projection(
-                $expectedDropdown,
-                $mode === self::PROJECTION_AFTER_INVOKE
-            );
+        $requireAbsentCache = $mode === self::PROJECTION_AFTER_INVOKE;
+        $cacheProjection = $this->dropdown_cache_projection($expectedDropdown, $requireAbsentCache);
 
         // Native generation and the cache bust happen outside a lock owned by
         // this provider. Re-read both physical inputs and output after those
@@ -315,6 +311,21 @@ final class TheEventsCalendarCategoryColors {
                 'duo: The Events Calendar Category Colors inputs or output changed during verification; '
                 . 'recovery_required'
             );
+        }
+        if ($verify) {
+            // Tribe__Cache::get() with its exact default arguments is a raw
+            // wp_cache_get observation. Unlike get_dropdown_categories(), it
+            // cannot populate a miss. A second fresh read prevents recovery
+            // from blessing a stale cache inserted during the durable-input
+            // witness reads above.
+            $cacheProjection = $this->dropdown_cache_projection($expectedDropdown, $requireAbsentCache);
+            if (($cacheProjection['dropdown_cache_mismatch_count'] ?? 1) !== 0
+                || ($cacheProjection['dropdown_cache_malformed_count'] ?? 1) !== 0) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar Category Colors dropdown cache readback is stale or malformed; '
+                    . 'recovery_required'
+                );
+            }
         }
 
         if ($verify && ($selectorMismatchCount > 0
@@ -349,10 +360,10 @@ final class TheEventsCalendarCategoryColors {
 
     /**
      * Observe TEC's cache entry without calling get_dropdown_categories(),
-     * whose cache-miss path writes. Native Controller::generate_css() ends by
-     * deleting this entry; later frontend reads may repopulate or naturally
-     * expire it, so only the immediate invoke postcondition requires absence.
-     * Reconciliation omits this transient observation entirely.
+     * whose cache-miss path writes. Tribe__Cache::get() with no callback or
+     * non-false default is the exact read-only wp_cache_get path in both pins.
+     * Native generation must finish absent; recovery accepts absence or the
+     * exact current semantic rows after a legitimate frontend repopulation.
      *
      * @param array<string,array<string,mixed>> $expected
      * @return array<string,mixed>

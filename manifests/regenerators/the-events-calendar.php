@@ -69,6 +69,54 @@ final class TheEventsCalendar {
         'updated_at',
         'hash',
     ];
+    private const TABLE_SCHEMAS = [
+        'tec_events' => [
+            'columns' => [
+                'event_id' => ['Type' => 'bigint(20) unsigned', 'Null' => 'NO', 'Default' => null, 'Extra' => 'auto_increment'],
+                'post_id' => ['Type' => 'bigint(20) unsigned', 'Null' => 'NO', 'Default' => null, 'Extra' => ''],
+                'start_date' => ['Type' => 'varchar(19)', 'Null' => 'NO', 'Default' => null, 'Extra' => ''],
+                'end_date' => ['Type' => 'varchar(19)', 'Null' => 'YES', 'Default' => null, 'Extra' => ''],
+                'timezone' => ['Type' => 'varchar(30)', 'Null' => 'NO', 'Default' => 'UTC', 'Extra' => ''],
+                'start_date_utc' => ['Type' => 'varchar(19)', 'Null' => 'NO', 'Default' => null, 'Extra' => ''],
+                'end_date_utc' => ['Type' => 'varchar(19)', 'Null' => 'YES', 'Default' => null, 'Extra' => ''],
+                'duration' => ['Type' => 'mediumint(30)', 'Null' => 'YES', 'Default' => '7200', 'Extra' => ''],
+                'updated_at' => ['Type' => 'timestamp', 'Null' => 'YES', 'Default' => 'current_timestamp()', 'Extra' => 'on update current_timestamp()'],
+                'hash' => ['Type' => 'varchar(40)', 'Null' => 'NO', 'Default' => null, 'Extra' => ''],
+            ],
+            'indexes' => [
+                'PRIMARY' => ['unique' => true, 'columns' => ['event_id']],
+                'post_id' => ['unique' => true, 'columns' => ['post_id']],
+            ],
+        ],
+        'tec_occurrences' => [
+            'columns' => [
+                'occurrence_id' => ['Type' => 'bigint(20) unsigned', 'Null' => 'NO', 'Default' => null, 'Extra' => 'auto_increment'],
+                'event_id' => ['Type' => 'bigint(20) unsigned', 'Null' => 'NO', 'Default' => null, 'Extra' => ''],
+                'post_id' => ['Type' => 'bigint(20) unsigned', 'Null' => 'NO', 'Default' => null, 'Extra' => ''],
+                'start_date' => ['Type' => 'datetime', 'Null' => 'NO', 'Default' => null, 'Extra' => ''],
+                'start_date_utc' => ['Type' => 'datetime', 'Null' => 'NO', 'Default' => null, 'Extra' => ''],
+                'end_date' => ['Type' => 'datetime', 'Null' => 'NO', 'Default' => null, 'Extra' => ''],
+                'end_date_utc' => ['Type' => 'datetime', 'Null' => 'NO', 'Default' => null, 'Extra' => ''],
+                'duration' => ['Type' => 'mediumint(30)', 'Null' => 'YES', 'Default' => '7200', 'Extra' => ''],
+                'hash' => ['Type' => 'varchar(40)', 'Null' => 'NO', 'Default' => null, 'Extra' => ''],
+                'updated_at' => ['Type' => 'timestamp', 'Null' => 'YES', 'Default' => 'current_timestamp()', 'Extra' => 'on update current_timestamp()'],
+            ],
+            'indexes' => [
+                'PRIMARY' => ['unique' => true, 'columns' => ['occurrence_id']],
+                'event_id' => ['unique' => false, 'columns' => ['event_id']],
+                'hash' => ['unique' => true, 'columns' => ['hash']],
+                'idx_wp_tec_occurrences_post_id_dates' => [
+                    'unique' => false,
+                    'columns' => ['post_id', 'end_date', 'start_date'],
+                ],
+                'idx_wp_tec_occurrences_post_id_dates_utc' => [
+                    'unique' => false,
+                    'columns' => ['post_id', 'end_date_utc', 'start_date_utc'],
+                ],
+            ],
+        ],
+    ];
+    private const MAX_INDEX_ROWS = 64;
 
     public function __construct(Policy $policy) {
         $this->policy = $policy;
@@ -97,6 +145,8 @@ final class TheEventsCalendar {
                 "duo: TEC regenerator: $eventClass::data_from_post() not found — cannot regenerate tec_occurrences"
             );
         }
+
+        [$eventTable, $occurrenceTable] = $this->assertNativeTableSchemas();
 
         $eventData = $eventClass::data_from_post($localId);
         if (!is_array($eventData)) {
@@ -127,7 +177,6 @@ final class TheEventsCalendar {
         $event->occurrences()->save_occurrences();
 
         global $wpdb;
-        $eventTable = $wpdb->prefix . 'tec_events';
         // Native model calls can handle a driver error and leave the public
         // wpdb field populated. Only this exact read may decide its outcome.
         $wpdb->last_error = '';
@@ -177,7 +226,6 @@ final class TheEventsCalendar {
             );
         }
 
-        $occurrenceTable = $wpdb->prefix . 'tec_occurrences';
         $wpdb->last_error = '';
         $occurrenceRows = $wpdb->get_results(
             $wpdb->prepare(
@@ -229,6 +277,158 @@ final class TheEventsCalendar {
                 . implode(',', $occurrenceMismatches)
             );
         }
+    }
+
+    /** @return array{0:string,1:string} */
+    private function assertNativeTableSchemas(): array {
+        global $wpdb;
+        if (!is_object($wpdb)
+            || !is_callable([$wpdb, 'get_results'])
+            || !is_callable([$wpdb, 'prepare'])
+            || !is_callable([$wpdb, 'esc_like'])
+            || !isset($wpdb->prefix)
+            || !is_string($wpdb->prefix)
+            || preg_match('/^[A-Za-z0-9_]{0,44}$/D', $wpdb->prefix) !== 1) {
+            throw new \RuntimeException(
+                'duo: TEC derived-state schema preflight requires one safe WordPress table prefix and database reader'
+            );
+        }
+        $tables = [];
+        foreach (self::TABLE_SCHEMAS as $suffix => $expected) {
+            $table = $wpdb->prefix . $suffix;
+            if (strlen($table) > 64 || preg_match('/^[A-Za-z0-9_]{1,64}$/D', $table) !== 1) {
+                throw new \RuntimeException(
+                    "duo: TEC derived-state schema preflight rejected the $suffix table identifier"
+                );
+            }
+            $tables[$suffix] = $table;
+            $this->assertNativeTableSchema($table, $suffix, $expected);
+        }
+        return [$tables['tec_events'], $tables['tec_occurrences']];
+    }
+
+    /**
+     * @param array{
+     *   columns:array<string,array{Type:string,Null:string,Default:?string,Extra:string}>,
+     *   indexes:array<string,array{unique:bool,columns:list<string>}>
+     * } $expected
+     */
+    private function assertNativeTableSchema(string $table, string $suffix, array $expected): void {
+        global $wpdb;
+        $status = $this->schemaRows(
+            $wpdb->prepare('SHOW TABLE STATUS LIKE %s', $wpdb->esc_like($table)),
+            "$suffix table identity"
+        );
+        if (count($status) !== 1
+            || !is_array($status[0])
+            || !is_string($status[0]['Name'] ?? null)
+            || !hash_equals($table, $status[0]['Name'])
+            || !is_string($status[0]['Engine'] ?? null)
+            || strcasecmp($status[0]['Engine'], 'InnoDB') !== 0) {
+            throw new \RuntimeException(
+                "duo: TEC derived-state schema preflight rejected the $suffix table identity or engine"
+            );
+        }
+
+        $columns = $this->schemaRows("SHOW FULL COLUMNS FROM `$table`", "$suffix columns");
+        if (count($columns) !== count($expected['columns'])) {
+            throw new \RuntimeException(
+                "duo: TEC derived-state schema preflight rejected the $suffix column count"
+            );
+        }
+        foreach (array_values($expected['columns']) as $position => $columnExpected) {
+            $columnName = array_keys($expected['columns'])[$position];
+            $column = $columns[$position] ?? null;
+            if (!is_array($column)
+                || !is_string($column['Field'] ?? null)
+                || !hash_equals($columnName, $column['Field'])
+                || !is_string($column['Type'] ?? null)
+                || !hash_equals($columnExpected['Type'], strtolower($column['Type']))
+                || !is_string($column['Null'] ?? null)
+                || !hash_equals($columnExpected['Null'], strtoupper($column['Null']))
+                || !array_key_exists('Default', $column)
+                || $column['Default'] !== $columnExpected['Default']
+                || !is_string($column['Extra'] ?? null)
+                || !hash_equals($columnExpected['Extra'], strtolower($column['Extra']))) {
+                throw new \RuntimeException(
+                    "duo: TEC derived-state schema preflight rejected $suffix column $columnName"
+                );
+            }
+        }
+
+        $indexRows = $this->schemaRows("SHOW INDEX FROM `$table`", "$suffix indexes");
+        if (count($indexRows) > self::MAX_INDEX_ROWS) {
+            throw new \RuntimeException(
+                "duo: TEC derived-state schema preflight rejected the $suffix index row frontier"
+            );
+        }
+        $indexes = [];
+        foreach ($indexRows as $row) {
+            if (!is_array($row)
+                || !is_string($row['Key_name'] ?? null)
+                || preg_match('/^[A-Za-z0-9_]{1,64}$/D', $row['Key_name']) !== 1
+                || !is_string($row['Non_unique'] ?? null)
+                || !in_array($row['Non_unique'], ['0', '1'], true)
+                || !is_string($row['Seq_in_index'] ?? null)
+                || preg_match('/^[1-9][0-9]*$/D', $row['Seq_in_index']) !== 1
+                || (int) $row['Seq_in_index'] > self::MAX_INDEX_ROWS
+                || !is_string($row['Column_name'] ?? null)
+                || !isset($expected['columns'][$row['Column_name']])
+                || !array_key_exists('Sub_part', $row)
+                || $row['Sub_part'] !== null
+                || !is_string($row['Index_type'] ?? null)
+                || strcasecmp($row['Index_type'], 'BTREE') !== 0) {
+                throw new \RuntimeException(
+                    "duo: TEC derived-state schema preflight rejected one $suffix index row"
+                );
+            }
+            $name = $row['Key_name'];
+            $sequence = (int) $row['Seq_in_index'];
+            $unique = $row['Non_unique'] === '0';
+            if (isset($indexes[$name]['columns'][$sequence])
+                || isset($indexes[$name]) && $indexes[$name]['unique'] !== $unique) {
+                throw new \RuntimeException(
+                    "duo: TEC derived-state schema preflight rejected duplicated $suffix index metadata"
+                );
+            }
+            $indexes[$name]['unique'] = $unique;
+            $indexes[$name]['columns'][$sequence] = $row['Column_name'];
+        }
+        foreach ($indexes as $name => &$index) {
+            ksort($index['columns'], SORT_NUMERIC);
+            if (array_keys($index['columns']) !== range(1, count($index['columns']))) {
+                throw new \RuntimeException(
+                    "duo: TEC derived-state schema preflight rejected non-contiguous $suffix index metadata"
+                );
+            }
+            $index['columns'] = array_values($index['columns']);
+            if ($index['unique'] && !isset($expected['indexes'][$name])) {
+                throw new \RuntimeException(
+                    "duo: TEC derived-state schema preflight rejected an unknown unique $suffix index"
+                );
+            }
+        }
+        unset($index);
+        foreach ($expected['indexes'] as $name => $indexExpected) {
+            if (($indexes[$name] ?? null) !== $indexExpected) {
+                throw new \RuntimeException(
+                    "duo: TEC derived-state schema preflight rejected required $suffix index $name"
+                );
+            }
+        }
+    }
+
+    /** @return list<array<string,mixed>> */
+    private function schemaRows(string $sql, string $context): array {
+        global $wpdb;
+        $wpdb->last_error = '';
+        $rows = $wpdb->get_results($sql, ARRAY_A);
+        if (!is_array($rows) || !array_is_list($rows) || $wpdb->last_error !== '') {
+            throw new \RuntimeException(
+                "duo: TEC derived-state schema preflight could not read $context"
+            );
+        }
+        return $rows;
     }
 
     private function postMetaString(int $localId, string $key): string {

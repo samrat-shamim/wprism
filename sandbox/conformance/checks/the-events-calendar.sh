@@ -785,6 +785,34 @@ try {
     $cache = tribe_cache();
     $assert($cache->get($cacheKey) === false,
         'native Category Colors invocation did not finish with the dropdown cache absent');
+    $staleCache = [[
+        'slug' => 'duo-equal-priority-alpha',
+        'name' => 'duo-equal-priority-alpha',
+        'priority' => 41,
+        'primary' => '#000000',
+        'hidden' => false,
+    ]];
+    $assert($cache->set($cacheKey, $staleCache, 3600),
+        'could not seed the exact stale dropdown cache crash fixture');
+    tribe(\TEC\Events\Category_Colors\CSS\Generator::class)->generate_and_save_css();
+    $staleCacheBytes = serialize($cache->get($cacheKey));
+    $staleRecoveryRefused = false;
+    try {
+        $provider->reconcile_scoped('regenerate_css', [], $operation);
+    } catch (RuntimeException $failure) {
+        $staleRecoveryRefused = str_contains(
+            $failure->getMessage(),
+            'dropdown cache readback is stale or malformed'
+        );
+    }
+    $assert($staleRecoveryRefused
+        && serialize($cache->get($cacheKey)) === $staleCacheBytes,
+        'recovery certified or mutated a stale cache after the exact first native service');
+    $recoveredCrash = $provider->invoke_scoped('regenerate_css', [], $operation);
+    $assert(($recoveredCrash['after'] ?? null) === $equalPriorityAfter
+        && $cache->get($cacheKey) === false,
+        'retry after the exact between-services crash did not converge CSS and cache');
+
     $dropdown = tribe(
         \TEC\Events\Category_Colors\Repositories\Category_Color_Dropdown_Provider::class
     );
@@ -877,7 +905,8 @@ try {
 }
 
 echo wp_json_encode([
-    'cache_postcondition' => 'absent_after_invoke_observational_during_reconcile',
+    'cache_postcondition' => 'absent_after_invoke_absent_or_current_on_reconcile',
+    'stale_between_services_refused' => true,
     'equal_priority_after_sha256' => hash('sha256', wp_json_encode($equalPriorityAfter)),
     'native_one_page_rows' => $onePageCount,
     'native_second_page_refused' => true,
@@ -892,7 +921,8 @@ rm -f "$TEC_COLOR_BOUNDARY_FILE"
   || fail "TEC exact Category Colors equal-priority/cache/pagination boundary failed: $TEC_COLOR_BOUNDARY_OUT"
 TEC_COLOR_BOUNDARY_JSON=$(printf '%s\n' "$TEC_COLOR_BOUNDARY_OUT" | awk 'NF { line=$0 } END { print line }')
 printf '%s\n' "$TEC_COLOR_BOUNDARY_JSON" | jq -e '
-  .cache_postcondition == "absent_after_invoke_observational_during_reconcile" and
+  .cache_postcondition == "absent_after_invoke_absent_or_current_on_reconcile" and
+  .stale_between_services_refused == true and
   (.equal_priority_after_sha256 | test("^[0-9a-f]{64}$")) and
   .native_one_page_rows == 500 and .native_second_page_refused == true
 ' >/dev/null || fail "TEC exact Category Colors boundary returned malformed evidence: $TEC_COLOR_BOUNDARY_OUT"
