@@ -436,6 +436,7 @@ require_once __DIR__ . '/../../../../agent/src/Grammar/Blocks.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/Snapshot.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/SidebarState.php';
+require_once __DIR__ . '/../../../../agent/src/Promotion/Deploy.php';
 require_once __DIR__ . '/../../../../agent/src/Adapter/Providers.php';
 require_once __DIR__ . '/../../../../agent/src/Capture/EntityMetaCapture.php';
 require_once __DIR__ . '/../../../../manifests/interpreters/the-events-calendar.php';
@@ -444,6 +445,7 @@ require_once __DIR__ . '/../../../../manifests/regenerators/the-events-calendar.
 
 use Duo\Interpreters\TheEventsCalendar;
 use Duo\Blocks;
+use Duo\Deploy;
 use Duo\EntityMetaCapture;
 use Duo\Policy;
 use Duo\Tokens;
@@ -956,6 +958,15 @@ function is_wp_error(mixed $value): bool {
     return false;
 }
 
+function validate_plugin(string $plugin): null {
+    return null;
+}
+
+/** @return array<string,array{Version:string}> */
+function get_plugins(): array {
+    return $GLOBALS['tec_readiness_plugins'] ?? [];
+}
+
 function sanitize_html_class(string $class): string {
     return preg_replace('/[^A-Za-z0-9_-]/', '', $class) ?? '';
 }
@@ -1328,6 +1339,61 @@ duo_check_same(
 $policy = Policy::load(null, ['the-events-calendar']);
 $interpreter = $policy->interpreters()['the-events-calendar'];
 duo_check($interpreter instanceof TheEventsCalendar, 'the manifest resolves its digest-bound TEC interpreter');
+$savedVersionPlugins = $GLOBALS['tec_readiness_plugins'] ?? null;
+$savedVersionOptions = $GLOBALS['tec_readiness_options'] ?? null;
+$tecPlugin = 'the-events-calendar/the-events-calendar.php';
+$GLOBALS['tec_readiness_options']['active_plugins'] = [$tecPlugin];
+foreach (['6.17.2', '6.17.3'] as $inRangeVersion) {
+    $GLOBALS['tec_readiness_plugins'] = [$tecPlugin => ['Version' => $inRangeVersion]];
+    duo_check_same(
+        [],
+        Deploy::code_mismatch($policy, ['active_plugins' => [$tecPlugin]]),
+        "the real lifecycle planner admits exact TEC $inRangeVersion"
+    );
+}
+foreach (['6.17.1', '6.17.4'] as $outOfRangeVersion) {
+    $GLOBALS['tec_readiness_plugins'] = [$tecPlugin => ['Version' => $outOfRangeVersion]];
+    $beforeVersionRefusal = serialize([
+        $GLOBALS['tec_readiness_plugins'],
+        $GLOBALS['tec_readiness_options'],
+    ]);
+    $versionRows = Deploy::code_mismatch($policy, ['active_plugins' => [$tecPlugin]]);
+    duo_check_same(1, count($versionRows), "TEC $outOfRangeVersion produces one lifecycle refusal");
+    duo_check_same(
+        [
+            'issue' => 'outside_version_range',
+            'kind' => 'plugin',
+            'plugin' => $tecPlugin,
+            'installed_version' => $outOfRangeVersion,
+            'version_range' => ['min' => '6.17.2', 'max' => '6.17.4'],
+            'manifest' => 'the-events-calendar',
+        ],
+        array_intersect_key($versionRows[0] ?? [], array_flip([
+            'issue',
+            'kind',
+            'plugin',
+            'installed_version',
+            'version_range',
+            'manifest',
+        ])),
+        "TEC $outOfRangeVersion refusal binds the exact basename, installed header and exclusive range"
+    );
+    duo_check_same(
+        $beforeVersionRefusal,
+        serialize([$GLOBALS['tec_readiness_plugins'], $GLOBALS['tec_readiness_options']]),
+        "TEC $outOfRangeVersion range diagnosis is read-only before lifecycle mutation"
+    );
+}
+if ($savedVersionPlugins === null) {
+    unset($GLOBALS['tec_readiness_plugins']);
+} else {
+    $GLOBALS['tec_readiness_plugins'] = $savedVersionPlugins;
+}
+if ($savedVersionOptions === null) {
+    unset($GLOBALS['tec_readiness_options']);
+} else {
+    $GLOBALS['tec_readiness_options'] = $savedVersionOptions;
+}
 duo_check_same(
     [['kind' => 'post', 'path' => 'organizer', 'type' => 'int']],
     $policy->block_attr_rules()['tribe/event-organizer'] ?? null,
