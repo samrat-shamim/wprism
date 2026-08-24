@@ -58,7 +58,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-environment-materializer-live \
 	regress-env-provider-conformance-live \
 	regress-frozen-materialization-promotion \
-	regress-woo-attribute-deletion regress-bundle-coverage regress-suite-wiring \
+	regress-woo-attribute-deletion regress-bundle-coverage regress-suite-wiring regress-platform-move-gates \
 	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification \
 	regress-post-field-classification regress-woocommerce-contract regress-init-contract regress-duo-init regress-duo3316-contract \
 	regress-refresh-export-unit regress-vocabulary-ownership regress-parent-scoped-natural-key regress-close-gate-parent-count \
@@ -2273,7 +2273,7 @@ regress-user-meta:
 # closed signed SSH crash-matrix evidence verifier.
 regress-offline-all:
 	@bash sandbox/tests/offline_diagnostics_guard.sh "$(MAKE)" --no-print-directory regress-offline-corpus
-	@echo "regress-offline-all: 294 offline suites green"
+	@echo "regress-offline-all: 295 offline suites green"
 
 regress-offline-corpus: code-half-unit \
 	regress-adopt-rollback regress-local-bootstrap regress-capture-publish regress-adapter-contract regress-adapter-sources regress-site-adapter-certification regress-ecosystem-adapter-batch regress-code-snippets-state-provider regress-yoast-duplicate-post-role-provider regress-yoast-index-provider regress-elementor-css-provider regress-adapter-production-readiness regress-manifest-dispositions regress-platform-compatibility regress-topology-gate regress-interpreter-policy regress-proof-legacy-pair \
@@ -2284,7 +2284,7 @@ regress-offline-corpus: code-half-unit \
 	regress-manifest-reclassification-policy regress-menu-field-reclassification-policy \
 	regress-regen-dependency-policy regress-shortcode-refs regress-term-meta regress-url-query-refs \
 	regress-option-name-refs-wiring regress-natural-key-rename regress-classification-batch regress-refresh-orchestration regress-refresh-compile-refs regress-refresh-rebase regress-refresh-field-diff regress-merge-check \
-	regress-coverage-offline regress-bundle-coverage regress-suite-wiring regress-fixture-makers regress-rollback-authority regress-recovery-transport regress-local-verified-rollback \
+	regress-coverage-offline regress-bundle-coverage regress-suite-wiring regress-platform-move-gates regress-fixture-makers regress-rollback-authority regress-recovery-transport regress-local-verified-rollback \
 	regress-recovery-executor regress-checkpoint-bundle regress-deploy-checkpoint regress-code-release regress-upload-bundle \
 	regress-effect-bundle regress-woocommerce-effect-contract regress-woocommerce-product-lookups \
 	regress-woocommerce-product-lookups-fake regress-woocommerce-deletion-authority \
@@ -2295,7 +2295,7 @@ regress-offline-corpus: code-half-unit \
 	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-elementor-dead-guard regress-elementor-matrix-reset regress-grind-r1c-manifest-preserve regress-observation-guards regress-live-exit-code-contract regress-target-observation-premises regress-bound-helper regress-control-plane-seams regress-recovery-protocol regress-scoped-apply-session regress-scoped-apply-live-cleanup regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-ssh-adopt-evidence-retention regress-scope-wire regress-manifest-grammar regress-compiled-artifact regress-code-descriptor-compiler regress-code-config-grammar regress-menu-materializer regress-adapter-registry regress-agent-src-requires regress-user-meta-materializer regress-pin-resolver regress-term-materializer regress-action-provider-grammar regress-options-materializer regress-cross-manifest-guards regress-relationship-materializer regress-attachment-materializer regress-post-materializer regress-sub-key-grammar regress-delete-executor regress-delete-guard-value-codec regress-delete-guard-evaluator regress-scope-discovery regress-table-graph regress-table-schema regress-snapshot-identity regress-typed-table-capture regress-typed-table-materializer regress-snapshot-pruner regress-taxonomy-grammar regress-option-reference-grammar regress-post-type-grammar regress-discovery-grammar regress-reference-keyspace-grammar regress-reference-kind-grammar regress-offline-diagnostics regress-promotion-abort-reason regress-delete-authorization-receipt \
 	regress-code-source-lock regress-code-lock-compile-gate regress-init-code-split regress-code-classify regress-code-resolve regress-code-resolve-push \
 	regress-code-import regress-checkpoint-prune
-	@echo "regress-offline-corpus: 293 offline suites green"
+	@echo "regress-offline-corpus: 294 offline suites green"
 
 regress-offline-diagnostics:
 	bash sandbox/tests/offline/guards/regress_offline_diagnostics.sh
@@ -2392,6 +2392,20 @@ regress-suite-wiring:
 # its own grind rejected -- because nothing ran a maker and compared. This does.
 regress-fixture-makers:
 	bash sandbox/tests/offline/guards/regress_fixture_makers.sh
+
+# The one guard in this directory aimed at the PRODUCT rather than the estate.
+# AGENTS.md rule 2 names one refusal a manifests/ byte trips
+# (compiled_artifact_manifest_mismatch) and rule 8 names one more; the tree
+# actually carries 44 gates across 76 sites on the platform/manifest/authority
+# axes. This re-derives that candidate set from the tree on every run and
+# refuses a site the reviewed register in tools/platform-move-gates.json does
+# not carry, so "the gate nobody enumerated" fails here instead of on a
+# customer site. The register's 6 exclusions are the same discipline pointed
+# the other way -- a deliberate drop is a reviewed line, and widening the
+# predicate until it absorbs one fails too. See the suite header for the
+# predicate, its two arms, and the measured reason they stay narrow.
+regress-platform-move-gates:
+	php sandbox/tests/offline/guards/regress_platform_move_gates.php
 
 regress-init-contract:
 	php sandbox/tests/offline/cli/regress_init_contract.php
