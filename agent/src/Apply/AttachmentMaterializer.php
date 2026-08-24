@@ -404,9 +404,16 @@ final class AttachmentMaterializer {
     /** Run one filesystem transition while its exact physical attachment rows are locked. */
     private function with_locked_pending_bindings(\Closure $operation, string $purpose): mixed {
         $started = false;
+        $lockBoundaryStarted = false;
         try {
             Db::start_repeatable_read($purpose . ' transaction start');
             $started = true;
+            // This wrapper runs after the authored COMMIT as a new physical
+            // transaction. Its schema descriptors and continuity savepoint
+            // must therefore be minted here rather than inherited from the
+            // already-ended authored transaction.
+            $this->fieldMaterializer->begin_authored_transaction();
+            $lockBoundaryStarted = true;
             foreach ($this->filesystem->pending_bindings() as $binding) {
                 $this->assert_locked_binding($binding, false, $purpose);
             }
@@ -429,6 +436,10 @@ final class AttachmentMaterializer {
                 }
             }
             throw $failure;
+        } finally {
+            if ($lockBoundaryStarted) {
+                $this->fieldMaterializer->end_authored_transaction();
+            }
         }
     }
 
@@ -905,7 +916,9 @@ final class AttachmentMaterializer {
                 throw new \RuntimeException('duo: attachment prior metadata file identity disagrees with _wp_attached_file');
             }
             $sizes = $metadata['sizes'] ?? [];
-            if (!is_array($sizes) || array_is_list($sizes) || count($sizes) > 512) {
+            if (!is_array($sizes)
+                || ($sizes !== [] && array_is_list($sizes))
+                || count($sizes) > 512) {
                 throw new \RuntimeException('duo: attachment prior metadata sizes roster is malformed or oversized');
             }
             foreach ($sizes as $name => $size) {

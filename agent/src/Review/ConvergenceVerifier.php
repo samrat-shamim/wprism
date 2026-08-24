@@ -3,6 +3,7 @@ namespace Duo;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/OptionState.php';
+require_once __DIR__ . '/../Kernel/WpCliChildProcess.php';
 require_once __DIR__ . '/../Policy/ScopeClosure.php';
 require_once __DIR__ . '/../Scope/ScopedApply.php';
 require_once __DIR__ . '/../Scope/ScopedApplySession.php';
@@ -109,11 +110,7 @@ final class ConvergenceVerifier {
         try {
             $compiled->write($artifactSnapshot);
             Canon::write_file($policySnapshot, Canon::encode($this->policy->export_snapshot()));
-            $res = \WP_CLI::runcommand($cmd, [
-                'launch' => true,
-                'return' => 'all',
-                'exit_error' => false,
-            ]);
+            $res = WpCliChildProcess::capture($cmd, 600, 786432, 262144);
         } catch (\Throwable $t) {
             throw $this->failure(
                 'duo: post-apply convergence verification subprocess failed; promotion metadata was not committed',
@@ -124,16 +121,22 @@ final class ConvergenceVerifier {
             @unlink($artifactSnapshot);
             @unlink($policySnapshot);
         }
-        if ((int) $res->return_code !== 0) {
+        if ($res['return_code'] !== 0) {
             throw $this->failure(
                 self::subprocess_diagnosis(
-                    (string) ($res->stderr ?? ''),
-                    (string) ($res->stdout ?? '')
+                    $res['stderr'],
+                    $res['stdout']
                 ),
                 $preservedDrift
             );
         }
-        $lines = preg_split('/\R/', trim((string) ($res->stdout ?? ''))) ?: [];
+        if (trim($res['stderr']) !== '') {
+            throw $this->failure(
+                'duo: post-apply convergence verification subprocess emitted a warning; promotion metadata was not committed',
+                $preservedDrift
+            );
+        }
+        $lines = preg_split('/\R/', trim($res['stdout'])) ?: [];
         $json = (string) end($lines);
         try {
             $report = Canon::decode($json);
@@ -296,11 +299,7 @@ final class ConvergenceVerifier {
         try {
             $compiled->write($artifactSnapshot);
             Canon::write_file($policySnapshot, Canon::encode($this->policy->export_snapshot()));
-            $res = \WP_CLI::runcommand($cmd, [
-                'launch' => true,
-                'return' => 'all',
-                'exit_error' => false,
-            ]);
+            $res = WpCliChildProcess::capture($cmd, 600, 786432, 262144);
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
                 'duo: scoped convergence verification subprocess failed; scoped ledger evidence was not committed',
@@ -311,12 +310,17 @@ final class ConvergenceVerifier {
             @unlink($artifactSnapshot);
             @unlink($policySnapshot);
         }
-        if ((int) $res->return_code !== 0) {
+        if ($res['return_code'] !== 0) {
             throw new \RuntimeException(
                 'duo: scoped convergence verification refused the bounded target; scoped ledger evidence was not committed'
             );
         }
-        $lines = preg_split('/\R/', trim((string) ($res->stdout ?? ''))) ?: [];
+        if (trim($res['stderr']) !== '') {
+            throw new \RuntimeException(
+                'duo: scoped convergence verification subprocess emitted a warning; scoped ledger evidence was not committed'
+            );
+        }
+        $lines = preg_split('/\R/', trim($res['stdout'])) ?: [];
         try {
             $report = Canon::decode((string) end($lines));
         } catch (\Throwable $failure) {

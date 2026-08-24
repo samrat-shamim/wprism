@@ -7,7 +7,7 @@ declare(strict_types=1);
  * Exercises the agent-owned gate with every inclusive/exclusive version edge,
  * the WordPress AND PHP range-plus-exercised-series semantics, the per-engine
  * database map, engine/topology mismatches, checked live-probe parsing, safe
- * local-POSIX filesystem capability profile, aggregate diagnostics, and
+ * local-POSIX filesystem/process capability profiles, aggregate diagnostics, and
  * Policy ordering. Before this gate, a direct
  * `wp duo` command bypassed the host doctor and reached repository reads or
  * mutation on an entirely unexercised runtime.
@@ -94,6 +94,7 @@ $facts = static fn(
     string $wordpress = '7.1',
     string $siteMode = 'single-site',
     string $osFamily = 'Linux',
+    string $processOsFamily = 'Linux',
     string $directorySeparator = '/',
     array $filesystemFunctions = [
         'chmod' => true,
@@ -101,7 +102,18 @@ $facts = static fn(
         'fsync' => true,
         'lstat' => true,
         'rename' => true,
-    ]
+    ],
+    array $processFunctions = [
+        'passthru' => true,
+        'posix_kill' => true,
+        'posix_setsid' => true,
+        'proc_close' => true,
+        'proc_get_status' => true,
+        'proc_open' => true,
+        'proc_terminate' => true,
+    ],
+    string $processShellPath = '/bin/sh',
+    bool $processShellExecutable = true
 ): array => [
     'php' => $php,
     'database' => ['engine' => $engine, 'version' => $database],
@@ -109,6 +121,11 @@ $facts = static fn(
         'directory_separator' => $directorySeparator,
         'functions' => $filesystemFunctions,
         'os_family' => $osFamily,
+    ],
+    'process' => [
+        'functions' => $processFunctions,
+        'os_family' => $processOsFamily,
+        'shell' => ['executable' => $processShellExecutable, 'path' => $processShellPath],
     ],
     'wordpress' => $wordpress,
     'site_mode' => $siteMode,
@@ -125,10 +142,13 @@ $refusal = static function (callable $operation): ?CommandRefusalException {
 };
 
 PlatformCompatibility::assert_supported($platform, $facts());
-duo_check(true, 'the shipped PHP/MariaDB/Linux-filesystem/WordPress/single-site boundary accepts its exercised facts');
+duo_check(true, 'the shipped PHP/MariaDB/Linux-filesystem/process/WordPress/single-site boundary accepts its exercised facts');
 duo_check(
-    $refusal(static fn() => PlatformCompatibility::assert_supported($platform, $facts(osFamily: 'Darwin'))) === null,
-    'the measured Darwin local-POSIX process profile is accepted beside the Linux pair profile'
+    $refusal(static fn() => PlatformCompatibility::assert_supported(
+        $platform,
+        $facts(osFamily: 'Darwin', processOsFamily: 'Darwin')
+    )) === null,
+    'the measured Darwin local-POSIX filesystem and process profiles are accepted beside the Linux pair profile'
 );
 
 // Every value of the shipped `verified` map is, by definition, a core a live
@@ -219,16 +239,46 @@ foreach ([
     // comparing something it never exercised.
     'WordPress pre-release core inside an exercised series' => [$facts(wordpress: '7.0.4-alpha'), 'platform_wordpress_version_unsupported'],
     'unexercised filesystem OS family' => [$facts(osFamily: 'Windows'), 'platform_filesystem_os_unsupported'],
+    'unexercised process OS family' => [$facts(processOsFamily: 'Windows'), 'platform_process_os_unsupported'],
     'non-POSIX directory separator' => [$facts(directorySeparator: '\\'), 'platform_filesystem_separator_unsupported'],
     'missing durable fsync function' => [$facts(filesystemFunctions: [
         'chmod' => true, 'flock' => true, 'fsync' => false, 'lstat' => true, 'rename' => true,
     ]), 'platform_filesystem_function_unsupported'],
+    'missing process-group status function' => [$facts(processFunctions: [
+        'passthru' => true, 'posix_kill' => true, 'posix_setsid' => true, 'proc_close' => true,
+        'proc_get_status' => false, 'proc_open' => true, 'proc_terminate' => true,
+    ]), 'platform_process_function_unsupported'],
+    'different process shell path' => [$facts(processShellPath: '/usr/bin/sh'), 'platform_process_shell_unsupported'],
+    'non-executable process shell' => [$facts(processShellExecutable: false), 'platform_process_shell_unavailable'],
     'multisite topology' => [$facts(siteMode: 'multisite'), 'platform_site_mode_unsupported'],
 ] as $label => [$caseFacts, $code]) {
     $failure = $refusal(static fn() => PlatformCompatibility::assert_supported($platform, $caseFacts));
     duo_check($failure instanceof CommandRefusalException, "$label refuses through the typed platform contract");
     duo_check_same('platform_unsupported', $failure?->reasonCode, "$label shares one stable command reason");
     duo_check_same($code, $failure?->diagnostics[0]['code'] ?? null, "$label names its exact platform axis");
+}
+
+// Every primitive is independently load-bearing. A one-cell sample would let
+// the declaration grow while leaving an untested function lookup or typo in
+// either the probe or diagnostic path.
+$allProcessFunctions = $facts()['process']['functions'];
+foreach (array_keys($allProcessFunctions) as $function) {
+    $missingOne = $allProcessFunctions;
+    $missingOne[$function] = false;
+    $failure = $refusal(static fn() => PlatformCompatibility::assert_supported(
+        $platform,
+        $facts(processFunctions: $missingOne)
+    ));
+    duo_check_same(
+        'platform_process_function_unsupported',
+        $failure?->diagnostics[0]['code'] ?? null,
+        "missing process primitive $function refuses on the process-function axis"
+    );
+    duo_check_same(
+        'missing ' . $function,
+        $failure?->diagnostics[0]['observed'] ?? null,
+        "missing process primitive $function is named without hiding behind another prerequisite"
+    );
 }
 
 // The `required` value is the whole matrix — range AND exercised series, in
@@ -374,7 +424,7 @@ duo_check(
 // dedicated single-engine fixture above, because no shipped fact can reach it.
 $allMismatch = $refusal(static fn() => PlatformCompatibility::assert_supported(
     $platform,
-    $facts('8.5.0', 'MySQL', '8.3.9', '7.2.0', 'multisite', 'Windows')
+    $facts('8.5.0', 'MySQL', '8.3.9', '7.2.0', 'multisite', 'Windows', processOsFamily: 'Windows')
 ));
 duo_check_same(
     [
@@ -382,6 +432,7 @@ duo_check_same(
         'platform_php_version_unsupported',
         'platform_database_version_unsupported',
         'platform_filesystem_os_unsupported',
+        'platform_process_os_unsupported',
         'platform_wordpress_version_unsupported',
     ],
     array_column($allMismatch?->diagnostics ?? [], 'code'),
@@ -582,6 +633,69 @@ foreach ([
     );
 }
 
+// The process profile is closed to the exact transport contract: no generic
+// POSIX alias, extra OS family, omitted primitive, or replaceable shell may
+// widen the claim.
+$processRequirements = [
+    'passthru', 'posix_kill', 'posix_setsid', 'proc_close',
+    'proc_get_status', 'proc_open', 'proc_terminate',
+];
+foreach ([
+    'a missing process profile' => null,
+    'an unreviewed process profile identifier' => [
+        'note' => 'fixture', 'os_families' => ['Darwin', 'Linux'],
+        'profile' => 'generic-posix/v1',
+        'required_functions' => $processRequirements,
+        'shell' => '/bin/sh',
+    ],
+    'a process profile omitting one required function' => [
+        'note' => 'fixture', 'os_families' => ['Darwin', 'Linux'],
+        'profile' => 'local-posix-process-group-exec/v1',
+        'required_functions' => array_slice($processRequirements, 0, -1),
+        'shell' => '/bin/sh',
+    ],
+    'a process profile widening to an unexercised OS' => [
+        'note' => 'fixture', 'os_families' => ['Darwin', 'Linux', 'BSD'],
+        'profile' => 'local-posix-process-group-exec/v1',
+        'required_functions' => $processRequirements,
+        'shell' => '/bin/sh',
+    ],
+    'a process profile with an empty rationale' => [
+        'note' => '', 'os_families' => ['Darwin', 'Linux'],
+        'profile' => 'local-posix-process-group-exec/v1',
+        'required_functions' => $processRequirements,
+        'shell' => '/bin/sh',
+    ],
+    'a process profile omitting its exact shell' => [
+        'note' => 'fixture', 'os_families' => ['Darwin', 'Linux'],
+        'profile' => 'local-posix-process-group-exec/v1',
+        'required_functions' => $processRequirements,
+    ],
+    'a process profile substituting another shell' => [
+        'note' => 'fixture', 'os_families' => ['Darwin', 'Linux'],
+        'profile' => 'local-posix-process-group-exec/v1',
+        'required_functions' => $processRequirements,
+        'shell' => '/usr/bin/sh',
+    ],
+] as $label => $axis) {
+    $shape = $platform;
+    if ($axis === null) {
+        unset($shape['compatibility']['process']);
+    } else {
+        $shape['compatibility']['process'] = $axis;
+    }
+    $shapeFailure = $refusal(static fn() => PlatformCompatibility::assert_supported($shape, $facts()));
+    duo_check_same(
+        'platform_boundary_invalid',
+        $shapeFailure?->reasonCode,
+        "$label refuses fail-closed before any platform comparison"
+    );
+}
+
+$missingProcessShellFact = $facts();
+unset($missingProcessShellFact['process']['shell']);
+$nonBooleanProcessShellFact = $facts();
+$nonBooleanProcessShellFact['process']['shell']['executable'] = 'yes';
 foreach ([
     'missing filesystem function fact' => $facts(filesystemFunctions: [
         'chmod' => true, 'flock' => true, 'fsync' => true, 'lstat' => true,
@@ -589,6 +703,16 @@ foreach ([
     'non-boolean filesystem function fact' => $facts(filesystemFunctions: [
         'chmod' => true, 'flock' => true, 'fsync' => 'yes', 'lstat' => true, 'rename' => true,
     ]),
+    'missing process function fact' => $facts(processFunctions: [
+        'passthru' => true, 'posix_kill' => true, 'posix_setsid' => true, 'proc_close' => true,
+        'proc_get_status' => true, 'proc_open' => true,
+    ]),
+    'non-boolean process function fact' => $facts(processFunctions: [
+        'passthru' => true, 'posix_kill' => true, 'posix_setsid' => 'yes', 'proc_close' => true,
+        'proc_get_status' => true, 'proc_open' => true, 'proc_terminate' => true,
+    ]),
+    'missing process shell fact' => $missingProcessShellFact,
+    'non-boolean process shell executable fact' => $nonBooleanProcessShellFact,
 ] as $label => $caseFacts) {
     $shapeFailure = $refusal(static fn() => PlatformCompatibility::assert_supported($platform, $caseFacts));
     duo_check_same('platform_probe_unavailable', $shapeFailure?->reasonCode, "$label is a probe failure, not a target mismatch");
@@ -599,6 +723,10 @@ $liveFunctions = [];
 foreach (['chmod', 'flock', 'fsync', 'lstat', 'rename'] as $function) {
     $liveFunctions[$function] = function_exists($function);
 }
+$liveProcessFunctions = [];
+foreach ($processRequirements as $function) {
+    $liveProcessFunctions[$function] = function_exists($function);
+}
 duo_check_same(
     [
         'php' => PHP_VERSION,
@@ -607,6 +735,14 @@ duo_check_same(
             'directory_separator' => DIRECTORY_SEPARATOR,
             'functions' => $liveFunctions,
             'os_family' => PHP_OS_FAMILY,
+        ],
+        'process' => [
+            'functions' => $liveProcessFunctions,
+            'os_family' => PHP_OS_FAMILY,
+            'shell' => [
+                'executable' => function_exists('is_executable') && @is_executable('/bin/sh'),
+                'path' => '/bin/sh',
+            ],
         ],
         'wordpress' => '7.1',
         'site_mode' => 'single-site',

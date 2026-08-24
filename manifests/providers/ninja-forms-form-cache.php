@@ -3,6 +3,11 @@ namespace Duo\Providers;
 
 use Duo\PlainData;
 use Duo\Policy;
+use Duo\WpCliChildProcess;
+
+if (!class_exists(WpCliChildProcess::class, false)) {
+    require_once __DIR__ . '/../../agent/src/Kernel/WpCliChildProcess.php';
+}
 
 /**
  * Ninja Forms 3.x form-cache rebuild provider.
@@ -149,11 +154,12 @@ final class NinjaFormsFormCache {
         }
 
         try {
-            $result = \WP_CLI::runcommand('eval ' . escapeshellarg(self::child_payload()), [
-                'launch' => true,
-                'return' => 'all',
-                'exit_error' => false,
-            ]);
+            $result = WpCliChildProcess::capture(
+                'eval ' . escapeshellarg(self::child_payload()),
+                300,
+                262144,
+                131072
+            );
         } catch (\Throwable $t) {
             throw new \RuntimeException(
                 'duo: Ninja Forms fresh cache-rebuild process could not start',
@@ -161,24 +167,19 @@ final class NinjaFormsFormCache {
                 $t
             );
         }
-        if (!is_object($result) || !isset($result->return_code) || !is_int($result->return_code)) {
+        if ($result['return_code'] !== 0) {
             throw new \RuntimeException(
-                'duo: Ninja Forms fresh cache-rebuild process returned an unreadable result'
+                "duo: Ninja Forms fresh cache-rebuild process exited {$result['return_code']}; recovery_required"
             );
         }
-        if ($result->return_code !== 0) {
-            throw new \RuntimeException(
-                "duo: Ninja Forms fresh cache-rebuild process exited {$result->return_code}; recovery_required"
-            );
-        }
-        if (trim((string) ($result->stderr ?? '')) !== '') {
+        if (trim($result['stderr']) !== '') {
             throw new \RuntimeException(
                 'duo: Ninja Forms fresh cache-rebuild process emitted stderr despite exit 0; recovery_required'
             );
         }
         try {
             $child = json_decode(
-                trim((string) ($result->stdout ?? '')),
+                trim($result['stdout']),
                 true,
                 16,
                 JSON_THROW_ON_ERROR

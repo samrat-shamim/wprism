@@ -84,6 +84,7 @@ PORT1=$((10#$PORT1)); PORT2=$((10#$PORT2))
 command -v jq >/dev/null || fail 'jq is required'
 command -v docker >/dev/null || fail 'docker is required'
 
+SOURCE_ROOT=$(git rev-parse --show-toplevel) || fail 'platform evidence has no resolvable repository root'
 SOURCE_SHA=$(git rev-parse --verify 'HEAD^{commit}') || fail 'platform evidence has no resolvable Git HEAD'
 [ -n "${DUO_EXPECTED_SOURCE_SHA:-}" ] || fail 'DUO_EXPECTED_SOURCE_SHA is required for exact platform evidence'
 [ "$DUO_EXPECTED_SOURCE_SHA" = "$SOURCE_SHA" ] \
@@ -211,6 +212,11 @@ exercise_core() { # <wordpress-version> <web-image> <php-series> <cli-image>
       directory_separator:"/",
       functions:{chmod:true,flock:true,fsync:true,lstat:true,rename:true},
       os_family:"Linux"
+    } and
+    .process == {
+      functions:{passthru:true,posix_kill:true,posix_setsid:true,proc_close:true,proc_get_status:true,proc_open:true,proc_terminate:true},
+      os_family:"Linux",
+      shell:{executable:true,path:"/bin/sh"}
     }
   ' <<<"$facts" >/dev/null || fail "claimed core $version on PHP $php_series reported unexpected platform facts (expected php exactly $php_proof): $facts"
 
@@ -309,6 +315,8 @@ done
 # either the claim names a runtime nobody ran or this matrix is not the proof
 # the claim points at. Both are refusals, and both are cheaper here than after
 # five pairs have booted.
+PROCESS_PROFILE_SERIES=()
+PROCESS_PROFILE_IMAGES=()
 for cell in "${EXERCISE_CELLS[@]}"; do
   read -r _ _ cell_series cell_cli <<<"$cell"
   cell_proof=$(jq -er --arg series "$cell_series" \
@@ -317,6 +325,33 @@ for cell in "${EXERCISE_CELLS[@]}"; do
   cell_php=$(docker run --rm --entrypoint php "$cell_cli" -r 'echo PHP_VERSION;')
   [ "$cell_php" = "$cell_proof" ] \
     || fail "PHP $cell_series exercise image reports $cell_php, but the claim's proof patch for that series is $cell_proof: $cell_cli"
+  process_series_seen=0
+  for seen_series in "${PROCESS_PROFILE_SERIES[@]}"; do
+    [ "$seen_series" != "$cell_series" ] || process_series_seen=1
+  done
+  if [ "$process_series_seen" -eq 0 ]; then
+    PROCESS_PROFILE_SERIES+=("$cell_series")
+    PROCESS_PROFILE_IMAGES+=("$cell_cli")
+  fi
+done
+
+# Function facts prove only that symbols exist. The declared process profile
+# also promises concurrent bounded pipes, monotonic timeout, TERM-to-KILL
+# escalation, and an empty owned process group before return. Exercise those
+# semantics under the exact Linux image for every claimed PHP series before a
+# pair can mutate either database; the same 63-assertion product regression is
+# the deterministic Darwin proof in regress-offline-all.
+for process_index in "${!PROCESS_PROFILE_SERIES[@]}"; do
+  process_series=${PROCESS_PROFILE_SERIES[$process_index]}
+  process_image=${PROCESS_PROFILE_IMAGES[$process_index]}
+  process_output=$(docker run --rm \
+    --volume "$SOURCE_ROOT:/duo-source:ro" \
+    --entrypoint php "$process_image" \
+    /duo-source/sandbox/tests/offline/guards/regress_wp_cli_child_process.php 2>&1) \
+    || fail "PHP $process_series Linux process-profile behavior failed: $process_output"
+  grep -Fxq 'PASS: bounded WP-CLI child process (63 assertions)' <<<"$process_output" \
+    || fail "PHP $process_series Linux process-profile regression returned an incomplete verdict: $process_output"
+  pass "PHP $process_series Linux process groups, bounded pipes, deadlines, and descendant reap satisfy all 63 assertions"
 done
 PHP_REFUSED=$(docker run --rm --entrypoint php "$CLI85_IMAGE" -r 'echo PHP_VERSION;')
 [ -n "$PHP_REFUSED" ] || fail 'could not read the refusal CLI image PHP version'
@@ -349,9 +384,16 @@ jq -e '
     os_families:["Darwin","Linux"],
     profile:"local-posix-atomic-rename-flock-fsync/v1",
     required_functions:["chmod","flock","fsync","lstat","rename"]
+  }) and
+  (.platform.compatibility.process == {
+    note:.platform.compatibility.process.note,
+    os_families:["Darwin","Linux"],
+    profile:"local-posix-process-group-exec/v1",
+    required_functions:["passthru","posix_kill","posix_setsid","proc_close","proc_get_status","proc_open","proc_terminate"],
+    shell:"/bin/sh"
   })
 ' "$PLATFORM_FILE" >/dev/null \
-  || fail 'shipped platform declaration is not a well-formed core/PHP/database/local-POSIX matrix'
+  || fail 'shipped platform declaration is not a well-formed core/PHP/database/local-POSIX/process matrix'
 
 # This suite runs every pair on MariaDB 11 (sandbox/db.yml), so the MariaDB
 # entry is the one it can speak for. The MySQL entry the same map now claims is

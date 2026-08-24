@@ -8,7 +8,14 @@ namespace Duo {
         public static int $rollbacks = 0;
 
         public static function start_repeatable_read(string $purpose): void { ++self::$starts; }
-        public static function rollback(string $purpose): void { ++self::$rollbacks; }
+        public static function rollback(string $purpose): void {
+            ++self::$rollbacks;
+            if (isset($GLOBALS['wpdb'])
+                && is_object($GLOBALS['wpdb'])
+                && property_exists($GLOBALS['wpdb'], 'savepointExists')) {
+                $GLOBALS['wpdb']->savepointExists = false;
+            }
+        }
     }
 }
 
@@ -225,22 +232,6 @@ namespace {
         }
     }
 
-    function bfi_wp_image_editor(mixed $editors): never {
-        ++$GLOBALS['duo_attachment_adapter_callback_calls'];
-        throw new \RuntimeException('Elementor BFI editor callback must be quarantined');
-    }
-
-    function bfi_image_resize_dimensions(
-        mixed $payload,
-        mixed $originalWidth,
-        mixed $originalHeight,
-        mixed $targetWidth,
-        mixed $targetHeight
-    ): never {
-        ++$GLOBALS['duo_attachment_adapter_callback_calls'];
-        throw new \RuntimeException('Elementor BFI dimension callback must be quarantined');
-    }
-
     $GLOBALS['wp_filter'] = [];
     $GLOBALS['duo_attachment_upload_root'] = '';
     $GLOBALS['duo_attachment_size_calls'] = 0;
@@ -254,6 +245,7 @@ namespace {
     $GLOBALS['duo_attachment_big_guard_seen'] = false;
     $GLOBALS['duo_attachment_generate_calls'] = 0;
     $GLOBALS['duo_attachment_adapter_callback_calls'] = 0;
+    $GLOBALS['wpdb'] = new AttachmentAuthorityWpdb();
 
     function duo_attachment_filter_id(callable $callback): string {
         return $callback instanceof \Closure
@@ -440,7 +432,7 @@ namespace {
         $chunk = static function (string $type, string $data): string {
             return pack('N', strlen($data)) . $type . $data . pack('N', crc32($type . $data));
         };
-        $uuid = '9c8e6f21-4a35-4b0d-8a11-2f6d5c4b3a29';
+        $uuid = '01a0341e-2067-7fe3-9402-530b5a0f6b34';
         $blob = hash('sha256', $png) . '.png';
         $front = [
             'alt' => 'portable alt',
@@ -507,13 +499,46 @@ namespace {
         $filesystem->recover_pending_with_marker($authored['value']);
         $check($filesystem->phase() === 'originals_published', 'authored-marker crash recovery resumes at exact post-COMMIT original bytes');
 
-        $generator = new AttachmentNativeMetadataGenerator(static fn(int $id): string => 'image/png');
+        $normalizer = new \ReflectionMethod(
+            AttachmentFilesystemTransaction::class,
+            'normalize_generated_metadata'
+        );
+        $stageOriginal = $temporary . '/photo.png';
+        file_put_contents($stageOriginal, $png);
+        $emptyProjection = $normalizer->invoke(
+            $filesystem,
+            [
+                'file' => $stageOriginal,
+                'filesize' => strlen($png),
+                'sizes' => [],
+            ],
+            ['original_path' => '2026/08/photo.png'],
+            $stageOriginal,
+            []
+        );
+        $check(
+            ($emptyProjection['file'] ?? null) === '2026/08/photo.png'
+                && ($emptyProjection['sizes'] ?? null) === [],
+            'valid Core metadata with zero generated derivatives normalizes to an exact empty sizes map'
+        );
+
+        $generator = new AttachmentNativeMetadataGenerator(static function (int $id): string {
+            DeleteGuardEvaluator::assert_transaction_isolation(
+                'native attachment metadata target-lock regression'
+            );
+            return 'image/png';
+        });
         $GLOBALS['duo_attachment_size_calls'] = 0;
         $GLOBALS['duo_attachment_mutate_size_call'] = 0;
         $GLOBALS['duo_attachment_big_guard_seen'] = false;
         $GLOBALS['duo_attachment_generate_calls'] = 0;
         $filesystem->generate_metadata($generator);
-        $check(Db::$starts === 1 && Db::$rollbacks === 1, 'native generator always settles its rollback-only metadata transaction');
+        $check(
+            Db::$starts === 1
+                && Db::$rollbacks === 1
+                && !$GLOBALS['wpdb']->savepointExists,
+            'native generator establishes target-lock continuity and settles its rollback-only metadata transaction'
+        );
         $check(
             $GLOBALS['duo_attachment_generate_calls'] === 1,
             'one durable metadata phase invokes wp_generate_attachment_metadata exactly once'
@@ -856,8 +881,6 @@ namespace {
         $elementorSvg = new \Elementor\Core\Files\File_Types\Svg();
         $tecTracker = new Tribe__Tracker();
         $certifiedCallbacks = [
-            ['wp_image_editors', 'bfi_wp_image_editor', 10, 1],
-            ['image_resize_dimensions', 'bfi_image_resize_dimensions', 10, 5],
             ['update_post_metadata', [$elementorPageTemplate, 'filter_update_meta'], 10, 3],
             ['wp_update_attachment_metadata', [$elementorSvg, 'set_svg_meta_data'], 10, 2],
             ['wp_generate_attachment_metadata', ['WC_Regenerate_Images', 'add_uncropped_metadata'], 10, 1],
@@ -1210,6 +1233,26 @@ namespace {
             ],
             'prior _wp_attachment_backup_sizes extends exact stale-file ownership without granting prefix authority'
         );
+        $emptySizesOwned = $priorOwnership->invoke(
+            $attachmentMaterializer,
+            [[
+                'meta_id' => '1',
+                'meta_key' => '_wp_attachment_metadata',
+                'meta_value' => serialize([
+                    'file' => '2026/08/photo.png',
+                    'sizes' => [],
+                ]),
+            ]],
+            [[
+                'meta_id' => '2',
+                'meta_key' => '_wp_attached_file',
+                'meta_value' => '2026/08/photo.png',
+            ]]
+        );
+        $check(
+            $emptySizesOwned === ['2026/08/photo.png'],
+            'valid Core metadata with an empty sizes map owns only its exact attached file'
+        );
         $throws(
             static fn() => $priorOwnership->invoke(
                 $attachmentMaterializer,
@@ -1229,6 +1272,30 @@ namespace {
 
         $authorityWpdb = new AttachmentAuthorityWpdb();
         $GLOBALS['wpdb'] = $authorityWpdb;
+
+        DeleteGuardEvaluator::end_authored_transaction();
+        $lockWrapper = new \ReflectionMethod(
+            AttachmentMaterializer::class,
+            'with_locked_pending_bindings'
+        );
+        try {
+            $lockBoundaryResult = $lockWrapper->invoke(
+                $attachmentMaterializer,
+                static function (): string {
+                    DeleteGuardEvaluator::assert_transaction_isolation(
+                        'post-commit attachment identity wrapper regression'
+                    );
+                    return 'bounded';
+                },
+                'post-commit attachment identity wrapper regression'
+            );
+        } catch (\Throwable $failure) {
+            $lockBoundaryResult = $failure;
+        }
+        $check(
+            $lockBoundaryResult === 'bounded' && !$authorityWpdb->savepointExists,
+            'each post-commit attachment identity wrapper establishes and settles its own continuity savepoint'
+        );
 
         $orphanIntent = str_repeat('1', 32);
         $orphanKey = 'attachment_fs:' . $orphanIntent;

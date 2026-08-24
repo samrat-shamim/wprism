@@ -991,9 +991,10 @@ final class ApplyRequestCoordinator {
 
     /**
      * Fresh-process side of DUO-3220's convergence gate. The mutating apply
-     * process launches this through WP_CLI::runcommand(); keeping canonical
-     * recapture in a newly-booted WordPress runtime matters because plugins
-     * may retain pre-apply models and persist them from shutdown callbacks.
+     * process launches this through WpCliChildProcess's bounded concurrent
+     * transport; keeping canonical recapture in a newly-booted WordPress
+     * runtime matters because plugins may retain pre-apply models and persist
+     * them from shutdown callbacks.
      */
     public static function verify_canonical(string $repo, array $opts = []): array {
         $expectedArtifact = (string) ($opts['expected_artifact'] ?? '');

@@ -88,7 +88,8 @@
           "TransientDbException",
           "UrlQueryReferenceCodec",
           "MetaRows",
-          "MediaPayloadAuthority"
+          "MediaPayloadAuthority",
+          "WpCliChildProcess"
         ],
         "depends_on": [
           "Kernel"
@@ -112,7 +113,7 @@
             ]
           }
         ],
-        "file_count": 31,
+        "file_count": 32,
         "files": [
           "Canon.php",
           "CommandRefusal.php",
@@ -144,7 +145,8 @@
           "TransientDbException.php",
           "UrlQueryReferenceCodec.php",
           "UserMetaState.php",
-          "Uuid.php"
+          "Uuid.php",
+          "WpCliChildProcess.php"
         ]
       },
       "Policy": {

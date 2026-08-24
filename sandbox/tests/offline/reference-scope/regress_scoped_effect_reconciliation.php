@@ -161,7 +161,11 @@ final class DuoScopedRewriteRuntime {
     }
 }
 
+require_once $root . '/sandbox/tests/support/wp_cli_child_process_fake.php';
+
 final class WP_CLI {
+    use \DuoTest\WpCliChildRuntime;
+
     /** @param array<string,mixed> $args */
     public static function runcommand(string $command, array $args): object {
         global $wp_rewrite;

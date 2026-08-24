@@ -31,6 +31,23 @@ function assert_doctor_command(bool $condition, string $message): void {
     if (!$condition) fail_doctor_command($message);
 }
 
+/** @return array{os_family:string,functions:array<string,bool>,shell:array{executable:bool,path:string}} */
+function healthy_doctor_process_facts(): array {
+    return [
+        'os_family' => 'Linux',
+        'functions' => [
+            'passthru' => true,
+            'posix_kill' => true,
+            'posix_setsid' => true,
+            'proc_close' => true,
+            'proc_get_status' => true,
+            'proc_open' => true,
+            'proc_terminate' => true,
+        ],
+        'shell' => ['executable' => true, 'path' => '/bin/sh'],
+    ];
+}
+
 final class UnreachableDoctorDriver implements EnvironmentDriver {
     public int $rawCalls = 0;
     public int $wpCalls = 0;
@@ -114,6 +131,7 @@ class HealthyDoctorDriver implements EnvironmentDriver {
                     'os_family' => 'Linux',
                     'functions' => ['chmod' => true, 'flock' => true, 'fsync' => true, 'lstat' => true, 'rename' => true],
                 ],
+                'process' => healthy_doctor_process_facts(),
                 'wp' => '7.0.3',
                 'site_mode' => 'single-site',
             ]) . "\n", 'stderr' => ''];
@@ -212,6 +230,7 @@ $compatibilityCase = static function (array $override): array {
             'os_family' => 'Linux',
             'functions' => ['chmod' => true, 'flock' => true, 'fsync' => true, 'lstat' => true, 'rename' => true],
         ],
+        'process' => healthy_doctor_process_facts(),
         'wp' => '7.0.3',
         'site_mode' => 'single-site',
     ];
@@ -382,6 +401,45 @@ assert_doctor_command(
         && str_contains($missingFsync['output'], 'missing fsync'),
     'doctor blocks a process missing one durable-filesystem function and names it'
 );
+$healthyProcessFacts = healthy_doctor_process_facts();
+foreach (array_keys($healthyProcessFacts['functions']) as $function) {
+    $missingFacts = $healthyProcessFacts;
+    $missingFacts['functions'][$function] = false;
+    $missingProcessFunction = $compatibilityCase(['process' => $missingFacts]);
+    assert_doctor_command(
+        $missingProcessFunction['exit'] === 1
+            && str_contains($missingProcessFunction['output'], '[FAIL] process group profile (Linux)')
+            && str_contains($missingProcessFunction['output'], 'missing ' . $function),
+        "doctor blocks a process missing $function and names the exact primitive"
+    );
+}
+$differentShellFacts = $healthyProcessFacts;
+$differentShellFacts['shell']['path'] = '/usr/bin/sh';
+$differentShell = $compatibilityCase(['process' => $differentShellFacts]);
+assert_doctor_command(
+    $differentShell['exit'] === 1
+        && str_contains($differentShell['output'], '[FAIL] process group profile (Linux)')
+        && str_contains($differentShell['output'], 'observed shell "/usr/bin/sh"'),
+    'doctor blocks a substitute shell even when that shell is executable'
+);
+$nonExecutableShellFacts = $healthyProcessFacts;
+$nonExecutableShellFacts['shell']['executable'] = false;
+$nonExecutableShell = $compatibilityCase(['process' => $nonExecutableShellFacts]);
+assert_doctor_command(
+    $nonExecutableShell['exit'] === 1
+        && str_contains($nonExecutableShell['output'], '[FAIL] process group profile (Linux)')
+        && str_contains($nonExecutableShell['output'], 'shell is not executable'),
+    'doctor blocks the exact /bin/sh path when it is not executable'
+);
+$windowsProcessFacts = $healthyProcessFacts;
+$windowsProcessFacts['os_family'] = 'Windows';
+$windowsProcess = $compatibilityCase(['process' => $windowsProcessFacts]);
+assert_doctor_command(
+    $windowsProcess['exit'] === 1
+        && str_contains($windowsProcess['output'], '[FAIL] process group profile (Windows)')
+        && str_contains($windowsProcess['output'], 'requires OS Darwin, Linux'),
+    'doctor blocks an unexercised process-group OS and names the declared requirement'
+);
 $noTopologyDriver = new HealthyDoctorDriver();
 $noTopologyDriver->factsResult = ['exit' => 0, 'stdout' => (string) json_encode([
     'agent' => 'duo-ok',
@@ -394,6 +452,7 @@ $noTopologyDriver->factsResult = ['exit' => 0, 'stdout' => (string) json_encode(
         'os_family' => 'Linux',
         'functions' => ['chmod' => true, 'flock' => true, 'fsync' => true, 'lstat' => true, 'rename' => true],
     ],
+    'process' => healthy_doctor_process_facts(),
     'wp' => '7.0.3',
     'site_mode' => null,
 ]) . "\n", 'stderr' => ''];
@@ -530,6 +589,30 @@ assert_doctor_command(
         && !str_contains($truncatedFilesystemProbe['output'], 'filesystem process profile ('),
     'a baseline missing the durable function roster is malformed before any healthy target is judged'
 );
+$truncatedProcess = $shippedBaseline;
+unset($truncatedProcess['process']['required_functions']);
+$truncatedProcessProbe = $baselineProbe($truncatedProcess);
+assert_doctor_command(
+    $truncatedProcessProbe['exit'] === 1
+        && str_contains(
+            $truncatedProcessProbe['output'],
+            '[FAIL] compatibility baseline (docs/compatibility-baseline.json) — baseline file missing or malformed'
+        )
+        && !str_contains($truncatedProcessProbe['output'], 'process group profile ('),
+    'a baseline missing the exact process-function roster is malformed before any healthy target is judged'
+);
+$missingShellBaseline = $shippedBaseline;
+unset($missingShellBaseline['process']['shell']);
+$missingShellProbe = $baselineProbe($missingShellBaseline);
+assert_doctor_command(
+    $missingShellProbe['exit'] === 1
+        && str_contains(
+            $missingShellProbe['output'],
+            '[FAIL] compatibility baseline (docs/compatibility-baseline.json) — baseline file missing or malformed'
+        )
+        && !str_contains($missingShellProbe['output'], 'process group profile ('),
+    'a baseline missing the exact child shell is malformed before any healthy target is judged'
+);
 $removeProbeRoot();
 
 $missingAgent = new AdoptableDoctorDriver(false);
@@ -585,6 +668,7 @@ $sunkDb->factsResult = ['exit' => 0, 'stdout' => (string) json_encode([
         'os_family' => 'Linux',
         'functions' => ['chmod' => true, 'flock' => true, 'fsync' => true, 'lstat' => true, 'rename' => true],
     ],
+    'process' => healthy_doctor_process_facts(),
     'wp' => '7.0.3',
     'site_mode' => 'single-site',
 ]) . "\n", 'stderr' => ''];
@@ -599,6 +683,10 @@ assert_doctor_command(str_contains(
     $sunkDbOutput,
     '[FAIL] compatibility baseline (docs/compatibility-baseline.json) — could not read PHP/database/WordPress facts from the environment:'
 ), 'a sunk database fact fails the compatibility row it actually belongs to');
+assert_doctor_command(
+    str_contains($sunkDbOutput, '[PASS] process group profile (Linux)'),
+    'a sunk database fact does not sink the independently readable process prerequisites'
+);
 
 // DUO-3511: an undecodable payload is the one case where every row falls back
 // to exactly what it printed when it owned its own eval — including this
@@ -672,6 +760,21 @@ assert_doctor_command(($facts['php'] ?? null) === PHP_VERSION, 'a throwing $wpdb
 assert_doctor_command(($facts['wp'] ?? null) === '7.0.3', 'a throwing $wpdb sank the WordPress version field');
 assert_doctor_command(array_key_exists('db_version', $facts) && $facts['db_version'] === null, 'the thrown field did not leave its own null sentinel');
 assert_doctor_command(($facts['db_engine'] ?? null) === 'mariadb', 'the sibling database field did not answer independently of the thrown one');
+$expectedProcessFunctions = [];
+foreach (['passthru', 'posix_kill', 'posix_setsid', 'proc_close', 'proc_get_status', 'proc_open', 'proc_terminate'] as $function) {
+    $expectedProcessFunctions[$function] = function_exists($function);
+}
+assert_doctor_command(
+    ($facts['process'] ?? null) === [
+        'os_family' => PHP_OS_FAMILY,
+        'functions' => $expectedProcessFunctions,
+        'shell' => [
+            'executable' => function_exists('is_executable') && @is_executable('/bin/sh'),
+            'path' => '/bin/sh',
+        ],
+    ],
+    'the production SITE_FACTS snippet emits every process primitive and the exact executable-shell witness'
+);
 // The topology field is computed with function_exists() rather than a bare
 // call: this snippet also runs under the isolated control bootstrap, where
 // is_multisite() may not be defined yet. A bare call would be an Error, and

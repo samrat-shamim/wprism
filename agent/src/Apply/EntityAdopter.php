@@ -94,11 +94,13 @@ final class EntityAdopter {
             throw new \RuntimeException('duo: adopt term taxonomy owner-range read failed or exceeded its bound');
         }
         $termTaxonomyIds = [];
-        foreach ($taxonomyRows as $position => $row) {
-            $id = is_array($row) ? MetaRows::positive_id($row['term_taxonomy_id'] ?? null) : null;
-            $rowTaxonomy = is_array($row) ? ($row['taxonomy'] ?? null) : null;
-            if (!is_array($row)
-                || array_keys($row) !== ['term_taxonomy_id', 'taxonomy']
+        foreach ($taxonomyRows as $position => $taxonomyRow) {
+            $id = is_array($taxonomyRow)
+                ? MetaRows::positive_id($taxonomyRow['term_taxonomy_id'] ?? null)
+                : null;
+            $rowTaxonomy = is_array($taxonomyRow) ? ($taxonomyRow['taxonomy'] ?? null) : null;
+            if (!is_array($taxonomyRow)
+                || array_keys($taxonomyRow) !== ['term_taxonomy_id', 'taxonomy']
                 || $id === null
                 || !is_string($rowTaxonomy)
                 || preg_match('/^[A-Za-z0-9_-]{1,32}$/D', $rowTaxonomy) !== 1) {
