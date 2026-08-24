@@ -503,11 +503,11 @@ say "apply conf2 (content only — activation/theme were deploy's job, above)"
 # has) and posts (plugins like WooCommerce auto-create their own default
 # pages — Shop/Cart/Checkout/... — on activation, independently on conf1 and
 # conf2, so first apply always meets an unmanaged same-slug row for those).
-# Core's dirty-target matrix additionally manufactures an exact nav-menu
-# collision; menu adoption is explicit only for that adapter so unrelated
-# conformance entries do not gain broader collision authority by accident.
+# Core's dirty-target matrix and Polylang's per-language menu matrix each
+# manufacture an exact nav-menu collision. Menu adoption is explicit only for
+# those adapters so unrelated entries do not gain broader collision authority.
 ADOPT_BY_SLUG=terms,posts
-if [ "$MANIFEST" = core ]; then
+if [ "$MANIFEST" = core ] || [ "$MANIFEST" = polylang ]; then
   ADOPT_BY_SLUG=terms,posts,menus
 fi
 capture_duo_json_success \

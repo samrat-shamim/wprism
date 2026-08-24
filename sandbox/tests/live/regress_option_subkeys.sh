@@ -12,11 +12,11 @@
 # Covers, against a fresh, from-scratch pair (own pair.sh-managed pair,
 # default `asub3233`/:8910/:8911, parameterized -- see DUO-3276 note below
 # -- the driver never tears it down):
-#   (1) capture carves out ONLY the declared sub-keys of `polylang`
-#       (post_types/taxonomies/nav_menus) — none of force_lang/domains/
-#       hide_default/rewrite/redirect_lang/browser/media_support/sync/
-#       default_lang/first_activation/previous_version/version ever enter
-#       canonical state; nav_menus' per-language menu-term-ids are
+#   (1) capture carves out ONLY the declared portable sub-keys of `polylang`
+#       (default_lang/media_support/nav_menus/post_types/sync/taxonomies) —
+#       none of force_lang/domains/hide_default/rewrite/redirect_lang/browser/
+#       first_activation/previous_version/version enter canonical state;
+#       nav_menus' per-language menu-term-ids are
 #       correctly tokenized (json_refs, kind: term).
 #   (2) apply on a genuinely fresh target (Polylang installed+active,
 #       ZERO manual language/Settings config) MERGES the captured sub-keys
@@ -351,12 +351,12 @@ say "(1) capture: sub_keys carves out ONLY the declared keys"
 wp1 duo capture --repo=/siterepo >/dev/null
 assert_language_descriptions 1 "after source capture"
 POLYLANG_KEYS=$(python3 -c "import json; d=json.load(open('siterepo/${PAIR}1/state/options/core.json'))['records']; print(sorted(d['polylang']['value'].keys()))")
-[ "$POLYLANG_KEYS" = "['nav_menus', 'post_types', 'taxonomies']" ] || fail "expected captured polylang option to carry EXACTLY [nav_menus, post_types, taxonomies], got: $POLYLANG_KEYS"
-for excluded in force_lang domains hide_default rewrite redirect_lang browser media_support sync default_lang first_activation previous_version version; do
+[ "$POLYLANG_KEYS" = "['default_lang', 'media_support', 'nav_menus', 'post_types', 'sync', 'taxonomies']" ] || fail "expected captured polylang option to carry EXACTLY [default_lang, media_support, nav_menus, post_types, sync, taxonomies], got: $POLYLANG_KEYS"
+for excluded in force_lang domains hide_default rewrite redirect_lang browser first_activation previous_version version; do
   python3 -c "import json,sys; d=json.load(open('siterepo/${PAIR}1/state/options/core.json'))['records']; sys.exit(1 if '$excluded' in d['polylang']['value'] else 0)" \
     || fail "excluded sub-key '$excluded' leaked into captured polylang option"
 done
-pass "captured polylang option carries exactly nav_menus/post_types/taxonomies -- every env-bound/bookkeeping sibling excluded"
+pass "captured polylang option carries exactly six reviewed portable sub-keys -- every env-bound/bookkeeping sibling excluded"
 
 WPSEO_KEYS=$(python3 -c "import json; d=json.load(open('siterepo/${PAIR}1/state/options/core.json'))['records']; print(sorted(d['wpseo']['value'].keys()))")
 [ "$WPSEO_KEYS" = "['disableadvanced_meta']" ] || fail "expected captured wpseo option to carry EXACTLY [disableadvanced_meta], got: $WPSEO_KEYS"
@@ -405,14 +405,20 @@ pass "confirmed: Apply::rebuild() reports back per-declaration with the provider
 say "(6) sub-key merge, re-asserted directly against the database: side2's OWN pre-existing polylang/wpseo bookkeeping survives untouched"
 POLYLANG_AFTER=$(wp2 option get polylang --format=json | tail -1)
 echo "side2 polylang option AFTER apply: $POLYLANG_AFTER"
-python3 - "$POLYLANG_BEFORE" "$POLYLANG_AFTER" <<'PYEOF'
+POLYLANG_CAPTURED=$(python3 -c "import json; print(json.dumps(json.load(open('siterepo/${PAIR}1/state/options/core.json'))['records']['polylang']['value']))")
+python3 - "$POLYLANG_BEFORE" "$POLYLANG_AFTER" "$POLYLANG_CAPTURED" <<'PYEOF'
 import json, sys
 before = json.loads(sys.argv[1])
 after = json.loads(sys.argv[2])
+captured = json.loads(sys.argv[3])
 for key in ["force_lang", "domains", "hide_default", "rewrite", "redirect_lang", "browser",
-            "media_support", "sync", "first_activation", "previous_version", "version"]:
+            "first_activation", "previous_version", "version"]:
     if before.get(key) != after.get(key):
         print(f"CLOBBERED: {key} was {before.get(key)!r}, now {after.get(key)!r}")
+        sys.exit(1)
+for key in ["default_lang", "media_support", "sync"]:
+    if after.get(key) != captured.get(key):
+        print(f"PORTABLE KEY MISMATCH: {key} expected {captured.get(key)!r}, got {after.get(key)!r}")
         sys.exit(1)
 if after.get("post_types") != ["project"]:
     print(f"post_types did not merge in correctly: {after.get('post_types')!r}")

@@ -19,7 +19,7 @@
 # For EACH boundary version (ACF 6.0.0/6.8.7; Advanced Editor Tools 5.9.2;
 # Classic Editor 1.7.0; Code Snippets 3.9.5/3.9.6; CF7 6.0/6.1.7; Elementor 4.0.0/4.2.3; Ninja Forms
 # 3.4.34.2/3.14.11; PMPro 3.8.2/3.8.3 (with adjacent official-tag refusals);
-# Polylang 3.5/3.8.6; The Events Calendar 6.17.2/6.17.3;
+# Polylang 3.8/3.8.6; The Events Calendar 6.17.2/6.17.3;
 # WooCommerce 11.0.0 (the only stable in-range 11.x release); Yoast SEO
 # 28.0/28.3 — all real
 # wp.org releases except PMPro's official upstream GitHub tags, never invented): fresh state, install ONLY from
@@ -330,9 +330,9 @@ echo \$form->get_setting('title') . '|' . count(Ninja_Forms()->form($form_id)->g
 }
 
 seed_polylang_content() {
-  # Reuse the standalone fixture verbatim: two languages, translated post
-  # and category pairs, plus deleted fillers that force source/target ids
-  # apart so a stale-id implementation cannot pass by coincidence.
+  # Reuse the standalone three-language fixture verbatim: translated posts,
+  # categories and media plus high source identities that rule out a stale-id
+  # implementation passing by coincidence.
   wp_conf1() { wp1 "$@"; }
   local CONF_REPO1="siterepo/${PAIR}1"
   local COMPOSE="$PAIR_COMPOSE_STRING"
@@ -341,15 +341,27 @@ seed_polylang_content() {
 }
 
 check_polylang_content() {
-  # The standalone check uses Polylang's public lookup APIs, raw serialized
-  # relationship bytes, a target recapture, and a real frontend request.
+  # The boundary matrix consumes the complete portable fixture/native
+  # behavior but leaves the destructive hostile/lifecycle sequence to the
+  # exact current-version conformance pair.
   wp_conf1() { wp1 "$@"; }
   wp_conf2() { wp2 "$@"; }
+  local CONF_REPO1="siterepo/${PAIR}1"
   local CONF_REPO2="siterepo/${PAIR}2"
   local CONF1_PORT="$PORT1"
   local CONF2_PORT="$PORT2"
+  local POLYLANG_BOUNDARY_ONLY=1
+  local POLYLANG_EXPECTED_VERSION="$POLYLANG_VERSION"
+  local APPLY_JSON="${POLYLANG_BOUNDARY_PROVIDER_RECEIPT:-}"
   . conformance/checks/polylang.sh
   unset -f wp_conf1 wp_conf2
+}
+
+assert_no_php_diagnostics() { # <label> <log>
+  local label="$1" log="$2"
+  if grep -Eq '(^|[[:space:]])(PHP )?(Warning|Notice|Deprecated): .* in .*[.]php on line [0-9]+' "$log"; then
+    fail "$label emitted a PHP runtime diagnostic: $(grep -Em1 '(^|[[:space:]])(PHP )?(Warning|Notice|Deprecated): .* in .*[.]php on line [0-9]+' "$log")"
+  fi
 }
 
 seed_woocommerce_content() {
@@ -2271,7 +2283,7 @@ fi
 
 if [ "$VMATRIX_MANIFEST" = polylang ]; then
 VMATRIX_CASES=$((VMATRIX_CASES + 1))
-for POLYLANG_VERSION in 3.5 3.8.6; do
+for POLYLANG_VERSION in 3.8 3.8.6; do
   say "boundary: polylang $POLYLANG_VERSION"
 
   reset_env wp1
@@ -2325,8 +2337,10 @@ EOF
 
   wp2 duo deploy --repo=/siterepo
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
   grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at polylang $POLYLANG_VERSION"
+  assert_no_php_diagnostics "Polylang $POLYLANG_VERSION clean-target apply" "$VMATRIX_APPLY_LOG"
+  POLYLANG_BOUNDARY_PROVIDER_RECEIPT=$(cat "$VMATRIX_APPLY_LOG")
   pass "deploy + apply succeeded on side 2 (polylang $POLYLANG_VERSION, canary clean)"
 
   check_polylang_content
@@ -2336,6 +2350,57 @@ EOF
   rm -rf "siterepo/${PAIR}2/.tmp-final"
   [ -z "$DIFF_OUT" ] || fail "byte-identity broken at polylang $POLYLANG_VERSION: $DIFF_OUT"
   pass "byte-identical recapture at polylang $POLYLANG_VERSION — the manifest's own declared version_range boundary is proven, not just its currently-installed version"
+
+  if [ "$POLYLANG_VERSION" = 3.8 ]; then
+    say 'in-place upgrade: polylang 3.8 -> 3.8.6 on both populated environments'
+    UPGRADE_ARTIFACT_1=$(fetch_artifact polylang 3.8.6 cli1)
+    UPGRADE_ARTIFACT_2=$(fetch_artifact polylang 3.8.6 cli2)
+    wp1 plugin install "$UPGRADE_ARTIFACT_1" --force --activate >/dev/null
+    [ "$(wp1 plugin get polylang --field=version)" = 3.8.6 ] \
+      || fail 'Polylang source in-place upgrade did not install exact 3.8.6'
+    wp1 duo deploy --repo=/siterepo --force-code-drift >/dev/null
+
+    UPGRADE_POST=$(jq -r '.posts.fr' "siterepo/${PAIR}1/.tmp-polylang-source.json")
+    require_fixture_ids UPGRADE_POST
+    wp1 post update "$UPGRADE_POST" --post_title='Polylang 3.8 vers 3.8.6 française 東京 🚀' >/dev/null
+    wp1 duo capture --repo=/siterepo
+    wp1 duo lint --repo=/siterepo
+    "${GIT1[@]}" add -A
+    "${GIT1[@]}" commit -qm 'capture: polylang 3.8 to 3.8.6 in-place upgrade'
+    "${GIT1[@]}" push -q origin main
+    git -C "siterepo/${PAIR}2" pull -q origin main
+
+    wp2 plugin install "$UPGRADE_ARTIFACT_2" --force --activate >/dev/null
+    [ "$(wp2 plugin get polylang --field=version)" = 3.8.6 ] \
+      || fail 'Polylang target in-place upgrade did not install exact 3.8.6'
+    wp2 duo deploy --repo=/siterepo --force-code-drift >/dev/null
+    UPGRADE_REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
+    wp2 duo apply --repo=/siterepo --default-author=admin --revision="$UPGRADE_REV" --format=json \
+      2>&1 | tee "$VMATRIX_APPLY_LOG"
+    assert_no_php_diagnostics 'Polylang 3.8 to 3.8.6 upgrade apply' "$VMATRIX_APPLY_LOG"
+    UPGRADE_APPLY_JSON=$(awk '/^[{]/ { receipt=$0 } END { print receipt }' "$VMATRIX_APPLY_LOG")
+    require_duo_answered 'Polylang 3.8 to 3.8.6 upgrade apply' json "$UPGRADE_APPLY_JSON"
+    jq -e '.canary == "clean" and .verification.result == "pass"' <<<"$UPGRADE_APPLY_JSON" >/dev/null \
+      || fail 'Polylang 3.8 -> 3.8.6 apply canary was not clean'
+
+    SAVED_POLYLANG_VERSION="$POLYLANG_VERSION"
+    POLYLANG_VERSION=3.8.6
+    check_polylang_content
+    POLYLANG_VERSION="$SAVED_POLYLANG_VERSION"
+    UPGRADED_TITLE=$(wp2 post get "$UPGRADE_POST" --field=post_title 2>/dev/null || true)
+    [ "$UPGRADED_TITLE" != 'Polylang 3.8 vers 3.8.6 française 東京 🚀' ] \
+      || fail 'Polylang upgrade assertion accidentally consumed the source-local post id on the target'
+    UPGRADED_TITLE=$(wp2 post list --post_type=post --name=portable-polylang-story-fr --field=post_title)
+    [ "$UPGRADED_TITLE" = 'Polylang 3.8 vers 3.8.6 française 東京 🚀' ] \
+      || fail "Polylang 3.8.6 did not consume the translated post authored under 3.8: $UPGRADED_TITLE"
+
+    wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-polylang-upgraded-final
+    UPGRADE_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-polylang-upgraded-final" || true)
+    rm -rf "siterepo/${PAIR}2/.tmp-polylang-upgraded-final"
+    [ -z "$UPGRADE_DIFF" ] \
+      || fail "Polylang 3.8 -> 3.8.6 in-place upgrade lost byte identity: $UPGRADE_DIFF"
+    pass 'polylang 3.8 -> 3.8.6 in-place upgrade preserves native multilingual behavior, target-local identity, ordering and byte-identical state'
+  fi
 done
 
 fi
@@ -3231,7 +3296,7 @@ done
 fi
 
 if [ "$VMATRIX_MANIFEST" = polylang ]; then
-say "negative control: polylang 3.4.5 (real wp.org release, genuinely below manifests/polylang.json's corrected min 3.5) must be REFUSED, not silently accepted"
+say "negative control: polylang 3.7 (real wp.org release, immediately below manifests/polylang.json's corrected min 3.8) must be REFUSED, not silently accepted"
 reset_env wp1
 reset_case_repositories
 
@@ -3270,22 +3335,22 @@ wp1 duo capture --repo=/siterepo
 
 wp1 plugin deactivate polylang >/dev/null
 wp1 plugin delete polylang >/dev/null
-OUT_OF_RANGE_ARTIFACT=$(fetch_artifact polylang 3.4.5 cli1)
+OUT_OF_RANGE_ARTIFACT=$(fetch_artifact polylang 3.7 cli1)
 wp1 plugin install "$OUT_OF_RANGE_ARTIFACT" >/dev/null
 INSTALLED_OOR=$(wp1 plugin get polylang --field=version)
-[ "$INSTALLED_OOR" = "3.4.5" ] || fail "negative control: expected polylang 3.4.5 installed, got $INSTALLED_OOR"
+[ "$INSTALLED_OOR" = "3.7" ] || fail "negative control: expected polylang 3.7 installed, got $INSTALLED_OOR"
 
 set +e
 DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
 DEPLOY_RC=$?
 set -e
-[ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse polylang 3.4.5 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"
+[ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse polylang 3.7 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"
 grep -Eq "outside_version_range|outside the '.*' manifest's declared version_range" <<<"$DEPLOY_OUT" \
   || fail "deploy refused, but not for the expected outside_version_range reason (got: $DEPLOY_OUT)"
 grep -q "polylang/polylang.php" <<<"$DEPLOY_OUT" || fail "refusal did not name the plugin (got: $DEPLOY_OUT)"
-grep -q "3.4.5" <<<"$DEPLOY_OUT" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
+grep -q "3.7" <<<"$DEPLOY_OUT" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
 printf '%s\n' "$DEPLOY_OUT"
-pass "confirmed: polylang 3.4.5 (real, installed, genuinely below the corrected 3.5 min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative"
+pass "confirmed: polylang 3.7 (real, installed, immediately below the corrected 3.8 min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative"
 
 fi
 
