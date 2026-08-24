@@ -4,7 +4,9 @@ namespace Duo\Providers;
 use Duo\Policy;
 use Duo\WpCliChildProcess;
 
-require_once __DIR__ . '/../../agent/src/Kernel/WpCliChildProcess.php';
+if (!class_exists(WpCliChildProcess::class, false)) {
+    require_once __DIR__ . '/../../agent/src/Kernel/WpCliChildProcess.php';
+}
 
 /**
  * Elementor generated-CSS regeneration provider.
