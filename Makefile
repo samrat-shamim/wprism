@@ -397,6 +397,7 @@ release-gate:
 	php tools/wire-surface.php --check
 	php tools/classmap-generate.php --check
 	php tools/offline-corpus.php --check
+	php tools/adapter-kit.php --check
 
 regress-multisite-refusal:
 	bash sandbox/tests/live/regress_multisite_refusal.sh
@@ -2403,6 +2404,18 @@ regress-fixture-makers:
 # predicate, its two arms, and the measured reason they stay narrow.
 regress-platform-move-gates:
 	php sandbox/tests/offline/guards/regress_platform_move_gates.php
+
+# WP-2.6: the adapter test kit. Adopt.php:147-150 tars exactly
+# `agent manifests recovery`, so sandbox/ -- where the entire ability to PROVE
+# an adapter lives -- reaches nobody, and a third party reinvents the harness.
+# sandbox/tests/lib/README.md counts what that already costs in-tree: 42
+# bespoke $wpdb fakes that answer null where FakeWpdb::unsupported() throws by
+# name. tools/adapter-kit.php packages the generic half; this holds up the four
+# properties that make the packaging worth anything -- assembled not copied, it
+# runs where it lands, the refusal survives the copy, and it is still no part
+# of the adoption archive. See the suite header.
+regress-adapter-test-kit:
+	php sandbox/tests/offline/guards/regress_adapter_test_kit.php
 
 regress-init-contract:
 	php sandbox/tests/offline/cli/regress_init_contract.php
