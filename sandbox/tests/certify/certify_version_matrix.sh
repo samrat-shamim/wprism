@@ -2873,6 +2873,80 @@ grep -q "woocommerce/woocommerce.php" <<<"$DEPLOY_OUT" || fail "refusal did not 
 grep -q "10.9.4" <<<"$DEPLOY_OUT" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
 printf '%s\n' "$DEPLOY_OUT"
 pass "confirmed: woocommerce 10.9.4 (real, installed, closest stable below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not decorative"
+
+say "negative control: woocommerce synthetic 11.0.2 (the exclusive upper endpoint) must be REFUSED before deploy mutates lifecycle state"
+reset_env wp1
+reset_case_repositories
+
+# wp.org does not supply a published 11.0.2 archive. Start from the exact
+# admitted 11.0.1 artifact and replace only its Version header in this
+# disposable container. That is the narrowest executable upper-bound fixture:
+# WordPress itself parses the synthetic endpoint, while every other source byte
+# and the captured Woo state remain the reviewed 11.0.1 product path.
+IN_RANGE_ARTIFACT=$(fetch_artifact woocommerce 11.0.1 cli1)
+wp1 plugin install "$IN_RANGE_ARTIFACT" --activate >/dev/null
+[ "$(wp1 plugin get woocommerce --field=version)" = "11.0.1" ] \
+  || fail "upper-bound premise did not install exact WooCommerce 11.0.1 bytes"
+wp1 wc hpos enable >/dev/null
+cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+{
+  "manifests": ["core", "woocommerce"],
+  "policy": {
+    "options": {},
+    "post_meta": {},
+    "post_types": ["post", "page", "attachment", "product", "product_variation", "shop_coupon"],
+    "taxonomies": ["category", "post_tag", "product_cat", "product_shipping_class", "product_tag", "product_type"]
+  },
+  "spec_version": 2
+}
+EOF
+cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
+"${GIT1[@]}" init -q -b main
+"${GIT1[@]}" remote add origin "../origin-$PAIR.git"
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "policy: woocommerce exclusive-upper negative-control pin"
+"${GIT1[@]}" push -qu origin main
+seed_woocommerce_content
+wp1 duo capture --repo=/siterepo
+"${GIT1[@]}" add -A
+"${GIT1[@]}" commit -qm "capture: valid WooCommerce state for exclusive-upper negative control"
+"${GIT1[@]}" push -q origin main
+
+wp1 plugin deactivate woocommerce >/dev/null
+wp1 eval '
+$path = WP_PLUGIN_DIR . "/woocommerce/woocommerce.php";
+$bytes = file_get_contents($path);
+if (!is_string($bytes) || substr_count($bytes, " * Version: 11.0.1") !== 1) {
+    throw new RuntimeException("exclusive-upper fixture did not find one 11.0.1 Version header");
+}
+$next = preg_replace("/^ \\* Version: 11\\.0\\.1$/m", " * Version: 11.0.2", $bytes, 1);
+if (!is_string($next) || $next === $bytes || file_put_contents($path, $next) !== strlen($next)) {
+    throw new RuntimeException("exclusive-upper fixture could not replace the Version header atomically");
+}
+' >/dev/null
+UPPER_INSTALLED=$(wp1 plugin get woocommerce --field=version)
+[ "$UPPER_INSTALLED" = "11.0.2" ] \
+  || fail "exclusive-upper fixture expected WordPress to parse WooCommerce 11.0.2, got $UPPER_INSTALLED"
+PRE_REFUSAL_ACTIVE=$(wp1 option get active_plugins --format=json | tail -1)
+PRE_REFUSAL_REPO=$(git -C "siterepo/${PAIR}1" status --porcelain)
+
+set +e
+DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_RC=$?
+set -e
+[ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse synthetic WooCommerce 11.0.2 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"
+grep -Eq "outside_version_range|outside the '.*' manifest's declared version_range" <<<"$DEPLOY_OUT" \
+  || fail "exclusive-upper deploy refused, but not for outside_version_range (got: $DEPLOY_OUT)"
+grep -q "woocommerce/woocommerce.php" <<<"$DEPLOY_OUT" \
+  || fail "exclusive-upper refusal did not name the WooCommerce plugin (got: $DEPLOY_OUT)"
+grep -q "11.0.2" <<<"$DEPLOY_OUT" \
+  || fail "exclusive-upper refusal did not name WordPress's installed Version header (got: $DEPLOY_OUT)"
+[ "$(wp1 option get active_plugins --format=json | tail -1)" = "$PRE_REFUSAL_ACTIVE" ] \
+  || fail "exclusive-upper code mismatch changed active_plugins before refusing"
+[ "$(git -C "siterepo/${PAIR}1" status --porcelain)" = "$PRE_REFUSAL_REPO" ] \
+  || fail "exclusive-upper code mismatch changed the captured repository before refusing"
+printf '%s\n' "$DEPLOY_OUT"
+pass "confirmed: synthetic WooCommerce 11.0.2 is rejected at the exclusive upper bound before deploy changes lifecycle state or the captured repository"
 fi
 
 if [ "$VMATRIX_MANIFEST" = yoast ]; then

@@ -22,6 +22,79 @@ use Duo\Policy;
 use DuoTest\FakeWpdb;
 use DuoTest\WpStore;
 
+$coinstallTopology = json_decode(
+    (string) file_get_contents($root . '/sandbox/tests/fixtures/woocommerce-rewrite-coinstall-topology.json'),
+    true,
+    flags: JSON_THROW_ON_ERROR
+);
+$artifactLock = json_decode(
+    (string) file_get_contents($root . '/sandbox/conformance/artifacts.lock.json'),
+    true,
+    flags: JSON_THROW_ON_ERROR
+);
+duo_check_same('duo-woocommerce-rewrite-coinstall-topology/v1', $coinstallTopology['format'] ?? null,
+    'the mixed rewrite fixture has the reviewed source-topology format');
+foreach ((array) ($coinstallTopology['artifacts'] ?? []) as $slug => $artifact) {
+    duo_check_same(
+        $artifact['sha256'] ?? null,
+        $artifactLock['plugins'][$slug][$artifact['version'] ?? '']['sha256'] ?? null,
+        "mixed rewrite topology pins the exact $slug artifact that supplies its hooks"
+    );
+}
+duo_check_same([
+    ['plugin' => 'woocommerce', 'path' => 'includes/wc-core-functions.php', 'sha256' => '17bf218326de339c872eba8c9f855b73bb1c7874053c36774c35ef222927e684'],
+    ['plugin' => 'woocommerce', 'path' => 'includes/wc-formatting-functions.php', 'sha256' => 'c3576416420bbfb6893ad5164ccf8c439b7e731c337c04b32e058ac6a0809d41'],
+    ['plugin' => 'wordpress-seo', 'path' => 'inc/class-yoast-dynamic-rewrites.php', 'sha256' => '3b07ec0af1f94269b2a5a98bba078edbee73e1697aeeed119ae12ff4a3ca7553'],
+    ['plugin' => 'wordpress-seo', 'path' => 'wp-seo-main.php', 'sha256' => '5ecb2632b7997782e7efda714ab11e4a1ca479a8f3277c8e3137600bcb575ff1'],
+    ['plugin' => 'polylang', 'path' => 'src/links-directory.php', 'sha256' => '5cadce6a89e87278bdd021d8f049d9c4e511acecc6c6366808740f04027d2dc0'],
+    ['plugin' => 'the-events-calendar', 'path' => 'common/src/Tribe/Cache_Listener.php', 'sha256' => '14a63e60db2f047b7dd62fa708d464b170d87485227cc63583c989a45fcb248b'],
+    ['plugin' => 'the-events-calendar', 'path' => 'common/src/Tribe/Rewrite.php', 'sha256' => '0e198faca151aeca66680e916a038eab5c264f7d0ee6472d8f07d1845d0a7b9a'],
+    ['plugin' => 'the-events-calendar', 'path' => 'src/Tribe/Main.php', 'sha256' => '3f7b3c50960071a350077ee1c72bd342ebe4613c374913522361371ca30aaa94'],
+], $coinstallTopology['source_files'] ?? null,
+    'mixed rewrite topology binds each installed extension callback to its exact audited source bytes');
+duo_check_same([
+    ['hook' => 'rewrite_rules_array', 'callback' => 'wc_fix_rewrite_rules', 'priority' => 10, 'accepted_args' => 1],
+    ['hook' => 'option_rewrite_rules', 'callback' => 'Yoast_Dynamic_Rewrites::filter_rewrite_rules_option', 'priority' => 10, 'accepted_args' => 1],
+    ['hook' => 'sanitize_option_rewrite_rules', 'callback' => 'Yoast_Dynamic_Rewrites::sanitize_rewrite_rules_option', 'priority' => 10, 'accepted_args' => 1],
+    ['hook' => 'generate_rewrite_rules', 'callback' => 'Tribe__Cache_Listener::generate_rewrite_rules', 'priority' => 10, 'accepted_args' => 1],
+    ['hook' => 'updated_option', 'callback' => 'Tribe__Cache_Listener::update_last_updated_option', 'priority' => 10, 'accepted_args' => 3],
+    ['hook' => 'updated_option', 'callback' => 'Tribe__Cache_Listener::update_last_save_post', 'priority' => 10, 'accepted_args' => 3],
+    ['hook' => 'generate_rewrite_rules', 'callback' => 'Tribe__Rewrite::filter_generate', 'priority' => 10, 'accepted_args' => 1],
+    ['hook' => 'rewrite_rules_array', 'callback' => 'Tribe__Rewrite::filter_rewrite_rules_array', 'priority' => 25, 'accepted_args' => 1],
+], $coinstallTopology['static_callbacks'] ?? null,
+    'mixed rewrite topology closes every static Woo, Yoast, and TEC callback with priority and accepted-argument identity');
+duo_check_same([
+    'rewrite_rules',
+    'tribe_last_generate_rewrite_rules',
+    'tribe_last_save_post',
+    'tribe_last_updated_option',
+], $coinstallTopology['durable_effects'] ?? null,
+    'mixed rewrite topology binds the exact durable Core and TEC mutation set');
+duo_check_same([
+    [
+        'hook' => 'rewrite_rules_array',
+        'callback' => 'PLL_Links_Directory::rewrite_rules',
+        'priority' => 10,
+        'accepted_args' => 1,
+        'activation' => 'at least one Polylang language, wp_loaded, and directory permalink links',
+    ],
+    [
+        'hook' => '{type}_rewrite_rules',
+        'callback' => 'PLL_Links_Directory::rewrite_rules',
+        'priority' => 10,
+        'accepted_args' => 1,
+        'activation' => 'each name returned by the filtered pll_rewrite_rules type set',
+    ],
+    [
+        'hook' => 'pll_modify_rewrite_rule',
+        'callback' => 'third-party filter chain',
+        'priority' => 'open',
+        'accepted_args' => 4,
+        'arguments' => ['bool', 'array<string,string>', 'string', 'string|false'],
+    ],
+], $coinstallTopology['dynamic_callback_containers'] ?? null,
+    'Polylang dynamic rewrite types and its open four-argument third-party filter are source-bound, never hand-whitelisted');
+
 final class WooHierarchyWakeupCanary {
     public static int $wakeups = 0;
 
@@ -112,8 +185,9 @@ if (!class_exists('Tribe__Cache_Listener')) {
 }
 
 /** Minimal exact-shaped extension doubles used only to prove delegation. */
-final class WooHierarchyYoastDynamicRewrites {
-    public function sanitize(mixed $rules): mixed {
+if (!class_exists('Yoast_Dynamic_Rewrites')) {
+final class Yoast_Dynamic_Rewrites {
+    public function sanitize_rewrite_rules_option(mixed $rules): mixed {
         if (!is_array($rules)) {
             return $rules;
         }
@@ -121,7 +195,7 @@ final class WooHierarchyYoastDynamicRewrites {
         return $rules;
     }
 
-    public function effective(mixed $rules): mixed {
+    public function filter_rewrite_rules_option(mixed $rules): mixed {
         if (!is_array($rules)) {
             return $rules;
         }
@@ -129,8 +203,10 @@ final class WooHierarchyYoastDynamicRewrites {
         return $rules;
     }
 }
+}
 
-final class WooHierarchyPolylangLinksDirectory {
+if (!class_exists('PLL_Links_Directory')) {
+final class PLL_Links_Directory {
     public int $dynamicTypeCalls = 0;
 
     public function rewrite_rules(mixed $rules): mixed {
@@ -140,37 +216,40 @@ final class WooHierarchyPolylangLinksDirectory {
         ++$this->dynamicTypeCalls;
         $pattern = '^fr/produit/(.+?)/?$';
         $query = 'index.php?product=$matches[1]&lang=fr';
-        $replacement = woo_hierarchy_test_apply_native_filter(
+        $allow = woo_hierarchy_test_apply_native_filter(
             'pll_modify_rewrite_rule',
-            [$pattern, $query],
-            'product',
-            'fr'
+            true,
+            [$pattern => $query],
+            'rewrite_rules_array',
+            false
         );
-        if (!is_array($replacement)
-            || array_keys($replacement) !== [0, 1]
-            || !is_string($replacement[0])
-            || !is_string($replacement[1])) {
+        if (!is_bool($allow)) {
             throw new RuntimeException('Polylang rewrite-rule filter returned an invalid wire value');
         }
-        $rules[$replacement[0]] = $replacement[1];
+        if ($allow) {
+            $rules[$pattern] = $query;
+        }
         return $rules;
     }
 }
+}
 
-final class WooHierarchyTecRewrite {
+if (!class_exists('Tribe__Rewrite')) {
+final class Tribe__Rewrite {
     public int $generationCalls = 0;
 
-    public function generate_rewrite_rules(object $rewrite): void {
+    public function filter_generate(object $rewrite): void {
         ++$this->generationCalls;
     }
 
-    public function rewrite_rules_array(mixed $rules): mixed {
+    public function filter_rewrite_rules_array(mixed $rules): mixed {
         if (!is_array($rules)) {
             return $rules;
         }
         $rules['^events/(.+?)/?$'] = 'index.php?post_type=tribe_events&name=$matches[1]';
         return $rules;
     }
+}
 }
 
 if (!function_exists('wc_sanitize_permalink')) {
@@ -708,39 +787,42 @@ duo_check_same($sanitizerCallsBeforeHostile, $GLOBALS['wooHierarchyPermalinkSani
 woo_hierarchy_test_clear_native_hooks();
 
 $tecListener = Tribe__Cache_Listener::install();
-$tecRewrite = new WooHierarchyTecRewrite();
-$yoastRewrites = new WooHierarchyYoastDynamicRewrites();
-$polylangLinks = new WooHierarchyPolylangLinksDirectory();
+$tecRewrite = new Tribe__Rewrite();
+$yoastRewrites = new Yoast_Dynamic_Rewrites();
+$polylangLinks = new PLL_Links_Directory();
 $pllModifyCalls = 0;
 $tecListener->writes = [];
 $GLOBALS['wooHierarchyTecPurgeRequested'] = false;
 woo_hierarchy_test_install_native_hook('rewrite_rules_array', [
     ['wc_fix_rewrite_rules', 10, 1],
-    [[$tecRewrite, 'rewrite_rules_array'], 25, 1],
-    [[$polylangLinks, 'rewrite_rules'], 30, 1],
+    [[$polylangLinks, 'rewrite_rules'], 10, 1],
+    [[$tecRewrite, 'filter_rewrite_rules_array'], 25, 1],
     [static function (array $rules): array {
         $rules['^yoast-sitemap\\.xml$'] = 'index.php?yoast-sitemap=1';
         return $rules;
     }, 40, 1],
 ]);
 woo_hierarchy_test_install_native_hook('pll_modify_rewrite_rule', [
-    [static function (array $rule, string $type, string $language) use (&$pllModifyCalls): array {
+    [static function (bool $modify, array $rule, string $type, string|false $archive) use (&$pllModifyCalls): bool {
         ++$pllModifyCalls;
-        if ($type !== 'product' || $language !== 'fr') {
+        if (!$modify
+            || $rule !== ['^fr/produit/(.+?)/?$' => 'index.php?product=$matches[1]&lang=fr']
+            || $type !== 'rewrite_rules_array'
+            || $archive !== false) {
             throw new RuntimeException('Polylang dynamic rewrite type/language drifted');
         }
-        return [$rule[0], $rule[1] . '&third_party_pll_modify=1'];
-    }, 15, 3],
+        return true;
+    }, 15, 4],
 ]);
 woo_hierarchy_test_install_native_hook('sanitize_option_rewrite_rules', [
-    [[$yoastRewrites, 'sanitize'], 10, 1],
+    [[$yoastRewrites, 'sanitize_rewrite_rules_option'], 10, 1],
 ]);
 woo_hierarchy_test_install_native_hook('option_rewrite_rules', [
-    [[$yoastRewrites, 'effective'], 10, 1],
+    [[$yoastRewrites, 'filter_rewrite_rules_option'], 10, 1],
 ]);
 woo_hierarchy_test_install_native_hook('generate_rewrite_rules', [
     [[$tecListener, 'generate_rewrite_rules'], 10, 1],
-    [[$tecRewrite, 'generate_rewrite_rules'], 20, 1],
+    [[$tecRewrite, 'filter_generate'], 10, 1],
 ]);
 woo_hierarchy_test_install_native_hook('updated_option', [
     [[$tecListener, 'update_last_updated_option'], 10, 3],
