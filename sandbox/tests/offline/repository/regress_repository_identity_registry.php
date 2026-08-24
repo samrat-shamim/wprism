@@ -38,6 +38,105 @@ namespace Duo {
 }
 
 namespace {
+    if (!defined('ARRAY_A')) {
+        define('ARRAY_A', 'ARRAY_A');
+    }
+
+    final class IdentityBackupFakeWpdb {
+        public string $last_error = '';
+        /** @var list<array{meta_id:string,meta_key:string,meta_value:string}> */
+        public array $rows = [];
+        /** @var list<string> */
+        public array $queries = [];
+        public ?string $failure = null;
+        public bool $mutatePayload = false;
+        public string $connectionId = '8101';
+        public string $activeTransaction = '0';
+        public bool $ambiguousCommit = false;
+        public int $rollbackQueries = 0;
+
+        public function query(string $sql): int|false {
+            $this->queries[] = $sql;
+            if ($sql === 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ') {
+                return 1;
+            }
+            if ($sql === 'START TRANSACTION WITH CONSISTENT SNAPSHOT') {
+                $this->activeTransaction = '1';
+                return 1;
+            }
+            if ($sql === 'COMMIT') {
+                $this->activeTransaction = '0';
+                return $this->ambiguousCommit ? false : 1;
+            }
+            if ($sql === 'ROLLBACK') {
+                $this->rollbackQueries++;
+                $this->activeTransaction = '0';
+                return 1;
+            }
+            throw new \RuntimeException("unsupported identity-backup mutation query: $sql");
+        }
+
+        public function get_var(string $sql): mixed {
+            $this->queries[] = $sql;
+            return match ($sql) {
+                'SELECT CONNECTION_ID()' => $this->connectionId,
+                'SELECT @@in_transaction' => $this->activeTransaction,
+                default => throw new \RuntimeException("unsupported identity-backup scalar query: $sql"),
+            };
+        }
+
+        public function prepare(string $sql, ...$args): string {
+            foreach ($args as $arg) {
+                $replacement = is_int($arg)
+                    ? (string) $arg
+                    : "'" . str_replace("'", "''", (string) $arg) . "'";
+                $sql = preg_replace('/%[ds]/', $replacement, $sql, 1);
+            }
+            return $sql;
+        }
+
+        public function get_results(string $sql, mixed $mode): mixed {
+            $this->queries[] = $sql;
+            if ($mode !== ARRAY_A) {
+                throw new \RuntimeException('identity-backup fixture expected ARRAY_A');
+            }
+            if ($this->failure === 'false') return false;
+            if ($this->failure === 'null') return null;
+            if ($this->failure === 'error') {
+                $this->last_error = 'simulated identity witness read failure';
+                return [];
+            }
+            if (str_contains($sql, 'OCTET_LENGTH(meta_key)')) {
+                return array_map(static fn(array $row): array => [
+                    'meta_id' => $row['meta_id'],
+                    'meta_key' => $row['meta_key'],
+                    'meta_key_bytes' => (string) strlen($row['meta_key']),
+                    'meta_value_bytes' => (string) strlen($row['meta_value']),
+                ], array_slice(array_values(array_filter(
+                    $this->rows,
+                    static fn(array $row): bool => strcasecmp($row['meta_key'], '_duo_uuid') === 0
+                )), 0, 3));
+            }
+            if (str_contains($sql, 'meta_id =')) {
+                preg_match('/meta_id = ([0-9]+)/', $sql, $match);
+                $metaId = (string) ($match[1] ?? '');
+                return array_map(function (array $row): array {
+                    return [
+                        'meta_id' => $row['meta_id'],
+                        'meta_key' => $row['meta_key'],
+                        'meta_value' => $this->mutatePayload
+                            ? str_repeat('f', strlen($row['meta_value']))
+                            : $row['meta_value'],
+                    ];
+                }, array_slice(array_values(array_filter(
+                    $this->rows,
+                    static fn(array $row): bool => $row['meta_id'] === $metaId
+                )), 0, 2));
+            }
+            throw new \RuntimeException("unsupported identity-backup query: $sql");
+        }
+    }
+
     $root = dirname(__DIR__, 4);
     $registryPath = "$root/agent/src/Repository/RepositoryIdentityRegistry.php";
 
@@ -69,8 +168,11 @@ namespace {
     );
 
     require_once $registryPath;
+    require_once "$root/agent/src/Repository/IdentityBackup.php";
 
     use Duo\Policy;
+    use Duo\Db;
+    use Duo\IdentityBackup;
     use Duo\RepositoryIdentityRegistry;
     use Duo\Snapshot;
 
@@ -134,6 +236,114 @@ namespace {
         && str_contains($registrySource, 'private function add('),
         'RepositoryCompiler and its graph validator share one identity registry without retaining duplicate bodies'
     );
+
+    $identityWitness = new ReflectionMethod(IdentityBackup::class, 'assert_embedded_uuid');
+    $identityUuid = '11111111-1111-7111-8111-111111111111';
+    $invokeIdentityWitness = static function (IdentityBackupFakeWpdb $wpdb) use (
+        $identityWitness,
+        $identityUuid
+    ): ?Throwable {
+        $GLOBALS['wpdb'] = $wpdb;
+        try {
+            $identityWitness->invoke(null, 'wp_postmeta', 'post_id', 41, $identityUuid, 'identity backup regression');
+            return null;
+        } catch (Throwable $failure) {
+            return $failure;
+        }
+    };
+
+    $wpdb = new IdentityBackupFakeWpdb();
+    $wpdb->rows = [[
+        'meta_id' => '7', 'meta_key' => '_duo_uuid', 'meta_value' => $identityUuid,
+    ]];
+    $check(
+        $invokeIdentityWitness($wpdb) === null
+            && count($wpdb->queries) === 2
+            && str_contains($wpdb->queries[0], 'OCTET_LENGTH(meta_value)')
+            && !str_contains($wpdb->queries[0], 'SHA2(')
+            && str_contains($wpdb->queries[1], 'meta_id = 7'),
+        'identity backup binds one exact 36-byte embedded UUID through a compact frontier before payload transfer'
+    );
+
+    foreach ([
+        'alias-only' => [['_DUO_UUID', $identityUuid]],
+        'exact-plus-alias' => [['_duo_uuid', $identityUuid], ['_DUO_UUID', $identityUuid]],
+        'duplicate-exact' => [['_duo_uuid', $identityUuid], ['_duo_uuid', $identityUuid]],
+        'oversized' => [['_duo_uuid', $identityUuid . 'x']],
+    ] as $case => $fixtureRows) {
+        $wpdb = new IdentityBackupFakeWpdb();
+        foreach ($fixtureRows as $index => [$key, $value]) {
+            $wpdb->rows[] = [
+                'meta_id' => (string) ($index + 1), 'meta_key' => $key, 'meta_value' => $value,
+            ];
+        }
+        $failure = $invokeIdentityWitness($wpdb);
+        $check(
+            $failure instanceof Throwable
+                && count($wpdb->queries) === 1
+                && !str_contains($wpdb->queries[0], 'SHA2('),
+            "identity backup refuses $case embedded identity before payload transfer or hashing"
+        );
+    }
+
+    foreach (['false', 'null', 'error'] as $mode) {
+        $wpdb = new IdentityBackupFakeWpdb();
+        $wpdb->failure = $mode;
+        $failure = $invokeIdentityWitness($wpdb);
+        $check(
+            $failure instanceof Throwable && count($wpdb->queries) === 1,
+            "identity backup treats a $mode compact identity read as failure"
+        );
+    }
+
+    $wpdb = new IdentityBackupFakeWpdb();
+    $wpdb->rows = [[
+        'meta_id' => '7', 'meta_key' => '_duo_uuid', 'meta_value' => $identityUuid,
+    ]];
+    $wpdb->mutatePayload = true;
+    $failure = $invokeIdentityWitness($wpdb);
+    $check(
+        $failure instanceof Throwable && count($wpdb->queries) === 2,
+        'identity backup refuses payload drift after the compact identity witness'
+    );
+
+    $transactionWpdb = new IdentityBackupFakeWpdb();
+    $transactionWpdb->ambiguousCommit = true;
+    $GLOBALS['wpdb'] = $transactionWpdb;
+    Db::forget_transaction_tracking();
+    Db::start_consistent_snapshot('identity transaction outcome regression start');
+    try {
+        Db::commit('identity transaction outcome regression commit');
+        $commitFailure = null;
+    } catch (Throwable $failure) {
+        $commitFailure = $failure;
+    }
+    $identityRollback = new ReflectionMethod(IdentityBackup::class, 'rollback_after_failure');
+    try {
+        $identityRollback->invoke(
+            null,
+            $commitFailure ?? new RuntimeException('missing commit failure'),
+            'identity transaction outcome regression rollback'
+        );
+        $identityRecovery = null;
+    } catch (Throwable $failure) {
+        $identityRecovery = $failure;
+    }
+    try {
+        Db::start('identity transaction outcome accidental retry');
+        $identityRetryBlocked = false;
+    } catch (Throwable $failure) {
+        $identityRetryBlocked = $failure instanceof \Duo\DatabaseTransactionOutcomeException;
+    }
+    $check(
+        $commitFailure instanceof \Duo\DatabaseTransactionOutcomeException
+            && $identityRecovery instanceof \Duo\DatabaseTransactionOutcomeException
+            && $identityRecovery->getPrevious() === $commitFailure
+            && $transactionWpdb->rollbackQueries === 0
+            && $identityRetryBlocked,
+        'identity recovery retains an inactive ambiguous COMMIT and never compensates through autocommit'
+    );
+    Db::forget_transaction_tracking();
 
     if ($failures !== []) {
         fwrite(STDERR, "\nFAILED " . count($failures) . " assertion(s)\n");

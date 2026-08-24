@@ -58,13 +58,17 @@ $check = static function (bool $ok, string $message) use (&$failures): void {
 $policy = (new ReflectionClass(Policy::class))->newInstanceWithoutConstructor();
 $tokens = (new ReflectionClass(Tokens::class))->newInstanceWithoutConstructor();
 $fieldMaterializer = new ApplyFieldMaterializer($policy, $tokens);
-$relationshipMaterializer = new RelationshipMaterializer($policy);
+$relationshipMaterializer = new RelationshipMaterializer($policy, $fieldMaterializer);
 $menuMaterializer = new MenuMaterializer($policy, $tokens, $fieldMaterializer);
-$deleteExecutor = new DeleteExecutor($policy, $relationshipMaterializer, $menuMaterializer);
+$deleteExecutor = new DeleteExecutor($policy, $relationshipMaterializer, $menuMaterializer, $fieldMaterializer);
 
 $check($deleteExecutor instanceof DeleteExecutor, 'DeleteExecutor is directly constructible with (Policy, RelationshipMaterializer, MenuMaterializer)');
 $check((new ReflectionMethod(DeleteExecutor::class, 'delete_entity'))->isPublic(), 'delete_entity() is public on DeleteExecutor');
-$check((new ReflectionMethod(DeleteExecutor::class, 'assert_zero'))->isPrivate(), 'assert_zero() stays private -- an internal duplicate, not a shared API');
+$check(
+    (new ReflectionMethod(DeleteExecutor::class, 'locked_post_row'))->isPrivate()
+        && (new ReflectionMethod(DeleteExecutor::class, 'locked_term_taxonomy_rows'))->isPrivate(),
+    'complete post/term deletion roster locks stay private implementation boundaries'
+);
 
 // The constructor takes exactly these three collaborators, in this order --
 // no $scopeContract (see the file docblock for why not) and no Apply
@@ -72,9 +76,9 @@ $check((new ReflectionMethod(DeleteExecutor::class, 'assert_zero'))->isPrivate()
 $constructorParams = (new ReflectionClass(DeleteExecutor::class))->getConstructor()->getParameters();
 $check(
     array_map(static fn(ReflectionParameter $p): string => (string) $p->getType(), $constructorParams) === [
-        'Duo\\Policy', 'Duo\\RelationshipMaterializer', 'Duo\\MenuMaterializer',
+        'Duo\\Policy', 'Duo\\RelationshipMaterializer', 'Duo\\MenuMaterializer', 'Duo\\ApplyFieldMaterializer',
     ],
-    'constructor depends on exactly Policy, RelationshipMaterializer, MenuMaterializer -- no scopeContract, no Apply instance'
+    'constructor adds the shared lock materializer without scopeContract or an Apply instance'
 );
 
 // $rowTables (Apply::snapshotRowTables()'s roster) and $warnings travel as
@@ -123,7 +127,7 @@ $check(
 );
 $check(
     !str_contains($applySource, 'private function assert_zero('),
-    'Apply.php no longer defines assert_zero() at all (moved to DeleteExecutor, no facade needed -- it had no other caller)'
+    'Apply.php no longer defines the old unchecked count-casting delete assertion'
 );
 $check(!str_contains($applySource, 'function assign_locations(')
     && str_contains($deleteSource, '$this->menuMaterializer->assign_locations($termId, []);'),

@@ -3,11 +3,14 @@ namespace Duo;
 
 /** Durable identity validation shared by capture, plan, apply, and recovery. */
 final class Identity {
+    private const MAX_EMBEDDED_IDENTITY_ROWS = 100000;
+    private const OWNER_VALIDATION_CHUNK = 500;
+
     public static function assert_embedded_unique(): void {
         global $wpdb;
         $rows = array_merge(
-            self::meta_rows($wpdb->postmeta, 'post_id', 'post'),
-            self::meta_rows($wpdb->termmeta, 'term_id', 'term')
+            self::meta_rows($wpdb->postmeta, 'post_id', 'post', $wpdb->posts, 'ID'),
+            self::meta_rows($wpdb->termmeta, 'term_id', 'term', $wpdb->terms, 'term_id')
         );
         $byOwner = [];
         $byUuid = [];
@@ -40,18 +43,120 @@ final class Identity {
         }
     }
 
-    private static function meta_rows(string $table, string $ownerColumn, string $kind): array {
+    private static function meta_rows(
+        string $table,
+        string $ownerColumn,
+        string $kind,
+        string $ownerTable,
+        string $ownerPrimaryKey
+    ): array {
         global $wpdb;
+        foreach ([$table, $ownerColumn, $ownerTable, $ownerPrimaryKey] as $identifier) {
+            if (!is_string($identifier) || preg_match('/^[A-Za-z0-9_]{1,64}$/D', $identifier) !== 1) {
+                throw new \RuntimeException("duo: could not validate live $kind identity owners: unsafe SQL identifier");
+            }
+        }
+        if (property_exists($wpdb, 'last_error')) {
+            $wpdb->last_error = '';
+        }
         $rows = $wpdb->get_results(
-            "SELECT `$ownerColumn` AS local_id, meta_value AS uuid FROM `$table` "
-            . "WHERE meta_key = '_duo_uuid' ORDER BY `$ownerColumn` ASC, meta_id ASC",
+            "SELECT `$ownerColumn` AS local_id, LEFT(meta_value, 37) AS uuid, "
+            . "OCTET_LENGTH(meta_value) AS uuid_bytes FROM `$table` "
+            . "WHERE meta_key = '_duo_uuid' AND BINARY meta_key = BINARY '_duo_uuid' "
+            . "ORDER BY `$ownerColumn` ASC, meta_id ASC LIMIT "
+            . (self::MAX_EMBEDDED_IDENTITY_ROWS + 1),
             ARRAY_A
-        ) ?: [];
-        return array_map(static fn(array $r): array => [
-            'kind' => $kind,
-            'local_id' => (int) $r['local_id'],
-            'uuid' => (string) $r['uuid'],
-        ], $rows);
+        );
+        if (!is_array($rows)
+            || !array_is_list($rows)
+            || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            $detail = trim((string) ($wpdb->last_error ?? ''));
+            throw new \RuntimeException(
+                "duo: could not validate live $kind identity owners: "
+                . ($detail !== '' ? $detail : 'checked identity read returned no result')
+            );
+        }
+        if (count($rows) > self::MAX_EMBEDDED_IDENTITY_ROWS) {
+            throw new \RuntimeException("duo: could not validate live $kind identity owners: bounded row limit exceeded");
+        }
+        $validated = [];
+        $previousOwner = 0;
+        foreach ($rows as $position => $row) {
+            $localId = is_array($row) ? self::positive_id($row['local_id'] ?? null) : null;
+            $uuidBytes = is_array($row) ? self::nonnegative_size($row['uuid_bytes'] ?? null) : null;
+            if (!is_array($row)
+                || array_keys($row) !== ['local_id', 'uuid', 'uuid_bytes']
+                || $localId === null
+                || !is_string($row['uuid'] ?? null)
+                || $uuidBytes === null
+                || $uuidBytes > 36
+                || strlen($row['uuid']) !== $uuidBytes
+                || $localId < $previousOwner) {
+                throw new \RuntimeException(
+                    "duo: could not validate live $kind identity owners: malformed row at bounded position $position"
+                );
+            }
+            $validated[] = ['kind' => $kind, 'local_id' => $localId, 'uuid' => $row['uuid']];
+            $previousOwner = $localId;
+        }
+        if ($validated === []) {
+            return [];
+        }
+
+        $ownerIds = array_values(array_unique(array_column($validated, 'local_id')));
+        $live = [];
+        foreach (array_chunk($ownerIds, self::OWNER_VALIDATION_CHUNK) as $chunk) {
+            $placeholders = implode(',', array_fill(0, count($chunk), '%d'));
+            if (property_exists($wpdb, 'last_error')) {
+                $wpdb->last_error = '';
+            }
+            $liveIds = $wpdb->get_col($wpdb->prepare(
+                "SELECT `$ownerPrimaryKey` FROM `$ownerTable` WHERE `$ownerPrimaryKey` IN ($placeholders) "
+                . "ORDER BY `$ownerPrimaryKey` ASC LIMIT " . (self::OWNER_VALIDATION_CHUNK + 1),
+                ...$chunk
+            ));
+            if (!is_array($liveIds)
+                || !array_is_list($liveIds)
+                || trim((string) ($wpdb->last_error ?? '')) !== ''
+                || count($liveIds) > count($chunk)) {
+                throw new \RuntimeException("duo: could not validate live $kind identity owners: checked owner read failed");
+            }
+            $previousLive = 0;
+            $requested = array_fill_keys($chunk, true);
+            foreach ($liveIds as $position => $liveId) {
+                $id = self::positive_id($liveId);
+                if ($id === null || !isset($requested[$id]) || $id <= $previousLive) {
+                    throw new \RuntimeException(
+                        "duo: could not validate live $kind identity owners: malformed owner row at bounded position $position"
+                    );
+                }
+                $live[$id] = true;
+                $previousLive = $id;
+            }
+        }
+        // Raw uninstallers can leave exact identity metadata behind after the
+        // owner disappears. The bounded checked owner reads exclude that
+        // residue without constructing one site-wide placeholder list.
+        return array_values(array_filter(
+            $validated,
+            static fn(array $row): bool => isset($live[$row['local_id']])
+        ));
+    }
+
+    private static function positive_id(mixed $value): ?int {
+        if (!is_string($value) || preg_match('/^[1-9][0-9]*$/D', $value) !== 1) {
+            return null;
+        }
+        $id = filter_var($value, FILTER_VALIDATE_INT);
+        return is_int($id) && $id > 0 ? $id : null;
+    }
+
+    private static function nonnegative_size(mixed $value): ?int {
+        if (!is_string($value) || preg_match('/^(?:0|[1-9][0-9]*)$/D', $value) !== 1) {
+            return null;
+        }
+        $size = filter_var($value, FILTER_VALIDATE_INT);
+        return is_int($size) && $size >= 0 ? $size : null;
     }
 
     /** Validate the completed capture graph, including nested menu-item/widget identities. */

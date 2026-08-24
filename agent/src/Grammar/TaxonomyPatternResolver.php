@@ -14,7 +14,7 @@ final class TaxonomyPatternResolver {
     public function __construct(private array $manifests) {}
 
     /**
-     * @return array<int, array{match:string, object_type:string[], update_count_callback:?string, object_keyspace:string, source:string}>
+     * @return array<int, array{match:string, object_type:string[], update_count_callback:?string, hierarchical:?bool, object_keyspace:string, source:string}>
      */
     public function rules(): array {
         $out = [];
@@ -30,6 +30,9 @@ final class TaxonomyPatternResolver {
                     'object_type' => $objectTypes,
                     'update_count_callback' => isset($pat['update_count_callback'])
                         ? (string) $pat['update_count_callback']
+                        : null,
+                    'hierarchical' => array_key_exists('hierarchical', $pat)
+                        ? (bool) $pat['hierarchical']
                         : null,
                     'object_keyspace' => array_key_exists('object_keyspace', $pat)
                         ? (string) $pat['object_keyspace']
@@ -48,7 +51,7 @@ final class TaxonomyPatternResolver {
      * the first concrete name; identical regex conflicts are also rejected
      * eagerly by validate_no_conflicting_taxonomy_object_keyspaces().
      *
-     * @return ?array{match:string,object_type:string[],update_count_callback:?string,object_keyspace:string,source:string}
+     * @return ?array{match:string,object_type:string[],update_count_callback:?string,hierarchical:?bool,object_keyspace:string,source:string}
      */
     public function match(string $tax): ?array {
         $effective = null;
@@ -60,8 +63,8 @@ final class TaxonomyPatternResolver {
                 $effective = $pattern;
                 continue;
             }
-            foreach (['object_type', 'update_count_callback', 'object_keyspace'] as $field) {
-                if ($effective[$field] != $pattern[$field]) {
+            foreach (['object_type', 'update_count_callback', 'hierarchical', 'object_keyspace'] as $field) {
+                if ($effective[$field] !== $pattern[$field]) {
                     $ambiguity = $field === 'object_keyspace'
                         ? 'ambiguous object_keyspace declarations'
                         : 'ambiguous taxonomy_patterns contracts';
@@ -96,7 +99,7 @@ final class TaxonomyPatternResolver {
      * Two manifests that both declare registration facts for one taxonomy
      * must agree, for the same reason two matching patterns must.
      *
-     * @return ?array{object_type:string[],update_count_callback:?string,source:string}
+     * @return ?array{object_type:string[],update_count_callback:?string,hierarchical:?bool,source:string}
      */
     public function declaredRegistration(string $tax): ?array {
         $effective = null;
@@ -112,14 +115,17 @@ final class TaxonomyPatternResolver {
                 'update_count_callback' => isset($rule['update_count_callback'])
                     ? (string) $rule['update_count_callback']
                     : null,
+                'hierarchical' => array_key_exists('hierarchical', $rule)
+                    ? (bool) $rule['hierarchical']
+                    : null,
                 'source' => "manifest '" . (string) ($m['name'] ?? '?') . "' taxonomies.$tax",
             ];
             if ($effective === null) {
                 $effective = $candidate;
                 continue;
             }
-            foreach (['object_type', 'update_count_callback'] as $field) {
-                if ($effective[$field] != $candidate[$field]) {
+            foreach (['object_type', 'update_count_callback', 'hierarchical'] as $field) {
+                if ($effective[$field] !== $candidate[$field]) {
                     throw new \RuntimeException(
                         "duo: taxonomy '$tax' has ambiguous registration declarations: "
                         . "{$effective['source']} and {$candidate['source']} disagree on $field; "

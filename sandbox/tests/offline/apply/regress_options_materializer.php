@@ -23,6 +23,9 @@ declare(strict_types=1);
 if (!defined('DUO_SPEC_VERSION')) {
     define('DUO_SPEC_VERSION', 2);
 }
+if (!defined('ARRAY_A')) {
+    define('ARRAY_A', 'ARRAY_A');
+}
 
 function untrailingslashit(string $value): string { return rtrim($value, '/\\'); }
 function get_option(string $name, mixed $default = false): mixed {
@@ -46,6 +49,7 @@ require_once __DIR__ . '/../../../../agent/src/Apply/ApplyFieldMaterializer.php'
 require_once __DIR__ . '/../../../../agent/src/Apply/OptionsMaterializer.php';
 
 use Duo\ApplyFieldMaterializer;
+use Duo\CacheInvalidationTransaction;
 use Duo\OptionsMaterializer;
 use Duo\Policy;
 use Duo\Tokens;
@@ -54,33 +58,114 @@ final class OptionsMaterializerFakeWpdb {
     public string $prefix = 'wp_';
     public string $options = 'wp_options';
     public string $last_error = '';
+    public bool $savepointExists = false;
     /** @var list<array{table:string,data:array,where?:array}> */
     public array $writes = [];
     /** @var array<string,int> canonical "uuid:id_kind" => target-local id */
     public array $localIds = [];
+    /** @var array<string,array{option_id:int,option_value:string,autoload:string}> */
+    public array $optionRows = [];
 
-    public function prepare(string $query, mixed ...$args): array {
-        return ['sql' => $query, 'args' => $args];
+    public function prepare(string $query, mixed ...$args): string {
+        foreach ($args as $arg) {
+            $replacement = is_int($arg)
+                ? (string) $arg
+                : "'" . str_replace("'", "''", (string) $arg) . "'";
+            $query = preg_replace('/%[ds]/', $replacement, $query, 1) ?? $query;
+        }
+        return $query;
     }
 
-    public function get_var(array|string $query): ?int {
-        if (is_array($query)) {
-            $sql = (string) ($query['sql'] ?? '');
-            $args = (array) ($query['args'] ?? []);
-            if (str_contains($sql, 'SELECT local_id FROM wp_duo_map')) {
-                return $this->localIds[(string) ($args[0] ?? '') . ':' . (string) ($args[1] ?? '')] ?? null;
-            }
+    public function get_var(string $query): mixed {
+        if ($query === 'SELECT @@in_transaction') return '1';
+        if ($query === 'SELECT 1 FROM `wp_options` LIMIT 1') return '1';
+        if (str_contains($query, 'SELECT local_id FROM wp_duo_map')) {
+            preg_match("/uuid = '((?:''|[^'])*)'/", $query, $uuidMatch);
+            preg_match("/id_kind = '((?:''|[^'])*)'/", $query, $kindMatch);
+            $uuid = str_replace("''", "'", (string) ($uuidMatch[1] ?? ''));
+            $kind = str_replace("''", "'", (string) ($kindMatch[1] ?? ''));
+            return $this->localIds[$uuid . ':' . $kind] ?? null;
         }
         return null;
     }
 
+    public function get_results(string $query, mixed $mode = null): array {
+        if (str_contains($query, 'information_schema.TABLES')) {
+            return [['TABLE_NAME' => 'wp_options', 'ENGINE' => 'InnoDB']];
+        }
+        if (str_starts_with($query, 'SHOW INDEX FROM `wp_options`')) {
+            return [[
+                'Key_name' => 'option_name',
+                'Seq_in_index' => '1',
+                'Column_name' => 'option_name',
+                'Sub_part' => null,
+                'Non_unique' => '0',
+                'Index_type' => 'BTREE',
+                'Visible' => 'YES',
+            ]];
+        }
+        if (str_contains($query, 'FROM wp_options FORCE INDEX (`option_name`)')) {
+            preg_match("/option_name = '((?:''|[^'])*)'/", $query, $match);
+            $name = str_replace("''", "'", (string) ($match[1] ?? ''));
+            $row = $this->optionRows[$name] ?? null;
+            if ($row === null) return [];
+            if (str_contains($query, 'OCTET_LENGTH(option_value)')) {
+                return [[
+                    'option_name' => $name,
+                    'option_value_bytes' => (string) strlen($row['option_value']),
+                    'autoload_bytes' => (string) strlen($row['autoload']),
+                ]];
+            }
+            if (str_contains($query, 'SHA2(option_value, 256)')) {
+                return [[
+                    'option_name' => $name,
+                    'option_value_sha256' => hash('sha256', $row['option_value']),
+                    'autoload_sha256' => hash('sha256', $row['autoload']),
+                ]];
+            }
+            return [[
+                'option_name' => $name,
+                'option_value' => $row['option_value'],
+                'autoload' => $row['autoload'],
+            ]];
+        }
+        return [];
+    }
+
+    public function query(string $query): int|false {
+        if (str_starts_with($query, 'SAVEPOINT `')) {
+            $this->savepointExists = true;
+            return 0;
+        }
+        if (str_starts_with($query, 'RELEASE SAVEPOINT `')) {
+            if (!$this->savepointExists) {
+                $this->last_error = 'SAVEPOINT does not exist';
+                return false;
+            }
+            $this->savepointExists = false;
+            return 0;
+        }
+        return 0;
+    }
+
     public function insert(string $table, array $data, mixed $format = null): int {
         $this->writes[] = ['table' => $table, 'data' => $data];
+        if ($table === $this->options) {
+            $this->optionRows[(string) $data['option_name']] = [
+                'option_id' => count($this->optionRows) + 1,
+                'option_value' => (string) $data['option_value'],
+                'autoload' => (string) $data['autoload'],
+            ];
+        }
         return 1;
     }
 
     public function update(string $table, array $data, array $where, mixed $format = null, mixed $whereFormat = null): int {
         $this->writes[] = ['table' => $table, 'data' => $data, 'where' => $where];
+        if ($table === $this->options && isset($this->optionRows[(string) ($where['option_name'] ?? '')])) {
+            $name = (string) $where['option_name'];
+            $this->optionRows[$name] = array_replace($this->optionRows[$name], $data);
+        }
         return 1;
     }
 }
@@ -138,9 +223,10 @@ $check(
 );
 $applyOptionSubKeysParams = (new ReflectionMethod(OptionsMaterializer::class, 'apply_option_sub_keys'))->getParameters();
 $check(
-    array_map(static fn(ReflectionParameter $p): string => $p->getName(), $applyOptionSubKeysParams) === ['name', 'captured', 'subKeys', 'autoload', 'warnings']
-        && $applyOptionSubKeysParams[4]->isPassedByReference(),
-    'apply_option_sub_keys() takes the caller\'s warnings collection as an explicit by-reference fifth parameter'
+    array_map(static fn(ReflectionParameter $p): string => $p->getName(), $applyOptionSubKeysParams)
+        === ['name', 'captured', 'rule', 'ruleSource', 'autoload', 'warnings']
+        && $applyOptionSubKeysParams[5]->isPassedByReference(),
+    'apply_option_sub_keys() carries the complete effective rule/provenance and explicit by-reference warnings collection'
 );
 
 // === Prove the extraction itself: Apply.php no longer inlines these bodies,
@@ -173,10 +259,11 @@ $acfPolicy->prime_interpreters_from_repository([
     ],
 ]);
 $acfTokens = new Tokens();
+$acfFieldMaterializer = new ApplyFieldMaterializer($acfPolicy, $acfTokens);
 $acfMaterializer = new OptionsMaterializer(
     $acfPolicy,
     $acfTokens,
-    new ApplyFieldMaterializer($acfPolicy, $acfTokens)
+    $acfFieldMaterializer
 );
 $acfFullDocument = \Duo\OptionState::document([
     'options_scoped_tagline' => \Duo\OptionState::present('Scoped ACF tagline', 'yes'),
@@ -187,6 +274,9 @@ $acfSelectedDocument = \Duo\OptionState::document([
 ]);
 $GLOBALS['wpdb'] = new OptionsMaterializerFakeWpdb();
 $acfWarnings = [];
+$acfFieldMaterializer->begin_authored_transaction();
+$acfMaterializer->begin_authored_transaction();
+CacheInvalidationTransaction::begin();
 $missingCompanionRefused = false;
 try {
     $acfMaterializer->apply_options($acfSelectedDocument, false, $acfWarnings);
@@ -194,6 +284,11 @@ try {
     $missingCompanionRefused = str_contains($failure->getMessage(), 'policy declares');
 }
 $acfMaterializer->apply_options($acfSelectedDocument, false, $acfWarnings, $acfFullDocument);
+$acfMaterializer->commit_authored_transaction();
+CacheInvalidationTransaction::finish();
+$acfMaterializer->end_authored_transaction();
+$acfFieldMaterializer->end_authored_transaction();
+CacheInvalidationTransaction::end();
 $acfWrites = $GLOBALS['wpdb']->writes;
 $check(
     $missingCompanionRefused
@@ -220,10 +315,11 @@ $csvPolicy->site = ['policy' => ['options' => [
     ],
 ]]];
 $csvTokens = new Tokens();
+$csvFieldMaterializer = new ApplyFieldMaterializer($csvPolicy, $csvTokens);
 $csvMaterializer = new OptionsMaterializer(
     $csvPolicy,
     $csvTokens,
-    new ApplyFieldMaterializer($csvPolicy, $csvTokens)
+    $csvFieldMaterializer
 );
 $csvDb = new OptionsMaterializerFakeWpdb();
 $csvDb->localIds = [
@@ -232,12 +328,20 @@ $csvDb->localIds = [
 ];
 $GLOBALS['wpdb'] = $csvDb;
 $csvWarnings = [];
+$csvFieldMaterializer->begin_authored_transaction();
+$csvMaterializer->begin_authored_transaction();
+CacheInvalidationTransaction::begin();
 $csvMaterializer->apply_options(\Duo\OptionState::document([
     'pmpro_level_order' => \Duo\OptionState::present([
         '{{pmpro_level:' . $firstLevelUuid . '}}',
         '{{pmpro_level:' . $secondLevelUuid . '}}',
     ], 'yes'),
 ]), false, $csvWarnings);
+$csvMaterializer->commit_authored_transaction();
+CacheInvalidationTransaction::finish();
+$csvMaterializer->end_authored_transaction();
+$csvFieldMaterializer->end_authored_transaction();
+CacheInvalidationTransaction::end();
 $csvWrite = $csvDb->writes[0]['data']['option_value'] ?? null;
 $check(
     $csvWrite === '701,902' && explode(',', $csvWrite) === ['701', '902'],

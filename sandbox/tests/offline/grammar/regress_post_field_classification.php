@@ -39,6 +39,7 @@ function maybe_serialize($value) {
         ? serialize($value)
         : $value;
 }
+function wp_cache_delete($key, string $group = ''): bool { return false; }
 
 require __DIR__ . '/../../../../agent/src/Kernel/TransientDbException.php';
 require __DIR__ . '/../../../../agent/src/Kernel/Db.php';
@@ -71,12 +72,15 @@ final class PostFieldFakeWpdb {
     public string $term_relationships = 'wp_term_relationships';
     public string $last_error = '';
     public int $insert_id = 100;
+    public bool $savepointExists = false;
     /** @var array<string,int> */
     public array $map = [];
     /** @var array<int,array{table:string,data:array,where:array}> */
     public array $updates = [];
     /** @var array<int,array{table:string,data:array}> */
     public array $inserts = [];
+    /** @var list<array{meta_id:int,post_id:int,meta_key:string,meta_value:string}> */
+    public array $metaRows = [];
 
     public function prepare(string $sql, ...$args): string {
         foreach ($args as $arg) {
@@ -89,6 +93,12 @@ final class PostFieldFakeWpdb {
     }
 
     public function get_var(string $sql) {
+        if ($sql === 'SELECT @@in_transaction') {
+            return '1';
+        }
+        if ($sql === 'SELECT 1 FROM `wp_postmeta` LIMIT 1') {
+            return '1';
+        }
         if (str_contains($sql, 'SELECT local_id FROM wp_duo_map')) {
             preg_match("/uuid = '([^']+)'/", $sql, $m);
             return $this->map[$m[1] ?? ''] ?? null;
@@ -101,6 +111,61 @@ final class PostFieldFakeWpdb {
     }
 
     public function get_results(string $sql, $format = null): array {
+        if (str_contains($sql, 'information_schema.TABLES')) {
+            return [['TABLE_NAME' => 'wp_postmeta', 'ENGINE' => 'InnoDB']];
+        }
+        if (str_starts_with($sql, 'SHOW INDEX FROM `wp_postmeta`')) {
+            return [[
+                'Key_name' => 'post_id',
+                'Column_name' => 'post_id',
+                'Seq_in_index' => '1',
+                'Sub_part' => null,
+                'Non_unique' => '1',
+                'Index_type' => 'BTREE',
+                'Visible' => 'YES',
+            ]];
+        }
+        if (str_contains($sql, 'FROM `wp_postmeta` FORCE INDEX')) {
+            preg_match('/`post_id` = ([0-9]+)/', $sql, $ownerMatch);
+            $owner = (int) ($ownerMatch[1] ?? 0);
+            $rows = array_values(array_filter(
+                $this->metaRows,
+                static fn(array $row): bool => $row['post_id'] === $owner
+            ));
+            if (str_contains($sql, 'AND meta_key =')) {
+                preg_match("/meta_key = '((?:''|[^'])*)'/", $sql, $keyMatch);
+                $key = str_replace("''", "'", (string) ($keyMatch[1] ?? ''));
+                return array_map(
+                    static fn(array $row): array => [
+                        'meta_id' => (string) $row['meta_id'],
+                        'meta_key' => $row['meta_key'],
+                    ],
+                    array_values(array_filter(
+                        $rows,
+                        static fn(array $row): bool => strcasecmp($row['meta_key'], $key) === 0
+                    ))
+                );
+            }
+            if (str_contains($sql, 'OCTET_LENGTH(meta_key)')) {
+                return array_map(static fn(array $row): array => [
+                    'meta_id' => (string) $row['meta_id'],
+                    'meta_key_bytes' => (string) strlen($row['meta_key']),
+                    'meta_value_bytes' => (string) strlen($row['meta_value']),
+                ], $rows);
+            }
+            if (str_contains($sql, 'SHA2(meta_key, 256)')) {
+                return array_map(static fn(array $row): array => [
+                    'meta_id' => (string) $row['meta_id'],
+                    'meta_key_sha256' => hash('sha256', $row['meta_key']),
+                    'meta_value_sha256' => hash('sha256', $row['meta_value']),
+                ], $rows);
+            }
+            return array_map(static fn(array $row): array => [
+                'meta_id' => (string) $row['meta_id'],
+                'meta_key' => $row['meta_key'],
+                'meta_value' => $row['meta_value'],
+            ], $rows);
+        }
         return [];
     }
 
@@ -112,10 +177,30 @@ final class PostFieldFakeWpdb {
     public function insert(string $table, array $data, $format = null): int {
         $this->inserts[] = ['table' => $table, 'data' => $data];
         $this->insert_id++;
+        if ($table === $this->postmeta) {
+            $this->metaRows[] = [
+                'meta_id' => $this->insert_id,
+                'post_id' => (int) $data['post_id'],
+                'meta_key' => (string) $data['meta_key'],
+                'meta_value' => (string) $data['meta_value'],
+            ];
+        }
         return 1;
     }
 
-    public function query(string $sql): int {
+    public function query(string $sql): int|false {
+        if (str_starts_with($sql, 'SAVEPOINT `')) {
+            $this->savepointExists = true;
+            return 0;
+        }
+        if (str_starts_with($sql, 'RELEASE SAVEPOINT `')) {
+            if (!$this->savepointExists) {
+                $this->last_error = 'SAVEPOINT does not exist';
+                return false;
+            }
+            $this->savepointExists = false;
+            return 0;
+        }
         return 1;
     }
 }
@@ -291,12 +376,14 @@ function option_authorization_diagnostics(Policy $policy, array $document): arra
 
 function apply_instance(Policy $policy, Tokens $tokens): \Duo\PostMaterializer {
     $fieldMaterializer = new \Duo\ApplyFieldMaterializer($policy, $tokens);
+    $fieldMaterializer->begin_authored_transaction();
+    \Duo\CacheInvalidationTransaction::begin();
     $compiled = (new ReflectionClass(CompiledRepository::class))->newInstanceWithoutConstructor();
     return new \Duo\PostMaterializer(
         $policy,
         $tokens,
         $fieldMaterializer,
-        new \Duo\RelationshipMaterializer($policy),
+        new \Duo\RelationshipMaterializer($policy, $fieldMaterializer),
         new \Duo\AttachmentMaterializer($fieldMaterializer, $compiled)
     );
 }

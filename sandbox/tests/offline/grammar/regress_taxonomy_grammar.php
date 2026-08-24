@@ -227,6 +227,7 @@ $assertAccepted(
         'spec_version' => 2,
         'options' => [
             'acme_settings' => [
+                'class' => 'runtime',
                 'autoload' => 'yes',
                 'sub_keys' => ['object_type' => ['class' => 'authored']],
             ],
@@ -245,6 +246,7 @@ $assertThrows(
         'spec_version' => 2,
         'options' => [
             'acme_settings' => [
+                'class' => 'runtime',
                 'autoload' => 'yes',
                 'sub_keys' => ['other' => ['class' => 'authored']],
             ],
@@ -293,6 +295,33 @@ $assertAccepted(
         ],
     ]),
     'exact taxonomies may declare object_type, with or without update_count_callback'
+);
+$assertAccepted(
+    static fn() => TaxonomyGrammar::validate_taxonomy_object_keyspace_declarations([
+        'name' => 'woocommerce',
+        'taxonomy_patterns' => [[
+            'match' => '^pa_',
+            'object_type' => ['product'],
+            'hierarchical' => false,
+        ]],
+    ]),
+    'dynamic taxonomy registration may declare its exact native hierarchy fact'
+);
+$assertThrows(
+    static fn() => TaxonomyGrammar::validate_taxonomy_object_keyspace_declarations([
+        'name' => 'acme',
+        'taxonomy_patterns' => [['match' => '^future_', 'object_type' => ['post'], 'hierarchical' => 0]],
+    ]),
+    'hierarchical requires object_type and a boolean value',
+    'dynamic hierarchy declarations reject stringly/numeric values'
+);
+$assertThrows(
+    static fn() => TaxonomyGrammar::validate_taxonomy_object_keyspace_declarations([
+        'name' => 'acme',
+        'taxonomies' => ['future_tax' => ['hierarchical' => true]],
+    ]),
+    'hierarchical requires object_type and a boolean value',
+    'exact hierarchy declarations require a complete registration declaration'
 );
 $assertThrows(
     static fn() => TaxonomyGrammar::validate_taxonomy_object_keyspace_declarations([

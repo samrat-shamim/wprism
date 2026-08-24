@@ -50,6 +50,13 @@ final class OptionsCaptureFakeWpdb {
     public array $uuids = [];
     /** @var list<array{sql:string,args:array}> */
     public array $reads = [];
+    public string $exactResultMode = 'normal';
+    public string $discoveryResultMode = 'normal';
+    /** @var ?list<mixed> */
+    public ?array $exactRowsOverride = null;
+    /** @var ?list<mixed> */
+    public ?array $discoveryRowsOverride = null;
+    public bool $mutateExactSameLengthAfterPreflight = false;
 
     public function prepare($sql, ...$args): array {
         if (count($args) === 1 && is_array($args[0])) $args = $args[0];
@@ -65,10 +72,123 @@ final class OptionsCaptureFakeWpdb {
         return null;
     }
 
-    public function get_results($query, $output = ARRAY_A): array {
+    public function get_results($query, $output = ARRAY_A): mixed {
         [$sql, $args] = $this->unwrap($query);
         $this->reads[] = ['sql' => $sql, 'args' => $args];
+        if (str_contains($sql, 'COUNT(*) AS row_count')) {
+            if ($this->discoveryResultMode === 'false') return false;
+            if ($this->discoveryResultMode === 'null') return null;
+            if ($this->discoveryResultMode === 'error') {
+                $this->last_error = 'simulated option discovery preflight failure';
+                return [];
+            }
+            if ($this->discoveryResultMode === 'associative') {
+                return ['not-a-list' => ['row_count' => '0']];
+            }
+            $rows = $this->discoveryRowsOverride ?? array_map(
+                static fn(array $row, string $name): array => [
+                    'option_name' => $name, 'option_value' => $row['option_value'],
+                ],
+                array_values($this->rows),
+                array_keys($this->rows)
+            );
+            $total = 0;
+            $maxName = 0;
+            $maxNameCharacters = 0;
+            $maxValue = 0;
+            foreach ($rows as $row) {
+                $name = is_array($row) ? ($row['option_name'] ?? '') : '';
+                $value = is_array($row) ? ($row['option_value'] ?? '') : '';
+                $nameBytes = is_string($name) ? strlen($name) : 0;
+                $valueBytes = is_string($value) ? strlen($value) : 0;
+                $total += $nameBytes + $valueBytes;
+                $maxName = max($maxName, $nameBytes);
+                $characters = is_string($name) ? preg_match_all('/./us', $name) : 0;
+                $maxNameCharacters = max($maxNameCharacters, is_int($characters) ? $characters : 0);
+                $maxValue = max($maxValue, $valueBytes);
+            }
+            return [[
+                'row_count' => (string) count($rows),
+                'total_bytes' => (string) $total,
+                'max_name_bytes' => (string) $maxName,
+                'max_name_characters' => (string) $maxNameCharacters,
+                'max_value_bytes' => (string) $maxValue,
+            ]];
+        }
+        if (str_contains($sql, 'autoload_bytes')) {
+            if ($this->exactResultMode === 'false') return false;
+            if ($this->exactResultMode === 'null') return null;
+            if ($this->exactResultMode === 'error') {
+                $this->last_error = 'simulated exact option preflight failure';
+                return [];
+            }
+            if ($this->exactResultMode === 'associative') {
+                return ['not-a-list' => ['option_name' => 'x', 'option_value_bytes' => '1', 'autoload_bytes' => '3']];
+            }
+            $name = (string) ($args[0] ?? '');
+            $rows = $this->exactRowsOverride;
+            if ($rows === null) {
+                $row = $this->rows[$name] ?? null;
+                $rows = $row === null ? [] : [['option_name' => $name] + $row];
+            }
+            $projected = array_map(static function ($row) {
+                if (!is_array($row)
+                    || !array_key_exists('option_name', $row)
+                    || !array_key_exists('option_value', $row)
+                    || !array_key_exists('autoload', $row)) {
+                    return $row;
+                }
+                return [
+                    'option_name' => $row['option_name'],
+                    'option_value_bytes' => is_string($row['option_value'])
+                        ? (string) strlen($row['option_value'])
+                        : '1',
+                    'autoload_bytes' => is_string($row['autoload'])
+                        ? (string) strlen($row['autoload'])
+                        : '1',
+                    'option_value_sha256' => is_string($row['option_value'])
+                        ? hash('sha256', $row['option_value'])
+                        : hash('sha256', ''),
+                    'autoload_sha256' => is_string($row['autoload'])
+                        ? hash('sha256', $row['autoload'])
+                        : hash('sha256', ''),
+                ];
+            }, $rows);
+            if ($this->mutateExactSameLengthAfterPreflight && isset($this->rows[$name])) {
+                $this->mutateExactSameLengthAfterPreflight = false;
+                $this->rows[$name]['option_value'] = str_repeat(
+                    'X',
+                    strlen($this->rows[$name]['option_value'])
+                );
+            }
+            return $projected;
+        }
+        if (str_contains($sql, 'option_value, autoload')) {
+            if ($this->exactResultMode === 'false') return false;
+            if ($this->exactResultMode === 'null') return null;
+            if ($this->exactResultMode === 'error') {
+                $this->last_error = 'simulated exact option read failure';
+                return [];
+            }
+            if ($this->exactResultMode === 'associative') {
+                return ['not-a-list' => ['option_name' => 'x', 'option_value' => 'x', 'autoload' => 'yes']];
+            }
+            if ($this->exactRowsOverride !== null) return $this->exactRowsOverride;
+            $name = (string) ($args[0] ?? '');
+            $row = $this->rows[$name] ?? null;
+            return $row === null ? [] : [['option_name' => $name] + $row];
+        }
         if (str_contains($sql, 'option_name, option_value')) {
+            if ($this->discoveryResultMode === 'false') return false;
+            if ($this->discoveryResultMode === 'null') return null;
+            if ($this->discoveryResultMode === 'error') {
+                $this->last_error = 'simulated option discovery failure';
+                return [];
+            }
+            if ($this->discoveryResultMode === 'associative') {
+                return ['not-a-list' => ['option_name' => 'x', 'option_value' => 'x']];
+            }
+            if ($this->discoveryRowsOverride !== null) return $this->discoveryRowsOverride;
             $out = [];
             foreach ($this->rows as $name => $row) {
                 $out[] = ['option_name' => $name, 'option_value' => $row['option_value']];
@@ -137,6 +257,10 @@ $wpdb->rows = [
         'missing_ref_sentinel' => -1,
         'runtime_key' => 'local-only',
     ]), 'autoload' => 'yes'],
+    'native_blob' => ['option_value' => serialize([
+        'existing' => 'https://source.test/native',
+        'runtime_key' => 'local-native',
+    ]), 'autoload' => 'yes'],
     'theme_mods_source' => ['option_value' => serialize(['background_color' => 'source-blue']), 'autoload' => 'yes'],
     'theme_mods_target' => ['option_value' => serialize([
         'background_color' => 'target-green',
@@ -165,6 +289,7 @@ $policy->site = ['policy' => [
         'blob_setting' => [
             'class' => 'env',
             'autoload' => 'yes',
+            'closed_sub_keys' => true,
             'sub_keys' => [
                 'authored_key' => ['class' => 'authored'],
                 'unset_ref' => ['class' => 'authored', 'ref' => 'post'],
@@ -179,6 +304,21 @@ $policy->site = ['policy' => [
 ]];
 $policy->manifests = [[
     'name' => 'fixture',
+    'interpreter' => 'fixture-native',
+    'options' => [
+        'native_blob' => [
+            'class' => 'env',
+            'autoload' => 'yes',
+            'absent_autoload' => 'yes',
+            'closed_sub_keys' => true,
+            'sub_keys' => [
+                'existing' => ['class' => 'authored'],
+                'added_ref' => ['class' => 'authored', 'ref' => 'post'],
+                'added_text' => ['class' => 'authored'],
+                'runtime_key' => ['class' => 'runtime'],
+            ],
+        ],
+    ],
     'option_namespaces' => [['match' => '^acme_']],
     'dynamic_options' => [
         'theme_mods' => [
@@ -199,6 +339,24 @@ $policy->manifests = [[
     ]],
     'tables' => [],
 ]];
+$nativeCaptureState = (object) ['raw' => null];
+$nativeCaptureInterpreter = new class ($nativeCaptureState) {
+    public function __construct(private object $state) {}
+    public function normalize_captured_option_sub_keys(
+        string $name,
+        array $raw,
+        array $subKeys,
+        array $rawOptionSnapshot
+    ): array {
+        $this->state->raw = $raw;
+        return $raw + [
+            'added_ref' => 5,
+            'added_text' => 'https://source.test/native-default',
+        ];
+    }
+};
+$interpreterInstances = new ReflectionProperty(Policy::class, 'interpreterInstances');
+$interpreterInstances->setValue($policy, ['fixture-native' => $nativeCaptureInterpreter]);
 
 $tokens = new Tokens();
 $tokens->policy = $policy;
@@ -223,6 +381,8 @@ $result = $capture->capture(
     true
 );
 $records = OptionState::records($result['document']);
+$initialSecretCalls = $secretCalls;
+$initialReads = $wpdb->reads;
 
 $check(
     ($records['plain_setting']['value'] ?? null) === '{{home}}/path'
@@ -243,6 +403,51 @@ $check(
         && !array_key_exists('runtime_key', $records['blob_setting']['value'] ?? []),
     'sub-key capture omits zero/negative no-object sentinels while including only authored portable keys'
 );
+$check(
+    $nativeCaptureState->raw === ['existing' => 'https://source.test/native']
+        && ($records['native_blob']['value'] ?? null) === [
+            'existing' => '{{home}}/native',
+            'added_ref' => '{{post:' . $postUuid . '}}',
+            'added_text' => '{{home}}/native-default',
+        ],
+    'native normalization receives raw authored siblings before every returned/defaulted value crosses the ordinary ref/text capture codec'
+);
+
+$wpdb->rows['blob_setting']['option_value'] = serialize(['runtime_key' => 'source-local']);
+$emptyMixed = OptionState::records($capture->capture(
+    false,
+    false,
+    null,
+    ['active_stylesheet' => 'target']
+)['document']);
+$check(
+    ($emptyMixed['blob_setting']['state'] ?? null) === 'present'
+        && ($emptyMixed['blob_setting']['value'] ?? null) === [],
+    'a present mixed row with zero authored siblings emits explicit empty removal intent'
+);
+$wpdb->rows['blob_setting']['option_value'] = serialize([
+    'authored_key' => 'https://source.test/blob',
+    'unset_ref' => 0,
+    'missing_ref_sentinel' => -1,
+    'runtime_key' => 'local-only',
+]);
+
+$nativeRow = $wpdb->rows['native_blob'];
+unset($wpdb->rows['native_blob']);
+$absentNative = OptionState::records($capture->capture(
+    false,
+    false,
+    null,
+    ['active_stylesheet' => 'target']
+)['document']);
+$check(
+    ($absentNative['native_blob']['state'] ?? null) === 'present'
+        && ($absentNative['native_blob']['autoload'] ?? null) === 'yes'
+        && ($absentNative['native_blob']['value']['added_ref'] ?? null)
+            === '{{post:' . $postUuid . '}}',
+    'an absent native mixed row projects registered defaults with an exact insertion-storage declaration'
+);
+$wpdb->rows['native_blob'] = $nativeRow;
 $check(
     !array_filter($tokens->warnings, static fn(string $warning): bool => str_contains($warning, 'id -1')),
     'negative sub-key no-object sentinels do not emit false unmanaged-id warnings'
@@ -287,24 +492,51 @@ $check(
     'strict observation reports a real unminted option-name row instead of warning it away'
 );
 $check(
-    array_column($secretCalls, 1) === [
+    array_column($initialSecretCalls, 1) === [
         'csv_post_refs',
         'outside_ref',
         'plain_setting',
         'post_ref',
         'zero_ref',
         'blob_setting.authored_key',
+        'native_blob.existing',
+        'native_blob.added_text',
         'theme_mods_target.background_color',
     ],
     'central secret callback runs in deterministic authored-value order before encoding; actual='
-        . json_encode(array_column($secretCalls, 1))
+        . json_encode(array_column($initialSecretCalls, 1))
 );
 $check(
-    count(array_filter($wpdb->reads, static fn(array $r): bool =>
+    count(array_filter($initialReads, static fn(array $r): bool =>
         str_contains($r['sql'], 'SELECT option_name, option_value FROM wp_options')))
         === 1,
     'one complete option-name/value scan feeds namespace and option-name discovery'
 );
+
+$wpdb->rows['blob_setting']['option_value'] = serialize([
+    'authored_key' => 'site',
+    'unset_ref' => 0,
+    'missing_ref_sentinel' => -1,
+    'runtime_key' => 'local-only',
+    'future_flag' => false,
+]);
+$closedSourceRefused = false;
+try {
+    $capture->capture(false, false, null, ['active_stylesheet' => 'target']);
+} catch (RuntimeException $failure) {
+    $closedSourceRefused = str_contains($failure->getMessage(), '1 undeclared sibling key(s)')
+        && !str_contains($failure->getMessage(), 'future_flag');
+}
+$check(
+    $closedSourceRefused,
+    'closed mixed-option capture rejects even a false-valued unknown sibling before publication'
+);
+$wpdb->rows['blob_setting']['option_value'] = serialize([
+    'authored_key' => 'https://source.test/blob',
+    'unset_ref' => 0,
+    'missing_ref_sentinel' => -1,
+    'runtime_key' => 'local-only',
+]);
 
 unset(
     $wpdb->rows['theme_mods_target'],
@@ -339,6 +571,138 @@ $check(
         && $bound['unscoped_option_name_refs'] === [],
     'each capture resets every collaborator side channel'
 );
+
+foreach (['false', 'null', 'error', 'associative'] as $mode) {
+    $wpdb->exactResultMode = $mode;
+    try {
+        $capture->capture(false, false, null, ['active_stylesheet' => 'target']);
+        $exactReadRefused = false;
+    } catch (RuntimeException $failure) {
+        $exactReadRefused = str_contains($failure->getMessage(), 'exact option');
+    }
+    $check($exactReadRefused, "$mode exact-option DB result fails closed instead of becoming absence");
+    $wpdb->exactResultMode = 'normal';
+}
+
+foreach ([
+    'duplicate' => [
+        ['option_name' => 'plain_setting', 'option_value' => 'one', 'autoload' => 'yes'],
+        ['option_name' => 'PLAIN_SETTING', 'option_value' => 'two', 'autoload' => 'yes'],
+    ],
+    'malformed shape' => [['option_name' => 'plain_setting', 'option_value' => 'one']],
+    'malformed type' => [['option_name' => 'plain_setting', 'option_value' => 7, 'autoload' => 'yes']],
+    'oversized value' => [[
+        'option_name' => 'plain_setting',
+        'option_value' => str_repeat('x', 16777217),
+        'autoload' => 'yes',
+    ]],
+] as $label => $rows) {
+    $beforeFullReads = count(array_filter($wpdb->reads, static fn(array $read): bool =>
+        str_contains($read['sql'], 'SELECT option_name, option_value, autoload')));
+    $wpdb->exactRowsOverride = $rows;
+    try {
+        $capture->capture(false, false, null, ['active_stylesheet' => 'target']);
+        $exactShapeRefused = false;
+    } catch (RuntimeException $failure) {
+        $exactShapeRefused = str_contains($failure->getMessage(), 'exact option');
+    }
+    $check($exactShapeRefused, "$label exact-option row fails closed without coercion");
+    if ($label === 'oversized value') {
+        $check(count(array_filter($wpdb->reads, static fn(array $read): bool =>
+            str_contains($read['sql'], 'SELECT option_name, option_value, autoload'))) === $beforeFullReads,
+            'oversized exact option refuses from compact length evidence before a full-value query');
+    }
+    $wpdb->exactRowsOverride = null;
+}
+
+$wpdb->exactRowsOverride = [[
+    'option_name' => 'PLAIN_SETTING',
+    'option_value' => 'alias-value',
+    'autoload' => 'yes',
+]];
+try {
+    $capture->capture(false, false, null, ['active_stylesheet' => 'target']);
+    $caseAliasRefused = false;
+} catch (RuntimeException $failure) {
+    $caseAliasRefused = str_contains($failure->getMessage(), 'collation-equal option_name alias');
+}
+$check($caseAliasRefused, 'single-row case alias cannot impersonate the exact logical option identity');
+$wpdb->exactRowsOverride = null;
+
+$beforeSameLengthRows = $wpdb->rows;
+$wpdb->mutateExactSameLengthAfterPreflight = true;
+try {
+    $capture->capture(false, false, null, ['active_stylesheet' => 'target']);
+    $sameLengthExactRefused = false;
+} catch (RuntimeException $failure) {
+    $sameLengthExactRefused = str_contains($failure->getMessage(), 'exact option read returned');
+}
+$check(
+    $sameLengthExactRefused,
+    'same-name same-length option rewrites cannot cross the compact/full exact-row witness'
+);
+$wpdb->rows = $beforeSameLengthRows;
+
+foreach (['false', 'null', 'error', 'associative'] as $mode) {
+    $wpdb->discoveryResultMode = $mode;
+    try {
+        $capture->capture(false, false, null, ['active_stylesheet' => 'target']);
+        $discoveryReadRefused = false;
+    } catch (RuntimeException $failure) {
+        $discoveryReadRefused = str_contains($failure->getMessage(), 'option namespace');
+    }
+    $check($discoveryReadRefused, "$mode option-discovery DB result fails closed instead of becoming empty");
+    $wpdb->discoveryResultMode = 'normal';
+}
+
+foreach ([
+    'duplicate' => [
+        ['option_name' => 'duplicate', 'option_value' => 'one'],
+        ['option_name' => 'duplicate', 'option_value' => 'two'],
+    ],
+    'malformed shape' => [['option_name' => 'one']],
+    'malformed type' => [['option_name' => 7, 'option_value' => 'one']],
+    'control-byte name' => [["option_name" => "bad\nname", 'option_value' => 'one']],
+    'oversized ASCII name' => [['option_name' => str_repeat('n', 192), 'option_value' => 'one']],
+    'oversized multibyte name' => [['option_name' => str_repeat('🙂', 192), 'option_value' => 'one']],
+    'oversized value' => [[
+        'option_name' => 'large',
+        'option_value' => str_repeat('x', 16777217),
+    ]],
+] as $label => $rows) {
+    $beforeFullScans = count(array_filter($wpdb->reads, static fn(array $read): bool =>
+        str_contains($read['sql'], 'SELECT option_name, option_value FROM wp_options')));
+    $wpdb->discoveryRowsOverride = $rows;
+    try {
+        $capture->capture(false, false, null, ['active_stylesheet' => 'target']);
+        $discoveryShapeRefused = false;
+    } catch (RuntimeException $failure) {
+        $discoveryShapeRefused = str_contains($failure->getMessage(), 'option namespace discovery');
+    }
+    $check($discoveryShapeRefused, "$label option-discovery row fails closed without omission or coercion");
+    if (in_array($label, ['oversized ASCII name', 'oversized multibyte name', 'oversized value'], true)) {
+        $check(count(array_filter($wpdb->reads, static fn(array $read): bool =>
+            str_contains($read['sql'], 'SELECT option_name, option_value FROM wp_options'))) === $beforeFullScans,
+            "$label refuses from aggregate size evidence before a full namespace-value scan");
+    }
+    $wpdb->discoveryRowsOverride = null;
+}
+
+$wpdb->discoveryRowsOverride = [[
+    'option_name' => str_repeat('🙂', 191),
+    'option_value' => 'valid-unrelated-option',
+]];
+try {
+    $capture->capture(false, false, null, ['active_stylesheet' => 'target']);
+    $multibyteBoundaryAccepted = true;
+} catch (Throwable) {
+    $multibyteBoundaryAccepted = false;
+}
+$check(
+    $multibyteBoundaryAccepted,
+    'option discovery accepts the wp_options varchar(191) multibyte character boundary (764 UTF-8 bytes)'
+);
+$wpdb->discoveryRowsOverride = null;
 
 $captureSource = file_get_contents(__DIR__ . '/../../../../agent/src/Capture/Capture.php');
 $workflowSource = file_get_contents(__DIR__ . '/../../../../agent/src/Capture/CapturePublicationWorkflow.php');

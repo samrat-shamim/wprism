@@ -30,6 +30,7 @@ function wp_cache_delete(...$args): bool {
     $GLOBALS['lifecycle_cache_deletes'][] = $args;
     return true;
 }
+function wp_using_ext_object_cache(): bool { return false; }
 function maybe_serialize($value) {
     return is_array($value) || is_object($value) ? serialize($value) : $value;
 }
@@ -87,6 +88,8 @@ final class LifecycleOptionsFakeWpdb {
     public string $schemaProbeErrorColumn = '';
     /** @var array<string,array{option_value:string,autoload:string}> */
     public array $optionRows = [];
+    /** @var array<string,string> */
+    public array $optionRowReadErrors = [];
     /** @var array<string,bool> */
     public array $existingTables = [];
     /** @var array<string,array<string,string>> */
@@ -103,11 +106,23 @@ final class LifecycleOptionsFakeWpdb {
     public array $menuTerms = [];
     /** @var array<int,string> */
     public array $termUuidById = [];
+    public mixed $transactionState = '1';
+    public bool $transactionStateError = false;
+    public bool $savepointExists = false;
+    public bool $failOptionUpdate = false;
+    public bool $retainOptionUpdate = false;
+    public bool $retainOptionDelete = false;
 
     public function get_charset_collate(): string { return ''; }
 
-    public function prepare($query, ...$args): array {
+    public function prepare($query, ...$args) {
         if (count($args) === 1 && is_array($args[0])) $args = $args[0];
+        // UserMetaCapture deliberately accepts only real wpdb prepare output
+        // (a SQL string). This content-free lifecycle fake needs no argument
+        // witness after the first empty user page, so model that call exactly.
+        if (str_contains((string) $query, 'OCTET_LENGTH(user_login)')) {
+            return preg_replace('/%d/', (string) ($args[0] ?? 0), (string) $query, 1);
+        }
         return ['sql' => (string) $query, 'args' => $args];
     }
 
@@ -115,6 +130,30 @@ final class LifecycleOptionsFakeWpdb {
         [$sql, $args] = $this->unwrap($sql);
         $this->queries[] = $sql;
         $this->queryCalls[] = ['sql' => $sql, 'args' => $args];
+        if ($sql === 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ') {
+            return 1;
+        }
+        if (str_starts_with($sql, 'START TRANSACTION')) {
+            $this->transactionState = '1';
+            return 1;
+        }
+        if ($sql === 'COMMIT' || $sql === 'ROLLBACK') {
+            $this->transactionState = '0';
+            $this->savepointExists = false;
+            return 1;
+        }
+        if (preg_match('/^SAVEPOINT `duo_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
+            $this->savepointExists = true;
+            return 1;
+        }
+        if (preg_match('/^RELEASE SAVEPOINT `duo_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
+            if (!$this->savepointExists) {
+                $this->last_error = 'SAVEPOINT does not exist';
+                return false;
+            }
+            $this->savepointExists = false;
+            return 1;
+        }
         if (preg_match('/DELETE m FROM wp_duo_map m LEFT JOIN `wp_([A-Za-z0-9_]+)` src ON src.`([A-Za-z0-9_]+)` = m\.local_id/', $sql, $m)) {
             $kind = (string) ($args[0] ?? '');
             $table = (string) $m[1];
@@ -135,6 +174,7 @@ final class LifecycleOptionsFakeWpdb {
     public function get_results($query, $output = ARRAY_A): array {
         [$sql, $args] = $this->unwrap($query);
         $this->queries[] = $sql;
+        $this->queryCalls[] = ['sql' => $sql, 'args' => $args];
         if (str_contains($sql, 'information_schema.COLUMNS')) {
             $rows = [];
             foreach (self::CORE_COLUMNS as $property => $columns) {
@@ -143,6 +183,178 @@ final class LifecycleOptionsFakeWpdb {
                 }
             }
             return $rows;
+        }
+        if (str_contains($sql, 'information_schema.TABLES')) {
+            return [['TABLE_NAME' => $this->options, 'ENGINE' => 'InnoDB']];
+        }
+        if (str_starts_with($sql, 'SHOW INDEX FROM `wp_options`')) {
+            return [[
+                'Key_name' => 'option_name',
+                'Seq_in_index' => '1',
+                'Column_name' => 'option_name',
+                'Sub_part' => null,
+                'Non_unique' => '0',
+                'Visible' => 'YES',
+                'Index_type' => 'BTREE',
+            ]];
+        }
+        if (str_contains($sql, 'COUNT(*) AS row_count')) {
+            $total = 0;
+            $maxNameBytes = 0;
+            $maxNameCharacters = 0;
+            $maxValueBytes = 0;
+            foreach ($this->optionRows as $name => $row) {
+                $nameBytes = strlen($name);
+                $characters = preg_match_all('/./us', $name);
+                $valueBytes = is_string($row['option_value']) ? strlen($row['option_value']) : 0;
+                $total += $nameBytes + $valueBytes;
+                $maxNameBytes = max($maxNameBytes, $nameBytes);
+                $maxNameCharacters = max($maxNameCharacters, is_int($characters) ? $characters : 0);
+                $maxValueBytes = max($maxValueBytes, $valueBytes);
+            }
+            return [[
+                'row_count' => (string) count($this->optionRows),
+                'total_bytes' => (string) $total,
+                'max_name_bytes' => (string) $maxNameBytes,
+                'max_name_characters' => (string) $maxNameCharacters,
+                'max_value_bytes' => (string) $maxValueBytes,
+            ]];
+        }
+        if (str_contains($sql, "option_name LIKE 'widget\\_%'")
+            && str_contains($sql, 'option_value_bytes')) {
+            $rows = [];
+            foreach ($this->optionRows as $name => $row) {
+                if (!str_starts_with($name, 'widget_')) continue;
+                $rows[] = [
+                    'option_name' => $name,
+                    'option_value_bytes' => is_string($row['option_value'])
+                        ? (string) strlen($row['option_value'])
+                        : 'malformed',
+                    'option_value_sha256' => is_string($row['option_value'])
+                        ? hash('sha256', $row['option_value'])
+                        : 'malformed',
+                ];
+            }
+            return $rows;
+        }
+        if (str_contains($sql, 'SHA2(option_value, 256)')
+            && str_contains($sql, 'autoload_sha256')
+            && !str_contains($sql, 'option_value_bytes')
+            && $args !== []) {
+            $requested = (string) $args[0];
+            $rows = [];
+            foreach ($this->optionRows as $name => $row) {
+                if (strcasecmp($name, $requested) !== 0) continue;
+                $rows[] = [
+                    'option_name' => $name,
+                    'option_value_sha256' => is_string($row['option_value'])
+                        ? hash('sha256', $row['option_value'])
+                        : 'malformed',
+                    'autoload_sha256' => is_string($row['autoload'])
+                        ? hash('sha256', $row['autoload'])
+                        : 'malformed',
+                ];
+            }
+            return array_slice($rows, 0, 2);
+        }
+        if (str_contains($sql, 'option_value_bytes') && $args !== []) {
+            $requested = (string) $args[0];
+            if (isset($this->optionRowReadErrors[$requested])) {
+                $this->last_error = $this->optionRowReadErrors[$requested];
+                return [];
+            }
+            $rows = [];
+            foreach ($this->optionRows as $name => $row) {
+                if (strcasecmp($name, $requested) !== 0) continue;
+                $valueBytes = is_string($row['option_value'])
+                    ? (string) strlen($row['option_value'])
+                    : 'malformed';
+                $autoloadBytes = is_string($row['autoload'])
+                    ? (string) strlen($row['autoload'])
+                    : 'malformed';
+                $valueHash = is_string($row['option_value'])
+                    ? hash('sha256', $row['option_value'])
+                    : 'malformed';
+                $autoloadHash = is_string($row['autoload'])
+                    ? hash('sha256', $row['autoload'])
+                    : 'malformed';
+                $cacheLockOrder = str_contains($sql, 'autoload_sha256')
+                    && strpos($sql, 'option_value_sha256') < strpos($sql, 'autoload_bytes');
+                $sizeRow = str_contains($sql, 'autoload_sha256') ? ($cacheLockOrder ? [
+                    'option_name' => $name,
+                    'option_value_bytes' => $valueBytes,
+                    'option_value_sha256' => $valueHash,
+                    'autoload_bytes' => $autoloadBytes,
+                    'autoload_sha256' => $autoloadHash,
+                ] : [
+                    'option_name' => $name,
+                    'option_value_bytes' => $valueBytes,
+                    'autoload_bytes' => $autoloadBytes,
+                    'option_value_sha256' => $valueHash,
+                    'autoload_sha256' => $autoloadHash,
+                ]) : [
+                    'option_name' => $name,
+                    'option_value_bytes' => $valueBytes,
+                ];
+                if (!str_contains($sql, 'autoload_sha256') && str_contains($sql, 'autoload_bytes')) {
+                    $sizeRow['autoload_bytes'] = $autoloadBytes;
+                }
+                if (!str_contains($sql, 'autoload_sha256') && str_contains($sql, 'SHA2(option_value')) {
+                    $sizeRow['option_value_sha256'] = is_string($row['option_value'])
+                        ? hash('sha256', $row['option_value'])
+                        : 'malformed';
+                }
+                $rows[] = $sizeRow;
+            }
+            return array_slice($rows, 0, 2);
+        }
+        if (str_contains($sql, 'option_name, option_value, autoload') && $args !== []) {
+            $requested = (string) $args[0];
+            if (isset($this->optionRowReadErrors[$requested])) {
+                $this->last_error = $this->optionRowReadErrors[$requested];
+                return [];
+            }
+            $rows = [];
+            foreach ($this->optionRows as $name => $row) {
+                if (strcasecmp($name, $requested) !== 0) {
+                    continue;
+                }
+                $rows[] = [
+                    'option_name' => $name,
+                    'option_value' => $row['option_value'],
+                    'autoload' => $row['autoload'],
+                ];
+            }
+            return array_slice($rows, 0, 2);
+        }
+        if (str_contains($sql, 'option_name, option_value') && $args !== []) {
+            $requested = (string) $args[0];
+            $rows = [];
+            foreach ($this->optionRows as $name => $row) {
+                if (strcasecmp($name, $requested) !== 0) continue;
+                $rows[] = ['option_name' => $name, 'option_value' => $row['option_value']];
+            }
+            return array_slice($rows, 0, 2);
+        }
+        if (str_contains($sql, 'option_name, autoload') && $args !== []) {
+            $requested = (string) $args[0];
+            $rows = [];
+            foreach ($this->optionRows as $name => $row) {
+                if (strcasecmp($name, $requested) !== 0) continue;
+                $rows[] = ['option_name' => $name, 'autoload' => $row['autoload']];
+            }
+            return array_slice($rows, 0, 2);
+        }
+        if (str_contains($sql, 'LEFT(meta_value, 37) AS meta_value')
+            && str_contains($sql, 'meta_key = %s')
+            && $args !== []) {
+            $ownerId = (int) $args[0];
+            $uuid = $this->termUuidById[$ownerId] ?? null;
+            return $uuid === null ? [] : [[
+                'meta_key' => '_duo_uuid',
+                'meta_value' => $uuid,
+                'meta_value_bytes' => (string) strlen($uuid),
+            ]];
         }
         if (str_contains($sql, "tt.taxonomy = 'nav_menu'")) {
             return $this->menuTerms;
@@ -185,8 +397,13 @@ final class LifecycleOptionsFakeWpdb {
     public function get_row($query, $output = ARRAY_A) {
         [$sql, $args] = $this->unwrap($query);
         $this->queries[] = $sql;
+        $this->queryCalls[] = ['sql' => $sql, 'args' => $args];
         if (str_contains($sql, 'option_value, autoload') && $args !== []) {
             $name = (string) $args[0];
+            if (isset($this->optionRowReadErrors[$name])) {
+                $this->last_error = $this->optionRowReadErrors[$name];
+                return null;
+            }
             $row = $this->optionRows[$name] ?? null;
             return $row === null ? null : [
                 'option_value' => $row['option_value'],
@@ -213,9 +430,28 @@ final class LifecycleOptionsFakeWpdb {
     public function get_var($query) {
         [$sql, $args] = $this->unwrap($query);
         $this->queries[] = $sql;
+        if (trim($sql) === 'SELECT CONNECTION_ID()') {
+            return '8401';
+        }
+        if (trim($sql) === 'SELECT @@in_transaction') {
+            if ($this->transactionStateError) {
+                $this->last_error = 'simulated transaction-state failure';
+            }
+            return $this->transactionState;
+        }
+        if (trim($sql) === 'SELECT @@transaction_isolation') {
+            return 'REPEATABLE-READ';
+        }
+        if (trim($sql) === 'SELECT 1 FROM `wp_options` LIMIT 1') {
+            return '1';
+        }
         if (str_contains($sql, 'SELECT option_value FROM') && $args !== []) {
             $name = (string) $args[0];
             return $this->optionRows[$name]['option_value'] ?? null;
+        }
+        if (str_contains($sql, 'SELECT autoload FROM') && $args !== []) {
+            $name = (string) $args[0];
+            return $this->optionRows[$name]['autoload'] ?? null;
         }
         if (str_contains($sql, 'SELECT meta_value FROM wp_termmeta') && $args !== []) {
             return $this->termUuidById[(int) $args[0]] ?? null;
@@ -271,13 +507,36 @@ final class LifecycleOptionsFakeWpdb {
 
     public function insert($table, $data, $format = null): int {
         $this->writes[] = ['table' => (string) $table, 'data' => $data];
+        if ((string) $table === $this->options && isset($data['option_name'])) {
+            $this->optionRows[(string) $data['option_name']] = [
+                'option_value' => (string) ($data['option_value'] ?? ''),
+                'autoload' => (string) ($data['autoload'] ?? 'no'),
+            ];
+        }
         return 1;
     }
-    public function update($table, $data, $where, $format = null, $whereFormat = null): int {
+    public function update($table, $data, $where, $format = null, $whereFormat = null): int|false {
         $this->writes[] = ['table' => (string) $table, 'data' => $data, 'where' => $where];
+        if ($this->failOptionUpdate && (string) $table === $this->options) {
+            $this->last_error = 'simulated option update failure';
+            return false;
+        }
+        if (!$this->retainOptionUpdate && (string) $table === $this->options) {
+            $name = (string) ($where['option_name'] ?? '');
+            if (isset($this->optionRows[$name])) {
+                $this->optionRows[$name] = array_merge($this->optionRows[$name], $data);
+            }
+        }
         return 1;
     }
-    public function delete($table, $where, $whereFormat = null): int { return 1; }
+    public function delete($table, $where, $whereFormat = null): int {
+        if ((string) $table === $this->options && isset($where['option_name'])) {
+            if (!$this->retainOptionDelete) {
+                unset($this->optionRows[(string) $where['option_name']]);
+            }
+        }
+        return 1;
+    }
 
     private function unwrap($query): array {
         return is_array($query) && isset($query['sql'])
@@ -325,6 +584,9 @@ $GLOBALS['wpdb'] = $wpdb;
 function get_option($name, $default = false) {
     global $wpdb;
     if ($name === 'home') return 'https://example.test';
+    if (array_key_exists((string) $name, $GLOBALS['lifecycle_stale_option_cache'] ?? [])) {
+        return $GLOBALS['lifecycle_stale_option_cache'][(string) $name];
+    }
     $row = $wpdb->optionRows[(string) $name] ?? null;
     return $row === null ? $default : maybe_unserialize($row['option_value']);
 }
@@ -447,8 +709,20 @@ $compiled = CompiledRepository::create([
 // assign_locations() reads theme_mods_<stylesheet>, while
 // apply_option_sub_keys() reads a manifest-owned live option blob.
 $materializerPolicy = $policy(false);
+$materializerPolicy->site['policy']['options']['owned_blob'] = [
+    'class' => 'env',
+    'autoload' => 'yes',
+    'closed_sub_keys' => true,
+    'sub_keys' => [
+        'owned' => ['class' => 'authored'],
+        'runtime' => ['class' => 'runtime'],
+    ],
+];
+$ownedBlobRule = $materializerPolicy->site['policy']['options']['owned_blob'];
 $materializerTokens = new \Duo\Tokens();
 $fieldMaterializer = new \Duo\ApplyFieldMaterializer($materializerPolicy, $materializerTokens);
+$fieldMaterializer->begin_authored_transaction();
+\Duo\CacheInvalidationTransaction::begin();
 $apply = new \Duo\MenuMaterializer($materializerPolicy, $materializerTokens, $fieldMaterializer);
 $assignLocations = new ReflectionMethod(\Duo\MenuMaterializer::class, 'assign_locations');
 // DUO-3347 slice 7: apply_option_sub_keys() moved from Apply onto
@@ -536,7 +810,8 @@ $subKeysWarnings = [];
 $applyOptionSubKeys->invokeArgs($optionsMaterializer, [
     'owned_blob',
     ['owned' => 'new'],
-    ['owned' => ['class' => 'authored'], 'runtime' => ['class' => 'runtime']],
+    $ownedBlobRule,
+    'site.duo.json',
     'yes',
     &$subKeysWarnings,
 ]);
@@ -547,6 +822,769 @@ $check(
             === ['owned' => 'new', 'runtime' => 'keep'],
     'Apply apply_option_sub_keys preserves exact serialized array semantics while merging authored keys'
 );
+
+$exactOwnedBlob = $wpdb->optionRows['owned_blob'];
+unset($wpdb->optionRows['owned_blob']);
+$wpdb->optionRows['Owned_Blob'] = $exactOwnedBlob;
+$writesBeforeAlias = count($wpdb->writes);
+try {
+    $aliasWarnings = [];
+    $applyOptionSubKeys->invokeArgs($optionsMaterializer, [
+        'owned_blob',
+        ['owned' => 'new'],
+        $ownedBlobRule,
+        'site.duo.json',
+        'yes',
+        &$aliasWarnings,
+    ]);
+    $primaryAliasRefused = false;
+} catch (Throwable $failure) {
+    $primaryAliasRefused = str_contains($failure->getMessage(), 'aliased');
+}
+$check(
+    $primaryAliasRefused && count($wpdb->writes) === $writesBeforeAlias,
+    'mixed-option apply refuses a single collation-equal primary option alias before mutation'
+);
+$wpdb->optionRows['owned_blob'] = $exactOwnedBlob;
+try {
+    $ambiguousWarnings = [];
+    $applyOptionSubKeys->invokeArgs($optionsMaterializer, [
+        'owned_blob',
+        ['owned' => 'new'],
+        $ownedBlobRule,
+        'site.duo.json',
+        'yes',
+        &$ambiguousWarnings,
+    ]);
+    $primaryAmbiguityRefused = false;
+} catch (Throwable $failure) {
+    $primaryAmbiguityRefused = str_contains($failure->getMessage(), 'ambiguous collation-equal option rows');
+}
+$check($primaryAmbiguityRefused, 'mixed-option apply refuses two collation-equal primary identities');
+unset($wpdb->optionRows['Owned_Blob']);
+
+foreach (['0', '01', '1.0', '1junk', 1, false, null] as $transactionState) {
+    $wpdb->transactionState = $transactionState;
+    $writesBeforeTransactionRefusal = count($wpdb->writes);
+    try {
+        $transactionWarnings = [];
+        $applyOptionSubKeys->invokeArgs($optionsMaterializer, [
+            'owned_blob',
+            ['owned' => 'new'],
+            $ownedBlobRule,
+            'site.duo.json',
+            'yes',
+            &$transactionWarnings,
+        ]);
+        $transactionStateRefused = false;
+    } catch (Throwable $failure) {
+        $transactionStateRefused = str_contains($failure->getMessage(), 'requires an active transaction');
+    }
+    $check(
+        $transactionStateRefused && count($wpdb->writes) === $writesBeforeTransactionRefusal,
+        'mixed-option product path rejects noncanonical transaction state ' . json_encode($transactionState)
+    );
+}
+$wpdb->transactionState = '1';
+$wpdb->transactionStateError = true;
+try {
+    $transactionWarnings = [];
+    $applyOptionSubKeys->invokeArgs($optionsMaterializer, [
+        'owned_blob',
+        ['owned' => 'new'],
+        $ownedBlobRule,
+        'site.duo.json',
+        'yes',
+        &$transactionWarnings,
+    ]);
+    $transactionErrorRefused = false;
+} catch (Throwable $failure) {
+    $transactionErrorRefused = str_contains($failure->getMessage(), 'requires an active transaction');
+}
+$check($transactionErrorRefused, 'mixed-option product path rejects transaction state plus driver error');
+$wpdb->transactionStateError = false;
+
+$wpdb->savepointExists = false;
+$writesBeforeRestart = count($wpdb->writes);
+try {
+    $restartWarnings = [];
+    $applyOptionSubKeys->invokeArgs($optionsMaterializer, [
+        'owned_blob',
+        ['owned' => 'new'],
+        $ownedBlobRule,
+        'site.duo.json',
+        'yes',
+        &$restartWarnings,
+    ]);
+    $sameIsolationRestartRefused = false;
+} catch (Throwable $failure) {
+    $sameIsolationRestartRefused = str_contains($failure->getMessage(), 'lost authored transaction continuity');
+}
+$check(
+    $sameIsolationRestartRefused && count($wpdb->writes) === $writesBeforeRestart,
+    'mixed-option row lock refuses COMMIT plus same-isolation START before reading or mutation'
+);
+$fieldMaterializer->begin_authored_transaction();
+
+$safeOptionsTable = $wpdb->options;
+$wpdb->options = 'wp_options` WHERE 1=0 --';
+$wpdb->queries = [];
+try {
+    $hostileTableWarnings = [];
+    $applyOptionSubKeys->invokeArgs($optionsMaterializer, [
+        'owned_blob',
+        ['owned' => 'new'],
+        $ownedBlobRule,
+        'site.duo.json',
+        'yes',
+        &$hostileTableWarnings,
+    ]);
+    $hostileOptionsTableRefused = false;
+} catch (Throwable $failure) {
+    $hostileOptionsTableRefused = str_contains($failure->getMessage(), 'unsafe table identifier');
+}
+$check(
+    $hostileOptionsTableRefused && $wpdb->queries === [],
+    'mixed-option product path rejects a hostile runtime options table before issuing SQL'
+);
+$wpdb->options = $safeOptionsTable;
+
+$wpdb->optionRows['owned_blob']['option_value'] = serialize([
+    'owned' => 'old',
+    'runtime' => 'keep',
+    'future_flag' => false,
+]);
+$closedTargetRefused = false;
+try {
+    $closedWarnings = [];
+    $applyOptionSubKeys->invokeArgs($optionsMaterializer, [
+        'owned_blob',
+        ['owned' => 'new'],
+        $ownedBlobRule,
+        'site.duo.json',
+        'yes',
+        &$closedWarnings,
+    ]);
+} catch (Throwable $e) {
+    $closedTargetRefused = str_contains($e->getMessage(), '1 undeclared sibling key(s)')
+        && !str_contains($e->getMessage(), 'future_flag');
+}
+$check(
+    $closedTargetRefused,
+    'Apply rejects a false-valued unknown target sibling before touching a closed mixed option'
+);
+
+// Tombstones use the same exact row/gap lock as whole-blob writes. The stock
+// case-insensitive wp_options collation must never let an authored deletion
+// for one byte spelling remove a different alias, and a success-shaped
+// retained DELETE must be caught by the locked readback.
+$deletedAuthored = OptionState::document([
+    'authored_setting' => OptionState::deleted($present('old', 'yes'), true),
+]);
+$wpdb->optionRows['Authored_Setting'] = ['option_value' => 'alias', 'autoload' => 'yes'];
+$deleteWarnings = [];
+try {
+    $optionsMaterializer->apply_options($deletedAuthored, true, $deleteWarnings);
+    $optionDeleteAliasRefused = false;
+} catch (Throwable $failure) {
+    $optionDeleteAliasRefused = str_contains($failure->getMessage(), 'aliased');
+}
+$check(
+    $optionDeleteAliasRefused && isset($wpdb->optionRows['Authored_Setting']),
+    'authored option deletion refuses a single collation-equal alias before mutation'
+);
+$wpdb->optionRows['authored_setting'] = ['option_value' => 'old', 'autoload' => 'yes'];
+try {
+    $optionsMaterializer->apply_options($deletedAuthored, true, $deleteWarnings);
+    $optionDeleteAmbiguityRefused = false;
+} catch (Throwable $failure) {
+    $optionDeleteAmbiguityRefused = str_contains($failure->getMessage(), 'ambiguous collation-equal');
+}
+$check(
+    $optionDeleteAmbiguityRefused
+        && isset($wpdb->optionRows['authored_setting'], $wpdb->optionRows['Authored_Setting']),
+    'authored option deletion refuses an exact-plus-alias equality range without choosing a row'
+);
+unset($wpdb->optionRows['Authored_Setting']);
+$optionsMaterializer->apply_options($deletedAuthored, true, $deleteWarnings);
+$check(
+    !isset($wpdb->optionRows['authored_setting']),
+    'authored option deletion removes one exact locked row and verifies its gap before returning'
+);
+$optionsMaterializer->apply_options($deletedAuthored, true, $deleteWarnings);
+$check(
+    !isset($wpdb->optionRows['authored_setting']),
+    'authored option deletion holds and verifies an already-absent target gap idempotently'
+);
+$wpdb->optionRows['authored_setting'] = ['option_value' => 'old', 'autoload' => 'yes'];
+$wpdb->retainOptionDelete = true;
+try {
+    $optionsMaterializer->apply_options($deletedAuthored, true, $deleteWarnings);
+    $retainedOptionDeleteRefused = false;
+} catch (Throwable $failure) {
+    $retainedOptionDeleteRefused = str_contains($failure->getMessage(), 'retained the exact locked row');
+}
+$wpdb->retainOptionDelete = false;
+$check(
+    $retainedOptionDeleteRefused && isset($wpdb->optionRows['authored_setting']),
+    'success-shaped retained authored option deletion is rejected by exact locked readback'
+);
+unset($wpdb->optionRows['authored_setting']);
+
+// The native companion-lock callback must itself be exercised through the
+// OptionsMaterializer product path. The fixture hook deliberately reads no
+// object-cache value: a stale cached `yes` cannot override the exact raw row
+// (or its absent gap), and no simulated native setter runs until the checked
+// FORCE INDEX ... FOR UPDATE result has been accepted.
+$nativeState = (object) [
+    'requested' => 'pll_language_from_content_available',
+    'setter_calls' => 0,
+    'finalize_storage' => false,
+    'write_primary' => true,
+    'delete_before_finalize' => false,
+    'transaction_after_setter' => null,
+    'projection_mode' => 'identity',
+    'projection_calls' => 0,
+    'projection_input' => null,
+    'mutate_target_sibling' => false,
+    'retain_nested_target_carrier' => false,
+];
+$nativeInterpreter = new class ($nativeState) {
+    public function __construct(private object $state) {}
+
+    public function option_sub_key_materialization_companions(string $name): array {
+        return $name === 'native_blob' ? [(string) $this->state->requested] : [];
+    }
+
+    public function materialize_option_sub_keys(
+        string $name,
+        array $captured,
+        array $subKeys,
+        string $autoload,
+        ?array $targetValue,
+        Closure $lockTargetOption,
+        Closure $finalizeStorage,
+        Closure $restoreStorage,
+        ?Closure $registerRuntimeRestore = null,
+        ?Closure $writeStorage = null
+    ): bool {
+        if ($registerRuntimeRestore === null) {
+            throw new RuntimeException('fixture: missing runtime restore registrar');
+        }
+        $registerRuntimeRestore(static function (): void {});
+        $row = $lockTargetOption((string) $this->state->requested);
+        if (!is_array($row) || ($row['option_value'] ?? null) !== 'yes') {
+            throw new RuntimeException('fixture: exact raw companion marker is not yes');
+        }
+        ++$this->state->setter_calls;
+        if ($this->state->transaction_after_setter !== null) {
+            global $wpdb;
+            $wpdb->transactionState = $this->state->transaction_after_setter;
+        }
+        if ($this->state->write_primary) {
+            $storage = $captured;
+            if ($this->state->retain_nested_target_carrier
+                && is_array($targetValue)
+                && is_array($targetValue['portable'] ?? null)
+                && array_key_exists('target_only', $targetValue['portable'])) {
+                $portable = $captured['portable'] ?? [];
+                if (!is_array($portable)) {
+                    throw new RuntimeException('fixture: nested portable carrier must be an array');
+                }
+                $portable['target_only'] = $targetValue['portable']['target_only'];
+                $storage['portable'] = $portable;
+            }
+            foreach ($subKeys as $subKey => $subRule) {
+                if (($subRule['class'] ?? null) !== 'authored'
+                    && is_array($targetValue)
+                    && array_key_exists((string) $subKey, $targetValue)) {
+                    $storage[(string) $subKey] = $targetValue[(string) $subKey];
+                }
+            }
+            if ($this->state->mutate_target_sibling) {
+                $storage['runtime'] = 'clobbered';
+            }
+            $writeStorage($storage);
+        }
+        if ($this->state->delete_before_finalize) {
+            global $wpdb;
+            unset($wpdb->optionRows[$name]);
+        }
+        if ($this->state->finalize_storage) {
+            $finalizeStorage();
+        }
+        return true;
+    }
+
+    public function project_materialized_option_sub_keys(
+        string $name,
+        array $rawAuthored,
+        array $declaredSubKeys,
+        array $desiredAuthoredKeys
+    ) {
+        ++$this->state->projection_calls;
+        $this->state->projection_input = [$name, $rawAuthored, $declaredSubKeys, $desiredAuthoredKeys];
+        global $wpdb;
+        if ($this->state->projection_mode === 'restart-transaction') {
+            $wpdb->query('COMMIT');
+            $wpdb->query('START TRANSACTION');
+        } elseif ($this->state->projection_mode === 'rewrite-authored') {
+            $wpdb->optionRows[$name]['option_value'] = serialize([
+                'portable' => 'projection-rewrite',
+                'runtime' => 'keep',
+            ]);
+        } elseif ($this->state->projection_mode === 'rewrite-target') {
+            $wpdb->optionRows[$name]['option_value'] = serialize([
+                'portable' => 'desired',
+                'runtime' => 'projection-rewrite',
+            ]);
+        } elseif ($this->state->projection_mode === 'delete-primary') {
+            unset($wpdb->optionRows[$name]);
+        } elseif ($this->state->projection_mode === 'rewrite-companion') {
+            $wpdb->optionRows['pll_language_from_content_available']['option_value'] = 'no';
+        }
+        if ($this->state->projection_mode === 'mismatch') {
+            return array_replace($rawAuthored, ['portable' => 'projection-mismatch']);
+        }
+        if ($this->state->projection_mode === 'drop-desired') {
+            unset($rawAuthored['portable']);
+            return $rawAuthored;
+        }
+        if ($this->state->projection_mode === 'nested-target-carrier'
+            && is_array($rawAuthored['portable'] ?? null)
+            && array_key_exists('target_only', $rawAuthored['portable'])) {
+            unset($rawAuthored['portable']['target_only']);
+            if ($rawAuthored['portable'] === [] && !in_array('portable', $desiredAuthoredKeys, true)) {
+                unset($rawAuthored['portable']);
+            }
+        }
+        return $rawAuthored;
+    }
+};
+$nativePolicy = new Policy();
+$nativeRule = [
+    'class' => 'env',
+    'closed_sub_keys' => true,
+    'sub_keys' => [
+        'portable' => ['class' => 'authored'],
+        'runtime' => ['class' => 'runtime'],
+    ],
+    'autoload' => 'yes',
+];
+$nativePolicy->manifests = [[
+    'name' => 'native-lock-owner',
+    'interpreter' => 'native-lock-fixture',
+    'option_autoload' => 'yes',
+    'options' => [
+        'native_blob' => [
+            'class' => 'env',
+            'closed_sub_keys' => true,
+            'sub_keys' => [
+                'portable' => ['class' => 'authored'],
+                'runtime' => ['class' => 'runtime'],
+            ],
+        ],
+        'pll_language_from_content_available' => ['class' => 'runtime'],
+    ],
+]];
+$nativeInstances = new ReflectionProperty(Policy::class, 'interpreterInstances');
+$nativeInstances->setValue($nativePolicy, ['native-lock-fixture' => $nativeInterpreter]);
+$nativeMaterializer = new \Duo\OptionsMaterializer(
+    $nativePolicy,
+    $materializerTokens,
+    new \Duo\ApplyFieldMaterializer($nativePolicy, $materializerTokens)
+);
+$invokeNative = static function (string $autoload = 'yes', array $captured = ['portable' => 'desired']) use (
+    $applyOptionSubKeys,
+    $nativeMaterializer,
+    $nativeRule
+): void {
+    $warnings = [];
+    $nativeMaterializer->begin_authored_transaction();
+    try {
+        $applyOptionSubKeys->invokeArgs($nativeMaterializer, [
+            'native_blob',
+            $captured,
+            $nativeRule,
+            'native-lock-owner',
+            $autoload,
+            &$warnings,
+        ]);
+        $nativeMaterializer->commit_authored_transaction();
+    } catch (Throwable $failure) {
+        $nativeMaterializer->rollback_authored_transaction();
+        throw $failure;
+    } finally {
+        $nativeMaterializer->end_authored_transaction();
+    }
+};
+$wpdb->optionRows['native_blob'] = [
+    'option_value' => serialize(['portable' => 'old']),
+    'autoload' => 'yes',
+];
+$GLOBALS['lifecycle_stale_option_cache'] = [
+    'pll_language_from_content_available' => 'yes',
+];
+
+foreach ([
+    'updated-to-non-yes' => ['option_value' => 'no', 'autoload' => 'yes'],
+    'deleted/absent-gap' => null,
+] as $race => $markerRow) {
+    if ($markerRow === null) {
+        unset($wpdb->optionRows['pll_language_from_content_available']);
+    } else {
+        $wpdb->optionRows['pll_language_from_content_available'] = $markerRow;
+    }
+    $nativeState->setter_calls = 0;
+    $wpdb->last_error = '';
+    $wpdb->queryCalls = [];
+    try {
+        $invokeNative();
+        $raceRefused = false;
+    } catch (Throwable $failure) {
+        $raceRefused = str_contains($failure->getMessage(), 'exact raw companion marker is not yes');
+    }
+    $markerLocks = array_values(array_filter(
+        $wpdb->queryCalls,
+        static fn(array $call): bool => ($call['args'][0] ?? null) === 'pll_language_from_content_available'
+            && str_contains($call['sql'], 'FORCE INDEX (`option_name`)')
+            && str_contains($call['sql'], 'LIMIT 2 FOR UPDATE')
+    ));
+    $check(
+        $raceRefused && $nativeState->setter_calls === 0
+            && count($markerLocks) === ($markerRow === null ? 1 : 3),
+        "native companion $race state refuses behind size, hash, and payload row/gap locks despite stale object cache"
+    );
+}
+
+$wpdb->optionRows['pll_language_from_content_available'] = ['option_value' => 'yes', 'autoload' => 'no'];
+$nativeState->setter_calls = 0;
+$wpdb->last_error = '';
+$beforeMissingFinalize = $wpdb->optionRows;
+try {
+    $invokeNative();
+    $missingFinalizeRefused = false;
+} catch (Throwable $failure) {
+    $missingFinalizeRefused = str_contains($failure->getMessage(), 'without exactly one storage finalization');
+    $wpdb->optionRows = $beforeMissingFinalize;
+}
+$check(
+    $missingFinalizeRefused,
+    'native success without an exact engine storage finalization is refused'
+);
+$nativeState->finalize_storage = true;
+$nativeState->setter_calls = 0;
+$invokeNative();
+$check(
+    $nativeState->setter_calls === 1,
+    'an inserted exact-yes companion is observed only after its row lock and then permits native setters'
+);
+
+$wpdb->optionRows['native_blob'] = [
+    'option_value' => serialize(['portable' => 'old', 'runtime' => 'keep']),
+    'autoload' => 'yes',
+];
+$projectionMismatchBefore = $wpdb->optionRows;
+$nativeState->projection_mode = 'mismatch';
+$nativeState->projection_calls = 0;
+$nativeState->projection_input = null;
+try {
+    $invokeNative();
+    $projectionMismatchRefused = false;
+} catch (Throwable $failure) {
+    $projectionMismatchRefused = str_contains($failure->getMessage(), 'did not persist the exact authored group');
+}
+$nativeState->projection_mode = 'identity';
+$check(
+    $projectionMismatchRefused
+        && $nativeState->projection_calls === 1
+        && ($nativeState->projection_input[1] ?? null) === ['portable' => 'desired']
+        && ($nativeState->projection_input[2] ?? null) === $nativeRule['sub_keys']
+        && ($nativeState->projection_input[3] ?? null) === ['portable']
+        && $wpdb->optionRows === $projectionMismatchBefore,
+    'native projection mismatch refuses and rolls storage back after receiving only finalized authored siblings'
+);
+
+$nestedCarrierRow = [
+    'option_value' => serialize([
+        'portable' => ['target_only' => 'keep'],
+        'runtime' => 'keep',
+    ]),
+    'autoload' => 'yes',
+];
+$wpdb->optionRows['native_blob'] = $nestedCarrierRow;
+$nativeState->retain_nested_target_carrier = true;
+$nativeState->projection_mode = 'nested-target-carrier';
+$nativeState->projection_calls = 0;
+$nativeState->projection_input = null;
+$invokeNative('yes', []);
+$check(
+    $wpdb->optionRows['native_blob'] === $nestedCarrierRow
+        && $nativeState->projection_calls === 1
+        && ($nativeState->projection_input[1] ?? null) === [
+            'portable' => ['target_only' => 'keep'],
+        ]
+        && ($nativeState->projection_input[3] ?? null) === [],
+    'an absent authored key may project away its byte-preserved physical target-only carrier'
+);
+
+$wpdb->optionRows['native_blob'] = $nestedCarrierRow;
+$nativeState->projection_calls = 0;
+$nativeState->projection_input = null;
+$invokeNative('yes', ['portable' => []]);
+$check(
+    $wpdb->optionRows['native_blob'] === $nestedCarrierRow
+        && $nativeState->projection_calls === 1
+        && ($nativeState->projection_input[1] ?? null) === [
+            'portable' => ['target_only' => 'keep'],
+        ]
+        && ($nativeState->projection_input[3] ?? null) === ['portable'],
+    'an explicitly empty authored key remains present while sharing the same physical target-only carrier'
+);
+
+$wpdb->optionRows = $projectionMismatchBefore;
+$nativeState->retain_nested_target_carrier = false;
+$nativeState->projection_mode = 'drop-desired';
+$nativeState->projection_calls = 0;
+try {
+    $invokeNative();
+    $desiredDropRefused = false;
+} catch (Throwable $failure) {
+    $desiredDropRefused = str_contains($failure->getMessage(), 'must retain every desired authored key');
+}
+$nativeState->projection_mode = 'identity';
+$check(
+    $desiredDropRefused
+        && $nativeState->projection_calls === 1
+        && $wpdb->optionRows === $projectionMismatchBefore,
+    'projection cannot hide a physically retained carrier while that authored key is desired'
+);
+
+$nativeState->mutate_target_sibling = true;
+$nativeState->projection_calls = 0;
+$nativeState->projection_input = null;
+try {
+    $invokeNative();
+    $projectedTargetMutationRefused = false;
+} catch (Throwable $failure) {
+    $projectedTargetMutationRefused = str_contains($failure->getMessage(), 'changed a target-owned sibling');
+}
+$nativeState->mutate_target_sibling = false;
+$check(
+    $projectedTargetMutationRefused
+        && $nativeState->projection_calls === 1
+        && ($nativeState->projection_input[1] ?? null) === ['portable' => 'desired']
+        && !array_key_exists('runtime', (array) ($nativeState->projection_input[1] ?? []))
+        && $wpdb->optionRows === $projectionMismatchBefore,
+    'an authored projection cannot hide raw mutation of a target-owned sibling, and rollback remains exact'
+);
+
+foreach ([
+    'rewrite-authored' => 'changed storage after finalization',
+    'rewrite-target' => 'changed storage after finalization',
+    'delete-primary' => 'changed storage after finalization',
+    'rewrite-companion' => 'changed a locked companion option',
+    'restart-transaction' => 'recovery_required',
+] as $projectionAttack => $expectedFailure) {
+    $wpdb->optionRows['native_blob'] = [
+        'option_value' => serialize(['portable' => 'old', 'runtime' => 'keep']),
+        'autoload' => 'yes',
+    ];
+    $wpdb->optionRows['pll_language_from_content_available'] = [
+        'option_value' => 'yes',
+        'autoload' => 'no',
+    ];
+    $attackBefore = $wpdb->optionRows;
+    $nativeState->projection_mode = $projectionAttack;
+    $nativeState->projection_calls = 0;
+    try {
+        $invokeNative();
+        $projectionAttackRefused = false;
+        $projectionAttackMessage = '';
+    } catch (Throwable $failure) {
+        $projectionAttackMessage = $failure->getMessage();
+        $projectionAttackRefused = str_contains($projectionAttackMessage, $expectedFailure);
+    }
+    $afterProjectionFailure = $wpdb->optionRows;
+    $nativeState->projection_mode = 'identity';
+
+    if ($projectionAttack === 'restart-transaction') {
+        // A callback that committed the authored transaction cannot be
+        // compensated in-process; the recovery_required result is the exact
+        // contract. Reset only this content-free fake before later cases.
+        $wpdb->optionRows = $attackBefore;
+        $wpdb->transactionState = '1';
+        $wpdb->last_error = '';
+        $fieldMaterializer->end_authored_transaction();
+        $fieldMaterializer->begin_authored_transaction();
+        $rollbackOutcomeExact = str_contains($projectionAttackMessage, 'recovery_required');
+    } elseif ($projectionAttack === 'rewrite-companion') {
+        // Plugin SQL is restored by the outer database ROLLBACK; this fake has
+        // no transactional row journal, so model that one outcome after
+        // proving the primary runtime/storage participant already restored.
+        $primaryRestored = ($afterProjectionFailure['native_blob'] ?? null)
+            === ($attackBefore['native_blob'] ?? null);
+        $wpdb->optionRows = $attackBefore;
+        $rollbackOutcomeExact = $primaryRestored && $wpdb->optionRows === $attackBefore;
+    } else {
+        // Re-inserting a deleted row changes this fake map's iteration order,
+        // not physical option identity or bytes. Compare the complete exact
+        // row set in canonical option-name order.
+        $orderedAfter = $afterProjectionFailure;
+        $orderedBefore = $attackBefore;
+        ksort($orderedAfter, SORT_STRING);
+        ksort($orderedBefore, SORT_STRING);
+        $rollbackOutcomeExact = $orderedAfter === $orderedBefore;
+    }
+    $check(
+        $projectionAttackRefused
+            && $nativeState->projection_calls === 1
+            && $rollbackOutcomeExact,
+        "projection callback $projectionAttack is caught by the post-projection proof without blessing stale bytes"
+    );
+}
+
+$exactMarkerRow = $wpdb->optionRows['pll_language_from_content_available'];
+unset($wpdb->optionRows['pll_language_from_content_available']);
+$wpdb->optionRows['PLL_LANGUAGE_FROM_CONTENT_AVAILABLE'] = $exactMarkerRow;
+$nativeState->setter_calls = 0;
+try {
+    $invokeNative();
+    $companionAliasRefused = false;
+} catch (Throwable $failure) {
+    $companionAliasRefused = str_contains($failure->getMessage(), 'aliased');
+}
+$check(
+    $companionAliasRefused && $nativeState->setter_calls === 0,
+    'native companion lock rejects a single collation-equal option identity alias'
+);
+$wpdb->optionRows['pll_language_from_content_available'] = $exactMarkerRow;
+try {
+    $invokeNative();
+    $companionAmbiguityRefused = false;
+} catch (Throwable $failure) {
+    $companionAmbiguityRefused = str_contains($failure->getMessage(), 'ambiguous collation-equal option rows');
+}
+$check($companionAmbiguityRefused, 'native companion lock rejects two collation-equal option identities');
+unset($wpdb->optionRows['PLL_LANGUAGE_FROM_CONTENT_AVAILABLE']);
+
+$wpdb->optionRowReadErrors['pll_language_from_content_available'] = 'simulated companion read failure';
+$nativeState->setter_calls = 0;
+$wpdb->last_error = '';
+try {
+    $invokeNative();
+    $companionErrorRefused = false;
+} catch (Throwable $failure) {
+    $companionErrorRefused = str_contains($failure->getMessage(), 'compact option lock read failed');
+}
+unset($wpdb->optionRowReadErrors['pll_language_from_content_available']);
+$check(
+    $companionErrorRefused && $nativeState->setter_calls === 0,
+    'companion DB errors fail before native setters instead of becoming an absent marker'
+);
+
+$wpdb->optionRows['pll_language_from_content_available'] = [
+    'option_value' => ['malformed-not-bytes'],
+    'autoload' => 'yes',
+];
+$nativeState->setter_calls = 0;
+$wpdb->last_error = '';
+try {
+    $invokeNative();
+    $malformedCompanionRefused = false;
+} catch (Throwable $failure) {
+    $malformedCompanionRefused = str_contains($failure->getMessage(), 'compact option lock row is malformed');
+}
+$check(
+    $malformedCompanionRefused && $nativeState->setter_calls === 0,
+    'malformed companion rows fail before native setters'
+);
+
+$hostileCompanion = "credential\0" . str_repeat('X', 400);
+$nativeState->requested = $hostileCompanion;
+$nativeState->setter_calls = 0;
+$wpdb->last_error = '';
+try {
+    $invokeNative();
+    $invalidCompanionMessage = '';
+} catch (Throwable $failure) {
+    $invalidCompanionMessage = $failure->getMessage();
+}
+$check(
+    str_contains($invalidCompanionMessage, 'invalid companion lock (string:411:')
+        && !str_contains($invalidCompanionMessage, 'credential')
+        && strlen($invalidCompanionMessage) < 240
+        && $nativeState->setter_calls === 0,
+    'companion names are bounded and fingerprinted before policy lookup or SQL preparation'
+);
+$nativeState->requested = 'pll_language_from_content_available';
+$wpdb->optionRows['pll_language_from_content_available'] = ['option_value' => 'yes', 'autoload' => 'no'];
+foreach (\Duo\OptionState::AUTOLOAD_VALUES as $autoloadValue) {
+    $wpdb->optionRows['native_blob'] = [
+        'option_value' => serialize(['portable' => 'old']),
+        'autoload' => $autoloadValue === 'yes' ? 'no' : 'yes',
+    ];
+    $invokeNative($autoloadValue);
+    $check(
+        ($wpdb->optionRows['native_blob']['autoload'] ?? null) === $autoloadValue,
+        "native mixed-option finalization persists and re-reads admitted autoload '$autoloadValue'"
+    );
+}
+
+$wpdb->optionRows['native_blob'] = [
+    'option_value' => serialize(['portable' => 'old']), 'autoload' => 'no',
+];
+$autoloadFailureBefore = $wpdb->optionRows;
+$wpdb->failOptionUpdate = true;
+try {
+    $invokeNative('yes');
+    $autoloadUpdateFailed = false;
+} catch (Throwable $failure) {
+    $autoloadUpdateFailed = str_contains($failure->getMessage(), 'database mutation failed');
+}
+$wpdb->failOptionUpdate = false;
+$check($autoloadUpdateFailed && $wpdb->optionRows === $autoloadFailureBefore,
+    'injected native autoload update failure cannot be accepted and leaves rollback state exact');
+
+$wpdb->retainOptionUpdate = true;
+try {
+    $invokeNative('yes');
+    $retainedAutoloadRefused = false;
+} catch (Throwable $failure) {
+    $retainedAutoloadRefused = str_contains($failure->getMessage(), 'did not persist the exact authored group');
+}
+$wpdb->retainOptionUpdate = false;
+$check($retainedAutoloadRefused && $wpdb->optionRows['native_blob']['autoload'] === 'no',
+    'success-shaped zero/retained autoload update is rejected by exact post-write readback');
+
+$beforeNativeDeletion = $wpdb->optionRows;
+$nativeState->delete_before_finalize = true;
+try {
+    $invokeNative('yes');
+    $deletedNativeRowRefused = false;
+} catch (Throwable $failure) {
+    $deletedNativeRowRefused = str_contains($failure->getMessage(), 'left no raw storage row');
+    $wpdb->optionRows = $beforeNativeDeletion; // authored executor rollback model
+}
+$nativeState->delete_before_finalize = false;
+$check($deletedNativeRowRefused && $wpdb->optionRows === $beforeNativeDeletion,
+    'native option deletion between save and autoload finalization refuses and rolls back');
+
+$nativeState->transaction_after_setter = '0';
+$beforeCommittedHook = $wpdb->optionRows;
+try {
+    $invokeNative('yes');
+    $committedHookRefused = false;
+} catch (Throwable $failure) {
+    $committedHookRefused = str_contains($failure->getMessage(), 'requires an active transaction');
+    $wpdb->optionRows = $beforeCommittedHook;
+}
+$wpdb->transactionState = '1';
+$nativeState->transaction_after_setter = null;
+$nativeState->finalize_storage = false;
+$check($committedHookRefused && $wpdb->optionRows === $beforeCommittedHook,
+    'native callback transaction loss is detected before post-save storage finalization');
+$GLOBALS['lifecycle_stale_option_cache'] = [];
 
 $wpdb->optionRows['theme_mods_fixture-theme']['option_value'] = serialize(new ApplySerializedWakeupProbe());
 ApplySerializedWakeupProbe::$woke = false;
@@ -569,7 +1607,8 @@ try {
     $applyOptionSubKeys->invokeArgs($optionsMaterializer, [
         'owned_blob',
         ['owned' => 'new'],
-        ['owned' => ['class' => 'authored']],
+        $ownedBlobRule,
+        'site.duo.json',
         'yes',
         &$objectRejectWarnings,
     ]);
@@ -592,6 +1631,7 @@ $wpdb->optionRows = [
 // 1. The clean-install lifecycle boundary does not enter Snapshot::capture,
 // even though the frozen manifest declares a plugin-owned table absent here.
 $wpdb->queries = [];
+$wpdb->transactionState = '0';
 $lifecycle = Capture::snapshot_options_core('/unused', false, $compiled, $policy(true));
 $check(isset($lifecycle['options/core']), 'lifecycle options snapshot succeeds with a declared missing typed table');
 $check(
@@ -794,11 +1834,10 @@ $wpdb->optionRows = [
 $wpdb->queries = [];
 $menuArraySnapshot = $captureForMenus->captureMenus(false);
 $rawThemeModsQueries = array_values(array_filter(
-    $wpdb->queries,
-    static fn(string $sql): bool => str_contains(
-        $sql,
-        'SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1'
-    )
+    $wpdb->queryCalls,
+    static fn(array $call): bool => ($call['args'][0] ?? null) === 'theme_mods_fixture-theme'
+        && str_contains($call['sql'], 'SELECT option_name, option_value, autoload')
+        && str_contains($call['sql'], 'ORDER BY option_id ASC LIMIT 2')
 ));
 $check(
     ($menuArraySnapshot[0]['front']['locations'] ?? null) === ['primary']
@@ -933,6 +1972,18 @@ $wpdb->optionRows = [
         'selected' => [], 'protected' => ['block-9'], 'array_version' => 3,
     ]), 'autoload' => 'yes'],
 ];
+$wpdb->transactionState = '1';
+$fieldMaterializer->begin_authored_transaction();
+SidebarState::begin_authored_transaction(
+    static fn(string $name, string $purpose): ?array =>
+        \Duo\CacheInvalidationTransaction::lock_option_row($name, $purpose),
+    static function (string $name, string $purpose): void {
+        \Duo\CacheInvalidationTransaction::queue_option($name, $purpose);
+    },
+    static function (string $name, string $value, string $autoload, string $purpose): void {
+        \Duo\CacheInvalidationTransaction::assert_option_row($name, $value, $autoload, $purpose);
+    }
+);
 SidebarState::ensure_widgets($sidebarPolicy, $selectedSidebarTree);
 $allocatedWidgetUuids = [];
 foreach ($wpdb->queryCalls as $call) {
@@ -969,6 +2020,7 @@ $wpdb->map = [
     ['uuid' => $protectedSidebarWidget, 'entity_type' => 'widget', 'kind' => SidebarState::kind('block'), 'id' => 9],
 ];
 $wpdb->queryCalls = [];
+$wpdb->writes = [];
 $GLOBALS['lifecycle_cache_deletes'] = [];
 SidebarState::finalize_sidebar(
     $sidebarPolicy,
@@ -978,18 +2030,20 @@ SidebarState::finalize_sidebar(
     $completeSidebarTree,
     true
 );
+SidebarState::end_authored_transaction();
+$fieldMaterializer->end_authored_transaction();
+$wpdb->transactionState = '0';
 $widgetOptionWrites = [];
-$storedSidebarAssignments = null;
-foreach ($wpdb->queryCalls as $call) {
-    if (str_contains($call['sql'], 'INSERT INTO wp_options')
-        && isset($call['args'][0]) && is_string($call['args'][0])) {
-        if (str_starts_with($call['args'][0], 'widget_')) {
-            $widgetOptionWrites[] = $call['args'][0];
-        } elseif (str_contains($call['sql'], "VALUES ('sidebars_widgets'")) {
-            $storedSidebarAssignments = maybe_unserialize($call['args'][0]);
-        }
+foreach ($wpdb->writes as $write) {
+    if (($write['table'] ?? null) !== 'wp_options') continue;
+    $name = (string) (($write['data']['option_name'] ?? null) ?? ($write['where']['option_name'] ?? ''));
+    if (str_starts_with($name, 'widget_')) {
+        $widgetOptionWrites[] = $name;
     }
 }
+$storedSidebarAssignments = maybe_unserialize(
+    (string) ($wpdb->optionRows['sidebars_widgets']['option_value'] ?? '')
+);
 $cacheDeleteKeys = array_map(
     static fn(array $args): string => (string) ($args[0] ?? ''),
     $GLOBALS['lifecycle_cache_deletes']

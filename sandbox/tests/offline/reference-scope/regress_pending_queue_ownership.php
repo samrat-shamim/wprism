@@ -307,15 +307,18 @@ namespace {
     // ownership claim and the enumeration drift apart.
     $sidebarSource = (string) file_get_contents($repoRoot . '/agent/src/Repository/SidebarState.php');
     duo_check(
-        preg_match(
-            '/SELECT option_value FROM \{\$wpdb->options\} WHERE option_name = %s LIMIT 1",\s*self::SIDEBARS_OPTION/',
-            $sidebarSource
-        ) === 1,
-        'load_sidebars_option() reads the row through the constant'
+        str_contains(
+            $sidebarSource,
+            "self::read_exact_option(self::SIDEBARS_OPTION, 'sidebars option')"
+        ),
+        'load_sidebars_option() reads the exact bounded row through the constant'
     );
     duo_check(
-        str_contains($sidebarSource, 'VALUES (\'" . self::SIDEBARS_OPTION . "\', %s, \'yes\')'),
-        'the apply write writes the row through the same constant'
+        str_contains($sidebarSource, 'self::lock_authored_option_row(')
+            && str_contains($sidebarSource, "['option_name' => self::SIDEBARS_OPTION")
+            && str_contains($sidebarSource, 'self::queue_authored_option(self::SIDEBARS_OPTION')
+            && str_contains($sidebarSource, 'self::assert_authored_option_row('),
+        'the apply lock/write/cache/readback path uses the same constant'
     );
 
     duo_check_summary('regress_pending_queue_ownership');

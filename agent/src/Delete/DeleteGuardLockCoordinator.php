@@ -8,6 +8,8 @@ require_once __DIR__ . '/Deletion.php';
 
 /** Owns the transactional lock-and-recheck boundary for deletion guards. */
 final class DeleteGuardLockCoordinator {
+    private bool $guardTableTouched = false;
+
     public function __construct(
         private readonly Policy $policy,
         private readonly DeleteGuardReferenceScanner $scanner,
@@ -42,8 +44,8 @@ final class DeleteGuardLockCoordinator {
         array $tree,
         array $guardRepairUuids
     ): void {
-        $this->assert_lock_isolation();
         $this->assert_guard_engines($deleteWork);
+        $this->assert_lock_isolation();
         DeleteGuardEvaluator::assert_revalidated_witnesses(
             $deleteWork,
             function (array $row): array {
@@ -76,6 +78,7 @@ final class DeleteGuardLockCoordinator {
     public function assert_guard_engines(array $deleteWork): void {
         global $wpdb;
 
+        $this->guardTableTouched = false;
         $tables = [];
         $invalidGuards = [];
         foreach ($deleteWork as $row) {
@@ -102,10 +105,14 @@ final class DeleteGuardLockCoordinator {
         }
         if ($tables) {
             DeleteGuardEvaluator::assert_innodb_tables(array_keys($tables));
+            $this->guardTableTouched = true;
         }
     }
 
     public function assert_lock_isolation(): void {
+        if (!$this->guardTableTouched) {
+            return;
+        }
         DeleteGuardEvaluator::assert_transaction_isolation();
     }
 

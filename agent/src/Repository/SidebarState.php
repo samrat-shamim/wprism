@@ -8,6 +8,43 @@ require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 final class SidebarState {
     public const ENTITY_TYPE = 'sidebar';
     public const LONGEST_CORE_ID_KIND = 'widget_media_gallery';
+    private const MAX_OPTION_NAME_BYTES = 764;
+    private const MAX_OPTION_NAME_CHARACTERS = 191;
+    private const MAX_OPTION_VALUE_BYTES = 16777216;
+    private const MAX_WIDGET_FAMILIES = 2048;
+    private const MAX_WIDGET_FAMILY_BYTES = 67108864;
+    private const MAX_WIDGET_INSTANCES_PER_FAMILY = 100000;
+    private const MAX_WIDGET_SETTINGS_PER_INSTANCE = 256;
+    private const MAX_SIDEBARS = 4096;
+    private const MAX_SIDEBAR_ASSIGNMENTS = 100000;
+    private const MAX_SIDEBAR_NAME_BYTES = 764;
+    private const MAX_SIDEBAR_NAME_CHARACTERS = 191;
+    /** @var ?\Closure(string,string):?array{option_name:string,option_value:string,autoload:string} */
+    private static ?\Closure $lockOptionRow = null;
+    /** @var ?\Closure(string,string):void */
+    private static ?\Closure $queueOption = null;
+    /** @var ?\Closure(string,string,string,string):void */
+    private static ?\Closure $assertOptionRow = null;
+
+    /** Bind repository state writes to the one authored transaction owner. */
+    public static function begin_authored_transaction(
+        \Closure $lockOptionRow,
+        \Closure $queueOption,
+        \Closure $assertOptionRow
+    ): void {
+        if (self::$lockOptionRow !== null || self::$queueOption !== null || self::$assertOptionRow !== null) {
+            throw new \RuntimeException('duo: sidebar state authored transaction was already active');
+        }
+        self::$lockOptionRow = $lockOptionRow;
+        self::$queueOption = $queueOption;
+        self::$assertOptionRow = $assertOptionRow;
+    }
+
+    public static function end_authored_transaction(): void {
+        self::$lockOptionRow = null;
+        self::$queueOption = null;
+        self::$assertOptionRow = null;
+    }
 
     public static function key(string $sidebar): string {
         return 'sidebar/' . $sidebar;
@@ -106,11 +143,11 @@ final class SidebarState {
             }
             $widgets = [];
             foreach ($instanceKeys as $position => $instanceKey) {
-                if (!is_string($instanceKey) || !preg_match('/^(.+)-([1-9][0-9]*)$/', $instanceKey, $m)) {
+                $parsed = is_string($instanceKey) ? self::parse_widget_instance_key($instanceKey) : null;
+                if ($parsed === null) {
                     throw new \RuntimeException("duo: sidebar '$sidebar' has malformed widget instance id at position $position");
                 }
-                $type = $m[1];
-                $local = (int) $m[2];
+                [$type, $local] = $parsed;
                 if (!isset($declared[$type])) {
                     throw new \RuntimeException(
                         "duo: sidebar '$sidebar' contains undeclared widget type '$type' ($instanceKey); "
@@ -209,31 +246,87 @@ final class SidebarState {
     /** Validate the multi-instance family before any row is used. */
     private static function load_widget_options(Policy $policy, array $declared, bool $scanUndeclared): array {
         global $wpdb;
-        $rows = $wpdb->get_results(
-            "SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name LIKE 'widget\\_%' ORDER BY option_name",
+        $wpdb->last_error = '';
+        $preflight = $wpdb->get_results(
+            'SELECT option_name, OCTET_LENGTH(option_value) AS option_value_bytes, '
+            . 'SHA2(option_value, 256) AS option_value_sha256 '
+            . "FROM {$wpdb->options} WHERE option_name LIKE 'widget\\_%' "
+            . 'ORDER BY option_name ASC, option_id ASC LIMIT ' . (self::MAX_WIDGET_FAMILIES + 1),
             ARRAY_A
-        ) ?: [];
+        );
+        if (!is_array($preflight)
+            || !array_is_list($preflight)
+            || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException('duo: bounded widget option size preflight failed');
+        }
+        if (count($preflight) > self::MAX_WIDGET_FAMILIES) {
+            throw new \RuntimeException('duo: widget option family exceeds the bounded row limit');
+        }
+        $expected = [];
+        $aggregateBytes = 0;
+        foreach ($preflight as $position => $row) {
+            if (!is_array($row)
+                || array_keys($row) !== ['option_name', 'option_value_bytes', 'option_value_sha256']
+                || !is_string($row['option_name'] ?? null)) {
+                throw new \RuntimeException(
+                    "duo: widget option size preflight returned a malformed row at bounded position $position"
+                );
+            }
+            self::assert_option_name($row['option_name'], 'widget option family');
+            if (!str_starts_with($row['option_name'], 'widget_')) {
+                throw new \RuntimeException('duo: widget option family contains a collation alias');
+            }
+            $valueBytes = self::canonical_size($row['option_value_bytes'] ?? null);
+            $valueHash = self::canonical_sha256($row['option_value_sha256'] ?? null);
+            if ($valueBytes === null || $valueHash === null || $valueBytes > self::MAX_OPTION_VALUE_BYTES) {
+                throw new \RuntimeException('duo: widget option family exceeds the bounded value frontier');
+            }
+            $folded = strtolower($row['option_name']);
+            if (isset($expected[$folded])) {
+                throw new \RuntimeException('duo: widget option family contains duplicate/collation-alias rows');
+            }
+            $expected[$folded] = [
+                'name' => $row['option_name'],
+                'bytes' => $valueBytes,
+                'sha256' => $valueHash,
+            ];
+            $aggregateBytes += strlen($row['option_name']) + $valueBytes;
+            if ($aggregateBytes > self::MAX_WIDGET_FAMILY_BYTES) {
+                throw new \RuntimeException('duo: widget option family exceeds the bounded aggregate frontier');
+            }
+        }
+        $wpdb->last_error = '';
+        $rows = $wpdb->get_results(
+            "SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name LIKE 'widget\\_%' "
+            . 'ORDER BY option_name ASC, option_id ASC LIMIT ' . (self::MAX_WIDGET_FAMILIES + 1),
+            ARRAY_A
+        );
+        if (!is_array($rows)
+            || !array_is_list($rows)
+            || trim((string) ($wpdb->last_error ?? '')) !== ''
+            || count($rows) !== count($preflight)) {
+            throw new \RuntimeException('duo: bounded widget option read failed or changed after size preflight');
+        }
         $out = [];
-        foreach ($rows as $row) {
-            $name = (string) $row['option_name'];
+        foreach ($rows as $position => $row) {
+            if (!is_array($row)
+                || array_keys($row) !== ['option_name', 'option_value']
+                || !is_string($row['option_name'] ?? null)
+                || !is_string($row['option_value'] ?? null)) {
+                throw new \RuntimeException(
+                    "duo: bounded widget option read returned a malformed row at position $position"
+                );
+            }
+            $name = $row['option_name'];
+            $descriptor = $expected[strtolower($name)] ?? null;
+            if (!is_array($descriptor)
+                || !hash_equals($descriptor['name'], $name)
+                || $descriptor['bytes'] !== strlen($row['option_value'])
+                || !hash_equals($descriptor['sha256'], hash('sha256', $row['option_value']))) {
+                throw new \RuntimeException('duo: widget option row identity/length changed after size preflight');
+            }
             $type = substr($name, 7);
-            $value = PlainData::decode($row['option_value'], "option '$name'");
-            if (!is_array($value)) {
-                throw new \RuntimeException("duo: widget option '$name' is not a multi-instance array");
-            }
-            $instances = [];
-            foreach ($value as $key => $settings) {
-                if ((string) $key === '_multiwidget') {
-                    if (!in_array($settings, [1, '1'], true)) {
-                        throw new \RuntimeException("duo: widget option '$name' has an invalid _multiwidget marker");
-                    }
-                    continue;
-                }
-                if (!preg_match('/^[1-9][0-9]*$/', (string) $key) || !is_array($settings)) {
-                    throw new \RuntimeException("duo: widget option '$name' is not a valid _multiwidget family shape");
-                }
-                $instances[(int) $key] = $settings;
-            }
+            $instances = self::decode_widget_family($name, $row['option_value']);
             if ($instances && !isset($declared[$type]) && $scanUndeclared) {
                 // DUO-3264: the deliberate-exclusion escape hatch every
                 // other loud gate in this engine already has (options.
@@ -277,19 +370,128 @@ final class SidebarState {
     }
 
     private static function load_sidebars_option(): array {
-        global $wpdb;
-        $raw = $wpdb->get_var($wpdb->prepare(
-            "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
-            self::SIDEBARS_OPTION
-        ));
-        if ($raw === null) {
+        $row = self::read_exact_option(self::SIDEBARS_OPTION, 'sidebars option');
+        if ($row === null) {
             return [];
         }
+        return self::decode_sidebars_option($row['option_value']);
+    }
+
+    private static function decode_sidebars_option(string $raw): array {
         $value = PlainData::decode($raw, 'option sidebars_widgets');
         if (!is_array($value)) {
             throw new \RuntimeException('duo: option sidebars_widgets is not an array');
         }
+        if (count($value) > self::MAX_SIDEBARS + 2) {
+            throw new \RuntimeException('duo: option sidebars_widgets exceeds the bounded sidebar limit');
+        }
+        if (array_key_exists('array_version', $value)
+            && (!is_int($value['array_version']) || $value['array_version'] !== 3)) {
+            throw new \RuntimeException('duo: option sidebars_widgets has an invalid array_version; expected integer 3');
+        }
+        $assignments = 0;
+        $seen = [];
+        foreach ($value as $sidebar => $keys) {
+            if ($sidebar === 'array_version') {
+                continue;
+            }
+            if (!is_string($sidebar)) {
+                throw new \RuntimeException('duo: option sidebars_widgets contains a non-string sidebar identity');
+            }
+            self::assert_sidebar_name($sidebar);
+            if (!is_array($keys) || !array_is_list($keys)) {
+                throw new \RuntimeException('duo: option sidebars_widgets contains a malformed assignment list');
+            }
+            $assignments += count($keys);
+            if ($assignments > self::MAX_SIDEBAR_ASSIGNMENTS) {
+                throw new \RuntimeException('duo: option sidebars_widgets exceeds the bounded assignment limit');
+            }
+            foreach ($keys as $position => $instanceKey) {
+                if (!is_string($instanceKey) || self::parse_widget_instance_key($instanceKey) === null) {
+                    throw new \RuntimeException(
+                        'duo: option sidebars_widgets sidebar identity fingerprint '
+                        . self::identity_fingerprint($sidebar)
+                        . " has a malformed widget assignment at position $position"
+                    );
+                }
+                if (isset($seen[$instanceKey])) {
+                    throw new \RuntimeException(
+                        'duo: option sidebars_widgets assigns one widget instance more than once ('
+                        . self::identity_fingerprint($instanceKey) . ')'
+                    );
+                }
+                $seen[$instanceKey] = true;
+            }
+        }
         return $value;
+    }
+
+    /** @return array<int,array<string,mixed>> */
+    private static function decode_widget_family(string $name, string $raw): array {
+        $value = PlainData::decode($raw, "option '$name'");
+        if (!is_array($value)) {
+            throw new \RuntimeException("duo: widget option '$name' is not a multi-instance array");
+        }
+        if (count($value) > self::MAX_WIDGET_INSTANCES_PER_FAMILY + 1) {
+            throw new \RuntimeException("duo: widget option '$name' exceeds the bounded instance limit");
+        }
+        $instances = [];
+        foreach ($value as $key => $settings) {
+            if ((string) $key === '_multiwidget') {
+                if (!in_array($settings, [1, '1'], true)) {
+                    throw new \RuntimeException("duo: widget option '$name' has an invalid _multiwidget marker");
+                }
+                continue;
+            }
+            $local = self::canonical_positive_decimal($key);
+            if ($local === null || !is_array($settings)) {
+                throw new \RuntimeException("duo: widget option '$name' is not a valid _multiwidget family shape");
+            }
+            if (count($settings) > self::MAX_WIDGET_SETTINGS_PER_INSTANCE) {
+                throw new \RuntimeException("duo: widget option '$name' exceeds the bounded settings limit");
+            }
+            if (array_key_exists($local, $instances)) {
+                throw new \RuntimeException("duo: widget option '$name' contains duplicate canonical instance identities");
+            }
+            $instances[$local] = $settings;
+        }
+        return $instances;
+    }
+
+    /**
+     * @return array{
+     *   widgets:array<string,array<int,array<string,mixed>>>,
+     *   sidebars:array<string,mixed>
+     * }
+     */
+    private static function load_locked_sidebar_state(array $declared): array {
+        $types = array_map('strval', array_keys($declared));
+        sort($types, SORT_STRING);
+        $names = [self::SIDEBARS_OPTION];
+        foreach ($types as $type) {
+            $names[] = 'widget_' . $type;
+        }
+        sort($names, SORT_STRING);
+        $rows = [];
+        foreach ($names as $name) {
+            $rows[$name] = self::lock_authored_option_row(
+                $name,
+                "sidebar option '$name' locking"
+            );
+        }
+        $widgets = [];
+        foreach ($types as $type) {
+            $name = 'widget_' . $type;
+            $row = $rows[$name];
+            $widgets[$type] = $row === null ? [] : self::decode_widget_family($name, $row['option_value']);
+        }
+        $sidebarsRow = $rows[self::SIDEBARS_OPTION];
+        return [
+            'widgets' => $widgets,
+            'sidebars' => $sidebarsRow === null
+                ? []
+                : self::decode_sidebars_option($sidebarsRow['option_value']),
+        ];
     }
 
     /**
@@ -397,7 +599,7 @@ final class SidebarState {
     /** Phase 1: allocate collision-free target-local counters for every desired widget. */
     public static function ensure_widgets(Policy $policy, array $tree): void {
         $declared = $policy->widget_types();
-        $options = self::load_widget_options($policy, $declared, false);
+        $options = self::load_locked_sidebar_state($declared)['widgets'];
         $used = [];
         foreach ($options as $type => $instances) {
             $used[$type] = array_fill_keys(array_keys($instances), true);
@@ -445,8 +647,9 @@ final class SidebarState {
         bool $writeTouchedOnly = false
     ): void {
         $declared = $policy->widget_types();
-        $options = self::load_widget_options($policy, $declared, false);
-        $sidebars = self::load_sidebars_option();
+        $state = self::load_locked_sidebar_state($declared);
+        $options = $state['widgets'];
+        $sidebars = $state['sidebars'];
         $globallyDesired = [];
         foreach ($tree as $entity) {
             if (($entity['type'] ?? '') !== self::ENTITY_TYPE) continue;
@@ -458,10 +661,9 @@ final class SidebarState {
         }
         $touchedTypes = [];
         foreach ((array) ($sidebars[$sidebar] ?? []) as $oldKey) {
-            if (!is_string($oldKey) || isset($globallyDesired[$oldKey])
-                || !preg_match('/^(.+)-([1-9][0-9]*)$/', $oldKey, $m)) continue;
-            $oldType = $m[1];
-            $oldLocal = (int) $m[2];
+            $parsed = is_string($oldKey) ? self::parse_widget_instance_key($oldKey) : null;
+            if ($parsed === null || isset($globallyDesired[$oldKey])) continue;
+            [$oldType, $oldLocal] = $parsed;
             if (isset($declared[$oldType])) {
                 if (array_key_exists($oldLocal, $options[$oldType])) {
                     unset($options[$oldType][$oldLocal]);
@@ -491,13 +693,37 @@ final class SidebarState {
             ksort($options[$type], SORT_NUMERIC);
             $stored = $options[$type];
             $stored['_multiwidget'] = 1;
-            Db::query($GLOBALS['wpdb']->prepare(
-                "INSERT INTO {$GLOBALS['wpdb']->options} (option_name, option_value, autoload) VALUES (%s, %s, 'yes') "
-                . 'ON DUPLICATE KEY UPDATE option_value = VALUES(option_value)',
-                'widget_' . $type, maybe_serialize($stored)
-            ), "apply widget_$type option");
-            wp_cache_delete('widget_' . $type, 'options');
-            wp_cache_delete('alloptions', 'options');
+            $name = 'widget_' . $type;
+            $wire = maybe_serialize($stored);
+            $locked = self::lock_authored_option_row($name, "apply widget_$type option locking");
+            $autoload = $locked['autoload'] ?? 'yes';
+            if ($locked === null) {
+                Db::insert(
+                    $GLOBALS['wpdb']->options,
+                    ['option_name' => $name, 'option_value' => $wire, 'autoload' => $autoload],
+                    null,
+                    "apply widget_$type option"
+                );
+            } else {
+                Db::update(
+                    $GLOBALS['wpdb']->options,
+                    ['option_value' => $wire],
+                    ['option_name' => $name],
+                    null,
+                    null,
+                    "apply widget_$type option"
+                );
+            }
+            self::queue_authored_option(
+                $name,
+                "apply widget_$type option"
+            );
+            self::assert_authored_option_row(
+                $name,
+                $wire,
+                $autoload,
+                "apply widget_$type option readback"
+            );
         }
         // A WordPress widget instance may be assigned to only one active
         // sidebar. If an owned UUID was moved locally, force-theirs must
@@ -516,12 +742,36 @@ final class SidebarState {
         }
         $sidebars[$sidebar] = $keys;
         $sidebars['array_version'] = max(3, (int) ($sidebars['array_version'] ?? 3));
-        Db::query($GLOBALS['wpdb']->prepare(
-            "INSERT INTO {$GLOBALS['wpdb']->options} (option_name, option_value, autoload) VALUES ('" . self::SIDEBARS_OPTION . "', %s, 'yes') "
-            . 'ON DUPLICATE KEY UPDATE option_value = VALUES(option_value)', maybe_serialize($sidebars)
-        ), "apply sidebar '$sidebar'");
-        wp_cache_delete(self::SIDEBARS_OPTION, 'options');
-        wp_cache_delete('alloptions', 'options');
+        $wire = maybe_serialize($sidebars);
+        $locked = self::lock_authored_option_row(
+            self::SIDEBARS_OPTION,
+            "apply sidebar '$sidebar' option locking"
+        );
+        $autoload = $locked['autoload'] ?? 'yes';
+        if ($locked === null) {
+            Db::insert(
+                $GLOBALS['wpdb']->options,
+                ['option_name' => self::SIDEBARS_OPTION, 'option_value' => $wire, 'autoload' => $autoload],
+                null,
+                "apply sidebar '$sidebar'"
+            );
+        } else {
+            Db::update(
+                $GLOBALS['wpdb']->options,
+                ['option_value' => $wire],
+                ['option_name' => self::SIDEBARS_OPTION],
+                null,
+                null,
+                "apply sidebar '$sidebar'"
+            );
+        }
+        self::queue_authored_option(self::SIDEBARS_OPTION, "apply sidebar '$sidebar'");
+        self::assert_authored_option_row(
+            self::SIDEBARS_OPTION,
+            $wire,
+            $autoload,
+            "apply sidebar '$sidebar' readback"
+        );
     }
 
     public static function sidebar_from_path(string $path): ?string {
@@ -590,11 +840,11 @@ final class SidebarState {
             if ($sidebar === null) continue;
             $keys = (array) ($sidebars[$sidebar] ?? []);
             foreach ((array) $keys as $instanceKey) {
-                if (!is_string($instanceKey) || !preg_match('/^(.+)-([1-9][0-9]*)$/', $instanceKey, $m)) {
+                $parsed = is_string($instanceKey) ? self::parse_widget_instance_key($instanceKey) : null;
+                if ($parsed === null) {
                     continue;
                 }
-                $type = $m[1];
-                $local = (int) $m[2];
+                [$type, $local] = $parsed;
                 if (isset($declared[$type]) && Ledger::uuid_for($local, self::kind($type)) === null) {
                     throw new \RuntimeException(
                         "duo: cannot export identity sidecar: owned widget '$instanceKey' in sidebar '$sidebar' "
@@ -606,15 +856,175 @@ final class SidebarState {
     }
 
     public static function witness(string $type, int $local): string {
-        global $wpdb;
-        $raw = $wpdb->get_var($wpdb->prepare(
-            "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
-            'widget_' . $type
-        ));
-        $value = $raw === null ? null : PlainData::decode($raw, "option widget_$type");
+        $name = 'widget_' . $type;
+        $row = self::read_exact_option($name, 'widget identity witness');
+        $value = $row === null ? null : PlainData::decode($row['option_value'], "option widget_$type");
         if (!is_array($value) || !isset($value[$local]) || !is_array($value[$local])) {
             throw new \RuntimeException("duo: widget identity row widget_$type:$local is missing");
         }
         return hash('sha256', Canon::encode(['kind' => self::kind($type), 'local_id' => $local, 'settings' => $value[$local]]));
+    }
+
+    /** @return ?array{option_value:string} */
+    private static function read_exact_option(string $name, string $where): ?array {
+        global $wpdb;
+        self::assert_option_name($name, $where);
+        $wpdb->last_error = '';
+        $preflight = $wpdb->get_results($wpdb->prepare(
+            'SELECT option_name, OCTET_LENGTH(option_value) AS option_value_bytes, '
+            . 'SHA2(option_value, 256) AS option_value_sha256 '
+            . "FROM {$wpdb->options} WHERE option_name = %s ORDER BY option_id ASC LIMIT 2",
+            $name
+        ), ARRAY_A);
+        if (!is_array($preflight)
+            || !array_is_list($preflight)
+            || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException("duo: $where size preflight failed");
+        }
+        if (count($preflight) > 1) {
+            throw new \RuntimeException("duo: $where found duplicate/collation-alias option rows");
+        }
+        if ($preflight === []) {
+            return null;
+        }
+        $size = $preflight[0];
+        $bytes = is_array($size) ? self::canonical_size($size['option_value_bytes'] ?? null) : null;
+        if (!is_array($size)
+            || array_keys($size) !== ['option_name', 'option_value_bytes', 'option_value_sha256']
+            || !is_string($size['option_name'] ?? null)
+            || !hash_equals($name, $size['option_name'])
+            || $bytes === null
+            || self::canonical_sha256($size['option_value_sha256'] ?? null) === null
+            || $bytes > self::MAX_OPTION_VALUE_BYTES) {
+            throw new \RuntimeException("duo: $where size/identity preflight is malformed or over the bounded frontier");
+        }
+        $wpdb->last_error = '';
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT option_name, option_value FROM {$wpdb->options} "
+            . 'WHERE option_name = %s ORDER BY option_id ASC LIMIT 2',
+            $name
+        ), ARRAY_A);
+        if (!is_array($rows)
+            || !array_is_list($rows)
+            || count($rows) !== 1
+            || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException("duo: $where exact bounded read failed or changed after preflight");
+        }
+        $row = $rows[0];
+        $expectedHash = self::canonical_sha256($size['option_value_sha256'] ?? null);
+        if (!is_array($row)
+            || array_keys($row) !== ['option_name', 'option_value']
+            || !is_string($row['option_name'] ?? null)
+            || !is_string($row['option_value'] ?? null)
+            || !hash_equals($name, $row['option_name'])
+            || strlen($row['option_value']) !== $bytes
+            || !hash_equals((string) $expectedHash, hash('sha256', $row['option_value']))) {
+            throw new \RuntimeException("duo: $where exact bounded row changed after preflight");
+        }
+        return ['option_value' => $row['option_value']];
+    }
+
+    private static function assert_option_name(string $name, string $where): void {
+        $characters = preg_match('//u', $name) === 1 ? preg_match_all('/./us', $name) : false;
+        if ($name === ''
+            || strlen($name) > self::MAX_OPTION_NAME_BYTES
+            || !is_int($characters)
+            || $characters > self::MAX_OPTION_NAME_CHARACTERS
+            || preg_match('/[\x00-\x1F\x7F]/', $name) === 1) {
+            throw new \RuntimeException("duo: $where option identity is invalid or over the schema frontier");
+        }
+    }
+
+    private static function canonical_size(mixed $value): ?int {
+        if (is_int($value) && $value >= 0) {
+            return $value;
+        }
+        if (!is_string($value) || preg_match('/^(?:0|[1-9][0-9]*)$/D', $value) !== 1) {
+            return null;
+        }
+        $size = filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
+        return is_int($size) ? $size : null;
+    }
+
+    private static function canonical_sha256(mixed $value): ?string {
+        return is_string($value) && preg_match('/^[0-9a-f]{64}$/D', $value) === 1
+            ? $value
+            : null;
+    }
+
+    /** @return ?array{0:string,1:int} */
+    private static function parse_widget_instance_key(string $key): ?array {
+        if (strlen($key) > self::MAX_OPTION_NAME_BYTES
+            || preg_match('/^([a-z0-9_-]+)-([1-9][0-9]*)$/D', $key, $match) !== 1
+            || strlen(self::kind($match[1])) > Ledger::ID_KIND_WIDTH) {
+            return null;
+        }
+        $local = self::canonical_positive_decimal($match[2]);
+        return $local === null ? null : [$match[1], $local];
+    }
+
+    private static function canonical_positive_decimal(mixed $value): ?int {
+        if (is_int($value)) {
+            return $value > 0 ? $value : null;
+        }
+        if (!is_string($value) || preg_match('/^[1-9][0-9]*$/D', $value) !== 1) {
+            return null;
+        }
+        $parsed = filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        return is_int($parsed) && (string) $parsed === $value ? $parsed : null;
+    }
+
+    private static function assert_sidebar_name(string $name): void {
+        $characters = preg_match('//u', $name) === 1 ? preg_match_all('/./us', $name) : false;
+        if ($name === ''
+            || str_contains($name, '/')
+            || strlen($name) > self::MAX_SIDEBAR_NAME_BYTES
+            || !is_int($characters)
+            || $characters > self::MAX_SIDEBAR_NAME_CHARACTERS
+            || preg_match('/[\x00-\x1F\x7F]/', $name) === 1) {
+            throw new \RuntimeException(
+                'duo: option sidebars_widgets contains an invalid sidebar identity ('
+                . self::identity_fingerprint($name) . ')'
+            );
+        }
+    }
+
+    private static function identity_fingerprint(string $identity): string {
+        return 'bytes=' . strlen($identity) . ',sha256=' . substr(hash('sha256', $identity), 0, 16);
+    }
+
+    /** @return ?array{option_name:string,option_value:string,autoload:string} */
+    private static function lock_authored_option_row(string $name, string $purpose): ?array {
+        if (self::$lockOptionRow === null) {
+            throw new \RuntimeException("duo: $purpose requires the authored sidebar transaction");
+        }
+        $row = (self::$lockOptionRow)($name, $purpose);
+        if ($row !== null && (!is_array($row)
+            || array_keys($row) !== ['option_name', 'option_value', 'autoload']
+            || !is_string($row['option_name'])
+            || !is_string($row['option_value'])
+            || !is_string($row['autoload']))) {
+            throw new \RuntimeException("duo: $purpose returned a malformed locked option row");
+        }
+        return $row;
+    }
+
+    private static function queue_authored_option(string $name, string $purpose): void {
+        if (self::$queueOption === null) {
+            throw new \RuntimeException("duo: $purpose requires the authored sidebar transaction");
+        }
+        (self::$queueOption)($name, $purpose);
+    }
+
+    private static function assert_authored_option_row(
+        string $name,
+        string $value,
+        string $autoload,
+        string $purpose
+    ): void {
+        if (self::$assertOptionRow === null) {
+            throw new \RuntimeException("duo: $purpose requires the authored sidebar transaction");
+        }
+        (self::$assertOptionRow)($name, $value, $autoload, $purpose);
     }
 }

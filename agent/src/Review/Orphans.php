@@ -103,10 +103,10 @@ final class Orphans {
         } catch (\Throwable $t) {
             if ($transactionStarted) {
                 try {
-                    Db::rollback('orphans transaction rollback');
-                } catch (DatabaseMutationException $rollback) {
+                    Db::rollback_after_failure($t, 'orphans transaction rollback');
+                } catch (\Throwable $recoveryFailure) {
                     Canary::disarm();
-                    throw new DatabaseMutationException($rollback->mutationContext, $t);
+                    throw $recoveryFailure;
                 }
             }
             Canary::disarm();

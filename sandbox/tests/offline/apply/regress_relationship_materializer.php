@@ -23,10 +23,14 @@ require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
+require_once __DIR__ . '/../../../../agent/src/Grammar/Tokens.php';
+require_once __DIR__ . '/../../../../agent/src/Apply/ApplyFieldMaterializer.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/RelationshipMaterializer.php';
 
+use Duo\ApplyFieldMaterializer;
 use Duo\Policy;
 use Duo\RelationshipMaterializer;
+use Duo\Tokens;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -41,14 +45,19 @@ $check = static function (bool $ok, string $message) use (&$failures): void {
 // manifest set to construct, which this offline suite deliberately does not
 // stand up.
 $policy = (new ReflectionClass(Policy::class))->newInstanceWithoutConstructor();
-$relationshipMaterializer = new RelationshipMaterializer($policy);
+$tokens = (new ReflectionClass(Tokens::class))->newInstanceWithoutConstructor();
+$fieldMaterializer = new ApplyFieldMaterializer($policy, $tokens);
+$relationshipMaterializer = new RelationshipMaterializer($policy, $fieldMaterializer);
 
 $check($relationshipMaterializer instanceof RelationshipMaterializer, 'RelationshipMaterializer is directly constructible with (Policy)');
 
-foreach (['reconcile_relationships', 'delete_post_relationships', 'delete_term_relationships'] as $method) {
+foreach (['reconcile_relationships', 'delete_post_relationships', 'delete_term_relationships', 'lock_owner_relationships'] as $method) {
     $check((new ReflectionMethod(RelationshipMaterializer::class, $method))->isPublic(), "$method() is public on RelationshipMaterializer");
 }
-$check((new ReflectionMethod(RelationshipMaterializer::class, 'assert_zero'))->isPrivate(), 'assert_zero() stays private -- an internal duplicate, not a shared API');
+$check(
+    (new ReflectionMethod(RelationshipMaterializer::class, 'runtime_taxonomy_roster'))->isPrivate(),
+    'runtime taxonomy discovery stays a bounded private deletion concern'
+);
 
 // The constructor takes exactly this one collaborator -- a narrower, more
 // explicit data contract than Menu/UserMeta/Term/Options's (Policy, Tokens,
@@ -57,8 +66,9 @@ $check((new ReflectionMethod(RelationshipMaterializer::class, 'assert_zero'))->i
 // scanner finding no gap against either class).
 $constructorParams = (new ReflectionClass(RelationshipMaterializer::class))->getConstructor()->getParameters();
 $check(
-    array_map(static fn(ReflectionParameter $p): string => (string) $p->getType(), $constructorParams) === ['Duo\\Policy'],
-    'constructor depends on exactly Policy -- no Tokens, no ApplyFieldMaterializer, no Apply instance'
+    array_map(static fn(ReflectionParameter $p): string => (string) $p->getType(), $constructorParams)
+        === ['Duo\\Policy', 'Duo\\ApplyFieldMaterializer'],
+    'constructor depends on Policy plus the shared transaction-scoped lock materializer -- no Apply instance'
 );
 
 // The one dependency that does NOT fit that narrow contract -- Apply's own

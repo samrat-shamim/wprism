@@ -111,6 +111,79 @@ $assertOk(
     static fn() => SubKeyGrammar::validate_sub_keys(['options' => ['acme_setting' => ['class' => 'authored']]], "manifest 'acme'"),
     'sub_keys: an ordinary option with no sub_keys at all is unaffected'
 );
+$assertThrows(
+    static fn() => SubKeyGrammar::validate_sub_keys(
+        ['options' => ['acme_setting' => ['class' => 'runtime', 'closed_sub_keys' => true]]],
+        "manifest 'acme'"
+    ),
+    'declares closed_sub_keys without sub_keys',
+    'closed_sub_keys: a closure claim without a sibling registry is refused'
+);
+$assertThrows(
+    static fn() => SubKeyGrammar::validate_sub_keys(
+        ['options' => ['acme_setting' => [
+            'class' => 'runtime',
+            'closed_sub_keys' => 'yes',
+            'sub_keys' => ['x' => ['class' => 'authored']],
+        ]]],
+        "manifest 'acme'"
+    ),
+    'closed_sub_keys must be a boolean',
+    'closed_sub_keys: stringly truth is refused at manifest load'
+);
+$assertOk(
+    static fn() => SubKeyGrammar::assert_closed_value(
+        'acme_setting',
+        [
+            'closed_sub_keys' => true,
+            'sub_keys' => ['portable' => ['class' => 'authored'], 'runtime' => ['class' => 'runtime']],
+        ],
+        ['portable' => 'site', 'runtime' => 'target'],
+        'source'
+    ),
+    'closed_sub_keys: a value using only explicitly classified siblings'
+);
+foreach ([false, null, '', [], 'populated'] as $unknownValue) {
+    $assertThrows(
+        static fn() => SubKeyGrammar::assert_closed_value(
+            'acme_setting',
+            ['closed_sub_keys' => true, 'sub_keys' => ['portable' => ['class' => 'authored']]],
+            ['portable' => 'site', 'future' => $unknownValue],
+            'source'
+        ),
+        '1 undeclared sibling key(s) (bounded key fingerprints:',
+        'closed_sub_keys: an unknown sibling refuses regardless of whether its value looks empty'
+    );
+}
+$unknownSecret = "AKIAABCDEFGHIJKLMNOP\x00\xff" . str_repeat('x', 2048);
+try {
+    SubKeyGrammar::assert_closed_value(
+        'acme_setting',
+        ['closed_sub_keys' => true, 'sub_keys' => ['portable' => ['class' => 'authored']]],
+        [7 => null, "control\x00key" => false, $unknownSecret => 'ignored'],
+        'target'
+    );
+    $check(false, 'closed_sub_keys: hostile integer/control/invalid-UTF8/huge keys refuse');
+} catch (\RuntimeException $failure) {
+    $message = $failure->getMessage();
+    $check(
+        str_contains($message, '3 undeclared sibling key(s)')
+            && str_contains($message, 'integer:1:')
+            && strlen($message) < 700
+            && !str_contains($message, 'AKIA')
+            && !str_contains($message, 'control'),
+        'closed_sub_keys: hostile integer/control/invalid-UTF8/huge keys have bounded value-free fingerprints'
+    );
+}
+$assertOk(
+    static fn() => SubKeyGrammar::assert_closed_value(
+        'acme_setting',
+        ['closed_sub_keys' => false, 'sub_keys' => ['portable' => ['class' => 'authored']]],
+        ['portable' => 'site', 'future' => 'backward-compatible'],
+        'source'
+    ),
+    'closed_sub_keys: explicit false preserves the existing open mixed-option contract'
+);
 
 // ---------------------------------------------------- the shared parent-value-fields helper
 
@@ -149,6 +222,17 @@ $assertOk(
         ]],
     ]),
     'dynamic_options: a well-formed declaration is accepted'
+);
+$assertOk(
+    static fn() => SubKeyGrammar::validate_dynamic_options([
+        'name' => 'acme',
+        'dynamic_options' => ['theme_mods' => [
+            'prefix' => 'theme_mods_', 'resolver' => 'active_stylesheet',
+            'closed_sub_keys' => true,
+            'sub_keys' => ['nav_menu_locations' => ['class' => 'env']],
+        ]],
+    ]),
+    'dynamic_options: a boolean closed sibling registry is accepted'
 );
 $assertThrows(
     static fn() => SubKeyGrammar::validate_dynamic_options([

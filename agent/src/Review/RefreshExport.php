@@ -1,6 +1,7 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/../Kernel/Db.php';
 require_once __DIR__ . '/../Kernel/OptionState.php';
 require_once __DIR__ . '/../Policy/ScopeClosure.php';
 
@@ -446,33 +447,29 @@ final class RefreshExport {
 
     /** Execute callback in a server-enforced, rollback-only read snapshot. */
     private static function in_read_only_snapshot(callable $fn): array {
-        global $wpdb;
         $open = false;
         try {
-            self::query($wpdb, 'START TRANSACTION READ ONLY, WITH CONSISTENT SNAPSHOT', 'starting read-only production snapshot');
+            Db::start_read_only_consistent_snapshot('starting read-only production snapshot');
             $open = true;
             $result = $fn();
-            self::query($wpdb, 'ROLLBACK', 'closing read-only production snapshot');
+            Db::rollback('closing read-only production snapshot');
             $open = false;
             return $result;
         } catch (\Throwable $t) {
             if ($open) {
                 try {
-                    self::query($wpdb, 'ROLLBACK', 'rolling back read-only production snapshot');
+                    if (Db::transaction_active('read-only production snapshot rollback boundary')) {
+                        Db::rollback('rolling back read-only production snapshot');
+                    } else {
+                        Db::forget_transaction_tracking();
+                    }
                 } catch (\Throwable $_rollback) {
                     // Preserve the original refusal; no Duo DML can have
                     // occurred in a server-enforced READ ONLY transaction.
+                    Db::forget_transaction_tracking();
                 }
             }
             throw $t;
-        }
-    }
-
-    private static function query(object $wpdb, string $sql, string $where): void {
-        $wpdb->last_error = '';
-        $result = $wpdb->query($sql);
-        if ($result === false || (string) ($wpdb->last_error ?? '') !== '') {
-            throw new \RuntimeException("duo: refresh export failed while $where");
         }
     }
 }

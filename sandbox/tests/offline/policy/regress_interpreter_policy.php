@@ -195,6 +195,393 @@ check(
     'neither user hook nor static policy silently invents a classification'
 );
 
+echo "\n== native mixed-option dispatch resolves ownership before hooks run ==\n";
+$ownerState = (object) [
+    'calls' => 0,
+    'result' => true,
+    'side_effects' => 0,
+    'normalize_calls' => 0,
+    'normalized' => null,
+    'projection_calls' => 0,
+    'projection_mode' => 'identity',
+    'projection_value' => null,
+    'projection_args' => null,
+];
+$nonOwnerState = (object) ['calls' => 0, 'result' => true, 'side_effects' => 0];
+$ownerInterpreter = new class ($ownerState) {
+    public function __construct(private object $state) {}
+    public function materialize_option_sub_keys(
+        string $name,
+        array $captured,
+        array $subKeys,
+        string $autoload,
+        ?array $targetValue,
+        \Closure $lockTargetOption,
+        \Closure $finalizeStorage,
+        \Closure $restoreStorage
+    ) {
+        ++$this->state->calls;
+        ++$this->state->side_effects;
+        return $this->state->result;
+    }
+    public function normalize_captured_option_sub_keys(
+        string $name,
+        array $captured,
+        array $subKeys,
+        array $rawOptionSnapshot
+    ): array {
+        ++$this->state->normalize_calls;
+        return is_array($this->state->normalized) ? $this->state->normalized : $captured;
+    }
+    public function project_materialized_option_sub_keys(
+        string $name,
+        array $rawAuthored,
+        array $declaredSubKeys,
+        array $desiredAuthoredKeys
+    ) {
+        ++$this->state->projection_calls;
+        $this->state->projection_args = [$name, $rawAuthored, $declaredSubKeys, $desiredAuthoredKeys];
+        return $this->state->projection_mode === 'identity'
+            ? $rawAuthored
+            : $this->state->projection_value;
+    }
+};
+$nonOwnerInterpreter = new class ($nonOwnerState) {
+    public function __construct(private object $state) {}
+    public function materialize_option_sub_keys(
+        string $name,
+        array $captured,
+        array $subKeys,
+        string $autoload,
+        ?array $targetValue,
+        \Closure $lockTargetOption,
+        \Closure $finalizeStorage,
+        \Closure $restoreStorage
+    ) {
+        ++$this->state->calls;
+        ++$this->state->side_effects;
+        return $this->state->result;
+    }
+};
+$nativePolicy = new Policy();
+$nativeSubKeys = ['portable' => ['class' => 'authored']];
+$nativeRule = ['class' => 'env', 'sub_keys' => $nativeSubKeys, 'closed_sub_keys' => true, 'autoload' => 'yes'];
+$nativePolicy->manifests = [
+    [
+        'name' => 'native-owner',
+        'interpreter' => 'native-owner',
+        'options' => ['native_blob' => $nativeRule],
+    ],
+    [
+        'name' => 'hostile-non-owner',
+        'interpreter' => 'hostile-non-owner',
+        'options' => ['different_blob' => $nativeRule],
+    ],
+];
+$interpreterInstances = new ReflectionProperty(Policy::class, 'interpreterInstances');
+$interpreterInstances->setValue($nativePolicy, [
+    'native-owner' => $ownerInterpreter,
+    'hostile-non-owner' => $nonOwnerInterpreter,
+]);
+check(
+    $nativePolicy->materialize_option_sub_keys_via_interpreter(
+        'native_blob',
+        ['portable' => 'value'],
+        $nativeRule,
+        'native-owner',
+        'yes',
+        ['portable' => 'before'],
+        static fn(string $targetName): ?array => null,
+        static function (): void {},
+        static function (): void {}
+    )
+        && $ownerState->calls === 1
+        && $nonOwnerState->calls === 0,
+    'only the interpreter bound to the exact declaring manifest executes; a hostile non-owner has no side effects'
+);
+$ownerState->normalized = ['portable' => 'canonical'];
+check(
+    $nativePolicy->normalize_captured_option_sub_keys_via_interpreter(
+        'native_blob',
+        ['portable' => 'raw'],
+        $nativeRule,
+        'native-owner',
+        ['native_blob' => serialize(['portable' => 'raw'])]
+    ) === ['portable' => 'canonical']
+        && $ownerState->normalize_calls === 1,
+    'exact native capture normalization may canonicalize an already-captured authored value'
+);
+$ownerState->normalized = [];
+check_throws(
+    fn() => $nativePolicy->normalize_captured_option_sub_keys_via_interpreter(
+        'native_blob',
+        ['portable' => 'raw'],
+        $nativeRule,
+        'native-owner',
+        ['native_blob' => serialize(['portable' => 'raw'])]
+    ),
+    'dropped already-present authored option',
+    'native capture normalization cannot turn authored presence into silent absence'
+);
+$ownerState->normalized = null;
+
+$ownerState->projection_mode = 'value';
+$ownerState->projection_value = ['portable' => 'canonical'];
+check(
+    $nativePolicy->project_materialized_option_sub_keys_via_interpreter(
+        'native_blob',
+        ['portable' => 'native-storage'],
+        $nativeRule,
+        'native-owner',
+        ['portable']
+    ) === ['portable' => 'canonical']
+        && $ownerState->projection_calls === 1
+        && $ownerState->projection_args === [
+            'native_blob',
+            ['portable' => 'native-storage'],
+            $nativeSubKeys,
+            ['portable'],
+        ],
+    'the exact native owner may project only raw authored siblings through the declared sub-key roster'
+);
+
+$identityInterpreter = new class {
+    public function materialize_option_sub_keys(
+        string $name,
+        array $captured,
+        array $subKeys,
+        string $autoload,
+        ?array $targetValue,
+        \Closure $lockTargetOption,
+        \Closure $finalizeStorage,
+        \Closure $restoreStorage
+    ): bool {
+        return true;
+    }
+};
+$interpreterInstances->setValue($nativePolicy, [
+    'native-owner' => $identityInterpreter,
+    'hostile-non-owner' => $nonOwnerInterpreter,
+]);
+check(
+    $nativePolicy->project_materialized_option_sub_keys_via_interpreter(
+        'native_blob',
+        ['portable' => 'native-storage'],
+        $nativeRule,
+        'native-owner',
+        ['portable']
+    ) === ['portable' => 'native-storage'],
+    'an exact native owner with no optional projection method uses the identity projection'
+);
+$interpreterInstances->setValue($nativePolicy, [
+    'native-owner' => $ownerInterpreter,
+    'hostile-non-owner' => $nonOwnerInterpreter,
+]);
+
+foreach ([
+    'non-array' => [true, 'object-shaped array'],
+    'list' => [['unexpected-list-value'], 'object-shaped array'],
+    'added key' => [['portable' => 'native-storage', 'added' => true], 'must not add an authored key'],
+    'non-plain value' => [['portable' => new stdClass()], 'PHP object'],
+] as $case => [$projection, $message]) {
+    $ownerState->projection_value = $projection;
+    check_throws(
+        fn() => $nativePolicy->project_materialized_option_sub_keys_via_interpreter(
+            'native_blob',
+            ['portable' => 'native-storage'],
+            $nativeRule,
+            'native-owner',
+            ['portable']
+        ),
+        $message,
+        "native materialization projection refuses a $case"
+    );
+}
+$ownerState->projection_value = [];
+check_throws(
+    fn() => $nativePolicy->project_materialized_option_sub_keys_via_interpreter(
+        'native_blob',
+        ['portable' => 'native-storage'],
+        $nativeRule,
+        'native-owner',
+        ['portable']
+    ),
+    'must retain every desired authored key',
+    'native projection cannot omit a raw carrier while that authored key is desired'
+);
+check(
+    $nativePolicy->project_materialized_option_sub_keys_via_interpreter(
+        'native_blob',
+        ['portable' => ['target-owned-residue' => true]],
+        $nativeRule,
+        'native-owner',
+        []
+    ) === [],
+    'native projection may omit a raw carrier when the desired authored key is absent'
+);
+foreach ([
+    'associative roster' => [['portable' => true], 'desired authored-key list'],
+    'duplicate roster' => [['portable', 'portable'], 'malformed/non-authored desired key'],
+    'non-authored roster' => [['runtime'], 'malformed/non-authored desired key'],
+] as $case => [$desiredKeys, $message]) {
+    check_throws(
+        fn() => $nativePolicy->project_materialized_option_sub_keys_via_interpreter(
+            'native_blob',
+            ['portable' => 'native-storage'],
+            $nativeRule,
+            'native-owner',
+            $desiredKeys
+        ),
+        $message,
+        "native materialization projection refuses a $case"
+    );
+}
+$ownerState->projection_mode = 'identity';
+$ownerState->projection_value = null;
+
+$ownerState->calls = 0;
+$nonOwnerState->calls = 0;
+$nativePolicy->manifests[1]['name'] = 'native-owner';
+$nativePolicy->manifests[1]['options'] = ['native_blob' => $nativeRule];
+check_throws(
+    fn() => $nativePolicy->materialize_option_sub_keys_via_interpreter(
+        'native_blob',
+        ['portable' => 'value'],
+        $nativeRule,
+        'native-owner',
+        'yes',
+        ['portable' => 'before'],
+        static fn(string $targetName): ?array => null,
+        static function (): void {},
+        static function (): void {}
+    ),
+    'multiple exact manifest/interpreter owners',
+    'dual exact claimants refuse before either hook can mutate'
+);
+check(
+    $ownerState->calls === 0 && $nonOwnerState->calls === 0,
+    'dual-claim refusal leaves both candidate hook counters untouched'
+);
+
+$nativePolicy->manifests = [[
+    'name' => 'hostile-non-owner',
+    'interpreter' => 'hostile-non-owner',
+    'options' => ['different_blob' => $nativeRule],
+]];
+check(
+    $nativePolicy->materialize_option_sub_keys_via_interpreter(
+        'native_blob',
+        ['portable' => 'value'],
+        $nativeRule,
+        null,
+        'yes',
+        ['portable' => 'before'],
+        static fn(string $targetName): ?array => null,
+        static function (): void {},
+        static function (): void {}
+    ) === false && $nonOwnerState->calls === 0,
+    'zero exact candidates select the generic mixed-option path without probing non-owners'
+);
+
+$nativePolicy->manifests = [[
+    'name' => 'native-owner',
+    'interpreter' => 'native-owner',
+    'options' => ['native_blob' => $nativeRule],
+]];
+check_throws(
+    fn() => $nativePolicy->materialize_option_sub_keys_via_interpreter(
+        'native_blob',
+        ['portable' => 'value'],
+        $nativeRule + ['required' => true],
+        'native-owner',
+        'yes',
+        ['portable' => 'before'],
+        static fn(string $targetName): ?array => null,
+        static function (): void {},
+        static function (): void {}
+    ),
+    'full effective rule/provenance differs',
+    'same subkeys with a different effective parent field cannot retarget a manifest-owned native hook'
+);
+check($ownerState->calls === 0, 'effective-policy mismatch refuses before the bound hook executes');
+
+check_throws(
+    fn() => $nativePolicy->materialize_option_sub_keys_via_interpreter(
+        'native_blob',
+        ['portable' => 'value'],
+        $nativeRule,
+        'site.duo.json',
+        'yes',
+        ['portable' => 'before'],
+        static fn(string $targetName): ?array => null,
+        static function (): void {},
+        static function (): void {}
+    ),
+    'full effective rule/provenance differs',
+    'site provenance cannot borrow a digest-bound native hook even with a byte-identical rule'
+);
+check($ownerState->calls === 0, 'site-provenance mismatch refuses before the bound hook executes');
+
+$openRule = $nativeRule;
+$openRule['closed_sub_keys'] = false;
+$nativePolicy->manifests[0]['options']['native_blob'] = $openRule;
+check_throws(
+    fn() => $nativePolicy->materialize_option_sub_keys_via_interpreter(
+        'native_blob',
+        ['portable' => 'value'],
+        $openRule,
+        'native-owner',
+        'yes',
+        ['portable' => 'before'],
+        static fn(string $targetName): ?array => null,
+        static function (): void {},
+        static function (): void {}
+    ),
+    'is not a closed_sub_keys registry',
+    'an exact open mixed-option rule cannot dispatch a native hook'
+);
+check($ownerState->calls === 0, 'open-rule refusal happens before the bound hook executes');
+$nativePolicy->manifests[0]['options']['native_blob'] = $nativeRule;
+
+$ownerState->result = false;
+check_throws(
+    fn() => $nativePolicy->materialize_option_sub_keys_via_interpreter(
+        'native_blob',
+        ['portable' => 'value'],
+        $nativeRule,
+        'native-owner',
+        'yes',
+        ['portable' => 'before'],
+        static fn(string $targetName): ?array => null,
+        static function (): void {},
+        static function (): void {}
+    ),
+    'returned false after dispatch; generic SQL fallback is forbidden',
+    'an exact trusted hook returning false refuses after its side effect instead of falling through to SQL'
+);
+check(
+    $ownerState->calls === 1 && $ownerState->side_effects === 2,
+    'false-return coverage proves the trusted hook ran while the generic fallback remained unreachable'
+);
+
+$ownerState->calls = 0;
+$ownerState->result = ['success-shaped'];
+check_throws(
+    fn() => $nativePolicy->materialize_option_sub_keys_via_interpreter(
+        'native_blob',
+        ['portable' => 'value'],
+        $nativeRule,
+        'native-owner',
+        'yes',
+        ['portable' => 'before'],
+        static fn(string $targetName): ?array => null,
+        static function (): void {},
+        static function (): void {}
+    ),
+    'must return a boolean',
+    'a non-boolean exact native result is never treated as success'
+);
+
 echo "\n== user_meta is a first-class policy section ==\n";
 $siteRepo = $root . '/site';
 mkdir($siteRepo);

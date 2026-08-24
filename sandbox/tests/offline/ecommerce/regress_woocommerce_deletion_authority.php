@@ -81,6 +81,7 @@ final class WooDeletionFakeWpdb {
     public bool $optionScanError = false;
     public bool $metadataProbeError = false;
     public bool $ledgerReadError = false;
+    public bool $savepointExists = false;
     public int $insert_id = 0;
     /** @var list<string> */
     public array $lockingQueries = [];
@@ -98,12 +99,14 @@ final class WooDeletionFakeWpdb {
     /** @var array<string,list<array<string,mixed>>> */
     public array $indexRows = [
         'wp_postmeta' => [[
-            'Key_name' => 'meta_key', 'Seq_in_index' => 1,
-            'Column_name' => 'meta_key', 'Sub_part' => 191,
+            'Key_name' => 'meta_key', 'Seq_in_index' => '1',
+            'Column_name' => 'meta_key', 'Sub_part' => '191',
+            'Non_unique' => '1', 'Index_type' => 'BTREE', 'Visible' => 'YES',
         ]],
         'wp_options' => [[
-            'Key_name' => 'option_name', 'Seq_in_index' => 1,
+            'Key_name' => 'option_name', 'Seq_in_index' => '1',
             'Column_name' => 'option_name', 'Sub_part' => null,
+            'Non_unique' => '0', 'Index_type' => 'BTREE', 'Visible' => 'YES',
         ]],
     ];
     /** @var array<string,int> */
@@ -130,6 +133,9 @@ final class WooDeletionFakeWpdb {
     }
 
     public function get_var(string $sql) {
+        if ($sql === 'SELECT @@in_transaction') {
+            return '1';
+        }
         if (str_contains($sql, 'SELECT @@transaction_isolation')) {
             if ($this->modernIsolationError) {
                 $this->last_error = 'unknown system variable';
@@ -222,6 +228,18 @@ final class WooDeletionFakeWpdb {
     }
 
     public function query(string $sql): int|false {
+        if (str_starts_with($sql, 'SAVEPOINT `')) {
+            $this->savepointExists = true;
+            return 0;
+        }
+        if (str_starts_with($sql, 'RELEASE SAVEPOINT `')) {
+            if (!$this->savepointExists) {
+                $this->last_error = 'SAVEPOINT does not exist';
+                return false;
+            }
+            $this->savepointExists = false;
+            return 0;
+        }
         return 1;
     }
 
@@ -986,11 +1004,12 @@ $fakeWpdb->metaRows = [[
     'source_id' => 7,
     'meta_value' => serialize([42]),
 ]];
-$fakeWpdb->modernIsolationError = true; // exercise MariaDB/older fallback from MySQL 8 probe
+$fakeWpdb->modernIsolationError = true; // retained to prove no privileged/session isolation probe is needed
 $fakeWpdb->lockingQueries = [];
 $fakeWpdb->metadataQueries = [];
 $fakeWpdb->engineQueries = [];
 $fakeWpdb->events = [];
+\Duo\DeleteGuardEvaluator::begin_authored_transaction();
 $plannedMeta = $countGuard->invoke(
     $metaRaceApply,
     $metaGuard,

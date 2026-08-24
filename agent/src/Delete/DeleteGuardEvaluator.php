@@ -16,25 +16,58 @@ namespace Duo;
  * index metadata, making the race-boundary rule directly characterizable.
  */
 final class DeleteGuardEvaluator {
+    private static ?string $continuitySavepoint = null;
+
+    /** Establish the transaction identity immediately after START TRANSACTION. */
+    public static function begin_authored_transaction(): void {
+        self::$continuitySavepoint = null;
+        self::assert_active_transaction('authored transaction continuity');
+        try {
+            $name = 'duo_authored_' . bin2hex(random_bytes(12));
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException(
+                'duo: authored transaction continuity could not allocate a unique savepoint',
+                0,
+                $failure
+            );
+        }
+        try {
+            self::checked_query("SAVEPOINT `$name`");
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException(
+                'duo: authored transaction continuity could not establish its savepoint',
+                0,
+                $failure
+            );
+        }
+        self::$continuitySavepoint = $name;
+    }
+
+    /** Forget process-local proof state after either COMMIT or ROLLBACK. */
+    public static function end_authored_transaction(): void {
+        self::$continuitySavepoint = null;
+    }
     /**
      * Prove that each fully-qualified guard table can sustain the locking
      * boundary. A successful `SHOW TABLES` is not enough: a target can have
      * a visible MyISAM table, where `SELECT ... FOR UPDATE` cannot give the
      * transaction the gap-lock guarantee that a destructive guard promises.
      *
-     * The caller supplies the already-sanitized, prefixed table names. This
-     * evaluator deliberately does not read a Policy or infer a plugin table:
-     * adapter-owned deletion declarations remain the source of that meaning.
+     * This evaluator deliberately does not read a Policy or infer a plugin
+     * table: adapter-owned declarations remain the source of that meaning.
+     * It does validate every resolved identifier before interpolation because
+     * wpdb table properties are runtime input at this boundary.
      *
      * @param list<string> $tables
      */
-    public static function assert_innodb_tables(array $tables): void {
+    public static function assert_innodb_tables(
+        array $tables,
+        string $purpose = 'deletion guard locking'
+    ): void {
         global $wpdb;
 
-        $tables = array_values(array_unique(array_filter(
-            $tables,
-            static fn(mixed $table): bool => is_string($table) && $table !== ''
-        )));
+        self::assert_table_identifiers($tables, $purpose);
+        $tables = array_values(array_unique($tables));
         if (!$tables) {
             return;
         }
@@ -50,16 +83,7 @@ final class DeleteGuardEvaluator {
         // harmless data read, not a row lock, and occurs before authored
         // target mutations.
         foreach ($tables as $table) {
-            $wpdb->last_error = '';
-            $probe = $wpdb->get_var("SELECT 1 FROM `$table` LIMIT 1");
-            $error = trim((string) ($wpdb->last_error ?? ''));
-            if ($probe === false || $error !== '') {
-                $detail = $error !== '' ? $error : 'no result returned';
-                throw new \RuntimeException(
-                    'duo: deletion guard locking refused — unable to acquire metadata lock for guard table '
-                    . "$table: $detail"
-                );
-            }
+            self::touch_lock_table($table, $purpose);
         }
 
         // wpdb can retain the previous failed-query message (notably when
@@ -76,7 +100,7 @@ final class DeleteGuardEvaluator {
         if ($rows === false || $rows === null || $error !== '') {
             $detail = $error !== '' ? $error : 'no result returned';
             throw new \RuntimeException(
-                'duo: deletion guard locking refused — storage-engine introspection failed for '
+                "duo: $purpose refused — storage-engine introspection failed for "
                 . implode(', ', $tables) . ": $detail"
             );
         }
@@ -126,34 +150,86 @@ final class DeleteGuardEvaluator {
                 $details[] = 'unsupported engine (InnoDB required): ' . implode(', ', $unsupported);
             }
             throw new \RuntimeException(
-                'duo: deletion guard locking refused — ' . implode('; ', $details)
+                "duo: $purpose refused — " . implode('; ', $details)
             );
         }
     }
 
     /**
-     * Prove that the current transaction supplies gap locks for the guard
-     * boundary. Record locks alone leave a concurrent insert able to pass a
-     * checked reference range and become dangling after the target delete.
-     * The server-family fallback is kept here with the storage proof so every
-     * caller receives the same fail-closed isolation contract.
+     * Recheck the transaction established by Db::start_repeatable_read().
+     * SET TRANSACTION positively controls the active transaction without a
+     * privileged server-introspection query; the unique savepoint proves no
+     * callback committed and replaced that transaction before this lock.
      */
-    public static function assert_transaction_isolation(): void {
-        global $wpdb;
+    public static function assert_transaction_isolation(
+        string $purpose = 'deletion guard locking'
+    ): void {
+        self::assert_active_transaction($purpose);
+        self::assert_transaction_continuity($purpose);
+    }
 
-        $level = $wpdb->get_var('SELECT @@transaction_isolation');
-        if ($level === null || !empty($wpdb->last_error)) {
-            // MariaDB and older MySQL expose the same session setting under
-            // the historical tx_isolation name; MySQL 8 keeps the modern
-            // transaction_isolation spelling. Probe both without assuming a
-            // particular server family.
-            $wpdb->last_error = '';
-            $level = $wpdb->get_var('SELECT @@tx_isolation');
-        }
-        if ($level === null || !in_array(strtoupper((string) $level), ['REPEATABLE-READ', 'SERIALIZABLE'], true)) {
+    private static function assert_transaction_continuity(string $purpose): void {
+        $name = self::$continuitySavepoint;
+        if ($name === null) {
             throw new \RuntimeException(
-                'duo: deletion guard locking requires REPEATABLE-READ or SERIALIZABLE transaction isolation; refusing unsafe target'
+                "duo: $purpose requires the authored transaction continuity savepoint"
             );
+        }
+        try {
+            // RELEASE fails if an intervening callback committed and started
+            // another transaction, even when its isolation happens to match.
+            self::checked_query("RELEASE SAVEPOINT `$name`");
+            self::checked_query("SAVEPOINT `$name`");
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException(
+                "duo: $purpose lost authored transaction continuity",
+                0,
+                $failure
+            );
+        }
+    }
+
+    private static function touch_lock_table(string $table, string $purpose): void {
+        global $wpdb;
+        $wpdb->last_error = '';
+        $probe = $wpdb->get_var("SELECT 1 FROM `$table` LIMIT 1");
+        $error = trim((string) ($wpdb->last_error ?? ''));
+        if ($probe === false || $error !== '') {
+            $detail = $error !== '' ? $error : 'no result returned';
+            $tableLabel = $purpose === 'deletion guard locking' ? 'guard table ' : 'table ';
+            throw new \RuntimeException(
+                "duo: $purpose refused — unable to acquire metadata lock for "
+                . $tableLabel . "$table: $detail"
+            );
+        }
+    }
+
+    private static function checked_query(string $sql): void {
+        global $wpdb;
+        if (property_exists($wpdb, 'last_error')) {
+            $wpdb->last_error = '';
+        }
+        $result = $wpdb->query($sql);
+        if ($result === false || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException('duo: authored transaction savepoint query failed');
+        }
+    }
+
+    public static function assert_active_transaction(string $purpose): void {
+        global $wpdb;
+        $wpdb->last_error = '';
+        $active = $wpdb->get_var('SELECT @@in_transaction');
+        if ($active !== '1' || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException("duo: $purpose requires an active transaction");
+        }
+    }
+
+    /** @param list<string> $tables */
+    public static function assert_table_identifiers(array $tables, string $purpose): void {
+        foreach ($tables as $table) {
+            if (!is_string($table) || preg_match('/^[A-Za-z0-9_]{1,64}$/D', $table) !== 1) {
+                throw new \RuntimeException("duo: $purpose refused — unsafe table identifier");
+            }
         }
     }
 
@@ -380,5 +456,205 @@ final class DeleteGuardEvaluator {
             return $name;
         }
         return null;
+    }
+
+    /**
+     * Resolve a visible, full-width index whose first column is the exact
+     * locking predicate. Unlike lock_index()'s deletion-guard prefix rules,
+     * this boundary never accepts a prefix: mixed options and owner ranges
+     * need the complete equality range and its terminal gap locked. The
+     * caller can additionally require uniqueness where duplicate rows would
+     * make a singleton materialization ambiguous (wp_options.option_name).
+     */
+    public static function full_width_lock_index(
+        string $table,
+        string $column,
+        string $purpose,
+        bool $requireUnique = false
+    ): string {
+        global $wpdb;
+        if (preg_match('/^[A-Za-z0-9_]{1,64}$/D', $table) !== 1
+            || preg_match('/^[A-Za-z0-9_]{1,64}$/D', $column) !== 1) {
+            throw new \RuntimeException("duo: $purpose index proof received an unsafe table/column name");
+        }
+        $wpdb->last_error = '';
+        $rows = $wpdb->get_results("SHOW INDEX FROM `$table`", ARRAY_A);
+        if (!is_array($rows) || !array_is_list($rows) || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException("duo: $purpose index introspection failed");
+        }
+        if (count($rows) > 1024) {
+            throw new \RuntimeException("duo: $purpose index introspection exceeded its bounded row limit");
+        }
+        $groups = [];
+        foreach ($rows as $row) {
+            $name = is_array($row) ? ($row['Key_name'] ?? null) : null;
+            if (!is_array($row) || !self::bounded_server_identifier($name)) {
+                throw new \RuntimeException("duo: $purpose index introspection returned a malformed row");
+            }
+            // MySQL permits quoted Unicode/punctuated identifier names. They
+            // are valid introspection rows, but an exotic index name is never
+            // interpolated by this lock boundary. Group by a value-free hash
+            // so such an unrelated index cannot poison a usable WP index.
+            $groupKey = hash('sha256', $name);
+            if (isset($groups[$groupKey]) && !hash_equals($groups[$groupKey]['name'], $name)) {
+                throw new \RuntimeException("duo: $purpose index introspection identity fingerprint collided");
+            }
+            $groups[$groupKey]['name'] = $name;
+            $groups[$groupKey]['safe_name'] = preg_match('/^[A-Za-z0-9_]{1,64}$/D', $name) === 1;
+            $groups[$groupKey]['rows'][] = $row;
+        }
+        $candidates = [];
+        foreach ($groups as $group) {
+            $name = $group['name'];
+            if (!$group['safe_name']) {
+                continue;
+            }
+            $firstColumnMatches = false;
+            $hasFunctionalPart = false;
+            foreach ($group['rows'] as $row) {
+                $columnName = $row['Column_name'] ?? null;
+                $seq = self::canonical_index_integer($row['Seq_in_index'] ?? null, 64, false);
+                if ($columnName === $column && $seq === null) {
+                    // A row naming our exact predicate column but carrying an
+                    // invalid ordinal makes candidate identity ambiguous.
+                    throw new \RuntimeException("duo: $purpose index introspection returned a malformed row");
+                }
+                if ($columnName === $column && $seq === 1) {
+                    $firstColumnMatches = true;
+                }
+                if ($columnName === null && array_key_exists('Expression', $row)) {
+                    $hasFunctionalPart = true;
+                }
+            }
+            // Peculiarities in an unrelated index are irrelevant. A group is
+            // parsed strictly only once its first physical column is the
+            // requested predicate; functional groups are never interpolated.
+            if (!$firstColumnMatches || $hasFunctionalPart) {
+                continue;
+            }
+            $indexRows = [];
+            foreach ($group['rows'] as $row) {
+                $seq = $row['Seq_in_index'] ?? null;
+                $nonUnique = $row['Non_unique'] ?? null;
+                $subPart = $row['Sub_part'] ?? null;
+                $indexType = $row['Index_type'] ?? null;
+                $visible = $row['Visible'] ?? null;
+                $ignored = $row['Ignored'] ?? null;
+                $columnName = $row['Column_name'] ?? null;
+                $canonicalSeq = self::canonical_index_integer($seq, 64, false);
+                $canonicalNonUnique = self::canonical_index_integer($nonUnique, 1, true);
+                $canonicalSubPart = $subPart === null
+                    ? null
+                    : self::canonical_index_integer($subPart, 65535, false);
+                if (!self::bounded_server_identifier($columnName)
+                    || $canonicalSeq === null
+                    || $canonicalNonUnique === null
+                    || ($subPart !== null && $canonicalSubPart === null)
+                    || !is_string($indexType)
+                    || preg_match('/^[A-Z]{2,16}$/D', $indexType) !== 1
+                    || (array_key_exists('Visible', $row)
+                        && !in_array($visible, ['YES', 'NO'], true))
+                    || (array_key_exists('Ignored', $row)
+                        && !in_array($ignored, ['YES', 'NO'], true))) {
+                    throw new \RuntimeException("duo: $purpose index introspection returned a malformed row");
+                }
+                if (isset($indexRows[$canonicalSeq])) {
+                    throw new \RuntimeException(
+                        "duo: $purpose index introspection returned duplicate index positions"
+                    );
+                }
+                $indexRows[$canonicalSeq] = [
+                    'column' => $columnName,
+                    'non_unique' => $canonicalNonUnique,
+                    'sub_part' => $canonicalSubPart,
+                    'index_type' => $indexType,
+                    'has_visible' => array_key_exists('Visible', $row),
+                    'visible' => $visible,
+                    'has_ignored' => array_key_exists('Ignored', $row),
+                    'ignored' => $ignored,
+                ];
+            }
+            ksort($indexRows, SORT_NUMERIC);
+            $expectedPosition = 1;
+            $first = $indexRows[1] ?? null;
+            $firstMetadata = null;
+            foreach ($indexRows as $position => $row) {
+                if ($position !== $expectedPosition) {
+                    throw new \RuntimeException(
+                        "duo: $purpose index introspection returned noncontiguous index positions"
+                    );
+                }
+                $metadata = [
+                    $row['non_unique'],
+                    $row['index_type'],
+                    $row['has_visible'],
+                    $row['visible'],
+                    $row['has_ignored'],
+                    $row['ignored'],
+                ];
+                $firstMetadata ??= $metadata;
+                if ($metadata !== $firstMetadata) {
+                    throw new \RuntimeException(
+                        "duo: $purpose index introspection returned inconsistent composite-index metadata"
+                    );
+                }
+                ++$expectedPosition;
+            }
+            if ($first === null
+                || ($requireUnique && count($indexRows) !== 1)
+                || $first['column'] !== $column
+                || $first['sub_part'] !== null
+                || ($requireUnique && $first['non_unique'] !== 0)
+                || ($first['has_visible'] && $first['visible'] !== 'YES')
+                || ($first['has_ignored'] && $first['ignored'] !== 'NO')
+                || $first['index_type'] !== 'BTREE') {
+                continue;
+            }
+            /*
+             * Nonunique owner-range indexes may be composite; equality on
+             * the complete first column still locks that owner's contiguous
+             * range and terminal gap. A singleton claim may not rely on a
+             * composite unique index because its first column alone is not
+             * necessarily unique.
+             */
+            $candidates[(string) $name] = true;
+        }
+        if ($candidates === []) {
+            throw new \RuntimeException(
+                "duo: $purpose lacks a visible full-width "
+                . ($requireUnique ? 'unique ' : '')
+                . "first-column index on $column"
+            );
+        }
+        $names = array_keys($candidates);
+        sort($names, SORT_STRING);
+        return $names[0];
+    }
+
+    private static function bounded_server_identifier(mixed $value): bool {
+        if (!is_string($value)
+            || $value === ''
+            || strlen($value) > 256
+            || str_contains($value, "\0")
+            || preg_match('//u', $value) !== 1) {
+            return false;
+        }
+        $characters = preg_match_all('/./us', $value);
+        return is_int($characters) && $characters <= 64;
+    }
+
+    private static function canonical_index_integer(mixed $value, int $max, bool $allowZero): ?int {
+        if (is_int($value)) {
+            $integer = $value;
+        } elseif (is_string($value)
+            && preg_match($allowZero ? '/^(?:0|[1-9][0-9]*)$/D' : '/^[1-9][0-9]*$/D', $value) === 1) {
+            $integer = filter_var($value, FILTER_VALIDATE_INT);
+            if (!is_int($integer)) {
+                return null;
+            }
+        } else {
+            return null;
+        }
+        return $integer >= ($allowZero ? 0 : 1) && $integer <= $max ? $integer : null;
     }
 }

@@ -32,6 +32,11 @@ final class TaxonomyGrammar {
                 continue;
             }
             self::validate_taxonomy_registration_declaration($rule, "manifest '$name' taxonomies.$tax");
+            if (array_key_exists('term_group', $rule) && $rule['term_group'] !== 'authored') {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' taxonomies.$tax.term_group must be the literal 'authored'"
+                );
+            }
             if (!array_key_exists('object_keyspace', $rule)) {
                 continue;
             }
@@ -64,6 +69,19 @@ final class TaxonomyGrammar {
                     "manifest '$name' taxonomy_patterns[$i].object_keyspace"
                 );
             }
+            if (array_key_exists('term_group', $pattern)) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' taxonomy_patterns[$i].term_group is unsupported; "
+                    . 'term ordering authority requires an exact taxonomy declaration'
+                );
+            }
+            if (array_key_exists('hierarchical', $pattern)) {
+                if (!array_key_exists('object_type', $pattern) || !is_bool($pattern['hierarchical'])) {
+                    throw new \RuntimeException(
+                        "duo: manifest '$name' taxonomy_patterns[$i].hierarchical requires object_type and a boolean value"
+                    );
+                }
+            }
         }
     }
 
@@ -82,31 +100,70 @@ final class TaxonomyGrammar {
             if ($decl === null) {
                 continue;
             }
-            if (!is_array($decl)
-                || !is_string($decl['option'] ?? null) || $decl['option'] === ''
-                || !is_string($decl['sub_key'] ?? null) || $decl['sub_key'] === '') {
+            if (!is_array($decl) || $decl === []) {
                 throw new \RuntimeException(
-                    "duo: manifest '$name' declares taxonomies.$tax.object_type_from_option without both a "
-                    . 'non-empty string `option` and `sub_key`'
+                    "duo: manifest '$name' declares taxonomies.$tax.object_type_from_option that is not "
+                    . 'a declaration object or non-empty declaration list'
                 );
             }
-            $ownSubKeys = $manifest['options'][$decl['option']]['sub_keys'] ?? null;
-            if ($ownSubKeys !== null) {
-                $subRule = $ownSubKeys[$decl['sub_key']] ?? null;
-                if ($subRule === null) {
+            $declarations = array_is_list($decl) ? $decl : [$decl];
+            foreach ($declarations as $i => $entry) {
+                $where = "taxonomies.$tax.object_type_from_option"
+                    . (array_is_list($decl) ? "[$i]" : '');
+                if (!is_array($entry) || array_is_list($entry)
+                    || !is_string($entry['option'] ?? null) || $entry['option'] === ''
+                    || !is_string($entry['sub_key'] ?? null) || $entry['sub_key'] === '') {
                     throw new \RuntimeException(
-                        "duo: manifest '$name' declares taxonomies.$tax.object_type_from_option.sub_key="
-                        . var_export($decl['sub_key'], true) . " but options.{$decl['option']}.sub_keys never "
-                        . 'declares that key'
+                        "duo: manifest '$name' declares $where without both a non-empty string `option` and `sub_key`"
                     );
                 }
-                if (!empty($subRule['json_refs']) || !empty($subRule['key_refs'])) {
+                $allowedKeys = ['option', 'sub_key', 'object_types_when_truthy'];
+                $unknownKeys = array_values(array_diff(array_keys($entry), $allowedKeys));
+                if ($unknownKeys !== []) {
                     throw new \RuntimeException(
-                        "duo: manifest '$name' declares taxonomies.$tax.object_type_from_option pointing at "
-                        . "options.{$decl['option']}.sub_keys.{$decl['sub_key']}, but that sub-key declares "
-                        . 'json_refs/key_refs — object_type_from_option only supports plain, non-ref-typed '
-                        . 'sub-key values (post-type/taxonomy slugs, never ids)'
+                        "duo: manifest '$name' declares $where with unsupported key '" . $unknownKeys[0] . "'"
                     );
+                }
+                if (array_key_exists('object_types_when_truthy', $entry)) {
+                    $types = $entry['object_types_when_truthy'];
+                    if (!is_array($types) || !array_is_list($types) || $types === []) {
+                        throw new \RuntimeException(
+                            "duo: manifest '$name' declares $where.object_types_when_truthy without a "
+                            . 'non-empty list of object type names'
+                        );
+                    }
+                    foreach ($types as $type) {
+                        if (!is_string($type) || $type === '') {
+                            throw new \RuntimeException(
+                                "duo: manifest '$name' declares $where.object_types_when_truthy with a "
+                                . 'non-string or empty object type name'
+                            );
+                        }
+                    }
+                    if (count(array_unique($types)) !== count($types)) {
+                        throw new \RuntimeException(
+                            "duo: manifest '$name' declares $where.object_types_when_truthy with duplicate object types"
+                        );
+                    }
+                }
+                $ownSubKeys = $manifest['options'][$entry['option']]['sub_keys'] ?? null;
+                if ($ownSubKeys !== null) {
+                    $subRule = $ownSubKeys[$entry['sub_key']] ?? null;
+                    if ($subRule === null) {
+                        throw new \RuntimeException(
+                            "duo: manifest '$name' declares $where.sub_key="
+                            . var_export($entry['sub_key'], true) . " but options.{$entry['option']}.sub_keys never "
+                            . 'declares that key'
+                        );
+                    }
+                    if (!empty($subRule['json_refs']) || !empty($subRule['key_refs'])) {
+                        throw new \RuntimeException(
+                            "duo: manifest '$name' declares $where pointing at "
+                            . "options.{$entry['option']}.sub_keys.{$entry['sub_key']}, but that sub-key declares "
+                            . 'json_refs/key_refs — object_type_from_option only supports plain, non-ref-typed '
+                            . 'sub-key values (post-type/taxonomy slugs or boolean gates, never ids)'
+                        );
+                    }
                 }
             }
         }
@@ -144,6 +201,11 @@ final class TaxonomyGrammar {
             $callback = $rule['update_count_callback'];
             if (!is_string($callback) || $callback === '') {
                 throw new \RuntimeException("duo: $where.update_count_callback must be a non-empty callback name");
+            }
+        }
+        if (array_key_exists('hierarchical', $rule)) {
+            if (!$hasObjectType || !is_bool($rule['hierarchical'])) {
+                throw new \RuntimeException("duo: $where.hierarchical requires object_type and a boolean value");
             }
         }
     }

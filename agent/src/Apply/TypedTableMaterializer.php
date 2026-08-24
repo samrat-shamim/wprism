@@ -1,6 +1,8 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/CacheInvalidationTransaction.php';
+
 // Production closes every direct dependency here. Some regressions preload
 // narrow doubles before Snapshot reaches this boundary; preserve those test
 // seams instead of redeclaring the doubles.
@@ -352,15 +354,32 @@ final class TypedTableMaterializer {
         }
         if (isset($invalidation['option_pattern'])) {
             $name = str_replace('{id}', (string) $localId, (string) $invalidation['option_pattern']);
-            $exists = $wpdb->get_var($wpdb->prepare(
-                "SELECT option_id FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
-                $name
-            ));
-            if ($exists !== null) {
-                Db::delete($wpdb->options, ['option_name' => $name], null, 'apply invalidate option cache row');
+            if (CacheInvalidationTransaction::is_active()) {
+                $locked = CacheInvalidationTransaction::lock_option_row(
+                    $name,
+                    'apply invalidate typed-snapshot option cache row'
+                );
+                if ($locked !== null) {
+                    Db::delete($wpdb->options, ['option_name' => $name], null, 'apply invalidate option cache row');
+                }
+                CacheInvalidationTransaction::queue_option($name, 'apply invalidate option cache row');
+                if (CacheInvalidationTransaction::lock_option_row(
+                    $name,
+                    'apply invalidate typed-snapshot option cache row readback'
+                ) !== null) {
+                    throw new \RuntimeException('duo: typed-snapshot option cache row remained after invalidation');
+                }
+            } else {
+                $exists = $wpdb->get_var($wpdb->prepare(
+                    "SELECT option_id FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
+                    $name
+                ));
+                if ($exists !== null) {
+                    Db::delete($wpdb->options, ['option_name' => $name], null, 'apply invalidate option cache row');
+                }
+                ($this->cacheDelete)($name, 'options');
+                ($this->cacheDelete)('alloptions', 'options');
             }
-            ($this->cacheDelete)($name, 'options');
-            ($this->cacheDelete)('alloptions', 'options');
         }
     }
 

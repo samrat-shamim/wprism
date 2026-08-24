@@ -371,4 +371,42 @@ duo_check_same(
     '--with-deletes records the deletion receipt that clears the tombstone from later plans'
 );
 
+$wpdb->resetLog();
+$terminalCommitApplied = false;
+$terminalCommitHook = null;
+$terminalCommitHook = static function (
+    string $sql,
+    string $method,
+    FakeWpdb $db
+) use (&$terminalCommitApplied): ?string {
+    if ($method !== 'query' || $sql !== 'COMMIT' || $terminalCommitApplied) {
+        return null;
+    }
+    $terminalCommitApplied = true;
+    $db->onQuery(null);
+    $db->query('COMMIT');
+    return 'simulated COMMIT client failure after server application';
+};
+$wpdb->onQuery($terminalCommitHook);
+try {
+    $finalize(false);
+    $terminalCommitRefused = false;
+} catch (\Throwable $failure) {
+    $terminalCommitRefused = $failure instanceof \Duo\DatabaseTransactionOutcomeException;
+}
+$terminalKv = [];
+foreach ($wpdb->rows('wp_duo_kv') as $row) {
+    $terminalKv[(string) $row['k']] = (string) $row['v'];
+}
+duo_check(
+    $terminalCommitRefused
+        && $terminalCommitApplied
+        && ($terminalKv['applied_revision'] ?? null) === $revision
+        && !in_array('ROLLBACK', $wpdb->queries(), true),
+    'an inactive ambiguous ledger COMMIT preserves its physical postimage and never compensates through autocommit'
+);
+// Inspecting the exact product postimage above is the explicit recovery
+// boundary after which this same-process fixture may begin another transaction.
+\Duo\Db::forget_transaction_tracking();
+
 duo_check_summary('delete authorization receipt');

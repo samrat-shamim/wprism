@@ -18,6 +18,7 @@ require_once __DIR__ . '/src/Kernel/Canon.php';
 require_once __DIR__ . '/src/Kernel/OptionState.php';
 require_once __DIR__ . '/src/Kernel/UserMetaState.php';
 require_once __DIR__ . '/src/Kernel/Db.php';
+require_once __DIR__ . '/src/Apply/CacheInvalidationTransaction.php';
 require_once __DIR__ . '/src/Adapter/ProviderSdk.php';
 require_once __DIR__ . '/src/Kernel/Secrets.php';
 require_once __DIR__ . '/src/Kernel/CommandRefusal.php';

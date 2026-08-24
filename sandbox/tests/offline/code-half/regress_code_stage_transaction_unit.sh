@@ -76,12 +76,17 @@ final class Db {
     public static int $commits = 0;
     public static int $rollbacks = 0;
     public static bool $failCommit = false;
+    public static bool $terminalCommitFailure = false;
     public static function start(string $context): void {
         self::$starts++;
         self::$snapshot = Ledger::$rows;
     }
     public static function commit(string $context): void {
         self::$commits++;
+        if (self::$terminalCommitFailure) {
+            self::$snapshot = null;
+            throw new \RuntimeException('injected terminal stage marker commit outcome');
+        }
         if (self::$failCommit) {
             throw new \RuntimeException('injected stage marker commit failure');
         }
@@ -91,6 +96,12 @@ final class Db {
         self::$rollbacks++;
         Ledger::$rows = self::$snapshot ?? [];
         self::$snapshot = null;
+    }
+    public static function rollback_after_failure(\Throwable $primary, string $context): void {
+        if (self::$terminalCommitFailure && self::$snapshot === null) {
+            throw new \RuntimeException('injected terminal stage recovery_required', 0, $primary);
+        }
+        self::rollback($context);
     }
 }
 final class PromotionLock {
@@ -176,6 +187,7 @@ $reset = static function () use ($target): void {
     Db::$commits = 0;
     Db::$rollbacks = 0;
     Db::$failCommit = false;
+    Db::$terminalCommitFailure = false;
 };
 $freshRetry = static function () use ($repo, $target, $artifact): void {
     $script = (string) getenv('DUO_STAGE_TRANSACTION_SCRIPT');
@@ -279,6 +291,25 @@ if (Db::$starts !== 1 || Db::$commits !== 1 || Db::$rollbacks !== 1) {
 }
 $assertRolledBack('stage marker COMMIT failure');
 $freshRetry();
+
+$reset();
+Db::$terminalCommitFailure = true;
+try {
+    Code::stage($repo, $compiled, [
+        'artifact_hash' => $artifact,
+        'promotion_owner' => 'stage-transaction-terminal-commit',
+    ]);
+    throw new \RuntimeException('FAIL: terminal stage COMMIT outcome did not fail closed');
+} catch (\Throwable $e) {
+    if ($e->getMessage() !== 'injected terminal stage recovery_required'
+        || $e->getPrevious()?->getMessage() !== 'injected terminal stage marker commit outcome') {
+        throw $e;
+    }
+}
+if (Db::$starts !== 1 || Db::$commits !== 1 || Db::$rollbacks !== 0
+    || count(array_intersect($stageKeys, array_keys(Ledger::$rows))) !== count($stageKeys)) {
+    throw new \RuntimeException('FAIL: terminal stage COMMIT outcome ran autocommit compensation or lost its physical postimage');
+}
 
 // An uninterrupted first stage does retain the narrower proof that this path
 // was absent before Duo created it. That proof is atomically bound to the

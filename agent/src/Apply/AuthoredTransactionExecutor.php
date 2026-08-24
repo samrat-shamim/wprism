@@ -3,6 +3,7 @@ namespace Duo;
 
 require_once __DIR__ . '/ApplyPlanner.php';
 require_once __DIR__ . '/AuthoredTransactionRequest.php';
+require_once __DIR__ . '/ApplyFieldMaterializer.php';
 require_once __DIR__ . '/../Delete/DeleteExecutor.php';
 require_once __DIR__ . '/EntityAdopter.php';
 require_once __DIR__ . '/MenuMaterializer.php';
@@ -14,6 +15,8 @@ require_once __DIR__ . '/../Scope/ScopedApply.php';
 require_once __DIR__ . '/../Repository/SidebarState.php';
 require_once __DIR__ . '/TermMaterializer.php';
 require_once __DIR__ . '/UserMetaMaterializer.php';
+require_once __DIR__ . '/CacheInvalidationTransaction.php';
+require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
 if (!class_exists(Canary::class, false)) {
     require_once __DIR__ . '/../Review/Canary.php';
 }
@@ -55,6 +58,7 @@ final class AuthoredTransactionExecutor {
         private readonly Tokens $tokens,
         private readonly ApplyPlanner $planner,
         private readonly array $snapshotRowTables,
+        private readonly ApplyFieldMaterializer $fieldMaterializer,
         private readonly EntityAdopter $adopter,
         private readonly TermMaterializer $termMaterializer,
         private readonly PostMaterializer $postMaterializer,
@@ -99,11 +103,37 @@ final class AuthoredTransactionExecutor {
             return ['attachment_ids' => $attachmentIds, 'regen_context' => $regenContext];
         }
 
+        // Every path below can raw-write state whose WordPress cache group is
+        // not transaction-aware. This must be the first gate: refusing later
+        // would roll database rows back but could already have leaked cache
+        // invalidations/repopulation from adoption, terms, metadata, widgets,
+        // options, or deletes. Core's in-process cache dies with this WP-CLI
+        // request and is purged again after the outcome; a persistent backend
+        // has no common CAS/generation fence across all of these surfaces.
+        CacheInvalidationTransaction::assert_local_cache('authored apply');
+
         $transactionStarted = false;
         Canary::arm();
         try {
-            Db::start('apply transaction start');
+            Db::start_repeatable_read('apply transaction start');
             $transactionStarted = true;
+            $this->fieldMaterializer->begin_authored_transaction();
+            $this->termMaterializer->begin_authored_transaction();
+            $this->optionsMaterializer->begin_authored_transaction();
+            CacheInvalidationTransaction::begin();
+            SidebarState::begin_authored_transaction(
+                static fn(string $name, string $purpose): ?array =>
+                    CacheInvalidationTransaction::lock_option_row($name, $purpose),
+                static function (string $name, string $purpose): void {
+                    CacheInvalidationTransaction::queue_option($name, $purpose);
+                },
+                static function (string $name, string $value, string $autoload, string $purpose): void {
+                    CacheInvalidationTransaction::assert_option_row($name, $value, $autoload, $purpose);
+                }
+            );
+            CacheInvalidationTransaction::prepare_term_hierarchy_options(
+                $this->taxonomy_hierarchy_roster($tree, $executeDeletes ? $deleteWork : [])
+            );
 
             if ($executeDeletes && $deleteWork) {
                 ($this->lockDeleteGuards)(
@@ -259,21 +289,206 @@ final class AuthoredTransactionExecutor {
                     "duo: side-effect canary tripped:\n  - " . implode("\n  - ", $violations)
                 );
             }
+            DeleteGuardEvaluator::assert_transaction_isolation(
+                'authored transaction final commit boundary'
+            );
             Db::commit('apply transaction commit');
             $transactionStarted = false;
+            $postCommitFailures = [];
+            foreach ([
+                'options-participant' => fn(): mixed => $this->optionsMaterializer->commit_authored_transaction(),
+                'cache-purge' => static fn(): mixed => CacheInvalidationTransaction::finish(),
+            ] as $label => $participant) {
+                try {
+                    $participant();
+                } catch (\Throwable $postCommitFailure) {
+                    $postCommitFailures[$label] = $postCommitFailure;
+                }
+            }
+            if ($postCommitFailures !== []) {
+                $fingerprints = [];
+                foreach ($postCommitFailures as $label => $postCommitFailure) {
+                    $fingerprints[] = $label . '=' . self::failure_fingerprint($postCommitFailure);
+                }
+                $firstPostCommitFailure = array_values($postCommitFailures)[0];
+                throw new \RuntimeException(
+                    'duo: authored transaction committed but a post-commit participant failed; '
+                    . 'recovery_required (' . implode('; ', $fingerprints) . ')',
+                    0,
+                    $firstPostCommitFailure
+                );
+            }
         } catch (\Throwable $failure) {
             if ($transactionStarted) {
+                $transactionStateFailure = null;
+                $transactionActive = null;
+                try {
+                    $transactionActive = Db::transaction_active(
+                        'authored transaction recovery boundary'
+                    );
+                } catch (\Throwable $stateFailure) {
+                    $transactionStateFailure = $stateFailure;
+                }
+                if ($transactionStateFailure !== null || $transactionActive !== true) {
+                    $cacheFailure = null;
+                    try {
+                        CacheInvalidationTransaction::finish();
+                    } catch (\Throwable $cachePurgeFailure) {
+                        $cacheFailure = $cachePurgeFailure;
+                    }
+                    Canary::disarm();
+                    $recovery = [
+                        'original=' . self::failure_fingerprint($failure),
+                        'transaction-state=' . ($transactionStateFailure !== null
+                            ? self::failure_fingerprint($transactionStateFailure)
+                            : 'ended-before-rollback'),
+                    ];
+                    if ($cacheFailure !== null) {
+                        $recovery[] = 'cache-purge=' . self::failure_fingerprint($cacheFailure);
+                    }
+                    throw new \RuntimeException(
+                        'duo: authored transaction ended or changed connection before recovery; '
+                        . 'rollback participants were not run through autocommit; recovery_required; '
+                        . implode('; ', $recovery),
+                        0,
+                        $failure
+                    );
+                }
+                $participantFailure = null;
+                $rollbackFailure = null;
+                $cacheFailure = null;
+                try {
+                    $this->optionsMaterializer->rollback_authored_transaction();
+                } catch (\Throwable $rollbackParticipantFailure) {
+                    $participantFailure = $rollbackParticipantFailure;
+                }
                 try {
                     Db::rollback('apply transaction rollback');
-                } catch (DatabaseMutationException $rollback) {
+                } catch (\Throwable $rollback) {
+                    $rollbackFailure = $rollback;
+                }
+                try {
+                    CacheInvalidationTransaction::finish();
+                } catch (\Throwable $cachePurgeFailure) {
+                    $cacheFailure = $cachePurgeFailure;
+                }
+                if ($participantFailure !== null || $rollbackFailure !== null || $cacheFailure !== null) {
                     Canary::disarm();
-                    throw new DatabaseMutationException($rollback->mutationContext, $failure);
+                    if ($rollbackFailure instanceof DatabaseMutationException
+                        && $participantFailure === null
+                        && $cacheFailure === null) {
+                        throw new DatabaseMutationException($rollbackFailure->mutationContext, $failure);
+                    }
+                    $recovery = [];
+                    foreach ([
+                        'participant' => $participantFailure,
+                        'database-rollback' => $rollbackFailure,
+                        'cache-purge' => $cacheFailure,
+                    ] as $label => $recoveryFailure) {
+                        if ($recoveryFailure instanceof \Throwable) {
+                            $recovery[] = $label . '=' . self::failure_fingerprint($recoveryFailure);
+                        }
+                    }
+                    throw new \RuntimeException(
+                        'duo: authored transaction recovery failed; recovery_required; '
+                        . 'original=' . self::failure_fingerprint($failure)
+                        . '; ' . implode('; ', $recovery),
+                        0,
+                        $failure
+                    );
                 }
             }
             Canary::disarm();
             throw $failure;
+        } finally {
+            // Metadata locks prove these descriptors only for this authored
+            // transaction. A reused ApplyServices graph starts empty after
+            // either commit or rollback.
+            $this->termMaterializer->end_authored_transaction();
+            $this->fieldMaterializer->end_authored_transaction();
+            $this->optionsMaterializer->end_authored_transaction();
+            SidebarState::end_authored_transaction();
+            CacheInvalidationTransaction::end();
         }
         Canary::disarm();
         return ['attachment_ids' => $attachmentIds, 'regen_context' => $regenContext];
+    }
+
+    private static function failure_fingerprint(\Throwable $failure): string {
+        $message = $failure->getMessage();
+        $class = get_class($failure);
+        return $class . ':' . strlen($message) . ':' . substr(hash('sha256', $message), 0, 16);
+    }
+
+    /**
+     * The cache roster is derived from the complete physical mutation plan,
+     * not merely today's live policy expansion. A typed table can introduce
+     * a WooCommerce pa_* registration row in phase 1 while the same compiled
+     * tree already contains that taxonomy's terms; the process-local registry
+     * cannot see it until the next request. Exact manifest hierarchy facts
+     * are the only admitted fallback for such an unregistered planned name.
+     *
+     * @param array<string,array<string,mixed>> $tree
+     * @param list<array<string,mixed>> $deleteWork
+     * @return array<string,bool>
+     */
+    private function taxonomy_hierarchy_roster(array $tree, array $deleteWork): array {
+        $names = array_fill_keys(array_merge($this->policy->taxonomies(), ['nav_menu']), true);
+        foreach ($tree as $entity) {
+            if (!is_array($entity)) continue;
+            $type = $entity['type'] ?? null;
+            if ($type === 'menu') {
+                $names['nav_menu'] = true;
+            } elseif ($type === 'term') {
+                $taxonomy = is_array($entity['data'] ?? null)
+                    ? ($entity['data']['taxonomy'] ?? null)
+                    : null;
+                if (!is_string($taxonomy)) {
+                    throw new \RuntimeException('duo: authored apply term tree lacks an exact taxonomy cache identity');
+                }
+                $names[$taxonomy] = true;
+            }
+        }
+        foreach ($deleteWork as $row) {
+            if (!is_array($row)) {
+                throw new \RuntimeException('duo: authored apply deletion roster is malformed');
+            }
+            $type = $row['type'] ?? null;
+            if ($type === 'menu') {
+                $names['nav_menu'] = true;
+            } elseif ($type === 'term') {
+                $taxonomy = $row['deletion_type'] ?? null;
+                if (!is_string($taxonomy)) {
+                    throw new \RuntimeException('duo: authored apply term deletion lacks an exact taxonomy cache identity');
+                }
+                $names[$taxonomy] = true;
+            }
+        }
+
+        $roster = [];
+        foreach (array_keys($names) as $taxonomy) {
+            if (!is_string($taxonomy) || preg_match('/^[A-Za-z0-9_-]{1,32}$/D', $taxonomy) !== 1) {
+                throw new \RuntimeException('duo: authored apply resolved a malformed taxonomy cache roster');
+            }
+            $runtime = get_taxonomy($taxonomy);
+            if ($runtime !== false) {
+                if (!is_object($runtime) || !is_bool($runtime->hierarchical ?? null)) {
+                    throw new \RuntimeException(
+                        "duo: authored apply taxonomy '$taxonomy' has malformed native hierarchy registration"
+                    );
+                }
+                $roster[$taxonomy] = $runtime->hierarchical;
+                continue;
+            }
+            $declared = $this->policy->declared_taxonomy_hierarchical($taxonomy);
+            if (!is_bool($declared)) {
+                throw new \RuntimeException(
+                    "duo: authored apply taxonomy '$taxonomy' is unregistered and lacks a reviewed hierarchical declaration"
+                );
+            }
+            $roster[$taxonomy] = $declared;
+        }
+        ksort($roster, SORT_STRING);
+        return $roster;
     }
 }

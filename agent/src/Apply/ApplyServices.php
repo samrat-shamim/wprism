@@ -116,7 +116,10 @@ final class ApplyServices {
     }
 
     public function relationship_materializer(): RelationshipMaterializer {
-        return $this->relationshipMaterializer ??= new RelationshipMaterializer($this->policy);
+        return $this->relationshipMaterializer ??= new RelationshipMaterializer(
+            $this->policy,
+            $this->field_materializer()
+        );
     }
 
     public function attachment_materializer(): AttachmentMaterializer {
@@ -140,7 +143,8 @@ final class ApplyServices {
         return $this->deleteExecutor ??= new DeleteExecutor(
             $this->policy,
             $this->relationship_materializer(),
-            $this->menu_materializer()
+            $this->menu_materializer(),
+            $this->field_materializer()
         );
     }
 
@@ -198,7 +202,8 @@ final class ApplyServices {
     public function entity_adopter(): EntityAdopter {
         return $this->entityAdopter ??= new EntityAdopter(
             $this->policy,
-            $this->snapshot_row_tables()
+            $this->snapshot_row_tables(),
+            $this->field_materializer()
         );
     }
 
@@ -208,6 +213,7 @@ final class ApplyServices {
             $this->tokens,
             $this->apply_planner(),
             $this->snapshot_row_tables(),
+            $this->field_materializer(),
             $this->entity_adopter(),
             $this->term_materializer(),
             $this->post_materializer(),

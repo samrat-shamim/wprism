@@ -90,8 +90,11 @@ if ($standaloneFailures) {
     exit(1);
 }
 
+require_once __DIR__ . '/../../lib/wp_stubs.php';
+require_once __DIR__ . '/../../lib/LockingFakeWpdb.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
+require_once __DIR__ . '/../../../../agent/src/Kernel/Uuid.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
 require_once __DIR__ . '/../../../../agent/src/Grammar/Tokens.php';
@@ -195,6 +198,287 @@ foreach ([
         );
     }
 }
+
+// The extracted seam now owns physical concurrency/identity safety, so drive
+// finalize_menu() itself through the shared row-backed wpdb plus the shared
+// explicit locking-fact adapter. A stale ledger row absent from the current
+// menu must be validated and either attached as a proven orphan or refused;
+// it can never be updated silently while desired membership stays absent.
+$menuUuid = '11111111-1111-4111-8111-111111111111';
+$itemUuid = '22222222-2222-4222-8222-222222222222';
+$front = [
+    'uuid' => $menuUuid,
+    'name' => 'Primary menu',
+    'slug' => 'primary-menu',
+    'locations' => [],
+    'items' => [[
+        'uuid' => $itemUuid,
+        'title' => 'Portable link',
+        'description' => '',
+        'attr_title' => '',
+        'position' => 1,
+        'type' => 'custom',
+        'ref' => 'https://source.test/portable',
+        'object' => 'custom',
+        'target' => '',
+        'classes' => [],
+        'xfn' => '',
+        'parent' => null,
+        'meta' => [],
+    ]],
+];
+$runtimePolicy = new Policy();
+$runtimePolicy->site = ['policy' => [
+    'post_types' => [],
+    'taxonomies' => [],
+    'menu_fields' => ['locations' => ['class' => 'derived']],
+]];
+$runtimeTokens = new Tokens('https://target.test', 'https://target.test/wp-content/uploads');
+
+$menuDb = static function (
+    array $posts,
+    array $postmeta,
+    array $relationships,
+    bool $mapItem = true
+) use ($menuUuid, $itemUuid): \DuoTest\LockingFakeWpdb {
+    $inner = new \DuoTest\FakeWpdb();
+    $db = new \DuoTest\LockingFakeWpdb($inner);
+    $db->setColumns('terms', ['term_id' => 'bigint unsigned', 'name' => 'varchar(200)', 'slug' => 'varchar(200)']);
+    $db->setColumns('term_taxonomy', [
+        'term_taxonomy_id' => 'bigint unsigned', 'term_id' => 'bigint unsigned',
+        'taxonomy' => 'varchar(32)', 'description' => 'longtext', 'parent' => 'bigint unsigned', 'count' => 'bigint',
+    ]);
+    $db->setColumns('term_relationships', [
+        'object_id' => 'bigint unsigned', 'term_taxonomy_id' => 'bigint unsigned', 'term_order' => 'int',
+    ]);
+    $db->setColumns('posts', ['ID' => 'bigint unsigned', 'post_type' => 'varchar(20)']);
+    $db->setColumns('postmeta', [
+        'meta_id' => 'bigint unsigned', 'post_id' => 'bigint unsigned',
+        'meta_key' => 'varchar(255)', 'meta_value' => 'longtext',
+    ]);
+    $db->setColumns('duo_map', [
+        'uuid' => 'char(36)', 'entity_type' => 'varchar(64)',
+        'id_kind' => 'varchar(64)', 'local_id' => 'bigint unsigned',
+    ]);
+    $db->seedTable('terms', [[
+        'term_id' => 10, 'name' => 'Old menu', 'slug' => 'old-menu',
+    ]]);
+    $db->seedTable('term_taxonomy', [[
+        'term_taxonomy_id' => 20, 'term_id' => 10, 'taxonomy' => 'nav_menu',
+        'description' => '', 'parent' => 0, 'count' => count($relationships),
+    ]]);
+    $db->seedTable('term_relationships', $relationships);
+    $db->seedTable('posts', $posts);
+    $db->seedTable('postmeta', $postmeta);
+    $map = [
+        ['uuid' => $menuUuid, 'entity_type' => 'menu', 'id_kind' => 'term', 'local_id' => 10],
+        ['uuid' => $menuUuid, 'entity_type' => 'menu', 'id_kind' => 'term_taxonomy', 'local_id' => 20],
+    ];
+    if ($mapItem) {
+        $map[] = ['uuid' => $itemUuid, 'entity_type' => 'menu_item', 'id_kind' => 'post', 'local_id' => 30];
+    }
+    $db->seedTable('duo_map', $map)
+        ->setUniqueKey('duo_map', ['uuid', 'id_kind'])
+        ->setUniqueKey('duo_map', ['id_kind', 'local_id']);
+    foreach ([$db->terms, $db->term_taxonomy, $db->term_relationships, $db->posts, $db->postmeta] as $table) {
+        $db->addInnoDbTable($table);
+    }
+    $db->addIndex($db->terms, 'PRIMARY', 'term_id', true)
+        ->addIndex($db->term_taxonomy, 'PRIMARY', 'term_taxonomy_id', true)
+        ->addIndex($db->term_relationships, 'term_taxonomy_id', 'term_taxonomy_id')
+        ->addIndex($db->term_relationships, 'PRIMARY', 'object_id')
+        ->addIndex($db->posts, 'PRIMARY', 'ID', true)
+        ->addIndex($db->postmeta, 'post_id', 'post_id');
+    return $db;
+};
+
+$runMenu = static function (\DuoTest\LockingFakeWpdb $db) use (
+    $runtimePolicy,
+    $runtimeTokens,
+    $front
+): array {
+    $GLOBALS['wpdb'] = $db;
+    \DuoTest\WpStore::reset();
+    $field = new ApplyFieldMaterializer($runtimePolicy, $runtimeTokens);
+    $subject = new MenuMaterializer($runtimePolicy, $runtimeTokens, $field);
+    \Duo\Db::start_repeatable_read('menu fixture transaction');
+    $field->begin_authored_transaction();
+    \Duo\CacheInvalidationTransaction::begin();
+    \Duo\CacheInvalidationTransaction::prepare_term_hierarchy_options(['nav_menu' => false]);
+    try {
+        $subject->finalize_menu($front);
+        return ['failure' => null, 'rows' => [
+            'terms' => $db->rows('terms'),
+            'posts' => $db->rows('posts'),
+            'postmeta' => $db->rows('postmeta'),
+            'relationships' => $db->rows('term_relationships'),
+            'map' => $db->rows('duo_map'),
+        ]];
+    } catch (Throwable $failure) {
+        return ['failure' => $failure, 'rows' => [
+            'terms' => $db->rows('terms'),
+            'posts' => $db->rows('posts'),
+            'postmeta' => $db->rows('postmeta'),
+            'relationships' => $db->rows('term_relationships'),
+            'map' => $db->rows('duo_map'),
+        ]];
+    } finally {
+        \Duo\Db::rollback('menu fixture rollback');
+        $field->end_authored_transaction();
+        \Duo\CacheInvalidationTransaction::end();
+    }
+};
+
+$orphanDb = $menuDb(
+    [['ID' => 30, 'post_type' => 'nav_menu_item']],
+    [['meta_id' => 1, 'post_id' => 30, 'meta_key' => '_duo_uuid', 'meta_value' => $itemUuid]],
+    []
+);
+$orphanResult = $runMenu($orphanDb);
+$managedKeys = array_values(array_filter(
+    $orphanResult['rows']['postmeta'],
+    static fn(array $row): bool => (int) $row['post_id'] === 30 && str_starts_with((string) $row['meta_key'], '_menu_item_')
+));
+$orphanOk = $orphanResult['failure'] === null
+    && $orphanResult['rows']['relationships'] === [[
+        'object_id' => 30, 'term_taxonomy_id' => 20, 'term_order' => 0,
+    ]]
+    && count($managedKeys) === 8;
+if (!$orphanOk && $orphanResult['failure'] instanceof Throwable) {
+    fwrite(STDERR, '    orphan materialization refusal: ' . $orphanResult['failure']->getMessage() . "\n");
+}
+$check(
+    $orphanOk,
+    'a ledger-resolved exact unattached nav_menu_item is locked, attached, fully materialized, and read back'
+);
+
+$missingResult = $runMenu($menuDb([], [], []));
+$check(
+    $missingResult['failure'] instanceof Throwable
+        && str_contains($missingResult['failure']->getMessage(), 'post lock/read failed')
+        && ($missingResult['rows']['terms'][0]['name'] ?? null) === 'Old menu'
+        && $missingResult['rows']['relationships'] === [],
+    'a stale ledger mapping to a missing post refuses before the first menu mutation'
+);
+
+$wrongTypeResult = $runMenu($menuDb(
+    [['ID' => 30, 'post_type' => 'post']],
+    [['meta_id' => 1, 'post_id' => 30, 'meta_key' => '_duo_uuid', 'meta_value' => $itemUuid]],
+    []
+));
+$check(
+    $wrongTypeResult['failure'] instanceof Throwable
+        && str_contains($wrongTypeResult['failure']->getMessage(), 'not one exact nav_menu_item')
+        && ($wrongTypeResult['rows']['terms'][0]['name'] ?? null) === 'Old menu',
+    'a ledger mapping to the wrong post type refuses before menu mutation'
+);
+
+$aliasResult = $runMenu($menuDb(
+    [['ID' => 30, 'post_type' => 'nav_menu_item']],
+    [['meta_id' => 1, 'post_id' => 30, 'meta_key' => '_DUO_UUID', 'meta_value' => $itemUuid]],
+    []
+));
+$check(
+    $aliasResult['failure'] instanceof Throwable
+        && str_contains($aliasResult['failure']->getMessage(), 'collation-equal non-byte-exact')
+        && ($aliasResult['rows']['terms'][0]['name'] ?? null) === 'Old menu',
+    'a ledger-resolved menu item identity alias refuses before mutation'
+);
+
+$duplicateIdentityResult = $runMenu($menuDb(
+    [['ID' => 30, 'post_type' => 'nav_menu_item']],
+    [
+        ['meta_id' => 1, 'post_id' => 30, 'meta_key' => '_duo_uuid', 'meta_value' => $itemUuid],
+        ['meta_id' => 2, 'post_id' => 30, 'meta_key' => '_duo_uuid', 'meta_value' => $itemUuid],
+    ],
+    []
+));
+$check(
+    $duplicateIdentityResult['failure'] instanceof Throwable
+        && str_contains($duplicateIdentityResult['failure']->getMessage(), 'duplicate')
+        && ($duplicateIdentityResult['rows']['terms'][0]['name'] ?? null) === 'Old menu',
+    'duplicate exact menu-item identity sidecars refuse before mutation'
+);
+
+$wrongIdentityResult = $runMenu($menuDb(
+    [['ID' => 30, 'post_type' => 'nav_menu_item']],
+    [[
+        'meta_id' => 1, 'post_id' => 30, 'meta_key' => '_duo_uuid',
+        'meta_value' => '33333333-3333-4333-8333-333333333333',
+    ]],
+    []
+));
+$check(
+    $wrongIdentityResult['failure'] instanceof Throwable
+        && str_contains($wrongIdentityResult['failure']->getMessage(), 'contradictory identity')
+        && ($wrongIdentityResult['rows']['terms'][0]['name'] ?? null) === 'Old menu',
+    'a stale ledger mapping with a different exact sidecar refuses before mutation'
+);
+
+$crossMenuResult = $runMenu($menuDb(
+    [['ID' => 30, 'post_type' => 'nav_menu_item']],
+    [['meta_id' => 1, 'post_id' => 30, 'meta_key' => '_duo_uuid', 'meta_value' => $itemUuid]],
+    [['object_id' => 30, 'term_taxonomy_id' => 21, 'term_order' => 0]]
+));
+$check(
+    $crossMenuResult['failure'] instanceof Throwable
+        && str_contains($crossMenuResult['failure']->getMessage(), 'cross-menu takeover')
+        && ($crossMenuResult['rows']['terms'][0]['name'] ?? null) === 'Old menu'
+        && $crossMenuResult['rows']['relationships'][0]['term_taxonomy_id'] === 21,
+    'a stale/two-menu ledger item already attached elsewhere refuses without stealing ownership'
+);
+
+$currentResult = $runMenu($menuDb(
+    [['ID' => 30, 'post_type' => 'nav_menu_item']],
+    [['meta_id' => 1, 'post_id' => 30, 'meta_key' => '_duo_uuid', 'meta_value' => $itemUuid]],
+    [['object_id' => 30, 'term_taxonomy_id' => 20, 'term_order' => 0]]
+));
+$check(
+    $currentResult['failure'] === null
+        && count($currentResult['rows']['relationships']) === 1,
+    'an exact item already owned by the current menu remains idempotent without duplicate attachment'
+);
+
+$newResult = $runMenu($menuDb([], [], [], false));
+$newIdentityRows = array_values(array_filter(
+    $newResult['rows']['postmeta'],
+    static fn(array $row): bool => ($row['meta_key'] ?? null) === '_duo_uuid'
+));
+$check(
+    $newResult['failure'] === null
+        && count($newResult['rows']['posts']) === 1
+        && count($newIdentityRows) === 1
+        && ($newIdentityRows[0]['meta_value'] ?? null) === $itemUuid
+        && count($newResult['rows']['relationships']) === 1,
+    'a new menu item persists exact post/identity/membership readback before its ledger mapping'
+);
+
+$driftDb = $menuDb(
+    [['ID' => 30, 'post_type' => 'nav_menu_item']],
+    [['meta_id' => 1, 'post_id' => 30, 'meta_key' => '_duo_uuid', 'meta_value' => $itemUuid]],
+    []
+);
+$relationshipReads = 0;
+$driftDb->inner()->onQuery(static function (string $sql, string $method, \DuoTest\FakeWpdb $db) use (&$relationshipReads): mixed {
+    if ($method === 'get_results'
+        && str_contains($sql, 'FROM wp_term_relationships')
+        && str_contains($sql, 'WHERE object_id = 30')) {
+        ++$relationshipReads;
+        if ($relationshipReads === 2) {
+            $db->seedTable('term_relationships', []);
+        }
+    }
+    return null;
+});
+$driftResult = $runMenu($driftDb);
+$check(
+    $driftResult['failure'] instanceof Throwable
+        && str_contains($driftResult['failure']->getMessage(), 'relationship readback disagrees')
+        && ($driftResult['rows']['terms'][0]['name'] ?? null) === 'Primary menu'
+        && ($driftDb->rows('terms')[0]['name'] ?? null) === 'Old menu'
+        && $driftDb->rows('term_relationships') === [],
+    'post-attach same-transaction relationship drift is rejected and the authored rollback restores prior bytes'
+);
 
 if ($failures) {
     echo "\n" . count($failures) . " failure(s):\n";

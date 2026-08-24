@@ -8,6 +8,7 @@ require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/../Kernel/StructuredValue.php';
 require_once __DIR__ . '/../Kernel/OptionState.php';
 require_once __DIR__ . '/../Kernel/Secrets.php';
+require_once __DIR__ . '/../Grammar/SubKeyGrammar.php';
 
 /**
  * Read-only discovery and canonical capture of WordPress option entities.
@@ -17,6 +18,11 @@ require_once __DIR__ . '/../Kernel/Secrets.php';
  * value encoding, lifecycle tombstones, and the evidence those gates consume.
  */
 final class OptionsCapture {
+    private const MAX_DISCOVERED_OPTIONS = 200000;
+    private const MAX_OPTION_NAME_CHARACTERS = 191;
+    private const MAX_OPTION_NAME_BYTES = 764;
+    private const MAX_OPTION_VALUE_BYTES = 16777216;
+    private const MAX_DISCOVERY_BYTES = 134217728;
     private Policy $policy;
     private Tokens $tokens;
     private \Closure $guardSecret;
@@ -120,7 +126,17 @@ final class OptionsCapture {
         }
 
         foreach ($this->policy->sub_keyed_options() as $name => $rule) {
-            $this->capture_option_sub_keys($name, $rule, $forceUnresolvedRefs, $liveCanonicalNames, $out);
+            $details = $this->policy->option_rule_details((string) $name);
+            $source = is_string($details['source'] ?? null) ? $details['source'] : null;
+            $this->capture_option_sub_keys(
+                $name,
+                $rule,
+                $source,
+                $allOptionValues,
+                $forceUnresolvedRefs,
+                $liveCanonicalNames,
+                $out
+            );
         }
 
         foreach ($this->policy->dynamic_options() as $key => $decl) {
@@ -138,7 +154,14 @@ final class OptionsCapture {
             }
             $this->capture_option_sub_keys(
                 $resolved['name'],
-                ['sub_keys' => $resolved['sub_keys'], 'autoload' => $resolved['autoload']],
+                [
+                    'class' => $resolved['class'],
+                    'sub_keys' => $resolved['sub_keys'],
+                    'closed_sub_keys' => $resolved['closed_sub_keys'] ?? false,
+                    'autoload' => $resolved['autoload'],
+                ],
+                'dynamic_options',
+                $allOptionValues,
                 $forceUnresolvedRefs,
                 $liveCanonicalNames,
                 $out
@@ -311,30 +334,62 @@ final class OptionsCapture {
     private function capture_option_sub_keys(
         string $name,
         array $rule,
+        ?string $ruleSource,
+        array $allOptionValues,
         bool $forceUnresolvedRefs,
         array &$liveCanonicalNames,
         array &$out
     ): void {
         $row = $this->read_option_row($name);
         if ($row === null) {
-            return;
+            $live = [];
+        } else {
+            $liveCanonicalNames[$name] = true;
+            $live = PlainData::decode($row['option_value'], "option $name");
+            PlainData::assert($live, "option $name");
+            if (!is_array($live)) {
+                throw new \RuntimeException(
+                    "duo: option '$name' declares sub_keys but its live value is not array-shaped (got "
+                    . get_debug_type($live) . ') — sub_keys assumes the option decodes to a plain '
+                    . 'PHP-serialized map (an associative array keyed by sub-key name), not a scalar or object'
+                );
+            }
+            SubKeyGrammar::assert_closed_value($name, $rule, $live, 'source');
         }
-        $liveCanonicalNames[$name] = true;
-        $live = PlainData::decode($row['option_value'], "option $name");
-        PlainData::assert($live, "option $name");
-        if (!is_array($live)) {
-            throw new \RuntimeException(
-                "duo: option '$name' declares sub_keys but its live value is not array-shaped (got "
-                . get_debug_type($live) . ') — sub_keys assumes the option decodes to a plain '
-                . 'PHP-serialized map (an associative array keyed by sub-key name), not a scalar or object'
-            );
-        }
-        $captured = [];
+        $rawAuthored = [];
         foreach ($rule['sub_keys'] ?? [] as $subKey => $subRule) {
             if (($subRule['class'] ?? '') !== 'authored' || !array_key_exists($subKey, $live)) {
                 continue;
             }
-            $subVal = $live[$subKey];
+            $rawAuthored[$subKey] = $live[$subKey];
+        }
+        // Native defaults and canonical values must enter before the ordinary
+        // capture codec. Otherwise an interpreter-added ref/text sibling can
+        // bypass tokenization and secret guarding, while a hook can mutate an
+        // already-tokenized value whose source bytes it no longer observes.
+        $rawAuthored = $this->policy->normalize_captured_option_sub_keys_via_interpreter(
+            $name,
+            $rawAuthored,
+            $rule,
+            $ruleSource,
+            $allOptionValues
+        );
+        $sourceAutoload = $row['autoload'] ?? ($rule['absent_autoload'] ?? null);
+        if ($row === null && $sourceAutoload === null) {
+            if ($rawAuthored !== []) {
+                throw new \RuntimeException(
+                    "duo: absent mixed option '$name' normalized to authored defaults without an exact "
+                    . 'absent_autoload declaration'
+                );
+            }
+            return;
+        }
+        if (!is_string($sourceAutoload)) {
+            throw new \RuntimeException("duo: mixed option '$name' has no exact capture storage value");
+        }
+        $captured = [];
+        foreach ($rawAuthored as $subKey => $subVal) {
+            $subRule = (array) (($rule['sub_keys'] ?? [])[$subKey] ?? []);
             $ctx = "$name.$subKey";
             if (is_string($subVal)) {
                 ($this->guardSecret)('options', $ctx, $subVal, $subRule);
@@ -354,34 +409,209 @@ final class OptionsCapture {
                 $captured[$subKey] = $capturedValue['value'];
             }
         }
-        if ($captured) {
-            OptionState::assert_rule_autoload($rule, $row['autoload'], "option '$name'");
-            $out[$name] = OptionState::present($captured, $row['autoload']);
-        }
+        // A present source blob with no surviving authored siblings is still
+        // authoritative removal intent. Treating [] as absent leaves stale
+        // authored target keys untouched and skips closed-target validation.
+        OptionState::assert_rule_autoload($rule, $sourceAutoload, "option '$name'");
+        $out[$name] = OptionState::present($captured, $sourceAutoload);
     }
 
     /** @return ?array{option_value:string,autoload:string} */
     private function read_option_row(string $name): ?array {
         global $wpdb;
-        $row = $wpdb->get_row($wpdb->prepare(
-            "SELECT option_value, autoload FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
+        self::assert_option_name($name, 'exact option read');
+        $wpdb->last_error = '';
+        $sizes = $wpdb->get_results($wpdb->prepare(
+            'SELECT option_name, OCTET_LENGTH(option_value) AS option_value_bytes, '
+            . 'OCTET_LENGTH(autoload) AS autoload_bytes, '
+            . 'SHA2(option_value, 256) AS option_value_sha256, '
+            . "SHA2(autoload, 256) AS autoload_sha256 FROM {$wpdb->options} "
+            . 'WHERE option_name = %s ORDER BY option_id ASC LIMIT 2',
             $name
         ), ARRAY_A);
-        if (!is_array($row)) {
+        if (!is_array($sizes)
+            || !array_is_list($sizes)
+            || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException('duo: exact option size preflight failed');
+        }
+        if (count($sizes) > 1) {
+            throw new \RuntimeException('duo: exact option read found duplicate option_name rows');
+        }
+        if ($sizes === []) {
             return null;
         }
-        return ['option_value' => (string) $row['option_value'], 'autoload' => (string) $row['autoload']];
+        $size = $sizes[0];
+        $valueBytes = is_array($size) ? self::canonical_size($size['option_value_bytes'] ?? null) : null;
+        $autoloadBytes = is_array($size) ? self::canonical_size($size['autoload_bytes'] ?? null) : null;
+        $valueHash = is_array($size) ? self::canonical_sha256($size['option_value_sha256'] ?? null) : null;
+        $autoloadHash = is_array($size) ? self::canonical_sha256($size['autoload_sha256'] ?? null) : null;
+        if (!is_array($size)
+            || array_keys($size) !== [
+                'option_name', 'option_value_bytes', 'autoload_bytes',
+                'option_value_sha256', 'autoload_sha256',
+            ]
+            || !is_string($size['option_name'] ?? null)
+            || $valueBytes === null
+            || $autoloadBytes === null
+            || $valueHash === null
+            || $autoloadHash === null
+            || $valueBytes > self::MAX_OPTION_VALUE_BYTES
+            || $autoloadBytes > 20) {
+            throw new \RuntimeException('duo: exact option size preflight returned a malformed or oversized row');
+        }
+        if (!hash_equals($name, $size['option_name'])) {
+            throw new \RuntimeException('duo: exact option read found a collation-equal option_name alias');
+        }
+
+        $wpdb->last_error = '';
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT option_name, option_value, autoload FROM {$wpdb->options} "
+            . 'WHERE option_name = %s ORDER BY option_id ASC LIMIT 2',
+            $name
+        ), ARRAY_A);
+        if (!is_array($rows) || !array_is_list($rows) || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException('duo: exact option read failed');
+        }
+        if (count($rows) > 1) {
+            throw new \RuntimeException('duo: exact option read found duplicate option_name rows');
+        }
+        if ($rows === []) {
+            return null;
+        }
+        $row = $rows[0];
+        if (!is_array($row)
+            || array_keys($row) !== ['option_name', 'option_value', 'autoload']
+            || !is_string($row['option_name'] ?? null)
+            || !is_string($row['option_value'] ?? null)
+            || !is_string($row['autoload'] ?? null)
+            || strlen($row['option_value']) !== $valueBytes
+            || strlen($row['autoload']) !== $autoloadBytes
+            || !hash_equals($valueHash, hash('sha256', $row['option_value']))
+            || !hash_equals($autoloadHash, hash('sha256', $row['autoload']))) {
+            throw new \RuntimeException('duo: exact option read returned a malformed or oversized row');
+        }
+        if (!hash_equals($name, $row['option_name'])) {
+            throw new \RuntimeException('duo: exact option read found a collation-equal option_name alias');
+        }
+        return ['option_value' => $row['option_value'], 'autoload' => $row['autoload']];
     }
 
     /** @return array<string,string> */
     private function all_options_map(): array {
         global $wpdb;
-        $rows = $wpdb->get_results("SELECT option_name, option_value FROM {$wpdb->options}", ARRAY_A) ?: [];
+        $wpdb->last_error = '';
+        $statsRows = $wpdb->get_results(
+            'SELECT COUNT(*) AS row_count, '
+            . 'COALESCE(SUM(OCTET_LENGTH(option_name) + OCTET_LENGTH(option_value)), 0) AS total_bytes, '
+            . 'COALESCE(MAX(OCTET_LENGTH(option_name)), 0) AS max_name_bytes, '
+            . 'COALESCE(MAX(CHAR_LENGTH(option_name)), 0) AS max_name_characters, '
+            . 'COALESCE(MAX(OCTET_LENGTH(option_value)), 0) AS max_value_bytes '
+            . "FROM {$wpdb->options}",
+            ARRAY_A
+        );
+        if (!is_array($statsRows)
+            || !array_is_list($statsRows)
+            || count($statsRows) !== 1
+            || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException('duo: bounded option namespace size preflight failed');
+        }
+        $stats = $statsRows[0];
+        $rowCount = is_array($stats) ? self::canonical_size($stats['row_count'] ?? null) : null;
+        $totalBytes = is_array($stats) ? self::canonical_size($stats['total_bytes'] ?? null) : null;
+        $maxNameBytes = is_array($stats) ? self::canonical_size($stats['max_name_bytes'] ?? null) : null;
+        $maxNameCharacters = is_array($stats)
+            ? self::canonical_size($stats['max_name_characters'] ?? null)
+            : null;
+        $maxValueBytes = is_array($stats) ? self::canonical_size($stats['max_value_bytes'] ?? null) : null;
+        if (!is_array($stats)
+            || array_keys($stats) !== [
+                'row_count', 'total_bytes', 'max_name_bytes', 'max_name_characters', 'max_value_bytes',
+            ]
+            || $rowCount === null
+            || $totalBytes === null
+            || $maxNameBytes === null
+            || $maxNameCharacters === null
+            || $maxValueBytes === null) {
+            throw new \RuntimeException('duo: option namespace size preflight returned malformed statistics');
+        }
+        if ($rowCount > self::MAX_DISCOVERED_OPTIONS) {
+            throw new \RuntimeException('duo: option namespace discovery exceeds the bounded row limit');
+        }
+        if ($maxNameBytes > self::MAX_OPTION_NAME_BYTES
+            || $maxNameCharacters > self::MAX_OPTION_NAME_CHARACTERS
+            || $maxValueBytes > self::MAX_OPTION_VALUE_BYTES
+            || $totalBytes > self::MAX_DISCOVERY_BYTES) {
+            throw new \RuntimeException('duo: option namespace discovery exceeds the bounded byte frontier');
+        }
+
+        $wpdb->last_error = '';
+        $rows = $wpdb->get_results(
+            "SELECT option_name, option_value FROM {$wpdb->options} "
+            . 'ORDER BY option_name ASC, option_id ASC LIMIT ' . (self::MAX_DISCOVERED_OPTIONS + 1),
+            ARRAY_A
+        );
+        if (!is_array($rows) || !array_is_list($rows) || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException('duo: bounded option namespace discovery read failed');
+        }
+        if (count($rows) !== $rowCount) {
+            throw new \RuntimeException('duo: option namespace rows changed after the bounded size preflight');
+        }
         $out = [];
-        foreach ($rows as $row) {
-            $out[(string) $row['option_name']] = (string) $row['option_value'];
+        $aggregateBytes = 0;
+        foreach ($rows as $position => $row) {
+            if (!is_array($row)
+                || array_keys($row) !== ['option_name', 'option_value']
+                || !is_string($row['option_name'] ?? null)
+                || !is_string($row['option_value'] ?? null)) {
+                throw new \RuntimeException(
+                    "duo: option namespace discovery returned a malformed row at bounded position $position"
+                );
+            }
+            self::assert_option_name($row['option_name'], 'option namespace discovery');
+            if (strlen($row['option_value']) > self::MAX_OPTION_VALUE_BYTES) {
+                throw new \RuntimeException('duo: option namespace discovery found an oversized option value');
+            }
+            if (array_key_exists($row['option_name'], $out)) {
+                throw new \RuntimeException('duo: option namespace discovery found duplicate option_name rows');
+            }
+            $aggregateBytes += strlen($row['option_name']) + strlen($row['option_value']);
+            if ($aggregateBytes > self::MAX_DISCOVERY_BYTES) {
+                throw new \RuntimeException('duo: option namespace discovery exceeds the bounded byte limit');
+            }
+            $out[$row['option_name']] = $row['option_value'];
+        }
+        if ($aggregateBytes !== $totalBytes) {
+            throw new \RuntimeException('duo: option namespace values disagree with the bounded size preflight');
         }
         return $out;
+    }
+
+    private static function assert_option_name(string $name, string $purpose): void {
+        $characters = strlen($name) <= self::MAX_OPTION_NAME_BYTES
+            ? preg_match_all('/./us', $name)
+            : false;
+        if ($name === ''
+            || strlen($name) > self::MAX_OPTION_NAME_BYTES
+            || !is_int($characters)
+            || $characters > self::MAX_OPTION_NAME_CHARACTERS
+            || preg_match('//u', $name) !== 1
+            || preg_match('/[\x00-\x1F\x7F]/', $name) === 1) {
+            throw new \RuntimeException("duo: $purpose received a malformed or oversized option name");
+        }
+    }
+
+    private static function canonical_size(mixed $value): ?int {
+        if (!is_string($value) || preg_match('/^(?:0|[1-9][0-9]*)$/D', $value) !== 1) {
+            return null;
+        }
+        $size = filter_var($value, FILTER_VALIDATE_INT);
+        return is_int($size) && $size >= 0 ? $size : null;
+    }
+
+    private static function canonical_sha256(mixed $value): ?string {
+        return is_string($value) && preg_match('/^[0-9a-f]{64}$/D', $value) === 1
+            ? $value
+            : null;
     }
 
     private function option_ref_tokens(

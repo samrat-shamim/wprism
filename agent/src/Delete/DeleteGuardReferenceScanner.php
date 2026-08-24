@@ -148,6 +148,7 @@ final class DeleteGuardReferenceScanner {
             : "`$column` ASC";
         $sql = "SELECT * FROM `$table`$forceIndex WHERE " . implode(' AND ', $where) . " ORDER BY $order";
         if ($forUpdate) {
+            DeleteGuardEvaluator::assert_transaction_isolation('deletion guard locking');
             $sql .= ' FOR UPDATE';
             $found = $wpdb->get_results($wpdb->prepare($sql, ...$args), ARRAY_A);
             if ($wpdb->last_error) {
@@ -224,6 +225,7 @@ final class DeleteGuardReferenceScanner {
         $forceIndex = $lockIndex !== null ? " FORCE INDEX (`$lockIndex`)" : '';
         $sql = "SELECT `$identityColumn` AS guard_id, `option_name`, `option_value`, `autoload` FROM `$table`$forceIndex";
         if ($forUpdate) {
+            DeleteGuardEvaluator::assert_transaction_isolation('deletion guard locking');
             $sql .= " WHERE `option_name` >= ''";
         }
         $sql .= " ORDER BY `$identityColumn` ASC" . ($forUpdate ? ' FOR UPDATE' : '');
@@ -365,6 +367,9 @@ final class DeleteGuardReferenceScanner {
             }
         }
         $forceIndex = $lockIndex !== null ? " FORCE INDEX (`$lockIndex`)" : '';
+        if ($forUpdate) {
+            DeleteGuardEvaluator::assert_transaction_isolation('deletion guard locking');
+        }
         $sql = "SELECT `$identityColumn` AS guard_id, `$sourcePk` AS source_id, `meta_value` "
             . "FROM `$table`$forceIndex WHERE " . implode(' AND ', $where)
             . " ORDER BY `$identityColumn` ASC" . ($forUpdate ? ' FOR UPDATE' : '');

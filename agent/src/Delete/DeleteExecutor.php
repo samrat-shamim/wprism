@@ -5,6 +5,8 @@ require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Repository/Snapshot.php';
 require_once __DIR__ . '/../Apply/RelationshipMaterializer.php';
 require_once __DIR__ . '/../Apply/MenuMaterializer.php';
+require_once __DIR__ . '/../Apply/CacheInvalidationTransaction.php';
+require_once __DIR__ . '/../Apply/ApplyFieldMaterializer.php';
 // Deliberately NOT require_once('Ledger.php') or require_once('Db.php') here:
 // sandbox/tests/offline/code-half/regress_code_revision_enforcement.php and
 // regress_scoped_promotion_target.php both reach this file transitively
@@ -71,10 +73,13 @@ require_once __DIR__ . '/../Apply/MenuMaterializer.php';
  * reconcile_term_relationships() established (slice 6).
  */
 final class DeleteExecutor {
+    private const MAX_REVISIONS = 100000;
+    private const MAX_TERM_TAXONOMIES = 1024;
     public function __construct(
         private readonly Policy $policy,
         private readonly RelationshipMaterializer $relationshipMaterializer,
-        private readonly MenuMaterializer $menuMaterializer
+        private readonly MenuMaterializer $menuMaterializer,
+        private readonly ApplyFieldMaterializer $fieldMaterializer
     ) {
     }
 
@@ -97,14 +102,35 @@ final class DeleteExecutor {
             if ($id === null) {
                 throw new \RuntimeException("duo: cannot delete post $uuid: target identity mapping is missing");
             }
-            $postType = (string) $wpdb->get_var($wpdb->prepare(
-                "SELECT post_type FROM {$wpdb->posts} WHERE ID = %d", $id
-            ));
-            $revisionIds = array_map('intval', $wpdb->get_col($wpdb->prepare(
-                "SELECT ID FROM {$wpdb->posts} WHERE post_parent = %d AND post_type = 'revision' ORDER BY ID ASC",
-                $id
-            )) ?: []);
+            $post = $this->locked_post_row($id, "post $uuid deletion parent locking");
+            if ($post === null) {
+                throw new \RuntimeException("duo: cannot delete post $uuid: exact target row is missing");
+            }
+            $postType = $post['post_type'];
+            $children = $this->locked_child_posts($id, "post $uuid revision roster locking");
+            $revisionIds = [];
+            $preservedChildren = [];
+            foreach ($children as $child) {
+                if ($child['post_type'] === 'revision') {
+                    $revisionIds[] = $child['ID'];
+                } else {
+                    $preservedChildren[] = $child;
+                }
+            }
+            $metaLock = $this->fieldMaterializer->meta_owner_range_lock(
+                $wpdb->postmeta,
+                'post_id',
+                "post $uuid deletion metadata locking"
+            );
+            foreach (array_merge([$id], $revisionIds) as $ownerId) {
+                $metaLock->read($ownerId);
+                $this->relationshipMaterializer->lock_owner_relationships(
+                    $ownerId,
+                    "post $uuid deletion relationship locking"
+                );
+            }
             foreach ($revisionIds as $revisionId) {
+                $this->relationshipMaterializer->delete_post_relationships($revisionId, 'revision');
                 Db::delete(
                     $wpdb->postmeta,
                     ['post_id' => $revisionId],
@@ -112,37 +138,65 @@ final class DeleteExecutor {
                     'apply delete post revision meta'
                 );
                 Db::delete($wpdb->posts, ['ID' => $revisionId], null, 'apply delete post revision');
-                $this->assert_zero(
-                    "SELECT COUNT(*) FROM {$wpdb->posts} WHERE ID = %d",
-                    [$revisionId],
-                    "post $uuid revision $revisionId"
-                );
-                $this->assert_zero(
-                    "SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE post_id = %d",
-                    [$revisionId],
-                    "post $uuid revision $revisionId metadata"
-                );
+                CacheInvalidationTransaction::queue_post($revisionId, 'revision', 'apply delete post revision');
+                if ($this->locked_post_row($revisionId, "post $uuid revision readback") !== null
+                    || $metaLock->read($revisionId) !== []) {
+                    throw new \RuntimeException("duo: post $uuid revision $revisionId deletion readback was nonempty");
+                }
             }
             $this->relationshipMaterializer->delete_post_relationships($id, $postType);
             Db::delete($wpdb->postmeta, ['post_id' => $id], null, 'apply delete post meta');
             Db::delete($wpdb->posts, ['ID' => $id], null, 'apply delete post');
-            $this->assert_zero(
-                "SELECT COUNT(*) FROM {$wpdb->posts} WHERE ID = %d",
-                [$id],
-                "post $uuid row"
-            );
-            $this->assert_zero(
-                "SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE post_id = %d",
-                [$id],
-                "post $uuid metadata"
-            );
+            CacheInvalidationTransaction::queue_post($id, $postType, 'apply delete post');
+            if ($this->locked_post_row($id, "post $uuid deletion readback") !== null
+                || $metaLock->read($id) !== []
+                || $this->locked_child_posts($id, "post $uuid revision roster readback") !== $preservedChildren) {
+                throw new \RuntimeException("duo: post $uuid exact locked deletion readback disagrees with the mutation roster");
+            }
         } elseif ($type === 'term' || $type === 'menu') {
             $termId = Ledger::id_for($uuid, Ledger::KIND_TERM);
             $tt = Ledger::id_for($uuid, Ledger::KIND_TT);
             if ($termId === null || $tt === null) {
                 throw new \RuntimeException("duo: cannot delete $type $uuid: target term identity mapping is incomplete");
             }
+            [$taxonomy, $relationshipObjectIds] = $this->deletion_relationship_witness($termId, $tt);
+            CacheInvalidationTransaction::assert_term_taxonomy_prepared($taxonomy, "apply delete $type");
+            $termMetaLock = $this->fieldMaterializer->meta_owner_range_lock(
+                $wpdb->termmeta,
+                'term_id',
+                "apply delete $type metadata locking"
+            );
+            $termMetaLock->read($termId);
+            $this->relationshipMaterializer->lock_owner_relationships(
+                $termId,
+                "apply delete $type outbound relationship locking"
+            );
+            $itemIds = [];
             if ($type === 'menu') {
+                $postMetaLock = $this->fieldMaterializer->meta_owner_range_lock(
+                    $wpdb->postmeta,
+                    'post_id',
+                    'apply delete menu item metadata locking'
+                );
+                foreach ($relationshipObjectIds as $itemId) {
+                    $item = $this->locked_post_row($itemId, 'apply delete menu item post locking');
+                    if ($item === null || !hash_equals('nav_menu_item', $item['post_type'])) {
+                        throw new \RuntimeException('duo: menu deletion relationship points at a non-menu-item post');
+                    }
+                    $postMetaLock->read($itemId);
+                    $relationships = $this->relationshipMaterializer->lock_owner_relationships(
+                        $itemId,
+                        'apply delete menu item relationship ownership locking'
+                    );
+                    foreach ($relationships as $relationship) {
+                        if ($relationship['term_taxonomy_id'] !== $tt) {
+                            throw new \RuntimeException(
+                                "duo: menu deletion refuses item $itemId shared with another taxonomy/menu"
+                            );
+                        }
+                    }
+                    $itemIds[] = $itemId;
+                }
                 // Authored menu locations are part of this selected menu's
                 // owned state. Remove only slots whose current value is this
                 // exact term id before deleting it; assign_locations() keeps
@@ -152,31 +206,19 @@ final class DeleteExecutor {
                 if ($this->policy->menu_field_class('locations') !== 'derived') {
                     $this->menuMaterializer->assign_locations($termId, []);
                 }
-                $itemIds = array_map('intval', $wpdb->get_col($wpdb->prepare(
-                    "SELECT p.ID FROM {$wpdb->posts} p
-                     JOIN {$wpdb->term_relationships} tr ON tr.object_id = p.ID
-                     WHERE tr.term_taxonomy_id = %d AND p.post_type = 'nav_menu_item'
-                     ORDER BY p.ID ASC",
-                    $tt
-                )) ?: []);
                 foreach ($itemIds as $itemId) {
                     $itemUuid = Ledger::uuid_for($itemId, Ledger::KIND_POST);
                     $this->relationshipMaterializer->delete_post_relationships($itemId, 'nav_menu_item');
                     Db::delete($wpdb->postmeta, ['post_id' => $itemId], null, 'apply delete menu item meta');
                     Db::delete($wpdb->posts, ['ID' => $itemId], null, 'apply delete menu item');
+                    CacheInvalidationTransaction::queue_post($itemId, 'nav_menu_item', 'apply delete menu item');
                     if ($itemUuid !== null) {
                         Ledger::forget($itemUuid);
                     }
-                    $this->assert_zero(
-                        "SELECT COUNT(*) FROM {$wpdb->posts} WHERE ID = %d",
-                        [$itemId],
-                        "menu $uuid item $itemId"
-                    );
-                    $this->assert_zero(
-                        "SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE post_id = %d",
-                        [$itemId],
-                        "menu $uuid item $itemId metadata"
-                    );
+                    if ($this->locked_post_row($itemId, 'apply delete menu item readback') !== null
+                        || $postMetaLock->read($itemId) !== []) {
+                        throw new \RuntimeException("duo: menu $uuid item $itemId deletion readback was nonempty");
+                    }
                 }
             }
             // This term's OWN outbound relationships (term-object taxonomies
@@ -188,41 +230,209 @@ final class DeleteExecutor {
                 null,
                 'apply delete taxonomy relationships'
             );
+            if ($this->locked_inbound_relationship_ids(
+                $tt,
+                'apply delete taxonomy relationships readback'
+            ) !== []) {
+                throw new \RuntimeException('duo: taxonomy relationship deletion locked readback was nonempty');
+            }
+            foreach ($relationshipObjectIds as $objectId) {
+                CacheInvalidationTransaction::queue_relationship(
+                    $objectId,
+                    $taxonomy,
+                    'apply delete taxonomy relationships'
+                );
+            }
             Db::delete($wpdb->term_taxonomy, ['term_taxonomy_id' => $tt], null, 'apply delete term taxonomy');
             Db::delete($wpdb->termmeta, ['term_id' => $termId], null, 'apply delete term meta');
             Db::delete($wpdb->terms, ['term_id' => $termId], null, 'apply delete term');
-            $this->assert_zero(
-                "SELECT COUNT(*) FROM {$wpdb->terms} WHERE term_id = %d",
-                [$termId],
-                "$type $uuid term row"
-            );
-            $this->assert_zero(
-                "SELECT COUNT(*) FROM {$wpdb->term_taxonomy} WHERE term_taxonomy_id = %d",
-                [$tt],
-                "$type $uuid taxonomy row"
-            );
-            $this->assert_zero(
-                "SELECT COUNT(*) FROM {$wpdb->termmeta} WHERE term_id = %d",
-                [$termId],
-                "$type $uuid metadata"
-            );
-            $this->assert_zero(
-                "SELECT COUNT(*) FROM {$wpdb->term_relationships} WHERE term_taxonomy_id = %d",
-                [$tt],
-                "$type $uuid inbound relationships"
-            );
+            CacheInvalidationTransaction::queue_term($termId, $taxonomy, 'apply delete term');
+            if ($this->locked_term_row($termId, "apply delete $type term readback") !== null
+                || $this->locked_term_taxonomy_rows($termId, "apply delete $type taxonomy readback") !== []
+                || $termMetaLock->read($termId) !== []
+                || $this->locked_inbound_relationship_ids($tt, "apply delete $type inbound readback") !== []) {
+                throw new \RuntimeException("duo: $type $uuid exact locked deletion readback was nonempty");
+            }
         } else {
             throw new \RuntimeException("duo: cannot delete unsupported entity type '$type'");
         }
         $warnings[] = "deleted $type $uuid";
     }
 
-    /** A post-delete assertion inside the active transaction. */
-    private function assert_zero(string $sql, array $args, string $label): void {
-        global $wpdb;
-        $count = (int) $wpdb->get_var($wpdb->prepare($sql, ...$args));
-        if ($count !== 0) {
-            throw new \RuntimeException("duo: deletion verification failed: $count $label row(s) remain");
+    /** @return array{0:string,1:list<int>} */
+    private function deletion_relationship_witness(int $termId, int $termTaxonomyId): array {
+        if ($this->locked_term_row($termId, 'term deletion exact term locking') === null) {
+            throw new \RuntimeException('duo: term deletion exact term row is missing');
         }
+        $taxonomyRows = $this->locked_term_taxonomy_rows($termId, 'term deletion taxonomy owner-range locking');
+        if (count($taxonomyRows) !== 1 || $taxonomyRows[0]['term_taxonomy_id'] !== $termTaxonomyId) {
+            throw new \RuntimeException('duo: term deletion requires one exact unshared taxonomy row');
+        }
+        $taxonomy = $taxonomyRows[0]['taxonomy'];
+
+        $ids = $this->locked_inbound_relationship_ids(
+            $termTaxonomyId,
+            'term deletion relationship witness'
+        );
+        return [$taxonomy, $ids];
     }
+
+    /** @return ?array{ID:int,post_type:string} */
+    private function locked_post_row(int $postId, string $purpose): ?array {
+        global $wpdb;
+        $index = $this->fieldMaterializer->proven_lock_index($wpdb->posts, 'ID', $purpose, true);
+        $wpdb->last_error = '';
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT ID, post_type FROM {$wpdb->posts} FORCE INDEX (`$index`) "
+            . 'WHERE ID = %d ORDER BY ID ASC LIMIT 2 FOR UPDATE',
+            $postId
+        ), ARRAY_A);
+        if (!is_array($rows) || !array_is_list($rows) || count($rows) > 1
+            || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException("duo: $purpose failed");
+        }
+        if ($rows === []) return null;
+        $row = $rows[0];
+        $id = is_array($row) ? self::canonical_positive_id($row['ID'] ?? null) : null;
+        $postType = is_array($row) ? ($row['post_type'] ?? null) : null;
+        if (!is_array($row) || array_keys($row) !== ['ID', 'post_type'] || $id !== $postId
+            || !is_string($postType) || preg_match('/^[A-Za-z0-9_-]{1,20}$/D', $postType) !== 1) {
+            throw new \RuntimeException("duo: $purpose returned a malformed/aliased row");
+        }
+        return ['ID' => $id, 'post_type' => $postType];
+    }
+
+    /** @return list<array{ID:int,post_type:string}> */
+    private function locked_child_posts(int $parentId, string $purpose): array {
+        global $wpdb;
+        $index = $this->fieldMaterializer->proven_lock_index($wpdb->posts, 'post_parent', $purpose);
+        $wpdb->last_error = '';
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT ID, post_type FROM {$wpdb->posts} FORCE INDEX (`$index`) "
+            . 'WHERE post_parent = %d ORDER BY ID ASC LIMIT ' . (self::MAX_REVISIONS + 1) . ' FOR UPDATE',
+            $parentId
+        ), ARRAY_A);
+        if (!is_array($rows) || !array_is_list($rows) || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException("duo: $purpose failed");
+        }
+        if (count($rows) > self::MAX_REVISIONS) {
+            throw new \RuntimeException("duo: $purpose exceeds the bounded child-row limit");
+        }
+        $out = [];
+        $seen = [];
+        foreach ($rows as $position => $row) {
+            $id = is_array($row) ? self::canonical_positive_id($row['ID'] ?? null) : null;
+            $postType = is_array($row) ? ($row['post_type'] ?? null) : null;
+            if (!is_array($row) || array_keys($row) !== ['ID', 'post_type'] || $id === null
+                || !is_string($postType) || preg_match('/^[A-Za-z0-9_-]{1,20}$/D', $postType) !== 1
+                || isset($seen[$id])) {
+                throw new \RuntimeException("duo: $purpose returned a malformed/duplicate row at position $position");
+            }
+            $seen[$id] = true;
+            $out[] = ['ID' => $id, 'post_type' => $postType];
+        }
+        return $out;
+    }
+
+    /** @return ?array{term_id:int} */
+    private function locked_term_row(int $termId, string $purpose): ?array {
+        global $wpdb;
+        $index = $this->fieldMaterializer->proven_lock_index($wpdb->terms, 'term_id', $purpose, true);
+        $wpdb->last_error = '';
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT term_id FROM {$wpdb->terms} FORCE INDEX (`$index`) "
+            . 'WHERE term_id = %d ORDER BY term_id ASC LIMIT 2 FOR UPDATE',
+            $termId
+        ), ARRAY_A);
+        if (!is_array($rows) || !array_is_list($rows) || count($rows) > 1
+            || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException("duo: $purpose failed");
+        }
+        if ($rows === []) return null;
+        $row = $rows[0];
+        if (!is_array($row) || array_keys($row) !== ['term_id']
+            || self::canonical_positive_id($row['term_id'] ?? null) !== $termId) {
+            throw new \RuntimeException("duo: $purpose returned a malformed/aliased row");
+        }
+        return ['term_id' => $termId];
+    }
+
+    /** @return list<array{term_taxonomy_id:int,taxonomy:string}> */
+    private function locked_term_taxonomy_rows(int $termId, string $purpose): array {
+        global $wpdb;
+        $index = $this->fieldMaterializer->proven_lock_index($wpdb->term_taxonomy, 'term_id', $purpose);
+        $wpdb->last_error = '';
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT term_taxonomy_id, taxonomy FROM {$wpdb->term_taxonomy} FORCE INDEX (`$index`) "
+            . 'WHERE term_id = %d ORDER BY term_taxonomy_id ASC LIMIT '
+            . (self::MAX_TERM_TAXONOMIES + 1) . ' FOR UPDATE',
+            $termId
+        ), ARRAY_A);
+        if (!is_array($rows) || !array_is_list($rows) || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException("duo: $purpose failed");
+        }
+        if (count($rows) > self::MAX_TERM_TAXONOMIES) {
+            throw new \RuntimeException("duo: $purpose exceeds the bounded taxonomy-row limit");
+        }
+        $out = [];
+        $seen = [];
+        foreach ($rows as $position => $row) {
+            $id = is_array($row) ? self::canonical_positive_id($row['term_taxonomy_id'] ?? null) : null;
+            $taxonomy = is_array($row) ? ($row['taxonomy'] ?? null) : null;
+            if (!is_array($row) || array_keys($row) !== ['term_taxonomy_id', 'taxonomy'] || $id === null
+                || !is_string($taxonomy) || preg_match('/^[A-Za-z0-9_-]{1,32}$/D', $taxonomy) !== 1
+                || isset($seen[$id])) {
+                throw new \RuntimeException("duo: $purpose returned a malformed/duplicate row at position $position");
+            }
+            $seen[$id] = true;
+            $out[] = ['term_taxonomy_id' => $id, 'taxonomy' => $taxonomy];
+        }
+        return $out;
+    }
+
+    /** @return list<int> */
+    private function locked_inbound_relationship_ids(int $termTaxonomyId, string $purpose): array {
+        global $wpdb;
+        $index = $this->fieldMaterializer->proven_lock_index(
+            $wpdb->term_relationships,
+            'term_taxonomy_id',
+            $purpose
+        );
+        $wpdb->last_error = '';
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT object_id FROM {$wpdb->term_relationships} FORCE INDEX (`$index`) "
+            . 'WHERE term_taxonomy_id = %d ORDER BY object_id ASC LIMIT 100001 FOR UPDATE',
+            $termTaxonomyId
+        ), ARRAY_A);
+        if (!is_array($rows)
+            || !array_is_list($rows)
+            || trim((string) ($wpdb->last_error ?? '')) !== '') {
+            throw new \RuntimeException("duo: $purpose failed");
+        }
+        if (count($rows) > 100000) {
+            throw new \RuntimeException("duo: $purpose exceeds the bounded row limit");
+        }
+        $ids = [];
+        foreach ($rows as $position => $relationship) {
+            $rawId = is_array($relationship) && array_keys($relationship) === ['object_id']
+                ? $relationship['object_id']
+                : null;
+            $id = self::canonical_positive_id($rawId);
+            if ($id === null || isset($ids[$id])) {
+                throw new \RuntimeException(
+                    "duo: $purpose contains a malformed/duplicate row at position $position"
+                );
+            }
+            $ids[$id] = true;
+        }
+        return array_map('intval', array_keys($ids));
+    }
+
+    private static function canonical_positive_id(mixed $value): ?int {
+        if (is_int($value)) return $value > 0 ? $value : null;
+        if (!is_string($value) || preg_match('/^[1-9][0-9]*$/D', $value) !== 1) return null;
+        $id = filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        return is_int($id) && (string) $id === $value ? $id : null;
+    }
+
 }

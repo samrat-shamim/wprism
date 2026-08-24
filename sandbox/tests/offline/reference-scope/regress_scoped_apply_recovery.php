@@ -262,11 +262,32 @@ final class ScopedRecoveryEffectWpdb {
             );
             return $rows;
         }
+        if (str_contains($query, 'FROM wp_options')
+            && preg_match("/option_name = '((?:''|[^'])*)'/", $query, $match) === 1) {
+            $name = str_replace("''", "'", $match[1]);
+            if (!array_key_exists($name, $this->optionRows)) {
+                return [];
+            }
+            $value = $this->optionRows[$name];
+            return str_contains($query, 'OCTET_LENGTH(option_value)')
+                ? [[
+                    'option_name' => $name,
+                    'option_value_bytes' => (string) strlen($value),
+                    'option_value_sha256' => hash('sha256', $value),
+                ]]
+                : [['option_name' => $name, 'option_value' => $value]];
+        }
         if (str_contains($query, "option_name LIKE 'widget")) {
             $rows = [];
             foreach ($this->optionRows as $name => $value) {
                 if (str_starts_with($name, 'widget_')) {
-                    $rows[] = ['option_name' => $name, 'option_value' => $value];
+                    $rows[] = str_contains($query, 'OCTET_LENGTH(option_value)')
+                        ? [
+                            'option_name' => $name,
+                            'option_value_bytes' => (string) strlen($value),
+                            'option_value_sha256' => hash('sha256', $value),
+                        ]
+                        : ['option_name' => $name, 'option_value' => $value];
                 }
             }
             return $rows;

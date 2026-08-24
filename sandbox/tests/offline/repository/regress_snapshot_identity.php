@@ -9,6 +9,10 @@
  */
 declare(strict_types=1);
 
+if (!defined('ARRAY_A')) {
+    define('ARRAY_A', 'ARRAY_A');
+}
+
 require_once __DIR__ . '/../../../../agent/src/Repository/SnapshotIdentity.php';
 
 use Duo\Canon;
@@ -370,6 +374,134 @@ $check(!str_contains($identitySource, 'require_once') && !str_contains($identity
     'SnapshotIdentity has no hidden load-order or database dependency');
 $check(!preg_match('/\b(?:Snapshot|Policy|Ledger|Tokens|Canon|Uuid)::/', $identitySource),
     'SnapshotIdentity depends only on injected engine capabilities');
+
+require_once __DIR__ . '/../../../../agent/src/Kernel/Uuid.php';
+require_once __DIR__ . '/../../../../agent/src/Repository/Identity.php';
+
+final class EmbeddedIdentityWpdbFixture {
+    public string $postmeta = 'wp_postmeta';
+    public string $posts = 'wp_posts';
+    public string $termmeta = 'wp_termmeta';
+    public string $terms = 'wp_terms';
+    public string $last_error = '';
+    /** @var array<string,list<array{meta_id:int,owner_id:int,meta_key:string,meta_value:string}>> */
+    public array $meta = ['post' => [], 'term' => []];
+    /** @var array<string,list<int>> */
+    public array $owners = ['post' => [], 'term' => []];
+    public ?string $failureKind = null;
+    public ?string $saturatedKind = null;
+    /** @var list<string> */
+    public array $queries = [];
+
+    public function prepare(string $sql, mixed ...$args): string {
+        foreach ($args as $arg) {
+            $sql = preg_replace('/%d/', (string) $arg, $sql, 1);
+        }
+        return $sql;
+    }
+
+    public function get_results(string $sql, mixed $mode): mixed {
+        if ($mode !== ARRAY_A) {
+            throw new RuntimeException('embedded identity fixture expected ARRAY_A');
+        }
+        $this->queries[] = $sql;
+        $kind = str_contains($sql, '`wp_postmeta`') ? 'post' : 'term';
+        if ($this->failureKind === $kind) {
+            $this->last_error = 'simulated embedded identity read failure';
+            return false;
+        }
+        if ($this->saturatedKind === $kind) {
+            return array_fill(0, 100001, [
+                'local_id' => '1',
+                'uuid' => '11111111-1111-4111-8111-111111111111',
+                'uuid_bytes' => '36',
+            ]);
+        }
+        $rows = array_values(array_filter(
+            $this->meta[$kind],
+            static fn(array $row): bool => $row['meta_key'] === '_duo_uuid'
+        ));
+        usort($rows, static fn(array $left, array $right): int =>
+            [$left['owner_id'], $left['meta_id']] <=> [$right['owner_id'], $right['meta_id']]);
+        return array_map(static fn(array $row): array => [
+            'local_id' => (string) $row['owner_id'],
+            'uuid' => substr($row['meta_value'], 0, 37),
+            'uuid_bytes' => (string) strlen($row['meta_value']),
+        ], $rows);
+    }
+
+    public function get_col(string $sql): array {
+        $this->queries[] = $sql;
+        $kind = str_contains($sql, '`wp_posts`') ? 'post' : 'term';
+        preg_match('/ IN \(([^)]*)\)/', $sql, $match);
+        $requested = array_map('intval', explode(',', (string) ($match[1] ?? '')));
+        $live = array_values(array_intersect($this->owners[$kind], $requested));
+        sort($live, SORT_NUMERIC);
+        return array_map('strval', $live);
+    }
+}
+
+$embeddedWpdb = new EmbeddedIdentityWpdbFixture();
+$embeddedWpdb->owners = ['post' => [12], 'term' => [20]];
+$embeddedWpdb->meta = [
+    'post' => [[
+        'meta_id' => 1,
+        'owner_id' => 12,
+        'meta_key' => '_duo_uuid',
+        'meta_value' => '11111111-1111-4111-8111-111111111111',
+    ]],
+    'term' => [
+        [
+            'meta_id' => 2,
+            'owner_id' => 20,
+            'meta_key' => '_DUO_UUID',
+            'meta_value' => '11111111-1111-4111-8111-111111111111',
+        ],
+        [
+            'meta_id' => 3,
+            'owner_id' => 99,
+            'meta_key' => '_duo_uuid',
+            'meta_value' => '11111111-1111-4111-8111-111111111111',
+        ],
+    ],
+];
+$GLOBALS['wpdb'] = $embeddedWpdb;
+\Duo\Identity::assert_embedded_unique();
+$check(
+    count($embeddedWpdb->queries) === 4
+        && !array_filter(
+            array_filter(
+                $embeddedWpdb->queries,
+                static fn(string $sql): bool => str_contains($sql, 'meta_value')
+            ),
+            static fn(string $sql): bool => !str_contains($sql, "BINARY meta_key = BINARY '_duo_uuid'")
+                || !str_contains($sql, 'LEFT(meta_value, 37)')
+                || !str_contains($sql, 'LIMIT 100001')
+        )
+        && !array_filter(
+            array_filter(
+                $embeddedWpdb->queries,
+                static fn(string $sql): bool => str_contains($sql, ' WHERE `') && str_contains($sql, ' IN (')
+            ),
+            static fn(string $sql): bool => !str_contains($sql, 'LIMIT 501')
+        ),
+    'embedded identity reads exclude aliases at source and filter orphans through bounded checked owner chunks'
+);
+
+$embeddedWpdb->failureKind = 'post';
+$throws(
+    static fn() => \Duo\Identity::assert_embedded_unique(),
+    'simulated embedded identity read failure',
+    'embedded identity DB failure never becomes an empty identity estate'
+);
+$embeddedWpdb->failureKind = null;
+$embeddedWpdb->last_error = '';
+$embeddedWpdb->saturatedKind = 'post';
+$throws(
+    static fn() => \Duo\Identity::assert_embedded_unique(),
+    'bounded row limit exceeded',
+    'embedded identity validation refuses its high-cardinality frontier before building an unbounded owner list'
+);
 
 if ($failures !== []) {
     fwrite(STDERR, count($failures) . " snapshot-identity regression(s) failed\n");

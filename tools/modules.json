@@ -86,7 +86,8 @@
           "StructuredReferenceCodec",
           "TextTokenizer",
           "TransientDbException",
-          "UrlQueryReferenceCodec"
+          "UrlQueryReferenceCodec",
+          "MetaRows"
         ],
         "depends_on": [
           "Kernel"
@@ -110,7 +111,7 @@
             ]
           }
         ],
-        "file_count": 29,
+        "file_count": 30,
         "files": [
           "Canon.php",
           "CommandRefusal.php",
@@ -118,6 +119,7 @@
           "DurableFilesystem.php",
           "IdentityTokenCodec.php",
           "JsonRefs.php",
+          "MetaRows.php",
           "OptionState.php",
           "OrderPreserved.php",
           "PathSafety.php",
@@ -717,7 +719,7 @@
             ]
           }
         ],
-        "file_count": 27,
+        "file_count": 29,
         "files": [
           "Apply.php",
           "ApplyFieldMaterializer.php",
@@ -735,9 +737,11 @@
           "AttachmentMaterializer.php",
           "AuthoredTransactionExecutor.php",
           "AuthoredTransactionRequest.php",
+          "CacheInvalidationTransaction.php",
           "EntityAdopter.php",
           "IncompleteApplyMarker.php",
           "MenuMaterializer.php",
+          "MetaOwnerRangeLock.php",
           "OptionsMaterializer.php",
           "PostMaterializer.php",
           "PreparedApply.php",
