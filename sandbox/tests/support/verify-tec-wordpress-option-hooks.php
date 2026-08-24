@@ -61,9 +61,17 @@ function tec_option_require_call(string $body, string $needle, string $label): v
     }
 }
 
-$args = getopt('', ['wordpress-root:', 'version:', 'fixture::']);
+$args = getopt('', [
+    'wordpress-root:',
+    'version:',
+    'fixture::',
+    'tec-root::',
+    'tec-version::',
+]);
 $wordpressRoot = rtrim((string) ($args['wordpress-root'] ?? ''), '/');
 $version = (string) ($args['version'] ?? '');
+$tecRoot = rtrim((string) ($args['tec-root'] ?? ''), '/');
+$tecVersion = (string) ($args['tec-version'] ?? '');
 $fixturePath = (string) ($args['fixture']
     ?? dirname(__DIR__) . '/fixtures/the-events-calendar-wordpress-option-hooks.json');
 if ($wordpressRoot === '' || $version === '') {
@@ -113,6 +121,7 @@ $update = tec_option_function_body($option, 'update_option');
 $add = tec_option_function_body($option, 'add_option');
 $autoloadValues = tec_option_function_body($option, 'wp_autoload_values_to_autoload');
 $determineAutoload = tec_option_function_body($option, 'wp_determine_option_autoload_value');
+$isLargeOption = tec_option_function_body($option, 'wp_filter_default_autoload_value_via_option_size');
 $sanitize = tec_option_function_body($formatting, 'sanitize_option');
 
 foreach ([
@@ -168,6 +177,47 @@ $derived = [
 if (($fixture['shared_paths'] ?? null) !== $derived) {
     tec_option_usage('source-derived hook topology disagrees with the reviewed fixture');
 }
+$lastSaveDerived = [
+    'get_option' => [
+        'pre_option_tribe_last_save_post',
+        'pre_option',
+        'pre_wp_load_alloptions',
+        'pre_cache_alloptions',
+        'alloptions',
+        'default_option_tribe_last_save_post',
+        'option_tribe_last_save_post',
+    ],
+    'sanitize' => ['sanitize_option_tribe_last_save_post'],
+    'update_existing_fixed_autoload' => [
+        'pre_update_option_tribe_last_save_post',
+        'pre_update_option',
+        'update_option',
+        'wp_autoload_values_to_autoload',
+        'update_option_tribe_last_save_post',
+        'updated_option',
+    ],
+    'update_existing_computed_autoload' => [
+        'pre_update_option_tribe_last_save_post',
+        'pre_update_option',
+        'update_option',
+        'wp_autoload_values_to_autoload',
+        'wp_default_autoload_value',
+        'wp_max_autoloaded_option_size',
+        'update_option_tribe_last_save_post',
+        'updated_option',
+    ],
+    'add_absent' => [
+        'add_option',
+        'wp_autoload_values_to_autoload',
+        'wp_default_autoload_value',
+        'wp_max_autoloaded_option_size',
+        'add_option_tribe_last_save_post',
+        'added_option',
+    ],
+];
+if (($fixture['last_save_paths'] ?? null) !== $lastSaveDerived) {
+    tec_option_usage('native save-post hook topology disagrees with the reviewed fixture');
+}
 
 $codeOnly = '';
 foreach (token_get_all($option . "\n" . $formatting) as $token) {
@@ -191,10 +241,67 @@ $defaultAutoloadFilter = strpos($determineAutoload, "apply_filters( 'wp_default_
 if ($booleanReturn === false || $defaultAutoloadFilter === false || $booleanReturn >= $defaultAutoloadFilter) {
     tec_option_usage('explicit autoload=true no longer bypasses default-autoload filters');
 }
+tec_option_require_call(
+    $isLargeOption,
+    "apply_filters( 'wp_max_autoloaded_option_size'",
+    'maximum autoloaded-option size filter'
+);
 foreach (['wp_cache_get', 'wp_cache_set', 'wp_cache_delete'] as $function) {
     $body = tec_option_function_body($sources['wp-includes/cache.php'], $function);
     if (str_contains($body, 'apply_filters(') || str_contains($body, 'do_action(')) {
         tec_option_usage("stock WordPress cache wrapper $function gained callback topology");
+    }
+}
+
+$verifiedTecSources = null;
+if ($tecRoot !== '' || $tecVersion !== '') {
+    if ($tecRoot === '' || $tecVersion === '') {
+        tec_option_usage('tec-root and tec-version must be supplied together');
+    }
+    $verifiedTecSources = $fixture['tec_service_sources'][$tecVersion] ?? null;
+    if (!is_array($verifiedTecSources) || $verifiedTecSources === []) {
+        tec_option_usage("TEC version $tecVersion is not service-source pinned");
+    }
+    $tecSources = [];
+    foreach ($verifiedTecSources as $relative => $digest) {
+        if (!is_string($relative)
+            || !is_string($digest)
+            || preg_match('/^[a-f0-9]{64}$/D', $digest) !== 1) {
+            tec_option_usage('TEC service-source fixture is malformed');
+        }
+        $bytes = @file_get_contents("$tecRoot/$relative");
+        if (!is_string($bytes) || !hash_equals($digest, hash('sha256', $bytes))) {
+            tec_option_usage("TEC $tecVersion source digest disagrees for $relative");
+        }
+        $tecSources[$relative] = $bytes;
+    }
+    foreach ([
+        'common/src/Tribe/Cache.php' =>
+            "update_option( 'tribe_last_' . \$action, (float) \$timestamp )",
+        'common/src/Tribe/Cache_Listener.php' =>
+            '$this->cache = new Tribe__Cache()',
+        'common/src/Tribe/Settings_Manager.php' =>
+            "if ( Tribe__Main::OPTIONNAME !== \$option ) { return; }",
+        'common/src/Common/Libraries/Harbor.php' =>
+            '$this->container->register( PUE::class )',
+        'common/src/Common/Integrations/Harbor/PUE.php' =>
+            "if ( ! str_starts_with( \$option, 'pue_install_key_' ) ) { return \$value; }",
+        'src/Events/Custom_Tables/V1/Models/Occurrence.php' =>
+            'tribe()->make( Occurrences_Generator::class )',
+        'src/Events/Custom_Tables/V1/Models/Builder.php' =>
+            'tribe( Configuration::class )',
+        'src/Tribe/Aggregator.php' =>
+            "if ( 'pue_install_key_event_aggregator' !== \$option ) { return false; }",
+        'src/Tribe/Views/V2/Hooks.php' =>
+            "if ( 'WPLANG' !== \$option ) { return; }",
+        'src/Tribe/Views/V2/Service_Provider.php' =>
+            '$this->container->singleton( Hooks::class, $hooks )',
+    ] as $relative => $needle) {
+        $source = preg_replace('/\s+/', ' ', $tecSources[$relative] ?? '');
+        $needle = preg_replace('/\s+/', ' ', $needle);
+        if (!is_string($source) || !is_string($needle) || !str_contains($source, $needle)) {
+            tec_option_usage("TEC $tecVersion lost exact native effect $relative");
+        }
     }
 }
 
@@ -203,6 +310,9 @@ fwrite(STDOUT, json_encode([
     'version' => $version,
     'source_files' => $pin,
     'shared_paths' => $derived,
+    'last_save_paths' => $lastSaveDerived,
+    'tec_version' => $tecVersion === '' ? null : $tecVersion,
+    'tec_service_sources' => $verifiedTecSources,
     'proved_absent' => $fixture['proved_absent'] ?? null,
     'verified' => true,
 ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");

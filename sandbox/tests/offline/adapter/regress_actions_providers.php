@@ -954,12 +954,14 @@ check(
     'TEC implements the batch callable selected by its refresh declaration'
 );
 check(
-    str_contains($tecRegeneratorSource, "postMetaString(\$localId, '_EventStartDate')")
-        && str_contains($tecRegeneratorSource, "postMetaString(\$localId, '_EventEndDate')")
+    str_contains($tecRegeneratorSource, 'private const REQUIRED_EVENT_META_KEYS')
+        && str_contains($tecRegeneratorSource, "'_EventStartDate'")
+        && str_contains($tecRegeneratorSource, "'_EventEndDate'")
+        && str_contains($tecRegeneratorSource, 'expectedEventData($eventData, $localId)')
         && str_contains($tecRegeneratorSource, 'SELECT occurrence_id, event_id, post_id, start_date, end_date')
         && str_contains($tecRegeneratorSource, 'ORDER BY occurrence_id LIMIT 3')
         && str_contains($tecRegeneratorSource, 'checkedDriverRows(')
-        && str_contains($tecRegeneratorSource, 'count($rows) !== 1'),
+        && str_contains($tecRegeneratorSource, 'rowMismatches($occurrenceRows, $expectedOccurrence)'),
     'TEC verifies bounded exact occurrence values, driver shape, and cardinality after repair'
 );
 

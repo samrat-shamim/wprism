@@ -76,7 +76,7 @@
  *          [WHERE <cond>] [GROUP BY <cols>] [ORDER BY <cols> [ASC|DESC]]
  *          [LIMIT n [OFFSET m] | LIMIT m, n]
  *     items: * | alias.* | COUNT(*) | <literal> | [alias.]col | LENGTH(col)
- *            | LEFT(<operand>, <length>)
+ *            | OCTET_LENGTH(col) | SHA2(<operand>, 256) | LEFT(<operand>, <length>)
  *            | GET_LOCK(..) | RELEASE_LOCK(..) | IS_USED_LOCK(..)
  *            | CONNECTION_ID() | VERSION()      , each with an optional AS alias
  *     cond:  AND / OR / parentheses over
@@ -226,6 +226,8 @@ final class FakeWpdb {
     private array $injectedFailures = [];
     /** @var list<array{match:?string,value:array|false|null}> explicit non-core driver return probes */
     private array $getResultsReturnOverrides = [];
+    /** @var list<array{command:string,outcome:string}> one-shot transaction ambiguity probes */
+    private array $transactionOutcomes = [];
     /**
      * Row snapshot taken at START TRANSACTION. Deliberately does NOT include
      * $autoIncrement -- see execTransaction().
@@ -260,6 +262,8 @@ final class FakeWpdb {
 
     /** Full server banner returned by SELECT VERSION(). */
     private string $serverVersion = '8.0.36';
+    /** Session isolation returned by the MariaDB/MySQL system-variable probe. */
+    private string $transactionIsolation = 'REPEATABLE-READ';
 
     /** @var array<string,int> lock name => holding connection id */
     private array $heldLocks = [];
@@ -412,6 +416,11 @@ final class FakeWpdb {
         return $this;
     }
 
+    public function setTransactionIsolation(string $isolation): self {
+        $this->transactionIsolation = $isolation;
+        return $this;
+    }
+
     /** Result GET_LOCK() reports; 0 makes the engine's lock acquisition fail. */
     public function setLockResult(int $result): self {
         $this->lockResult = $result;
@@ -424,6 +433,14 @@ final class FakeWpdb {
      * which is the discontinuity `ProcessFence::isContinuous()` detects.
      */
     public function setConnectionId(int $id): self {
+        // A real reconnect drops both advisory locks and the server-side
+        // transaction. Restore the START snapshot before exposing the new
+        // identity so continuity regressions cannot accidentally retain
+        // writes that InnoDB would have rolled back on disconnect.
+        if ($this->transactionSnapshot !== null) {
+            $this->store = $this->transactionSnapshot;
+            $this->transactionSnapshot = null;
+        }
         $this->connectionId = $id;
         $this->heldLocks = [];
         return $this;
@@ -476,6 +493,38 @@ final class FakeWpdb {
      */
     public function returnNextGetResultsAs(array|false|null $value, ?string $matching = null): self {
         $this->getResultsReturnOverrides[] = ['match' => $matching, 'value' => $value];
+        return $this;
+    }
+
+    /**
+     * Inject one exact transaction-control outcome after ordinary query-hook
+     * failures have been considered. The before/after distinction is the
+     * property an ordinary failNextQuery() cannot model: a real driver may
+     * report COMMIT failure after the server durably applied it.
+     */
+    public function injectTransactionOutcome(string $command, string $outcome): self {
+        $command = strtoupper(trim($command));
+        $outcomes = [
+            'before_false',
+            'before_throw',
+            'after_false',
+            'after_throw',
+            'after_reconnect',
+            'inactive_false',
+            'success_no_apply',
+            'success_probe_error',
+            'success_no_apply_probe_error',
+        ];
+        if (!in_array($command, ['START', 'BEGIN', 'COMMIT', 'ROLLBACK'], true)
+            || !in_array($outcome, $outcomes, true)) {
+            throw new \InvalidArgumentException('FakeWpdb: unsupported transaction outcome probe');
+        }
+        $this->transactionOutcomes[] = ['command' => $command, 'outcome' => $outcome];
+        return $this;
+    }
+
+    public function clearTransactionOutcomes(): self {
+        $this->transactionOutcomes = [];
         return $this;
     }
 
@@ -860,7 +909,69 @@ final class FakeWpdb {
             $this->fail($method, $sql, $error);
             return null;
         }
-        $result = $this->execute($sql);
+        $transactionOutcome = $this->takeTransactionOutcome($sql);
+        if ($transactionOutcome === 'before_false') {
+            $this->fail($method, $sql, 'injected transaction failure before server apply');
+            return null;
+        }
+        if ($transactionOutcome === 'before_throw') {
+            throw new \RuntimeException('injected transaction exception before server apply');
+        }
+        if ($transactionOutcome === 'inactive_false') {
+            $trimmed = rtrim(trim($sql), "; \t\n\r");
+            $command = preg_match('/^[A-Za-z_]+/', $trimmed, $match) === 1
+                ? strtoupper($match[0])
+                : '';
+            if ($command !== 'COMMIT') {
+                throw new \LogicException(
+                    'FakeWpdb: inactive_false is defined only for an ambiguous COMMIT'
+                );
+            }
+            $this->execTransaction('ROLLBACK');
+            $this->fail($method, $sql, 'injected inactive transaction failure before commit apply');
+            return null;
+        }
+        if (in_array($transactionOutcome, [
+            'success_no_apply',
+            'success_no_apply_probe_error',
+        ], true)) {
+            $trimmed = rtrim(trim($sql), "; \t\n\r");
+            $command = preg_match('/^[A-Za-z_]+/', $trimmed, $match) === 1
+                ? strtoupper($match[0])
+                : '';
+            if ($command !== 'COMMIT') {
+                throw new \LogicException(
+                    'FakeWpdb: success_no_apply is defined only for an ambiguous COMMIT'
+                );
+            }
+            $result = ['kind' => 'ok'];
+        } else {
+            $result = $this->execute($sql);
+        }
+        if (in_array($transactionOutcome, [
+            'success_probe_error',
+            'success_no_apply_probe_error',
+        ], true)) {
+            $this->failNextQuery(
+                'injected transaction-state probe failure after truthy COMMIT response',
+                'SELECT @@in_transaction'
+            );
+        }
+        if ($transactionOutcome === 'after_reconnect') {
+            $this->setConnectionId($this->connectionId + 1);
+        } elseif ($transactionOutcome === 'after_false') {
+            $this->fail($method, $sql, 'injected transaction failure after server apply');
+            return null;
+        } elseif ($transactionOutcome === 'after_throw') {
+            $this->last_error = 'injected transaction exception after server apply';
+            $this->last_query = $sql;
+            $this->queryLog[] = [
+                'method' => $method,
+                'sql' => $sql,
+                'error' => $this->last_error,
+            ];
+            throw new \RuntimeException('injected transaction exception after server apply');
+        }
         $this->log($method, $sql);
         if ($result['kind'] === 'rows') {
             $this->num_rows = count($result['rows']);
@@ -868,6 +979,21 @@ final class FakeWpdb {
             $this->rows_affected = $result['affected'];
         }
         return $result;
+    }
+
+    private function takeTransactionOutcome(string $sql): ?string {
+        $trimmed = rtrim(trim($sql), "; \t\n\r");
+        $command = preg_match('/^[A-Za-z_]+/', $trimmed, $match) === 1
+            ? strtoupper($match[0])
+            : '';
+        foreach ($this->transactionOutcomes as $index => $probe) {
+            if ($probe['command'] !== $command) {
+                continue;
+            }
+            array_splice($this->transactionOutcomes, $index, 1);
+            return $probe['outcome'];
+        }
+        return null;
     }
 
     /** @return ?string the driver error text when a failure seam fires */
@@ -1169,6 +1295,10 @@ final class FakeWpdb {
                 'rows' => [['@@in_transaction' => $this->transactionSnapshot === null ? '0' : '1']],
             ];
         }
+        if (strcasecmp($trimmed, 'SELECT @@transaction_isolation') === 0
+            || strcasecmp($trimmed, 'SELECT @@tx_isolation') === 0) {
+            return ['kind' => 'rows', 'rows' => [['isolation' => $this->transactionIsolation]]];
+        }
         $this->currentSql = $trimmed;
         $head = preg_match('/^[A-Za-z_]+/', $trimmed, $m) === 1 ? strtoupper($m[0]) : '';
         switch ($head) {
@@ -1388,7 +1518,7 @@ final class FakeWpdb {
         'WHERE', 'GROUP', 'ORDER', 'LIMIT', 'OFFSET', 'SET', 'VALUES', 'FROM', 'INTO',
         'ON', 'AND', 'OR', 'NOT', 'IN', 'IS', 'LIKE', 'JOIN', 'INNER', 'LEFT', 'RIGHT',
         'OUTER', 'CROSS', 'UNION', 'HAVING', 'FORCE', 'USE', 'IGNORE', 'ASC', 'DESC',
-        'DUPLICATE', 'KEY', 'BY', 'NULL', 'BINARY', 'DISTINCT', 'AS',
+        'DUPLICATE', 'KEY', 'BY', 'NULL', 'BINARY', 'DISTINCT', 'AS', 'FOR', 'UPDATE',
     ];
 
     // ------------------------------------------------------------ SELECT
@@ -1425,6 +1555,9 @@ final class FakeWpdb {
         }
         $order = $this->parseOrderBy();
         [$limit, $offset] = $this->parseLimit();
+        if ($this->acceptKeyword('FOR')) {
+            $this->expectKeyword('UPDATE');
+        }
         $this->expectEnd();
 
         if ($table === null) {

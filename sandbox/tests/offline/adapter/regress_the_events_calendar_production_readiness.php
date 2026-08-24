@@ -52,16 +52,372 @@ namespace TEC\Events\Category_Colors\Repositories {
     }
 }
 
-namespace {
-final class Tribe__Cache {
-    public function get(string $id): mixed {
-        ++$GLOBALS['tec_readiness_cache_reads'];
-        if (($GLOBALS['tec_readiness_cache_read_mode'] ?? '') === 'throw') {
-            $GLOBALS['tec_readiness_cache_read_mode'] = '';
-            throw new \RuntimeException('hostile cache read failure AKIAABCDEFGHIJKLMNOP');
+namespace TEC\Common\Configuration {
+    final class Configuration {
+        public function has(string $key): bool {
+            return array_key_exists($key, $GLOBALS['tec_readiness_configuration'] ?? []);
         }
-        return $GLOBALS['tec_readiness_dropdown_rows'];
+
+        public function get(string $key): mixed {
+            return $GLOBALS['tec_readiness_configuration'][$key] ?? null;
+        }
     }
+}
+
+namespace TEC\Events\Custom_Tables\V1\Events\Occurrences {
+    final class Occurrences_Generator {}
+}
+
+namespace Tribe\Log {
+    final class Service_Provider {
+        public function dispatch_log(mixed $level = 'debug', mixed $message = '', array $context = []): void {
+            ++$GLOBALS['tec_readiness_log_dispatches'];
+        }
+    }
+}
+
+namespace {
+final class WP_Hook {
+    /** @var array<int,array<string,array{function:callable,accepted_args:int}>> */
+    public array $callbacks = [];
+}
+
+final class Tribe__Container {
+    public function isBound(string $service): mixed {
+        $overrides = $GLOBALS['tec_readiness_container_binding_signals'] ?? [];
+        if (array_key_exists($service, $overrides)) {
+            return $overrides[$service];
+        }
+        return array_key_exists($service, $GLOBALS['tec_readiness_container_bindings'] ?? []);
+    }
+
+    public function make(string $service): object {
+        $bindings = $GLOBALS['tec_readiness_container_bindings'] ?? [];
+        if (array_key_exists($service, $bindings)) {
+            $binding = $bindings[$service];
+            return is_callable($binding) ? $binding() : $binding;
+        }
+        if (!class_exists($service)) {
+            throw new RuntimeException('offline native service class is unavailable');
+        }
+        return new $service();
+    }
+}
+
+final class Tribe__Settings_Manager {
+    private static ?self $instance = null;
+
+    public function __construct() {
+        add_action('updated_option', [$this, 'update_options_cache'], 10, 3);
+    }
+
+    public static function instance(): self {
+        return self::$instance ??= new self();
+    }
+
+    public function update_options_cache(string $option, mixed $old, mixed $value): void {
+        // Exact Common 6.17.2/6.17.3 returns before reading object state for
+        // every option except tribe_events_calendar_options.
+        if ($option === 'tribe_events_calendar_options') {
+            tribe_set_var('Tribe__Settings_Manager:option_cache', $value);
+        }
+    }
+}
+
+final class Tribe__Cache {
+    public const NON_PERSISTENT = -1;
+    public const SCHEDULED_EVENT_DELETE_TRANSIENT = 'tribe_schedule_transient_purge';
+
+    /** @var array<string,string> */
+    protected array $non_persistent_keys = [];
+
+    public function get(
+        string $id,
+        string|array $expirationTrigger = '',
+        mixed $default = false,
+        int $expiration = 0,
+        array $args = []
+    ): mixed {
+        if ($id === \TEC\Events\Category_Colors\Repositories\Category_Color_Dropdown_Provider::CACHE_KEY
+            && $expirationTrigger === '') {
+            ++$GLOBALS['tec_readiness_cache_reads'];
+            if (($GLOBALS['tec_readiness_cache_read_mode'] ?? '') === 'throw') {
+                $GLOBALS['tec_readiness_cache_read_mode'] = '';
+                throw new \RuntimeException('hostile cache read failure AKIAABCDEFGHIJKLMNOP');
+            }
+            return $GLOBALS['tec_readiness_dropdown_rows'];
+        }
+        $group = isset($this->non_persistent_keys[$id])
+            ? 'tribe-events-non-persistent'
+            : 'tribe-events';
+        $value = wp_cache_get($this->get_id($id, $expirationTrigger), $group, false, $found);
+        if ($found) {
+            return $value;
+        }
+        $value = is_callable($default) ? $default(...$args) : $default;
+        if ($value !== false) {
+            $this->set($id, $value, $expiration, $expirationTrigger);
+        }
+        return $value;
+    }
+
+    public function set(
+        string $id,
+        mixed $value,
+        int $expiration = 0,
+        string|array $expirationTrigger = ''
+    ): bool {
+        $expiration = (int) apply_filters(
+            'tribe_cache_expiration',
+            $expiration,
+            $id,
+            $value,
+            $expirationTrigger,
+            $this->get_id($id, $expirationTrigger)
+        );
+        if ($expiration === self::NON_PERSISTENT) {
+            $this->non_persistent_keys[$id] = $id;
+            $group = 'tribe-events-non-persistent';
+            $expiration = 1;
+        } else {
+            $group = 'tribe-events';
+        }
+        return wp_cache_set($this->get_id($id, $expirationTrigger), $value, $group, $expiration);
+    }
+
+    public function delete(string $id, string|array $expirationTrigger = ''): bool {
+        $group = isset($this->non_persistent_keys[$id])
+            ? 'tribe-events-non-persistent'
+            : 'tribe-events';
+        unset($this->non_persistent_keys[$id]);
+        return wp_cache_delete($this->get_id($id, $expirationTrigger), $group);
+    }
+
+    public function set_last_occurrence(string $action, int|float $timestamp = 0): bool {
+        $timestamp = $timestamp !== 0 ? $timestamp : microtime(true);
+        $updated = update_option('tribe_last_' . $action, (float) $timestamp);
+        if ($updated) {
+            tribe_set_var('should_delete_expired_transients', true);
+        }
+        return $updated;
+    }
+
+    public function get_last_occurrence(string $action): float {
+        $value = (float) get_option('tribe_last_' . $action, 0);
+        if ($value === 0.0) {
+            $value = microtime(true);
+            $this->set_last_occurrence($action, $value);
+        }
+        return $value;
+    }
+
+    public function get_id(string $id, string|array $expirationTrigger = ''): string {
+        $triggers = is_array($expirationTrigger)
+            ? $expirationTrigger
+            : array_filter(explode('|', $expirationTrigger));
+        $last = 0.0;
+        foreach ($triggers as $trigger) {
+            $last = max($last, $this->get_last_occurrence((string) $trigger));
+        }
+        $key = $id . ($last === 0.0 ? '' : (string) $last);
+        return strlen($key) > 80 ? 'tribe_' . md5($key) : $key;
+    }
+
+    public function delete_expired_transients(): void {
+        ++$GLOBALS['tec_readiness_expired_transient_deletes'];
+    }
+
+    public function maybe_delete_expired_transients(): void {
+        if (tribe_get_var('should_delete_expired_transients', false)) {
+            $this->delete_expired_transients();
+        }
+    }
+}
+
+final class Tribe__Main {
+    /** @return list<string> */
+    public static function get_post_types(): array {
+        return ['tribe_events', 'tribe_venue', 'tribe_organizer'];
+    }
+}
+
+final class Tribe__Cache_Listener {
+    private static ?self $instance = null;
+    private Tribe__Cache $cache;
+
+    private function __construct() {
+        // Exact free TEC 6.17.2/6.17.3 Cache_Listener.php:42-44 constructs a
+        // dedicated cache instance; the regenerator must track both mutable
+        // non-persistent registries rather than assume the global singleton.
+        $this->cache = new Tribe__Cache();
+        add_action('save_post', [$this, 'save_post'], 0, 2);
+        add_action('updated_option', [$this, 'update_last_updated_option'], 10, 3);
+        add_action('updated_option', [$this, 'update_last_save_post'], 10, 3);
+        add_action('generate_rewrite_rules', [$this, 'generate_rewrite_rules']);
+        add_action('clean_post_cache', [$this, 'save_post'], 0, 2);
+    }
+
+    public static function instance(): self {
+        return self::$instance ??= new self();
+    }
+
+    public function save_post(int $postId, WP_Post $post): void {
+        $types = apply_filters('tec_cache_listener_save_post_types', Tribe__Main::get_post_types());
+        if (in_array($post->post_type, (array) $types, true)) {
+            $this->cache->set_last_occurrence('save_post');
+        }
+    }
+
+    public function update_last_updated_option(string $option, mixed $old, mixed $new): void {
+        $triggers = apply_filters(
+            'tribe_cache_last_occurrence_option_triggers',
+            ['active_plugins' => true],
+            'updated_option',
+            func_get_args()
+        );
+        $triggers = apply_filters(
+            'tribe_cache_last_occurrence_option_triggers:updated_option',
+            $triggers,
+            'updated_option',
+            func_get_args()
+        );
+        if (!empty($triggers[$option])) {
+            $this->cache->set_last_occurrence('updated_option');
+        }
+    }
+
+    public function update_last_save_post(string $option, mixed $old, mixed $new): void {
+        $triggers = apply_filters(
+            'tribe_cache_last_occurrence_option_triggers',
+            ['tribe_events_calendar_options' => true],
+            'save_post',
+            func_get_args()
+        );
+        $triggers = apply_filters(
+            'tribe_cache_last_occurrence_option_triggers:save_post',
+            $triggers,
+            'save_post',
+            func_get_args()
+        );
+        if (!empty($triggers[$option])) {
+            $this->cache->set_last_occurrence('save_post');
+        }
+    }
+
+    public function generate_rewrite_rules(): void {}
+}
+
+final class WP_Post {
+    public int $ID;
+    public string $post_type;
+
+    /** @param array<string,mixed> $row */
+    public function __construct(array $row) {
+        $this->ID = (int) ($row['ID'] ?? 0);
+        $this->post_type = (string) ($row['post_type'] ?? '');
+    }
+}
+
+function tec_readiness_native_boundary(string $boundary): void {
+    $disruption = $GLOBALS['tec_readiness_native_disruption'] ?? null;
+    if (!is_array($disruption) || ($disruption['boundary'] ?? null) !== $boundary) {
+        return;
+    }
+    $GLOBALS['tec_readiness_native_disruption'] = null;
+    /** @var FakeWpdb $wpdb */
+    $wpdb = $GLOBALS['wpdb'];
+    $action = $disruption['action'] ?? null;
+    if ($action === 'commit' || $action === 'rollback') {
+        $wpdb->query(strtoupper($action));
+        return;
+    }
+    if ($action === 'reconnect') {
+        $wpdb->setConnectionId(77);
+        return;
+    }
+    if ($action === 'external_cache') {
+        $GLOBALS['tec_readiness_external_object_cache'] = true;
+        return;
+    }
+    if ($action === 'cache_delete_throw') {
+        $GLOBALS['tec_readiness_wp_cache_delete_mode'] = 'one_throw';
+        return;
+    }
+    if ($action === 'listener_cache_substitute') {
+        $property = new ReflectionProperty(Tribe__Cache_Listener::class, 'cache');
+        $property->setValue(Tribe__Cache_Listener::instance(), new Tribe__Cache());
+        return;
+    }
+    if ($action === 'cache_registry_mutate') {
+        $property = new ReflectionProperty(Tribe__Cache::class, 'non_persistent_keys');
+        $globalCache = tribe_cache();
+        $listenerProperty = new ReflectionProperty(Tribe__Cache_Listener::class, 'cache');
+        $listenerCache = $listenerProperty->getValue(Tribe__Cache_Listener::instance());
+        $globalKeys = $property->getValue($globalCache);
+        $listenerKeys = $property->getValue($listenerCache);
+        $globalKeys['injected-global-drift'] = 'injected-global-drift';
+        $listenerKeys['injected-listener-drift'] = 'injected-listener-drift';
+        $property->setValue($globalCache, $globalKeys);
+        $property->setValue($listenerCache, $listenerKeys);
+        return;
+    }
+    if ($action === 'generator_binding') {
+        $GLOBALS['tec_readiness_container_bindings'][
+            \TEC\Events\Custom_Tables\V1\Events\Occurrences\Occurrences_Generator::class
+        ] = new stdClass();
+        return;
+    }
+    if ($action === 'state_probe_error') {
+        $wpdb->failNextQuery(
+            'hostile transaction-state error AKIAABCDEFGHIJKLMNOP',
+            'SELECT @@in_transaction'
+        );
+        return;
+    }
+    if ($action === 'source_same_length') {
+        $wpdb->update(
+            $wpdb->postmeta,
+            ['meta_value' => '2026-11-02 15:16:00'],
+            ['post_id' => 6100000001, 'meta_key' => '_EventEndDateUTC']
+        );
+        return;
+    }
+    if ($action === 'source_insert') {
+        $wpdb->insert($wpdb->postmeta, [
+            'meta_id' => 9199999999,
+            'post_id' => 6100000001,
+            'meta_key' => '_HostileConcurrentKey',
+            'meta_value' => 'credential AKIAABCDEFGHIJKLMNOP',
+        ]);
+        return;
+    }
+    if ($action === 'source_delete') {
+        $wpdb->delete($wpdb->postmeta, [
+            'post_id' => 6100000001,
+            'meta_key' => '_EventTimezone',
+        ]);
+        return;
+    }
+    if ($action === 'source_id_swap') {
+        $rows = $wpdb->rows($wpdb->postmeta);
+        $positions = [];
+        foreach ($rows as $position => $row) {
+            if ((int) ($row['post_id'] ?? 0) === 6100000001) {
+                $positions[] = $position;
+            }
+        }
+        if (count($positions) >= 2) {
+            $first = $positions[0];
+            $second = $positions[1];
+            [$rows[$first]['meta_id'], $rows[$second]['meta_id']] = [
+                $rows[$second]['meta_id'],
+                $rows[$first]['meta_id'],
+            ];
+            $wpdb->seedTable($wpdb->postmeta, $rows);
+        }
+        return;
+    }
+    throw new RuntimeException('unknown TEC native disruption fixture');
 }
 
 /** Exact TEC 6.17.2/6.17.3 schema, identity, and refusal boundary. */
@@ -134,14 +490,19 @@ final class TecReadinessEventModel {
         if (($GLOBALS['tec_readiness_regen_mode'] ?? '') === 'non_array_data') {
             return 'credential-shaped-AKIAABCDEFGHIJKLMNOP';
         }
+        $post = get_post($postId);
+        if (!$post instanceof \WP_Post || $post->post_type !== 'tribe_events') {
+            return [];
+        }
+        $postId = $post->ID;
         $data = [
             'post_id' => $postId,
             'start_date' => get_post_meta($postId, '_EventStartDate', true),
             'end_date' => get_post_meta($postId, '_EventEndDate', true),
-            'start_date_utc' => get_post_meta($postId, '_EventStartDateUTC', true),
-            'end_date_utc' => get_post_meta($postId, '_EventEndDateUTC', true),
             'timezone' => get_post_meta($postId, '_EventTimezone', true),
             'duration' => get_post_meta($postId, '_EventDuration', true),
+            'start_date_utc' => get_post_meta($postId, '_EventStartDateUTC', true),
+            'end_date_utc' => get_post_meta($postId, '_EventEndDateUTC', true),
             'hash' => '',
         ];
         if ($data['duration'] === '' || $data['duration'] === '0') {
@@ -149,9 +510,13 @@ final class TecReadinessEventModel {
             $end = new DateTimeImmutable((string) $data['end_date_utc'], new DateTimeZone('UTC'));
             $data['duration'] = (string) ($end->getTimestamp() - $start->getTimestamp());
         }
-        if (($GLOBALS['tec_readiness_regen_mode'] ?? '') === 'filtered_event_timezone') {
-            $data['timezone'] = 'UTC';
+        if (($GLOBALS['tec_readiness_regen_mode'] ?? '') === 'malformed_event_timezone') {
+            $data['timezone'] = 'not/a-native-timezone';
         }
+        if (($GLOBALS['tec_readiness_regen_mode'] ?? '') === 'unexpected_event_field') {
+            $data['credential-shaped-AKIAABCDEFGHIJKLMNOP'] = 'hidden';
+        }
+        tec_readiness_native_boundary('data_from_post');
         return $data;
     }
 
@@ -182,14 +547,19 @@ final class TecReadinessEventModel {
             return false;
         }
         $GLOBALS['tec_readiness_regen_calls'][] = (int) $data['post_id'];
+        $cache = tribe_cache();
+        $cache->delete('tec-event-model-' . (string) $data['post_id'], 'save_post');
+        $cache->set_last_occurrence('save_post');
         if (($GLOBALS['tec_readiness_regen_mode'] ?? '') === 'upsert_throw_after_write') {
             throw new RuntimeException('injected native event upsert failure after derived write');
         }
+        tec_readiness_native_boundary('upsert');
         return 1;
     }
 
     /** @return list<string> */
     public static function last_errors(): array {
+        tec_readiness_native_boundary('last_errors');
         return [
             'hostile model error AKIAABCDEFGHIJKLMNOP',
             str_repeat('x', 4096),
@@ -210,6 +580,13 @@ final class TecReadinessEventModel {
                 if (($GLOBALS['tec_readiness_regen_mode'] ?? '') === 'invalid_event_id') {
                     $row['event_id'] = '7000000001';
                 }
+                tribe_cache()->set(
+                    'tec-event-find-' . (string) $postId,
+                    $row,
+                    Tribe__Cache::NON_PERSISTENT,
+                    'save_post'
+                );
+                tec_readiness_native_boundary('find');
                 return new self($row);
             }
         }
@@ -217,6 +594,7 @@ final class TecReadinessEventModel {
     }
 
     public function occurrences(): TecReadinessOccurrenceSaver {
+        tec_readiness_native_boundary('occurrences');
         return new TecReadinessOccurrenceSaver($this);
     }
 }
@@ -228,6 +606,7 @@ final class TecReadinessOccurrenceSaver {
         /** @var FakeWpdb $wpdb */
         $wpdb = $GLOBALS['wpdb'];
         $table = $wpdb->prefix . 'tec_occurrences';
+        wp_cache_delete($this->event->post_id, 'tec_occurrence_matches');
         $existingId = 8000000001;
         foreach ($wpdb->rows($table) as $row) {
             if ((int) ($row['post_id'] ?? 0) === $this->event->post_id) {
@@ -285,6 +664,17 @@ final class TecReadinessOccurrenceSaver {
         if ($mode === 'stale_driver_error') {
             $wpdb->last_error = 'handled stale error AKIAABCDEFGHIJKLMNOP';
         }
+        tribe_cache()->set(
+            'tec-occurrence-model-' . (string) $this->event->post_id,
+            $row,
+            Tribe__Cache::NON_PERSISTENT,
+            'save_post'
+        );
+        $post = get_post($this->event->post_id);
+        if ($post instanceof WP_Post) {
+            Tribe__Cache_Listener::instance()->save_post($this->event->post_id, $post);
+        }
+        tec_readiness_native_boundary('save_occurrences');
     }
 }
 
@@ -293,7 +683,84 @@ class_alias(TecReadinessEventModel::class, 'TEC\Events\Custom_Tables\V1\Models\E
 
 /** @return mixed */
 function get_option(string $name, mixed $default = false): mixed {
+    if ($name === 'tribe_last_save_post') {
+        $pre = apply_filters("pre_option_$name", false, $name, $default);
+        $pre = apply_filters('pre_option', $pre, $name, $default);
+        if ($pre !== false) {
+            return $pre;
+        }
+        /** @var FakeWpdb|null $wpdb */
+        $wpdb = $GLOBALS['wpdb'] ?? null;
+        if ($wpdb instanceof FakeWpdb && $wpdb->hasTable($wpdb->options)) {
+            foreach ($wpdb->rows($wpdb->options) as $row) {
+                if (($row['option_name'] ?? null) === $name) {
+                    return apply_filters("option_$name", $row['option_value'], $name);
+                }
+            }
+        }
+        return apply_filters("default_option_$name", $default, $name, false);
+    }
     return $GLOBALS['tec_readiness_options'][$name] ?? $default;
+}
+
+function update_option(string $name, mixed $value, mixed $autoload = null): bool {
+    $value = apply_filters("sanitize_option_$name", $value, $name, $value);
+    $old = get_option($name, false);
+    $value = apply_filters("pre_update_option_$name", $value, $old, $name);
+    $value = apply_filters('pre_update_option', $value, $name, $old);
+    if ($old === $value) {
+        return false;
+    }
+    /** @var FakeWpdb $wpdb */
+    $wpdb = $GLOBALS['wpdb'];
+    $stored = is_bool($value) ? ($value ? '1' : '') : (string) $value;
+    $existingAutoload = null;
+    foreach ($wpdb->rows($wpdb->options) as $row) {
+        if (($row['option_name'] ?? null) === $name) {
+            $existingAutoload = $row['autoload'] ?? null;
+            break;
+        }
+    }
+    if ($existingAutoload !== null) {
+        do_action('update_option', $name, $old, $value);
+        $updatedRow = ['option_value' => $stored];
+        if ($autoload === null && in_array($existingAutoload, ['auto', 'auto-on', 'auto-off'], true)) {
+            apply_filters('wp_default_autoload_value', null, $name, $stored);
+            $updatedRow['autoload'] = 'auto-on';
+        }
+        $changed = $wpdb->update($wpdb->options, $updatedRow, ['option_name' => $name]);
+        if ($changed === false) {
+            return false;
+        }
+        wp_cache_set($name, $stored, 'options');
+        do_action("update_option_$name", $old, $value, $name);
+        do_action('updated_option', $name, $old, $value);
+        return true;
+    }
+    do_action('add_option', $name, $value);
+    $autoloadValue = apply_filters(
+        'wp_autoload_values_to_autoload',
+        $autoload === false ? ['off'] : ['on']
+    );
+    if ($autoload === null) {
+        apply_filters('wp_default_autoload_value', null, $name, $stored);
+        $rowAutoload = 'auto-on';
+    } else {
+        $rowAutoload = $autoload === false || !in_array('on', (array) $autoloadValue, true)
+            ? 'off'
+            : 'on';
+    }
+    if (!$wpdb->insert($wpdb->options, [
+        'option_name' => $name,
+        'option_value' => $stored,
+        'autoload' => $rowAutoload,
+    ])) {
+        return false;
+    }
+    wp_cache_set($name, $stored, 'options');
+    do_action("add_option_$name", $name, $value);
+    do_action('added_option', $name, $value);
+    return true;
 }
 
 /** @return mixed */
@@ -303,7 +770,48 @@ function get_term_meta(int $termId, string $key, bool $single = false): mixed {
 
 /** @return mixed */
 function get_post_meta(int $postId, string $key, bool $single = false): mixed {
+    if (($GLOBALS['tec_readiness_regen_native_db_reads'] ?? false) === true) {
+        $cached = wp_cache_get($postId, 'post_meta', false, $found);
+        if (!$found) {
+            /** @var FakeWpdb $wpdb */
+            $wpdb = $GLOBALS['wpdb'];
+            $cached = [];
+            foreach ($wpdb->rows($wpdb->postmeta) as $row) {
+                if ((int) ($row['post_id'] ?? 0) !== $postId) {
+                    continue;
+                }
+                $metaKey = $row['meta_key'] ?? null;
+                if (!is_string($metaKey)) {
+                    continue;
+                }
+                $cached[$metaKey][] = $row['meta_value'] ?? null;
+            }
+            wp_cache_set($postId, $cached, 'post_meta');
+        }
+        $values = is_array($cached) && isset($cached[$key]) && is_array($cached[$key])
+            ? $cached[$key]
+            : [];
+        return $single ? ($values[0] ?? '') : $values;
+    }
     return $GLOBALS['tec_readiness_post_meta'][$postId][$key] ?? ($single ? '' : []);
+}
+
+function get_post(int $postId): ?WP_Post {
+    $cached = wp_cache_get($postId, 'posts', false, $found);
+    if ($found) {
+        return $cached instanceof WP_Post ? $cached : null;
+    }
+    /** @var FakeWpdb $wpdb */
+    $wpdb = $GLOBALS['wpdb'];
+    foreach ($wpdb->rows($wpdb->posts) as $row) {
+        if ((int) ($row['ID'] ?? 0) !== $postId) {
+            continue;
+        }
+        $post = new WP_Post($row);
+        wp_cache_set($postId, $post, 'posts');
+        return $post;
+    }
+    return null;
 }
 
 /** @return list<object> */
@@ -311,9 +819,104 @@ function get_terms(array $args = []): array {
     return $GLOBALS['tec_readiness_terms'];
 }
 
+function tec_readiness_hook_id(callable $callback): string {
+    if (is_string($callback)) {
+        return $callback;
+    }
+    if ($callback instanceof Closure) {
+        return 'closure:' . spl_object_id($callback);
+    }
+    if (is_array($callback)) {
+        $owner = is_object($callback[0])
+            ? get_class($callback[0]) . ':' . spl_object_id($callback[0])
+            : (string) $callback[0];
+        return $owner . '::' . (string) $callback[1];
+    }
+    return get_class($callback) . ':' . spl_object_id($callback);
+}
+
+function add_filter(string $hookName, callable $callback, int $priority = 10, int $acceptedArgs = 1): bool {
+    $hook = $GLOBALS['wp_filter'][$hookName] ??= new WP_Hook();
+    $hook->callbacks[$priority][tec_readiness_hook_id($callback)] = [
+        'function' => $callback,
+        'accepted_args' => $acceptedArgs,
+    ];
+    ksort($hook->callbacks, SORT_NUMERIC);
+    return true;
+}
+
+function add_action(string $hookName, callable $callback, int $priority = 10, int $acceptedArgs = 1): bool {
+    return add_filter($hookName, $callback, $priority, $acceptedArgs);
+}
+
+function remove_filter(string $hookName, callable $callback, int $priority = 10): bool {
+    $hook = $GLOBALS['wp_filter'][$hookName] ?? null;
+    if (!$hook instanceof WP_Hook) {
+        return false;
+    }
+    $id = tec_readiness_hook_id($callback);
+    if (!isset($hook->callbacks[$priority][$id])) {
+        return false;
+    }
+    unset($hook->callbacks[$priority][$id]);
+    if ($hook->callbacks[$priority] === []) {
+        unset($hook->callbacks[$priority]);
+    }
+    if ($hook->callbacks === []) {
+        unset($GLOBALS['wp_filter'][$hookName]);
+    }
+    return true;
+}
+
+function remove_action(string $hookName, callable $callback, int $priority = 10): bool {
+    return remove_filter($hookName, $callback, $priority);
+}
+
 function has_filter(string $hookName, callable|false $callback = false): bool|int {
     $GLOBALS['tec_readiness_has_filter_calls'][] = $hookName;
-    return in_array($hookName, $GLOBALS['tec_readiness_filters'] ?? [], true);
+    if (in_array($hookName, $GLOBALS['tec_readiness_filters'] ?? [], true)) {
+        return 10;
+    }
+    $hook = $GLOBALS['wp_filter'][$hookName] ?? null;
+    if (!$hook instanceof WP_Hook) {
+        return false;
+    }
+    if ($callback === false) {
+        return $hook->callbacks === [] ? false : true;
+    }
+    $id = tec_readiness_hook_id($callback);
+    foreach ($hook->callbacks as $priority => $callbacks) {
+        if (isset($callbacks[$id])) {
+            return $priority;
+        }
+    }
+    return false;
+}
+
+function apply_filters(string $hookName, mixed $value, mixed ...$args): mixed {
+    $hook = $GLOBALS['wp_filter'][$hookName] ?? null;
+    if (!$hook instanceof WP_Hook) {
+        return $value;
+    }
+    foreach ($hook->callbacks as $callbacks) {
+        foreach ($callbacks as $record) {
+            $accepted = max(1, (int) $record['accepted_args']);
+            $value = ($record['function'])(...array_slice([$value, ...$args], 0, $accepted));
+        }
+    }
+    return $value;
+}
+
+function do_action(string $hookName, mixed ...$args): void {
+    $hook = $GLOBALS['wp_filter'][$hookName] ?? null;
+    if (!$hook instanceof WP_Hook) {
+        return;
+    }
+    foreach ($hook->callbacks as $callbacks) {
+        foreach ($callbacks as $record) {
+            ($record['function'])(...array_slice($args, 0, (int) $record['accepted_args']));
+        }
+    }
 }
 
 function is_wp_error(mixed $value): bool {
@@ -328,7 +931,16 @@ function sanitize_title(string $title): string {
     return strtolower($title);
 }
 
-function tribe(string $class): object {
+function tribe(?string $class = null): object {
+    if ($class === null) {
+        return $GLOBALS['tec_readiness_native_container'];
+    }
+    if (in_array($class, [
+        \TEC\Common\Configuration\Configuration::class,
+        \TEC\Events\Custom_Tables\V1\Events\Occurrences\Occurrences_Generator::class,
+    ], true)) {
+        return $GLOBALS['tec_readiness_native_container']->make($class);
+    }
     return match ($class) {
         'TEC\\Events\\Category_Colors\\CSS\\Generator' =>
             $GLOBALS['tec_readiness_category_color_generator'],
@@ -342,12 +954,103 @@ function tribe_cache(): object {
     return $GLOBALS['tec_readiness_category_color_cache'];
 }
 
+function tribe_set_var(string $key, mixed $value): void {
+    $GLOBALS['tec_readiness_tribe_vars'][$key] = $value;
+}
+
+function tribe_get_var(string $key, mixed $default = null): mixed {
+    return $GLOBALS['tec_readiness_tribe_vars'][$key] ?? $default;
+}
+
+function tribe_unset_var(string $key): void {
+    unset($GLOBALS['tec_readiness_tribe_vars'][$key]);
+}
+
+function tribe_isset_var(string $key): bool {
+    return array_key_exists($key, $GLOBALS['tec_readiness_tribe_vars'] ?? []);
+}
+
 function tribe_get_option(string $name, mixed $default = false): mixed {
     return $GLOBALS['tec_readiness_tribe_options'][$name] ?? $default;
 }
 
-function wp_using_ext_object_cache(): bool {
+function wp_using_ext_object_cache(): mixed {
     return $GLOBALS['tec_readiness_external_object_cache'] ?? false;
+}
+
+/** @return mixed */
+function wp_cache_get(int|string $key, string $group = '', bool $force = false, mixed &$found = null): mixed {
+    ++$GLOBALS['tec_readiness_wp_cache_gets'];
+    $mode = $GLOBALS['tec_readiness_wp_cache_get_mode'] ?? '';
+    if ($mode === 'throw') {
+        throw new RuntimeException('injected local object-cache read failure');
+    }
+    $groupCache = $GLOBALS['tec_readiness_wp_cache'][$group] ?? [];
+    $exists = is_array($groupCache) && array_key_exists($key, $groupCache);
+    $found = $exists;
+    if ($mode === 'nonbool_found') {
+        $found = 'malformed';
+    }
+    return $exists ? $groupCache[$key] : false;
+}
+
+function wp_cache_set(int|string $key, mixed $value, string $group = '', int $expire = 0): bool {
+    ++$GLOBALS['tec_readiness_wp_cache_sets'];
+    $GLOBALS['tec_readiness_wp_cache'][$group][$key] = $value;
+    return true;
+}
+
+function wp_cache_delete(int|string $key, string $group = ''): mixed {
+    ++$GLOBALS['tec_readiness_wp_cache_deletes'];
+    $mode = $GLOBALS['tec_readiness_wp_cache_delete_mode'] ?? '';
+    if ($mode === 'throw') {
+        throw new RuntimeException('injected local object-cache delete failure');
+    }
+    if ($mode === 'one_throw') {
+        $GLOBALS['tec_readiness_wp_cache_delete_mode'] = '';
+        throw new RuntimeException('injected local object-cache delete failure');
+    }
+    if ($mode === 'persistent_failure') {
+        return false;
+    }
+    if ($mode === 'one_failure') {
+        $GLOBALS['tec_readiness_wp_cache_delete_mode'] = '';
+        return false;
+    }
+    $existed = isset($GLOBALS['tec_readiness_wp_cache'][$group])
+        && array_key_exists($key, $GLOBALS['tec_readiness_wp_cache'][$group]);
+    unset($GLOBALS['tec_readiness_wp_cache'][$group][$key]);
+    if ($mode === 'nonbool') {
+        return 'malformed';
+    }
+    return $existed;
+}
+
+function wp_cache_supports(string $feature): mixed {
+    if ($feature !== 'flush_group') {
+        return false;
+    }
+    return $GLOBALS['tec_readiness_wp_cache_group_support'] ?? true;
+}
+
+function wp_cache_flush_group(string $group): mixed {
+    ++$GLOBALS['tec_readiness_wp_cache_group_flushes'];
+    $mode = $GLOBALS['tec_readiness_wp_cache_group_flush_mode'] ?? '';
+    if ($mode === 'throw') {
+        throw new RuntimeException('injected local object-cache group-flush failure');
+    }
+    if ($mode === 'persistent_failure') {
+        return false;
+    }
+    if ($mode === 'one_failure') {
+        $GLOBALS['tec_readiness_wp_cache_group_flush_mode'] = '';
+        return false;
+    }
+    unset($GLOBALS['tec_readiness_wp_cache'][$group]);
+    if ($mode === 'nonbool') {
+        return 'malformed';
+    }
+    return true;
 }
 
 function tec_readiness_set_css(string $css): void {
@@ -1649,10 +2352,25 @@ $GLOBALS['tec_readiness_cache_read_mode'] = '';
 $GLOBALS['tec_readiness_dropdown_get_calls'] = 0;
 $GLOBALS['tec_readiness_color_controller_calls'] = 0;
 $GLOBALS['tec_readiness_color_controller_mode'] = '';
+$GLOBALS['wp_filter'] = [];
+$GLOBALS['tec_readiness_tribe_vars'] = [];
+$GLOBALS['tec_readiness_log_dispatches'] = 0;
+$GLOBALS['tec_readiness_expired_transient_deletes'] = 0;
 $GLOBALS['tec_readiness_category_color_controller'] = new \TEC\Events\Category_Colors\CSS\Controller();
 $GLOBALS['tec_readiness_category_color_generator'] = new \TEC\Events\Category_Colors\CSS\Generator();
 $GLOBALS['tec_readiness_category_color_dropdown'] = new \TEC\Events\Category_Colors\Repositories\Category_Color_Dropdown_Provider();
+$GLOBALS['tec_readiness_native_container'] = new Tribe__Container();
+$GLOBALS['tec_readiness_container_bindings'] = [];
+$GLOBALS['tec_readiness_container_binding_signals'] = [];
+$GLOBALS['tec_readiness_configuration'] = [];
 $GLOBALS['tec_readiness_category_color_cache'] = new Tribe__Cache();
+$GLOBALS['tec_readiness_log_provider'] = new \Tribe\Log\Service_Provider();
+add_action(
+    Tribe__Cache::SCHEDULED_EVENT_DELETE_TRANSIENT,
+    [$GLOBALS['tec_readiness_category_color_cache'], 'delete_expired_transients']
+);
+add_action('shutdown', [$GLOBALS['tec_readiness_category_color_cache'], 'maybe_delete_expired_transients']);
+add_action('tribe_log', [$GLOBALS['tec_readiness_log_provider'], 'dispatch_log'], 10, 3);
 $colorDb = FakeWpdb::install();
 tec_readiness_sync_color_db();
 
@@ -1776,6 +2494,13 @@ duo_check_same(
     $optionHookFixture['reproduce'] ?? null,
     'the reviewed WordPress option topology carries its deterministic exact-source verifier command'
 );
+duo_check_same(
+    'php sandbox/tests/support/verify-tec-wordpress-option-hooks.php '
+        . '--wordpress-root=/usr/src/wordpress --version=<wp-version> '
+        . '--tec-root=/path/to/the-events-calendar --tec-version=<tec-version>',
+    $optionHookFixture['reproduce_tec'] ?? null,
+    'the native derived-state services carry one deterministic exact-source verifier command'
+);
 $optionHookVerifier = (string) file_get_contents(
     $root . '/sandbox/tests/support/verify-tec-wordpress-option-hooks.php'
 );
@@ -1789,18 +2514,63 @@ foreach (['get_option', 'wp_load_alloptions', 'update_option', 'add_option', 'sa
 duo_check_same(
     $optionHookFixture['tec_service_sources']['6.17.2'] ?? null,
     $optionHookFixture['tec_service_sources']['6.17.3'] ?? null,
-    'the exact TEC Controller/Generator/dropdown/cache source union is byte-identical across both pins'
+    'the complete exact TEC derived-service source union is byte-identical across both pins'
 );
 duo_check_same(
     [
         'common/src/Tribe/Cache.php',
+        'common/src/Tribe/Cache_Listener.php',
+        'common/src/Tribe/Container.php',
+        'common/src/Tribe/Settings_Manager.php',
+        'common/src/Common/Libraries/Harbor.php',
+        'common/src/Common/Integrations/Harbor/PUE.php',
+        'common/src/Common/Configuration/Configuration.php',
+        'common/vendor/vendor-prefixed/lucatume/di52/src/Container.php',
         'src/Events/Category_Colors/CSS/Controller.php',
         'src/Events/Category_Colors/CSS/Generator.php',
         'src/Events/Category_Colors/Repositories/Category_Color_Dropdown_Provider.php',
+        'src/Events/Custom_Tables/V1/Models/Event.php',
+        'src/Events/Custom_Tables/V1/Models/Occurrence.php',
+        'src/Events/Custom_Tables/V1/Models/Builder.php',
+        'src/Events/Custom_Tables/V1/Events/Occurrences/Occurrences_Generator.php',
+        'src/Tribe/Aggregator.php',
+        'src/Tribe/Views/V2/Hooks.php',
+        'src/Tribe/Views/V2/Service_Provider.php',
     ],
     array_keys($optionHookFixture['tec_service_sources']['6.17.3'] ?? []),
-    'the source fixture binds every exact native service on the two-call CSS/cache path'
+    'the source fixture binds every exact native CSS/cache and custom-table derived service'
 );
+foreach ([
+    'tec-root',
+    'tec-version',
+    'common/src/Tribe/Cache_Listener.php',
+    'common/src/Tribe/Settings_Manager.php',
+    'common/src/Common/Integrations/Harbor/PUE.php',
+    'tribe()->make( Occurrences_Generator::class )',
+    'tribe( Configuration::class )',
+    "'pue_install_key_event_aggregator'",
+    "'WPLANG'",
+] as $serviceVerifierEvidence) {
+    duo_check(
+        str_contains($optionHookVerifier, $serviceVerifierEvidence),
+        "the exact-source verifier binds native service evidence $serviceVerifierEvidence"
+    );
+}
+$tecRegeneratorSource = (string) file_get_contents(
+    $root . '/manifests/regenerators/the-events-calendar.php'
+);
+$lastSaveHookTopology = [];
+foreach (($optionHookFixture['last_save_paths'] ?? []) as $pathHooks) {
+    foreach ($pathHooks as $pathHook) {
+        $lastSaveHookTopology[$pathHook] = $pathHook;
+    }
+}
+foreach ($lastSaveHookTopology as $lastSaveHook) {
+    duo_check(
+        str_contains($tecRegeneratorSource, "'$lastSaveHook'"),
+        "the derived-state regenerator preflights native marker hook $lastSaveHook"
+    );
+}
 $cssOptionHookTopology = [];
 foreach (($optionHookFixture['shared_paths'] ?? []) as $pathHooks) {
     foreach ($pathHooks as $pathHook) {
@@ -2752,6 +3522,7 @@ duo_check(
 );
 
 $regenerator = new TheEventsCalendarRegenerator($policy);
+$GLOBALS['tec_readiness_settings_manager'] = Tribe__Settings_Manager::instance();
 duo_check_throws(
     static fn() => $regenerator->regenerate_batch([], [[
         'identity' => 'post:' . TEC_EVENT_UUID,
@@ -2777,6 +3548,9 @@ $GLOBALS['tec_readiness_post_meta'] = [
 $tecDb = FakeWpdb::install();
 $eventTable = $tecDb->prefix . 'tec_events';
 $occurrenceTable = $tecDb->prefix . 'tec_occurrences';
+$postsTable = $tecDb->posts;
+$postMetaTable = $tecDb->postmeta;
+$optionsTable = $tecDb->options;
 $tecEventColumns = [
     'event_id' => ['Type' => 'bigint(20) unsigned', 'Null' => 'NO', 'Default' => null, 'Extra' => 'auto_increment'],
     'post_id' => ['Type' => 'bigint(20) unsigned', 'Null' => 'NO', 'Default' => null, 'Extra' => ''],
@@ -2834,6 +3608,61 @@ $tecEventIndexes = [
         'Index_type' => 'BTREE',
     ],
 ];
+$postsIndexes = [[
+    'Key_name' => 'PRIMARY',
+    'Non_unique' => 0,
+    'Seq_in_index' => 1,
+    'Column_name' => 'ID',
+    'Sub_part' => null,
+    'Index_type' => 'BTREE',
+]];
+$postMetaIndexes = [
+    [
+        'Key_name' => 'PRIMARY',
+        'Non_unique' => 0,
+        'Seq_in_index' => 1,
+        'Column_name' => 'meta_id',
+        'Sub_part' => null,
+        'Index_type' => 'BTREE',
+    ],
+    [
+        'Key_name' => 'post_id',
+        'Non_unique' => 1,
+        'Seq_in_index' => 1,
+        'Column_name' => 'post_id',
+        'Sub_part' => null,
+        'Index_type' => 'BTREE',
+    ],
+];
+$optionColumns = [
+    'option_id' => [
+        'Type' => 'bigint(20) unsigned',
+        'Null' => 'NO',
+        'Default' => null,
+        'Extra' => 'auto_increment',
+    ],
+    'option_name' => ['Type' => 'varchar(191)', 'Null' => 'NO', 'Default' => '', 'Extra' => ''],
+    'option_value' => ['Type' => 'longtext', 'Null' => 'NO', 'Default' => null, 'Extra' => ''],
+    'autoload' => ['Type' => 'varchar(20)', 'Null' => 'NO', 'Default' => 'yes', 'Extra' => ''],
+];
+$optionIndexes = [
+    [
+        'Key_name' => 'PRIMARY',
+        'Non_unique' => 0,
+        'Seq_in_index' => 1,
+        'Column_name' => 'option_id',
+        'Sub_part' => null,
+        'Index_type' => 'BTREE',
+    ],
+    [
+        'Key_name' => 'option_name',
+        'Non_unique' => 0,
+        'Seq_in_index' => 1,
+        'Column_name' => 'option_name',
+        'Sub_part' => null,
+        'Index_type' => 'BTREE',
+    ],
+];
 $tecOccurrenceIndexes = [
     [
         'Key_name' => 'PRIMARY',
@@ -2879,21 +3708,77 @@ $configureTecSchema = static function () use (
     $tecDb,
     $eventTable,
     $occurrenceTable,
+    $postsTable,
+    $postMetaTable,
+    $optionsTable,
     $tecEventColumns,
     $tecOccurrenceColumns,
     $tecEventIndexes,
-    $tecOccurrenceIndexes
+    $tecOccurrenceIndexes,
+    $postsIndexes,
+    $postMetaIndexes,
+    $optionColumns,
+    $optionIndexes
 ): void {
     $tecDb->setColumnDefinitions($eventTable, $tecEventColumns)
         ->setColumnDefinitions($occurrenceTable, $tecOccurrenceColumns)
         ->setIndexes($eventTable, $tecEventIndexes)
         ->setIndexes($occurrenceTable, $tecOccurrenceIndexes)
+        ->setIndexes($postsTable, $postsIndexes)
+        ->setIndexes($postMetaTable, $postMetaIndexes)
+        ->setColumnDefinitions($optionsTable, $optionColumns)
+        ->setIndexes($optionsTable, $optionIndexes)
         ->setTableEngine($eventTable, 'InnoDB')
-        ->setTableEngine($occurrenceTable, 'InnoDB');
+        ->setTableEngine($occurrenceTable, 'InnoDB')
+        ->setTableEngine($postsTable, 'InnoDB')
+        ->setTableEngine($postMetaTable, 'InnoDB')
+        ->setTableEngine($optionsTable, 'InnoDB');
 };
 $configureTecSchema();
-$tecDb->setPrimaryKey($eventTable, 'event_id')->setPrimaryKey($occurrenceTable, 'occurrence_id');
-$resetTecDerived = static function () use ($tecDb, $eventTable, $occurrenceTable, $tecEventId): void {
+$tecDb->setPrimaryKey($eventTable, 'event_id')
+    ->setPrimaryKey($occurrenceTable, 'occurrence_id')
+    ->setUniqueKey($optionsTable, ['option_name']);
+$resetTecDerived = static function () use (
+    $tecDb,
+    $eventTable,
+    $occurrenceTable,
+    $postsTable,
+    $postMetaTable,
+    $optionsTable,
+    $tecEventId
+): void {
+    $tecDb->setConnectionId(1)->setTransactionIsolation('REPEATABLE-READ');
+    $tecDb->seedTable($postsTable, [
+        ['ID' => $tecEventId, 'post_type' => 'tribe_events'],
+        ['ID' => 6100000099, 'post_type' => 'tribe_events'],
+    ]);
+    $postMetaRows = [];
+    $metaId = 9100000001;
+    foreach ($GLOBALS['tec_readiness_post_meta'] as $postId => $byKey) {
+        foreach ($byKey as $metaKey => $metaValue) {
+            $postMetaRows[] = [
+                'meta_id' => $metaId++,
+                'post_id' => $postId,
+                'meta_key' => $metaKey,
+                'meta_value' => $metaValue,
+            ];
+        }
+    }
+    $tecDb->seedTable($postMetaTable, $postMetaRows);
+    $tecDb->seedTable($optionsTable, [
+        [
+            'option_id' => 11,
+            'option_name' => 'tribe_last_save_post',
+            'option_value' => '1700000000.1234',
+            'autoload' => 'yes',
+        ],
+        [
+            'option_id' => 12,
+            'option_name' => 'target_runtime_neighbor',
+            'option_value' => 'preserve-me',
+            'autoload' => 'no',
+        ],
+    ]);
     $tecDb->seedTable($eventTable, [
         [
             'event_id' => 7000000001,
@@ -2946,11 +3831,29 @@ $resetTecDerived = static function () use ($tecDb, $eventTable, $occurrenceTable
             'hash' => 'target-runtime-occurrence',
         ],
     ]);
-    $tecDb->onQuery(null);
+    $tecDb->onQuery(null)->clearTransactionOutcomes();
     $tecDb->resetLog();
+    $GLOBALS['tec_readiness_external_object_cache'] = false;
+    $GLOBALS['tec_readiness_container_bindings'] = [];
+    $GLOBALS['tec_readiness_container_binding_signals'] = [];
+    $GLOBALS['tec_readiness_configuration'] = [];
+    $GLOBALS['tec_readiness_regen_native_db_reads'] = true;
     $GLOBALS['tec_readiness_regen_mode'] = 'ok';
     $GLOBALS['tec_readiness_regen_calls'] = [];
     $GLOBALS['tec_readiness_event_data_calls'] = [];
+    $GLOBALS['tec_readiness_wp_cache'] = [];
+    $GLOBALS['tec_readiness_wp_cache_gets'] = 0;
+    $GLOBALS['tec_readiness_wp_cache_get_mode'] = '';
+    $GLOBALS['tec_readiness_wp_cache_sets'] = 0;
+    $GLOBALS['tec_readiness_wp_cache_deletes'] = 0;
+    $GLOBALS['tec_readiness_wp_cache_delete_mode'] = '';
+    $GLOBALS['tec_readiness_wp_cache_group_flushes'] = 0;
+    $GLOBALS['tec_readiness_wp_cache_group_flush_mode'] = '';
+    $GLOBALS['tec_readiness_wp_cache_group_support'] = true;
+    $GLOBALS['tec_readiness_tribe_vars'] = [];
+    $GLOBALS['tec_readiness_log_dispatches'] = 0;
+    $GLOBALS['tec_readiness_expired_transient_deletes'] = 0;
+    $GLOBALS['tec_readiness_native_disruption'] = null;
 };
 $tecFailure = static function (callable $call): string {
     try {
@@ -2960,6 +3863,35 @@ $tecFailure = static function (callable $call): string {
     }
     duo_check(false, 'expected TEC regenerator failure did not occur');
     return '';
+};
+$setTecSourceMeta = static function (string $key, string $value) use (
+    $tecDb,
+    $postMetaTable,
+    $tecEventId
+): void {
+    $GLOBALS['tec_readiness_post_meta'][$tecEventId][$key] = $value;
+    duo_check_same(
+        1,
+        $tecDb->update(
+            $postMetaTable,
+            ['meta_value' => $value],
+            ['post_id' => $tecEventId, 'meta_key' => $key]
+        ),
+        "the physical source fixture updates exactly one $key row"
+    );
+    wp_cache_delete($tecEventId, 'post_meta');
+};
+$tecPhysicalState = static function () use (
+    $tecDb,
+    $eventTable,
+    $occurrenceTable,
+    $optionsTable
+): array {
+    return [
+        'events' => $tecDb->rows($eventTable),
+        'occurrences' => $tecDb->rows($occurrenceTable),
+        'options' => $tecDb->rows($optionsTable),
+    ];
 };
 
 $assertTecSchemaRefusal = static function (
@@ -3159,8 +4091,887 @@ duo_check_same(
 duo_check_same([], $GLOBALS['tec_readiness_regen_calls'], 'event-data filter refusal never crosses the native upsert boundary');
 $GLOBALS['tec_readiness_filters'] = [];
 
+foreach ([
+    'same physical value' => static fn(mixed $value): mixed => $value,
+    'valid alternate value' => static fn(mixed $value): string => '2026-11-02 15:16:00',
+] as $label => $metadataCallback) {
+    $resetTecDerived();
+    $beforeMetadataFilter = [$tecDb->rows($eventTable), $tecDb->rows($occurrenceTable)];
+    add_filter('get_post_metadata', $metadataCallback, $label === 'same physical value' ? 1 : 999, 5);
+    $failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
+    duo_check(
+        str_contains($failure, 'does not admit callback hook get_post_metadata'),
+        "a $label get_post_metadata callback refuses before cache-backed native source reads"
+    );
+    duo_check_same(
+        $beforeMetadataFilter,
+        [$tecDb->rows($eventTable), $tecDb->rows($occurrenceTable)],
+        "the $label metadata callback cannot produce environment-dependent derived rows"
+    );
+    duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], "$label metadata refusal precedes plugin code");
+    remove_filter('get_post_metadata', $metadataCallback, $label === 'same physical value' ? 1 : 999);
+}
+
+$nativeHookProbe = static fn(mixed $value = null): mixed => $value;
+foreach ([
+    'tec_custom_tables_tec_events_model_v1_extensions',
+    'tec_custom_tables_tec_occurrences_model_v1_extensions',
+    'tec_events_custom_tables_v1_occurrences_generator',
+    'tec_custom_tables_v1_get_occurrence_match',
+    'tec_events_custom_tables_v1_after_update_occurrences',
+    'tec_events_custom_tables_v1_after_insert_occurrences',
+    'tec_events_custom_tables_v1_after_save_occurrences',
+    'tec_cache_listener_save_post_types',
+    'tribe_cache_expiration',
+] as $position => $nativeHook) {
+    $resetTecDerived();
+    $priority = [1, 10, 999][$position % 3];
+    add_filter($nativeHook, $nativeHookProbe, $priority, 5);
+    $failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
+    duo_check(
+        str_contains($failure, "does not admit callback hook $nativeHook"),
+        "the whole-registry preflight refuses an injected $nativeHook callback at priority $priority"
+    );
+    duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], "$nativeHook refuses before native mutation");
+    remove_filter($nativeHook, $nativeHookProbe, $priority);
+}
+
+$resetTecDerived();
+$unknownOptionCallback = static function (): void {};
+add_action('updated_option', $unknownOptionCallback, 999, 3);
+duo_check_same(
+    'duo: TEC derived-state option hook updated_option contains an unreviewed callback',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'an unknown generic option callback refuses before the native cache marker can invoke it'
+);
+duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'option-hook refusal precedes plugin code');
+remove_action('updated_option', $unknownOptionCallback, 999);
+
+$resetTecDerived();
+$defaultAutoloadCallback = static fn(mixed $autoload): mixed => $autoload;
+add_filter('wp_default_autoload_value', $defaultAutoloadCallback, 1, 3);
+duo_check_same(
+    'duo: TEC free-plugin derived-state contract does not admit callback hook wp_default_autoload_value',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'the implicit native marker autoload path refuses a default-autoload callback before mutation'
+);
+duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'default-autoload hook refusal precedes plugin code');
+remove_filter('wp_default_autoload_value', $defaultAutoloadCallback, 1);
+
+$resetTecDerived();
+$GLOBALS['tec_readiness_external_object_cache'] = ['malformed'];
+duo_check_same(
+    'duo: TEC derived-state regeneration rejected a malformed external object-cache signal',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'a non-boolean external object-cache signal refuses before transaction or native service use'
+);
+duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'malformed object-cache topology precedes plugin code');
+
+$resetTecDerived();
+$nativeListener = Tribe__Cache_Listener::instance();
+$listenerCacheProperty = new ReflectionProperty(Tribe__Cache_Listener::class, 'cache');
+$nativeListenerCache = $listenerCacheProperty->getValue($nativeListener);
+duo_check(
+    $nativeListenerCache instanceof Tribe__Cache
+        && $nativeListenerCache !== $GLOBALS['tec_readiness_category_color_cache'],
+    'the exact source-pinned listener cache is a distinct second Tribe__Cache instance'
+);
+$resetTecDerived();
+$foreignListener = (new ReflectionClass(Tribe__Cache_Listener::class))
+    ->newInstanceWithoutConstructor();
+duo_check(
+    remove_action(
+        'updated_option',
+        [$nativeListener, 'update_last_save_post'],
+        10
+    ),
+    'the same-class callback substitution fixture removes the exact listener callback'
+);
+add_action(
+    'updated_option',
+    [$foreignListener, 'update_last_save_post'],
+    10,
+    3
+);
+duo_check_same(
+    'duo: TEC derived-state regeneration rejected required native hook updated_option',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'a same-class foreign listener callback refuses before its private state can execute'
+);
+duo_check_same(
+    [],
+    $GLOBALS['tec_readiness_event_data_calls'],
+    'same-class callback substitution refuses before native event reads'
+);
+remove_action(
+    'updated_option',
+    [$foreignListener, 'update_last_save_post'],
+    10
+);
+add_action(
+    'updated_option',
+    [$nativeListener, 'update_last_save_post'],
+    10,
+    3
+);
+$resetTecDerived();
+$nativeSettingsManager = Tribe__Settings_Manager::instance();
+duo_check(
+    remove_action(
+        'updated_option',
+        [$nativeSettingsManager, 'update_options_cache'],
+        10
+    ),
+    'the allowed-callback identity fixture removes the exact settings singleton'
+);
+$foreignSettingsManager = new Tribe__Settings_Manager();
+duo_check_same(
+    'duo: TEC derived-state option hook updated_option contains an unreviewed callback',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'a same-class foreign allowed option callback refuses before update_option can execute it'
+);
+duo_check_same(
+    [],
+    $GLOBALS['tec_readiness_event_data_calls'],
+    'foreign allowed callback identity refuses before native event reads'
+);
+remove_action(
+    'updated_option',
+    [$foreignSettingsManager, 'update_options_cache'],
+    10
+);
+add_action(
+    'updated_option',
+    [$nativeSettingsManager, 'update_options_cache'],
+    10,
+    3
+);
+$cacheKeysProperty = new ReflectionProperty(Tribe__Cache::class, 'non_persistent_keys');
+$globalCacheKeys = ['global-preimage' => 'global-preimage'];
+$listenerCacheKeys = ['listener-preimage' => 'listener-preimage'];
+$cacheKeysProperty->setValue(
+    $GLOBALS['tec_readiness_category_color_cache'],
+    $globalCacheKeys
+);
+$cacheKeysProperty->setValue($nativeListenerCache, $listenerCacheKeys);
+$GLOBALS['tec_readiness_native_disruption'] = [
+    'boundary' => 'find',
+    'action' => 'cache_registry_mutate',
+];
+$GLOBALS['tec_readiness_regen_mode'] = 'save_throw';
+duo_check_same(
+    'injected native occurrence save failure',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'a later native failure executes after both exact cache registries acquire independent drift'
+);
+duo_check_same(
+    [$globalCacheKeys, $listenerCacheKeys],
+    [
+        $cacheKeysProperty->getValue($GLOBALS['tec_readiness_category_color_cache']),
+        $cacheKeysProperty->getValue($nativeListenerCache),
+    ],
+    'rollback restores the global and listener non-persistent registries to distinct exact preimages'
+);
+$GLOBALS['tec_readiness_regen_mode'] = 'ok';
+$regenerator->regenerate($tecEventId);
+duo_check_same(
+    [$globalCacheKeys, $listenerCacheKeys],
+    [
+        $cacheKeysProperty->getValue($GLOBALS['tec_readiness_category_color_cache']),
+        $cacheKeysProperty->getValue($nativeListenerCache),
+    ],
+    'same-process retry preserves both exact cache registries without conflating their identities'
+);
+
+foreach ([
+    \TEC\Common\Configuration\Configuration::class,
+    \TEC\Events\Custom_Tables\V1\Events\Occurrences\Occurrences_Generator::class,
+] as $overriddenNativeService) {
+    $resetTecDerived();
+    $GLOBALS['tec_readiness_container_bindings'][$overriddenNativeService] = new stdClass();
+    duo_check_same(
+        'duo: TEC derived-state regeneration rejected an overridden native service binding',
+        $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+        "$overriddenNativeService container substitution refuses before native code"
+    );
+    duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], "$overriddenNativeService refusal precedes source reads");
+    unset($GLOBALS['tec_readiness_container_bindings'][$overriddenNativeService]);
+}
+
+$resetTecDerived();
+$GLOBALS['tec_readiness_container_binding_signals'][
+    \TEC\Events\Custom_Tables\V1\Events\Occurrences\Occurrences_Generator::class
+] = 'malformed';
+duo_check_same(
+    'duo: TEC derived-state regeneration rejected an overridden native service binding',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'a non-boolean container binding signal refuses before service construction'
+);
+
+$resetTecDerived();
+$GLOBALS['tec_readiness_configuration']['TEC_NO_MEMOIZE_CT1_MODELS'] = true;
+duo_check_same(
+    'duo: TEC derived-state regeneration rejected a non-default model memoization configuration',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'a Pro-style or environment-supplied custom-table memoization branch refuses before native lookup'
+);
+duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'non-default model configuration precedes source reads');
+
+$resetTecDerived();
+$unknownLogger = static function (): void {};
+add_action('tribe_log', $unknownLogger, 1, 3);
+duo_check_same(
+    'duo: TEC derived-state regeneration requires one exact free-plugin failure logger',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'an injected failure logger refuses before it can receive authored model working data'
+);
+remove_action('tribe_log', $unknownLogger, 1);
+duo_check_same(
+    10,
+    has_filter('tribe_log', [$GLOBALS['tec_readiness_log_provider'], 'dispatch_log']),
+    'failure preflight leaves the exact built-in logger registered once'
+);
+
+$resetTecDerived();
+$tecDb->returnNextGetResultsAs([[
+    'meta_id' => '9100000001',
+    'meta_key_bytes' => '19',
+    'meta_value_bytes' => '16777217',
+]], 'SELECT meta_id, OCTET_LENGTH(meta_key)');
+duo_check_same(
+    'duo: TEC derived-state source metadata row 0 is unordered, malformed, or oversized',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'one oversized physical metadata value refuses from the locked length roster'
+);
+duo_check(
+    count(array_filter(
+        $tecDb->queries(),
+        static fn(string $sql): bool => str_contains($sql, 'SHA2(BINARY meta_')
+    )) === 0,
+    'an oversized source value is refused before MySQL evaluates either SHA2 expression'
+);
+
+$resetTecDerived();
+$aggregateOverflowRoster = [];
+for ($position = 0; $position < 4097; ++$position) {
+    $aggregateOverflowRoster[] = [
+        'meta_id' => (string) (9200000000 + $position),
+        'meta_key_bytes' => '16',
+        'meta_value_bytes' => '16384',
+    ];
+}
+$tecDb->returnNextGetResultsAs(
+    $aggregateOverflowRoster,
+    'SELECT meta_id, OCTET_LENGTH(meta_key)'
+);
+unset($aggregateOverflowRoster);
+duo_check_same(
+    'duo: TEC derived-state source metadata exceeds the bounded owner-byte frontier',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'many individually bounded metadata rows refuse at the aggregate owner-byte frontier'
+);
+duo_check(
+    count(array_filter(
+        $tecDb->queries(),
+        static fn(string $sql): bool => str_contains($sql, 'SHA2(BINARY meta_')
+    )) === 0,
+    'aggregate source overflow is refused before MySQL hashes any admitted-length value'
+);
+
+$resetTecDerived();
+$duplicateRequiredMeta = $tecDb->rows($postMetaTable);
+$duplicateRequiredMeta[] = [
+    'meta_id' => 9199999999,
+    'post_id' => $tecEventId,
+    'meta_key' => '_EventTimezone',
+    'meta_value' => 'Asia/Kathmandu',
+];
+$tecDb->seedTable($postMetaTable, $duplicateRequiredMeta);
+duo_check_same(
+    'duo: TEC derived-state source locking requires one physical row for every required event key',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'a duplicate required _Event row refuses before get_post_meta(single) can pick nondeterministically'
+);
+duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'duplicate required metadata refuses before native source reads');
+
+$resetTecDerived();
+$aliasedRequiredMeta = $tecDb->rows($postMetaTable);
+foreach ($aliasedRequiredMeta as &$row) {
+    if (($row['post_id'] ?? null) === $tecEventId && ($row['meta_key'] ?? null) === '_EventDuration') {
+        // Both keys are fourteen bytes, so count/length-only witnesses cannot
+        // distinguish this hostile alias replacement.
+        $row['meta_key'] = '_EventTimezone';
+        break;
+    }
+}
+unset($row);
+$tecDb->seedTable($postMetaTable, $aliasedRequiredMeta);
+duo_check_same(
+    'duo: TEC derived-state source locking requires one physical row for every required event key',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'a same-count same-length required-key alias swap refuses from physical key hashes'
+);
+duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'same-length key alias refusal precedes plugin code');
+
+$resetTecDerived();
+$tecDb->delete($optionsTable, ['option_name' => 'tribe_last_save_post']);
+$GLOBALS['tec_readiness_wp_cache']['options'] = [
+    'tribe_last_save_post' => 'stale-cache-marker',
+    'alloptions' => ['tribe_last_save_post' => 'stale-alloptions-marker'],
+    'notoptions' => ['tribe_last_save_post' => true],
+];
+$regenerator->regenerate($tecEventId);
+$absentMarkerRows = array_values(array_filter(
+    $tecDb->rows($optionsTable),
+    static fn(array $row): bool => ($row['option_name'] ?? null) === 'tribe_last_save_post'
+));
+duo_check(
+    count($absentMarkerRows) === 1
+        && in_array(
+            $absentMarkerRows[0]['autoload'] ?? null,
+            ['yes', 'no', 'on', 'off', 'auto', 'auto-on', 'auto-off'],
+            true
+        ),
+    'an absent native marker gap is locked and converges through WordPress add_option semantics'
+);
+duo_check(
+    !isset($GLOBALS['tec_readiness_wp_cache']['options']['tribe_last_save_post'])
+        && !isset($GLOBALS['tec_readiness_wp_cache']['options']['alloptions'])
+        && !isset($GLOBALS['tec_readiness_wp_cache']['options']['notoptions']),
+    'absent-row materialization purges stale specific, alloptions, and notoptions bytes'
+);
+
+$resetTecDerived();
+$tecDb->update(
+    $optionsTable,
+    ['option_value' => 'not-a-native-marker'],
+    ['option_name' => 'tribe_last_save_post']
+);
+duo_check_same(
+    'duo: TEC derived-state native save-post cache marker is malformed or oversized',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'a malformed target marker refuses before update_option can deserialize or normalize it'
+);
+duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'malformed marker refusal precedes plugin code');
+
+$resetTecDerived();
+$tecDb->update(
+    $optionsTable,
+    ['option_value' => str_repeat('9', 257)],
+    ['option_name' => 'tribe_last_save_post']
+);
+duo_check_same(
+    'duo: TEC derived-state native save-post cache marker is malformed or oversized',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'an oversized target marker refuses from a bounded LEFT witness before native option reads'
+);
+
+$resetTecDerived();
+$duplicateMarkerRows = $tecDb->rows($optionsTable);
+$duplicateMarkerRows[] = [
+    'option_id' => 13,
+    'option_name' => 'tribe_last_save_post',
+    'option_value' => '1700000001.25',
+    'autoload' => 'no',
+];
+$tecDb->seedTable($optionsTable, $duplicateMarkerRows);
+duo_check_same(
+    'duo: TEC derived-state native save-post cache marker returned a malformed row',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'a duplicate native marker row refuses despite the expected unique-index contract'
+);
+
+$resetTecDerived();
+$tecDb->failNextQuery(
+    'hostile option read error AKIAABCDEFGHIJKLMNOP',
+    'SELECT option_id, option_name, LEFT(option_value, 257)'
+);
+$failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
+duo_check(
+    str_contains($failure, 'could not read native save-post cache marker')
+        && !str_contains($failure, 'AKIA'),
+    'a native marker query failure is explicit, bounded, and secret-safe'
+);
+duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'option read failure precedes plugin code');
+
+foreach (['before_false', 'before_throw', 'after_false', 'after_throw'] as $startOutcome) {
+    $resetTecDerived();
+    $beforeStartFailure = $tecPhysicalState();
+    $tecDb->injectTransactionOutcome('START', $startOutcome);
+    $failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
+    duo_check(
+        str_contains($failure, 'transaction start')
+            && str_contains($failure, 'recovery_required')
+            && strlen($failure) < 300,
+        "START $startOutcome refuses with one bounded transaction diagnostic"
+    );
+    duo_check_same(
+        $beforeStartFailure,
+        $tecPhysicalState(),
+        "START $startOutcome leaves exact event, occurrence, option, and autoload preimages"
+    );
+    duo_check_same('0', $tecDb->get_var('SELECT @@in_transaction'), "START $startOutcome leaves no transaction owner");
+    duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], "START $startOutcome precedes native reads");
+    $regenerator->regenerate($tecEventId);
+    duo_check_same(
+        '2026-11-02 15:15:00',
+        $tecDb->get_var($tecDb->prepare("SELECT end_date_utc FROM `$occurrenceTable` WHERE post_id = %d", $tecEventId)),
+        "same-process retry converges after START $startOutcome"
+    );
+}
+
+$resetTecDerived();
+$beforeStartReconnect = $tecPhysicalState();
+$tecDb->injectTransactionOutcome('START', 'after_reconnect');
+$failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
+duo_check(
+    str_contains($failure, 'rollback/runtime cleanup requires recovery')
+        && str_contains($failure, 'rollback')
+        && strlen($failure) < 300,
+    'a reconnect during START is recovery-required rather than accepted as rollback proof'
+);
+duo_check_same($beforeStartReconnect, $tecPhysicalState(), 'START reconnect drops and restores the uncommitted preimage');
+duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'START reconnect precedes native reads');
+
+foreach ([
+    'before_false',
+    'before_throw',
+    'inactive_false',
+    'success_no_apply',
+    'success_no_apply_probe_error',
+] as $commitPreimageOutcome) {
+    $resetTecDerived();
+    $beforeCommitFailure = $tecPhysicalState();
+    $tecDb->injectTransactionOutcome('COMMIT', $commitPreimageOutcome);
+    duo_check_same(
+        'duo: TEC derived-state transaction commit failed without server apply',
+        $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+        "COMMIT $commitPreimageOutcome is classified as the exact inactive preimage"
+    );
+    duo_check_same(
+        $beforeCommitFailure,
+        $tecPhysicalState(),
+        "COMMIT $commitPreimageOutcome restores exact derived, marker, autoload, and neighbor bytes"
+    );
+    duo_check_same('0', $tecDb->get_var('SELECT @@in_transaction'), "COMMIT $commitPreimageOutcome releases every lock");
+    $regenerator->regenerate($tecEventId);
+    duo_check_same(
+        '2026-11-02 15:15:00',
+        $tecDb->get_var($tecDb->prepare("SELECT end_date_utc FROM `$occurrenceTable` WHERE post_id = %d", $tecEventId)),
+        "same-process retry converges after COMMIT $commitPreimageOutcome"
+    );
+}
+
+foreach (['after_false', 'after_throw', 'success_probe_error'] as $commitAppliedOutcome) {
+    $resetTecDerived();
+    $tecDb->injectTransactionOutcome('COMMIT', $commitAppliedOutcome);
+    $regenerator->regenerate($tecEventId);
+    $appliedMarker = $tecDb->get_row(
+        "SELECT option_value, autoload FROM `$optionsTable` WHERE option_name = 'tribe_last_save_post'",
+        ARRAY_A
+    );
+    duo_check(
+        ($appliedMarker['option_value'] ?? null) !== '1700000000.1234'
+            && ($appliedMarker['autoload'] ?? null) === 'yes',
+        "COMMIT $commitAppliedOutcome is accepted only after exact marker advancement and autoload proof"
+    );
+    duo_check_same(
+        '2026-11-02 15:15:00',
+        $tecDb->get_var($tecDb->prepare("SELECT end_date_utc FROM `$occurrenceTable` WHERE post_id = %d", $tecEventId)),
+        "COMMIT $commitAppliedOutcome retains the exact durable derived postcondition"
+    );
+    duo_check_same('0', $tecDb->get_var('SELECT @@in_transaction'), "COMMIT $commitAppliedOutcome releases verification locks");
+}
+
+$resetTecDerived();
+$tecDb->injectTransactionOutcome('COMMIT', 'after_reconnect');
+$failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
+duo_check(
+    str_contains($failure, 'rollback/runtime cleanup requires recovery')
+        && str_contains($failure, 'derived_rows')
+        && strlen($failure) < 300,
+    'a truthy reconnect after server-applied COMMIT remains ambiguous and recovery-required'
+);
+duo_check_same(
+    '2026-11-02 15:15:00',
+    $tecDb->get_var($tecDb->prepare("SELECT end_date_utc FROM `$occurrenceTable` WHERE post_id = %d", $tecEventId)),
+    'COMMIT reconnect cannot misreport the exact durable derived bytes as rolled back'
+);
+
+foreach (['before_false', 'before_throw', 'after_false', 'after_throw'] as $rollbackOutcome) {
+    $resetTecDerived();
+    $beforeRollbackFailure = $tecPhysicalState();
+    $GLOBALS['tec_readiness_regen_mode'] = 'upsert_throw_after_write';
+    $tecDb->injectTransactionOutcome('ROLLBACK', $rollbackOutcome);
+    duo_check_same(
+        'injected native event upsert failure after derived write',
+        $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+        "ROLLBACK $rollbackOutcome is state-probed instead of trusting the driver response"
+    );
+    duo_check_same(
+        $beforeRollbackFailure,
+        $tecPhysicalState(),
+        "ROLLBACK $rollbackOutcome restores exact derived, marker, autoload, and neighbor bytes"
+    );
+    duo_check_same('0', $tecDb->get_var('SELECT @@in_transaction'), "ROLLBACK $rollbackOutcome releases every lock");
+    $GLOBALS['tec_readiness_regen_mode'] = 'ok';
+    $regenerator->regenerate($tecEventId);
+    duo_check_same(
+        '2026-11-02 15:15:00',
+        $tecDb->get_var($tecDb->prepare("SELECT end_date_utc FROM `$occurrenceTable` WHERE post_id = %d", $tecEventId)),
+        "same-process retry converges after ROLLBACK $rollbackOutcome"
+    );
+}
+
+$resetTecDerived();
+$beforeRollbackReconnect = $tecPhysicalState();
+$GLOBALS['tec_readiness_regen_mode'] = 'upsert_throw_after_write';
+$tecDb->injectTransactionOutcome('ROLLBACK', 'after_reconnect');
+$failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
+duo_check(
+    str_contains($failure, 'rollback/runtime cleanup requires recovery')
+        && str_contains($failure, 'rollback')
+        && strlen($failure) < 300,
+    'a reconnect after server-applied ROLLBACK preserves the preimage but requires recovery'
+);
+duo_check_same(
+    $beforeRollbackReconnect,
+    $tecPhysicalState(),
+    'ROLLBACK reconnect restores exact derived, marker, autoload, and neighbor bytes'
+);
+$GLOBALS['tec_readiness_regen_mode'] = 'ok';
+
+$nativeTransactionBoundaries = [
+    'data_from_post',
+    'upsert',
+    'find',
+    'occurrences',
+    'save_occurrences',
+];
+foreach (['commit', 'rollback', 'reconnect'] as $nativeTransactionAction) {
+    foreach ($nativeTransactionBoundaries as $nativeTransactionBoundary) {
+        $resetTecDerived();
+        $beforeNativeTransactionBreak = $tecPhysicalState();
+        $GLOBALS['tec_readiness_native_disruption'] = [
+            'boundary' => $nativeTransactionBoundary,
+            'action' => $nativeTransactionAction,
+        ];
+        $failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
+        duo_check(
+            str_contains($failure, 'recovery_required')
+                && strlen($failure) < 300,
+            "native $nativeTransactionAction at $nativeTransactionBoundary refuses with bounded recovery authority"
+        );
+        duo_check_same(
+            '0',
+            $tecDb->get_var('SELECT @@in_transaction'),
+            "native $nativeTransactionAction at $nativeTransactionBoundary cannot leave a transaction owner"
+        );
+        if ($nativeTransactionAction !== 'commit') {
+            duo_check_same(
+                $beforeNativeTransactionBreak,
+                $tecPhysicalState(),
+                "native $nativeTransactionAction at $nativeTransactionBoundary restores the exact physical preimage"
+            );
+        }
+    }
+}
+
+foreach ($nativeTransactionBoundaries as $sourceDriftBoundary) {
+    $resetTecDerived();
+    $beforeSourceDrift = $tecPhysicalState();
+    $GLOBALS['tec_readiness_native_disruption'] = [
+        'boundary' => $sourceDriftBoundary,
+        'action' => 'source_same_length',
+    ];
+    $failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
+    duo_check(
+        str_contains($failure, "source rows changed during")
+            && str_contains($failure, 'recovery_required')
+            && strlen($failure) < 300,
+        "same-length source drift at $sourceDriftBoundary refuses from the aggregate physical witness"
+    );
+    duo_check_same(
+        $beforeSourceDrift,
+        $tecPhysicalState(),
+        "same-length source drift at $sourceDriftBoundary rolls back source, derived, option, and autoload bytes"
+    );
+}
+
+foreach (['source_insert', 'source_delete', 'source_id_swap'] as $sourceAbaAction) {
+    $resetTecDerived();
+    $beforeSourceAba = $tecPhysicalState();
+    $GLOBALS['tec_readiness_native_disruption'] = [
+        'boundary' => 'occurrences',
+        'action' => $sourceAbaAction,
+    ];
+    $failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
+    $sourceAbaDiagnostic = $sourceAbaAction === 'source_delete'
+        ? 'requires one physical row for every required event key'
+        : 'source rows changed during Event::occurrences()';
+    duo_check(
+        str_contains($failure, $sourceAbaDiagnostic)
+            && ($sourceAbaAction === 'source_delete'
+                || str_contains($failure, 'recovery_required'))
+            && strlen($failure) < 300,
+        "$sourceAbaAction refuses from row count, content hash, and physical-id ordering"
+    );
+    duo_check_same(
+        $beforeSourceAba,
+        $tecPhysicalState(),
+        "$sourceAbaAction rolls the full source and derived transaction back"
+    );
+}
+
+$resetTecDerived();
+$beforeListenerSubstitution = $tecPhysicalState();
+$GLOBALS['tec_readiness_native_disruption'] = [
+    'boundary' => 'find',
+    'action' => 'listener_cache_substitute',
+];
+$failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
+duo_check(
+    str_contains($failure, 'runtime cleanup requires recovery')
+        && str_contains($failure, 'cache_service')
+        && strlen($failure) < 300,
+    'same-class listener cache substitution at a native boundary is recovery-required'
+);
+$listenerCacheProperty->setValue($nativeListener, $nativeListenerCache);
+duo_check_same(
+    $beforeListenerSubstitution,
+    $tecPhysicalState(),
+    'listener cache substitution rolls exact derived, marker, and autoload bytes back'
+);
+
+$resetTecDerived();
+$beforeGeneratorSubstitution = $tecPhysicalState();
+$GLOBALS['tec_readiness_native_disruption'] = [
+    'boundary' => 'occurrences',
+    'action' => 'generator_binding',
+];
+$failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
+duo_check(
+    str_contains($failure, 'runtime cleanup requires recovery')
+        && str_contains($failure, 'container_service')
+        && strlen($failure) < 300,
+    'a same-output foreign occurrence-generator binding is detected at the native service boundary'
+);
+unset($GLOBALS['tec_readiness_container_bindings'][
+    \TEC\Events\Custom_Tables\V1\Events\Occurrences\Occurrences_Generator::class
+]);
+duo_check_same(
+    $beforeGeneratorSubstitution,
+    $tecPhysicalState(),
+    'foreign occurrence-generator substitution rolls exact derived and runtime option bytes back'
+);
+
+$resetTecDerived();
+$GLOBALS['tec_readiness_wp_cache_group_support'] = 'malformed';
+duo_check_same(
+    'duo: TEC derived-state regeneration requires exact local object-cache group flushing',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'a non-boolean cache capability response refuses before transaction or native mutation'
+);
+duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'malformed cache capability precedes plugin code');
+
+foreach ([
+    'one failed key deletion' => ['delete' => 'one_failure', 'get' => '', 'group' => ''],
+    'non-boolean key deletion' => ['delete' => 'nonbool', 'get' => '', 'group' => ''],
+    'cache read exception' => ['delete' => '', 'get' => 'throw', 'group' => ''],
+    'non-boolean cache found flag' => ['delete' => '', 'get' => 'nonbool_found', 'group' => ''],
+    'one failed group flush' => ['delete' => '', 'get' => '', 'group' => 'one_failure'],
+    'non-boolean group flush' => ['delete' => '', 'get' => '', 'group' => 'nonbool'],
+] as $cacheFailureLabel => $cacheFailureModes) {
+    $resetTecDerived();
+    $beforeCacheFailure = $tecPhysicalState();
+    $GLOBALS['tec_readiness_wp_cache']['posts'][$tecEventId] = 'stale-source-cache';
+    $GLOBALS['tec_readiness_wp_cache_delete_mode'] = $cacheFailureModes['delete'];
+    $GLOBALS['tec_readiness_wp_cache_get_mode'] = $cacheFailureModes['get'];
+    $GLOBALS['tec_readiness_wp_cache_group_flush_mode'] = $cacheFailureModes['group'];
+    $failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
+    duo_check(
+        str_contains($failure, 'native cache effects could not be purged')
+            || str_contains($failure, 'runtime cleanup requires recovery'),
+        "$cacheFailureLabel refuses instead of trusting an ambiguous cache primitive outcome"
+    );
+    duo_check_same(
+        $beforeCacheFailure,
+        $tecPhysicalState(),
+        "$cacheFailureLabel leaves exact database preimages before native mutation"
+    );
+    duo_check(
+        $GLOBALS['tec_readiness_wp_cache_deletes'] >= 14
+            && $GLOBALS['tec_readiness_wp_cache_group_flushes'] >= 4,
+        "$cacheFailureLabel still visits every declared key and cache group on failure and rollback cleanup"
+    );
+    $GLOBALS['tec_readiness_wp_cache_delete_mode'] = '';
+    $GLOBALS['tec_readiness_wp_cache_get_mode'] = '';
+    $GLOBALS['tec_readiness_wp_cache_group_flush_mode'] = '';
+}
+
+$resetTecDerived();
+$beforeOccurrenceCacheFailure = $tecPhysicalState();
+$GLOBALS['tec_readiness_native_disruption'] = [
+    'boundary' => 'occurrences',
+    'action' => 'cache_delete_throw',
+];
+duo_check_same(
+    'injected local object-cache delete failure',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'the exact native occurrence-match cache deletion failure aborts the derived transaction'
+);
+duo_check_same(
+    $beforeOccurrenceCacheFailure,
+    $tecPhysicalState(),
+    'occurrence-match cache failure rolls event, occurrence, marker, and autoload bytes back atomically'
+);
+$regenerator->regenerate($tecEventId);
+duo_check_same(
+    '2026-11-02 15:15:00',
+    $tecDb->get_var($tecDb->prepare("SELECT end_date_utc FROM `$occurrenceTable` WHERE post_id = %d", $tecEventId)),
+    'same-process retry after occurrence-match cache failure converges the exact derived rows'
+);
+
+$resetTecDerived();
+$tecDb->delete($optionsTable, ['option_name' => 'tribe_last_save_post']);
+$beforeAbsentMarkerFailure = $tecDb->rows($optionsTable);
+$GLOBALS['tec_readiness_regen_mode'] = 'upsert_throw_after_write';
+duo_check_same(
+    'injected native event upsert failure after derived write',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'an absent marker created by a partial native upsert remains inside the derived transaction'
+);
+duo_check_same(
+    $beforeAbsentMarkerFailure,
+    $tecDb->rows($optionsTable),
+    'rollback of the absent-row path removes the uncommitted marker and preserves its neighbor'
+);
+duo_check_same(false, tribe_isset_var('should_delete_expired_transients'), 'absent-row rollback restores the initially absent global purge flag');
+$GLOBALS['tec_readiness_regen_mode'] = 'ok';
+$regenerator->regenerate($tecEventId);
+duo_check_same(
+    1,
+    count(array_filter(
+        $tecDb->rows($optionsTable),
+        static fn(array $row): bool => ($row['option_name'] ?? null) === 'tribe_last_save_post'
+    )),
+    'same-process retry after absent-row rollback creates exactly one durable native marker'
+);
+
+foreach ([
+    'yes' => 'yes',
+    'no' => 'no',
+    'on' => 'on',
+    'off' => 'off',
+    'auto' => 'auto-on',
+    'auto-on' => 'auto-on',
+    'auto-off' => 'auto-on',
+] as $initialAutoload => $expectedAutoload) {
+    $resetTecDerived();
+    duo_check_same(
+        $initialAutoload === 'yes' ? 0 : 1,
+        $tecDb->update(
+            $optionsTable,
+            ['autoload' => $initialAutoload],
+            ['option_name' => 'tribe_last_save_post']
+        ),
+        "the physical native marker fixture admits $initialAutoload for exact transition evidence"
+    );
+    $regenerator->regenerate($tecEventId);
+    $autoloadRows = array_values(array_filter(
+        $tecDb->rows($optionsTable),
+        static fn(array $row): bool => ($row['option_name'] ?? null) === 'tribe_last_save_post'
+    ));
+    duo_check_same(
+        $expectedAutoload,
+        $autoloadRows[0]['autoload'] ?? null,
+        "the pinned WordPress update path maps $initialAutoload to exact $expectedAutoload autoload state"
+    );
+}
+
+$resetTecDerived();
+duo_check_same(
+    1,
+    $tecDb->update(
+        $optionsTable,
+        ['autoload' => 'auto'],
+        ['option_name' => 'tribe_last_save_post']
+    ),
+    'the rollback fixture begins with the legacy computed auto state'
+);
+$beforeComputedAutoloadRollback = $tecDb->rows($optionsTable);
+$GLOBALS['tec_readiness_regen_mode'] = 'save_throw';
+duo_check_same(
+    'injected native occurrence save failure',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'the computed-autoload rollback fixture fails after both native marker writes'
+);
+duo_check_same(
+    $beforeComputedAutoloadRollback,
+    $tecDb->rows($optionsTable),
+    'rollback restores the exact legacy computed autoload spelling rather than its recomputed successor'
+);
+
+$resetTecDerived();
+tribe_set_var('should_delete_expired_transients', true);
+$GLOBALS['tec_readiness_regen_mode'] = 'save_throw';
+duo_check_same(
+    'injected native occurrence save failure',
+    $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
+    'a later native occurrence failure still crosses both marker writes before rollback'
+);
+duo_check_same(true, tribe_get_var('should_delete_expired_transients'), 'rollback preserves an independently preexisting true transient-purge flag');
+duo_check_same(0, $GLOBALS['tec_readiness_expired_transient_deletes'], 'adapter cleanup never consumes a preexisting transient-purge intent');
+$GLOBALS['tec_readiness_regen_mode'] = 'ok';
+$regenerator->regenerate($tecEventId);
+duo_check_same(true, tribe_get_var('should_delete_expired_transients'), 'commit also preserves an independently preexisting true transient-purge flag');
+
 $resetTecDerived();
 $regenerator->regenerate($tecEventId);
+$lastSaveRows = array_values(array_filter(
+    $tecDb->rows($optionsTable),
+    static fn(array $row): bool => ($row['option_name'] ?? null) === 'tribe_last_save_post'
+));
+duo_check(
+    count($lastSaveRows) === 1
+        && preg_match(
+            '/^[1-9][0-9]*(?:\.[0-9]+)?(?:E[+-]?[0-9]+)?$/Di',
+            (string) ($lastSaveRows[0]['option_value'] ?? '')
+        ) === 1
+        && ($lastSaveRows[0]['option_value'] ?? null) !== '1700000000.1234',
+    'successful native regeneration advances exactly one bounded save-post marker row'
+);
+duo_check_same('yes', $lastSaveRows[0]['autoload'] ?? null, 'an existing native marker preserves its exact autoload bytes');
+duo_check_same(
+    'preserve-me',
+    $tecDb->get_var("SELECT option_value FROM `$optionsTable` WHERE option_name = 'target_runtime_neighbor'"),
+    'the locked native marker update preserves an unrelated target-runtime option'
+);
+duo_check_same(false, tribe_isset_var('should_delete_expired_transients'), 'commit restores an initially absent transient-purge flag');
+duo_check_same(0, $GLOBALS['tec_readiness_expired_transient_deletes'], 'regeneration never runs the site-wide transient purge');
+duo_check_same(0, $GLOBALS['tec_readiness_log_dispatches'], 'normal native regeneration emits no authored model payload to the logger');
+duo_check_same(
+    10,
+    has_filter('tribe_log', [$GLOBALS['tec_readiness_log_provider'], 'dispatch_log']),
+    'the exact built-in logger is restored after a committed regeneration'
+);
+duo_check(
+    ($GLOBALS['tec_readiness_wp_cache']['tribe-events'] ?? []) === []
+        && ($GLOBALS['tec_readiness_wp_cache']['tribe-events-non-persistent'] ?? []) === []
+        && ($GLOBALS['tec_readiness_wp_cache']['tec_occurrence_matches'] ?? []) === []
+        && !isset($GLOBALS['tec_readiness_wp_cache']['options']['tribe_last_save_post'])
+        && !isset($GLOBALS['tec_readiness_wp_cache']['options']['alloptions'])
+        && !isset($GLOBALS['tec_readiness_wp_cache']['options']['notoptions']),
+    'commit purges every exact native model, occurrence, and option-cache effect'
+);
+duo_check(
+    count(array_filter(
+        $tecDb->queries(),
+        static fn(string $sql): bool => str_contains($sql, 'FORCE INDEX (`option_name`)')
+            && str_ends_with($sql, 'ORDER BY option_id ASC LIMIT 2 FOR UPDATE')
+    )) >= 3,
+    'the native save-post option row or absent gap stays locked and value-checked across plugin calls'
+);
 $boundedVerificationQueries = array_values(array_filter(
     $tecDb->queries(),
     static fn(string $sql): bool => str_contains($sql, 'WHERE post_id = 6100000001 OR event_id = 7000000001')
@@ -3247,7 +5058,7 @@ duo_check_same(1, $heartbeats, 'batch regeneration deduplicates live IDs before 
 duo_check_same([$tecEventId, $tecEventId, $tecEventId], $GLOBALS['tec_readiness_regen_calls'], 'batch retry invokes only the one canonical positive live ID');
 
 $resetTecDerived();
-$GLOBALS['tec_readiness_post_meta'][$tecEventId]['_EventDuration'] = '';
+$setTecSourceMeta('_EventDuration', '');
 $regenerator->regenerate($tecEventId);
 duo_check_same(
     ['9000', '9000'],
@@ -3257,7 +5068,7 @@ duo_check_same(
     ],
     'empty native duration metadata derives exact seconds from UTC endpoints in both custom tables'
 );
-$GLOBALS['tec_readiness_post_meta'][$tecEventId]['_EventDuration'] = '9000';
+$setTecSourceMeta('_EventDuration', '9000');
 
 $resetTecDerived();
 $GLOBALS['tec_readiness_regen_mode'] = 'stale_driver_error';
@@ -3289,11 +5100,20 @@ duo_check(
 );
 
 $resetTecDerived();
-$GLOBALS['tec_readiness_regen_mode'] = 'filtered_event_timezone';
+$GLOBALS['tec_readiness_regen_mode'] = 'malformed_event_timezone';
 duo_check_same(
-    'duo: TEC derived-state verification failed for tec_events fields: timezone',
+    'duo: TEC Event::data_from_post() returned a malformed timezone',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
-    'a filter-corrupted deterministic event timezone refuses by fixed field name without authored values'
+    'a malformed native event timezone refuses by fixed field name without authored values'
+);
+
+$resetTecDerived();
+$GLOBALS['tec_readiness_regen_mode'] = 'unexpected_event_field';
+$failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
+duo_check(
+    $failure === 'duo: TEC Event::data_from_post() returned an unexpected field set'
+        && !str_contains($failure, 'AKIA'),
+    'an unexpected native event-data field refuses without leaking its key or value'
 );
 
 $resetTecDerived();
@@ -3341,7 +5161,7 @@ $validEventDriverRow = [
     'hash' => '',
 ];
 $resetTecDerived();
-$tecDb->returnNextGetResultsAs(null, 'SELECT event_id, post_id');
+$tecDb->returnNextGetResultsAs(null, 'SELECT event_id, post_id, start_date');
 duo_check_same(
     'duo: TEC derived-state verification query returned a non-array for tec_events',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
@@ -3349,7 +5169,7 @@ duo_check_same(
 );
 
 $resetTecDerived();
-$tecDb->returnNextGetResultsAs([7 => $validEventDriverRow], 'SELECT event_id, post_id');
+$tecDb->returnNextGetResultsAs([7 => $validEventDriverRow], 'SELECT event_id, post_id, start_date');
 duo_check_same(
     'duo: TEC derived-state verification query returned a non-list for tec_events',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
@@ -3359,7 +5179,7 @@ duo_check_same(
 $resetTecDerived();
 $tecDb->returnNextGetResultsAs(
     [array_diff_key($validEventDriverRow, ['hash' => true])],
-    'SELECT event_id, post_id'
+    'SELECT event_id, post_id, start_date'
 );
 duo_check_same(
     'duo: TEC derived-state verification query returned a malformed driver row for tec_events',
@@ -3370,7 +5190,7 @@ duo_check_same(
 $resetTecDerived();
 $nonStringEventDriverRow = $validEventDriverRow;
 $nonStringEventDriverRow['event_id'] = 7000000001;
-$tecDb->returnNextGetResultsAs([$nonStringEventDriverRow], 'SELECT event_id, post_id');
+$tecDb->returnNextGetResultsAs([$nonStringEventDriverRow], 'SELECT event_id, post_id, start_date');
 duo_check_same(
     'duo: TEC derived-state verification query returned a non-string driver value for tec_events',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
@@ -3378,7 +5198,7 @@ duo_check_same(
 );
 
 $resetTecDerived();
-$tecDb->returnNextGetResultsAs(false, 'SELECT occurrence_id, event_id');
+$tecDb->returnNextGetResultsAs(false, 'SELECT occurrence_id, event_id, post_id, start_date');
 duo_check_same(
     'duo: TEC derived-state verification query returned a non-array for tec_occurrences',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
@@ -3399,7 +5219,7 @@ $tecDb->returnNextGetResultsAs([
         'updated_at' => '2026-08-24 00:00:01',
         'hash' => $expectedOccurrenceHash,
     ],
-], 'SELECT occurrence_id, event_id');
+], 'SELECT occurrence_id, event_id, post_id, start_date');
 duo_check_same(
     'duo: TEC derived-state verification query returned a non-list for tec_occurrences',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
@@ -3407,16 +5227,28 @@ duo_check_same(
 );
 
 $resetTecDerived();
-$tecDb->failNextQuery('credential SQL failure AKIAABCDEFGHIJKLMNOP', 'SELECT event_id, post_id');
+$tecDb->failNextQuery('credential SQL failure AKIAABCDEFGHIJKLMNOP', 'SELECT event_id, post_id, start_date');
 $failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
 duo_check_same('duo: TEC derived-state verification query failed for tec_events', $failure, 'event verification query failure is explicit and redacted');
 
 $resetTecDerived();
-$tecDb->failNextQuery('credential SQL failure AKIAABCDEFGHIJKLMNOP', 'SELECT occurrence_id, event_id');
+$tecDb->failNextQuery(
+    'credential SQL failure AKIAABCDEFGHIJKLMNOP',
+    'SELECT occurrence_id, event_id, post_id, start_date'
+);
 $failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
 duo_check_same('duo: TEC derived-state verification query failed for tec_occurrences', $failure, 'occurrence verification query failure is explicit and redacted');
 
 $resetTecDerived();
+$beforeFailedNativeOptions = $tecDb->rows($optionsTable);
+$GLOBALS['tec_readiness_wp_cache']['options'] = [
+    'tribe_last_save_post' => 'stale-before-rollback',
+    'alloptions' => ['tribe_last_save_post' => 'stale-before-rollback'],
+    'notoptions' => [],
+];
+$GLOBALS['tec_readiness_wp_cache']['tribe-events'] = ['stale-model' => 'stale'];
+$GLOBALS['tec_readiness_wp_cache']['tribe-events-non-persistent'] = ['stale-query' => 'stale'];
+$GLOBALS['tec_readiness_wp_cache']['tec_occurrence_matches'][$tecEventId] = 'stale-occurrence';
 $GLOBALS['tec_readiness_regen_mode'] = 'upsert_throw_after_write';
 duo_check_same(
     'injected native event upsert failure after derived write',
@@ -3424,14 +5256,36 @@ duo_check_same(
     'a native exception after the tec_events upsert surfaces before occurrence synthesis'
 );
 duo_check_same(
-    '',
+    'stale-event-hash',
     $tecDb->get_var($tecDb->prepare("SELECT hash FROM `$eventTable` WHERE post_id = %d", $tecEventId)),
-    'the event-upsert failure witness contains the completed first derived write'
+    'the event-upsert failure rolls its completed first derived write back atomically'
 );
 duo_check_same(
     'stale-occurrence-hash',
     $tecDb->get_var($tecDb->prepare("SELECT hash FROM `$occurrenceTable` WHERE post_id = %d", $tecEventId)),
     'the event-upsert failure witness leaves the second derived row untouched'
+);
+duo_check_same(
+    $beforeFailedNativeOptions,
+    $tecDb->rows($optionsTable),
+    'rollback restores exact native marker value, autoload, identity, and neighboring option bytes'
+);
+duo_check_same(false, tribe_isset_var('should_delete_expired_transients'), 'rollback removes a transient-purge flag introduced only by the failed native call');
+duo_check_same(0, $GLOBALS['tec_readiness_expired_transient_deletes'], 'rollback never schedules or runs the site-wide transient purge');
+duo_check(
+    ($GLOBALS['tec_readiness_wp_cache']['tribe-events'] ?? []) === []
+        && ($GLOBALS['tec_readiness_wp_cache']['tribe-events-non-persistent'] ?? []) === []
+        && ($GLOBALS['tec_readiness_wp_cache']['tec_occurrence_matches'] ?? []) === []
+        && !isset($GLOBALS['tec_readiness_wp_cache']['options']['tribe_last_save_post'])
+        && !isset($GLOBALS['tec_readiness_wp_cache']['options']['alloptions'])
+        && !isset($GLOBALS['tec_readiness_wp_cache']['options']['notoptions']),
+    'rollback purges stale and uncommitted native cache publications exhaustively'
+);
+duo_check_same(0, $GLOBALS['tec_readiness_log_dispatches'], 'a failed upsert cannot log authored working_data while the exact logger is suppressed');
+duo_check_same(
+    10,
+    has_filter('tribe_log', [$GLOBALS['tec_readiness_log_provider'], 'dispatch_log']),
+    'rollback restores the exact built-in logger for same-process retry'
 );
 $GLOBALS['tec_readiness_regen_mode'] = 'ok';
 $regenerator->regenerate($tecEventId);
@@ -3457,9 +5311,9 @@ duo_check_same(
     'a partially written occurrence refuses on its missing deterministic postcondition'
 );
 duo_check_same(
-    '2001-01-01 00:00:00',
+    '1999-01-01 00:30:00',
     $tecDb->get_var($tecDb->prepare("SELECT end_date_utc FROM `$occurrenceTable` WHERE post_id = %d", $tecEventId)),
-    'the failed verification leaves an explicit partial-occurrence witness for engine rollback or retry'
+    'the failed value-level verification rolls the partial occurrence back atomically'
 );
 $GLOBALS['tec_readiness_regen_mode'] = 'ok';
 $regenerator->regenerate($tecEventId);
@@ -3490,12 +5344,16 @@ for ($index = 0; $index < 1000; ++$index) {
 $tecDb->seedTable($occurrenceTable, $occurrenceFlood);
 unset($occurrenceFlood, $occurrencePrototype, $extraOccurrence);
 duo_check_same(
-    'duo: TEC derived-state verification failed for tec_occurrences fields: row_count',
+    'duo: TEC derived-state locking rejected a cross-linked occurrence row',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
-    'a hostile cross-linked occurrence flood refuses without transferring its complete result set'
+    'a hostile cross-linked occurrence flood refuses during the bounded owner-range lock'
 );
 duo_check(
-    $tecDb->num_rows === 3 && str_ends_with($tecDb->last_query, 'ORDER BY occurrence_id LIMIT 3'),
+    count(array_filter(
+        $tecDb->queries(),
+        static fn(string $sql): bool => str_contains($sql, 'FORCE INDEX (`event_id`)')
+            && str_ends_with($sql, 'ORDER BY occurrence_id ASC LIMIT 3 FOR UPDATE')
+    )) === 1,
     'the hostile occurrence flood transfers only the three-row proof witness'
 );
 
@@ -3515,9 +5373,9 @@ duo_check_same(
     'a native occurrence exception surfaces and leaves retry authority to the engine'
 );
 duo_check_same(
-    '2001-01-01 00:00:00',
+    '1999-01-01 00:30:00',
     $tecDb->get_var($tecDb->prepare("SELECT end_date_utc FROM `$occurrenceTable` WHERE post_id = %d", $tecEventId)),
-    'the native occurrence exception is injected after the second derived row is physically written'
+    'the native occurrence exception rolls the second derived write back atomically'
 );
 $GLOBALS['tec_readiness_regen_mode'] = 'ok';
 $regenerator->regenerate($tecEventId);

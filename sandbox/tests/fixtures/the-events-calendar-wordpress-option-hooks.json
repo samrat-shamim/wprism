@@ -1,6 +1,7 @@
 {
   "format": "duo-tec-wordpress-option-topology/v1",
   "reproduce": "php sandbox/tests/support/verify-tec-wordpress-option-hooks.php --wordpress-root=/usr/src/wordpress --version=<version>",
+  "reproduce_tec": "php sandbox/tests/support/verify-tec-wordpress-option-hooks.php --wordpress-root=/usr/src/wordpress --version=<wp-version> --tec-root=/path/to/the-events-calendar --tec-version=<tec-version>",
   "source_files": {
     "6.9.2": {
       "option_php_sha256": "cde15dc93f943de5884c87b26f0786011c6e43b93440cde1792428029ced9e37",
@@ -58,24 +59,92 @@
     "wp_default_autoload_value",
     "wp_max_autoloaded_option_size"
   ],
+  "last_save_paths": {
+    "get_option": [
+      "pre_option_tribe_last_save_post",
+      "pre_option",
+      "pre_wp_load_alloptions",
+      "pre_cache_alloptions",
+      "alloptions",
+      "default_option_tribe_last_save_post",
+      "option_tribe_last_save_post"
+    ],
+    "sanitize": [
+      "sanitize_option_tribe_last_save_post"
+    ],
+    "update_existing_fixed_autoload": [
+      "pre_update_option_tribe_last_save_post",
+      "pre_update_option",
+      "update_option",
+      "wp_autoload_values_to_autoload",
+      "update_option_tribe_last_save_post",
+      "updated_option"
+    ],
+    "update_existing_computed_autoload": [
+      "pre_update_option_tribe_last_save_post",
+      "pre_update_option",
+      "update_option",
+      "wp_autoload_values_to_autoload",
+      "wp_default_autoload_value",
+      "wp_max_autoloaded_option_size",
+      "update_option_tribe_last_save_post",
+      "updated_option"
+    ],
+    "add_absent": [
+      "add_option",
+      "wp_autoload_values_to_autoload",
+      "wp_default_autoload_value",
+      "wp_max_autoloaded_option_size",
+      "add_option_tribe_last_save_post",
+      "added_option"
+    ]
+  },
   "tec_service_sources": {
     "6.17.2": {
       "common/src/Tribe/Cache.php": "13122d8dd94a4a0b8f43cefcea7b5f61d3c00bc11b98fb282ac73076ed3eb457",
+      "common/src/Tribe/Cache_Listener.php": "14a63e60db2f047b7dd62fa708d464b170d87485227cc63583c989a45fcb248b",
+      "common/src/Tribe/Container.php": "9596db7968d4d0b5506dc482f99fed2387d1b2cbc7f11f507d52fbdf902d4b03",
+      "common/src/Tribe/Settings_Manager.php": "9f51c59cfa2398a66958159db4a66368aa728f4428295dc07dabb834396f9591",
+      "common/src/Common/Libraries/Harbor.php": "ed3e5aa019d766fa81718f8d9654eab9a7356d9ab85965e478560b0461a125ec",
+      "common/src/Common/Integrations/Harbor/PUE.php": "abe0ef81332c52aff2983b8f78700169dbcfbeb663497af84e681be245629988",
+      "common/src/Common/Configuration/Configuration.php": "6f7a26b91ab9910be60f069831cfebf6139208445f819b88efffa3c0e29e9a25",
+      "common/vendor/vendor-prefixed/lucatume/di52/src/Container.php": "6ca7656082adf59d784f30656e85930d20c787222b852d488af3ee654e69b488",
       "src/Events/Category_Colors/CSS/Controller.php": "16f8bbacefaf7ebe41292f49a6e5a22a21752b4be96ef46316d306d7ba03f949",
       "src/Events/Category_Colors/CSS/Generator.php": "e4b400e98736faeed5f2df6f054ba63012e7159962a6ddc53021a94cfbf038d0",
-      "src/Events/Category_Colors/Repositories/Category_Color_Dropdown_Provider.php": "db1c758c197c08c0c7f70754408fa077a62abf335110a309f540f6644edc3372"
+      "src/Events/Category_Colors/Repositories/Category_Color_Dropdown_Provider.php": "db1c758c197c08c0c7f70754408fa077a62abf335110a309f540f6644edc3372",
+      "src/Events/Custom_Tables/V1/Models/Event.php": "457950fe0df1f3db7783b3ff898e323a981e65c897a3d2ce83d9a37c14a744ed",
+      "src/Events/Custom_Tables/V1/Models/Occurrence.php": "3903283823bafb3e11ff945fd2e460dd8331e39a5886e9236effe68094999434",
+      "src/Events/Custom_Tables/V1/Models/Builder.php": "504ca34d042a5f6dfccaa4d6f1b86c0a1a40aeb8733aba826f82fe3414acf76b",
+      "src/Events/Custom_Tables/V1/Events/Occurrences/Occurrences_Generator.php": "15cd8b8c18eca56c8aa80aa6d54a7d058ebaba60292ff53dd882a89c35d4f45f",
+      "src/Tribe/Aggregator.php": "cdd66b28165dda1f45fa79ddb6aeddf22dd3b3bc44fa2a71365e6f39c7173288",
+      "src/Tribe/Views/V2/Hooks.php": "d746a05d4e7979a0bbdae0938f009d0012e550d605c4a331a1cd288e7b746b5f",
+      "src/Tribe/Views/V2/Service_Provider.php": "29e613ac58ae57ece7206f9db697749c41a5370d491088f5833a45d8f0f593b1"
     },
     "6.17.3": {
       "common/src/Tribe/Cache.php": "13122d8dd94a4a0b8f43cefcea7b5f61d3c00bc11b98fb282ac73076ed3eb457",
+      "common/src/Tribe/Cache_Listener.php": "14a63e60db2f047b7dd62fa708d464b170d87485227cc63583c989a45fcb248b",
+      "common/src/Tribe/Container.php": "9596db7968d4d0b5506dc482f99fed2387d1b2cbc7f11f507d52fbdf902d4b03",
+      "common/src/Tribe/Settings_Manager.php": "9f51c59cfa2398a66958159db4a66368aa728f4428295dc07dabb834396f9591",
+      "common/src/Common/Libraries/Harbor.php": "ed3e5aa019d766fa81718f8d9654eab9a7356d9ab85965e478560b0461a125ec",
+      "common/src/Common/Integrations/Harbor/PUE.php": "abe0ef81332c52aff2983b8f78700169dbcfbeb663497af84e681be245629988",
+      "common/src/Common/Configuration/Configuration.php": "6f7a26b91ab9910be60f069831cfebf6139208445f819b88efffa3c0e29e9a25",
+      "common/vendor/vendor-prefixed/lucatume/di52/src/Container.php": "6ca7656082adf59d784f30656e85930d20c787222b852d488af3ee654e69b488",
       "src/Events/Category_Colors/CSS/Controller.php": "16f8bbacefaf7ebe41292f49a6e5a22a21752b4be96ef46316d306d7ba03f949",
       "src/Events/Category_Colors/CSS/Generator.php": "e4b400e98736faeed5f2df6f054ba63012e7159962a6ddc53021a94cfbf038d0",
-      "src/Events/Category_Colors/Repositories/Category_Color_Dropdown_Provider.php": "db1c758c197c08c0c7f70754408fa077a62abf335110a309f540f6644edc3372"
+      "src/Events/Category_Colors/Repositories/Category_Color_Dropdown_Provider.php": "db1c758c197c08c0c7f70754408fa077a62abf335110a309f540f6644edc3372",
+      "src/Events/Custom_Tables/V1/Models/Event.php": "457950fe0df1f3db7783b3ff898e323a981e65c897a3d2ce83d9a37c14a744ed",
+      "src/Events/Custom_Tables/V1/Models/Occurrence.php": "3903283823bafb3e11ff945fd2e460dd8331e39a5886e9236effe68094999434",
+      "src/Events/Custom_Tables/V1/Models/Builder.php": "504ca34d042a5f6dfccaa4d6f1b86c0a1a40aeb8733aba826f82fe3414acf76b",
+      "src/Events/Custom_Tables/V1/Events/Occurrences/Occurrences_Generator.php": "15cd8b8c18eca56c8aa80aa6d54a7d058ebaba60292ff53dd882a89c35d4f45f",
+      "src/Tribe/Aggregator.php": "cdd66b28165dda1f45fa79ddb6aeddf22dd3b3bc44fa2a71365e6f39c7173288",
+      "src/Tribe/Views/V2/Hooks.php": "d746a05d4e7979a0bbdae0938f009d0012e550d605c4a331a1cd288e7b746b5f",
+      "src/Tribe/Views/V2/Service_Provider.php": "29e613ac58ae57ece7206f9db697749c41a5370d491088f5833a45d8f0f593b1"
     }
   },
   "notes": [
-    "The three pinned cores expose the same call topology for update_option(name, value, true), including update_option's absent-row delegation into add_option.",
-    "wp_default_autoload_value and wp_max_autoloaded_option_size are present in core but unreachable because TEC passes explicit autoload=true.",
+    "The three pinned cores expose the same call topology for both Category Colors update_option(name, value, true) and Tribe__Cache::set_last_occurrence update_option(name, value) paths.",
+    "wp_default_autoload_value and wp_max_autoloaded_option_size are unreachable for Category Colors explicit autoload=true but reachable for absent or computed-autoload tribe_last_save_post rows.",
     "The stock cache.php and class-wp-object-cache.php bytes are identical across all three pins and expose no callback hook around wp_cache_get/set/delete; external object-cache drop-ins are refused before invocation.",
-    "The exact TEC 6.17.2 and 6.17.3 Controller, Generator, Dropdown Provider, and Tribe__Cache bytes are identical; Tribe__Cache::delete delegates directly to the stock wp_cache_delete path."
+    "The exact TEC 6.17.2 and 6.17.3 Category Colors, cache/listener/container, option-hook singleton, configuration, event/occurrence/builder, and occurrence-generator bytes are identical across the reviewed derived-state paths."
   ]
 }
