@@ -38,6 +38,16 @@ use Duo\CommandRefusalException;
  * A `refused` outcome also carries no `plan_digest`, because there is no
  * frozen plan: MUP §2.3 puts every refusal in `refusals()` strictly before
  * step 1.
+ *
+ * ## `conditions_rechecked`
+ *
+ * `{at, checked, conditions, manifests}` — `AuthorizationPlan::
+ * recheckConditions()`'s record of the mutation-gate re-observation, or null
+ * where none was made. `validate()` REFUSES a `released` outcome that carries
+ * none, which is what turns "the gate re-checks conditions" from a property of
+ * one call site into a property of the document: a release cannot be recorded
+ * as released without evidencing that the conditions it was authorized against
+ * were re-observed against the live target first.
  */
 final class ReleaseOutcome {
     public const FORMAT = 'duo-release-outcome/v1';
@@ -62,10 +72,26 @@ final class ReleaseOutcome {
      *        `verify: null` — an explicit "not verified", never an implied
      *        pass. The spec's own rule applies: absence of an error is never
      *        the proof.
+     * @param ?array<string,mixed> $conditionsRechecked the
+     *        `AuthorizationPlan::recheckConditions()` record. Required in
+     *        practice: `validate()` refuses a released outcome without one.
      * @return array<string,mixed>
      */
-    public static function released(string $environment, string $planDigest, array $verify = []): array {
-        return self::document(self::RELEASED, $environment, $planDigest, null, null, $verify);
+    public static function released(
+        string $environment,
+        string $planDigest,
+        array $verify = [],
+        ?array $conditionsRechecked = null
+    ): array {
+        return self::document(
+            self::RELEASED,
+            $environment,
+            $planDigest,
+            null,
+            null,
+            $verify,
+            $conditionsRechecked
+        );
     }
 
     /**
@@ -89,7 +115,7 @@ final class ReleaseOutcome {
             'message' => (string) $refusal['message'],
             'reason_code' => (string) $refusal['reason_code'],
             'remediation' => (string) $refusal['remediation'],
-        ], null, []);
+        ], null, [], null);
     }
 
     /**
@@ -97,21 +123,37 @@ final class ReleaseOutcome {
      * the caller names WHAT failed and `NextAction` decides what to do about
      * it, so one failure class cannot acquire two answers in two call sites.
      *
+     * `reason_code`, `remediation` and `diagnostics` carry the raising
+     * refusal's own words when there was one. Without them a machine reading
+     * `--format=json` saw the failure CLASS and nothing else — and two
+     * distinct refusals share the class `capability_expired`
+     * (`release_condition_changed` and `release_condition_uncheckable`), so
+     * the envelope could not say which condition drifted, on which subject, or
+     * what to do about it. They are `null`/`[]` for a failure classified from
+     * the target rather than raised as a refusal, which is the honest answer
+     * there: there is no refusal to quote.
+     *
+     * @param ?array{reason_code:string,message:string,remediation:string,diagnostics:list<array<string,mixed>>} $refusal
      * @return array<string,mixed>
      */
     public static function failedAfterFreeze(
         string $environment,
         string $planDigest,
-        string $failureClass
+        string $failureClass,
+        ?array $conditionsRechecked = null,
+        ?array $refusal = null
     ): array {
         $action = NextAction::forFailure($failureClass);
 
         return self::document(self::FAILED, $environment, $planDigest, null, [
             'class' => $failureClass,
+            'diagnostics' => array_values($refusal['diagnostics'] ?? []),
             'next_action' => $action,
             'precondition' => NextAction::preconditionFor($action),
             'reason' => NextAction::reasonFor($failureClass),
-        ], []);
+            'reason_code' => isset($refusal['reason_code']) ? (string) $refusal['reason_code'] : null,
+            'remediation' => isset($refusal['remediation']) ? (string) $refusal['remediation'] : null,
+        ], [], $conditionsRechecked);
     }
 
     /** Canonical bytes for `--format=json`. */
@@ -179,6 +221,19 @@ final class ReleaseOutcome {
         if ($status === self::RELEASED && !is_string($outcome['plan_digest'] ?? null)) {
             throw self::refuse('release_outcome_shape_invalid', 'a released outcome names no frozen plan');
         }
+        if ($status === self::RELEASED && !is_array($outcome['conditions_rechecked'] ?? null)) {
+            // What makes the mutation-gate recheck unskippable rather than a
+            // habit. The product spec permits execution "only when every
+            // named, machine-checkable condition is satisfied and rechecked at
+            // the mutation gate" (docs/product-spec.md:302-303); a released
+            // outcome that cannot say WHEN the recheck happened is a release
+            // that cannot evidence its own authorization, and this build
+            // refuses to record one.
+            throw self::refuse(
+                'release_outcome_shape_invalid',
+                'a released outcome records no mutation-gate condition recheck'
+            );
+        }
     }
 
     /**
@@ -193,7 +248,19 @@ final class ReleaseOutcome {
         $environment = (string) $outcome['environment'];
         $status = (string) $outcome['status'];
         if ($status === self::RELEASED) {
-            return ['released to ' . $environment];
+            /** @var array<string,mixed> $rechecked */
+            $rechecked = $outcome['conditions_rechecked'];
+
+            // Exactly one extra line, and it is a COUNT. MUP §4.6 forbids a
+            // listing bounded by the site's adapter set, and this is the last
+            // thing printed after a page of plan: the enumeration lives in
+            // --format=json, where a machine reads it.
+            return [
+                'released to ' . $environment,
+                '  conditions rechecked at ' . (string) $rechecked['at'] . ': '
+                    . (int) $rechecked['conditions'] . ' across '
+                    . (int) $rechecked['checked'] . ' adapter claim(s)',
+            ];
         }
         if ($status === self::REFUSED) {
             /** @var array<string,mixed> $refusal */
@@ -232,12 +299,14 @@ final class ReleaseOutcome {
         ?string $planDigest,
         ?array $refusal,
         ?array $failure,
-        array $verify
+        array $verify,
+        ?array $conditionsRechecked
     ): array {
         if ($environment === '') {
             throw new \InvalidArgumentException('a release outcome must name its environment');
         }
         $outcome = [
+            'conditions_rechecked' => $conditionsRechecked,
             'environment' => $environment,
             'failure' => $failure,
             'format' => self::FORMAT,

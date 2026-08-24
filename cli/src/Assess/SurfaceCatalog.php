@@ -139,6 +139,18 @@ final class SurfaceCatalog {
     ];
 
     /**
+     * The one instant word a condition row carries, and the whole point of the
+     * split above: a condition is the thing that is re-observed against the
+     * live target immediately before the mutating call
+     * (`ReleaseCommand::execute()`), not at freeze time. It is a constant
+     * rather than a clock so the row stays inside `plan_digest` — a timestamp
+     * there would give one unchanged authorization a new identity every second
+     * (`AuthorizationPlan::digest()`), and the actual instant is recorded once,
+     * on the outcome, as `conditions_rechecked.at`.
+     */
+    public const CONDITION_RECHECKED_AT = 'mutation gate';
+
+    /**
      * Registry operations that structurally contain other registry
      * operations, so a boundary declared about the inner one is a boundary
      * about the outer one too.
@@ -583,7 +595,20 @@ final class SurfaceCatalog {
                 'gap_action' => ProjectionVocabulary::gapAction($projection),
                 'expiry_and_dependencies' => $expiry,
             ];
-            $vectors[$operation] = ['facts' => $vector, 'expiry_and_dependencies' => $expiry];
+            // A THIRD key beside the two `projectionFacts()` copies (:284-291
+            // copies exactly `facts` and `expiry_and_dependencies`), so
+            // `projection.json` and every `duo assess` byte are unmoved by
+            // this. `manifest` is carried at the vector level because a
+            // surface whose claim raises NO condition today still has to be
+            // attributable to its manifest at the gate — otherwise a
+            // condition that APPEARS during the confirmation window has no
+            // frozen row to appear against.
+            $vectors[$operation] = [
+                'conditions' => self::conditionRows($manifest),
+                'expiry_and_dependencies' => $expiry,
+                'facts' => $vector,
+                'manifest' => is_string($manifest['name'] ?? null) ? $manifest['name'] : '',
+            ];
         }
 
         if (count($stateClasses) > 1) {
@@ -634,6 +659,94 @@ final class SurfaceCatalog {
         }
 
         return $stateClass === 'unclassified' ? 'unresolved' : 'platform-default';
+    }
+
+    /**
+     * The machine-checkable condition rows for one claim — the ONE producer.
+     *
+     * `registryFacts()` below flattens the same reasons to their prose
+     * `message` (`$conditions[] = (string) ($reason['message'] ?? …)`), which
+     * is what `projection.json`, `duo assess` and MUP §1.3's readiness word
+     * read and what they must keep reading. That flattening is also exactly
+     * why a frozen authorization plan could not re-check its own conditions:
+     * the code and the subject were dropped, so `plugin_version_mismatch` and
+     * `plugin_not_active` re-hashed to their frozen values by construction and
+     * a plugin deactivated during the operator's confirmation window passed
+     * the mutation gate silently.
+     *
+     * The row is `{check, code, manifest, observed, rechecked_at, satisfied,
+     * subject}`. The first four keys are the ones
+     * `AuthorizationPlanRenderer::conditionLine()` (:387-401) has always read
+     * off an ARRAY condition and `docs/guides/release.md:148` has always
+     * printed; `manifest`, `satisfied` and `subject` are the machine keys the
+     * re-probe needs and the renderer ignores.
+     *
+     * A reason from an agent build that carries no `subject` still mints a
+     * row, with `subject` empty. That is deliberate: the gate must be able to
+     * refuse it as UNCHECKABLE (docs/product-spec.md:302-303, "an unmet or
+     * uncheckable condition blocks") rather than skip it and release.
+     *
+     * Every row minted today carries `satisfied: false`, because
+     * `AdapterRegistry::target_reasons()` raises a reason only where the check
+     * FAILED. The key ships anyway so the rule reads in full generality and so
+     * a later satisfied-claim row needs no reshaping.
+     *
+     * @param array<string,mixed>|null $manifest a `report()['manifests'][]` row
+     * @return list<array<string,mixed>>
+     */
+    public static function conditionRows(?array $manifest): array {
+        if ($manifest === null) {
+            return [];
+        }
+        $name = is_string($manifest['name'] ?? null) ? $manifest['name'] : '';
+        $rows = [];
+        foreach (($manifest['verdict']['reasons'] ?? []) as $reason) {
+            if (!is_array($reason) || !is_string($reason['code'] ?? null)) {
+                continue;
+            }
+            if (!in_array($reason['code'], self::CONDITION_CODES, true)) {
+                continue;
+            }
+            $rows[] = [
+                'check' => is_string($reason['check'] ?? null) ? $reason['check'] : '',
+                'code' => (string) $reason['code'],
+                'manifest' => $name,
+                'observed' => is_string($reason['observed'] ?? null) ? $reason['observed'] : '',
+                'rechecked_at' => self::CONDITION_RECHECKED_AT,
+                'satisfied' => false,
+                'subject' => is_string($reason['subject'] ?? null) ? $reason['subject'] : '',
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * The same rows, keyed by manifest name, for a caller that has no surface
+     * join to make one with.
+     *
+     * The mutation gate is exactly that caller: it re-reads ONE
+     * `wp duo capabilities --operation=promote` document and has neither the
+     * inventory nor the contract that `catalog()` needs to attribute a claim
+     * to a surface. Per-manifest is therefore not a convenience, it is the
+     * only projection of a condition the gate can recompute — which is why
+     * `AuthorizationPlan::conditionVector()` groups the frozen rows the same
+     * way before digesting them.
+     *
+     * @param array<string,mixed> $registryReport an `AdapterRegistry::report()` document
+     * @return array<string,list<array<string,mixed>>>
+     */
+    public static function conditionsByManifest(array $registryReport): array {
+        $out = [];
+        foreach (($registryReport['manifests'] ?? []) as $manifest) {
+            if (!is_array($manifest) || !is_string($manifest['name'] ?? null)) {
+                continue;
+            }
+            $out[$manifest['name']] = self::conditionRows($manifest);
+        }
+        ksort($out, SORT_STRING);
+
+        return $out;
     }
 
     /**

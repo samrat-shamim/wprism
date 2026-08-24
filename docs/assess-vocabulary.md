@@ -81,6 +81,20 @@ Computed from one `AdapterRegistry::report()` call (named
 | claim `status` in {`excluded`, `unsupported`}, blocker `surface_explicitly_unsupported` or `deletion_unsupported`, or the surface named in `deletion_semantics.unsupported` for a delete operation | `Unsupported` |
 | a `Providers::diagnose()` negotiation problem (`missing_plugin`, `inactive_plugin`, `missing_plugin_provider`, `missing_capability`, `undeclared_provider`, `provider_code_unavailable`, `outside_version_range`, `identity_mismatch`, `contract_shape`, …) | `Ready with conditions` whose condition is **unmet** — blocks, and names the negotiation code |
 
+The mutation-gate re-run in that second row is code, not a promise:
+`AdapterRegistry::target_reasons()` attaches `subject`, `check` and `observed`
+to each condition reason; `SurfaceCatalog::conditionRows()` mints the row
+`{check, code, manifest, observed, rechecked_at, satisfied, subject}` from
+them; the frozen authorization plan carries those rows and digests them as
+`inputs_digest.conditions_sha256`; and `AuthorizationPlan::recheckConditions()`
+re-observes every one against a fresh `wp duo capabilities` read immediately
+before the mutating call (`cli/src/Command/ReleaseCommand.php`, step 6). A
+condition that MOVED refuses `release_condition_changed`; a condition that
+cannot be re-observed at all — its claim absent from the fresh report, or the
+row carrying no subject — refuses `release_condition_uncheckable`. Both carry
+the failure class `capability_expired` and the next action `requalify`. An
+uncheckable condition blocks; it is never treated as satisfied.
+
 *Six codes in the rows above were written against the generated evidence record
 and left with it (#477–#480); the table now names what the shipped vocabulary
 actually holds, and `cli/src/Contract/ProjectionVocabulary.php:216-245` carries

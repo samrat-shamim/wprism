@@ -348,6 +348,12 @@ $plan = AuthorizationPlan::build([
     'capabilities' => [[
         'certification_provenance' => 'Platform-certified',
         'conditions' => [],
+        // The shape ReleaseCommand::capabilities() actually emits: the claim
+        // the row's readiness rests on is named even where it raises no
+        // condition, because the mutation gate re-observes the CLAIM (is it
+        // still there, does it still say this) and not only the conditions it
+        // happened to raise at freeze time.
+        'manifest' => 'core',
         'name' => 'core',
         'operation' => 'promote',
         'readiness' => 'Ready',
