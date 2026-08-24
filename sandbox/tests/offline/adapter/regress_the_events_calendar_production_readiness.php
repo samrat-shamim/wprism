@@ -2511,17 +2511,33 @@ foreach (['get_option', 'wp_load_alloptions', 'update_option', 'add_option', 'sa
         "the exact-source verifier derives hook topology from WordPress function $function"
     );
 }
+$tecServiceSources172 = $optionHookFixture['tec_service_sources']['6.17.2'] ?? [];
+$tecServiceSources173 = $optionHookFixture['tec_service_sources']['6.17.3'] ?? [];
+$widgetProviderPath = 'src/Tribe/Views/V2/Widgets/Service_Provider.php';
+duo_check(
+    is_array($tecServiceSources172)
+        && is_array($tecServiceSources173)
+        && ($tecServiceSources172[$widgetProviderPath] ?? null)
+            !== ($tecServiceSources173[$widgetProviderPath] ?? null),
+    'the exact 6.17.3 legacy-widget security delta changes the state-bearing widget provider bytes'
+);
+unset($tecServiceSources172[$widgetProviderPath], $tecServiceSources173[$widgetProviderPath]);
 duo_check_same(
-    $optionHookFixture['tec_service_sources']['6.17.2'] ?? null,
-    $optionHookFixture['tec_service_sources']['6.17.3'] ?? null,
-    'the complete exact TEC derived-service source union is byte-identical across both pins'
+    $tecServiceSources172,
+    $tecServiceSources173,
+    'every other source in the reviewed TEC state-service union is byte-identical across both pins'
 );
 duo_check_same(
     [
+        'build/js/customizer-views-v2-controls.js',
+        'build/js/customizer-views-v2-live-preview.js',
         'common/src/Tribe/Cache.php',
         'common/src/Tribe/Cache_Listener.php',
         'common/src/Tribe/Container.php',
         'common/src/Tribe/Customizer.php',
+        'common/src/Tribe/Customizer/Section.php',
+        'common/src/Tribe/Widget/Manager.php',
+        'common/src/Tribe/Widget/Widget_Abstract.php',
         'common/src/Tribe/Settings_Manager.php',
         'common/src/Common/Libraries/Harbor.php',
         'common/src/Common/Integrations/Harbor/PUE.php',
@@ -2535,8 +2551,18 @@ duo_check_same(
         'src/Events/Custom_Tables/V1/Models/Builder.php',
         'src/Events/Custom_Tables/V1/Events/Occurrences/Occurrences_Generator.php',
         'src/Tribe/Aggregator.php',
+        'src/Tribe/Views/V2/Customizer/Hooks.php',
+        'src/Tribe/Views/V2/Customizer/Section/Events_Bar.php',
+        'src/Tribe/Views/V2/Customizer/Section/Global_Elements.php',
+        'src/Tribe/Views/V2/Customizer/Section/Month_View.php',
+        'src/Tribe/Views/V2/Customizer/Section/Single_Event.php',
+        'src/Tribe/Views/V2/Customizer/Service_Provider.php',
         'src/Tribe/Views/V2/Hooks.php',
         'src/Tribe/Views/V2/Service_Provider.php',
+        'src/Tribe/Views/V2/Widgets/Service_Provider.php',
+        'src/Tribe/Views/V2/Widgets/Widget_Abstract.php',
+        'src/Tribe/Views/V2/Widgets/Widget_List.php',
+        'src/Tribe/Views/V2/Widgets/Widget_QR_Code.php',
     ],
     array_keys($optionHookFixture['tec_service_sources']['6.17.3'] ?? []),
     'the source fixture binds every exact native CSS/cache and custom-table derived service'
@@ -2546,6 +2572,10 @@ foreach ([
     'tec-version',
     'common/src/Tribe/Cache_Listener.php',
     'common/src/Tribe/Customizer.php',
+    'common/src/Tribe/Customizer/Section.php',
+    'wp-includes/blocks/legacy-widget.php',
+    'wp-includes/blocks/legacy-widget/block.json',
+    'src/Tribe/Views/V2/Widgets/Service_Provider.php',
     'common/src/Tribe/Settings_Manager.php',
     'common/src/Common/Integrations/Harbor/PUE.php',
     'tribe()->make( Occurrences_Generator::class )',
@@ -2554,12 +2584,70 @@ foreach ([
     "'WPLANG'",
     'maybe_fallback_get_option',
     'tribe_events_pro_customizer',
+    'tec_option_literal_return_map',
+    'events.views.v2.customizer.global-elements',
+    'events.views.v2.customizer.month-view',
+    'events.views.v2.customizer.events-bar',
+    'events.views.v2.customizer.single-event',
+    'targetOwnedResidue',
+    'enable_widget_copy_paste',
+    'enable_saving_widget_copied',
+    'enable_rendering_widget_copied',
+    'is_safe_widget_instance',
+    'allowed_classes',
 ] as $serviceVerifierEvidence) {
     duo_check(
         str_contains($optionHookVerifier, $serviceVerifierEvidence),
         "the exact-source verifier binds native service evidence $serviceVerifierEvidence"
     );
 }
+$legacyWidgetBoundary = $optionHookFixture['legacy_widget_boundary'] ?? null;
+duo_check(is_array($legacyWidgetBoundary), 'the exact fixture carries the TEC legacy-widget state boundary');
+duo_check_same(
+    ['id', 'idBase', 'instance'],
+    $legacyWidgetBoundary['attributes'] ?? null,
+    'the exact WordPress schema exposes both stored-id and embedded-instance legacy-widget forms'
+);
+duo_check_same(
+    ['sidebars_widgets', 'widget_<idBase>'],
+    $legacyWidgetBoundary['stored_id_form']['storage'] ?? null,
+    'the stored-id form is explicitly bound to SidebarState physical storage'
+);
+duo_check_same(
+    ['tribe-widget-events-list', 'tribe-widget-events-qr-code'],
+    $legacyWidgetBoundary['embedded_form']['id_bases'] ?? null,
+    'the exact free plugin registers only the two reviewed legacy widget id bases'
+);
+duo_check_same(
+    [
+        'rest_pre_dispatch' => 'enable_widget_copy_paste',
+        'rest_dispatch_request' => 'enable_saving_widget_copied',
+        'render_block_data' => 'enable_rendering_widget_copied',
+    ],
+    $legacyWidgetBoundary['callbacks'] ?? null,
+    'the state-bearing copy/save/render callback topology is closed'
+);
+duo_check_same(
+    false,
+    $legacyWidgetBoundary['duo_status']['portable'] ?? null,
+    'the source audit cannot silently promote legacy-widget while its codec is still absent'
+);
+$coreManifest = json_decode(
+    (string) file_get_contents($root . '/manifests/core.json'),
+    true,
+    512,
+    JSON_THROW_ON_ERROR
+);
+$legacyWidgetRules = $coreManifest['block_attrs']['core/legacy-widget'] ?? [];
+duo_check(
+    array_column($legacyWidgetRules, 'path') === ['id', 'idBase', 'instance']
+        && count(array_filter(
+            $legacyWidgetRules,
+            static fn(array $rule): bool => is_string($rule['unsupported'] ?? null)
+                && $rule['unsupported'] !== ''
+        )) === 3,
+    'the shipped grammar still loudly refuses all three legacy-widget attributes pending the reviewed codec'
+);
 $expectedCustomizerFallback = [
     'canonical_option' => 'tribe_customizer',
     'legacy_option' => 'tribe_events_pro_customizer',
@@ -2615,6 +2703,232 @@ duo_check_same(
     '83ba4277bb122d476daf5782cd0c2bfc643ad1f875747aa39beba2782aa014c1',
     $customizerSourceDigest,
     'both admitted artifacts bind the exact native Customizer callback source bytes'
+);
+$customizerSections = $optionHookFixture['customizer_sections'] ?? null;
+duo_check(is_array($customizerSections), 'the exact source fixture carries a Customizer section registry');
+duo_check_same(
+    [
+        'events.views.v2.customizer.global-elements',
+        'events.views.v2.customizer.month-view',
+        'events.views.v2.customizer.events-bar',
+        'events.views.v2.customizer.single-event',
+    ],
+    array_keys($customizerSections['sections'] ?? []),
+    'the exact free service topology exposes only the four reviewed Views V2 Customizer sections'
+);
+duo_check_same(
+    ['sanitize_callback', 'sanitize_js_callback', 'transport'],
+    $customizerSections['setting_tuple'] ?? null,
+    'the source fixture preserves every native setting callback/transport field'
+);
+duo_check_same(
+    [
+        'canonical_option' => 'tribe_customizer',
+        'defaults' => 'read-time-only',
+        'empty_map' => 'valid',
+        'setting_name_template' => 'tribe_customizer[%s][%s]',
+        'setting_type' => 'option',
+        'shape' => 'sparse-section-map',
+    ],
+    $customizerSections['storage'] ?? null,
+    'the reviewed storage contract distinguishes sparse persisted bytes from native read-time defaults'
+);
+$customizerSettingCount = 0;
+foreach (($customizerSections['sections'] ?? []) as $service => $section) {
+    $defaults = (array) ($section['defaults'] ?? []);
+    $settings = (array) ($section['settings'] ?? []);
+    $defaultKeys = array_keys($defaults);
+    $settingKeys = array_keys($settings);
+    sort($defaultKeys, SORT_STRING);
+    sort($settingKeys, SORT_STRING);
+    duo_check_same(
+        $defaultKeys,
+        $settingKeys,
+        "the exact $service defaults and server-side setting registry have one closed keyset"
+    );
+    foreach ($settings as $setting => $tuple) {
+        duo_check(
+            is_array($tuple)
+                && count($tuple) === 3
+                && in_array($tuple[0] ?? null, ['sanitize_key', 'sanitize_hex_color'], true)
+                && in_array($tuple[1] ?? null, ['sanitize_key', 'maybe_hash_hex_color'], true)
+                && ($tuple[2] ?? null) === 'postMessage',
+            "the exact $service.$setting setting has one reviewed native sanitizer tuple"
+        );
+    }
+    $customizerSettingCount += count($settings);
+}
+duo_check_same(31, $customizerSettingCount, 'the four exact free sections register 31 server-owned settings');
+duo_check_same(
+    [
+        'tec_events_bar' => [
+            'view_selector_background_color',
+            'view_selector_background_color_choice',
+        ],
+    ],
+    $customizerSections['target_owned_residue'] ?? null,
+    'the two JavaScript-era Events Bar keys are known target-owned residue rather than inferred authored settings'
+);
+
+$normalizeCustomizerSparseMap = static function (mixed $raw) use ($customizerSections): array {
+    $maxNodes = 128;
+    $maxOptionBytes = 65536;
+    $maxSettingBytes = 4096;
+    $nodes = 0;
+    $bytes = 0;
+    $measure = null;
+    $measure = static function (mixed $value, int $depth = 0) use (
+        &$measure,
+        &$nodes,
+        &$bytes,
+        $maxNodes,
+        $maxOptionBytes,
+        $maxSettingBytes
+    ): void {
+        if (++$nodes > $maxNodes || $depth > 2) {
+            throw new RuntimeException('TEC Customizer map exceeds the bounded shape frontier');
+        }
+        if (is_string($value)) {
+            if (strlen($value) > $maxSettingBytes) {
+                throw new RuntimeException('TEC Customizer setting exceeds the bounded byte frontier');
+            }
+            if (preg_match('//u', $value) !== 1) {
+                throw new RuntimeException('TEC Customizer setting is not valid UTF-8');
+            }
+            $bytes += strlen($value);
+        } elseif (is_array($value)) {
+            foreach ($value as $key => $child) {
+                if (!is_string($key) || preg_match('//u', $key) !== 1) {
+                    throw new RuntimeException('TEC Customizer map contains a malformed key');
+                }
+                $bytes += strlen($key);
+                $measure($child, $depth + 1);
+            }
+        } else {
+            throw new RuntimeException('TEC Customizer map contains a non-string leaf');
+        }
+        if ($bytes > $maxOptionBytes) {
+            throw new RuntimeException('TEC Customizer map exceeds the bounded byte frontier');
+        }
+    };
+    $measure($raw);
+    if (!is_array($raw) || ($raw !== [] && array_is_list($raw))) {
+        throw new RuntimeException('TEC Customizer storage is not a sparse section map');
+    }
+
+    $sectionsById = [];
+    foreach (($customizerSections['sections'] ?? []) as $section) {
+        $sectionsById[(string) ($section['id'] ?? '')] = (array) ($section['settings'] ?? []);
+    }
+    $targetOwned = [];
+    foreach (($customizerSections['target_owned_residue'] ?? []) as $sectionId => $settings) {
+        $targetOwned[(string) $sectionId] = array_fill_keys((array) $settings, true);
+    }
+    $normalized = [];
+    foreach ($raw as $sectionId => $settings) {
+        if (!isset($sectionsById[$sectionId])) {
+            throw new RuntimeException('TEC Customizer storage contains an undeclared section');
+        }
+        if (!is_array($settings) || ($settings !== [] && array_is_list($settings))) {
+            throw new RuntimeException('TEC Customizer section is not a sparse setting map');
+        }
+        $normalized[$sectionId] = [];
+        foreach ($settings as $setting => $value) {
+            if (isset($targetOwned[$sectionId][$setting])) {
+                continue;
+            }
+            $tuple = $sectionsById[$sectionId][$setting] ?? null;
+            if (!is_array($tuple)) {
+                throw new RuntimeException('TEC Customizer section contains an undeclared setting');
+            }
+            if (!is_string($value)) {
+                throw new RuntimeException('TEC Customizer setting is not scalar text');
+            }
+            $sanitizer = $tuple[0] ?? null;
+            if ($sanitizer === 'sanitize_key') {
+                $sanitized = preg_replace('/[^a-z0-9_\-]/', '', strtolower($value));
+                if (!is_string($sanitized)) {
+                    throw new RuntimeException('TEC Customizer key sanitizer failed');
+                }
+            } elseif ($sanitizer === 'sanitize_hex_color') {
+                if ($value !== '' && preg_match('/^#(?:[A-Fa-f0-9]{3}){1,2}$/D', $value) !== 1) {
+                    throw new RuntimeException('TEC Customizer color is outside the native sanitizer grammar');
+                }
+                $sanitized = $value;
+            } else {
+                throw new RuntimeException('TEC Customizer setting uses an unreviewed sanitizer');
+            }
+            $normalized[$sectionId][$setting] = $sanitized;
+        }
+    }
+    return $normalized;
+};
+foreach ([
+    'empty top-level map' => [[], []],
+    'one empty section' => [['month_view' => []], ['month_view' => []]],
+    'one native-normalized key setting' => [
+        ['global_elements' => ['background_color_choice' => 'TRANSPARENT !!']],
+        ['global_elements' => ['background_color_choice' => 'transparent']],
+    ],
+    'multiple sparse sections and empty native color' => [
+        [
+            'global_elements' => ['background_color' => ''],
+            'single_event' => ['post_title_color' => '#A1b2C3'],
+        ],
+        [
+            'global_elements' => ['background_color' => ''],
+            'single_event' => ['post_title_color' => '#A1b2C3'],
+        ],
+    ],
+    'known JavaScript-era residue excluded without default completion' => [
+        [
+            'tec_events_bar' => [
+                'view_selector_background_color' => '#abcdef',
+                'view_selector_background_color_choice' => 'custom',
+                'events_bar_text_color' => '#123456',
+            ],
+        ],
+        ['tec_events_bar' => ['events_bar_text_color' => '#123456']],
+    ],
+] as $label => [$raw, $expected]) {
+    duo_check_same(
+        $expected,
+        $normalizeCustomizerSparseMap($raw),
+        "the reviewed sparse Customizer grammar preserves $label"
+    );
+}
+foreach ([
+    'scalar top-level storage' => 'not-a-map',
+    'list-shaped top-level storage' => [['global_elements']],
+    'unknown empty section' => ['future_add_on_section' => []],
+    'scalar section' => ['month_view' => 'not-a-map'],
+    'list-shaped section' => ['month_view' => ['#112233']],
+    'unknown empty setting' => ['month_view' => ['future_setting' => '']],
+    'nested setting value' => ['month_view' => ['grid_lines_color' => ['#112233']]],
+    'object setting value' => ['month_view' => ['grid_lines_color' => new stdClass()]],
+    'invalid native color' => ['month_view' => ['grid_lines_color' => 'red']],
+    'invalid UTF-8 setting' => ['global_elements' => ['font_family' => "\xC3\x28"]],
+    'oversized setting' => ['global_elements' => ['font_family' => str_repeat('a', 4097)]],
+] as $label => $raw) {
+    duo_check_throws(
+        static fn(): array => $normalizeCustomizerSparseMap($raw),
+        RuntimeException::class,
+        "the reviewed sparse Customizer grammar refuses $label",
+        'TEC Customizer'
+    );
+}
+$oversizedCustomizer = [];
+foreach (($customizerSections['sections'] ?? []) as $section) {
+    $sectionId = (string) ($section['id'] ?? '');
+    foreach ((array) ($section['settings'] ?? []) as $setting => $_tuple) {
+        $oversizedCustomizer[$sectionId][(string) $setting] = str_repeat('a', 4096);
+    }
+}
+duo_check_throws(
+    static fn(): array => $normalizeCustomizerSparseMap($oversizedCustomizer),
+    RuntimeException::class,
+    'the reviewed sparse Customizer grammar refuses aggregate option overflow before sanitizer dispatch',
+    'exceeds the bounded byte frontier'
 );
 $tecRegeneratorSource = (string) file_get_contents(
     $root . '/manifests/regenerators/the-events-calendar.php'
@@ -3563,8 +3877,8 @@ foreach ([
     'duo-equal-priority-alpha',
     'repeated reconciliation repopulated a naturally absent dropdown cache',
     'native_one_page_rows',
-    "\$onePageCount === 500",
-    "\$relevantCount() === 501",
+    '$onePageCount === 500',
+    '$relevantCount() === 501',
     'safe one-page metadata frontier',
     'the exact 501-row refusal mutated CSS or the populated dropdown cache',
     'stale_between_services_refused',
@@ -3616,7 +3930,7 @@ foreach ([
     'TEC empty native uninstall mutated authored, derived, Customizer, settings, or Category Colors rows',
     'missing-code compatibility refusal mutated retained TEC rows',
     'missing-code compatibility refusal mutated canonical target state',
-    "TEC_SHA=2db436c929797bfc5311be942158c474716e61c2f289f7d05c3a08d29b2ad687",
+    'TEC_SHA=2db436c929797bfc5311be942158c474716e61c2f289f7d05c3a08d29b2ad687',
     'diff -r "$CONF_REPO1/state" "$CONF_REPO2/.tmp-tec-final"',
 ] as $lifecycleEvidence) {
     duo_check(
@@ -3636,6 +3950,18 @@ foreach ([
     "(\$fallback_callbacks[0]['function'][0] ?? null) !== \$customizer",
     "(\$fallback_callbacks[0]['function'][1] ?? null) !== 'maybe_fallback_get_option'",
     'TEC native Customizer fallback callback topology was extended or overridden',
+    '$customizer_section_services = [',
+    'events.views.v2.customizer.global-elements',
+    'events.views.v2.customizer.month-view',
+    'events.views.v2.customizer.events-bar',
+    'events.views.v2.customizer.single-event',
+    '$section->setup_defaults()',
+    '$section->setup_content_settings()',
+    'TEC native Customizer section service identity was overridden',
+    'view_selector_background_color_choice',
+    'TEC_CUSTOMIZER_SECTION_CONTRACT=',
+    '246ad3241459d2208681900b6a39d032dc9daec306ed60bcd9ec404e4a4db493',
+    '91736c6fb3dab5b87b1dc0d354469d0d4cf8c31ca9780cadf527a781f7652f83',
 ] as $customizerLiveEvidence) {
     duo_check(
         str_contains($deletionCheck, $customizerLiveEvidence),
@@ -4918,7 +5244,7 @@ foreach ($nativeTransactionBoundaries as $sourceDriftBoundary) {
     ];
     $failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
     duo_check(
-        str_contains($failure, "source rows changed during")
+        str_contains($failure, 'source rows changed during')
             && str_contains($failure, 'recovery_required')
             && strlen($failure) < 300,
         "same-length source drift at $sourceDriftBoundary refuses from the aggregate physical witness"

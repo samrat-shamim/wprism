@@ -121,6 +121,70 @@ $customizer_contract = [
     'legacy' => 'tribe_events_pro_customizer',
     'priority' => 10,
 ];
+$customizer_section_services = [
+    'events.views.v2.customizer.global-elements' => [
+        'class' => \Tribe\Events\Views\V2\Customizer\Section\Global_Elements::class,
+        'id' => 'global_elements',
+    ],
+    'events.views.v2.customizer.month-view' => [
+        'class' => \Tribe\Events\Views\V2\Customizer\Section\Month_View::class,
+        'id' => 'month_view',
+    ],
+    'events.views.v2.customizer.events-bar' => [
+        'class' => \Tribe\Events\Views\V2\Customizer\Section\Events_Bar::class,
+        'id' => 'tec_events_bar',
+    ],
+    'events.views.v2.customizer.single-event' => [
+        'class' => \Tribe\Events\Views\V2\Customizer\Section\Single_Event::class,
+        'id' => 'single_event',
+    ],
+];
+$customizer_sections = [];
+foreach ($customizer_section_services as $service => $expected) {
+    $section = tribe($service);
+    if (get_class($section) !== $expected['class']
+        || $section->ID !== $expected['id']
+        || tribe($service) !== $section) {
+        throw new RuntimeException('TEC native Customizer section service identity was overridden');
+    }
+    $defaults = $section->setup_defaults();
+    $settings = $section->setup_content_settings();
+    if (!is_array($defaults)
+        || !is_array($settings)
+        || array_keys($defaults) !== array_keys(array_intersect_key($defaults, $settings))
+        || count($defaults) !== count($settings)) {
+        throw new RuntimeException('TEC native Customizer defaults/settings registry is malformed');
+    }
+    $setting_tuples = [];
+    foreach ($settings as $setting => $arguments) {
+        if (!is_string($setting)
+            || !is_array($arguments)
+            || array_keys($arguments) !== ['sanitize_callback', 'sanitize_js_callback', 'transport']
+            || count(array_filter($arguments, 'is_string')) !== 3) {
+            throw new RuntimeException('TEC native Customizer setting tuple is malformed');
+        }
+        $setting_tuples[$setting] = array_values($arguments);
+    }
+    if ($expected['id'] === 'tec_events_bar'
+        && (isset($settings['view_selector_background_color'])
+            || isset($settings['view_selector_background_color_choice']))) {
+        throw new RuntimeException('TEC JavaScript-era Customizer residue became a server-owned setting');
+    }
+    $registry_bytes = wp_json_encode([
+        'defaults' => $defaults,
+        'settings' => $setting_tuples,
+    ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+    if (!is_string($registry_bytes)) {
+        throw new RuntimeException('TEC native Customizer registry could not be bounded');
+    }
+    $customizer_sections[$service] = [
+        'class' => get_class($section),
+        'default_count' => count($defaults),
+        'id' => $section->ID,
+        'registry_sha256' => hash('sha256', $registry_bytes),
+        'setting_count' => count($settings),
+    ];
+}
 // Editor meta is registered globally, while Classic_Editor.php:131-146 uses
 // register_post_meta('tribe_events', ...); both registries are native contract.
 $registered = array_replace(
@@ -260,6 +324,7 @@ echo wp_json_encode([
     ],
     'category_css' => get_option('tec_events_category_color_css', null),
     'customizer_contract' => $customizer_contract,
+    'customizer_sections' => $customizer_sections,
     'delete_probe' => [
         'all_day' => metadata_exists('post', $delete_probe->ID, '_EventAllDay')
             ? get_post_meta($delete_probe->ID, '_EventAllDay', true)
@@ -554,8 +619,38 @@ pass "canonical TEC state preserves ordered organizer rows and status while excl
 SOURCE=$(observe_tec conf1)
 TARGET=$(observe_tec conf2)
 TEC_EXPECTED_VERSION="${TEC_EXPECTED_VERSION:-6.17.3}"
+TEC_CUSTOMIZER_SECTION_CONTRACT='{
+  "events.views.v2.customizer.global-elements":{
+    "class":"Tribe\\Events\\Views\\V2\\Customizer\\Section\\Global_Elements",
+    "default_count":9,
+    "id":"global_elements",
+    "registry_sha256":"246ad3241459d2208681900b6a39d032dc9daec306ed60bcd9ec404e4a4db493",
+    "setting_count":9
+  },
+  "events.views.v2.customizer.month-view":{
+    "class":"Tribe\\Events\\Views\\V2\\Customizer\\Section\\Month_View",
+    "default_count":9,
+    "id":"month_view",
+    "registry_sha256":"17bae2fe211585b18a24ca2c7088550f34e111be2291778ce55fab10826d5bf1",
+    "setting_count":9
+  },
+  "events.views.v2.customizer.events-bar":{
+    "class":"Tribe\\Events\\Views\\V2\\Customizer\\Section\\Events_Bar",
+    "default_count":10,
+    "id":"tec_events_bar",
+    "registry_sha256":"91736c6fb3dab5b87b1dc0d354469d0d4cf8c31ca9780cadf527a781f7652f83",
+    "setting_count":10
+  },
+  "events.views.v2.customizer.single-event":{
+    "class":"Tribe\\Events\\Views\\V2\\Customizer\\Section\\Single_Event",
+    "default_count":3,
+    "id":"single_event",
+    "registry_sha256":"b70fc0e4b29587f972ef2df1cc133278041b4e2a40c923352da16bd8c8c76216",
+    "setting_count":3
+  }
+}'
 
-printf '%s\n' "$SOURCE" | jq -e '
+printf '%s\n' "$SOURCE" | jq -e --argjson customizer_sections "$TEC_CUSTOMIZER_SECTION_CONTRACT" '
   .event.all_day == null and .event.all_day_native == false and
   .event.hide_from_upcoming == null and .event.hidden_native == false and
   .event.organizer_blocks == (.organizers | map(.id)) and
@@ -569,7 +664,7 @@ printf '%s\n' "$SOURCE" | jq -e '
     hook:"default_option_tribe_customizer",
     legacy:"tribe_events_pro_customizer",
     priority:10
-  } and
+  } and .customizer_sections == $customizer_sections and
   .editor_native_contract == {
     block:{registered:true,renderer:"Tribe__Events__Editor__Blocks__Event_Organizer::render"},
     setting:{default:false,key:"toggle_blocks_editor",runtime:true,type:"checkbox_bool",validation:"boolean"}
@@ -583,7 +678,8 @@ printf '%s\n' "$SOURCE" | jq -e '
 printf '%s\n' "$TARGET" | jq -e \
   --arg version "$TEC_EXPECTED_VERSION" \
   --argjson source "$SOURCE_IDS" \
-  --argjson dirty "$TARGET_IDS" '
+  --argjson dirty "$TARGET_IDS" \
+  --argjson customizer_sections "$TEC_CUSTOMIZER_SECTION_CONTRACT" '
   .home as $home |
   .version == $version and
   .event.id == $dirty.dirty_event and .all_day.id == $dirty.all_day and
@@ -690,7 +786,7 @@ printf '%s\n' "$TARGET" | jq -e \
     hook:"default_option_tribe_customizer",
     legacy:"tribe_events_pro_customizer",
     priority:10
-  } and
+  } and .customizer_sections == $customizer_sections and
   .options.events_slug == "calendar-readiness" and .options.single_slug == "readiness-event" and
   .options.views == ["list","month"] and .options.currency_code == "NPR" and
   .options.default_venue == .venue.id and .options.default_organizer == .organizer.id and

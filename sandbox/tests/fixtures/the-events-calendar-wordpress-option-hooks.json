@@ -7,19 +7,31 @@
       "option_php_sha256": "cde15dc93f943de5884c87b26f0786011c6e43b93440cde1792428029ced9e37",
       "formatting_php_sha256": "fe6f3c7a4b312f257b3cebee374d8c07d5c3f4df4203d58ee42fd8ae8320b1ce",
       "cache_php_sha256": "a219c2b57cc9990b560c6b497c877db443b7e29239645a6a79b2d76839c46e19",
-      "object_cache_php_sha256": "1857b774bd9cfbafbd50a1b1424f7df637d202cf3f2253cda9798d4ad56f3cf0"
+      "object_cache_php_sha256": "1857b774bd9cfbafbd50a1b1424f7df637d202cf3f2253cda9798d4ad56f3cf0",
+      "legacy_widget_php_sha256": "60d2b63a888f03cc416d00356c25fae2bd90e62692462c60f685a6e28fcd6e08",
+      "legacy_widget_block_json_sha256": "30a6efdd317d6d830ccfe9f917585a80514d65f94e3a9f40ccb5a370b4708376",
+      "rest_widget_types_php_sha256": "25c5b174877aa1cf1d4e3a13836066512e4f6be74e64b6146628e5fbece9c739",
+      "rest_widgets_php_sha256": "1316bf57deae5b9a26a65b74d0153fbe65f0fd0fcf39a43991196d5e786e2739"
     },
     "7.0.3": {
       "option_php_sha256": "d1daad9a1d19ee438eb6e3b6698b42a3682f6f7ab9626be02f2157a238ea3e2f",
       "formatting_php_sha256": "4e6d1740465e06fc2bbf6deaf666792e60f8c71964d5e5f7b9a6400261144a79",
       "cache_php_sha256": "a219c2b57cc9990b560c6b497c877db443b7e29239645a6a79b2d76839c46e19",
-      "object_cache_php_sha256": "1857b774bd9cfbafbd50a1b1424f7df637d202cf3f2253cda9798d4ad56f3cf0"
+      "object_cache_php_sha256": "1857b774bd9cfbafbd50a1b1424f7df637d202cf3f2253cda9798d4ad56f3cf0",
+      "legacy_widget_php_sha256": "60d2b63a888f03cc416d00356c25fae2bd90e62692462c60f685a6e28fcd6e08",
+      "legacy_widget_block_json_sha256": "30a6efdd317d6d830ccfe9f917585a80514d65f94e3a9f40ccb5a370b4708376",
+      "rest_widget_types_php_sha256": "a74bbb9fd067e78616a4d791c5b2bcd8472090794d60b7629901e6974d6fc904",
+      "rest_widgets_php_sha256": "fcdd417e2aea0998a6cca9a37326582131a734352d9814b64f74ee617fcd34d6"
     },
     "7.1": {
       "option_php_sha256": "fe3f0b7e115b2a50c31162ed6428abe4088c080b0f71b9678d84806168fe90d0",
       "formatting_php_sha256": "69b5e5acd15fc70582e7edd09c6e201ffdd7f5ab4c5a0b481a9963a0acd604f8",
       "cache_php_sha256": "a219c2b57cc9990b560c6b497c877db443b7e29239645a6a79b2d76839c46e19",
-      "object_cache_php_sha256": "1857b774bd9cfbafbd50a1b1424f7df637d202cf3f2253cda9798d4ad56f3cf0"
+      "object_cache_php_sha256": "1857b774bd9cfbafbd50a1b1424f7df637d202cf3f2253cda9798d4ad56f3cf0",
+      "legacy_widget_php_sha256": "60d2b63a888f03cc416d00356c25fae2bd90e62692462c60f685a6e28fcd6e08",
+      "legacy_widget_block_json_sha256": "30a6efdd317d6d830ccfe9f917585a80514d65f94e3a9f40ccb5a370b4708376",
+      "rest_widget_types_php_sha256": "d9e58e213eec93eb402c730d834e859a8127f8f7c3c9c8f6fb6db7d1d1ac66cf",
+      "rest_widgets_php_sha256": "fcdd417e2aea0998a6cca9a37326582131a734352d9814b64f74ee617fcd34d6"
     }
   },
   "shared_paths": {
@@ -101,10 +113,15 @@
   },
   "tec_service_sources": {
     "6.17.2": {
+      "build/js/customizer-views-v2-controls.js": "77c8f852b0a04fe4aafbc8d17a771b7b2de48fbac2eee284e797a1e97ea70936",
+      "build/js/customizer-views-v2-live-preview.js": "5a2ff4a8638d0f0c643a325e5d7118adca26656a99f4a937077d2dbff61af05c",
       "common/src/Tribe/Cache.php": "13122d8dd94a4a0b8f43cefcea7b5f61d3c00bc11b98fb282ac73076ed3eb457",
       "common/src/Tribe/Cache_Listener.php": "14a63e60db2f047b7dd62fa708d464b170d87485227cc63583c989a45fcb248b",
       "common/src/Tribe/Container.php": "9596db7968d4d0b5506dc482f99fed2387d1b2cbc7f11f507d52fbdf902d4b03",
       "common/src/Tribe/Customizer.php": "83ba4277bb122d476daf5782cd0c2bfc643ad1f875747aa39beba2782aa014c1",
+      "common/src/Tribe/Customizer/Section.php": "fd71ec921ea8eaaf6e13fa664cf29fdba6cc6f579427a69ca092cb40e46b4310",
+      "common/src/Tribe/Widget/Manager.php": "7e3fe8a07e06df0ac36786a06ea60f4dc36992085644560145b27786ac0b63b1",
+      "common/src/Tribe/Widget/Widget_Abstract.php": "03ce24329e9762f8924845cec6b872ecee11f8b2287946d36af8dd07deb36ddc",
       "common/src/Tribe/Settings_Manager.php": "9f51c59cfa2398a66958159db4a66368aa728f4428295dc07dabb834396f9591",
       "common/src/Common/Libraries/Harbor.php": "ed3e5aa019d766fa81718f8d9654eab9a7356d9ab85965e478560b0461a125ec",
       "common/src/Common/Integrations/Harbor/PUE.php": "abe0ef81332c52aff2983b8f78700169dbcfbeb663497af84e681be245629988",
@@ -118,14 +135,29 @@
       "src/Events/Custom_Tables/V1/Models/Builder.php": "504ca34d042a5f6dfccaa4d6f1b86c0a1a40aeb8733aba826f82fe3414acf76b",
       "src/Events/Custom_Tables/V1/Events/Occurrences/Occurrences_Generator.php": "15cd8b8c18eca56c8aa80aa6d54a7d058ebaba60292ff53dd882a89c35d4f45f",
       "src/Tribe/Aggregator.php": "cdd66b28165dda1f45fa79ddb6aeddf22dd3b3bc44fa2a71365e6f39c7173288",
+      "src/Tribe/Views/V2/Customizer/Hooks.php": "a7528d565dd4f85e36cfab1c6fa5a208a99d869cbf4762bfa52908454130eaaf",
+      "src/Tribe/Views/V2/Customizer/Section/Events_Bar.php": "39d8d2e87507c57497f7eb3f79507c6956f3fd49de5a8eba4f9b46012ca35866",
+      "src/Tribe/Views/V2/Customizer/Section/Global_Elements.php": "75c26521fa62a438574f6120f156bcb031f33e9a9345dee44247e90b6a00761f",
+      "src/Tribe/Views/V2/Customizer/Section/Month_View.php": "551ec3e928b53f758ba4891bd049dc0450a790ba81b09718ce873e6910496900",
+      "src/Tribe/Views/V2/Customizer/Section/Single_Event.php": "95106057402611b0d403f0c3e395b6288429aad217c29e1f367e77f170c8597c",
+      "src/Tribe/Views/V2/Customizer/Service_Provider.php": "02dcb4d6d6f28558499f9a4dddafad0b448e2d265c515f2eb5008ff01157d3d6",
       "src/Tribe/Views/V2/Hooks.php": "d746a05d4e7979a0bbdae0938f009d0012e550d605c4a331a1cd288e7b746b5f",
-      "src/Tribe/Views/V2/Service_Provider.php": "29e613ac58ae57ece7206f9db697749c41a5370d491088f5833a45d8f0f593b1"
+      "src/Tribe/Views/V2/Service_Provider.php": "29e613ac58ae57ece7206f9db697749c41a5370d491088f5833a45d8f0f593b1",
+      "src/Tribe/Views/V2/Widgets/Service_Provider.php": "8339d48c4f28054c554d09586381adcd2f04a8dc6229026365327aafa7151b0b",
+      "src/Tribe/Views/V2/Widgets/Widget_Abstract.php": "4148eb311d2f0008c26f4d390b0fe0770246c49d9723629f17435e319a684105",
+      "src/Tribe/Views/V2/Widgets/Widget_List.php": "e1d9150b00e8e8a3e4961be584f2d92ef2ce777c5a5c9d503d85775976c1e530",
+      "src/Tribe/Views/V2/Widgets/Widget_QR_Code.php": "b44609b0be27d27b585f5f66a6877b5194b1297258c9fc4da91086d336eceeba"
     },
     "6.17.3": {
+      "build/js/customizer-views-v2-controls.js": "77c8f852b0a04fe4aafbc8d17a771b7b2de48fbac2eee284e797a1e97ea70936",
+      "build/js/customizer-views-v2-live-preview.js": "5a2ff4a8638d0f0c643a325e5d7118adca26656a99f4a937077d2dbff61af05c",
       "common/src/Tribe/Cache.php": "13122d8dd94a4a0b8f43cefcea7b5f61d3c00bc11b98fb282ac73076ed3eb457",
       "common/src/Tribe/Cache_Listener.php": "14a63e60db2f047b7dd62fa708d464b170d87485227cc63583c989a45fcb248b",
       "common/src/Tribe/Container.php": "9596db7968d4d0b5506dc482f99fed2387d1b2cbc7f11f507d52fbdf902d4b03",
       "common/src/Tribe/Customizer.php": "83ba4277bb122d476daf5782cd0c2bfc643ad1f875747aa39beba2782aa014c1",
+      "common/src/Tribe/Customizer/Section.php": "fd71ec921ea8eaaf6e13fa664cf29fdba6cc6f579427a69ca092cb40e46b4310",
+      "common/src/Tribe/Widget/Manager.php": "7e3fe8a07e06df0ac36786a06ea60f4dc36992085644560145b27786ac0b63b1",
+      "common/src/Tribe/Widget/Widget_Abstract.php": "03ce24329e9762f8924845cec6b872ecee11f8b2287946d36af8dd07deb36ddc",
       "common/src/Tribe/Settings_Manager.php": "9f51c59cfa2398a66958159db4a66368aa728f4428295dc07dabb834396f9591",
       "common/src/Common/Libraries/Harbor.php": "ed3e5aa019d766fa81718f8d9654eab9a7356d9ab85965e478560b0461a125ec",
       "common/src/Common/Integrations/Harbor/PUE.php": "abe0ef81332c52aff2983b8f78700169dbcfbeb663497af84e681be245629988",
@@ -139,8 +171,46 @@
       "src/Events/Custom_Tables/V1/Models/Builder.php": "504ca34d042a5f6dfccaa4d6f1b86c0a1a40aeb8733aba826f82fe3414acf76b",
       "src/Events/Custom_Tables/V1/Events/Occurrences/Occurrences_Generator.php": "15cd8b8c18eca56c8aa80aa6d54a7d058ebaba60292ff53dd882a89c35d4f45f",
       "src/Tribe/Aggregator.php": "cdd66b28165dda1f45fa79ddb6aeddf22dd3b3bc44fa2a71365e6f39c7173288",
+      "src/Tribe/Views/V2/Customizer/Hooks.php": "a7528d565dd4f85e36cfab1c6fa5a208a99d869cbf4762bfa52908454130eaaf",
+      "src/Tribe/Views/V2/Customizer/Section/Events_Bar.php": "39d8d2e87507c57497f7eb3f79507c6956f3fd49de5a8eba4f9b46012ca35866",
+      "src/Tribe/Views/V2/Customizer/Section/Global_Elements.php": "75c26521fa62a438574f6120f156bcb031f33e9a9345dee44247e90b6a00761f",
+      "src/Tribe/Views/V2/Customizer/Section/Month_View.php": "551ec3e928b53f758ba4891bd049dc0450a790ba81b09718ce873e6910496900",
+      "src/Tribe/Views/V2/Customizer/Section/Single_Event.php": "95106057402611b0d403f0c3e395b6288429aad217c29e1f367e77f170c8597c",
+      "src/Tribe/Views/V2/Customizer/Service_Provider.php": "02dcb4d6d6f28558499f9a4dddafad0b448e2d265c515f2eb5008ff01157d3d6",
       "src/Tribe/Views/V2/Hooks.php": "d746a05d4e7979a0bbdae0938f009d0012e550d605c4a331a1cd288e7b746b5f",
-      "src/Tribe/Views/V2/Service_Provider.php": "29e613ac58ae57ece7206f9db697749c41a5370d491088f5833a45d8f0f593b1"
+      "src/Tribe/Views/V2/Service_Provider.php": "29e613ac58ae57ece7206f9db697749c41a5370d491088f5833a45d8f0f593b1",
+      "src/Tribe/Views/V2/Widgets/Service_Provider.php": "c65be8223b912e9232c078fafca34697e1d2199e5f0d71d945a6ab4cabccea82",
+      "src/Tribe/Views/V2/Widgets/Widget_Abstract.php": "4148eb311d2f0008c26f4d390b0fe0770246c49d9723629f17435e319a684105",
+      "src/Tribe/Views/V2/Widgets/Widget_List.php": "e1d9150b00e8e8a3e4961be584f2d92ef2ce777c5a5c9d503d85775976c1e530",
+      "src/Tribe/Views/V2/Widgets/Widget_QR_Code.php": "b44609b0be27d27b585f5f66a6877b5194b1297258c9fc4da91086d336eceeba"
+    }
+  },
+  "legacy_widget_boundary": {
+    "block": "core/legacy-widget",
+    "attributes": ["id", "idBase", "instance"],
+    "stored_id_form": {
+      "id_shape": "<idBase>-<positive-instance>",
+      "storage": ["sidebars_widgets", "widget_<idBase>"],
+      "identity": "SidebarState widget ledger"
+    },
+    "embedded_form": {
+      "id_bases": ["tribe-widget-events-list", "tribe-widget-events-qr-code"],
+      "encoded": "base64(PHP-serialized-instance)",
+      "hash": "wp_hash(serialized-instance)",
+      "target_rebinding_required": true
+    },
+    "callbacks": {
+      "rest_pre_dispatch": "enable_widget_copy_paste",
+      "rest_dispatch_request": "enable_saving_widget_copied",
+      "render_block_data": "enable_rendering_widget_copied"
+    },
+    "version_delta": {
+      "6.17.2": "decodes and re-signs without recursive object refusal",
+      "6.17.3": "unserializes with allowed_classes=false and rejects nested objects before re-signing"
+    },
+    "duo_status": {
+      "portable": false,
+      "reason": "The shipped core block grammar still refuses id, idBase, and instance; production readiness requires a bounded TEC widget codec that validates plain decoded settings, rebases SidebarState IDs and event references, and re-signs with the target salt."
     }
   },
   "customizer_fallback": {
@@ -163,11 +233,126 @@
       "canonical_absent_legacy_absent": "empty"
     }
   },
+  "customizer_sections": {
+    "setting_tuple": ["sanitize_callback", "sanitize_js_callback", "transport"],
+    "storage": {
+      "canonical_option": "tribe_customizer",
+      "defaults": "read-time-only",
+      "empty_map": "valid",
+      "setting_name_template": "tribe_customizer[%s][%s]",
+      "setting_type": "option",
+      "shape": "sparse-section-map"
+    },
+    "sections": {
+      "events.views.v2.customizer.global-elements": {
+        "class": "Tribe\\Events\\Views\\V2\\Customizer\\Section\\Global_Elements",
+        "id": "global_elements",
+        "defaults": {
+          "font_family": "default",
+          "font_size": "0",
+          "font_size_base": "16",
+          "event_title_color": "#141827",
+          "event_date_time_color": "#141827",
+          "link_color": "#141827",
+          "background_color_choice": "transparent",
+          "background_color": "",
+          "accent_color": "#334aff"
+        },
+        "settings": {
+          "font_family": ["sanitize_key", "sanitize_key", "postMessage"],
+          "font_size": ["sanitize_key", "sanitize_key", "postMessage"],
+          "font_size_base": ["sanitize_key", "sanitize_key", "postMessage"],
+          "event_title_color": ["sanitize_hex_color", "maybe_hash_hex_color", "postMessage"],
+          "event_date_time_color": ["sanitize_hex_color", "maybe_hash_hex_color", "postMessage"],
+          "link_color": ["sanitize_hex_color", "maybe_hash_hex_color", "postMessage"],
+          "background_color_choice": ["sanitize_key", "sanitize_key", "postMessage"],
+          "background_color": ["sanitize_hex_color", "maybe_hash_hex_color", "postMessage"],
+          "accent_color": ["sanitize_hex_color", "maybe_hash_hex_color", "postMessage"]
+        }
+      },
+      "events.views.v2.customizer.month-view": {
+        "class": "Tribe\\Events\\Views\\V2\\Customizer\\Section\\Month_View",
+        "id": "month_view",
+        "defaults": {
+          "grid_lines_color": "#e4e4e4",
+          "grid_background_color_choice": "transparent",
+          "grid_background_color": "#FFFFFF",
+          "grid_hover_color": "#141827",
+          "days_of_week_color": "#5d5d5d",
+          "date_marker_color": "#141827",
+          "multiday_event_bar_color_choice": "default",
+          "multiday_event_bar_color": "#334aff",
+          "tooltip_background_color": "default"
+        },
+        "settings": {
+          "grid_lines_color": ["sanitize_hex_color", "maybe_hash_hex_color", "postMessage"],
+          "grid_hover_color": ["sanitize_hex_color", "maybe_hash_hex_color", "postMessage"],
+          "grid_background_color_choice": ["sanitize_key", "sanitize_key", "postMessage"],
+          "grid_background_color": ["sanitize_hex_color", "maybe_hash_hex_color", "postMessage"],
+          "tooltip_background_color": ["sanitize_key", "sanitize_key", "postMessage"],
+          "days_of_week_color": ["sanitize_hex_color", "maybe_hash_hex_color", "postMessage"],
+          "date_marker_color": ["sanitize_hex_color", "maybe_hash_hex_color", "postMessage"],
+          "multiday_event_bar_color_choice": ["sanitize_key", "sanitize_key", "postMessage"],
+          "multiday_event_bar_color": ["sanitize_hex_color", "maybe_hash_hex_color", "postMessage"]
+        }
+      },
+      "events.views.v2.customizer.events-bar": {
+        "class": "Tribe\\Events\\Views\\V2\\Customizer\\Section\\Events_Bar",
+        "id": "tec_events_bar",
+        "defaults": {
+          "events_bar_background_color_choice": "default",
+          "events_bar_background_color": "#FFFFFF",
+          "events_bar_border_color_choice": "default",
+          "events_bar_border_color": "#e4e4e4",
+          "events_bar_icon_color_choice": "default",
+          "events_bar_icon_color": "#5d5d5d",
+          "events_bar_text_color": "#141827",
+          "find_events_button_color_choice": "default",
+          "find_events_button_color": "#334aff",
+          "find_events_button_text_color": "#FFFFFF"
+        },
+        "settings": {
+          "events_bar_background_color_choice": ["sanitize_key", "sanitize_key", "postMessage"],
+          "events_bar_background_color": ["sanitize_hex_color", "maybe_hash_hex_color", "postMessage"],
+          "events_bar_border_color_choice": ["sanitize_key", "sanitize_key", "postMessage"],
+          "events_bar_border_color": ["sanitize_hex_color", "maybe_hash_hex_color", "postMessage"],
+          "events_bar_icon_color_choice": ["sanitize_key", "sanitize_key", "postMessage"],
+          "events_bar_icon_color": ["sanitize_hex_color", "maybe_hash_hex_color", "postMessage"],
+          "events_bar_text_color": ["sanitize_hex_color", "maybe_hash_hex_color", "postMessage"],
+          "find_events_button_color_choice": ["sanitize_key", "sanitize_key", "postMessage"],
+          "find_events_button_color": ["sanitize_hex_color", "maybe_hash_hex_color", "postMessage"],
+          "find_events_button_text_color": ["sanitize_hex_color", "maybe_hash_hex_color", "postMessage"]
+        }
+      },
+      "events.views.v2.customizer.single-event": {
+        "class": "Tribe\\Events\\Views\\V2\\Customizer\\Section\\Single_Event",
+        "id": "single_event",
+        "defaults": {
+          "post_title_color_choice": "default",
+          "post_title_color": "#141827",
+          "details_bg_color": "#e5e5e5"
+        },
+        "settings": {
+          "post_title_color_choice": ["sanitize_key", "sanitize_key", "postMessage"],
+          "post_title_color": ["sanitize_hex_color", "maybe_hash_hex_color", "postMessage"],
+          "details_bg_color": ["sanitize_hex_color", "maybe_hash_hex_color", "postMessage"]
+        }
+      }
+    },
+    "target_owned_residue": {
+      "tec_events_bar": [
+        "view_selector_background_color",
+        "view_selector_background_color_choice"
+      ]
+    }
+  },
   "notes": [
     "The three pinned cores expose the same call topology for both Category Colors update_option(name, value, true) and Tribe__Cache::set_last_occurrence update_option(name, value) paths.",
     "wp_default_autoload_value and wp_max_autoloaded_option_size are unreachable for Category Colors explicit autoload=true but reachable for absent or computed-autoload tribe_last_save_post rows.",
     "The stock cache.php and class-wp-object-cache.php bytes are identical across all three pins and expose no callback hook around wp_cache_get/set/delete; external object-cache drop-ins are refused before invocation.",
-    "The exact TEC 6.17.2 and 6.17.3 Category Colors, Customizer, cache/listener/container, option-hook singleton, configuration, event/occurrence/builder, and occurrence-generator bytes are identical across the reviewed native state paths.",
-    "Tribe__Customizer registers its legacy read only on default_option_tribe_customizer: an existing canonical row wins even when it stores an empty array, while an absent canonical row may fall back to tribe_events_pro_customizer. The legacy name is compatibility input, not a claim that this free adapter supports Pro."
+    "The exact TEC 6.17.2 and 6.17.3 Category Colors, Customizer, cache/listener/container, option-hook singleton, configuration, event/occurrence/builder, occurrence-generator, and widget storage classes are pinned. The widget Service_Provider intentionally differs: 6.17.3 adds recursive object refusal before its copy/save/render callbacks re-sign an embedded legacy-widget instance.",
+    "Tribe__Customizer registers its legacy read only on default_option_tribe_customizer: an existing canonical row wins even when it stores an empty array, while an absent canonical row may fall back to tribe_events_pro_customizer. The legacy name is compatibility input, not a claim that this free adapter supports Pro.",
+    "The exact four free Views V2 Customizer services register 31 option-backed settings across global_elements, month_view, tec_events_bar, and single_event. Raw storage is sparse: defaults are merged for reads and are not proof that a setting was persisted. Two view-selector keys remain referenced only by the shipped JavaScript and are known target-owned upgrade residue, not free server-side authored settings.",
+    "A normal TEC core/legacy-widget block is state-bearing in either form: id points through SidebarState to sidebars_widgets plus widget_<idBase>, while idBase plus instance embeds base64 PHP-serialized settings and an environment-salted hash. Exact 6.17.3 security hardening does not make those bytes portable by itself; the adapter remains unready until it validates and rebinds both forms."
   ]
 }
