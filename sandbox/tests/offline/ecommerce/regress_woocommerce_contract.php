@@ -597,5 +597,23 @@ woo_ok(!in_array('derived.wc_product_attributes_lookup', array_column(
 ), true), 'attribute lookup repair is no longer mislabeled as an unsupported apply surface');
 $matrixHarness = (string) file_get_contents($root . '/sandbox/tests/certify/certify_version_matrix.sh');
 woo_ok(str_contains($matrixHarness, 'update_option("default_category", (int) $category->term_id)'), 'version-matrix resets the core default-category reference before each plugin boundary');
+woo_ok(str_contains($matrixHarness, 'check_woocommerce_boundary_lifecycle "$WOO_VERSION" "$ARTIFACT_2"'),
+    'each exact WooCommerce boundary runs lifecycle evidence before the populated upgrade leg');
+foreach ([
+    'woocommerce_boundary_storage_hash',
+    'WC_REMOVE_ALL_DATA',
+    'e06e0c2086f695d39f5d9edead87cd4faeb0ea45184d77e7d8fe5588abfde48e',
+    'default uninstall changed retained authored or target-runtime storage',
+    'missing-code refusal partially changed retained storage',
+    'lifecycle artifact digest moved before reinstall proof',
+    'check_woocommerce_content',
+    '.tmp-woo-lifecycle-final',
+] as $lifecycleWitness) {
+    woo_ok(str_contains($matrixHarness, $lifecycleWitness),
+        "exact WooCommerce lifecycle matrix pins $lifecycleWitness");
+}
+woo_ok(substr_count($matrixHarness, 'check_woocommerce_boundary_lifecycle "$WOO_VERSION" "$ARTIFACT_2"') === 1
+    && str_contains($matrixHarness, 'for WOO_VERSION in 11.0.0 11.0.1; do'),
+    'one lifecycle call inside the exact two-artifact loop covers 11.0.0 and 11.0.1 independently');
 
 echo "PASS: WooCommerce 11.0.x option/table inventory and rebuild contract are explicit\n";

@@ -1848,6 +1848,8 @@ EOF
   [ -z "$DIFF_OUT" ] || fail "byte-identity broken at woocommerce $WOO_VERSION: $DIFF_OUT"
   pass "byte-identical recapture at woocommerce $WOO_VERSION — the exact in-range release is proven through the full product path"
 
+  check_woocommerce_boundary_lifecycle "$WOO_VERSION" "$ARTIFACT_2"
+
   if [ "$WOO_VERSION" = 11.0.0 ]; then
     say 'in-place upgrade: populated woocommerce 11.0.0 -> exact 11.0.1 on both environments'
     UPGRADE_ARTIFACT_1=$(fetch_artifact woocommerce 11.0.1 cli1)
