@@ -26,6 +26,12 @@ final class TheEventsCalendar {
     private const LAST_UPDATED_OPTION = 'tribe_last_updated_option';
     private const LAST_SAVE_POST_OPTION = 'tribe_last_save_post';
     private const TRANSIENT_PURGE_FLAG = 'should_delete_expired_transients';
+    private const WOO_CONTAINER = 'Automattic\\WooCommerce\\Container';
+    private const WOO_FEATURES = 'Automattic\\WooCommerce\\Internal\\Features\\FeaturesController';
+    private const WOO_SYNCHRONIZER =
+        'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer';
+    private const WOO_CUSTOM_ORDERS =
+        'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController';
     private const CUSTOMIZER_MAX_NODES = 128;
     private const CUSTOMIZER_MAX_OPTION_BYTES = 65536;
     private const CUSTOMIZER_MAX_SETTING_BYTES = 4096;
@@ -2060,8 +2066,30 @@ final class TheEventsCalendar {
             $hooks[] = 'added_option';
         }
 
+        $updated = $this->option_hook_records('updated_option');
+        $preUpdated = $this->option_hook_records('pre_update_option');
+        $added = $this->option_hook_records('added_option');
+        $woo = $this->resolve_woo_option_services($updated, $preUpdated, $added);
+
         foreach ($hooks as $hookName) {
-            $records = $this->option_hook_records($hookName);
+            $records = match ($hookName) {
+                'updated_option' => $updated,
+                'pre_update_option' => $preUpdated,
+                'added_option' => $added,
+                default => $this->option_hook_records($hookName),
+            };
+            if ($hookName === 'updated_option') {
+                $this->assert_updated_option_callbacks($records, $woo);
+                continue;
+            }
+            if ($hookName === 'pre_update_option' && $woo !== null) {
+                $this->assert_woo_option_callbacks($hookName, $records, $woo);
+                continue;
+            }
+            if ($hookName === 'added_option' && $woo !== null) {
+                $this->assert_woo_option_callbacks($hookName, $records, $woo);
+                continue;
+            }
             if ($records === []) {
                 continue;
             }
@@ -2069,10 +2097,6 @@ final class TheEventsCalendar {
                 && $name === self::CUSTOMIZER_CANONICAL_OPTION) {
                 // assert_customizer_runtime() already bound its sole callback
                 // to the exact Customizer singleton and method.
-                continue;
-            }
-            if ($hookName === 'updated_option') {
-                $this->assert_updated_option_callbacks($records);
                 continue;
             }
             if ($hookName === 'pre_option'
@@ -2137,8 +2161,9 @@ final class TheEventsCalendar {
 
     /**
      * @param list<array{0:int,1:array{function:mixed,accepted_args:mixed}}> $records
+     * @param ?array{container:object,features:object,synchronizer:object,custom_orders:object} $woo
      */
-    private function assert_updated_option_callbacks(array $records): void {
+    private function assert_updated_option_callbacks(array $records, ?array $woo = null): void {
         if (!class_exists('Tribe__Settings_Manager', false)
             || !is_callable(['Tribe__Settings_Manager', 'instance'])
             || !class_exists('Tribe__Cache_Listener', false)
@@ -2177,16 +2202,40 @@ final class TheEventsCalendar {
             }
         }
         $expected = [
-            ['callback' => [$manager, 'update_options_cache'], 'accepted_args' => 3],
-            ['callback' => [$listener, 'update_last_updated_option'], 'accepted_args' => 3],
-            ['callback' => [$listener, 'update_last_save_post'], 'accepted_args' => 3],
-            ['callback' => [$aggregator, 'action_purge_transients'], 'accepted_args' => 1],
-            ['callback' => [$views, 'action_save_wplang'], 'accepted_args' => 3],
+            ['callback' => [$manager, 'update_options_cache'], 'priority' => 10, 'accepted_args' => 3],
+            ['callback' => [$listener, 'update_last_updated_option'], 'priority' => 10, 'accepted_args' => 3],
+            ['callback' => [$listener, 'update_last_save_post'], 'priority' => 10, 'accepted_args' => 3],
+            ['callback' => [$aggregator, 'action_purge_transients'], 'priority' => 10, 'accepted_args' => 1],
+            ['callback' => [$views, 'action_save_wplang'], 'priority' => 10, 'accepted_args' => 3],
         ];
+        if ($woo !== null) {
+            $expected = array_merge($expected, [
+                [
+                    'callback' => [$woo['features'], 'process_updated_option'],
+                    'priority' => 999,
+                    'accepted_args' => 3,
+                ],
+                [
+                    'callback' => [$woo['synchronizer'], 'process_updated_option'],
+                    'priority' => 999,
+                    'accepted_args' => 3,
+                ],
+                [
+                    'callback' => [$woo['custom_orders'], 'process_updated_option'],
+                    'priority' => 999,
+                    'accepted_args' => 3,
+                ],
+                [
+                    'callback' => [$woo['custom_orders'], 'process_updated_option_fts_index'],
+                    'priority' => 999,
+                    'accepted_args' => 3,
+                ],
+            ]);
+        }
         foreach ($records as [$priority, $record]) {
             $matched = null;
             foreach ($expected as $position => $candidate) {
-                if ($priority === 10
+                if ($priority === $candidate['priority']
                     && ($record['accepted_args'] ?? null) === $candidate['accepted_args']
                     && ($record['function'] ?? null) === $candidate['callback']) {
                     $matched = $position;
@@ -2203,6 +2252,123 @@ final class TheEventsCalendar {
         if ($expected !== []) {
             throw new \RuntimeException(
                 'duo: The Events Calendar option mutation hook topology has incomplete updated callbacks'
+            );
+        }
+    }
+
+    /**
+     * Woo 11.0.1's exact normal option callbacks are source-proven no-ops for
+     * both TEC mixed options and tribe_last_* companions. Admit them only when
+     * every visible callback is bound to the canonical Woo container service
+     * (source SHA-256 2f3a95ae…, c39f44eb…, a10ff8e2…, b4d1a677…).
+     *
+     * @param list<array{0:int,1:array{function:mixed,accepted_args:mixed}}> $updated
+     * @param list<array{0:int,1:array{function:mixed,accepted_args:mixed}}> $preUpdated
+     * @param list<array{0:int,1:array{function:mixed,accepted_args:mixed}}> $added
+     * @return ?array{container:object,features:object,synchronizer:object,custom_orders:object}
+     */
+    private function resolve_woo_option_services(array $updated, array $preUpdated, array $added): ?array {
+        $records = array_merge($updated, $preUpdated, $added);
+        $visible = function_exists('wc_get_container')
+            || array_key_exists('wc_container', $GLOBALS)
+            || class_exists(self::WOO_CONTAINER, false)
+            || class_exists(self::WOO_FEATURES, false)
+            || class_exists(self::WOO_SYNCHRONIZER, false)
+            || class_exists(self::WOO_CUSTOM_ORDERS, false);
+        foreach ($records as [, $record]) {
+            $callback = $record['function'] ?? null;
+            $visible = $visible || (is_array($callback)
+                && is_object($callback[0] ?? null)
+                && in_array(get_class($callback[0]), [
+                    self::WOO_FEATURES,
+                    self::WOO_SYNCHRONIZER,
+                    self::WOO_CUSTOM_ORDERS,
+                ], true));
+        }
+        if (!$visible) {
+            return null;
+        }
+        if (!function_exists('wc_get_container')
+            || !array_key_exists('wc_container', $GLOBALS)
+            || !class_exists(self::WOO_CONTAINER, false)
+            || !class_exists(self::WOO_FEATURES, false)
+            || !class_exists(self::WOO_SYNCHRONIZER, false)
+            || !class_exists(self::WOO_CUSTOM_ORDERS, false)) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar option mutation hook topology found an incomplete WooCommerce runtime'
+            );
+        }
+        try {
+            $container = $GLOBALS['wc_container'];
+            if (!is_object($container)
+                || get_class($container) !== self::WOO_CONTAINER
+                || wc_get_container() !== $container) {
+                throw new \RuntimeException('substituted WooCommerce container');
+            }
+            $features = $container->get(self::WOO_FEATURES);
+            $synchronizer = $container->get(self::WOO_SYNCHRONIZER);
+            $customOrders = $container->get(self::WOO_CUSTOM_ORDERS);
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar option mutation hook topology could not resolve WooCommerce services',
+                0,
+                $failure
+            );
+        }
+        foreach ([
+            [$features, self::WOO_FEATURES],
+            [$synchronizer, self::WOO_SYNCHRONIZER],
+            [$customOrders, self::WOO_CUSTOM_ORDERS],
+        ] as [$service, $class]) {
+            if (!is_object($service) || get_class($service) !== $class) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar option mutation hook topology has substituted WooCommerce services'
+                );
+            }
+        }
+        return [
+            'container' => $container,
+            'features' => $features,
+            'synchronizer' => $synchronizer,
+            'custom_orders' => $customOrders,
+        ];
+    }
+
+    /**
+     * @param list<array{0:int,1:array{function:mixed,accepted_args:mixed}}> $records
+     * @param array{container:object,features:object,synchronizer:object,custom_orders:object} $woo
+     */
+    private function assert_woo_option_callbacks(string $hookName, array $records, array $woo): void {
+        $expected = match ($hookName) {
+            'pre_update_option' => [
+                [$woo['custom_orders'], 'process_pre_update_option', 999, 3],
+            ],
+            'added_option' => [
+                [$woo['features'], 'process_added_option', 999, 3],
+                [$woo['synchronizer'], 'process_added_option', 999, 2],
+            ],
+            default => throw new \LogicException('duo: unknown WooCommerce option callback family'),
+        };
+        foreach ($records as [$priority, $record]) {
+            $matched = null;
+            foreach ($expected as $position => [$service, $method, $expectedPriority, $accepted]) {
+                if ($priority === $expectedPriority
+                    && ($record['accepted_args'] ?? null) === $accepted
+                    && ($record['function'] ?? null) === [$service, $method]) {
+                    $matched = $position;
+                    break;
+                }
+            }
+            if ($matched === null) {
+                throw new \RuntimeException(
+                    "duo: The Events Calendar option mutation hook topology has extended/substituted WooCommerce $hookName callbacks"
+                );
+            }
+            unset($expected[$matched]);
+        }
+        if ($expected !== []) {
+            throw new \RuntimeException(
+                "duo: The Events Calendar option mutation hook topology has incomplete WooCommerce $hookName callbacks"
             );
         }
     }
@@ -2283,7 +2449,10 @@ final class TheEventsCalendar {
         }
 
         $callbacks = $this->option_hook_records('updated_option');
-        $this->assert_updated_option_callbacks($callbacks);
+        $preUpdated = $this->option_hook_records('pre_update_option');
+        $added = $this->option_hook_records('added_option');
+        $woo = $this->resolve_woo_option_services($callbacks, $preUpdated, $added);
+        $this->assert_updated_option_callbacks($callbacks, $woo);
         $this->assert_cache_listener_filter_topology();
         $markers = [
             self::LAST_UPDATED_OPTION => $lockTargetOption(self::LAST_UPDATED_OPTION),

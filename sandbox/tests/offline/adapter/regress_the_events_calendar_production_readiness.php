@@ -7216,6 +7216,114 @@ duo_check_same($flushesBeforeTrigger, $GLOBALS['wp_rewrite']->flushCalls, 'trigg
 require_once __DIR__ . '/../../support/tec-woo-option-callbacks.php';
 $wooServices = tec_readiness_install_woo_option_callbacks();
 $GLOBALS['tec_readiness_woo_calls'] = [];
+
+$wooCustomizerMaterialization = tec_readiness_materialize_mixed_option(
+    $policy,
+    'tribe_customizer',
+    ['month_view' => ['grid_lines_color' => '#112233']],
+    ['month_view' => ['grid_lines_color' => '#445566']]
+);
+duo_check_same(
+    null,
+    $wooCustomizerMaterialization['failure'],
+    'the exact normal Woo callback union permits an existing TEC Customizer option replacement'
+);
+duo_check_same(
+    ['month_view' => ['grid_lines_color' => '#112233']],
+    $decodeMixedRow($wooCustomizerMaterialization),
+    'the Woo co-install does not alter the exact materialized Customizer value'
+);
+$wooMainInsertion = tec_readiness_materialize_mixed_option(
+    $policy,
+    'tribe_events_calendar_options',
+    ['eventsSlug' => 'woo-events'],
+    null
+);
+duo_check_same(
+    null,
+    $wooMainInsertion['failure'],
+    'the exact normal Woo callback union permits an absent TEC main-option insertion'
+);
+duo_check_same(
+    ['eventsSlug' => 'woo-events'],
+    $decodeMixedRow($wooMainInsertion),
+    'the Woo co-install does not alter the exact materialized TEC main option'
+);
+
+$foreignOptionFeatures = new \Automattic\WooCommerce\Internal\Features\FeaturesController();
+remove_action('updated_option', [$wooServices['features'], 'process_updated_option'], 999);
+add_action('updated_option', [$foreignOptionFeatures, 'process_updated_option'], 999, 3);
+$foreignOptionService = tec_readiness_materialize_mixed_option(
+    $policy,
+    'tribe_customizer',
+    ['month_view' => ['grid_lines_color' => '#112233']],
+    ['month_view' => ['grid_lines_color' => '#445566']]
+);
+remove_action('updated_option', [$foreignOptionFeatures, 'process_updated_option'], 999);
+add_action('updated_option', [$wooServices['features'], 'process_updated_option'], 999, 3);
+duo_check(
+    $foreignOptionService['failure'] instanceof RuntimeException
+        && str_contains($foreignOptionService['failure']->getMessage(), 'extended/substituted updated callback'),
+    'a same-class foreign Woo service refuses the TEC option writer before storage'
+);
+duo_check_same(
+    ['month_view' => ['grid_lines_color' => '#445566']],
+    $decodeMixedRow($foreignOptionService),
+    'the foreign Woo service refusal preserves the exact target Customizer bytes'
+);
+
+remove_action('added_option', [$wooServices['features'], 'process_added_option'], 999);
+remove_action('added_option', [$wooServices['synchronizer'], 'process_added_option'], 999);
+$missingWooAddTopology = tec_readiness_materialize_mixed_option(
+    $policy,
+    'tribe_customizer',
+    ['month_view' => ['grid_lines_color' => '#112233']],
+    null
+);
+add_action('added_option', [$wooServices['features'], 'process_added_option'], 999, 3);
+add_action('added_option', [$wooServices['synchronizer'], 'process_added_option'], 999, 2);
+duo_check(
+    $missingWooAddTopology['failure'] instanceof RuntimeException
+        && str_contains($missingWooAddTopology['failure']->getMessage(), 'incomplete WooCommerce added_option callbacks'),
+    'missing Woo add callbacks refuse an absent TEC option before insertion'
+);
+duo_check_same(null, $missingWooAddTopology['row'], 'the incomplete Woo add topology preserves target absence');
+
+foreach ([
+    [$wooServices['features'], 'process_updated_option', 999],
+    [$wooServices['synchronizer'], 'process_updated_option', 999],
+    [$wooServices['custom_orders'], 'process_updated_option', 999],
+    [$wooServices['custom_orders'], 'process_updated_option_fts_index', 999],
+] as [$service, $method, $priority]) {
+    remove_action('updated_option', [$service, $method], $priority);
+}
+remove_filter('pre_update_option', [$wooServices['custom_orders'], 'process_pre_update_option'], 999);
+remove_action('added_option', [$wooServices['features'], 'process_added_option'], 999);
+remove_action('added_option', [$wooServices['synchronizer'], 'process_added_option'], 999);
+$missingWooRuntimeTopology = tec_readiness_materialize_mixed_option(
+    $policy,
+    'tribe_customizer',
+    ['month_view' => ['grid_lines_color' => '#112233']],
+    ['month_view' => ['grid_lines_color' => '#445566']]
+);
+add_action('updated_option', [$wooServices['features'], 'process_updated_option'], 999, 3);
+add_action('updated_option', [$wooServices['synchronizer'], 'process_updated_option'], 999, 3);
+add_action('updated_option', [$wooServices['custom_orders'], 'process_updated_option'], 999, 3);
+add_action('updated_option', [$wooServices['custom_orders'], 'process_updated_option_fts_index'], 999, 3);
+add_filter('pre_update_option', [$wooServices['custom_orders'], 'process_pre_update_option'], 999, 3);
+add_action('added_option', [$wooServices['features'], 'process_added_option'], 999, 3);
+add_action('added_option', [$wooServices['synchronizer'], 'process_added_option'], 999, 2);
+duo_check(
+    $missingWooRuntimeTopology['failure'] instanceof RuntimeException
+        && str_contains($missingWooRuntimeTopology['failure']->getMessage(), 'incomplete WooCommerce'),
+    'a loaded Woo runtime with every option callback removed refuses instead of masquerading as absence'
+);
+duo_check_same(
+    ['month_view' => ['grid_lines_color' => '#445566']],
+    $decodeMixedRow($missingWooRuntimeTopology),
+    'the callback-free loaded Woo runtime preserves the exact target Customizer bytes'
+);
+
 $tecDb->update(
     $optionsTable,
     ['option_value' => serialize(['^woo-existing/?$' => 'index.php?woo=old'])],
