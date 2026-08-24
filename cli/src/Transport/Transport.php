@@ -48,6 +48,16 @@ interface AdoptionTransport {
  * run`'s own container-lifecycle chatter, which lands on stderr).
  */
 abstract class Transport implements EnvironmentDriver {
+    private const NANOS_PER_SECOND = 1000000000;
+    private const TERMINATION_GRACE_NS = 250000000;
+    private const DRAIN_DEADLINE_NS = 2000000000;
+    private const PIPE_POLL_MICROSECONDS = 200000;
+    private const MAX_CAPTURE_TIMEOUT_NS = 600000000000;
+    // Refresh's 1.5 GiB envelope and 8 MiB diagnostic frontiers are process
+    // boundaries, not caller tuning knobs; larger positive values are unsafe.
+    private const MAX_CAPTURE_STDOUT_BYTES = 1610612736;
+    private const MAX_CAPTURE_STDERR_BYTES = 8388608;
+
     protected string $name;
     protected string $repoPath;
     protected string $driverId;
@@ -155,6 +165,31 @@ abstract class Transport implements EnvironmentDriver {
     }
 
     /**
+     * Stream one large machine-readable WP response into a caller-owned local
+     * spool instead of concatenating stdout in PHP. Refresh exports can carry
+     * base64 originals, so its envelope authority must apply while pipes are
+     * drained; captureWp() remains intentionally unchanged for the many small
+     * control responses whose established return shape is public API.
+     *
+     * @return array{exit:int,stderr:string,stdout_bytes:int,stdout_exceeded:bool,stderr_exceeded:bool,timed_out:bool,stdout_identity?:array{dev:string,ino:string,mode:int,size:int}}
+     */
+    public function captureWpToFile(
+        array $wpArgs,
+        string $stdoutPath,
+        int $maxStdoutBytes,
+        int $maxStderrBytes,
+        int $timeoutNs
+    ): array {
+        return self::runCapturingToFile(
+            $this->wpCommand($wpArgs),
+            $stdoutPath,
+            $maxStdoutBytes,
+            $maxStderrBytes,
+            $timeoutNs
+        );
+    }
+
+    /**
      * Render the exact host-side command an operator can use for recovery.
      * Promotion checkpoints live inside the target environment, so a bare
      * `wp db import` instruction is insufficient for docker/ssh transports.
@@ -228,6 +263,305 @@ abstract class Transport implements EnvironmentDriver {
         }
         $exit = proc_close($proc);
         return ['exit' => $exit, 'stdout' => $buffers[1], 'stderr' => $buffers[2]];
+    }
+
+    /**
+     * Concurrent bounded variant for a caller that will validate stdout from
+     * a physical spool. Both pipe drains continue after termination so a
+     * chatty target cannot deadlock the host at the same boundary that refuses
+     * its oversized output.
+     *
+     * @return array{exit:int,stderr:string,stdout_bytes:int,stdout_exceeded:bool,stderr_exceeded:bool,timed_out:bool,stdout_identity?:array{dev:string,ino:string,mode:int,size:int}}
+     */
+    private static function runCapturingToFile(
+        string $fullCommand,
+        string $stdoutPath,
+        int $maxStdoutBytes,
+        int $maxStderrBytes,
+        int $timeoutNs
+    ): array {
+        if ($maxStdoutBytes < 0 || $maxStdoutBytes > self::MAX_CAPTURE_STDOUT_BYTES
+            || $maxStderrBytes < 0 || $maxStderrBytes > self::MAX_CAPTURE_STDERR_BYTES
+            || $timeoutNs <= 0 || $timeoutNs > self::MAX_CAPTURE_TIMEOUT_NS
+            || is_link($stdoutPath)) {
+            return [
+                'exit' => 255, 'stderr' => 'invalid bounded capture spool', 'stdout_bytes' => 0,
+                'stdout_exceeded' => false, 'stderr_exceeded' => false, 'timed_out' => false,
+            ];
+        }
+        $spool = @fopen($stdoutPath, 'wb');
+        if (!is_resource($spool)) {
+            return [
+                'exit' => 255, 'stderr' => 'could not open bounded capture spool', 'stdout_bytes' => 0,
+                'stdout_exceeded' => false, 'stderr_exceeded' => false, 'timed_out' => false,
+            ];
+        }
+        $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
+        $proc = proc_open($fullCommand, $descriptors, $pipes);
+        if (!is_resource($proc)) {
+            fclose($spool);
+            return [
+                'exit' => 255, 'stderr' => 'failed to start process', 'stdout_bytes' => 0,
+                'stdout_exceeded' => false, 'stderr_exceeded' => false, 'timed_out' => false,
+            ];
+        }
+        fclose($pipes[0]);
+        stream_set_blocking($pipes[1], false);
+        stream_set_blocking($pipes[2], false);
+        $open = [1 => $pipes[1], 2 => $pipes[2]];
+        $stderr = '';
+        $stdoutBytes = 0;
+        $stderrBytes = 0;
+        $stdoutExceeded = false;
+        $stderrExceeded = false;
+        $timedOut = false;
+        $executionDeadline = hrtime(true) + $timeoutNs;
+        $terminated = false;
+        $terminateDeadline = null;
+        $killSent = false;
+        $failure = null;
+        $identity = null;
+        $exit = 255;
+        try {
+            while ($open !== []) {
+                $now = hrtime(true);
+                if (!$terminated && $now >= $executionDeadline) {
+                    // Refresh never accepts an operator-controlled timeout:
+                    // its caller supplies one reviewed ceiling. A silent or
+                    // under-cap target must therefore terminate just as an
+                    // oversized one does, before it can occupy the host.
+                    @proc_terminate($proc);
+                    $timedOut = true;
+                    $terminated = true;
+                    $terminateDeadline = $now + self::TERMINATION_GRACE_NS;
+                }
+                if ($terminated && !$killSent
+                    && is_int($terminateDeadline)
+                    && $now >= $terminateDeadline) {
+                    // A target can ignore TERM while continuously filling
+                    // stdout. The deadline is monotonic, not "quiet pipe"
+                    // based, so hostile output cannot postpone reaping.
+                    @proc_terminate($proc, 9);
+                    $killSent = true;
+                }
+                $read = array_values($open);
+                $write = null;
+                $except = null;
+                if ($terminated) {
+                    $selected = @stream_select($read, $write, $except, 0, self::PIPE_POLL_MICROSECONDS);
+                } else {
+                    $remaining = max(0, $executionDeadline - hrtime(true));
+                    $selected = @stream_select(
+                        $read,
+                        $write,
+                        $except,
+                        intdiv($remaining, self::NANOS_PER_SECOND),
+                        intdiv($remaining % self::NANOS_PER_SECOND, 1000)
+                    );
+                }
+                if ($selected === false) {
+                    throw new \RuntimeException('bounded capture pipe selection failed');
+                }
+                if ($selected === 0) {
+                    if (!$terminated) {
+                        continue;
+                    }
+                    // A target that ignored the initial TERM must not keep a
+                    // failed/capped host capture alive. The drain has its own
+                    // monotonic KILL/deadline and reaps it below.
+                    self::drainTerminatedPipes($proc, $open);
+                    break;
+                }
+                foreach ($read as $stream) {
+                    $fd = $stream === $pipes[1] ? 1 : 2;
+                    $chunk = @fread($stream, 65536);
+                    if ($chunk === false) {
+                        throw new \RuntimeException('bounded capture pipe read failed');
+                    }
+                    if ($chunk === '' && feof($stream)) {
+                        fclose($stream);
+                        unset($open[$fd]);
+                        continue;
+                    }
+                    if ($chunk === '') {
+                        continue;
+                    }
+                    $length = strlen($chunk);
+                    if ($fd === 1) {
+                        if ($length > $maxStdoutBytes - $stdoutBytes) {
+                            $stdoutExceeded = true;
+                        } else {
+                            self::writeAll($spool, $chunk);
+                            $stdoutBytes += $length;
+                        }
+                    } else {
+                        if ($length > $maxStderrBytes - $stderrBytes) {
+                            $stderrExceeded = true;
+                            $remaining = max(0, $maxStderrBytes - $stderrBytes);
+                            if ($remaining > 0) {
+                                $stderr .= substr($chunk, 0, $remaining);
+                                $stderrBytes += $remaining;
+                            }
+                        } else {
+                            $stderr .= $chunk;
+                            $stderrBytes += $length;
+                        }
+                    }
+                    if (!$terminated && ($stdoutExceeded || $stderrExceeded)) {
+                        @proc_terminate($proc);
+                        $terminated = true;
+                        $terminateDeadline = hrtime(true) + self::TERMINATION_GRACE_NS;
+                    }
+                }
+            }
+            if (@fflush($spool) !== true) {
+                throw new \RuntimeException('bounded capture spool flush failed');
+            }
+            if (!$stdoutExceeded && !$stderrExceeded && !$timedOut) {
+                $identity = self::spoolIdentity($spool, $stdoutPath, $stdoutBytes);
+            }
+        } catch (\Throwable $caught) {
+            $failure = $caught;
+            if (!$terminated) {
+                // A local write/read failure is not a target failure. Kill
+                // first, then drain/reap in finally, so the host cannot leak
+                // a child or zombie when its spool is full or unavailable.
+                @proc_terminate($proc, 9);
+                $terminated = true;
+                $killSent = true;
+            }
+        } finally {
+            if ($open !== []) {
+                self::drainTerminatedPipes($proc, $open);
+            }
+            fclose($spool);
+            $closed = proc_close($proc);
+            $exit = is_int($closed) ? $closed : 255;
+        }
+        if ($failure !== null) {
+            $stderr = $stderr === '' ? 'bounded capture spool failed' : $stderr . "\nbounded capture spool failed";
+            $exit = 255;
+        }
+        if ($timedOut) {
+            $stderr = $stderr === ''
+                ? 'bounded capture execution deadline exceeded'
+                : $stderr . "\nbounded capture execution deadline exceeded";
+            $exit = 255;
+        }
+        return [
+            'exit' => $exit,
+            'stderr' => $stderr,
+            'stdout_bytes' => $stdoutBytes,
+            'stdout_exceeded' => $stdoutExceeded,
+            'stderr_exceeded' => $stderrExceeded,
+            'timed_out' => $timedOut,
+            ...($identity === null ? [] : ['stdout_identity' => $identity]),
+        ];
+    }
+
+    /**
+     * A capture can be terminated while the target is still holding either
+     * pipe. Continue draining without retaining bytes, but escalate on a
+     * monotonic deadline even when a hostile child remains readable; then
+     * close and proc_close() reaps the exact child before this method returns.
+     *
+     * @param resource $proc
+     * @param array<int,resource> $open
+     */
+    private static function drainTerminatedPipes($proc, array &$open): void {
+        $killed = false;
+        $killDeadline = hrtime(true) + self::TERMINATION_GRACE_NS;
+        $drainDeadline = hrtime(true) + self::DRAIN_DEADLINE_NS;
+        while ($open !== [] && hrtime(true) < $drainDeadline) {
+            if (!$killed && hrtime(true) >= $killDeadline) {
+                @proc_terminate($proc, 9);
+                $killed = true;
+            }
+            $read = array_values($open);
+            $write = null;
+            $except = null;
+            $selected = @stream_select($read, $write, $except, 0, self::PIPE_POLL_MICROSECONDS);
+            if ($selected === false) {
+                break;
+            }
+            if ($selected === 0) {
+                continue;
+            }
+            foreach ($read as $stream) {
+                $fd = $stream === ($open[1] ?? null) ? 1 : 2;
+                $chunk = @fread($stream, 65536);
+                if ($chunk === false || ($chunk === '' && feof($stream))) {
+                    fclose($stream);
+                    unset($open[$fd]);
+                }
+            }
+        }
+        foreach ($open as $stream) {
+            fclose($stream);
+        }
+        $open = [];
+    }
+
+    /**
+     * Bind Refresh's later pathname read to the inode we wrote through. The
+     * transport sees both fstat(open handle) and lstat(path) before closing;
+     * MediaPayloadAuthority repeats that same identity at every read phase.
+     *
+     * @param resource $spool
+     * @return array{dev:string,ino:string,mode:int,size:int}
+     */
+    private static function spoolIdentity($spool, string $path, int $expectedSize): array {
+        clearstatcache(true, $path);
+        $opened = @fstat($spool);
+        $named = @lstat($path);
+        $openedSize = is_array($opened) ? ($opened['size'] ?? null) : null;
+        $namedSize = is_array($named) ? ($named['size'] ?? null) : null;
+        $openedMode = is_array($opened) ? ($opened['mode'] ?? null) : null;
+        $namedMode = is_array($named) ? ($named['mode'] ?? null) : null;
+        if (!is_array($opened)
+            || !is_array($named)
+            || !is_int($openedSize)
+            || !is_int($namedSize)
+            || !is_int($openedMode)
+            || !is_int($namedMode)
+            || ($openedMode & 0170000) !== 0100000
+            || ($namedMode & 0170000) !== 0100000
+            || ($openedMode & 0777) !== 0600
+            || ($namedMode & 0777) !== 0600
+            || $openedSize !== $expectedSize
+            || $namedSize !== $expectedSize
+            || (string) ($opened['dev'] ?? '') !== (string) ($named['dev'] ?? '')
+            || (string) ($opened['ino'] ?? '') !== (string) ($named['ino'] ?? '')
+            || $openedMode !== $namedMode) {
+            throw new \RuntimeException('bounded capture spool identity changed before handoff');
+        }
+        return [
+            'dev' => (string) $opened['dev'],
+            'ino' => (string) $opened['ino'],
+            'mode' => $openedMode,
+            'size' => $openedSize,
+        ];
+    }
+
+    /** @param resource $stream */
+    private static function writeAll($stream, string $bytes): void {
+        // This one fault hook exists only in the offline regression's child
+        // process; an actual transport never sets DUO_TEST_MODE. Its purpose
+        // is to prove the exceptional write path terminates and reaps rather
+        // than merely closing the local descriptor.
+        if (getenv('DUO_TEST_MODE') === '1'
+            && is_callable($GLOBALS['duo_transport_spool_write_fault'] ?? null)) {
+            ($GLOBALS['duo_transport_spool_write_fault'])();
+        }
+        $offset = 0;
+        $length = strlen($bytes);
+        while ($offset < $length) {
+            $written = @fwrite($stream, substr($bytes, $offset));
+            if (!is_int($written) || $written <= 0) {
+                throw new \RuntimeException('bounded capture spool write failed');
+            }
+            $offset += $written;
+        }
     }
 
     /** @param array<string, mixed> $cfg */

@@ -857,7 +857,10 @@ $newMediaState = "$tmp/new-media-overlay-state";
 foreach (array_merge($newMediaOverlay['entities'], $newMediaOverlay['deletions']) as $row) {
     put($newMediaState . '/' . $row['path'], $row['content']);
 }
-$newMediaAddition = [$newMediaName => ['bytes' => $newMediaBytes]];
+$newMediaAddition = [$newMediaName => [
+    'bytes' => $newMediaBytes,
+    'witness' => ['extension' => 'txt', 'sha256' => hash('sha256', $newMediaBytes), 'size' => strlen($newMediaBytes)],
+]];
 $candidateMediaView = ScopedStateOverlay::stage_candidate_media_view($repo, $newMediaAddition);
 try {
     $newMediaCompiled = RepositoryCompiler::compile_staged(

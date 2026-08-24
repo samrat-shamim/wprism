@@ -8,7 +8,7 @@ $GLOBALS['media_capture_filter_calls'] = [];
 $GLOBALS['media_capture_filter'] = static fn($source) => $source;
 
 function wp_upload_dir($time = null, bool $createDir = true): array {
-    return ['basedir' => $GLOBALS['media_capture_basedir']];
+    return ['basedir' => $GLOBALS['media_capture_basedir'], 'error' => false];
 }
 
 function trailingslashit(string $value): string {
@@ -25,6 +25,7 @@ require_once "$root/agent/src/Capture/MediaCapture.php";
 
 use Duo\CommandRefusalException;
 use Duo\MediaCapture;
+use Duo\MediaPayloadAuthority;
 
 $failures = 0;
 $check = static function (bool $condition, string $message) use (&$failures): void {
@@ -42,8 +43,9 @@ $localDir = "$uploadRoot/2026/08";
 mkdir($localDir, 0777, true);
 $GLOBALS['media_capture_basedir'] = $uploadRoot;
 $localBytes = "local-media\0bytes";
-$localPath = "$localDir/photo.JPG";
+$localPath = "$localDir/photo.TXT";
 file_put_contents($localPath, $localBytes);
+$physicalLocalPath = realpath($localPath);
 
 $capture = new MediaCapture();
 $check(class_exists(MediaCapture::class, false), 'MediaCapture loads as a direct offline boundary');
@@ -54,58 +56,166 @@ $check(!class_exists(Duo\Ledger::class, false), 'MediaCapture does not load Duo\
 
 $GLOBALS['media_capture_filter_calls'] = [];
 $GLOBALS['media_capture_filter'] = static fn($source) => $source;
-$local = $capture->capture(17, '2026/08/photo.JPG', 'image/jpeg', 'Local alt', false);
+$local = $capture->capture(17, '2026/08/photo.TXT', 'text/plain', 'Local alt', false);
 $localSha = hash('sha256', $localBytes);
+$localWitness = ['extension' => 'TXT', 'sha256' => $localSha, 'size' => strlen($localBytes)];
 $check(
     $local['front'] === [
-        'file' => '2026/08/photo.JPG',
-        'media' => "$localSha.JPG",
-        'mime' => 'image/jpeg',
+        'file' => '2026/08/photo.TXT',
+        'media' => "$localSha.TXT",
+        'mime' => 'text/plain',
         'alt' => 'Local alt',
     ],
-    'local attachment front fields preserve path, content hash, extension case, mime, and alt'
+    'local attachment front fields preserve the shipped exact extension case while MIME routing normalizes separately'
 );
 $check(
-    $local['media_ref'] === ["$localSha.JPG", ['path' => $localPath]],
-    'local attachment returns the exact publication source contract'
+    $local['media_ref'] === ["$localSha.TXT", ['path' => $physicalLocalPath, 'witness' => $localWitness]],
+    'local attachment returns one physical source plus an immutable bounded blob witness'
 );
 $check(
     $GLOBALS['media_capture_filter_calls'] === [[
         'duo_attachment_capture_source',
-        ['path' => $localPath],
-        [17, '2026/08/photo.JPG', $localPath],
+        ['path' => $physicalLocalPath],
+        [17, '2026/08/photo.TXT', $physicalLocalPath],
     ]],
     'ordinary capture invokes the offload hook with the historical local default and exact arguments'
 );
 
 $GLOBALS['media_capture_filter_calls'] = [];
-$strict = $capture->capture(18, '2026/08/photo.JPG', 'image/jpeg', '', true);
-$check($strict['media_ref'] === ["$localSha.JPG", ['path' => $localPath]],
+$strict = $capture->capture(18, '2026/08/photo.TXT', 'text/plain', '', true);
+$check($strict['media_ref'] === ["$localSha.TXT", ['path' => $physicalLocalPath, 'witness' => $localWitness]],
     'strict observation still captures an available local source');
 $check($GLOBALS['media_capture_filter_calls'] === [],
     'strict observation never invokes the external offload hook');
 
-$offloadPath = "$tmp/materialized.webp";
+$offloadPath = "$tmp/materialized.epub";
 $offloadPathBytes = 'provider-path-bytes';
 file_put_contents($offloadPath, $offloadPathBytes);
+$physicalOffloadPath = realpath($offloadPath);
 $GLOBALS['media_capture_filter_calls'] = [];
 $GLOBALS['media_capture_filter'] = static fn($source) => ['path' => $offloadPath];
-$pathBacked = $capture->capture(19, 'remote/original.webp', 'image/webp', 'Remote', false);
+$pathBacked = $capture->capture(19, 'remote/original.epub', 'application/epub+zip', 'Remote', false);
 $pathSha = hash('sha256', $offloadPathBytes);
 $check(
-    $pathBacked['front']['media'] === "$pathSha.webp"
-        && $pathBacked['media_ref'] === ["$pathSha.webp", ['path' => $offloadPath]],
-    'an offload provider may replace a missing local source with one readable path'
+    $pathBacked['front']['media'] === "$pathSha.epub"
+        && $pathBacked['media_ref'] === ["$pathSha.epub", [
+            'path' => $physicalOffloadPath,
+            'witness' => ['extension' => 'epub', 'sha256' => $pathSha, 'size' => strlen($offloadPathBytes)],
+        ]],
+    'an offload provider may supply a physical opaque custom-MIME source'
 );
 
 $offloadBytes = "provider\0raw\0bytes";
 $GLOBALS['media_capture_filter'] = static fn($source) => ['bytes' => $offloadBytes];
-$bytesBacked = $capture->capture(20, 'remote/original.bin', 'application/octet-stream', '', false);
+$bytesBacked = $capture->capture(20, 'remote/original.xlsm', 'application/vnd.ms-excel.sheet.macroEnabled.12', '', false);
 $bytesSha = hash('sha256', $offloadBytes);
 $check(
-    $bytesBacked['front']['media'] === "$bytesSha.bin"
-        && $bytesBacked['media_ref'] === ["$bytesSha.bin", ['bytes' => $offloadBytes]],
-    'an offload provider may supply raw bytes with the same content-addressed publication contract'
+    $bytesBacked['front']['media'] === "$bytesSha.xlsm"
+        && $bytesBacked['front']['mime'] === 'application/vnd.ms-excel.sheet.macroEnabled.12'
+        && $bytesBacked['media_ref'] === ["$bytesSha.xlsm", [
+            'bytes' => $offloadBytes,
+            'witness' => ['extension' => 'xlsm', 'sha256' => $bytesSha, 'size' => strlen($offloadBytes)],
+        ]],
+    'Core camel-case macro-enabled MIME reaches the bounded opaque generic branch unchanged'
+);
+
+$legacyExtension = 'LegacyExtensionMoreThanSixteen';
+$legacyBytes = 'legacy-extension-media';
+$legacySha = hash('sha256', $legacyBytes);
+$GLOBALS['media_capture_filter'] = static fn($source) => ['bytes' => $legacyBytes];
+$legacy = $capture->capture(200, "remote/original.$legacyExtension", 'text/plain', '', false);
+$check(
+    $legacy['media_ref'] === [
+        "$legacySha.$legacyExtension",
+        ['bytes' => $legacyBytes, 'witness' => [
+            'extension' => $legacyExtension, 'sha256' => $legacySha, 'size' => strlen($legacyBytes),
+        ]],
+    ],
+    'an upgrade preserves current-main mixed-case and longer-than-16-byte blob extensions without a repository migration'
+);
+
+$nameMaxExtension = str_repeat('a', 190);
+$nameMaxBytes = 'exact-upload-name-boundary';
+$nameMaxSha = hash('sha256', $nameMaxBytes);
+$GLOBALS['media_capture_filter'] = static fn($source) => ['bytes' => $nameMaxBytes];
+$nameMax = $capture->capture(206, "remote/original.$nameMaxExtension", 'text/plain', '', false);
+$check(
+    $nameMax['media_ref'][0] === "$nameMaxSha.$nameMaxExtension"
+        && strlen($nameMax['media_ref'][0]) === 255,
+    'a 190-byte extension reaches the filesystem NAME_MAX boundary without changing existing blob identity'
+);
+$nameOverRejected = false;
+try {
+    $capture->capture(207, 'remote/original.' . str_repeat('a', 191), 'text/plain', '', false);
+} catch (Throwable $e) {
+    $nameOverRejected = str_contains($e->getMessage(), 'canonical portable extension authority');
+}
+$check(
+    $nameOverRejected,
+    'a 191-byte extension refuses before any content-addressed repository filename is materialized'
+);
+
+$selectedPath = "$localDir/selected.txt";
+file_put_contents($selectedPath, 'local-but-not-selected');
+$selectedBytes = 'offload-wins';
+$GLOBALS['media_capture_filter'] = static fn($source) => ['bytes' => $selectedBytes];
+$selected = $capture->capture(201, '2026/08/selected.txt', 'text/plain', '', false);
+$selectedSha = hash('sha256', $selectedBytes);
+$check(
+    $selected['media_ref'][0] === "$selectedSha.txt"
+        && ($selected['media_ref'][1]['bytes'] ?? null) === $selectedBytes,
+    'an offload provider selected over a readable local original becomes the sole capture authority'
+);
+
+$uploadsAlias = "$tmp/uploads-alias";
+symlink($uploadRoot, $uploadsAlias);
+$GLOBALS['media_capture_basedir'] = $uploadsAlias;
+$GLOBALS['media_capture_filter'] = static fn($source) => $source;
+$aliased = $capture->capture(202, '2026/08/photo.TXT', 'text/plain', '', false);
+$check(
+    ($aliased['media_ref'][1]['path'] ?? null) === $physicalLocalPath
+        && ($aliased['media_ref'][1]['witness'] ?? null) === $localWitness,
+    'a configured uploads-root symlink is rebound once to its physical local source identity'
+);
+$GLOBALS['media_capture_basedir'] = $uploadRoot;
+
+$outside = "$tmp/outside.txt";
+file_put_contents($outside, 'outside-upload-root');
+$linkedDirectory = "$uploadRoot/2026/linked";
+symlink(dirname($outside), $linkedDirectory);
+$GLOBALS['media_capture_filter'] = static fn($source) => $source;
+$symlinkLocalRejected = false;
+try {
+    $capture->capture(203, '2026/linked/outside.txt', 'text/plain', '', false);
+} catch (Throwable $e) {
+    $symlinkLocalRejected = str_contains($e->getMessage(), 'not present locally and no offload provider');
+}
+$check($symlinkLocalRejected, 'a symlinked upload ancestor cannot become local capture authority');
+
+$providerLink = "$tmp/provider-link.txt";
+symlink($outside, $providerLink);
+$GLOBALS['media_capture_filter'] = static fn($source) => ['path' => $providerLink];
+$providerLinkRejected = false;
+try {
+    $capture->capture(204, 'remote/provider.txt', 'text/plain', '', false);
+} catch (Throwable $e) {
+    $providerLinkRejected = $e->getMessage() === 'duo: attachment 204 offload provider path is not a readable file';
+}
+$check($providerLinkRejected, 'an offload provider final symlink is refused before its bytes are observed');
+
+$GLOBALS['media_capture_filter'] = static fn($source) => ['bytes' => "not-an-image"];
+$unsafeImageRejected = false;
+try {
+    $capture->capture(205, 'remote/pretend.png', 'image/png', '', false);
+} catch (Throwable $e) {
+    $unsafeImageRejected = str_contains($e->getMessage(), 'raster container');
+}
+$check($unsafeImageRejected, 'the exact raster route rejects an opaque image prefix before publication');
+
+$check(
+    MediaPayloadAuthority::kindFor('application/epub+zip', 'epub') === 'generic'
+        && MediaPayloadAuthority::kindFor('application/vnd.ms-excel.sheet.macroEnabled.12', 'xlsm') === 'generic',
+    'the Core generic branch predicate admits custom and camel-case opaque MIME values without a roster substitute'
 );
 
 $missingAttached = false;
@@ -207,6 +317,11 @@ $check(
 
 @unlink($localPath);
 @unlink($offloadPath);
+@unlink($selectedPath);
+@unlink($providerLink);
+@unlink($outside);
+@unlink($linkedDirectory);
+@unlink($uploadsAlias);
 @rmdir($localDir);
 @rmdir(dirname($localDir));
 @rmdir($uploadRoot);

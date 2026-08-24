@@ -15,6 +15,7 @@ namespace Duo;
 // stays symmetric about both rather than requiring one and not the other. Any
 // caller that needs Canon or Code (like this file's own test) must require
 // them explicitly itself.
+require_once __DIR__ . '/../Kernel/MediaPayloadAuthority.php';
 
 /**
  * One immutable, typed result of compiling a repository revision. The
@@ -36,6 +37,9 @@ final class CompiledRepository {
     public const FORMAT = 'duo-compiled-repository/v1';
 
     private array $artifact;
+    /** @var array<string,true> one aggregate accounting entry per immutable blob */
+    private array $decodedMedia = [];
+    private int $decodedMediaBytes = 0;
 
     private function __construct(array $artifact) {
         $this->artifact = $artifact;
@@ -51,18 +55,33 @@ final class CompiledRepository {
         if (!is_array($payload['tree'] ?? null)) {
             throw new \RuntimeException('duo: compiled repository payload has no typed tree');
         }
+        // Hand-built typed artifacts predate repository media. Keep their
+        // state-only shape readable while every compiler-produced artifact
+        // still supplies its explicit bounded map below.
+        $payload['media'] ??= [];
+        if (!is_array($payload['media'])) {
+            throw new \RuntimeException('duo: compiled repository payload has no typed media');
+        }
         $payload['effects_inventory'] ??= [];
         if (!is_array($payload['effects_inventory'])
             || !array_is_list($payload['effects_inventory'])) {
             throw new \RuntimeException('duo: compiled repository payload has no effects inventory');
         }
         $payload['uploads_inventory'] = self::derive_uploads_inventory($payload['tree']);
+        MediaPayloadAuthority::assertArtifactMedia($payload['media'], $payload['tree']);
         $payload['format'] = self::FORMAT;
         $payload['artifact_hash'] = self::content_hash($payload);
         return new self($payload);
     }
 
     public static function from_array(array $artifact): self {
+        if (!is_array($artifact['tree'] ?? null) || !is_array($artifact['media'] ?? null)) {
+            throw new \RuntimeException('duo: compiled artifact has no typed tree or media');
+        }
+        // Validate encoded media before Canon::encode() re-materializes the
+        // whole artifact for its self-hash. This keeps a hostile base64 row
+        // behind the same decoded-length and aggregate authority as compile.
+        MediaPayloadAuthority::assertArtifactMedia($artifact['media'], $artifact['tree']);
         $actual = (string) ($artifact['artifact_hash'] ?? '');
         $copy = $artifact;
         unset($copy['artifact_hash']);
@@ -70,9 +89,6 @@ final class CompiledRepository {
             || !preg_match('/^[0-9a-f]{64}$/', $actual)
             || !hash_equals(self::content_hash($copy), $actual)) {
             throw new \RuntimeException('duo: compiled artifact is malformed or its content hash does not verify');
-        }
-        if (!isset($artifact['tree']) || !is_array($artifact['tree'])) {
-            throw new \RuntimeException('duo: compiled artifact has no typed tree');
         }
         if (($artifact['uploads_inventory'] ?? null) !== self::derive_uploads_inventory($artifact['tree'])) {
             throw new \RuntimeException('duo: compiled artifact upload inventory does not match its typed tree');
@@ -157,9 +173,14 @@ final class CompiledRepository {
         if (!is_array($row) || !is_string($row['base64'] ?? null) || !is_string($row['sha256'] ?? null)) {
             throw new \RuntimeException("duo: compiled artifact has no media payload '$name'");
         }
-        $bytes = base64_decode($row['base64'], true);
-        if ($bytes === false || !hash_equals($row['sha256'], hash('sha256', $bytes))) {
-            throw new \RuntimeException("duo: compiled artifact media payload '$name' does not verify");
+        /** @var array{sha256:string,base64:string} $row */
+        $bytes = MediaPayloadAuthority::decodeArtifactMedia($name, $row);
+        if (!isset($this->decodedMedia[$name])) {
+            $this->decodedMediaBytes = MediaPayloadAuthority::addToAggregate(
+                $this->decodedMediaBytes,
+                strlen($bytes)
+            );
+            $this->decodedMedia[$name] = true;
         }
         return $bytes;
     }

@@ -7,6 +7,7 @@ require_once __DIR__ . '/CaptureSafetyGates.php';
 require_once __DIR__ . '/CaptureTransaction.php';
 require_once __DIR__ . '/EntityMetaCapture.php';
 require_once __DIR__ . '/MediaCapture.php';
+require_once __DIR__ . '/../Kernel/MediaPayloadAuthority.php';
 require_once __DIR__ . '/MenuCapture.php';
 require_once __DIR__ . '/OptionsCapture.php';
 require_once __DIR__ . '/../Policy/Policy.php';
@@ -182,7 +183,7 @@ final class CaptureCandidateBuilder {
     /**
      * @return array{
      *   entities:array,
-     *   media:array<string,array{path?:string,bytes?:string}>,
+     *   media:array<string,array{path?:string,bytes?:string,witness:array{extension:string,sha256:string,size:int}}>,
      *   notes:string[],
      *   warnings:string[]
      * }
@@ -197,6 +198,7 @@ final class CaptureCandidateBuilder {
         $this->reset($forceUnresolvedRefs);
         $entities = [];
         $media = [];
+        $mediaBytes = 0;
 
         $scope = $this->scopeDiscovery->discover(
             $strictReadOnly,
@@ -267,7 +269,18 @@ final class CaptureCandidateBuilder {
                 $strictReadOnly
             );
             if ($postBuild['media_ref'] !== null) {
-                $media[$postBuild['media_ref'][0]] = $postBuild['media_ref'][1];
+                $mediaName = $postBuild['media_ref'][0];
+                $mediaSource = $postBuild['media_ref'][1];
+                if (!isset($media[$mediaName])) {
+                    $witness = $mediaSource['witness'] ?? null;
+                    if (!is_array($witness) || !is_int($witness['size'] ?? null)) {
+                        throw new \RuntimeException('duo: captured media source lacks its bounded byte witness');
+                    }
+                    $mediaBytes = MediaPayloadAuthority::addToAggregate($mediaBytes, $witness['size']);
+                    $media[$mediaName] = $mediaSource;
+                } elseif ($media[$mediaName]['witness'] !== $mediaSource['witness']) {
+                    throw new \RuntimeException('duo: one media content address has inconsistent capture witnesses');
+                }
             }
             $entities[] = $postBuild['entity'];
         }

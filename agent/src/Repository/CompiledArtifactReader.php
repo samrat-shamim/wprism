@@ -2,6 +2,7 @@
 namespace Duo;
 
 require_once __DIR__ . '/CompiledArtifact.php';
+require_once __DIR__ . '/../Kernel/MediaPayloadAuthority.php';
 require_once __DIR__ . '/../Policy/ArtifactPolicyIdentity.php';
 // Keep these explicit for the direct source-require contract. They are no-ops
 // after ArtifactPolicyIdentity's normal load, but must remain *after* it so
@@ -31,7 +32,16 @@ require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 final class CompiledArtifactReader {
     public static function read_artifact(string $path, Policy $policy): CompiledRepository {
         try {
-            $artifact = CompiledRepository::from_array(Canon::decode(Canon::read_file($path)));
+            $raw = MediaPayloadAuthority::readArtifactDocument($path);
+            try {
+                $decoded = Canon::decode($raw);
+            } finally {
+                // The reader's three-copy proof covers raw JSON, decoded PHP
+                // values, and Canon's later self-hash projection; release the
+                // raw document before from_array() can allocate that third.
+                unset($raw);
+            }
+            $artifact = CompiledRepository::from_array($decoded);
         } catch (\Throwable $t) {
             throw self::artifact_exception('compiled_artifact_invalid', $path, $t->getMessage());
         }

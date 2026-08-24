@@ -452,6 +452,16 @@ final class RepositoryCompiler {
             $this->diagnostics[] = $d + ['severity' => 'blocking', 'locator' => '', 'message' => 'adapter constraint failed'];
         }
         $this->mediaCatalog->catalog_directory();
+        $media = [];
+        try {
+            // The final payload read is a separate transition from catalog
+            // observation. Rebind every referenced byte before compilation
+            // succeeds, and retain the compiler's one sorted diagnostic
+            // envelope if a file changed or PHP lacks safe base64 headroom.
+            $media = $this->mediaCatalog->referenced_media();
+        } catch (\Throwable $failure) {
+            $this->add('invalid_media_payload', 'media', '', $failure->getMessage());
+        }
         if ($this->diagnostics) {
             $this->fail();
         }
@@ -461,7 +471,6 @@ final class RepositoryCompiler {
         // CLI/CI consumers do not lose their stable contract.
         RepositoryAuthorization::assert_tree($this->policy, $tree);
 
-        $media = $this->mediaCatalog->referenced_media();
         $mediaCatalog = $this->mediaCatalog->catalog();
         $siteHash = self::site_hash($this->policy);
         $stateSiteHash = self::state_site_hash($this->policy);

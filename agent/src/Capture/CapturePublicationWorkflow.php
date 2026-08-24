@@ -4,6 +4,7 @@ namespace Duo;
 require_once __DIR__ . '/../Review/Canary.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
+require_once __DIR__ . '/../Kernel/MediaPayloadAuthority.php';
 require_once __DIR__ . '/../Kernel/ProcessFence.php';
 require_once __DIR__ . '/CaptureCandidateBuilder.php';
 require_once __DIR__ . '/CapturePublicationRecovery.php';
@@ -509,9 +510,7 @@ final class CapturePublicationWorkflow {
                     foreach ($candidate['media'] as $file => $source) {
                         $dst = $c->repo() . '/media/' . $file;
                         if ($initialBaseline) {
-                            $bytes = array_key_exists('bytes', $source)
-                                ? $source['bytes']
-                                : Canon::read_file($source['path']);
+                            $bytes = MediaPayloadAuthority::sourceBytes((string) $file, $source);
                             Publish::assert_lock_path($lock, $stateDir);
                             $identity = Publish::write_file_fresh(
                                 $dst,
@@ -524,9 +523,7 @@ final class CapturePublicationWorkflow {
                             $row['path'] = basename($dst);
                             $publicationPhase['media_manifest']['entries'][] = $row;
                         } elseif (!is_file($dst)) {
-                            $bytes = array_key_exists('bytes', $source)
-                                ? $source['bytes']
-                                : Canon::read_file($source['path']);
+                            $bytes = MediaPayloadAuthority::sourceBytes((string) $file, $source);
                             Canon::write_file($dst, $bytes);
                         }
                     }

@@ -374,7 +374,7 @@ function option_authorization_diagnostics(Policy $policy, array $document): arra
     }
 }
 
-function apply_instance(Policy $policy, Tokens $tokens): \Duo\PostMaterializer {
+function apply_instance(Policy $policy, Tokens $tokens, string $repositoryRoot): \Duo\PostMaterializer {
     $fieldMaterializer = new \Duo\ApplyFieldMaterializer($policy, $tokens);
     $fieldMaterializer->begin_authored_transaction();
     \Duo\CacheInvalidationTransaction::begin();
@@ -384,7 +384,7 @@ function apply_instance(Policy $policy, Tokens $tokens): \Duo\PostMaterializer {
         $tokens,
         $fieldMaterializer,
         new \Duo\RelationshipMaterializer($policy, $fieldMaterializer),
-        new \Duo\AttachmentMaterializer($fieldMaterializer, $compiled)
+        new \Duo\AttachmentMaterializer($policy, $fieldMaterializer, $compiled, $repositoryRoot)
     );
 }
 
@@ -777,7 +777,7 @@ $GLOBALS['wpdb'] = $wpdb;
 $tokens = new Tokens();
 
 $wpdb->map = [$uuid => 41];
-$apply = apply_instance($policy, $tokens);
+$apply = apply_instance($policy, $tokens, $fixtureDir);
 $materializerWarnings = [];
 $apply->finalize_post($source, '', null, $materializerWarnings, []);
 $existingProductUpdate = $wpdb->updates[0]['data'] ?? [];
