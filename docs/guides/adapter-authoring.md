@@ -312,6 +312,23 @@ refused — an exit code is not evidence that derived state was repaired. A
 successful native action surfaces in apply's output as
 `native action fired: <action> (verified)`.
 
+`verified: true` is not taken on your word where the engine can check it. Around
+your call it reads, itself, every surface you declared that it has a complete
+bounded reader for — `option:<name>` today, because that is the only one of the
+five surface kinds naming an extent that can be witnessed both completely and
+without scanning a core table twice per apply — and compares the two readings.
+Two things then refuse: a receipt whose `before !== after` when **every**
+declared `writes` surface is observable and **none** of them moved, and a
+surface you declared under `reads` that moved across the call (declare it under
+`writes` if your capability writes it). Neither can displace the malformed,
+unverified, or over-budget refusals; all three are decided first. A capability
+whose declared surfaces the engine cannot read — anything `table:`, `post:`,
+`term:` or `entity:` — is never refused for this: the gap is the reader's, and
+negotiation publishes it under `surface_observation` before apply mutates
+anything, rather than discovering it mid-write. The cost is one checked read per
+observable surface per pass, two passes per invocation, and exactly zero for a
+capability that declared none.
+
 Your `before`/`after` are **public output** — they reach `wp duo apply
 --format=json` — so the engine publishes a bounded projection of them rather
 than your bytes. A string over 512 bytes, one carrying control bytes or invalid

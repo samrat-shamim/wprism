@@ -172,7 +172,18 @@ printf 'boot() loads: %s\n' "$(tr '\n' ' ' <<<"$engine_files" | sed 's#[^ ]*/##g
 # after execute('rewrite.flush') has launched its live WordPress path; keeping
 # it under the same deferred NativeActions::execute() boundary prevents the
 # offline manifest validator from pretending get_option() exists.
-wp_allow='TargetProbe.php:probe_target,PlatformCompatibility.php:current_facts,Policy.php:taxonomies,NativeActions.php:delete_transient_action,NativeActions.php:transient_state,NativeActions.php:option_row_present,NativeActions.php:flush_rewrite_action,NativeActions.php:rewrite_state,NativeActions.php:raw_option_state,LifecyclePlanner.php:code_mismatch,LifecyclePlanner.php:code_drift,LifecyclePlanner.php:record_code_versions,LifecyclePlanner.php:observe_code_versions,LifecyclePlanner.php:check_theme_range,LifecycleExecutor.php:execute,Deploy.php:run,Deploy.php:current_active_plugins,Deploy.php:plugin_runtime_state,Providers.php:plugin_supplied_providers'
+# WP-3.3 added ProviderSurfaces.php — the engine's own reading of the surfaces
+# a capability declared, which Providers::invoke() compares either side of the
+# call so `verified: true` is a check rather than a self-attestation. It reaches
+# $wpdb in exactly two places (observe()'s handle test, option_witness()'s
+# bounded SHA2 read), and it pulls ProviderSdk.php into this closure for the
+# first time because it performs those reads through the sanctioned checked-read
+# path instead of restating the twin predicate. Both files sit under the SAME
+# deferred boundary the allowlist already excuses Providers.php:
+# plugin_supplied_providers under — `providers / actions[].kind=provider`,
+# checked by Providers::negotiate() — because manifest-validate negotiates no
+# provider and invokes none, so neither reach is on any path this command runs.
+wp_allow='TargetProbe.php:probe_target,PlatformCompatibility.php:current_facts,Policy.php:taxonomies,NativeActions.php:delete_transient_action,NativeActions.php:transient_state,NativeActions.php:option_row_present,NativeActions.php:flush_rewrite_action,NativeActions.php:rewrite_state,NativeActions.php:raw_option_state,LifecyclePlanner.php:code_mismatch,LifecyclePlanner.php:code_drift,LifecyclePlanner.php:record_code_versions,LifecyclePlanner.php:observe_code_versions,LifecyclePlanner.php:check_theme_range,LifecycleExecutor.php:execute,Deploy.php:run,Deploy.php:current_active_plugins,Deploy.php:plugin_runtime_state,Providers.php:plugin_supplied_providers,ProviderSurfaces.php:observe,ProviderSurfaces.php:option_witness,ProviderSdk.php:checked_get_var,ProviderSdk.php:checked_get_col,ProviderSdk.php:checked_get_row,ProviderSdk.php:checked_get_results'
 wp_allow_via='AdapterRegistry::report() PlatformCompatibility::current_facts() Policy::taxonomies() NativeActions::execute() Deploy::code_mismatch() Deploy::code_drift() Providers::negotiate()'
 
 scan_wp() {

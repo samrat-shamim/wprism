@@ -304,6 +304,44 @@ $check(
     'older-server rows remain accepted when the family-specific visibility and ignored fields are absent'
 );
 
+$GLOBALS['wpdb'] = new DeleteGuardEvaluatorFakeWpdb([[
+    'Key_name' => 'meta_key',
+    'Seq_in_index' => '1',
+    'Column_name' => 'meta_key',
+    'Sub_part' => '191',
+    'Non_unique' => '1',
+    'Index_type' => 'BTREE',
+]]);
+$check(
+    DeleteGuardEvaluator::bounded_prefix_lock_index(
+        'wp_postmeta',
+        'meta_key',
+        strlen('_wp_attached_file'),
+        'attachment global attached-file authority'
+    ) === 'meta_key',
+    'strict prefix-index proof admits stock postmeta meta_key(191) for the complete attached-file literal'
+);
+$GLOBALS['wpdb'] = new DeleteGuardEvaluatorFakeWpdb([[
+    'Key_name' => 'too_short_meta_key',
+    'Seq_in_index' => '1',
+    'Column_name' => 'meta_key',
+    'Sub_part' => '16',
+    'Non_unique' => '1',
+    'Index_type' => 'BTREE',
+]]);
+try {
+    DeleteGuardEvaluator::bounded_prefix_lock_index(
+        'wp_postmeta',
+        'meta_key',
+        strlen('_wp_attached_file'),
+        'attachment global attached-file authority'
+    );
+    $shortPrefixRefused = false;
+} catch (RuntimeException $failure) {
+    $shortPrefixRefused = str_contains($failure->getMessage(), 'at-least-17-character');
+}
+$check($shortPrefixRefused, 'strict prefix-index proof rejects a prefix shorter than the complete locking literal');
+
 foreach ([
     'loose sequence' => ['Seq_in_index' => '1junk', 'Non_unique' => '0', 'Index_type' => 'BTREE'],
     'loose uniqueness' => ['Seq_in_index' => '1', 'Non_unique' => '0junk', 'Index_type' => 'BTREE'],

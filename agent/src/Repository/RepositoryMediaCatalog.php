@@ -11,6 +11,7 @@ namespace Duo;
 if (!class_exists(Canon::class, false)) {
     require_once __DIR__ . '/../Kernel/Canon.php';
 }
+require_once __DIR__ . '/../Kernel/MediaPayloadAuthority.php';
 
 /**
  * Validates repository-owned attachment payloads and the complete media/
@@ -30,10 +31,12 @@ final class RepositoryMediaCatalog {
     private array $uploadPaths = [];
     /** @var array<string,string> derivative directory/basename prefix => source path */
     private array $uploadDerivativeRoots = [];
-    /** @var array<string,array{sha256:string,base64:string}> media blob => immutable payload */
+    /** @var array<string,array{path:string,witness:array{extension:string,sha256:string,size:int}}> */
     private array $media = [];
     /** @var array<string,string> every content-addressed blob in media/, including safe orphans */
     private array $catalog = [];
+    private int $catalogBytes = 0;
+    private int $catalogFiles = 0;
 
     /** @param \Closure(string,string,string,string,?string):void $add */
     public function __construct(string $mediaDir, \Closure $add) {
@@ -57,17 +60,16 @@ final class RepositoryMediaCatalog {
         // canonical example) and may use their own safe subdirectories.
         // The portable invariant is a normalized relative path, not one
         // particular directory policy.
-        $segments = explode('/', $upload);
-        $safeUpload = $upload !== ''
-            && !str_starts_with($upload, '/')
-            && !str_contains($upload, '\\')
-            && !preg_match('/[\x00-\x1f\x7f]/', $upload)
-            && !array_filter($segments, static fn(string $part): bool => $part === '' || $part === '.' || $part === '..');
-        if (!$safeUpload) {
+        try {
+            MediaPayloadAuthority::assertRelativeUploadPath($upload);
+            $safeUpload = true;
+        } catch (\Throwable $failure) {
+            $safeUpload = false;
             $this->add('unsafe_media_path', $path, 'file', "upload path '$upload' is not a normalized relative path");
-        } elseif (isset($this->uploadPaths[$upload])) {
+        }
+        if ($safeUpload && isset($this->uploadPaths[$upload])) {
             $this->add('duplicate_upload_path', $path, 'file', "upload path '$upload' is also owned by {$this->uploadPaths[$upload]}", $this->uploadPaths[$upload]);
-        } else {
+        } elseif ($safeUpload) {
             $this->uploadPaths[$upload] = $path;
             $directory = dirname($upload);
             $root = ($directory === '.' ? '' : $directory . '/')
@@ -85,7 +87,9 @@ final class RepositoryMediaCatalog {
             }
         }
         $blob = (string) ($data['media'] ?? '');
-        if (!preg_match('/^([0-9a-f]{64})\.[A-Za-z0-9]+$/', $blob, $m)) {
+        try {
+            MediaPayloadAuthority::parseMediaName($blob);
+        } catch (\Throwable $failure) {
             $this->add('unsafe_media_path', $path, 'media', "media reference '$blob' is not content-addressed");
             return;
         }
@@ -98,13 +102,34 @@ final class RepositoryMediaCatalog {
             $this->add('missing_media_blob', $path, 'media', "media/$blob does not exist");
             return;
         }
-        $bytes = Canon::read_file($absolute);
-        $actual = hash('sha256', $bytes);
-        if (!hash_equals($m[1], $actual)) {
-            $this->add('media_hash_mismatch', $path, 'media', "media/$blob hashes to $actual");
+        try {
+            $absolute = MediaPayloadAuthority::physicalLocalFilePath($absolute);
+            MediaPayloadAuthority::observeCatalogFile($absolute, $blob);
+        } catch (\Throwable $failure) {
+            $this->add('media_hash_mismatch', $path, 'media', $failure->getMessage());
             return;
         }
-        $this->media[$blob] = ['sha256' => $actual, 'base64' => base64_encode($bytes)];
+        try {
+            $witness = MediaPayloadAuthority::observeFile(
+                $absolute,
+                $upload,
+                (string) ($data['mime'] ?? '')
+            );
+            MediaPayloadAuthority::assertMediaName($blob, $witness);
+        } catch (\Throwable $failure) {
+            $this->add('invalid_media_payload', $path, 'media', $failure->getMessage());
+            return;
+        }
+        if (isset($this->media[$blob]) && $this->media[$blob]['witness'] !== $witness) {
+            $this->add(
+                'invalid_media_payload',
+                $path,
+                'media',
+                "media/$blob is referenced with an inconsistent immutable blob witness"
+            );
+            return;
+        }
+        $this->media[$blob] = ['path' => $absolute, 'witness' => $witness];
     }
 
     /** Hash the whole media partition, including safe orphan blobs. */
@@ -113,30 +138,67 @@ final class RepositoryMediaCatalog {
             return;
         }
         foreach (new \FilesystemIterator($this->mediaDir, \FilesystemIterator::SKIP_DOTS) as $file) {
+            $this->catalogFiles++;
+            if ($this->catalogFiles > MediaPayloadAuthority::MAX_CATALOG_FILES) {
+                $this->add(
+                    'media_catalog_oversized',
+                    'media',
+                    '',
+                    'media catalog exceeds its bounded entry observation authority'
+                );
+                break;
+            }
+            try {
+                MediaPayloadAuthority::assertCatalogMapHeadroom($this->catalogFiles);
+            } catch (\Throwable $failure) {
+                $this->add('media_catalog_oversized', 'media', '', $failure->getMessage());
+                break;
+            }
             $name = $file->getFilename();
             $path = 'media/' . $name;
             if ($file->isLink() || !$file->isFile()) {
                 $this->add('unsafe_media_path', $path, '', 'media entries must be regular files directly under media/');
                 continue;
             }
-            if (!preg_match('/^([0-9a-f]{64})\.[A-Za-z0-9]+$/', $name, $m)) {
+            try {
+                MediaPayloadAuthority::parseMediaName($name);
+            } catch (\Throwable $failure) {
                 $this->add('unsafe_media_path', $path, '', 'media filename is not content-addressed');
                 continue;
             }
-            $actual = hash_file('sha256', $file->getPathname());
-            if (!hash_equals($m[1], $actual)) {
-                $this->add('media_hash_mismatch', $path, '', "filename hash does not match $actual");
+            try {
+                $observed = MediaPayloadAuthority::observeCatalogFile($file->getPathname(), $name);
+                $this->catalogBytes = MediaPayloadAuthority::addToAggregate(
+                    $this->catalogBytes,
+                    $observed['size']
+                );
+            } catch (\Throwable $failure) {
+                $this->add('invalid_media_payload', $path, '', $failure->getMessage());
                 continue;
             }
-            $this->catalog[$name] = $actual;
+            $this->catalog[$name] = $observed['sha256'];
         }
         ksort($this->catalog, SORT_STRING);
     }
 
     /** @return array<string,array{sha256:string,base64:string}> */
     public function referenced_media(): array {
+        $bytes = 0;
+        foreach ($this->media as $source) {
+            $bytes = MediaPayloadAuthority::addToAggregate($bytes, $source['witness']['size']);
+        }
+        MediaPayloadAuthority::assertArtifactHeadroom($bytes);
         ksort($this->media, SORT_STRING);
-        return $this->media;
+        $out = [];
+        foreach ($this->media as $name => $source) {
+            $payload = MediaPayloadAuthority::readFile($source['path'], $source['witness']);
+            MediaPayloadAuthority::assertMediaName($name, $source['witness']);
+            $out[$name] = [
+                'sha256' => $source['witness']['sha256'],
+                'base64' => base64_encode($payload),
+            ];
+        }
+        return $out;
     }
 
     /** @return array<string,string> */

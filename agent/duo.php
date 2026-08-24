@@ -62,6 +62,7 @@ require_once __DIR__ . '/src/Repository/Snapshot.php';
 require_once __DIR__ . '/src/Review/Orphans.php';
 require_once __DIR__ . '/src/Kernel/TransientDbException.php';
 require_once __DIR__ . '/src/Kernel/DurableFilesystem.php';
+require_once __DIR__ . '/src/Kernel/MediaPayloadAuthority.php';
 require_once __DIR__ . '/src/Publication/PublicationJournal.php';
 require_once __DIR__ . '/src/Publication/AtomicTreePublisher.php';
 require_once __DIR__ . '/src/Publication/Publish.php';

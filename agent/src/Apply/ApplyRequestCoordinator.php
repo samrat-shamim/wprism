@@ -159,7 +159,7 @@ final class ApplyRequestCoordinator {
                 $table, $fkCol, $objectId, $key, $value, $context, $idCol
             )
         );
-        $this->services = new ApplyServices($policy, $compiled, $callbacks);
+        $this->services = new ApplyServices($policy, $compiled, $callbacks, $this->repo);
         $this->deleteGuardCoordinator = new DeleteGuardLockCoordinator(
             $policy,
             $this->services->delete_guard_reference_scanner(),
@@ -847,6 +847,23 @@ final class ApplyRequestCoordinator {
             $a = new self($repo, $lockedPolicy, $lockedCompiled);
             $a->promotionOwner = $promotionOwner;
             $a->promotionArtifact = $promotionArtifact;
+            // A full apply's durable upload intent is not scoped authority.
+            // Load-only discovery comes first so a scoped request refuses
+            // without publishing, deleting, or advancing any pending file.
+            $pendingAttachmentIntent = $a->services
+                ->attachment_materializer()
+                ->load_pending_filesystem(!$scoped);
+            if ($scoped && $pendingAttachmentIntent) {
+                throw new \RuntimeException(
+                    'duo: scoped apply cannot resume a pending full attachment filesystem transaction'
+                );
+            }
+            // A prior authored transaction may have committed immediately
+            // before process loss. Recover it under the full-apply promotion
+            // lease before target capture can observe a partial file state.
+            if ($pendingAttachmentIntent) {
+                $a->services->attachment_materializer()->recover_pending_filesystem();
+            }
             $a->scopedWorkflow->session = $recoveringScopedSession ? $existingScopedSession : null;
             $a->scopedWorkflow->promotionWitness = $scopedPromotionWitness;
             $a->scopedWorkflow->terminalSessionToArchive = $terminalScopedSessionToArchive;

@@ -2,6 +2,7 @@
 namespace Duo;
 
 require_once __DIR__ . '/../Kernel/Db.php';
+require_once __DIR__ . '/../Kernel/MediaPayloadAuthority.php';
 require_once __DIR__ . '/../Kernel/OptionState.php';
 require_once __DIR__ . '/../Policy/ScopeClosure.php';
 
@@ -312,23 +313,26 @@ final class RefreshExport {
         $records = self::records((array) ($candidate['entities'] ?? []));
         $deleted = self::records($deletions);
         $media = [];
+        $mediaBytes = 0;
+        foreach ((array) ($candidate['media'] ?? []) as $name => $source) {
+            $witness = is_array($source) ? ($source['witness'] ?? null) : null;
+            if (!is_array($witness) || !is_int($witness['size'] ?? null)) {
+                throw new \RuntimeException('duo: refresh export refused — capture produced an unbounded media source');
+            }
+            $mediaBytes = MediaPayloadAuthority::addToAggregate($mediaBytes, $witness['size']);
+        }
+        MediaPayloadAuthority::assertRefreshExportHeadroom($mediaBytes);
         foreach ((array) ($candidate['media'] ?? []) as $name => $source) {
             $name = (string) $name;
-            if (preg_match('/^([a-f0-9]{64})(?:\.[A-Za-z0-9][A-Za-z0-9._-]*)?$/', $name, $match) !== 1
-                || !is_array($source)) {
+            if (!is_array($source)) {
                 throw new \RuntimeException('duo: refresh export refused — capture produced an invalid media identity');
             }
-            if (array_key_exists('bytes', $source)) {
-                $bytes = $source['bytes'];
-            } elseif (array_key_exists('path', $source) && is_string($source['path'])) {
-                $bytes = Canon::read_file($source['path']);
-            } else {
-                throw new \RuntimeException("duo: refresh export refused — media '$name' has no readable payload");
+            try {
+                $bytes = MediaPayloadAuthority::sourceBytes($name, $source);
+            } catch (\Throwable $failure) {
+                throw new \RuntimeException("duo: refresh export refused — media '$name' does not match its bounded capture witness", 0, $failure);
             }
-            if (!is_string($bytes) || !hash_equals($match[1], hash('sha256', $bytes))) {
-                throw new \RuntimeException("duo: refresh export refused — media '$name' does not match its canonical digest");
-            }
-            $media[$name] = ['sha256' => $match[1], 'base64' => base64_encode($bytes)];
+            $media[$name] = ['sha256' => hash('sha256', $bytes), 'base64' => base64_encode($bytes)];
         }
         ksort($media, SORT_STRING);
 

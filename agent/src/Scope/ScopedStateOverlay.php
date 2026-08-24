@@ -2,6 +2,7 @@
 namespace Duo;
 
 require_once __DIR__ . '/../Kernel/OptionState.php';
+require_once __DIR__ . '/../Kernel/MediaPayloadAuthority.php';
 
 /**
  * Contract-bound state projection shared by scoped capture and refresh.
@@ -578,29 +579,21 @@ final class ScopedStateOverlay {
     }
 
     private static function verified_media_file(string $path, string $name): string {
-        if (is_link($path) || !is_file($path)
-            || preg_match('/^([a-f0-9]{64})\.[A-Za-z0-9]+$/D', $name, $match) !== 1) {
+        try {
+            MediaPayloadAuthority::parseMediaName($name);
+            return MediaPayloadAuthority::readCatalogBlob($path, $name);
+        } catch (\Throwable $failure) {
             throw new \RuntimeException("duo: scoped media inventory contains unsafe entry '$name'");
         }
-        $bytes = Canon::read_file($path);
-        if (!hash_equals($match[1], hash('sha256', $bytes))) {
-            throw new \RuntimeException("duo: scoped media blob '$name' does not match its content address");
-        }
-        return $bytes;
     }
 
     /** @param array<string,mixed> $source */
     private static function candidate_media_bytes(string $name, array $source): string {
-        if (preg_match('/^([a-f0-9]{64})\.[A-Za-z0-9]+$/D', $name, $match) !== 1) {
-            throw new \RuntimeException("duo: candidate media name '$name' is not content-addressed");
+        try {
+            return MediaPayloadAuthority::sourceBytes($name, $source);
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException("duo: candidate media '$name' does not match its bounded capture witness", 0, $failure);
         }
-        $bytes = array_key_exists('bytes', $source)
-            ? (string) $source['bytes']
-            : Canon::read_file((string) ($source['path'] ?? ''));
-        if (!hash_equals($match[1], hash('sha256', $bytes))) {
-            throw new \RuntimeException("duo: candidate media '$name' does not match its content address");
-        }
-        return $bytes;
     }
 
 }
