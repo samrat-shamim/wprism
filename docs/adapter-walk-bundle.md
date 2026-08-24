@@ -35,6 +35,12 @@ grammar of the shipped `manifests/capabilities/adapter-authorities.json`:
 - Each key record carries **exactly** those six keys. The allowlist the
   contract calls `adapters` is spelled **`adapter_names`** — the shipped
   grammar's own name, kept identical so one validator serves both roots.
+- There is a second grammar, `duo-adapter-authorities/v2`, and this walk does
+  not use it. It is what an ENROLLED vendor writes: fingerprint-derived key
+  ids, a mandatory `not_before`/`not_after` window, `<vendor>-*` namespace
+  scoping, and a signed envelope over the whole document. A v1 document is
+  never read against any of those rules — see `spec/repo-format.md` § v3.7 and
+  irreversibility register row R-18 before writing one.
 - `status` is `trusted` or `revoked`; `trust_tiers` is a non-empty subset of
   `declarative_manifest`, `native_action`, `plugin_provider`, and must contain
   the tier the manifest actually reaches (`AdapterSources::trust_tier()`).

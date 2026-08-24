@@ -531,6 +531,84 @@ $verify = cert_run([
 ]);
 cert_check($verify['exit'] === 0 && is_array(json_decode($verify['stdout'], true)), 'verification tool revalidates the exact path-derived certificate');
 
+// -------------------------------------------------------------------------
+// WP-4.8 / spec § v3.7 change (e): THE SECOND-ENROLLMENT CASE.
+//
+// The platform trust root used to bind the WHOLE authority record, justified
+// by a premise enrollment falsifies — that the shipped file never grows under
+// an operator's hand. It grows once per enrolled vendor, and before WP-4.8
+// every growth silently invalidated every certificate already signed under
+// that key: this exact block failed with "certification authority/key/
+// fingerprint/trust root does not match the current platform authority
+// record". The site root has bound the key IDENTITY (everything but the two
+// scope lists) since T6 for the identical reason; the platform root now does
+// too, and the ordering matters because a root chooses its binding at the
+// moment its first certificate is signed and never after (register row R-08).
+// -------------------------------------------------------------------------
+echo "\n== WP-4.8: a platform trust root that GROWS keeps its earlier certificates ==\n";
+$grownKeys = clone $keys;
+$grownRecord = $grownKeys->{'review-key'};
+$grownRecord['adapter_names'] = ['acme-second-vendor', 'site-demo'];
+$grownRecord['trust_tiers'] = ['declarative_manifest', 'plugin_provider'];
+$grownKeys->{'review-key'} = $grownRecord;
+cert_write_canon($agent . '/capabilities/adapter-authorities.json', [
+    'format' => 'duo-adapter-authorities/v1',
+    'keys' => $grownKeys,
+]);
+try {
+    $grown = AdapterCertification::verifyFile($agent, $site, 'site-demo', $manifest, $certPath);
+    cert_check(
+        ($grown['disposition']['certification'] ?? null) === 'certified',
+        'enrolling a SECOND adapter on the platform key leaves the first adapter\'s certificate verifying'
+    );
+    cert_check(
+        ($grown['disposition']['provenance']['proof']['authority']['record_sha256'] ?? null)
+            === ($proof['authority']['record_sha256'] ?? null),
+        'and the pinned authority digest is still the record the certificate was SIGNED over, so no repository '
+        . 'pin moves when the trust root grows'
+    );
+} catch (Throwable $e) {
+    cert_check(false, 'enrolling a SECOND adapter on the platform key leaves the first adapter\'s certificate '
+        . 'verifying (' . $e->getMessage() . ')');
+}
+// The narrowing removes exactly the two scope lists and nothing else: an edit
+// to the key IDENTITY still refuses, and the scope lists are still enforced
+// LIVE rather than through the signature.
+$identityKeys = clone $keys;
+$identityRecord = $identityKeys->{'review-key'};
+$identityRecord['status'] = 'revoked';
+$identityKeys->{'review-key'} = $identityRecord;
+cert_write_canon($agent . '/capabilities/adapter-authorities.json', [
+    'format' => 'duo-adapter-authorities/v1',
+    'keys' => $identityKeys,
+]);
+cert_expect_throw(
+    static fn() => AdapterCertification::verifyFile($agent, $site, 'site-demo', $manifest, $certPath),
+    'does not match the current platform authority record',
+    'a platform key whose IDENTITY moved (status revoked) still refuses — authorityIdentity() drops only the '
+    . 'scope lists'
+);
+$narrowedKeys = clone $keys;
+$narrowedRecord = $narrowedKeys->{'review-key'};
+$narrowedRecord['adapter_names'] = ['acme-second-vendor'];
+$narrowedKeys->{'review-key'} = $narrowedRecord;
+cert_write_canon($agent . '/capabilities/adapter-authorities.json', [
+    'format' => 'duo-adapter-authorities/v1',
+    'keys' => $narrowedKeys,
+]);
+cert_expect_throw(
+    static fn() => AdapterCertification::verifyFile($agent, $site, 'site-demo', $manifest, $certPath),
+    "is not scoped to site adapter 'site-demo'",
+    'and a platform key NARROWED out of this adapter still refuses, live, through the current record rather '
+    . 'than through the signature'
+);
+cert_write_canon($agent . '/capabilities/adapter-authorities.json', $authorities);
+cert_check(
+    (AdapterCertification::verifyFile($agent, $site, 'site-demo', $manifest, $certPath)['disposition']['certification'] ?? null)
+        === 'certified',
+    'restoring the shipped record restores the certified disposition'
+);
+
 echo "\n== plugin-owned provider certification and offline negotiation ==\n";
 $providerSite = $root . '/provider-site';
 $providerBundle = $root . '/provider-bundle';

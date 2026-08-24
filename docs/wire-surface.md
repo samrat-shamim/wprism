@@ -27,11 +27,13 @@ statement of another?
 | surface | domain prefix | signed bytes | source |
 |---|---|---|---|
 | site adapter certification (`duo-adapter-certification/v1`) | `duo-site-adapter-certification-signature/v1\0` | domain &#124;&#124; `Canon::encode(statement)` — the whole five-member statement | `AdapterCertification::SIGNATURE_DOMAIN` |
+| authorities envelope (`duo-adapter-authorities/v2`) | `duo-adapter-authorities-signature/v1\0` | domain &#124;&#124; `Canon::encode({format, keys})` — the document minus its own signature | `AdapterCertification::SIGNATURE_DOMAIN_AUTHORITIES` |
 | contract attestation (`duo-contract-attestation/v1`) | `duo-contract-attestation-signature/v1\0` | domain &#124;&#124; `Canon::encode({attested_digest, format})` | `ContractAttestation::SIGNATURE_DOMAIN` |
 | rollback receipt / event (`duo-rollback-receipt/v2`, `duo-rollback-event/v1`) | **none** — proved at generation time | `CanonicalJson::encode(payload)` with nothing prepended | `RollbackControl::sign()` |
 
-The first two are separated by construction. The third is not separated at all, and R-03
-is where that decision and its cost are written down.
+The first three are separated by construction, and the checker refuses the run if any one of
+them is a prefix of another. The last is not separated at all, and R-03 is where that decision
+and its cost are written down.
 
 ## 2. The register
 
@@ -91,17 +93,17 @@ is where that decision and its cost are written down.
 
 **Reserved.** A second bindable source (a plugin-bundled adapter, `plugin`) would be a new `source` VALUE, which the key set already admits — the value vocabulary is the extension point, the key set is not.
 
-### R-08 — The authority binding inside the statement, and the site/platform asymmetry
+### R-08 — The authority binding inside the statement: BOTH roots bind the key identity
 
-**Shipped now.** `{fingerprint, key_id, record, record_sha256, trust_root}`. Platform-rooted certificates bind the WHOLE authority record; site-rooted ones bind the key IDENTITY (everything but `adapter_names`/`trust_tiers`) and re-check the scope lists live.
+**Shipped now.** `{fingerprint, key_id, record, record_sha256, trust_root}`. Both trust roots bind the key IDENTITY — everything but `adapter_names`/`trust_tiers` — self-consistently by digest, and re-check the two scope lists LIVE against the current record, revocation and (at record v2) the validity window with them.
 
-**Why it cannot change.** The asymmetry is forced by where each root lives: the site root is a living registry that grows every time an operator certifies another adapter, so whole-record binding would invalidate every earlier certificate under that key the moment a second one is signed (AdapterCertification.php:1511-1525). Narrowing the platform binding to identity later would silently widen what a shipped key's old certificates cover.
+**Why it cannot change.** A trust root is a LIVING registry: it grows every time another adapter is certified under a key, so whole-record binding invalidates every earlier certificate under that key the moment a second one is signed. The site root has bound identity since T6 for that reason; the platform root bound the whole record until WP-4.8, justified by a premise ENROLLMENT FALSIFIES — that the shipped file never grows under an operator's hand. It was changeable only because the platform root has never signed a certificate: `manifests/capabilities/adapter-authorities.json` is `{"keys": {}}`, and gate 6 below refuses a populated one that does not verify. Going the other way — widening either root back to whole-record binding — would invalidate every certificate in the field at the next enrollment, silently.
 
-**Reserved.** Any future root chooses one of these two bindings at the moment its first certificate is signed, and never after.
+**Reserved.** A future root chooses one of these two bindings at the moment its first certificate is signed, and never after. There is no third choice, because the scope lists are either inside the signature or enforced live, and doing both is the first option.
 
 ### R-09 — The two authority record key sets, and why they are two files
 
-**Shipped now.** Adapter root (`duo-adapter-authorities/v1`): `{adapter_names, algorithm, public_key, scope, status, trust_tiers}`. Contract root (`duo-contract-attestation-authorities/v1`, at `.duo/contract/authorities.json`): the four members derived by probe below, scope `contract_attestation`.
+**Shipped now.** Adapter root (`duo-adapter-authorities/v1`): `{adapter_names, algorithm, public_key, scope, status, trust_tiers}`, and at `duo-adapter-authorities/v2` the nine of R-18. Contract root (`duo-contract-attestation-authorities/v1`, at `.duo/contract/authorities.json`): the four members derived by probe below, scope `contract_attestation`.
 
 **Why it cannot change.** The adapter root requires `adapter_names` and `trust_tiers` on EVERY record and validates the whole file the moment it exists, so a single contract-scoped record in that file breaks every adapter certificate in the repository. The two roots can never be merged; each record set can never gain a member, because both are closed in both directions.
 
@@ -113,7 +115,7 @@ is where that decision and its cost are written down.
 
 **Why it cannot change.** PHP decodes a numeric JSON object-map key as an integer, so a numeric identity would compare unequal to the string the signed document carries — refusing it is what makes the map key and the `key_id` inside the statement the same value. An empty PHP array canonically encodes as `[]`, which both readers refuse, so the object cast at write time is part of the wire, not a nicety.
 
-**Reserved.** A revocation list (R-15) cannot be added to this envelope: its key set is closed. It needs a new `format` value.
+**Reserved.** A revocation list (R-15) cannot be added to this envelope: its key set is closed. It needs a new `format` value — which is exactly the channel `duo-adapter-authorities/v2` used to add the envelope signature (R-18).
 
 ### R-11 — Three key-id grammars, and they disagree
 
@@ -139,13 +141,13 @@ is where that decision and its cost are written down.
 
 **Reserved.** A third root is a new VALUE in a member that already exists — admitted without a schema change, which is why the refusal for an unsupported one is by name.
 
-### R-14 — Expiry exists on exactly one surface, and there is no clock skew allowance
+### R-14 — Expiry exists on two surfaces, reads one clock, and allows no skew
 
-**Shipped now.** Contract attestation: `expires_at` is mandatory, grammar `Y-m-d\TH:i:s\Z` (UTC seconds, checked at both ends so "expired" is never a parse accident), compared against `$now ?? time()` and refused at `>=`. Adapter certification: NO expiry vocabulary exists at all — checked by grep, not asserted. Recovery: `claim_expires_at` bounds a claimant epoch, never a signature.
+**Shipped now.** Contract attestation: `expires_at` is mandatory, grammar `Y-m-d\TH:i:s\Z` (UTC seconds, checked at both ends so "expired" is never a parse accident), compared against `$now ?? time()` and refused at `>=`. Adapter certification: the expiry vocabulary is EXACTLY `not_after`/`not_before`, mandatory on a `duo-adapter-authorities/v2` authority record and absent from a v1 one, the identical grammar string, compared against the identical `$now ?? time()` and refused at `>=` — all four facts checked by grep, not asserted. Recovery: `claim_expires_at` bounds a claimant epoch, never a signature.
 
-**Why it cannot change.** An expired attestation REFUSES; it never silently becomes an unsigned one, because a silent downgrade would make a stale claim indistinguishable from a fresh one at every consumer. There is no skew tolerance in either direction: a wrong operator clock refuses rather than accepts, which is the safe failure and is now the behaviour holders depend on.
+**Why it cannot change.** An expired attestation or authority REFUSES; it never silently becomes an unsigned one, because a silent downgrade would make a stale claim indistinguishable from a fresh one at every consumer. There is no skew tolerance in either direction: a wrong operator clock refuses rather than accepts, which is the safe failure and is now the behaviour holders depend on. The adapter root additionally refuses an IMPLAUSIBLE clock — one reading before the record's own `not_before` — BEFORE it tests expiry, because a backwards clock would otherwise find every retired record inside its window.
 
-**Reserved.** Adding expiry to an adapter certificate is a statement member (R-06) and therefore a new format, not a field. A future skew allowance would have to be a REFUSAL widening, which no deployed verifier would apply to an artifact it already holds.
+**Reserved.** Expiry on the CERTIFICATE itself, as opposed to the authority that signed it, is still a statement member (R-06) and therefore a new format, not a field. A future skew allowance would have to be a REFUSAL widening, which no deployed verifier would apply to an artifact it already holds.
 
 ### R-15 — Revocation is one status word per key, and nothing else
 
@@ -179,13 +181,13 @@ is where that decision and its cost are written down.
 
 **Reserved.** Closing the window is its own dated decision (spec/repo-format.md § v3.12), gated on no v2-declaring pinned manifests in the fleet plus at least one grammar section shipped post-v3 through `engine_features` with no version bump — the replacement proven before the thing it replaces is retired.
 
-### R-19 — Engine feature names are engine-owned, and permanent once declared
+### R-19 — The v2 authority record, and the four decisions it fixes at once
 
-**Shipped now.** This engine implements `spec-window/v1`. A manifest declares names through the top-level `engine_features` list; an engine lacking a listed name refuses THAT ADAPTER, naming the feature. An adapter declares a name and never mints one: a name nothing implements is refused as unimplemented rather than admitted as forward-looking.
+**Shipped now.** `duo-adapter-authorities/v2` records are `{adapter_names, algorithm, not_after, not_before, public_key, record_version, scope, status, trust_tiers}`, inside the envelope `{format, keys, signature}` whose `signature` is `{key_id, value}`. A key id must END in the first 12 hex characters of `sha256(public_key)`; an `adapter_names` entry is an exact name or a `<vendor>-*` namespace; the window is judged as R-14 states; and the envelope signature is made by a key the document itself carries. `record_version: 2` restates the envelope format inside every record, and a disagreement between the two refuses. v1 records and v1 documents keep today's behaviour byte for byte — the four rules read only a record that declared `record_version`.
 
-**Why it cannot change.** A declared feature name is inside the manifest bytes `ArtifactPolicyIdentity::manifest_rows()` folds into that adapter's `digest`, which every `site.duo.json` content pin and every certificate's `adapter.canonical_sha256` binds. Renaming or re-spelling a feature therefore moves the digest of every manifest that declares it and invalidates their pins and certificates at once — the same irreversibility R-17 records for `id_kind`, reached through a different door.
+**Why it cannot change.** All four land together because they are one document: a holder who accepts a v2 record accepts all of them, and shipping any one later would be a second flag day for whoever already holds a v2 file. The fingerprint rule cannot be relaxed afterwards without admitting ids that were unrepresentable when the trust decision was made; it cannot be tightened (a longer fingerprint) without orphaning every id already issued. The window is mandatory because `assertExactKeys()` refuses missing and unknown alike, so an optional member has no honest home in the set — a holder wanting no expiry stays at v1, where there is none. An EMPTY v2 registry is unrepresentable by construction: the envelope signature names a key inside the document, so a registry with no keys has nothing that could sign it. That is what lets the shipped empty root stay v1 and byte-identical.
 
-**Reserved.** The `/vN` suffix is the change channel: a feature whose meaning moves is a NEW name implemented beside the old one, never an edit of it, so a manifest that declared the old name keeps its bytes and its digest.
+**Reserved.** The envelope signature proves the document was assembled WHOLE by a holder of a key it carries — nobody else can append a key, widen a scope list, move a window or flip a status in it. It is deliberately NOT a chain to an off-document root: delegation is its own signed statement type with its own domain (spec/repo-format.md § v3.8), never a member or an arm inside this one.
 
 ## 3. The grammars, as the shipped validators answer them
 
@@ -235,8 +237,11 @@ regenerates this document and, in doing so, reads the change.
 |---|---|---|---|
 | `agent/src/Adapter/AdapterCertification.php` | `verifyFrozen()` | `frozen certification envelope` | `certificate_json`, `certificate_sha256`, `format` |
 | `agent/src/Adapter/AdapterCertification.php` | `verifyCertificate()` | `certification authority binding` | `fingerprint`, `key_id`, `record`, `record_sha256`, `trust_root` |
-| `agent/src/Adapter/AdapterCertification.php` | `authorityKeys()` | `$label` | `format`, `keys` |
-| `agent/src/Adapter/AdapterCertification.php` | `validateAuthorityRecord()` | `$label` | `adapter_names`, `algorithm`, `public_key`, `scope`, `status`, `trust_tiers` |
+| `agent/src/Adapter/AdapterCertification.php` | `authorityKeys()` | `$label` (`AUTHORITIES_ENVELOPE_KEYS`) | `format`, `keys` |
+| `agent/src/Adapter/AdapterCertification.php` | `authorityKeys()` | `$label` (`AUTHORITIES_ENVELOPE_V2_KEYS`) | `format`, `keys`, `signature` |
+| `agent/src/Adapter/AdapterCertification.php` | `validateAuthorityRecord()` | `$label` (`AUTHORITY_RECORD_KEYS`) | `adapter_names`, `algorithm`, `public_key`, `scope`, `status`, `trust_tiers` |
+| `agent/src/Adapter/AdapterCertification.php` | `validateAuthorityRecord()` | `$label` (`AUTHORITY_RECORD_V2_KEYS`) | `adapter_names`, `algorithm`, `not_after`, `not_before`, `public_key`, `record_version`, `scope`, `status`, `trust_tiers` |
+| `agent/src/Adapter/AdapterCertification.php` | `assertAuthoritiesEnvelope()` | `$label envelope signature` (`AUTHORITIES_SIGNATURE_KEYS`) | `key_id`, `value` |
 | `agent/src/Adapter/AdapterCertification.php` | `currentPlatform()` | `agent capability platform boundary` | `agent_version`, `branchable_state`, `compatibility`, `plugin_execution`, `site_mode`, `spec_version` |
 | `agent/src/Adapter/AdapterCertification.php` | `assertCertificateShape()` | `site adapter certification` | `format`, `signature`, `statement` |
 | `agent/src/Adapter/AdapterCertification.php` | `assertStatementShape()` | `site adapter certification statement` | `adapter`, `authority`, `bundle`, `platform`, `ratification` |
@@ -276,13 +281,20 @@ printing a register it cannot stand behind:
 2. **No signed surface is missing.** Every `sodium_crypto_sign_detached()` call site in
    `agent/`, `cli/` and `recovery/` is in a file this register covers — 3 today.
 3. **No unregistered domain exists.** Every `duo-…-signature/vN` literal in those trees is
-   one of the domains in §1, and neither is a prefix of the other.
-4. **The two reserved absences are still absences.** `AdapterCertification` carries no
-   expiry vocabulary and no signing file carries revocation-list vocabulary (R-14, R-15).
+   one of the domains in §1, and none is a prefix of another.
+4. **The bounded vocabularies are still bounded.** `AdapterCertification`'s expiry
+   vocabulary is exactly `not_after`/`not_before` judged against `$now ?? time()`, and no
+   signing file carries revocation-list vocabulary (R-14, R-15).
 5. **The rollback signature really is domain-free.** A signature is minted and verified
    against the unprefixed canonical payload at generation time (R-03).
 6. **The spec-version window has not accumulated.** The shipped validator is probed over
    N-3 … N+2 and must accept exactly {N-1, N} — floor `DUO_SPEC_VERSION - 1`, never deeper (R-18).
+
+6. **The shipped platform trust root is one of its two legal states.** It is the empty
+   `duo-adapter-authorities/v1` registry byte for byte, or a
+   `duo-adapter-authorities/v2` document that VERIFIES through the
+   shipped reader — envelope signature, fingerprint-bound ids, windows and namespaces all
+   checked by the code a site runs (R-08, R-18).
 
 What it does not prove: that the decisions are *right*, that any artifact in the field was
 signed under these exact rules, or that a holder's verifier implements them. The rationale

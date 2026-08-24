@@ -19,6 +19,9 @@ declare(strict_types=1);
  *   php scripts/adapter-certification.php verify-frozen \
  *     --manifest-dir=manifests --name=example --manifest=/snapshot/example.json \
  *     --envelope=/snapshot/example-certification.json
+ *   php scripts/adapter-certification.php authorities-sign \
+ *     --authorities=manifests/capabilities/adapter-authorities.json \
+ *     --authority=acme-1a2b3c4d5e6f --secret-key-file=/secure/acme-root
  *
  * `sign` writes only the derived adapters/certifications/<name>.json path.
  * It never accepts an arbitrary output path or prints the secret/certificate
@@ -60,7 +63,7 @@ use Duo\Orchestrator\AdapterCertify;
 function cert_cli_args(array $argv): array {
     $command = $argv[1] ?? '';
     if (!is_string($command) || $command === '') {
-        throw new RuntimeException('usage: sign, verify, or verify-frozen is required');
+        throw new RuntimeException('usage: sign, verify, verify-frozen, or authorities-sign is required');
     }
     $out = [];
     foreach (array_slice($argv, 2) as $argument) {
@@ -242,9 +245,39 @@ try {
             fwrite(STDOUT, Canon::encode(AdapterCertification::certificateSummary($verified)));
             break;
 
+        case 'authorities-sign':
+            // The v2 authorities envelope (spec § v3.7 change (d)). Rewrites
+            // the named document in place with its `signature` member, through
+            // AdapterCertification::signAuthorities(), which validates every
+            // record before the private key is touched — so a registry that
+            // could not be READ can never be signed. Only a
+            // duo-adapter-authorities/v2 document has an envelope at all; a v1
+            // one is refused by name rather than left unchanged.
+            cert_cli_require($args, ['authorities', 'authority', 'secret-key-file']);
+            $path = realpath($args['authorities']);
+            if ($path === false || !is_file($path) || is_link($path)) {
+                throw new RuntimeException(
+                    "--authorities must name an existing regular file: {$args['authorities']}"
+                );
+            }
+            $signed = AdapterCertification::signAuthorities(
+                (string) file_get_contents($path),
+                $args['authority'],
+                cert_cli_secret_file($args['secret-key-file'])
+            );
+            if (file_put_contents($path, $signed) === false) {
+                throw new RuntimeException("could not write the signed authorities document: $path");
+            }
+            fwrite(STDOUT, Canon::encode([
+                'authorities_path' => $path,
+                'format' => AdapterCertification::AUTHORITIES_FORMAT_V2,
+                'signed_by' => $args['authority'],
+            ]));
+            break;
+
         default:
             throw new RuntimeException(
-                "unknown command '$command'; expected sign, sign-site, verify, or verify-frozen"
+                "unknown command '$command'; expected sign, sign-site, verify, verify-frozen, or authorities-sign"
             );
     }
 } catch (Throwable $e) {

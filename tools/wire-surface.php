@@ -283,7 +283,10 @@ function ws_key_sets(string $file, array $callees, string $class, ?string $onlyF
             // Three receipt shapes share one label at the call site and are
             // told apart only by the constant each one names, so the constant
             // is part of the row's identity.
-            'constant' => preg_match('/^self::([A-Z_]+)$/D', $args[1] ?? '', $match) === 1 ? $match[1] : '',
+            // Digits included: a versioned key set is spelled with the version
+            // in its own name (AUTHORITIES_ENVELOPE_V2_KEYS), and a pattern
+            // that could not see one would report it as a non-constant.
+            'constant' => preg_match('/^self::([A-Z0-9_]+)$/D', $args[1] ?? '', $match) === 1 ? $match[1] : '',
             'keys' => ws_key_list($args[1] ?? '', $class, $file),
             'optional' => isset($args[2]) && $token[1] === 'closedKeys'
                 ? ws_key_list($args[2], $class, $file)
@@ -299,7 +302,7 @@ function ws_key_sets(string $file, array $callees, string $class, ?string $onlyF
 
 /** @return list<string> */
 function ws_key_list(string $argument, string $class, string $file): array {
-    if (preg_match('/^self::([A-Z_]+)$/D', $argument, $match) === 1) {
+    if (preg_match('/^self::([A-Z0-9_]+)$/D', $argument, $match) === 1) {
         $value = ws_const($class, $match[1]);
         if (!is_array($value)) {
             ws_fail("$class::{$match[1]} is not a key list");
@@ -385,19 +388,41 @@ function ws_assert_domain_literals(string $repo, array $domains): void {
 }
 
 /**
- * Gates 3 and 4: the two ABSENCES the register records as reserved decisions.
+ * Gates 3 and 4: one ABSENCE and one BOUNDED PRESENCE the register records.
  *
  * An absence is the hardest thing to keep honest in a document, because
  * nothing about adding the field would make a hand-written sentence wrong in
  * any visible way. So the sentences in R-14 and R-15 are backed by a grep that
  * fails the gate the moment the vocabulary appears.
+ *
+ * R-14's adapter-certification half was such an absence until WP-4.8: the
+ * authority record v2 grammar adds `not_after`/`not_before` (§ v3.7), so the
+ * grep changed from "no expiry vocabulary at all" to "EXACTLY this expiry
+ * vocabulary, judged against exactly this clock". The ratchet is the same one:
+ * a third time member, or a second time source, fails the gate rather than
+ * quietly making R-14's sentence wrong.
  */
 function ws_assert_reserved_absences(string $repo): void {
     $certification = (string) file_get_contents($repo . '/agent/src/Adapter/AdapterCertification.php');
-    if (preg_match('/expir/i', $certification) === 1) {
+    $timeMembers = [];
+    if (preg_match_all("/'(not_after|not_before|expires_at|expires|valid_until|not_valid_after)'/", $certification, $found) > 0) {
+        $timeMembers = array_values(array_unique($found[1]));
+    }
+    sort($timeMembers, SORT_STRING);
+    if ($timeMembers !== ['not_after', 'not_before']) {
         ws_fail(
-            'AdapterCertification.php now carries expiry vocabulary; row R-14 records its ABSENCE as the '
-            . 'shipped decision and must be rewritten before that ships'
+            'the adapter certification expiry vocabulary is now {' . implode(', ', $timeMembers) . '}; row R-14 '
+            . 'records it as exactly {not_after, not_before} and must be rewritten before that ships'
+        );
+    }
+    // The substring, not the parenthesized form, because the two files reach
+    // the same expression differently — ContractAttestation compares it inline,
+    // AdapterCertification returns it — and what R-14 claims is that both read
+    // ONE clock, not that both spell the surrounding statement the same way.
+    if (!str_contains($certification, '$now ?? time()')) {
+        ws_fail(
+            'AdapterCertification no longer judges its window against `$now ?? time()`; row R-14 names that '
+            . 'expression as the one clock BOTH expiry-bearing roots read'
         );
     }
     foreach (WS_SIGNING_FILES as $relative) {
@@ -477,6 +502,59 @@ function ws_assert_spec_window(): void {
     );
 }
 
+/**
+ * Gate 6 (WP-4.8, spec § v3.7 change (d)): the SHIPPED authorities document.
+ *
+ * `manifests/capabilities/adapter-authorities.json` is the platform trust root
+ * — the one file in this repository whose contents decide what a stranger's
+ * key may certify on every managed site. It has exactly two legal states and
+ * this gate refuses everything else:
+ *
+ *   - the EMPTY v1 registry, byte for byte. An empty registry grants nothing,
+ *     so there is no key inside it that could sign it and a signature over an
+ *     empty key set would prove nothing about any key. This is the state that
+ *     ships through the flag day;
+ *   - a v2 registry that VERIFIES — read through the shipped reader, so the
+ *     envelope signature, the fingerprint-bound ids, the windows and the
+ *     namespace patterns are all checked by the code a site runs, never by a
+ *     second implementation living in a tool.
+ *
+ * The second state is what makes this a gate rather than a byte-equality
+ * check: the day enrollment fills this file, the release gate is what refuses
+ * an unsigned or tampered one before it can reach a site.
+ */
+function ws_assert_shipped_authorities(string $repo): void {
+    $relative = 'manifests/capabilities/adapter-authorities.json';
+    $raw = @file_get_contents($repo . '/' . $relative);
+    if ($raw === false) {
+        ws_fail("$relative is missing; it is the platform trust root and its absence is not an empty root");
+    }
+    $empty = Canon::encode((object) [
+        'format' => AdapterCertification::AUTHORITIES_FORMAT,
+        'keys' => new stdClass(),
+    ]);
+    if ($raw === $empty) {
+        return;
+    }
+    $decoded = json_decode($raw, true);
+    if (!is_array($decoded) || ($decoded['format'] ?? null) !== AdapterCertification::AUTHORITIES_FORMAT_V2) {
+        ws_fail(
+            "$relative is neither the empty " . AdapterCertification::AUTHORITIES_FORMAT . ' registry nor a '
+            . AdapterCertification::AUTHORITIES_FORMAT_V2
+            . ' document — a populated trust root must carry the signed envelope R-18 requires'
+        );
+    }
+    try {
+        (new ReflectionMethod(AdapterCertification::class, 'authorityKeys'))
+            ->invoke(null, $repo . '/' . $relative, 'adapter certification authorities');
+    } catch (Throwable $e) {
+        ws_fail(
+            "$relative does not verify through the shipped reader: " . $e->getMessage()
+            . ' — an unsigned or tampered platform trust root never ships'
+        );
+    }
+}
+
 /** @return list<string> */
 function ws_php_files(string $directory): array {
     $files = [];
@@ -531,6 +609,31 @@ function ws_signature_inputs(): array {
     if (!is_array($members)) {
         ws_fail('the contract attestation signature input is no longer canonical JSON after its domain');
     }
+    // The v2 authorities envelope (WP-4.8). Proved the same way as the two
+    // above: the shipped framer is called, its domain is stripped, and the
+    // remainder must be exactly the canonical document MINUS its own signature.
+    $authoritiesDomain = (string) ws_const(AdapterCertification::class, 'SIGNATURE_DOMAIN_AUTHORITIES');
+    $probeKeys = new stdClass();
+    $probeKeys->{'probe-000000000000'} = ['probe' => 'wire-surface'];
+    $authoritiesInput = (string) ws_probe_value(
+        AdapterCertification::class,
+        'authoritiesSignatureBytes',
+        [AdapterCertification::AUTHORITIES_FORMAT_V2, $probeKeys]
+    );
+    if (!str_starts_with($authoritiesInput, $authoritiesDomain)
+        || substr($authoritiesInput, strlen($authoritiesDomain)) !== Canon::encode((object) [
+            'format' => AdapterCertification::AUTHORITIES_FORMAT_V2,
+            'keys' => $probeKeys,
+        ])) {
+        ws_fail('the authorities envelope signature input is no longer domain . Canon::encode({format, keys})');
+    }
+    $rows[] = [
+        'surface' => 'authorities envelope (`' . AdapterCertification::AUTHORITIES_FORMAT_V2 . '`)',
+        'domain' => '`' . ws_bytes($authoritiesDomain) . '`',
+        'input' => 'domain &#124;&#124; `Canon::encode({format, keys})` — the document minus its own signature',
+        'source' => '`AdapterCertification::SIGNATURE_DOMAIN_AUTHORITIES`',
+    ];
+
     $rows[] = [
         'surface' => 'contract attestation (`' . ApplicationContract::ATTESTATION_FORMAT . '`)',
         'domain' => '`' . ws_bytes($contractDomain) . '`',
@@ -766,25 +869,32 @@ function ws_rows(): array {
     ];
     $rows[] = [
         'id' => 'R-08',
-        'title' => 'The authority binding inside the statement, and the site/platform asymmetry',
+        'title' => 'The authority binding inside the statement: BOTH roots bind the key identity',
         'now' => ws_set($sets, 'certification authority binding')
-            . '. Platform-rooted certificates bind the WHOLE authority record; site-rooted ones bind the '
-            . 'key IDENTITY (everything but `adapter_names`/`trust_tiers`) and re-check the scope lists '
-            . 'live.',
-        'permanent' => 'The asymmetry is forced by where each root lives: the site root is a living '
-            . 'registry that grows every time an operator certifies another adapter, so whole-record '
-            . 'binding would invalidate every earlier certificate under that key the moment a second one '
-            . 'is signed (AdapterCertification.php:1511-1525). Narrowing the platform binding to identity '
-            . 'later would silently widen what a shipped key\'s old certificates cover.',
-        'reserved' => 'Any future root chooses one of these two bindings at the moment its first '
-            . 'certificate is signed, and never after.',
+            . '. Both trust roots bind the key IDENTITY — everything but `adapter_names`/`trust_tiers` — '
+            . 'self-consistently by digest, and re-check the two scope lists LIVE against the current '
+            . 'record, revocation and (at record v2) the validity window with them.',
+        'permanent' => 'A trust root is a LIVING registry: it grows every time another adapter is '
+            . 'certified under a key, so whole-record binding invalidates every earlier certificate under '
+            . 'that key the moment a second one is signed. The site root has bound identity since T6 for '
+            . 'that reason; the platform root bound the whole record until WP-4.8, justified by a premise '
+            . 'ENROLLMENT FALSIFIES — that the shipped file never grows under an operator\'s hand. It was '
+            . 'changeable only because the platform root has never signed a certificate: '
+            . '`manifests/capabilities/adapter-authorities.json` is `{"keys": {}}`, and gate 6 below '
+            . 'refuses a populated one that does not verify. Going the other way — widening either root '
+            . 'back to whole-record binding — would invalidate every certificate in the field at the next '
+            . 'enrollment, silently.',
+        'reserved' => 'A future root chooses one of these two bindings at the moment its first '
+            . 'certificate is signed, and never after. There is no third choice, because the scope lists '
+            . 'are either inside the signature or enforced live, and doing both is the first option.',
     ];
     $rows[] = [
         'id' => 'R-09',
         'title' => 'The two authority record key sets, and why they are two files',
         'now' => 'Adapter root (`' . AdapterCertification::AUTHORITIES_FORMAT . '`): '
-            . ws_set($sets, 'validateAuthorityRecord')
-            . '. Contract root (`' . ContractAttestation::AUTHORITIES_FORMAT . '`, at `'
+            . ws_set($sets, 'validateAuthorityRecord') . ', and at `'
+            . AdapterCertification::AUTHORITIES_FORMAT_V2 . '` the nine of R-18. Contract root (`'
+            . ContractAttestation::AUTHORITIES_FORMAT . '`, at `'
             . ContractAttestation::AUTHORITIES_RELATIVE . '`): the four members derived by probe below, '
             . 'scope `' . ContractAttestation::SCOPE . '`.',
         'permanent' => 'The adapter root requires `adapter_names` and `trust_tiers` on EVERY record and '
@@ -809,7 +919,8 @@ function ws_rows(): array {
             . 'canonically encodes as `[]`, which both readers refuse, so the object cast at write time '
             . 'is part of the wire, not a nicety.',
         'reserved' => 'A revocation list (R-15) cannot be added to this envelope: its key set is closed. '
-            . 'It needs a new `format` value.',
+            . 'It needs a new `format` value — which is exactly the channel `'
+            . AdapterCertification::AUTHORITIES_FORMAT_V2 . '` used to add the envelope signature (R-18).',
     ];
     $rows[] = [
         'id' => 'R-11',
@@ -856,20 +967,26 @@ function ws_rows(): array {
     ];
     $rows[] = [
         'id' => 'R-14',
-        'title' => 'Expiry exists on exactly one surface, and there is no clock skew allowance',
+        'title' => 'Expiry exists on two surfaces, reads one clock, and allows no skew',
         'now' => 'Contract attestation: `expires_at` is mandatory, grammar `' . $expires
             . '` (UTC seconds, checked at both ends so "expired" is never a parse accident), compared '
-            . 'against `$now ?? time()` and refused at `>=`. Adapter certification: NO expiry vocabulary '
-            . 'exists at all — checked by grep, not asserted. Recovery: `claim_expires_at` bounds a '
-            . 'claimant epoch, never a signature.',
-        'permanent' => 'An expired attestation REFUSES; it never silently becomes an unsigned one, '
-            . 'because a silent downgrade would make a stale claim indistinguishable from a fresh one at '
-            . 'every consumer. There is no skew tolerance in either direction: a wrong operator clock '
-            . 'refuses rather than accepts, which is the safe failure and is now the behaviour holders '
-            . 'depend on.',
-        'reserved' => 'Adding expiry to an adapter certificate is a statement member (R-06) and '
-            . 'therefore a new format, not a field. A future skew allowance would have to be a REFUSAL '
-            . 'widening, which no deployed verifier would apply to an artifact it already holds.',
+            . 'against `$now ?? time()` and refused at `>=`. Adapter certification: the expiry vocabulary '
+            . 'is EXACTLY `not_after`/`not_before`, mandatory on a `'
+            . AdapterCertification::AUTHORITIES_FORMAT_V2 . '` authority record and absent from a v1 one, '
+            . 'the identical grammar string, compared against the identical `$now ?? time()` and refused '
+            . 'at `>=` — all four facts checked by grep, not asserted. Recovery: `claim_expires_at` '
+            . 'bounds a claimant epoch, never a signature.',
+        'permanent' => 'An expired attestation or authority REFUSES; it never silently becomes an '
+            . 'unsigned one, because a silent downgrade would make a stale claim indistinguishable from a '
+            . 'fresh one at every consumer. There is no skew tolerance in either direction: a wrong '
+            . 'operator clock refuses rather than accepts, which is the safe failure and is now the '
+            . 'behaviour holders depend on. The adapter root additionally refuses an IMPLAUSIBLE clock — '
+            . 'one reading before the record\'s own `not_before` — BEFORE it tests expiry, because a '
+            . 'backwards clock would otherwise find every retired record inside its window.',
+        'reserved' => 'Expiry on the CERTIFICATE itself, as opposed to the authority that signed it, is '
+            . 'still a statement member (R-06) and therefore a new format, not a field. A future skew '
+            . 'allowance would have to be a REFUSAL widening, which no deployed verifier would apply to '
+            . 'an artifact it already holds.',
     ];
     $rows[] = [
         'id' => 'R-15',
@@ -958,6 +1075,33 @@ function ws_rows(): array {
         'reserved' => 'The `/vN` suffix is the change channel: a feature whose meaning moves is a NEW name '
             . 'implemented beside the old one, never an edit of it, so a manifest that declared the old name '
             . 'keeps its bytes and its digest.',
+        'title' => 'The v2 authority record, and the four decisions it fixes at once',
+        'now' => '`' . AdapterCertification::AUTHORITIES_FORMAT_V2 . '` records are '
+            . ws_set($sets, 'AUTHORITY_RECORD_V2_KEYS') . ', inside the envelope '
+            . ws_set($sets, 'AUTHORITIES_ENVELOPE_V2_KEYS') . ' whose `signature` is '
+            . ws_set($sets, 'AUTHORITIES_SIGNATURE_KEYS') . '. A key id must END in the first '
+            . (string) ws_const(AdapterCertification::class, 'AUTHORITY_KEY_FINGERPRINT_LENGTH')
+            . ' hex characters of `sha256(public_key)`; an `adapter_names` entry is an exact name or a '
+            . '`<vendor>-*` namespace; the window is judged as R-14 states; and the envelope signature is '
+            . 'made by a key the document itself carries. `record_version: 2` restates the envelope '
+            . 'format inside every record, and a disagreement between the two refuses. v1 records and v1 '
+            . 'documents keep today\'s behaviour byte for byte — the four rules read only a record that '
+            . 'declared `record_version`.',
+        'permanent' => 'All four land together because they are one document: a holder who accepts a v2 '
+            . 'record accepts all of them, and shipping any one later would be a second flag day for '
+            . 'whoever already holds a v2 file. The fingerprint rule cannot be relaxed afterwards without '
+            . 'admitting ids that were unrepresentable when the trust decision was made; it cannot be '
+            . 'tightened (a longer fingerprint) without orphaning every id already issued. The window is '
+            . 'mandatory because `assertExactKeys()` refuses missing and unknown alike, so an optional '
+            . 'member has no honest home in the set — a holder wanting no expiry stays at v1, where there '
+            . 'is none. An EMPTY v2 registry is unrepresentable by construction: the envelope signature '
+            . 'names a key inside the document, so a registry with no keys has nothing that could sign '
+            . 'it. That is what lets the shipped empty root stay v1 and byte-identical.',
+        'reserved' => 'The envelope signature proves the document was assembled WHOLE by a holder of a '
+            . 'key it carries — nobody else can append a key, widen a scope list, move a window or flip a '
+            . 'status in it. It is deliberately NOT a chain to an off-document root: delegation is its '
+            . 'own signed statement type with its own domain (spec/repo-format.md § v3.8), never a member '
+            . 'or an arm inside this one.',
     ];
 
     return $rows;
@@ -975,10 +1119,16 @@ function ws_indexed_key_sets(): array {
     }
     $index = [];
     foreach (ws_all_key_sets() as $row) {
-        // Both handles, because neither alone is unique: several call sites
-        // label their document with the same `$label` variable, and one
-        // function can decide more than one key set.
-        foreach ([$row['label'], $row['function']] as $handle) {
+        // Three handles, because none alone is unique: several call sites label
+        // their document with the same `$label` variable, one function can
+        // decide more than one key set (a v1 and a v2 grammar in the same
+        // reader), and only the CONSTANT tells those two apart. First-wins per
+        // handle, so a function handle names its first set in source order —
+        // which is why the v1 arm is written first at both branching sites.
+        foreach ([$row['label'], $row['function'], $row['constant']] as $handle) {
+            if ($handle === '') {
+                continue;
+            }
             if (!isset($index[$handle])) {
                 $index[$handle] = $row['keys'];
             }
@@ -1031,8 +1181,10 @@ function ws_build(string $repo): string {
     ws_assert_reserved_absences($repo);
     ws_assert_rollback_is_domain_free();
     ws_assert_spec_window();
+    ws_assert_shipped_authorities($repo);
     $domains = [
         (string) ws_const(AdapterCertification::class, 'SIGNATURE_DOMAIN'),
+        (string) ws_const(AdapterCertification::class, 'SIGNATURE_DOMAIN_AUTHORITIES'),
         (string) ws_const(ContractAttestation::class, 'SIGNATURE_DOMAIN'),
     ];
     foreach ($domains as $domain) {
@@ -1074,8 +1226,9 @@ function ws_build(string $repo): string {
     foreach (ws_signature_inputs() as $row) {
         $out .= "| {$row['surface']} | {$row['domain']} | {$row['input']} | {$row['source']} |\n";
     }
-    $out .= "\nThe first two are separated by construction. The third is not separated at all, and R-03\n";
-    $out .= "is where that decision and its cost are written down.\n\n";
+    $out .= "\nThe first three are separated by construction, and the checker refuses the run if any one of\n";
+    $out .= "them is a prefix of another. The last is not separated at all, and R-03 is where that decision\n";
+    $out .= "and its cost are written down.\n\n";
 
     $out .= "## 2. The register\n\n";
     foreach (ws_rows() as $row) {
@@ -1129,14 +1282,20 @@ function ws_build(string $repo): string {
     $out .= '   `agent/`, `cli/` and `recovery/` is in a file this register covers — '
         . count(WS_SIGNING_FILES) . " today.\n";
     $out .= "3. **No unregistered domain exists.** Every `duo-…-signature/vN` literal in those trees is\n";
-    $out .= "   one of the domains in §1, and neither is a prefix of the other.\n";
-    $out .= "4. **The two reserved absences are still absences.** `AdapterCertification` carries no\n";
-    $out .= "   expiry vocabulary and no signing file carries revocation-list vocabulary (R-14, R-15).\n";
+    $out .= "   one of the domains in §1, and none is a prefix of another.\n";
+    $out .= "4. **The bounded vocabularies are still bounded.** `AdapterCertification`'s expiry\n";
+    $out .= "   vocabulary is exactly `not_after`/`not_before` judged against `\$now ?? time()`, and no\n";
+    $out .= "   signing file carries revocation-list vocabulary (R-14, R-15).\n";
     $out .= "5. **The rollback signature really is domain-free.** A signature is minted and verified\n";
     $out .= "   against the unprefixed canonical payload at generation time (R-03).\n";
     $out .= "6. **The spec-version window has not accumulated.** The shipped validator is probed over\n";
     $out .= '   N-3 … N+2 and must accept exactly {N-1, N} — floor `DUO_SPEC_VERSION - 1`, never deeper'
         . " (R-18).\n\n";
+    $out .= "6. **The shipped platform trust root is one of its two legal states.** It is the empty\n";
+    $out .= '   `' . AdapterCertification::AUTHORITIES_FORMAT . "` registry byte for byte, or a\n";
+    $out .= '   `' . AdapterCertification::AUTHORITIES_FORMAT_V2 . "` document that VERIFIES through the\n";
+    $out .= "   shipped reader — envelope signature, fingerprint-bound ids, windows and namespaces all\n";
+    $out .= "   checked by the code a site runs (R-08, R-18).\n\n";
     $out .= "What it does not prove: that the decisions are *right*, that any artifact in the field was\n";
     $out .= "signed under these exact rules, or that a holder's verifier implements them. The rationale\n";
     $out .= "halves of §2 are prose, reviewed by a human, and the register is only as good as the review\n";
