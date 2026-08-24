@@ -1,5 +1,5 @@
 {
-    "class_count": 368,
+    "class_count": 369,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -59604,6 +59604,59 @@
                     "parameters": [],
                     "return_type": "array",
                     "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\WpCliChildProcess": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "capture": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "command",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "timeoutSeconds",
+                            "type": "int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "stdoutLimit",
+                            "type": "int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "stderrLimit",
+                            "type": "int",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
                     "visibility": "public"
                 }
             },
