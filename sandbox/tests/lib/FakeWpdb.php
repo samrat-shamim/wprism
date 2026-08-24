@@ -1315,6 +1315,30 @@ final class FakeWpdb {
         if ($trimmed === '') {
             throw new \LogicException('FakeWpdb: empty SQL statement');
         }
+        if (preg_match(
+            '/^SELECT TABLE_NAME, ENGINE FROM information_schema\.TABLES\s+'
+                . 'WHERE TABLE_SCHEMA = DATABASE\(\) AND TABLE_NAME IN \((.+)\)\s+'
+                . 'ORDER BY TABLE_NAME ASC$/isD',
+            $trimmed,
+            $tableInventory
+        ) === 1) {
+            preg_match_all("/'((?:''|[^'])*)'/", $tableInventory[1], $names);
+            $rows = [];
+            foreach ($names[1] as $escapedName) {
+                $name = str_replace("''", "'", $escapedName);
+                if (!array_key_exists($name, $this->store)) {
+                    continue;
+                }
+                $rows[] = [
+                    'TABLE_NAME' => $name,
+                    'ENGINE' => $this->tableEngines[$name] ?? null,
+                ];
+            }
+            usort($rows, static fn(array $a, array $b): int =>
+                strcmp((string) $a['TABLE_NAME'], (string) $b['TABLE_NAME'])
+            );
+            return ['kind' => 'rows', 'rows' => $rows];
+        }
         if (strcasecmp($trimmed, 'SELECT @@in_transaction') === 0) {
             return [
                 'kind' => 'rows',
@@ -1343,6 +1367,14 @@ final class FakeWpdb {
         }
         $this->currentSql = $trimmed;
         $head = preg_match('/^[A-Za-z_]+/', $trimmed, $m) === 1 ? strtoupper($m[0]) : '';
+        if (($head === 'SAVEPOINT' && preg_match('/^SAVEPOINT `[A-Za-z0-9_]+`$/D', $trimmed) === 1)
+            || ($head === 'RELEASE'
+                && preg_match('/^RELEASE SAVEPOINT `[A-Za-z0-9_]+`$/D', $trimmed) === 1)) {
+            if ($this->transactionSnapshot === null) {
+                throw $this->unsupported('savepoint outside a transaction');
+            }
+            return ['kind' => 'ok'];
+        }
         switch ($head) {
             case 'CREATE':
             case 'ALTER':

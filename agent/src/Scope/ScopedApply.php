@@ -762,6 +762,16 @@ final class ScopedApply {
         ];
     }
 
+    /** Bind the physical selected map generation committed with authored rows. */
+    public static function authored_ledger_map_hash(array $observation): string {
+        $selectedLedgerMapRoot = $observation['selected_ledger_map_root'] ?? null;
+        if (!is_string($selectedLedgerMapRoot)
+            || preg_match('/^[a-f0-9]{64}$/D', $selectedLedgerMapRoot) !== 1) {
+            throw new \RuntimeException('duo: scoped authored readback has a malformed selected ledger-map root');
+        }
+        return hash('sha256', "duo-scoped-authored-map-witness/v1\0" . $selectedLedgerMapRoot);
+    }
+
     /**
      * Refuse selected ledger rows which a strict target capture did not prove.
      *

@@ -50284,6 +50284,23 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "authored_ledger_map_hash": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "observation",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "authored_state": {
                     "abstract": false,
                     "final": false,

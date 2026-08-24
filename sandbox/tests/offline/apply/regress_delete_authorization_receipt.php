@@ -372,6 +372,184 @@ duo_check_same(
     '--with-deletes records the deletion receipt that clears the tombstone from later plans'
 );
 
+// A scoped terminal receipt is stronger than the ordinary revision row: the
+// selected identity map was already sealed with authored state at ordinal 1.
+// Finalization must lock that exact generation, reject any later callback/
+// concurrent substitution, and leave both map and session retryable.
+$mapUuid = '72c934b8-0bad-4da7-b298-196f8936d021';
+$mapRows = [[
+    'uuid' => $mapUuid,
+    'entity_type' => 'post',
+    'id_kind' => 'post',
+    'local_id' => 71,
+]];
+$wpdb->seedTable('wp_duo_kv', [])->setUniqueKey('wp_duo_kv', ['k']);
+$wpdb->seedTable('wp_duo_state', [])->setUniqueKey('wp_duo_state', ['uuid']);
+$wpdb->seedTable('wp_duo_map', $mapRows)
+    ->setUniqueKey('wp_duo_map', ['uuid', 'id_kind'])
+    ->setUniqueKey('wp_duo_map', ['id_kind', 'local_id']);
+foreach (['wp_duo_kv', 'wp_duo_state', 'wp_duo_map'] as $table) {
+    $wpdb->setTableEngine($table, 'InnoDB');
+}
+$mapIdentityHashes = [hash('sha256', $mapUuid)];
+$mapRoots = \Duo\ScopedApply::ledger_map_roots($mapIdentityHashes, $mapRows);
+$scopeArtifactHash = hash('sha256', 'finalizer-artifact');
+$scopedAuthority = \Duo\ScopedApplySession::make_authority(
+    hash('sha256', 'finalizer-scope'),
+    [
+        'artifact_hash' => $scopeArtifactHash,
+        'state_revision_hash' => hash('sha256', 'finalizer-revision'),
+        'manifest_hash' => hash('sha256', 'finalizer-manifest'),
+    ],
+    [
+        'owner' => 'finalizer-owner',
+        'artifact_hash' => $scopeArtifactHash,
+        'session_id' => 'finalizer-session',
+    ],
+    [
+        'selected_before_hash' => hash('sha256', 'finalizer-selected-before'),
+        'selected_before_ledger_map_hash' => (string) $mapRoots['selected_ledger_map_root'],
+        'protected_ledger_map_hash' => (string) $mapRoots['protected_ledger_map_root'],
+        'protected_out_of_scope_hash' => hash('sha256', 'finalizer-protected'),
+        'ledger_roots_hash' => hash('sha256', \Duo\Canon::encode($mapRoots)),
+    ],
+    [
+        'precondition_hash' => hash('sha256', 'finalizer-plan'),
+        'guard_witnesses_hash' => hash('sha256', 'finalizer-guards'),
+    ],
+    [
+        'work_hash' => \Duo\ScopedApplySession::hash_value([]),
+        'work_items' => [],
+        'deletions_hash' => \Duo\ScopedApplySession::hash_value([]),
+        'deletion_items' => [],
+        'action_declarations_hash' => \Duo\ScopedApplySession::hash_value([]),
+        'action_items' => [],
+        'capabilities_hash' => \Duo\ScopedApplySession::hash_value([]),
+        'effects_hash' => \Duo\ScopedApplySession::hash_value([]),
+        'effect_items' => [],
+        'ledger_map_identity_hashes' => $mapIdentityHashes,
+        'ledger_map_identity_set_hash' => \Duo\ScopedApplySession::hash_value($mapIdentityHashes),
+    ],
+    hash('sha256', 'finalizer-code')
+);
+$scopedSession = \Duo\ScopedApplySession::begin(
+    new \Duo\LedgerScopedApplySessionStorage(),
+    $scopedAuthority
+);
+$scopedSession->transition(\Duo\ScopedApplySession::PHASE_AUTHORING);
+$authorIntent = \Duo\ScopedApplyCoordinator::intent(
+    $scopedSession,
+    1,
+    'duo-scoped-authored-transaction/v2',
+    'finalizer-author',
+    hash('sha256', 'finalizer-author-input'),
+    hash('sha256', 'finalizer-author-effect'),
+    (string) $scopedAuthority['target']['selected_before_hash']
+);
+$scopedSession->append_intent($authorIntent);
+$authorMapHash = \Duo\ScopedApplyCoordinator::authored_ledger_map_hash($mapRoots);
+$scopedSession->commit_authored_receipt(
+    \Duo\ScopedApplyCoordinator::receipt($authorIntent, $authorMapHash)
+);
+$scopedSession->transition(\Duo\ScopedApplySession::PHASE_EFFECTS_PENDING);
+$scopedSession->transition(\Duo\ScopedApplySession::PHASE_VERIFYING);
+$scopedVerification = [
+    'authored_ledger_map_hash' => $authorMapHash,
+    'receipt_hash' => hash('sha256', 'finalizer-convergence'),
+];
+$scopedPlan = $emptyPlan();
+$scopedPlan['update'] = [$authoredRow];
+
+$mapSubstituted = false;
+$wpdb->onQuery(static function (string $sql, string $method, FakeWpdb $db) use (
+    &$mapSubstituted,
+    $mapRows
+): ?string {
+    if (!$mapSubstituted && str_contains($sql, 'INSERT INTO wp_duo_state')) {
+        $mapSubstituted = true;
+        $changed = $mapRows;
+        $changed[0]['local_id'] = 72;
+        $db->seedTable('wp_duo_map', $changed);
+    }
+    return null;
+});
+try {
+    (new ApplyLedgerFinalizer(static function (): void {}))->finalize(
+        $compiled,
+        $scopedPlan,
+        $tree,
+        [$authoredRow],
+        [],
+        false,
+        true,
+        [],
+        $scopedSession,
+        $scopedVerification,
+        $revision
+    );
+    $mapSubstitutionRefused = false;
+} catch (\Throwable $failure) {
+    $mapSubstitutionRefused = str_contains(
+        $failure->getMessage(),
+        'outside authorized tombstone cleanup'
+    );
+}
+$wpdb->onQuery(null);
+duo_check(
+    $mapSubstituted
+        && $mapSubstitutionRefused
+        && $wpdb->rows('wp_duo_map') === $mapRows
+        && $wpdb->rows('wp_duo_state') === []
+        && $scopedSession->phase() === \Duo\ScopedApplySession::PHASE_VERIFYING,
+    'post-author selected-map substitution is refused inside finalization and map/state/session all roll back'
+);
+
+$wpdb->setTableEngine('wp_duo_map', 'MyISAM');
+try {
+    (new ApplyLedgerFinalizer(static function (): void {}))->finalize(
+        $compiled,
+        $scopedPlan,
+        $tree,
+        [$authoredRow],
+        [],
+        false,
+        true,
+        [],
+        $scopedSession,
+        $scopedVerification,
+        $revision
+    );
+    $engineDriftRefused = false;
+} catch (\Throwable $failure) {
+    $engineDriftRefused = str_contains($failure->getMessage(), 'InnoDB required');
+}
+duo_check(
+    $engineDriftRefused
+        && $wpdb->rows('wp_duo_map') === $mapRows
+        && $wpdb->rows('wp_duo_state') === []
+        && $scopedSession->phase() === \Duo\ScopedApplySession::PHASE_VERIFYING,
+    'scoped finalization refuses a storage-engine substitution after metadata-lock acquisition without mutation'
+);
+$wpdb->setTableEngine('wp_duo_map', 'InnoDB');
+(new ApplyLedgerFinalizer(static function (): void {}))->finalize(
+    $compiled,
+    $scopedPlan,
+    $tree,
+    [$authoredRow],
+    [],
+    false,
+    true,
+    [],
+    $scopedSession,
+    $scopedVerification,
+    $revision
+);
+duo_check(
+    $scopedSession->phase() === \Duo\ScopedApplySession::PHASE_COMPLETE
+        && $wpdb->rows('wp_duo_map') === $mapRows,
+    'removing the engine/map fault lets the exact verifying session terminalize once without map drift'
+);
+
 $wpdb->resetLog();
 $terminalCommitApplied = false;
 $terminalCommitHook = null;

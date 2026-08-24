@@ -129,6 +129,13 @@ final class AuthoredTransactionExecutor {
             Db::start_repeatable_read('apply transaction start');
             $transactionStarted = true;
             $this->fieldMaterializer->begin_authored_transaction();
+            DeleteGuardEvaluator::assert_innodb_tables(
+                $this->authored_transaction_tables(),
+                'authored transaction storage-engine boundary'
+            );
+            DeleteGuardEvaluator::assert_transaction_isolation(
+                'authored transaction storage-engine boundary'
+            );
             $this->termMaterializer->begin_authored_transaction();
             $this->optionsMaterializer->begin_authored_transaction();
             CacheInvalidationTransaction::begin();
@@ -481,6 +488,52 @@ final class AuthoredTransactionExecutor {
         }
         Canary::disarm();
         return ['attachment_ids' => $attachmentIds, 'regen_context' => $regenContext];
+    }
+
+    /**
+     * Exact table roster the authored transaction can read-lock or mutate.
+     * This intentionally includes users (the owner row for authored usermeta)
+     * and declared invalidation tables: proving only duo_kv/duo_map would let
+     * an ALTER ENGINE race one of the earlier core/plugin mutations while the
+     * later atomic scoped receipt still committed successfully.
+     *
+     * @return list<string>
+     */
+    private function authored_transaction_tables(): array {
+        global $wpdb;
+        $tables = [
+            $wpdb->posts,
+            $wpdb->postmeta,
+            $wpdb->terms,
+            $wpdb->term_taxonomy,
+            $wpdb->term_relationships,
+            $wpdb->termmeta,
+            $wpdb->options,
+            $wpdb->users,
+            $wpdb->usermeta,
+            $wpdb->prefix . 'duo_map',
+            $wpdb->prefix . 'duo_state',
+            $wpdb->prefix . 'duo_kv',
+        ];
+        foreach ($this->snapshotRowTables as $name => $declaration) {
+            $tables[] = $wpdb->prefix . (string) $name;
+            $attachedMeta = $this->policy->attached_meta_table_for_owner((string) $name);
+            if (is_array($attachedMeta)) {
+                $tables[] = $wpdb->prefix . (string) ($attachedMeta['name'] ?? '');
+            }
+            foreach ((array) ($declaration['invalidate'] ?? []) as $invalidation) {
+                if (is_array($invalidation) && isset($invalidation['table'])) {
+                    $tables[] = $wpdb->prefix . (string) $invalidation['table'];
+                }
+            }
+        }
+        DeleteGuardEvaluator::assert_table_identifiers(
+            $tables,
+            'authored transaction storage-engine boundary'
+        );
+        $tables = array_values(array_unique($tables));
+        sort($tables, SORT_STRING);
+        return $tables;
     }
 
     private static function failure_fingerprint(\Throwable $failure): string {

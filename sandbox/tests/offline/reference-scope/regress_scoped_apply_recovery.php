@@ -2662,6 +2662,7 @@ $authoredExecutorSource = (string) file_get_contents($root . '/agent/src/Apply/A
 $actionDispatcherSource = (string) file_get_contents($root . '/agent/src/Rebuild/RebuildActionDispatcher.php');
 $actionNegotiatorSource = (string) file_get_contents($root . '/agent/src/Rebuild/RebuildActionNegotiator.php');
 $ledgerFinalizerSource = (string) file_get_contents($root . '/agent/src/Apply/ApplyLedgerFinalizer.php');
+$convergenceVerifierSource = (string) file_get_contents($root . '/agent/src/Review/ConvergenceVerifier.php');
 $check(
     str_contains(
         preg_replace('/\s+/', ' ', $ledgerFinalizerSource),
@@ -2798,6 +2799,11 @@ $canaryCheckAt = strpos($authoredExecutorSource, '$violations = Canary::violatio
 $isolationCheckAt = strpos($authoredExecutorSource, "'authored transaction final commit boundary'");
 $atomicParticipantAt = strpos($authoredExecutorSource, '$commitScopedAuthoring();');
 $databaseCommitAt = strpos($authoredExecutorSource, "Db::commit('apply transaction commit')");
+$authoredEngineBoundaryAt = strpos(
+    $authoredExecutorSource,
+    "'authored transaction storage-engine boundary'"
+);
+$termParticipantAt = strpos($authoredExecutorSource, '->begin_authored_transaction();', $authoredEngineBoundaryAt + 1);
 $check(
     substr_count($applySource . $scopedCoordinatorSource, 'ScopedApply::code_witness_hash(') === 2
         && $codeWitnessCheckAt !== false
@@ -2857,6 +2863,63 @@ $check(
         && strpos($authoredExecutorSource, 'if (($commitScopedAuthoring !== null) !== $requiresScopedParticipant') !== false
         && strpos($authoredExecutorSource, '$rollbackScopedAuthoring();') > strpos($authoredExecutorSource, "Db::rollback('apply transaction rollback')"),
     'atomic scoped map receipt runs after seal/canary/isolation and before commit, with post-rollback reload'
+);
+$convergenceObservationAt = strpos($convergenceVerifierSource, '$observation = ScopedApply::observe_target(');
+$convergenceMapWitnessAt = strpos(
+    $convergenceVerifierSource,
+    'ScopedApply::authored_ledger_map_hash($observation)'
+);
+$convergenceSelectedAt = strpos($convergenceVerifierSource, '$selected = ScopedApply::selected_set(');
+$convergenceReceiptAt = strpos(
+    $convergenceVerifierSource,
+    '\'authored_ledger_map_hash\' => $authoredLedgerMapHash'
+);
+$finalizerMapLockAt = strpos($ledgerFinalizerSource, 'self::locked_map_inventory()');
+$finalizerForgetAt = strpos($ledgerFinalizerSource, 'Ledger::forget($row[\'uuid\']);');
+$finalizerMapReadbackAt = strrpos($ledgerFinalizerSource, 'self::locked_map_inventory()');
+$finalizerCompleteAt = strpos($ledgerFinalizerSource, '$scopedSession->complete(');
+$check(
+    $convergenceObservationAt !== false
+        && $convergenceMapWitnessAt !== false
+        && $convergenceSelectedAt !== false
+        && $convergenceReceiptAt !== false
+        && $convergenceObservationAt < $convergenceMapWitnessAt
+        && $convergenceMapWitnessAt < $convergenceSelectedAt
+        && $convergenceSelectedAt < $convergenceReceiptAt
+        && str_contains(
+            $convergenceVerifierSource,
+            'selected identity-map drift after authored commit'
+        ),
+    'fresh scoped convergence rejects selected-map drift against ordinal one before selected content can pass'
+);
+$check(
+    str_contains($ledgerFinalizerSource, "Db::start_repeatable_read('scoped ledger transaction start')")
+        && str_contains($ledgerFinalizerSource, 'DeleteGuardEvaluator::assert_innodb_tables([')
+        && $finalizerMapLockAt !== false
+        && $finalizerForgetAt !== false
+        && $finalizerMapReadbackAt !== false
+        && $finalizerCompleteAt !== false
+        && $finalizerMapLockAt < $finalizerForgetAt
+        && $finalizerForgetAt < $finalizerMapReadbackAt
+        && $finalizerMapReadbackAt < $finalizerCompleteAt
+        && str_contains($ledgerFinalizerSource, '$authorizedMapDeletes[$uuid] = true;')
+        && str_contains($ledgerFinalizerSource, '$expectedTerminalMap = array_values(array_filter(')
+        && str_contains($ledgerFinalizerSource, 'FORCE INDEX (PRIMARY) ORDER BY uuid ASC, id_kind ASC LIMIT $limit FOR UPDATE')
+        && substr_count($ledgerFinalizerSource, "assert_transaction_isolation('scoped ledger map inventory") === 2,
+    'terminalization range-locks the complete selected map and permits only explicit tombstone cleanup before sealing roots'
+);
+$check(
+    $authoredEngineBoundaryAt !== false
+        && $termParticipantAt !== false
+        && $authoredEngineBoundaryAt < $termParticipantAt
+        && $authoredEngineBoundaryAt < $atomicParticipantAt
+        && str_contains($authoredExecutorSource, '$this->snapshotRowTables as $name => $declaration')
+        && str_contains($authoredExecutorSource, '->attached_meta_table_for_owner((string) $name)')
+        && str_contains($authoredExecutorSource, '$wpdb->prefix . \'duo_map\'')
+        && str_contains($authoredExecutorSource, '$wpdb->prefix . \'duo_state\'')
+        && str_contains($authoredExecutorSource, '$wpdb->prefix . \'duo_kv\'')
+        && str_contains($authoredExecutorSource, '$declaration[\'invalidate\'] ?? []'),
+    'authored apply metadata-locks and proves every effective core/ledger/typed/sidecar/invalidation table before DML or session CAS'
 );
 $check(
     substr_count($applySource, '->recheck_target_observation(') === 2
