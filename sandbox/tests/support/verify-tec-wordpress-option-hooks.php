@@ -643,8 +643,11 @@ if ($tecRoot !== '' || $tecVersion !== '') {
             tec_option_usage("TEC $tecVersion Views V2 rewrite callback source drifted");
         }
     }
+    $viewsRewriteSource = $tecSources['src/Tribe/Views/V2/Rewrite.php'] ?? '';
     if (!str_contains($viewsRewrite, 'classRewrite{')
         || str_contains($viewsRewrite, 'function__construct(')
+        || preg_match('/\b(?:public|protected|private|var)\s+(?:static\s+)?\$[A-Za-z_]/', $viewsRewriteSource) === 1
+        || preg_match('/\$this->[A-Za-z_][A-Za-z0-9_]*\s*=(?!=)/', $viewsRewriteSource) === 1
         || !str_contains($viewsRewrite, "if(\$method!=='regex'){return\$bases;}")
         || !str_contains($viewsRewrite, '$bases=$this->add_url_encoded_slugs($bases);return$bases;')
         || preg_match(

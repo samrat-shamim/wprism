@@ -111,6 +111,7 @@ namespace Tribe\Events\Views\V2 {
         }
     }
 
+    #[\AllowDynamicProperties]
     final class Rewrite {
         /** @param array<string,list<string>> $bases @return array<string,list<string>> */
         public function filter_raw_i18n_slugs(array $bases, mixed $method): array {
@@ -1367,7 +1368,10 @@ function tribe(?string $class = null): object {
             }
             return $resolved;
         }
-        return $GLOBALS['tec_readiness_views_rewrite'];
+        if (array_key_exists('tec_readiness_views_rewrite_override', $GLOBALS)) {
+            return $GLOBALS['tec_readiness_views_rewrite_override'];
+        }
+        return new \Tribe\Events\Views\V2\Rewrite();
     }
     return match ($class) {
         'tec.event-cleaner' => $GLOBALS['tec_readiness_event_cleaner'],
@@ -6462,7 +6466,6 @@ $GLOBALS['tec_readiness_cache_listener'] = Tribe__Cache_Listener::instance();
 $GLOBALS['tec_readiness_events_rewrite'] = Tribe__Events__Rewrite::instance();
 $GLOBALS['tec_readiness_aggregator'] = Tribe__Events__Aggregator::instance();
 $GLOBALS['tec_readiness_views_manager'] = new \Tribe\Events\Views\V2\Manager();
-$GLOBALS['tec_readiness_views_rewrite'] = new \Tribe\Events\Views\V2\Rewrite();
 $GLOBALS['tec_readiness_views_hooks'] = new \Tribe\Events\Views\V2\Hooks();
 $GLOBALS['tec_readiness_kitchen_sink'] = new \Tribe\Events\Views\V2\Kitchen_Sink();
 $GLOBALS['tec_readiness_qr_routes'] = new \TEC\Events\QR\Routes();
@@ -7994,9 +7997,8 @@ duo_check_same(
     'a failed first lazy Views Rewrite resolution never reaches re-resolution'
 );
 
-$canonicalViewsRewrite = $GLOBALS['tec_readiness_views_rewrite'];
 $GLOBALS['tec_readiness_views_rewrite_resolution_calls'] = 0;
-$GLOBALS['tec_readiness_views_rewrite'] = new stdClass();
+$GLOBALS['tec_readiness_views_rewrite_override'] = new stdClass();
 $substitutedViewsRewritePreimage = $rewriteRefusalState();
 $substitutedViewsRewriteFailure = null;
 try {
@@ -8004,7 +8006,7 @@ try {
 } catch (Throwable $failure) {
     $substitutedViewsRewriteFailure = $failure;
 }
-$GLOBALS['tec_readiness_views_rewrite'] = $canonicalViewsRewrite;
+unset($GLOBALS['tec_readiness_views_rewrite_override']);
 duo_check(
     $substitutedViewsRewriteFailure instanceof RuntimeException
         && str_contains($substitutedViewsRewriteFailure->getMessage(), 'substituted lazy TEC rewrite service'),
@@ -8022,9 +8024,11 @@ duo_check_same(
 );
 
 $GLOBALS['tec_readiness_views_rewrite_resolution_calls'] = 0;
+$statefulViewsRewrite = new \Tribe\Events\Views\V2\Rewrite();
+$statefulViewsRewrite->foreign_state = 'same-output foreign state';
 $GLOBALS['tec_readiness_views_rewrite_resolution_sequence'] = [
-    $canonicalViewsRewrite,
     new \Tribe\Events\Views\V2\Rewrite(),
+    $statefulViewsRewrite,
 ];
 $driftedViewsRewritePreimage = $rewriteRefusalState();
 $driftedViewsRewriteFailure = null;
@@ -8036,18 +8040,21 @@ try {
 unset($GLOBALS['tec_readiness_views_rewrite_resolution_sequence']);
 duo_check(
     $driftedViewsRewriteFailure instanceof RuntimeException
-        && str_contains($driftedViewsRewriteFailure->getMessage(), 'unstable lazy TEC rewrite service'),
-    'same-class lazy Views Rewrite re-resolution drift refuses before native generation'
+        && str_contains(
+            $driftedViewsRewriteFailure->getMessage(),
+            'stateful lazy TEC rewrite service during re-resolution'
+        ),
+    'same-class stateful lazy Views Rewrite re-resolution refuses before native generation'
 );
 duo_check_same(
     $driftedViewsRewritePreimage,
     $rewriteRefusalState(),
-    'the unstable lazy Views Rewrite service preserves durable rows, runtime rules, and purge state'
+    'the stateful lazy Views Rewrite service preserves durable rows, runtime rules, and purge state'
 );
 duo_check_same(
     2,
     $GLOBALS['tec_readiness_views_rewrite_resolution_calls'],
-    'same-class lazy Views Rewrite drift is detected by exactly one stable re-resolution'
+    'same-class stateful lazy Views Rewrite is detected by exactly one independent re-resolution'
 );
 remove_filter('tribe_events_rewrite_i18n_slugs_raw', $rawSlugCallback, 50);
 $missingRawSlugPreimage = $rewriteRefusalState();

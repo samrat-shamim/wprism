@@ -481,7 +481,11 @@ final class NativeRewriteEffects {
             'tec_rewrite' => $tecRewrite,
             'aggregator' => $aggregator,
             'views' => $views,
-            'views_rewrite' => $viewsRewrite,
+            'views_rewrite' => $viewsRewrite === null ? null : [
+                'class' => get_class($viewsRewrite),
+                'method' => 'filter_raw_i18n_slugs',
+                'stateless' => true,
+            ],
             'kitchen_sink' => $kitchenSink,
             'view_manager' => $manager,
             'view_registrations' => $viewRegistrations,
@@ -633,24 +637,38 @@ final class NativeRewriteEffects {
         } catch (\Throwable $failure) {
             throw new \RuntimeException('duo: native rewrite could not resolve a lazy TEC rewrite service', 0, $failure);
         }
-        if (!class_exists($class, false)
-            || !is_object($resolved)
-            || get_class($resolved) !== $class
-            || !is_callable([$resolved, $method])) {
-            throw new \RuntimeException('duo: native rewrite found a substituted lazy TEC rewrite service');
-        }
+        self::assert_stateless_lazy_container_value($resolved, $class, $method, false);
         try {
             $reresolved = self::call_function('tribe', $class);
         } catch (\Throwable $failure) {
             throw new \RuntimeException('duo: native rewrite could not re-resolve a lazy TEC rewrite service', 0, $failure);
         }
-        if (!is_object($reresolved)
-            || get_class($reresolved) !== $class
-            || !is_callable([$reresolved, $method])
-            || $reresolved !== $resolved) {
-            throw new \RuntimeException('duo: native rewrite found an unstable lazy TEC rewrite service');
-        }
+        self::assert_stateless_lazy_container_value($reresolved, $class, $method, true);
         return $resolved;
+    }
+
+    private static function assert_stateless_lazy_container_value(
+        mixed $resolved,
+        string $class,
+        string $method,
+        bool $reresolution
+    ): void {
+        $phase = $reresolution ? ' during re-resolution' : '';
+        if (!class_exists($class, false)
+            || !is_object($resolved)
+            || get_class($resolved) !== $class
+            || !is_callable([$resolved, $method])) {
+            throw new \RuntimeException('duo: native rewrite found a substituted lazy TEC rewrite service' . $phase);
+        }
+        try {
+            $properties = (new \ReflectionClass($resolved))->getProperties();
+            $dynamicState = get_object_vars($resolved);
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException('duo: native rewrite could not inspect a lazy TEC rewrite service' . $phase, 0, $failure);
+        }
+        if ($properties !== [] || $dynamicState !== []) {
+            throw new \RuntimeException('duo: native rewrite found a stateful lazy TEC rewrite service' . $phase);
+        }
     }
 
     private static function assert_tec_inner_topology(object $qrRoutes, object $views): void {
