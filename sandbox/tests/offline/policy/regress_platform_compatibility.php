@@ -104,7 +104,7 @@ $facts = static fn(
         'rename' => true,
     ],
     array $processFunctions = [
-        'pcntl_exec' => true,
+        'passthru' => true,
         'posix_kill' => true,
         'posix_setsid' => true,
         'proc_close' => true,
@@ -245,7 +245,7 @@ foreach ([
         'chmod' => true, 'flock' => true, 'fsync' => false, 'lstat' => true, 'rename' => true,
     ]), 'platform_filesystem_function_unsupported'],
     'missing process-group status function' => [$facts(processFunctions: [
-        'pcntl_exec' => true, 'posix_kill' => true, 'posix_setsid' => true, 'proc_close' => true,
+        'passthru' => true, 'posix_kill' => true, 'posix_setsid' => true, 'proc_close' => true,
         'proc_get_status' => false, 'proc_open' => true, 'proc_terminate' => true,
     ]), 'platform_process_function_unsupported'],
     'different process shell path' => [$facts(processShellPath: '/usr/bin/sh'), 'platform_process_shell_unsupported'],
@@ -637,7 +637,7 @@ foreach ([
 // POSIX alias, extra OS family, omitted primitive, or replaceable shell may
 // widen the claim.
 $processRequirements = [
-    'pcntl_exec', 'posix_kill', 'posix_setsid', 'proc_close',
+    'passthru', 'posix_kill', 'posix_setsid', 'proc_close',
     'proc_get_status', 'proc_open', 'proc_terminate',
 ];
 foreach ([
@@ -704,11 +704,11 @@ foreach ([
         'chmod' => true, 'flock' => true, 'fsync' => 'yes', 'lstat' => true, 'rename' => true,
     ]),
     'missing process function fact' => $facts(processFunctions: [
-        'pcntl_exec' => true, 'posix_kill' => true, 'posix_setsid' => true, 'proc_close' => true,
+        'passthru' => true, 'posix_kill' => true, 'posix_setsid' => true, 'proc_close' => true,
         'proc_get_status' => true, 'proc_open' => true,
     ]),
     'non-boolean process function fact' => $facts(processFunctions: [
-        'pcntl_exec' => true, 'posix_kill' => true, 'posix_setsid' => 'yes', 'proc_close' => true,
+        'passthru' => true, 'posix_kill' => true, 'posix_setsid' => 'yes', 'proc_close' => true,
         'proc_get_status' => true, 'proc_open' => true, 'proc_terminate' => true,
     ]),
     'missing process shell fact' => $missingProcessShellFact,

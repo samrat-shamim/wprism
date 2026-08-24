@@ -63,7 +63,7 @@ final class PlatformCompatibility {
     private const FILESYSTEM_FUNCTIONS = ['chmod', 'flock', 'fsync', 'lstat', 'rename'];
     private const PROCESS_PROFILE = 'local-posix-process-group-exec/v1';
     private const PROCESS_FUNCTIONS = [
-        'pcntl_exec',
+        'passthru',
         'posix_kill',
         'posix_setsid',
         'proc_close',

@@ -36,7 +36,7 @@ function healthy_doctor_process_facts(): array {
     return [
         'os_family' => 'Linux',
         'functions' => [
-            'pcntl_exec' => true,
+            'passthru' => true,
             'posix_kill' => true,
             'posix_setsid' => true,
             'proc_close' => true,
@@ -761,7 +761,7 @@ assert_doctor_command(($facts['wp'] ?? null) === '7.0.3', 'a throwing $wpdb sank
 assert_doctor_command(array_key_exists('db_version', $facts) && $facts['db_version'] === null, 'the thrown field did not leave its own null sentinel');
 assert_doctor_command(($facts['db_engine'] ?? null) === 'mariadb', 'the sibling database field did not answer independently of the thrown one');
 $expectedProcessFunctions = [];
-foreach (['pcntl_exec', 'posix_kill', 'posix_setsid', 'proc_close', 'proc_get_status', 'proc_open', 'proc_terminate'] as $function) {
+foreach (['passthru', 'posix_kill', 'posix_setsid', 'proc_close', 'proc_get_status', 'proc_open', 'proc_terminate'] as $function) {
     $expectedProcessFunctions[$function] = function_exists($function);
 }
 assert_doctor_command(

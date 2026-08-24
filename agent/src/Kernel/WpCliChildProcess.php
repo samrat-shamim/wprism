@@ -32,7 +32,7 @@ final class WpCliChildProcess {
     // This fixed program runs under the exact PHP binary WP-CLI selected. It
     // creates the process group before any plugin code and independently
     // refuses a child binary that lacks the required primitives.
-    private const SESSION_WRAPPER = 'if(!function_exists("pcntl_exec")||!function_exists("posix_setsid")){fwrite(STDERR,"duo-child-process-profile-unavailable\\n");exit(125);}$sid=posix_setsid();if(!is_int($sid)||$sid<1){fwrite(STDERR,"duo-child-session-unavailable\\n");exit(125);}pcntl_exec("/bin/sh",["-c",(string)($argv[1]??"")]);fwrite(STDERR,"duo-child-exec-unavailable\\n");exit(126);';
+    private const SESSION_WRAPPER = 'if(!function_exists("passthru")||!function_exists("posix_setsid")){fwrite(STDERR,"duo-child-process-profile-unavailable\\n");exit(125);}$sid=posix_setsid();if(!is_int($sid)||$sid<1){fwrite(STDERR,"duo-child-session-unavailable\\n");exit(125);}$status=126;$result=passthru("exec /bin/sh -c ".escapeshellarg((string)($argv[1]??"")),$status);if($result===false){fwrite(STDERR,"duo-child-exec-unavailable\\n");exit(126);}exit(is_int($status)&&$status>=0&&$status<=255?$status:126);';
 
     /**
      * Launch one fixed caller-owned WP-CLI command and capture bounded output.
@@ -146,7 +146,7 @@ final class WpCliChildProcess {
             'proc_close',
             'proc_get_status',
             'proc_terminate',
-            'pcntl_exec',
+            'passthru',
             'posix_kill',
             'posix_setsid',
         ] as $function) {
@@ -465,7 +465,46 @@ final class WpCliChildProcess {
     }
 
     private static function process_group_exists(int $leaderPid): bool {
-        return $leaderPid > 1 && @posix_kill(-$leaderPid, 0) === true;
+        if ($leaderPid <= 1 || @posix_kill(-$leaderPid, 0) !== true) {
+            return false;
+        }
+        if (PHP_OS_FAMILY !== 'Linux') {
+            return true;
+        }
+
+        // A containerized WP-CLI process is commonly PID 1, so an orphaned
+        // grandchild that SIGKILL already made a zombie is not reaped until
+        // the outer command exits. kill(-pgid, 0) reports that inert zombie as
+        // an extant group even though it can no longer mutate or hold a pipe.
+        // /proc is the Linux authority for distinguishing that state; an
+        // unreadable or ambiguous group remains live (fail closed).
+        $stats = glob('/proc/[0-9]*/stat', GLOB_NOSORT);
+        if (!is_array($stats)) {
+            return true;
+        }
+        $sawMember = false;
+        foreach ($stats as $path) {
+            $stat = @file_get_contents($path);
+            if (!is_string($stat)) {
+                continue;
+            }
+            $close = strrpos($stat, ') ');
+            if ($close === false) {
+                continue;
+            }
+            $fields = explode(' ', substr($stat, $close + 2));
+            if (count($fields) < 3 || (int) $fields[2] !== $leaderPid) {
+                continue;
+            }
+            $sawMember = true;
+            if (!in_array($fields[0], ['Z', 'X'], true)) {
+                return true;
+            }
+        }
+        if ($sawMember) {
+            return false;
+        }
+        return @posix_kill(-$leaderPid, 0) === true;
     }
 
     /** @param resource|null $process */

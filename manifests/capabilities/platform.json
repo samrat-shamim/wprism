@@ -50,7 +50,7 @@
                 ],
                 "profile": "local-posix-process-group-exec/v1",
                 "required_functions": [
-                    "pcntl_exec",
+                    "passthru",
                     "posix_kill",
                     "posix_setsid",
                     "proc_close",

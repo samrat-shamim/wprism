@@ -102,6 +102,29 @@ namespace {
         return str_replace("'\\''", "'", substr($encoded, 1, -1));
     }
 
+    /** A Linux PID-1 zombie is dead/inert even though kill(pid, 0) sees it. */
+    function wp_cli_child_process_is_inert(int $pid): bool {
+        if ($pid <= 1) {
+            return false;
+        }
+        if (@posix_kill($pid, 0) !== true) {
+            return true;
+        }
+        if (PHP_OS_FAMILY !== 'Linux') {
+            return false;
+        }
+        $stat = @file_get_contents("/proc/$pid/stat");
+        if (!is_string($stat)) {
+            return @posix_kill($pid, 0) !== true;
+        }
+        $close = strrpos($stat, ') ');
+        if ($close === false) {
+            return false;
+        }
+        $fields = explode(' ', substr($stat, $close + 2));
+        return isset($fields[0]) && in_array($fields[0], ['Z', 'X'], true);
+    }
+
     $root = dirname(__DIR__, 4);
     require_once $root . '/agent/src/Kernel/WpCliChildProcess.php';
 
@@ -184,74 +207,69 @@ if ($mode === 'exit') {
 }
 if ($mode === 'term-ignore') {
     $pidFile = (string) ($args[0] ?? '');
-    file_put_contents($pidFile, (string) getmypid());
-    pcntl_async_signals(true);
-    pcntl_signal(SIGTERM, SIG_IGN);
-    while (true) {
-        usleep(100000);
-    }
+    $process = proc_open(
+        ['/bin/sh', '-c', 'printf "%s" "$$" > "$1"; trap "" TERM; while :; do sleep 1; done', 'duo-child', $pidFile],
+        [0 => ['file', '/dev/null', 'r'], 1 => STDOUT, 2 => STDERR],
+        $pipes
+    );
+    exit(is_resource($process) ? proc_close($process) : 13);
 }
 if ($mode === 'chatty-term-ignore') {
     $pidFile = (string) ($args[0] ?? '');
-    file_put_contents($pidFile, (string) getmypid());
-    pcntl_async_signals(true);
-    pcntl_signal(SIGTERM, SIG_IGN);
-    while (true) {
-        echo str_repeat('o', 1024);
-        fwrite(STDERR, str_repeat('e', 1024));
-        usleep(10000);
-    }
+    $process = proc_open(
+        [
+            '/bin/sh',
+            '-c',
+            'printf "%s" "$$" > "$1"; trap "" TERM; o=$(printf "%01024d" 0); e=$(printf "%01024d" 1); while :; do printf "%s" "$o"; printf "%s" "$e" >&2; sleep 0.01; done',
+            'duo-child',
+            $pidFile,
+        ],
+        [0 => ['file', '/dev/null', 'r'], 1 => STDOUT, 2 => STDERR],
+        $pipes
+    );
+    exit(is_resource($process) ? proc_close($process) : 14);
 }
 if ($mode === 'closed-pipes-hang') {
     $pidFile = (string) ($args[0] ?? '');
-    file_put_contents($pidFile, (string) getmypid());
-    pcntl_async_signals(true);
-    pcntl_signal(SIGTERM, SIG_IGN);
-    fclose(STDOUT);
-    fclose(STDERR);
-    while (true) {
-        usleep(100000);
-    }
+    $process = proc_open(
+        ['/bin/sh', '-c', 'printf "%s" "$$" > "$1"; trap "" TERM; exec 1>&- 2>&-; while :; do sleep 1; done', 'duo-child', $pidFile],
+        [0 => ['file', '/dev/null', 'r'], 1 => STDOUT, 2 => STDERR],
+        $pipes
+    );
+    exit(is_resource($process) ? proc_close($process) : 15);
 }
 if ($mode === 'fork-descendant-timeout') {
     [$parentPidFile, $childPidFile, $markerFile] = array_pad($args, 3, '');
     file_put_contents($parentPidFile, (string) getmypid());
-    $fork = pcntl_fork();
-    if ($fork === 0) {
-        file_put_contents($childPidFile, (string) getmypid());
-        pcntl_async_signals(true);
-        pcntl_signal(SIGTERM, SIG_IGN);
-        fclose(STDOUT);
-        fclose(STDERR);
-        usleep(2500000);
-        file_put_contents($markerFile, 'descendant-survived');
-        exit(0);
-    }
-    if (!is_int($fork) || $fork < 1) {
-        exit(11);
-    }
-    pcntl_async_signals(true);
-    pcntl_signal(SIGTERM, SIG_IGN);
-    while (true) {
-        usleep(100000);
-    }
+    $process = proc_open(
+        [
+            '/bin/sh',
+            '-c',
+            'printf "%s" "$$" > "$1"; trap "" TERM; exec 1>&- 2>&-; sleep 2.5; printf "%s" descendant-survived > "$2"; while :; do sleep 1; done',
+            'duo-child',
+            $childPidFile,
+            $markerFile,
+        ],
+        [0 => ['file', '/dev/null', 'r'], 1 => STDOUT, 2 => STDERR],
+        $pipes
+    );
+    exit(is_resource($process) ? proc_close($process) : 11);
 }
 if ($mode === 'fork-after-success') {
     [$childPidFile, $markerFile] = array_pad($args, 2, '');
-    $fork = pcntl_fork();
-    if ($fork === 0) {
-        file_put_contents($childPidFile, (string) getmypid());
-        pcntl_async_signals(true);
-        pcntl_signal(SIGTERM, SIG_IGN);
-        fclose(STDOUT);
-        fclose(STDERR);
-        usleep(1500000);
-        file_put_contents($markerFile, 'detached-mutation');
-        while (true) {
-            usleep(100000);
-        }
-    }
-    if (!is_int($fork) || $fork < 1) {
+    $launcher = proc_open(
+        [
+            '/bin/sh',
+            '-c',
+            '(trap "" TERM; exec 1>&- 2>&-; sleep 1.5; printf "%s" detached-mutation > "$2"; while :; do sleep 1; done) & printf "%s" "$!" > "$1"',
+            'duo-child',
+            $childPidFile,
+            $markerFile,
+        ],
+        [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'a'], 2 => ['file', '/dev/null', 'a']],
+        $pipes
+    );
+    if (!is_resource($launcher) || proc_close($launcher) !== 0) {
         exit(12);
     }
     echo "{\"format\":\"false-success/v1\"}\n";
@@ -439,8 +457,8 @@ PHP;
     $pid = is_file($pidFile) ? (int) file_get_contents($pidFile) : 0;
     duo_check($pid > 1, 'the TERM-ignoring fixture published its child PID before timeout');
     duo_check(
-        $pid > 1 && function_exists('posix_kill') && @posix_kill($pid, 0) === false,
-        'the SIGKILL path reaps the exact TERM-ignoring child before returning'
+        $pid > 1 && function_exists('posix_kill') && wp_cli_child_process_is_inert($pid),
+        'the SIGKILL path leaves the exact TERM-ignoring child unable to execute before returning'
     );
     $chattyPidFile = $scratch . '/chatty-term-ignore.pid';
     $chattyStarted = microtime(true);
@@ -466,8 +484,8 @@ PHP;
     );
     $chattyPid = is_file($chattyPidFile) ? (int) file_get_contents($chattyPidFile) : 0;
     duo_check(
-        $chattyPid > 1 && function_exists('posix_kill') && @posix_kill($chattyPid, 0) === false,
-        'the exact continuously chatty child is reaped before timeout returns'
+        $chattyPid > 1 && function_exists('posix_kill') && wp_cli_child_process_is_inert($chattyPid),
+        'the exact continuously chatty child cannot execute after timeout returns'
     );
 
     $closedPidFile = $scratch . '/closed-pipes.pid';
@@ -493,7 +511,7 @@ PHP;
     );
     $closedPid = is_file($closedPidFile) ? (int) file_get_contents($closedPidFile) : 0;
     duo_check(
-        $closedPid > 1 && @posix_kill($closedPid, 0) === false,
+        $closedPid > 1 && wp_cli_child_process_is_inert($closedPid),
         'the leader that closed both output pipes cannot survive the helper refusal'
     );
 
@@ -523,9 +541,9 @@ PHP;
     duo_check(
         $forkParentPid > 1
             && $forkChildPid > 1
-            && @posix_kill($forkParentPid, 0) === false
-            && @posix_kill($forkChildPid, 0) === false,
-        'SIGKILL reaps both the direct child and its TERM-ignoring descendant before returning'
+            && wp_cli_child_process_is_inert($forkParentPid)
+            && wp_cli_child_process_is_inert($forkChildPid),
+        'SIGKILL leaves both the direct child and its TERM-ignoring descendant unable to execute before returning'
     );
     usleep(1700000);
     duo_check(!file_exists($forkMarkerFile), 'a descendant cannot mutate target state after timeout was reported');
@@ -551,7 +569,7 @@ PHP;
     );
     $successChildPid = is_file($successChildPidFile) ? (int) file_get_contents($successChildPidFile) : 0;
     duo_check(
-        $successChildPid > 1 && @posix_kill($successChildPid, 0) === false,
+        $successChildPid > 1 && wp_cli_child_process_is_inert($successChildPid),
         'the owned group is empty before an apparent-success refusal returns'
     );
     usleep(1700000);
@@ -560,7 +578,7 @@ PHP;
     $selectedBinary = $scratch . '/php-without-session-profile';
     $selectedSource = '#!/bin/sh' . "\n"
         . 'exec ' . escapeshellarg(PHP_BINARY)
-        . ' -d disable_functions=pcntl_exec,posix_setsid "$@"' . "\n";
+        . ' -d disable_functions=passthru,posix_setsid "$@"' . "\n";
     duo_check_same(
         strlen($selectedSource),
         file_put_contents($selectedBinary, $selectedSource),
@@ -577,6 +595,24 @@ PHP;
         ],
         $selectedReceipt,
         'the selected PHP binary independently refuses before launching WP-CLI when session primitives are absent'
+    );
+    $GLOBALS['wp_cli_child_php_binary'] = PHP_BINARY;
+
+    $withoutPcntlExec = $scratch . '/php-without-pcntl-exec';
+    $withoutPcntlExecSource = '#!/bin/sh' . "\n"
+        . 'exec ' . escapeshellarg(PHP_BINARY)
+        . ' -d disable_functions=pcntl_exec "$@"' . "\n";
+    duo_check_same(
+        strlen($withoutPcntlExecSource),
+        file_put_contents($withoutPcntlExec, $withoutPcntlExecSource),
+        'the no-pcntl-exec selected-binary fixture writes exact wrapper bytes'
+    );
+    chmod($withoutPcntlExec, 0700);
+    $GLOBALS['wp_cli_child_php_binary'] = $withoutPcntlExec;
+    duo_check_same(
+        0,
+        Duo\WpCliChildProcess::capture('receipt', 5, 65536, 65536)['return_code'],
+        'a selected PHP binary without pcntl_exec still runs through the declared passthru/session profile'
     );
     $GLOBALS['wp_cli_child_php_binary'] = PHP_BINARY;
 

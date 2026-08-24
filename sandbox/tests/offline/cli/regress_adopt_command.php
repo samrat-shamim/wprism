@@ -139,7 +139,7 @@ final class AdoptCommandFakeTransport implements AdoptionTransport, EnvironmentD
                 'process' => [
                     'os_family' => 'Linux',
                     'functions' => [
-                        'pcntl_exec' => true,
+                        'passthru' => true,
                         'posix_kill' => true,
                         'posix_setsid' => true,
                         'proc_close' => true,

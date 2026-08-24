@@ -70,7 +70,7 @@ final class Doctor {
         . '"fsync" => function_exists("fsync"), "lstat" => function_exists("lstat"), '
         . '"rename" => function_exists("rename")]]; } catch (\Throwable $e) {} '
         . 'try { $duo["process"] = ["os_family" => PHP_OS_FAMILY, "functions" => ['
-        . '"pcntl_exec" => function_exists("pcntl_exec"), "posix_kill" => function_exists("posix_kill"), '
+        . '"passthru" => function_exists("passthru"), "posix_kill" => function_exists("posix_kill"), '
         . '"posix_setsid" => function_exists("posix_setsid"), "proc_close" => function_exists("proc_close"), '
         . '"proc_get_status" => function_exists("proc_get_status"), "proc_open" => function_exists("proc_open"), '
         . '"proc_terminate" => function_exists("proc_terminate")], "shell" => ['
@@ -676,7 +676,7 @@ final class Doctor {
         $shellKeys = array_keys($shell);
         sort($shellKeys, SORT_STRING);
         if ($keys !== [
-            'pcntl_exec',
+            'passthru',
             'posix_kill',
             'posix_setsid',
             'proc_close',
@@ -726,7 +726,7 @@ final class Doctor {
             || ($data['process']['profile'] ?? null) !== 'local-posix-process-group-exec/v1'
             || ($data['process']['os_families'] ?? null) !== ['Darwin', 'Linux']
             || ($data['process']['required_functions'] ?? null) !== [
-                'pcntl_exec', 'posix_kill', 'posix_setsid', 'proc_close',
+                'passthru', 'posix_kill', 'posix_setsid', 'proc_close',
                 'proc_get_status', 'proc_open', 'proc_terminate',
             ]
             || ($data['process']['shell'] ?? null) !== '/bin/sh'

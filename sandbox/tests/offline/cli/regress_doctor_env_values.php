@@ -79,7 +79,7 @@ final class DoctorTransport extends Transport {
                 'process' => [
                     'os_family' => 'Linux',
                     'functions' => [
-                        'pcntl_exec' => true,
+                        'passthru' => true,
                         'posix_kill' => true,
                         'posix_setsid' => true,
                         'proc_close' => true,

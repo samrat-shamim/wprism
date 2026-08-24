@@ -21,7 +21,7 @@ Duo agent **0.5.0** / repo spec **2**. This document is the whole of what Duo cl
 | PHP | >=8.3.0 <8.5.0 (exercised 8.3.33, 8.4.24) |
 | Database | MariaDB >=11.0.0 <12.0.0; MySQL >=8.4.0 <8.5.0 |
 | Filesystem | local-posix-atomic-rename-flock-fsync/v1 (OS Darwin, Linux; separator "/"; functions chmod, flock, fsync, lstat, rename) |
-| Process | local-posix-process-group-exec/v1 (OS Darwin, Linux; functions pcntl_exec, posix_kill, posix_setsid, proc_close, proc_get_status, proc_open, proc_terminate; executable shell /bin/sh) |
+| Process | local-posix-process-group-exec/v1 (OS Darwin, Linux; functions passthru, posix_kill, posix_setsid, proc_close, proc_get_status, proc_open, proc_terminate; executable shell /bin/sh) |
 
 Multisite is refused before policy load or mutation. Each compatibility axis carries its own reviewed note saying what pins it and what it does not claim:
 
