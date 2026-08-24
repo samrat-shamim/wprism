@@ -2724,6 +2724,110 @@ namespace {
         WC_Data_Store::$variable->calls = $variableCallsBeforeVisibility;
     }
 
+    // The provider's graph bound is one deduplicated aggregate, not one
+    // counter per array. Exercise duplicate grouped membership, a nested
+    // grouped root, and a variable child whose variations are also referenced
+    // by the nested group; every id must count once across products, roots,
+    // prices, and attributes.
+    $preflightScope = new \ReflectionMethod($adapter, 'preflight_product_scope');
+    $nestedRoot = 70000;
+    fake_add_visibility_product($nestedRoot, 'grouped', 0, [70001, 70001, 70002]);
+    fake_add_visibility_product(70001, 'variable', 0, [70003, 70004]);
+    fake_add_visibility_product(70002, 'grouped', 0, [70003, 70005]);
+    fake_add_visibility_product(70003, 'variation', 70001);
+    fake_add_visibility_product(70004, 'variation', 70001);
+    fake_add_visibility_product(70005, 'simple');
+    $fakeGroupedChildren[70000] = [70001, 70001, 70002];
+    $fakeGroupedChildren[70002] = [70003, 70005];
+    $nestedScope = $preflightScope->invoke($adapter, [$nestedRoot], []);
+    $nestedScopeIds = array_map('intval', array_keys($nestedScope));
+    sort($nestedScopeIds, SORT_NUMERIC);
+    $check($nestedScopeIds === [70000, 70001, 70002, 70003, 70004, 70005],
+        'nested and duplicate grouped/variation expansion contributes one exact deduplicated scope id per product');
+    // Keep this on the production batch path too: a read failure after the
+    // preflight proves the provider reached its normal visibility boundary,
+    // rather than passing only through a test-only graph helper.
+    $wpdb->failReadContaining = 'SELECT ID, post_parent, post_type';
+    $nestedPathFailure = '';
+    try {
+        $adapter->regenerate_batch([$nestedRoot], []);
+    } catch (\Throwable $failure) {
+        $nestedPathFailure = $failure->getMessage();
+    }
+    $wpdb->failReadContaining = null;
+    $check(str_contains($nestedPathFailure, 'checked read failed')
+        && !str_contains($nestedPathFailure, 'aggregate product count'),
+        'the production batch consumes the same nested deduplicated scope before its first cache mutation');
+    foreach ([$nestedRoot, 70001, 70002, 70003, 70004, 70005] as $id) {
+        unset($fakeProducts[$id], $fakeMeta[$id], $fakeMetaLookup[$id], $fakeVisibilityRelationships[$id], $fakeProductCache[$id]);
+    }
+    unset($fakeGroupedChildren[70000], $fakeGroupedChildren[70002]);
+
+    // Exactly MAX_SCOPED_PRODUCTS (the root plus 49,999 unique grouped
+    // children) is admitted and reaches the next read-only boundary. This
+    // keeps the boundary regression fast while proving the guard is <=, not <.
+    $boundaryRoot = 71000;
+    $boundaryChildren = range($boundaryRoot + 1, $boundaryRoot + 49999);
+    fake_add_visibility_product($boundaryRoot, 'grouped', 0, $boundaryChildren);
+    $wpdb->failReadContaining = 'SELECT ID, post_parent, post_type';
+    $boundaryCacheStart = count($fakeCacheEvents);
+    $boundaryFailure = '';
+    try {
+        $adapter->regenerate_batch([$boundaryRoot], []);
+    } catch (\Throwable $failure) {
+        $boundaryFailure = $failure->getMessage();
+    }
+    $wpdb->failReadContaining = null;
+    $boundaryCacheEvents = array_slice($fakeCacheEvents, $boundaryCacheStart);
+    $check(str_contains($boundaryFailure, 'checked read failed')
+        && !str_contains($boundaryFailure, 'aggregate product count')
+        && !in_array('remove:' . $boundaryRoot, $boundaryCacheEvents, true),
+        'a 50,000-id aggregate is accepted at the boundary before the first cache mutation');
+    unset($fakeProducts[$boundaryRoot], $fakeMeta[$boundaryRoot], $fakeMetaLookup[$boundaryRoot],
+        $fakeVisibilityRelationships[$boundaryRoot], $fakeProductCache[$boundaryRoot]);
+
+    // MAX+1 must fail before visibility/cache work and must not partially
+    // mutate the root lookup witness.
+    $overflowRoot = 72000;
+    $overflowChildren = range($overflowRoot + 1, $overflowRoot + 50000);
+    fake_add_visibility_product($overflowRoot, 'grouped', 0, $overflowChildren);
+    $overflowLookupBefore = $fakeMetaLookup[$overflowRoot];
+    $overflowCacheStart = count($fakeCacheEvents);
+    $overflowFailure = '';
+    try {
+        $adapter->regenerate_batch([$overflowRoot], []);
+    } catch (\Throwable $failure) {
+        $overflowFailure = $failure->getMessage();
+    }
+    $overflowCacheEvents = array_slice($fakeCacheEvents, $overflowCacheStart);
+    $check(str_contains($overflowFailure, 'aggregate product count')
+        && !in_array('remove:' . $overflowRoot, $overflowCacheEvents, true)
+        && $fakeMetaLookup[$overflowRoot] === $overflowLookupBefore,
+        'a 50,001-id aggregate refuses loudly before cache/lookup effects with no partial root mutation');
+    unset($fakeProducts[$overflowRoot], $fakeMeta[$overflowRoot], $fakeMetaLookup[$overflowRoot],
+        $fakeVisibilityRelationships[$overflowRoot], $fakeProductCache[$overflowRoot]);
+
+    // The same single aggregate must reject a variable root's variation
+    // expansion; a separate per-root/child counter would otherwise permit
+    // this path while grouped roots are bounded.
+    $variationOverflowRoot = 73000;
+    $variationOverflowChildren = range($variationOverflowRoot + 1, $variationOverflowRoot + 50000);
+    fake_add_visibility_product($variationOverflowRoot, 'variable', 0, $variationOverflowChildren);
+    $variationOverflowCacheStart = count($fakeCacheEvents);
+    $variationOverflowFailure = '';
+    try {
+        $adapter->regenerate_batch([$variationOverflowRoot], []);
+    } catch (\Throwable $failure) {
+        $variationOverflowFailure = $failure->getMessage();
+    }
+    $variationOverflowCacheEvents = array_slice($fakeCacheEvents, $variationOverflowCacheStart);
+    $check(str_contains($variationOverflowFailure, 'aggregate product count')
+        && !in_array('remove:' . $variationOverflowRoot, $variationOverflowCacheEvents, true),
+        'a 50,001-id variable/variation aggregate refuses before cache effects');
+    unset($fakeProducts[$variationOverflowRoot], $fakeMeta[$variationOverflowRoot],
+        $fakeMetaLookup[$variationOverflowRoot], $fakeVisibilityRelationships[$variationOverflowRoot],
+        $fakeProductCache[$variationOverflowRoot]);
+
     // A target-local approved-directory register is a real WooCommerce 11
     // projection: raw postmeta can contain an enabled, correctly rebased
     // file while WC_Product::get_downloads() disables it until the target
@@ -3178,6 +3282,11 @@ namespace {
     // Exercise a future end date, an unrelated no-date product, heartbeat
     // calls, exact Action Scheduler readback, and a verifier fault that must
     // fail closed before the retry is allowed to pass.
+    $futureSaleTimestamp = new \ReflectionMethod($adapter, 'future_sale_timestamp');
+    $clockNow = 1700000000;
+    $check($futureSaleTimestamp->invoke($adapter, new FakeSaleDate($clockNow), $clockNow) === null
+        && $futureSaleTimestamp->invoke($adapter, new FakeSaleDate($clockNow + 1), $clockNow) === $clockNow + 1,
+        'sale timestamp projection uses an explicit clock seam at the exact now boundary');
     $futureSale = time() + 3600;
     $fakeMeta[13]['_sale_price_dates_to'] = [(string) $futureSale];
     $saleCallStart = count($fakeSaleScheduleCalls);
@@ -4282,15 +4391,17 @@ namespace {
     $groupedEvents = array_slice($fakeCacheEvents, $groupedEventStart);
     $groupedParentRemove = array_search('remove:40', $groupedEvents, true);
     $groupedParentRead = null;
-    foreach ($groupedEvents as $eventIndex => $event) {
-        if (str_starts_with($event, 'read:40:')) {
-            $groupedParentRead = $eventIndex;
-            break;
+    if ($groupedParentRemove !== false) {
+        foreach (array_slice($groupedEvents, $groupedParentRemove + 1, null, true) as $eventIndex => $event) {
+            if (str_starts_with($event, 'read:40:')) {
+                $groupedParentRead = $eventIndex;
+                break;
+            }
         }
     }
     $check($groupedParentRemove !== false && $groupedParentRead !== null
         && $groupedParentRemove < $groupedParentRead,
-        'grouped parent discovery evicts the root before its first Woo read');
+        'grouped parent discovery evicts the root before its first post-invalidation Woo read');
 
     $adapter->regenerate_batch([41], []);
     $check($fakeMeta[40]['_price'] === ['17', '21'] && (WC_Data_Store::$grouped?->calls ?? 0) === 2,
@@ -4448,14 +4559,16 @@ namespace {
     $sameParentEvents = array_slice($fakeCacheEvents, $sameParentEventStart);
     $sameParentRemove = array_search('remove:30', $sameParentEvents, true);
     $sameParentRead = null;
-    foreach ($sameParentEvents as $eventIndex => $event) {
-        if (str_starts_with($event, 'read:30:')) {
-            $sameParentRead = $eventIndex;
-            break;
+    if ($sameParentRemove !== false) {
+        foreach (array_slice($sameParentEvents, $sameParentRemove + 1, null, true) as $eventIndex => $event) {
+            if (str_starts_with($event, 'read:30:')) {
+                $sameParentRead = $eventIndex;
+                break;
+            }
         }
     }
     $check($sameParentRemove !== false && $sameParentRead !== null && $sameParentRemove < $sameParentRead,
-        'same-parent write evicts the current parent cache before the first parent read');
+        'same-parent write evicts the current parent cache before the first post-invalidation parent read');
 
     // Reparent a live variation from variable root 20 to root 22.  The old
     // root must be refreshed as well as the new root, while the variation's
@@ -4560,14 +4673,16 @@ namespace {
     foreach ([20, 21, 22] as $cacheId) {
         $firstRemove = array_search("remove:$cacheId", $reparentEvents, true);
         $firstRead = null;
-        foreach ($reparentEvents as $eventIndex => $event) {
-            if (str_starts_with($event, "read:$cacheId:")) {
-                $firstRead = $eventIndex;
-                break;
+        if ($firstRemove !== false) {
+            foreach (array_slice($reparentEvents, $firstRemove + 1, null, true) as $eventIndex => $event) {
+                if (str_starts_with($event, "read:$cacheId:")) {
+                    $firstRead = $eventIndex;
+                    break;
+                }
             }
         }
         $check($firstRemove !== false && $firstRead !== null && $firstRemove < $firstRead,
-            "reparent evicts product-cache id $cacheId before the first read");
+            "reparent evicts product-cache id $cacheId before the first post-invalidation read");
     }
 
     // Exercise an accumulated A->B->C receipt.  Preload stale A/B/C and the
@@ -4607,14 +4722,16 @@ namespace {
     foreach ([20, 21, 22, 24] as $cacheId) {
         $firstRemove = array_search("remove:$cacheId", $chainedReparentEvents, true);
         $firstRead = null;
-        foreach ($chainedReparentEvents as $eventIndex => $event) {
-            if (str_starts_with($event, "read:$cacheId:")) {
-                $firstRead = $eventIndex;
-                break;
+        if ($firstRemove !== false) {
+            foreach (array_slice($chainedReparentEvents, $firstRemove + 1, null, true) as $eventIndex => $event) {
+                if (str_starts_with($event, "read:$cacheId:")) {
+                    $firstRead = $eventIndex;
+                    break;
+                }
             }
         }
         $check($firstRemove !== false && $firstRead !== null && $firstRemove < $firstRead,
-            "chained reparent evicts accumulated root/cache id $cacheId before the first read");
+            "chained reparent evicts accumulated root/cache id $cacheId before the first post-invalidation read");
     }
 
     // A failed A->B receipt can meet a deletion before retry. Leave the
@@ -4651,14 +4768,16 @@ namespace {
     foreach ([20, 21, 22, 24] as $cacheId) {
         $firstRemove = array_search("remove:$cacheId", $deletedReparentEvents, true);
         $firstRead = null;
-        foreach ($deletedReparentEvents as $eventIndex => $event) {
-            if (str_starts_with($event, "read:$cacheId:")) {
-                $firstRead = $eventIndex;
-                break;
+        if ($firstRemove !== false) {
+            foreach (array_slice($deletedReparentEvents, $firstRemove + 1, null, true) as $eventIndex => $event) {
+                if (str_starts_with($event, "read:$cacheId:")) {
+                    $firstRead = $eventIndex;
+                    break;
+                }
             }
         }
         $check($firstRemove !== false && ($firstRead === null || $firstRemove < $firstRead),
-            "deleted reparent retry evicts cache id $cacheId before any read");
+            "deleted reparent retry evicts cache id $cacheId before any post-invalidation read");
     }
 
     $adapter->regenerate_batch([10, 12], [[

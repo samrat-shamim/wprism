@@ -279,13 +279,27 @@ final class WoocommerceProductLookups {
         $observed = array_values(array_unique($observed));
         sort($observed, SORT_NUMERIC);
 
+        // The visibility snapshot below invalidates Woo product caches before
+        // it hydrates native objects. Build and bound the complete product
+        // graph first so a hostile root cannot make this provider perform any
+        // cache, lookup, price, or scheduler work before refusing the batch.
+        $preflightScope = $this->preflight_product_scope(
+            array_values($liveIds),
+            $deletionContext
+        );
         $visibilityIntent = $this->visibility_snapshot(
             array_values($liveIds),
             true,
             $this->visibility_deletion_ids($deletionContext)
         );
         $before = $this->observe_provider_state($observed, array_values($liveIds), false);
-        $this->regenerate_batch(array_values($liveIds), $deletionContext, null, $visibilityIntent);
+        $this->regenerate_batch(
+            array_values($liveIds),
+            $deletionContext,
+            null,
+            $visibilityIntent,
+            $preflightScope
+        );
         return [
             'before' => $before,
             'after' => $this->observe_provider_state($observed, array_values($liveIds), true),
@@ -2649,8 +2663,14 @@ final class WoocommerceProductLookups {
         array $liveIds,
         array $deletionContext,
         ?callable $heartbeat = null,
-        ?array $visibilityIntent = null
+        ?array $visibilityIntent = null,
+        ?array $preflightScope = null
     ): void {
+        if ($preflightScope === null) {
+            $preflightScope = $this->preflight_product_scope($liveIds, $deletionContext, $heartbeat);
+        } else {
+            $this->assert_product_scope_aggregate([array_keys($preflightScope)]);
+        }
         global $wpdb;
         $currentVisibility = $this->visibility_snapshot(
             $liveIds,
@@ -2934,6 +2954,21 @@ final class WoocommerceProductLookups {
             }
             $this->heartbeat($heartbeat);
         }
+
+        // Keep one exact deduplicated aggregate for every id participating in
+        // this graph. The preflight protects the first cache invalidation;
+        // this second assertion protects against a product graph changing
+        // while Woo objects are refreshed, before any price/lookup/scheduler
+        // projection can consume a widened set.
+        $this->assert_product_scope_aggregate([
+            array_keys($preflightScope),
+            $liveIds,
+            array_keys($products),
+            array_keys($variableRoots),
+            array_keys($groupedRoots),
+            array_keys($attributeRoots),
+            array_keys($priceIds),
+        ]);
 
         // WooCommerce's WC_Product_Data_Store_CPT::clear_caches() queues
         // layered-navigation count transients from the product's own
@@ -3330,12 +3365,12 @@ final class WoocommerceProductLookups {
         }
     }
 
-    private function future_sale_timestamp(mixed $date): ?int {
+    private function future_sale_timestamp(mixed $date, ?int $now = null): ?int {
         if (!is_object($date) || !is_callable([$date, 'getTimestamp'])) {
             return null;
         }
         $timestamp = (int) $date->getTimestamp();
-        return $timestamp > time() ? $timestamp : null;
+        return $timestamp > ($now ?? time()) ? $timestamp : null;
     }
 
     /**
@@ -4225,6 +4260,183 @@ final class WoocommerceProductLookups {
             throw new \RuntimeException('duo: unusable WooCommerce product lookup table name');
         }
         return $table;
+    }
+
+    /**
+     * Build the complete product graph without invalidating caches or writing
+     * any derived surface. A variable or grouped root can widen the work far
+     * beyond the engine's selected ids; one deduplicated aggregate is the only
+     * bound that prevents duplicate/nested membership from bypassing the
+     * provider contract. The same graph is rebuilt after the fresh cache pass
+     * and checked again before projection work starts.
+     *
+     * @param list<int> $liveIds
+     * @param array<int,array> $deletionContext
+     * @return array<int,true>
+     */
+    private function preflight_product_scope(
+        array $liveIds,
+        array $deletionContext,
+        ?callable $heartbeat = null
+    ): array {
+        $scope = [];
+        $queue = [];
+        $queued = [];
+        $excluded = [];
+        $reverseCandidates = [];
+
+        $enqueue = function (mixed $value, bool $walk) use (
+            &$scope,
+            &$queue,
+            &$queued,
+            &$excluded
+        ): void {
+            $id = (int) $value;
+            if ($id <= 0) {
+                return;
+            }
+            if (!isset($scope[$id])) {
+                $scope[$id] = true;
+                if (count($scope) > self::MAX_SCOPED_PRODUCTS) {
+                    throw new \RuntimeException(
+                        'duo: WooCommerce product lookup scope exceeds its bounded aggregate product count'
+                    );
+                }
+            }
+            if ($walk && !isset($excluded[$id]) && !isset($queued[$id])) {
+                $queued[$id] = true;
+                $queue[] = $id;
+            }
+        };
+
+        // Tombstones are excluded from the live graph and are not hydrated.
+        // Their live variation parent still is: a delete must resynthesize
+        // that parent's price and lookup rows.
+        foreach ($deletionContext as $context) {
+            $kind = (string) ($context['kind'] ?? 'delete');
+            $contextIds = array_merge(
+                [(int) ($context['id'] ?? 0)],
+                array_map('intval', (array) ($context['child_ids'] ?? []))
+            );
+            foreach ($contextIds as $id) {
+                if ($id > 0) {
+                    $excluded[$id] = true;
+                }
+            }
+            $contextId = (int) ($context['id'] ?? 0);
+            if ($contextId > 0) {
+                // The deleted row itself is not part of the live graph, but
+                // its grouped reverse owners still need discovery.
+                $reverseCandidates[$contextId] = $contextId;
+            }
+            if ($kind === 'reparent') {
+                $rootIds = array_merge(
+                    array_map('intval', (array) ($context['root_ids'] ?? [])),
+                    [
+                        (int) ($context['old_parent_id'] ?? $context['parent_id'] ?? 0),
+                        (int) ($context['new_parent_id'] ?? 0),
+                    ]
+                );
+                foreach ($rootIds as $rootId) {
+                    if ($rootId > 0) {
+                        $enqueue($rootId, true);
+                        $reverseCandidates[$rootId] = $rootId;
+                    }
+                }
+                continue;
+            }
+            if (($context['post_type'] ?? '') === 'product_variation') {
+                $parentId = (int) ($context['parent_id'] ?? 0);
+                if ($parentId > 0) {
+                    $enqueue($parentId, true);
+                    $reverseCandidates[$parentId] = $parentId;
+                }
+            }
+        }
+
+        foreach ($liveIds as $id) {
+            $id = (int) $id;
+            if ($id > 0) {
+                $enqueue($id, true);
+                $reverseCandidates[$id] = $id;
+            }
+        }
+
+        // Grouped products have no post_parent index. Match the production
+        // path's targeted reverse lookup for selected/tombstone/root ids
+        // before any cache invalidation, then walk each discovered root's
+        // complete nested child graph through public WC objects.
+        foreach (array_values($reverseCandidates) as $candidateId) {
+            $this->heartbeat($heartbeat);
+            foreach ($this->find_grouped_parent_ids((int) $candidateId) as $parentId) {
+                $enqueue($parentId, true);
+            }
+        }
+
+        $queueIndex = 0;
+        while ($queueIndex < count($queue)) {
+            $id = (int) $queue[$queueIndex++];
+            $this->heartbeat($heartbeat);
+            $product = $this->load_product($id);
+            if (!$product) {
+                continue;
+            }
+            if (!is_callable([$product, 'get_type'])) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce product lookup scope could not read the native product type'
+                );
+            }
+            $type = (string) $product->get_type();
+            if ($type === 'variation') {
+                if (!is_callable([$product, 'get_parent_id'])) {
+                    throw new \RuntimeException(
+                        'duo: WooCommerce variation lookup scope lacks the public parent boundary'
+                    );
+                }
+                $parentId = (int) $product->get_parent_id('edit');
+                if ($parentId > 0) {
+                    $enqueue($parentId, true);
+                    $reverseCandidates[$parentId] = $parentId;
+                }
+            }
+            if (!$this->is_variable($product) && !$this->is_grouped($product)) {
+                continue;
+            }
+            if (!is_callable([$product, 'get_children'])) {
+                throw new \RuntimeException(
+                    'duo: WooCommerce composite product lookup scope lacks the public child boundary'
+                );
+            }
+            foreach ((array) $product->get_children() as $childId) {
+                $childId = (int) $childId;
+                if ($childId > 0 && !isset($excluded[$childId])) {
+                    $enqueue($childId, true);
+                }
+            }
+        }
+
+        return $scope;
+    }
+
+    /**
+     * @param list<array<int,mixed>> $sets
+     */
+    private function assert_product_scope_aggregate(array $sets): void {
+        $scope = [];
+        foreach ($sets as $set) {
+            foreach ($set as $value) {
+                $id = (int) $value;
+                if ($id <= 0) {
+                    continue;
+                }
+                $scope[$id] = true;
+                if (count($scope) > self::MAX_SCOPED_PRODUCTS) {
+                    throw new \RuntimeException(
+                        'duo: WooCommerce product lookup scope exceeds its bounded aggregate product count'
+                    );
+                }
+            }
+        }
     }
 
     /** @param list<int> $ids */
