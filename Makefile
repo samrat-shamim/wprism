@@ -544,6 +544,14 @@ regress-capture-atomicity:
 regress-capture-record-readback:
 	php sandbox/tests/offline/capture/regress_capture_record_readback.php
 
+# WP-2.7: replay a recorded duo-conformance-vector/v1 through the real engine
+# (FakeWpdb seeded from the recorded rows, FrozenPolicy loading the adapter),
+# and prove the replay verdict is a DISTINCT, WEAKER word than the live
+# conformance verdict the vector was recorded under. Recording is a flag on
+# sandbox/conformance/run.sh (CONF_RECORD_VECTOR); this leaf needs no pair.
+regress-conformance-vector-replay:
+	php sandbox/tests/offline/capture/regress_conformance_vector_replay.php
+
 regress-action-scope:
 	php sandbox/tests/offline/adapter/regress_action_scope.php
 

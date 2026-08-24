@@ -46,6 +46,32 @@ All are single-subject by construction, per docs/agents/linear-loop.md's
 minimal reasonably-safe rule; nothing in this program runs the manifest matrix
 by habit.
 
+### Order 4 — the exact command (WP-2.7)
+
+The vector recorder is a FLAG on the existing conformance harness, so the pair
+run is an ordinary sweep that leaves an artifact behind. One manifest, one
+sweep, one vector:
+
+```bash
+cd sandbox
+CONF_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD) \
+CONF_RECORD_VECTOR="$PWD/tmp/vector-code-snippets.json" \
+  bash conformance/run.sh code-snippets
+```
+
+`code-snippets` is the cheapest honest subject: one declared typed table, one
+pinned plugin version window, and a seed hook that already authors hostile
+UTF-8/delimiter bytes and both shortcode aliases. `CONF_RECORD_VECTOR` writes
+only after the round-trip acceptance passes, so a vector cannot record a sweep
+nobody checked, and `conformance/record-vector.php` refuses to write one this
+repository's own replay would reject — the defect surfaces while the pair is
+still up rather than costing a second one.
+
+Nothing about the offline half waits on this. The mechanism is proven against a
+synthetic adapter with no pair at all by
+`sandbox/tests/offline/capture/regress_conformance_vector_replay.php`, which is
+what a recorded vector then joins rather than what it enables.
+
 ## Reporting
 
 Each live-carrying work package's report states pair-hours consumed against
