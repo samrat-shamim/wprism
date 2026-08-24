@@ -412,6 +412,7 @@ $defaultAutoloadCallback = [
     'priority' => 5,
     'accepted_args' => 4,
     'nested_hook' => 'wp_max_autoloaded_option_size',
+    'bounded_marker_autoload' => 'auto',
 ];
 tec_option_require_call(
     $sources['wp-includes/default-filters.php'],
@@ -427,6 +428,11 @@ foreach ([
 ] as [$needle, $label]) {
     tec_option_require_call($isLargeOption, $needle, $label);
 }
+tec_option_require_call(
+    $determineAutoload,
+    "return 'auto';",
+    'nullable bounded-option autoload storage'
+);
 if (($fixture['marker_default_autoload_callback'] ?? null) !== $defaultAutoloadCallback) {
     tec_option_usage('normal-boot default-autoload callback disagrees with the reviewed fixture');
 }

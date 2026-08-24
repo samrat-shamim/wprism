@@ -1076,8 +1076,16 @@ function update_option(string $name, mixed $value, mixed $autoload = null): bool
         do_action('update_option', $name, $old, $value);
         $updatedRow = ['option_value' => $stored];
         if ($autoload === null && in_array($existingAutoload, ['auto', 'auto-on', 'auto-off'], true)) {
-            apply_filters('wp_default_autoload_value', null, $name, $value, $stored);
-            $updatedRow['autoload'] = 'auto-on';
+            $computedAutoload = apply_filters(
+                'wp_default_autoload_value',
+                null,
+                $name,
+                $value,
+                $stored
+            );
+            $updatedRow['autoload'] = is_bool($computedAutoload)
+                ? ($computedAutoload ? 'auto-on' : 'auto-off')
+                : 'auto';
         }
         $changed = $wpdb->update($wpdb->options, $updatedRow, ['option_name' => $name]);
         if ($changed === false) {
@@ -1094,8 +1102,16 @@ function update_option(string $name, mixed $value, mixed $autoload = null): bool
         $autoload === false ? ['off'] : ['on']
     );
     if ($autoload === null) {
-        apply_filters('wp_default_autoload_value', null, $name, $value, $stored);
-        $rowAutoload = 'auto-on';
+        $computedAutoload = apply_filters(
+            'wp_default_autoload_value',
+            null,
+            $name,
+            $value,
+            $stored
+        );
+        $rowAutoload = is_bool($computedAutoload)
+            ? ($computedAutoload ? 'auto-on' : 'auto-off')
+            : 'auto';
     } else {
         $rowAutoload = $autoload === false || !in_array('on', (array) $autoloadValue, true)
             ? 'off'
@@ -4299,6 +4315,7 @@ duo_check_same(
         'priority' => 5,
         'accepted_args' => 4,
         'nested_hook' => 'wp_max_autoloaded_option_size',
+        'bounded_marker_autoload' => 'auto',
     ],
     $optionHookFixture['marker_default_autoload_callback'] ?? null,
     'the reviewed WordPress source fixture closes the native marker default-autoload callback'
@@ -10162,13 +10179,19 @@ duo_check_same(
 duo_check_same(false, tribe_isset_var('should_delete_expired_transients'), 'absent-row rollback restores the initially absent global purge flag');
 $GLOBALS['tec_readiness_regen_mode'] = 'ok';
 $regenerator->regenerate($tecEventId);
+$absentRetryMarkers = array_values(array_filter(
+    $tecDb->rows($optionsTable),
+    static fn(array $row): bool => ($row['option_name'] ?? null) === 'tribe_last_save_post'
+));
 duo_check_same(
     1,
-    count(array_filter(
-        $tecDb->rows($optionsTable),
-        static fn(array $row): bool => ($row['option_name'] ?? null) === 'tribe_last_save_post'
-    )),
+    count($absentRetryMarkers),
     'same-process retry after absent-row rollback creates exactly one durable native marker'
+);
+duo_check_same(
+    'auto',
+    $absentRetryMarkers[0]['autoload'] ?? null,
+    'the absent tiny marker uses WordPress core nullable-callback autoload state exactly'
 );
 
 foreach ([
@@ -10176,9 +10199,9 @@ foreach ([
     'no' => 'no',
     'on' => 'on',
     'off' => 'off',
-    'auto' => 'auto-on',
-    'auto-on' => 'auto-on',
-    'auto-off' => 'auto-on',
+    'auto' => 'auto',
+    'auto-on' => 'auto',
+    'auto-off' => 'auto',
 ] as $initialAutoload => $expectedAutoload) {
     $resetTecDerived();
     duo_check_same(

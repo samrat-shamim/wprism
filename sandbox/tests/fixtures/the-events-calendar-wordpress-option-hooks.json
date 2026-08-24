@@ -54,7 +54,8 @@
     "callback": "wp_filter_default_autoload_value_via_option_size",
     "priority": 5,
     "accepted_args": 4,
-    "nested_hook": "wp_max_autoloaded_option_size"
+    "nested_hook": "wp_max_autoloaded_option_size",
+    "bounded_marker_autoload": "auto"
   },
   "shared_paths": {
     "get_option": [

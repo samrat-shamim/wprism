@@ -1732,7 +1732,7 @@ final class TheEventsCalendar {
             );
         }
         if ($initialAutoload === null) {
-            if (!in_array($currentAutoload, ['auto-on', 'auto-off'], true)) {
+            if (!hash_equals('auto', $currentAutoload)) {
                 throw new \RuntimeException(
                     'duo: TEC native save-post cache marker used a non-native default autoload state'
                 );
@@ -1748,7 +1748,7 @@ final class TheEventsCalendar {
             return;
         }
         if (!in_array($initialAutoload, ['auto', 'auto-on', 'auto-off'], true)
-            || !in_array($currentAutoload, ['auto-on', 'auto-off'], true)) {
+            || !hash_equals('auto', $currentAutoload)) {
             throw new \RuntimeException(
                 'duo: TEC native save-post cache marker returned an invalid computed autoload state'
             );
