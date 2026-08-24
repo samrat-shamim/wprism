@@ -68,6 +68,16 @@ VMATRIX_MANIFEST="${VMATRIX_MANIFEST:-}"
 jq -e '.evidence.tests | index("exact-artifact-version-matrix") != null' \
   "../manifests/dispositions/$VMATRIX_MANIFEST.json" >/dev/null \
   || fail "manifest '$VMATRIX_MANIFEST' does not declare exact-artifact-version-matrix evidence"
+# The WooCommerce leg is production-readiness evidence over shipped
+# manifest/provider bytes. pair.sh otherwise resolves a linked worktree to
+# its canonical checkout, which can make a green boundary matrix about a
+# different commit. Require the candidate SHA and mount this script's own
+# physical checkout before reset can mutate either disposable database.
+if [ "$VMATRIX_MANIFEST" = woocommerce ]; then
+  [ -n "${DUO_EXPECTED_SOURCE_SHA:-}" ] \
+    || fail 'WooCommerce version-matrix evidence requires DUO_EXPECTED_SOURCE_SHA'
+  export DUO_SOURCE_ROOT="$(cd .. && pwd -P)"
+fi
 VMATRIX_CASES=0
 WORDPRESS_OFFLINE="${DUO_WORDPRESS_ORG_OFFLINE:-0}"
 case "$WORDPRESS_OFFLINE" in

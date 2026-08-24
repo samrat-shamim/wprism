@@ -925,6 +925,9 @@ foreach ([
 woo_ok(substr_count($matrixHarness, 'check_woocommerce_boundary_lifecycle "$WOO_VERSION" "$ARTIFACT_2"') === 1
     && str_contains($matrixHarness, 'for WOO_VERSION in 11.0.0 11.0.1; do'),
     'one lifecycle call inside the exact two-artifact loop covers 11.0.0 and 11.0.1 independently');
+woo_ok(str_contains($matrixHarness, 'WooCommerce version-matrix evidence requires DUO_EXPECTED_SOURCE_SHA')
+    && str_contains($matrixHarness, 'export DUO_SOURCE_ROOT="$(cd .. && pwd -P)"'),
+    'the WooCommerce-only artifact matrix mounts its invoking candidate worktree before pair reset');
 foreach ([
     '"pll_rewrite_rules","pll_modify_rewrite_rule"',
     '([ $actual[] | select(.hook=="pll_rewrite_rules" or .hook=="pll_modify_rewrite_rule") ] | length) == 0',
