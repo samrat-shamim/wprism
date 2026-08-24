@@ -135,6 +135,7 @@ return [
     'Duo\\MetaRows' => 'src/Kernel/MetaRows.php',
     'Duo\\NativeActions' => 'src/Rebuild/NativeActions.php',
     'Duo\\NativeRebuildExecutor' => 'src/Rebuild/NativeRebuildExecutor.php',
+    'Duo\\NativeRewriteEffects' => 'src/Rebuild/NativeRewriteEffects.php',
     'Duo\\OptionGrammar' => 'src/Grammar/OptionGrammar.php',
     'Duo\\OptionNameReferenceResolver' => 'src/Grammar/OptionNameReferenceResolver.php',
     'Duo\\OptionNamespaceResolver' => 'src/Grammar/OptionNamespaceResolver.php',
