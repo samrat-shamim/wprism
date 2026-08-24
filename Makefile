@@ -384,11 +384,14 @@ regress-site-adapter-certification:
 # Product release gate: every generated artifact must still agree with the
 # source it was generated from -- the public capability prose with the
 # manifest dispositions it describes, the published branch-environment
-# provider protocol with the boundary that enforces it, the classmap with
-# agent/src, and the offline corpus include with the suite files on disk.
+# provider protocol with the boundary that enforces it, the irreversibility
+# register with the signature domains, closed key sets and grammars the
+# refusals consult, the classmap with agent/src, and the offline corpus
+# include with the suite files on disk.
 release-gate:
 	php tools/capability-doc.php --check
 	php tools/provider-protocol-doc.php --check
+	php tools/wire-surface.php --check
 	php tools/classmap-generate.php --check
 	php tools/offline-corpus.php --check
 
