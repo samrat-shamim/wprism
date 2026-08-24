@@ -88,24 +88,6 @@ pair_compose_configure() { # pair_compose_configure <name> [overlay-file ...]
   # than no evidence.
   printf 'DUO_AGENT_SRC=%s\nDUO_MANIFESTS_SRC=%s\nDUO_DB_HOST=%s\n' "$DUO_AGENT_SRC" "$DUO_MANIFESTS_SRC" "$DUO_DB_HOST" > .env
 
-  # The db-client lane config pair.yml mounts at /etc/mysql/my.cnf in the wp
-  # and cli containers, written beside .env at the same choke point for the
-  # same process-boundary reason. MariaDB lane: comment-only, so the default
-  # path's client behavior does not move by a byte. MySQL lane: skip-ssl,
-  # because the image's MariaDB 11.8 client verifies server TLS by default
-  # (11.4+ change) and MySQL 8.4's auto-generated self-signed cert fails every
-  # shell-client call (`wp db query` -> ERROR 2026, measured 2026-08-24)
-  # while WordPress's own mysqlnd path connects; MySQL 8.4 accepts cleartext
-  # unless require_secure_transport=ON, which the lane's server does not set.
-  # Recorded product implication (reported, not fixed here): `wp db
-  # export/import` -- the checkpoint path -- shells out to the same client
-  # family and hits the same refusal on TLS-verifying clients against
-  # self-signed servers.
-  if [ "$DUO_DB_HOST" = "duo-shared-mysql" ]; then
-    printf '# duo mysql evidence lane (pair_compose_configure)\n[client]\nskip-ssl\n' > .duo-db-client.cnf
-  else
-    printf '# duo db-client lane config: comment-only on the MariaDB lane\n' > .duo-db-client.cnf
-  fi
 }
 
 pair_compose_live_pairs() { # pair_compose_live_pairs — one live pair name per line

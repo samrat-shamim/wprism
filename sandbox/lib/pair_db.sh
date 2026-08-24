@@ -79,20 +79,35 @@ pair_db_ensure_app_user() {
   # variable interpolation needed) so the backticks and backslash reach
   # mysql literally instead of bash trying to parse them.
   #
-  # Deliberately NOT engine-conditional. mysql:8.4 defaults new accounts to
-  # caching_sha2_password and ships mysql_native_password disabled, so this
-  # CREATE USER may or may not produce an account the wordpress:*-php8.3
-  # image's mysqlnd can authenticate against over TCP. Adding an untested
-  # `IDENTIFIED WITH ...` clause now would be a speculative fallback for a
-  # failure nobody has measured (AGENTS.md rule 9); the MySQL lane's first
-  # live probe decides, and if it fails the clause lands here with the
-  # measured error quoted beside it. Until then these bytes stay identical
-  # for both engines.
-  pair_db_sql <<'SQL'
+  # Engine-conditional SINCE the MySQL lane's first live probe ran and
+  # decided (2026-08-24), exactly as the earlier note here said it would.
+  # Measured: mysqlnd (WordPress itself) authenticates against a
+  # caching_sha2_password account fine, but the wordpress:cli image's MariaDB
+  # 11.8 shell client — every `wp db query/check/export/import` — cannot:
+  # "ERROR 1045 ... Plugin caching_sha2_password could not be loaded: Error
+  # loading shared library /usr/lib/mariadb/plugin/caching_sha2_password.so:
+  # No such file or directory" (after the TLS-verify default was dealt with:
+  # "ERROR 2026 ... self-signed certificate in certificate chain" with server
+  # TLS on, "SSL is required, but the server does not support it" with it
+  # off). The lane therefore pins the app account to mysql_native_password,
+  # which db.mysql.yml enables server-side (--mysql-native-password=ON) and
+  # the MariaDB client speaks; the ALTER converges an account a pre-fix run
+  # already created under the default plugin. The MariaDB arm is the
+  # pre-existing bytes, untouched.
+  if [ "${DB_CONTAINER:-duo-shared-db}" = "duo-shared-mysql" ]; then
+    pair_db_sql <<'SQL'
+CREATE USER IF NOT EXISTS 'wordpress'@'%' IDENTIFIED WITH mysql_native_password BY 'wordpress';
+ALTER USER 'wordpress'@'%' IDENTIFIED WITH mysql_native_password BY 'wordpress';
+GRANT ALL PRIVILEGES ON `wp\_%`.* TO 'wordpress'@'%';
+FLUSH PRIVILEGES;
+SQL
+  else
+    pair_db_sql <<'SQL'
 CREATE USER IF NOT EXISTS 'wordpress'@'%' IDENTIFIED BY 'wordpress';
 GRANT ALL PRIVILEGES ON `wp\_%`.* TO 'wordpress'@'%';
 FLUSH PRIVILEGES;
 SQL
+  fi
 }
 
 pair_db_create() { # pair_db_create <name>

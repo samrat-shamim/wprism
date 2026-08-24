@@ -123,16 +123,14 @@ services:
       - ${DUO_AGENT_SRC}/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
       - ${DUO_MANIFESTS_SRC}:/duo-manifests:ro
       - ./siterepo/${DUO_PAIR}1:/siterepo
-      # The db-client lane config pair_compose_configure() writes beside .env:
-      # comment-only on the MariaDB lane (byte-neutral behavior), skip-ssl on
-      # the MySQL lane -- the wordpress:cli image ships a MariaDB 11.8 client
-      # whose 11.4+ default VERIFIES server TLS, and MySQL 8.4's auto-generated
-      # self-signed cert then fails every shell-client call (`wp db query`:
-      # "ERROR 2026 ... self-signed certificate in certificate chain", measured
-      # 2026-08-24) while mysqlnd connects fine. Mounted at /etc/mysql/my.cnf,
-      # which the image's client reads AFTER /etc/my.cnf and which does not
-      # exist in the image, so the mount is additive.
-      - ./.duo-db-client.cnf:/etc/mysql/my.cnf:ro
+      # The engine-keyed db-client shim (see bin/db-client-shim.sh's header for
+      # the measured TLS default-mismatch it exists for). /usr/local/bin
+      # precedes /usr/bin in the image PATH, so `wp db *` and direct shell
+      # calls resolve the shim; on the MariaDB lane it execs the real client
+      # with untouched arguments.
+      - ./bin/db-client-shim.sh:/usr/local/bin/mysql:ro
+      - ./bin/db-client-shim.sh:/usr/local/bin/mysqldump:ro
+      - ./bin/db-client-shim.sh:/usr/local/bin/mysqlcheck:ro
     mem_limit: 1g
     cpus: "1.0"
 
@@ -159,16 +157,14 @@ services:
       - ${DUO_AGENT_SRC}/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
       - ${DUO_MANIFESTS_SRC}:/duo-manifests:ro
       - ./siterepo/${DUO_PAIR}2:/siterepo
-      # The db-client lane config pair_compose_configure() writes beside .env:
-      # comment-only on the MariaDB lane (byte-neutral behavior), skip-ssl on
-      # the MySQL lane -- the wordpress:cli image ships a MariaDB 11.8 client
-      # whose 11.4+ default VERIFIES server TLS, and MySQL 8.4's auto-generated
-      # self-signed cert then fails every shell-client call (`wp db query`:
-      # "ERROR 2026 ... self-signed certificate in certificate chain", measured
-      # 2026-08-24) while mysqlnd connects fine. Mounted at /etc/mysql/my.cnf,
-      # which the image's client reads AFTER /etc/my.cnf and which does not
-      # exist in the image, so the mount is additive.
-      - ./.duo-db-client.cnf:/etc/mysql/my.cnf:ro
+      # The engine-keyed db-client shim (see bin/db-client-shim.sh's header for
+      # the measured TLS default-mismatch it exists for). /usr/local/bin
+      # precedes /usr/bin in the image PATH, so `wp db *` and direct shell
+      # calls resolve the shim; on the MariaDB lane it execs the real client
+      # with untouched arguments.
+      - ./bin/db-client-shim.sh:/usr/local/bin/mysql:ro
+      - ./bin/db-client-shim.sh:/usr/local/bin/mysqldump:ro
+      - ./bin/db-client-shim.sh:/usr/local/bin/mysqlcheck:ro
     mem_limit: 1g
     cpus: "1.0"
 
