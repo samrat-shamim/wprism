@@ -33,4 +33,40 @@ final class LintFinding {
         }
         return $finding;
     }
+
+    /**
+     * The human rendering of a finding set: two lines per finding, in scan
+     * order. Reached through `Lint::render_lines()`, which is the name both
+     * verbs call — see that method for why there is exactly one renderer.
+     *
+     * @param array<int,array<string,mixed>> $findings
+     * @return list<string>
+     */
+    public static function render_lines(array $findings): array {
+        $lines = [];
+        foreach ($findings as $finding) {
+            $value = is_scalar($finding['value'] ?? null)
+                ? (string) $finding['value']
+                : json_encode($finding['value'] ?? null, JSON_UNESCAPED_SLASHES);
+            $match = isset($finding['matches'])
+                ? sprintf(
+                    ' matches=%s:%d "%s" (%s)',
+                    $finding['matches']['kind'],
+                    $finding['matches']['id'],
+                    $finding['matches']['title'],
+                    $finding['matches']['post_type']
+                )
+                : '';
+            $lines[] = sprintf(
+                '%-24s %-55s %-32s value=%s%s',
+                $finding['class'],
+                $finding['path'],
+                $finding['locator'],
+                $value,
+                $match
+            );
+            $lines[] = '    ' . $finding['note'];
+        }
+        return $lines;
+    }
 }

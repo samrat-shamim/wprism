@@ -1072,7 +1072,9 @@
           "PlanView",
           "Coverage",
           "Orphans",
-          "RefreshExport"
+          "RefreshExport",
+          "LintEnvironment",
+          "LintFinding"
         ],
         "depends_on": [
           "Code",
@@ -1122,6 +1124,7 @@
           "EffectDeclarationCoverage.php",
           "Journal.php",
           "Lint.php",
+          "LintEnvironment.php",
           "LintFinding.php",
           "MenuReferenceScanner.php",
           "Orphans.php",
@@ -1406,13 +1409,14 @@
       },
       "Adapter": {
         "layer": "adapter",
-        "purpose": "Authoring-side adapter tooling: catalog, draft, observation, manifest validation against the agent's policy, and the operator's own Ed25519 certification authority (keygen/certify/pin).",
+        "purpose": "Authoring-side adapter tooling: catalog, draft, observation, manifest validation against the agent's policy, the operator's own Ed25519 certification authority (keygen/certify/pin), and `lint-tree` -- the WordPress-free half of the suspicious-reference linter, which replays a recorded lint environment into the engine's own Lint::scan_tree().",
         "status": "populated",
         "entry_points": [
           "AdapterCatalog",
           "AdapterCertify",
           "AdapterDraft",
           "AdapterObservation",
+          "LintTree",
           "ManifestValidate"
         ],
         "depends_on": [
@@ -1423,15 +1427,17 @@
           "agent:Kernel",
           "agent:Policy",
           "agent:Rebuild",
-          "agent:Repository"
+          "agent:Repository",
+          "agent:Review"
         ],
         "exceptions": [],
-        "file_count": 5,
+        "file_count": 6,
         "files": [
           "AdapterCatalog.php",
           "AdapterCertify.php",
           "AdapterDraft.php",
           "AdapterObservation.php",
+          "LintTree.php",
           "ManifestValidate.php"
         ]
       },

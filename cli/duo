@@ -58,6 +58,7 @@ require __DIR__ . '/src/Onboarding/ClassificationBatch.php';
 require __DIR__ . '/src/Onboarding/Triage.php';
 require __DIR__ . '/src/Command/ClassifyCommand.php';
 require __DIR__ . '/src/Adapter/ManifestValidate.php';
+require __DIR__ . '/src/Adapter/LintTree.php';
 require __DIR__ . '/src/Adapter/AdapterDraft.php';
 require __DIR__ . '/src/Adapter/AdapterCatalog.php';
 require __DIR__ . '/src/Adapter/AdapterObservation.php';
@@ -233,6 +234,7 @@ use Duo\Orchestrator\RollbackAuthority;
 use Duo\Orchestrator\VerifiedRollbackProfile;
 use Duo\Orchestrator\ScopedRollbackProfile;
 use Duo\Orchestrator\ManifestValidate;
+use Duo\Orchestrator\LintTree;
 use Duo\Orchestrator\AdapterDraft;
 use Duo\Orchestrator\AdapterCatalog;
 use Duo\Orchestrator\AdapterObservation;
@@ -271,6 +273,7 @@ Usage:
                         [--pins=<name>[,...]|--all] [--site=<site-repo>]
                         [--no-code] [--format=json]
   duo manifest-validate --emit-schema
+  duo lint-tree <site-repo> --environment=<lint-environment.json> [--format=json]
   duo adapter-draft <site-repo> --name=<n> [--match=<regex>]
                     [--evidence=<probe.json>] [--seed=<coverage.json>]
                     [--out=<path> [--force]] [--format=json]
@@ -390,6 +393,22 @@ Verbs:
                           vocabularies at emission time (with a `coverage` note
                           stating what it does NOT publish). Exit 0 all valid,
                           1 any invalid, 2 usage/IO.
+  lint-tree               The suspicious-reference linter over a captured tree,
+    <site-repo>           on THIS machine (`duo lint <env>` is the separate
+    --environment=<file>  environment-bound passthrough). Runs the engine's REAL
+    [--format=json]       Lint::scan_tree() — the same method `wp duo lint`
+                          calls — so stdout is the live verb's output byte for
+                          byte. --environment replays the
+                          `duo-lint-environment/v1` transcript the live verb
+                          records (`wp duo lint --repo=<repo>
+                          --emit-environment=<file>`): the home URL and every id
+                          resolution are facts about a live target, so they are
+                          recorded rather than guessed, and a transcript taken
+                          over different state-tree bytes is refused. WordPress's
+                          own parsers do not exist here, so the block and
+                          shortcode attribute classes are DEFERRED and named on
+                          stderr on every run — silence never means clean.
+                          Exit 0 no findings, 1 findings exist, 2 usage/IO.
   adapter-draft           Safe adapter-DRAFT generator: reuses policy-to-manifest's
     <site-repo>           facts core (Policy::export_manifest) and adds OFFLINE
     --name=<n>            proposers over the site repo's captured state/**, emitting
@@ -1212,6 +1231,15 @@ function main(array $argv): int {
     // on this machine and drives the engine's own offline validators over them.
     if ($verb === 'manifest-validate') {
         return ManifestValidate::run($rest);
+    }
+
+    // Same shape, same reason (WP-2.4): the suspicious-reference linter over a
+    // captured tree on THIS machine. It runs the engine's real
+    // Lint::scan_tree() — the same static method `wp duo lint` calls — over a
+    // recorded `duo-lint-environment/v1` transcript, so its findings are the
+    // live verb's byte for byte. No environment, no transport, no WordPress.
+    if ($verb === 'lint-tree') {
+        return LintTree::run($rest);
     }
 
     // Same shape, same reason (DUO-3325): the safe adapter-DRAFT generator reuses

@@ -16,7 +16,7 @@
 
 regress-offline-all:
 	@bash sandbox/tests/offline_diagnostics_guard.sh "$(MAKE)" --no-print-directory regress-offline-corpus
-	@echo "regress-offline-all: 301 offline suites green"
+	@echo "regress-offline-all: 303 offline suites green"
 
 regress-offline-corpus: code-half-unit \
 	regress-acf-meta-interpreter \
@@ -164,7 +164,9 @@ regress-offline-corpus: code-half-unit \
 	regress-lifecycle-phase-handoff-unit \
 	regress-lifecycle-planner \
 	regress-lifecycle-state-handoff \
+	regress-lint-host-verb \
 	regress-lint-primitives \
+	regress-lint-type-exemptions \
 	regress-live-exit-code-contract \
 	regress-local-bootstrap \
 	regress-local-verified-rollback \
@@ -320,4 +322,4 @@ regress-offline-corpus: code-half-unit \
 	regress-woocommerce-regen-engine \
 	regress-yoast-duplicate-post-role-provider \
 	regress-yoast-index-provider
-	@echo "regress-offline-corpus: 301 offline suites green"
+	@echo "regress-offline-corpus: 303 offline suites green"
