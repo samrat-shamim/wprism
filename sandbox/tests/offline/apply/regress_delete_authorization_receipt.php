@@ -531,6 +531,42 @@ duo_check(
     'scoped finalization refuses a storage-engine substitution after metadata-lock acquisition without mutation'
 );
 $wpdb->setTableEngine('wp_duo_map', 'InnoDB');
+putenv('DUO_TEST_MODE=1');
+putenv('DUO_TEST_FAIL_DB_CONTEXT=ledger transaction commit');
+try {
+    (new ApplyLedgerFinalizer(static function (): void {}))->finalize(
+        $compiled,
+        $scopedPlan,
+        $tree,
+        [$authoredRow],
+        [],
+        false,
+        true,
+        [],
+        $scopedSession,
+        $scopedVerification,
+        $revision
+    );
+    $scopedCommitRefused = false;
+} catch (\Throwable $failure) {
+    $scopedCommitRefused = $failure instanceof \Duo\DatabaseMutationException
+        && str_contains($failure->getMessage(), 'ledger transaction commit');
+} finally {
+    putenv('DUO_TEST_FAIL_DB_CONTEXT');
+    putenv('DUO_TEST_MODE');
+}
+$durableVerifyingSession = \Duo\ScopedApplySession::open(
+    new \Duo\LedgerScopedApplySessionStorage()
+);
+duo_check(
+    $scopedCommitRefused
+        && $durableVerifyingSession instanceof \Duo\ScopedApplySession
+        && $durableVerifyingSession->phase() === \Duo\ScopedApplySession::PHASE_VERIFYING
+        && $scopedSession->phase() === \Duo\ScopedApplySession::PHASE_VERIFYING
+        && $wpdb->rows('wp_duo_map') === $mapRows
+        && $wpdb->rows('wp_duo_state') === [],
+    'a confirmed scoped finalizer COMMIT rollback reloads durable and in-memory sessions to verifying'
+);
 (new ApplyLedgerFinalizer(static function (): void {}))->finalize(
     $compiled,
     $scopedPlan,
@@ -547,7 +583,7 @@ $wpdb->setTableEngine('wp_duo_map', 'InnoDB');
 duo_check(
     $scopedSession->phase() === \Duo\ScopedApplySession::PHASE_COMPLETE
         && $wpdb->rows('wp_duo_map') === $mapRows,
-    'removing the engine/map fault lets the exact verifying session terminalize once without map drift'
+    'same-process retry after engine/map/commit faults terminalizes the exact verifying session once'
 );
 
 $wpdb->resetLog();

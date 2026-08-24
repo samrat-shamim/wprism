@@ -2663,6 +2663,7 @@ $actionDispatcherSource = (string) file_get_contents($root . '/agent/src/Rebuild
 $actionNegotiatorSource = (string) file_get_contents($root . '/agent/src/Rebuild/RebuildActionNegotiator.php');
 $ledgerFinalizerSource = (string) file_get_contents($root . '/agent/src/Apply/ApplyLedgerFinalizer.php');
 $convergenceVerifierSource = (string) file_get_contents($root . '/agent/src/Review/ConvergenceVerifier.php');
+$repoFormatSource = (string) file_get_contents($root . '/spec/repo-format.md');
 $check(
     str_contains(
         preg_replace('/\s+/', ' ', $ledgerFinalizerSource),
@@ -2904,9 +2905,19 @@ $check(
         && $finalizerMapReadbackAt < $finalizerCompleteAt
         && str_contains($ledgerFinalizerSource, '$authorizedMapDeletes[$uuid] = true;')
         && str_contains($ledgerFinalizerSource, '$expectedTerminalMap = array_values(array_filter(')
+        && str_contains($ledgerFinalizerSource, 'private const MAX_LOCKED_MAP_ROWS = 100000;')
+        && str_contains($ledgerFinalizerSource, '$limit = self::MAX_LOCKED_MAP_ROWS + 1;')
+        && str_contains($ledgerFinalizerSource, 'count($rows) > self::MAX_LOCKED_MAP_ROWS')
+        && str_contains($ledgerFinalizerSource, 'scoped ledger map inventory exceeds the bounded row frontier')
         && str_contains($ledgerFinalizerSource, 'FORCE INDEX (PRIMARY) ORDER BY uuid ASC, id_kind ASC LIMIT $limit FOR UPDATE')
         && substr_count($ledgerFinalizerSource, "assert_transaction_isolation('scoped ledger map inventory") === 2,
     'terminalization range-locks the complete selected map and permits only explicit tombstone cleanup before sealing roots'
+);
+$check(
+    str_contains($repoFormatSource, 'admits at most 100,000 physical map rows')
+        && str_contains($repoFormatSource, 'requests one proof row beyond the')
+        && str_contains($repoFormatSource, 'refuses before ledger mutation'),
+    'the scoped terminal protocol documents its exact 100k full-map refusal frontier'
 );
 $check(
     $authoredEngineBoundaryAt !== false

@@ -1044,6 +1044,12 @@ tombstones, and requires exact equality of every protected out-of-scope
 authored and ledger-map root. Its terminal transaction advances only selected ledger base rows and
 the scoped terminal receipt; that receipt binds the post-finalization selected
 identity-map root while the authority continues to bind the protected map.
+Before any terminal ledger write, that transaction locks the complete
+`duo_map` primary range and its supremum gap, then repeats the locked inventory
+after only explicitly authorized tombstone cleanup. This receipt boundary
+admits at most 100,000 physical map rows: it requests one proof row beyond the
+frontier and refuses before ledger mutation when that row exists, rather than
+silently terminalizing an identity partition it did not fully lock.
 It never clears global recovery debt and never writes `applied_revision`.
 Full plan/apply refuse while a scoped session is nonterminal; a terminal retry
 returns the same receipt bytes only after desired authored state and those

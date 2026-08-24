@@ -179,6 +179,23 @@ final class ApplyLedgerFinalizer {
         } catch (\Throwable $failure) {
             if ($transactionStarted) {
                 Db::rollback_after_failure($failure, 'ledger transaction rollback');
+                if ($scoped && $scopedSession !== null) {
+                    try {
+                        // complete() adopts the uncommitted session CAS in
+                        // memory. Refresh only after the exact transaction's
+                        // rollback is positively confirmed; an ambiguous
+                        // COMMIT outcome must retain its in-memory witness and
+                        // stop for checkpoint recovery instead.
+                        $scopedSession->reload();
+                    } catch (\Throwable $reloadFailure) {
+                        throw new \RuntimeException(
+                            'duo: scoped ledger rollback could not reload its durable verifying session; '
+                                . 'recovery_required',
+                            0,
+                            $failure
+                        );
+                    }
+                }
             }
             throw $failure;
         } finally {
