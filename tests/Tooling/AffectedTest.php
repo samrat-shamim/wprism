@@ -41,18 +41,20 @@ use PHPUnit\Framework\TestCase;
 final class AffectedTest extends TestCase
 {
     /**
-     * The expected offline leaf count comes from the Makefile's own
-     * `regress-offline-all: N offline suites green` line (kept truthful by
-     * sandbox/tests/offline/guards/regress_bundle_coverage.sh) so a bundle change is never
-     * mirrored by hand here.
+     * The expected offline leaf count comes from the `regress-offline-all: N
+     * offline suites green` line, which tools/offline-corpus.php generates
+     * into tools/offline-corpus.mk from the suite files on disk (and
+     * sandbox/tests/offline/guards/regress_bundle_coverage.sh checks against
+     * the prerequisite graph), so a corpus change is never mirrored by hand
+     * here.
      */
     private static function expectedOfflineLeafCount(): int
     {
-        $makefile = (string) file_get_contents(dirname(__DIR__, 2) . '/Makefile');
+        $generated = (string) file_get_contents(dirname(__DIR__, 2) . '/tools/offline-corpus.mk');
         self::assertSame(
             1,
-            preg_match('/regress-offline-all:\s+(\d+)\s+offline suites green/', $makefile, $m),
-            'Makefile must carry exactly one regress-offline-all status count'
+            preg_match('/regress-offline-all:\s+(\d+)\s+offline suites green/', $generated, $m),
+            'tools/offline-corpus.mk must carry exactly one regress-offline-all status count'
         );
 
         return (int) $m[1];

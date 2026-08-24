@@ -11,9 +11,25 @@
 # regress-offline-all prerequisite nor a regress-live-list entry. A future
 # suite must declare itself at birth (either place) or this goes red.
 #
-# Pure source-text/Makefile scan, no docker, no WordPress bootstrap, no PHP
-# execution -- reads sandbox/tests/*.{sh,php} filenames and the Makefile's
-# own text, nothing else.
+# WHAT DERIVATION CHANGED HERE
+# ----------------------------
+# The corpus's prerequisite list and both status counts are no longer written
+# by hand: tools/offline-corpus.php derives them from the suite files on disk
+# and emits tools/offline-corpus.mk, which the Makefile pulls in with
+# `include`. Two consequences for this file, and both are load-bearing:
+#
+#   - every scan below reads the Makefile WITH its includes folded in, or it
+#     would see a corpus with no prerequisites and report all ~294 wired
+#     suites as gaps;
+#   - the survey above answers "is every suite wired", which derivation makes
+#     a strictly weaker question than "can a suite be left out at all". The
+#     third self-test is that stronger one: it deletes a derived suite from a
+#     synthetic copy of the generated include and requires the generator to
+#     refuse it BY NAME. There is no exclusion input to delete it from, which
+#     is the whole property.
+#
+# Source-text/Makefile scan plus one run of the derivation generator against a
+# synthetic tree; no docker, no WordPress bootstrap, no suite is executed.
 set -euo pipefail
 cd "$(dirname "$0")/../../../.."   # -> repo root (this check reads the top-level Makefile)
 
@@ -23,14 +39,47 @@ fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 
 [ -f Makefile ] && [ -d sandbox/tests ] || fail "expected ./Makefile and ./sandbox/tests from the repo root"
 
-# check_coverage <tests-dir> <makefile> -- prints any gaps to stderr,
-# returns 0 (no gaps) or 1 (gaps found). Never fail()s itself so the
-# self-test below can assert on its exit code either way.
+# check_coverage <tests-dir> <makefile> <include-root> -- prints any gaps to
+# stderr, returns 0 (no gaps) or 1 (gaps found). Never fail()s itself so the
+# self-test below can assert on its exit code either way. <include-root> is
+# the directory the makefile's `include` paths resolve against; it is a third
+# argument rather than dirname(makefile) because the self-tests below hand
+# this a mutated copy of the Makefile while the tree it describes stays where
+# it was.
 check_coverage() {
-  python3 - "$1" "$2" <<'PYEOF'
+  python3 - "$1" "$2" "$3" <<'PYEOF'
 import re, glob, os, sys
 
-tests_dir, makefile = sys.argv[1], sys.argv[2]
+tests_dir, makefile, include_root = sys.argv[1], sys.argv[2], sys.argv[3]
+
+
+def makefile_text(path, depth=0):
+    """The makefile's text with `include`d fragments folded in, in make's order.
+
+    regress-offline-corpus's prerequisite list and both status counts live in
+    the generated tools/offline-corpus.mk. A scan that read ./Makefile alone
+    would find a corpus with no prerequisites and call every wired suite a
+    gap. Variables and globs in an include path are skipped rather than
+    guessed at -- tools/offline-corpus.php refuses to generate against one for
+    the same reason.
+    """
+    with open(path, encoding='utf-8') as fh:
+        text = fh.read()
+    if depth > 4:
+        return text
+    out = []
+    for line in text.split("\n"):
+        out.append(line)
+        m = re.match(r'^(-?)include\s+(.+)$', line)
+        if not m:
+            continue
+        for included in m.group(2).split():
+            if not re.match(r'^[A-Za-z0-9_./-]+$', included):
+                continue
+            resolved = os.path.join(include_root, included)
+            if os.path.isfile(resolved):
+                out.append(makefile_text(resolved, depth + 1))
+    return "\n".join(out)
 
 # RECURSIVE. The suite estate is moving into
 # sandbox/tests/{offline/<domain>,live,grind,certify,spike}/, and a
@@ -144,7 +193,8 @@ for b in basenames:
     target = stem.replace('regress_', 'regress-').replace('_', '-')
     primary[target] = paths[b]
 
-mk_lines = open(makefile, encoding='utf-8').read().split("\n")
+mk_text = makefile_text(makefile)
+mk_lines = mk_text.split("\n")
 
 def target_prereq_line(name):
     # Follow \-continuations for a target's PREREQUISITE line only (this
@@ -200,7 +250,7 @@ offline_all_transitive = (
 # a coverage failure and exercise that failure in the self-test below.
 count_matches = re.findall(
     r'regress-offline-all:\s+(\d+)\s+offline suites green',
-    open(makefile, encoding='utf-8').read(),
+    mk_text,
 )
 if len(count_matches) != 1:
     sys.exit("Makefile must contain exactly one numeric regress-offline-all status count")
@@ -233,11 +283,14 @@ if gaps:
 PYEOF
 }
 
-say "self-test: a synthetic unwired suite file must be flagged as a gap"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 cp Makefile "$TMP/Makefile"
-mkdir -p "$TMP/tests"
+# The generated include travels with the Makefile copy: it carries the corpus's
+# prerequisite list and both status counts, so a copy without it describes an
+# empty corpus and every self-test below would pass for the wrong reason.
+mkdir -p "$TMP/tools" "$TMP/tests"
+cp tools/offline-corpus.mk "$TMP/tools/offline-corpus.mk"
 # RECURSIVE copy, preserving each file's directory. A flat `cp
 # sandbox/tests/regress_*.{sh,php}` would build a synthetic tree that is flat
 # no matter what the real one looks like, so every self-test below would keep
@@ -258,12 +311,26 @@ REAL_SUITE_COUNT=$(find sandbox/tests \( -name 'regress_*.sh' -o -name 'regress_
 COPIED_SUITE_COUNT=$(find "$TMP/tests" \( -name 'regress_*.sh' -o -name 'regress_*.php' \) -type f | wc -l | tr -d ' ')
 [ "$REAL_SUITE_COUNT" = "$COPIED_SUITE_COUNT" ] \
   || fail "self-test setup failed: the synthetic tree holds $COPIED_SUITE_COUNT suite files but sandbox/tests holds $REAL_SUITE_COUNT -- the copy is not reproducing the real tree's shape, so nothing below is testing what the real check does"
+# Precondition, not a self-test: every self-test below plants a defect in this
+# copy and asserts on the refusal it produces, so a copy that is ALREADY
+# refusing reports those defects under whatever complaint came first. The
+# derived form makes that reachable in one specific way -- a hand-edited or
+# unregenerated tools/offline-corpus.mk -- so the remedy is named here rather
+# than left to be inferred from a self-test failure about something else.
+say "precondition: the unmodified tree must already agree with its generated corpus include"
+if ! check_coverage "$TMP/tests" "$TMP/Makefile" "$TMP" 2>"$TMP/coverage-precondition.log"; then
+  cat "$TMP/coverage-precondition.log" >&2
+  fail "the repository's own suite tree and Makefile do not agree BEFORE any self-test planted anything -- see above. If the complaint is a count or a missing target, tools/offline-corpus.mk is stale: run 'php tools/offline-corpus.php'. Nothing below this line would be meaningful until it is fixed."
+fi
+pass "precondition: the unmodified tree and its generated corpus include agree"
+
+say "self-test: a synthetic unwired suite file must be flagged as a gap"
 cat > "$TMP/tests/regress_synthetic_unwired_probe.sh" <<'EOF'
 #!/usr/bin/env bash
 # Synthetic fixture for regress_bundle_coverage.sh's own self-test only --
 # deliberately never wired into regress-offline-all or regress-live-list.
 EOF
-if check_coverage "$TMP/tests" "$TMP/Makefile" 2>"$TMP/coverage-selftest.log"; then
+if check_coverage "$TMP/tests" "$TMP/Makefile" "$TMP" 2>"$TMP/coverage-selftest.log"; then
   fail "self-test failed: a synthetic suite with no bundle/live-list entry was NOT flagged -- this check's own detection logic is broken, do not trust the real-repo result below"
 fi
 grep -q "regress_synthetic_unwired_probe.sh" "$TMP/coverage-selftest.log" \
@@ -271,15 +338,20 @@ grep -q "regress_synthetic_unwired_probe.sh" "$TMP/coverage-selftest.log" \
 pass "self-test: synthetic unwired suite correctly flagged as a gap"
 
 say "self-test: a stale offline-suite count must be rejected"
-BAD_COUNT_MAKEFILE="$TMP/Makefile.bad-count"
-read -r BAD_COUNT ACTUAL_COUNT < <(python3 - "$TMP/Makefile" "$BAD_COUNT_MAKEFILE" <<'PYEOF'
+# The count lives in the GENERATED include now, so the mutation happens there
+# and the copied Makefile is left alone. That is also the shape of the only
+# way this count can still go stale in the real repo: someone hand-edits
+# tools/offline-corpus.mk instead of regenerating it.
+mkdir -p "$TMP/badcount/tools"
+cp "$TMP/Makefile" "$TMP/badcount/Makefile"
+read -r BAD_COUNT ACTUAL_COUNT < <(python3 - "$TMP/tools/offline-corpus.mk" "$TMP/badcount/tools/offline-corpus.mk" <<'PYEOF'
 import re, sys
 
 source, destination = sys.argv[1], sys.argv[2]
 text = open(source, encoding='utf-8').read()
 match = re.search(r'(regress-offline-all:\s+)(\d+)(\s+offline suites green)', text)
 if not match:
-    raise SystemExit('could not locate the Makefile offline-suite status line')
+    raise SystemExit('could not locate the generated offline-suite status line')
 declared = int(match.group(2))
 bad = declared - 1 if declared > 0 else declared + 1
 text = text[:match.start(2)] + str(bad) + text[match.end(2):]
@@ -287,7 +359,7 @@ open(destination, 'w', encoding='utf-8').write(text)
 print(bad, declared)
 PYEOF
 )
-if check_coverage "$TMP/tests" "$BAD_COUNT_MAKEFILE" 2>"$TMP/coverage-selftest-bad-count.log"; then
+if check_coverage "$TMP/tests" "$TMP/badcount/Makefile" "$TMP/badcount" 2>"$TMP/coverage-selftest-bad-count.log"; then
   fail "self-test failed: stale regress-offline-all count was accepted"
 fi
 grep -q "reports ${BAD_COUNT} suites.*contains ${ACTUAL_COUNT} unique offline suites" "$TMP/coverage-selftest-bad-count.log" \
@@ -296,7 +368,7 @@ pass "self-test: stale offline-suite count correctly rejected"
 
 say "self-test: the same synthetic tree WITHOUT the extra file must be clean (no false positives from the harness itself)"
 rm -f "$TMP/tests/regress_synthetic_unwired_probe.sh"
-if ! check_coverage "$TMP/tests" "$TMP/Makefile" 2>"$TMP/coverage-selftest-clean.log"; then
+if ! check_coverage "$TMP/tests" "$TMP/Makefile" "$TMP" 2>"$TMP/coverage-selftest-clean.log"; then
   fail "self-test failed: the unmodified regress-suite tree (minus the synthetic probe) reported a gap that shouldn't exist -- see $TMP/coverage-selftest-clean.log. This means either a REAL gap exists in the current repo (in which case the real check below will also correctly fail, which is fine) or this check's own logic has a false-positive bug (needs investigation either way, but don't blame the self-test)."
 fi
 pass "self-test: an unmodified suite tree with a copied Makefile reports no gaps via this check's own logic"
@@ -309,23 +381,29 @@ pass "self-test: an unmodified suite tree with a copied Makefile reports no gaps
 # silent fail-open cannot be caught by the thing that is failing open, so it
 # is caught here, against a synthetic tree that is nested by construction.
 say "self-test: a WIRED suite in a subdirectory must be accepted"
-NESTED_MAKEFILE="$TMP/Makefile.nested"
-python3 - "$TMP/Makefile" "$NESTED_MAKEFILE" regress-synthetic-nested-wired-probe <<'PYEOF'
+NESTED_ROOT="$TMP/nested"
+NESTED_MAKEFILE="$NESTED_ROOT/Makefile"
+mkdir -p "$NESTED_ROOT/tools"
+cp "$TMP/Makefile" "$NESTED_MAKEFILE"
+python3 - "$TMP/tools/offline-corpus.mk" "$NESTED_ROOT/tools/offline-corpus.mk" regress-synthetic-nested-wired-probe <<'PYEOF'
 import re, sys
 
 source, destination, target = sys.argv[1], sys.argv[2], sys.argv[3]
 text = open(source, encoding='utf-8').read()
-# The synthetic target joins regress-offline-corpus's prerequisites AND the
-# declared count moves with it. They have to move together: the count check
+# The synthetic target joins regress-offline-corpus's prerequisites AND both
+# declared counts move with it. They have to move together: the count check
 # runs before the gap report, so a mismatched count would abort with a
 # different refusal and this self-test would pass for the wrong reason.
 text, replaced = re.subn(r'(?m)^(regress-offline-corpus:)', r'\1 ' + target, text, count=1)
 if replaced != 1:
     raise SystemExit('could not locate the regress-offline-corpus prerequisite line')
-match = re.search(r'(regress-offline-all:\s+)(\d+)(\s+offline suites green)', text)
-if not match:
-    raise SystemExit('could not locate the Makefile offline-suite status line')
-text = text[:match.start(2)] + str(int(match.group(2)) + 1) + text[match.end(2):]
+text, replaced = re.subn(
+    r'((?:regress-offline-all|regress-offline-corpus): )(\d+)( offline suites green)',
+    lambda m: m.group(1) + str(int(m.group(2)) + 1) + m.group(3),
+    text,
+)
+if replaced != 2:
+    raise SystemExit('expected both generated status lines, found %d' % replaced)
 open(destination, 'w', encoding='utf-8').write(text)
 PYEOF
 mkdir -p "$TMP/tests/offline/guards"
@@ -334,7 +412,7 @@ cat > "$TMP/tests/offline/guards/regress_synthetic_nested_wired_probe.sh" <<'EOF
 # Synthetic fixture for regress_bundle_coverage.sh's own self-test only --
 # a suite in a subdirectory that IS wired into the offline corpus.
 EOF
-if ! check_coverage "$TMP/tests" "$NESTED_MAKEFILE" 2>"$TMP/coverage-selftest-nested-wired.log"; then
+if ! check_coverage "$TMP/tests" "$NESTED_MAKEFILE" "$NESTED_ROOT" 2>"$TMP/coverage-selftest-nested-wired.log"; then
   cat "$TMP/coverage-selftest-nested-wired.log" >&2
   fail "self-test failed: a suite in a subdirectory WITH a regress-offline-corpus entry was reported as a gap -- the enumeration finds nested files but the target-name derivation does not agree with them"
 fi
@@ -346,7 +424,7 @@ cat > "$TMP/tests/offline/guards/regress_synthetic_nested_unwired_probe.sh" <<'E
 # Synthetic fixture for regress_bundle_coverage.sh's own self-test only --
 # a suite in a subdirectory, deliberately never wired anywhere.
 EOF
-if check_coverage "$TMP/tests" "$NESTED_MAKEFILE" 2>"$TMP/coverage-selftest-nested-unwired.log"; then
+if check_coverage "$TMP/tests" "$NESTED_MAKEFILE" "$NESTED_ROOT" 2>"$TMP/coverage-selftest-nested-unwired.log"; then
   fail "self-test failed: a suite in a SUBDIRECTORY with no bundle/live-list entry was NOT flagged. This is the exact fail-open this recursion exists to close: the file enumeration is no longer reaching below sandbox/tests, so every nested suite is invisible to this check and the real-repo result below means nothing"
 fi
 grep -q "offline/guards/regress_synthetic_nested_unwired_probe.sh" "$TMP/coverage-selftest-nested-unwired.log" \
@@ -360,7 +438,7 @@ say "self-test: two suite files sharing a basename must be refused"
 # target and only one of them can ever run.
 cp "$TMP/tests/offline/guards/regress_synthetic_nested_wired_probe.sh" \
    "$TMP/tests/regress_synthetic_nested_wired_probe.sh"
-if check_coverage "$TMP/tests" "$NESTED_MAKEFILE" 2>"$TMP/coverage-selftest-duplicate.log"; then
+if check_coverage "$TMP/tests" "$NESTED_MAKEFILE" "$NESTED_ROOT" 2>"$TMP/coverage-selftest-duplicate.log"; then
   fail "self-test failed: the same basename at two paths was accepted -- one of the two is unrunnable while this check calls it covered"
 fi
 grep -q "share the basename 'regress_synthetic_nested_wired_probe.sh'" "$TMP/coverage-selftest-duplicate.log" \
@@ -369,8 +447,55 @@ rm -f "$TMP/tests/regress_synthetic_nested_wired_probe.sh" \
       "$TMP/tests/offline/guards/regress_synthetic_nested_wired_probe.sh"
 pass "self-test: a basename claimed by two files is correctly refused"
 
+# ------------------------------------------------------------ cannot exclude
+# The property derivation adds, and the one this file could not previously
+# state: a suite on disk cannot be left OUT of the corpus, because there is no
+# exclusion input to leave it out of. Everything above answers "was it
+# wired?", which is an after-the-fact question about a hand-written list.
+# This runs the generator itself against a faithful copy of the tree, deletes
+# one derived suite from the copied include -- the only way an exclusion can
+# even be attempted -- and requires the refusal to name it.
+say "self-test: the derivation refuses a suite that has been deleted from the generated include"
+DERIVE_ROOT="$TMP/derive"
+mkdir -p "$DERIVE_ROOT/tools" "$DERIVE_ROOT/sandbox/tests"
+cp Makefile "$DERIVE_ROOT/Makefile"
+cp tools/offline-corpus.mk "$DERIVE_ROOT/tools/offline-corpus.mk"
+cp sandbox/tests/offline_diagnostics_guard.sh "$DERIVE_ROOT/sandbox/tests/offline_diagnostics_guard.sh"
+while IFS= read -r -d '' file; do
+  mkdir -p "$DERIVE_ROOT/$(dirname "$file")"
+  cp "$file" "$DERIVE_ROOT/$file"
+done < <(find sandbox/tests \( -name 'regress_*.sh' -o -name 'regress_*.php' \) -type f -print0)
+# The copy has to derive clean first, or the refusal below proves nothing
+# about exclusion -- it would just be re-reporting an incomplete fixture.
+if ! php tools/offline-corpus.php --check --root="$DERIVE_ROOT" >"$TMP/derive-clean.log" 2>&1; then
+  cat "$TMP/derive-clean.log" >&2
+  fail "self-test failed: the copied tree does not derive to the committed include, so the exclusion refusal below would not be testing exclusion"
+fi
+EXCLUDED=$(python3 - "$DERIVE_ROOT/tools/offline-corpus.mk" <<'PYEOF'
+import re, sys
+
+path = sys.argv[1]
+lines = open(path, encoding='utf-8').read().split("\n")
+for i, line in enumerate(lines):
+    m = re.match(r'^\t([a-z0-9-]+) \\$', line)
+    if m and m.group(1) != 'code-half-unit':
+        del lines[i]
+        open(path, 'w', encoding='utf-8').write("\n".join(lines))
+        print(m.group(1))
+        break
+else:
+    raise SystemExit('could not find a derived suite line to delete')
+PYEOF
+)
+if php tools/offline-corpus.php --check --root="$DERIVE_ROOT" >"$TMP/derive-excluded.log" 2>&1; then
+  fail "self-test failed: a suite on disk was silently absent from the generated corpus include and the derivation accepted it -- exclusion is supposed to be impossible, not merely discouraged"
+fi
+grep -q "missing from tools/offline-corpus.mk: ${EXCLUDED}" "$TMP/derive-excluded.log" \
+  || { cat "$TMP/derive-excluded.log" >&2; fail "self-test failed: the derivation refused but did not name the excluded suite '$EXCLUDED'"; }
+pass "self-test: an attempted exclusion of '$EXCLUDED' was refused by name"
+
 say "real check: every sandbox/tests/regress_*.{sh,php} file vs. Makefile's regress-offline-all / regress-live-list"
-if check_coverage sandbox/tests Makefile 2>/tmp/coverage_real.log; then
+if check_coverage sandbox/tests Makefile . 2>/tmp/coverage_real.log; then
   pass "every regress-* suite file has a regress-offline-all or regress-live-list entry"
 else
   cat /tmp/coverage_real.log >&2

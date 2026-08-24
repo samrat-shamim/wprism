@@ -214,6 +214,52 @@ function wiring_claims_suite_name(string $token): bool
 }
 
 /**
+ * Makefile text with every `include` directive folded in, in the order make
+ * would read them.
+ *
+ * `regress-offline-corpus`'s prerequisite list and both status counts are
+ * generated into tools/offline-corpus.mk and pulled in with `include`
+ * (tools/offline-corpus.php states why), so a scan that reads ./Makefile
+ * alone now sees a corpus with no prerequisites at all -- every clause-4
+ * judgement below would report "not in the corpus closure" about a suite the
+ * gate runs. That is a fail-CLOSED direction rather than a fail-open one, but
+ * it is still wrong, so the fold happens before anything is parsed.
+ *
+ * Variables and globs in an include path are skipped rather than resolved:
+ * this is not make, and guessing at a path it cannot read literally would
+ * silently drop a rule. tools/offline-corpus.php refuses to generate against
+ * such a path for the same reason.
+ */
+function wiring_resolve_includes(string $root, string $text, int $depth = 0): string
+{
+    if ($depth > 4) {
+        return $text;
+    }
+    $out = [];
+    foreach (explode("\n", $text) as $line) {
+        $out[] = $line;
+        if (preg_match('/^(-?)include\s+(.+)$/', $line, $m) !== 1) {
+            continue;
+        }
+        foreach (preg_split('/\s+/', trim($m[2]), -1, PREG_SPLIT_NO_EMPTY) ?: [] as $included) {
+            if (preg_match('#^[A-Za-z0-9_./-]+$#', $included) !== 1) {
+                continue;
+            }
+            if (!is_file($root . '/' . $included)) {
+                continue;
+            }
+            $out[] = wiring_resolve_includes(
+                $root,
+                (string) file_get_contents($root . '/' . $included),
+                $depth + 1
+            );
+        }
+    }
+
+    return implode("\n", $out);
+}
+
+/**
  * Makefile text -> {target => prerequisite text} and {target => recipe lines},
  * with backslash continuations folded onto one logical line.
  *
@@ -455,7 +501,7 @@ function wiring_target_class(string $target, array $offlineClosure, array $liveN
  */
 function wiring_violations(string $root, string $makefileText): array
 {
-    $parsed = wiring_parse_makefile($makefileText);
+    $parsed = wiring_parse_makefile(wiring_resolve_includes($root, $makefileText));
     $offlineClosure = wiring_closure($parsed['prereqs'], 'regress-offline-corpus')
         + wiring_closure($parsed['prereqs'], 'code-half-unit');
 
@@ -907,6 +953,53 @@ try {
         'self-test: a recipe naming a file that does not exist is refused'
     );
 
+    // The include fold. The real corpus rule is generated into
+    // tools/offline-corpus.mk, so every clause below rests on this: move the
+    // corpus rule and its one suite into an included file and the result must
+    // be identical to having written them inline.
+    $corpusInclude = implode("\n", [
+        'regress-offline-corpus: code-half-unit \\',
+        "\tregress-nested-offline",
+        "\t@echo corpus",
+        '',
+        'regress-nested-offline:',
+        "\tphp sandbox/tests/offline/domain/regress_nested_offline.php",
+        '',
+    ]);
+    $viaInclude = str_replace(
+        [
+            "regress-offline-corpus: code-half-unit \\\n\tregress-nested-offline\n\t@echo corpus",
+            "regress-nested-offline:\n\tphp sandbox/tests/offline/domain/regress_nested_offline.php",
+        ],
+        ['include fixture-corpus.mk', ''],
+        $base
+    );
+    duo_check(
+        str_contains($viaInclude, 'include fixture-corpus.mk')
+            && !str_contains($viaInclude, 'regress-offline-corpus: code-half-unit'),
+        'self-test: the include fixture actually moved the corpus rule out of the Makefile'
+    );
+    // Without the fold the corpus has no prerequisites at all, so every suite
+    // under offline/ would be reported as outside its own class's closure.
+    // This is the failure the fold exists to prevent, asserted before the
+    // scenario that must not show it.
+    duo_check(
+        wiring_closure(wiring_parse_makefile($viaInclude)['prereqs'], 'regress-offline-corpus')
+            === ['regress-offline-corpus' => true],
+        'self-test: an unfolded include leaves the corpus closure empty'
+    );
+    wiring_with_root(
+        ['/fixture-corpus.mk' => $corpusInclude],
+        static function (string $root) use ($viaInclude): void {
+            $folded = wiring_violations($root, $viaInclude);
+            duo_check(
+                $folded['class'] === [] && $folded['unwired'] === [] && $folded['missing'] === [],
+                'self-test: a suite wired only inside an included Makefile fragment is accepted'
+            );
+            duo_check_same(2, $folded['nested'], 'self-test: the folded scan still reached both nested suites');
+        }
+    );
+
     // Clause 3: a target whose name does not derive from its file's basename.
     $misnamed = str_replace(
         "\tphp sandbox/tests/regress_flat_root.php",
@@ -926,7 +1019,7 @@ try {
 
 $root = dirname(__DIR__, 4);
 $makefile = (string) file_get_contents($root . '/Makefile');
-$parsed = wiring_parse_makefile($makefile);
+$parsed = wiring_parse_makefile(wiring_resolve_includes($root, $makefile));
 $found = wiring_violations($root, $makefile);
 
 // A scan that reached nothing must not read as a clean bill of health.
