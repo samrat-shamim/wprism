@@ -575,7 +575,7 @@ $duplicates = [];
 $scan = static function (string $dir) use (&$scan, $sizes, &$duplicates, $repo): void {
     foreach (scandir($dir) ?: [] as $entry) {
         if (
-            $entry === '.' || $entry === '..' || $entry === '.git' || $entry === 'vendor'
+            $entry === '.' || $entry === '..' || $entry === 'vendor'
             || $entry === 'node_modules' || $entry === 'tmp' || $entry === 'siterepo'
         ) {
             continue;
@@ -585,6 +585,16 @@ $scan = static function (string $dir) use (&$scan, $sizes, &$duplicates, $repo):
             continue;
         }
         if (is_dir($path)) {
+            // Hidden directories are never repository harness content: .git is
+            // object storage, and .claude/worktrees holds LIVE parallel-agent
+            // worktrees whose checkouts legitimately carry the packaged files —
+            // a raw filesystem walk read those as "second copies" the moment a
+            // sibling work package ran (observed: wf_6de832ea worktrees). The
+            // clause's claim is about the repository's own tree; dot-FILES stay
+            // scanned, dot-DIRECTORIES are outside it.
+            if ($entry[0] === '.') {
+                continue;
+            }
             $scan($path);
             continue;
         }
