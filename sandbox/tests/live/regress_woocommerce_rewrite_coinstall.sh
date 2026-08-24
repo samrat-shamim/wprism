@@ -191,6 +191,33 @@ echo "$HOOKS" | jq -e --slurpfile topology "$TOPOLOGY" '
   all($actual[]; .hook=="rewrite_rules_array" or .hook=="option_rewrite_rules" or .hook=="sanitize_option_rewrite_rules" or .hook=="generate_rewrite_rules" or .hook=="updated_option" or .hook=="pre_update_option" or .hook=="added_option" or .hook=="pre_option" or .hook=="wp_default_autoload_value" or .hook=="pll_rewrite_rules" or .hook=="pll_modify_rewrite_rule") and
   any($actual[]; .hook=="rewrite_rules_array" and .callback=="PLL_Links_Directory::rewrite_rules" and .priority==10 and .args==1)
 ' >/dev/null || fail "live callback topology differs from audited pins: $HOOKS"
+# The printable topology above deliberately uses class::method names, which
+# cannot distinguish Woo/TEC's boot singleton from a same-class foreign
+# object. The native rewrite transaction restores marker effects only after
+# binding these exact services, so live evidence must exercise the same
+# object-identity boundary rather than treating a matching label as safe.
+CALLBACK_IDENTITIES=$(wp2 eval '
+$records=static function(string $hook):array{$registered=$GLOBALS["wp_filter"][$hook]??null;if($registered===null){return [];}if(!($registered instanceof WP_Hook)||!is_array($registered->callbacks??null)){throw new RuntimeException("native rewrite callback registry is malformed");}$out=[];foreach($registered->callbacks as $priority=>$atPriority){if(!is_int($priority)||!is_array($atPriority)){throw new RuntimeException("native rewrite callback priority is malformed");}foreach($atPriority as $record){if(!is_array($record)||array_keys($record)!==["function","accepted_args"]||!is_int($record["accepted_args"]??null)){throw new RuntimeException("native rewrite callback record is malformed");}$out[]=["priority"=>$priority,"function"=>$record["function"],"args"=>$record["accepted_args"]];}}return $out;};
+$exact=static function(string $hook,array $expected)use($records):void{$actual=$records($hook);foreach($actual as $record){$matched=null;foreach($expected as $index=>$want){if($record["priority"]===$want[1]&&$record["args"]===$want[2]&&$record["function"]===$want[0]){$matched=$index;break;}}if($matched===null){throw new RuntimeException("native rewrite callback identity differs from source services for ".$hook);}unset($expected[$matched]);}if($expected!==[]){throw new RuntimeException("native rewrite callback identity is incomplete for ".$hook);}};
+if(!function_exists("wc_get_container")||!array_key_exists("wc_container",$GLOBALS)){throw new RuntimeException("WooCommerce container is unavailable");}
+$container=$GLOBALS["wc_container"];
+if(!is_object($container)||get_class($container)!=="Automattic\\WooCommerce\\Container"||wc_get_container()!==$container){throw new RuntimeException("WooCommerce container identity differs from normal boot");}
+$features=$container->get("Automattic\\WooCommerce\\Internal\\Features\\FeaturesController");
+$synchronizer=$container->get("Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer");
+$customOrders=$container->get("Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController");
+foreach([[$features,"Automattic\\WooCommerce\\Internal\\Features\\FeaturesController"],[$synchronizer,"Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer"],[$customOrders,"Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController"]]as[$service,$class]){if(!is_object($service)||get_class($service)!==$class){throw new RuntimeException("WooCommerce option service identity differs from normal boot");}}
+if(!class_exists("Tribe__Cache_Listener")||!class_exists("Tribe__Settings_Manager")||!class_exists("Tribe__Events__Aggregator")||!function_exists("tribe")){throw new RuntimeException("The Events Calendar option services are unavailable");}
+$listener=Tribe__Cache_Listener::instance();$manager=Tribe__Settings_Manager::instance();$aggregator=Tribe__Events__Aggregator::instance();$views=tribe("Tribe\\Events\\Views\\V2\\Hooks");
+foreach([[$listener,"Tribe__Cache_Listener"],[$manager,"Tribe__Settings_Manager"],[$aggregator,"Tribe__Events__Aggregator"],[$views,"Tribe\\Events\\Views\\V2\\Hooks"]]as[$service,$class]){if(!is_object($service)||get_class($service)!==$class){throw new RuntimeException("The Events Calendar option service identity differs from normal boot");}}
+$exact("updated_option",[[$manager,"update_options_cache",10,3],[$listener,"update_last_updated_option",10,3],[$listener,"update_last_save_post",10,3],[$aggregator,"action_purge_transients",10,1],[$views,"action_save_wplang",10,3],[$features,"process_updated_option",999,3],[$synchronizer,"process_updated_option",999,3],[$customOrders,"process_updated_option",999,3],[$customOrders,"process_updated_option_fts_index",999,3]]);
+$exact("pre_update_option",[[$customOrders,"process_pre_update_option",999,3]]);
+$exact("added_option",[[$features,"process_added_option",999,3],[$synchronizer,"process_added_option",999,2]]);
+$pre=$records("pre_option");if($pre!==[]){if(!function_exists("tribe")){throw new RuntimeException("Harbor option callback has no container resolver");}$harbor=tribe("TEC\\Common\\Integrations\\Harbor\\PUE");if(!is_object($harbor)||get_class($harbor)!=="TEC\\Common\\Integrations\\Harbor\\PUE"){throw new RuntimeException("Harbor option service identity differs from normal boot");}$exact("pre_option",[[$harbor,"filter_pre_get_option",10,3]]);}
+$exact("wp_default_autoload_value",[["wp_filter_default_autoload_value_via_option_size",5,4]]);
+echo wp_json_encode(["callbacks"=>"exact-singletons"]);
+' | tail -1) || fail 'could not bind live callback services to their source singletons'
+echo "$CALLBACK_IDENTITIES" | jq -e '.callbacks=="exact-singletons"' >/dev/null \
+  || fail "live callback singleton witness is malformed: $CALLBACK_IDENTITIES"
 # Polylang derives its `{$type}_rewrite_rules` hooks at `wp_loaded`; checking
 # only the static hook names above would let a same-class foreign callback or
 # a missing dynamic type evade the artifact topology. Its two extension
