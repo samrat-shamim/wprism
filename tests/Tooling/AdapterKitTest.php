@@ -89,7 +89,7 @@ final class AdapterKitTest extends TestCase
     }
 
     /**
-     * A synthetic tree carrying only what the assembler reads: the six
+     * A synthetic tree carrying only what the assembler reads: the seven
      * packaged sources, copied from the real ones so the dependency shapes are
      * the real ones, plus Adopt.php.
      *

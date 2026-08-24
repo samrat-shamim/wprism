@@ -1,6 +1,6 @@
 # `sandbox/tests/lib/` — the shared offline test harness
 
-Four PHP files, no dependencies, no composer, no WordPress. Every offline
+Five PHP files, no dependencies, no composer, no WordPress. Every offline
 `regress_*.php` suite runs as `php sandbox/tests/offline/<domain>/X.php`, so
 these must too. (`grind_lib.sh` also lives here; it is the grind harnesses'
 shell library and has nothing to do with the PHP harness below.)
@@ -11,6 +11,7 @@ shell library and has nothing to do with the PHP harness below.)
 | `wp_stubs.php` | `\DuoTest\WpStore` plus `function_exists()`-guarded WordPress function stubs |
 | `FakeWpdb.php` | `\DuoTest\FakeWpdb` — a duck-typed `$wpdb` that interprets SQL against seeded rows |
 | `frozen_policy.php` | `\DuoTest\FrozenPolicy` — the `duo-policy-snapshot/v6` envelope for suites that need a `Policy` to test something else |
+| `ConformanceVector.php` | `\DuoTest\ConformanceVector` — the `duo-conformance-vector/v1` grammar and its offline replay driver |
 
 `FrozenPolicy` exists because the frozen wire stopped taking a snapshot's word
 for provenance. A suite that only wants a `Policy` object used to hand
@@ -194,6 +195,44 @@ harness's own bookkeeping. Concretely it means `Ledger::assert_read_only_schema(
 live-certification paths and cannot be moved here. `SHOW TABLES LIKE` and
 `SHOW COLUMNS FROM` *are* supported — they are the offline way to probe
 existence and column shape.
+
+The one way to fill those setters with something better than bookkeeping is a
+RECORDING. `ConformanceVector::seed()` drives them from a
+`duo-adapter-probe/v1` document — `SHOW COLUMNS` / `SHOW INDEX` /
+`information_schema` read off a real pinned plugin version on a real server,
+self-hashed, `authority: false` (`agent/src/Adapter/AdapterProbe.php`). That
+does not widen what the interpreter answers; it changes where the schema facts
+came from, which is the half the objection above was ever about.
+
+## Replaying a recorded round trip (`ConformanceVector.php`)
+
+`sandbox/conformance/run.sh` proves a manifest's capture → deploy → apply →
+recapture round trip against a disposable pair, and
+`docs/agents/live-pair-budget.md` allows exactly one pair at a time
+program-wide. `CONF_RECORD_VECTOR=<file>` makes one such run leave a
+`duo-conformance-vector/v1` document behind: the live rows, conf1's `duo_map`,
+the probe, and both canonical trees. `ConformanceVector::replay()` then reruns
+that round trip offline through the REAL engine — `Snapshot::capture()`, then
+`Snapshot::ensure_row()` + `Snapshot::finalize_row()` into an empty second
+target, then capture again — and reports whether the recorded bytes came back.
+
+Two properties are not conveniences and should not be smoothed over:
+
+- **The recorded `duo_map` is mandatory.** Capture MINTS a uuid for an unmapped
+  row, so a vector without the ledger replays to different canonical paths and
+  bytes every run. `assert_document()` refuses one by name.
+- **A replay verdict is a weaker word.** `replay()` answers `vector_replayed`
+  or `vector_replay_refused` and never `conformance_verified`, which only a
+  live sweep earns and which the recorder stamps into the vector itself. Every
+  envelope — pass included — carries `verdict_is_not` and the `status:
+  deferred` rows naming what a replay cannot speak for (the plugin's own PHP,
+  deploy, render-level checks, lint, live schema truth). Quote the word the
+  envelope gives you; do not upgrade it in prose.
+
+`sandbox/tests/offline/capture/regress_conformance_vector_replay.php` is the
+worked example, and it needs no pair: it builds a synthetic adapter's vector,
+replays it, and proves a manifest edit that changes what canonical holds is
+caught.
 
 Facts worth knowing before you write an assertion:
 

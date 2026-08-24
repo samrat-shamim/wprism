@@ -57,12 +57,20 @@
             "sha256": "776cfc23c1f8906eb93b34d63b2e528c2925b1a6986f62c1d10eaae043ebcbb6"
         },
         {
+            "path": "lib/ConformanceVector.php",
+            "origin": "copied",
+            "source": "sandbox/tests/lib/ConformanceVector.php",
+            "role": "DuoTest\\ConformanceVector — record a duo-conformance-vector/v1 once on a pair, replay the round trip offline forever; needs the agent runtime",
+            "bytes": 22300,
+            "sha256": "8c3fee11637395de28f63de193a6d5b060c57ce99a482c8b64ac4aceee9bace5"
+        },
+        {
             "path": "conformance/run.sh",
             "origin": "copied",
             "source": "sandbox/conformance/run.sh",
             "role": "the manifest-agnostic capture -> apply -> re-capture round-trip harness; needs a pair estate",
-            "bytes": 30441,
-            "sha256": "a1d07f17374327366e89a44c5bcb6f3089c24da39b9667389efdcdf23ee846ba"
+            "bytes": 31808,
+            "sha256": "bfd6be52a4ba30d7c69398b589283e249cb4ce00f784c7474e4885d29d3682d7"
         },
         {
             "path": "conformance/asserts.sh",
@@ -93,8 +101,8 @@
             "origin": "generated",
             "source": null,
             "role": "what the kit is, how to run it, and what it deliberately omits",
-            "bytes": 4091,
-            "sha256": "89fe4ea36339aeef8908d51e191303812e7b667dbead8c9dec1a432968d945b1"
+            "bytes": 4313,
+            "sha256": "d3d9b9a79ac4ff859eebafa645fd583748db7d42901a4389c957ef553f5dbf5c"
         }
     ]
 }

@@ -95,6 +95,7 @@ final class AdapterKit
         'lib/wp_stubs.php' => ['sandbox/tests/lib/wp_stubs.php', 'DuoTest\\WpStore plus function_exists()-guarded WordPress function stubs'],
         'lib/FakeWpdb.php' => ['sandbox/tests/lib/FakeWpdb.php', 'DuoTest\\FakeWpdb — a $wpdb that holds ROWS and interprets SQL against them'],
         'lib/frozen_policy.php' => ['sandbox/tests/lib/frozen_policy.php', 'DuoTest\\FrozenPolicy — a duo-policy-snapshot/v6 envelope; needs the agent runtime'],
+        'lib/ConformanceVector.php' => ['sandbox/tests/lib/ConformanceVector.php', 'DuoTest\\ConformanceVector — record a duo-conformance-vector/v1 once on a pair, replay the round trip offline forever; needs the agent runtime'],
         'conformance/run.sh' => ['sandbox/conformance/run.sh', 'the manifest-agnostic capture -> apply -> re-capture round-trip harness; needs a pair estate'],
         'conformance/asserts.sh' => ['sandbox/conformance/asserts.sh', 'premise assertions every seed/postdeploy hook calls before its engine assertion'],
     ];
