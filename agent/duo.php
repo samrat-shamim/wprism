@@ -115,11 +115,11 @@ require_once __DIR__ . '/src/Assess/AssessInventory.php';
  * Additive classmap fallback (DUO-3481, owner rulings D3/D4).
  *
  * Every require_once above is retained and still does all the loading: after
- * this bootstrap runs, 237 of the 239 names in duo-classmap.php are already
- * declared, and the two exceptions (Duo\AdapterCertification and the
- * Duo\SupersededSiteAdapterCertificate declared in the same file) are
+ * this bootstrap runs, 247 of the 251 names in duo-classmap.php are already
+ * declared, and the four exceptions (Duo\AdapterCertification and the three
+ * withdrawal/supersession signals declared in the same file) are
  * require_once'd at each of that file's three use sites in AdapterSources.php
- * before either is ever named. An spl_autoload_register() callback is only consulted for a
+ * before any of them is ever named. An spl_autoload_register() callback is only consulted for a
  * class that is *still undeclared* at the moment it is referenced, so on the
  * production path this registration resolves nothing and changes nothing. It
  * exists for the partially-loaded contexts the drop-in also runs in — an

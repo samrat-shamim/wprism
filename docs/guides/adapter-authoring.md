@@ -1091,6 +1091,19 @@ identically (DUO-3504; before it, the first read `Platform-certified`).
 drops back to uncertified. Re-run `duo adapter certify … --pin` after every
 edit. That is the mechanism working, not a bug to route around.
 
+**An agent upgrade can withdraw the claim, and only the claim.** The signed
+statement also binds the agent's own platform boundary
+(`manifests/capabilities/platform.json`) and the certificate wire version, and
+both move on an ordinary agent upgrade. When either no longer matches, that one
+adapter drops back to uncertified with a reason naming what moved — "its signed
+certification binds an agent platform boundary this agent no longer publishes"
+— and every other adapter the site pins, shipped ones included, keeps loading
+untouched. The remedy is the same one line: re-run `duo adapter certify …
+--pin`, which is runnable in exactly that state. A companion that fails for any
+other reason — a bad signature, an authority this agent does not trust, a wrong
+binding, a file that is not a certificate — still refuses the whole
+`adapters/` source, because none of those is the agent having moved.
+
 **Key custody is yours.** A lost key cannot re-sign. A leaked key can certify
 any adapter in a repository whose `adapters/authorities.json` names it. Back it
 up where you back up deploy keys; production-grade custody (HSMs, rotation,
