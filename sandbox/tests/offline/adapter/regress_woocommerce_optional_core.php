@@ -310,6 +310,16 @@ duo_check_same('capture', $unsupported['post_types.woo_email'] ?? null,
     'the reviewed disposition names the populated Block Email Editor post boundary');
 duo_check_same('capture', $unsupported['options.woocommerce_email_templates_*_post_id'] ?? null,
     'the reviewed disposition names the target-local Block Email Editor mapping boundary');
+duo_check_same(
+    'capture',
+    $unsupported['options.woocommerce_google_analytics_settings|woocommerce_paymob-main_settings|woocommerce_ppec_paypal_settings|woocommerce_stripe_settings|woocommerce_woocommerce_payments_settings'] ?? null,
+    'the reviewed disposition names every source-observed integration-owned settings record'
+);
+duo_check_same(
+    'capture',
+    $unsupported['options.woocommerce_table_rate_default_priority_*|woocommerce_table_rate_priorities_*'] ?? null,
+    'the reviewed disposition names both legacy table-rate extension option families'
+);
 foreach ([
     'options.woocommerce_bacs_settings|woocommerce_cheque_settings|woocommerce_cod_settings',
     'options.woocommerce_<core-email-id>_settings',
@@ -1200,6 +1210,7 @@ $bankMarker = 'TARGET-BANK-SECRET-DO_NOT-ECHO';
 $emailMarker = 'portable_email_content';
 $recipientMarker = 'TARGET-RECIPIENT-DO-NOT-ECHO@example.test';
 $sideEffectMarker = 'side_effect_payload_DO_NOT_ECHO';
+$integrationMarker = 'EXTENSION-CREDENTIAL-DO-NOT-ECHO';
 $thumbnailOptions = [
     'woocommerce_thumbnail_cropping' => 'custom',
     'woocommerce_thumbnail_cropping_custom_height' => '3',
@@ -1219,8 +1230,10 @@ $optionRows = [
     ['option_id' => 10, 'option_name' => 'wc_customer_stock_notifications_admin_notice', 'option_value' => serialize(new WooOptionalWakeupCanary()), 'autoload' => 'no'],
     ['option_id' => 11, 'option_name' => 'wc_stock_notifications_cycle_state_811', 'option_value' => serialize(new WooOptionalWakeupCanary()), 'autoload' => 'no'],
     ['option_id' => 12, 'option_name' => 'wc_stock_notifications_cycle_state_01', 'option_value' => serialize(new WooOptionalWakeupCanary()), 'autoload' => 'no'],
+    ['option_id' => 13, 'option_name' => 'woocommerce_google_analytics_settings', 'option_value' => serialize(['api_secret' => $integrationMarker]), 'autoload' => 'yes'],
+    ['option_id' => 14, 'option_name' => 'woocommerce_table_rate_priorities_17', 'option_value' => serialize([$integrationMarker]), 'autoload' => 'yes'],
 ];
-$nextOptionId = 13;
+$nextOptionId = 15;
 $gatewayRecords = (array) ($settingsInventory['closed_records']['gateway_settings'] ?? []);
 foreach (array_keys($gatewayRecords) as $optionName) {
     $value = match ($optionName) {
@@ -1360,7 +1373,7 @@ $captureResult = $capture->capture(false, false, null, [], false, true);
 $pending = $captureResult['unclassified'];
 sort($pending, SORT_STRING);
 $expectedPendingNames = array_merge(
-    ['wc_migrator_credentials_bad/slash', 'wc_stock_notifications_cycle_state_01', 'woocommerce_email_templates_addon_gateway_post_id', 'woocommerce_email_templates_new_order_post_id'],
+    ['wc_migrator_credentials_bad/slash', 'wc_stock_notifications_cycle_state_01', 'woocommerce_email_templates_addon_gateway_post_id', 'woocommerce_email_templates_new_order_post_id', 'woocommerce_google_analytics_settings', 'woocommerce_table_rate_priorities_17'],
     [$addonEmailOption]
 );
 sort($expectedPendingNames, SORT_STRING);
@@ -1394,8 +1407,9 @@ duo_check(
         && !str_contains($captureEvidence, $credentialMarker)
         && !str_contains($captureEvidence, $bankMarker)
         && !str_contains($captureEvidence, $recipientMarker)
-        && !str_contains($captureEvidence, $sideEffectMarker),
-    'capture refusal and repository output never echo mapping, credential, bank, recipient, or side-effect values'
+        && !str_contains($captureEvidence, $sideEffectMarker)
+        && !str_contains($captureEvidence, $integrationMarker),
+    'capture refusal and repository output never echo mapping, credential, bank, recipient, side-effect, or integration-owned values'
 );
 $expectedGuardKeys = array_keys($thumbnailOptions);
 foreach (['woocommerce_bacs_settings', 'woocommerce_cheque_settings'] as $optionName) {

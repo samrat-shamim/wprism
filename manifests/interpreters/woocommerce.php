@@ -88,6 +88,7 @@ final class Woocommerce {
             'price',
             'price-desc',
         ],
+        'woocommerce_product_type' => ['simple', 'grouped', 'external', 'variable'],
         'woocommerce_shop_page_display' => ['', 'subcategories', 'both'],
         'woocommerce_thumbnail_cropping' => ['1:1', 'custom', 'uncropped'],
     ];

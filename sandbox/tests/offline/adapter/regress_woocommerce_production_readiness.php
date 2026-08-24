@@ -601,6 +601,7 @@ foreach ([
     'woocommerce_graphql_query_cache_ttl',
     'woocommerce_pickup_location_settings',
     'woocommerce_pos_store_name',
+    'woocommerce_product_type',
     'woocommerce_rest_api_enable_cache_headers',
     'woocommerce_shop_page_display',
 ] as $optionName) {
@@ -1095,6 +1096,7 @@ $validSettings = [
     'woocommerce_graphql_opcache_enabled' => ['state' => 'present', 'value' => 'no'],
     'woocommerce_graphql_query_cache_ttl' => ['state' => 'present', 'value' => '3600'],
     'woocommerce_pos_store_name' => ['state' => 'present', 'value' => 'فرع 東京'],
+    'woocommerce_product_type' => ['state' => 'present', 'value' => 'external'],
     'woocommerce_pickup_location_settings' => [
         'state' => 'present',
         'value' => [
@@ -1191,6 +1193,7 @@ $invalidSettings = [
     ['woocommerce_shop_page_display', 'products', 'exact native value set'],
     ['woocommerce_date_type', 'updated_at', 'exact native value set'],
     ['woocommerce_default_catalog_orderby', 'random', 'exact native value set'],
+    ['woocommerce_product_type', 'subscription', 'exact native value set'],
     ['woocommerce_actionable_order_statuses', ['processing', 'processing'], 'unique bounded'],
     ['woocommerce_actionable_order_statuses', ['processing', 'wc bad'], 'unique bounded'],
     ['woocommerce_excluded_report_order_statuses', ['key' => 'failed'], 'list of at most'],

@@ -74,8 +74,68 @@ woo_ok(($settingsInventory['format'] ?? null) === 'duo-woocommerce-settings-inve
     'the source-audited settings inventory uses the exact reviewed schema');
 woo_ok(count((array) ($settingsInventory['literal_ids'] ?? [])) === 148,
     'the exact 11.0.0/11.0.1 visible-settings union freezes all 148 reviewed source ids');
-woo_ok(count((array) ($settingsInventory['source_files'] ?? [])) === 82,
-    'the inventory binds all eighty-two byte-identical settings, gateway, email, pickup, scheduler, stock-notification, launch, image-regeneration, and frontend-read sources');
+woo_ok(count((array) ($settingsInventory['operational_literal_ids'] ?? [])) === 105,
+    'the exact whole-core scan separately freezes all 105 Woo-prefixed operational, migration, integration, and product-setting literals outside the visible-settings union');
+$operationalSourceUnion = (array) ($settingsInventory['operational_source_union'] ?? []);
+$operationalClassificationBytes = '';
+foreach ((array) ($settingsInventory['operational_literal_ids'] ?? []) as $name => $classification) {
+    $operationalClassificationBytes .= $name . "\t" . $classification . "\n";
+}
+$operationalSharedSources = (array) ($operationalSourceUnion['shared_source_files'] ?? []);
+$operationalVersionSources = (array) ($operationalSourceUnion['version_specific_source_files'] ?? []);
+$operationalSourcePaths = array_values(array_unique(array_merge(
+    array_keys($operationalSharedSources),
+    array_keys($operationalVersionSources)
+)));
+sort($operationalSourcePaths, SORT_STRING);
+$operationalSourceBytes = '';
+foreach ($operationalSourcePaths as $sourcePath) {
+    if (array_key_exists($sourcePath, $operationalSharedSources)) {
+        $sha256 = $operationalSharedSources[$sourcePath];
+        woo_ok(is_string($sha256) && preg_match('/^[0-9a-f]{64}$/D', $sha256) === 1,
+            "$sourcePath has one exact byte-identical operational source hash");
+        $operationalSourceBytes .= $sourcePath . "\t" . $sha256 . "\n";
+        continue;
+    }
+    $versionHashes = (array) ($operationalVersionSources[$sourcePath] ?? []);
+    woo_ok(array_keys($versionHashes) === ['11.0.0', '11.0.1'],
+        "$sourcePath binds both exact artifact-specific operational source hashes");
+    foreach ($versionHashes as $version => $sha256) {
+        woo_ok(is_string($sha256) && preg_match('/^[0-9a-f]{64}$/D', $sha256) === 1,
+            "$sourcePath@$version has one exact operational source hash");
+        $operationalSourceBytes .= $sourcePath . "\t" . $version . "\t" . $sha256 . "\n";
+    }
+}
+woo_ok(($operationalSourceUnion['source_count'] ?? null) === 80
+    && ($operationalSourceUnion['shared_source_count'] ?? null) === 78
+    && count($operationalSharedSources) === 78
+    && count($operationalVersionSources) === 2
+    && count($operationalSourcePaths) === 80
+    && ($operationalSourceUnion['source_set_sha256'] ?? null)
+        === hash('sha256', $operationalSourceBytes)
+    && ($operationalSourceUnion['classification_sha256'] ?? null)
+        === hash('sha256', $operationalClassificationBytes),
+    'the residual classification is bound to all eighty exact source paths and hashes plus its sorted classified-byte inventory');
+woo_ok(($operationalSourceUnion['classification_counts'] ?? null) === [
+    'authored' => 1,
+    'dynamic_fragment' => 1,
+    'env' => 16,
+    'extension_boundary' => 5,
+    'extension_prefix' => 2,
+    'runtime' => 77,
+    'runtime_prefix' => 3,
+] && ($operationalSourceUnion['version_specific_source_files'] ?? null) === [
+    'includes/class-woocommerce.php' => [
+        '11.0.0' => '5982ef2ab60231218cc71a2ba9bd387496d32c1a5eeb5468116d51137bbd7ef4',
+        '11.0.1' => '2f3a95ae78217be16fa1f272c1fad4d3faecfd02939041a861d65826bb3f4cb7',
+    ],
+    'includes/wc-product-functions.php' => [
+        '11.0.0' => '19aa8c372aef52ec9526d91115003e6c1f35cf5cd783bfa873e55c951c78c9be',
+        '11.0.1' => 'e73e5fe1dd2844bf2bdc3a59bf728b6d38aee79b2152f616f2f993f515975c76',
+    ],
+], 'the operational union freezes every class count and both exact artifact-specific source authorities');
+woo_ok(count((array) ($settingsInventory['source_files'] ?? [])) === 90,
+    'the inventory binds all ninety byte-identical visible, operational, migration, gateway, email, pickup, scheduler, stock-notification, launch, image-regeneration, and frontend-read sources');
 foreach ((array) ($settingsInventory['source_files'] ?? []) as $sourceFile => $sha256) {
     woo_ok(
         is_string($sourceFile) && $sourceFile !== ''
@@ -149,6 +209,20 @@ $thumbnailSources = [
 foreach ($thumbnailSources as $sourceFile => $sha256) {
     woo_ok(($settingsInventory['source_files'][$sourceFile] ?? null) === $sha256,
         "$sourceFile is exact and byte-identical across official WooCommerce 11.0.0/11.0.1");
+}
+$operationalAuthorities = [
+    'includes/admin/class-wc-admin-notices.php' => 'bf4a07c145f7005804c23357f6c2e82b06fa5f284e21cffbf79d87c120ff507e',
+    'includes/admin/class-wc-admin-permalink-settings.php' => 'db546611151444e54677ea4f3a4317181a49c4f5aa9095740fa88e4bbdf32969',
+    'includes/admin/class-wc-admin-setup-wizard.php' => '920cd8767034ce6e2379ce6641524334bdbd1b47980e40227297d0943fcda301',
+    'includes/wc-update-functions.php' => 'ef71483132ffca291e1672818f013a5b005673513b37b67a8934a6c28f438f94',
+    'includes/wc-user-functions.php' => 'e504b14bd34a5fd156cce2e91a9933a126db549213ddb821994a0ce5efab4330',
+    'src/Internal/Admin/Events.php' => 'e8e5acf756a2d35444246875723df09022bdc750048185b2309c4a9650cc562f',
+    'src/Internal/RestApi/Routes/V4/Settings/Products/Controller.php' => '8cc95559c063f06d5c34fd08eb0be0a96cc8c6e24331a8f63a96616b751c4135',
+    'src/Internal/RestApi/Routes/V4/Settings/Products/Schema/ProductSettingsSchema.php' => '2c1e9afc9acd4acc1590352acfafb0a9737ffe44f73fb5102ac82f2cbd2b5bdb',
+];
+foreach ($operationalAuthorities as $sourceFile => $sha256) {
+    woo_ok(($settingsInventory['source_files'][$sourceFile] ?? null) === $sha256,
+        "$sourceFile is exact operational/source-union authority shared by both admitted artifacts");
 }
 foreach ((array) ($settingsInventory['artifacts'] ?? []) as $version => $sha256) {
     woo_ok(
@@ -227,6 +301,43 @@ foreach ($inventoryClassifications as $name => $classification) {
         woo_ok($policy->option_namespace((string) $name) !== null,
             "$name remains discovery-owned so populated unsupported state fails loudly");
     }
+}
+$operationalIds = (array) ($settingsInventory['operational_literal_ids'] ?? []);
+$operationalPrefixProbes = [
+    'woocommerce_admin_notice_' => 'woocommerce_admin_notice_extension-update',
+    'woocommerce_onboarding_plugins_install_and_activate_async_' => 'woocommerce_onboarding_plugins_install_and_activate_async_jetpack',
+    'woocommerce_setup_background_installing_' => 'woocommerce_setup_background_installing_woocommerce-services',
+];
+$extensionPrefixProbes = [
+    'woocommerce_table_rate_default_priority_' => 'woocommerce_table_rate_default_priority_17',
+    'woocommerce_table_rate_priorities_' => 'woocommerce_table_rate_priorities_17',
+];
+foreach ($operationalIds as $name => $classification) {
+    if (in_array($classification, ['authored', 'runtime', 'env'], true)) {
+        woo_ok(($policy->option_rule((string) $name)['class'] ?? null) === $classification,
+            "$name resolves to its exact $classification operational classification");
+        continue;
+    }
+    if ($classification === 'runtime_prefix') {
+        $probe = $operationalPrefixProbes[$name] ?? null;
+        woo_ok(is_string($probe)
+            && ($policy->option_rule($probe)['class'] ?? null) === 'runtime'
+            && $policy->option_rule((string) $name) === null,
+            "$name is a bounded runtime family rather than an unbounded prefix match");
+        continue;
+    }
+    if ($classification === 'extension_prefix') {
+        $probe = $extensionPrefixProbes[$name] ?? null;
+        woo_ok(is_string($probe)
+            && $policy->option_rule($probe) === null
+            && $policy->option_namespace($probe) !== null,
+            "$name remains a discovery-visible extension-owned settings family");
+        continue;
+    }
+    woo_ok(in_array($classification, ['dynamic_fragment', 'extension_boundary'], true)
+        && $policy->option_rule((string) $name) === null
+        && $policy->option_namespace((string) $name) !== null,
+        "$name remains a discovery-visible $classification instead of receiving core portability authority");
 }
 woo_ok(($settingsInventory['dynamic_families'] ?? null) === [
     'wc_stock_notifications_cycle_state_<product-id>' => 'runtime',
