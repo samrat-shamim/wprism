@@ -369,9 +369,10 @@ final class ReleaseCommand {
 
         $inputs = [
             'authority' => self::authority($plan, $scope),
-            'capabilities' => self::capabilities($inScope, is_array($assessment['catalog']['facts'] ?? null)
-                ? $assessment['catalog']['facts']
-                : []),
+            'capabilities' => self::capabilities(
+                $inScope,
+                is_array($assessment['catalog'] ?? null) ? $assessment['catalog'] : []
+            ),
             'contract' => $contract,
             'deletion_semantics' => self::deletionSemantics($assessment),
             'environment' => $driver->name(),
@@ -1009,17 +1010,21 @@ final class ReleaseCommand {
      * list is worse than printing the real rows. Every field §2.3.1 shows is
      * present and carries the projection's own word.
      *
-     * @param list<array<string,mixed>> $rows
+     * @param list<array<string,mixed>> $rows in-scope projection surface rows
+     * @param array<string,mixed> $catalog the assessment's `SurfaceCatalog::catalog()`
+     *        result, read through `factVectors()` — the fact record's shape is
+     *        stated there and nowhere else, because indexing it by hand here
+     *        is precisely how this plan once froze with no conditions at all
      * @return list<array<string,mixed>>
      */
-    private static function capabilities(array $rows, array $facts): array {
+    private static function capabilities(array $rows, array $catalog): array {
         $out = [];
         foreach ($rows as $row) {
             $operation = $row['operations'][self::OPERATION] ?? null;
             if (!is_array($operation)) {
                 continue;
             }
-            $vector = $facts[(string) ($row['id'] ?? '')][self::OPERATION] ?? [];
+            $vector = SurfaceCatalog::factVectors($catalog, (string) ($row['id'] ?? ''))[self::OPERATION] ?? [];
             $out[] = [
                 'certification_provenance' => (string) ($operation['certification_provenance'] ?? ''),
                 // STRUCTURED rows, not the projection's prose. The projection

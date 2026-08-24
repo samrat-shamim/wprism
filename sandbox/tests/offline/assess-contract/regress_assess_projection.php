@@ -854,4 +854,62 @@ duo_check_same(
     'a projected contract declares one dependency entry per CLAIMED database engine, derived from the shipped boundary'
 );
 
+// ------------------------- the catalog fact record has ONE shape and ONE reader
+//
+// This exists because the silent version of it shipped. `catalog()['facts']`
+// was the bare operation-keyed vector map until the exact-dependency flip
+// wrapped it as `{governed_by, operations}` to record which adapter governs a
+// surface. `projectionFacts()` moved with the shape;
+// `ReleaseCommand::capabilities()` kept indexing the record by operation with
+// its own `?? []`, so it kept parsing, kept running, and produced an EMPTY
+// `conditions` list and an EMPTY `manifest` for every capability row of the
+// frozen authorization plan. A plan naming no condition and no manifest gives
+// `AuthorizationPlan::recheckConditions()` nothing to re-observe, so a plugin
+// downgraded or deactivated inside the operator's confirmation window passed
+// the mutation gate — the defect that gate exists to stop, reintroduced by a
+// shape change three files away and caught by nothing until the product-path
+// suite ran (regress_release_condition_gate.sh).
+//
+// `factVectors()` and `factGovernedBy()` are now the only readers of that
+// record, and these cases pin the three answers a caller can get.
+$factCatalog = $catalogFor(null);
+$factId = 'plugin:unmanaged-widget';
+duo_check_same(
+    ['governed_by', 'operations'],
+    array_keys($factCatalog['facts'][$factId] ?? []),
+    'the catalog fact record is exactly the documented {governed_by, operations} pair'
+);
+duo_check_same(
+    ['release'],
+    array_keys(SurfaceCatalog::factVectors($factCatalog, $factId)),
+    'factVectors() unwraps the envelope and answers the operation-keyed vectors'
+);
+duo_check(
+    array_key_exists('conditions', SurfaceCatalog::factVectors($factCatalog, $factId)['release'] ?? []),
+    'the vector it answers is the one carrying the machine-checkable condition rows the mutation gate re-observes'
+);
+duo_check_same([], SurfaceCatalog::factGovernedBy($factCatalog, $factId), 'an ungoverned surface names no manifest');
+// A real answer, not a hole: `ContractProjection::generate()` projects
+// contract-declared surfaces this site does not have through `defaultFacts()`,
+// and those legitimately have no catalog fact record.
+duo_check_same([], SurfaceCatalog::factVectors($factCatalog, 'table:absent'), 'a surface absent from facts answers []');
+duo_check_same([], SurfaceCatalog::factGovernedBy($factCatalog, 'table:absent'), 'and governs nothing');
+// PRESENT but not the documented shape is the drift above, and it refuses out
+// loud rather than answering an empty list that reads as success.
+foreach ([
+    'the pre-envelope bare vector map' => ['release' => ['conditions' => []]],
+    'a record missing governed_by' => ['operations' => []],
+    'a record missing operations' => ['governed_by' => []],
+    'a record that is not an array' => 'operations',
+] as $what => $malformed) {
+    duo_check_refuses(
+        static fn (): array => SurfaceCatalog::factVectors(
+            ['rows' => [], 'facts' => [$factId => $malformed]],
+            $factId
+        ),
+        'assess_surface_facts_malformed',
+        "$what refuses instead of silently answering no conditions"
+    );
+}
+
 duo_check_summary('regress_assess_projection');

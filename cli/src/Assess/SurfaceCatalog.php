@@ -230,7 +230,15 @@ final class SurfaceCatalog {
      *        operations, default all six) and `provider_negotiation` (a
      *        manifest name -> list of `Providers::diagnose()` codes map;
      *        empty in this profile, see AssessCommand)
-     * @return array{rows: list<array<string,mixed>>, facts: array<string,array<string,mixed>>}
+     * @return array{
+     *     rows: list<array<string,mixed>>,
+     *     facts: array<string,array{
+     *         governed_by: list<string>,
+     *         operations: array<string,array<string,mixed>>
+     *     }>
+     * } `facts` is keyed by surface id and its entry is the FACT RECORD
+     *   documented on `factVectors()` — read it through that method and
+     *   `factGovernedBy()`, never by indexing the record by hand.
      */
     public static function catalog(
         array $inventory,
@@ -281,6 +289,93 @@ final class SurfaceCatalog {
     }
 
     /**
+     * The operation-keyed fact vectors for ONE surface of a `catalog()`
+     * result — the only reader of the fact record's `operations` half.
+     *
+     * The fact record is `{governed_by, operations}` (`:270-282`). It has not
+     * always been: it was the bare operation-keyed map until the exact
+     * dependency flip needed to know which adapter governs a surface, and it
+     * gained the envelope then. `projectionFacts()` moved with it;
+     * `ReleaseCommand::capabilities()` did not, because it indexed the record
+     * by operation with its own `?? []` and so kept parsing, kept running, and
+     * silently produced an EMPTY `conditions` list and an EMPTY `manifest` for
+     * every capability row in the frozen authorization plan. That is not a
+     * cosmetic loss: a plan naming no condition and no manifest gives
+     * `AuthorizationPlan::recheckConditions()` nothing to re-observe, so a
+     * plugin downgraded or deactivated inside the operator's confirmation
+     * window passed the mutation gate and authorized a production mutation —
+     * the exact defect the gate exists to stop, reintroduced by a shape change
+     * three files away.
+     *
+     * Two hand-written indexings of one shape are what made that possible, so
+     * there is one indexing now and both callers go through it. A surface id
+     * ABSENT from `facts` answers `[]`, which is a real answer rather than a
+     * hole: `ContractProjection::generate()` projects contract-declared
+     * surfaces this site does not have through `defaultFacts()`
+     * (ContractProjection.php:386-389), and those legitimately have no catalog
+     * fact record. A record that is PRESENT but not the documented shape is
+     * the drift above and refuses out loud instead.
+     *
+     * @param array<string,mixed> $catalog a `catalog()` result
+     * @return array<string,array<string,mixed>> vectors keyed by MUP operation
+     */
+    public static function factVectors(array $catalog, string $surfaceId): array {
+        $record = self::factRecord($catalog, $surfaceId);
+        if ($record === null) {
+            return [];
+        }
+
+        return is_array($record['operations']) ? $record['operations'] : [];
+    }
+
+    /**
+     * The manifests that GOVERN one surface — the fact record's other half,
+     * read the same single way for the same reason.
+     *
+     * @param array<string,mixed> $catalog a `catalog()` result
+     * @return list<string>
+     */
+    public static function factGovernedBy(array $catalog, string $surfaceId): array {
+        $record = self::factRecord($catalog, $surfaceId);
+        if ($record === null) {
+            return [];
+        }
+
+        return is_array($record['governed_by']) ? array_values($record['governed_by']) : [];
+    }
+
+    /**
+     * One surface's fact record, or null when the catalog holds none for it.
+     *
+     * @param array<string,mixed> $catalog
+     * @return array<string,mixed>|null
+     */
+    private static function factRecord(array $catalog, string $surfaceId): ?array {
+        $facts = is_array($catalog['facts'] ?? null) ? $catalog['facts'] : [];
+        if (!array_key_exists($surfaceId, $facts)) {
+            return null;
+        }
+        $record = $facts[$surfaceId];
+        if (!is_array($record)
+            || !array_key_exists('governed_by', $record)
+            || !array_key_exists('operations', $record)
+        ) {
+            // Loud, because the silent version of this shipped: see
+            // `factVectors()`. A caller holding a catalog whose fact record is
+            // not the documented one is reading a document some other build
+            // wrote, and every downstream answer derived from it — the frozen
+            // plan's conditions included — would be empty rather than wrong,
+            // which is the failure mode that reads as success.
+            throw self::refuse(
+                'assess_surface_facts_malformed',
+                'a catalog fact record is not the documented {governed_by, operations} shape'
+            );
+        }
+
+        return $record;
+    }
+
+    /**
      * The `ContractProjection::generate()` fact block, built from the same
      * vectors the report rows were projected from.
      *
@@ -311,7 +406,7 @@ final class SurfaceCatalog {
         $surfaces = [];
         foreach ($catalog['rows'] as $row) {
             $id = (string) $row['id'];
-            $vectors = $catalog['facts'][$id]['operations'] ?? [];
+            $vectors = self::factVectors($catalog, $id);
             $entries = [];
             foreach ($operations as $operation) {
                 if (!isset($vectors[$operation])) {
@@ -323,7 +418,7 @@ final class SurfaceCatalog {
                 ];
             }
             $surfaces[$id] = [
-                'governed_by' => $catalog['facts'][$id]['governed_by'] ?? [],
+                'governed_by' => self::factGovernedBy($catalog, $id),
                 'operations' => $entries,
             ];
         }
