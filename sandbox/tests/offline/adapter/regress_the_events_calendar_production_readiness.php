@@ -64,6 +64,32 @@ namespace TEC\Common\Configuration {
     }
 }
 
+namespace TEC\Common\Integrations\Harbor {
+    final class PUE {
+        public function filter_pre_get_option(mixed $value): mixed {
+            return $value;
+        }
+    }
+}
+
+namespace Tribe\Events\Views\V2 {
+    final class Hooks {
+        public function __construct() {
+            \add_action('updated_option', [$this, 'action_save_wplang'], 10, 3);
+        }
+
+        public function action_save_wplang(string $option, mixed $old, mixed $value): void {}
+    }
+}
+
+namespace Duo\Interpreters {
+    function microtime(bool $asFloat = false): float|string {
+        $plan = &$GLOBALS['tec_readiness_interpreter_time_plan'];
+        $value = is_array($plan) && $plan !== [] ? array_shift($plan) : \microtime(true);
+        return $asFloat ? (float) $value : (string) $value;
+    }
+}
+
 namespace TEC\Events\Custom_Tables\V1\Events\Occurrences {
     final class Occurrences_Generator {}
 }
@@ -122,6 +148,20 @@ final class Tribe__Settings_Manager {
             tribe_set_var('Tribe__Settings_Manager:option_cache', $value);
         }
     }
+}
+
+final class Tribe__Events__Aggregator {
+    private static ?self $instance = null;
+
+    private function __construct() {
+        add_action('updated_option', [$this, 'action_purge_transients'], 10, 1);
+    }
+
+    public static function instance(): self {
+        return self::$instance ??= new self();
+    }
+
+    public function action_purge_transients(string $option): void {}
 }
 
 final class Tribe__Customizer {
@@ -287,7 +327,17 @@ final class Tribe__Cache_Listener {
     public function update_last_updated_option(string $option, mixed $old, mixed $new): void {
         $triggers = apply_filters(
             'tribe_cache_last_occurrence_option_triggers',
-            ['active_plugins' => true],
+            [
+                'active_plugins' => true,
+                'tribe_events_calendar_options' => true,
+                'permalink_structure' => true,
+                'rewrite_rules' => true,
+                'start_of_week' => true,
+                'sidebars_widgets' => true,
+                'stylesheet' => true,
+                'template' => true,
+                'WPLANG' => true,
+            ],
             'updated_option',
             func_get_args()
         );
@@ -305,7 +355,12 @@ final class Tribe__Cache_Listener {
     public function update_last_save_post(string $option, mixed $old, mixed $new): void {
         $triggers = apply_filters(
             'tribe_cache_last_occurrence_option_triggers',
-            ['tribe_events_calendar_options' => true],
+            [
+                'tribe_events_calendar_options' => true,
+                'permalink_structure' => true,
+                'rewrite_rules' => true,
+                'start_of_week' => true,
+            ],
             'save_post',
             func_get_args()
         );
@@ -741,7 +796,7 @@ function wp_strip_all_tags(string $value, bool $removeBreaks = false): string {
 
 /** @return mixed */
 function get_option(string $name, mixed $default = false): mixed {
-    if ($name === 'tribe_last_save_post') {
+    if (in_array($name, ['tribe_last_save_post', 'tribe_last_updated_option'], true)) {
         $pre = apply_filters("pre_option_$name", false, $name, $default);
         $pre = apply_filters('pre_option', $pre, $name, $default);
         if ($pre !== false) {
@@ -1010,6 +1065,9 @@ function tribe(?string $class = null): object {
     }
     return match ($class) {
         'customizer' => $GLOBALS['tec_readiness_customizer'],
+        'cache' => $GLOBALS['tec_readiness_container_cache'],
+        'Tribe\\Events\\Views\\V2\\Hooks' => $GLOBALS['tec_readiness_views_hooks'],
+        'TEC\\Common\\Integrations\\Harbor\\PUE' => $GLOBALS['tec_readiness_harbor_pue'],
         'TEC\\Events\\Category_Colors\\CSS\\Generator' =>
             $GLOBALS['tec_readiness_category_color_generator'],
         'TEC\\Events\\Category_Colors\\Repositories\\Category_Color_Dropdown_Provider' =>
@@ -1022,7 +1080,40 @@ function tribe_cache(): object {
     return $GLOBALS['tec_readiness_category_color_cache'];
 }
 
+function tec_readiness_maybe_fail_tribe_var(string $operation, string $key): void {
+    $configured = $GLOBALS['tec_readiness_tribe_var_failure'] ?? null;
+    if (!is_array($configured)) {
+        return;
+    }
+    $plans = array_is_list($configured) ? $configured : [$configured];
+    foreach ($plans as $position => $plan) {
+        if (!is_array($plan)
+            || ($plan['operation'] ?? null) !== $operation
+            || ($plan['key'] ?? null) !== $key) {
+            continue;
+        }
+        if (($plan['skip'] ?? 0) > 0) {
+            --$plan['skip'];
+            $plans[$position] = $plan;
+            $GLOBALS['tec_readiness_tribe_var_failure'] = array_is_list($configured)
+                ? $plans
+                : $plan;
+            return;
+        }
+        if (($plan['once'] ?? true) === true) {
+            unset($plans[$position]);
+            $plans = array_values($plans);
+            $GLOBALS['tec_readiness_tribe_var_failure'] = array_is_list($configured)
+                ? $plans
+                : null;
+        }
+        throw new RuntimeException("injected tribe_$operation" . '_var failure');
+    }
+}
+
 function tribe_set_var(string $key, mixed $value): void {
+    $GLOBALS['tec_readiness_tribe_var_writes'][] = ['set', $key, $value];
+    tec_readiness_maybe_fail_tribe_var('set', $key);
     $GLOBALS['tec_readiness_tribe_vars'][$key] = $value;
 }
 
@@ -1031,6 +1122,8 @@ function tribe_get_var(string $key, mixed $default = null): mixed {
 }
 
 function tribe_unset_var(string $key): void {
+    $GLOBALS['tec_readiness_tribe_var_writes'][] = ['unset', $key, null];
+    tec_readiness_maybe_fail_tribe_var('unset', $key);
     unset($GLOBALS['tec_readiness_tribe_vars'][$key]);
 }
 
@@ -3117,6 +3210,7 @@ $GLOBALS['tec_readiness_container_bindings'] = [];
 $GLOBALS['tec_readiness_container_binding_signals'] = [];
 $GLOBALS['tec_readiness_configuration'] = [];
 $GLOBALS['tec_readiness_category_color_cache'] = new Tribe__Cache();
+$GLOBALS['tec_readiness_container_cache'] = $GLOBALS['tec_readiness_category_color_cache'];
 $GLOBALS['tec_readiness_log_provider'] = new \Tribe\Log\Service_Provider();
 add_action(
     Tribe__Cache::SCHEDULED_EVENT_DELETE_TRANSIENT,
@@ -4945,7 +5039,9 @@ function tec_readiness_capture_customizer_record(
 /**
  * @return array{
  *   row:?array{option_id:mixed,option_name:mixed,option_value:mixed,autoload:mixed},
- *   failure:?Throwable,warnings:list<string>,settings_cache_present:bool,settings_cache:mixed
+ *   legacy_row:?array{option_id:mixed,option_name:mixed,option_value:mixed,autoload:mixed},
+ *   failure:?Throwable,warnings:list<string>,settings_cache_present:bool,settings_cache:mixed,
+ *   runtime_rows:array<string,array>,purge_flag_present:bool,purge_flag:mixed,tribe_var_writes:list<array>
  * }
  */
 function tec_readiness_materialize_mixed_option(
@@ -4957,7 +5053,16 @@ function tec_readiness_materialize_mixed_option(
     string $targetAutoload = 'off',
     bool $settingsCachePresent = false,
     mixed $settingsCache = null,
-    string $cacheDeleteMode = ''
+    string $cacheDeleteMode = '',
+    ?array $targetLegacy = null,
+    string $targetLegacyAutoload = 'off',
+    ?Closure $configureDb = null,
+    bool $desiredPresent = true,
+    array $targetRuntimeRows = [],
+    bool $purgeFlagPresent = false,
+    mixed $purgeFlag = null,
+    array $timePlan = [],
+    ?array $tribeVarFailure = null
 ): array {
     $savedDb = $GLOBALS['wpdb'] ?? null;
     $savedTribeVars = $GLOBALS['tec_readiness_tribe_vars'] ?? [];
@@ -4965,24 +5070,56 @@ function tec_readiness_materialize_mixed_option(
     $savedCacheDeletesPresent = array_key_exists('tec_readiness_wp_cache_deletes', $GLOBALS);
     $savedCacheDeletes = $GLOBALS['tec_readiness_wp_cache_deletes'] ?? 0;
     $savedCacheMode = $GLOBALS['tec_readiness_wp_cache_delete_mode'] ?? '';
+    $savedTimePlan = $GLOBALS['tec_readiness_interpreter_time_plan'] ?? [];
+    $savedVarFailure = $GLOBALS['tec_readiness_tribe_var_failure'] ?? null;
+    $savedVarWrites = $GLOBALS['tec_readiness_tribe_var_writes'] ?? [];
     $db = new LockingFakeWpdb(new FakeWpdb());
     $GLOBALS['wpdb'] = $db;
     $db->addInnoDbTable($db->options)
         ->addIndex($db->options, 'option_name', 'option_name', true);
-    $db->seedTable($db->options, []);
+    $targetRows = [];
+    $optionId = 1;
     if ($target !== null) {
-        $db->seedTable($db->options, [[
-            'option_id' => 1,
+        $targetRows[] = [
+            'option_id' => $optionId++,
             'option_name' => $name,
             'option_value' => serialize($target),
             'autoload' => $targetAutoload,
-        ]]);
+        ];
+    }
+    if ($targetLegacy !== null) {
+        $targetRows[] = [
+            'option_id' => $optionId,
+            'option_name' => 'tribe_events_pro_customizer',
+            'option_value' => serialize($targetLegacy),
+            'autoload' => $targetLegacyAutoload,
+        ];
+    }
+    foreach ($targetRuntimeRows as $runtimeName => $runtimeRow) {
+        $targetRows[] = [
+            'option_id' => ++$optionId,
+            'option_name' => $runtimeName,
+            'option_value' => (string) ($runtimeRow['option_value'] ?? ''),
+            'autoload' => (string) ($runtimeRow['autoload'] ?? ''),
+        ];
+    }
+    $db->seedTable($db->options, $targetRows);
+    if ($configureDb !== null) {
+        $configureDb($db);
     }
     if ($settingsCachePresent) {
         tribe_set_var('Tribe__Settings_Manager:option_cache', $settingsCache);
     } else {
         tribe_unset_var('Tribe__Settings_Manager:option_cache');
     }
+    if ($purgeFlagPresent) {
+        tribe_set_var('should_delete_expired_transients', $purgeFlag);
+    } else {
+        tribe_unset_var('should_delete_expired_transients');
+    }
+    $GLOBALS['tec_readiness_interpreter_time_plan'] = $timePlan;
+    $GLOBALS['tec_readiness_tribe_var_failure'] = $tribeVarFailure;
+    $GLOBALS['tec_readiness_tribe_var_writes'] = [];
     $GLOBALS['tec_readiness_wp_cache_delete_mode'] = $cacheDeleteMode;
     $GLOBALS['tec_readiness_wp_cache_deletes'] = $savedCacheDeletes;
     $tokens = new Tokens('https://target.example', 'https://target.example/uploads');
@@ -5001,10 +5138,11 @@ function tec_readiness_materialize_mixed_option(
         $participantsStarted = true;
         \Duo\CacheInvalidationTransaction::begin();
         $cacheStarted = true;
+        $desiredRecord = $desiredPresent
+            ? \Duo\OptionState::present($desired, $desiredAutoload)
+            : \Duo\OptionState::absent();
         $optionsMaterializer->apply_options(
-            \Duo\OptionState::document([
-                $name => \Duo\OptionState::present($desired, $desiredAutoload),
-            ]),
+            \Duo\OptionState::document([$name => $desiredRecord]),
             false,
             $warnings
         );
@@ -5017,7 +5155,11 @@ function tec_readiness_materialize_mixed_option(
         if ($transactionStarted) {
             try {
                 if ($participantsStarted) {
-                    $optionsMaterializer->rollback_authored_transaction();
+                    try {
+                        $optionsMaterializer->rollback_authored_transaction();
+                    } catch (Throwable $rollbackFailure) {
+                        $failure = $rollbackFailure;
+                    }
                 }
             } finally {
                 \Duo\Db::rollback('TEC mixed-option fixture rollback');
@@ -5029,16 +5171,29 @@ function tec_readiness_materialize_mixed_option(
         }
     }
     $row = null;
+    $legacyRow = null;
+    $runtimeRows = [];
     foreach ($db->rows($db->options) as $candidate) {
         if (($candidate['option_name'] ?? null) === $name) {
             $row = $candidate;
-            break;
+        }
+        if (($candidate['option_name'] ?? null) === 'tribe_events_pro_customizer') {
+            $legacyRow = $candidate;
+        }
+        if (in_array(($candidate['option_name'] ?? null), [
+            'tribe_last_updated_option',
+            'tribe_last_save_post',
+        ], true)) {
+            $runtimeRows[(string) $candidate['option_name']] = $candidate;
         }
     }
     $settingsPresentAfter = tribe_isset_var('Tribe__Settings_Manager:option_cache');
     $settingsAfter = $settingsPresentAfter
         ? tribe_get_var('Tribe__Settings_Manager:option_cache')
         : null;
+    $purgePresentAfter = tribe_isset_var('should_delete_expired_transients');
+    $purgeAfter = $purgePresentAfter ? tribe_get_var('should_delete_expired_transients') : null;
+    $tribeVarWrites = $GLOBALS['tec_readiness_tribe_var_writes'];
     if ($participantsStarted) {
         $optionsMaterializer->end_authored_transaction();
         $fieldMaterializer->end_authored_transaction();
@@ -5055,12 +5210,20 @@ function tec_readiness_materialize_mixed_option(
         unset($GLOBALS['tec_readiness_wp_cache_deletes']);
     }
     $GLOBALS['tec_readiness_wp_cache_delete_mode'] = $savedCacheMode;
+    $GLOBALS['tec_readiness_interpreter_time_plan'] = $savedTimePlan;
+    $GLOBALS['tec_readiness_tribe_var_failure'] = $savedVarFailure;
+    $GLOBALS['tec_readiness_tribe_var_writes'] = $savedVarWrites;
     return [
         'row' => $row,
+        'legacy_row' => $legacyRow,
         'failure' => $failure,
         'warnings' => $warnings,
         'settings_cache_present' => $settingsPresentAfter,
         'settings_cache' => $settingsAfter,
+        'runtime_rows' => $runtimeRows,
+        'purge_flag_present' => $purgePresentAfter,
+        'purge_flag' => $purgeAfter,
+        'tribe_var_writes' => $tribeVarWrites,
     ];
 }
 
@@ -5089,9 +5252,123 @@ duo_check_same(
     'the product capture path gives a persisted empty current row precedence over populated legacy bytes'
 );
 duo_check_same(
-    ['state' => 'present', 'autoload' => 'auto-on', 'value' => []],
+    null,
     tec_readiness_capture_customizer_record($policy, false, [], false, []),
-    'the product capture path represents both absent rows as one canonical sparse empty intent'
+    'the product capture path preserves canonical absence when both current and legacy rows are absent'
+);
+duo_check_same(
+    null,
+    tec_readiness_capture_customizer_record($policy, false, [], true, []),
+    'an empty legacy-only row remains canonical absence because its target-owned fallback is behaviorally empty'
+);
+
+$decodeLegacyCompanion = static function (array $result): ?array {
+    $wire = $result['legacy_row']['option_value'] ?? null;
+    if ($wire === null) {
+        return null;
+    }
+    duo_check(is_string($wire), 'the legacy Customizer companion retains one string storage row');
+    $decoded = is_string($wire) ? \Duo\PlainData::decode($wire, 'TEC legacy Customizer companion') : null;
+    duo_check(is_array($decoded), 'the legacy Customizer companion remains array-shaped');
+    return is_array($decoded) ? $decoded : null;
+};
+
+$GLOBALS['tec_readiness_settings_manager'] = Tribe__Settings_Manager::instance();
+$GLOBALS['tec_readiness_cache_listener'] = Tribe__Cache_Listener::instance();
+$GLOBALS['tec_readiness_aggregator'] = Tribe__Events__Aggregator::instance();
+$GLOBALS['tec_readiness_views_hooks'] = new \Tribe\Events\Views\V2\Hooks();
+$GLOBALS['tec_readiness_harbor_pue'] = new \TEC\Common\Integrations\Harbor\PUE();
+
+$targetLegacy = ['month_view' => ['grid_lines_color' => '#445566']];
+$absentAgainstLegacy = tec_readiness_materialize_mixed_option(
+    policy: $policy,
+    name: 'tribe_customizer',
+    desired: [],
+    target: null,
+    targetLegacy: $targetLegacy,
+    desiredPresent: false
+);
+duo_check_same(null, $absentAgainstLegacy['failure'], 'absent canonical intent performs no Customizer write');
+duo_check_same(null, $absentAgainstLegacy['row'], 'absent source intent does not shadow a target legacy fallback');
+duo_check_same(
+    $targetLegacy,
+    $decodeLegacyCompanion($absentAgainstLegacy),
+    'absent source intent preserves the exact target-owned legacy fallback row'
+);
+
+$explicitEmptyAgainstLegacy = tec_readiness_materialize_mixed_option(
+    policy: $policy,
+    name: 'tribe_customizer',
+    desired: [],
+    target: null,
+    targetLegacy: $targetLegacy
+);
+duo_check_same(
+    null,
+    $explicitEmptyAgainstLegacy['failure'],
+    'explicit canonical empty intent safely shadows a populated target legacy fallback'
+);
+duo_check_same([], $decodeMixedRow($explicitEmptyAgainstLegacy), 'explicit empty intent persists a canonical empty row');
+duo_check_same(
+    $targetLegacy,
+    $decodeLegacyCompanion($explicitEmptyAgainstLegacy),
+    'explicit canonical empty intent does not mutate the target-owned legacy companion'
+);
+
+$legacySourceRecord = tec_readiness_capture_customizer_record($policy, false, [], true, $legacyFallback);
+duo_check(is_array($legacySourceRecord), 'legacy-only capture emits one canonical present record');
+$legacyOnlyApply = tec_readiness_materialize_mixed_option(
+    policy: $policy,
+    name: 'tribe_customizer',
+    desired: (array) ($legacySourceRecord['value'] ?? []),
+    target: null,
+    desiredAutoload: (string) ($legacySourceRecord['autoload'] ?? 'auto-on'),
+    targetLegacy: $targetLegacy
+);
+duo_check_same(null, $legacyOnlyApply['failure'], 'legacy-only source state canonicalizes on apply');
+duo_check_same(
+    ['global_elements' => ['background_color_choice' => 'custom']],
+    $decodeMixedRow($legacyOnlyApply),
+    'legacy-only source state becomes the exact effective canonical value'
+);
+duo_check_same(
+    $targetLegacy,
+    $decodeLegacyCompanion($legacyOnlyApply),
+    'legacy-only source canonicalization preserves divergent target legacy residue'
+);
+
+$canonicalSource = ['single_event' => ['post_title_color_choice' => 'CUSTOM']];
+$canonicalPrecedenceRecord = tec_readiness_capture_customizer_record(
+    $policy,
+    true,
+    $canonicalSource,
+    true,
+    $legacyFallback,
+    'on'
+);
+duo_check_same(
+    ['state' => 'present', 'autoload' => 'on', 'value' => ['single_event' => ['post_title_color_choice' => 'custom']]],
+    $canonicalPrecedenceRecord,
+    'a populated canonical source row wins over a conflicting populated legacy row'
+);
+$canonicalPrecedenceApply = tec_readiness_materialize_mixed_option(
+    policy: $policy,
+    name: 'tribe_customizer',
+    desired: (array) ($canonicalPrecedenceRecord['value'] ?? []),
+    target: ['global_elements' => ['background_color_choice' => 'custom']],
+    desiredAutoload: 'on',
+    targetLegacy: $targetLegacy
+);
+duo_check_same(null, $canonicalPrecedenceApply['failure'], 'canonical source precedence applies transactionally');
+duo_check_same(
+    ['single_event' => ['post_title_color_choice' => 'custom']],
+    $decodeMixedRow($canonicalPrecedenceApply),
+    'canonical source precedence replaces a conflicting target canonical value'
+);
+duo_check_same(
+    $targetLegacy,
+    $decodeLegacyCompanion($canonicalPrecedenceApply),
+    'canonical source precedence leaves its target legacy companion byte-exact'
 );
 
 $customizerResidue = [
@@ -5143,6 +5420,90 @@ duo_check_same(
     'identical physical residue bytes verify as absent or explicit-empty only through the engine-owned desired-key roster'
 );
 
+$legacyCompanionReads = 0;
+$driftingLegacy = ['month_view' => ['grid_lines_color' => '#111111']];
+$driftedLegacy = ['month_view' => ['grid_lines_color' => '#222222']];
+$legacyDrift = tec_readiness_materialize_mixed_option(
+    policy: $policy,
+    name: 'tribe_customizer',
+    desired: ['month_view' => ['grid_lines_color' => '#abcdef']],
+    target: null,
+    targetLegacy: $driftingLegacy,
+    configureDb: static function (LockingFakeWpdb $db) use (&$legacyCompanionReads, $driftedLegacy): void {
+        $db->inner()->onQuery(static function (string $sql, string $method, FakeWpdb $inner) use (
+            &$legacyCompanionReads,
+            $driftedLegacy
+        ): null {
+            if ($method !== 'get_results'
+                || !str_contains($sql, "option_name = 'tribe_events_pro_customizer'")) {
+                return null;
+            }
+            ++$legacyCompanionReads;
+            if ($legacyCompanionReads !== 4) {
+                return null;
+            }
+            $rows = $inner->rows($inner->options);
+            foreach ($rows as &$row) {
+                if (($row['option_name'] ?? null) === 'tribe_events_pro_customizer') {
+                    $row['option_value'] = serialize($driftedLegacy);
+                }
+            }
+            unset($row);
+            $inner->seedTable($inner->options, $rows);
+            $inner->onQuery(null);
+            return null;
+        });
+    }
+);
+duo_check(
+    $legacyDrift['failure'] instanceof RuntimeException
+        && str_contains($legacyDrift['failure']->getMessage(), 'changed a locked companion option'),
+    'same-length legacy companion drift between initial lock and post-hook verification refuses the apply'
+);
+duo_check_same(null, $legacyDrift['row'], 'legacy companion drift rolls canonical insertion back to exact absence');
+duo_check_same(
+    $driftingLegacy,
+    $decodeLegacyCompanion($legacyDrift),
+    'legacy companion drift rollback restores its exact transaction preimage'
+);
+$legacyDriftRetry = tec_readiness_materialize_mixed_option(
+    policy: $policy,
+    name: 'tribe_customizer',
+    desired: ['month_view' => ['grid_lines_color' => '#abcdef']],
+    target: null,
+    targetLegacy: $driftingLegacy
+);
+duo_check_same(null, $legacyDriftRetry['failure'], 'same-process retry converges after legacy companion drift stops');
+duo_check_same(
+    $driftingLegacy,
+    $decodeLegacyCompanion($legacyDriftRetry),
+    'the converged retry preserves the exact target legacy companion'
+);
+
+foreach ([
+    'associative roster' => ['tec_events_bar' => 'tec_events_bar'],
+    'duplicate roster' => ['tec_events_bar', 'tec_events_bar'],
+    'non-string roster' => [17],
+    'undeclared roster' => ['future_section'],
+] as $label => $malformedDesiredSections) {
+    try {
+        $interpreter->project_materialized_option_sub_keys(
+            'tribe_customizer',
+            ['tec_events_bar' => []],
+            $customizerDeclaredSubKeys,
+            $malformedDesiredSections
+        );
+        $malformedProjectionRefused = false;
+    } catch (RuntimeException $failure) {
+        $malformedProjectionRefused = str_contains($failure->getMessage(), 'desired-section roster')
+            || str_contains($failure->getMessage(), 'malformed desired section');
+    }
+    duo_check(
+        $malformedProjectionRefused,
+        "the Customizer projection refuses a $label outside the engine-generated desired-key contract"
+    );
+}
+
 $unknownCustomizerTarget = ['tec_events_bar' => ['future_extension_setting' => 'leave-me']];
 $unknownCustomizer = tec_readiness_materialize_mixed_option(
     $policy,
@@ -5189,6 +5550,149 @@ duo_check_same(
     'unsupported Customizer callback refusal preserves the exact dirty target row'
 );
 
+$hostileOptionMutationCallback = static fn(mixed ...$values): mixed => $values[0] ?? null;
+$optionMutationHooks = [
+    'existing sanitize callback' => ['sanitize_option_tribe_customizer', $hookRefusalTarget],
+    'existing specific pre-update callback' => ['pre_update_option_tribe_customizer', $hookRefusalTarget],
+    'existing generic pre-update callback' => ['pre_update_option', $hookRefusalTarget],
+    'existing specific update action' => ['update_option_tribe_customizer', $hookRefusalTarget],
+    'existing generic update action' => ['update_option', $hookRefusalTarget],
+    'existing generic updated action' => ['updated_option', $hookRefusalTarget],
+    'existing autoload callback' => ['wp_autoload_values_to_autoload', $hookRefusalTarget],
+    'absent specific pre-update callback' => ['pre_update_option_tribe_customizer', null],
+    'absent generic pre-update callback' => ['pre_update_option', null],
+    'absent generic add action' => ['add_option', null],
+    'absent specific add action' => ['add_option_tribe_customizer', null],
+    'absent generic added action' => ['added_option', null],
+    'absent default-autoload callback' => ['wp_default_autoload_value', null],
+    'absent autoload-size callback' => ['wp_max_autoloaded_option_size', null],
+];
+foreach ($optionMutationHooks as $label => [$hookName, $target]) {
+    add_filter($hookName, $hostileOptionMutationCallback, 999, 10);
+    $mutationHookRefusal = tec_readiness_materialize_mixed_option(
+        $policy,
+        'tribe_customizer',
+        ['month_view' => ['grid_lines_color' => '#112233']],
+        $target
+    );
+    remove_filter($hookName, $hostileOptionMutationCallback, 999);
+    duo_check(
+        $mutationHookRefusal['failure'] instanceof RuntimeException
+            && str_contains($mutationHookRefusal['failure']->getMessage(), 'option mutation hook topology'),
+        "a $label refuses before the raw Customizer writer can bypass it"
+    );
+    if ($target === null) {
+        duo_check_same(null, $mutationHookRefusal['row'], "$label refusal preserves exact target absence");
+    } else {
+        duo_check_same($target, $decodeMixedRow($mutationHookRefusal), "$label refusal preserves exact target bytes");
+    }
+    $mutationHookRetry = tec_readiness_materialize_mixed_option(
+        $policy,
+        'tribe_customizer',
+        ['month_view' => ['grid_lines_color' => '#112233']],
+        $target
+    );
+    duo_check_same(null, $mutationHookRetry['failure'], "$label removal permits a same-process retry");
+}
+
+$substitutedSettingsManager = new Tribe__Settings_Manager();
+$substitutedManagerRefusal = tec_readiness_materialize_mixed_option(
+    $policy,
+    'tribe_customizer',
+    ['month_view' => ['grid_lines_color' => '#112233']],
+    $hookRefusalTarget
+);
+remove_filter('updated_option', [$substitutedSettingsManager, 'update_options_cache'], 10);
+duo_check(
+    $substitutedManagerRefusal['failure'] instanceof RuntimeException
+        && str_contains($substitutedManagerRefusal['failure']->getMessage(), 'option mutation hook topology'),
+    'a same-class non-singleton Settings Manager callback refuses before Customizer storage mutation'
+);
+duo_check_same(
+    $hookRefusalTarget,
+    $decodeMixedRow($substitutedManagerRefusal),
+    'same-class callback substitution preserves the exact Customizer preimage'
+);
+
+$foreignListener = (new ReflectionClass(Tribe__Cache_Listener::class))->newInstanceWithoutConstructor();
+foreach (['update_last_updated_option', 'update_last_save_post'] as $method) {
+    add_action('updated_option', [$foreignListener, $method], 10, 3);
+    $foreignListenerRefusal = tec_readiness_materialize_mixed_option(
+        $policy,
+        'tribe_customizer',
+        ['month_view' => ['grid_lines_color' => '#112233']],
+        $hookRefusalTarget
+    );
+    remove_action('updated_option', [$foreignListener, $method], 10);
+    duo_check(
+        $foreignListenerRefusal['failure'] instanceof RuntimeException
+            && str_contains($foreignListenerRefusal['failure']->getMessage(), 'option mutation hook topology'),
+        "a same-class non-singleton CacheListener::$method callback refuses before storage"
+    );
+}
+
+$foreignAggregator = (new ReflectionClass(Tribe__Events__Aggregator::class))->newInstanceWithoutConstructor();
+add_action('updated_option', [$foreignAggregator, 'action_purge_transients'], 10, 1);
+$foreignAggregatorRefusal = tec_readiness_materialize_mixed_option(
+    $policy,
+    'tribe_customizer',
+    ['month_view' => ['grid_lines_color' => '#112233']],
+    $hookRefusalTarget
+);
+remove_action('updated_option', [$foreignAggregator, 'action_purge_transients'], 10);
+duo_check(
+    $foreignAggregatorRefusal['failure'] instanceof RuntimeException
+        && str_contains($foreignAggregatorRefusal['failure']->getMessage(), 'option mutation hook topology'),
+    'a same-class non-singleton Aggregator callback refuses before storage'
+);
+
+$foreignViews = new \Tribe\Events\Views\V2\Hooks();
+$foreignViewsRefusal = tec_readiness_materialize_mixed_option(
+    $policy,
+    'tribe_customizer',
+    ['month_view' => ['grid_lines_color' => '#112233']],
+    $hookRefusalTarget
+);
+remove_action('updated_option', [$foreignViews, 'action_save_wplang'], 10);
+duo_check(
+    $foreignViewsRefusal['failure'] instanceof RuntimeException
+        && str_contains($foreignViewsRefusal['failure']->getMessage(), 'option mutation hook topology'),
+    'a same-class non-container Views callback refuses before storage'
+);
+
+if (!function_exists('wp_filter_default_autoload_value_via_option_size')) {
+    function wp_filter_default_autoload_value_via_option_size(
+        mixed $autoload,
+        string $option,
+        mixed $value,
+        mixed $serializedValue
+    ): mixed {
+        return $autoload;
+    }
+}
+add_filter(
+    'wp_default_autoload_value',
+    'wp_filter_default_autoload_value_via_option_size',
+    5,
+    4
+);
+$coreAutoloadTopology = tec_readiness_materialize_mixed_option(
+    $policy,
+    'tribe_customizer',
+    ['month_view' => ['grid_lines_color' => '#112233']],
+    null
+);
+remove_filter(
+    'wp_default_autoload_value',
+    'wp_filter_default_autoload_value_via_option_size',
+    5
+);
+duo_check_same(
+    null,
+    $coreAutoloadTopology['failure'],
+    'the exact pinned WordPress default-autoload callback remains admitted on canonical insertion'
+);
+
 $rollbackTarget = ['tec_events_bar' => ['events_bar_text_color' => '#654321'] + $customizerResidue];
 $rollbackCustomizer = tec_readiness_materialize_mixed_option(
     $policy,
@@ -5212,7 +5716,6 @@ $rollbackCustomizerRetry = tec_readiness_materialize_mixed_option(
 );
 duo_check_same(null, $rollbackCustomizerRetry['failure'], 'same-process Customizer retry converges after rollback');
 
-$GLOBALS['tec_readiness_settings_manager'] = Tribe__Settings_Manager::instance();
 $mainTarget = ['eventsSlug' => 'dirty-events', 'debugEvents' => true];
 $mainSettings = tec_readiness_materialize_mixed_option(
     $policy,
@@ -5222,7 +5725,8 @@ $mainSettings = tec_readiness_materialize_mixed_option(
     'on',
     'off',
     true,
-    ['eventsSlug' => 'stale-cache']
+    ['eventsSlug' => 'stale-cache'],
+    timePlan: [1000.125, 1000.875]
 );
 duo_check_same(null, $mainSettings['failure'], 'the closed main settings blob materializes through the exact interpreter owner');
 duo_check_same(
@@ -5230,7 +5734,456 @@ duo_check_same(
     $decodeMixedRow($mainSettings),
     'main settings replace authored siblings and preserve target-owned operational state'
 );
-duo_check_same(false, $mainSettings['settings_cache_present'], 'successful raw main-settings write leaves the TEC request cache absent');
+duo_check_same(true, $mainSettings['settings_cache_present'], 'successful main-settings update publishes the native request cache');
+duo_check_same(
+    ['debugEvents' => true, 'eventsSlug' => 'portable-events'],
+    $mainSettings['settings_cache'],
+    'the native Settings Manager effect caches the exact newly stored main option value'
+);
+duo_check_same(
+    ['tribe_last_updated_option', 'tribe_last_save_post'],
+    array_keys($mainSettings['runtime_rows']),
+    'the two CacheListener effects persist in their actual same-priority registration order'
+);
+duo_check_same(
+    ['option_value' => '1000.125', 'autoload' => 'auto-on'],
+    array_intersect_key(
+        $mainSettings['runtime_rows']['tribe_last_updated_option'] ?? [],
+        ['option_value' => true, 'autoload' => true]
+    ),
+    'the first exact microtime call creates the updated-option marker with pinned default autoload'
+);
+duo_check_same(
+    ['option_value' => '1000.875', 'autoload' => 'auto-on'],
+    array_intersect_key(
+        $mainSettings['runtime_rows']['tribe_last_save_post'] ?? [],
+        ['option_value' => true, 'autoload' => true]
+    ),
+    'the second exact microtime call creates the save-post marker independently'
+);
+duo_check_same(true, $mainSettings['purge_flag_present'], 'successful marker writes publish the native purge flag');
+duo_check_same(true, $mainSettings['purge_flag'], 'the native transient-purge intent is the exact boolean true');
+
+$mainInsert = tec_readiness_materialize_mixed_option(
+    policy: $policy,
+    name: 'tribe_events_calendar_options',
+    desired: ['eventsSlug' => 'inserted-events'],
+    target: null,
+    settingsCachePresent: true,
+    settingsCache: ['eventsSlug' => 'target-local-cache'],
+    purgeFlagPresent: true,
+    purgeFlag: false,
+    timePlan: [1100.1, 1100.2]
+);
+duo_check_same(null, $mainInsert['failure'], 'an absent main option follows the native add branch');
+duo_check_same([], $mainInsert['runtime_rows'], 'the add branch fires no updated_option CacheListener effects');
+duo_check_same(
+    ['eventsSlug' => 'target-local-cache'],
+    $mainInsert['settings_cache'],
+    'the add branch does not invent a Settings Manager updated_option cache effect'
+);
+duo_check_same(false, $mainInsert['purge_flag'], 'the add branch preserves a preexisting false purge-flag value');
+
+$mainNoopRuntime = [
+    'tribe_last_updated_option' => ['option_value' => 'old-updated', 'autoload' => 'yes'],
+    'tribe_last_save_post' => ['option_value' => 'old-save', 'autoload' => 'no'],
+];
+$mainNoop = tec_readiness_materialize_mixed_option(
+    policy: $policy,
+    name: 'tribe_events_calendar_options',
+    desired: ['eventsSlug' => 'same-events'],
+    target: ['eventsSlug' => 'same-events'],
+    settingsCachePresent: true,
+    settingsCache: ['eventsSlug' => 'same-cache'],
+    targetRuntimeRows: $mainNoopRuntime,
+    timePlan: [1200.1, 1200.2]
+);
+duo_check_same(null, $mainNoop['failure'], 'an unchanged main value materializes without native update callbacks');
+duo_check_same(
+    ['eventsSlug' => 'same-cache'],
+    $mainNoop['settings_cache'],
+    'an unchanged main value preserves the existing Settings Manager cache preimage'
+);
+duo_check_same(
+    $mainNoopRuntime,
+    array_map(
+        static fn(array $row): array => array_intersect_key($row, ['option_value' => true, 'autoload' => true]),
+        $mainNoop['runtime_rows']
+    ),
+    'an unchanged main value leaves both native marker bytes and autoloads exact'
+);
+duo_check_same(false, $mainNoop['purge_flag_present'], 'an unchanged main value does not create purge intent');
+
+$mainAutoloadEffects = tec_readiness_materialize_mixed_option(
+    policy: $policy,
+    name: 'tribe_events_calendar_options',
+    desired: ['eventsSlug' => 'autoload-events'],
+    target: ['eventsSlug' => 'old-events'],
+    targetRuntimeRows: [
+        'tribe_last_updated_option' => ['option_value' => 'old-updated', 'autoload' => 'yes'],
+        'tribe_last_save_post' => ['option_value' => 'old-save', 'autoload' => 'auto-off'],
+    ],
+    purgeFlagPresent: true,
+    purgeFlag: false,
+    timePlan: [1300.1, 1300.2]
+);
+duo_check_same(null, $mainAutoloadEffects['failure'], 'existing fixed/computed marker rows update transactionally');
+duo_check_same(
+    'yes',
+    $mainAutoloadEffects['runtime_rows']['tribe_last_updated_option']['autoload'] ?? null,
+    'a fixed native marker autoload spelling is preserved'
+);
+duo_check_same(
+    'auto-on',
+    $mainAutoloadEffects['runtime_rows']['tribe_last_save_post']['autoload'] ?? null,
+    'a computed native marker autoload is recalculated through the pinned short-value outcome'
+);
+duo_check_same(true, $mainAutoloadEffects['purge_flag'], 'a successful update replaces false purge intent with true');
+
+$mainPreexistingPurge = tec_readiness_materialize_mixed_option(
+    policy: $policy,
+    name: 'tribe_events_calendar_options',
+    desired: ['eventsSlug' => 'preexisting-purge-events'],
+    target: ['eventsSlug' => 'old-events'],
+    targetRuntimeRows: $mainNoopRuntime,
+    purgeFlagPresent: true,
+    purgeFlag: true,
+    timePlan: [1350.1, 1350.2]
+);
+duo_check_same(null, $mainPreexistingPurge['failure'], 'a main-settings update admits preexisting purge intent');
+duo_check_same(true, $mainPreexistingPurge['purge_flag'], 'successful marker effects preserve an independently preexisting true purge flag');
+
+$equalMarkerRows = [
+    'tribe_last_updated_option' => ['option_value' => '1400.1', 'autoload' => 'on'],
+    'tribe_last_save_post' => ['option_value' => '1400.2', 'autoload' => 'off'],
+];
+$equalMarkerEffects = tec_readiness_materialize_mixed_option(
+    policy: $policy,
+    name: 'tribe_events_calendar_options',
+    desired: ['eventsSlug' => 'equal-marker-events'],
+    target: ['eventsSlug' => 'old-events'],
+    targetRuntimeRows: $equalMarkerRows,
+    purgeFlagPresent: true,
+    purgeFlag: false,
+    timePlan: [1400.1, 1400.2]
+);
+duo_check_same(null, $equalMarkerEffects['failure'], 'equal generated marker values follow the native no-op path');
+duo_check_same(
+    $equalMarkerRows,
+    array_map(
+        static fn(array $row): array => array_intersect_key($row, ['option_value' => true, 'autoload' => true]),
+        $equalMarkerEffects['runtime_rows']
+    ),
+    'equal generated marker values preserve exact storage/autoload without a raw writer call'
+);
+duo_check_same(false, $equalMarkerEffects['purge_flag'], 'two no-op marker updates preserve an existing false purge intent');
+
+$listenerCacheProperty = new ReflectionProperty(Tribe__Cache_Listener::class, 'cache');
+$nativeListenerCache = $listenerCacheProperty->getValue($GLOBALS['tec_readiness_cache_listener']);
+$listenerCacheProperty->setValue(
+    $GLOBALS['tec_readiness_cache_listener'],
+    $GLOBALS['tec_readiness_category_color_cache']
+);
+$aliasedListenerCacheRefusal = tec_readiness_materialize_mixed_option(
+    policy: $policy,
+    name: 'tribe_events_calendar_options',
+    desired: ['eventsSlug' => 'aliased-listener-cache'],
+    target: ['eventsSlug' => 'old-events'],
+    targetRuntimeRows: $mainNoopRuntime,
+    timePlan: [1450.1, 1450.2]
+);
+$listenerCacheProperty->setValue($GLOBALS['tec_readiness_cache_listener'], $nativeListenerCache);
+duo_check(
+    $aliasedListenerCacheRefusal['failure'] instanceof RuntimeException
+        && str_contains($aliasedListenerCacheRefusal['failure']->getMessage(), 'cache-listener/global cache identities'),
+    'an aliased CacheListener/global cache service refuses before primary mutation'
+);
+
+$nativeGlobalCache = $GLOBALS['tec_readiness_category_color_cache'];
+$GLOBALS['tec_readiness_category_color_cache'] = new Tribe__Cache();
+$substitutedGlobalCacheRefusal = tec_readiness_materialize_mixed_option(
+    policy: $policy,
+    name: 'tribe_events_calendar_options',
+    desired: ['eventsSlug' => 'substituted-global-cache'],
+    target: ['eventsSlug' => 'old-events'],
+    targetRuntimeRows: $mainNoopRuntime,
+    timePlan: [1460.1, 1460.2]
+);
+$GLOBALS['tec_readiness_category_color_cache'] = $nativeGlobalCache;
+duo_check(
+    $substitutedGlobalCacheRefusal['failure'] instanceof RuntimeException
+        && str_contains($substitutedGlobalCacheRefusal['failure']->getMessage(), 'cache-listener/global cache identities'),
+    'a same-class global cache substitution refuses against the exact container singleton'
+);
+
+add_filter(
+    'pre_option',
+    [$GLOBALS['tec_readiness_harbor_pue'], 'filter_pre_get_option'],
+    10,
+    3
+);
+$nativeHarborTopology = tec_readiness_materialize_mixed_option(
+    policy: $policy,
+    name: 'tribe_events_calendar_options',
+    desired: ['eventsSlug' => 'harbor-events'],
+    target: ['eventsSlug' => 'old-events'],
+    targetRuntimeRows: $mainNoopRuntime,
+    timePlan: [1470.1, 1470.2]
+);
+remove_filter(
+    'pre_option',
+    [$GLOBALS['tec_readiness_harbor_pue'], 'filter_pre_get_option'],
+    10
+);
+duo_check_same(
+    null,
+    $nativeHarborTopology['failure'],
+    'the exact request-conditional Harbor pre_option singleton remains admitted'
+);
+
+$foreignHarbor = new \TEC\Common\Integrations\Harbor\PUE();
+add_filter('pre_option', [$foreignHarbor, 'filter_pre_get_option'], 10, 3);
+$foreignHarborRefusal = tec_readiness_materialize_mixed_option(
+    policy: $policy,
+    name: 'tribe_events_calendar_options',
+    desired: ['eventsSlug' => 'foreign-harbor-events'],
+    target: ['eventsSlug' => 'old-events'],
+    targetRuntimeRows: $mainNoopRuntime,
+    timePlan: [1480.1, 1480.2]
+);
+remove_filter('pre_option', [$foreignHarbor, 'filter_pre_get_option'], 10);
+duo_check(
+    $foreignHarborRefusal['failure'] instanceof RuntimeException
+        && str_contains($foreignHarborRefusal['failure']->getMessage(), 'option mutation hook topology'),
+    'a same-class non-container Harbor pre_option callback refuses before storage'
+);
+
+$settingsCacheWrites = array_values(array_filter(
+    $mainSettings['tribe_var_writes'],
+    static fn(array $write): bool => ($write[0] ?? null) === 'set'
+        && ($write[1] ?? null) === 'Tribe__Settings_Manager:option_cache'
+));
+duo_check_same(
+    1,
+    count($settingsCacheWrites),
+    'recursive last-occurrence marker effects never update the main Settings Manager cache'
+);
+
+foreach ([
+    'generic listener trigger' => 'tribe_cache_last_occurrence_option_triggers',
+    'updated-option listener trigger' => 'tribe_cache_last_occurrence_option_triggers:updated_option',
+    'save-post listener trigger' => 'tribe_cache_last_occurrence_option_triggers:save_post',
+] as $label => $hookName) {
+    add_filter($hookName, $hostileOptionMutationCallback, 999, 3);
+    $listenerFilterRefusal = tec_readiness_materialize_mixed_option(
+        policy: $policy,
+        name: 'tribe_events_calendar_options',
+        desired: ['eventsSlug' => 'filtered-events'],
+        target: ['eventsSlug' => 'old-events'],
+        targetRuntimeRows: $mainNoopRuntime,
+        timePlan: [1500.1, 1500.2]
+    );
+    remove_filter($hookName, $hostileOptionMutationCallback, 999);
+    duo_check(
+        $listenerFilterRefusal['failure'] instanceof RuntimeException
+            && str_contains($listenerFilterRefusal['failure']->getMessage(), 'cache-listener trigger topology'),
+        "a $label extension refuses before primary or marker storage mutation"
+    );
+    duo_check_same(
+        ['eventsSlug' => 'old-events'],
+        $decodeMixedRow($listenerFilterRefusal),
+        "$label refusal preserves the exact main target preimage"
+    );
+    duo_check_same(
+        $mainNoopRuntime,
+        array_map(
+            static fn(array $row): array => array_intersect_key($row, ['option_value' => true, 'autoload' => true]),
+            $listenerFilterRefusal['runtime_rows']
+        ),
+        "$label refusal preserves both marker preimages"
+    );
+}
+
+$nestedMarkerHookCases = [
+    'existing specific read filter' => ['option_tribe_last_updated_option', true],
+    'existing specific sanitizer' => ['sanitize_option_tribe_last_updated_option', true],
+    'existing specific pre-update filter' => ['pre_update_option_tribe_last_updated_option', true],
+    'existing specific update action' => ['update_option_tribe_last_updated_option', true],
+    'absent specific default filter' => ['default_option_tribe_last_save_post', false],
+    'absent specific sanitizer' => ['sanitize_option_tribe_last_save_post', false],
+    'absent specific add action' => ['add_option_tribe_last_save_post', false],
+    'absent generic added action' => ['added_option', false],
+    'nested default-autoload filter' => ['wp_default_autoload_value', false],
+    'nested max-autoload-size filter' => ['wp_max_autoloaded_option_size', false],
+];
+foreach ($nestedMarkerHookCases as $label => [$hookName, $existing]) {
+    $runtimePreimage = $existing ? $mainNoopRuntime : [];
+    add_filter($hookName, $hostileOptionMutationCallback, 999, 10);
+    $nestedHookRefusal = tec_readiness_materialize_mixed_option(
+        policy: $policy,
+        name: 'tribe_events_calendar_options',
+        desired: ['eventsSlug' => 'nested-hook-events'],
+        target: ['eventsSlug' => 'old-events'],
+        targetRuntimeRows: $runtimePreimage,
+        timePlan: [1600.1, 1600.2]
+    );
+    remove_filter($hookName, $hostileOptionMutationCallback, 999);
+    duo_check(
+        $nestedHookRefusal['failure'] instanceof RuntimeException
+            && str_contains($nestedHookRefusal['failure']->getMessage(), 'option mutation hook topology'),
+        "a $label refuses before the raw nested update_option effect"
+    );
+    duo_check_same(
+        ['eventsSlug' => 'old-events'],
+        $decodeMixedRow($nestedHookRefusal),
+        "$label refusal preserves primary storage"
+    );
+}
+
+foreach ([
+    'first marker insert' => 'tribe_last_updated_option',
+    'second marker insert' => 'tribe_last_save_post',
+] as $label => $failedMarker) {
+    $markerWriteFailure = tec_readiness_materialize_mixed_option(
+        policy: $policy,
+        name: 'tribe_events_calendar_options',
+        desired: ['eventsSlug' => 'write-failure-events'],
+        target: ['eventsSlug' => 'old-events'],
+        settingsCachePresent: true,
+        settingsCache: ['eventsSlug' => 'cache-preimage'],
+        purgeFlagPresent: true,
+        purgeFlag: false,
+        timePlan: [1700.1, 1700.2],
+        configureDb: static function (LockingFakeWpdb $db) use ($failedMarker): void {
+            $db->inner()->onQuery(static function (string $sql, string $method) use ($failedMarker): ?string {
+                if ($method === 'insert' && str_contains($sql, $failedMarker)) {
+                    return 'injected marker write failure';
+                }
+                return null;
+            });
+        }
+    );
+    duo_check(
+        $markerWriteFailure['failure'] instanceof RuntimeException,
+        "an injected $label failure aborts the authored transaction"
+    );
+    duo_check_same(
+        ['eventsSlug' => 'old-events'],
+        $decodeMixedRow($markerWriteFailure),
+        "$label failure restores exact primary storage"
+    );
+    duo_check_same([], $markerWriteFailure['runtime_rows'], "$label failure restores both initially absent marker gaps");
+    duo_check_same(
+        ['eventsSlug' => 'cache-preimage'],
+        $markerWriteFailure['settings_cache'],
+        "$label failure restores the exact Settings Manager cache preimage"
+    );
+    duo_check_same(false, $markerWriteFailure['purge_flag'], "$label failure restores the false purge-flag preimage");
+}
+
+$settingsEffectFailure = tec_readiness_materialize_mixed_option(
+    policy: $policy,
+    name: 'tribe_events_calendar_options',
+    desired: ['eventsSlug' => 'settings-effect-failure'],
+    target: ['eventsSlug' => 'old-events'],
+    settingsCachePresent: true,
+    settingsCache: ['eventsSlug' => 'cache-preimage'],
+    tribeVarFailure: [
+        'operation' => 'set',
+        'key' => 'Tribe__Settings_Manager:option_cache',
+        'once' => true,
+    ],
+    timePlan: [1800.1, 1800.2]
+);
+duo_check($settingsEffectFailure['failure'] instanceof RuntimeException, 'an injected Settings Manager cache-set failure aborts apply');
+duo_check_same(['eventsSlug' => 'old-events'], $decodeMixedRow($settingsEffectFailure), 'settings-cache failure restores primary bytes');
+duo_check_same([], $settingsEffectFailure['runtime_rows'], 'settings-cache failure occurs before either marker effect');
+duo_check_same(
+    ['eventsSlug' => 'cache-preimage'],
+    $settingsEffectFailure['settings_cache'],
+    'settings-cache failure restores its exact request-local preimage'
+);
+
+$purgeEffectFailure = tec_readiness_materialize_mixed_option(
+    policy: $policy,
+    name: 'tribe_events_calendar_options',
+    desired: ['eventsSlug' => 'purge-effect-failure'],
+    target: ['eventsSlug' => 'old-events'],
+    settingsCachePresent: true,
+    settingsCache: ['eventsSlug' => 'cache-preimage'],
+    tribeVarFailure: [
+        'operation' => 'set',
+        'key' => 'should_delete_expired_transients',
+        'once' => true,
+    ],
+    timePlan: [1900.1, 1900.2]
+);
+duo_check($purgeEffectFailure['failure'] instanceof RuntimeException, 'an injected purge-flag failure aborts after the first marker write');
+duo_check_same(['eventsSlug' => 'old-events'], $decodeMixedRow($purgeEffectFailure), 'purge-flag failure restores primary bytes');
+duo_check_same([], $purgeEffectFailure['runtime_rows'], 'purge-flag failure removes the partially inserted marker');
+duo_check_same(false, $purgeEffectFailure['purge_flag_present'], 'purge-flag failure restores exact prior absence');
+
+$preexistingPurgeRollback = tec_readiness_materialize_mixed_option(
+    policy: $policy,
+    name: 'tribe_events_calendar_options',
+    desired: ['eventsSlug' => 'preexisting-purge-rollback'],
+    target: ['eventsSlug' => 'old-events'],
+    settingsCachePresent: true,
+    settingsCache: ['eventsSlug' => 'cache-preimage'],
+    purgeFlagPresent: true,
+    purgeFlag: true,
+    timePlan: [1950.1, 1950.2],
+    configureDb: static function (LockingFakeWpdb $db): void {
+        $db->inner()->onQuery(static function (string $sql, string $method): ?string {
+            if ($method === 'insert' && str_contains($sql, 'tribe_last_save_post')) {
+                return 'injected marker write failure';
+            }
+            return null;
+        });
+    }
+);
+duo_check(
+    $preexistingPurgeRollback['failure'] instanceof RuntimeException,
+    'a second-marker failure aborts after observing preexisting purge intent'
+);
+duo_check_same(
+    true,
+    $preexistingPurgeRollback['purge_flag'],
+    'rollback preserves an independently preexisting true purge flag'
+);
+
+foreach ([
+    'main existing specific update callback' => ['update_option_tribe_events_calendar_options', $mainTarget],
+    'main absent specific add callback' => ['add_option_tribe_events_calendar_options', null],
+] as $label => [$hookName, $target]) {
+    add_filter($hookName, $hostileOptionMutationCallback, 999, 10);
+    $mainMutationRefusal = tec_readiness_materialize_mixed_option(
+        $policy,
+        'tribe_events_calendar_options',
+        ['eventsSlug' => 'portable-events'],
+        $target,
+        'on'
+    );
+    remove_filter($hookName, $hostileOptionMutationCallback, 999);
+    duo_check(
+        $mainMutationRefusal['failure'] instanceof RuntimeException
+            && str_contains($mainMutationRefusal['failure']->getMessage(), 'option mutation hook topology'),
+        "$label refuses before raw main-settings storage"
+    );
+    if ($target === null) {
+        duo_check_same(null, $mainMutationRefusal['row'], "$label preserves exact target absence");
+    } else {
+        duo_check_same($target, $decodeMixedRow($mainMutationRefusal), "$label preserves exact target bytes");
+    }
+    $mainMutationRetry = tec_readiness_materialize_mixed_option(
+        $policy,
+        'tribe_events_calendar_options',
+        ['eventsSlug' => 'portable-events'],
+        $target,
+        'on'
+    );
+    duo_check_same(null, $mainMutationRetry['failure'], "$label removal permits a same-process retry");
+}
 
 $mainRollback = tec_readiness_materialize_mixed_option(
     $policy,
@@ -5251,6 +6204,80 @@ duo_check_same(
     ['eventsSlug' => 'exact-preimage'],
     $mainRollback['settings_cache'],
     'main-settings rollback restores the exact process-local cache value'
+);
+duo_check_same([], $mainRollback['runtime_rows'], 'main-settings cache rollback removes both partially inserted marker rows');
+duo_check_same(false, $mainRollback['purge_flag_present'], 'main-settings cache rollback restores absent purge intent');
+$mainRollbackRetry = tec_readiness_materialize_mixed_option(
+    policy: $policy,
+    name: 'tribe_events_calendar_options',
+    desired: ['eventsSlug' => 'portable-events'],
+    target: $mainTarget,
+    settingsCachePresent: true,
+    settingsCache: ['eventsSlug' => 'exact-preimage'],
+    timePlan: [2000.1, 2000.2]
+);
+duo_check_same(null, $mainRollbackRetry['failure'], 'retry after full main/cache/marker rollback converges');
+duo_check_same(
+    ['tribe_last_updated_option', 'tribe_last_save_post'],
+    array_keys($mainRollbackRetry['runtime_rows']),
+    'the retry creates both exact CacheListener markers once'
+);
+
+$mainRestoreFailure = tec_readiness_materialize_mixed_option(
+    policy: $policy,
+    name: 'tribe_events_calendar_options',
+    desired: ['eventsSlug' => 'restore-failure-events'],
+    target: $mainTarget,
+    settingsCachePresent: true,
+    settingsCache: ['eventsSlug' => 'restore-cache-preimage'],
+    targetRuntimeRows: $mainNoopRuntime,
+    timePlan: [2100.1, 2100.2],
+    configureDb: static function (LockingFakeWpdb $db): void {
+        $db->inner()->onQuery(static function (string $sql, string $method): ?string {
+            static $failed = false;
+            if (!$failed && $method === 'update' && str_contains($sql, 'tribe_last_save_post')) {
+                $failed = true;
+                return 'injected second marker update failure';
+            }
+            return null;
+        });
+    },
+    tribeVarFailure: [
+        [
+            'operation' => 'set',
+            'key' => 'Tribe__Settings_Manager:option_cache',
+            'skip' => 1,
+            'once' => true,
+        ],
+        [
+            'operation' => 'unset',
+            'key' => 'should_delete_expired_transients',
+            'once' => true,
+        ],
+    ]
+);
+$restoreFailureMessages = [];
+for ($failure = $mainRestoreFailure['failure']; $failure instanceof Throwable; $failure = $failure->getPrevious()) {
+    $restoreFailureMessages[] = $failure->getMessage();
+}
+duo_check(
+    str_contains(implode(' | ', $restoreFailureMessages), 'runtime=')
+        && str_contains(implode(' | ', $restoreFailureMessages), 'settings=')
+        && str_contains(implode(' | ', $restoreFailureMessages), 'purge='),
+    'both local runtime restoration failures are aggregated and retained by the participant failure'
+);
+duo_check_same(
+    $mainNoopRuntime,
+    array_map(
+        static fn(array $row): array => array_intersect_key($row, ['option_value' => true, 'autoload' => true]),
+        $mainRestoreFailure['runtime_rows']
+    ),
+    'a failed local cache restore still attempts and completes both marker restorations'
+);
+duo_check_same(true, $mainRestoreFailure['purge_flag'], 'the injected purge restoration failure leaves its mutated value observable');
+duo_check(
+    in_array(['unset', 'should_delete_expired_transients', null], $mainRestoreFailure['tribe_var_writes'], true),
+    'a failed settings-cache restoration does not skip the independent purge restoration attempt'
 );
 
 duo_check(in_array('tribe_events', $policy->declared_post_types(), true), 'events are in adapter post scope');

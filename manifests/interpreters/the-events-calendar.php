@@ -23,6 +23,9 @@ final class TheEventsCalendar {
     private const CUSTOMIZER_CANONICAL_OPTION = 'tribe_customizer';
     private const CUSTOMIZER_LEGACY_OPTION = 'tribe_events_pro_customizer';
     private const SETTINGS_CACHE_KEY = 'Tribe__Settings_Manager:option_cache';
+    private const LAST_UPDATED_OPTION = 'tribe_last_updated_option';
+    private const LAST_SAVE_POST_OPTION = 'tribe_last_save_post';
+    private const TRANSIENT_PURGE_FLAG = 'should_delete_expired_transients';
     private const CUSTOMIZER_MAX_NODES = 128;
     private const CUSTOMIZER_MAX_OPTION_BYTES = 65536;
     private const CUSTOMIZER_MAX_SETTING_BYTES = 4096;
@@ -247,7 +250,8 @@ final class TheEventsCalendar {
         \Closure $finalizeStorage,
         \Closure $restoreStorage,
         ?\Closure $registerRuntimeRestore = null,
-        ?\Closure $writeStorage = null
+        ?\Closure $writeStorage = null,
+        ?\Closure $writeRuntimeOption = null
     ): bool {
         if (!in_array($name, [self::CALENDAR_OPTIONS, self::CUSTOMIZER_CANONICAL_OPTION], true)) {
             return false;
@@ -258,19 +262,63 @@ final class TheEventsCalendar {
             );
         }
 
+        $runtime = null;
         if ($name === self::CUSTOMIZER_CANONICAL_OPTION) {
             $this->assert_customizer_sub_key_declaration($declaredSubKeys);
             $this->assert_customizer_runtime();
+            $this->assert_option_mutation_hook_topology($name, $targetValue !== null);
+            // The legacy row remains target-owned, but it controls native
+            // read precedence whenever the canonical row is absent. Request
+            // its engine-prelocked witness so concurrent drift is rechecked
+            // after both the native hook and sparse projection before COMMIT.
+            $lockTargetOption(self::CUSTOMIZER_LEGACY_OPTION);
             $storage = $this->customizer_materialized_storage($captured, $targetValue);
             $registerRuntimeRestore(static function (): void {});
         } else {
+            $this->assert_option_mutation_hook_topology($name, $targetValue !== null);
             $storage = $this->ordinary_closed_mixed_storage($captured, $declaredSubKeys, $targetValue);
-            $this->invalidate_settings_cache_with_rollback($registerRuntimeRestore);
+            if ($writeRuntimeOption === null) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar settings writer lacks runtime-companion authority'
+                );
+            }
+            $runtime = $this->prepare_settings_runtime(
+                $targetValue,
+                $storage,
+                $lockTargetOption,
+                $registerRuntimeRestore
+            );
         }
 
         $writeStorage($storage);
+        if ($name === self::CALENDAR_OPTIONS) {
+            if (!is_array($runtime)) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar settings runtime was not prepared before storage'
+                );
+            }
+            $this->reproduce_settings_runtime(
+                $storage,
+                $runtime,
+                $writeRuntimeOption
+            );
+        }
         $finalizeStorage();
         return true;
+    }
+
+    /** @return list<string> */
+    public function option_sub_key_materialization_companions(string $name): array {
+        return $name === self::CUSTOMIZER_CANONICAL_OPTION
+            ? [self::CUSTOMIZER_LEGACY_OPTION]
+            : [];
+    }
+
+    /** @return list<string> */
+    public function option_sub_key_materialization_runtime_companions(string $name): array {
+        return $name === self::CALENDAR_OPTIONS
+            ? [self::LAST_UPDATED_OPTION, self::LAST_SAVE_POST_OPTION]
+            : [];
     }
 
     /**
@@ -291,6 +339,22 @@ final class TheEventsCalendar {
             return $rawAuthored;
         }
         $this->assert_customizer_sub_key_declaration($declaredSubKeys);
+        if (!array_is_list($desiredAuthoredKeys)) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar Customizer projection requires an ordered desired-section roster'
+            );
+        }
+        $seenDesired = [];
+        foreach ($desiredAuthoredKeys as $position => $section) {
+            if (!is_string($section)
+                || isset($seenDesired[$section])
+                || (($declaredSubKeys[$section]['class'] ?? null) !== 'authored')) {
+                throw new \RuntimeException(
+                    "duo: The Events Calendar Customizer projection received a malformed desired section at position $position"
+                );
+            }
+            $seenDesired[$section] = true;
+        }
         $desired = array_fill_keys($desiredAuthoredKeys, true);
         $projected = $this->normalize_customizer_sparse_map($rawAuthored);
         foreach ($projected as $section => $settings) {
@@ -1963,81 +2027,404 @@ final class TheEventsCalendar {
     }
 
     /**
-     * Raw writes intentionally bypass updated_option. Forget TEC's request-
-     * local Settings Manager cache so post-commit reads load durable bytes;
-     * rollback restores its exact prior presence/value before DB rollback.
+     * The checked row writer deliberately bypasses update_option(). Refuse
+     * every callback the pinned WordPress update path would have executed,
+     * except TEC's exact fallback and updated-option listener roster: the
+     * former is read-only precedence already proved above, while the latter's
+     * Settings Manager cache value and both CacheListener marker effects are
+     * reproduced in exact callback-registration order below.
      */
-    private function invalidate_settings_cache_with_rollback(\Closure $registerRuntimeRestore): void {
+    private function assert_option_mutation_hook_topology(string $name, bool $targetPresent): void {
+        $hooks = [
+            'sanitize_option_' . $name,
+            'pre_option_' . $name,
+            'pre_option',
+            'pre_wp_load_alloptions',
+            'pre_cache_alloptions',
+            'alloptions',
+            'default_option_' . $name,
+            'pre_update_option_' . $name,
+            'pre_update_option',
+            'wp_autoload_values_to_autoload',
+            'wp_default_autoload_value',
+            'wp_max_autoloaded_option_size',
+        ];
+        if ($targetPresent) {
+            $hooks[] = 'option_' . $name;
+            $hooks[] = 'update_option';
+            $hooks[] = 'update_option_' . $name;
+            $hooks[] = 'updated_option';
+        } else {
+            $hooks[] = 'add_option';
+            $hooks[] = 'add_option_' . $name;
+            $hooks[] = 'added_option';
+        }
+
+        foreach ($hooks as $hookName) {
+            $records = $this->option_hook_records($hookName);
+            if ($records === []) {
+                continue;
+            }
+            if ($hookName === 'default_option_' . self::CUSTOMIZER_CANONICAL_OPTION
+                && $name === self::CUSTOMIZER_CANONICAL_OPTION) {
+                // assert_customizer_runtime() already bound its sole callback
+                // to the exact Customizer singleton and method.
+                continue;
+            }
+            if ($hookName === 'updated_option') {
+                $this->assert_updated_option_callbacks($records);
+                continue;
+            }
+            if ($hookName === 'pre_option'
+                && count($records) === 1
+                && $this->is_harbor_pre_option_callback($records[0])) {
+                continue;
+            }
+            if ($hookName === 'wp_default_autoload_value'
+                && count($records) === 1
+                && $this->is_wordpress_default_autoload_callback($records[0])) {
+                continue;
+            }
+            throw new \RuntimeException(
+                "duo: The Events Calendar option mutation hook topology is extended for '$name'"
+            );
+        }
+    }
+
+    /** @return list<array{0:int,1:array{function:mixed,accepted_args:mixed}}> */
+    private function option_hook_records(string $hookName): array {
         global $wp_filter;
-        $updatedHook = is_array($wp_filter ?? null) ? ($wp_filter['updated_option'] ?? null) : null;
-        $matches = [];
-        if (is_object($updatedHook)
-            && get_class($updatedHook) === 'WP_Hook'
-            && is_array($updatedHook->callbacks ?? null)) {
-            foreach ($updatedHook->callbacks as $priority => $records) {
-                if (!is_array($records)) {
-                    continue;
+        $hook = is_array($wp_filter ?? null) ? ($wp_filter[$hookName] ?? null) : null;
+        if ($hook === null) {
+            return [];
+        }
+        if (!is_object($hook)
+            || get_class($hook) !== 'WP_Hook'
+            || !is_array($hook->callbacks ?? null)) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar option mutation hook topology is malformed'
+            );
+        }
+        $records = [];
+        foreach ($hook->callbacks as $priority => $atPriority) {
+            if (!is_int($priority) || !is_array($atPriority)) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar option mutation hook topology is malformed'
+                );
+            }
+            foreach ($atPriority as $record) {
+                if (!is_array($record)
+                    || array_keys($record) !== ['function', 'accepted_args']
+                    || !is_int($record['accepted_args'] ?? null)) {
+                    throw new \RuntimeException(
+                        'duo: The Events Calendar option mutation hook topology is malformed'
+                    );
                 }
-                foreach ($records as $record) {
-                    $callback = is_array($record) ? ($record['function'] ?? null) : null;
-                    if (is_array($callback)
-                        && is_object($callback[0] ?? null)
-                        && get_class($callback[0]) === 'Tribe__Settings_Manager'
-                        && ($callback[1] ?? null) === 'update_options_cache') {
-                        $matches[] = [$priority, $record, $callback[0]];
-                    }
-                }
+                $records[] = [$priority, $record];
             }
         }
-        if (count($matches) !== 1
-            || ($matches[0][0] ?? null) !== 10
-            || (($matches[0][1]['accepted_args'] ?? null) !== 3)
-            || !class_exists('Tribe__Settings_Manager', false)
-            || !method_exists('Tribe__Settings_Manager', 'instance')) {
+        return $records;
+    }
+
+    /** @param array{0:int,1:array{function:mixed,accepted_args:mixed}} $tuple */
+    private function is_wordpress_default_autoload_callback(array $tuple): bool {
+        [$priority, $record] = $tuple;
+        return $priority === 5
+            && ($record['accepted_args'] ?? null) === 4
+            && ($record['function'] ?? null) === 'wp_filter_default_autoload_value_via_option_size'
+            && function_exists('wp_filter_default_autoload_value_via_option_size');
+    }
+
+    /**
+     * @param list<array{0:int,1:array{function:mixed,accepted_args:mixed}}> $records
+     */
+    private function assert_updated_option_callbacks(array $records): void {
+        if (!class_exists('Tribe__Settings_Manager', false)
+            || !is_callable(['Tribe__Settings_Manager', 'instance'])
+            || !class_exists('Tribe__Cache_Listener', false)
+            || !is_callable(['Tribe__Cache_Listener', 'instance'])
+            || !class_exists('Tribe__Events__Aggregator', false)
+            || !is_callable(['Tribe__Events__Aggregator', 'instance'])
+            || !class_exists('Tribe\\Events\\Views\\V2\\Hooks', false)
+            || !function_exists('tribe')) {
             throw new \RuntimeException(
-                'duo: The Events Calendar settings-cache callback topology is absent or extended'
+                'duo: The Events Calendar option mutation hook topology lacks updated-option services'
             );
         }
-        $manager = \Tribe__Settings_Manager::instance();
-        if (!is_object($manager)
-            || get_class($manager) !== 'Tribe__Settings_Manager'
-            || ($matches[0][2] ?? null) !== $manager) {
+        try {
+            $manager = \Tribe__Settings_Manager::instance();
+            $listener = \Tribe__Cache_Listener::instance();
+            $aggregator = \Tribe__Events__Aggregator::instance();
+            $views = tribe('Tribe\\Events\\Views\\V2\\Hooks');
+        } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: The Events Calendar settings-cache singleton identity was substituted'
+                'duo: The Events Calendar option mutation hook topology could not resolve updated-option services',
+                0,
+                $failure
             );
         }
-        foreach (['tribe_isset_var', 'tribe_get_var', 'tribe_set_var', 'tribe_unset_var'] as $function) {
+        $classes = [
+            'Tribe__Settings_Manager',
+            'Tribe__Cache_Listener',
+            'Tribe__Events__Aggregator',
+            'Tribe\\Events\\Views\\V2\\Hooks',
+        ];
+        foreach ([$manager, $listener, $aggregator, $views] as $position => $service) {
+            if (!is_object($service) || get_class($service) !== $classes[$position]) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar option mutation hook topology has a substituted singleton'
+                );
+            }
+        }
+        $expected = [
+            ['callback' => [$manager, 'update_options_cache'], 'accepted_args' => 3],
+            ['callback' => [$listener, 'update_last_updated_option'], 'accepted_args' => 3],
+            ['callback' => [$listener, 'update_last_save_post'], 'accepted_args' => 3],
+            ['callback' => [$aggregator, 'action_purge_transients'], 'accepted_args' => 1],
+            ['callback' => [$views, 'action_save_wplang'], 'accepted_args' => 3],
+        ];
+        foreach ($records as [$priority, $record]) {
+            $matched = null;
+            foreach ($expected as $position => $candidate) {
+                if ($priority === 10
+                    && ($record['accepted_args'] ?? null) === $candidate['accepted_args']
+                    && ($record['function'] ?? null) === $candidate['callback']) {
+                    $matched = $position;
+                    break;
+                }
+            }
+            if ($matched === null) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar option mutation hook topology has an extended/substituted updated callback'
+                );
+            }
+            unset($expected[$matched]);
+        }
+        if ($expected !== []) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar option mutation hook topology has incomplete updated callbacks'
+            );
+        }
+    }
+
+    /** @param array{0:int,1:array{function:mixed,accepted_args:mixed}} $tuple */
+    private function is_harbor_pre_option_callback(array $tuple): bool {
+        [$priority, $record] = $tuple;
+        $callback = $record['function'] ?? null;
+        if ($priority !== 10
+            || ($record['accepted_args'] ?? null) !== 3
+            || !is_array($callback)
+            || count($callback) !== 2
+            || !is_object($callback[0] ?? null)
+            || get_class($callback[0]) !== 'TEC\\Common\\Integrations\\Harbor\\PUE'
+            || ($callback[1] ?? null) !== 'filter_pre_get_option'
+            || !function_exists('tribe')) {
+            return false;
+        }
+        try {
+            return tribe('TEC\\Common\\Integrations\\Harbor\\PUE') === $callback[0];
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /**
+     * @return array{
+     *   changed:bool,
+     *   callbacks:list<array{0:int,1:array{function:mixed,accepted_args:mixed}}>,
+     *   markers:array<string,?array{option_name:string,option_value:string,autoload:string}>
+     * }
+     */
+    private function prepare_settings_runtime(
+        ?array $targetValue,
+        array $storage,
+        \Closure $lockTargetOption,
+        \Closure $registerRuntimeRestore
+    ): array {
+        foreach (['tribe_isset_var', 'tribe_get_var', 'tribe_set_var', 'tribe_unset_var', 'tribe_cache'] as $function) {
             if (!function_exists($function)) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar settings-cache primitive is unavailable'
+                    'duo: The Events Calendar settings runtime primitive is unavailable'
                 );
+            }
+        }
+        $listener = \Tribe__Cache_Listener::instance();
+        $globalCache = tribe_cache();
+        try {
+            $containerCache = tribe('cache');
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar global cache singleton could not be resolved',
+                0,
+                $failure
+            );
+        }
+        try {
+            $cacheProperty = new \ReflectionProperty('Tribe__Cache_Listener', 'cache');
+            $listenerCache = $cacheProperty->getValue($listener);
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar cache-listener service could not be inspected',
+                0,
+                $failure
+            );
+        }
+        if (!is_object($globalCache)
+            || get_class($globalCache) !== 'Tribe__Cache'
+            || !is_object($containerCache)
+            || get_class($containerCache) !== 'Tribe__Cache'
+            || $containerCache !== $globalCache
+            || !is_object($listenerCache)
+            || get_class($listenerCache) !== 'Tribe__Cache'
+            || $listenerCache === $globalCache) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar cache-listener/global cache identities were substituted'
+            );
+        }
+
+        $callbacks = $this->option_hook_records('updated_option');
+        $this->assert_updated_option_callbacks($callbacks);
+        $this->assert_cache_listener_filter_topology();
+        $markers = [
+            self::LAST_UPDATED_OPTION => $lockTargetOption(self::LAST_UPDATED_OPTION),
+            self::LAST_SAVE_POST_OPTION => $lockTargetOption(self::LAST_SAVE_POST_OPTION),
+        ];
+        $changed = $targetValue !== null && $targetValue !== $storage;
+        if ($changed) {
+            foreach ($markers as $marker => $row) {
+                $this->assert_option_mutation_hook_topology($marker, $row !== null);
             }
         }
 
-        $wasPresent = tribe_isset_var(self::SETTINGS_CACHE_KEY);
-        $before = $wasPresent ? tribe_get_var(self::SETTINGS_CACHE_KEY) : null;
-        $registerRuntimeRestore(static function () use ($wasPresent, $before): void {
-            if ($wasPresent) {
-                tribe_set_var(self::SETTINGS_CACHE_KEY, $before);
-                if (!tribe_isset_var(self::SETTINGS_CACHE_KEY)
-                    || tribe_get_var(self::SETTINGS_CACHE_KEY) !== $before) {
-                    throw new \RuntimeException(
-                        'duo: The Events Calendar settings cache could not restore its exact prior value'
-                    );
-                }
-                return;
+        $settingsPresent = tribe_isset_var(self::SETTINGS_CACHE_KEY);
+        $settingsBefore = $settingsPresent ? tribe_get_var(self::SETTINGS_CACHE_KEY) : null;
+        $purgePresent = tribe_isset_var(self::TRANSIENT_PURGE_FLAG);
+        $purgeBefore = $purgePresent ? tribe_get_var(self::TRANSIENT_PURGE_FLAG) : null;
+        $registerRuntimeRestore(static function () use (
+            $settingsPresent,
+            $settingsBefore,
+            $purgePresent,
+            $purgeBefore
+        ): void {
+            $failures = [];
+            try {
+                self::restore_tribe_var(self::SETTINGS_CACHE_KEY, $settingsPresent, $settingsBefore);
+            } catch (\Throwable $failure) {
+                $failures['settings'] = $failure;
             }
-            tribe_unset_var(self::SETTINGS_CACHE_KEY);
-            if (tribe_isset_var(self::SETTINGS_CACHE_KEY)) {
+            try {
+                self::restore_tribe_var(self::TRANSIENT_PURGE_FLAG, $purgePresent, $purgeBefore);
+            } catch (\Throwable $failure) {
+                $failures['purge'] = $failure;
+            }
+            if ($failures !== []) {
+                $parts = [];
+                foreach ($failures as $label => $failure) {
+                    $parts[] = $label . '=' . get_class($failure) . ':'
+                        . substr(hash('sha256', $failure->getMessage()), 0, 12);
+                }
                 throw new \RuntimeException(
-                    'duo: The Events Calendar settings cache could not restore exact absence'
+                    'duo: The Events Calendar local runtime restoration failed; ' . implode('; ', $parts),
+                    0,
+                    reset($failures)
                 );
             }
         });
-        tribe_unset_var(self::SETTINGS_CACHE_KEY);
-        if (tribe_isset_var(self::SETTINGS_CACHE_KEY)) {
+        return ['changed' => $changed, 'callbacks' => $callbacks, 'markers' => $markers];
+    }
+
+    /**
+     * @param array{
+     *   changed:bool,
+     *   callbacks:list<array{0:int,1:array{function:mixed,accepted_args:mixed}}>,
+     *   markers:array<string,?array{option_name:string,option_value:string,autoload:string}>
+     * } $runtime
+     */
+    private function reproduce_settings_runtime(
+        array $storage,
+        array $runtime,
+        \Closure $writeRuntimeOption
+    ): void {
+        if (!$runtime['changed']) {
+            return;
+        }
+        foreach ($runtime['callbacks'] as [, $record]) {
+            $callback = $record['function'];
+            $method = is_array($callback) ? ($callback[1] ?? null) : null;
+            if ($method === 'update_options_cache') {
+                tribe_set_var(self::SETTINGS_CACHE_KEY, $storage);
+                if (!tribe_isset_var(self::SETTINGS_CACHE_KEY)
+                    || tribe_get_var(self::SETTINGS_CACHE_KEY) !== $storage) {
+                    throw new \RuntimeException(
+                        'duo: The Events Calendar settings cache did not accept exact native bytes'
+                    );
+                }
+                continue;
+            }
+            if ($method === 'update_last_updated_option') {
+                $this->write_last_occurrence(
+                    self::LAST_UPDATED_OPTION,
+                    $runtime['markers'][self::LAST_UPDATED_OPTION],
+                    $writeRuntimeOption
+                );
+                continue;
+            }
+            if ($method === 'update_last_save_post') {
+                $this->write_last_occurrence(
+                    self::LAST_SAVE_POST_OPTION,
+                    $runtime['markers'][self::LAST_SAVE_POST_OPTION],
+                    $writeRuntimeOption
+                );
+            }
+        }
+    }
+
+    /** @param ?array{option_name:string,option_value:string,autoload:string} $row */
+    private function write_last_occurrence(string $name, ?array $row, \Closure $writeRuntimeOption): void {
+        $this->assert_cache_listener_filter_topology();
+        $this->assert_option_mutation_hook_topology($name, $row !== null);
+        $wire = (string) (float) microtime(true);
+        if ($row !== null && hash_equals($row['option_value'], $wire)) {
+            return;
+        }
+        $autoload = $row['autoload'] ?? 'auto-on';
+        if (in_array($autoload, ['auto', 'auto-on', 'auto-off'], true)) {
+            $autoload = 'auto-on';
+        }
+        $writeRuntimeOption($name, $wire, $autoload);
+        tribe_set_var(self::TRANSIENT_PURGE_FLAG, true);
+        if (!tribe_isset_var(self::TRANSIENT_PURGE_FLAG)
+            || tribe_get_var(self::TRANSIENT_PURGE_FLAG) !== true) {
             throw new \RuntimeException(
-                'duo: The Events Calendar settings cache could not be invalidated before storage materialization'
+                'duo: The Events Calendar transient-purge flag did not accept the native effect'
+            );
+        }
+    }
+
+    private function assert_cache_listener_filter_topology(): void {
+        foreach ([
+            'tribe_cache_last_occurrence_option_triggers',
+            'tribe_cache_last_occurrence_option_triggers:updated_option',
+            'tribe_cache_last_occurrence_option_triggers:save_post',
+        ] as $hook) {
+            if ($this->option_hook_records($hook) !== []) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar cache-listener trigger topology is extended'
+                );
+            }
+        }
+    }
+
+    private static function restore_tribe_var(string $key, bool $present, mixed $value): void {
+        if ($present) {
+            tribe_set_var($key, $value);
+        } else {
+            tribe_unset_var($key);
+        }
+        if (tribe_isset_var($key) !== $present
+            || ($present && tribe_get_var($key) !== $value)) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar local runtime preimage could not be restored'
             );
         }
     }
