@@ -1115,7 +1115,7 @@
             ]
           }
         ],
-        "file_count": 18,
+        "file_count": 19,
         "files": [
           "BlockReferenceScanner.php",
           "Canary.php",
