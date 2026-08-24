@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Duo\Orchestrator;
 
 require_once __DIR__ . '/RefreshFieldDiff.php';
+require_once dirname(__DIR__, 3) . '/agent/src/Kernel/MediaPayloadAuthority.php';
 
 /**
  * Pure semantic B/P/W planner and local state materializer for Refresh.
@@ -200,19 +201,40 @@ final class RefreshPlan {
         $media = is_array($artifact['media'] ?? null) ? $artifact['media'] : [];
         if (in_array($scopeMode, ['candidate', 'complete-media'], true)) {
             $media = [];
+            $catalog = [];
+            $catalogBytes = 0;
             foreach ((array) ($artifact['media_catalog'] ?? []) as $name => $expected) {
                 $name = (string) $name;
-                self::assertRelative($name);
                 $path = rtrim($root, '/') . '/media/' . $name;
-                $bytes = is_file($path) ? file_get_contents($path) : false;
-                if ($bytes === false || !self::isHash($expected)
-                    || !hash_equals((string) $expected, hash('sha256', $bytes))) {
+                try {
+                    $parsed = \Duo\MediaPayloadAuthority::parseMediaName($name);
+                    $observed = \Duo\MediaPayloadAuthority::observeCatalogFile($path, $name);
+                    if (!self::isHash($expected)
+                        || !hash_equals($parsed['sha256'], (string) $expected)
+                        || !hash_equals($observed['sha256'], (string) $expected)) {
+                        throw new \RuntimeException('content address mismatch');
+                    }
+                    $catalogBytes = \Duo\MediaPayloadAuthority::addToAggregate($catalogBytes, $observed['size']);
+                    $catalog[$name] = (string) $expected;
+                } catch (\Throwable $failure) {
+                    throw new \RuntimeException("compiled media catalog entry '$name' cannot be verified");
+                }
+            }
+            \Duo\MediaPayloadAuthority::assertRefreshExportHeadroom($catalogBytes);
+            foreach ($catalog as $name => $expected) {
+                try {
+                    $bytes = \Duo\MediaPayloadAuthority::readCatalogBlob(
+                        rtrim($root, '/') . '/media/' . $name,
+                        $name
+                    );
+                } catch (\Throwable $failure) {
                     throw new \RuntimeException("compiled media catalog entry '$name' cannot be verified");
                 }
                 $media[$name] = ['sha256' => (string) $expected, 'base64' => base64_encode($bytes)];
             }
         }
         ksort($media, SORT_STRING);
+        self::assertMediaPayloadBudget($media);
         return [
             'format' => self::GIT_FORMAT,
             'commit' => $commit,
@@ -638,16 +660,11 @@ final class RefreshPlan {
         $stateRows['options/core.json'] = \Duo\Canon::encode(['format' => $format, 'records' => (object) $options]);
         ksort($stateRows, SORT_STRING);
         ksort($mediaNeeded, SORT_STRING);
+        self::assertMediaPayloadBudget($mediaNeeded);
         self::replaceTree($root, 'state', $stateRows, false);
         $mediaRows = [];
         foreach ($mediaNeeded as $name => $payload) {
-            self::assertRelative((string) $name);
-            $bytes = base64_decode((string) ($payload['base64'] ?? ''), true);
-            if ($bytes === false || !self::isHash($payload['sha256'] ?? null)
-                || !hash_equals((string) $payload['sha256'], hash('sha256', $bytes))) {
-                throw new \RuntimeException("refresh media '$name' does not verify");
-            }
-            $mediaRows[(string) $name] = $bytes;
+            $mediaRows[(string) $name] = self::verifiedMedia((string) $name, $payload);
         }
         self::replaceTree($root, 'media', $mediaRows, true);
         return [
@@ -752,9 +769,9 @@ final class RefreshPlan {
         }
         ksort($stateRows, SORT_STRING);
 
-        $mediaRows = [];
+        $mediaPayloads = [];
         foreach ($baseline['media'] as $name => $payload) {
-            $mediaRows[(string) $name] = self::verifiedMedia((string) $name, $payload);
+            $mediaPayloads[(string) $name] = $payload;
         }
         foreach ($plan['entries'] as $entry) {
             if (($entry['in_scope'] ?? null) !== true || !is_array($entry['selected'] ?? null)) {
@@ -781,7 +798,13 @@ final class RefreshPlan {
             if ($payload === null) {
                 throw new \RuntimeException("scoped refresh selected attachment media '$mediaName' is unavailable");
             }
-            $mediaRows[$mediaName] = self::verifiedMedia($mediaName, $payload);
+            $mediaPayloads[$mediaName] = $payload;
+        }
+        ksort($mediaPayloads, SORT_STRING);
+        self::assertMediaPayloadBudget($mediaPayloads);
+        $mediaRows = [];
+        foreach ($mediaPayloads as $name => $payload) {
+            $mediaRows[$name] = self::verifiedMedia($name, $payload);
         }
         ksort($mediaRows, SORT_STRING);
         self::replaceTree($root, 'state', $stateRows, false);
@@ -798,16 +821,43 @@ final class RefreshPlan {
     }
 
     private static function verifiedMedia(string $name, mixed $payload): string {
-        self::assertRelative($name);
         if (!is_array($payload)) {
             throw new \RuntimeException("refresh media '$name' is malformed");
         }
-        $bytes = base64_decode((string) ($payload['base64'] ?? ''), true);
-        if ($bytes === false || !self::isHash($payload['sha256'] ?? null)
-            || !hash_equals((string) $payload['sha256'], hash('sha256', $bytes))) {
+        if (!self::isHash($payload['sha256'] ?? null) || !is_string($payload['base64'] ?? null)) {
             throw new \RuntimeException("refresh media '$name' does not verify");
         }
-        return $bytes;
+        try {
+            return \Duo\MediaPayloadAuthority::decodeArtifactMedia($name, [
+                'sha256' => $payload['sha256'],
+                'base64' => $payload['base64'],
+            ]);
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException("refresh media '$name' does not verify");
+        }
+    }
+
+    /** @param array<string,mixed> $media */
+    private static function assertMediaPayloadBudget(array $media): void {
+        $bytes = 0;
+        foreach ($media as $name => $payload) {
+            if (!is_string($name) || !is_array($payload)
+                || !is_string($payload['base64'] ?? null)) {
+                throw new \RuntimeException('refresh media payload is malformed');
+            }
+            try {
+                $bytes = \Duo\MediaPayloadAuthority::addToAggregate(
+                    $bytes,
+                    \Duo\MediaPayloadAuthority::canonicalBase64DecodedLength(
+                        $payload['base64'],
+                        'refresh media payload'
+                    )
+                );
+            } catch (\Throwable $failure) {
+                throw new \RuntimeException("refresh media '$name' does not verify");
+            }
+        }
+        \Duo\MediaPayloadAuthority::assertRefreshExportHeadroom($bytes);
     }
 
     /** Apply the immutable run's choices without rewriting the persisted plan. */
@@ -945,7 +995,7 @@ final class RefreshPlan {
         foreach ((array) ($baseline['media'] ?? []) as $name => $row) {
             $path = rtrim($worktree, '/') . '/media/' . $name;
             $bytes = is_file($path) ? file_get_contents($path) : false;
-            $expected = is_array($row) ? base64_decode((string) ($row['base64'] ?? ''), true) : false;
+            $expected = is_array($row) ? self::verifiedMedia((string) $name, $row) : false;
             if ($bytes === false || $expected === false || !hash_equals($expected, $bytes)) {
                 throw new \RuntimeException("scoped refresh changed or removed excluded branch media '$name'");
             }

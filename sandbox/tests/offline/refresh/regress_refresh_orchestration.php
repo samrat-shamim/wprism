@@ -158,10 +158,28 @@ function remove_refresh(string $path): void {
     foreach (scandir($path) ?: [] as $name) if ($name !== '.' && $name !== '..') remove_refresh($path . '/' . $name);
     @rmdir($path);
 }
+/** @return array{dev:string,ino:string,mode:int,size:int} */
+function refresh_spool_identity(string $path): array {
+    clearstatcache(true, $path);
+    $stat = lstat($path);
+    if (!is_array($stat)
+        || !is_int($stat['mode'] ?? null)
+        || !is_int($stat['size'] ?? null)
+        || (($stat['mode'] & 0170000) !== 0100000)) {
+        throw new \RuntimeException('test refresh spool is not a regular file');
+    }
+    return [
+        'dev' => (string) $stat['dev'],
+        'ino' => (string) $stat['ino'],
+        'mode' => $stat['mode'],
+        'size' => $stat['size'],
+    ];
+}
 
 final class RefreshTransport extends Transport {
     public array $raw = [];
     public array $wp = [];
+    public bool $swapSpoolPathAfterCapture = false;
     private ?string $exportAfterNextRead = null;
     public function __construct(private string $head, private string $export, private string $trackedStatus = '') {
         parent::__construct('production', ['repo_path' => '/target/repository']);
@@ -181,6 +199,28 @@ final class RefreshTransport extends Transport {
             $this->exportAfterNextRead = null;
         }
         return ['exit' => 0, 'stdout' => $export . "\n", 'stderr' => ''];
+    }
+    public function captureWpToFile(array $wpArgs, string $path, int $maxStdout, int $maxStderr, int $timeoutNs): array {
+        $this->wp[] = $wpArgs;
+        $export = $this->export;
+        if ($this->exportAfterNextRead !== null) {
+            $this->export = $this->exportAfterNextRead;
+            $this->exportAfterNextRead = null;
+        }
+        file_put_contents($path, $export . "\n");
+        $identity = refresh_spool_identity($path);
+        if ($this->swapSpoolPathAfterCapture) {
+            $replacement = $path . '.replacement';
+            file_put_contents($replacement, "{}\n");
+            if (!rename($replacement, $path)) {
+                throw new \RuntimeException('could not swap the test refresh spool pathname');
+            }
+        }
+        return [
+            'exit' => 0, 'stderr' => '', 'stdout_bytes' => strlen($export) + 1,
+            'stdout_exceeded' => false, 'stderr_exceeded' => false, 'timed_out' => false,
+            'stdout_identity' => $identity,
+        ];
     }
     public function replaceAfterNextExport(string $export): void { $this->exportAfterNextRead = $export; }
     public function replaceCurrentExport(string $export): void { $this->export = $export; }
@@ -217,7 +257,256 @@ final class RefreshTargetTransport extends Transport {
     public function captureWp(array $wpArgs): array {
         return ['exit' => 0, 'stdout' => $this->export . "\n", 'stderr' => ''];
     }
+    public function captureWpToFile(array $wpArgs, string $path, int $maxStdout, int $maxStderr, int $timeoutNs): array {
+        file_put_contents($path, $this->export . "\n");
+        return [
+            'exit' => 0, 'stderr' => '', 'stdout_bytes' => strlen($this->export) + 1,
+            'stdout_exceeded' => false, 'stderr_exceeded' => false, 'timed_out' => false,
+            'stdout_identity' => refresh_spool_identity($path),
+        ];
+    }
 }
+
+$spoolChild = <<<'PHP'
+namespace Duo\Orchestrator {
+    require $argv[1];
+    final class BoundedRefreshFixtureTransport extends Transport {
+        public function __construct() { parent::__construct('fixture', ['repo_path' => '/tmp']); }
+        public function describe(): string { return 'fixture'; }
+        protected function rawCommand(string $script): string { return 'false'; }
+        protected function wpCommand(array $args): string {
+            return escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg(
+                'for ($i = 0; $i < 3200; $i++) { echo str_repeat("x", 65536); }'
+            );
+        }
+    }
+}
+namespace {
+    $path = tempnam(sys_get_temp_dir(), 'duo-refresh-spool-proof-');
+    $result = (new Duo\Orchestrator\BoundedRefreshFixtureTransport())->captureWpToFile([], $path, 6000001, 65536, 2000000000);
+    $size = is_string($path) ? filesize($path) : false;
+    if (is_string($path)) @unlink($path);
+    echo ((int) $result['stdout_exceeded']) . ':' . ((int) $result['stderr_exceeded']) . ':' . $size . ':' . memory_get_peak_usage(true);
+}
+PHP;
+$spoolOutput = [];
+$spoolRc = 0;
+exec(
+    escapeshellarg(PHP_BINARY) . ' -d memory_limit=128M -r ' . escapeshellarg($spoolChild)
+    . ' ' . escapeshellarg(dirname(__DIR__, 4) . '/cli/src/Transport/Transport.php') . ' 2>&1',
+    $spoolOutput,
+    $spoolRc
+);
+$spoolParts = explode(':', implode("\n", $spoolOutput));
+ok_refresh(
+    $spoolRc === 0
+        && ($spoolParts[0] ?? null) === '1'
+        && ($spoolParts[1] ?? null) === '0'
+        && is_numeric($spoolParts[2] ?? null)
+        && (int) $spoolParts[2] <= 6000001
+        && is_numeric($spoolParts[3] ?? null)
+        && (int) $spoolParts[3] < 33554432,
+    'a 200 MiB refresh stdout stream is terminated into a 6 MB spool in a 128 MiB child without unbounded host buffering'
+);
+
+$spoolFailureChild = <<<'PHP'
+namespace Duo\Orchestrator {
+    require $argv[1];
+    final class FailingSpoolTransport extends Transport {
+        public function __construct(private string $pidPath) { parent::__construct('fixture', ['repo_path' => '/tmp']); }
+        public function describe(): string { return 'fixture'; }
+        protected function rawCommand(string $script): string { return 'false'; }
+        protected function wpCommand(array $args): string {
+            return escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg(
+                'file_put_contents($argv[1], (string) getmypid()); while (true) { echo str_repeat("x", 65536); usleep(1000); }'
+            ) . ' ' . escapeshellarg($this->pidPath);
+        }
+    }
+}
+namespace {
+    putenv('DUO_TEST_MODE=1');
+    $GLOBALS['duo_transport_spool_write_fault'] = static function (): never {
+        throw new \RuntimeException('injected bounded spool write failure');
+    };
+    $pidPath = $argv[2];
+    $spool = tempnam(sys_get_temp_dir(), 'duo-refresh-spool-failure-');
+    $result = (new Duo\Orchestrator\FailingSpoolTransport($pidPath))->captureWpToFile([], $spool, 6000001, 65536, 2000000000);
+    $pid = (int) @file_get_contents($pidPath);
+    $alive = $pid > 0 && function_exists('posix_kill') && @posix_kill($pid, 0);
+    @unlink($spool);
+    @unlink($pidPath);
+    echo ((int) (($result['exit'] ?? 0) !== 0)) . ':' . ((int) !$alive) . ':'
+        . ((int) str_contains((string) ($result['stderr'] ?? ''), 'bounded capture spool failed'));
+}
+PHP;
+$spoolFailurePid = tempnam(sys_get_temp_dir(), 'duo-refresh-spool-child-');
+$spoolFailureOutput = [];
+$spoolFailureRc = 0;
+exec(
+    escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($spoolFailureChild)
+    . ' ' . escapeshellarg(dirname(__DIR__, 4) . '/cli/src/Transport/Transport.php')
+    . ' ' . escapeshellarg((string) $spoolFailurePid) . ' 2>&1',
+    $spoolFailureOutput,
+    $spoolFailureRc
+);
+@unlink((string) $spoolFailurePid);
+ok_refresh(
+    $spoolFailureRc === 0 && implode("\n", $spoolFailureOutput) === '1:1:1',
+    'a local spool write failure terminates, drains, and reaps the target child before returning'
+);
+
+$termIgnoringChild = <<<'PHP'
+namespace Duo\Orchestrator {
+    require $argv[1];
+    final class TermIgnoringTransport extends Transport {
+        public function __construct(private string $pidPath) { parent::__construct('fixture', ['repo_path' => '/tmp']); }
+        public function describe(): string { return 'fixture'; }
+        protected function rawCommand(string $script): string { return 'false'; }
+        protected function wpCommand(array $args): string {
+            return escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg(
+                'pcntl_async_signals(true); pcntl_signal(SIGTERM, static function (): void {}); '
+                . 'file_put_contents($argv[1], (string) getmypid()); while (true) { echo str_repeat("x", 65536); }'
+            ) . ' ' . escapeshellarg($this->pidPath);
+        }
+    }
+}
+namespace {
+    $pidPath = $argv[2];
+    $spool = tempnam(sys_get_temp_dir(), 'duo-refresh-spool-term-');
+    $started = hrtime(true);
+    $result = (new Duo\Orchestrator\TermIgnoringTransport($pidPath))->captureWpToFile([], $spool, 100001, 65536, 2000000000);
+    $elapsed = hrtime(true) - $started;
+    $pid = (int) @file_get_contents($pidPath);
+    $alive = $pid > 0 && function_exists('posix_kill') && @posix_kill($pid, 0);
+    @unlink($spool);
+    @unlink($pidPath);
+    echo ((int) ($result['stdout_exceeded'] ?? false)) . ':' . ((int) !$alive) . ':' . (int) ($elapsed < 5000000000);
+}
+PHP;
+$termIgnoringPid = tempnam(sys_get_temp_dir(), 'duo-refresh-term-child-');
+$termIgnoringOutput = [];
+$termIgnoringRc = 0;
+exec(
+    escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($termIgnoringChild)
+    . ' ' . escapeshellarg(dirname(__DIR__, 4) . '/cli/src/Transport/Transport.php')
+    . ' ' . escapeshellarg((string) $termIgnoringPid) . ' 2>&1',
+    $termIgnoringOutput,
+    $termIgnoringRc
+);
+@unlink((string) $termIgnoringPid);
+ok_refresh(
+    $termIgnoringRc === 0 && implode("\n", $termIgnoringOutput) === '1:1:1',
+    'a TERM-ignoring continuous stdout child is SIGKILLed and reaped on the bounded transport deadline'
+);
+
+$timeoutChild = <<<'PHP'
+namespace Duo\Orchestrator {
+    require $argv[1];
+    final class TimeoutFixtureTransport extends Transport {
+        public function __construct(private string $pidPath, private bool $chatty) { parent::__construct('fixture', ['repo_path' => '/tmp']); }
+        public function describe(): string { return 'fixture'; }
+        protected function rawCommand(string $script): string { return 'false'; }
+        protected function wpCommand(array $args): string {
+            $loop = $this->chatty
+                ? 'while (true) { echo "x"; usleep(1000); }'
+                : 'while (true) { usleep(1000); }';
+            return escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg(
+                'pcntl_async_signals(true); pcntl_signal(SIGTERM, static function (): void {}); '
+                . 'file_put_contents($argv[1], (string) getmypid()); ' . $loop
+            ) . ' ' . escapeshellarg($this->pidPath);
+        }
+    }
+}
+namespace {
+    $base = $argv[2];
+    $parts = [];
+    foreach (['silent' => false, 'under-cap-chatty' => true] as $label => $chatty) {
+        $pidPath = $base . '-' . $label;
+        $spool = tempnam(sys_get_temp_dir(), 'duo-refresh-spool-timeout-');
+        $started = hrtime(true);
+        $result = (new Duo\Orchestrator\TimeoutFixtureTransport($pidPath, $chatty))->captureWpToFile(
+            [], $spool, 1048576, 65536, 500000000
+        );
+        $elapsed = hrtime(true) - $started;
+        $pid = (int) @file_get_contents($pidPath);
+        $alive = $pid > 0 && function_exists('posix_kill') && @posix_kill($pid, 0);
+        @unlink($spool);
+        @unlink($pidPath);
+        $parts[] = ((int) ($result['timed_out'] ?? false)) . ':' . ((int) !$alive) . ':'
+            . ((int) (!$result['stdout_exceeded'] && !$result['stderr_exceeded'])) . ':'
+            . ((int) ($elapsed < 5000000000)) . ':'
+            . ((int) str_contains((string) ($result['stderr'] ?? ''), 'bounded capture execution deadline exceeded'));
+    }
+    echo implode('|', $parts);
+}
+PHP;
+$timeoutBase = tempnam(sys_get_temp_dir(), 'duo-refresh-timeout-child-');
+$timeoutOutput = [];
+$timeoutRc = 0;
+exec(
+    escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($timeoutChild)
+    . ' ' . escapeshellarg(dirname(__DIR__, 4) . '/cli/src/Transport/Transport.php')
+    . ' ' . escapeshellarg((string) $timeoutBase) . ' 2>&1',
+    $timeoutOutput,
+    $timeoutRc
+);
+@unlink((string) $timeoutBase);
+ok_refresh(
+    $timeoutRc === 0 && implode("\n", $timeoutOutput) === '1:1:1:1:1|1:1:1:1:1',
+    'silent and continuously readable under-cap TERM-ignoring exports time out, SIGKILL, and reap on one monotonic ceiling'
+);
+
+$transportSource = file_get_contents(dirname(__DIR__, 4) . '/cli/src/Transport/Transport.php');
+ok_refresh(
+    is_string($transportSource)
+        && !str_contains($transportSource, 'microtime(true)')
+        && str_contains($transportSource, 'hrtime(true)')
+        && str_contains($transportSource, 'MAX_CAPTURE_STDOUT_BYTES')
+        && str_contains($transportSource, 'MAX_CAPTURE_STDERR_BYTES')
+        && str_contains($transportSource, 'MAX_CAPTURE_TIMEOUT_NS'),
+    'the bounded refresh transport uses monotonic nanosecond deadlines and hard-reviewed caller caps'
+);
+
+$privateSpoolChild = <<<'PHP'
+namespace Duo\Orchestrator {
+    require $argv[1];
+    final class PrivateSpoolTransport extends Transport {
+        public function __construct() { parent::__construct('fixture', ['repo_path' => '/tmp']); }
+        public function describe(): string { return 'fixture'; }
+        protected function rawCommand(string $script): string { return 'false'; }
+        protected function wpCommand(array $args): string { return 'printf x'; }
+    }
+}
+namespace {
+    $spool = tempnam(sys_get_temp_dir(), 'duo-refresh-spool-mode-');
+    chmod($spool, 0666);
+    $result = (new Duo\Orchestrator\PrivateSpoolTransport())->captureWpToFile([], $spool, 100, 100, 2000000000);
+    $overCap = (new Duo\Orchestrator\PrivateSpoolTransport())->captureWpToFile([], $spool, 1610612737, 100, 2000000000);
+    $overStderr = (new Duo\Orchestrator\PrivateSpoolTransport())->captureWpToFile([], $spool, 100, 8388609, 2000000000);
+    $overTimeout = (new Duo\Orchestrator\PrivateSpoolTransport())->captureWpToFile([], $spool, 100, 100, 600000000001);
+    @unlink($spool);
+    echo ((int) (($result['exit'] ?? 0) !== 0)) . ':'
+        . ((int) str_contains((string) ($result['stderr'] ?? ''), 'bounded capture spool failed')) . ':'
+        . ((int) (($overCap['exit'] ?? 0) !== 0)) . ':'
+        . ((int) str_contains((string) ($overCap['stderr'] ?? ''), 'invalid bounded capture spool')) . ':'
+        . ((int) (($overStderr['exit'] ?? 0) !== 0)) . ':'
+        . ((int) str_contains((string) ($overStderr['stderr'] ?? ''), 'invalid bounded capture spool')) . ':'
+        . ((int) (($overTimeout['exit'] ?? 0) !== 0)) . ':'
+        . ((int) str_contains((string) ($overTimeout['stderr'] ?? ''), 'invalid bounded capture spool'));
+}
+PHP;
+$privateSpoolOutput = [];
+$privateSpoolRc = 0;
+exec(
+    escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($privateSpoolChild)
+    . ' ' . escapeshellarg(dirname(__DIR__, 4) . '/cli/src/Transport/Transport.php') . ' 2>&1',
+    $privateSpoolOutput,
+    $privateSpoolRc
+);
+ok_refresh(
+    $privateSpoolRc === 0 && implode("\n", $privateSpoolOutput) === '1:1:1:1:1:1:1:1',
+    'a changed 0666 spool mode or over-hard-cap stdout, stderr, or timeout refuses before Refresh can read or launch it'
+);
 
 $tmp = sys_get_temp_dir() . '/duo-refresh-orchestration-' . bin2hex(random_bytes(6));
 $repo = $tmp . '/repo';
@@ -276,6 +565,18 @@ try {
         && in_array('branch', \Duo\Orchestrator\RefreshPlan::$roles, true)
         && in_array('production-code', \Duo\Orchestrator\RefreshPlan::$roles, true), 'Git artifacts are compiled by role, with production code-only');
     ok_refresh(run_refresh(['git', 'rev-parse', 'HEAD'], $repo) === $feature && run_refresh(['git', 'branch', '--show-current'], $repo) === 'feature', 'refresh leaves source checkout/ref untouched');
+
+    $swappedSpoolTransport = new RefreshTransport($production, $export);
+    $swappedSpoolTransport->swapSpoolPathAfterCapture = true;
+    try {
+        Refresh::refresh($swappedSpoolTransport, 'production');
+        fail_refresh('refresh accepted a pathname swapped after transport capture');
+    } catch (\RuntimeException $e) {
+        ok_refresh(
+            str_contains($e->getMessage(), 'bounded transport handoff'),
+            'refresh rejects a local spool pathname whose inode changed after capture'
+        );
+    }
 
     // An option root is a public scoped-refresh path. The host must forward
     // the exact immutable selector request to the agent, bind the returned

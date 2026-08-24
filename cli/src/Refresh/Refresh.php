@@ -5,6 +5,7 @@ namespace Duo\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Policy/ScopeContract.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Code/CodeSourceLock.php';
+require_once dirname(__DIR__, 3) . '/agent/src/Kernel/MediaPayloadAuthority.php';
 require_once __DIR__ . '/../Code/CodeResolver.php';
 
 /** Explicit non-error terminal for `duo rebase --interactive` cancellation. */
@@ -47,6 +48,11 @@ final class Refresh {
     private const MATERIALIZATION_FORMAT = 'duo-refresh-materialization/v1';
     private const FIELD_DIFF_FORMAT = 'duo-refresh-field-diff/v1';
     private const FIELD_RESOLUTION_FORMAT = 'duo-refresh-field-resolution/v1';
+    private const MAX_REFRESH_STDERR_BYTES = 8388608;
+    // Remote media export is bounded in bytes and in wall time. Five minutes
+    // accommodates a 1 GiB stream over a slow control link; it is an internal
+    // reviewed ceiling, never a CLI/user option that can weaken host safety.
+    private const REFRESH_EXPORT_TIMEOUT_NS = 300000000000;
 
     /**
      * Fetch and persist an immutable semantic refresh plan.  This is read-only
@@ -471,15 +477,46 @@ final class Refresh {
             }
             $wpArgs[] = '--scope-request-b64=' . base64_encode(\Duo\Canon::encode($request));
         }
-        $result = $transport->captureWp(CodeDeploy::controlArgs($wpArgs));
-        if (($result['exit'] ?? 1) !== 0) {
-            throw new \RuntimeException('refresh-export failed for production environment ' . $transport->name()
-                . ': ' . self::transportReason($result));
+        if (!method_exists($transport, 'captureWpToFile')) {
+            throw new \RuntimeException('refresh-export requires a transport with bounded response spooling');
+        }
+        $spool = tempnam(sys_get_temp_dir(), 'duo-refresh-export-');
+        if (!is_string($spool)) {
+            throw new \RuntimeException('refresh-export could not reserve a bounded local response spool');
         }
         try {
-            $raw = json_decode(trim((string) ($result['stdout'] ?? '')), true, 512, JSON_THROW_ON_ERROR);
+            if (@chmod($spool, 0600) === false) {
+                throw new \RuntimeException('refresh-export could not protect its local response spool');
+            }
+            /** @var array{exit:int,stderr:string,stdout_bytes:int,stdout_exceeded:bool,stderr_exceeded:bool,timed_out:bool,stdout_identity?:array{dev:string,ino:string,mode:int,size:int}} $result */
+            $result = $transport->captureWpToFile(
+                CodeDeploy::controlArgs($wpArgs),
+                $spool,
+                \Duo\MediaPayloadAuthority::MAX_ARTIFACT_DOCUMENT_BYTES,
+                self::MAX_REFRESH_STDERR_BYTES,
+                self::REFRESH_EXPORT_TIMEOUT_NS
+            );
+            if (($result['stdout_exceeded'] ?? false) === true || ($result['stderr_exceeded'] ?? false) === true) {
+                throw new \RuntimeException('refresh-export exceeded its bounded transport response authority');
+            }
+            if (($result['timed_out'] ?? false) === true) {
+                throw new \RuntimeException('refresh-export exceeded its bounded transport execution authority');
+            }
+            if (($result['exit'] ?? 1) !== 0) {
+                throw new \RuntimeException('refresh-export failed for production environment ' . $transport->name()
+                    . ': ' . self::transportReason($result));
+            }
+            $identity = $result['stdout_identity'] ?? null;
+            if (!is_array($identity)) {
+                throw new \RuntimeException('refresh-export bounded transport did not return its spool identity');
+            }
+            $rawOutput = \Duo\MediaPayloadAuthority::readArtifactDocument($spool, $identity);
+            \Duo\MediaPayloadAuthority::assertRefreshEnvelope($rawOutput);
+            $raw = json_decode(trim($rawOutput), true, 512, JSON_THROW_ON_ERROR);
         } catch (\Throwable $e) {
             throw new \RuntimeException('refresh-export returned invalid JSON: ' . $e->getMessage());
+        } finally {
+            @unlink($spool);
         }
         self::assertProductionExportShape($raw);
         $production = self::planner('normalizeProductionSnapshot', [$raw]);
@@ -519,13 +556,33 @@ final class Refresh {
                 throw new \RuntimeException('refresh-export has an invalid semantic record');
             }
         }
+        $mediaBytes = 0;
         foreach ($export['media'] as $key => $media) {
             if (!is_string($key) || !is_array($media) || !self::isHash($media['sha256'] ?? null)
                 || !is_string($media['base64'] ?? null)) {
                 throw new \RuntimeException('refresh-export has an invalid media entry');
             }
-            $bytes = base64_decode($media['base64'], true);
-            if ($bytes === false || !hash_equals($media['sha256'], hash('sha256', $bytes))) {
+            try {
+                $parsed = \Duo\MediaPayloadAuthority::parseMediaName($key);
+                if (!hash_equals($parsed['sha256'], $media['sha256'])) {
+                    throw new \RuntimeException('media name/hash mismatch');
+                }
+                $mediaBytes = \Duo\MediaPayloadAuthority::addToAggregate(
+                    $mediaBytes,
+                    \Duo\MediaPayloadAuthority::canonicalBase64DecodedLength(
+                        $media['base64'],
+                        'refresh-export media payload'
+                    )
+                );
+            } catch (\Throwable $failure) {
+                throw new \RuntimeException("refresh-export media '$key' does not match its SHA-256");
+            }
+        }
+        \Duo\MediaPayloadAuthority::assertRefreshExportHeadroom($mediaBytes);
+        foreach ($export['media'] as $key => $media) {
+            try {
+                \Duo\MediaPayloadAuthority::decodeArtifactMedia((string) $key, $media);
+            } catch (\Throwable $failure) {
                 throw new \RuntimeException("refresh-export media '$key' does not match its SHA-256");
             }
         }

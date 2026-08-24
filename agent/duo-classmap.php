@@ -127,6 +127,7 @@ return [
     'Duo\\ManifestGrammar' => 'src/Policy/ManifestGrammar.php',
     'Duo\\ManifestValidator' => 'src/Policy/ManifestValidator.php',
     'Duo\\MediaCapture' => 'src/Capture/MediaCapture.php',
+    'Duo\\MediaPayloadAuthority' => 'src/Kernel/MediaPayloadAuthority.php',
     'Duo\\MenuCapture' => 'src/Capture/MenuCapture.php',
     'Duo\\MenuMaterializer' => 'src/Apply/MenuMaterializer.php',
     'Duo\\MenuReferenceScanner' => 'src/Review/MenuReferenceScanner.php',

@@ -9,6 +9,7 @@ if (!class_exists(Db::class, false)) {
 if (!class_exists(PlainData::class, false)) {
     require_once __DIR__ . '/../Kernel/PlainData.php';
 }
+require_once __DIR__ . '/../Kernel/MediaPayloadAuthority.php';
 
 /**
  * Runs WordPress's attachment metadata generator against an isolated file.
@@ -253,15 +254,18 @@ final class AttachmentNativeMetadataGenerator {
             $adapterQuarantine = $this->quarantine_reviewed_adapter_callbacks();
             $this->assert_closed_filter_topology();
             $priorUmask = umask(0077);
-            [$sourceWidth, $sourceHeight] = $this->assert_media_environment($mime, $stageFile);
-            $sizes = $this->registered_sizes_witness($sourceWidth, $sourceHeight);
-            if (!hash_equals(
-                $sizes['hash'],
-                $this->registered_sizes_witness($sourceWidth, $sourceHeight)['hash']
-            )) {
-                throw new \RuntimeException(
-                    'duo: native attachment metadata registered image-size roster changed during markerless preflight'
-                );
+            $classification = $this->classify_stage_file($stageFile, $mime);
+            if ($classification['kind'] === 'raster') {
+                [$sourceWidth, $sourceHeight] = $this->assert_media_environment($mime, $stageFile);
+                $sizes = $this->registered_sizes_witness($sourceWidth, $sourceHeight);
+                if (!hash_equals(
+                    $sizes['hash'],
+                    $this->registered_sizes_witness($sourceWidth, $sourceHeight)['hash']
+                )) {
+                    throw new \RuntimeException(
+                        'duo: native attachment metadata registered image-size roster changed during markerless preflight'
+                    );
+                }
             }
         } catch (\Throwable $failure) {
             $primary = $failure;
@@ -387,39 +391,45 @@ final class AttachmentNativeMetadataGenerator {
             $adapterQuarantine = $this->quarantine_reviewed_adapter_callbacks();
             $this->assert_closed_filter_topology();
             $priorUmask = umask(0077);
-            [$sourceWidth, $sourceHeight] = $this->assert_bounded_source_image($stageFile);
-            $registeredSizesWitness = $this->registered_sizes_witness($sourceWidth, $sourceHeight);
             Db::start_repeatable_read('native attachment metadata rollback-only transaction start');
             $transactionStarted = true;
             $mime = ($this->lockTarget)($attachmentId);
             if (!is_string($mime) || $mime === '' || strlen($mime) > 191) {
                 throw new \RuntimeException('duo: native attachment metadata target lock returned a malformed MIME type');
             }
-            [$lockedWidth, $lockedHeight] = $this->assert_media_environment($mime, $stageFile);
-            if ($lockedWidth !== $sourceWidth || $lockedHeight !== $sourceHeight) {
-                throw new \RuntimeException(
-                    'duo: native attachment metadata source dimensions changed at its transaction boundary'
-                );
-            }
-            $lockedSizes = $this->registered_sizes_witness($lockedWidth, $lockedHeight);
-            if (!hash_equals($registeredSizesWitness['hash'], $lockedSizes['hash'])) {
-                throw new \RuntimeException(
-                    'duo: native attachment metadata registered image-size roster changed at its transaction boundary'
-                );
+            $lockedClassification = $this->classify_stage_file($stageFile, $mime);
+            $lockedSizes = ['hash' => hash('sha256', serialize([])), 'sizes' => []];
+            if ($lockedClassification['kind'] === 'raster') {
+                [$lockedWidth, $lockedHeight] = $this->assert_media_environment($mime, $stageFile);
+                $lockedSizes = $this->registered_sizes_witness($lockedWidth, $lockedHeight);
+                $repeatClassification = $this->classify_stage_file($stageFile, $mime);
+                $registeredSizesWitness = $this->registered_sizes_witness($lockedWidth, $lockedHeight);
+                if ($repeatClassification !== $lockedClassification
+                    || !hash_equals($registeredSizesWitness['hash'], $lockedSizes['hash'])) {
+                    throw new \RuntimeException(
+                        'duo: native attachment metadata source or size roster changed at its transaction boundary'
+                    );
+                }
             }
             if (!add_filter('update_post_metadata', $guard, PHP_INT_MIN, 5)) {
                 throw new \RuntimeException('duo: native attachment metadata could not install its no-write guard');
             }
             $guardInstalled = true;
-            if (!add_filter('big_image_size_threshold', $bigImageGuard, PHP_INT_MIN, 4)) {
-                throw new \RuntimeException('duo: native attachment metadata could not install its identity-preserving big-image guard');
-            }
-            $bigImageGuardInstalled = true;
             $this->assert_guard_topology($guard);
-            $this->assert_single_guard_topology('big_image_size_threshold', $bigImageGuard, 4);
-            $metadata = wp_generate_attachment_metadata($attachmentId, $stageFile);
-            if ($metadata === false || is_wp_error($metadata) || !is_array($metadata)) {
-                throw new \RuntimeException('duo: native attachment metadata generator reported failure');
+            if ($lockedClassification['kind'] === 'raster') {
+                if (!add_filter('big_image_size_threshold', $bigImageGuard, PHP_INT_MIN, 4)) {
+                    throw new \RuntimeException('duo: native attachment metadata could not install its identity-preserving big-image guard');
+                }
+                $bigImageGuardInstalled = true;
+                $this->assert_single_guard_topology('big_image_size_threshold', $bigImageGuard, 4);
+                $metadata = wp_generate_attachment_metadata($attachmentId, $stageFile);
+                if ($metadata === false || is_wp_error($metadata) || !is_array($metadata)) {
+                    throw new \RuntimeException('duo: native attachment metadata generator reported failure');
+                }
+            } else {
+                // Exact Core 6.9.2-7.1 generic branch: no delegate, only the
+                // sealed filesize before the closed metadata filter.
+                $metadata = ['filesize' => $lockedClassification['size']];
             }
             $metadata = $this->apply_quarantined_adapter_projection(
                 $metadata,
@@ -432,7 +442,9 @@ final class AttachmentNativeMetadataGenerator {
                 throw new \RuntimeException('duo: native attachment metadata result exceeds its bounded byte limit');
             }
             $this->assert_guard_topology($guard);
-            $this->assert_single_guard_topology('big_image_size_threshold', $bigImageGuard, 4);
+            if ($bigImageGuardInstalled) {
+                $this->assert_single_guard_topology('big_image_size_threshold', $bigImageGuard, 4);
+            }
         } catch (\Throwable $failure) {
             $primary = $failure;
         } finally {
@@ -886,7 +898,10 @@ final class AttachmentNativeMetadataGenerator {
         if ($mime === '' || strlen($mime) > 191) {
             throw new \RuntimeException('duo: native attachment metadata received a malformed MIME authority');
         }
-        $this->assert_media_identity($mime, $stageFile);
+        $classification = $this->classify_stage_file($stageFile, $mime);
+        if ($classification['kind'] !== 'raster') {
+            throw new \RuntimeException('duo: native attachment metadata expected a reviewed raster authority');
+        }
         if (!$this->displayable_image($mime, $stageFile)) {
             throw new \RuntimeException('duo: native attachment metadata refuses a non-displayable raster image');
         }
@@ -904,183 +919,34 @@ final class AttachmentNativeMetadataGenerator {
         return $dimensions;
     }
 
-    /**
-     * The reviewed native boundary is raster-image metadata only. PDF
-     * delegates can decompress multiple pages through Imagick; audio/video
-     * metadata can create embedded-cover attachment rows; unknown/import MIME
-     * spellings select parser behavior that is not declared by the compiled
-     * bytes. Exact container termination also prevents a valid image prefix
-     * from carrying an undeclared trailing payload.
-     */
-    private function assert_media_identity(string $mime, string $stageFile): void {
-        $extensions = [
-            'image/gif' => ['gif'],
-            'image/jpeg' => ['jpe', 'jpeg', 'jpg'],
-            'image/png' => ['png'],
-            'image/webp' => ['webp'],
-        ];
-        $extension = strtolower(pathinfo($stageFile, PATHINFO_EXTENSION));
-        if (!isset($extensions[$mime]) || !in_array($extension, $extensions[$mime], true)) {
-            throw new \RuntimeException(
-                'duo: native attachment metadata refuses an unsupported or MIME/extension-mismatched media class'
-            );
-        }
-        if (!class_exists(\finfo::class)) {
-            throw new \RuntimeException('duo: native attachment metadata lacks its byte MIME detector');
-        }
-        $detected = (new \finfo(FILEINFO_MIME_TYPE))->file($stageFile);
-        if (!is_string($detected) || !hash_equals($mime, $detected)) {
-            throw new \RuntimeException(
-                'duo: native attachment metadata declared MIME disagrees with the bounded staging bytes'
-            );
-        }
-        $bytes = file_get_contents($stageFile);
-        if (!is_string($bytes) || !$this->image_container_is_exact($mime, $bytes)) {
-            throw new \RuntimeException(
-                'duo: native attachment metadata image container is truncated, malformed, or carries trailing bytes'
-            );
-        }
-    }
-
-    private function image_container_is_exact(string $mime, string $bytes): bool {
-        $length = strlen($bytes);
-        if ($mime === 'image/jpeg') {
-            return $this->jpeg_container_is_exact($bytes);
-        }
-        if ($mime === 'image/gif') {
-            return $this->gif_container_is_exact($bytes);
-        }
-        if ($mime === 'image/webp') {
-            if ($length < 12 || !str_starts_with($bytes, 'RIFF') || substr($bytes, 8, 4) !== 'WEBP') {
-                return false;
+    /** @return array{extension:string,kind:string,mime:string,size:int} */
+    private function classify_stage_file(string $stageFile, string $mime): array {
+        try {
+            return MediaPayloadAuthority::classifyFile($stageFile, basename($stageFile), $mime);
+        } catch (\Throwable $failure) {
+            if (str_contains($failure->getMessage(), 'raster container')) {
+                throw new \RuntimeException(
+                    'duo: native attachment metadata image container is truncated, malformed, or carries trailing bytes',
+                    0,
+                    $failure
+                );
             }
-            $size = unpack('Vsize', substr($bytes, 4, 4));
-            return is_array($size) && ($size['size'] ?? null) === $length - 8;
-        }
-        if ($mime !== 'image/png' || $length < 20 || !str_starts_with($bytes, "\x89PNG\r\n\x1A\n")) {
-            return false;
-        }
-        $offset = 8;
-        while ($offset + 12 <= $length) {
-            $decoded = unpack('Nlength', substr($bytes, $offset, 4));
-            $chunkLength = is_array($decoded) ? ($decoded['length'] ?? null) : null;
-            if (!is_int($chunkLength) || $chunkLength < 0 || $chunkLength > $length - $offset - 12) {
-                return false;
+            if (str_contains($failure->getMessage(), 'raster dimensions or decoder MIME exceed')) {
+                throw new \RuntimeException(
+                    'duo: native attachment metadata source dimensions exceed the bounded GD pixel authority',
+                    0,
+                    $failure
+                );
             }
-            $type = substr($bytes, $offset + 4, 4);
-            $offset += 12 + $chunkLength;
-            if ($type === 'IEND') {
-                return $chunkLength === 0 && $offset === $length;
+            if (str_contains($failure->getMessage(), 'unbounded Core image, audio, video, or PDF metadata branch')) {
+                throw new \RuntimeException(
+                    'duo: native attachment metadata refuses an unsupported or MIME/extension-mismatched media class',
+                    0,
+                    $failure
+                );
             }
+            throw $failure;
         }
-        return false;
-    }
-
-    private function jpeg_container_is_exact(string $bytes): bool {
-        $length = strlen($bytes);
-        if ($length < 4 || !str_starts_with($bytes, "\xFF\xD8")) return false;
-        $offset = 2;
-        $sawFrame = false;
-        $sawScan = false;
-        while ($offset < $length) {
-            if (ord($bytes[$offset]) !== 0xFF) return false;
-            while ($offset < $length && ord($bytes[$offset]) === 0xFF) ++$offset;
-            if ($offset >= $length) return false;
-            $marker = ord($bytes[$offset++]);
-            if ($marker === 0x00) return false;
-            if ($marker === 0xD9) return $sawFrame && $sawScan && $offset === $length;
-            if ($marker === 0xD8
-                || $marker === 0x01
-                || ($marker >= 0xD0 && $marker <= 0xD7)) {
-                return false;
-            }
-            if ($offset + 2 > $length) return false;
-            $decoded = unpack('nlength', substr($bytes, $offset, 2));
-            $segmentLength = is_array($decoded) ? ($decoded['length'] ?? null) : null;
-            if (!is_int($segmentLength)
-                || $segmentLength < 2
-                || $segmentLength > $length - $offset) {
-                return false;
-            }
-            if (in_array($marker, [
-                0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7,
-                0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF,
-            ], true)) {
-                $sawFrame = true;
-            }
-            $offset += $segmentLength;
-            if ($marker !== 0xDA) continue;
-            $sawScan = true;
-            while ($offset < $length) {
-                if (ord($bytes[$offset]) !== 0xFF) {
-                    ++$offset;
-                    continue;
-                }
-                $markerOffset = $offset;
-                while ($offset < $length && ord($bytes[$offset]) === 0xFF) ++$offset;
-                if ($offset >= $length) return false;
-                $entropyMarker = ord($bytes[$offset++]);
-                if ($entropyMarker === 0x00
-                    || ($entropyMarker >= 0xD0 && $entropyMarker <= 0xD7)) {
-                    continue;
-                }
-                $offset = $markerOffset;
-                break;
-            }
-        }
-        return false;
-    }
-
-    private function gif_container_is_exact(string $bytes): bool {
-        $length = strlen($bytes);
-        if ($length < 14
-            || !(str_starts_with($bytes, 'GIF87a') || str_starts_with($bytes, 'GIF89a'))) {
-            return false;
-        }
-        $offset = 13;
-        $packed = ord($bytes[10]);
-        if (($packed & 0x80) !== 0) {
-            $offset += 3 * (1 << (($packed & 0x07) + 1));
-        }
-        if ($offset >= $length) return false;
-        $sawImage = false;
-        while ($offset < $length) {
-            $introducer = ord($bytes[$offset++]);
-            if ($introducer === 0x3B) return $sawImage && $offset === $length;
-            if ($introducer === 0x21) {
-                if ($offset >= $length) return false;
-                ++$offset; // Extension label; all admitted extensions then use GIF sub-blocks.
-                $offset = $this->gif_sub_blocks_end($bytes, $offset, $extensionData);
-                if ($offset < 0) return false;
-                continue;
-            }
-            if ($introducer !== 0x2C || $offset + 9 > $length) return false;
-            $descriptorPacked = ord($bytes[$offset + 8]);
-            $offset += 9;
-            if (($descriptorPacked & 0x80) !== 0) {
-                $offset += 3 * (1 << (($descriptorPacked & 0x07) + 1));
-            }
-            if ($offset >= $length) return false;
-            $codeSize = ord($bytes[$offset++]);
-            if ($codeSize < 2 || $codeSize > 12) return false;
-            $offset = $this->gif_sub_blocks_end($bytes, $offset, $imageData);
-            if ($offset < 0 || !$imageData) return false;
-            $sawImage = true;
-        }
-        return false;
-    }
-
-    private function gif_sub_blocks_end(string $bytes, int $offset, ?bool &$hadData): int {
-        $length = strlen($bytes);
-        $hadData = false;
-        while ($offset < $length) {
-            $size = ord($bytes[$offset++]);
-            if ($size === 0) return $offset;
-            $hadData = true;
-            if ($size > $length - $offset) return -1;
-            $offset += $size;
-        }
-        return -1;
     }
 
     /** @return array{int,int} */

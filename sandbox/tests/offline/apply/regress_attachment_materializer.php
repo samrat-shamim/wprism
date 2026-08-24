@@ -710,27 +710,19 @@ namespace {
             'uuid' => $badUuid,
         ];
         $badTree = [$badUuid => ['data' => $badFront, 'type' => 'post']];
-        $badCompiled = CompiledRepository::create([
-            'media' => [$badBlob => ['base64' => base64_encode($badBytes), 'sha256' => hash('sha256', $badBytes)]],
-            'tree' => $badTree,
-        ]);
-        $bad = new AttachmentFilesystemTransaction($badCompiled, $repository);
         $startsBeforePreflight = Db::$starts;
         $throws(
-            static fn() => $bad->prepare([['uuid' => $badUuid]], $badTree, $preflightGenerator),
-            'markerless preflight failed',
-            'deterministic unsupported-media refusal occurs in the markerless pre-authored boundary'
+            static fn() => CompiledRepository::create([
+                'media' => [$badBlob => ['base64' => base64_encode($badBytes), 'sha256' => hash('sha256', $badBytes)]],
+                'tree' => $badTree,
+            ]),
+            'unbounded Core image, audio, video, or PDF metadata branch',
+            'deterministic delegated-media refusal occurs before any filesystem transaction can be prepared'
         );
         $check(
             Db::$starts === $startsBeforePreflight
                 && !file_exists($uploads . '/2026/08/unsupported.pdf'),
-            'markerless media refusal starts no database transaction and changes no upload byte'
-        );
-        $bad->rollback_authored_transaction(null);
-        $bad->end();
-        $check(
-            !is_dir($repository . '/.duo/attachment-filesystem/current'),
-            'markerless media refusal cleanup removes its private journal without recovery state'
+            'delegated-media compile refusal starts no database transaction and changes no upload byte'
         );
 
         $renameUuid = '3c4d5e6f-7081-49ab-8cde-f0123456789a';
@@ -1021,10 +1013,17 @@ namespace {
             'thumbnail' => ['width' => 300, 'height' => 300, 'crop' => true],
         ];
 
-        $wide = "\x89PNG\r\n\x1A\n"
-            . $chunk('IHDR', pack('NNCCCCC', 16384, 1, 8, 6, 0, 0, 0))
-            . $chunk('IDAT', gzcompress(''))
-            . $chunk('IEND', '');
+        $wideImage = imagecreatetruecolor(16384, 1);
+        if ($wideImage === false) {
+            throw new \RuntimeException('could not create a valid wide PNG fixture');
+        }
+        ob_start();
+        imagepng($wideImage);
+        $wide = ob_get_clean();
+        unset($wideImage);
+        if (!is_string($wide)) {
+            throw new \RuntimeException('could not encode a valid wide PNG fixture');
+        }
         $widePath = $repository . '/wide.png';
         file_put_contents($widePath, $wide);
         $GLOBALS['duo_attachment_size_roster'] = [

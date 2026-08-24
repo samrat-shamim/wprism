@@ -3,6 +3,8 @@ namespace Duo;
 
 require_once __DIR__ . '/../Kernel/Secrets.php';
 require_once __DIR__ . '/../Kernel/PersonalData.php';
+require_once __DIR__ . '/../Kernel/MediaPayloadAuthority.php';
+require_once __DIR__ . '/../Capture/MediaCapture.php';
 
 /**
  * Read-only target probes used by first-run discovery.
@@ -90,18 +92,34 @@ final class InitSiteProbe {
         $local = 0;
         $provider = 0;
         $unavailable = 0;
+        $capture = new MediaCapture();
         foreach ($ids as $id) {
-            $path = get_attached_file((int) $id, true);
-            if (is_string($path) && is_file($path) && is_readable($path)) {
-                $local++;
-                continue;
-            }
-            $source = apply_filters('duo_attachment_capture_source', null, (int) $id, $path);
-            if (is_array($source)
-                && ((is_string($source['path'] ?? null) && is_file($source['path']) && is_readable($source['path']))
-                    || is_string($source['bytes'] ?? null))) {
-                $provider++;
-            } else {
+            $id = (int) $id;
+            try {
+                $attached = get_post_meta($id, '_wp_attached_file', true);
+                $mime = get_post_mime_type($id);
+                if (!is_string($attached) || !is_string($mime)) {
+                    throw new \RuntimeException('attachment metadata is absent');
+                }
+                $observed = $capture->capture($id, $attached, $mime, '', false);
+                $source = $observed['media_ref'][1];
+                $localPath = get_attached_file($id, true);
+                $selectedLocal = is_string($localPath)
+                    && array_key_exists('path', $source)
+                    && is_string($source['path'] ?? null)
+                    && hash_equals(
+                        MediaPayloadAuthority::physicalLocalFilePath($localPath),
+                        (string) $source['path']
+                    );
+                if ($selectedLocal) {
+                    $local++;
+                } else {
+                    // A provider may intentionally replace a readable local
+                    // original. Count the selected authority, not a local
+                    // file that this init will never publish.
+                    $provider++;
+                }
+            } catch (\Throwable $_failure) {
                 $unavailable++;
             }
         }

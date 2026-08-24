@@ -91,6 +91,9 @@ namespace {
     use Duo\CommandRefusalException;
     use Duo\RepositoryCompilationException;
 
+    if (!defined('DUO_TEST_MODE')) {
+        define('DUO_TEST_MODE', true);
+    }
     $reader = __DIR__ . '/../../../../agent/src/Repository/CompiledArtifactReader.php';
     require_once $reader;
 
@@ -208,6 +211,165 @@ PHP;
             && $stateOnly->primeCalls === 1
             && $stateOnly->primedTrees === [[]],
         'a valid state-only artifact round-trips exactly and primes interpreters only after validation'
+    );
+
+    $linkedPath = "$tmp/linked.json";
+    symlink($validPath, $linkedPath);
+    $linkedPolicy = new Policy();
+    $check(
+        $diagnostic(static fn() => CompiledArtifactReader::read_artifact($linkedPath, $linkedPolicy)) === 'compiled_artifact_invalid'
+            && $linkedPolicy->primeCalls === 0,
+        'a final-symlink artifact path is refused before its document is read or interpreter facts are primed'
+    );
+
+    $mutatingPath = "$tmp/mutating.json";
+    $writeArtifact($mutatingPath, $payload(new Policy()));
+    $GLOBALS['duo_compiled_artifact_observation_interleave'] = static function (string $path): void {
+        $bytes = file_get_contents($path);
+        if (!is_string($bytes) || $bytes === '') {
+            throw new RuntimeException('test could not rewrite the observed artifact');
+        }
+        $bytes[0] = $bytes[0] === '{' ? '[' : '{';
+        file_put_contents($path, $bytes);
+    };
+    $mutatingPolicy = new Policy();
+    $mutatingCode = $diagnostic(static fn() => CompiledArtifactReader::read_artifact($mutatingPath, $mutatingPolicy));
+    unset($GLOBALS['duo_compiled_artifact_observation_interleave']);
+    $check(
+        $mutatingCode === 'compiled_artifact_invalid' && $mutatingPolicy->primeCalls === 0,
+        'an equal-length artifact rewrite between observations is refused before Canon can decode it'
+    );
+
+    $oversizedPath = "$tmp/oversized.json";
+    $oversized = fopen($oversizedPath, 'wb');
+    if (!is_resource($oversized) || !ftruncate($oversized, \Duo\MediaPayloadAuthority::MAX_ARTIFACT_DOCUMENT_BYTES + 1)) {
+        throw new RuntimeException('could not create sparse oversized artifact fixture');
+    }
+    fclose($oversized);
+    $oversizedPolicy = new Policy();
+    $check(
+        $diagnostic(static fn() => CompiledArtifactReader::read_artifact($oversizedPath, $oversizedPolicy)) === 'compiled_artifact_invalid'
+            && $oversizedPolicy->primeCalls === 0,
+        'an oversized sparse artifact is refused from its regular-file shape before a whole-document allocation'
+    );
+
+    $densePath = "$tmp/dense.json";
+    $denseDocument = '[' . str_repeat('0,', 2999999) . '0]';
+    file_put_contents($densePath, $denseDocument);
+    unset($denseDocument);
+    $denseChild = <<<'PHP'
+namespace Duo {
+    final class Canon {
+        public static int $decodeCalls = 0;
+        public static function encode(mixed $value): string { return json_encode($value, JSON_THROW_ON_ERROR); }
+        public static function decode(string $bytes): array { self::$decodeCalls++; return json_decode($bytes, true, 512, JSON_THROW_ON_ERROR); }
+    }
+    final class Code { public static function assert_descriptor(array $descriptor): void {} }
+    final class Policy {}
+}
+namespace {
+    require $argv[1];
+    try {
+        Duo\CompiledArtifactReader::read_artifact($argv[2], new Duo\Policy());
+        exit(2);
+    } catch (Duo\CommandRefusalException $error) {
+        echo $error->reasonCode . ':' . Duo\Canon::$decodeCalls;
+    }
+}
+PHP;
+    $denseOutput = [];
+    $denseRc = 0;
+    exec(
+        escapeshellarg(PHP_BINARY) . ' -d memory_limit=128M -r ' . escapeshellarg($denseChild)
+        . ' ' . escapeshellarg($reader) . ' ' . escapeshellarg($densePath) . ' 2>&1',
+        $denseOutput,
+        $denseRc
+    );
+    $check(
+        $denseRc === 0 && implode("\n", $denseOutput) === 'compiled_artifact_invalid:0',
+        'a 3,000,000-scalar 6,000,001-byte artifact is refused in a 128 MiB child before json_decode can allocate its dense PHP array'
+    );
+
+    $refreshDenseChild = <<<'PHP'
+require $argv[1];
+$raw = file_get_contents($argv[2]);
+try {
+    Duo\MediaPayloadAuthority::assertRefreshEnvelope($raw);
+    exit(2);
+} catch (RuntimeException $error) {
+    echo $error->getMessage();
+}
+PHP;
+    $refreshDenseOutput = [];
+    $refreshDenseRc = 0;
+    $authority = __DIR__ . '/../../../../agent/src/Kernel/MediaPayloadAuthority.php';
+    exec(
+        escapeshellarg(PHP_BINARY) . ' -d memory_limit=128M -r ' . escapeshellarg($refreshDenseChild)
+        . ' ' . escapeshellarg($authority) . ' ' . escapeshellarg($densePath) . ' 2>&1',
+        $refreshDenseOutput,
+        $refreshDenseRc
+    );
+    $refreshSource = (string) file_get_contents(__DIR__ . '/../../../../cli/src/Refresh/Refresh.php');
+    $check(
+        $refreshDenseRc === 0
+            && str_contains(implode("\n", $refreshDenseOutput), 'bounded PHP memory headroom')
+            && str_contains($refreshSource, 'MediaPayloadAuthority::assertRefreshEnvelope($rawOutput)'),
+        'the host refresh envelope applies the same bounded dense-JSON preflight before its remote json_decode'
+    );
+
+    $largeTree = [];
+    for ($index = 0; $index < 10000; $index++) {
+        $data = ['type' => 'page'];
+        for ($field = 0; $field < 30; $field++) {
+            $data['field-' . $field] = $field;
+        }
+        $largeTree['page-' . $index] = ['type' => 'post', 'data' => $data];
+    }
+    $largePath = "$tmp/large-legitimate.json";
+    $largePayload = $payload(new Policy());
+    $largePayload['tree'] = $largeTree;
+    $writeArtifact($largePath, $largePayload);
+    unset($largeTree, $largePayload);
+    $largeChild = <<<'PHP'
+namespace Duo {
+    final class Canon {
+        public static function encode(mixed $value): string { return json_encode($value, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES); }
+        public static function decode(string $bytes): array { return json_decode($bytes, true, 512, JSON_THROW_ON_ERROR); }
+    }
+    final class Code { public static function assert_descriptor(array $descriptor): void {} }
+    final class Policy {
+        public array $site = ['spec_version' => 2, 'policy' => []];
+        public array $manifests = [];
+        public array $effects = [];
+        public ?array $code = null;
+        public function manifest_disposition(string $name): ?array { return null; }
+        public function effects_inventory(): array { return $this->effects; }
+        public function code_config(): ?array { return $this->code; }
+        public function prime_interpreters_from_repository(array $tree): void {}
+    }
+}
+namespace {
+    require $argv[1];
+    try {
+        Duo\CompiledArtifactReader::read_artifact($argv[2], new Duo\Policy());
+        echo 'ok';
+    } catch (Throwable $error) {
+        fwrite(STDERR, $error->getMessage());
+        exit(1);
+    }
+}
+PHP;
+    $largeOutput = [];
+    $largeRc = 0;
+    exec(
+        escapeshellarg(PHP_BINARY) . ' -d memory_limit=1G -r ' . escapeshellarg($largeChild)
+        . ' ' . escapeshellarg($reader) . ' ' . escapeshellarg($largePath) . ' 2>&1',
+        $largeOutput,
+        $largeRc
+    );
+    $check(
+        $largeRc === 0 && implode("\n", $largeOutput) === 'ok',
+        'a 10,000-record artifact with 300,000 ordinary metadata fields is admitted on a 1 GiB worker by dynamic structural headroom'
     );
 
     $malformedPath = "$tmp/malformed.json";
@@ -335,8 +497,9 @@ PHP);
     $check(
         substr_count($compilerSource, 'CompiledArtifactReader::read_artifact($path, $policy)') === 1
             && !str_contains($compilerSource, 'private static function artifact_exception')
-            && substr_count($readerSource, 'CompiledRepository::from_array(Canon::decode(Canon::read_file($path)))') === 1,
-        'RepositoryCompiler keeps one exact reader facade and no duplicate persisted-artifact validation body'
+            && substr_count($readerSource, 'MediaPayloadAuthority::readArtifactDocument($path)') === 1
+            && !str_contains($readerSource, 'Canon::read_file($path)'),
+        'RepositoryCompiler keeps one reader facade while persisted artifacts prove bounded physical bytes before Canon decode'
     );
 
     if ($failures !== []) {

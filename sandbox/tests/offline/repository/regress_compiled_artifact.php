@@ -49,6 +49,66 @@ $check($compiled->resolved_adapters() === [], 'create(): resolved_adapters defau
 $check($compiled->uploads_inventory() === [], 'create(): no attachments means empty uploads inventory');
 $check($compiled->effects_inventory() === [], 'create(): effects_inventory defaults to empty list');
 
+$mediaBytes = "bounded generic media\n";
+$mediaHash = hash('sha256', $mediaBytes);
+$mediaName = "$mediaHash.txt";
+$mediaPayload = $payload;
+$mediaPayload['tree'] = [
+    'media-text' => [
+        'type' => 'post',
+        'data' => ['type' => 'attachment', 'file' => 'uploads/one.txt', 'mime' => 'text/plain', 'media' => $mediaName],
+    ],
+];
+$mediaPayload['media'] = [$mediaName => ['sha256' => $mediaHash, 'base64' => base64_encode($mediaBytes)]];
+$mediaCompiled = CompiledRepository::create($mediaPayload);
+$check(
+    $mediaCompiled->media_content($mediaName) === $mediaBytes
+        && $mediaCompiled->media_content($mediaName) === $mediaBytes,
+    'media_content(): decodes an exact canonical payload and accounts each immutable blob only once'
+);
+$mediaTmp = tempnam(sys_get_temp_dir(), 'duo-compiled-artifact-media-');
+$mediaCompiled->write($mediaTmp);
+$mediaWritten = CompiledRepository::from_array(json_decode(file_get_contents($mediaTmp), true));
+$check(
+    $mediaWritten->media_content($mediaName) === $mediaBytes,
+    'from_array(): accepts canonical JSON key order while re-proving encoded media length, hash, and attachment authority'
+);
+unlink($mediaTmp);
+
+$badBase64 = $mediaPayload;
+$badBase64['media'][$mediaName]['base64'] = 'AA=A';
+$badBase64Rejected = false;
+try {
+    CompiledRepository::create($badBase64);
+} catch (\RuntimeException $e) {
+    $badBase64Rejected = str_contains($e->getMessage(), 'canonical base64');
+}
+$check($badBase64Rejected, 'create(): noncanonical encoded media is refused before base64_decode allocation');
+
+$png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAAC0lEQVQImWNgAAIAAAUAAWJVMogAAAAASUVORK5CYII=', true);
+if (!is_string($png)) {
+    throw new RuntimeException('test PNG fixture did not decode');
+}
+$pngHash = hash('sha256', $png);
+$pngName = "$pngHash.png";
+$mixedUsage = $payload;
+$mixedUsage['tree'] = [
+    'raster-use' => [
+        'type' => 'post',
+        'data' => ['type' => 'attachment', 'file' => 'images/raster.png', 'mime' => 'image/png', 'media' => $pngName],
+    ],
+    'generic-use' => [
+        'type' => 'post',
+        'data' => ['type' => 'attachment', 'file' => 'files/opaque.png', 'mime' => 'application/epub+zip', 'media' => $pngName],
+    ],
+];
+$mixedUsage['media'] = [$pngName => ['sha256' => $pngHash, 'base64' => base64_encode($png)]];
+$mixedCompiled = CompiledRepository::create($mixedUsage);
+$check(
+    $mixedCompiled->media_content($pngName) === $png,
+    'one immutable PNG blob may back independently-routed raster and safe generic attachment MIME rows'
+);
+
 $exported = $compiled->export();
 $check($exported['format'] === CompiledRepository::FORMAT, 'export(): carries the versioned format');
 $check($exported['artifact_hash'] === $compiled->artifact_hash(), 'export(): artifact_hash matches the accessor');

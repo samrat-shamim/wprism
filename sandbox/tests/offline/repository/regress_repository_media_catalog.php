@@ -65,12 +65,12 @@ $put = static function (string $path, string $bytes): void {
     file_put_contents($path, $bytes);
 };
 
-$attachment = static function (string $file, string $media): array {
+$attachment = static function (string $file, string $media, string $mime = 'text/plain'): array {
     return [
         'type' => 'attachment',
         'file' => $file,
         'media' => $media,
-        'mime' => 'text/plain',
+        'mime' => $mime,
         'alt' => 'Portable attachment',
     ];
 };
@@ -100,6 +100,46 @@ ksort($expectedCatalog, SORT_STRING);
 $check(
     $valid->catalog() === $expectedCatalog,
     'catalog() returns every safe content-addressed blob in deterministic lexical order'
+);
+
+$sharedUsageMedia = "$tmp/shared-usage-media";
+$png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAAC0lEQVQImWNgAAIAAAUAAWJVMogAAAAASUVORK5CYII=', true);
+if (!is_string($png)) {
+    throw new RuntimeException('test PNG fixture did not decode');
+}
+$pngHash = hash('sha256', $png);
+$pngName = "$pngHash.png";
+$put("$sharedUsageMedia/$pngName", $png);
+$sharedUsageDiagnostics = [];
+$sharedUsage = $catalog($sharedUsageMedia, $sharedUsageDiagnostics);
+$sharedUsage->validate_attachment(
+    'state/posts/attachment/shared-raster.md',
+    $attachment('images/raster.png', $pngName, 'image/png')
+);
+$sharedUsage->validate_attachment(
+    'state/posts/attachment/shared-generic.md',
+    $attachment('files/opaque.png', $pngName, 'application/vnd.ms-excel.sheet.macroEnabled.12')
+);
+$sharedUsage->catalog_directory();
+$check(
+    $sharedUsageDiagnostics === []
+        && $sharedUsage->referenced_media() === [
+            $pngName => ['sha256' => $pngHash, 'base64' => base64_encode($png)],
+        ],
+    'catalog deduplicates one immutable blob while every attachment retains its own Core MIME branch classification'
+);
+
+$largeCatalogMedia = "$tmp/large-catalog-media";
+$largeCatalogDiagnostics = [];
+for ($index = 0; $index < 4097; $index++) {
+    $bytes = "catalog-$index";
+    $put($largeCatalogMedia . '/' . hash('sha256', $bytes) . '.LegacyExtensionMoreThanSixteen', $bytes);
+}
+$largeCatalog = $catalog($largeCatalogMedia, $largeCatalogDiagnostics);
+$largeCatalog->catalog_directory();
+$check(
+    $largeCatalogDiagnostics === [] && count($largeCatalog->catalog()) === 4097,
+    'a current-scale catalog above 4096 bounded names is admitted by dynamic map headroom rather than a small file-count ceiling'
 );
 
 $unsafeDiagnostics = [];
