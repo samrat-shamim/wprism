@@ -109,6 +109,62 @@ foreach (['en', 'fr', 'ar'] as $language) {
 }
 pll_save_post_translations($posts);
 
+// ScopeDiscovery reads each persistent non-deletion post status (publish,
+// draft, pending, private and future) for every opted-in type. Keep pages and
+// synced patterns in that exact frontier: their Polylang term descriptions
+// carry post ids, so capture/apply must rebind two more translated groups
+// rather than merely copy public posts. Trash is deliberately absent: it is a
+// deletion/tombstone boundary, not an authored post state.
+$pages = [];
+$pageFixtures = [
+    'en' => ['publish', 'Portable English Page 東京 🚀', 'portable-polylang-page-en', '<!-- wp:paragraph --><p>English portable page reference.</p><!-- /wp:paragraph -->'],
+    'fr' => ['private', 'Page française portable', 'portable-polylang-page-fr', '<!-- wp:paragraph --><p>Page française portable.</p><!-- /wp:paragraph -->'],
+    'ar' => ['draft', 'صفحة عربية محمولة', 'portable-polylang-page-ar', '<!-- wp:paragraph --><p dir="rtl">صفحة عربية قابلة للنقل.</p><!-- /wp:paragraph -->'],
+];
+foreach ($pageFixtures as $language => [$status, $title, $slug, $content]) {
+    $pageId = wp_insert_post([
+        'post_type' => 'page',
+        'post_status' => $status,
+        'post_title' => $title,
+        'post_name' => $slug,
+        'post_content' => $content,
+    ], true);
+    if (is_wp_error($pageId)) {
+        throw new RuntimeException('Polylang page creation failed: ' . $pageId->get_error_message());
+    }
+    $pages[$language] = (int) $pageId;
+    pll_set_post_language((int) $pageId, $language);
+}
+pll_save_post_translations($pages);
+
+$futureGmt = gmdate('Y-m-d H:i:s', time() + (2 * DAY_IN_SECONDS));
+$blocks = [];
+$blockFixtures = [
+    'en' => ['pending', 'Portable English Pattern', 'portable-polylang-block-en', '<!-- wp:paragraph --><p>English portable synced pattern.</p><!-- /wp:paragraph -->'],
+    'fr' => ['future', 'Composition française portable', 'portable-polylang-block-fr', '<!-- wp:paragraph --><p>Composition française portable.</p><!-- /wp:paragraph -->'],
+    'ar' => ['private', 'نمط عربي محمول', 'portable-polylang-block-ar', '<!-- wp:paragraph --><p dir="rtl">نمط عربي قابل للنقل.</p><!-- /wp:paragraph -->'],
+];
+foreach ($blockFixtures as $language => [$status, $title, $slug, $content]) {
+    $record = [
+        'post_type' => 'wp_block',
+        'post_status' => $status,
+        'post_title' => $title,
+        'post_name' => $slug,
+        'post_content' => $content,
+    ];
+    if ($status === 'future') {
+        $record['post_date_gmt'] = $futureGmt;
+        $record['post_date'] = get_date_from_gmt($futureGmt);
+    }
+    $blockId = wp_insert_post($record, true);
+    if (is_wp_error($blockId)) {
+        throw new RuntimeException('Polylang synced-pattern creation failed: ' . $blockId->get_error_message());
+    }
+    $blocks[$language] = (int) $blockId;
+    pll_set_post_language((int) $blockId, $language);
+}
+pll_save_post_translations($blocks);
+
 require_once ABSPATH . 'wp-admin/includes/file.php';
 require_once ABSPATH . 'wp-admin/includes/image.php';
 require_once ABSPATH . 'wp-admin/includes/media.php';
@@ -230,9 +286,11 @@ wp_set_sidebars_widgets($sidebars);
 
 $result = [
     'attachments' => $attachments,
+    'blocks' => $blocks,
     'default_category' => (int) get_option('default_category'),
     'language_terms' => [],
     'menus' => $menus,
+    'pages' => $pages,
     'posts' => $posts,
     'switcher_item' => (int) $switcherItem,
     'terms' => $terms,
@@ -244,9 +302,9 @@ foreach (['en', 'fr', 'ar'] as $language) {
     }
     $result['language_terms'][$language] = (int) $term->term_id;
 }
-foreach (array_merge($posts, $attachments) as $id) {
+foreach (array_merge($posts, $pages, $blocks, $attachments) as $id) {
     if ($id < 4100001) {
-        throw new RuntimeException('Polylang source post/media high-identity premise failed');
+        throw new RuntimeException('Polylang source post/page/pattern/media high-identity premise failed');
     }
 }
 foreach (array_merge($terms, $result['language_terms'], $menus) as $id) {
@@ -263,6 +321,8 @@ require_observed_nonempty 'conf1 Polylang production seed output' "$SEED_OUT"
 SEED_JSON=$(printf '%s\n' "$SEED_OUT" | awk 'NF { line=$0 } END { print line }')
 jq -e '
   (.posts | to_entries | all(.value >= 4100001)) and
+  (.pages | to_entries | all(.value >= 4100001)) and
+  (.blocks | to_entries | all(.value >= 4100001)) and
   (.attachments | to_entries | all(.value >= 4100001)) and
   (.terms | to_entries | all(.value >= 4200001)) and
   (.language_terms | to_entries | all(.value >= 4200001)) and
@@ -305,4 +365,4 @@ jq -e '
   (.nav_menus | type == "object")
 ' "$OPTION_FILE" >/dev/null || fail 'Polylang portable option premise did not persist through the plugin storage path'
 
-pass 'Polylang source owns divergent high post/term/media/menu graphs, RTL and long UTF-8 data, portable settings, and both optional switcher stores'
+pass 'Polylang source owns divergent high post/page/pattern/term/media/menu graphs, every persistent non-deletion status, RTL and long UTF-8 data, portable settings, and both optional switcher stores'

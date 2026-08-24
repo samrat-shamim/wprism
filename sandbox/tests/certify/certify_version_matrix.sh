@@ -2314,7 +2314,7 @@ for POLYLANG_VERSION in 3.8 3.8.7; do
   "policy": {
     "options": {},
     "post_meta": {},
-    "post_types": ["post", "page", "attachment"],
+    "post_types": ["post", "page", "wp_block", "attachment"],
     "taxonomies": ["category", "post_tag", "language", "term_language", "term_translations", "post_translations"]
   },
   "spec_version": 2
@@ -3323,7 +3323,7 @@ cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
   "policy": {
     "options": {},
     "post_meta": {},
-    "post_types": ["post", "page", "attachment"],
+    "post_types": ["post", "page", "wp_block", "attachment"],
     "taxonomies": ["category", "post_tag", "language", "term_language", "term_translations", "post_translations"]
   },
   "spec_version": 2

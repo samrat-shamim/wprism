@@ -45,11 +45,15 @@ $menu = static function (string $name): WP_Term {
     return $found;
 };
 $slugs = ['en' => 'portable-polylang-story-en', 'fr' => 'portable-polylang-story-fr', 'ar' => 'portable-polylang-story-ar'];
+$pageSlugs = ['en' => 'portable-polylang-page-en', 'fr' => 'portable-polylang-page-fr', 'ar' => 'portable-polylang-page-ar'];
+$blockSlugs = ['en' => 'portable-polylang-block-en', 'fr' => 'portable-polylang-block-fr', 'ar' => 'portable-polylang-block-ar'];
 $categorySlugs = ['en' => 'conformance-polylang-news-en', 'fr' => 'conformance-polylang-news-fr', 'ar' => 'conformance-polylang-news-ar'];
 $menuNames = ['en' => 'Polylang Primary English', 'fr' => 'Polylang Principal Français', 'ar' => 'قائمة بوليلانج الرئيسية'];
-$posts = $terms = $attachments = $menus = [];
+$posts = $pages = $blocks = $terms = $attachments = $menus = [];
 foreach (['en', 'fr', 'ar'] as $language) {
     $p = $post($slugs[$language], 'post');
+    $page = $post($pageSlugs[$language], 'page');
+    $block = $post($blockSlugs[$language], 'wp_block');
     $a = $post("duo-polylang-media-$language", 'attachment');
     $t = $term($categorySlugs[$language]);
     $m = $menu($menuNames[$language]);
@@ -61,6 +65,23 @@ foreach (['en', 'fr', 'ar'] as $language) {
         'permalink' => (string) get_permalink((int) $p->ID),
         'title' => (string) $p->post_title,
         'translations' => array_map('intval', pll_get_post_translations((int) $p->ID)),
+    ];
+    $pages[$language] = [
+        'id' => (int) $page->ID,
+        'language' => (string) pll_get_post_language((int) $page->ID, 'slug'),
+        'permalink' => (string) get_permalink((int) $page->ID),
+        'status' => (string) $page->post_status,
+        'title' => (string) $page->post_title,
+        'translations' => array_map('intval', pll_get_post_translations((int) $page->ID)),
+    ];
+    $blocks[$language] = [
+        'content' => (string) $block->post_content,
+        'date_gmt' => (string) $block->post_date_gmt,
+        'id' => (int) $block->ID,
+        'language' => (string) pll_get_post_language((int) $block->ID, 'slug'),
+        'status' => (string) $block->post_status,
+        'title' => (string) $block->post_title,
+        'translations' => array_map('intval', pll_get_post_translations((int) $block->ID)),
     ];
     $attachments[$language] = [
         'alt' => (string) get_post_meta((int) $a->ID, '_wp_attachment_image_alt', true),
@@ -112,6 +133,7 @@ $defaultCategory = (int) get_option('default_category');
 $rules = get_option('rewrite_rules');
 echo wp_json_encode([
     'attachments' => $attachments,
+    'blocks' => $blocks,
     'default_category' => ['id' => $defaultCategory, 'language' => (string) pll_get_term_language($defaultCategory, 'slug')],
     'home' => home_url('/'),
     'language_terms' => $languageTerms,
@@ -130,6 +152,7 @@ echo wp_json_encode([
         'taxonomies' => is_array($option) ? ($option['taxonomies'] ?? null) : null,
     ],
     'posts' => $posts,
+    'pages' => $pages,
     'rewrite' => [
         'count' => is_array($rules) ? count($rules) : 0,
         'hash' => is_array($rules) ? hash('sha256', serialize($rules)) : '',
@@ -191,6 +214,19 @@ jq -e --arg version "$POLYLANG_EXPECTED_VERSION" '
   (.posts.en.title | contains("東京 🚀")) and (.posts.fr.title | contains("française")) and (.posts.ar.title | contains("قصة")) and
   .posts.en.translations == {en:.posts.en.id,fr:.posts.fr.id,ar:.posts.ar.id} and
   .posts.fr.translations == .posts.en.translations and .posts.ar.translations == .posts.en.translations and
+  .pages.en.status == "publish" and .pages.fr.status == "private" and .pages.ar.status == "draft" and
+  .pages.en.language == "en" and .pages.fr.language == "fr" and .pages.ar.language == "ar" and
+  (.pages.en.title | contains("English Page 東京 🚀")) and (.pages.fr.title | contains("française")) and (.pages.ar.title | contains("صفحة")) and
+  .pages.en.translations == {en:.pages.en.id,fr:.pages.fr.id,ar:.pages.ar.id} and
+  .pages.fr.translations == .pages.en.translations and .pages.ar.translations == .pages.en.translations and
+  .blocks.en.status == "pending" and .blocks.fr.status == "future" and .blocks.ar.status == "private" and
+  .blocks.fr.date_gmt != "0000-00-00 00:00:00" and
+  .blocks.en.language == "en" and .blocks.fr.language == "fr" and .blocks.ar.language == "ar" and
+  (.blocks.en.content | contains("English portable synced pattern")) and
+  (.blocks.fr.content | contains("Composition française portable")) and
+  (.blocks.ar.content | contains("نمط عربي قابل للنقل")) and
+  .blocks.en.translations == {en:.blocks.en.id,fr:.blocks.fr.id,ar:.blocks.ar.id} and
+  .blocks.fr.translations == .blocks.en.translations and .blocks.ar.translations == .blocks.en.translations and
   .terms.en.language == "en" and .terms.fr.language == "fr" and .terms.ar.language == "ar" and
   .terms.en.translations == {en:.terms.en.id,fr:.terms.fr.id,ar:.terms.ar.id} and
   .terms.fr.translations == .terms.en.translations and .terms.ar.translations == .terms.en.translations and
@@ -203,11 +239,13 @@ jq -e --arg version "$POLYLANG_EXPECTED_VERSION" '
   .widgets["1"].title == "All Languages 東京 🚀" and .widgets["2"].pll_lang == "ar" and
   .default_category.language == "en" and .theme_locations.primary == .menus.en.id and
   .rewrite.count > 0 and .rewrite.stale_target_rule == false
-' <<<"$TARGET" >/dev/null || fail "Polylang native graph, Unicode/RTL data, widget/menu switchers, or derived state did not converge: $TARGET"
+' <<<"$TARGET" >/dev/null || fail "Polylang post/page/pattern status and translation graph, Unicode/RTL data, widget/menu switchers, or derived state did not converge: $TARGET"
 
 if [ -f "$TARGET_IDS_FILE" ]; then
   jq -e --argjson observed "$TARGET" '
     .posts == ($observed.posts | with_entries(.value = .value.id)) and
+    .pages == ($observed.pages | with_entries(.value = .value.id)) and
+    .blocks == ($observed.blocks | with_entries(.value = .value.id)) and
     .attachments == ($observed.attachments | with_entries(.value = .value.id)) and
     .terms == ($observed.terms | with_entries(.value = .value.id)) and
     .menus.en == $observed.menus.en.id
@@ -222,7 +260,7 @@ if [ -f "$TARGET_IDS_FILE" ]; then
   ' <<<"$TARGET" >/dev/null || fail "Polylang target-owned option/runtime siblings crossed the authored boundary: $TARGET"
 fi
 
-for kind in posts attachments terms language_terms menus; do
+for kind in posts pages blocks attachments terms language_terms menus; do
   for language in en fr ar; do
     SOURCE_ID=$(jq -r --arg kind "$kind" --arg language "$language" '.[$kind][$language]' <<<"$SOURCE_IDS")
     TARGET_ID=$(jq -r --arg kind "$kind" --arg language "$language" '.[$kind][$language].id' <<<"$TARGET")
@@ -233,33 +271,54 @@ done
 
 POST_EN_ID=$(jq -r '.posts.en.id' <<<"$TARGET")
 POST_FR_ID=$(jq -r '.posts.fr.id' <<<"$TARGET")
+PAGE_EN_ID=$(jq -r '.pages.en.id' <<<"$TARGET")
+PAGE_FR_ID=$(jq -r '.pages.fr.id' <<<"$TARGET")
+PAGE_AR_ID=$(jq -r '.pages.ar.id' <<<"$TARGET")
+BLOCK_EN_ID=$(jq -r '.blocks.en.id' <<<"$TARGET")
+BLOCK_FR_ID=$(jq -r '.blocks.fr.id' <<<"$TARGET")
+BLOCK_AR_ID=$(jq -r '.blocks.ar.id' <<<"$TARGET")
 NEWS_ID=$(jq -r '.terms.en.id' <<<"$TARGET")
 ACT_ID=$(jq -r '.terms.fr.id' <<<"$TARGET")
-require_fixture_ids POST_EN_ID POST_FR_ID NEWS_ID ACT_ID
+require_fixture_ids POST_EN_ID POST_FR_ID PAGE_EN_ID PAGE_FR_ID PAGE_AR_ID BLOCK_EN_ID BLOCK_FR_ID BLOCK_AR_ID NEWS_ID ACT_ID
 POST_TR=$(wp_conf2 eval "echo json_encode(pll_get_post_translations($POST_EN_ID));")
+PAGE_TR=$(wp_conf2 eval "echo json_encode(pll_get_post_translations($PAGE_EN_ID));")
+BLOCK_TR=$(wp_conf2 eval "echo json_encode(pll_get_post_translations($BLOCK_EN_ID));")
 TERM_TR=$(wp_conf2 eval "echo json_encode(pll_get_term_translations($NEWS_ID));")
 TERM_TR_FR=$(wp_conf2 eval "echo json_encode(pll_get_term_translations($ACT_ID));")
 NEWS_LANG=$(wp_conf2 eval "echo pll_get_term_language($NEWS_ID, 'slug');")
 ACT_LANG=$(wp_conf2 eval "echo pll_get_term_language($ACT_ID, 'slug');")
 require_observed_nonempty "conf2 Polylang post translation map" "$POST_TR"
+require_observed_nonempty "conf2 Polylang page translation map" "$PAGE_TR"
+require_observed_nonempty "conf2 Polylang synced-pattern translation map" "$BLOCK_TR"
 require_observed_nonempty "conf2 Polylang English term translation map" "$TERM_TR"
 require_observed_nonempty "conf2 Polylang French term translation map" "$TERM_TR_FR"
 require_observed_nonempty "conf2 Polylang English term language" "$NEWS_LANG"
 require_observed_nonempty "conf2 Polylang French term language" "$ACT_LANG"
 
-POST_GROUP_TT=$(wp_conf2 db query "SELECT tr.term_taxonomy_id FROM wp_term_relationships tr JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id=tr.term_taxonomy_id WHERE tr.object_id=$POST_EN_ID AND tt.taxonomy='post_translations'" --skip-column-names)
+jq -e --argjson page_en "$PAGE_EN_ID" --argjson page_fr "$PAGE_FR_ID" --argjson page_ar "$PAGE_AR_ID" '
+  .en == $page_en and .fr == $page_fr and .ar == $page_ar
+' <<<"$PAGE_TR" >/dev/null || fail "Polylang native page translation map did not bind target-local identities: $PAGE_TR"
+jq -e --argjson block_en "$BLOCK_EN_ID" --argjson block_fr "$BLOCK_FR_ID" --argjson block_ar "$BLOCK_AR_ID" '
+  .en == $block_en and .fr == $block_fr and .ar == $block_ar
+' <<<"$BLOCK_TR" >/dev/null || fail "Polylang native synced-pattern translation map did not bind target-local identities: $BLOCK_TR"
+
 TERM_GROUP_TT=$(wp_conf2 db query "SELECT tr.term_taxonomy_id FROM wp_term_relationships tr JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id=tr.term_taxonomy_id WHERE tr.object_id=$NEWS_ID AND tt.taxonomy='term_translations'" --skip-column-names)
-require_observed_nonempty "conf2 Polylang post translation term-taxonomy id" "$POST_GROUP_TT"
 require_observed_nonempty "conf2 Polylang term translation term-taxonomy id" "$TERM_GROUP_TT"
-POST_GROUP_DESC=$(wp_conf2 db query "SELECT description FROM wp_term_taxonomy WHERE term_taxonomy_id=$POST_GROUP_TT" --skip-column-names)
 TERM_GROUP_DESC=$(wp_conf2 db query "SELECT description FROM wp_term_taxonomy WHERE term_taxonomy_id=$TERM_GROUP_TT" --skip-column-names)
-require_observed_nonempty "conf2 Polylang post translation serialized description" "$POST_GROUP_DESC"
 require_observed_nonempty "conf2 Polylang term translation serialized description" "$TERM_GROUP_DESC"
-for DESC in "$POST_GROUP_DESC" "$TERM_GROUP_DESC"; do
+for OBJECT_ID in "$POST_EN_ID" "$PAGE_EN_ID" "$BLOCK_EN_ID"; do
+  POST_GROUP_TT=$(wp_conf2 db query "SELECT tr.term_taxonomy_id FROM wp_term_relationships tr JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id=tr.term_taxonomy_id WHERE tr.object_id=$OBJECT_ID AND tt.taxonomy='post_translations'" --skip-column-names)
+  require_observed_nonempty "conf2 Polylang post/page/pattern translation term-taxonomy id" "$POST_GROUP_TT"
+  POST_GROUP_DESC=$(wp_conf2 db query "SELECT description FROM wp_term_taxonomy WHERE term_taxonomy_id=$POST_GROUP_TT" --skip-column-names)
+  require_observed_nonempty "conf2 Polylang post/page/pattern translation serialized description" "$POST_GROUP_DESC"
+  grep -qE 's:[0-9]+:"[0-9]+"' <<<"$POST_GROUP_DESC" && fail "Polylang translation description stringified a local id: $POST_GROUP_DESC"
+  grep -qE 'i:[0-9]+;' <<<"$POST_GROUP_DESC" || fail "Polylang translation description lost native integer ids: $POST_GROUP_DESC"
+done
+for DESC in "$TERM_GROUP_DESC"; do
   grep -qE 's:[0-9]+:"[0-9]+"' <<<"$DESC" && fail "Polylang translation description stringified a local id: $DESC"
   grep -qE 'i:[0-9]+;' <<<"$DESC" || fail "Polylang translation description lost native integer ids: $DESC"
 done
-pass 'posts, terms, media, menu maps and serialized translation groups rebind every target-local identity'
+pass 'posts, pages, synced patterns, terms, media, menu maps and serialized translation groups rebind every target-local identity'
 
 PROVIDER_RECEIPT="${APPLY_JSON:-}"
 if [ -z "$PROVIDER_RECEIPT" ] && [ -n "${VMATRIX_APPLY_LOG:-}" ] && [ -f "$VMATRIX_APPLY_LOG" ]; then
@@ -293,7 +352,15 @@ done
 REST=$(curl -fsSL "http://localhost:${CONF2_PORT}/wp-json/wp/v2/posts/$POST_EN_ID") || fail 'conf2 Polylang REST post request failed'
 jq -e --argjson id "$POST_EN_ID" '.id == $id and (.content.rendered | contains("English portable body 東京 🚀"))' <<<"$REST" >/dev/null \
   || fail "Polylang target REST API did not consume the translated target post: $REST"
-pass 'frontend language switching, per-language menus, Arabic RTL, media URLs and REST all consume target-local state'
+PAGE_URL=$(jq -r '.pages.en.permalink' <<<"$TARGET")
+PAGE_URL=${PAGE_URL/\/\/localhost\//\/\/localhost:${CONF2_PORT}\/}
+PAGE_FRONT=$(curl -fsSL "$PAGE_URL") || fail "conf2 Polylang English page permalink did not return 200: $PAGE_URL"
+grep -Fq 'English portable page reference.' <<<"$PAGE_FRONT" \
+  || fail 'Polylang public page route did not consume the translated target page'
+PAGE_REST=$(curl -fsSL "http://localhost:${CONF2_PORT}/wp-json/wp/v2/pages/$PAGE_EN_ID") || fail 'conf2 Polylang REST page request failed'
+jq -e --argjson id "$PAGE_EN_ID" '.id == $id and .status == "publish" and (.content.rendered | contains("English portable page reference."))' <<<"$PAGE_REST" >/dev/null \
+  || fail "Polylang target REST API did not consume the translated target page: $PAGE_REST"
+pass 'frontend language switching, per-language menus, public post/page routes, Arabic RTL, media URLs and REST all consume target-local state'
 
 ZERO_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 require_duo_answered 'Polylang zero-change plan' json "$ZERO_PLAN"
@@ -307,6 +374,36 @@ if [ "${POLYLANG_BOUNDARY_ONLY:-0}" = 1 ]; then
   pass "Polylang $POLYLANG_EXPECTED_VERSION exact boundary consumed the full portable fixture"
   return 0 2>/dev/null || exit 0
 fi
+
+# Re-capture two non-public scoped groups after initial adoption. This proves
+# the status-bearing page/pattern records do not only survive first import:
+# their second capture resolves the pre-existing target-local identities and a
+# zero-change retry remains effect-free after the durable source edit.
+SOURCE_PAGE_FR=$(jq -r '.pages.fr' <<<"$SOURCE_IDS")
+SOURCE_BLOCK_FR=$(jq -r '.blocks.fr' <<<"$SOURCE_IDS")
+TARGET_PAGE_FR_BEFORE=$(jq -r '.pages.fr.id' <<<"$TARGET")
+TARGET_BLOCK_FR_BEFORE=$(jq -r '.blocks.fr.id' <<<"$TARGET")
+require_fixture_ids SOURCE_PAGE_FR SOURCE_BLOCK_FR TARGET_PAGE_FR_BEFORE TARGET_BLOCK_FR_BEFORE
+wp_conf1 eval "\$result=wp_update_post(['ID'=>(int)$SOURCE_PAGE_FR,'post_title'=>'Repository private French page refresh 東京 🚀'],true); if (is_wp_error(\$result)) throw new RuntimeException(\$result->get_error_message());" >/dev/null
+wp_conf1 eval "\$result=wp_update_post(['ID'=>(int)$SOURCE_BLOCK_FR,'post_content'=>'<!-- wp:paragraph --><p>Repository scheduled French pattern refresh 東京 🚀.</p><!-- /wp:paragraph -->'],true); if (is_wp_error(\$result)) throw new RuntimeException(\$result->get_error_message());" >/dev/null
+commit_polylang_source 'conformance: recapture Polylang private page and scheduled pattern'
+PAGE_BLOCK_RECAPTURE=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered 'Polylang page/pattern recapture apply' json "$PAGE_BLOCK_RECAPTURE"
+PAGE_BLOCK_RECAPTURED=$(observe_polylang conf2)
+jq -e --argjson page_id "$TARGET_PAGE_FR_BEFORE" --argjson block_id "$TARGET_BLOCK_FR_BEFORE" '
+  .pages.fr.id == $page_id and .pages.fr.status == "private" and
+  .pages.fr.title == "Repository private French page refresh 東京 🚀" and
+  .blocks.fr.id == $block_id and .blocks.fr.status == "future" and
+  (.blocks.fr.content | contains("Repository scheduled French pattern refresh 東京 🚀"))
+' <<<"$PAGE_BLOCK_RECAPTURED" >/dev/null \
+  || fail "Polylang page/pattern recapture did not preserve target identities, hidden statuses, and source intent: $PAGE_BLOCK_RECAPTURED"
+PAGE_BLOCK_ZERO_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+PAGE_BLOCK_ZERO_APPLY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$PAGE_BLOCK_ZERO_PLAN" >/dev/null \
+  || fail "Polylang page/pattern recapture retained work: $PAGE_BLOCK_ZERO_PLAN"
+jq -e '.canary == "clean" and (.actions | length) == 0' <<<"$PAGE_BLOCK_ZERO_APPLY" >/dev/null \
+  || fail "Polylang page/pattern recapture retry reran effects: $PAGE_BLOCK_ZERO_APPLY"
+pass 'private page and scheduled pattern re-capture preserve target identity/status and converge to a zero-change retry'
 
 # Corrupt one exact source frontier at a time. Each capture must refuse before
 # publication, after which raw backups restore byte-identical plugin state.

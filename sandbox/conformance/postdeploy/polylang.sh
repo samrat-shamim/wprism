@@ -53,6 +53,47 @@ foreach ([
     wp_set_object_terms((int) $created, [$terms[$language]], 'category', false);
 }
 
+// Same source-natural keys, deliberately different persistent statuses and
+// bytes: Apply must adopt these target rows while restoring source-authored
+// records and the target-local Polylang translation ids.
+$pages = [];
+foreach ([
+    'en' => ['portable-polylang-page-en', 'draft'],
+    'fr' => ['portable-polylang-page-fr', 'publish'],
+    'ar' => ['portable-polylang-page-ar', 'pending'],
+] as $language => [$slug, $status]) {
+    $created = wp_insert_post([
+        'post_type' => 'page',
+        'post_status' => $status,
+        'post_title' => "Hostile target $language page",
+        'post_name' => $slug,
+        'post_content' => "Hostile target $language page content that must not survive adoption.",
+    ], true);
+    if (is_wp_error($created)) {
+        throw new RuntimeException('Polylang target page creation failed: ' . $created->get_error_message());
+    }
+    $pages[$language] = (int) $created;
+}
+
+$blocks = [];
+foreach ([
+    'en' => ['portable-polylang-block-en', 'private'],
+    'fr' => ['portable-polylang-block-fr', 'draft'],
+    'ar' => ['portable-polylang-block-ar', 'pending'],
+] as $language => [$slug, $status]) {
+    $created = wp_insert_post([
+        'post_type' => 'wp_block',
+        'post_status' => $status,
+        'post_title' => "Hostile target $language pattern",
+        'post_name' => $slug,
+        'post_content' => "Hostile target $language pattern content that must not survive adoption.",
+    ], true);
+    if (is_wp_error($created)) {
+        throw new RuntimeException('Polylang target synced-pattern creation failed: ' . $created->get_error_message());
+    }
+    $blocks[$language] = (int) $created;
+}
+
 require_once ABSPATH . 'wp-admin/includes/file.php';
 require_once ABSPATH . 'wp-admin/includes/image.php';
 require_once ABSPATH . 'wp-admin/includes/media.php';
@@ -132,13 +173,15 @@ update_option('rewrite_rules', ['^target-stale/?$' => 'index.php?target-stale=1'
 
 $result = [
     'attachments' => $attachments,
+    'blocks' => $blocks,
     'menus' => ['en' => (int) $staleMenu],
+    'pages' => $pages,
     'posts' => $posts,
     'terms' => $terms,
 ];
-foreach (array_merge($posts, $attachments) as $id) {
+foreach (array_merge($posts, $pages, $blocks, $attachments) as $id) {
     if ($id < 5100001) {
-        throw new RuntimeException('Polylang target post/media high-identity premise failed');
+        throw new RuntimeException('Polylang target post/page/pattern/media high-identity premise failed');
     }
 }
 foreach (array_merge($terms, [(int) $staleMenu]) as $id) {
@@ -155,6 +198,8 @@ require_observed_nonempty 'conf2 Polylang hostile target output' "$HOSTILE_OUT"
 TARGET_JSON=$(printf '%s\n' "$HOSTILE_OUT" | awk 'NF { line=$0 } END { print line }')
 jq -e '
   (.posts | to_entries | all(.value >= 5100001)) and
+  (.pages | to_entries | all(.value >= 5100001)) and
+  (.blocks | to_entries | all(.value >= 5100001)) and
   (.attachments | to_entries | all(.value >= 5100001)) and
   (.terms | to_entries | all(.value >= 5200001)) and .menus.en >= 5200001
 ' <<<"$TARGET_JSON" >/dev/null || fail "Polylang hostile target premise was incomplete: $TARGET_JSON"
@@ -163,9 +208,13 @@ printf '%s\n' "$TARGET_JSON" > "$TARGET_REPO/.tmp-polylang-target.json"
 SOURCE_JSON=$(cat "${CONF_REPO1:-siterepo/conf1}/.tmp-polylang-source.json")
 SOURCE_POST=$(jq -r '.posts.en' <<<"$SOURCE_JSON")
 TARGET_POST=$(jq -r '.posts.en' <<<"$TARGET_JSON")
+SOURCE_PAGE=$(jq -r '.pages.en' <<<"$SOURCE_JSON")
+TARGET_PAGE=$(jq -r '.pages.en' <<<"$TARGET_JSON")
+SOURCE_BLOCK=$(jq -r '.blocks.en' <<<"$SOURCE_JSON")
+TARGET_BLOCK=$(jq -r '.blocks.en' <<<"$TARGET_JSON")
 SOURCE_TERM=$(jq -r '.terms.en' <<<"$SOURCE_JSON")
 TARGET_TERM=$(jq -r '.terms.en' <<<"$TARGET_JSON")
-require_fixture_ids SOURCE_POST TARGET_POST SOURCE_TERM TARGET_TERM
-[ "$SOURCE_POST" != "$TARGET_POST" ] && [ "$SOURCE_TERM" != "$TARGET_TERM" ] \
-  || fail "Polylang source/target hostile identities did not diverge: source=$SOURCE_POST/$SOURCE_TERM target=$TARGET_POST/$TARGET_TERM"
-pass 'Polylang target begins with divergent same-key content, stale derived state, and target-owned runtime siblings'
+require_fixture_ids SOURCE_POST TARGET_POST SOURCE_PAGE TARGET_PAGE SOURCE_BLOCK TARGET_BLOCK SOURCE_TERM TARGET_TERM
+[ "$SOURCE_POST" != "$TARGET_POST" ] && [ "$SOURCE_PAGE" != "$TARGET_PAGE" ] && [ "$SOURCE_BLOCK" != "$TARGET_BLOCK" ] && [ "$SOURCE_TERM" != "$TARGET_TERM" ] \
+  || fail "Polylang source/target hostile identities did not diverge: source=$SOURCE_POST/$SOURCE_PAGE/$SOURCE_BLOCK/$SOURCE_TERM target=$TARGET_POST/$TARGET_PAGE/$TARGET_BLOCK/$TARGET_TERM"
+pass 'Polylang target begins with divergent same-key post/page/pattern content and statuses, stale derived state, and target-owned runtime siblings'

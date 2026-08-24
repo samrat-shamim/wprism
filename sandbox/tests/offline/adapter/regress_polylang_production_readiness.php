@@ -946,6 +946,62 @@ namespace {
             && str_contains($versionMatrix, 'did not restore exact 3.8.7 artifact bytes'),
         'version matrix creates only the real header-parser 3.8.8 control, proves refusal/no ref mutation, and restores the exact artifact'
     );
+    $conformanceRoot = dirname(__DIR__, 3) . '/conformance';
+    $seedScript = (string) file_get_contents($conformanceRoot . '/seeds/polylang.sh');
+    $hostileScript = (string) file_get_contents($conformanceRoot . '/postdeploy/polylang.sh');
+    $checksScript = (string) file_get_contents($conformanceRoot . '/checks/polylang.sh');
+    $entry = json_decode(
+        (string) file_get_contents($conformanceRoot . '/entries/polylang.json'),
+        true,
+        512,
+        JSON_THROW_ON_ERROR
+    );
+    duo_check_same(
+        ['post', 'page', 'wp_block', 'attachment'],
+        $entry['entry']['post_types'] ?? null,
+        'Polylang conformance scopes posts, pages, synced patterns and attachments explicitly'
+    );
+    duo_check(
+        str_contains($seedScript, '$pageFixtures = [')
+            && str_contains($seedScript, "'fr' => ['private'")
+            && str_contains($seedScript, "'ar' => ['draft'")
+            && str_contains($seedScript, '$blockFixtures = [')
+            && str_contains($seedScript, "'en' => ['pending'")
+            && str_contains($seedScript, "'fr' => ['future'")
+            && str_contains($seedScript, "'ar' => ['private'")
+            && str_contains($seedScript, "'post_type' => 'wp_block'")
+            && str_contains($seedScript, 'pll_save_post_translations($pages);')
+            && str_contains($seedScript, 'pll_save_post_translations($blocks);'),
+        'source fixture covers every persistent non-deletion status in translated page and synced-pattern groups'
+    );
+    duo_check(
+        str_contains($hostileScript, "'en' => ['portable-polylang-page-en', 'draft']")
+            && str_contains($hostileScript, "'fr' => ['portable-polylang-page-fr', 'publish']")
+            && str_contains($hostileScript, "'en' => ['portable-polylang-block-en', 'private']")
+            && str_contains($hostileScript, "'fr' => ['portable-polylang-block-fr', 'draft']")
+            && str_contains($hostileScript, 'source/target hostile identities did not diverge')
+            && str_contains($hostileScript, '.pages | to_entries')
+            && str_contains($hostileScript, '.blocks | to_entries'),
+        'hostile target fixture owns same-key page/pattern rows at disjoint identities and incompatible statuses'
+    );
+    duo_check(
+        str_contains($checksScript, '$pageSlugs =')
+            && str_contains($checksScript, '$blockSlugs =')
+            && str_contains($checksScript, '.pages.fr.status == "private"')
+            && str_contains($checksScript, '.blocks.fr.status == "future"')
+            && str_contains($checksScript, 'for kind in posts pages blocks attachments terms language_terms menus; do')
+            && str_contains($checksScript, 'for OBJECT_ID in "$POST_EN_ID" "$PAGE_EN_ID" "$BLOCK_EN_ID"; do')
+            && str_contains($checksScript, 'Polylang native page translation map did not bind target-local identities')
+            && str_contains($checksScript, 'Polylang native synced-pattern translation map did not bind target-local identities')
+            && str_contains($checksScript, 'wp-json/wp/v2/pages/$PAGE_EN_ID')
+            && str_contains($checksScript, 'conformance: recapture Polylang private page and scheduled pattern')
+            && str_contains($checksScript, 'Polylang page/pattern recapture retry reran effects'),
+        'Polylang checker proves source-authored status/content, native translation-group id rewrites, hostile target adoption, page routing and recapture idempotence'
+    );
+    duo_check(
+        substr_count($versionMatrix, '"post_types": ["post", "page", "wp_block", "attachment"],') === 2,
+        'both Polylang candidate-bound version-matrix fixtures retain synced patterns in scope'
+    );
     $nativeBefore = [
         'force_lang' => 1,
         'domains' => ['en' => 'https://target.example.test'],
