@@ -48,6 +48,10 @@ duo_check_same([
     ['plugin' => 'wordpress-seo', 'path' => 'wp-seo-main.php', 'sha256' => '5ecb2632b7997782e7efda714ab11e4a1ca479a8f3277c8e3137600bcb575ff1'],
     ['plugin' => 'polylang', 'path' => 'src/links-directory.php', 'sha256' => '5cadce6a89e87278bdd021d8f049d9c4e511acecc6c6366808740f04027d2dc0'],
     ['plugin' => 'the-events-calendar', 'path' => 'common/src/Tribe/Cache_Listener.php', 'sha256' => '14a63e60db2f047b7dd62fa708d464b170d87485227cc63583c989a45fcb248b'],
+    ['plugin' => 'the-events-calendar', 'path' => 'common/src/Tribe/Settings_Manager.php', 'sha256' => '9f51c59cfa2398a66958159db4a66368aa728f4428295dc07dabb834396f9591'],
+    ['plugin' => 'the-events-calendar', 'path' => 'src/Tribe/Aggregator.php', 'sha256' => 'cdd66b28165dda1f45fa79ddb6aeddf22dd3b3bc44fa2a71365e6f39c7173288'],
+    ['plugin' => 'the-events-calendar', 'path' => 'src/Tribe/Views/V2/Hooks.php', 'sha256' => 'd746a05d4e7979a0bbdae0938f009d0012e550d605c4a331a1cd288e7b746b5f'],
+    ['plugin' => 'the-events-calendar', 'path' => 'common/src/Common/Integrations/Harbor/PUE.php', 'sha256' => 'abe0ef81332c52aff2983b8f78700169dbcfbeb663497af84e681be245629988'],
     ['plugin' => 'the-events-calendar', 'path' => 'common/src/Tribe/Rewrite.php', 'sha256' => '0e198faca151aeca66680e916a038eab5c264f7d0ee6472d8f07d1845d0a7b9a'],
     ['plugin' => 'the-events-calendar', 'path' => 'src/Tribe/Main.php', 'sha256' => '3f7b3c50960071a350077ee1c72bd342ebe4613c374913522361371ca30aaa94'],
 ], $coinstallTopology['source_files'] ?? null,
@@ -57,12 +61,35 @@ duo_check_same([
     ['hook' => 'option_rewrite_rules', 'callback' => 'Yoast_Dynamic_Rewrites::filter_rewrite_rules_option', 'priority' => 10, 'accepted_args' => 1],
     ['hook' => 'sanitize_option_rewrite_rules', 'callback' => 'Yoast_Dynamic_Rewrites::sanitize_rewrite_rules_option', 'priority' => 10, 'accepted_args' => 1],
     ['hook' => 'generate_rewrite_rules', 'callback' => 'Tribe__Cache_Listener::generate_rewrite_rules', 'priority' => 10, 'accepted_args' => 1],
+    ['hook' => 'updated_option', 'callback' => 'Tribe__Settings_Manager::update_options_cache', 'priority' => 10, 'accepted_args' => 3],
     ['hook' => 'updated_option', 'callback' => 'Tribe__Cache_Listener::update_last_updated_option', 'priority' => 10, 'accepted_args' => 3],
     ['hook' => 'updated_option', 'callback' => 'Tribe__Cache_Listener::update_last_save_post', 'priority' => 10, 'accepted_args' => 3],
+    ['hook' => 'updated_option', 'callback' => 'Tribe__Events__Aggregator::action_purge_transients', 'priority' => 10, 'accepted_args' => 1],
+    ['hook' => 'updated_option', 'callback' => 'Tribe\\Events\\Views\\V2\\Hooks::action_save_wplang', 'priority' => 10, 'accepted_args' => 3],
     ['hook' => 'generate_rewrite_rules', 'callback' => 'Tribe__Rewrite::filter_generate', 'priority' => 10, 'accepted_args' => 1],
     ['hook' => 'rewrite_rules_array', 'callback' => 'Tribe__Rewrite::filter_rewrite_rules_array', 'priority' => 25, 'accepted_args' => 1],
 ], $coinstallTopology['static_callbacks'] ?? null,
     'mixed rewrite topology closes every static Woo, Yoast, and TEC callback with priority and accepted-argument identity');
+duo_check_same([
+    'updated_option' => [
+        ['callback' => 'Tribe__Settings_Manager::update_options_cache', 'priority' => 10, 'accepted_args' => 3],
+        ['callback' => 'Tribe__Cache_Listener::update_last_updated_option', 'priority' => 10, 'accepted_args' => 3],
+        ['callback' => 'Tribe__Cache_Listener::update_last_save_post', 'priority' => 10, 'accepted_args' => 3],
+        ['callback' => 'Tribe__Events__Aggregator::action_purge_transients', 'priority' => 10, 'accepted_args' => 1],
+        ['callback' => 'Tribe\\Events\\Views\\V2\\Hooks::action_save_wplang', 'priority' => 10, 'accepted_args' => 3],
+    ],
+    'pre_option' => [
+        'optional_callback' => 'TEC\\Common\\Integrations\\Harbor\\PUE::filter_pre_get_option',
+        'priority' => 10,
+        'accepted_args' => 3,
+    ],
+    'wp_default_autoload_value' => [
+        'callback' => 'wp_filter_default_autoload_value_via_option_size',
+        'priority' => 5,
+        'accepted_args' => 4,
+    ],
+], $coinstallTopology['marker_option_topology'] ?? null,
+    'the exact TEC/core marker option callback union stays closed; arbitrary updated_option or option-hook callbacks are never admitted');
 duo_check_same([
     'rewrite_rules',
     'tribe_last_generate_rewrite_rules',

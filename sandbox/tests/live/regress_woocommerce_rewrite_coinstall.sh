@@ -92,7 +92,7 @@ echo hash_file("sha256",$path);
 }
 
 say "candidate/source preflight: $HEAD"
-jq -e '.format=="duo-woocommerce-rewrite-coinstall-topology/v1" and .artifacts.woocommerce.version=="11.0.1" and .artifacts["wordpress-seo"].version=="28.3" and .artifacts.polylang.version=="3.8.6" and .artifacts["the-events-calendar"].version=="6.17.2" and (.source_files|length==8) and (.static_callbacks|length==8) and (.dynamic_callback_containers|any(.hook=="pll_modify_rewrite_rule" and .accepted_args==4))' "$TOPOLOGY" >/dev/null || fail 'co-install topology fixture is not exact'
+jq -e '.format=="duo-woocommerce-rewrite-coinstall-topology/v1" and .artifacts.woocommerce.version=="11.0.1" and .artifacts["wordpress-seo"].version=="28.3" and .artifacts.polylang.version=="3.8.6" and .artifacts["the-events-calendar"].version=="6.17.2" and (.source_files|length==12) and (.static_callbacks|length==11) and (.marker_option_topology.updated_option|length==5) and .marker_option_topology.pre_option.optional_callback=="TEC\\Common\\Integrations\\Harbor\\PUE::filter_pre_get_option" and .marker_option_topology.wp_default_autoload_value.callback=="wp_filter_default_autoload_value_via_option_size" and (.dynamic_callback_containers|any(.hook=="pll_modify_rewrite_rule" and .accepted_args==4))' "$TOPOLOGY" >/dev/null || fail 'co-install topology fixture is not exact'
 validate_artifact_lock conformance/artifacts.lock.json
 jq -e --slurpfile lock conformance/artifacts.lock.json '(.artifacts | to_entries | all(. as $artifact | $lock[0].plugins[$artifact.key][$artifact.value.version].sha256 == $artifact.value.sha256))' "$TOPOLOGY" >/dev/null || fail 'co-install artifact hashes differ from the artifact lock'
 pass 'candidate, artifact hashes, and audited topology are pinned'
@@ -160,13 +160,28 @@ pass 'normal apply invoked the verified product-route provider'
 
 say 'inspect the actual co-install callback identities and effects'
 HOOKS=$(wp2 eval '
-$want=["rewrite_rules_array","option_rewrite_rules","sanitize_option_rewrite_rules","generate_rewrite_rules","updated_option"];$rows=[];
+$markers=["tribe_last_generate_rewrite_rules","tribe_last_updated_option","tribe_last_save_post"];
+$want=["rewrite_rules_array","option_rewrite_rules","sanitize_option_rewrite_rules","generate_rewrite_rules","updated_option","pre_option","wp_default_autoload_value","pre_wp_load_alloptions","pre_cache_alloptions","alloptions","pre_update_option","update_option","wp_autoload_values_to_autoload","wp_max_autoloaded_option_size","add_option","added_option"];
+foreach($markers as $name){foreach(["sanitize_option_","pre_option_","default_option_","option_","pre_update_option_","update_option_","add_option_"] as $prefix){$want[]=$prefix.$name;}}
+$rows=[];
 foreach($want as $hook){foreach(($GLOBALS["wp_filter"][$hook]->callbacks??[])as $priority=>$set){foreach($set as $entry){$f=$entry["function"]??null;if(is_string($f)){$name=$f;}elseif(is_array($f)&&isset($f[0],$f[1])){$name=(is_object($f[0])?get_class($f[0]):$f[0])."::".$f[1];}else{continue;}$rows[]=["hook"=>$hook,"priority"=>(int)$priority,"args"=>(int)($entry["accepted_args"]??0),"callback"=>$name];}}}echo wp_json_encode($rows);
 ' | tail -1)
 echo "$HOOKS" | jq -e --slurpfile topology "$TOPOLOGY" '
-  . as $actual | $topology[0].static_callbacks | all(. as $want |
+  def canon: sort_by(.priority,.args,.callback);
+  . as $actual |
+  ($topology[0].static_callbacks | all(. as $want |
     any($actual[]; .hook==$want.hook and .callback==$want.callback and .priority==$want.priority and .args==$want.accepted_args)
-  ) and
+  )) and
+  ([ $actual[] | select(.hook=="updated_option") | del(.hook) ] | canon) ==
+    ([ $topology[0].marker_option_topology.updated_option[] | {priority, args:.accepted_args, callback} ] | canon) and
+  ([ $actual[] | select(.hook=="pre_option") | del(.hook) ] | canon) as $pre |
+  ($pre==[] or $pre==[
+    ($topology[0].marker_option_topology.pre_option | {priority, args:.accepted_args, callback:.optional_callback})
+  ]) and
+  ([ $actual[] | select(.hook=="wp_default_autoload_value") | del(.hook) ] | canon) == [
+    ($topology[0].marker_option_topology.wp_default_autoload_value | {priority, args:.accepted_args, callback})
+  ] and
+  all($actual[]; .hook=="rewrite_rules_array" or .hook=="option_rewrite_rules" or .hook=="sanitize_option_rewrite_rules" or .hook=="generate_rewrite_rules" or .hook=="updated_option" or .hook=="pre_option" or .hook=="wp_default_autoload_value") and
   any($actual[]; .hook=="rewrite_rules_array" and .callback=="PLL_Links_Directory::rewrite_rules" and .priority==10 and .args==1)
 ' >/dev/null || fail "live callback topology differs from audited pins: $HOOKS"
 RULES=$(wp2 eval '
