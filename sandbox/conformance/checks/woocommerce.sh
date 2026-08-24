@@ -32,20 +32,29 @@ global $wpdb;
 
 $simpleId = wc_get_product_id_by_sku('CONF-WIDGET-1');
 $precisionId = wc_get_product_id_by_sku('CONF-PRECISION-UTF8');
+$externalId = wc_get_product_id_by_sku('CONF-EXTERNAL-1');
 $groupedId = wc_get_product_id_by_sku('CONF-GROUPED-KIT');
 $smallId = wc_get_product_id_by_sku('CONF-VAR-S-RED');
 $largeId = wc_get_product_id_by_sku('CONF-VAR-L-BLUE');
 $variableId = (int) get_post_field('post_parent', $smallId);
 $simple = wc_get_product($simpleId);
 $precision = wc_get_product($precisionId);
+$external = wc_get_product($externalId);
 $grouped = wc_get_product($groupedId);
 $variable = wc_get_product($variableId);
 $small = wc_get_product($smallId);
 $large = wc_get_product($largeId);
 $coupon = new WC_Coupon('CONF-WELCOME10');
-if (!$simple || !$precision || !$grouped || !$variable || !$small || !$large || !$coupon->get_id()) {
+if (!$simple || !$precision || !($external instanceof WC_Product_External) || !$grouped || !$variable || !$small || !$large || !$coupon->get_id()) {
     throw new RuntimeException('WooCommerce native product/coupon fixture is incomplete');
 }
+$admin = get_user_by('login', 'admin');
+wp_set_current_user($admin ? (int) $admin->ID : 0);
+$externalRestResponse = rest_do_request(new WP_REST_Request('GET', '/wc/v3/products/' . $externalId));
+if ($externalRestResponse->is_error()) {
+    throw new RuntimeException('WooCommerce external-product REST read failed');
+}
+$externalRest = $externalRestResponse->get_data();
 
 $localAttributes = [];
 foreach ($precision->get_attributes() as $attribute) {
@@ -132,12 +141,26 @@ echo wp_json_encode([
         'type' => $coupon->get_discount_type('edit'),
     ],
     'derived' => ['precision_lookup' => $lookup],
+    'external' => [
+        'button_text' => $external->get_button_text('edit'),
+        'price' => $external->get_price('edit'),
+        'product_url' => $external->get_product_url('edit'),
+        'rest' => [
+            'button_text' => (string) ($externalRest['button_text'] ?? ''),
+            'external_url' => (string) ($externalRest['external_url'] ?? ''),
+            'type' => (string) ($externalRest['type'] ?? ''),
+        ],
+        'tags' => $termSlugs($externalId, 'product_tag'),
+        'title' => $external->get_name('edit'),
+        'type' => $external->get_type(),
+    ],
     'grouped' => ['children' => array_values($grouped->get_children('edit'))],
     'ids' => [
         'attribute_color' => (int) ($attributeRows[0]['attribute_id'] ?? 0),
         'attribute_size' => (int) ($attributeRows[1]['attribute_id'] ?? 0),
         'category' => $category ? (int) $category->term_id : 0,
         'coupon' => $coupon->get_id(),
+        'external' => $externalId,
         'flat_method' => (int) ($zoneMethods['flat_rate']['id'] ?? 0),
         'free_method' => (int) ($zoneMethods['free_shipping']['id'] ?? 0),
         'grouped' => $groupedId,
@@ -682,6 +705,12 @@ jq -e --arg version "$WOOCOMMERCE_EXPECTED_VERSION" --arg target "http://localho
   (.precision.downloads[0].file | startswith($target + "/wp-content/uploads/")) and
   (.precision.downloads[0].file | contains($source) | not) and
   .precision.tags == ["portable-tokyo"] and .precision.shipping_class == "oversize-portable" and
+  .external == {
+    "button_text":"اشتر الآن — 東京","price":"88.88",
+    "product_url":($target + "/partner/checkout?campaign=summer&locale=ja"),
+    "rest":{"button_text":"اشتر الآن — 東京","external_url":($target + "/partner/checkout?campaign=summer&locale=ja"),"type":"external"},
+    "tags":["portable-tokyo"],"title":"Conformance External Partner 東京","type":"external"
+  } and
   .simple.tags == ["portable-tokyo"] and .simple.shipping_class == "oversize-portable" and
   .simple.image[1] == 500 and .simple.image[2] == 500 and
   .simple.upsells == [.ids.precision] and .simple.cross_sells == [.ids.grouped] and
@@ -713,7 +742,7 @@ for key in category tag shipping_class attribute_color attribute_size tax_class;
   [ "$EXPECTED_TARGET_ID" = "$OBSERVED_TARGET_ID" ] \
     || fail "WooCommerce apply replaced rather than adopted hostile target $key"
 done
-for key in product precision grouped variable coupon thumbnail variation_small variation_large zone flat_method free_method tax_rate; do
+for key in product precision external grouped variable coupon thumbnail variation_small variation_large zone flat_method free_method tax_rate; do
   SOURCE_ID=$(jq -r --arg key "$key" '.[$key]' <<<"$SOURCE_IDS")
   OBSERVED_TARGET_ID=$(jq -r --arg key "$key" '.ids[$key]' <<<"$TARGET")
   require_fixture_ids SOURCE_ID OBSERVED_TARGET_ID
@@ -722,6 +751,37 @@ for key in product precision grouped variable coupon thumbnail variation_small v
 done
 pass 'hostile terms and typed natural keys retain divergent >2^31 target identities; generated product identities and every nested reference resolve locally'
 pass 'precision prices, long UTF-8, local attributes, tags, shipping class, grouped/upsell/cross-sell refs, and downloadable URLs round-trip through native APIs'
+
+EXTERNAL_ID=$(jq -r '.ids.external' <<<"$TARGET")
+require_fixture_ids EXTERNAL_ID
+EXTERNAL_STORE=$(curl -fsSL "http://localhost:${CONF2_PORT}/wp-json/wc/store/v1/products/${EXTERNAL_ID}") \
+  || fail 'conf2 Store API did not return the external product'
+require_observed_nonempty 'conf2 external-product Store API response' "$EXTERNAL_STORE"
+jq -e '
+  .type == "external" and (.add_to_cart.url | type) == "string" and
+  .add_to_cart.single_text == "اشتر الآن — 東京"
+' <<<"$EXTERNAL_STORE" >/dev/null \
+  || fail "WooCommerce Store API did not consume external URL/button state: $EXTERNAL_STORE"
+EXTERNAL_STORE_URL=$(jq -er '.add_to_cart.url' <<<"$EXTERNAL_STORE") \
+  || fail 'WooCommerce Store API returned no external destination'
+EXTERNAL_STORE_URL=$(php -r 'echo html_entity_decode($argv[1], ENT_QUOTES | ENT_HTML5, "UTF-8");' "$EXTERNAL_STORE_URL") \
+  || fail 'external-product Store API destination could not be HTML-decoded'
+[ "$EXTERNAL_STORE_URL" = "http://localhost:${CONF2_PORT}/partner/checkout?campaign=summer&locale=ja" ] \
+  || fail "WooCommerce Store API did not expose the rebound target destination: $EXTERNAL_STORE_URL"
+if grep -Fq "localhost:${CONF1_PORT}" <<<"$EXTERNAL_STORE"; then
+  fail 'external-product Store API leaked the source host'
+fi
+EXTERNAL_FRONT=$(curl -fsSL "http://localhost:${CONF2_PORT}/product/conformance-external-partner/") \
+  || fail 'conf2 external-product frontend did not return 200'
+require_observed_nonempty 'conf2 external-product frontend response' "$EXTERNAL_FRONT"
+grep -Fq 'اشتر الآن — 東京' <<<"$EXTERNAL_FRONT" \
+  || fail 'external-product frontend omitted the merchant button text'
+grep -Fq "http://localhost:${CONF2_PORT}/partner/checkout?campaign=summer" <<<"$EXTERNAL_FRONT" \
+  || fail 'external-product frontend omitted the rebound target destination'
+if grep -Fq "localhost:${CONF1_PORT}" <<<"$EXTERNAL_FRONT"; then
+  fail 'external-product frontend leaked the source host'
+fi
+pass 'external product resolves through Woo CRUD, v3 REST, Store API, and frontend using only the target-local rebound URL'
 
 PROVIDER_RECEIPT="${APPLY_JSON:-}"
 if [ -z "$PROVIDER_RECEIPT" ] && [ -n "${VMATRIX_APPLY_LOG:-}" ] && [ -f "$VMATRIX_APPLY_LOG" ]; then

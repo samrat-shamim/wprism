@@ -60,6 +60,11 @@ $artifactLock = json_decode(
     true,
     flags: JSON_THROW_ON_ERROR
 );
+$externalProductInventory = json_decode(
+    (string) file_get_contents($root . '/sandbox/tests/fixtures/woocommerce-core-11.0-external-product.json'),
+    true,
+    flags: JSON_THROW_ON_ERROR
+);
 woo_ok(($settingsInventory['format'] ?? null) === 'duo-woocommerce-settings-inventory/v1',
     'the source-audited settings inventory uses the exact reviewed schema');
 woo_ok(count((array) ($settingsInventory['literal_ids'] ?? [])) === 147,
@@ -116,6 +121,23 @@ foreach ((array) ($settingsInventory['artifacts'] ?? []) as $version => $sha256)
 woo_ok(array_keys((array) ($settingsInventory['artifacts'] ?? [])) === ['11.0.0', '11.0.1']
     && ($manifest['version_range'] ?? null) === ['min' => '11.0.0', 'max' => '11.0.2'],
     'the source inventory and manifest admit exactly the same two official artifacts');
+woo_ok(($externalProductInventory['format'] ?? null) === 'duo-woocommerce-external-product-inventory/v1',
+    'external products use one exact source-derived inventory');
+woo_ok(array_keys((array) ($externalProductInventory['artifacts'] ?? [])) === ['11.0.0', '11.0.1']
+    && count((array) ($externalProductInventory['source_files'] ?? [])) === 7,
+    'the external-product inventory binds both admitted artifacts and all seven native persistence/read paths');
+foreach ((array) ($externalProductInventory['artifacts'] ?? []) as $version => $sha256) {
+    woo_ok(($artifactLock['plugins']['woocommerce'][$version]['sha256'] ?? null) === $sha256,
+        "external-product source evidence is pinned to official WooCommerce $version");
+}
+foreach ((array) ($externalProductInventory['source_files'] ?? []) as $sourceFile => $sha256) {
+    woo_ok(is_string($sourceFile) && $sourceFile !== ''
+        && is_string($sha256) && preg_match('/^[0-9a-f]{64}$/D', $sha256) === 1,
+        "$sourceFile is byte-identical across official WooCommerce 11.0.0/11.0.1");
+}
+woo_ok(($externalProductInventory['contract']['authored_post_meta'] ?? null) === ['_button_text', '_product_url']
+    && ($externalProductInventory['contract']['url_semantics'] ?? null) === 'source-home-tokenized-target-home-rebound',
+    'the external-product inventory closes its two authored rows and target-local URL identity');
 
 $inventoryClassifications = array_merge(
     (array) ($settingsInventory['literal_ids'] ?? []),
@@ -596,6 +618,28 @@ woo_ok(!in_array('derived.wc_product_attributes_lookup', array_column(
     'surface'
 ), true), 'attribute lookup repair is no longer mislabeled as an unsupported apply surface');
 $matrixHarness = (string) file_get_contents($root . '/sandbox/tests/certify/certify_version_matrix.sh');
+$wooSeedHarness = (string) file_get_contents($root . '/sandbox/conformance/seeds/woocommerce.sh');
+$wooCheckHarness = (string) file_get_contents($root . '/sandbox/conformance/checks/woocommerce.sh');
+foreach ([
+    'new WC_Product_External()',
+    "new WP_REST_Request('PUT', '/wc/v3/products/",
+    "home_url('/partner/checkout?campaign=summer&locale=ja')",
+    'اشتر الآن — 東京',
+] as $externalSeedWitness) {
+    woo_ok(str_contains($wooSeedHarness, $externalSeedWitness),
+        "external-product source fixture pins $externalSeedWitness");
+}
+foreach ([
+    "new WP_REST_Request('GET', '/wc/v3/products/",
+    '/wp-json/wc/store/v1/products/',
+    '/product/conformance-external-partner/',
+    'html_entity_decode',
+    'external-product Store API leaked the source host',
+    'external-product frontend leaked the source host',
+] as $externalCheckWitness) {
+    woo_ok(str_contains($wooCheckHarness, $externalCheckWitness),
+        "external-product target fixture pins $externalCheckWitness");
+}
 woo_ok(str_contains($matrixHarness, 'update_option("default_category", (int) $category->term_id)'), 'version-matrix resets the core default-category reference before each plugin boundary');
 woo_ok(str_contains($matrixHarness, 'check_woocommerce_boundary_lifecycle "$WOO_VERSION" "$ARTIFACT_2"'),
     'each exact WooCommerce boundary runs lifecycle evidence before the populated upgrade leg');

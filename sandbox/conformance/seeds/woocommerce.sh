@@ -143,6 +143,43 @@ remove_filter('woocommerce_downloadable_file_exists', '__return_true');
 \$product->save();
 " >/dev/null
 
+# Core external products persist their merchant destination and call-to-action
+# in `_product_url`/`_button_text`. Use the source home deliberately: capture
+# must tokenize it and the target must expose only its own host through CRUD,
+# REST, Store API, and the single-product form.
+EXTERNAL_ID=$(wp_conf1 eval "
+\$product = new WC_Product_External();
+\$product->set_name('Conformance External Partner 東京');
+\$product->set_slug('conformance-external-partner');
+\$product->set_status('publish');
+\$product->set_sku('CONF-EXTERNAL-1');
+\$product->set_regular_price('88.88');
+\$product->set_product_url(home_url('/partner/bootstrap'));
+\$product->set_button_text('Bootstrap purchase');
+\$product->set_description('Portable external catalog destination 東京 🚀');
+\$product->set_image_id($THUMB_ID);
+\$product->set_category_ids([$CAT_ID]);
+echo \$product->save();
+")
+require_fixture_ids EXTERNAL_ID
+wp_conf1 eval "
+\$admin = get_user_by('login', 'admin');
+wp_set_current_user(\$admin ? (int) \$admin->ID : 0);
+\$request = new WP_REST_Request('PUT', '/wc/v3/products/$EXTERNAL_ID');
+\$request->set_param('external_url', home_url('/partner/checkout?campaign=summer&locale=ja'));
+\$request->set_param('button_text', 'اشتر الآن — 東京');
+\$response = rest_do_request(\$request);
+if (\$response->is_error()) {
+    throw new RuntimeException('WooCommerce external-product REST update failed');
+}
+\$data = \$response->get_data();
+if ((string) (\$data['external_url'] ?? '') !== home_url('/partner/checkout?campaign=summer&locale=ja')
+    || (string) (\$data['button_text'] ?? '') !== 'اشتر الآن — 東京') {
+    throw new RuntimeException('WooCommerce external-product REST update did not round-trip native values');
+}
+" >/dev/null
+wp_conf1 post term add "$EXTERNAL_ID" product_tag portable-tokyo --by=slug
+
 GROUPED_ID=$(wp_conf1 eval "
 \$group = new WC_Product_Grouped();
 \$group->set_name('Conformance Grouped Kit');
@@ -316,6 +353,7 @@ wp_conf1 eval "
 file_put_contents('/siterepo/.tmp-woocommerce-source.json', wp_json_encode([
   'category' => $CAT_ID,
   'coupon' => $COUPON_ID,
+  'external' => $EXTERNAL_ID,
   'grouped' => $GROUPED_ID,
   'precision' => $PRECISION_ID,
   'product' => $PID,
@@ -335,4 +373,4 @@ file_put_contents('/siterepo/.tmp-woocommerce-source.json', wp_json_encode([
 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 " >/dev/null
 
-echo "woocommerce seed: category=$CAT_ID tag=$TAG_ID shipping_class=$SHIP_CLASS_ID thumbnail=$THUMB_ID product=$PID precision=$PRECISION_ID grouped=$GROUPED_ID coupon=$COUPON_ID variable_product=$VPID (attrs size=$SIZE_ATTR_ID color=$COLOR_ATTR_ID) zone=$ZONE_ID methods=$FLAT_INSTANCE,$FREE_INSTANCE tax_class=$TAX_CLASS_ID tax=$TAX_ID source_runtime_order=$SOURCE_ORDER_ID source_runtime_review=$SOURCE_REVIEW_ID"
+echo "woocommerce seed: category=$CAT_ID tag=$TAG_ID shipping_class=$SHIP_CLASS_ID thumbnail=$THUMB_ID product=$PID precision=$PRECISION_ID external=$EXTERNAL_ID grouped=$GROUPED_ID coupon=$COUPON_ID variable_product=$VPID (attrs size=$SIZE_ATTR_ID color=$COLOR_ATTR_ID) zone=$ZONE_ID methods=$FLAT_INSTANCE,$FREE_INSTANCE tax_class=$TAX_CLASS_ID tax=$TAX_ID source_runtime_order=$SOURCE_ORDER_ID source_runtime_review=$SOURCE_REVIEW_ID"
