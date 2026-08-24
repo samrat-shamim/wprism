@@ -51,10 +51,12 @@ name: duo-${DUO_PAIR}
 #                    byte-identically to before this variable existed. It is
 #                    set to duo-shared-mysql only by pair.sh's MySQL evidence
 #                    lane (DUO_DB_ENGINE=mysql, see pair.sh's usage), whose
-#                    server is sandbox/db.mysql.yml. Selecting that engine
-#                    claims nothing: the shipped platform contract is still
-#                    MariaDB-only (manifests/capabilities/platform.json), so
-#                    the agent refuses platform_unsupported on such a pair.
+#                    server is sandbox/db.mysql.yml. The shipped platform
+#                    contract now claims MySQL 8.4 beside MariaDB 11 through
+#                    an engine-keyed map, with a PENDING note saying the live
+#                    proof has not run yet (manifests/capabilities/
+#                    platform.json), so such a pair is no longer refused on the
+#                    engine axis -- selecting it is how that proof is taken.
 #
 # DUO_AGENT_SRC/DUO_MANIFESTS_SRC/DUO_DB_HOST reach compose two ways at once, deliberately:
 # pair.sh's own subcommands get them via plain `export` (pair_compose_configure()),

@@ -1000,9 +1000,23 @@ final class SurfaceCatalog {
             if (is_array($compatibility['php'] ?? null)) {
                 $out[] = 'php ' . self::range($compatibility['php']);
             }
+            // One entry PER CLAIMED ENGINE. The database axis is an
+            // engine-keyed map (agent/src/Policy/PlatformCompatibility.php:
+            // valid_database_axis()), so the single-engine read this replaced
+            // — `is_string($database['engine'])` guarding one range — would
+            // now be false for every claim and silently drop the database
+            // dependency from every projected contract's
+            // expiry_and_dependencies. A published dependency that vanishes
+            // because its shape moved is a narrowing nobody reviewed; sorted
+            // by engine name so the projection is stable against the claim's
+            // own key order.
             $database = $compatibility['database'] ?? null;
-            if (is_array($database) && is_string($database['engine'] ?? null)) {
-                $out[] = $database['engine'] . ' ' . self::range($database);
+            $engines = is_array($database) ? ($database['engines'] ?? null) : null;
+            if (is_array($engines) && !array_is_list($engines)) {
+                ksort($engines, SORT_STRING);
+                foreach ($engines as $engine => $range) {
+                    $out[] = (string) $engine . ' ' . self::range($range);
+                }
             }
         }
 

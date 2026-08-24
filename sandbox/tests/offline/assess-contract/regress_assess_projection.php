@@ -800,4 +800,58 @@ duo_check_same(
     'a reviewed declaration still cannot un-know an unclassified TABLE — the exception is plugins only'
 );
 
+// The `expiry_and_dependencies` every projected contract publishes is
+// rendered from the SHIPPED platform block, so this cell drives the real
+// manifests/capabilities/platform.json through the catalog rather than a
+// fixture. It exists because the database axis became an engine-keyed map:
+// the single-engine read this replaced (`is_string($database['engine'])`
+// guarding one range, cli/src/Assess/SurfaceCatalog.php) goes false for every
+// claim under that shape, and the database dependency would simply VANISH
+// from every contract — a published dependency narrowed to nothing by a shape
+// change, which no reviewer would see because nothing else asserts the row.
+$shippedPlatform = json_decode(
+    (string) file_get_contents(dirname(__DIR__, 4) . '/manifests/capabilities/platform.json'),
+    true,
+    flags: JSON_THROW_ON_ERROR
+)['platform'];
+$shippedCompatibility = $shippedPlatform['compatibility'];
+$expiryCatalog = SurfaceCatalog::catalog(
+    [
+        'policy' => ['surface_groups' => [[
+            'id' => 'post_type:product',
+            'kind' => 'post_type',
+            'class' => 'authored',
+            'declared_by' => 'core',
+        ]]],
+        'coverage' => [],
+    ],
+    // Keyed by the REGISTRY operation, not the MUP one: release reads the
+    // `promote` registry report (SurfaceCatalog::REGISTRY_OPERATION).
+    ['promote' => ['manifests' => [[
+        'name' => 'core',
+        'status' => 'certified',
+        'surfaces' => ['post_types.product'],
+        'platform' => $shippedPlatform,
+    ]]]],
+    null,
+    ['operations' => ['release']]
+);
+$expiry = $expiryCatalog['rows'][0]['operations']['release']['expiry_and_dependencies'] ?? null;
+$expectedExpiry = [
+    'wordpress ' . $shippedCompatibility['wordpress']['last_verified'],
+    'php ' . $shippedCompatibility['php']['min'] . '-' . $shippedCompatibility['php']['max'],
+];
+foreach ($shippedCompatibility['database']['engines'] as $engine => $range) {
+    $expectedExpiry[] = $engine . ' ' . $range['min'] . '-' . $range['max'];
+}
+duo_check(
+    count($shippedCompatibility['database']['engines']) >= 2,
+    'the shipped claim names more than one database engine, so this cell can tell a per-engine render from a single-engine one'
+);
+duo_check_same(
+    $expectedExpiry,
+    $expiry,
+    'a projected contract declares one dependency entry per CLAIMED database engine, derived from the shipped boundary'
+);
+
 duo_check_summary('regress_assess_projection');

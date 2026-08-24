@@ -216,13 +216,13 @@ if have php; then
     if ! php -r 'exit(version_compare(PHP_VERSION, "8.3.0", ">=") ? 0 : 1);'; then
         fail "PHP $php_version is below the 8.3.0 floor"
         remedy "install PHP 8.3 (brew install php@8.3 / apt-get install php8.3-cli)"
-    elif php -r 'exit(version_compare(PHP_VERSION, "8.4.0", "<") ? 0 : 1);'; then
-        ok "PHP $php_version (inside the certified 8.3.0-<8.4 range)"
+    elif php -r 'exit(version_compare(PHP_VERSION, "8.5.0", "<") ? 0 : 1);'; then
+        ok "PHP $php_version (inside the certified 8.3.0-<8.5 range, exercised series 8.3 and 8.4)"
     else
         warn "PHP $php_version is outside the certified range"
-        why "certified floor is 8.3.0-<8.4 per docs/compatibility-baseline.json; local 8.4/8.5"
-        why "is forward coverage, not the pinned target, and the diagnostics guard fails on"
-        why "any Deprecated line a newer engine emits."
+        why "certified floor is 8.3.0-<8.5 per docs/compatibility-baseline.json, whose exercised"
+        why "series are 8.3 and 8.4; local 8.5 is forward coverage, not the pinned target, and the"
+        why "diagnostics guard fails on any Deprecated line a newer engine emits."
         remedy "brew install php@8.3 && export PATH=\"\$(brew --prefix php@8.3)/bin:\$PATH\"   # to reproduce the certified engine"
     fi
 

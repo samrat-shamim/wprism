@@ -13,16 +13,37 @@ require_once __DIR__ . '/../Kernel/CommandRefusal.php';
  * that host command. Policy load is the first common product boundary before
  * repository reads, identity allocation, locks, or authored-state mutation,
  * so the agent independently checks the identical declaration from
- * manifests/capabilities/platform.json here. WordPress is a bounded range
- * narrowed to the exercised series rather than a fabricated open range:
- * acceptance is inside [min, max) AND the observed MAJOR.MINOR present in
- * `verified`, whose values name the exact patch each series was proven on.
- * The series map exists because WordPress is not semver — a bare range would
- * claim a minor line nobody ran, which is exactly the "unproven behavior
- * hidden behind a broad compatibility claim" DESIGN.md's vision invariant
- * forbids — while patch-level generalization inside a proven series is the
- * same basis PHP 8.3.x and MariaDB 11.x are already claimed on in the same
- * declaration: one measured runtime per line.
+ * manifests/capabilities/platform.json here.
+ *
+ * WordPress and PHP are both bounded ranges narrowed to their exercised
+ * series rather than fabricated open ranges: acceptance is inside [min, max)
+ * AND the observed MAJOR.MINOR present in that axis's `verified` map, whose
+ * values name the exact patch each series was proven on
+ * (valid_exercised_axis()/exercised_supported()/exercised_label() below are
+ * the one implementation both axes share, so the two cannot drift). The
+ * series map exists because a bare range claims every minor line inside it,
+ * which is exactly the "unproven behavior hidden behind a broad
+ * compatibility claim" DESIGN.md's vision invariant forbids: WordPress is not
+ * semver at all, and PHP's own range now spans three feature releases
+ * (8.3, 8.4, 8.5), each of which is its own migration with its own
+ * deprecations — one exercised 8.3 runtime says nothing about 8.5. Patch-level
+ * generalization INSIDE a proven series is the narrower claim both axes are
+ * actually making: one measured runtime per line.
+ *
+ * PHP deliberately carries no `last_verified` scalar. WordPress needs one
+ * because other readers bind it (see valid_wordpress_axis()); nothing reads a
+ * newest-PHP scalar anywhere in this tree, and an invariant with no reader is
+ * decoration that can only rot.
+ *
+ * The database axis is an engine-keyed map instead, because its range is a
+ * function of the engine: MariaDB 11.x and MySQL 8.4.x are different lines of
+ * different products, and a single {min,max} could only describe one of them.
+ * It carries no `verified` series map for the same reason PHP carries no
+ * `last_verified`: each engine entry is already one measured runtime per
+ * declared line, and the engines map already forces an engine-by-engine
+ * decision, so a third series map would prevent no failure. That asymmetry is
+ * deliberate, and the axis note in manifests/capabilities/platform.json says
+ * so where a reviewer will see it.
  */
 final class PlatformCompatibility {
     /** @return array{php:string,database:array{engine:string,version:string},wordpress:string,site_mode:string} */
@@ -88,8 +109,10 @@ final class PlatformCompatibility {
         // `platform_unsupported` for four axes, which is exactly the
         // un-actionable answer the typed topology refusal exists to remove.
         // This diagnostic is the boundary-document and defence-in-depth path,
-        // exercised directly by
-        // sandbox/tests/offline/policy/regress_platform_compatibility.php:115.
+        // exercised directly by the 'multisite topology' cell of
+        // sandbox/tests/offline/policy/regress_platform_compatibility.php
+        // (named rather than line-cited: that suite's tables grow every time
+        // an axis gains a shape, and a line number there rots by the next one).
         if ($siteMode !== (string) $platform['site_mode']) {
             $diagnostics[] = self::diagnostic(
                 'platform_site_mode_unsupported',
@@ -101,45 +124,52 @@ final class PlatformCompatibility {
         }
 
         $php = (string) $facts['php'];
-        $phpRange = $compatibility['php'];
-        if (!self::inside_range($php, $phpRange)) {
+        $phpBoundary = $compatibility['php'];
+        if (!self::exercised_supported($php, $phpBoundary)) {
             $diagnostics[] = self::diagnostic(
                 'platform_php_version_unsupported',
                 'php',
                 $php,
-                self::range_label($phpRange),
-                'the loaded PHP runtime is outside the exercised platform range'
+                self::exercised_label($phpBoundary),
+                'the loaded PHP runtime is outside the exercised platform matrix'
             );
         }
 
+        // Exact-case lookup against current_facts()'s own two classifications
+        // (:58 emits 'MariaDB' or 'MySQL' and nothing else), so an engine the
+        // map does not name cannot be answered by a range that belongs to a
+        // different product. The version diagnostic's `required` is
+        // engine-qualified for the same reason: with a per-engine range a bare
+        // '>=11.0.0 <12.0.0' would not say WHOSE range it is.
         $database = $facts['database'];
-        $databaseBoundary = $compatibility['database'];
-        if ($database['engine'] !== $databaseBoundary['engine']) {
+        $engines = $compatibility['database']['engines'];
+        $engineRange = $engines[$database['engine']] ?? null;
+        if (!is_array($engineRange)) {
             $diagnostics[] = self::diagnostic(
                 'platform_database_engine_unsupported',
                 'database.engine',
                 $database['engine'],
-                $databaseBoundary['engine'],
+                self::engines_label($engines),
                 'the connected database engine is outside the exercised platform contract'
             );
-        } elseif (!self::inside_range($database['version'], $databaseBoundary)) {
+        } elseif (!self::inside_range($database['version'], $engineRange)) {
             $diagnostics[] = self::diagnostic(
                 'platform_database_version_unsupported',
                 'database.version',
                 $database['version'],
-                self::range_label($databaseBoundary),
+                $database['engine'] . ' ' . self::range_label($engineRange),
                 'the connected database version is outside the exercised platform range'
             );
         }
 
         $wordpress = (string) $facts['wordpress'];
         $wordpressBoundary = $compatibility['wordpress'];
-        if (!self::wordpress_supported($wordpress, $wordpressBoundary)) {
+        if (!self::exercised_supported($wordpress, $wordpressBoundary)) {
             $diagnostics[] = self::diagnostic(
                 'platform_wordpress_version_unsupported',
                 'wordpress',
                 $wordpress,
-                self::wordpress_label($wordpressBoundary),
+                self::exercised_label($wordpressBoundary),
                 'the loaded WordPress core is outside the exercised core matrix'
             );
         }
@@ -171,9 +201,8 @@ final class PlatformCompatibility {
             || !is_array($php) || array_is_list($php)
             || !is_array($database) || array_is_list($database)
             || !is_array($wordpress) || array_is_list($wordpress)
-            || !self::valid_range($php)
-            || !self::valid_range($database)
-            || !is_string($database['engine'] ?? null) || $database['engine'] === ''
+            || !self::valid_exercised_axis($php)
+            || !self::valid_database_axis($database)
             || !self::valid_wordpress_axis($wordpress)) {
             throw new CommandRefusalException(
                 'platform_boundary_invalid',
@@ -203,21 +232,22 @@ final class PlatformCompatibility {
     }
 
     /**
-     * The WordPress axis is a range PLUS the exercised-series map that narrows
-     * it, and every invariant below is what stops a typo widening the claim
-     * past what was actually run. Fail-closed and required, with no path that
-     * accepts the pre-matrix two-key {last_verified, note} shape: a boundary
-     * that cannot state which series were exercised must refuse
-     * (platform_boundary_invalid) rather than fall back to comparing one exact
-     * version, per AGENTS.md rule 9.
+     * A range PLUS the exercised-series map that narrows it — the shape the
+     * WordPress and PHP axes both declare. Every invariant here is what stops
+     * a typo widening a claim past what was actually run. Fail-closed and
+     * required, with no path that accepts either axis's pre-map shape (the
+     * two-key {last_verified, note} WordPress axis, or the two-key {min, max}
+     * PHP one): a boundary that cannot state which series were exercised must
+     * refuse (platform_boundary_invalid) rather than fall back to a bare
+     * range, per AGENTS.md rule 9.
      *
-     * @param array<string,mixed> $wordpress
+     * @param array<string,mixed> $axis
      */
-    private static function valid_wordpress_axis(array $wordpress): bool {
-        if (!self::valid_range($wordpress)) {
+    private static function valid_exercised_axis(array $axis): bool {
+        if (!self::valid_range($axis)) {
             return false;
         }
-        $verified = $wordpress['verified'] ?? null;
+        $verified = $axis['verified'] ?? null;
         if (!is_array($verified) || $verified === [] || array_is_list($verified)) {
             return false;
         }
@@ -228,10 +258,27 @@ final class PlatformCompatibility {
             if (preg_match('/^\d+\.\d+$/D', (string) $series) !== 1
                 || !is_string($patch) || !self::version($patch)
                 || self::series($patch) !== (string) $series
-                || !self::inside_range($patch, $wordpress)) {
+                || !self::inside_range($patch, $axis)) {
                 return false;
             }
         }
+
+        return true;
+    }
+
+    /**
+     * The WordPress axis is valid_exercised_axis() PLUS the two invariants
+     * that keep `last_verified` honest. PHP declares no such scalar and needs
+     * neither (see the class header), so this wrapper is where the asymmetry
+     * lives rather than an `if` inside the shared validator.
+     *
+     * @param array<string,mixed> $wordpress
+     */
+    private static function valid_wordpress_axis(array $wordpress): bool {
+        if (!self::valid_exercised_axis($wordpress)) {
+            return false;
+        }
+        $verified = $wordpress['verified'];
         $lastVerified = $wordpress['last_verified'] ?? null;
 
         // last_verified stays the newest proven core because other readers
@@ -252,6 +299,46 @@ final class PlatformCompatibility {
             // (sandbox/tests/offline/guards/regress_ecommerce_developer_static.sh
             // asserts the same ordering against the baseline copy).
             if (version_compare((string) $patch, $lastVerified, '>')) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * The database axis is an engine-keyed map of ranges, and the shape rules
+     * are what stop a second engine being smuggled in as a range that belongs
+     * to the first. `engines` must be a non-empty object of non-empty string
+     * keys, and every value exactly {max, min} — no stray key, because nothing
+     * else validates an engine entry (tools/capability-doc.php:200-207 checks
+     * only the axis's own top-level keys) and a `verified`-looking extra key
+     * would read as an exercised-series claim this gate never evaluates.
+     *
+     * The pre-map two-key {engine, min, max} shape has no acceptance path:
+     * under a per-engine claim, a boundary that names one engine and one bare
+     * range cannot say which engine that range describes for any OTHER engine
+     * it might later gain (AGENTS.md rule 9 — no compat shim).
+     *
+     * @param array<string,mixed> $database
+     */
+    private static function valid_database_axis(array $database): bool {
+        $engines = $database['engines'] ?? null;
+        if (!is_array($engines) || $engines === [] || array_is_list($engines)) {
+            return false;
+        }
+        foreach ($engines as $engine => $range) {
+            // A numeric-looking JSON key decodes to an int here, which
+            // is_string() rejects — the same fail-closed answer a blank key
+            // gets, and the reason the lookup in assert_supported() can be a
+            // plain exact-case array read.
+            if (!is_string($engine) || $engine === ''
+                || !is_array($range) || array_is_list($range)) {
+                return false;
+            }
+            $keys = array_keys($range);
+            sort($keys, SORT_STRING);
+            if ($keys !== ['max', 'min'] || !self::valid_range($range)) {
                 return false;
             }
         }
@@ -281,11 +368,11 @@ final class PlatformCompatibility {
      * inside it (a hole in the matrix), and the series map alone would admit
      * a future major the range deliberately stops at.
      *
-     * @param array<string,mixed> $wordpress
+     * @param array<string,mixed> $axis
      */
-    private static function wordpress_supported(string $observed, array $wordpress): bool {
-        return self::inside_range($observed, $wordpress)
-            && is_string($wordpress['verified'][self::series($observed)] ?? null);
+    private static function exercised_supported(string $observed, array $axis): bool {
+        return self::inside_range($observed, $axis)
+            && is_string($axis['verified'][self::series($observed)] ?? null);
     }
 
     /** The MAJOR.MINOR series of a dotted version, or '' when it has none. */
@@ -294,18 +381,33 @@ final class PlatformCompatibility {
     }
 
     /**
-     * The `required` value of a WordPress diagnostic, e.g.
+     * The `required` value of an exercised-axis diagnostic, e.g.
      * `>=6.9.0 <7.2.0 exercised 6.9, 7.0, 7.1`. Ordered by version_compare rather
-     * than string sort so a two-digit minor (6.10) cannot render before 6.9
-     * and make the label non-deterministic against the claim's own order.
+     * than string sort so a two-digit minor (6.10, or PHP 8.10) cannot render
+     * before 6.9 and make the label non-deterministic against the claim's own
+     * order.
      *
-     * @param array<string,mixed> $wordpress
+     * @param array<string,mixed> $axis
      */
-    private static function wordpress_label(array $wordpress): string {
-        $series = array_map('strval', array_keys((array) ($wordpress['verified'] ?? [])));
+    private static function exercised_label(array $axis): string {
+        $series = array_map('strval', array_keys((array) ($axis['verified'] ?? [])));
         usort($series, static fn(string $a, string $b): int => version_compare($a, $b));
 
-        return self::range_label($wordpress) . ' exercised ' . implode(', ', $series);
+        return self::range_label($axis) . ' exercised ' . implode(', ', $series);
+    }
+
+    /**
+     * The `required` value of an engine diagnostic: every engine the claim
+     * names, in a stable order, so an operator on an unclaimed engine is told
+     * the whole claimed set rather than one arbitrary member of it.
+     *
+     * @param array<string,mixed> $engines
+     */
+    private static function engines_label(array $engines): string {
+        $names = array_map('strval', array_keys($engines));
+        sort($names, SORT_STRING);
+
+        return implode(', ', $names);
     }
 
     private static function version(string $version): bool {

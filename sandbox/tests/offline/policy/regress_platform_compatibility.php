@@ -5,16 +5,28 @@ declare(strict_types=1);
  * Offline platform-boundary regression.
  *
  * Exercises the agent-owned gate with every inclusive/exclusive version edge,
- * the WordPress range-plus-exercised-series semantics, engine/topology
- * mismatches, checked live-probe parsing, safe aggregate diagnostics, and
- * Policy ordering. Before this gate, a direct `wp duo` command bypassed the
- * host doctor and reached repository reads or mutation on an entirely
- * unexercised runtime.
+ * the WordPress AND PHP range-plus-exercised-series semantics, the per-engine
+ * database map, engine/topology mismatches, checked live-probe parsing, safe
+ * aggregate diagnostics, and Policy ordering. Before this gate, a direct
+ * `wp duo` command bypassed the host doctor and reached repository reads or
+ * mutation on an entirely unexercised runtime.
  *
- * The WordPress axis is two independent conditions, and this suite proves
- * both separately: inside [min, max) AND the observed MAJOR.MINOR present in
- * `verified`. A boundary with a deliberate hole (below) is what stops the
- * series half passing merely by agreeing with the range half.
+ * WordPress and PHP are each two independent conditions, and this suite proves
+ * both separately for both axes: inside [min, max) AND the observed
+ * MAJOR.MINOR present in that axis's `verified`. A boundary with a deliberate
+ * hole (below, once per axis) is what stops the series half passing merely by
+ * agreeing with the range half — and for PHP that holed fixture is the ONLY
+ * proof available today, because the shipped claim's range currently contains
+ * no unexercised series (see the php axis note in
+ * manifests/capabilities/platform.json).
+ *
+ * The database axis is a map from engine to that engine's own range, so it has
+ * its own two conditions: the observed engine must be a key of `engines`, and
+ * the observed version must be inside THAT engine's range — never another
+ * engine's. The refusal labels are asserted verbatim because they are the
+ * operator's whole answer: an engine refusal names every claimed engine, and a
+ * version refusal is engine-qualified because the range is now a function of
+ * the engine.
  */
 
 require_once __DIR__ . '/../../lib/check.php';
@@ -111,11 +123,31 @@ foreach ($verifiedWordPress as $series => $patch) {
     duo_check($failure === null, "the exercised $series proof core $patch is accepted by the agent gate");
 }
 
+// Same contract on the PHP axis, and read from the claim for the same reason:
+// every value of php.verified is a runtime a live matrix ran end to end.
+$verifiedPhp = $platform['compatibility']['php']['verified'];
+duo_check(count($verifiedPhp) >= 2, 'the shipped claim names more than one exercised PHP series');
+foreach ($verifiedPhp as $series => $patch) {
+    $failure = $refusal(static fn() => PlatformCompatibility::assert_supported($platform, $facts(php: $patch)));
+    duo_check($failure === null, "the exercised PHP $series proof runtime $patch is accepted by the agent gate");
+}
+
 foreach ([
     'PHP inclusive minimum' => $facts(php: '8.3.0'),
     'PHP value below exclusive maximum' => $facts(php: '8.3.999'),
+    // 8.4.0 was the exclusive maximum — a hard refusal — until this claim
+    // widened to [8.3.0, 8.5.0) and named 8.4 as an exercised series. This
+    // cell fails against the prior boundary.
+    'PHP inclusive minimum of the newly exercised 8.4 series' => $facts(php: '8.4.0'),
+    'PHP patch above the 8.4 proof inside its exercised series' => $facts(php: '8.4.99'),
     'MariaDB inclusive minimum' => $facts(database: '11.0.0'),
     'MariaDB value below exclusive maximum' => $facts(database: '11.999.999'),
+    // The old suite refused this exact pair on the engine axis; the engines
+    // map is what inverts it, and MySQL 8.4.3 is the line sandbox/db.mysql.yml
+    // actually boots.
+    'MySQL inside its own claimed engine range' => $facts(engine: 'MySQL', database: '8.4.3'),
+    'MySQL inclusive minimum' => $facts(engine: 'MySQL', database: '8.4.0'),
+    'MySQL value below its own exclusive maximum' => $facts(engine: 'MySQL', database: '8.4.999'),
     // Patch-level generalization inside an exercised series, the one genuine
     // widening in this claim: it is the same basis PHP 8.3.x and MariaDB 11.x
     // are already claimed on from one measured runtime each. Each of these
@@ -142,10 +174,21 @@ foreach ([
 
 foreach ([
     'PHP below minimum' => [$facts(php: '8.2.99'), 'platform_php_version_unsupported'],
-    'PHP exact exclusive maximum' => [$facts(php: '8.4.0'), 'platform_php_version_unsupported'],
+    'PHP exact exclusive maximum' => [$facts(php: '8.5.0'), 'platform_php_version_unsupported'],
+    // A pre-release engine ranks inside the window under version_compare; the
+    // observed value must still be a plain dotted version or the gate is
+    // comparing something it never exercised. Doctor carries the same guard.
+    'PHP pre-release runtime inside an exercised series' => [$facts(php: '8.4.0RC1'), 'platform_php_version_unsupported'],
     'MariaDB below minimum' => [$facts(database: '10.11.0'), 'platform_database_version_unsupported'],
     'MariaDB exact exclusive maximum' => [$facts(database: '12.0.0'), 'platform_database_version_unsupported'],
-    'MySQL engine' => [$facts(engine: 'MySQL', database: '8.4.3'), 'platform_database_engine_unsupported'],
+    // MySQL is claimed on ITS OWN line, not MariaDB's: 8.3.9 and 8.5.0 sit
+    // inside no claimed range at all, and both would have been accepted by a
+    // single shared {min,max} that happened to admit them.
+    'MySQL below its own minimum' => [$facts(engine: 'MySQL', database: '8.3.9'), 'platform_database_version_unsupported'],
+    'MySQL exact exclusive maximum of its own range' => [$facts(engine: 'MySQL', database: '8.5.0'), 'platform_database_version_unsupported'],
+    // MariaDB 11.8.8 is inside MariaDB's range and nowhere near MySQL's, so
+    // this proves the lookup is engine-keyed rather than a scan of every range.
+    'MySQL carrying a MariaDB-shaped version' => [$facts(engine: 'MySQL', database: '11.8.8'), 'platform_database_version_unsupported'],
     'WordPress below minimum' => [$facts(wordpress: '6.8.3'), 'platform_wordpress_version_unsupported'],
     'WordPress exact exclusive maximum' => [$facts(wordpress: '7.2.0'), 'platform_wordpress_version_unsupported'],
     // Inside [6.9.0, 7.2.0) by version_compare and still unexercised: 6.10 is
@@ -174,6 +217,68 @@ duo_check_same(
     '>=6.9.0 <7.2.0 exercised 6.9, 7.0, 7.1',
     $belowMinimum?->diagnostics[0]['required'] ?? null,
     'a refused core is told the exercised matrix, not one exact version'
+);
+
+// The PHP axis's own label, pinned for the same reason: it is the string the
+// live PHP-refusal cell derives from the claim and asserts against a real
+// refused runtime (sandbox/tests/live/regress_core_scope_platform.sh), so a
+// drift between the two halves of the evidence would surface here first.
+$phpBelowMinimum = $refusal(static fn() => PlatformCompatibility::assert_supported($platform, $facts(php: '8.2.99')));
+duo_check_same(
+    '>=8.3.0 <8.5.0 exercised 8.3, 8.4',
+    $phpBelowMinimum?->diagnostics[0]['required'] ?? null,
+    'a refused PHP runtime is told the exercised matrix, not the bare range'
+);
+
+// The database labels are the two the engines map introduced. An engine
+// refusal names EVERY claimed engine (an operator on Postgres needs the set,
+// not one member of it); a version refusal is engine-qualified, because
+// '>=11.0.0 <12.0.0' alone would not say whose range it is now that the range
+// depends on the engine.
+$mysqlBelowMinimum = $refusal(static fn() => PlatformCompatibility::assert_supported(
+    $platform,
+    $facts(engine: 'MySQL', database: '8.3.9')
+));
+duo_check_same(
+    'MySQL >=8.4.0 <8.5.0',
+    $mysqlBelowMinimum?->diagnostics[0]['required'] ?? null,
+    'a refused database version is told its OWN engine range, engine-qualified'
+);
+duo_check_same(
+    'MariaDB >=11.0.0 <12.0.0',
+    $refusal(static fn() => PlatformCompatibility::assert_supported($platform, $facts(database: '10.11.0')))
+        ?->diagnostics[0]['required'] ?? null,
+    'and the established MariaDB range is qualified the same way — every version label names its engine, including the one that used to be the only claim'
+);
+
+// The engine half cannot be reached with the shipped claim (current_facts()
+// classifies every server as MariaDB or MySQL and both are claimed), so the
+// refusal that used to be the 'MySQL engine' cell is REPLACED, not deleted: a
+// fixture boundary that omits MySQL must still refuse a MySQL target on the
+// engine axis, naming the engines it does claim.
+$mariadbOnly = $platform;
+$mariadbOnly['compatibility']['database'] = [
+    'engines' => ['MariaDB' => ['max' => '12.0.0', 'min' => '11.0.0']],
+    'note' => 'fixture boundary claiming one engine',
+];
+$unclaimedEngine = $refusal(static fn() => PlatformCompatibility::assert_supported(
+    $mariadbOnly,
+    $facts(engine: 'MySQL', database: '8.4.3')
+));
+duo_check_same('platform_unsupported', $unclaimedEngine?->reasonCode, 'an unclaimed engine shares one stable command reason');
+duo_check_same(
+    'platform_database_engine_unsupported',
+    $unclaimedEngine?->diagnostics[0]['code'] ?? null,
+    'an engine no engines map names refuses on the engine axis, never on a version comparison'
+);
+duo_check_same(
+    'MariaDB',
+    $unclaimedEngine?->diagnostics[0]['required'] ?? null,
+    'and the operator is told exactly which engines that boundary claims'
+);
+duo_check(
+    $refusal(static fn() => PlatformCompatibility::assert_supported($mariadbOnly, $facts())) === null,
+    'the same single-engine fixture still accepts the engine it does claim'
 );
 
 // The case a plain [min,max) range cannot express and would silently accept.
@@ -207,15 +312,51 @@ duo_check(
     'the same holed boundary still accepts an unrun patch inside one of its exercised series'
 );
 
+// The identical proof for the PHP axis, and today the ONLY one available:
+// the shipped php range [8.3.0, 8.5.0) contains exactly the two series
+// `verified` names, so no shipped fact can separate the range half from the
+// series half. This fixture holes 8.4 out of a wider range, which is exactly
+// the state the next widening passes through — the shape is what makes that
+// widening a data edit plus an exercise cell rather than a re-argued claim.
+$holedPhp = $platform;
+$holedPhp['compatibility']['php'] = [
+    'max' => '8.6.0',
+    'min' => '8.3.0',
+    'note' => 'fixture boundary with a deliberate 8.4 hole',
+    'verified' => ['8.3' => '8.3.33', '8.5' => '8.5.1'],
+];
+$phpHoleFailure = $refusal(static fn() => PlatformCompatibility::assert_supported($holedPhp, $facts(php: '8.4.7')));
+duo_check_same('platform_unsupported', $phpHoleFailure?->reasonCode, 'an unexercised PHP series inside the range shares one stable command reason');
+duo_check_same(
+    'platform_php_version_unsupported',
+    $phpHoleFailure?->diagnostics[0]['code'] ?? null,
+    'an unexercised PHP series inside the declared range refuses on the PHP axis alone'
+);
+duo_check_same(
+    '>=8.3.0 <8.6.0 exercised 8.3, 8.5',
+    $phpHoleFailure?->diagnostics[0]['required'] ?? null,
+    'the PHP hole is named to the operator: the label lists exercised series, not the range endpoints alone'
+);
+duo_check(
+    $refusal(static fn() => PlatformCompatibility::assert_supported($holedPhp, $facts(php: '8.5.9'))) === null,
+    'the same holed PHP boundary still accepts an unrun patch inside one of its exercised series'
+);
+
+// Re-pointed by the widening, not weakened: 8.4.0 and MySQL 8.4.3 are both
+// CLAIMED now, so the four axes have to be driven off values that are still
+// outside the boundary — 8.5.0 is the new exclusive PHP maximum and MySQL
+// 8.3.9 is below MySQL's own minimum. The database diagnostic is therefore
+// the version one rather than the engine one; the engine axis has its own
+// dedicated single-engine fixture above, because no shipped fact can reach it.
 $allMismatch = $refusal(static fn() => PlatformCompatibility::assert_supported(
     $platform,
-    $facts('8.4.0', 'MySQL', '8.4.3', '7.2.0', 'multisite')
+    $facts('8.5.0', 'MySQL', '8.3.9', '7.2.0', 'multisite')
 ));
 duo_check_same(
     [
         'platform_site_mode_unsupported',
         'platform_php_version_unsupported',
-        'platform_database_engine_unsupported',
+        'platform_database_version_unsupported',
         'platform_wordpress_version_unsupported',
     ],
     array_column($allMismatch?->diagnostics ?? [], 'code'),
@@ -288,6 +429,93 @@ foreach ([
     );
 }
 
+// The identical fail-closed table for the PHP axis, which now declares the
+// SAME shape through the SAME validator (PlatformCompatibility::
+// valid_exercised_axis()). The first row is the shape this claim replaced:
+// the pre-map two-key {min, max} php axis has no acceptance path, so a
+// boundary that cannot state which PHP series were exercised refuses rather
+// than silently reverting to a bare range (AGENTS.md rule 9).
+foreach ([
+    'the pre-map two-key php axis' => [
+        'max' => '8.4.0', 'min' => '8.3.0', 'note' => 'the shape this claim replaced',
+    ],
+    'an empty exercised-series map on the php axis' => [
+        'max' => '8.5.0', 'min' => '8.3.0', 'note' => 'fixture', 'verified' => [],
+    ],
+    'an exercised-series map on the php axis declared as a list' => [
+        'max' => '8.5.0', 'min' => '8.3.0', 'note' => 'fixture', 'verified' => ['8.3.33', '8.4.24'],
+    ],
+    'a php series key that disagrees with its own proof patch' => [
+        'max' => '8.5.0', 'min' => '8.3.0', 'note' => 'fixture',
+        'verified' => ['8.3' => '8.4.24', '8.4' => '8.4.24'],
+    ],
+    'an exercised php patch outside the declared range' => [
+        'max' => '8.5.0', 'min' => '8.3.0', 'note' => 'fixture',
+        'verified' => ['8.3' => '8.3.33', '8.5' => '8.5.1'],
+    ],
+    'a php range whose minimum is not below its maximum' => [
+        'max' => '8.3.0', 'min' => '8.5.0', 'note' => 'fixture',
+        'verified' => ['8.3' => '8.3.33'],
+    ],
+] as $label => $axis) {
+    $shape = $platform;
+    $shape['compatibility']['php'] = $axis;
+    $shapeFailure = $refusal(static fn() => PlatformCompatibility::assert_supported($shape, $facts()));
+    duo_check_same(
+        'platform_boundary_invalid',
+        $shapeFailure?->reasonCode,
+        "$label refuses fail-closed before any platform comparison"
+    );
+}
+
+// And the database axis, whose shape rules are the engines map's own. The
+// pre-map {engine, min, max} row is the load-bearing one: under a per-engine
+// claim a single engine name beside a single bare range cannot say which
+// engine ANY other range would belong to, so it fails closed rather than
+// being read as a one-entry map.
+foreach ([
+    'the pre-map single-engine database axis' => [
+        'engine' => 'MariaDB', 'max' => '12.0.0', 'min' => '11.0.0',
+        'note' => 'the shape this claim replaced',
+    ],
+    'an empty engines map' => ['engines' => [], 'note' => 'fixture'],
+    'an engines map declared as a list' => [
+        'engines' => [['max' => '12.0.0', 'min' => '11.0.0']], 'note' => 'fixture',
+    ],
+    'an engines map with a numeric (non-string) engine key' => [
+        'engines' => [8 => ['max' => '8.5.0', 'min' => '8.4.0']], 'note' => 'fixture',
+    ],
+    'an engines map with a blank engine name' => [
+        'engines' => ['' => ['max' => '12.0.0', 'min' => '11.0.0']], 'note' => 'fixture',
+    ],
+    // A stray key is refused because nothing else validates an engine entry:
+    // tools/capability-doc.php's allowlist checks only the axis's own
+    // top-level keys, so a `verified`-looking extra here would read as an
+    // exercised-series claim this gate never evaluates.
+    'an engine entry carrying a stray key' => [
+        'engines' => ['MariaDB' => ['max' => '12.0.0', 'min' => '11.0.0', 'verified' => ['11.8' => '11.8.8']]],
+        'note' => 'fixture',
+    ],
+    'an engine entry missing its maximum' => [
+        'engines' => ['MariaDB' => ['min' => '11.0.0']], 'note' => 'fixture',
+    ],
+    'an engine range whose minimum is not below its maximum' => [
+        'engines' => ['MariaDB' => ['max' => '11.0.0', 'min' => '12.0.0']], 'note' => 'fixture',
+    ],
+    'an engine entry that is not an object at all' => [
+        'engines' => ['MariaDB' => '11.0.0-12.0.0'], 'note' => 'fixture',
+    ],
+] as $label => $axis) {
+    $shape = $platform;
+    $shape['compatibility']['database'] = $axis;
+    $shapeFailure = $refusal(static fn() => PlatformCompatibility::assert_supported($shape, $facts()));
+    duo_check_same(
+        'platform_boundary_invalid',
+        $shapeFailure?->reasonCode,
+        "$label refuses fail-closed before any platform comparison"
+    );
+}
+
 $liveFacts = PlatformCompatibility::current_facts();
 duo_check_same(
     [
@@ -316,19 +544,39 @@ duo_check(
     'database driver errors and secret-shaped bytes never enter human or machine platform evidence'
 );
 
-// The host PHP intentionally runs outside the shipped 8.3.x window. With a
-// healthy target probe restored, Policy must therefore refuse that platform
-// before it can reveal whether the deliberately missing repository exists.
+// Whether THIS host's PHP is inside the shipped claim is derived, never
+// assumed. It used to be a safe literal ("the host runs outside the 8.3.x
+// window"); with the range widened to [8.3.0, 8.5.0) and this host on 8.5.6
+// the margin is 0.0.6, and a literal here would silently change what the
+// block proves the next time the claim moves — the suite would keep passing
+// while asserting something else. Either branch is a real ordering claim:
+// outside the claim, the platform refusal must precede the first repository
+// read; inside it, the platform gate must NOT be what answers, so the
+// deliberately missing repository is reached.
 $GLOBALS['wpdb']->server = '11.8.8-MariaDB';
 $GLOBALS['wpdb']->last_error = '';
 require_once $root . '/agent/src/Policy/Policy.php';
 
+$claimedPhp = $platform['compatibility']['php'];
+$hostSeries = preg_match('/^(\d+\.\d+)/', PHP_VERSION, $hostMatch) === 1 ? $hostMatch[1] : '';
+$hostInsideClaim = preg_match('/^\d+(?:\.\d+){1,3}$/D', PHP_VERSION) === 1
+    && version_compare(PHP_VERSION, (string) $claimedPhp['min'], '>=')
+    && version_compare(PHP_VERSION, (string) $claimedPhp['max'], '<')
+    && is_string($claimedPhp['verified'][$hostSeries] ?? null);
+
 $policyFailure = $refusal(static fn() => Duo\Policy::load('/definitely-missing-platform-ordering-repository'));
-duo_check_same('platform_unsupported', $policyFailure?->reasonCode, 'Policy load invokes the platform gate on a real WordPress-shaped runtime');
-duo_check(
-    $policyFailure !== null && !str_contains($policyFailure->getMessage(), 'site.duo.json'),
-    'platform refusal precedes the first repository read'
-);
+if ($hostInsideClaim) {
+    duo_check(
+        $policyFailure !== null && $policyFailure->reasonCode !== 'platform_unsupported',
+        'Policy load on a host PHP the claim exercises passes the platform gate and refuses on the missing repository instead'
+    );
+} else {
+    duo_check_same('platform_unsupported', $policyFailure?->reasonCode, 'Policy load invokes the platform gate on a real WordPress-shaped runtime');
+    duo_check(
+        $policyFailure !== null && !str_contains($policyFailure->getMessage(), 'site.duo.json'),
+        'platform refusal precedes the first repository read'
+    );
+}
 
 $GLOBALS['platform_multisite'] = true;
 try {

@@ -287,7 +287,14 @@ $claim = static function (
         'platform' => ['compatibility' => [
             'wordpress' => ['last_verified' => '7.0.3'],
             'php' => ['min' => '8.3.0', 'max' => '8.4.0'],
-            'database' => ['engine' => 'MariaDB', 'min' => '11.0.0', 'max' => '12.0.0'],
+            // The shipped shape: one range per claimed engine. A fixture left
+            // on the retired `engine` scalar would render NO database
+            // dependency at all through SurfaceCatalog::expiry(), which is
+            // the silent narrowing that shape change had to be checked for.
+            'database' => ['engines' => [
+                'MariaDB' => ['min' => '11.0.0', 'max' => '12.0.0'],
+                'MySQL' => ['min' => '8.4.0', 'max' => '8.5.0'],
+            ]],
         ]],
         'evidence_scope' => 'authored_disposition',
         'source' => [

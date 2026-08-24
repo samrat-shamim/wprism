@@ -202,8 +202,11 @@ are rejected when the registry is loaded.
   6. `DISALLOW_FILE_MODS` is set (advisory — DUO-3231, closes the wp-admin
      file-mod UI that can silently drift installed code out from under git)
   7. installed PHP version is inside `docs/compatibility-baseline.json`'s
-     declared range (DUO-3222)
-  8. installed database engine/version is inside the same baseline
+     declared range AND its MAJOR.MINOR is one of the exercised series that
+     baseline names in `php.verified` (DUO-3222)
+  8. installed database engine is a key of the same baseline's
+     `database.engines` map, and the installed version is inside THAT
+     engine's own range — never another engine's
   9. installed WordPress core version is inside the same baseline's range AND
      its MAJOR.MINOR is one of the exercised series that baseline names in
      `verified` (a minor line inside the range that nobody ran still fails)
