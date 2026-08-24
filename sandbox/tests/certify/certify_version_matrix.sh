@@ -473,6 +473,13 @@ postdeploy_the_events_calendar_content() {
   unset -f wp_conf2
 }
 
+postapply_the_events_calendar_content() {
+  wp_conf2() { wp2 "$@"; }
+  local CONF_REPO2="siterepo/${PAIR}2"
+  . conformance/postapply/the-events-calendar.sh
+  unset -f wp_conf2
+}
+
 check_the_events_calendar_boundary_content() {
   wp_conf1() { wp1 "$@"; }
   wp_conf2() { wp2 "$@"; }
@@ -1824,6 +1831,7 @@ EOF
   wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
   grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
     || fail "apply canary not clean at the-events-calendar $TEC_VERSION"
+  postapply_the_events_calendar_content
   check_the_events_calendar_boundary_content
 
   wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-final

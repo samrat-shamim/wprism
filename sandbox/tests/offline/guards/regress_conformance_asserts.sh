@@ -18,7 +18,7 @@ FRAGMENT=conformance/asserts.sh
 
 # Every require_* invoked anywhere in the hooks both harnesses source...
 # (require_once is PHP inside the hooks' heredocs, not a bash helper.)
-CALLED=$(grep -rhoE '\brequire_[a-z_]+' conformance/seeds/ conformance/postdeploy/ conformance/checks/ conformance/capture-checks/ | grep -v '^require_once$' | sort -u)
+CALLED=$(grep -rhoE '\brequire_[a-z_]+' conformance/seeds/ conformance/postdeploy/ conformance/postapply/ conformance/checks/ conformance/capture-checks/ | grep -v '^require_once$' | sort -u)
 [ -n "$CALLED" ] || fail "no require_* calls found under conformance/seeds/ + postdeploy/ + checks/ + capture-checks/ — the grep itself regressed"
 
 # ...must be defined in the fragment (definition = `name() {`).
@@ -35,6 +35,18 @@ for harness in conformance/run.sh tests/certify/certify_version_matrix.sh; do
     || fail "$harness does not source the shared fragment — its hooks' premise assertions die at runtime"
 done
 pass "both hook-sourcing harnesses source the fragment"
+
+grep -q 'POSTAPPLY="conformance/postapply/\$MANIFEST.sh"' conformance/run.sh \
+  || fail 'conformance/run.sh does not invoke the convention-named post-apply hook'
+APPLY_LINE=$(grep -n 'pass "apply succeeded, side-effect canary clean"' conformance/run.sh | cut -d: -f1)
+POSTAPPLY_LINE=$(grep -n '^POSTAPPLY="conformance/postapply/\$MANIFEST.sh"' conformance/run.sh | cut -d: -f1)
+RECAPTURE_LINE=$(grep -n '^say "acceptance: canonical(conf2) == canonical(conf1), byte for byte"' conformance/run.sh | cut -d: -f1)
+CHECK_LINE=$(grep -n '^CHECK="conformance/checks/\$MANIFEST.sh"' conformance/run.sh | cut -d: -f1)
+[ "$APPLY_LINE" -lt "$POSTAPPLY_LINE" ] \
+  && [ "$POSTAPPLY_LINE" -lt "$RECAPTURE_LINE" ] \
+  && [ "$RECAPTURE_LINE" -lt "$CHECK_LINE" ] \
+  || fail 'post-apply hooks must run after successful apply and before generic recapture/diff and render checks'
+pass 'post-apply target-local witness hooks have one convention path and an exact pre-recapture execution point'
 
 # And the fragment must not silently grow a second definition home: the
 # helpers may be defined nowhere else.

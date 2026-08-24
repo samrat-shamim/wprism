@@ -27,6 +27,11 @@
 #                                       concrete case, split across the two
 #                                       hooks because conf1 is active at
 #                                       seed time and conf2 isn't.
+#   conformance/postapply/<name>.sh    conf2 only, strictly after successful
+#                                       apply and before the generic canonical
+#                                       recapture/diff: assert and remove only
+#                                       test-owned target-local witnesses that
+#                                       must survive apply but are not canonical.
 #   conformance/checks/<name>.sh       conf2 only, after apply: render-level
 #                                       acceptance a byte-diff can't see.
 #   conformance/capture-checks/<name>.sh
@@ -514,6 +519,17 @@ export APPLY_JSON
 echo "$APPLY_JSON" | jq .
 [ "$(echo "$APPLY_JSON" | jq -r '.canary')" = "clean" ] || fail "side-effect canary was not clean during apply"
 pass "apply succeeded, side-effect canary clean"
+
+# Optional per-manifest post-apply hook. This is deliberately before the
+# generic recapture: a manifest may manufacture target-local state solely to
+# prove apply preserved it, but that witness is not source-authored canonical
+# state and must be checked and removed before byte identity is measured.
+POSTAPPLY="conformance/postapply/$MANIFEST.sh"
+if [ -f "$POSTAPPLY" ]; then
+  say "post-apply target-local witness acceptance (conformance/postapply/$MANIFEST.sh)"
+  bash "$POSTAPPLY"
+  pass "post-apply target-local witnesses proved and removed"
+fi
 
 say "acceptance: canonical(conf2) == canonical(conf1), byte for byte"
 wp_conf2 duo capture --repo=/siterepo --out=/siterepo/.tmp-conf2state >/dev/null

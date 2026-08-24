@@ -977,7 +977,7 @@ TEC_WIDGET_OBJECT_CAPTURE=$(wp_conf1 duo capture --repo=/siterepo --out=/siterep
   || TEC_WIDGET_OBJECT_RC=$?
 require_duo_answered "TEC embedded widget object refusal" human "$TEC_WIDGET_OBJECT_CAPTURE"
 [ "$TEC_WIDGET_OBJECT_RC" -ne 0 ] \
-  && grep -Fq 'contains a PHP object' <<<"$TEC_WIDGET_OBJECT_CAPTURE" \
+  && grep -Fq 'non-plain serialized data (PHP object)' <<<"$TEC_WIDGET_OBJECT_CAPTURE" \
   && [ ! -e "$TEC_WIDGET_OBJECT_OUT" ] \
   || fail "TEC embedded widget object graph did not refuse atomically: $TEC_WIDGET_OBJECT_CAPTURE"
 wp_conf1 eval '
@@ -1246,65 +1246,6 @@ printf '%s\n' "$TARGET" | jq -e \
     safe_instance_rehashed:true
   }
 ' >/dev/null || fail "TEC native graph/settings/derived state did not converge: $TARGET"
-
-CUTOFF_SENTINEL=$(wp_conf2 eval '
-$posts = get_posts([
-    "post_type" => "tribe_events",
-    "post_status" => "any",
-    "posts_per_page" => 2,
-    "title" => "Duo Target Local All Day Cutoff Sentinel",
-]);
-if (count($posts) !== 1) {
-    throw new RuntimeException("target-local cutoff sentinel cardinality changed");
-}
-$post = $posts[0];
-$meta = [];
-foreach (["_EventAllDay", "_EventStartDate", "_EventEndDate", "_EventDuration"] as $key) {
-    $meta[$key] = get_post_meta($post->ID, $key, true);
-}
-echo wp_json_encode([
-    "id" => (int) $post->ID,
-    "post" => [
-        "post_status" => $post->post_status,
-        "post_title" => $post->post_title,
-        "post_type" => $post->post_type,
-    ],
-    "meta" => $meta,
-], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
-') || fail "TEC target-local cutoff sentinel could not be observed after apply"
-require_observed_nonempty "TEC target-local cutoff sentinel after apply" "$CUTOFF_SENTINEL"
-CUTOFF_SENTINEL_JSON=$(printf '%s\n' "$CUTOFF_SENTINEL" | awk 'NF { line=$0 } END { print line }')
-CUTOFF_SENTINEL_EXPECTED=$(jq -c '.cutoff_sentinel' <<<"$TARGET_IDS")
-jq -e --argjson expected "$CUTOFF_SENTINEL_EXPECTED" '. == $expected' \
-  <<<"$CUTOFF_SENTINEL_JSON" >/dev/null \
-  || fail "TEC hook-bypassing settings apply mutated or deleted the target-local all-day sentinel"
-pass "TEC preserved the target-local multi-day-cutoff setting and all-day event bytes without invoking broad native callbacks"
-
-# This event exists only to witness the target-local no-op boundary above. It
-# is not source-authored state, so retaining it through the generic final
-# recapture would turn a successful preservation proof into a false canonical
-# difference. Remove it through the native post lifecycle, then require every
-# durable owner row to be gone before continuing to render/recapture evidence.
-CUTOFF_SENTINEL_ID=$(jq -er '.id' <<<"$CUTOFF_SENTINEL_JSON")
-require_fixture_ids CUTOFF_SENTINEL_ID
-wp_conf2 eval '
-global $wpdb;
-$id = '"$CUTOFF_SENTINEL_ID"';
-if (!wp_delete_post($id, true)) {
-    throw new RuntimeException("target-local cutoff sentinel cleanup failed");
-}
-$counts = [
-    (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->posts} WHERE ID=%d", $id)),
-    (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE post_id=%d", $id)),
-    (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->term_relationships} WHERE object_id=%d", $id)),
-    (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->prefix}tec_events WHERE post_id=%d", $id)),
-    (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->prefix}tec_occurrences WHERE post_id=%d", $id)),
-];
-if ($counts !== [0, 0, 0, 0, 0]) {
-    throw new RuntimeException("target-local cutoff sentinel cleanup retained durable owner rows");
-}
-' >/dev/null || fail "TEC target-local cutoff sentinel could not be removed after its preservation proof"
-pass "TEC removed the test-owned cutoff sentinel before canonical recapture"
 
 pass "TEC adopted huge native identities, rewrote refs/URLs, repaired projections, and preserved target-owned extension state"
 

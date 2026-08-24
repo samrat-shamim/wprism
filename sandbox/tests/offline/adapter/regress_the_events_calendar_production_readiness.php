@@ -7825,6 +7825,7 @@ foreach (['post:tribe_events', 'post:tribe_venue', 'post:tribe_organizer', 'term
 }
 $deletionSeed = (string) file_get_contents($root . '/sandbox/conformance/seeds/the-events-calendar.sh');
 $deletionPostdeploy = (string) file_get_contents($root . '/sandbox/conformance/postdeploy/the-events-calendar.sh');
+$sentinelPostapply = (string) file_get_contents($root . '/sandbox/conformance/postapply/the-events-calendar.sh');
 $deletionCheck = (string) file_get_contents($root . '/sandbox/conformance/checks/the-events-calendar.sh');
 foreach (['duo_source_only_secret', 'duo_target_only_runtime'] as $undeclaredFixtureKey) {
     duo_check(
@@ -7927,23 +7928,31 @@ duo_check(
     'the exact TEC check has no caller-relative host-PHP dependency'
 );
 foreach ([
-    'CUTOFF_SENTINEL_ID=$(jq -er',
+    'sentinel_id=$(jq -er',
     'wp_delete_post($id, true)',
     'SELECT COUNT(*) FROM {$wpdb->term_relationships} WHERE object_id=%d',
     'target-local cutoff sentinel cleanup retained durable owner rows',
     'TEC removed the test-owned cutoff sentinel before canonical recapture',
 ] as $sentinelCleanupEvidence) {
     duo_check(
-        str_contains($deletionCheck, $sentinelCleanupEvidence),
+        str_contains($sentinelPostapply, $sentinelCleanupEvidence),
         "the target-local cutoff witness cleanup retains evidence $sentinelCleanupEvidence"
     );
 }
 duo_check(
-    strpos($deletionCheck, 'TEC hook-bypassing settings apply mutated or deleted the target-local all-day sentinel')
-        < strpos($deletionCheck, 'wp_delete_post($id, true)')
-        && strpos($deletionCheck, 'wp_delete_post($id, true)')
-        < strpos($deletionCheck, 'PERMALINK=$(jq -er'),
-    'the exact fixture removes its target-local sentinel only after preservation and before render/recapture'
+    strpos($sentinelPostapply, 'TEC hook-bypassing settings apply mutated or deleted the target-local all-day sentinel')
+        < strpos($sentinelPostapply, 'wp_delete_post($id, true)'),
+    'the exact post-apply hook removes its target-local sentinel only after its byte-preservation proof'
+);
+duo_check(
+    !str_contains($deletionCheck, 'Duo Target Local All Day Cutoff Sentinel')
+        && str_contains($sentinelPostapply, 'Duo Target Local All Day Cutoff Sentinel'),
+    'the render check cannot run the target-local sentinel proof after generic canonical recapture'
+);
+duo_check(
+    str_contains($deletionCheck, "grep -Fq 'non-plain serialized data (PHP object)'")
+        && !str_contains($deletionCheck, "grep -Fq 'contains a PHP object'"),
+    'the exact live object-graph probe matches the canonical PlainData refusal without weakening no-publication'
 );
 
 $versionMatrix = (string) file_get_contents(
@@ -7953,6 +7962,7 @@ foreach ([
     'seed_the_events_calendar_content() {' => 'native seed helper',
     'postdeploy_the_events_calendar_content() {' => 'hostile target helper',
     'check_the_events_calendar_boundary_content() {' => 'product-path boundary helper',
+    'postapply_the_events_calendar_content() {' => 'target-local post-apply helper',
     'for TEC_VERSION in 6.17.2 6.17.3; do' => 'exact supported-artifact loop',
 ] as $matrixNeedle => $matrixLabel) {
     duo_check_same(
@@ -7964,6 +7974,7 @@ foreach ([
 foreach ([
     'local TEC_BOUNDARY_ONLY=0',
     'if [ "$TEC_EXPECTED_VERSION" != 6.17.2 ]; then',
+    '. conformance/postapply/the-events-calendar.sh',
     '"taxonomies": ["category", "post_tag", "tribe_events_cat"]',
     'TEC_UPGRADE_DEPLOY_OUT=$(wp2 duo deploy --repo=/siterepo 2>&1)',
     'wp2 duo deploy --repo=/siterepo --force-code-drift',
@@ -7975,6 +7986,17 @@ foreach ([
         "the single exact TEC matrix retains evidence $matrixEvidence"
     );
 }
+$tecMatrixCaseStart = strpos($versionMatrix, '# One candidate-bound pass executes every real-world standalone scenario');
+$tecMatrixCaseEnd = strpos($versionMatrix, 'if [ "$VMATRIX_MANIFEST" = elementor ]; then', $tecMatrixCaseStart);
+duo_check($tecMatrixCaseStart !== false && $tecMatrixCaseEnd !== false, 'the exact TEC matrix case has bounded source markers');
+$tecMatrixCase = substr($versionMatrix, $tecMatrixCaseStart, $tecMatrixCaseEnd - $tecMatrixCaseStart);
+duo_check(
+    strpos($tecMatrixCase, 'wp2 duo apply --repo=/siterepo')
+        < strpos($tecMatrixCase, 'postapply_the_events_calendar_content')
+        && strpos($tecMatrixCase, 'postapply_the_events_calendar_content')
+            < strpos($tecMatrixCase, 'check_the_events_calendar_boundary_content'),
+    'the exact matrix proves and removes target-local witnesses after apply and before plugin checks/recapture'
+);
 
 foreach ([
     'tec_deactivate_reactivate_cycle "${TEC_EXPECTED_VERSION:-6.17.3}"',
