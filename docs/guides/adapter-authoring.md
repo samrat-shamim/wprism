@@ -1003,6 +1003,12 @@ are reduced to their base type word for the same reason.
 Everything under `_draft` is inert: `Policy::load()` never applies a proposal,
 and the trigger keys are renamed so no validator mis-collects one. Ratify by
 hand, delete the rest, then `duo adapter inspect <name> --repo=<site-repo>`.
+Deleting it is not tidiness. `_draft` is in no arm of the signer's top-level key
+partition, so a manifest still carrying it cannot be certified at any spec
+version, and at `spec_version: 3` it is refused at load by name with "strip the
+`_draft` key before install" (spec/repo-format.md § v3.3). Nothing is lost by
+removing it — `duo manifest-validate` reports the sidecar's facts, proposals and
+unsupported counts on every run.
 `--out` refuses to overwrite an existing draft without `--force`, because that
 file holds your ratifications; re-running with `--force` is safe, since human
 edits in the prior draft are carried forward.

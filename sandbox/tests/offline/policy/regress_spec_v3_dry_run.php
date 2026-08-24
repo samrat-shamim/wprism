@@ -19,8 +19,9 @@
  * eventual v3 code will consult, never from a list retyped here:
  *
  *   - the closed top-level key set is `AdapterCertification`'s own
- *     ENTITY_SECTIONS (5) + FIELD_SECTIONS (14) + NON_SURFACE_KEYS (13, since
- *     WP-4.6 added `environment`) partition, read by Reflection because they are private and
+ *     ENTITY_SECTIONS (5) + FIELD_SECTIONS (14) + NON_SURFACE_KEYS (14, since
+ *     WP-4.6 added `environment` and WP-4.3 added `theme_version_range`)
+ *     partition, read by Reflection because they are private and
  *     private is the point — they are what the signer already enforces by name
  *     in `siteRatification()`'s classify-or-throw loop (:700-713), and a copy
  *     here would be the second definition the register discipline exists to
@@ -40,10 +41,14 @@
  *     V3-NS's 18 shipped id_kinds are a permanent floor and not a break list.
  *
  * So the durable asset is the FIXTURE ESTATE plus the measurements, not the
- * prediction. When WP-4.3 makes `ManifestValidator` consult the same partition,
- * these same fixtures flip from "the signer would refuse, the validator admits"
- * to "both refuse", and exactly one assertion in this file moves: the one that
- * pins how many shipped call sites read the partition today (measured: one).
+ * prediction. WP-4.3 has since made the contract grammar consult the same
+ * partition, and the estate is untouched: what moved is the reader count (one
+ * shipped reader, now two) and the two assertions that recorded F2 as open. The
+ * fixtures' verdicts AT THIS ENGINE did not move at all, because the rule is
+ * gated at `spec_version: 3` and every fixture here declares DUO_SPEC_VERSION —
+ * which is the flag-day invariant rather than a gap.
+ * `sandbox/tests/offline/policy/regress_closed_top_level_keys.php` drives the
+ * same shapes at a synthetic N+1 engine, where they refuse by name.
  *
  * THE ESTATE
  * ----------
@@ -59,32 +64,36 @@
  * THE MEASUREMENT THIS SUITE OWES ITS CALLER
  * ------------------------------------------
  * WP-1.6 requires the union of top-level keys actually in use across
- * `manifests/*.json` to be MEASURED against the 32-key signer partition and
+ * `manifests/*.json` to be MEASURED against the 33-key signer partition and
  * the difference ENUMERATED, never assumed. It is measured below and the
  * difference is three findings, each asserted rather than reconciled:
  *
- *   F1  30 of the 32 partition keys are in use across the 16 shipped
+ *   F1  30 of the 33 partition keys are in use across the 16 shipped
  *       manifests, and the union contains NOTHING the partition does not know.
- *       So rule V3-KEYS would refuse zero shipped adapters — the flag day is
- *       clean for this rule, which is the fact the program was assuming. The
- *       32nd key is WP-4.6's `environment` narrowing channel, admitted in the
- *       change that reads it (§ v3.5) and declared by none of the 16.
- *   F2  The other unused partition key is `theme`, and it is UNUSABLE as
- *       shipped: `AdapterContractGrammar::validate_adapter_contract()` (:45)
- *       demands a `theme_version_range` beside every `theme`, and
- *       `ArtifactPolicyIdentity` folds that key into the adapter identity row
- *       (:152-153) — yet `theme_version_range` is in NO arm of the partition.
- *       A theme adapter therefore validates and is then unsignable. The signer
- *       partition is incomplete against the shipped grammar by exactly one key.
+ *       So rule V3-KEYS refuses zero shipped adapters — the flag day is
+ *       clean for this rule, which is the fact the program was assuming. Two of
+ *       the other three are channels admitted in the change that reads them:
+ *       WP-4.6's `environment` (§ v3.5) and WP-4.3's `theme_version_range`
+ *       (§ v3.3 resolution 1), declared by none of the 16.
+ *   F2  RESOLVED by WP-4.3. The finding was that the third unused partition key
+ *       is `theme`, and that it was UNUSABLE as shipped:
+ *       `AdapterContractGrammar::validate_adapter_contract()` (:45) demands a
+ *       `theme_version_range` beside every `theme`, and `ArtifactPolicyIdentity`
+ *       folds that key into the adapter identity row (:152-153) — yet
+ *       `theme_version_range` was in NO arm of the partition, so a theme adapter
+ *       validated and was then unsignable. § v3.3's reviewed resolution 1 gave
+ *       it `version_range`'s arm; the fixture below is unchanged and the verdict
+ *       is now `null` on both halves.
  *   F3  A live in-tree producer emits a top-level key the partition does not
  *       know: `cli/src/Adapter/AdapterDraft.php:379` writes `_draft` into the
  *       manifest it hands the author. `duo adapter-draft` output is therefore
- *       unsignable today and would be refused by rule V3-KEYS on the flag day.
+ *       unsignable, and § v3.3's reviewed resolution 2 KEEPS that refusal on the
+ *       merits and refuses the key at v3 too, with "strip it" as the remedy.
  *
- * F2 and F3 are reported, not fixed here: teaching the signer a key changes
- * what a certificate covers, which is a reviewed decision with its own work
- * package (AGENTS.md, "out-of-scope discoveries are reported ... never fixed
- * silently").
+ * F2 and F3 were reported rather than fixed when this suite was written, since
+ * teaching the signer a key changes what a certificate covers; § v3.3 is where
+ * both were reviewed and WP-4.3 is the rider that implemented the reviewed
+ * answers.
  */
 declare(strict_types=1);
 
@@ -171,20 +180,21 @@ $nonSurfaceKeys = (array) $cert->getConstant('NON_SURFACE_KEYS');
 $closedSet = array_merge($entitySections, $fieldSections, $nonSurfaceKeys);
 sort($closedSet, SORT_STRING);
 
-// 13 non-surface keys, not 12, since WP-4.6: `environment` joined that arm with
-// the narrowing rule that reads it (§ v3.5), because a top-level key in no arm
-// makes its whole adapter unsignable — the same shape F2 measures below for
-// `theme_version_range`. This is the growth rule of § v3.3 exercised once, and
-// it is pinned here so the next arrival is a reviewed edit rather than a drift.
+// 14 non-surface keys, not 12, and both arrivals are the growth rule of § v3.3
+// exercised once each: `environment` joined with the narrowing rule that reads
+// it (WP-4.6, § v3.5) and `theme_version_range` with the closed set itself
+// (WP-4.3, § v3.3 resolution 1 — F2 below, now resolved). Both because a
+// top-level key in no arm makes its whole adapter unsignable. Pinned here so
+// the next arrival is a reviewed edit rather than a drift.
 duo_check_same(
-    [5, 14, 13],
+    [5, 14, 14],
     [count($entitySections), count($fieldSections), count($nonSurfaceKeys)],
-    'the candidate closed key set is the signer partition, read by Reflection: 5 entity + 14 field + 13 non-surface'
+    'the closed key set is the signer partition, read by Reflection: 5 entity + 14 field + 14 non-surface'
 );
 duo_check_same(
-    32,
+    33,
     count(array_unique($closedSet)),
-    'the three arms are disjoint, so the candidate set is exactly 32 keys'
+    'the three arms are disjoint, so the set is exactly 33 keys'
 );
 
 // `siteRatification()` is private and stays private: this suite must exercise
@@ -374,15 +384,16 @@ $report('partition keys no shipped manifest declares: ' . ($knownUnused === [] ?
 // F1 — the difference, enumerated in both directions.
 duo_check_same([], $unknownInUse, 'F1: no shipped manifest declares a top-level key the signer partition does not know');
 duo_check_same(30, count($unionKeys), 'F1: the in-use union is 30 keys');
-// Two keys the partition admits and no shipped adapter declares, and they are
-// there for opposite reasons: `theme` predates the library's plugin-only
-// contents, while `environment` is WP-4.6's narrowing channel — admitted in the
-// change that reads it precisely so an adapter that uses it stays signable
-// (rule V3-AXIS below measures that none of the 16 uses it yet).
+// Three keys the partition admits and no shipped adapter declares, and they are
+// there for different reasons: `theme` predates the library's plugin-only
+// contents; `environment` is WP-4.6's narrowing channel and `theme_version_range`
+// is WP-4.3's resolution of F2 — each admitted in the change that reads it,
+// precisely so an adapter that uses it stays signable (rule V3-AXIS below
+// measures that none of the 16 uses `environment` yet).
 duo_check_same(
-    ['environment', 'theme'],
+    ['environment', 'theme', 'theme_version_range'],
     $knownUnused,
-    'F1: the partition/union difference is exactly two keys — `environment` and `theme`, declared by no shipped adapter'
+    'F1: the partition/union difference is exactly three keys — `environment`, `theme` and `theme_version_range`, declared by no shipped adapter'
 );
 
 // The same measurement over the on-disk synthetic estate, because the flag day
@@ -428,10 +439,15 @@ duo_check_same(
     'V3-KEYS admits the corpus-wide manifest_a()/manifest_b() pair, so it does not condemn the shape every other suite calls valid'
 );
 
-// F2 — `theme` is admitted, its mandatory companion is not.
+// F2, RESOLVED by WP-4.3 (§ v3.3 resolution 1). The finding was that `theme`
+// was admitted and its mandatory companion was not, so a theme adapter
+// validated and was then unsignable — the partition incomplete against the
+// shipped grammar by exactly one key. The FIXTURE is unchanged; what moved is
+// the verdict, which is this suite's whole discipline: a rider that lands a
+// rule moves the assertion that measured its absence and not the estate.
 duo_check(
-    in_array('theme', $closedSet, true) && !in_array('theme_version_range', $closedSet, true),
-    'F2: the partition knows `theme` but not `theme_version_range`'
+    in_array('theme', $closedSet, true) && in_array('theme_version_range', $closedSet, true),
+    'F2 RESOLVED: the partition knows `theme_version_range` beside `theme`'
 );
 duo_check_same(
     null,
@@ -439,12 +455,11 @@ duo_check_same(
     'F2: a theme adapter passes the shipped validator pipeline (AdapterContractGrammar accepts theme + theme_version_range)'
 );
 $themeVerdict = $signerVerdict('acme-theme', $themeAdapter);
-duo_check(
-    is_string($themeVerdict) && str_contains($themeVerdict, "declares 'theme_version_range'")
-        && str_contains($themeVerdict, 'teach the signer this section'),
-    'F2: ...and is then unsignable — the signer refuses the companion key the grammar made mandatory'
+duo_check_same(
+    null,
+    $themeVerdict,
+    'F2: ...and is now SIGNABLE too — the signer classifies the companion key the grammar already made mandatory'
 );
-duo_check_detail('F2 refusal: ' . (string) $themeVerdict);
 
 // F3 — a shipped producer emits a key the partition does not know.
 $draftSource = (string) file_get_contents($repo . '/cli/src/Adapter/AdapterDraft.php');
@@ -460,25 +475,56 @@ duo_check(
 );
 duo_check_detail('F3 refusal: ' . (string) $draftVerdict);
 
-// The seam that flips. Today the partition has exactly one reader in the
-// shipped trees — the signer. WP-4.3 adds ManifestValidator/ManifestGrammar as
-// the second, and THIS assertion is the single line that must move; the
-// fixtures above do not.
-$partitionReaders = $shippedFilesNaming(['ENTITY_SECTIONS', 'FIELD_SECTIONS', 'NON_SURFACE_KEYS']);
+// THE SEAM, FLIPPED. This suite's header states that a rider landing a rule
+// moves the assertion that measured its absence and NOT the fixtures. This is
+// that assertion for V3-KEYS: the partition had exactly one shipped reader (the
+// signer) and WP-4.3 made the contract grammar the second, reading it through
+// `AdapterCertification::topLevelKeyPartition()` so that the two readers share
+// one definition — which `php tools/wire-surface.php --check` now asserts under
+// `make release-gate` (register row R-21).
+// Measured twice, because "one definition, two readers" is two facts. The
+// three private consts are the DEFINITION and must stay in one file — that
+// property is what the release gate protects. The public accessor is how every
+// other file reaches them, so it is what "reader" means now that the set is
+// enforced from outside the class that owns it.
+$partitionDefiners = $shippedFilesNaming(['ENTITY_SECTIONS', 'FIELD_SECTIONS', 'NON_SURFACE_KEYS']);
 duo_check_same(
     ['agent/src/Adapter/AdapterCertification.php'],
-    $partitionReaders,
-    'THE FLIP: the closed key set has exactly one shipped reader today (the signer); WP-4.3 makes the validator the second'
+    $partitionDefiners,
+    'ONE DEFINITION: the three partition constants are declared in exactly one shipped file, and WP-4.3 did not copy them anywhere'
 );
+$partitionReaders = $shippedFilesNaming(['topLevelKeyPartition']);
+duo_check_same(
+    [
+        'agent/src/Adapter/AdapterCertification.php',
+        'agent/src/Adapter/AdapterContractGrammar.php',
+        'cli/src/Adapter/ManifestValidate.php',
+    ],
+    $partitionReaders,
+    'THE FLIP: the accessor has a SECOND enforcing reader — the contract grammar, which refuses an unrecognised key at spec_version 3 — beside the class that owns it and the emitter that publishes it'
+);
+// The fixture is unchanged and so is its verdict AT THIS ENGINE: the rule is
+// gated at spec_version 3, and manifest_a() declares DUO_SPEC_VERSION, so the
+// open v2 era is exactly what it was. That is the flag-day invariant, not a gap
+// — `regress_closed_top_level_keys.php` drives the same shape at a synthetic
+// N+1 engine, where it refuses by name.
 duo_check_same(
     null,
     $validatorVerdict($fixtures['fixture:typo-and-invented-section']),
-    "WP-4.3's named case: `totally_made_up_section` and a typo'd `optoins` are admitted by the validator pipeline today"
+    "WP-4.3's named case at v2: `totally_made_up_section` and a typo'd `optoins` are STILL admitted by the validator pipeline, because the rule is gated at spec_version 3"
+);
+$typoV3 = $fixtures['fixture:typo-and-invented-section'];
+$typoV3['spec_version'] = DUO_SPEC_VERSION + 1;
+$typoV3Verdict = $validatorVerdict($typoV3);
+duo_check(
+    is_string($typoV3Verdict) && str_contains($typoV3Verdict, 'accepts spec_version'),
+    '...and the same fixture at spec_version ' . (DUO_SPEC_VERSION + 1)
+        . ' is refused by the WINDOW on this engine, which is why the key rule needs the N+1 probe process'
 );
 $typoVerdict = $signerVerdict('typo', $fixtures['fixture:typo-and-invented-section']);
 duo_check(
     is_string($typoVerdict) && str_contains($typoVerdict, 'which this signer cannot classify'),
-    '...while the signer already refuses that same manifest by name — the disagreement WP-4.3 closes'
+    '...while the signer refuses that same manifest by name at every version — the one-sided enforcement is now one-sided only for v2'
 );
 duo_check_detail('V3-KEYS typo refusal: ' . (string) $typoVerdict);
 
@@ -857,7 +903,7 @@ $breakList = [
 foreach ($breakList as $rule => $count) {
     $report(sprintf('%-45s %2d would refuse', $rule, $count));
 }
-$report('open findings for the issue: F2 (theme_version_range absent from the partition), F3 (`_draft` emitted by adapter-draft)');
+$report('findings from this dry run, as resolved by § v3.3: F2 (theme_version_range) joined the partition; F3 (`_draft` emitted by adapter-draft) is refused at v3 on the merits, with "strip it" as the remedy');
 
 duo_check_same(
     0,

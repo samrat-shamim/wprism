@@ -8,7 +8,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-offline-all regress-offline-corpus regress-offline-diagnostics
 .PHONY: regress-lifecycle-options-snapshot
 .PHONY: regress-core-lifecycle regress-core-data-boundary regress-core-scope-platform regress-core-scope-database
-.PHONY: regress-platform-compatibility regress-topology-gate regress-spec-v3-dry-run regress-spec-v3-document regress-spec-window
+.PHONY: regress-platform-compatibility regress-topology-gate regress-spec-v3-dry-run regress-spec-v3-document regress-spec-window regress-closed-top-level-keys
 .PHONY: regress-cli-json-refusals regress-fleet-census regress-typed-refusal-envelopes regress-agent-subcommand-names regress-command-output regress-environment-command-preflight regress-environment-command regress-passthrough-command regress-environment-command-options regress-driver-capabilities-command regress-environment-list-command regress-doctor-command regress-migration-preflight regress-adopt-command regress-pending-command regress-classify-command regress-capture-command regress-deploy-command regress-deploy-checkpoint regress-promote-command regress-status-command regress-scope-command regress-refresh-command regress-rebase-command
 .PHONY: regress-plan-explain
 .PHONY: regress-plan-category-summary regress-plan-category-summary-live regress-plugin-adapter-source regress-scoped-apply-live regress-scoped-apply-live-cleanup regress-scope-chain-stability
@@ -417,6 +417,16 @@ regress-spec-v3-document:
 # gate that forbids an N-2 window is proven to bite.
 regress-spec-window:
 	php sandbox/tests/offline/policy/regress_spec_window.php
+
+# WP-4.3 (spec § v3.5's sibling, § v3.3): the top-level manifest key set is
+# CLOSED at spec_version 3 and open at v2, from ONE definition shared with the
+# signer. Two engines and two trees -- a child process at N+1 for the verdict
+# matrix, and a copied tree whose two defines move with platform.json for the
+# empirical baseline through `duo manifest-validate`: [ok] at v2 and [error]
+# naming the key at v3, on identical fixture bytes. Also runs the release-gate
+# same-set check against a mutated copy, so the gate is proven to bite.
+regress-closed-top-level-keys:
+	php sandbox/tests/offline/policy/regress_closed_top_level_keys.php
 
 regress-adapter-sources:
 	bash sandbox/tests/offline/adapter/regress_adapter_sources.sh

@@ -1331,9 +1331,18 @@ check(
 );
 check(
     str_contains((string) ($topLevel['enforced_by'] ?? ''), 'siteRatification')
+        && str_contains((string) ($topLevel['enforced_by'] ?? ''), 'validate_adapter_contract')
         && str_contains((string) ($topLevel['not_enforced_by'] ?? ''), 'ManifestValidator')
         && str_contains((string) ($topLevel['status'] ?? ''), 'WP-4.3'),
-    'the block states BOTH halves of the truth — it refuses at signing, the validator does not consult it — and names the rider that closes the gap'
+    'the block states BOTH halves of the truth — it refuses at signing at every version AND at load for a spec_version 3 manifest, while a v2 manifest still admits an unrecognised key — and names the rider'
+);
+// The growth rule belongs in the published document and not only in the spec:
+// an author reading `all` would otherwise conclude that the 33 keys are the
+// whole answer, and be wrong for any manifest that declares a feature.
+check(
+    str_contains((string) ($topLevel['status'] ?? ''), 'engine feature')
+        && str_contains((string) ($topLevel['status'] ?? ''), '_draft'),
+    'and it publishes how the set GROWS (a key claimed by an implemented engine feature) and the one key refused on the merits (`_draft`), so `all` is not mistaken for the whole answer'
 );
 
 $window = $schema['spec_window'] ?? [];
@@ -1436,9 +1445,13 @@ check(
 // emitter does not move; a derived one does.
 $certFile = $mutantRoot . '/agent/src/Adapter/AdapterCertification.php';
 $certSource = (string) file_get_contents($certFile);
-$anchor = "'providers', 'spec_version', 'theme', 'version_range',";
+$anchor = "'providers', 'spec_version', 'theme', 'theme_version_range', 'version_range',";
 check(str_contains($certSource, $anchor), 'the NON_SURFACE_KEYS anchor is present in the copied engine');
-file_put_contents($certFile, str_replace($anchor, "'providers', 'spec_version', 'theme', 'version_range', 'acme_reserved_marker',", $certSource));
+file_put_contents($certFile, str_replace(
+    $anchor,
+    "'providers', 'spec_version', 'theme', 'theme_version_range', 'version_range', 'acme_reserved_marker',",
+    $certSource
+));
 $mutated = emit_from($mutantRoot);
 check(
     in_array('acme_reserved_marker', $mutated['top_level_keys']['non_surface_keys'] ?? [], true)

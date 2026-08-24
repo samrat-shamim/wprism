@@ -197,6 +197,14 @@ and its cost are written down.
 
 **Reserved.** The envelope signature proves the document was assembled WHOLE by a holder of a key it carries — nobody else can append a key, widen a scope list, move a window or flip a status in it. It is deliberately NOT a chain to an off-document root: delegation is its own signed statement type with its own domain (spec/repo-format.md § v3.8), never a member or an arm inside this one.
 
+### R-21 — The top-level manifest key set is closed at `spec_version: 3`, from one definition
+
+**Shipped now.** A `spec_version: 3` manifest may declare 33 top-level keys — the signer's three-arm partition, 5 entity + 14 field + 14 non-surface — plus whatever keys its own declared, IMPLEMENTED `engine_features` values claim (`engine_features` itself, via `spec-window/v1`). A key in none of those refuses at load BY NAME, and `_draft` — the sidecar `duo adapter-draft` writes — refuses with its own remedy, to strip it. v2 manifests keep the open behaviour byte for byte, so none of the shipped library changes. Measured here by asking the shipped validator and the shipped signer for their sets and comparing them in both directions.
+
+**Why it cannot change.** A key REMOVED from the set later refuses every manifest in the field that declared it, and takes its adapter digest with it: the key is inside the manifest bytes `ArtifactPolicyIdentity::manifest_rows()` folds, so the remedy is an edit that moves every `site.duo.json` content pin and invalidates every certificate over that adapter (R-19 records the same irreversibility for a feature name). Closing the set is therefore a one-way door: it can be opened wider through the growth rule and can never be narrowed. The one definition is load-bearing for the same reason — two lists that agree today diverge silently, and the symptom is an adapter that loads everywhere and cannot be certified.
+
+**Reserved.** Growth is § v3.2's channel and nothing else: a post-v3 primitive ships as an engine feature name, the top-level keys that feature claims, and a refusal for the engine that lacks it — so no key is ever added by widening this set for everyone. A feature whose key must also be SIGNABLE gives it an arm in the partition in the same change, because a feature record carries `{since, keys}` and no arm, and an arm is what decides whether a certificate covers the key as a surface.
+
 ## 3. The grammars, as the shipped validators answer them
 
 ### 3.1 Key ids, three roots
@@ -298,11 +306,15 @@ printing a register it cannot stand behind:
 6. **The spec-version window has not accumulated.** The shipped validator is probed over
    N-3 … N+2 and must accept exactly {N-1, N} — floor `DUO_SPEC_VERSION - 1`, never deeper (R-18).
 
-6. **The shipped platform trust root is one of its two legal states.** It is the empty
+7. **The shipped platform trust root is one of its two legal states.** It is the empty
    `duo-adapter-authorities/v1` registry byte for byte, or a
    `duo-adapter-authorities/v2` document that VERIFIES through the
    shipped reader — envelope signature, fingerprint-bound ids, windows and namespaces all
    checked by the code a site runs (R-08, R-18).
+8. **The closed top-level manifest key set has one definition.** The set the shipped
+   validator admits at `spec_version: 3` and the partition the shipped signer
+   classifies against are compared in both directions, and the only excess admitted is what
+   an implemented engine feature claims (R-21).
 
 What it does not prove: that the decisions are *right*, that any artifact in the field was
 signed under these exact rules, or that a holder's verifier implements them. The rationale

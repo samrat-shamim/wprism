@@ -16,7 +16,7 @@
 
 regress-offline-all:
 	@bash sandbox/tests/offline_diagnostics_guard.sh "$(MAKE)" --no-print-directory regress-offline-corpus
-	@echo "regress-offline-all: 318 offline suites green"
+	@echo "regress-offline-all: 319 offline suites green"
 
 regress-offline-corpus: code-half-unit \
 	regress-acf-meta-interpreter \
@@ -74,6 +74,7 @@ regress-offline-corpus: code-half-unit \
 	regress-classify-command \
 	regress-cli-json-refusals \
 	regress-close-gate-parent-count \
+	regress-closed-top-level-keys \
 	regress-code-classify \
 	regress-code-compatibility \
 	regress-code-completed-unit \
@@ -337,4 +338,4 @@ regress-offline-corpus: code-half-unit \
 	regress-wp-cli-child-process \
 	regress-yoast-duplicate-post-role-provider \
 	regress-yoast-index-provider
-	@echo "regress-offline-corpus: 318 offline suites green"
+	@echo "regress-offline-corpus: 319 offline suites green"
