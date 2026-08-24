@@ -29,9 +29,13 @@ use Duo\Secrets;
  * genuinely needs a live target (a column's SQL type, its real PRIMARY KEY, whether
  * an integer resolves to a live entity, natural-key uniqueness across the keyspace)
  * stays a `proposal` carrying a `question` that names the deferral. `--evidence=<file>`
- * is the single seam a later, live slice attaches through; in THIS slice the flag is
- * accepted and then explicitly ignored, with a note, so nothing offline pretends to
- * have seen a live target.
+ * is the single seam a live answer attaches through: a `duo-adapter-probe/v1` document
+ * from `wp duo adapter-probe`, the only half that runs on a target. Its facts land as
+ * `evidence[]` rows at confidence 1.0, each naming the question it closes (see
+ * PROBE_QUESTIONS); nothing else changes. A probe converts "pk='id' is a structural
+ * guess" into "the live PRIMARY KEY is (id)" — it makes the human ratification better
+ * founded, it never performs it, and read_probe() refuses any document carrying a word
+ * outside the closed probe vocabulary so it cannot try.
  *
  * TWO code-derived constraints govern the envelope, both correctness-critical:
  *
@@ -122,6 +126,49 @@ final class AdapterDraft {
 
     /** The classification sections Policy::export_manifest() owns as facts. */
     private const FACT_SECTIONS = ['options', 'post_meta', 'term_meta', 'user_meta'];
+
+    /** Envelope of the live document `--evidence=<file>` accepts (`Duo\AdapterProbe::FORMAT`). */
+    public const PROBE_FORMAT = 'duo-adapter-probe/v1';
+
+    /**
+     * The CLOSED vocabulary of live questions a probe can answer.
+     *
+     * A question a proposer defers is free-form prose except for one thing:
+     * when a live document CAN answer it, the question is written
+     * `[<name>] <prose>` and an incoming evidence row names that same
+     * `<name>`. That is the whole "answered by name" mechanism — the prose is
+     * for the human, the name is what makes an answer attachable to the
+     * deferral it closes instead of arriving as an unsolicited assertion.
+     * A name is a promise that some live fact addresses it, so this list only
+     * grows with the probe's own fact families.
+     */
+    private const PROBE_QUESTIONS = [
+        // column types, nullability, and the real PRIMARY KEY
+        'table_schema' => true,
+        // uniqueness of a natural-key column across the whole keyspace
+        'natural_key_uniqueness' => true,
+        // DeleteGuardEvaluator::lock_index()'s first-column/prefix coverage
+        'lock_index' => true,
+        // declared FOREIGN KEY constraints (context for deletion, never authority)
+        'foreign_keys' => true,
+        // the `<table>meta` sidecar a draft that declares only the parent misses
+        'eav_twin' => true,
+    ];
+
+    /**
+     * The closed per-table key set a probe document may carry.
+     *
+     * This is the risk boundary, not a schema formality: the danger of a
+     * live-evidence file is that it is read as an unreviewed AUTHORITY, so
+     * the consumer refuses a document that carries any word outside this
+     * list — `class`, `identity`, `deletions` and every capability noun
+     * included. A probe can therefore never propose a classification, only
+     * report what the server said.
+     */
+    private const PROBE_TABLE_KEYS = [
+        'present', 'columns', 'primary_key', 'unique_keys', 'index_coverage',
+        'foreign_keys', 'eav_twin', 'natural_key',
+    ];
 
     /** `duo coverage <env> --format=json` — the seed document's primary shape. */
     public const SEED_COVERAGE_FORMAT = 'duo-coverage-report/v1';
@@ -277,23 +324,29 @@ final class AdapterDraft {
             $seedDocument = $decoded;
         }
 
-        // The single seam for LIVE-only inputs (deferred slice). Presence is
-        // validated so a typo fails loudly; contents are NOT read here — every
-        // live-dependent fact stays a proposal+question regardless.
-        $evidenceNote = null;
-        if ($evidence !== null) {
-            if (!is_file($evidence) || !is_readable($evidence)) {
-                return self::fail("--evidence '$evidence' is not a readable file");
-            }
-            $evidenceNote = 'accepted but NOT consumed in this offline slice — live-evidence enrichment '
-                . '(SHOW COLUMNS types/PK, journal WHY-signal, live id-resolution, keyspace enumeration) is a '
-                . 'deferred follow-up; every live-dependent fact below stays a proposal with a question';
+        // The single seam for LIVE-only inputs: a `duo-adapter-probe/v1`
+        // document from `wp duo adapter-probe`, the only half that runs on a
+        // target. It is validated against a CLOSED key set here (read_probe())
+        // rather than trusted, because the failure mode this flag can have is
+        // a live document being read as an unreviewed authority.
+        $probe = null;
+        if ($evidence !== null && (!is_file($evidence) || !is_readable($evidence))) {
+            return self::fail("--evidence '$evidence' is not a readable file");
         }
 
         try {
             self::boot();
         } catch (\Throwable $t) {
             return self::fail($t->getMessage());
+        }
+        // After boot(), because the hash check is Canon's canonical encoding —
+        // the same bytes the emitter hashed, not a second JSON opinion.
+        if ($evidence !== null) {
+            try {
+                $probe = self::read_probe($evidence);
+            } catch (\Throwable $t) {
+                return self::fail($t->getMessage());
+            }
         }
         try {
             AdapterSources::assert_name($name, 'adapter-draft --name');
@@ -310,7 +363,7 @@ final class AdapterDraft {
             [$manifest, $factConflicts] = self::merge_prior_manifest_intent($exported, $prior);
             $priorDraft = $prior === null ? null : ($prior['_draft'] ?? null);
             $manifest['_draft'] = self::build_draft(
-                $resolved, $name, $evidenceNote, $priorDraft, $factConflicts, $seedDocument, $match
+                $resolved, $name, $probe, $priorDraft, $factConflicts, $seedDocument, $match
             );
             self::assert_output_is_safe($manifest);
         } catch (\Throwable $t) {
@@ -682,7 +735,7 @@ final class AdapterDraft {
     private static function build_draft(
         string $repo,
         string $name,
-        ?string $evidenceNote,
+        ?array $probe,
         ?array $priorDraft,
         array $factConflicts,
         ?array $seed = null,
@@ -752,6 +805,13 @@ final class AdapterDraft {
         // Human-edit preservation across re-observation (Decision 4), computed
         // against the one already-validated prior artifact, if one was saved.
         [$candidates, $meta] = self::preserve_human_edits($priorDraft, $candidates);
+
+        // Live answers land AFTER preservation, on the final candidate set, so
+        // a candidate a human already ratified gets its live facts too. Only
+        // `evidence[]` is touched — never the fragment — so `generated_hash`
+        // (computed over `candidate['candidate']` at :2236) does not move and
+        // an --evidence run cannot make a candidate look hand-edited.
+        [$candidates, $probeSeam] = self::apply_probe($candidates, $probe);
         ksort($candidates, SORT_STRING);
 
         $proposals = array_fill_keys(self::BUCKETS, []);
@@ -785,10 +845,10 @@ final class AdapterDraft {
             // into _draft, so the sidecar remains inert under Policy's blind walk.
             $draft['classification_conflicts'] = $factConflicts;
         }
-        // The single deferred-slice seam, recorded (nested — not a reserved
-        // top-level key) so a reader sees the flag was honored and ignored.
-        $draft['evidence_seam'] = $evidenceNote
-            ?? 'no --evidence given; this is the offline slice — live-dependent facts are proposals with questions';
+        // The live seam, recorded (nested — not a reserved top-level key) so a
+        // reader of a committed draft can tell whether any candidate below was
+        // answered from a target, and how much of the document applied.
+        $draft['evidence_seam'] = $probeSeam;
         // The seed is recorded for the same reason: a reader of a committed
         // draft must be able to tell which candidates came from the
         // repository's own captured bytes and which came from a report about
@@ -802,6 +862,369 @@ final class AdapterDraft {
                     : '; scope-gate post types NOT seeded (coverage reports no post types — seed from '
                         . self::SEED_INVENTORY_FORMAT . ' for those)'));
         return $draft;
+    }
+
+    // ------------------------------------------------------- live probe seam
+
+    /**
+     * A deferral a probe CAN close, written `[<name>] <prose>`.
+     *
+     * Going through this helper is what keeps the two halves of the seam on
+     * one vocabulary: a proposer cannot invent a live-question name no
+     * evidence row will ever carry, and apply_probe() applies the same
+     * membership test from the other side.
+     */
+    private static function live_question(string $name, string $prose): string {
+        if (!isset(self::PROBE_QUESTIONS[$name])) {
+            throw new \RuntimeException("adapter-draft: '$name' is not a live question a probe can answer");
+        }
+        return "[$name] $prose";
+    }
+
+    /**
+     * Read and STRUCTURALLY VALIDATE a `duo-adapter-probe/v1` document.
+     *
+     * Every refusal here is the same refusal: a live-evidence file must not be
+     * able to say anything an author would mistake for a decision. So the
+     * envelope is checked by name, `authority` must be literally false, each
+     * per-table object is closed over PROBE_TABLE_KEYS (which contains no
+     * `class`, `identity`, `deletions` or capability word), every identifier
+     * must match the portable grammar the emitter enforced, and the canonical
+     * `probe_hash` must still describe the bytes — so a hand-written "fact"
+     * pasted into an emitted document is refused rather than attached at
+     * confidence 1.0.
+     *
+     * @return array<string,mixed>
+     */
+    private static function read_probe(string $path): array {
+        $decoded = json_decode((string) file_get_contents($path), true);
+        if (!is_array($decoded) || array_is_list($decoded)) {
+            throw new \RuntimeException("adapter-draft: --evidence '$path' is not a JSON object");
+        }
+        if (($decoded['format'] ?? null) !== self::PROBE_FORMAT) {
+            throw new \RuntimeException(
+                "adapter-draft: --evidence '$path' is not a " . self::PROBE_FORMAT
+                . ' document (`wp duo adapter-probe --format=json`)'
+            );
+        }
+        if (($decoded['authority'] ?? null) !== false) {
+            throw new \RuntimeException(
+                'adapter-draft: --evidence document must declare authority:false; a probe reports live facts and '
+                . 'decides nothing'
+            );
+        }
+        $hash = $decoded['probe_hash'] ?? null;
+        if (!is_string($hash) || preg_match('/^sha256:[0-9a-f]{64}$/D', $hash) !== 1) {
+            throw new \RuntimeException('adapter-draft: --evidence document has no canonical probe_hash');
+        }
+        $basis = $decoded;
+        unset($basis['probe_hash']);
+        if (!hash_equals($hash, 'sha256:' . hash('sha256', Canon::encode($basis)))) {
+            throw new \RuntimeException(
+                'adapter-draft: --evidence probe_hash does not describe the document; re-run `wp duo adapter-probe` '
+                . 'rather than editing an evidence file by hand'
+            );
+        }
+        $tables = $decoded['tables'] ?? null;
+        if (!is_array($tables) || (array_is_list($tables) && $tables !== [])) {
+            throw new \RuntimeException('adapter-draft: --evidence document has no `tables` object');
+        }
+        $validated = [];
+        foreach ($tables as $table => $facts) {
+            self::assert_probe_identifier((string) $table);
+            if (!is_array($facts) || array_is_list($facts)) {
+                throw new \RuntimeException("adapter-draft: --evidence table '$table' is not an object");
+            }
+            $unknown = array_diff(array_keys($facts), self::PROBE_TABLE_KEYS);
+            if ($unknown !== []) {
+                // The load-bearing refusal: `class` (or any other word this
+                // list does not contain) is exactly what a probe may not say.
+                throw new \RuntimeException(
+                    "adapter-draft: --evidence table '$table' carries key(s) outside the closed probe vocabulary: "
+                    . implode(', ', array_map('strval', $unknown))
+                );
+            }
+            if (!is_bool($facts['present'] ?? null)) {
+                throw new \RuntimeException("adapter-draft: --evidence table '$table' has no boolean `present`");
+            }
+            self::assert_probe_facts((string) $table, $facts);
+            $validated[(string) $table] = $facts;
+        }
+        return ['format' => self::PROBE_FORMAT, 'probe_hash' => $hash, 'tables' => $validated];
+    }
+
+    /** Every name in a probe document is a server identifier, never prose or a value. */
+    private static function assert_probe_identifier(string $value): void {
+        if (preg_match('/^[A-Za-z0-9_]{1,64}$/D', $value) !== 1) {
+            throw new \RuntimeException(
+                'adapter-draft: --evidence document names an identifier outside the portable grammar'
+            );
+        }
+    }
+
+    /**
+     * The per-fact shapes. Types are bounded to the emitter's normalized form
+     * (`agent/src/Adapter/AdapterProbe.php` normalized_type()) so an
+     * `enum('draft','publish')` — a MySQL type string that carries SITE VALUES
+     * inside it — cannot reach a draft through this seam either.
+     *
+     * @param array<string,mixed> $facts
+     */
+    private static function assert_probe_facts(string $table, array $facts): void {
+        foreach ((array) ($facts['columns'] ?? []) as $column => $shape) {
+            self::assert_probe_identifier((string) $column);
+            $type = is_array($shape) ? ($shape['type'] ?? null) : null;
+            if (!is_string($type) || preg_match('/^[a-z]+(\([0-9]+(,[0-9]+)?\))?( unsigned)?( zerofill)?$/D', $type) !== 1) {
+                throw new \RuntimeException("adapter-draft: --evidence column '$table.$column' has no bounded MySQL type");
+            }
+            if (!is_bool($shape['nullable'] ?? null)) {
+                throw new \RuntimeException("adapter-draft: --evidence column '$table.$column' has no boolean nullability");
+            }
+        }
+        foreach ((array) ($facts['primary_key'] ?? []) as $column) {
+            self::assert_probe_identifier((string) $column);
+        }
+        foreach ((array) ($facts['unique_keys'] ?? []) as $index => $columns) {
+            self::assert_probe_identifier((string) $index);
+            foreach ((array) $columns as $column) {
+                self::assert_probe_identifier((string) $column);
+            }
+        }
+        foreach ((array) ($facts['index_coverage'] ?? []) as $column => $coverage) {
+            self::assert_probe_identifier((string) $column);
+            $index = is_array($coverage) ? ($coverage['index'] ?? null) : null;
+            if ($index !== null) {
+                self::assert_probe_identifier((string) $index);
+            }
+            $prefix = is_array($coverage) ? ($coverage['prefix'] ?? null) : null;
+            if ($prefix !== null && (!is_int($prefix) || $prefix < 1)) {
+                throw new \RuntimeException("adapter-draft: --evidence index prefix on '$table.$column' is not a width");
+            }
+        }
+        foreach ((array) ($facts['foreign_keys'] ?? []) as $column => $referenced) {
+            self::assert_probe_identifier((string) $column);
+            self::assert_probe_identifier((string) $referenced);
+        }
+        $twin = $facts['eav_twin'] ?? null;
+        if ($twin !== null) {
+            if (!is_array($twin) || !is_string($twin['table'] ?? null)) {
+                throw new \RuntimeException("adapter-draft: --evidence eav_twin on '$table' is malformed");
+            }
+            foreach (['table', 'key_column', 'value_column'] as $key) {
+                self::assert_probe_identifier((string) ($twin[$key] ?? ''));
+            }
+            if (($twin['parent_column'] ?? null) !== null) {
+                self::assert_probe_identifier((string) $twin['parent_column']);
+            }
+        }
+        $natural = $facts['natural_key'] ?? null;
+        if ($natural !== null) {
+            if (!is_array($natural)) {
+                throw new \RuntimeException("adapter-draft: --evidence natural_key on '$table' is malformed");
+            }
+            self::assert_probe_identifier((string) ($natural['column'] ?? ''));
+            foreach (['rows', 'distinct'] as $key) {
+                if (!is_int($natural[$key] ?? null) || $natural[$key] < 0) {
+                    throw new \RuntimeException("adapter-draft: --evidence natural_key.$key on '$table' is not a count");
+                }
+            }
+            if (!is_bool($natural['unique'] ?? null)) {
+                throw new \RuntimeException("adapter-draft: --evidence natural_key.unique on '$table' is not a boolean");
+            }
+        }
+    }
+
+    /**
+     * Attach the probe's answers to the candidates that asked the questions.
+     *
+     * This is the whole consumption, and what it does NOT do is the point:
+     * every row lands in `evidence[]` — structurally inert under Policy's
+     * blind walk — and NOTHING here writes to `$candidate['candidate']`,
+     * `status` or `confidence`. So a live PRIMARY KEY that disagrees with the
+     * offline `pk` guess is REPORTED beside it and the guess stands until a
+     * human changes it; a table the probe says is absent does not withdraw its
+     * proposal; a UNIQUE index on a natural-key column does not promote the
+     * identity mode. The candidate's own `confidence` stays the guess it was
+     * (0.3/0.4); `1.0` belongs to the individual observed row, which is
+     * certain in a way the proposal built around it is not.
+     *
+     * @param array<string,array<string,mixed>> $candidates
+     * @return array{0:array<string,array<string,mixed>>,1:string}
+     */
+    private static function apply_probe(array $candidates, ?array $probe): array {
+        if ($probe === null) {
+            return [$candidates, 'no --evidence given; live-dependent facts below are proposals carrying the '
+                . 'named questions a `' . self::PROBE_FORMAT . '` document answers'];
+        }
+        $applied = [];
+        $unmatched = [];
+        foreach ($probe['tables'] as $table => $facts) {
+            $target = 'tables.' . $table;
+            if (!isset($candidates[$target])) {
+                // A probed table nobody proposed is not an error and is not
+                // silently dropped either: it is the one thing a reader of the
+                // seam needs to know about the run that a candidate cannot say.
+                $unmatched[] = $table;
+                continue;
+            }
+            foreach (self::probe_evidence_rows((string) $table, $facts) as $row) {
+                // The two halves of the seam share ONE vocabulary or they are
+                // not a seam: a row naming a question no proposer can ask is a
+                // fact attached to nothing, and it fails here rather than
+                // shipping as an unsolicited assertion inside a draft.
+                if (!isset(self::PROBE_QUESTIONS[(string) $row['question']])) {
+                    throw new \RuntimeException(
+                        "adapter-draft: probe evidence names question '{$row['question']}', which is outside the "
+                        . 'closed live-question vocabulary'
+                    );
+                }
+                $candidates[$target] = self::add_draft_evidence($candidates[$target], $row);
+            }
+            $applied[] = $table;
+        }
+        sort($applied, SORT_STRING);
+        sort($unmatched, SORT_STRING);
+        $seam = self::PROBE_FORMAT . ' consumed (' . $probe['probe_hash'] . '): live facts landed as evidence rows '
+            . 'at confidence 1.0 answering the named questions of ' . count($applied) . ' table candidate(s)'
+            . ($applied === [] ? '' : ' [' . implode(', ', $applied) . ']')
+            . '; the probe proposed no class, identity or deletion authority and promoted nothing';
+        if ($unmatched !== []) {
+            $seam .= '. Probed but not proposed here: ' . implode(', ', $unmatched);
+        }
+        return [$candidates, $seam];
+    }
+
+    /**
+     * One table's facts as evidence rows, each naming the question it answers.
+     *
+     * `question` is a name from PROBE_QUESTIONS, not a copy of the prose: the
+     * prose can be rewritten for a human without breaking the attachment, and
+     * a reviewer reading `question: table_schema` beside a `[table_schema]`
+     * deferral can see which of them is closed.
+     *
+     * @param array<string,mixed> $facts
+     * @return list<array<string,mixed>>
+     */
+    private static function probe_evidence_rows(string $table, array $facts): array {
+        $locator = static fn(string $tail): string => 'tables.' . $table . '.' . $tail;
+        if (($facts['present'] ?? false) !== true) {
+            return [[
+                'confidence' => 1.0,
+                'locator' => $locator('present'),
+                'observation' => 'this target has no such table; the proposal stands and is unratifiable here',
+                'question' => 'table_schema',
+                'source' => self::PROBE_FORMAT,
+            ]];
+        }
+
+        $columns = (array) ($facts['columns'] ?? []);
+        $shapes = [];
+        foreach ($columns as $column => $shape) {
+            $shapes[(string) $column] = $shape['type'] . ' ' . (($shape['nullable'] ?? false) ? 'NULL' : 'NOT NULL');
+        }
+        $primaryKey = array_map('strval', (array) ($facts['primary_key'] ?? []));
+        $rows = [[
+            'columns' => $shapes,
+            'confidence' => 1.0,
+            'locator' => $locator('columns'),
+            'observation' => 'live SHOW COLUMNS type and nullability for ' . count($shapes) . ' column(s)',
+            'question' => 'table_schema',
+            'source' => self::PROBE_FORMAT,
+        ], [
+            'confidence' => 1.0,
+            'locator' => $locator('pk'),
+            'observation' => $primaryKey === []
+                ? 'the live table declares NO PRIMARY KEY'
+                : 'the live PRIMARY KEY is (' . implode(', ', $primaryKey) . ')',
+            'primary_key' => $primaryKey,
+            'question' => 'table_schema',
+            'source' => self::PROBE_FORMAT,
+        ]];
+
+        $coverage = (array) ($facts['index_coverage'] ?? []);
+        $covered = [];
+        foreach ($coverage as $column => $entry) {
+            if (($entry['index'] ?? null) !== null) {
+                $covered[(string) $column] = (string) $entry['index']
+                    . ($entry['prefix'] === null ? '' : '(' . $entry['prefix'] . ')');
+            }
+        }
+        $rows[] = [
+            'confidence' => 1.0,
+            'covering_indexes' => $covered,
+            'locator' => $locator('index_coverage'),
+            'observation' => count($covered) . ' of ' . count($coverage) . ' column(s) are the FIRST column of some '
+                . 'index, which is the coverage DeleteGuardEvaluator::lock_index() resolves; a prefix width in '
+                . 'parentheses is that index\'s Sub_part',
+            'question' => 'lock_index',
+            'source' => self::PROBE_FORMAT,
+        ];
+
+        $uniqueKeys = (array) ($facts['unique_keys'] ?? []);
+        $rendered = [];
+        foreach ($uniqueKeys as $index => $indexColumns) {
+            $rendered[(string) $index] = implode(', ', array_map('strval', (array) $indexColumns));
+        }
+        $rows[] = [
+            'confidence' => 1.0,
+            'locator' => $locator('unique_keys'),
+            'observation' => $rendered === []
+                ? 'the live table declares no UNIQUE key besides its PRIMARY KEY'
+                : 'live UNIQUE key(s): ' . implode('; ', array_map(
+                    static fn(string $index, string $cols): string => "$index($cols)",
+                    array_keys($rendered),
+                    array_values($rendered)
+                )),
+            'question' => 'natural_key_uniqueness',
+            'source' => self::PROBE_FORMAT,
+            'unique_keys' => $rendered,
+        ];
+
+        $natural = $facts['natural_key'] ?? null;
+        if (is_array($natural)) {
+            $rows[] = [
+                'confidence' => 1.0,
+                'distinct' => (int) $natural['distinct'],
+                'locator' => $locator('natural_key.' . $natural['column']),
+                'observation' => 'COUNT(*) ' . $natural['rows'] . ' vs COUNT(DISTINCT `' . $natural['column'] . '`) '
+                    . $natural['distinct'] . ' across the whole live keyspace — '
+                    . ($natural['unique'] ? 'unique' : 'NOT unique')
+                    . ' (measured in the column\'s own collation, NULL rows excluded)',
+                'question' => 'natural_key_uniqueness',
+                'row_count' => (int) $natural['rows'],
+                'source' => self::PROBE_FORMAT,
+                'unique' => (bool) $natural['unique'],
+            ];
+        }
+
+        $foreignKeys = (array) ($facts['foreign_keys'] ?? []);
+        $rows[] = [
+            'confidence' => 1.0,
+            'foreign_keys' => array_map('strval', $foreignKeys),
+            'locator' => $locator('foreign_keys'),
+            'observation' => $foreignKeys === []
+                ? 'the live table declares no FOREIGN KEY'
+                : count($foreignKeys) . ' live FOREIGN KEY constraint(s); this is context for a deletion decision, '
+                    . 'never authority for one',
+            'question' => 'foreign_keys',
+            'source' => self::PROBE_FORMAT,
+        ];
+
+        $twin = $facts['eav_twin'] ?? null;
+        $rows[] = [
+            'confidence' => 1.0,
+            'locator' => $locator('eav_twin'),
+            'observation' => is_array($twin)
+                ? 'live EAV twin `' . $twin['table'] . '` (' . ($twin['parent_column'] ?? 'no parent column') . ' / '
+                    . $twin['key_column'] . ' / ' . $twin['value_column'] . '); declaring the parent alone captures '
+                    . 'half the entity'
+                : 'this target has no EAV twin for the table',
+            'question' => 'eav_twin',
+            'source' => self::PROBE_FORMAT,
+            'twin' => is_array($twin) ? (string) $twin['table'] : null,
+        ];
+
+        return $rows;
     }
 
     /**
@@ -972,10 +1395,43 @@ final class AdapterDraft {
                 'locator' => 'columns',
                 'observation' => 'observed columns [' . implode(', ', $colNames) . '] across ' . $rows . ' row file(s)',
             ]];
+            // Every deferral a `duo-adapter-probe/v1` document can close is
+            // written `[<name>] …` (see PROBE_QUESTIONS): the name is what an
+            // incoming evidence row answers, so the two halves of the seam
+            // cannot drift into two different vocabularies for one question.
             $questions = [
-                'column TYPES, the real PRIMARY KEY, and nullability are live facts (SHOW COLUMNS) — deferred; '
+                self::live_question(
+                    'table_schema',
+                    'column TYPES, the real PRIMARY KEY, and nullability are live facts (SHOW COLUMNS) — deferred; '
                     . 'confirm against a live target before ratifying'
-                    . ($pk !== null ? " (pk='$pk' is a structural guess)" : ' (no PK inferable offline)'),
+                    . ($pk !== null ? " (pk='$pk' is a structural guess)" : ' (no PK inferable offline)')
+                ),
+                // lock_index() resolves the covering index by FIRST column and
+                // compares a meta_key length against Sub_part
+                // (agent/src/Delete/DeleteGuardEvaluator.php:445-456). Neither
+                // fact is in a captured row file, and a deletion candidate
+                // ratified without them proposes a guard that cannot lock.
+                self::live_question(
+                    'lock_index',
+                    'whether a delete guard can lock this table on its predicate column — the covering index and '
+                    . 'its prefix width in DeleteGuardEvaluator::lock_index()\'s own terms — is a live SHOW INDEX '
+                    . 'fact; deferred'
+                ),
+                // Presence is context for a deletion decision. Cascade
+                // authority is still never inferred (see propose_deletions).
+                self::live_question(
+                    'foreign_keys',
+                    'declared FOREIGN KEY constraints are live facts and are deferred; note that they remain '
+                    . 'context for a deletion decision, never authority for one'
+                ),
+                // A draft that declares the parent and misses its EAV sidecar
+                // captures half an entity, and no state/tables/** row file
+                // names the sidecar.
+                self::live_question(
+                    'eav_twin',
+                    'whether this table has an EAV twin (a `<table>meta` sidecar holding its per-row key/value '
+                    . 'pairs) is a live fact — deferred; a ratified parent without its twin captures half the entity'
+                ),
             ];
             if ($naturalKey !== null) {
                 $evidence[] = [
@@ -983,8 +1439,11 @@ final class AdapterDraft {
                     'locator' => 'columns.' . $naturalKey,
                     'observation' => "values distinct across $rows sampled row(s) — candidate natural key",
                 ];
-                $questions[] = "natural-key uniqueness for column '$naturalKey' needs live keyspace enumeration — "
-                    . 'deferred; confidence is bounded offline';
+                $questions[] = self::live_question(
+                    'natural_key_uniqueness',
+                    "natural-key uniqueness for column '$naturalKey' needs live keyspace enumeration — deferred; "
+                    . 'confidence is bounded offline'
+                );
             }
 
             // Each observed value carried under its REAL column name, so the

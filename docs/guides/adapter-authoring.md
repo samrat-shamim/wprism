@@ -783,7 +783,34 @@ repository. What `runtime` buys is honest: the surface becomes *declared and
 excluded* instead of reading `unclassified / block` in assess. Promote the
 parts that really are authored configuration by hand — and then their columns,
 primary key and identity are live facts an offline draft cannot supply, which
-is what each candidate's `questions` say.
+is what each candidate's named `questions` say — and what `wp duo
+adapter-probe` answers, below.
+
+#### Answering the draft's live questions
+
+The questions a candidate carries are **named** — `[table_schema]`,
+`[natural_key_uniqueness]`, `[lock_index]`, `[foreign_keys]`, `[eav_twin]` —
+because one command can answer them. `wp duo adapter-probe` runs on the target
+and reports, per table, the real PRIMARY KEY, every column's MySQL type and
+nullability, unique keys, per-column index coverage in the deletion guard's own
+terms, declared foreign keys, an EAV twin, and natural-key uniqueness as one
+`COUNT(*)` vs `COUNT(DISTINCT …)`:
+
+```sh
+wp duo adapter-probe --tables=wpforms_tasks_meta,wpforms_payments \
+  --natural-keys=wpforms_payments.transaction_id --format=json > probe.json
+duo adapter-draft <site-repo> --name=wpforms --evidence=probe.json \
+  --out=<site-repo>/adapters/wpforms.json --force
+```
+
+Each fact lands as an `evidence[]` row at confidence 1.0 naming the question it
+closes, and **nothing else moves**. If the live PRIMARY KEY is not the column
+the offline proposer guessed, the guess still stands in the fragment and the
+disagreement is stated beside it — the probe declares `authority: false`, and
+`adapter-draft` refuses any document carrying a word outside the closed probe
+vocabulary, so it cannot classify anything on your behalf. Read the rows, then
+ratify by hand. The document never carries a row value: enum/set member lists
+are reduced to their base type word for the same reason.
 
 Everything under `_draft` is inert: `Policy::load()` never applies a proposal,
 and the trigger keys are renamed so no validator mis-collects one. Ratify by

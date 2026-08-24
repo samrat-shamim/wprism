@@ -90,7 +90,10 @@
  *   UPDATE t SET col = <expr> [, ...] [WHERE <cond>] [LIMIT n]
  *   DELETE FROM t [WHERE <cond>] [LIMIT n]
  *   SHOW TABLES LIKE '<pattern>'      -> the table name, or null
- *   SHOW [FULL] COLUMNS FROM t        -> Field/Type rows (see setColumns)
+ *   SHOW [FULL] COLUMNS FROM t        -> Field/Type/Null/Key rows (see setColumns;
+ *                                        the setPrimaryKey() column reports
+ *                                        Key=PRI and Null=NO, every other
+ *                                        column Null=YES)
  *   START TRANSACTION | BEGIN | COMMIT | ROLLBACK  (single-level, snapshotting)
  *   SET ...                           (accepted no-op)
  *   CREATE / ALTER / DROP / TRUNCATE  (recorded in ddlLog; DROP/TRUNCATE clear rows)
@@ -2370,11 +2373,17 @@ final class FakeWpdb {
             $types = $this->columnTypes[$name] ?? [];
             $rows = [];
             foreach ($this->knownColumns($name) as $column) {
+                $isPrimaryKey = ($this->primaryKeys[$name] ?? null) === $column;
                 $rows[] = [
                     'Field' => $column,
                     'Type' => $types[$column] ?? 'longtext',
-                    'Null' => 'YES',
-                    'Key' => ($this->primaryKeys[$name] ?? null) === $column ? 'PRI' : '',
+                    // MySQL never permits a NULL in a PRIMARY KEY column, so
+                    // a fake that reported one as nullable would be handing a
+                    // reader a shape no server can produce. Every other column
+                    // stays 'YES': the fixture API says nothing about NOT NULL,
+                    // and inventing one would be this file's own bookkeeping.
+                    'Null' => $isPrimaryKey ? 'NO' : 'YES',
+                    'Key' => $isPrimaryKey ? 'PRI' : '',
                     'Default' => null,
                     'Extra' => '',
                 ];

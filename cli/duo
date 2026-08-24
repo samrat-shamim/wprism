@@ -265,7 +265,7 @@ Usage:
                         [--no-code] [--format=json]
   duo manifest-validate --emit-schema
   duo adapter-draft <site-repo> --name=<n> [--match=<regex>]
-                    [--evidence=<live-evidence.json>] [--seed=<coverage.json>]
+                    [--evidence=<probe.json>] [--seed=<coverage.json>]
                     [--out=<path> [--force]] [--format=json] [--check-proposals]
   duo adapter list [--repo=<site-repo>] [--format=json]
   duo adapter inspect <name> [--repo=<site-repo>] [--format=json]
@@ -391,8 +391,12 @@ Verbs:
     [--check-proposals]
                           fact needing a live target (column types, real PK, id
                           resolution, natural-key uniqueness) stays a proposal with a
-                          question; --evidence is the deferred live seam, accepted and
-                          ignored in this offline slice. --check-proposals lifts each
+                          NAMED question; --evidence takes the `duo-adapter-probe/v1`
+                          document `wp duo adapter-probe --format=json` writes and
+                          lands its facts as evidence rows at confidence 1.0 against
+                          those names. A probe answers; it promotes nothing, and a
+                          document carrying any word outside the closed probe
+                          vocabulary is refused. --check-proposals lifts each
                           candidate into a throwaway manifest and runs the REAL
                           validators, writing nothing live. WordPress-free, no
                           environment, no transport; the generator never applies or
