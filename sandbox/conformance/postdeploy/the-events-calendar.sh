@@ -57,6 +57,52 @@ if (!$venue || !$venue->ID || count(array_filter(
 }
 $organizer_ids = array_map(static fn($candidate): int => (int) $candidate->ID, $organizers);
 
+$widget_page_id = wp_insert_post([
+    'post_type' => 'page',
+    'post_status' => 'publish',
+    'post_title' => 'Duo TEC Legacy Widget Surface',
+    'post_name' => 'duo-tec-legacy-widget-surface',
+    'post_content' => '<!-- wp:paragraph --><p>Target-only stale widget page.</p><!-- /wp:paragraph -->',
+], true);
+if (is_wp_error($widget_page_id) || (int) $widget_page_id < 7000000000) {
+    throw new RuntimeException('TEC hostile target widget page did not receive a divergent identity');
+}
+global $wp_widget_factory;
+if (!$wp_widget_factory->get_widget_object('tribe-widget-events-list')
+    instanceof \Tribe\Events\Views\V2\Widgets\Widget_List
+    || !$wp_widget_factory->get_widget_object('tribe-widget-events-qr-code')
+    instanceof \Tribe\Events\Views\V2\Widgets\Widget_QR_Code) {
+    throw new RuntimeException('TEC hostile target lost the reviewed native widget registry');
+}
+update_option('widget_tribe-widget-events-list', [
+    1 => [
+        'title' => 'Target-only stale list widget',
+        'limit' => 1,
+        'no_upcoming_events' => true,
+        'featured_events_only' => true,
+        'jsonld_enable' => false,
+        'tribe_is_list_widget' => true,
+    ],
+    '_multiwidget' => 1,
+], true);
+update_option('widget_tribe-widget-events-qr-code', [
+    1 => [
+        'widget_title' => 'Target-only stale QR widget',
+        'qr_code_size' => '4',
+        'redirection' => 'current',
+        'event_id' => 0,
+        'series_id' => 0,
+    ],
+    '_multiwidget' => 1,
+], true);
+update_option('sidebars_widgets', [
+    'tec-readiness-sidebar' => [
+        'tribe-widget-events-list-1',
+        'tribe-widget-events-qr-code-1',
+    ],
+    'array_version' => 3,
+], true);
+
 $dirty = tribe_events()->set_args([
     'title' => 'Duo Production Readiness Event 東京',
     'status' => 'publish',
@@ -202,6 +248,7 @@ echo wp_json_encode([
     'organizer' => (int) $organizer->ID,
     'organizers' => $organizer_ids,
     'venue' => (int) $venue->ID,
+    'widget_page' => (int) $widget_page_id,
 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 PHPEOF
 
@@ -216,8 +263,8 @@ printf '%s\n' "$TARGET_JSON" | jq -e '
   .venue >= 7000000000 and .organizer >= 7000000000 and
   (.organizers | length) == 3 and (.organizers | unique | length) == 3 and
   all(.organizers[]; . >= 7000000000) and
-  .category >= 7100000000
+  .category >= 7100000000 and .widget_page >= 7000000000
 ' >/dev/null || fail "TEC dirty target premise returned malformed or non-huge identities: $TARGET_JSON"
 printf '%s\n' "$TARGET_JSON" > "$TARGET_IDS_FILE"
 rm -f "$TARGET_FILE"
-pass "TEC target has huge divergent identities, reversed organizers, stale statuses/projections/settings, and target-owned runtime state"
+pass "TEC target has huge divergent identities, conflicting widget counters, reversed organizers, stale statuses/projections/settings, and target-owned runtime state"

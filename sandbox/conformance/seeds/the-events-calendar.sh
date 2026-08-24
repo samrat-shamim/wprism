@@ -240,6 +240,92 @@ foreach (['_tribe_events_status', '_tribe_events_status_reason'] as $key) {
     }
 }
 
+// TEC registers both widget types through its native V2 provider. Seed the
+// stored-id form through SidebarState's exact option rows and the copied form
+// through the core block schema, so the candidate run proves both target-local
+// counter rebasing and target-salt re-signing rather than only source parsing.
+global $wp_widget_factory;
+$list_widget = $wp_widget_factory->get_widget_object('tribe-widget-events-list');
+$qr_widget = $wp_widget_factory->get_widget_object('tribe-widget-events-qr-code');
+if (!$list_widget instanceof \Tribe\Events\Views\V2\Widgets\Widget_List
+    || !$qr_widget instanceof \Tribe\Events\Views\V2\Widgets\Widget_QR_Code) {
+    throw new RuntimeException('TEC native V2 widget registry did not expose the reviewed widget types');
+}
+$list_widget_id = 41;
+$qr_widget_id = 42;
+$list_widget_settings = [
+    'title' => 'Duo Sidebar Calendar 東京 ' . home_url('/calendar-readiness/'),
+    'limit' => 7,
+    'no_upcoming_events' => false,
+    'featured_events_only' => false,
+    'jsonld_enable' => true,
+    'tribe_is_list_widget' => true,
+];
+$qr_widget_settings = [
+    'widget_title' => 'Duo Sidebar Event QR বাংলা',
+    'qr_code_size' => '8',
+    'redirection' => 'specific',
+    'event_id' => (int) $event->ID,
+    'series_id' => 0,
+];
+update_option('widget_tribe-widget-events-list', [
+    $list_widget_id => $list_widget_settings,
+    '_multiwidget' => 1,
+], true);
+update_option('widget_tribe-widget-events-qr-code', [
+    $qr_widget_id => $qr_widget_settings,
+    '_multiwidget' => 1,
+], true);
+update_option('sidebars_widgets', [
+    'tec-readiness-sidebar' => [
+        "tribe-widget-events-list-$list_widget_id",
+        "tribe-widget-events-qr-code-$qr_widget_id",
+    ],
+    'array_version' => 3,
+], true);
+
+$legacy_widget_block = static function (array $attrs): string {
+    return '<!-- wp:legacy-widget '
+        . wp_json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+        . ' /-->';
+};
+$embedded_widget = static function (array $settings): array {
+    $serialized = serialize($settings);
+    return [
+        'encoded' => base64_encode($serialized),
+        'hash' => wp_hash($serialized),
+    ];
+};
+$embedded_list_settings = $list_widget_settings;
+$embedded_list_settings['title'] = 'Duo Embedded Calendar مرحبا ' . home_url('/calendar-readiness/');
+$embedded_list_settings['limit'] = '10';
+$embedded_qr_settings = $qr_widget_settings;
+$embedded_qr_settings['widget_title'] = 'Duo Embedded Event QR 東京';
+$embedded_qr_settings['qr_code_size'] = '28';
+$widget_body = implode("\n", [
+    '<!-- wp:paragraph --><p>TEC legacy-widget readiness surface.</p><!-- /wp:paragraph -->',
+    $legacy_widget_block(['id' => "tribe-widget-events-list-$list_widget_id"]),
+    $legacy_widget_block(['id' => "tribe-widget-events-qr-code-$qr_widget_id"]),
+    $legacy_widget_block([
+        'idBase' => 'tribe-widget-events-list',
+        'instance' => $embedded_widget($embedded_list_settings),
+    ]),
+    $legacy_widget_block([
+        'idBase' => 'tribe-widget-events-qr-code',
+        'instance' => $embedded_widget($embedded_qr_settings),
+    ]),
+]);
+$widget_page_id = wp_insert_post([
+    'post_type' => 'page',
+    'post_status' => 'publish',
+    'post_title' => 'Duo TEC Legacy Widget Surface',
+    'post_name' => 'duo-tec-legacy-widget-surface',
+    'post_content' => $widget_body,
+], true);
+if (is_wp_error($widget_page_id) || (int) $widget_page_id <= 0) {
+    throw new RuntimeException('TEC legacy-widget product page did not persist');
+}
+
 // These are native auto-draft preview cleanup lists, not authored graph refs.
 // Persist them through the owning core methods so capture must exclude the
 // exact serialized wire while a dirty target keeps its own local cleanup list.
@@ -377,6 +463,9 @@ echo wp_json_encode([
     'organizer' => (int) $organizer->ID,
     'organizers' => $organizer_ids,
     'venue' => (int) $venue->ID,
+    'widget_list' => $list_widget_id,
+    'widget_page' => (int) $widget_page_id,
+    'widget_qr' => $qr_widget_id,
 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 PHPEOF
 
@@ -391,7 +480,8 @@ printf '%s\n' "$SEED_JSON" | jq -e '
   .organizer == .organizers[0] and (.organizers | unique | length) == 3 and .category > 0 and
   .all_day > 0 and .delete_probe > 0 and .delete_venue > 0 and .delete_organizer > 0 and
   .delete_category > 0 and .disabled_venue > 0 and .absent_map_venue > 0
+  and .widget_page > 0 and .widget_list == 41 and .widget_qr == 42
 ' >/dev/null || fail "TEC source repository fixture returned malformed identities: $SEED_JSON"
 printf '%s\n' "$SEED_JSON" > "$SOURCE_IDS_FILE"
 rm -f "$SEED_FILE"
-pass "TEC source authored registered editor meta, ordered organizers, event statuses, map boundaries, runtime previews, settings, and occurrences"
+pass "TEC source authored registered editor meta, ordered organizers, event statuses, legacy widgets, map boundaries, runtime previews, settings, and occurrences"

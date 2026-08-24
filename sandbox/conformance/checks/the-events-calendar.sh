@@ -40,6 +40,7 @@ $organizer = $one('tribe_organizer', 'Duo Readiness Team 東京');
 $organizer_accessibility = $one('tribe_organizer', 'Duo Accessibility Guild বাংলা');
 $organizer_night = $one('tribe_organizer', 'Duo Night Crew مرحبا');
 $organizers = [$organizer, $organizer_accessibility, $organizer_night];
+$widget_page = $one('page', 'Duo TEC Legacy Widget Surface');
 $category = get_term_by('slug', 'duo-readiness-category', 'tribe_events_cat');
 if (!$category instanceof WP_Term) {
     throw new RuntimeException('TEC event category is missing');
@@ -291,6 +292,92 @@ $status_meta = static function (WP_Post $post) use ($rest_meta): array {
         'rest' => $rest_meta($post),
     ];
 };
+$widget_blocks = array_values(array_filter(
+    parse_blocks($widget_page->post_content),
+    static fn(array $block): bool => ($block['blockName'] ?? null) === 'core/legacy-widget'
+));
+if (count($widget_blocks) !== 4) {
+    throw new RuntimeException('TEC legacy-widget page did not retain four exact top-level product blocks');
+}
+$decode_widget_instance = static function (mixed $instance, string $label): array {
+    if (!is_array($instance)
+        || !is_string($instance['encoded'] ?? null)
+        || !is_string($instance['hash'] ?? null)) {
+        throw new RuntimeException("TEC $label embedded widget instance is malformed");
+    }
+    $serialized = base64_decode($instance['encoded'], true);
+    if (!is_string($serialized) || base64_encode($serialized) !== $instance['encoded']) {
+        throw new RuntimeException("TEC $label embedded widget instance is not canonical base64");
+    }
+    $settings = unserialize($serialized, ['allowed_classes' => false]);
+    if (!is_array($settings) || ($settings !== [] && array_is_list($settings))) {
+        throw new RuntimeException("TEC $label embedded widget instance is not one settings object");
+    }
+    return [
+        'encoded_bytes' => strlen($instance['encoded']),
+        'hash_valid' => hash_equals(wp_hash($serialized), $instance['hash']),
+        'settings' => $settings,
+    ];
+};
+$widget_instance = static function (string $name): array {
+    $value = get_option($name, null);
+    if (!is_array($value)) {
+        throw new RuntimeException("TEC widget option $name is malformed");
+    }
+    unset($value['_multiwidget']);
+    if (count($value) !== 1) {
+        throw new RuntimeException("TEC widget option $name does not contain exactly one owned instance");
+    }
+    $local = array_key_first($value);
+    if (!is_int($local) || $local <= 0 || !is_array($value[$local])) {
+        throw new RuntimeException("TEC widget option $name has a malformed local identity");
+    }
+    return ['local_id' => $local, 'settings' => $value[$local]];
+};
+$sidebars = get_option('sidebars_widgets', null);
+if (!is_array($sidebars)
+    || !is_array($sidebars['tec-readiness-sidebar'] ?? null)
+    || count($sidebars['tec-readiness-sidebar']) !== 2) {
+    throw new RuntimeException('TEC legacy-widget sidebar assignment is missing or malformed');
+}
+$list_widget_instance = $widget_instance('widget_tribe-widget-events-list');
+$qr_widget_instance = $widget_instance('widget_tribe-widget-events-qr-code');
+$safe_serialized = serialize(['title' => 'native-safe-probe', 'limit' => 5]);
+$object_serialized = serialize(['title' => (object) ['hostile' => true]]);
+$native_filter_probe = static function (string $serialized): array {
+    return apply_filters('render_block_data', [
+        'blockName' => 'core/legacy-widget',
+        'attrs' => [
+            'idBase' => 'tribe-widget-events-list',
+            'instance' => [
+                'encoded' => base64_encode($serialized),
+                'hash' => str_repeat('0', 32),
+            ],
+        ],
+        'innerBlocks' => [],
+        'innerContent' => [],
+        'innerHTML' => '',
+    ]);
+};
+$safe_probe = $native_filter_probe($safe_serialized);
+$object_probe = $native_filter_probe($object_serialized);
+$safe_probe_hash = $safe_probe['attrs']['instance']['hash'] ?? null;
+$object_probe_hash = $object_probe['attrs']['instance']['hash'] ?? null;
+$widget_provider_callbacks = [];
+foreach (($wp_filter['render_block_data']->callbacks ?? []) as $priority => $callbacks) {
+    foreach ($callbacks as $callback) {
+        $function = $callback['function'] ?? null;
+        if (is_array($function)
+            && ($function[1] ?? null) === 'enable_rendering_widget_copied'
+            && is_object($function[0] ?? null)) {
+            $widget_provider_callbacks[] = [
+                'accepted_args' => $callback['accepted_args'] ?? null,
+                'class' => get_class($function[0]),
+                'priority' => $priority,
+            ];
+        }
+    }
+}
 echo wp_json_encode([
     'all_day' => [
         'all_day' => get_post_meta($all_day->ID, '_EventAllDay', true),
@@ -400,6 +487,33 @@ echo wp_json_encode([
         'time_range_separator' => get_post_meta($event->ID, '_EventTimeRangeSeparator', true),
         'url' => get_post_meta($event->ID, '_EventURL', true),
         'venue' => (int) get_post_meta($event->ID, '_EventVenueID', true),
+    ],
+    'widget_surface' => [
+        'blocks' => [
+            'embedded_list' => $decode_widget_instance(
+                $widget_blocks[2]['attrs']['instance'] ?? null,
+                'list'
+            ),
+            'embedded_qr' => $decode_widget_instance(
+                $widget_blocks[3]['attrs']['instance'] ?? null,
+                'QR'
+            ),
+            'stored_list' => $widget_blocks[0]['attrs'] ?? null,
+            'stored_qr' => $widget_blocks[1]['attrs'] ?? null,
+        ],
+        'list' => $list_widget_instance,
+        'native_contract' => [
+            'legacy_block_registered' => WP_Block_Type_Registry::get_instance()->is_registered('core/legacy-widget'),
+            'object_instance_rehashed' => is_string($object_probe_hash)
+                && hash_equals(wp_hash($object_serialized), $object_probe_hash),
+            'provider_callbacks' => $widget_provider_callbacks,
+            'safe_instance_rehashed' => is_string($safe_probe_hash)
+                && hash_equals(wp_hash($safe_serialized), $safe_probe_hash),
+        ],
+        'page_id' => (int) $widget_page->ID,
+        'permalink' => get_permalink($widget_page),
+        'qr' => $qr_widget_instance,
+        'sidebar' => array_values($sidebars['tec-readiness-sidebar']),
     ],
     'home' => home_url('/'),
     'map_boundary_venues' => [
@@ -795,6 +909,76 @@ printf '%s\n' "$TEC_CANON_ORGANIZER_BLOCKS" | jq -e --argjson front "$TEC_SOURCE
   . == $front.meta._EventOrganizerID and
   length == 3 and all(.[]; test("^\\{\\{post:[0-9a-f-]{36}\\}\\}$"))
 ' >/dev/null || fail "TEC canonical organizer blocks did not retain exact ordered post tokens: $TEC_CANON_ORGANIZER_BLOCKS"
+TEC_SOURCE_WIDGET_STATE=$(grep -RlF '"title": "Duo TEC Legacy Widget Surface"' \
+  "${CONF_REPO1:-siterepo/conf1}/state/posts/page" || true)
+[ -n "$TEC_SOURCE_WIDGET_STATE" ] \
+  && [ "$(printf '%s\n' "$TEC_SOURCE_WIDGET_STATE" | wc -l | tr -d ' ')" = 1 ] \
+  || fail "TEC canonical legacy-widget page was not unique: $TEC_SOURCE_WIDGET_STATE"
+TEC_CANON_WIDGET_BLOCKS=$(TEC_STATE_PATH="$TEC_SOURCE_WIDGET_STATE" php -r '
+  require "agent/src/Kernel/Canon.php";
+  require "sandbox/tests/support/wp-block-parser-stub.php";
+  [, $body] = Duo\Canon::parse_post_file((string) file_get_contents((string) getenv("TEC_STATE_PATH")));
+  $attrs = [];
+  foreach (parse_blocks($body) as $block) {
+    if (($block["blockName"] ?? null) === "core/legacy-widget") $attrs[] = $block["attrs"] ?? null;
+  }
+  echo json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+')
+TEC_SOURCE_SIDEBAR="${CONF_REPO1:-siterepo/conf1}/state/sidebars/tec-readiness-sidebar.json"
+[ -f "$TEC_SOURCE_SIDEBAR" ] || fail "TEC canonical SidebarState fixture is missing: $TEC_SOURCE_SIDEBAR"
+jq -e --argjson blocks "$TEC_CANON_WIDGET_BLOCKS" --argjson event "$TEC_SOURCE_EVENT_JSON" '
+  .widgets as $widgets |
+  ($widgets | length) == 2 and ($blocks | length) == 4 and
+  ($widgets | map(.type)) == ["tribe-widget-events-list","tribe-widget-events-qr-code"] and
+  $blocks[0] == {id:("{{widget:" + $widgets[0].uuid + "}}"),idBase:"tribe-widget-events-list"} and
+  $blocks[1] == {id:("{{widget:" + $widgets[1].uuid + "}}"),idBase:"tribe-widget-events-qr-code"} and
+  $blocks[2].idBase == "tribe-widget-events-list" and
+  $blocks[2].instance.duo == "the-events-calendar/v1" and
+  ($blocks[2].instance.settings.title | contains("{{home}}/calendar-readiness/")) and
+  $blocks[3].idBase == "tribe-widget-events-qr-code" and
+  $blocks[3].instance.duo == "the-events-calendar/v1" and
+  $blocks[3].instance.settings.event_id == ("{{post:" + $event.uuid + "}}") and
+  $widgets[1].settings.event_id == ("{{post:" + $event.uuid + "}}")
+' "$TEC_SOURCE_SIDEBAR" >/dev/null \
+  || fail "TEC canonical widget ledger/embedded codecs did not bind exact sidebar/post identities: $TEC_CANON_WIDGET_BLOCKS"
+
+# Both admitted artifacts must refuse the object graph before publishing any
+# repository bytes. Native 6.17.2 re-hashes the same payload while 6.17.3
+# rejects it on render; the adapter deliberately enforces the safer boundary
+# on both and reports no serialized value.
+TEC_WIDGET_OBJECT_BACKUP="${CONF_REPO1:-siterepo/conf1}/.tmp-tec-widget-object-backup.txt"
+TEC_WIDGET_OBJECT_OUT="${CONF_REPO1:-siterepo/conf1}/.tmp-tec-widget-object-capture"
+rm -rf "$TEC_WIDGET_OBJECT_OUT"
+wp_conf1 eval '
+  $pages=get_posts(["post_type"=>"page","post_status"=>"any","posts_per_page"=>2,"title"=>"Duo TEC Legacy Widget Surface"]);
+  if(count($pages)!==1) throw new RuntimeException("TEC widget object probe page is not unique");
+  file_put_contents("/siterepo/.tmp-tec-widget-object-backup.txt",$pages[0]->post_content);
+  $serialized=serialize(["title"=>(object)["hostile"=>true]]);
+  $attrs=["idBase"=>"tribe-widget-events-list","instance"=>["encoded"=>base64_encode($serialized),"hash"=>wp_hash($serialized)]];
+  $body="<!-- wp:legacy-widget ".wp_json_encode($attrs,JSON_UNESCAPED_SLASHES)." /-->";
+  if(is_wp_error(wp_update_post(["ID"=>$pages[0]->ID,"post_content"=>$body],true))){
+    throw new RuntimeException("TEC widget object probe could not persist");
+  }
+' >/dev/null
+TEC_WIDGET_OBJECT_RC=0
+TEC_WIDGET_OBJECT_CAPTURE=$(wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-tec-widget-object-capture 2>&1) \
+  || TEC_WIDGET_OBJECT_RC=$?
+require_duo_answered "TEC embedded widget object refusal" human "$TEC_WIDGET_OBJECT_CAPTURE"
+[ "$TEC_WIDGET_OBJECT_RC" -ne 0 ] \
+  && grep -Fq 'contains a PHP object' <<<"$TEC_WIDGET_OBJECT_CAPTURE" \
+  && [ ! -e "$TEC_WIDGET_OBJECT_OUT" ] \
+  || fail "TEC embedded widget object graph did not refuse atomically: $TEC_WIDGET_OBJECT_CAPTURE"
+wp_conf1 eval '
+  $pages=get_posts(["post_type"=>"page","post_status"=>"any","posts_per_page"=>2,"title"=>"Duo TEC Legacy Widget Surface"]);
+  if(count($pages)!==1) throw new RuntimeException("TEC widget object restore page is not unique");
+  $body=file_get_contents("/siterepo/.tmp-tec-widget-object-backup.txt");
+  if(!is_string($body)||is_wp_error(wp_update_post(["ID"=>$pages[0]->ID,"post_content"=>$body],true))){
+    throw new RuntimeException("TEC widget object probe did not restore exact page bytes");
+  }
+' >/dev/null
+rm -rf "$TEC_WIDGET_OBJECT_OUT"
+rm -f "$TEC_WIDGET_OBJECT_BACKUP"
+pass "TEC stored and embedded widget identities are canonical; hostile object graphs refuse without publication"
 TEC_SOURCE_OPTIONS="${CONF_REPO1:-siterepo/conf1}/state/options/core.json"
 jq -e '
   .records.tribe_events_calendar_options.value as $o |
@@ -843,7 +1027,10 @@ TEC_CUSTOMIZER_SECTION_CONTRACT='{
   }
 }'
 
-printf '%s\n' "$SOURCE" | jq -e --argjson customizer_sections "$TEC_CUSTOMIZER_SECTION_CONTRACT" '
+printf '%s\n' "$SOURCE" | jq -e \
+  --arg version "$TEC_EXPECTED_VERSION" \
+  --argjson source "$SOURCE_IDS" \
+  --argjson customizer_sections "$TEC_CUSTOMIZER_SECTION_CONTRACT" '
   .event.all_day == null and .event.all_day_native == false and
   .event.hide_from_upcoming == null and .event.hidden_native == false and
   .event.organizer_blocks == (.organizers | map(.id)) and
@@ -865,7 +1052,29 @@ printf '%s\n' "$SOURCE" | jq -e --argjson customizer_sections "$TEC_CUSTOMIZER_S
   .all_day.all_day == "1" and .all_day.all_day_native == true and
   .all_day.hide_from_upcoming == "yes" and .all_day.hidden_native == true and
   .delete_probe.all_day == "" and .delete_probe.all_day_native == false and
-  .delete_probe.hide_from_upcoming == null and .delete_probe.hidden_native == false
+  .delete_probe.hide_from_upcoming == null and .delete_probe.hidden_native == false and
+  .widget_surface.page_id == $source.widget_page and
+  .widget_surface.list.local_id == $source.widget_list and
+  .widget_surface.qr.local_id == $source.widget_qr and
+  .widget_surface.sidebar == [
+    ("tribe-widget-events-list-" + ($source.widget_list|tostring)),
+    ("tribe-widget-events-qr-code-" + ($source.widget_qr|tostring))
+  ] and
+  .widget_surface.blocks.stored_list == {id:("tribe-widget-events-list-" + ($source.widget_list|tostring))} and
+  .widget_surface.blocks.stored_qr == {id:("tribe-widget-events-qr-code-" + ($source.widget_qr|tostring))} and
+  .widget_surface.blocks.embedded_list.hash_valid == true and
+  .widget_surface.blocks.embedded_qr.hash_valid == true and
+  .widget_surface.blocks.embedded_qr.settings.event_id == $source.event and
+  .widget_surface.native_contract == {
+    legacy_block_registered:true,
+    object_instance_rehashed:($version == "6.17.2"),
+    provider_callbacks:[{
+      accepted_args:1,
+      class:"Tribe\\Events\\Views\\V2\\Widgets\\Service_Provider",
+      priority:10
+    }],
+    safe_instance_rehashed:true
+  }
 ' >/dev/null || fail "TEC source did not expose exact repository/Gutenberg all-day and visibility wires: $SOURCE"
 
 printf '%s\n' "$TARGET" | jq -e \
@@ -992,7 +1201,37 @@ printf '%s\n' "$TARGET" | jq -e \
   .options.eb_secret == "target-event-aggregator-secret-preserved" and
   .options.target_only == "target-option-preserved" and .options.source_only == null and
   .cache == "target-runtime-preserved" and
-  (.event.permalink | contains("/readiness-event/"))
+  (.event.permalink | contains("/readiness-event/")) and
+  .widget_surface.page_id == $dirty.widget_page and
+  .widget_surface.page_id != $source.widget_page and .widget_surface.page_id >= 7000000000 and
+  .widget_surface.list.local_id > 0 and .widget_surface.list.local_id != $source.widget_list and
+  .widget_surface.qr.local_id > 0 and .widget_surface.qr.local_id != $source.widget_qr and
+  .widget_surface.sidebar == [
+    ("tribe-widget-events-list-" + (.widget_surface.list.local_id|tostring)),
+    ("tribe-widget-events-qr-code-" + (.widget_surface.qr.local_id|tostring))
+  ] and
+  .widget_surface.blocks.stored_list == {id:("tribe-widget-events-list-" + (.widget_surface.list.local_id|tostring))} and
+  .widget_surface.blocks.stored_qr == {id:("tribe-widget-events-qr-code-" + (.widget_surface.qr.local_id|tostring))} and
+  .widget_surface.list.settings.title == ("Duo Sidebar Calendar 東京 " + $home + "calendar-readiness/") and
+  .widget_surface.list.settings.limit == 7 and
+  .widget_surface.qr.settings.event_id == .event.id and
+  .widget_surface.qr.settings.widget_title == "Duo Sidebar Event QR বাংলা" and
+  .widget_surface.blocks.embedded_list.hash_valid == true and
+  .widget_surface.blocks.embedded_list.settings.title == ("Duo Embedded Calendar مرحبا " + $home + "calendar-readiness/") and
+  .widget_surface.blocks.embedded_list.settings.limit == "10" and
+  .widget_surface.blocks.embedded_qr.hash_valid == true and
+  .widget_surface.blocks.embedded_qr.settings.event_id == .event.id and
+  .widget_surface.blocks.embedded_qr.settings.series_id == 0 and
+  .widget_surface.native_contract == {
+    legacy_block_registered:true,
+    object_instance_rehashed:($version == "6.17.2"),
+    provider_callbacks:[{
+      accepted_args:1,
+      class:"Tribe\\Events\\Views\\V2\\Widgets\\Service_Provider",
+      priority:10
+    }],
+    safe_instance_rehashed:true
+  }
 ' >/dev/null || fail "TEC native graph/settings/derived state did not converge: $TARGET"
 pass "TEC adopted huge native identities, rewrote refs/URLs, repaired projections, and preserved target-owned extension state"
 
@@ -1039,7 +1278,19 @@ grep -qF 'Readiness after বাংলা' <<<"$ARCHIVE" || fail "TEC archive lo
 grep -qF '.tribe_events_cat-duo-readiness-category{' <<<"$ARCHIVE" \
   || fail "TEC archive did not enqueue the native Category Colors selector"
 grep -qF '#123abc' <<<"$ARCHIVE" || fail "TEC archive did not carry the authored primary category color"
-pass "native Gutenberg editor meta, ordered organizers, canceled/postponed/scheduled statuses, and Category Colors render exactly"
+WIDGET_PERMALINK=$(jq -er '.widget_surface.permalink' <<<"$TARGET")
+WIDGET_FRONT=$(curl -fsSL "$WIDGET_PERMALINK") \
+  || fail "TEC target legacy-widget page did not return 200: $WIDGET_PERMALINK"
+require_observed_nonempty "TEC target legacy-widget response" "$WIDGET_FRONT"
+grep -qF 'Duo Sidebar Calendar 東京' <<<"$WIDGET_FRONT" \
+  || fail "TEC stored-id list widget did not render through the target-native block path"
+grep -qF 'Duo Embedded Calendar مرحبا' <<<"$WIDGET_FRONT" \
+  || fail "TEC embedded list widget did not render after target-salt re-signing"
+grep -qF 'Duo Production Readiness Event 東京' <<<"$WIDGET_FRONT" \
+  || fail "TEC rendered list widgets did not resolve the applied event graph"
+! grep -qF 'Target-only stale list widget' <<<"$WIDGET_FRONT" \
+  || fail "TEC legacy-widget page rendered the displaced target widget instance"
+pass "native Gutenberg meta, ordered organizers/statuses, legacy widgets, and Category Colors render exactly"
 
 # Exercise the exact native Category Colors services on every artifact in the
 # boundary matrix. Generator::fetch_category_meta() has no ORDER BY, uses an
