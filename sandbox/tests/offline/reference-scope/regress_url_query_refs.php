@@ -43,6 +43,9 @@
 if (!defined('ARRAY_A')) {
     define('ARRAY_A', 'ARRAY_A');
 }
+if (!defined('DUO_SPEC_VERSION')) {
+    define('DUO_SPEC_VERSION', 2);
+}
 
 $GLOBALS['__fake_options'] = ['home' => 'http://example.test'];
 
@@ -492,6 +495,68 @@ if (count($l5) === 2) {
 }
 
 check(count($findings) === 4, 'sanity: exactly 4 findings total across all 5 fixtures (L1 + L2 + L5x2) -- got ' . count($findings) . ': ' . json_encode(array_column($findings, 'class')));
+
+// The Polylang language term description is deliberately serialized native
+// metadata, not an undeclared relationship map. This drives real state files
+// through Lint::scan_tree() and the manifest interpreter: a resolvable RTL=1
+// is the control that the generic scanner would otherwise report. Foreign
+// serialized descriptions retain the generic finding; malformed language
+// bytes remain a hard adapter-schema refusal rather than becoming exempt.
+echo "\n== Lint.php: Polylang language-description authority ==\n";
+$wpdb->postsById[1] = ['post_type' => 'post', 'post_title' => 'RTL scanner control'];
+$polylangLintPolicy = Policy::load(null, ['polylang']);
+$polylangLintState = sys_get_temp_dir() . '/duo_regress_polylang_lint_' . bin2hex(random_bytes(4));
+register_shutdown_function(fn() => rrmdir($polylangLintState));
+$validLanguageRel = 'terms/language/01980000-0006-7000-8000-000000000101--en.json';
+Canon::write_file($polylangLintState . '/' . $validLanguageRel, Canon::encode([
+    'description' => serialize(['locale' => 'en', 'rtl' => 1, 'flag_code' => 'gb']),
+    'meta' => (object) [],
+    'relationships' => (object) [],
+    'taxonomy' => 'language',
+]));
+$validLanguageFindings = Lint::scan_tree($polylangLintState, $polylangLintPolicy);
+check(
+    !array_filter($validLanguageFindings, static fn(array $finding): bool =>
+        ($finding['class'] ?? null) === 'serialized_desc_ids' && ($finding['path'] ?? null) === $validLanguageRel),
+    'real Lint::scan_tree accepts a schema-valid Polylang language description before generic serialized-id scanning'
+);
+
+$foreignLintState = sys_get_temp_dir() . '/duo_regress_polylang_lint_foreign_' . bin2hex(random_bytes(4));
+register_shutdown_function(fn() => rrmdir($foreignLintState));
+$foreignRel = 'terms/category/01980000-0006-7000-8000-000000000102--foreign.json';
+Canon::write_file($foreignLintState . '/' . $foreignRel, Canon::encode([
+    'description' => serialize(['foreign' => 1]),
+    'meta' => (object) [],
+    'relationships' => (object) [],
+    'taxonomy' => 'category',
+]));
+$foreignFindings = Lint::scan_tree($foreignLintState, $polylangLintPolicy);
+check(
+    count(array_filter($foreignFindings, static fn(array $finding): bool =>
+        ($finding['class'] ?? null) === 'serialized_desc_ids'
+        && ($finding['path'] ?? null) === $foreignRel
+        && ($finding['locator'] ?? null) === 'description[foreign]')) === 1,
+    'real Lint::scan_tree still reports a foreign serialized description containing a live id'
+);
+
+$malformedLintState = sys_get_temp_dir() . '/duo_regress_polylang_lint_malformed_' . bin2hex(random_bytes(4));
+register_shutdown_function(fn() => rrmdir($malformedLintState));
+Canon::write_file($malformedLintState . '/terms/language/01980000-0006-7000-8000-000000000103--bad.json', Canon::encode([
+    'description' => 'a:3:{broken',
+    'meta' => (object) [],
+    'relationships' => (object) [],
+    'taxonomy' => 'language',
+]));
+$malformedLanguageFailure = '';
+try {
+    Lint::scan_tree($malformedLintState, $polylangLintPolicy);
+} catch (RuntimeException $failure) {
+    $malformedLanguageFailure = $failure->getMessage();
+}
+check(
+    str_contains($malformedLanguageFailure, 'Polylang live language description'),
+    'real Lint::scan_tree refuses malformed Polylang language-description bytes before generic scanning'
+);
 
 // ======================================================================
 echo "\n";

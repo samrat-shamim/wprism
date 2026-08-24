@@ -4,15 +4,15 @@
   "option_autoload": "preserve",
   "plugin": "polylang/polylang.php",
   "version_range": {
-    "min": "3.5",
-    "max": "4.0.0"
+    "min": "3.8",
+    "max": "3.8.8"
   },
   "notes": [
-    "DUO-3222/DUO-3223 (version-pinned adapter compatibility contract): plugin/version_range verified live (not guessed) at both admitted official edges — polylang/polylang.php 3.5 and 3.8.6, each installed from an exact digest-pinned wp.org artifact and certified with real multilingual post/term relationships, capture/deploy/apply, Polylang API/render checks, and byte-identical recapture. The original 3.0.1 boundary replayed the graph and passed Polylang's lookup APIs but returned HTTP 500 on a clean target because that release requires an environment-local default_lang option this manifest intentionally does not migrate. Target-side boundary search against that replay across 3.1, 3.2, 3.3, 3.4, and every 3.4.x patch showed the render failure persists through 3.4.5; 3.5 is the first official release that renders it correctly. Official 3.4.5 is therefore the closest below-range negative control and Duo loudly refuses it. Range remains scoped to the compatible 3.x line ([3.5, 4.0.0)); widening to other versions is DUO-3224's ratification job, not invented here.",
+    "DUO-3222/DUO-3223 (version-pinned adapter compatibility contract): plugin/version_range is verified live at both admitted official edges — polylang/polylang.php 3.8 and 3.8.6, each installed from an exact digest-pinned wp.org artifact and exercised with the full multilingual post/term/media/menu/widget graph, warning-free clean-target capture/deploy/apply, native API/render checks, and byte-identical recapture. Production-readiness replay invalidated the former 3.5 floor: official 3.5 through 3.7 keep plugin options in a raw array and their language factory/links model read `default_lang` before Duo can materialize authored option sub-keys on a truly language-empty target, emitting real undefined-array-key PHP warnings during otherwise successful apply. Polylang 3.8 introduces its default-aware options model and is the first official release whose clean-target apply is warning-free. Official 3.7 is therefore the immediately adjacent below-range negative control and Duo loudly refuses it. The range remains scoped to the proven compatible 3.x line ([3.8, 4.0.0)); widening is a separate ratification job, never inferred from version numbers.",
     "The engine capabilities this manifest depends on (task #20): (1) term-object relationship capture/apply — a term entity's own membership in OTHER taxonomies as object_id, symmetric to a post's `terms` field. `taxonomies.<tax>.object_keyspace` now declares whether each relationship row belongs to the post or term object-id namespace; the four exact declarations below make that contract explicit rather than inferring it from a runtime plugin sentinel. (2) `taxonomies.<tax>.description_refs`, declared below for the two taxonomies verified to need it.",
     "Empirically verified on a fresh fx1/fx2 pair (Polylang 3.8.6, not guessed from the frontier report alone — re-checked byte-for-byte this session): `language` and `post_translations` are POST-object (`get_taxonomy()->object_type` = {\"post\":\"post\",\"page\":\"page\",\"wp_block\":\"wp_block\"} and [\"post\",\"page\",\"wp_block\"] respectively) — posts' existing `terms` field already round-trips these correctly, zero new code needed. `term_language` and `term_translations` are genuinely term-object (object_type === [\"term\"], confirmed) — every policy-scoped category (including Polylang's OWN auto-created 'Uncategorized-fr', created the moment a second language is added) gets term_language + term_translations relationship rows with ITSELF as object_id; these are what the new `relationships` term-file field captures. `language` and `term_language` do NOT share term rows for the same language (verified: English is term_id=2 under `language`, a DIFFERENT term_id=3 under `term_language`, with distinct slugs 'en' vs 'pll_en') — so there is no term-file-uuid-sharing hazard between the two taxonomies.",
     "`taxonomies.post_translations.description_refs`/`taxonomies.term_translations.description_refs` (kind: post / term respectively): term_taxonomy.description on these two taxonomies' GROUP terms (Polylang's internal `pll_<hash>` bookkeeping terms) is PHP-serialized `{lang_slug: local_id}` — verified byte-for-byte this session: `a:2:{s:2:\"en\";i:1;s:2:\"fr\";i:2;}` for post_translations, `a:2:{s:2:\"en\";i:9;s:2:\"fr\";i:11;}` for term_translations — with GENUINELY int-typed values (`i:N;`, confirmed via raw DB read), never the ACF/Yoast digit-string convention, so no `cast` is declared. Rewritten via the ordinary json_refs primitive at path \"$.*\" (every top-level value in the flat map is a ref of the declared kind; the keys are language slugs, never ids, so no key_refs). WordPress never auto-unserializes term_taxonomy.description the way maybe_unserialize() does for postmeta/options — Capture/Apply explicitly unserialize()/serialize() it, the taxonomy-column analogue of _elementor_data's json_encoded handling but for PHP-serialize instead of JSON.",
-    "`language`'s OWN term description (NOT declared here) is a different, non-ref shape: `a:3:{s:6:\"locale\";s:5:\"en_US\";s:3:\"rtl\";b:0;s:9:\"flag_code\";s:0:\"\";}` — plugin config, no post/term ids, safe as the ordinary opaque tokenize_text() string every other taxonomy's description already gets. `term_language`'s own language terms (pll_en/pll_fr) have an EMPTY description ('', confirmed) — also nothing to declare. Declaring description_refs for either would be asserting a shape neither taxonomy has; Capture::term_description() throws loudly if a declared taxonomy's description doesn't unserialize to an array, so a wrong declaration fails fast rather than silently mis-capturing.",
+    "`language`'s OWN term description is a different, non-ref shape with exact locale/rtl/flag_code fields. Supported Polylang 3.8.x writes rtl as a native boolean (`b:0;`/`b:1;`); the interpreter also accepts the semantically identical integer 0|1 representation written by formerly admitted 3.5 installs so repositories captured before the corrected production floor remain upgradeable after Polylang itself is upgraded. The legitimate integer 1 can coincide with WordPress term id 1, so interpreter `polylang` decodes canonical PHP serialization with classes disabled, accepts only those three keys and the two explicit RTL representations, validates locale/flag grammar, and only then returns the closed lint exemption. Malformed, recursive/object, extra-key, wrong-type, and secret-shaped descriptions refuse without echoing payload bytes. `term_language`'s own language terms (pll_en/pll_fr) have an empty description and receive no exemption. Declaring description_refs for either would be false: these values contain no entity references.",
     "The `polylang` option (single blob, `force_lang`/`domains`/`hide_default`/`rewrite`/`redirect_lang`/`browser`/`media_support`/`post_types`/`taxonomies`/`sync`/`default_lang` authored config, `nav_menus` a per-location-per-language menu-term-id map, `first_activation`/`previous_version`/`version` env-local/upgrade-gate bookkeeping) is classified `env` as a WHOLE value (still correct: capturing it wholesale would let a stale `first_activation`/`version` silently roll back another environment's upgrade-routine gate) — CLOSED (DUO-3233): `post_types`/`taxonomies`/`nav_menus` are now carved out via the new `sub_keys` grammar below, capturing exactly those three keys and leaving every other key (including the env-local bookkeeping) untouched on every apply. This is the general sub-key option classification capability this note used to describe as 'a genuinely separate, unscoped engine capability ... deliberately not invented here' — it has since been built (see Policy::sub_keyed_options()/Apply::apply_option_sub_keys()) precisely for this option and Yoast's `wpseo` (identical shape). `post_types`/`taxonomies` are plain portable post-type/taxonomy-slug lists — no ref rewriting needed, a slug means the same thing on every environment (verified empirically, Polylang 3.8.6: `array_unique(array_merge(...))`-built values stay cleanly sequential-keyed, encoding as JSON arrays, not objects). `nav_menus[theme][location][lang] = menu_term_id` DOES need ref rewriting (a term id, local to its environment) — declared via the ordinary `json_refs` primitive at path `\"$.*.*.*\"` (three wildcard levels: theme, then location, then lang, landing on the term-id scalar — verified empirically against a real per-language menu assignment: `{\"twentytwentyone\":{\"primary\":{\"en\":9,\"de\":10}}}`), `kind: term` (a `nav_menu` term). This is a plain json_refs declaration, not option_ref_tokens' scalar/array `ref` mechanism (which cannot reach three levels deep) — so an unmapped id here follows json_refs' existing uniform warn-and-drop severity (spec/repo-format.md's 'Dangling references'), not task #73's unscoped-vs-dangling loud gate (which remains scoped to option_ref_tokens' own top-level `ref` mechanism and structurally cannot apply to a nested json_refs path — every other json_refs consumer in this codebase, e.g. wpseo_taxonomy_meta below, already behaves this same way).",
     "`pll_language_from_content_available` and `pll_language_taxonomies` (classified `runtime`) are read from Polylang's own source (src/install/activate.php): both are `add_option()`'d ONCE at plugin activation — the former a UI-hint flag derived from whatever `force_lang` value existed at that moment (controls an admin-settings radio's available choices), the latter an empty operational cache — neither is content a site admin authors through any UI; both are installation-time artifacts of THIS environment's own activation history, not this site's config.",
     "`polylang_wpml_strings` and `widget_polylang` (the classic Language-Switcher widget's instance storage) are deliberately left undeclared, not classified — both were empty in every verified fixture (`a:0:{}` and just the `_multiwidget` skeleton flag respectively), so their POPULATED shape (translatable strings registered via `pll_register_string()`; classic-widget display settings) was never empirically observed this session. Per this project's 'empirics over memory' posture, declaring either `authored` without having read a populated example would be exactly the kind of guess this manifest exists to avoid — left as a known, documented gap for whoever seeds a populated example next, the same treatment Yoast's manifest gives wpseo_rss/wpseo_internallinks/wpseo_xml.",
@@ -28,35 +28,83 @@
     "DUO-3272 (owner ruling, issue comment 8e0edde6): `menu_fields.locations` — the same shape of finding as DUO-3249's `default_category` above, a different field. Root cause, code-path verified against Polylang 3.8.6 source (src/Model/Languages.php:774, `update_default()`): whenever Polylang's default language changes, OR its own `get_default()` fallback fires (default_lang found empty — 'let's select one arbitrarily' from a plain, environment-dependent terms query), Polylang unconditionally rewrites theme_mods_<stylesheet>['nav_menu_locations'] — the exact raw value core.json's own `menu_fields.locations` classifies — from ITS OWN `nav_menus[theme][loc][lang]` bookkeeping (the sub_keys declaration above), entirely outside Duo's capture/apply cycle. Two environments applying the identical captured state can end up with a DIFFERENT menu owning the same location the next time anything re-derives that slot. Reproduced deterministically (not inferred): calling `update_default()` with a different language flips which menu file's `locations` holds a given slot, byte-for-byte matching the original grind_r3a flake. Reclassified here to `derived` for the same reason `default_category` was: the human-authored truth (which menu belongs at which location, PER LANGUAGE) already lives in `nav_menus` above, which already propagates correctly — this declaration only stops Duo from ALSO separately carrying a value Polylang's own machinery treats as its mutable, rewrite-at-will cache. Unlike `default_category`, this reclassification needed genuinely new engine plumbing (Policy::menu_field_class()/menu_field_rule_details(), reusing rule_details()'s DUO-3249 core-yields-to-plugin precedence engine under a new 'menu_fields' section; Policy::active_menu_field_reclassifications(), the same loud-plan-warning treatment as active_reclassifications()) because field_class() (task #88) is post-type-locked and has no menu equivalent — see core.json's own menu_fields.locations note for the v0 baseline this reclassifies.",
     "DUO-3272's rebuilder, and why it's required rather than optional (empirically grounded, not assumed either way): a fresh target that has correctly received `nav_menus`/`default_lang` (via the sub_keys mechanism above) but never had `assign_locations()` run — because `locations` is now excluded from capture/apply under this reclassification — does NOT self-heal its raw theme_mods slot on its own. Verified directly: `Languages::get_default()`'s only unconditional write path (`update_default()`) is gated by `if ($prev_default_lang === $slug) { return; }` — since default_lang is already correctly populated from the very first apply (this manifest's own sub_keys declaration ensures that), the fallback that would otherwise call `update_default()` never triggers at all, and no OTHER Polylang code path writes this slot outside a real wp-admin form POST (Manage Locations / Edit Menus / Customizer saves, all nonce-gated, structurally unreachable from automation). So the slot would simply stay empty/stale forever on an all-automation target with no human ever touching Appearance → Menus. The `rebuilders` declaration below closes this: a `wp eval` one-liner (Polylang ships no native wp-cli commands at all — confirmed, see the note above) that recomputes theme_mods_<stylesheet>['nav_menu_locations'] directly from this environment's own (already-applied, already-correct) `nav_menus`/`default_lang`, the same computation `update_default()` itself does internally. Verified live end-to-end before being declared here: ran via `WP_CLI::runcommand()` exactly as Apply::rebuild() invokes manifest rebuilders, against a fresh install with `nav_menus`/`default_lang` set and theme_mods deliberately left empty — correctly wrote the expected menu-to-location mapping, confirmed by direct DB read afterward. Idempotent and a safe no-op when `nav_menus` has no entry for the active theme yet (guarded, no write attempted).",
     "DUO-3338 (structured actions supersede the free-form `rebuilders` channel): DUO-3272's `wp eval` one-liner is now provider `polylang-nav-menus` capability `sync_nav_menu_locations` (manifests/providers/polylang-nav-menus.php). The computation is ported unchanged — read the `polylang` option and the active stylesheet, map each location to its default-language menu id (0 when absent), set_theme_mod('nav_menu_locations', ...) — including its guarded no-op when the active theme has no `nav_menus` entry yet, and it stays unscoped as the declaration was. The DUO-3272 notes below remain the empirical grounding for why this nudge is required; their references to a `rebuilders` declaration and to WP_CLI::runcommand() describe the retired channel, not how it runs today. New: the write is verified by a strict get_theme_mod readback against the computed map.",
-    "taxonomies.<tax>.object_type (round-3 T7 A5, Polylang 3.8.6 live on the adoption pair): the plugin's own register_taxonomy() object types, verified with get_taxonomy() while Polylang was loaded — language and post_translations register on post, page and wp_block (plus whatever the `polylang` option's post_types sub-key adds, which object_type_from_option beside it already declares additively); term_language and term_translations register on term. Declared statically because `duo rehearse` materializes the preview through refresh-export under the isolated control bootstrap, where no plugin is loaded and get_taxonomy() finds none of these — without a manifest-owned registration declaration that export refused (\"taxonomy 'language' is in policy scope but is not registered under the isolated control bootstrap\") the moment init proposed the four taxonomies into scope, so a Polylang site could adopt but never rehearse."
+    "taxonomies.<tax>.object_type (round-3 T7 A5, Polylang 3.8.6 live on the adoption pair): the plugin's own register_taxonomy() object types, verified with get_taxonomy() while Polylang was loaded — language and post_translations register on post, page and wp_block (plus whatever the `polylang` option's post_types sub-key adds, which object_type_from_option beside it already declares additively); term_language and term_translations register on term. Declared statically because `duo rehearse` materializes the preview through refresh-export under the isolated control bootstrap, where no plugin is loaded and get_taxonomy() finds none of these — without a manifest-owned registration declaration that export refused (\"taxonomy 'language' is in policy scope but is not registered under the isolated control bootstrap\") the moment init proposed the four taxonomies into scope, so a Polylang site could adopt but never rehearse.",
+    "The 2026-08-23 production-readiness inventory supersedes the earlier three-sub-key and zero-postmeta observations above. `default_lang`, `media_support`, and `sync` are source-audited portable administrator choices and are now captured beside `post_types`, `taxonomies`, and `nav_menus`; target upgrade bookkeeping and URL/domain mode remain target-local because the latter is conditionally coupled to environment hostnames. Real populated optional surfaces established two more authored shapes: the language-switcher widget's seven settings plus `pll_lang`, and a navigation language switcher's `_pll_menu_item` plain boolean map. Both now have closed declarations. Polylang string translations remain explicitly unsupported because current free Polylang stores them in `_pll_strings_translations` termmeta and duo-terms/v1 has no authored termmeta representation; a populated row is exercised as a loud atomic capture refusal rather than silently omitted.",
+    "Provider `polylang-nav-menus` 2.0.0 closes the full settings-hook gap rather than only its first symptom. A changed canonical `polylang` record now recomputes the raw default-language menu projection, repoints `default_category` to its translated peer, launches WordPress's native rewrite flush in a fresh process, evicts the parent option cache, and verifies exact raw menu bytes, category language, and a nonempty rewrite-rule fingerprint. Malformed maps, missing referenced menus/categories, child-process failures, malformed receipts, retained writes, stale cache readback, and recovery reconciliation are deterministic offline refusals.",
+    "Interpreter `polylang` closes the metadata schema boundary: native `_pll_menu_item` values must contain exactly the six 0/1 switcher fields written by supported Polylang 3.8.x; `language` descriptions must be canonical plain serialization of exact locale/rtl/flag_code metadata, including the current boolean RTL form and the explicit legacy integer upgrade form; and populated `_pll_strings_translations` metadata refuses because duo-terms/v1 has no authored string-catalog representation. Live capture, repository tamper, malformed serialization, extra keys, wrong types, and redacted secret-shaped cases are all exercised. Exemptions are returned only after those closed validators pass."
   ],
-  "menu_fields": {
-    "locations": {
-      "class": "derived",
-      "note": "Polylang rewrites the raw theme_mods nav_menu_locations slot from its own nav_menus/default_lang bookkeeping (options.polylang.sub_keys.nav_menus below) any time the default language changes or is re-resolved — see this manifest's own DUO-3272 note for the full empirical grounding, and the rebuilders declaration below for why a fresh target still needs an explicit nudge."
-    }
-  },
+  "interpreter": "polylang",
   "providers": [
-    {"id": "polylang-nav-menus", "version": "1.0.0", "source": "manifest", "plugin": "polylang/polylang.php", "capabilities": ["sync_nav_menu_locations"]}
+    {"id": "polylang-nav-menus", "version": "2.0.0", "source": "manifest", "plugin": "polylang/polylang.php", "capabilities": ["synchronize_runtime"]}
   ],
   "actions": [
-    {"kind": "provider", "provider": "polylang-nav-menus", "capability": "sync_nav_menu_locations", "args": {}}
+    {
+      "kind": "provider",
+      "provider": "polylang-nav-menus",
+      "capability": "synchronize_runtime",
+      "args": {},
+      "triggers": ["option:polylang", "option:polylang_wpml_strings", "term:language"],
+      "effects": [
+        {"id": "polylang-runtime-options", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "table", "value": "options"}},
+        {"id": "polylang-runtime-option-cache", "kind": "cache", "mode": "irreversible", "selector": {"scope": "external", "type": "provider_resource", "value": "wordpress-options:v2:polylang-derived-state"}},
+        {"id": "polylang-runtime-native-hooks", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "provider_resource", "value": "polylang-runtime:v2:default-category,theme-menu-locations,rewrite-flush"}}
+      ]
+    }
+  ],
+  "option_namespaces": [
+    {"match": "^(?:polylang(?:_|$)|pll_)"}
   ],
   "options": {
+    "pll_dismissed_notices": {
+      "class": "runtime"
+    },
     "pll_language_from_content_available": {
       "class": "runtime"
     },
     "pll_language_taxonomies": {
       "class": "runtime"
     },
-    "default_category": {
-      "class": "derived",
-      "note": "Polylang repoints this per-language once its own config is complete (post_types/taxonomies sub-keys below) — see this manifest's own DUO-3249 note for the full empirical grounding and the Policy.php precedence fix this declaration depends on."
+    "polylang_licenses": {
+      "class": "env",
+      "required": false
+    },
+    "polylang_wpml_strings": {
+      "class": "authored",
+      "plain_data": true
     },
     "polylang": {
       "class": "env",
       "required": false,
+      "closed_sub_keys": true,
+      "absent_autoload": "yes",
       "sub_keys": {
+        "browser": {
+          "class": "authored"
+        },
+        "default_lang": {
+          "class": "authored"
+        },
+        "domains": {
+          "class": "env",
+          "native_default_completion": true
+        },
+        "first_activation": {
+          "class": "env",
+          "native_default_completion": true
+        },
+        "force_lang": {
+          "class": "authored"
+        },
+        "hide_default": {
+          "class": "authored"
+        },
+        "language_taxonomies": {
+          "class": "env"
+        },
+        "media_support": {
+          "class": "authored",
+          "lint_ok": true
+        },
         "nav_menus": {
           "class": "authored",
           "json_refs": [
@@ -69,20 +117,76 @@
         "post_types": {
           "class": "authored"
         },
+        "previous_version": {
+          "class": "env",
+          "native_default_completion": true
+        },
+        "redirect_lang": {
+          "class": "authored"
+        },
+        "rewrite": {
+          "class": "authored"
+        },
+        "sync": {
+          "class": "authored"
+        },
         "taxonomies": {
           "class": "authored"
+        },
+        "uninstall": {
+          "class": "env"
+        },
+        "version": {
+          "class": "env",
+          "native_default_completion": true
         }
       }
+    }
+  },
+  "post_meta": {
+    "_pll_menu_item": {
+      "class": "authored",
+      "plain_data": true,
+      "lint_ok": true
+    }
+  },
+  "term_meta": {
+    "_pll_strings_translations": {
+      "class": "authored",
+      "plain_data": true
+    }
+  },
+  "user_meta": {
+    "description": {
+      "class": "authored",
+      "allow_pii": true,
+      "missing_user": "block"
+    },
+    "pll_dismissed_notices": {
+      "class": "runtime"
+    },
+    "pll_filter_content": {
+      "class": "runtime"
     }
   },
   "taxonomies": {
     "language": {
       "object_keyspace": "post",
+      "term_group": "authored",
       "object_type": ["post", "page", "wp_block"],
-      "object_type_from_option": {
-        "option": "polylang",
-        "sub_key": "post_types"
-      }
+      "object_type_from_option": [
+        {
+          "option": "polylang",
+          "sub_key": "post_types"
+        },
+        {
+          "option": "polylang",
+          "sub_key": "media_support",
+          "object_types_when_truthy": [
+            "attachment"
+          ]
+        }
+      ]
     },
     "post_translations": {
       "description_refs": {
@@ -90,10 +194,19 @@
       },
       "object_keyspace": "post",
       "object_type": ["post", "page", "wp_block"],
-      "object_type_from_option": {
-        "option": "polylang",
-        "sub_key": "post_types"
-      }
+      "object_type_from_option": [
+        {
+          "option": "polylang",
+          "sub_key": "post_types"
+        },
+        {
+          "option": "polylang",
+          "sub_key": "media_support",
+          "object_types_when_truthy": [
+            "attachment"
+          ]
+        }
+      ]
     },
     "term_language": {
       "object_keyspace": "term",
@@ -105,6 +218,20 @@
       },
       "object_keyspace": "term",
       "object_type": ["term"]
+    }
+  },
+  "widgets": {
+    "polylang": {
+      "settings": {
+        "dropdown": {"class": "authored"},
+        "force_home": {"class": "authored"},
+        "hide_current": {"class": "authored"},
+        "hide_if_no_translation": {"class": "authored"},
+        "pll_lang": {"class": "authored"},
+        "show_flags": {"class": "authored"},
+        "show_names": {"class": "authored"},
+        "title": {"class": "authored"}
+      }
     }
   }
 }

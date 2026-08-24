@@ -1142,6 +1142,44 @@ final class Policy {
         return new TaxonomyDescriptionReferenceResolver($this->manifests);
     }
 
+    /**
+     * Exact manifest opt-in for wp_terms.term_group, which Polylang uses as
+     * native language order. Dynamic rules never claim the shared column.
+     */
+    public function taxonomy_term_group_is_authored(string $tax): bool {
+        foreach ($this->manifests as $manifest) {
+            if (($manifest['taxonomies'][$tax]['term_group'] ?? null) === 'authored') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * An adapter may exempt a non-reference description from the generic
+     * serialized-value lint only after validating its complete native shape.
+     */
+    public function taxonomy_description_lint_rule(string $taxonomy, mixed $description): ?array {
+        foreach ($this->interpreters() as $name => $interpreter) {
+            if (!method_exists($interpreter, 'taxonomy_description_lint_rule')) {
+                continue;
+            }
+            $rule = $interpreter->taxonomy_description_lint_rule($taxonomy, $description);
+            if ($rule === null) {
+                continue;
+            }
+            if (!is_array($rule) || array_is_list($rule)
+                || array_keys($rule) !== ['lint_ok'] || $rule['lint_ok'] !== true) {
+                throw new \RuntimeException(
+                    "duo: interpreter '$name' taxonomy_description_lint_rule() must return null "
+                    . "or exactly ['lint_ok' => true]"
+                );
+            }
+            return $rule;
+        }
+        return null;
+    }
+
     /** @deprecated Use description_reference_rule(); retained for extensions. */
     public function description_refs_for_taxonomy(string $tax): ?array {
         return $this->description_reference_rule($tax);
@@ -1186,11 +1224,12 @@ final class Policy {
     /**
      * `taxonomies.<tax>.object_type_from_option` (DUO-3280): declares that
      * $tax's registered object_type is additionally, DYNAMICALLY driven by
-     * a sub_keys-declared option's own named sub-key (Polylang: `language`/
-     * `post_translations` additionally cover whatever post types the
-     * `polylang` option's own `post_types` sub-key currently names — see
-     * polylang.json's own note). Pure declaration data — WHICH option,
-     * WHICH sub-key — never a live value; this class stays WordPress-free
+     * sub_keys-declared option values. The original object form names one
+     * array of object-type slugs; a declaration list can also name a boolean
+     * gate with `object_types_when_truthy` (Polylang's `media_support` adds
+     * `attachment`). Pure declaration data — WHICH option, WHICH sub-key,
+     * and which fixed types a true gate enables — never a live value; this
+     * class stays WordPress-free
      * by design, the identical "class holds the declaration, caller does
      * the live read" split dynamic_options() above already uses. Apply's
      * own taxes_by_object_type() consults this, then resolves it against
@@ -1214,12 +1253,19 @@ final class Policy {
      * get_taxonomy() succeeded or the pattern fallback did.
      *
      * Same first-manifest-wins, exact-name lookup as
-     * description_refs_for_taxonomy() immediately above.
+     * description_refs_for_taxonomy() immediately above. The singular facade
+     * remains the byte-compatible first-row projection for existing callers;
+     * Apply uses the plural form so no compiled contribution is discarded.
      *
      * @return ?array{option:string, sub_key:string}
      */
     public function object_type_option_ref(string $tax): ?array {
         return $this->taxonomy_object_type_option_resolver()->resolve($tax);
+    }
+
+    /** @return list<array{option:string, sub_key:string, object_types_when_truthy?:list<string>}> */
+    public function object_type_option_refs(string $tax): array {
+        return $this->taxonomy_object_type_option_resolver()->resolve_all($tax) ?? [];
     }
 
     /** Fresh because manifests stay publicly mutable in offline fixtures. */

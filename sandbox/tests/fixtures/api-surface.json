@@ -39348,6 +39348,23 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "object_type_option_refs": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "tax",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "option_name_ref_match_details": {
                     "abstract": false,
                     "final": false,
@@ -40000,6 +40017,31 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "taxonomy_description_lint_rule": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "taxonomy",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "description",
+                            "type": "mixed",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "taxonomy_object_keyspace": {
                     "abstract": false,
                     "final": false,
@@ -40089,6 +40131,23 @@
                         }
                     ],
                     "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "taxonomy_term_group_is_authored": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "tax",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
                     "static": false,
                     "visibility": "public"
                 },
@@ -58116,6 +58175,23 @@
                     "visibility": "public"
                 },
                 "resolve": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "tax",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "resolve_all": {
                     "abstract": false,
                     "final": false,
                     "parameters": [

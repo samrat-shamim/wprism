@@ -2766,6 +2766,71 @@ SidebarState::end_authored_transaction();
 $fieldMaterializer->end_authored_transaction();
 $wpdb->transactionState = '0';
 
+// A complete repository sidebar treats a Polylang uninstall's contentless
+// sidebars_widgets key as target-only deletion evidence. Exercise the actual
+// finalizer, not just planner projection: both a populated desired sidebar
+// and an explicitly empty one must overwrite the raw native assignment.
+$finalizeContentlessSidebar = static function (array $widgets) use (
+    $sidebarPolicy,
+    $tokens,
+    $fieldMaterializer,
+    $wpdb,
+    $selectedSidebarWidget
+): array {
+    $tree = [
+        'sidebar/selected' => [
+            'type' => SidebarState::ENTITY_TYPE,
+            'data' => ['widgets' => $widgets],
+        ],
+    ];
+    $wpdb->map = $widgets === [] ? [] : [[
+        'uuid' => $selectedSidebarWidget,
+        'entity_type' => 'widget',
+        'kind' => SidebarState::kind('text'),
+        'id' => 7,
+    ]];
+    $wpdb->writes = [];
+    $wpdb->optionRows = [
+        'widget_text' => ['option_value' => serialize(['_multiwidget' => 1]), 'autoload' => 'yes'],
+        'sidebars_widgets' => ['option_value' => serialize([
+            'selected' => ['text-4'], 'array_version' => 3,
+        ]), 'autoload' => 'yes'],
+    ];
+    $wpdb->transactionState = '1';
+    $fieldMaterializer->begin_authored_transaction();
+    SidebarState::begin_authored_transaction(
+        static fn(string $name, string $purpose): ?array =>
+            \Duo\CacheInvalidationTransaction::lock_option_row($name, $purpose),
+        static function (string $name, string $purpose): void {
+            \Duo\CacheInvalidationTransaction::queue_option($name, $purpose);
+        },
+        static function (string $name, string $value, string $autoload, string $purpose): void {
+            \Duo\CacheInvalidationTransaction::assert_option_row($name, $value, $autoload, $purpose);
+        }
+    );
+    try {
+        SidebarState::finalize_sidebar($sidebarPolicy, $tokens, $tree['sidebar/selected']['data'], 'selected', $tree, true);
+        return maybe_unserialize((string) $wpdb->optionRows['sidebars_widgets']['option_value']);
+    } finally {
+        SidebarState::end_authored_transaction();
+        $fieldMaterializer->end_authored_transaction();
+        $wpdb->transactionState = '0';
+    }
+};
+$contentlessPopulatedAssignments = $finalizeContentlessSidebar([[
+    'uuid' => $selectedSidebarWidget,
+    'type' => 'text',
+    'settings' => ['title' => 'Replacement'],
+]]);
+$contentlessEmptyAssignments = $finalizeContentlessSidebar([]);
+$check(
+    ($contentlessPopulatedAssignments['selected'] ?? null) === ['text-7']
+        && !in_array('text-4', (array) ($contentlessPopulatedAssignments['selected'] ?? []), true)
+        && ($contentlessEmptyAssignments['selected'] ?? null) === []
+        && !in_array('text-4', (array) ($contentlessEmptyAssignments['selected'] ?? []), true),
+    'sidebar finalizer removes a raw contentless assignment for both populated and empty desired complete sidebars'
+);
+
 // Restore the canonical loader fixture used by the hostile-value matrix.
 $wpdb->optionRows = [
     'widget_text' => ['option_value' => serialize($sidebarWidgetValue), 'autoload' => 'yes'],

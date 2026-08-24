@@ -254,6 +254,8 @@ final class CaptureCandidateBuilder {
             $forceUnresolvedRefs,
             $strictReadOnly,
             $portableWidgetReferences === [] ? null : $portableWidgetReferences
+            ,
+            $this->canonicalShortcodeTree
         );
 
         foreach ($terms as $term) {
