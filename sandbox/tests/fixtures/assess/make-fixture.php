@@ -504,9 +504,9 @@ case " $* " in
       # so a fixture that tells assess-inventory it is a network does not tell
       # doctor it is a single site.
       if [ "${DUO_MULTISITE:-0}" = 1 ]; then
-        printf '%s\n' '{"agent":"duo-ok","file_mods":"duo-set","php":"8.3.33","db_version":"11.8.8","db_engine":"mariadb","wp":"7.0.3","site_mode":"multisite"}'
+        printf '%s\n' '{"agent":"duo-ok","file_mods":"duo-set","php":"8.3.33","db_version":"11.8.8","db_engine":"mariadb","wp":"7.0.3","site_mode":"multisite","filesystem":{"directory_separator":"/","os_family":"Linux","functions":{"chmod":true,"flock":true,"fsync":true,"lstat":true,"rename":true}}}'
       else
-        printf '%s\n' '{"agent":"duo-ok","file_mods":"duo-set","php":"8.3.33","db_version":"11.8.8","db_engine":"mariadb","wp":"7.0.3","site_mode":"single-site"}'
+        printf '%s\n' '{"agent":"duo-ok","file_mods":"duo-set","php":"8.3.33","db_version":"11.8.8","db_engine":"mariadb","wp":"7.0.3","site_mode":"single-site","filesystem":{"directory_separator":"/","os_family":"Linux","functions":{"chmod":true,"flock":true,"fsync":true,"lstat":true,"rename":true}}}'
       fi
       exit 0 ;;
   *" duo assess-inventory "*)

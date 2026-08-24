@@ -205,6 +205,7 @@ function capdoc_platform(string $repo): array {
     // was made on purpose (agent/src/Policy/PlatformCompatibility.php's
     // valid_exercised_axis()/valid_database_axis() are the load-time mirror).
     foreach (['database' => ['engines', 'note'],
+              'filesystem' => ['directory_separator', 'note', 'os_families', 'profile', 'required_functions'],
               'php' => ['max', 'min', 'note', 'verified'],
               'wordpress' => ['last_verified', 'max', 'min', 'note', 'verified']] as $axis => $axisKeys) {
         $found = array_keys($platform['compatibility'][$axis] ?? []);
@@ -383,6 +384,16 @@ function capdoc_database_label(array $database): string {
     return implode('; ', $cells);
 }
 
+function capdoc_filesystem_label(array $filesystem): string {
+    return (string) $filesystem['profile']
+        . ' (OS ' . implode(', ', array_map('strval', $filesystem['os_families']))
+        . '; separator ' . json_encode(
+            $filesystem['directory_separator'],
+            JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+        )
+        . '; functions ' . implode(', ', array_map('strval', $filesystem['required_functions'])) . ')';
+}
+
 /**
  * A supported_versions entry keyed by `wordpress` pins the claim to core
  * rather than to a plugin artifact; platform.json's wordpress axis is the one
@@ -464,12 +475,14 @@ function capdoc_platform_section(array $platform): string {
     $out .= '| Branchable state | ' . capdoc_cell((string) $platform['branchable_state']) . " |\n";
     $out .= '| WordPress | ' . capdoc_cell(capdoc_exercised_label($compatibility['wordpress'])) . " |\n";
     $out .= '| PHP | ' . capdoc_cell(capdoc_exercised_label($compatibility['php'])) . " |\n";
-    $out .= '| Database | ' . capdoc_cell(capdoc_database_label($compatibility['database'])) . " |\n\n";
+    $out .= '| Database | ' . capdoc_cell(capdoc_database_label($compatibility['database'])) . " |\n";
+    $out .= '| Filesystem | ' . capdoc_cell(capdoc_filesystem_label($compatibility['filesystem'])) . " |\n\n";
     $out .= 'Multisite is refused before policy load or mutation. Each compatibility axis carries its own reviewed '
         . "note saying what pins it and what it does not claim:\n\n";
     $out .= '- **WordPress** — ' . $compatibility['wordpress']['note'] . "\n";
     $out .= '- **PHP** — ' . $compatibility['php']['note'] . "\n";
     $out .= '- **Database** — ' . $compatibility['database']['note'] . "\n";
+    $out .= '- **Filesystem** — ' . $compatibility['filesystem']['note'] . "\n";
     return $out;
 }
 

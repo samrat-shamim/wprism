@@ -104,6 +104,23 @@ $check(
     \Duo\DurableFilesystem::directoryIdentity($candidate) === \Duo\AtomicTreePublisher::directory_ownership_identity($candidate),
     'directory identity is shared by the extracted filesystem service and publisher'
 );
+\Duo\DurableFilesystem::syncFile($candidate . '/root.txt');
+\Duo\DurableFilesystem::syncDirectory($candidate);
+$check(true, 'durable filesystem syncs the witnessed file and directory inodes as hard boundaries');
+$disabledSync = [];
+$disabledSyncStatus = 0;
+exec(
+    escapeshellarg(PHP_BINARY) . ' -d disable_functions=fsync -r '
+        . escapeshellarg(
+            'require ' . var_export($root . '/agent/src/Kernel/DurableFilesystem.php', true) . '; '
+            . 'try { \\Duo\\DurableFilesystem::syncFile(' . var_export($candidate . '/root.txt', true) . '); } '
+            . 'catch (Throwable $failure) { exit(str_contains($failure->getMessage(), "sync is unavailable") ? 0 : 2); } '
+            . 'exit(3);'
+        ),
+    $disabledSync,
+    $disabledSyncStatus
+);
+$check($disabledSyncStatus === 0, 'a process without fsync refuses the durability boundary instead of degrading silently');
 
 $journal = new \Duo\PublicationJournal($state);
 $intent = $journal->begin($candidate, true);

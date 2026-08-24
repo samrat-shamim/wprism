@@ -109,6 +109,11 @@ class HealthyDoctorDriver implements EnvironmentDriver {
                 'php' => '8.3.33',
                 'db_version' => '11.8.8',
                 'db_engine' => 'mariadb',
+                'filesystem' => [
+                    'directory_separator' => '/',
+                    'os_family' => 'Linux',
+                    'functions' => ['chmod' => true, 'flock' => true, 'fsync' => true, 'lstat' => true, 'rename' => true],
+                ],
                 'wp' => '7.0.3',
                 'site_mode' => 'single-site',
             ]) . "\n", 'stderr' => ''];
@@ -202,6 +207,11 @@ $compatibilityCase = static function (array $override): array {
         'php' => '8.3.33',
         'db_version' => '11.8.8',
         'db_engine' => 'mariadb',
+        'filesystem' => [
+            'directory_separator' => '/',
+            'os_family' => 'Linux',
+            'functions' => ['chmod' => true, 'flock' => true, 'fsync' => true, 'lstat' => true, 'rename' => true],
+        ],
         'wp' => '7.0.3',
         'site_mode' => 'single-site',
     ];
@@ -339,6 +349,39 @@ assert_doctor_command(
     str_contains($unknownTopology['output'], '[PASS] site topology (single-site)'),
     'a single-site target passes the topology row'
 );
+
+$darwinFilesystem = $compatibilityCase(['filesystem' => [
+    'directory_separator' => '/',
+    'os_family' => 'Darwin',
+    'functions' => ['chmod' => true, 'flock' => true, 'fsync' => true, 'lstat' => true, 'rename' => true],
+]]);
+assert_doctor_command(
+    $darwinFilesystem['exit'] === 0
+        && str_contains($darwinFilesystem['output'], '[PASS] filesystem process profile (Darwin)'),
+    'doctor accepts the measured Darwin local-POSIX profile'
+);
+$windowsFilesystem = $compatibilityCase(['filesystem' => [
+    'directory_separator' => '\\',
+    'os_family' => 'Windows',
+    'functions' => ['chmod' => true, 'flock' => true, 'fsync' => true, 'lstat' => true, 'rename' => true],
+]]);
+assert_doctor_command(
+    $windowsFilesystem['exit'] === 1
+        && str_contains($windowsFilesystem['output'], '[FAIL] filesystem process profile (Windows)')
+        && str_contains($windowsFilesystem['output'], 'requires OS Darwin, Linux'),
+    'doctor blocks an unexercised filesystem OS/separator profile with the declared requirement'
+);
+$missingFsync = $compatibilityCase(['filesystem' => [
+    'directory_separator' => '/',
+    'os_family' => 'Linux',
+    'functions' => ['chmod' => true, 'flock' => true, 'fsync' => false, 'lstat' => true, 'rename' => true],
+]]);
+assert_doctor_command(
+    $missingFsync['exit'] === 1
+        && str_contains($missingFsync['output'], '[FAIL] filesystem process profile (Linux)')
+        && str_contains($missingFsync['output'], 'missing fsync'),
+    'doctor blocks a process missing one durable-filesystem function and names it'
+);
 $noTopologyDriver = new HealthyDoctorDriver();
 $noTopologyDriver->factsResult = ['exit' => 0, 'stdout' => (string) json_encode([
     'agent' => 'duo-ok',
@@ -346,6 +389,11 @@ $noTopologyDriver->factsResult = ['exit' => 0, 'stdout' => (string) json_encode(
     'php' => '8.3.33',
     'db_version' => '11.8.8',
     'db_engine' => 'mariadb',
+    'filesystem' => [
+        'directory_separator' => '/',
+        'os_family' => 'Linux',
+        'functions' => ['chmod' => true, 'flock' => true, 'fsync' => true, 'lstat' => true, 'rename' => true],
+    ],
     'wp' => '7.0.3',
     'site_mode' => null,
 ]) . "\n", 'stderr' => ''];
@@ -470,6 +518,18 @@ assert_doctor_command(
     !str_contains($truncatedProbe['output'], 'WordPress core ('),
     'no core version is judged at all against a baseline that cannot state the matrix'
 );
+$truncatedFilesystem = $shippedBaseline;
+unset($truncatedFilesystem['filesystem']['required_functions']);
+$truncatedFilesystemProbe = $baselineProbe($truncatedFilesystem);
+assert_doctor_command(
+    $truncatedFilesystemProbe['exit'] === 1
+        && str_contains(
+            $truncatedFilesystemProbe['output'],
+            '[FAIL] compatibility baseline (docs/compatibility-baseline.json) — baseline file missing or malformed'
+        )
+        && !str_contains($truncatedFilesystemProbe['output'], 'filesystem process profile ('),
+    'a baseline missing the durable function roster is malformed before any healthy target is judged'
+);
 $removeProbeRoot();
 
 $missingAgent = new AdoptableDoctorDriver(false);
@@ -520,6 +580,11 @@ $sunkDb->factsResult = ['exit' => 0, 'stdout' => (string) json_encode([
     'php' => '8.3.33',
     'db_version' => null,
     'db_engine' => null,
+    'filesystem' => [
+        'directory_separator' => '/',
+        'os_family' => 'Linux',
+        'functions' => ['chmod' => true, 'flock' => true, 'fsync' => true, 'lstat' => true, 'rename' => true],
+    ],
     'wp' => '7.0.3',
     'site_mode' => 'single-site',
 ]) . "\n", 'stderr' => ''];

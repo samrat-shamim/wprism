@@ -135,6 +135,7 @@ final class DoctorTest extends TestCase
         return [
             'full clone' => ['full clone (git rev-parse --is-shallow-repository = false)'],
             'release gate' => ['make release-gate: capability doc check:'],
+            'filesystem profile' => ['filesystem process profile:'],
             'php extension sodium' => ['php extension: sodium'],
         ];
     }

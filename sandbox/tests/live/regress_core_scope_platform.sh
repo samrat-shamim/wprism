@@ -206,7 +206,12 @@ exercise_core() { # <wordpress-version> <web-image> <php-series> <cli-image>
   jq -e --arg version "$version" --arg php "$php_proof" '
     .site_mode == "single-site" and .wordpress == $version and
     .php == $php and .database.engine == "MariaDB" and
-    (.database.version | test("^11\\."))
+    (.database.version | test("^11\\.")) and
+    .filesystem == {
+      directory_separator:"/",
+      functions:{chmod:true,flock:true,fsync:true,lstat:true,rename:true},
+      os_family:"Linux"
+    }
   ' <<<"$facts" >/dev/null || fail "claimed core $version on PHP $php_series reported unexpected platform facts (expected php exactly $php_proof): $facts"
 
   source_post=$(wp1 post create --post_type=post --post_status=publish \
@@ -337,9 +342,16 @@ jq -e '
     ($db | has("engine") | not) and
     ($db.engines | type) == "object" and ($db.engines | length) > 0 and
     ($db.engines | has("MariaDB")) and
-    ([$db.engines[] | (keys == ["max","min"])] | all))
+    ([$db.engines[] | (keys == ["max","min"])] | all)) and
+  (.platform.compatibility.filesystem == {
+    directory_separator:"/",
+    note:.platform.compatibility.filesystem.note,
+    os_families:["Darwin","Linux"],
+    profile:"local-posix-atomic-rename-flock-fsync/v1",
+    required_functions:["chmod","flock","fsync","lstat","rename"]
+  })
 ' "$PLATFORM_FILE" >/dev/null \
-  || fail 'shipped platform declaration is not a well-formed core/PHP matrix over a per-engine database map'
+  || fail 'shipped platform declaration is not a well-formed core/PHP/database/local-POSIX matrix'
 
 # This suite runs every pair on MariaDB 11 (sandbox/db.yml), so the MariaDB
 # entry is the one it can speak for. The MySQL entry the same map now claims is

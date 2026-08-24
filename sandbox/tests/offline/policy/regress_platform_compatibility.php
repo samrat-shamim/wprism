@@ -7,7 +7,8 @@ declare(strict_types=1);
  * Exercises the agent-owned gate with every inclusive/exclusive version edge,
  * the WordPress AND PHP range-plus-exercised-series semantics, the per-engine
  * database map, engine/topology mismatches, checked live-probe parsing, safe
- * aggregate diagnostics, and Policy ordering. Before this gate, a direct
+ * local-POSIX filesystem capability profile, aggregate diagnostics, and
+ * Policy ordering. Before this gate, a direct
  * `wp duo` command bypassed the host doctor and reached repository reads or
  * mutation on an entirely unexercised runtime.
  *
@@ -91,10 +92,24 @@ $facts = static fn(
     string $engine = 'MariaDB',
     string $database = '11.8.8',
     string $wordpress = '7.1',
-    string $siteMode = 'single-site'
+    string $siteMode = 'single-site',
+    string $osFamily = 'Linux',
+    string $directorySeparator = '/',
+    array $filesystemFunctions = [
+        'chmod' => true,
+        'flock' => true,
+        'fsync' => true,
+        'lstat' => true,
+        'rename' => true,
+    ]
 ): array => [
     'php' => $php,
     'database' => ['engine' => $engine, 'version' => $database],
+    'filesystem' => [
+        'directory_separator' => $directorySeparator,
+        'functions' => $filesystemFunctions,
+        'os_family' => $osFamily,
+    ],
     'wordpress' => $wordpress,
     'site_mode' => $siteMode,
 ];
@@ -110,7 +125,11 @@ $refusal = static function (callable $operation): ?CommandRefusalException {
 };
 
 PlatformCompatibility::assert_supported($platform, $facts());
-duo_check(true, 'the shipped PHP/MariaDB/WordPress/single-site platform boundary accepts its own newest exercised core');
+duo_check(true, 'the shipped PHP/MariaDB/Linux-filesystem/WordPress/single-site boundary accepts its exercised facts');
+duo_check(
+    $refusal(static fn() => PlatformCompatibility::assert_supported($platform, $facts(osFamily: 'Darwin'))) === null,
+    'the measured Darwin local-POSIX process profile is accepted beside the Linux pair profile'
+);
 
 // Every value of the shipped `verified` map is, by definition, a core a live
 // matrix ran end to end; the gate must accept each one. Read from the claim
@@ -199,6 +218,11 @@ foreach ([
     // observed value must still be a plain dotted version or the gate is
     // comparing something it never exercised.
     'WordPress pre-release core inside an exercised series' => [$facts(wordpress: '7.0.4-alpha'), 'platform_wordpress_version_unsupported'],
+    'unexercised filesystem OS family' => [$facts(osFamily: 'Windows'), 'platform_filesystem_os_unsupported'],
+    'non-POSIX directory separator' => [$facts(directorySeparator: '\\'), 'platform_filesystem_separator_unsupported'],
+    'missing durable fsync function' => [$facts(filesystemFunctions: [
+        'chmod' => true, 'flock' => true, 'fsync' => false, 'lstat' => true, 'rename' => true,
+    ]), 'platform_filesystem_function_unsupported'],
     'multisite topology' => [$facts(siteMode: 'multisite'), 'platform_site_mode_unsupported'],
 ] as $label => [$caseFacts, $code]) {
     $failure = $refusal(static fn() => PlatformCompatibility::assert_supported($platform, $caseFacts));
@@ -350,13 +374,14 @@ duo_check(
 // dedicated single-engine fixture above, because no shipped fact can reach it.
 $allMismatch = $refusal(static fn() => PlatformCompatibility::assert_supported(
     $platform,
-    $facts('8.5.0', 'MySQL', '8.3.9', '7.2.0', 'multisite')
+    $facts('8.5.0', 'MySQL', '8.3.9', '7.2.0', 'multisite', 'Windows')
 ));
 duo_check_same(
     [
         'platform_site_mode_unsupported',
         'platform_php_version_unsupported',
         'platform_database_version_unsupported',
+        'platform_filesystem_os_unsupported',
         'platform_wordpress_version_unsupported',
     ],
     array_column($allMismatch?->diagnostics ?? [], 'code'),
@@ -516,11 +541,73 @@ foreach ([
     );
 }
 
+// The filesystem profile is closed in both dimensions: its exact semantic
+// identifier/function roster is code-owned, while the two OS families and
+// slash separator are the only environments measured. A truncated or
+// decorative profile must blame the boundary, never a healthy target.
+foreach ([
+    'a missing filesystem profile' => null,
+    'an unreviewed filesystem profile identifier' => [
+        'directory_separator' => '/', 'note' => 'fixture', 'os_families' => ['Darwin', 'Linux'],
+        'profile' => 'generic-posix/v1',
+        'required_functions' => ['chmod', 'flock', 'fsync', 'lstat', 'rename'],
+    ],
+    'a filesystem profile omitting one required function' => [
+        'directory_separator' => '/', 'note' => 'fixture', 'os_families' => ['Darwin', 'Linux'],
+        'profile' => 'local-posix-atomic-rename-flock-fsync/v1',
+        'required_functions' => ['chmod', 'flock', 'lstat', 'rename'],
+    ],
+    'a filesystem profile widening to an unexercised OS' => [
+        'directory_separator' => '/', 'note' => 'fixture', 'os_families' => ['Darwin', 'Linux', 'BSD'],
+        'profile' => 'local-posix-atomic-rename-flock-fsync/v1',
+        'required_functions' => ['chmod', 'flock', 'fsync', 'lstat', 'rename'],
+    ],
+    'a filesystem profile with an empty rationale' => [
+        'directory_separator' => '/', 'note' => '', 'os_families' => ['Darwin', 'Linux'],
+        'profile' => 'local-posix-atomic-rename-flock-fsync/v1',
+        'required_functions' => ['chmod', 'flock', 'fsync', 'lstat', 'rename'],
+    ],
+] as $label => $axis) {
+    $shape = $platform;
+    if ($axis === null) {
+        unset($shape['compatibility']['filesystem']);
+    } else {
+        $shape['compatibility']['filesystem'] = $axis;
+    }
+    $shapeFailure = $refusal(static fn() => PlatformCompatibility::assert_supported($shape, $facts()));
+    duo_check_same(
+        'platform_boundary_invalid',
+        $shapeFailure?->reasonCode,
+        "$label refuses fail-closed before any platform comparison"
+    );
+}
+
+foreach ([
+    'missing filesystem function fact' => $facts(filesystemFunctions: [
+        'chmod' => true, 'flock' => true, 'fsync' => true, 'lstat' => true,
+    ]),
+    'non-boolean filesystem function fact' => $facts(filesystemFunctions: [
+        'chmod' => true, 'flock' => true, 'fsync' => 'yes', 'lstat' => true, 'rename' => true,
+    ]),
+] as $label => $caseFacts) {
+    $shapeFailure = $refusal(static fn() => PlatformCompatibility::assert_supported($platform, $caseFacts));
+    duo_check_same('platform_probe_unavailable', $shapeFailure?->reasonCode, "$label is a probe failure, not a target mismatch");
+}
+
 $liveFacts = PlatformCompatibility::current_facts();
+$liveFunctions = [];
+foreach (['chmod', 'flock', 'fsync', 'lstat', 'rename'] as $function) {
+    $liveFunctions[$function] = function_exists($function);
+}
 duo_check_same(
     [
         'php' => PHP_VERSION,
         'database' => ['engine' => 'MariaDB', 'version' => '11.8.8'],
+        'filesystem' => [
+            'directory_separator' => DIRECTORY_SEPARATOR,
+            'functions' => $liveFunctions,
+            'os_family' => PHP_OS_FAMILY,
+        ],
         'wordpress' => '7.1',
         'site_mode' => 'single-site',
     ],
@@ -562,7 +649,10 @@ $hostSeries = preg_match('/^(\d+\.\d+)/', PHP_VERSION, $hostMatch) === 1 ? $host
 $hostInsideClaim = preg_match('/^\d+(?:\.\d+){1,3}$/D', PHP_VERSION) === 1
     && version_compare(PHP_VERSION, (string) $claimedPhp['min'], '>=')
     && version_compare(PHP_VERSION, (string) $claimedPhp['max'], '<')
-    && is_string($claimedPhp['verified'][$hostSeries] ?? null);
+    && is_string($claimedPhp['verified'][$hostSeries] ?? null)
+    && in_array(PHP_OS_FAMILY, ['Darwin', 'Linux'], true)
+    && DIRECTORY_SEPARATOR === '/'
+    && !in_array(false, $liveFunctions, true);
 
 $policyFailure = $refusal(static fn() => Duo\Policy::load('/definitely-missing-platform-ordering-repository'));
 if ($hostInsideClaim) {

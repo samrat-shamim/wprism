@@ -226,6 +226,18 @@ if have php; then
         remedy "brew install php@8.3 && export PATH=\"\$(brew --prefix php@8.3)/bin:\$PATH\"   # to reproduce the certified engine"
     fi
 
+    fs_os="$(php -r 'echo PHP_OS_FAMILY;' 2>/dev/null || echo unknown)"
+    fs_separator_hex="$(php -r 'echo bin2hex(DIRECTORY_SEPARATOR);' 2>/dev/null || echo unknown)"
+    fs_missing="$(php -r '$missing=[]; foreach (["chmod","flock","fsync","lstat","rename"] as $fn) { if (!function_exists($fn)) $missing[]=$fn; } echo implode(",",$missing);' 2>/dev/null || echo unknown)"
+    if php -r '$functions=["chmod","flock","fsync","lstat","rename"]; exit(in_array(PHP_OS_FAMILY,["Darwin","Linux"],true) && DIRECTORY_SEPARATOR==="/" && count(array_filter($functions,fn($fn)=>!function_exists($fn)))===0 ? 0 : 1);'; then
+        ok "filesystem process profile: $fs_os local POSIX (separator /; chmod, flock, fsync, lstat, rename available)"
+    else
+        fail "filesystem process profile is outside the certified local POSIX boundary"
+        why "observed PHP_OS_FAMILY=$fs_os, directory-separator-hex=$fs_separator_hex, missing-functions=${fs_missing:-none}."
+        why "docs/compatibility-baseline.json admits only Darwin/Linux, '/', and the complete durable-function roster."
+        remedy "use the Linux/Darwin target runtime and enable chmod, flock, fsync, lstat and rename in PHP"
+    fi
+
     # Required extensions. Each is required because first-party code calls it,
     # not because it is conventionally present:
     #   sodium   -- sodium_crypto_sign_detached / _verify_detached / _publickey_

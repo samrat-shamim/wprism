@@ -44,9 +44,27 @@ require_once __DIR__ . '/../Kernel/CommandRefusal.php';
  * decision, so a third series map would prevent no failure. That asymmetry is
  * deliberate, and the axis note in manifests/capabilities/platform.json says
  * so where a reviewer will see it.
+ *
+ * The filesystem axis is a process-capability profile, not an OS-name proxy
+ * for a particular mount. It admits only the Linux and Darwin families that
+ * exercised the shipped code and requires the exact functions the durable
+ * transaction uses. The transaction still proves its actual roots and
+ * same-directory operations before authored mutation; this early gate stops
+ * a process that cannot possibly provide those semantics from reaching them.
  */
 final class PlatformCompatibility {
-    /** @return array{php:string,database:array{engine:string,version:string},wordpress:string,site_mode:string} */
+    private const FILESYSTEM_PROFILE = 'local-posix-atomic-rename-flock-fsync/v1';
+    private const FILESYSTEM_FUNCTIONS = ['chmod', 'flock', 'fsync', 'lstat', 'rename'];
+
+    /**
+     * @return array{
+     *   php:string,
+     *   database:array{engine:string,version:string},
+     *   filesystem:array{directory_separator:string,functions:array<string,bool>,os_family:string},
+     *   wordpress:string,
+     *   site_mode:string
+     * }
+     */
     public static function current_facts(): array {
         if (!function_exists('get_bloginfo')) {
             throw self::probe_refusal('wordpress');
@@ -73,11 +91,20 @@ final class PlatformCompatibility {
         if ($wordpress === '') {
             throw self::probe_refusal('wordpress');
         }
+        $filesystemFunctions = [];
+        foreach (self::FILESYSTEM_FUNCTIONS as $function) {
+            $filesystemFunctions[$function] = function_exists($function);
+        }
         return [
             'php' => PHP_VERSION,
             'database' => [
                 'engine' => stripos($server, 'mariadb') !== false ? 'MariaDB' : 'MySQL',
                 'version' => $match[1],
+            ],
+            'filesystem' => [
+                'directory_separator' => DIRECTORY_SEPARATOR,
+                'functions' => $filesystemFunctions,
+                'os_family' => PHP_OS_FAMILY,
             ],
             'wordpress' => $wordpress,
             'site_mode' => function_exists('is_multisite') && is_multisite() ? 'multisite' : 'single-site',
@@ -86,7 +113,13 @@ final class PlatformCompatibility {
 
     /**
      * @param array<string,mixed> $platform
-     * @param ?array{php:string,database:array{engine:string,version:string},wordpress:string,site_mode:string} $facts
+     * @param ?array{
+     *   php:string,
+     *   database:array{engine:string,version:string},
+     *   filesystem:array{directory_separator:string,functions:array<string,bool>,os_family:string},
+     *   wordpress:string,
+     *   site_mode:string
+     * } $facts
      */
     public static function assert_supported(array $platform, ?array $facts = null): void {
         self::assert_boundary_shape($platform);
@@ -162,6 +195,42 @@ final class PlatformCompatibility {
             );
         }
 
+        $filesystem = $facts['filesystem'];
+        $filesystemBoundary = $compatibility['filesystem'];
+        if (!in_array($filesystem['os_family'], $filesystemBoundary['os_families'], true)) {
+            $diagnostics[] = self::diagnostic(
+                'platform_filesystem_os_unsupported',
+                'filesystem.os_family',
+                $filesystem['os_family'],
+                implode(', ', $filesystemBoundary['os_families']),
+                'the PHP operating-system family is outside the exercised durable-filesystem profile'
+            );
+        }
+        if (!hash_equals($filesystemBoundary['directory_separator'], $filesystem['directory_separator'])) {
+            $diagnostics[] = self::diagnostic(
+                'platform_filesystem_separator_unsupported',
+                'filesystem.directory_separator',
+                self::bounded_bytes($filesystem['directory_separator']),
+                self::bounded_bytes($filesystemBoundary['directory_separator']),
+                'the runtime path separator is outside the exercised durable-filesystem profile'
+            );
+        }
+        $missingFunctions = [];
+        foreach ($filesystemBoundary['required_functions'] as $function) {
+            if (($filesystem['functions'][$function] ?? false) !== true) {
+                $missingFunctions[] = $function;
+            }
+        }
+        if ($missingFunctions !== []) {
+            $diagnostics[] = self::diagnostic(
+                'platform_filesystem_function_unsupported',
+                'filesystem.functions',
+                'missing ' . implode(', ', $missingFunctions),
+                'available ' . implode(', ', $filesystemBoundary['required_functions']),
+                'the PHP process lacks a function required by durable filesystem transactions'
+            );
+        }
+
         $wordpress = (string) $facts['wordpress'];
         $wordpressBoundary = $compatibility['wordpress'];
         if (!self::exercised_supported($wordpress, $wordpressBoundary)) {
@@ -195,14 +264,17 @@ final class PlatformCompatibility {
         $compatibility = $platform['compatibility'] ?? null;
         $php = is_array($compatibility) ? ($compatibility['php'] ?? null) : null;
         $database = is_array($compatibility) ? ($compatibility['database'] ?? null) : null;
+        $filesystem = is_array($compatibility) ? ($compatibility['filesystem'] ?? null) : null;
         $wordpress = is_array($compatibility) ? ($compatibility['wordpress'] ?? null) : null;
         if (($platform['site_mode'] ?? null) !== 'single-site'
             || !is_array($compatibility) || array_is_list($compatibility)
             || !is_array($php) || array_is_list($php)
             || !is_array($database) || array_is_list($database)
+            || !is_array($filesystem) || array_is_list($filesystem)
             || !is_array($wordpress) || array_is_list($wordpress)
             || !self::valid_exercised_axis($php)
             || !self::valid_database_axis($database)
+            || !self::valid_filesystem_axis($filesystem)
             || !self::valid_wordpress_axis($wordpress)) {
             throw new CommandRefusalException(
                 'platform_boundary_invalid',
@@ -221,14 +293,52 @@ final class PlatformCompatibility {
     /** @param array<string,mixed> $facts */
     private static function assert_facts_shape(array $facts): void {
         $database = $facts['database'] ?? null;
+        $filesystem = $facts['filesystem'] ?? null;
+        $filesystemFunctions = is_array($filesystem) ? ($filesystem['functions'] ?? null) : null;
+        $functionKeys = is_array($filesystemFunctions) ? array_keys($filesystemFunctions) : [];
+        sort($functionKeys, SORT_STRING);
         if (!is_string($facts['php'] ?? null) || $facts['php'] === ''
             || !is_array($database)
             || !in_array($database['engine'] ?? null, ['MariaDB', 'MySQL'], true)
             || !is_string($database['version'] ?? null) || !self::version($database['version'])
+            || !is_array($filesystem) || array_is_list($filesystem)
+            || !is_string($filesystem['directory_separator'] ?? null)
+            || $filesystem['directory_separator'] === ''
+            || strlen($filesystem['directory_separator']) > 4
+            || !is_string($filesystem['os_family'] ?? null)
+            || $filesystem['os_family'] === ''
+            || strlen($filesystem['os_family']) > 32
+            || !is_array($filesystemFunctions) || array_is_list($filesystemFunctions)
+            || $functionKeys !== self::FILESYSTEM_FUNCTIONS
             || !is_string($facts['wordpress'] ?? null) || $facts['wordpress'] === ''
             || !in_array($facts['site_mode'] ?? null, ['single-site', 'multisite'], true)) {
             throw self::probe_refusal('platform');
         }
+        foreach ($filesystemFunctions as $available) {
+            if (!is_bool($available)) {
+                throw self::probe_refusal('platform');
+            }
+        }
+    }
+
+    /** @param array<string,mixed> $filesystem */
+    private static function valid_filesystem_axis(array $filesystem): bool {
+        $keys = array_keys($filesystem);
+        sort($keys, SORT_STRING);
+        if ($keys !== ['directory_separator', 'note', 'os_families', 'profile', 'required_functions']
+            || ($filesystem['profile'] ?? null) !== self::FILESYSTEM_PROFILE
+            || ($filesystem['directory_separator'] ?? null) !== '/'
+            || !is_string($filesystem['note'] ?? null)
+            || trim($filesystem['note']) === ''
+            || !is_array($filesystem['os_families'] ?? null)
+            || !array_is_list($filesystem['os_families'])
+            || $filesystem['os_families'] !== ['Darwin', 'Linux']
+            || !is_array($filesystem['required_functions'] ?? null)
+            || !array_is_list($filesystem['required_functions'])
+            || $filesystem['required_functions'] !== self::FILESYSTEM_FUNCTIONS) {
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -412,6 +522,10 @@ final class PlatformCompatibility {
 
     private static function version(string $version): bool {
         return preg_match('/^\d+(?:\.\d+){1,3}$/D', $version) === 1;
+    }
+
+    private static function bounded_bytes(string $value): string {
+        return 'bytes=' . strlen($value) . ',sha256=' . substr(hash('sha256', $value), 0, 16);
     }
 
     /** @param array<string,mixed> $range */
