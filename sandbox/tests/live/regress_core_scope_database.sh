@@ -338,7 +338,14 @@ for cell in "${ENGINE_CELLS[@]}"; do
   # apply -> recapture on this engine, producing byte-identical managed state.
   say "$cell_engine: real round trip, verified zero-write repeat, and doctor"
   FACTS=$(wp1 eval 'echo wp_json_encode(\Duo\PlatformCompatibility::current_facts());' | awk 'NF { line=$0 } END { print line }')
-  jq -e --arg engine "$cell_engine" '.site_mode == "single-site" and .database.engine == $engine' \
+  jq -e --arg engine "$cell_engine" '
+    .site_mode == "single-site" and .database.engine == $engine and
+    .filesystem == {
+      directory_separator:"/",
+      functions:{chmod:true,flock:true,fsync:true,lstat:true,rename:true},
+      os_family:"Linux"
+    }
+  ' \
     <<<"$FACTS" >/dev/null || fail "$cell_engine pair reported the wrong engine: $FACTS"
   DB_VERSION=$(jq -er '.database.version' <<<"$FACTS")
   ENGINE_MIN=$(jq -er --arg e "$cell_engine" '.platform.compatibility.database.engines[$e].min' "$PLATFORM_FILE")

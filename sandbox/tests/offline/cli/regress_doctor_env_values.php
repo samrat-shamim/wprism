@@ -65,6 +65,17 @@ final class DoctorTransport extends Transport {
                 'php' => '8.3.33',
                 'db_version' => '11.8.8',
                 'db_engine' => 'mariadb',
+                'filesystem' => [
+                    'directory_separator' => '/',
+                    'os_family' => 'Linux',
+                    'functions' => [
+                        'chmod' => true,
+                        'flock' => true,
+                        'fsync' => true,
+                        'lstat' => true,
+                        'rename' => true,
+                    ],
+                ],
                 'wp' => '7.0.3',
                 'site_mode' => 'single-site',
             ]));

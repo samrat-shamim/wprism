@@ -14,7 +14,8 @@ if (!class_exists(InitialStateBoundaryException::class, false)) {
  *
  * No publication phases, database callbacks, WordPress lifecycle policy, or
  * lease state belongs here.  The service owns only inode/type/byte witnesses,
- * recursive manifests, fsync nudges, and exact owned-object compensation.
+ * recursive manifests, hard fsync boundaries, and exact owned-object
+ * compensation.
  */
 final class DurableFilesystem {
     /** @return array{type:string,dev:string,ino:string,sha256?:string} */
@@ -157,22 +158,40 @@ final class DurableFilesystem {
         self::syncDirectory(dirname($path));
     }
 
-    /** Best-effort file durability nudge; never a hard platform requirement. */
     public static function syncFile(string $path): void {
-        if (function_exists('fsync')) {
-            $handle = @fopen($path, 'r+');
-            if ($handle !== false) {
-                @fsync($handle);
-                fclose($handle);
-                return;
-            }
-        }
-        self::syncPath($path);
+        self::syncHandle($path, 0100000, 'file');
     }
 
-    /** Best-effort directory-entry durability nudge. */
     public static function syncDirectory(string $path): void {
-        self::syncPath($path);
+        self::syncHandle($path, 0040000, 'directory');
+    }
+
+    private static function syncHandle(string $path, int $expectedType, string $label): void {
+        if (!function_exists('fsync')) {
+            throw new \RuntimeException("duo: durable $label sync is unavailable on this platform");
+        }
+        clearstatcache(true, $path);
+        $named = @lstat($path);
+        if (!is_array($named)
+            || is_link($path)
+            || (((int) ($named['mode'] ?? 0)) & 0170000) !== $expectedType) {
+            throw new \RuntimeException("duo: durable $label sync target is missing or changed type");
+        }
+        $handle = @fopen($path, 'rb');
+        if (!is_resource($handle)) {
+            throw new \RuntimeException("duo: durable $label sync target could not be opened");
+        }
+        try {
+            $opened = @fstat($handle);
+            if (!is_array($opened)
+                || (string) ($opened['dev'] ?? '') !== (string) ($named['dev'] ?? '')
+                || (string) ($opened['ino'] ?? '') !== (string) ($named['ino'] ?? '')
+                || @fsync($handle) !== true) {
+                throw new \RuntimeException("duo: durable $label sync did not complete on the witnessed inode");
+            }
+        } finally {
+            fclose($handle);
+        }
     }
 
     public static function removeTree(string $directory): void {
@@ -190,13 +209,4 @@ final class DurableFilesystem {
         rmdir($directory);
     }
 
-    private static function syncPath(string $path): void {
-        if (!function_exists('exec')) {
-            return;
-        }
-        @exec('sync ' . escapeshellarg($path) . ' 2>/dev/null', $output, $status);
-        if ($status !== 0) {
-            @exec('sync 2>/dev/null');
-        }
-    }
 }

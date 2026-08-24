@@ -13,7 +13,7 @@ require_once __DIR__ . '/../Transport/Transport.php';
  * downstream means anything through a broken transport) and `wp core
  * is-installed` (no WordPress-side fact is readable without it). The other
  * two are compositions. SITE_FACTS answers agent presence,
- * DISALLOW_FILE_MODS, the site topology and the PHP/database/WordPress facts
+ * DISALLOW_FILE_MODS, the site topology and the PHP/database/filesystem/WordPress facts
  * in ONE `wp eval`:
  * those three were never gates on each other, only siblings under the same
  * `if ($installed)`. One raw script answers the repo-path row and the
@@ -54,7 +54,8 @@ final class Doctor {
      */
     private const SITE_FACTS = 'global $wpdb; '
         . '$duo = ["agent" => null, "file_mods" => null, "php" => null, '
-        . '"db_version" => null, "db_engine" => null, "wp" => null, "site_mode" => null]; '
+        . '"db_version" => null, "db_engine" => null, "filesystem" => null, '
+        . '"wp" => null, "site_mode" => null]; '
         . 'try { $duo["agent"] = class_exists("\\Duo\\Capture") ? "duo-ok" : "duo-missing"; } '
         . 'catch (\Throwable $e) {} '
         . 'try { $duo["file_mods"] = (defined("DISALLOW_FILE_MODS") && DISALLOW_FILE_MODS) '
@@ -63,6 +64,11 @@ final class Doctor {
         . 'try { $duo["db_version"] = (string) $wpdb->db_version(); } catch (\Throwable $e) {} '
         . 'try { $duo["db_engine"] = stripos((string) $wpdb->db_server_info(), "mariadb") !== false '
         . '? "mariadb" : "mysql"; } catch (\Throwable $e) {} '
+        . 'try { $duo["filesystem"] = ["directory_separator" => DIRECTORY_SEPARATOR, '
+        . '"os_family" => PHP_OS_FAMILY, "functions" => ['
+        . '"chmod" => function_exists("chmod"), "flock" => function_exists("flock"), '
+        . '"fsync" => function_exists("fsync"), "lstat" => function_exists("lstat"), '
+        . '"rename" => function_exists("rename")]]; } catch (\Throwable $e) {} '
         . 'try { $duo["wp"] = (string) get_bloginfo("version"); } catch (\Throwable $e) {} '
         // Its own try/catch like every sibling above, and function_exists()
         // rather than a bare call: this snippet also runs under the isolated
@@ -428,6 +434,37 @@ final class Doctor {
                             . ($verifiedSeries === [] ? '?' : implode(', ', $verifiedSeries))
                             . ' — docs/compatibility-baseline.json).'
                     );
+
+                    $filesystem = $baseline['filesystem'];
+                    $filesystemFacts = self::filesystem_facts($facts);
+                    if ($filesystemFacts === null) {
+                        $checks[] = self::check(
+                            'filesystem process profile (unknown)',
+                            false,
+                            'could not read the OS/separator/function facts required by the durable filesystem profile'
+                        );
+                    } else {
+                        [$osFamily, $directorySeparator, $functions] = $filesystemFacts;
+                        $missing = [];
+                        foreach ($filesystem['required_functions'] as $function) {
+                            if (($functions[$function] ?? false) !== true) {
+                                $missing[] = $function;
+                            }
+                        }
+                        $filesystemOk = in_array($osFamily, $filesystem['os_families'], true)
+                            && hash_equals($filesystem['directory_separator'], $directorySeparator)
+                            && $missing === [];
+                        $checks[] = self::check(
+                            "filesystem process profile ($osFamily)",
+                            $filesystemOk,
+                            $filesystemOk ? '' : 'requires OS '
+                                . implode(', ', $filesystem['os_families'])
+                                . ', separator ' . json_encode($filesystem['directory_separator'])
+                                . ', and functions ' . implode(', ', $filesystem['required_functions'])
+                                . ($missing === [] ? '' : '; missing ' . implode(', ', $missing))
+                                . ' — docs/compatibility-baseline.json. Actual mutation roots are checked again before writes.'
+                        );
+                    }
                 }
             }
         } else {
@@ -448,7 +485,7 @@ final class Doctor {
         // topology. 'single-site' is hard-coded rather than read from that file:
         // tools/capability-doc.php:192-199 byte-compares the baseline object
         // against manifests/capabilities/platform.json's `compatibility` (which
-        // declares exactly database/php/wordpress, enumerated at :200-202), so a
+        // declares database/filesystem/php/wordpress), so a
         // `site_mode` key there would fail `make release-gate`. The declared value lives in that platform
         // boundary instead, as `"site_mode": "single-site"`
         // (manifests/capabilities/platform.json:24), and the agent enforces it
@@ -549,6 +586,31 @@ final class Doctor {
         return $parts;
     }
 
+    /** @return ?array{string,string,array<string,bool>} */
+    private static function filesystem_facts(?array $facts): ?array {
+        $filesystem = is_array($facts) ? ($facts['filesystem'] ?? null) : null;
+        $functions = is_array($filesystem) ? ($filesystem['functions'] ?? null) : null;
+        if (!is_array($filesystem)
+            || !is_string($filesystem['os_family'] ?? null)
+            || $filesystem['os_family'] === ''
+            || !is_string($filesystem['directory_separator'] ?? null)
+            || $filesystem['directory_separator'] === ''
+            || !is_array($functions)) {
+            return null;
+        }
+        $keys = array_keys($functions);
+        sort($keys, SORT_STRING);
+        if ($keys !== ['chmod', 'flock', 'fsync', 'lstat', 'rename']) {
+            return null;
+        }
+        foreach ($functions as $available) {
+            if (!is_bool($available)) {
+                return null;
+            }
+        }
+        return [$filesystem['os_family'], $filesystem['directory_separator'], $functions];
+    }
+
     /**
      * The baseline, or null when it cannot state a whole boundary. Every
      * axis's narrowing half is required alongside its bounds — `verified` for
@@ -560,7 +622,7 @@ final class Doctor {
      * runtime instead of the file; a missing `database.engines` would refuse
      * every engine with the same misdirection.
      *
-     * @return ?array{php:array{min:string,max:string,verified:array<string,string>}, database:array{engines:array<string,array{min:string,max:string}>}, wordpress:array{min:string,max:string,verified:array<string,string>,last_verified:string}}
+     * @return ?array{php:array{min:string,max:string,verified:array<string,string>}, database:array{engines:array<string,array{min:string,max:string}>}, filesystem:array{directory_separator:string,os_families:list<string>,profile:string,required_functions:list<string>}, wordpress:array{min:string,max:string,verified:array<string,string>,last_verified:string}}
      */
     private static function read_baseline(): ?array {
         $file = dirname(__DIR__, 3) . '/docs/compatibility-baseline.json';
@@ -572,6 +634,11 @@ final class Doctor {
             || !isset($data['php']['min'], $data['php']['max'])
             || !is_array($data['php']['verified'] ?? null) || $data['php']['verified'] === []
             || !is_array($data['database']['engines'] ?? null) || $data['database']['engines'] === []
+            || !is_array($data['filesystem'] ?? null)
+            || ($data['filesystem']['directory_separator'] ?? null) !== '/'
+            || ($data['filesystem']['profile'] ?? null) !== 'local-posix-atomic-rename-flock-fsync/v1'
+            || ($data['filesystem']['os_families'] ?? null) !== ['Darwin', 'Linux']
+            || ($data['filesystem']['required_functions'] ?? null) !== ['chmod', 'flock', 'fsync', 'lstat', 'rename']
             || !isset($data['wordpress']['min'], $data['wordpress']['max'])
             || !is_array($data['wordpress']['verified'] ?? null) || $data['wordpress']['verified'] === []) {
             return null;

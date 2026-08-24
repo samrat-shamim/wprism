@@ -17,6 +17,22 @@
                 },
                 "note": "Each key of engines is a claimed database engine and its value the min-inclusive/max-exclusive version line that engine is claimed on; an engine this map does not name is refused (platform_database_engine_unsupported) rather than compared against another engine's range, and each version diagnostic names its engine because the range is now a function of the engine. There is deliberately no verified series map here, unlike the php and wordpress axes: each entry already names exactly one measured line, and the engines map already forces an engine-by-engine decision, so a third series map would prevent no failure. MariaDB 11.x is pinned by the sandbox harness's own Docker tag (mariadb:11 -- see sandbox/db.yml, sandbox/docker-compose.yml); verified live: 11.8.8-MariaDB as of this writing. MySQL is pinned to exactly the 8.4 LTS line the harness boots (mysql:8.4 -- sandbox/db.mysql.yml:60, selected with DUO_DB_ENGINE=mysql); the max stops at 8.5.0 rather than 9.0.0 on purpose, because a wider bound would admit innovation series nobody ran. Verified live 2026-08-24 on MySQL 8.4.11 (mysql:8.4, the LTS line the harness boots): regress_core_scope_database.sh green on both engines in a single run -- authentication, named-lock bounds, promotion-lease acquire/renew/release, a planted non-JSON lease row failing closed, ledger schema and collation, and a real round trip with verified zero-write repeat, byte-identical recapture and a passing doctor row per engine, with cross-engine schema and refusal-envelope diffs recorded -- plus regress_core_data_boundary.sh and conformance-core both green under DUO_DB_ENGINE=mysql. The source-level MySQL 8.4 dialect audit of every SQL construct the agent sends (docs/mysql-dialect-audit.md) preceded that run and its five probe groups are that suite's assertions verbatim. If the live matrix fails, the remedy is to drop the MySQL entry and restore a MariaDB-only engines map, never to widen around a failure."
             },
+            "filesystem": {
+                "directory_separator": "/",
+                "note": "The shipped publication and attachment transactions require the local POSIX filesystem profile measured by the Linux pair images and the Darwin developer gate: slash-separated absolute paths, advisory flock locks, chmod mode control, fsync durability calls, lstat inode/type witnesses, and atomic same-directory rename. Linux and Darwin are the only claimed PHP_OS_FAMILY values; Windows, BSD, Solaris, Unknown, a missing required function, or a different separator refuses before policy load. This static profile is necessary but not sufficient for a particular mount: each mutating filesystem transaction must still prove its actual repository/uploads roots, same-directory rename/readback, lock, type, containment, and durability operations before authored mutation. Network/offload/object-storage semantics are not inferred from an OS label and remain outside this profile unless an exact provider boundary supplies and verifies them.",
+                "os_families": [
+                    "Darwin",
+                    "Linux"
+                ],
+                "profile": "local-posix-atomic-rename-flock-fsync/v1",
+                "required_functions": [
+                    "chmod",
+                    "flock",
+                    "fsync",
+                    "lstat",
+                    "rename"
+                ]
+            },
             "php": {
                 "max": "8.5.0",
                 "min": "8.3.0",

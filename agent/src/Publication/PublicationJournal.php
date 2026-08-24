@@ -1225,7 +1225,7 @@ if (!$ok || !fflush($output) || !@chmod($name, $mode & 0777)) {
     if ($same) @unlink($name);
     $fail('fresh file write failed');
 }
-if (function_exists('fsync')) @fsync($output);
+if (!function_exists('fsync') || @fsync($output) !== true) $fail('fresh file sync failed');
 $opened = fstat($output);
 $digest = hash_final($hash);
 $named = @lstat($name);
@@ -2351,32 +2351,12 @@ PHP;
         }
     }
 
-    /**
-     * PHP added native fsync()/fdatasync() in 8.5 (this repo's shipped
-     * sandbox images run PHP 8.3, and WordPress itself still supports much
-     * older PHP — function_exists() gates every call here so this degrades
-     * silently rather than fataling anywhere older). Where it's missing,
-     * nudge the OS via the `sync` utility on a best-effort basis: GNU
-     * coreutils' `sync <path>` syncs just that path's filesystem; BSD/
-     * macOS `sync` ignores arguments and syncs everything. Either way this
-     * is a durability NUDGE layered on top of the atomic-rename guarantee
-     * that actually protects the previous tree (swap() above) — never a
-     * hard requirement, and its absence must never fail capture: `exec` is
-     * routinely disabled on locked-down hosts, and DESIGN.md's "drop-in
-     * mu-plugin, no vendored deps" posture rules out an FFI/PECL dependency
-     * to get a true guarantee everywhere. Documented honestly rather than
-     * overclaimed — see docs/... durability note in the DUO-3213 PR.
-     */
+    /** The platform gate makes native fsync a hard precondition. */
     private static function fsync_file(string $path): void {
         DurableFilesystem::syncFile($path);
     }
 
-    /**
-     * Durably persisting a rename (a directory-entry change, not file
-     * content) requires fsync'ing the DIRECTORY on some filesystems/journal
-     * modes — PHP cannot fopen() a directory for writing at all, so this is
-     * shell-out best-effort only, same caveats as fsync_file() above.
-     */
+    /** A published rename is not durable until its directory inode syncs. */
     private static function fsync_dir(string $path): void {
         DurableFilesystem::syncDirectory($path);
     }
@@ -2639,7 +2619,7 @@ while (true) {
         if ($same) @unlink($name);
         $fail('fresh file write failed');
     }
-    if (function_exists('fsync')) @fsync($output);
+    if (!function_exists('fsync') || @fsync($output) !== true) $fail('fresh file sync failed');
     $opened = fstat($output);
     $digest = hash_final($hash);
     $named = @lstat($name);
