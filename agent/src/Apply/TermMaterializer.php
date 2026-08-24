@@ -91,16 +91,13 @@ final class TermMaterializer {
         if (Ledger::id_for($front['uuid'], Ledger::KIND_TERM) !== null) {
             return;
         }
-        $termGroup = $this->policy->taxonomy_term_group_is_authored((string) $front['taxonomy'])
-            ? (int) $front['term_group']
-            : 0;
         CacheInvalidationTransaction::assert_term_taxonomy_prepared(
             (string) $front['taxonomy'],
             'apply insert term'
         );
         Db::insert(
             $wpdb->terms,
-            ['name' => $front['name'], 'slug' => $front['slug'], 'term_group' => $termGroup],
+            ['name' => $front['name'], 'slug' => $front['slug'], 'term_group' => 0],
             null,
             'apply insert term'
         );
@@ -142,15 +139,18 @@ final class TermMaterializer {
             $parentId = Ledger::id_for($front['parent'], Ledger::KIND_TERM)
                 ?? throw new \RuntimeException("duo: term {$front['slug']}: parent {$front['parent']} not resolvable");
         }
-        $termRow = ['name' => $front['name'], 'slug' => $front['slug']];
-        if ($this->policy->taxonomy_term_group_is_authored((string) $front['taxonomy'])) {
-            $termRow['term_group'] = (int) $front['term_group'];
-        }
         CacheInvalidationTransaction::assert_term_taxonomy_prepared(
             (string) $front['taxonomy'],
             'apply update term'
         );
-        Db::update($wpdb->terms, $termRow, ['term_id' => $termId], null, null, 'apply update term');
+        Db::update(
+            $wpdb->terms,
+            ['name' => $front['name'], 'slug' => $front['slug']],
+            ['term_id' => $termId],
+            null,
+            null,
+            'apply update term'
+        );
         Db::update($wpdb->term_taxonomy, [
             'description' => $this->encode_description($front['taxonomy'], $front['description']),
             'parent' => $parentId,
@@ -171,7 +171,6 @@ final class TermMaterializer {
      * Every other taxonomy keeps the plain detokenize_text() treatment.
      */
     public function encode_description(string $taxonomy, $description): string {
-        $this->policy->taxonomy_description_lint_rule($taxonomy, $description);
         $rule = $this->policy->description_reference_rule($taxonomy);
         if ($rule === null) {
             return $this->tokens->detokenize_text((string) $description);

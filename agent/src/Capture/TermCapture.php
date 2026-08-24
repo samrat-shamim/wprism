@@ -55,15 +55,6 @@ final class TermCapture {
             'meta' => (object) $meta,
             'relationships' => (object) $this->relationships((int) $term->term_id, $termObjectTaxonomies),
         ];
-        if ($this->policy->taxonomy_term_group_is_authored((string) $term->taxonomy)) {
-            $termGroup = self::nonnegative_integer($term->term_group ?? null);
-            if ($termGroup === null) {
-                throw new \RuntimeException(
-                    'duo: authored term_group capture received a malformed or out-of-range database value'
-                );
-            }
-            $front['term_group'] = $termGroup;
-        }
         return [
             'uuid' => $uuid,
             'type' => 'term',
@@ -161,20 +152,8 @@ final class TermCapture {
         return is_int($id) ? $id : null;
     }
 
-    private static function nonnegative_integer(mixed $value): ?int {
-        if (is_int($value)) {
-            return $value >= 0 ? $value : null;
-        }
-        if (!is_string($value) || preg_match('/^(?:0|[1-9][0-9]*)$/D', $value) !== 1) {
-            return null;
-        }
-        $number = filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
-        return is_int($number) ? $number : null;
-    }
-
     /** @return string|object|array */
     private function description(object $term) {
-        $this->policy->taxonomy_description_lint_rule($term->taxonomy, $term->description);
         $rule = $this->policy->description_reference_rule($term->taxonomy);
         if ($rule === null) {
             return $this->tokens->tokenize_text((string) $term->description);
