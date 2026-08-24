@@ -833,12 +833,100 @@ woo_ok(!in_array('derived.wc_product_attributes_lookup', array_column(
     'surface'
 ), true), 'attribute lookup repair is no longer mislabeled as an unsupported apply surface');
 $matrixHarness = (string) file_get_contents($root . '/sandbox/tests/certify/certify_version_matrix.sh');
+$wooEntry = json_decode(
+    (string) file_get_contents($root . '/sandbox/conformance/entries/woocommerce.json'),
+    true,
+    flags: JSON_THROW_ON_ERROR
+);
 $wooSeedHarness = (string) file_get_contents($root . '/sandbox/conformance/seeds/woocommerce.sh');
 $wooPostdeployHarness = (string) file_get_contents($root . '/sandbox/conformance/postdeploy/woocommerce.sh');
 $wooCheckHarness = (string) file_get_contents($root . '/sandbox/conformance/checks/woocommerce.sh');
 $wooRewriteCoInstallHarness = (string) file_get_contents(
     $root . '/sandbox/tests/live/regress_woocommerce_rewrite_coinstall.sh'
 );
+woo_ok(($wooEntry['manifest'] ?? null) === 'woocommerce'
+    && ($wooEntry['entry']['pin'] ?? null) === ['core', 'woocommerce']
+    && ($wooEntry['entry']['plugins'] ?? null) === [['slug' => 'woocommerce', 'version' => '11.0.1']]
+    && ($wooEntry['entry']['setup'] ?? null) === 'hpos',
+    'the ordinary WooCommerce conformance entry binds the exact shipped artifact and HPOS target premise');
+
+// The live conformance script is the candidate proof, but this offline pin
+// holds its twelve reviewed families to one source/target/check topology.
+// Each witness is a native operation or an explicit no-partial-state assertion,
+// so a future cosmetic pass line cannot replace the exercised boundary.
+$conformanceFamilyWitnesses = [
+    'contract-dependency' => [$matrixHarness, [
+        'woocommerce 10.9.4 (real wp.org release',
+        'woocommerce synthetic 11.0.2',
+        'PRE_REFUSAL_HEAD=$(git -C "siterepo/${PAIR}1" rev-parse HEAD)',
+    ]],
+    'clean-target' => [$wooSeedHarness, [
+        'new WC_Product_External()',
+        'Conformance Precision Download 東京 🚀',
+        'woocommerce_feature_wc_visual_attribute_enabled yes',
+        'pickup_location_settings',
+    ]],
+    'dirty-target' => [$wooPostdeployHarness, [
+        '3147484000',
+        'Hostile selected review page',
+        'target-secret-token-preserved',
+        'duo-target-runtime-session',
+    ]],
+    'identity-references' => [$wooCheckHarness, [
+        'hostile terms and typed natural keys retain divergent >2^31 target identities',
+        'for key in brand_child brand_excluded brand_parent category category_parent color_blue color_red review_page tag shipping_class attribute_color attribute_size tax_class',
+        'WooCommerce Store API did not expose the rebound target destination',
+    ]],
+    'native-behavior' => [$wooCheckHarness, [
+        '/wp-json/wc/store/v1/products/',
+        'external product resolves through Woo CRUD, v3 REST, Store API, and frontend',
+        'Brands, category hierarchy, and visual attributes resolve through exact v3 REST, Store API, lookup/rewrite, image, and archive paths',
+    ]],
+    'derived-state' => [$wooCheckHarness, [
+        'wp_get_attachment_image_src',
+        'wc_product_meta_lookup',
+        'product_brand_children',
+        'without a background queue',
+    ]],
+    'deletion' => [$wooCheckHarness, [
+        'WooCommerce unsupported product deletion capture',
+        'unsupported deletion refusal partially published canonical state',
+        'source did not restore byte-identically after malformed/secret/deletion probes',
+    ]],
+    'failure-recovery' => [$wooCheckHarness, [
+        'lookup-schema provider failure',
+        'provider failure advanced applied_revision before verified effects',
+        'lookup-schema failure retains authored intent and retry authority',
+    ]],
+    'concurrency-idempotence' => [$wooCheckHarness, [
+        'concurrent WooCommerce apply intent',
+        'competing WooCommerce applies serialize and leave one exact idempotent result',
+        'WooCommerce competing applies left retained work',
+    ]],
+    'lifecycle' => [$wooCheckHarness, [
+        'WooCommerce deploy after deactivation',
+        'WooCommerce default uninstall changed retained catalog/configuration storage',
+        'deactivate/reactivate, retained-data uninstall, absent-code refusal, exact reinstall, optional-extension isolation, and final retry',
+    ]],
+    'data-boundary' => [$wooCheckHarness, [
+        'malformed product-attribute capture',
+        'WooCommerce populated COD boundary capture',
+        'malformed attributes, populated mixed gateway data, and unsupported product deletion refuse atomically and redact values',
+    ]],
+    'scope-platform' => [$wooCheckHarness, [
+        'WooCommerce scope fixture unexpectedly activated optional extensions',
+        'target-secret-token-preserved',
+        'target-runtime@example.test',
+    ]],
+];
+foreach ($conformanceFamilyWitnesses as $family => [$harness, $witnesses]) {
+    $missingWitnesses = array_filter(
+        $witnesses,
+        static fn(string $witness): bool => !str_contains($harness, $witness)
+    );
+    woo_ok(count($witnesses) >= 3 && $missingWitnesses === [],
+        "WooCommerce $family conformance remains bound to its native hostile/recovery witnesses");
+}
 foreach ([
     'new WC_Product_External()',
     "new WP_REST_Request('PUT', '/wc/v3/products/",
