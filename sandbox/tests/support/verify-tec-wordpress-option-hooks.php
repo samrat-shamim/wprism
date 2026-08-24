@@ -657,6 +657,140 @@ if ($tecRoot !== '' || $tecVersion !== '') {
         tec_option_usage("TEC $tecVersion Views V2 raw-slug transformer is no longer a pure rule projection");
     }
 
+    $categoryRuntime = [
+        'option_key' => 'category-color-show-hidden-categories',
+        'css_option' => 'tec_events_category_color_css',
+        'generator_properties' => [
+            'keys' => [
+                'primary' => 'tec-events-cat-colors-primary',
+                'secondary' => 'tec-events-cat-colors-secondary',
+                'text' => 'tec-events-cat-colors-text',
+                'priority' => 'tec-events-cat-colors-priority',
+                'hide_from_legend' => 'tec-events-cat-colors-hidden',
+            ],
+            'option_key' => 'tec_events_category_color_css',
+            'generated_css' => '',
+        ],
+        'dropdown_properties' => [
+            'keys' => [
+                'primary' => 'tec-events-cat-colors-primary',
+                'secondary' => 'tec-events-cat-colors-secondary',
+                'text' => 'tec-events-cat-colors-text',
+                'priority' => 'tec-events-cat-colors-priority',
+                'hide_from_legend' => 'tec-events-cat-colors-hidden',
+            ],
+            'disallowed_shortcodes' => ['admin-manager'],
+        ],
+        'tribe_get_option_callbacks' => [
+            ['Tribe\\Events\\Views\\V2\\Hooks', 'filter_get_stylesheet_option', 10, 2],
+            ['Tribe\\Events\\Views\\V2\\Hooks', 'filter_live_filters_option_value', 10, 2],
+            ['Tribe\\Events\\Views\\V2\\Hooks', 'filter_date_escaping', 10, 2],
+        ],
+        'updated_option_callbacks' => [
+            ['Tribe__Settings_Manager', 'update_options_cache', 10, 3],
+            ['Tribe\\Events\\Views\\V2\\Hooks', 'action_save_wplang', 10, 3],
+            ['Tribe__Events__Aggregator', 'action_purge_transients', 10, 1],
+            ['Tribe__Cache_Listener', 'update_last_updated_option', 10, 3],
+            ['Tribe__Cache_Listener', 'update_last_save_post', 10, 3],
+        ],
+        'empty_cache_listener_filters' => [
+            'tribe_cache_last_occurrence_option_triggers',
+            'tribe_cache_last_occurrence_option_triggers:updated_option',
+            'tribe_cache_last_occurrence_option_triggers:save_post',
+        ],
+    ];
+    if (($fixture['category_colors_runtime'] ?? null) !== $categoryRuntime) {
+        tec_option_usage('source-derived Category Colors runtime disagrees with the reviewed fixture');
+    }
+    $categoryGenerator = $compactPhp(
+        $tecSources['src/Events/Category_Colors/CSS/Generator.php'] ?? ''
+    );
+    $categoryDropdown = $compactPhp(
+        $tecSources['src/Events/Category_Colors/Repositories/Category_Color_Dropdown_Provider.php'] ?? ''
+    );
+    $categoryKeys = $compactPhp(
+        $tecSources['src/Events/Category_Colors/Meta_Keys_Trait.php'] ?? ''
+    );
+    foreach ([
+        [$categoryGenerator, 'useMeta_Keys_Trait;', 'Generator meta-key trait'],
+        [$categoryGenerator, "protectedstring\$option_key='tec_events_category_color_css';", 'Generator option key'],
+        [$categoryGenerator, "protectedstring\$generated_css='';", 'Generator pristine state'],
+        [$categoryGenerator, "update_option(\$this->option_key,trim(\$this->generated_css),true);", 'Generator exact option write'],
+        [$categoryDropdown, 'useMeta_Keys_Trait;', 'Dropdown meta-key trait'],
+        [$categoryDropdown, "protectedarray\$disallowed_shortcodes=['admin-manager',];", 'Dropdown pristine state'],
+        [$categoryKeys, "'primary'=>'tec-events-cat-colors-primary'", 'primary meta key'],
+        [$categoryKeys, "'secondary'=>'tec-events-cat-colors-secondary'", 'secondary meta key'],
+        [$categoryKeys, "'text'=>'tec-events-cat-colors-text'", 'text meta key'],
+        [$categoryKeys, "'priority'=>'tec-events-cat-colors-priority'", 'priority meta key'],
+        [$categoryKeys, "'hide_from_legend'=>'tec-events-cat-colors-hidden'", 'hidden meta key'],
+    ] as [$body, $needle, $label]) {
+        if (!str_contains($body, $needle)) {
+            tec_option_usage("TEC $tecVersion Category Colors lost exact $label");
+        }
+    }
+    foreach ([
+        'filter_get_stylesheet_option' => [
+            "'stylesheetOption'!==\$key&&('stylesheet_mode'!==\$key)",
+            'return$value;',
+        ],
+        'filter_live_filters_option_value' => ["'liveFiltersUpdate'!==\$key", 'return$value;'],
+        'filter_date_escaping' => [
+            "\$date_options=['dateWithoutYearFormat','monthAndYearFormat',];",
+            'if(!in_array($optionName,$date_options)){return$value;}',
+        ],
+    ] as $method => $needles) {
+        $body = $compactPhp(tec_option_function_body(
+            $tecSources['src/Tribe/Views/V2/Hooks.php'] ?? '',
+            $method
+        ));
+        foreach ($needles as $needle) {
+            if (!str_contains($body, $needle)) {
+                tec_option_usage("TEC $tecVersion Category Colors option callback $method is no longer neutral");
+            }
+        }
+    }
+    foreach ([
+        "add_filter('tribe_get_option',[\$this,'filter_get_stylesheet_option'],10,2);" => 2,
+        "add_filter('tribe_get_option',[\$this,'filter_live_filters_option_value'],10,2);" => 1,
+        "add_filter('tribe_get_option',[\$this,'filter_date_escaping'],10,2);" => 1,
+        "add_action('updated_option',[\$this,'action_save_wplang'],10,3);" => 1,
+    ] as $registration => $count) {
+        if (substr_count($viewsHooks, $registration) !== $count) {
+            tec_option_usage("TEC $tecVersion Category Colors normal option hook registration drifted");
+        }
+    }
+    $settingsManager = $compactPhp($tecSources['common/src/Tribe/Settings_Manager.php'] ?? '');
+    $aggregator = $compactPhp($tecSources['src/Tribe/Aggregator.php'] ?? '');
+    $cacheListener = $tecSources['common/src/Tribe/Cache_Listener.php'] ?? '';
+    $cacheListenerCompact = $compactPhp($cacheListener);
+    foreach ([
+        [$settingsManager, "add_action('updated_option',[\$this,'update_options_cache'],10,3);", 'Settings Manager registration'],
+        [$settingsManager, 'if(Tribe__Main::OPTIONNAME!==$option){return;}', 'Settings Manager key guard'],
+        [$aggregator, "add_action('updated_option',[\$this,'action_purge_transients']);", 'Aggregator registration'],
+        [$aggregator, "if('pue_install_key_event_aggregator'!==\$option){returnfalse;}", 'Aggregator key guard'],
+        [$cacheListenerCompact, "add_action('updated_option',[\$this,'update_last_updated_option'],10,3);", 'updated marker registration'],
+        [$cacheListenerCompact, "add_action('updated_option',[\$this,'update_last_save_post'],10,3);", 'save marker registration'],
+    ] as [$body, $needle, $label]) {
+        if (!str_contains($body, $needle)) {
+            tec_option_usage("TEC $tecVersion Category Colors lost exact $label");
+        }
+    }
+    foreach (['update_last_updated_option', 'update_last_save_post'] as $method) {
+        $body = $compactPhp(tec_option_function_body($cacheListener, $method));
+        if (str_contains($body, "'tec_events_category_color_css'")
+            || !str_contains($body, 'filter_action_last_occurrence_triggers(')
+            || !str_contains($body, 'if(!empty($triggers[$option_name])){')) {
+            tec_option_usage("TEC $tecVersion Category Colors marker callback $method is no longer neutral");
+        }
+    }
+    $saveWplang = $compactPhp(tec_option_function_body(
+        $tecSources['src/Tribe/Views/V2/Hooks.php'] ?? '',
+        'action_save_wplang'
+    ));
+    if (!str_contains($saveWplang, "if('WPLANG'!==\$option){return;}")) {
+        tec_option_usage("TEC $tecVersion Category Colors WPLANG callback is no longer neutral");
+    }
+
     $bootstrap = $compactPhp($tecSources['the-events-calendar.php'] ?? '');
     $main = $tecSources['src/Tribe/Main.php'] ?? '';
     $mainCompact = $compactPhp($main);
@@ -1438,6 +1572,7 @@ fwrite(STDOUT, json_encode([
     'lifecycle_boundary' => $fixture['lifecycle_boundary'] ?? null,
     'customizer_fallback' => $fixture['customizer_fallback'] ?? null,
     'customizer_sections' => $fixture['customizer_sections'] ?? null,
+    'category_colors_runtime' => $fixture['category_colors_runtime'] ?? null,
     'tec_version' => $tecVersion === '' ? null : $tecVersion,
     'tec_service_sources' => $verifiedTecSources,
     'proved_absent' => $fixture['proved_absent'] ?? null,

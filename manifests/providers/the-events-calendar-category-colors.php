@@ -54,6 +54,32 @@ final class TheEventsCalendarCategoryColors {
     // 500-row pages. One complete page is deterministic; a second populated
     // page can skip or duplicate rows even on an otherwise valid large site.
     private const MAX_NATIVE_GENERATOR_META_ROWS = 500;
+    private const MAX_HOOK_RECORDS = 64;
+
+    private const CATEGORY_OPTION = 'category-color-show-hidden-categories';
+
+    private const GENERATOR_PROPERTIES = [
+        'keys' => [
+            'primary' => 'tec-events-cat-colors-primary',
+            'secondary' => 'tec-events-cat-colors-secondary',
+            'text' => 'tec-events-cat-colors-text',
+            'priority' => 'tec-events-cat-colors-priority',
+            'hide_from_legend' => 'tec-events-cat-colors-hidden',
+        ],
+        'option_key' => self::CSS_OPTION,
+        'generated_css' => '',
+    ];
+
+    private const DROPDOWN_PROPERTIES = [
+        'keys' => [
+            'primary' => 'tec-events-cat-colors-primary',
+            'secondary' => 'tec-events-cat-colors-secondary',
+            'text' => 'tec-events-cat-colors-text',
+            'priority' => 'tec-events-cat-colors-priority',
+            'hide_from_legend' => 'tec-events-cat-colors-hidden',
+        ],
+        'disallowed_shortcodes' => ['admin-manager'],
+    ];
 
     /** @var list<string> */
     private const OUTPUT_FILTER_HOOKS = [
@@ -173,17 +199,30 @@ final class TheEventsCalendarCategoryColors {
 
     /** @return array{before:array<string,mixed>,after:array<string,mixed>,verified:true} */
     private function regenerate_css(): array {
-        $this->assert_runtime_contract(true);
+        $services = $this->assert_runtime_contract(true);
         $before = $this->projection(self::PROJECTION_BEFORE);
 
-        $generator = $this->native_service(
+        if (!is_array($services)) {
+            throw new \LogicException('duo: Category Colors invocation lost its prepared native services');
+        }
+        $generator = $services['generator'];
+        $dropdown = $services['dropdown'];
+        // The bounded projection performs several target reads after service
+        // resolution. Hold the exact reviewed value services and revalidate
+        // their pre-call state so a mutable container cannot switch in a
+        // second same-class implementation between preflight and execution.
+        $this->assert_native_service_state(
+            $generator,
             \TEC\Events\Category_Colors\CSS\Generator::class,
             'generate_and_save_css',
+            self::GENERATOR_PROPERTIES,
             'CSS generator'
         );
-        $dropdown = $this->native_service(
+        $this->assert_native_service_state(
+            $dropdown,
             \TEC\Events\Category_Colors\Repositories\Category_Color_Dropdown_Provider::class,
             'bust_dropdown_categories_cache',
+            self::DROPDOWN_PROPERTIES,
             'dropdown provider'
         );
         // This is the exact two-call body of Controller::generate_css() in
@@ -191,6 +230,13 @@ final class TheEventsCalendarCategoryColors {
         // prevents a container override hidden behind Controller::$container
         // from executing an unreviewed Generator implementation.
         $generator->generate_and_save_css();
+        $this->assert_native_service_state(
+            $dropdown,
+            \TEC\Events\Category_Colors\Repositories\Category_Color_Dropdown_Provider::class,
+            'bust_dropdown_categories_cache',
+            self::DROPDOWN_PROPERTIES,
+            'dropdown provider'
+        );
         $dropdown->bust_dropdown_categories_cache();
 
         return [
@@ -200,8 +246,10 @@ final class TheEventsCalendarCategoryColors {
         ];
     }
 
-    private function assert_runtime_contract(bool $invokeServices): void {
+    /** @return ?array{generator:object,dropdown:object} */
+    private function assert_runtime_contract(bool $invokeServices): ?array {
         foreach ([
+            'apply_filters',
             'get_option',
             'get_term_meta',
             'get_terms',
@@ -220,18 +268,22 @@ final class TheEventsCalendarCategoryColors {
                 );
             }
         }
+        $services = null;
         if ($invokeServices) {
-            $this->native_service(
+            $generator = $this->native_service(
                 \TEC\Events\Category_Colors\CSS\Generator::class,
                 'generate_and_save_css',
+                self::GENERATOR_PROPERTIES,
                 'CSS generator'
             );
-            $this->native_service(
+            $dropdown = $this->native_service(
                 \TEC\Events\Category_Colors\Repositories\Category_Color_Dropdown_Provider::class,
                 'bust_dropdown_categories_cache',
+                self::DROPDOWN_PROPERTIES,
                 'dropdown provider'
             );
             $this->native_cache();
+            $services = ['generator' => $generator, 'dropdown' => $dropdown];
         }
         if (wp_using_ext_object_cache()) {
             throw new \RuntimeException(
@@ -247,13 +299,7 @@ final class TheEventsCalendarCategoryColors {
                 'duo: The Events Calendar Category Colors regeneration requires the WordPress database reader'
             );
         }
-        foreach (self::OUTPUT_FILTER_HOOKS as $hook) {
-            if (has_filter($hook) !== false) {
-                throw new \RuntimeException(
-                    "duo: The Events Calendar free Category Colors output contract does not admit filter '$hook'"
-                );
-            }
-        }
+        $this->assert_hook_contract();
         foreach ([
             \TEC\Events\Category_Colors\CSS\Controller::class,
             \TEC\Events\Category_Colors\CSS\Generator::class,
@@ -267,6 +313,7 @@ final class TheEventsCalendarCategoryColors {
                 );
             }
         }
+        return $services;
     }
 
     /** @return array<string,mixed> */
@@ -925,16 +972,245 @@ final class TheEventsCalendarCategoryColors {
         return $projection;
     }
 
-    private function native_service(string $class, string $method, string $label): object {
+    /** @param array<string,mixed> $properties */
+    private function native_service(
+        string $class,
+        string $method,
+        array $properties,
+        string $label
+    ): object {
         $service = tribe($class);
-        if (!is_object($service)
-            || get_class($service) !== $class
-            || !is_callable([$service, $method])) {
+        $this->assert_native_service_state($service, $class, $method, $properties, $label);
+        return $service;
+    }
+
+    /** @param array<string,mixed> $properties */
+    private function assert_native_service_state(
+        mixed $service,
+        string $class,
+        string $method,
+        array $properties,
+        string $label
+    ): void {
+        if (!is_object($service) || get_class($service) !== $class || !is_callable([$service, $method])) {
             throw new \RuntimeException(
                 "duo: The Events Calendar 6.17.x Category Colors $label identity is unavailable or overridden"
             );
         }
-        return $service;
+        try {
+            $reflection = new \ReflectionClass($service);
+            $actual = [];
+            foreach ($reflection->getProperties() as $property) {
+                if ($property->isStatic()) {
+                    throw new \RuntimeException('static property');
+                }
+                $actual[$property->getName()] = $property->getValue($service);
+            }
+            ksort($actual, SORT_STRING);
+            ksort($properties, SORT_STRING);
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException(
+                "duo: The Events Calendar 6.17.x Category Colors $label state is unreadable or overridden",
+                0,
+                $failure
+            );
+        }
+        if ($actual !== $properties) {
+            throw new \RuntimeException(
+                "duo: The Events Calendar 6.17.x Category Colors $label state is unavailable or overridden"
+            );
+        }
+    }
+
+    private function assert_hook_contract(): void {
+        $records = [];
+        foreach (self::OUTPUT_FILTER_HOOKS as $hook) {
+            // Preserve the source-audited has_filter() reachability assertion
+            // as well as inspecting WP_Hook records: a partial test/runtime
+            // shim that reports a callback but withholds its record is not an
+            // empty WordPress topology.
+            $signal = has_filter($hook);
+            if (!is_bool($signal) && !is_int($signal)) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar free Category Colors hook signal is malformed'
+                );
+            }
+            $records[$hook] = $this->hook_records($hook);
+            if (($signal === false) !== ($records[$hook] === [])) {
+                throw new \RuntimeException(
+                    "duo: The Events Calendar free Category Colors hook topology is malformed for '$hook'"
+                );
+            }
+        }
+        foreach ($records as $hook => $hookRecords) {
+            if ($hook === 'tribe_get_option' || $hook === 'updated_option') {
+                continue;
+            }
+            if ($hookRecords !== []) {
+                throw new \RuntimeException(
+                    "duo: The Events Calendar free Category Colors output contract does not admit filter '$hook'"
+                );
+            }
+        }
+        $this->assert_tribe_get_option_callbacks($records['tribe_get_option']);
+        $this->assert_updated_option_callbacks($records['updated_option']);
+        foreach ([
+            'tribe_cache_last_occurrence_option_triggers',
+            'tribe_cache_last_occurrence_option_triggers:updated_option',
+            'tribe_cache_last_occurrence_option_triggers:save_post',
+        ] as $hook) {
+            if ($this->hook_records($hook) !== []) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar free Category Colors cache-listener trigger topology is extended'
+                );
+            }
+        }
+    }
+
+    /** @param list<array{0:int,1:array{function:mixed,accepted_args:int}}> $records */
+    private function assert_tribe_get_option_callbacks(array $records): void {
+        if (count($records) !== 3
+            || !class_exists('Tribe\\Events\\Views\\V2\\Hooks', false)) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar free Category Colors tribe_get_option topology is incomplete'
+            );
+        }
+        try {
+            $views = tribe('Tribe\\Events\\Views\\V2\\Hooks');
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar free Category Colors option service is unavailable',
+                0,
+                $failure
+            );
+        }
+        if (!is_object($views) || get_class($views) !== 'Tribe\\Events\\Views\\V2\\Hooks') {
+            throw new \RuntimeException(
+                'duo: The Events Calendar free Category Colors option service is substituted'
+            );
+        }
+        $this->assert_exact_object_callbacks($records, [
+            [$views, 'filter_get_stylesheet_option', 10, 2],
+            [$views, 'filter_live_filters_option_value', 10, 2],
+            [$views, 'filter_date_escaping', 10, 2],
+        ], 'tribe_get_option');
+        $sentinel = ['duo_category_colors' => true];
+        if (apply_filters('tribe_get_option', $sentinel, self::CATEGORY_OPTION) !== $sentinel) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar free Category Colors option callbacks changed the reviewed category setting'
+            );
+        }
+    }
+
+    /** @param list<array{0:int,1:array{function:mixed,accepted_args:int}}> $records */
+    private function assert_updated_option_callbacks(array $records): void {
+        if (count($records) !== 5
+            || !class_exists('Tribe__Settings_Manager', false)
+            || !class_exists('Tribe__Events__Aggregator', false)
+            || !class_exists('Tribe__Cache_Listener', false)
+            || !is_callable(['Tribe__Settings_Manager', 'instance'])
+            || !is_callable(['Tribe__Events__Aggregator', 'instance'])
+            || !is_callable(['Tribe__Cache_Listener', 'instance'])) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar free Category Colors updated_option topology is incomplete'
+            );
+        }
+        try {
+            $manager = \Tribe__Settings_Manager::instance();
+            $aggregator = \Tribe__Events__Aggregator::instance();
+            $listener = \Tribe__Cache_Listener::instance();
+            $views = tribe('Tribe\\Events\\Views\\V2\\Hooks');
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar free Category Colors updated_option services are unavailable',
+                0,
+                $failure
+            );
+        }
+        foreach ([
+            [$manager, 'Tribe__Settings_Manager'],
+            [$aggregator, 'Tribe__Events__Aggregator'],
+            [$listener, 'Tribe__Cache_Listener'],
+            [$views, 'Tribe\\Events\\Views\\V2\\Hooks'],
+        ] as [$service, $class]) {
+            if (!is_object($service) || get_class($service) !== $class) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar free Category Colors updated_option service is substituted'
+                );
+            }
+        }
+        $this->assert_exact_object_callbacks($records, [
+            [$manager, 'update_options_cache', 10, 3],
+            [$views, 'action_save_wplang', 10, 3],
+            [$aggregator, 'action_purge_transients', 10, 1],
+            [$listener, 'update_last_updated_option', 10, 3],
+            [$listener, 'update_last_save_post', 10, 3],
+        ], 'updated_option');
+    }
+
+    /**
+     * @param list<array{0:int,1:array{function:mixed,accepted_args:int}}> $records
+     * @param list<array{0:object,1:string,2:int,3:int}> $expected
+     */
+    private function assert_exact_object_callbacks(array $records, array $expected, string $hook): void {
+        foreach ($records as [$priority, $record]) {
+            $match = null;
+            foreach ($expected as $index => [$object, $method, $expectedPriority, $acceptedArgs]) {
+                if ($priority === $expectedPriority
+                    && $record['accepted_args'] === $acceptedArgs
+                    && $record['function'] === [$object, $method]) {
+                    $match = $index;
+                    break;
+                }
+            }
+            if ($match === null) {
+                throw new \RuntimeException(
+                    "duo: The Events Calendar free Category Colors $hook topology is extended or substituted"
+                );
+            }
+            unset($expected[$match]);
+        }
+        if ($expected !== []) {
+            throw new \RuntimeException(
+                "duo: The Events Calendar free Category Colors $hook topology is incomplete"
+            );
+        }
+    }
+
+    /** @return list<array{0:int,1:array{function:mixed,accepted_args:int}}> */
+    private function hook_records(string $name): array {
+        global $wp_filter;
+        $hook = is_array($wp_filter ?? null) ? ($wp_filter[$name] ?? null) : null;
+        if ($hook === null) {
+            return [];
+        }
+        if (!is_object($hook)
+            || get_class($hook) !== 'WP_Hook'
+            || !is_array($hook->callbacks ?? null)) {
+            throw new \RuntimeException(
+                'duo: The Events Calendar free Category Colors found malformed WordPress hook topology'
+            );
+        }
+        $records = [];
+        foreach ($hook->callbacks as $priority => $atPriority) {
+            if (!is_int($priority) || !is_array($atPriority)) {
+                throw new \RuntimeException(
+                    'duo: The Events Calendar free Category Colors found malformed WordPress hook topology'
+                );
+            }
+            foreach ($atPriority as $record) {
+                if (count($records) >= self::MAX_HOOK_RECORDS
+                    || !is_array($record)
+                    || array_keys($record) !== ['function', 'accepted_args']
+                    || !is_int($record['accepted_args'] ?? null)) {
+                    throw new \RuntimeException(
+                        'duo: The Events Calendar free Category Colors found malformed or oversized hook topology'
+                    );
+                }
+                $records[] = [$priority, $record];
+            }
+        }
+        return $records;
     }
 
     private function native_cache(): \Tribe__Cache {

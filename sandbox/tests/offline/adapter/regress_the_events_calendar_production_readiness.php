@@ -10,9 +10,20 @@ namespace TEC\Events\Category_Colors\CSS {
     }
 
     final class Generator {
+        protected array $keys = [
+            'primary' => 'tec-events-cat-colors-primary',
+            'secondary' => 'tec-events-cat-colors-secondary',
+            'text' => 'tec-events-cat-colors-text',
+            'priority' => 'tec-events-cat-colors-priority',
+            'hide_from_legend' => 'tec-events-cat-colors-hidden',
+        ];
+        protected string $option_key = 'tec_events_category_color_css';
+        protected string $generated_css = '';
+
         public function generate_and_save_css(): string {
             ++$GLOBALS['tec_readiness_color_controller_calls'];
-            \tec_readiness_set_css($GLOBALS['tec_readiness_generated_css']);
+            $this->generated_css = $GLOBALS['tec_readiness_generated_css'];
+            \update_option('tec_events_category_color_css', $this->generated_css, true);
             $mode = $GLOBALS['tec_readiness_color_controller_mode'] ?? '';
             if ($mode === 'throw_after_css') {
                 $GLOBALS['tec_readiness_color_controller_mode'] = '';
@@ -26,6 +37,14 @@ namespace TEC\Events\Category_Colors\CSS {
 namespace TEC\Events\Category_Colors\Repositories {
     final class Category_Color_Dropdown_Provider {
         public const CACHE_KEY = 'tec_category_colors_dropdown_categories';
+        protected array $keys = [
+            'primary' => 'tec-events-cat-colors-primary',
+            'secondary' => 'tec-events-cat-colors-secondary',
+            'text' => 'tec-events-cat-colors-text',
+            'priority' => 'tec-events-cat-colors-priority',
+            'hide_from_legend' => 'tec-events-cat-colors-hidden',
+        ];
+        protected array $disallowed_shortcodes = ['admin-manager'];
 
         /** @return mixed */
         public function get_dropdown_categories(): mixed {
@@ -137,6 +156,9 @@ namespace Tribe\Events\Views\V2 {
             \add_action('tribe_events_pre_rewrite', [$this, 'on_tribe_events_pre_rewrite'], 10, 1);
             \add_filter('tribe_events_rewrite_i18n_slugs_raw', [$this, 'filter_rewrite_i18n_slugs_raw'], 50, 2);
             \add_action('updated_option', [$this, 'action_save_wplang'], 10, 3);
+            \add_filter('tribe_get_option', [$this, 'filter_get_stylesheet_option'], 10, 2);
+            \add_filter('tribe_get_option', [$this, 'filter_live_filters_option_value'], 10, 2);
+            \add_filter('tribe_get_option', [$this, 'filter_date_escaping'], 10, 2);
         }
 
         public function on_tribe_events_pre_rewrite(object $rewrite): void {
@@ -145,6 +167,18 @@ namespace Tribe\Events\Views\V2 {
         }
 
         public function action_save_wplang(string $option, mixed $old, mixed $value): void {}
+
+        public function filter_get_stylesheet_option(mixed $value, string $key): mixed {
+            return $value;
+        }
+
+        public function filter_live_filters_option_value(mixed $value, string $key): mixed {
+            return $value;
+        }
+
+        public function filter_date_escaping(mixed $value, string $key): mixed {
+            return $value;
+        }
 
         /** @param array<string,list<string>> $bases @return array<string,list<string>> */
         public function filter_rewrite_i18n_slugs_raw(array $bases, mixed $method): array {
@@ -1066,6 +1100,7 @@ function get_option(string $name, mixed $default = false): mixed {
     if (in_array($name, [
         'permalink_structure',
         'rewrite_rules',
+        'tec_events_category_color_css',
         'tribe_last_generate_rewrite_rules',
         'tribe_last_save_post',
         'tribe_last_updated_option',
@@ -1129,6 +1164,9 @@ function update_option(string $name, mixed $value, mixed $autoload = null): bool
             return false;
         }
         wp_cache_set($name, $stored, 'options');
+        if ($name === 'tec_events_category_color_css') {
+            $GLOBALS['tec_readiness_options'][$name] = $value;
+        }
         do_action("update_option_$name", $old, $value, $name);
         do_action('updated_option', $name, $old, $value);
         return true;
@@ -1162,6 +1200,9 @@ function update_option(string $name, mixed $value, mixed $autoload = null): bool
         return false;
     }
     wp_cache_set($name, $stored, 'options');
+    if ($name === 'tec_events_category_color_css') {
+        $GLOBALS['tec_readiness_options'][$name] = $value;
+    }
     do_action("add_option_$name", $name, $value);
     do_action('added_option', $name, $value);
     return true;
@@ -1383,11 +1424,32 @@ function tribe(?string $class = null): object {
         'TEC\\Events\\QR\\Routes' => $GLOBALS['tec_readiness_qr_routes'],
         'TEC\\Common\\Integrations\\Harbor\\PUE' => $GLOBALS['tec_readiness_harbor_pue'],
         'TEC\\Events\\Category_Colors\\CSS\\Generator' =>
-            $GLOBALS['tec_readiness_category_color_generator'],
+            tec_readiness_category_color_service('generator'),
         'TEC\\Events\\Category_Colors\\Repositories\\Category_Color_Dropdown_Provider' =>
-            $GLOBALS['tec_readiness_category_color_dropdown'],
+            tec_readiness_category_color_service('dropdown'),
         default => $GLOBALS['tec_readiness_category_color_controller'],
     };
+}
+
+function tec_readiness_category_color_service(string $kind): object {
+    $key = 'tec_readiness_category_color_' . $kind;
+    $sequenceKey = $key . '_sequence';
+    $callsKey = $key . '_resolution_calls';
+    ++$GLOBALS[$callsKey];
+    $sequence = $GLOBALS[$sequenceKey] ?? null;
+    if (is_array($sequence) && $sequence !== []) {
+        $service = array_shift($sequence);
+        $GLOBALS[$sequenceKey] = $sequence;
+    } else {
+        $service = $GLOBALS[$key];
+    }
+    if (!is_object($service)) {
+        throw new RuntimeException('synthetic malformed Category Colors service resolution');
+    }
+    $exactClass = $kind === 'generator'
+        ? \TEC\Events\Category_Colors\CSS\Generator::class
+        : \TEC\Events\Category_Colors\Repositories\Category_Color_Dropdown_Provider::class;
+    return get_class($service) === $exactClass ? clone $service : $service;
 }
 
 function tribe_callback(string $id, string $method): Closure {
@@ -1459,7 +1521,8 @@ function tribe_isset_var(string $key): bool {
 }
 
 function tribe_get_option(string $name, mixed $default = false): mixed {
-    return $GLOBALS['tec_readiness_tribe_options'][$name] ?? $default;
+    $value = $GLOBALS['tec_readiness_tribe_options'][$name] ?? $default;
+    return apply_filters('tribe_get_option', $value, $name);
 }
 
 function wp_using_ext_object_cache(): mixed {
@@ -3306,6 +3369,7 @@ $colorDeclaration = $providerDeclarations['the-events-calendar-category-colors']
 duo_check_same(
     [
         'functions' => [
+            'apply_filters',
             'get_option',
             'get_term_meta',
             'get_terms',
@@ -4016,6 +4080,10 @@ $GLOBALS['tec_readiness_expired_transient_deletes'] = 0;
 $GLOBALS['tec_readiness_category_color_controller'] = new \TEC\Events\Category_Colors\CSS\Controller();
 $GLOBALS['tec_readiness_category_color_generator'] = new \TEC\Events\Category_Colors\CSS\Generator();
 $GLOBALS['tec_readiness_category_color_dropdown'] = new \TEC\Events\Category_Colors\Repositories\Category_Color_Dropdown_Provider();
+$GLOBALS['tec_readiness_category_color_generator_resolution_calls'] = 0;
+$GLOBALS['tec_readiness_category_color_dropdown_resolution_calls'] = 0;
+$GLOBALS['tec_readiness_category_color_generator_sequence'] = [];
+$GLOBALS['tec_readiness_category_color_dropdown_sequence'] = [];
 $GLOBALS['tec_readiness_native_container'] = new Tribe__Container();
 $GLOBALS['tec_readiness_container_bindings'] = [];
 $GLOBALS['tec_readiness_container_binding_signals'] = [];
@@ -4023,6 +4091,10 @@ $GLOBALS['tec_readiness_configuration'] = [];
 $GLOBALS['tec_readiness_category_color_cache'] = new Tribe__Cache();
 $GLOBALS['tec_readiness_container_cache'] = $GLOBALS['tec_readiness_category_color_cache'];
 $GLOBALS['tec_readiness_log_provider'] = new \Tribe\Log\Service_Provider();
+$GLOBALS['tec_readiness_settings_manager'] = Tribe__Settings_Manager::instance();
+$GLOBALS['tec_readiness_cache_listener'] = Tribe__Cache_Listener::instance();
+$GLOBALS['tec_readiness_aggregator'] = Tribe__Events__Aggregator::instance();
+$GLOBALS['tec_readiness_views_hooks'] = new \Tribe\Events\Views\V2\Hooks();
 add_action(
     Tribe__Cache::SCHEDULED_EVENT_DELETE_TRANSIENT,
     [$GLOBALS['tec_readiness_category_color_cache'], 'delete_expired_transients']
@@ -4098,6 +4170,15 @@ duo_check_throws(
     'identity is unavailable or overridden'
 );
 $GLOBALS['tec_readiness_category_color_generator'] = $exactGenerator;
+$generatorState = new ReflectionProperty($exactGenerator, 'option_key');
+$generatorState->setValue($exactGenerator, 'foreign_same_class_option');
+duo_check_throws(
+    static fn() => $colorProvider->invoke('regenerate_css', []),
+    RuntimeException::class,
+    'a same-class generator with mutated native state refuses before CSS or cache mutation',
+    'generator state is unavailable or overridden'
+);
+$generatorState->setValue($exactGenerator, 'tec_events_category_color_css');
 $GLOBALS['tec_readiness_category_color_dropdown'] = new stdClass();
 duo_check_throws(
     static fn() => $colorProvider->invoke('regenerate_css', []),
@@ -4132,8 +4213,58 @@ duo_check_same(
     $GLOBALS['tec_readiness_cache_busts'],
     'all native service and cache-topology refusals happen before dropdown-cache mutation'
 );
+$generatorResolutions = $GLOBALS['tec_readiness_category_color_generator_resolution_calls'];
+$dropdownResolutions = $GLOBALS['tec_readiness_category_color_dropdown_resolution_calls'];
+$GLOBALS['tec_readiness_category_color_generator_sequence'] = [$exactGenerator, new stdClass()];
+$GLOBALS['tec_readiness_category_color_dropdown_sequence'] = [$exactDropdown, new stdClass()];
+$colorNeutralRows = array_values(array_filter(
+    $colorDb->rows($colorDb->options),
+    static fn(array $row): bool => ($row['option_name'] ?? null) !== 'tec_events_category_color_css'
+));
+$colorNeutralVars = $GLOBALS['tec_readiness_tribe_vars'];
+$colorNeutralTransientDeletes = $GLOBALS['tec_readiness_expired_transient_deletes'];
 $firstColorReceipt = $colorProvider->invoke('regenerate_css', []);
 duo_check_same(true, $firstColorReceipt['verified'] ?? null, 'native CSS regeneration returns a verified structured receipt');
+duo_check_same(
+    $generatorResolutions + 1,
+    $GLOBALS['tec_readiness_category_color_generator_resolution_calls'],
+    'one invocation resolves the exact Generator value service only once'
+);
+duo_check_same(
+    $dropdownResolutions + 1,
+    $GLOBALS['tec_readiness_category_color_dropdown_resolution_calls'],
+    'one invocation resolves the exact Dropdown value service only once'
+);
+duo_check_same(
+    1,
+    count($GLOBALS['tec_readiness_category_color_generator_sequence']),
+    'a hostile second Generator resolution remains unreachable after the reviewed value is held'
+);
+duo_check_same(
+    1,
+    count($GLOBALS['tec_readiness_category_color_dropdown_sequence']),
+    'a hostile second Dropdown resolution remains unreachable after the reviewed value is held'
+);
+$GLOBALS['tec_readiness_category_color_generator_sequence'] = [];
+$GLOBALS['tec_readiness_category_color_dropdown_sequence'] = [];
+duo_check_same(
+    $colorNeutralRows,
+    array_values(array_filter(
+        $colorDb->rows($colorDb->options),
+        static fn(array $row): bool => ($row['option_name'] ?? null) !== 'tec_events_category_color_css'
+    )),
+    'the exact updated_option callbacks leave every marker and unrelated option row byte-identical'
+);
+duo_check_same(
+    $colorNeutralVars,
+    $GLOBALS['tec_readiness_tribe_vars'],
+    'the exact Category Colors updated_option callbacks leave request-local TEC state unchanged'
+);
+duo_check_same(
+    $colorNeutralTransientDeletes,
+    $GLOBALS['tec_readiness_expired_transient_deletes'],
+    'the exact Category Colors updated_option callbacks schedule or delete no transients'
+);
 duo_check_same(1, $GLOBALS['tec_readiness_cache_busts'], 'the provider invokes TEC native controller semantics including cache busting');
 $optionHookFixture = json_decode(
     (string) file_get_contents($root . '/sandbox/tests/fixtures/the-events-calendar-wordpress-option-hooks.json'),
@@ -4474,6 +4605,7 @@ duo_check_same(
         'common/vendor/vendor-prefixed/lucatume/di52/src/Container.php',
         'src/Events/Category_Colors/CSS/Controller.php',
         'src/Events/Category_Colors/CSS/Generator.php',
+        'src/Events/Category_Colors/Meta_Keys_Trait.php',
         'src/Events/Category_Colors/Repositories/Category_Color_Dropdown_Provider.php',
         'src/Events/Custom_Tables/V1/Activation.php',
         'src/Events/Custom_Tables/V1/Models/Event.php',
@@ -5295,26 +5427,101 @@ foreach (['existing update row' => true, 'absent add row' => false] as $optionBr
         $colorDb->seedTable($colorDb->options, []);
     }
     foreach ($cssOptionHookTopology as $cssOptionHook) {
-        $GLOBALS['tec_readiness_filters'] = [$cssOptionHook];
+        $foreignOptionHook = static fn(mixed $value = null): mixed => $value;
+        if ($cssOptionHook === 'updated_option') {
+            add_filter($cssOptionHook, $foreignOptionHook, 987, 1);
+        } else {
+            $GLOBALS['tec_readiness_filters'] = [$cssOptionHook];
+        }
         duo_check_throws(
             static fn() => $colorProvider->invoke('regenerate_css', []),
             RuntimeException::class,
             "an active CSS option hook $cssOptionHook refuses on the $optionBranch before side effects",
-            'does not admit filter'
+            $cssOptionHook === 'updated_option'
+                ? 'updated_option topology is incomplete'
+                : 'hook topology is malformed'
         );
+        if ($cssOptionHook === 'updated_option') {
+            remove_filter($cssOptionHook, $foreignOptionHook, 987);
+        }
+        $GLOBALS['tec_readiness_filters'] = [];
     }
 }
 $GLOBALS['tec_readiness_filters'] = [];
 tec_readiness_seed_color_options();
+$viewsOptionHooks = $GLOBALS['tec_readiness_views_hooks'];
+remove_filter('tribe_get_option', [$viewsOptionHooks, 'filter_date_escaping'], 10);
+duo_check_throws(
+    static fn() => $colorProvider->invoke('regenerate_css', []),
+    RuntimeException::class,
+    'a missing canonical tribe_get_option callback refuses before native Category Colors effects',
+    'tribe_get_option topology is incomplete'
+);
+add_filter('tribe_get_option', [$viewsOptionHooks, 'filter_date_escaping'], 10, 2);
+$foreignViewsOptionHooks = clone $viewsOptionHooks;
+remove_filter('tribe_get_option', [$viewsOptionHooks, 'filter_date_escaping'], 10);
+add_filter('tribe_get_option', [$foreignViewsOptionHooks, 'filter_date_escaping'], 10, 2);
+duo_check_throws(
+    static fn() => $colorProvider->invoke('regenerate_css', []),
+    RuntimeException::class,
+    'a same-class non-container tribe_get_option callback refuses before native effects',
+    'tribe_get_option topology is extended or substituted'
+);
+remove_filter('tribe_get_option', [$foreignViewsOptionHooks, 'filter_date_escaping'], 10);
+add_filter('tribe_get_option', [$viewsOptionHooks, 'filter_date_escaping'], 10, 2);
+$foreignOptionFilter = static fn(mixed $value): mixed => $value;
+add_filter('tribe_get_option', $foreignOptionFilter, 999, 2);
+duo_check_throws(
+    static fn() => $colorProvider->invoke('regenerate_css', []),
+    RuntimeException::class,
+    'an extra semantically neutral tribe_get_option callback remains outside the exact contract',
+    'tribe_get_option topology is incomplete'
+);
+remove_filter('tribe_get_option', $foreignOptionFilter, 999);
+$settingsOptionListener = $GLOBALS['tec_readiness_settings_manager'];
+$canonicalUpdatedOptionCallbacks = $GLOBALS['wp_filter']['updated_option']->callbacks;
+remove_filter('updated_option', [$settingsOptionListener, 'update_options_cache'], 10);
+duo_check_throws(
+    static fn() => $colorProvider->invoke('regenerate_css', []),
+    RuntimeException::class,
+    'a missing canonical updated_option callback refuses before native Category Colors effects',
+    'updated_option topology is incomplete'
+);
+add_filter('updated_option', [$settingsOptionListener, 'update_options_cache'], 10, 3);
+$foreignSettingsOptionListener = clone $settingsOptionListener;
+remove_filter('updated_option', [$settingsOptionListener, 'update_options_cache'], 10);
+add_filter('updated_option', [$foreignSettingsOptionListener, 'update_options_cache'], 10, 3);
+duo_check_throws(
+    static fn() => $colorProvider->invoke('regenerate_css', []),
+    RuntimeException::class,
+    'a same-class non-singleton updated_option callback refuses before native Category Colors effects',
+    'updated_option topology is extended or substituted'
+);
+remove_filter('updated_option', [$foreignSettingsOptionListener, 'update_options_cache'], 10);
+$GLOBALS['wp_filter']['updated_option']->callbacks = $canonicalUpdatedOptionCallbacks;
+foreach ([
+    'tribe_cache_last_occurrence_option_triggers',
+    'tribe_cache_last_occurrence_option_triggers:updated_option',
+    'tribe_cache_last_occurrence_option_triggers:save_post',
+] as $triggerHook) {
+    add_filter($triggerHook, $foreignOptionFilter, 999, 1);
+    duo_check_throws(
+        static fn() => $colorProvider->invoke('regenerate_css', []),
+        RuntimeException::class,
+        "an extended CacheListener trigger $triggerHook refuses before CSS or marker mutation",
+        'cache-listener trigger topology is extended'
+    );
+    remove_filter($triggerHook, $foreignOptionFilter, 999);
+}
 duo_check_same(
     $hookRefusalControllerCalls,
     $GLOBALS['tec_readiness_color_controller_calls'],
-    'every CSS option hook topology refusal happens before native controller execution'
+    'every CSS option and normal-boot hook topology refusal happens before native controller execution'
 );
 duo_check_same(
     $hookRefusalCacheBusts,
     $GLOBALS['tec_readiness_cache_busts'],
-    'every CSS option hook topology refusal happens before dropdown-cache mutation'
+    'removing every hostile hook permits same-process retry without a prior dropdown-cache mutation'
 );
 duo_check_same(0, $firstColorReceipt['after']['css_selector_mismatch_count'] ?? null, 'readback rejects missing or orphan native selectors');
 duo_check_same(0, $firstColorReceipt['after']['css_value_mismatch_count'] ?? null, 'readback carries every native selector color value');
@@ -5590,7 +5797,7 @@ duo_check_throws(
     static fn() => $colorProvider->invoke('regenerate_css', []),
     RuntimeException::class,
     'a native final-CSS output filter refuses before controller or dropdown-cache mutation',
-    'does not admit filter'
+    'hook topology is malformed'
 );
 duo_check_same(
     $cacheBustsBeforeFilterRefusal,
@@ -6466,7 +6673,6 @@ $GLOBALS['tec_readiness_cache_listener'] = Tribe__Cache_Listener::instance();
 $GLOBALS['tec_readiness_events_rewrite'] = Tribe__Events__Rewrite::instance();
 $GLOBALS['tec_readiness_aggregator'] = Tribe__Events__Aggregator::instance();
 $GLOBALS['tec_readiness_views_manager'] = new \Tribe\Events\Views\V2\Manager();
-$GLOBALS['tec_readiness_views_hooks'] = new \Tribe\Events\Views\V2\Hooks();
 $GLOBALS['tec_readiness_kitchen_sink'] = new \Tribe\Events\Views\V2\Kitchen_Sink();
 $GLOBALS['tec_readiness_qr_routes'] = new \TEC\Events\QR\Routes();
 $GLOBALS['tec_readiness_harbor_pue'] = new \TEC\Common\Integrations\Harbor\PUE();

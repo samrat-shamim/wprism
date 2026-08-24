@@ -57,6 +57,48 @@
     "nested_hook": "wp_max_autoloaded_option_size",
     "bounded_marker_autoload": "auto"
   },
+  "category_colors_runtime": {
+    "option_key": "category-color-show-hidden-categories",
+    "css_option": "tec_events_category_color_css",
+    "generator_properties": {
+      "keys": {
+        "primary": "tec-events-cat-colors-primary",
+        "secondary": "tec-events-cat-colors-secondary",
+        "text": "tec-events-cat-colors-text",
+        "priority": "tec-events-cat-colors-priority",
+        "hide_from_legend": "tec-events-cat-colors-hidden"
+      },
+      "option_key": "tec_events_category_color_css",
+      "generated_css": ""
+    },
+    "dropdown_properties": {
+      "keys": {
+        "primary": "tec-events-cat-colors-primary",
+        "secondary": "tec-events-cat-colors-secondary",
+        "text": "tec-events-cat-colors-text",
+        "priority": "tec-events-cat-colors-priority",
+        "hide_from_legend": "tec-events-cat-colors-hidden"
+      },
+      "disallowed_shortcodes": ["admin-manager"]
+    },
+    "tribe_get_option_callbacks": [
+      ["Tribe\\Events\\Views\\V2\\Hooks", "filter_get_stylesheet_option", 10, 2],
+      ["Tribe\\Events\\Views\\V2\\Hooks", "filter_live_filters_option_value", 10, 2],
+      ["Tribe\\Events\\Views\\V2\\Hooks", "filter_date_escaping", 10, 2]
+    ],
+    "updated_option_callbacks": [
+      ["Tribe__Settings_Manager", "update_options_cache", 10, 3],
+      ["Tribe\\Events\\Views\\V2\\Hooks", "action_save_wplang", 10, 3],
+      ["Tribe__Events__Aggregator", "action_purge_transients", 10, 1],
+      ["Tribe__Cache_Listener", "update_last_updated_option", 10, 3],
+      ["Tribe__Cache_Listener", "update_last_save_post", 10, 3]
+    ],
+    "empty_cache_listener_filters": [
+      "tribe_cache_last_occurrence_option_triggers",
+      "tribe_cache_last_occurrence_option_triggers:updated_option",
+      "tribe_cache_last_occurrence_option_triggers:save_post"
+    ]
+  },
   "shared_paths": {
     "get_option": [
       "pre_option_tec_events_category_color_css",
@@ -208,6 +250,7 @@
       "common/vendor/vendor-prefixed/lucatume/di52/src/Container.php": "6ca7656082adf59d784f30656e85930d20c787222b852d488af3ee654e69b488",
       "src/Events/Category_Colors/CSS/Controller.php": "16f8bbacefaf7ebe41292f49a6e5a22a21752b4be96ef46316d306d7ba03f949",
       "src/Events/Category_Colors/CSS/Generator.php": "e4b400e98736faeed5f2df6f054ba63012e7159962a6ddc53021a94cfbf038d0",
+      "src/Events/Category_Colors/Meta_Keys_Trait.php": "f39138b0ce177e9d914dd15a8c87ecb030da0079397a0c8ceab6fbe554fde101",
       "src/Events/Category_Colors/Repositories/Category_Color_Dropdown_Provider.php": "db1c758c197c08c0c7f70754408fa077a62abf335110a309f540f6644edc3372",
       "src/Events/Custom_Tables/V1/Activation.php": "79a8e9a1335dd5c0d13390f4106d5f9a605053e2d77a04822fbd602b38eb41b8",
       "src/Events/Custom_Tables/V1/Models/Event.php": "457950fe0df1f3db7783b3ff898e323a981e65c897a3d2ce83d9a37c14a744ed",
@@ -268,6 +311,7 @@
       "common/vendor/vendor-prefixed/lucatume/di52/src/Container.php": "6ca7656082adf59d784f30656e85930d20c787222b852d488af3ee654e69b488",
       "src/Events/Category_Colors/CSS/Controller.php": "16f8bbacefaf7ebe41292f49a6e5a22a21752b4be96ef46316d306d7ba03f949",
       "src/Events/Category_Colors/CSS/Generator.php": "e4b400e98736faeed5f2df6f054ba63012e7159962a6ddc53021a94cfbf038d0",
+      "src/Events/Category_Colors/Meta_Keys_Trait.php": "f39138b0ce177e9d914dd15a8c87ecb030da0079397a0c8ceab6fbe554fde101",
       "src/Events/Category_Colors/Repositories/Category_Color_Dropdown_Provider.php": "db1c758c197c08c0c7f70754408fa077a62abf335110a309f540f6644edc3372",
       "src/Events/Custom_Tables/V1/Activation.php": "79a8e9a1335dd5c0d13390f4106d5f9a605053e2d77a04822fbd602b38eb41b8",
       "src/Events/Custom_Tables/V1/Models/Event.php": "457950fe0df1f3db7783b3ff898e323a981e65c897a3d2ce83d9a37c14a744ed",
