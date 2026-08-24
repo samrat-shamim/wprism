@@ -310,8 +310,7 @@ $softFlush = tec_option_function_body(
     $sources['wp-includes/class-wp-rewrite.php'],
     'flush_rules'
 );
-$rewriteGeneration = [
-    'exact_hooks' => [
+$coreRewriteHooks = [
         'post_rewrite_rules',
         'date_rewrite_rules',
         'root_rewrite_rules',
@@ -322,7 +321,35 @@ $rewriteGeneration = [
         'tag_rewrite_rules',
         'generate_rewrite_rules',
         'rewrite_rules_array',
-    ],
+];
+// WordPress owns the fixed and dynamic generation dispatch. The admitted
+// shipped-plugin subgraph is source-bound separately by the exact TEC and
+// co-install artifact fixtures, but belongs to the same irreversible native
+// rewrite interpreter named by both action manifests.
+$pluginRewriteHooks = [
+    'tribe_pre_rewrite',
+    'tribe_events_pre_rewrite',
+    'tribe_events_rewrite_rules_custom',
+    'tribe_cache_expiration',
+    'tribe_events_category_slug',
+    'tribe_events_tag_slug',
+    'tribe_events_rewrite_i18n_domains',
+    'tribe_events_rewrite_base_slugs',
+    'tribe_events_rewrite_i18n_languages',
+    'tribe_events_rewrite_i18n_slugs_raw',
+    'tribe_events_rewrite_i18n_slugs',
+    'tec_events_qr_route_base',
+    'tec_events_qr_route_prefix',
+    'deprecated_function_run',
+    'deprecated_function_trigger_error',
+    // Tribe__Events__Rewrite::get_bases() memoizes this request-local cache
+    // family while the same exact filter topology is executing.
+    'tribe-cache:tec_rewrite_default_bases',
+    'pll_rewrite_rules',
+    'pll_modify_rewrite_rule',
+];
+$rewriteGeneration = [
+    'exact_hooks' => [...$coreRewriteHooks, ...$pluginRewriteHooks],
     'dynamic_hook_template' => '{slug}_rewrite_rules',
     'soft_flush_excludes' => [
         'mod_rewrite_rules',
@@ -330,7 +357,7 @@ $rewriteGeneration = [
         'flush_rewrite_rules_hard',
     ],
 ];
-foreach ($rewriteGeneration['exact_hooks'] as $hook) {
+foreach ($coreRewriteHooks as $hook) {
     if (!str_contains($rewriteRules, "'$hook'")) {
         tec_option_usage("WordPress $version lost exact rewrite-generation hook $hook");
     }

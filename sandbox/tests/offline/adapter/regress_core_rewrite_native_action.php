@@ -32,6 +32,12 @@ $GLOBALS['core_rewrite_child_flushes'] = 0;
 $GLOBALS['core_rewrite_child_hard_flushes'] = 0;
 $GLOBALS['core_rewrite_child_stdout_prefix'] = '';
 $GLOBALS['core_rewrite_child_stderr'] = '';
+$GLOBALS['wp_filter'] = [];
+
+final class WP_Hook {
+    /** @var array<int,array<string,array{function:mixed,accepted_args:int}>> */
+    public array $callbacks = [];
+}
 
 function did_action(string $hook): int {
     return $hook === 'wp_loaded' ? (int) $GLOBALS['core_rewrite_wp_loaded'] : 0;
@@ -187,6 +193,8 @@ final class CoreRewriteRuntime {
     public int $initCalls = 0;
     public int $flushCalls = 0;
     public int $hardFlushes = 0;
+    /** @var array<string,array{}> */
+    public array $extra_permastructs = [];
 
     public function init(): void {
         $this->initCalls++;
@@ -385,6 +393,31 @@ core_rewrite_refuses(
     'a manifest cannot turn the soft flush into a filesystem-writing hard flush'
 );
 
+core_rewrite_reset();
+$foreignRewriteHook = new WP_Hook();
+$foreignRewriteHook->callbacks[10]['foreign'] = [
+    'function' => static fn(object $runtime): object => $runtime,
+    'accepted_args' => 1,
+];
+$GLOBALS['wp_filter']['generate_rewrite_rules'] = $foreignRewriteHook;
+$launchesBeforeForeignRewrite = $GLOBALS['core_rewrite_child_launches'];
+$flushesBeforeForeignRewrite = $GLOBALS['core_rewrite_child_flushes'];
+core_rewrite_refuses(
+    static fn() => Duo\NativeActions::execute('rewrite.flush', []),
+    'fresh WordPress process exited 1',
+    'an unknown plugin rewrite callback refuses even when TEC is absent'
+);
+unset($GLOBALS['wp_filter']['generate_rewrite_rules']);
+duo_check_same(
+    $launchesBeforeForeignRewrite + 1,
+    $GLOBALS['core_rewrite_child_launches'],
+    'the TEC-absent topology refusal stays inside the bounded fresh child'
+);
+duo_check_same(
+    $flushesBeforeForeignRewrite,
+    $GLOBALS['core_rewrite_child_flushes'],
+    'the TEC-absent topology refusal executes no rewrite generation'
+);
 core_rewrite_reset();
 $first = Duo\NativeActions::execute('rewrite.flush', []);
 duo_check(($first['verified'] ?? null) === true, 'dirty target rewrite regeneration returns only after verified readback');

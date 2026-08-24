@@ -73,12 +73,77 @@ namespace TEC\Common\Integrations\Harbor {
 }
 
 namespace Tribe\Events\Views\V2 {
+    final class Kitchen_Sink {
+        public function generate_rules(object $rewrite): void {
+            $GLOBALS['tec_readiness_rewrite_calls'][] = [__METHOD__, 'kitchen-sink'];
+            $rewrite->add(
+                ['tribe', 'events', 'kitchen-sink'],
+                ['post_type' => 'tribe_events', 'tribe_events_views_kitchen_sink' => 'page']
+            );
+        }
+    }
+
+    final class View_Register {
+        public function __construct(public readonly string $slug) {
+            \add_action('tribe_events_pre_rewrite', [$this, 'filter_add_routes'], 5, 1);
+        }
+
+        public function filter_add_routes(object $rewrite): void {
+            $GLOBALS['tec_readiness_rewrite_calls'][] = [__METHOD__, $this->slug];
+        }
+    }
+
+    final class Manager {
+        /** @var array<string,View_Register> */
+        private array $view_registration = [];
+
+        public function register_view(string $slug): View_Register {
+            return $this->view_registration[$slug] = new View_Register($slug);
+        }
+
+        public function unregister_view(string $slug): void {
+            unset($this->view_registration[$slug]);
+        }
+
+        /** @return array<string,View_Register> */
+        public function get_view_registration_objects(): array {
+            return $this->view_registration;
+        }
+    }
+
     final class Hooks {
         public function __construct() {
+            \add_action('tribe_events_pre_rewrite', [$this, 'on_tribe_events_pre_rewrite'], 10, 1);
             \add_action('updated_option', [$this, 'action_save_wplang'], 10, 3);
         }
 
+        public function on_tribe_events_pre_rewrite(object $rewrite): void {
+            \tribe(Kitchen_Sink::class)->generate_rules($rewrite);
+            $GLOBALS['tec_readiness_rewrite_calls'][] = [__METHOD__, 'views'];
+        }
+
         public function action_save_wplang(string $option, mixed $old, mixed $value): void {}
+    }
+}
+
+namespace TEC\Events\QR {
+    final class Routes {
+        private ?string $route_base = null;
+        private ?string $route_prefix = null;
+
+        public function __construct() {
+            \add_action('tribe_events_pre_rewrite', [$this, 'add_qr_rules'], 10, 1);
+        }
+
+        public function add_qr_rules(object $rewrite): void {
+            $this->route_base ??= (string) \apply_filters('tec_events_qr_route_base', 'events');
+            $this->route_prefix ??= (string) \apply_filters('tec_events_qr_route_prefix', 'qr');
+            $rewrite->add(
+                [$this->route_base, $this->route_prefix, '([^/]+)'],
+                ['tec_qr_hash' => '%1']
+            );
+            $GLOBALS['tec_readiness_rewrite_calls'][] = [__METHOD__, 'qr'];
+        }
     }
 }
 
@@ -154,6 +219,7 @@ final class Tribe__Events__Aggregator {
     private static ?self $instance = null;
 
     private function __construct() {
+        add_action('tribe_events_pre_rewrite', [$this, 'action_endpoint_configuration'], 10, 1);
         add_action('updated_option', [$this, 'action_purge_transients'], 10, 1);
     }
 
@@ -161,7 +227,65 @@ final class Tribe__Events__Aggregator {
         return self::$instance ??= new self();
     }
 
+    public function action_endpoint_configuration(object $rewrite): void {
+        $GLOBALS['tec_readiness_rewrite_calls'][] = [__METHOD__, 'aggregator'];
+    }
+
     public function action_purge_transients(string $option): void {}
+}
+
+final class Tribe__Deprecation {
+    private static ?self $instance = null;
+
+    private function __construct() {
+        add_action('tribe_pre_rewrite', [$this, 'deprecated_action_message'], 10, 1);
+        add_action('tribe_events_pre_rewrite', [$this, 'deprecated_action_message'], 10, 1);
+    }
+
+    public static function instance(): self {
+        return self::$instance ??= new self();
+    }
+
+    public function deprecated_action_message(mixed $value = null): mixed {
+        $GLOBALS['tec_readiness_rewrite_calls'][] = [__METHOD__, 'deprecation'];
+        return $value;
+    }
+}
+
+final class Tribe__Events__Rewrite {
+    private static ?self $instance = null;
+
+    private function __construct() {
+        add_filter('generate_rewrite_rules', [$this, 'filter_generate'], 10, 1);
+        add_filter('rewrite_rules_array', [$this, 'filter_rewrite_rules_array'], 25, 1);
+        add_action('tribe_events_pre_rewrite', [$this, 'generate_core_rules'], 10, 1);
+    }
+
+    public static function instance(): self {
+        return self::$instance ??= new self();
+    }
+
+    public function filter_generate(object $wpRewrite): void {
+        do_action('tribe_pre_rewrite', $this);
+        do_action('tribe_events_pre_rewrite', $this);
+        apply_filters('tribe_events_rewrite_rules_custom', [], $this, $wpRewrite);
+        $GLOBALS['tec_readiness_rewrite_calls'][] = [__METHOD__, 'generate'];
+    }
+
+    public function filter_rewrite_rules_array(mixed $rules): mixed {
+        $GLOBALS['tec_readiness_rewrite_calls'][] = [__METHOD__, 'array'];
+        return $rules;
+    }
+
+    public function generate_core_rules(object $rewrite): void {
+        $GLOBALS['tec_readiness_rewrite_calls'][] = [__METHOD__, 'core'];
+    }
+
+    /** @param list<string> $regex @param array<string,mixed> $args */
+    public function add(array $regex, array $args): self {
+        $GLOBALS['tec_readiness_rewrite_calls'][] = [__METHOD__, $regex, $args];
+        return $this;
+    }
 }
 
 final class Tribe__Customizer {
@@ -396,6 +520,8 @@ final class TecReadinessRewriteRuntime {
     public mixed $rules = null;
     public int $flushCalls = 0;
     public bool $malformedAfterGenerate = false;
+    /** @var array<string,array{}> */
+    public array $extra_permastructs = ['product' => [], 'product_cat' => []];
 
     public function flush_rules(bool $hard = true): void {
         if ($hard) {
@@ -403,9 +529,12 @@ final class TecReadinessRewriteRuntime {
         }
         $this->flushCalls++;
         do_action('generate_rewrite_rules', $this);
-        $this->rules = $this->malformedAfterGenerate
+        $generated = $this->malformedAfterGenerate
             ? 'malformed-after-generate'
             : ['^events/?$' => 'index.php?post_type=tribe_events'];
+        $this->rules = is_array($generated)
+            ? apply_filters('rewrite_rules_array', $generated)
+            : $generated;
         update_option('rewrite_rules', $this->rules);
     }
 
@@ -1117,6 +1246,9 @@ function tribe(?string $class = null): object {
         'customizer' => $GLOBALS['tec_readiness_customizer'],
         'cache' => $GLOBALS['tec_readiness_container_cache'],
         'Tribe\\Events\\Views\\V2\\Hooks' => $GLOBALS['tec_readiness_views_hooks'],
+        'Tribe\\Events\\Views\\V2\\Kitchen_Sink' => $GLOBALS['tec_readiness_kitchen_sink'],
+        'Tribe\\Events\\Views\\V2\\Manager' => $GLOBALS['tec_readiness_views_manager'],
+        'TEC\\Events\\QR\\Routes' => $GLOBALS['tec_readiness_qr_routes'],
         'TEC\\Common\\Integrations\\Harbor\\PUE' => $GLOBALS['tec_readiness_harbor_pue'],
         'TEC\\Events\\Category_Colors\\CSS\\Generator' =>
             $GLOBALS['tec_readiness_category_color_generator'],
@@ -3458,6 +3590,123 @@ duo_check_same(
     ], true)),
     'the exact Woo container and three no-op option services are source-hash bound'
 );
+$coinstallSourceHashes = [];
+foreach (($wooRewriteTopology['source_files'] ?? []) as $sourceFile) {
+    $plugin = (string) ($sourceFile['plugin'] ?? '');
+    $path = (string) ($sourceFile['path'] ?? '');
+    $coinstallSourceHashes[$plugin][$path] = $sourceFile['sha256'] ?? null;
+}
+duo_check_same(
+    [
+        'inc/class-yoast-dynamic-rewrites.php' =>
+            '3b07ec0af1f94269b2a5a98bba078edbee73e1697aeeed119ae12ff4a3ca7553',
+        'wp-seo-main.php' =>
+            '5ecb2632b7997782e7efda714ab11e4a1ca479a8f3277c8e3137600bcb575ff1',
+    ],
+    $coinstallSourceHashes['wordpress-seo'] ?? null,
+    'the exact Yoast singleton registration and bounded dynamic-rule maps are source-hash bound'
+);
+duo_check_same(
+    [
+        'src/links-directory.php' =>
+            '5cadce6a89e87278bdd021d8f049d9c4e511acecc6c6366808740f04027d2dc0',
+        'src/links-permalinks.php' =>
+            'cc15a8ffa92ffb045cd5c5ef350688c7b2e36c6b43ceb9c68bdf6f8c5ed68f98',
+        'src/base.php' =>
+            '23c6fad9a329966eb841ac86f468f347c4bf9cc4bb382e2f9a777c1b2f450762',
+        'src/api.php' =>
+            '4ff84b4c80783cefaa497009812b492d816ad6be8f5f5c79613f18906a462793',
+    ],
+    $coinstallSourceHashes['polylang'] ?? null,
+    'the exact Polylang runtime root, directory model, and dynamic type roster are source-hash bound'
+);
+$tecRewriteSourceHashes = array_intersect_key(
+    $coinstallSourceHashes['the-events-calendar'] ?? [],
+    array_fill_keys([
+        'common/src/Tribe/Rewrite.php',
+        'common/src/Tribe/Deprecation.php',
+        'src/Tribe/Rewrite.php',
+        'src/Tribe/Views/V2/Manager.php',
+        'src/Tribe/Views/V2/View_Register.php',
+        'src/Tribe/Views/V2/Kitchen_Sink.php',
+        'src/Tribe/Views/V2/Service_Provider.php',
+        'src/Events/QR/Routes.php',
+    ], true)
+);
+ksort($tecRewriteSourceHashes);
+duo_check_same(
+    [
+        'common/src/Tribe/Deprecation.php' =>
+            '71050d6b3644f5570df03b4f9c1584c4d8ba08775e958f9fb8bb62f0a3bf8d2b',
+        'common/src/Tribe/Rewrite.php' =>
+            '0e198faca151aeca66680e916a038eab5c264f7d0ee6472d8f07d1845d0a7b9a',
+        'src/Events/QR/Routes.php' =>
+            '13970bae6bc23da3db24a44c14194568c7baf25f46b6b62166972c63b3e89acf',
+        'src/Tribe/Rewrite.php' =>
+            '2f447a4120a349d5f596c834192b17a5b911c6c94e8a62cfaee58af89cc86aab',
+        'src/Tribe/Views/V2/Kitchen_Sink.php' =>
+            '9f26d8aed55135352eb89107b5851517a6955b761831db264275e325505e578f',
+        'src/Tribe/Views/V2/Manager.php' =>
+            'c7138bf36ebd78bf2c749ed6b6548255064710559e31a9716f4fc8af86dde353',
+        'src/Tribe/Views/V2/Service_Provider.php' =>
+            '29e613ac58ae57ece7206f9db697749c41a5370d491088f5833a45d8f0f593b1',
+        'src/Tribe/Views/V2/View_Register.php' =>
+            '1a6d490cb4627fb282fd8fb1c9312c06308af87c3fa99be268b50db53cf3ac9f',
+    ],
+    $tecRewriteSourceHashes,
+    'both exact TEC pins bind the complete outer and inner rewrite service graph'
+);
+$exactTecInnerHooks = [
+    'tribe_cache_expiration',
+    'tribe_events_category_slug',
+    'tribe_events_tag_slug',
+    'tribe_events_rewrite_i18n_domains',
+    'tribe_events_rewrite_base_slugs',
+    'tribe_events_rewrite_i18n_languages',
+    'tribe_events_rewrite_i18n_slugs_raw',
+    'tribe_events_rewrite_i18n_slugs',
+    'tec_events_qr_route_base',
+    'tec_events_qr_route_prefix',
+    'deprecated_function_run',
+    'deprecated_function_trigger_error',
+];
+duo_check_same(
+    $exactTecInnerHooks,
+    $wooRewriteTopology['tec_exact_empty_inner_hooks'] ?? null,
+    'the source-bound TEC inner rewrite hook frontier is closed and order-stable'
+);
+$staticRewriteCallbacks = [];
+foreach (($wooRewriteTopology['static_callbacks'] ?? []) as $callback) {
+    $staticRewriteCallbacks[(string) ($callback['hook'] ?? '')][] = $callback['callback'] ?? null;
+}
+foreach ([
+    'generate_rewrite_rules' => [
+        'Tribe__Cache_Listener::generate_rewrite_rules',
+        'Tribe__Events__Rewrite::filter_generate',
+    ],
+    'rewrite_rules_array' => [
+        'wc_fix_rewrite_rules',
+        'Tribe__Events__Rewrite::filter_rewrite_rules_array',
+    ],
+    'option_rewrite_rules' => [
+        'Yoast_Dynamic_Rewrites::filter_rewrite_rules_option',
+    ],
+    'sanitize_option_rewrite_rules' => [
+        'Yoast_Dynamic_Rewrites::sanitize_rewrite_rules_option',
+    ],
+] as $hookName => $callbacks) {
+    foreach ($callbacks as $callback) {
+        duo_check(
+            in_array($callback, $staticRewriteCallbacks[$hookName] ?? [], true),
+            "the exact co-install fixture pins $hookName callback $callback"
+        );
+    }
+}
+duo_check_same(
+    ['rewrite_rules_array', '{type}_rewrite_rules', 'pll_modify_rewrite_rule'],
+    array_column($wooRewriteTopology['dynamic_callback_containers'] ?? [], 'hook'),
+    'the Polylang fixture distinguishes its exact dynamic callbacks from the refused open filter chain'
+);
 duo_check_same(
     [
         [
@@ -3569,6 +3818,8 @@ duo_check_same(
         'common/src/Tribe/Abstract_Deactivation.php',
         'common/src/Tribe/Cache.php',
         'common/src/Tribe/Cache_Listener.php',
+        'common/src/Tribe/Rewrite.php',
+        'common/src/Tribe/Deprecation.php',
         'common/src/Tribe/Container.php',
         'common/src/Tribe/Customizer.php',
         'common/src/Tribe/Customizer/Section.php',
@@ -3590,6 +3841,7 @@ duo_check_same(
         'src/Events/Custom_Tables/V1/Provider.php',
         'src/Events/Admin/Onboarding/Controller.php',
         'src/Events/Controller.php',
+        'src/Events/QR/Routes.php',
         'src/Tribe/Aggregator.php',
         'src/Tribe/Aggregator/Record/Queue_Processor.php',
         'src/Tribe/Aggregator/Records.php',
@@ -3606,6 +3858,9 @@ duo_check_same(
         'src/Tribe/Views/V2/Customizer/Section/Single_Event.php',
         'src/Tribe/Views/V2/Customizer/Service_Provider.php',
         'src/Tribe/Views/V2/Hooks.php',
+        'src/Tribe/Views/V2/Kitchen_Sink.php',
+        'src/Tribe/Views/V2/Manager.php',
+        'src/Tribe/Views/V2/View_Register.php',
         'src/Tribe/Views/V2/Service_Provider.php',
         'src/Tribe/Views/V2/Widgets/Service_Provider.php',
         'src/Tribe/Views/V2/Widgets/Widget_Abstract.php',
@@ -4320,10 +4575,22 @@ foreach (($manifest['actions'][0]['effects'] ?? []) as $effect) {
         break;
     }
 }
+$coreRewriteEffect = null;
+foreach (($coreManifest['actions'][0]['effects'] ?? []) as $effect) {
+    if (($effect['id'] ?? null) === 'core-rewrite-generation-runtime') {
+        $coreRewriteEffect = $effect;
+        break;
+    }
+}
 duo_check_same(
     $optionHookFixture['rewrite_generation']['exact_hooks'] ?? null,
     $rewriteEffect['selector']['members']['exact'] ?? null,
-    'the irreversible rewrite aggregate names every exact pinned core generation hook'
+    'the irreversible rewrite aggregate names every exact pinned core and shipped-plugin generation hook'
+);
+duo_check_same(
+    $rewriteEffect['selector'] ?? null,
+    $coreRewriteEffect['selector'] ?? null,
+    'core and TEC bind the same closed cross-adapter rewrite interpreter'
 );
 duo_check_same(
     [$optionHookFixture['rewrite_generation']['dynamic_hook_template'] ?? null],
@@ -5536,8 +5803,13 @@ $decodeLegacyCompanion = static function (array $result): ?array {
 
 $GLOBALS['tec_readiness_settings_manager'] = Tribe__Settings_Manager::instance();
 $GLOBALS['tec_readiness_cache_listener'] = Tribe__Cache_Listener::instance();
+$GLOBALS['tec_readiness_deprecation'] = Tribe__Deprecation::instance();
+$GLOBALS['tec_readiness_events_rewrite'] = Tribe__Events__Rewrite::instance();
 $GLOBALS['tec_readiness_aggregator'] = Tribe__Events__Aggregator::instance();
+$GLOBALS['tec_readiness_views_manager'] = new \Tribe\Events\Views\V2\Manager();
 $GLOBALS['tec_readiness_views_hooks'] = new \Tribe\Events\Views\V2\Hooks();
+$GLOBALS['tec_readiness_kitchen_sink'] = new \Tribe\Events\Views\V2\Kitchen_Sink();
+$GLOBALS['tec_readiness_qr_routes'] = new \TEC\Events\QR\Routes();
 $GLOBALS['tec_readiness_harbor_pue'] = new \TEC\Common\Integrations\Harbor\PUE();
 
 $targetLegacy = ['month_view' => ['grid_lines_color' => '#445566']];
@@ -5915,6 +6187,7 @@ $foreignViewsRefusal = tec_readiness_materialize_mixed_option(
     $hookRefusalTarget
 );
 remove_action('updated_option', [$foreignViews, 'action_save_wplang'], 10);
+remove_action('tribe_events_pre_rewrite', [$foreignViews, 'on_tribe_events_pre_rewrite'], 10);
 duo_check(
     $foreignViewsRefusal['failure'] instanceof RuntimeException
         && str_contains($foreignViewsRefusal['failure']->getMessage(), 'option mutation hook topology'),
@@ -6830,6 +7103,14 @@ $nativeRewriteChild = new ReflectionMethod(\Duo\NativeActions::class, 'flush_rew
 $nativeRewriteReceipt = $nativeRewriteChild->invoke(null);
 duo_check_same(true, $nativeRewriteReceipt['verified'] ?? null, 'TEC-active native rewrite returns only after checked child readback');
 duo_check_same(1, $GLOBALS['wp_rewrite']->flushCalls, 'TEC-active native rewrite invokes the fresh soft flush exactly once');
+duo_check(
+    in_array(
+        ['Tribe\\Events\\Views\\V2\\Kitchen_Sink::generate_rules', 'kitchen-sink'],
+        $GLOBALS['tec_readiness_rewrite_calls'],
+        true
+    ),
+    'the product rewrite path executes the exact container-resolved Kitchen Sink service'
+);
 $nativeMarkerRows = [];
 foreach ($tecDb->rows($optionsTable) as $row) {
     $name = $row['option_name'] ?? null;
@@ -6945,6 +7226,480 @@ duo_check_same(
     true,
     $wooUpdatedReceipt['verified'] ?? null,
     'the exact normal Woo callback union permits the TEC rewrite product path'
+);
+foreach ([
+    'wc_fix_rewrite_rules',
+    'Yoast_Dynamic_Rewrites::sanitize_rewrite_rules_option',
+    'Yoast_Dynamic_Rewrites::filter_rewrite_rules_option',
+    'PLL_Links_Directory::rewrite_rules',
+    'Tribe__Events__Rewrite::filter_generate',
+    'Tribe__Events__Rewrite::filter_rewrite_rules_array',
+] as $rewriteMethod) {
+    duo_check(
+        array_filter(
+            $GLOBALS['tec_readiness_rewrite_calls'],
+            static fn(array $call): bool => ($call[0] ?? null) === $rewriteMethod
+        ) !== [],
+        "the exact normal co-install executes source-bound rewrite callback $rewriteMethod"
+    );
+}
+duo_check(
+    ($wooUpdatedReceipt['after']['rules_hash'] ?? null)
+        !== ($wooUpdatedReceipt['after']['runtime_rules_hash'] ?? null),
+    'Yoast dynamic rules remain absent from durable storage while the exact effective projection is receipted'
+);
+
+$hostilePllCalls = 0;
+$hostilePllModify = static function (bool $modify) use (&$hostilePllCalls): bool {
+    ++$hostilePllCalls;
+    return $modify;
+};
+add_filter('pll_modify_rewrite_rule', $hostilePllModify, 999, 4);
+$flushesBeforeHostilePll = $GLOBALS['wp_rewrite']->flushCalls;
+$hostilePllFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $hostilePllFailure = $failure;
+}
+remove_filter('pll_modify_rewrite_rule', $hostilePllModify, 999);
+duo_check(
+    $hostilePllFailure instanceof RuntimeException
+        && str_contains($hostilePllFailure->getMessage(), 'unsupported open Polylang rewrite filter'),
+    'a third-party pll_modify_rewrite_rule callback refuses before rewrite generation'
+);
+duo_check_same(0, $hostilePllCalls, 'the refused open Polylang callback never executes');
+duo_check_same(
+    $flushesBeforeHostilePll,
+    $GLOBALS['wp_rewrite']->flushCalls,
+    'the open Polylang callback refusal performs no native mutation'
+);
+duo_check_same(
+    true,
+    $nativeRewriteChild->invoke(null)['verified'] ?? null,
+    'removing the third-party Polylang callback permits exact retry'
+);
+
+$hostileRosterCalls = 0;
+$hostilePllRoster = static function (array $types) use (&$hostileRosterCalls): array {
+    ++$hostileRosterCalls;
+    return [...$types, 'foreign'];
+};
+add_filter('pll_rewrite_rules', $hostilePllRoster, 999, 1);
+$flushesBeforeHostileRoster = $GLOBALS['wp_rewrite']->flushCalls;
+$hostileRosterFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $hostileRosterFailure = $failure;
+}
+remove_filter('pll_rewrite_rules', $hostilePllRoster, 999);
+duo_check(
+    $hostileRosterFailure instanceof RuntimeException
+        && str_contains($hostileRosterFailure->getMessage(), 'unsupported open Polylang rewrite filter'),
+    'a third-party pll_rewrite_rules type extension refuses before roster evaluation'
+);
+duo_check_same(0, $hostileRosterCalls, 'the refused Polylang roster callback never executes');
+duo_check_same(
+    $flushesBeforeHostileRoster,
+    $GLOBALS['wp_rewrite']->flushCalls,
+    'the open type-roster refusal performs no native mutation'
+);
+
+$customRuleCalls = 0;
+$hostileCustomRule = static function (array $rules) use (&$customRuleCalls): array {
+    ++$customRuleCalls;
+    return $rules;
+};
+add_filter('tribe_events_rewrite_rules_custom', $hostileCustomRule, 999, 1);
+$flushesBeforeCustomRule = $GLOBALS['wp_rewrite']->flushCalls;
+$customRuleFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $customRuleFailure = $failure;
+}
+remove_filter('tribe_events_rewrite_rules_custom', $hostileCustomRule, 999);
+duo_check(
+    $customRuleFailure instanceof RuntimeException
+        && str_contains(
+            $customRuleFailure->getMessage(),
+            "extended or substituted 'tribe_events_rewrite_rules_custom'"
+        ),
+    'an extension of TEC custom rewrite rules refuses before native generation'
+);
+duo_check_same(0, $customRuleCalls, 'the refused TEC custom-rule callback never executes');
+duo_check_same(
+    $flushesBeforeCustomRule,
+    $GLOBALS['wp_rewrite']->flushCalls,
+    'the TEC custom-rule refusal performs no native mutation'
+);
+
+$extensionView = $GLOBALS['tec_readiness_views_manager']->register_view('extension-view');
+$viewRouteCallsBefore = count(array_filter(
+    $GLOBALS['tec_readiness_rewrite_calls'],
+    static fn(array $call): bool => ($call[0] ?? null)
+        === 'Tribe\\Events\\Views\\V2\\View_Register::filter_add_routes'
+));
+$flushesBeforeExtensionView = $GLOBALS['wp_rewrite']->flushCalls;
+$extensionViewFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $extensionViewFailure = $failure;
+}
+remove_action('tribe_events_pre_rewrite', [$extensionView, 'filter_add_routes'], 5);
+$GLOBALS['tec_readiness_views_manager']->unregister_view('extension-view');
+duo_check(
+    $extensionViewFailure instanceof RuntimeException
+        && str_contains($extensionViewFailure->getMessage(), 'extended TEC view registry'),
+    'an add-on TEC view registration refuses before native rewrite generation'
+);
+duo_check_same(
+    $viewRouteCallsBefore,
+    count(array_filter(
+        $GLOBALS['tec_readiness_rewrite_calls'],
+        static fn(array $call): bool => ($call[0] ?? null)
+            === 'Tribe\\Events\\Views\\V2\\View_Register::filter_add_routes'
+    )),
+    'the refused add-on view route callback never executes'
+);
+duo_check_same(
+    $flushesBeforeExtensionView,
+    $GLOBALS['wp_rewrite']->flushCalls,
+    'the add-on view refusal performs no native mutation'
+);
+
+foreach ($exactTecInnerHooks as $innerHook) {
+    $innerCalls = 0;
+    $hostileInner = static function (mixed $value = null) use (&$innerCalls): mixed {
+        ++$innerCalls;
+        return $value;
+    };
+    add_filter($innerHook, $hostileInner, 999, 1);
+    $flushesBeforeInner = $GLOBALS['wp_rewrite']->flushCalls;
+    $innerFailure = null;
+    try {
+        $nativeRewriteChild->invoke(null);
+    } catch (Throwable $failure) {
+        $innerFailure = $failure;
+    }
+    remove_filter($innerHook, $hostileInner, 999);
+    duo_check(
+        $innerFailure instanceof RuntimeException
+            && str_contains($innerFailure->getMessage(), "'$innerHook'"),
+        "an extension on nested TEC rewrite hook $innerHook refuses before native generation"
+    );
+    duo_check_same(0, $innerCalls, "the refused nested $innerHook callback never executes");
+    duo_check_same(
+        $flushesBeforeInner,
+        $GLOBALS['wp_rewrite']->flushCalls,
+        "the nested $innerHook refusal performs no native mutation"
+    );
+}
+
+$originalKitchenSink = $GLOBALS['tec_readiness_kitchen_sink'];
+$GLOBALS['tec_readiness_kitchen_sink'] = new stdClass();
+$flushesBeforeKitchenSink = $GLOBALS['wp_rewrite']->flushCalls;
+$kitchenSinkFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $kitchenSinkFailure = $failure;
+}
+$GLOBALS['tec_readiness_kitchen_sink'] = $originalKitchenSink;
+duo_check(
+    $kitchenSinkFailure instanceof RuntimeException
+        && str_contains($kitchenSinkFailure->getMessage(), 'substituted TEC rewrite service'),
+    'a container-substituted Kitchen Sink refuses before its same-output route generator can execute'
+);
+duo_check_same(
+    $flushesBeforeKitchenSink,
+    $GLOBALS['wp_rewrite']->flushCalls,
+    'Kitchen Sink substitution performs no native rewrite mutation'
+);
+duo_check_same(
+    true,
+    $nativeRewriteChild->invoke(null)['verified'] ?? null,
+    'restoring the exact Kitchen Sink singleton permits same-process retry'
+);
+
+$qrBaseProperty = new ReflectionProperty(\TEC\Events\QR\Routes::class, 'route_base');
+$originalQrBase = $qrBaseProperty->getValue($GLOBALS['tec_readiness_qr_routes']);
+$qrBaseProperty->setValue($GLOBALS['tec_readiness_qr_routes'], 'foreign-route');
+$flushesBeforeQrState = $GLOBALS['wp_rewrite']->flushCalls;
+$qrStateFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $qrStateFailure = $failure;
+}
+$qrBaseProperty->setValue($GLOBALS['tec_readiness_qr_routes'], $originalQrBase);
+duo_check(
+    $qrStateFailure instanceof RuntimeException
+        && str_contains($qrStateFailure->getMessage(), 'substituted TEC QR route state'),
+    'a previously filtered non-default QR route refuses before rewrite generation'
+);
+duo_check_same(
+    $flushesBeforeQrState,
+    $GLOBALS['wp_rewrite']->flushCalls,
+    'non-default cached QR route state performs no native mutation'
+);
+
+$hostileCoreRuleCalls = 0;
+$hostileCoreRule = static function (array $rules) use (&$hostileCoreRuleCalls): array {
+    ++$hostileCoreRuleCalls;
+    return $rules;
+};
+add_filter('post_rewrite_rules', $hostileCoreRule, 999, 1);
+$flushesBeforeCoreRule = $GLOBALS['wp_rewrite']->flushCalls;
+$coreRuleFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $coreRuleFailure = $failure;
+}
+remove_filter('post_rewrite_rules', $hostileCoreRule, 999);
+duo_check(
+    $coreRuleFailure instanceof RuntimeException
+        && str_contains($coreRuleFailure->getMessage(), "'post_rewrite_rules'"),
+    'an unreviewed fixed WordPress rewrite callback refuses before generation'
+);
+duo_check_same(0, $hostileCoreRuleCalls, 'the refused fixed rewrite callback never executes');
+duo_check_same(
+    $flushesBeforeCoreRule,
+    $GLOBALS['wp_rewrite']->flushCalls,
+    'the fixed rewrite callback refusal performs no native mutation'
+);
+
+$originalPermastructs = $GLOBALS['wp_rewrite']->extra_permastructs;
+$GLOBALS['wp_rewrite']->extra_permastructs['foreign'] = [];
+$dynamicRuleCalls = 0;
+$hostileDynamicRule = static function (array $rules) use (&$dynamicRuleCalls): array {
+    ++$dynamicRuleCalls;
+    return $rules;
+};
+add_filter('foreign_rewrite_rules', $hostileDynamicRule, 999, 1);
+$flushesBeforeDynamicRule = $GLOBALS['wp_rewrite']->flushCalls;
+$dynamicRuleFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $dynamicRuleFailure = $failure;
+}
+remove_filter('foreign_rewrite_rules', $hostileDynamicRule, 999);
+$GLOBALS['wp_rewrite']->extra_permastructs = $originalPermastructs;
+duo_check(
+    $dynamicRuleFailure instanceof RuntimeException
+        && str_contains($dynamicRuleFailure->getMessage(), "'foreign_rewrite_rules'"),
+    'an unreviewed callback on a bounded runtime permastruct refuses before generation'
+);
+duo_check_same(0, $dynamicRuleCalls, 'the refused dynamic permastruct callback never executes');
+duo_check_same(
+    $flushesBeforeDynamicRule,
+    $GLOBALS['wp_rewrite']->flushCalls,
+    'the dynamic permastruct callback refusal performs no native mutation'
+);
+
+$GLOBALS['wp_rewrite']->extra_permastructs['product'] = ['nested' => []];
+$malformedPermastructFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $malformedPermastructFailure = $failure;
+}
+$GLOBALS['wp_rewrite']->extra_permastructs = $originalPermastructs;
+duo_check(
+    $malformedPermastructFailure instanceof RuntimeException
+        && str_contains($malformedPermastructFailure->getMessage(), 'malformed permastruct roster'),
+    'a nested or executable permastruct definition refuses before native generation'
+);
+
+$driftedPermastructs = $originalPermastructs;
+$driftedPermastructs['product'] = ['struct' => '/drifted/%product%/', 'ep_mask' => 1];
+$GLOBALS['tec_readiness_rewrite_drift_permastructs'] = $driftedPermastructs;
+$permastructDriftFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $permastructDriftFailure = $failure;
+}
+$GLOBALS['wp_rewrite']->extra_permastructs = $originalPermastructs;
+duo_check(
+    $permastructDriftFailure instanceof RuntimeException
+        && str_contains($permastructDriftFailure->getMessage(), 'could not restore the proven shipped-plugin runtime')
+        && $permastructDriftFailure->getPrevious() instanceof RuntimeException
+        && str_contains($permastructDriftFailure->getPrevious()->getMessage(), 'service drift'),
+    'same-roster permastruct value drift during native callbacks refuses the receipt'
+);
+duo_check_same(
+    true,
+    $nativeRewriteChild->invoke(null)['verified'] ?? null,
+    'restoring the exact permastruct state permits same-process retry'
+);
+
+$polylangTypesProperty = new ReflectionProperty(PLL_Links_Directory::class, 'types');
+$originalPolylangTypes = $polylangTypesProperty->getValue($wooServices['polylang_links']);
+$polylangTypesProperty->setValue($wooServices['polylang_links'], ['bad/type']);
+$flushesBeforeMalformedRoster = $GLOBALS['wp_rewrite']->flushCalls;
+$malformedRosterFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $malformedRosterFailure = $failure;
+}
+$polylangTypesProperty->setValue($wooServices['polylang_links'], $originalPolylangTypes);
+duo_check(
+    $malformedRosterFailure instanceof RuntimeException
+        && str_contains($malformedRosterFailure->getMessage(), 'malformed Polylang rewrite type roster'),
+    'a malformed target-derived Polylang type refuses before generation'
+);
+duo_check_same(
+    $flushesBeforeMalformedRoster,
+    $GLOBALS['wp_rewrite']->flushCalls,
+    'the malformed Polylang roster performs no native mutation'
+);
+$polylangTypesProperty->setValue($wooServices['polylang_links'], ['date', 'date']);
+$flushesBeforeDuplicateRoster = $GLOBALS['wp_rewrite']->flushCalls;
+$duplicateRosterFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $duplicateRosterFailure = $failure;
+}
+$polylangTypesProperty->setValue($wooServices['polylang_links'], $originalPolylangTypes);
+duo_check(
+    $duplicateRosterFailure instanceof RuntimeException
+        && str_contains($duplicateRosterFailure->getMessage(), 'duplicate Polylang rewrite type'),
+    'a duplicate target-derived Polylang type refuses before generation'
+);
+duo_check_same(
+    $flushesBeforeDuplicateRoster,
+    $GLOBALS['wp_rewrite']->flushCalls,
+    'the duplicate Polylang roster performs no native mutation'
+);
+
+$yoastTopProperty = new ReflectionProperty(Yoast_Dynamic_Rewrites::class, 'extra_rules_top');
+$originalYoastTop = $yoastTopProperty->getValue($wooServices['yoast']);
+$yoastTopProperty->setValue($wooServices['yoast'], ['^large/?$' => str_repeat('x', 16385)]);
+$flushesBeforeMalformedYoast = $GLOBALS['wp_rewrite']->flushCalls;
+$malformedYoastFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $malformedYoastFailure = $failure;
+}
+$yoastTopProperty->setValue($wooServices['yoast'], $originalYoastTop);
+duo_check(
+    $malformedYoastFailure instanceof RuntimeException
+        && str_contains($malformedYoastFailure->getMessage(), 'malformed Yoast rewrite state'),
+    'an oversized individual Yoast rewrite value refuses before generation'
+);
+duo_check_same(
+    $flushesBeforeMalformedYoast,
+    $GLOBALS['wp_rewrite']->flushCalls,
+    'the malformed Yoast state performs no native mutation'
+);
+duo_check_same(
+    true,
+    $nativeRewriteChild->invoke(null)['verified'] ?? null,
+    'restoring exact TEC, Polylang and Yoast rewrite state permits bounded retry'
+);
+
+$foreignLinks = new PLL_Links_Directory($wooServices['polylang_types']);
+remove_filter('rewrite_rules_array', [$wooServices['polylang_links'], 'rewrite_rules'], 10);
+add_filter('rewrite_rules_array', [$foreignLinks, 'rewrite_rules'], 10, 1);
+$flushesBeforeForeignLinks = $GLOBALS['wp_rewrite']->flushCalls;
+$foreignLinksFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $foreignLinksFailure = $failure;
+}
+remove_filter('rewrite_rules_array', [$foreignLinks, 'rewrite_rules'], 10);
+add_filter('rewrite_rules_array', [$wooServices['polylang_links'], 'rewrite_rules'], 10, 1);
+duo_check(
+    $foreignLinksFailure instanceof RuntimeException
+        && str_contains($foreignLinksFailure->getMessage(), "extended or substituted 'rewrite_rules_array'"),
+    'a same-class foreign Polylang links callback refuses before rewrite generation'
+);
+duo_check_same(
+    $flushesBeforeForeignLinks,
+    $GLOBALS['wp_rewrite']->flushCalls,
+    'the substituted Polylang links callback performs no native mutation'
+);
+
+$missingType = $wooServices['polylang_types'][0];
+remove_filter($missingType . '_rewrite_rules', [$wooServices['polylang_links'], 'rewrite_rules'], 10);
+$flushesBeforeMissingType = $GLOBALS['wp_rewrite']->flushCalls;
+$missingTypeFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $missingTypeFailure = $failure;
+}
+add_filter($missingType . '_rewrite_rules', [$wooServices['polylang_links'], 'rewrite_rules'], 10, 1);
+duo_check(
+    $missingTypeFailure instanceof RuntimeException
+        && str_contains($missingTypeFailure->getMessage(), "incomplete '$missingType" . "_rewrite_rules'"),
+    'a missing target-derived Polylang hook refuses before rewrite generation'
+);
+duo_check_same(
+    $flushesBeforeMissingType,
+    $GLOBALS['wp_rewrite']->flushCalls,
+    'the incomplete dynamic hook roster performs no native mutation'
+);
+
+$foreignYoast = (new ReflectionClass(Yoast_Dynamic_Rewrites::class))->newInstanceWithoutConstructor();
+$foreignYoast->wp_rewrite = $GLOBALS['wp_rewrite'];
+remove_filter('option_rewrite_rules', [$wooServices['yoast'], 'filter_rewrite_rules_option'], 10);
+add_filter('option_rewrite_rules', [$foreignYoast, 'filter_rewrite_rules_option'], 10, 1);
+$flushesBeforeForeignYoast = $GLOBALS['wp_rewrite']->flushCalls;
+$foreignYoastFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $foreignYoastFailure = $failure;
+}
+remove_filter('option_rewrite_rules', [$foreignYoast, 'filter_rewrite_rules_option'], 10);
+add_filter('option_rewrite_rules', [$wooServices['yoast'], 'filter_rewrite_rules_option'], 10, 1);
+duo_check(
+    $foreignYoastFailure instanceof RuntimeException
+        && str_contains($foreignYoastFailure->getMessage(), 'substituted Yoast rewrite services'),
+    'a same-class foreign Yoast option callback refuses before rewrite generation'
+);
+duo_check_same(
+    $flushesBeforeForeignYoast,
+    $GLOBALS['wp_rewrite']->flushCalls,
+    'the substituted Yoast callback performs no native mutation'
+);
+
+$foreignTecRewrite = (new ReflectionClass(Tribe__Events__Rewrite::class))->newInstanceWithoutConstructor();
+remove_filter('generate_rewrite_rules', [$GLOBALS['tec_readiness_events_rewrite'], 'filter_generate'], 10);
+add_filter('generate_rewrite_rules', [$foreignTecRewrite, 'filter_generate'], 10, 1);
+$flushesBeforeForeignTec = $GLOBALS['wp_rewrite']->flushCalls;
+$foreignTecFailure = null;
+try {
+    $nativeRewriteChild->invoke(null);
+} catch (Throwable $failure) {
+    $foreignTecFailure = $failure;
+}
+remove_filter('generate_rewrite_rules', [$foreignTecRewrite, 'filter_generate'], 10);
+add_filter('generate_rewrite_rules', [$GLOBALS['tec_readiness_events_rewrite'], 'filter_generate'], 10, 1);
+duo_check(
+    $foreignTecFailure instanceof RuntimeException
+        && str_contains($foreignTecFailure->getMessage(), 'substituted plugin rewrite service'),
+    'a same-class foreign TEC rewrite singleton callback refuses before generation'
+);
+duo_check_same(
+    $flushesBeforeForeignTec,
+    $GLOBALS['wp_rewrite']->flushCalls,
+    'the substituted TEC rewrite singleton performs no native mutation'
+);
+duo_check_same(
+    true,
+    $nativeRewriteChild->invoke(null)['verified'] ?? null,
+    'restoring every exact co-install rewrite callback permits a same-process retry'
 );
 $wooMarkerNames = [
     'tribe_last_generate_rewrite_rules',
@@ -7067,25 +7822,21 @@ $trackingRetry = $nativeRewriteChild->invoke(null);
 duo_check_same(true, $trackingRetry['verified'] ?? null, 'removing request-conditional tracking permits retry');
 
 $canonicalWooContainer = $wooServices['container'];
-$driftWooContainer = static function () use ($wooServices): void {
-    $GLOBALS['wc_container'] = new \Automattic\WooCommerce\Container([
-        get_class($wooServices['features']) => $wooServices['features'],
-        get_class($wooServices['synchronizer']) => $wooServices['synchronizer'],
-        get_class($wooServices['custom_orders']) => $wooServices['custom_orders'],
-    ]);
-};
-add_action('generate_rewrite_rules', $driftWooContainer, 20, 1);
+$GLOBALS['tec_readiness_rewrite_drift_woo_container'] = new \Automattic\WooCommerce\Container([
+    get_class($wooServices['features']) => $wooServices['features'],
+    get_class($wooServices['synchronizer']) => $wooServices['synchronizer'],
+    get_class($wooServices['custom_orders']) => $wooServices['custom_orders'],
+]);
 $wooDriftFailure = null;
 try {
     $nativeRewriteChild->invoke(null);
 } catch (Throwable $failure) {
     $wooDriftFailure = $failure;
 }
-remove_action('generate_rewrite_rules', $driftWooContainer, 20);
 $GLOBALS['wc_container'] = $canonicalWooContainer;
 duo_check(
     $wooDriftFailure instanceof RuntimeException
-        && str_contains($wooDriftFailure->getMessage(), 'could not restore The Events Calendar local runtime'),
+        && str_contains($wooDriftFailure->getMessage(), 'could not restore the proven shipped-plugin runtime'),
     'Woo container drift after prepare refuses the post-effect receipt during exact restoration'
 );
 $wooDriftRetry = $nativeRewriteChild->invoke(null);

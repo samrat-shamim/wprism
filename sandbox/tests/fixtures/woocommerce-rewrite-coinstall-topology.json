@@ -65,6 +65,21 @@
       "sha256": "5cadce6a89e87278bdd021d8f049d9c4e511acecc6c6366808740f04027d2dc0"
     },
     {
+      "plugin": "polylang",
+      "path": "src/links-permalinks.php",
+      "sha256": "cc15a8ffa92ffb045cd5c5ef350688c7b2e36c6b43ceb9c68bdf6f8c5ed68f98"
+    },
+    {
+      "plugin": "polylang",
+      "path": "src/base.php",
+      "sha256": "23c6fad9a329966eb841ac86f468f347c4bf9cc4bb382e2f9a777c1b2f450762"
+    },
+    {
+      "plugin": "polylang",
+      "path": "src/api.php",
+      "sha256": "4ff84b4c80783cefaa497009812b492d816ad6be8f5f5c79613f18906a462793"
+    },
+    {
       "plugin": "the-events-calendar",
       "path": "common/src/Tribe/Cache_Listener.php",
       "sha256": "14a63e60db2f047b7dd62fa708d464b170d87485227cc63583c989a45fcb248b"
@@ -86,6 +101,16 @@
     },
     {
       "plugin": "the-events-calendar",
+      "path": "src/Tribe/Views/V2/Kitchen_Sink.php",
+      "sha256": "9f26d8aed55135352eb89107b5851517a6955b761831db264275e325505e578f"
+    },
+    {
+      "plugin": "the-events-calendar",
+      "path": "src/Tribe/Views/V2/Service_Provider.php",
+      "sha256": "29e613ac58ae57ece7206f9db697749c41a5370d491088f5833a45d8f0f593b1"
+    },
+    {
+      "plugin": "the-events-calendar",
       "path": "common/src/Common/Integrations/Harbor/PUE.php",
       "sha256": "abe0ef81332c52aff2983b8f78700169dbcfbeb663497af84e681be245629988"
     },
@@ -93,6 +118,31 @@
       "plugin": "the-events-calendar",
       "path": "common/src/Tribe/Rewrite.php",
       "sha256": "0e198faca151aeca66680e916a038eab5c264f7d0ee6472d8f07d1845d0a7b9a"
+    },
+    {
+      "plugin": "the-events-calendar",
+      "path": "common/src/Tribe/Deprecation.php",
+      "sha256": "71050d6b3644f5570df03b4f9c1584c4d8ba08775e958f9fb8bb62f0a3bf8d2b"
+    },
+    {
+      "plugin": "the-events-calendar",
+      "path": "src/Tribe/Rewrite.php",
+      "sha256": "2f447a4120a349d5f596c834192b17a5b911c6c94e8a62cfaee58af89cc86aab"
+    },
+    {
+      "plugin": "the-events-calendar",
+      "path": "src/Tribe/Views/V2/Manager.php",
+      "sha256": "c7138bf36ebd78bf2c749ed6b6548255064710559e31a9716f4fc8af86dde353"
+    },
+    {
+      "plugin": "the-events-calendar",
+      "path": "src/Tribe/Views/V2/View_Register.php",
+      "sha256": "1a6d490cb4627fb282fd8fb1c9312c06308af87c3fa99be268b50db53cf3ac9f"
+    },
+    {
+      "plugin": "the-events-calendar",
+      "path": "src/Events/QR/Routes.php",
+      "sha256": "13970bae6bc23da3db24a44c14194568c7baf25f46b6b62166972c63b3e89acf"
     },
     {
       "plugin": "the-events-calendar",
@@ -117,8 +167,8 @@
     {"hook": "updated_option", "callback": "Tribe__Cache_Listener::update_last_save_post", "priority": 10, "accepted_args": 3},
     {"hook": "updated_option", "callback": "Tribe__Events__Aggregator::action_purge_transients", "priority": 10, "accepted_args": 1},
     {"hook": "updated_option", "callback": "Tribe\\Events\\Views\\V2\\Hooks::action_save_wplang", "priority": 10, "accepted_args": 3},
-    {"hook": "generate_rewrite_rules", "callback": "Tribe__Rewrite::filter_generate", "priority": 10, "accepted_args": 1},
-    {"hook": "rewrite_rules_array", "callback": "Tribe__Rewrite::filter_rewrite_rules_array", "priority": 25, "accepted_args": 1}
+    {"hook": "generate_rewrite_rules", "callback": "Tribe__Events__Rewrite::filter_generate", "priority": 10, "accepted_args": 1},
+    {"hook": "rewrite_rules_array", "callback": "Tribe__Events__Rewrite::filter_rewrite_rules_array", "priority": 25, "accepted_args": 1}
   ],
   "marker_option_topology": {
     "updated_option": [
@@ -176,6 +226,20 @@
       "accepted_args": 4,
       "arguments": ["bool", "array<string,string>", "string", "string|false"]
     }
+  ],
+  "tec_exact_empty_inner_hooks": [
+    "tribe_cache_expiration",
+    "tribe_events_category_slug",
+    "tribe_events_tag_slug",
+    "tribe_events_rewrite_i18n_domains",
+    "tribe_events_rewrite_base_slugs",
+    "tribe_events_rewrite_i18n_languages",
+    "tribe_events_rewrite_i18n_slugs_raw",
+    "tribe_events_rewrite_i18n_slugs",
+    "tec_events_qr_route_base",
+    "tec_events_qr_route_prefix",
+    "deprecated_function_run",
+    "deprecated_function_trigger_error"
   ],
   "durable_effects": [
     "rewrite_rules",

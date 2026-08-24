@@ -1,5 +1,5 @@
 {
-    "class_count": 369,
+    "class_count": 370,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -20155,6 +20155,51 @@
                             "variadic": false
                         }
                     ],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\NativeRewriteEffects": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "expected_effective_rules": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "stored",
+                            "type": "mixed",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "mixed",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "prepare": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "Duo\\NativeRewriteEffects",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "restore": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
                     "return_type": "void",
                     "static": false,
                     "visibility": "public"

@@ -526,7 +526,7 @@ final class NativeActions {
             );
         }
 
-        $tecEffects = NativeRewriteEffects::prepare();
+        $rewriteEffects = NativeRewriteEffects::prepare();
         $result = null;
         $primary = null;
         try {
@@ -546,7 +546,8 @@ final class NativeActions {
                     . 'recovery_required'
                 );
             }
-            $after = self::rewrite_state(true, $generatedRules);
+            $expectedEffectiveRules = $rewriteEffects->expected_effective_rules($generatedRules);
+            $after = self::rewrite_state(true, $generatedRules, $expectedEffectiveRules);
             $desired = $structure['present'] ? $structure['value'] : '';
             if (!hash_equals(hash('sha256', $desired), $after['permalink_hash'])) {
                 throw new \RuntimeException(
@@ -565,19 +566,17 @@ final class NativeActions {
             $primary = $failure;
         }
         $restoreFailure = null;
-        if ($tecEffects !== null) {
-            try {
-                $tecEffects->restore();
-            } catch (\Throwable $failure) {
-                $restoreFailure = $failure;
-            }
+        try {
+            $rewriteEffects->restore();
+        } catch (\Throwable $failure) {
+            $restoreFailure = $failure;
         }
         if ($restoreFailure !== null) {
             $primaryFingerprint = $primary === null
                 ? 'none'
                 : get_class($primary) . ':' . substr(hash('sha256', $primary->getMessage()), 0, 16);
             throw new \RuntimeException(
-                'duo: native rewrite could not restore The Events Calendar local runtime; primary='
+                'duo: native rewrite could not restore the proven shipped-plugin runtime; primary='
                 . $primaryFingerprint . '; restore=' . get_class($restoreFailure) . ':'
                 . substr(hash('sha256', $restoreFailure->getMessage()), 0, 16)
                 . '; recovery_required',
@@ -661,7 +660,11 @@ final class NativeActions {
      *
      * @return array{permalink_present:bool,permalink_hash:string,runtime_permalink_matches:bool,rules_present:bool,rules_type:string,rules_count:?int,rules_hash:?string,runtime_rules_type:string,runtime_rules_count:?int,runtime_rules_hash:?string}
      */
-    private static function rewrite_state(bool $strict, $expectedRules = null): array {
+    private static function rewrite_state(
+        bool $strict,
+        $expectedRules = null,
+        $expectedEffectiveRules = null
+    ): array {
         global $wp_rewrite;
         $structure = self::permalink_structure_state();
         $rules = self::raw_option_state('rewrite_rules');
@@ -686,8 +689,9 @@ final class NativeActions {
                     . 'postcondition; recovery_required'
                 );
             }
-            if ($expectedRules !== null
-                && !self::same_rewrite_rules_value($expectedRules, $runtimeRules)) {
+            $effectiveExpectation = $expectedEffectiveRules ?? $expectedRules;
+            if ($effectiveExpectation !== null
+                && !self::same_rewrite_rules_value($effectiveExpectation, $runtimeRules)) {
                 throw new \RuntimeException(
                     "duo: native action 'rewrite.flush' generated rewrite rules disagree with the loaded "
                     . 'effective rules; recovery_required'
