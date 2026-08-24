@@ -24,9 +24,10 @@ require_once __DIR__ . '/../Kernel/CommandRefusal.php';
  * series map exists because a bare range claims every minor line inside it,
  * which is exactly the "unproven behavior hidden behind a broad
  * compatibility claim" DESIGN.md's vision invariant forbids: WordPress is not
- * semver at all, and PHP's own range now spans three feature releases
- * (8.3, 8.4, 8.5), each of which is its own migration with its own
- * deprecations — one exercised 8.3 runtime says nothing about 8.5. Patch-level
+ * semver at all, and PHP's own range currently admits two feature releases
+ * (8.3 and 8.4), each of which is its own migration with its own deprecations
+ * — one exercised 8.3 runtime says nothing about 8.4, and the exclusive 8.5
+ * boundary admits no 8.5 runtime. Patch-level
  * generalization INSIDE a proven series is the narrower claim both axes are
  * actually making: one measured runtime per line.
  *
@@ -45,25 +46,39 @@ require_once __DIR__ . '/../Kernel/CommandRefusal.php';
  * deliberate, and the axis note in manifests/capabilities/platform.json says
  * so where a reviewer will see it.
  *
- * The filesystem axis is a process-capability profile, not an OS-name proxy
+ * The filesystem axis is a filesystem-capability profile, not an OS-name proxy
  * for a particular mount. It admits only the Linux and Darwin families that
  * exercised the shipped code and requires the exact functions the durable
  * transaction uses. The transaction still proves its actual roots and
  * same-directory operations before authored mutation; this early gate stops
  * a process that cannot possibly provide those semantics from reaching them.
+ * The separate process axis closes over every primitive used by the bounded
+ * child lifecycle and the exact executable shell it replaces itself with.
+ * Runtime descriptor, deadline, exit, and process-group cleanup witnesses
+ * remain the transport's responsibility; this gate proves the prerequisites
+ * exist before policy load can reach any caller.
  */
 final class PlatformCompatibility {
     private const FILESYSTEM_PROFILE = 'local-posix-atomic-rename-flock-fsync/v1';
     private const FILESYSTEM_FUNCTIONS = ['chmod', 'flock', 'fsync', 'lstat', 'rename'];
     private const PROCESS_PROFILE = 'local-posix-process-group-exec/v1';
-    private const PROCESS_FUNCTIONS = ['pcntl_exec', 'posix_kill', 'posix_setsid', 'proc_close', 'proc_open'];
+    private const PROCESS_FUNCTIONS = [
+        'pcntl_exec',
+        'posix_kill',
+        'posix_setsid',
+        'proc_close',
+        'proc_get_status',
+        'proc_open',
+        'proc_terminate',
+    ];
+    private const PROCESS_SHELL = '/bin/sh';
 
     /**
      * @return array{
      *   php:string,
      *   database:array{engine:string,version:string},
      *   filesystem:array{directory_separator:string,functions:array<string,bool>,os_family:string},
-     *   process:array{functions:array<string,bool>,os_family:string},
+     *   process:array{functions:array<string,bool>,os_family:string,shell:array{executable:bool,path:string}},
      *   wordpress:string,
      *   site_mode:string
      * }
@@ -116,6 +131,10 @@ final class PlatformCompatibility {
             'process' => [
                 'functions' => $processFunctions,
                 'os_family' => PHP_OS_FAMILY,
+                'shell' => [
+                    'executable' => function_exists('is_executable') && @is_executable(self::PROCESS_SHELL),
+                    'path' => self::PROCESS_SHELL,
+                ],
             ],
             'wordpress' => $wordpress,
             'site_mode' => function_exists('is_multisite') && is_multisite() ? 'multisite' : 'single-site',
@@ -128,7 +147,7 @@ final class PlatformCompatibility {
      *   php:string,
      *   database:array{engine:string,version:string},
      *   filesystem:array{directory_separator:string,functions:array<string,bool>,os_family:string},
-     *   process:array{functions:array<string,bool>,os_family:string},
+     *   process:array{functions:array<string,bool>,os_family:string,shell:array{executable:bool,path:string}},
      *   wordpress:string,
      *   site_mode:string
      * } $facts
@@ -269,6 +288,24 @@ final class PlatformCompatibility {
                 'the PHP process lacks a function required by bounded WP-CLI process-group execution'
             );
         }
+        if (!hash_equals($processBoundary['shell'], $process['shell']['path'])) {
+            $diagnostics[] = self::diagnostic(
+                'platform_process_shell_unsupported',
+                'process.shell.path',
+                self::bounded_bytes($process['shell']['path']),
+                self::bounded_bytes($processBoundary['shell']),
+                'the child transport shell path differs from the exercised process-group profile'
+            );
+        }
+        if ($process['shell']['executable'] !== true) {
+            $diagnostics[] = self::diagnostic(
+                'platform_process_shell_unavailable',
+                'process.shell.executable',
+                'false',
+                'executable ' . $processBoundary['shell'],
+                'the exact shell required by bounded WP-CLI process-group execution is unavailable'
+            );
+        }
 
         $wordpress = (string) $facts['wordpress'];
         $wordpressBoundary = $compatibility['wordpress'];
@@ -337,12 +374,15 @@ final class PlatformCompatibility {
         $database = $facts['database'] ?? null;
         $filesystem = $facts['filesystem'] ?? null;
         $process = $facts['process'] ?? null;
+        $processShell = is_array($process) ? ($process['shell'] ?? null) : null;
         $filesystemFunctions = is_array($filesystem) ? ($filesystem['functions'] ?? null) : null;
         $processFunctions = is_array($process) ? ($process['functions'] ?? null) : null;
         $functionKeys = is_array($filesystemFunctions) ? array_keys($filesystemFunctions) : [];
         sort($functionKeys, SORT_STRING);
         $processFunctionKeys = is_array($processFunctions) ? array_keys($processFunctions) : [];
         sort($processFunctionKeys, SORT_STRING);
+        $processShellKeys = is_array($processShell) ? array_keys($processShell) : [];
+        sort($processShellKeys, SORT_STRING);
         if (!is_string($facts['php'] ?? null) || $facts['php'] === ''
             || !is_array($database)
             || !in_array($database['engine'] ?? null, ['MariaDB', 'MySQL'], true)
@@ -362,6 +402,12 @@ final class PlatformCompatibility {
             || strlen($process['os_family']) > 32
             || !is_array($processFunctions) || array_is_list($processFunctions)
             || $processFunctionKeys !== self::PROCESS_FUNCTIONS
+            || !is_array($processShell) || array_is_list($processShell)
+            || $processShellKeys !== ['executable', 'path']
+            || !is_bool($processShell['executable'] ?? null)
+            || !is_string($processShell['path'] ?? null)
+            || $processShell['path'] === ''
+            || strlen($processShell['path']) > 4096
             || !is_string($facts['wordpress'] ?? null) || $facts['wordpress'] === ''
             || !in_array($facts['site_mode'] ?? null, ['single-site', 'multisite'], true)) {
             throw self::probe_refusal('platform');
@@ -402,7 +448,7 @@ final class PlatformCompatibility {
     private static function valid_process_axis(array $process): bool {
         $keys = array_keys($process);
         sort($keys, SORT_STRING);
-        return $keys === ['note', 'os_families', 'profile', 'required_functions']
+        return $keys === ['note', 'os_families', 'profile', 'required_functions', 'shell']
             && ($process['profile'] ?? null) === self::PROCESS_PROFILE
             && is_string($process['note'] ?? null)
             && trim($process['note']) !== ''
@@ -411,7 +457,8 @@ final class PlatformCompatibility {
             && $process['os_families'] === ['Darwin', 'Linux']
             && is_array($process['required_functions'] ?? null)
             && array_is_list($process['required_functions'])
-            && $process['required_functions'] === self::PROCESS_FUNCTIONS;
+            && $process['required_functions'] === self::PROCESS_FUNCTIONS
+            && ($process['shell'] ?? null) === self::PROCESS_SHELL;
     }
 
     /**

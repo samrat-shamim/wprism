@@ -1,5 +1,5 @@
 {
-  "_comment": "DUO-3222/DUO-3227: the ONE project-level WordPress/PHP/database/filesystem/process compatibility statement. WordPress and PHP both use a min-inclusive/max-exclusive range narrowed to the exercised series named in verified, so a version inside the range whose MAJOR.MINOR was never exercised is still refused rather than claimed. The database axis is per-engine instead: engines maps each claimed engine to its own range, because MariaDB 11.x and MySQL 8.4.x are different lines of different products and one bare range could only describe one of them; an engine the map does not name is refused, not compared against another engine's numbers. The filesystem axis names the exact local POSIX process capabilities required by durable publication; the process axis names the exact POSIX functions required by bounded WP-CLI child process-group execution; actual mutation roots and child cleanup are still proved by their owning transactions. The agent pre-policy gate and duo doctor block outside these values, and tools/capability-doc.php cross-checks this file against manifests/capabilities/platform.json so the two copies cannot drift -- never independently-maintained values.",
+  "_comment": "DUO-3222/DUO-3227: the ONE project-level WordPress/PHP/database/filesystem/process compatibility statement. WordPress and PHP both use a min-inclusive/max-exclusive range narrowed to the exercised series named in verified, so a version inside the range whose MAJOR.MINOR was never exercised is still refused rather than claimed. The database axis is per-engine instead: engines maps each claimed engine to its own range, because MariaDB 11.x and MySQL 8.4.x are different lines of different products and one bare range could only describe one of them; an engine the map does not name is refused, not compared against another engine's numbers. The filesystem axis names the exact local POSIX process capabilities required by durable publication; the process axis names every process primitive and the exact executable shell required by bounded WP-CLI child process-group execution; actual mutation roots and child cleanup are still proved by their owning transactions. The agent pre-policy gate and duo doctor block outside these values, and tools/capability-doc.php cross-checks this file against manifests/capabilities/platform.json so the two copies cannot drift -- never independently-maintained values.",
   "php": {
     "min": "8.3.0",
     "max": "8.5.0",
@@ -49,9 +49,12 @@
       "posix_kill",
       "posix_setsid",
       "proc_close",
-      "proc_open"
+      "proc_get_status",
+      "proc_open",
+      "proc_terminate"
     ],
-    "note": "The bounded WP-CLI child transport requires a local POSIX process-group profile: Darwin and Linux with process creation, replacement, session creation, and process-group signalling. A missing function or another OS family refuses before policy load; the child transport still validates its own descriptors, timeout, exit status, and cleanup at runtime."
+    "shell": "/bin/sh",
+    "note": "The bounded WP-CLI child transport requires a local POSIX process-group profile: Darwin and Linux with process creation, status and termination control, replacement, session creation, process-group signalling, and executable /bin/sh. A missing function, unavailable or different shell, or another OS family refuses before policy load; the child transport still validates its own descriptors, timeout, exit status, and cleanup at runtime."
   },
   "wordpress": {
     "min": "6.9.0",

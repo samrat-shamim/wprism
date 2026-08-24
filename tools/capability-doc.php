@@ -207,7 +207,7 @@ function capdoc_platform(string $repo): array {
     foreach (['database' => ['engines', 'note'],
               'filesystem' => ['directory_separator', 'note', 'os_families', 'profile', 'required_functions'],
               'php' => ['max', 'min', 'note', 'verified'],
-              'process' => ['note', 'os_families', 'profile', 'required_functions'],
+              'process' => ['note', 'os_families', 'profile', 'required_functions', 'shell'],
               'wordpress' => ['last_verified', 'max', 'min', 'note', 'verified']] as $axis => $axisKeys) {
         $found = array_keys($platform['compatibility'][$axis] ?? []);
         sort($found, SORT_STRING);
@@ -398,7 +398,8 @@ function capdoc_filesystem_label(array $filesystem): string {
 function capdoc_process_label(array $process): string {
     return (string) $process['profile']
         . ' (OS ' . implode(', ', array_map('strval', $process['os_families']))
-        . '; functions ' . implode(', ', array_map('strval', $process['required_functions'])) . ')';
+        . '; functions ' . implode(', ', array_map('strval', $process['required_functions']))
+        . '; executable shell ' . (string) $process['shell'] . ')';
 }
 
 /**

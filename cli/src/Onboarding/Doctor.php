@@ -13,7 +13,7 @@ require_once __DIR__ . '/../Transport/Transport.php';
  * downstream means anything through a broken transport) and `wp core
  * is-installed` (no WordPress-side fact is readable without it). The other
  * two are compositions. SITE_FACTS answers agent presence,
-     * DISALLOW_FILE_MODS, the site topology and the PHP/database/filesystem/process/WordPress facts
+ * DISALLOW_FILE_MODS, the site topology and the PHP/database/filesystem/process/WordPress facts
  * in ONE `wp eval`:
  * those three were never gates on each other, only siblings under the same
  * `if ($installed)`. One raw script answers the repo-path row and the
@@ -72,7 +72,10 @@ final class Doctor {
         . 'try { $duo["process"] = ["os_family" => PHP_OS_FAMILY, "functions" => ['
         . '"pcntl_exec" => function_exists("pcntl_exec"), "posix_kill" => function_exists("posix_kill"), '
         . '"posix_setsid" => function_exists("posix_setsid"), "proc_close" => function_exists("proc_close"), '
-        . '"proc_open" => function_exists("proc_open")]]; } catch (\Throwable $e) {} '
+        . '"proc_get_status" => function_exists("proc_get_status"), "proc_open" => function_exists("proc_open"), '
+        . '"proc_terminate" => function_exists("proc_terminate")], "shell" => ['
+        . '"executable" => function_exists("is_executable") && @is_executable("/bin/sh"), '
+        . '"path" => "/bin/sh"]]; } catch (\Throwable $e) {} '
         . 'try { $duo["wp"] = (string) get_bloginfo("version"); } catch (\Throwable $e) {} '
         // Its own try/catch like every sibling above, and function_exists()
         // rather than a bare call: this snippet also runs under the isolated
@@ -350,7 +353,7 @@ final class Doctor {
             if ($baseline === null) {
                 $checks[] = self::check(
                     'compatibility baseline (docs/compatibility-baseline.json)', false,
-                    'baseline file missing or malformed — cannot verify PHP/database compatibility'
+                    'baseline file missing or malformed — cannot verify platform compatibility'
                 );
             } else {
                 // DUO-3511: the same refusal the pipe-separated read produced,
@@ -438,64 +441,75 @@ final class Doctor {
                             . ($verifiedSeries === [] ? '?' : implode(', ', $verifiedSeries))
                             . ' — docs/compatibility-baseline.json).'
                     );
+                }
 
-                    $filesystem = $baseline['filesystem'];
-                    $filesystemFacts = self::filesystem_facts($facts);
-                    if ($filesystemFacts === null) {
-                        $checks[] = self::check(
-                            'filesystem process profile (unknown)',
-                            false,
-                            'could not read the OS/separator/function facts required by the durable filesystem profile'
-                        );
-                    } else {
-                        [$osFamily, $directorySeparator, $functions] = $filesystemFacts;
-                        $missing = [];
-                        foreach ($filesystem['required_functions'] as $function) {
-                            if (($functions[$function] ?? false) !== true) {
-                                $missing[] = $function;
-                            }
+                // Unlike the composed version/database/core tuple above,
+                // these profiles each carry their own closed fact object.
+                // A database probe failure must not hide whether process
+                // prerequisites are independently safe or unsafe.
+                $filesystem = $baseline['filesystem'];
+                $filesystemFacts = self::filesystem_facts($facts);
+                if ($filesystemFacts === null) {
+                    $checks[] = self::check(
+                        'filesystem process profile (unknown)',
+                        false,
+                        'could not read the OS/separator/function facts required by the durable filesystem profile'
+                    );
+                } else {
+                    [$osFamily, $directorySeparator, $functions] = $filesystemFacts;
+                    $missing = [];
+                    foreach ($filesystem['required_functions'] as $function) {
+                        if (($functions[$function] ?? false) !== true) {
+                            $missing[] = $function;
                         }
-                        $filesystemOk = in_array($osFamily, $filesystem['os_families'], true)
-                            && hash_equals($filesystem['directory_separator'], $directorySeparator)
-                            && $missing === [];
-                        $checks[] = self::check(
-                            "filesystem process profile ($osFamily)",
-                            $filesystemOk,
-                            $filesystemOk ? '' : 'requires OS '
-                                . implode(', ', $filesystem['os_families'])
-                                . ', separator ' . json_encode($filesystem['directory_separator'])
-                                . ', and functions ' . implode(', ', $filesystem['required_functions'])
-                                . ($missing === [] ? '' : '; missing ' . implode(', ', $missing))
-                                . ' — docs/compatibility-baseline.json. Actual mutation roots are checked again before writes.'
-                        );
                     }
+                    $filesystemOk = in_array($osFamily, $filesystem['os_families'], true)
+                        && hash_equals($filesystem['directory_separator'], $directorySeparator)
+                        && $missing === [];
+                    $checks[] = self::check(
+                        "filesystem process profile ($osFamily)",
+                        $filesystemOk,
+                        $filesystemOk ? '' : 'requires OS '
+                            . implode(', ', $filesystem['os_families'])
+                            . ', separator ' . json_encode($filesystem['directory_separator'])
+                            . ', and functions ' . implode(', ', $filesystem['required_functions'])
+                            . ($missing === [] ? '' : '; missing ' . implode(', ', $missing))
+                            . ' — docs/compatibility-baseline.json. Actual mutation roots are checked again before writes.'
+                    );
+                }
 
-                    $process = $baseline['process'];
-                    $processFacts = self::process_facts($facts);
-                    if ($processFacts === null) {
-                        $checks[] = self::check(
-                            'process group profile (unknown)',
-                            false,
-                            'could not read the OS/function facts required by the bounded WP-CLI process-group profile'
-                        );
-                    } else {
-                        [$osFamily, $functions] = $processFacts;
-                        $missing = [];
-                        foreach ($process['required_functions'] as $function) {
-                            if (($functions[$function] ?? false) !== true) {
-                                $missing[] = $function;
-                            }
+                $process = $baseline['process'];
+                $processFacts = self::process_facts($facts);
+                if ($processFacts === null) {
+                    $checks[] = self::check(
+                        'process group profile (unknown)',
+                        false,
+                        'could not read the OS/function/shell facts required by the bounded WP-CLI process-group profile'
+                    );
+                } else {
+                    [$osFamily, $functions, $shellPath, $shellExecutable] = $processFacts;
+                    $missing = [];
+                    foreach ($process['required_functions'] as $function) {
+                        if (($functions[$function] ?? false) !== true) {
+                            $missing[] = $function;
                         }
-                        $processOk = in_array($osFamily, $process['os_families'], true) && $missing === [];
-                        $checks[] = self::check(
-                            "process group profile ($osFamily)",
-                            $processOk,
-                            $processOk ? '' : 'requires OS ' . implode(', ', $process['os_families'])
-                                . ' and functions ' . implode(', ', $process['required_functions'])
-                                . ($missing === [] ? '' : '; missing ' . implode(', ', $missing))
-                                . ' — docs/compatibility-baseline.json. The child transport still validates its own cleanup.'
-                        );
                     }
+                    $processOk = in_array($osFamily, $process['os_families'], true)
+                        && $missing === []
+                        && hash_equals($process['shell'], $shellPath)
+                        && $shellExecutable;
+                    $checks[] = self::check(
+                        "process group profile ($osFamily)",
+                        $processOk,
+                        $processOk ? '' : 'requires OS ' . implode(', ', $process['os_families'])
+                            . ' and functions ' . implode(', ', $process['required_functions'])
+                            . ($missing === [] ? '' : '; missing ' . implode(', ', $missing))
+                            . ', plus executable shell ' . $process['shell']
+                            . ($shellPath === $process['shell'] ? '' : '; observed shell '
+                                . json_encode($shellPath, JSON_UNESCAPED_SLASHES))
+                            . ($shellExecutable ? '' : '; shell is not executable')
+                            . ' — docs/compatibility-baseline.json. The child transport still validates its own cleanup.'
+                    );
                 }
             }
         } else {
@@ -642,19 +656,34 @@ final class Doctor {
         return [$filesystem['os_family'], $filesystem['directory_separator'], $functions];
     }
 
-    /** @return ?array{string,array<string,bool>} */
+    /** @return ?array{string,array<string,bool>,string,bool} */
     private static function process_facts(?array $facts): ?array {
         $process = is_array($facts) ? ($facts['process'] ?? null) : null;
         $functions = is_array($process) ? ($process['functions'] ?? null) : null;
+        $shell = is_array($process) ? ($process['shell'] ?? null) : null;
         if (!is_array($process)
             || !is_string($process['os_family'] ?? null)
             || $process['os_family'] === ''
-            || !is_array($functions)) {
+            || !is_array($functions)
+            || !is_array($shell)
+            || !is_string($shell['path'] ?? null)
+            || $shell['path'] === ''
+            || !is_bool($shell['executable'] ?? null)) {
             return null;
         }
         $keys = array_keys($functions);
         sort($keys, SORT_STRING);
-        if ($keys !== ['pcntl_exec', 'posix_kill', 'posix_setsid', 'proc_close', 'proc_open']) {
+        $shellKeys = array_keys($shell);
+        sort($shellKeys, SORT_STRING);
+        if ($keys !== [
+            'pcntl_exec',
+            'posix_kill',
+            'posix_setsid',
+            'proc_close',
+            'proc_get_status',
+            'proc_open',
+            'proc_terminate',
+        ] || $shellKeys !== ['executable', 'path']) {
             return null;
         }
         foreach ($functions as $available) {
@@ -662,7 +691,7 @@ final class Doctor {
                 return null;
             }
         }
-        return [$process['os_family'], $functions];
+        return [$process['os_family'], $functions, $shell['path'], $shell['executable']];
     }
 
     /**
@@ -676,7 +705,7 @@ final class Doctor {
      * runtime instead of the file; a missing `database.engines` would refuse
      * every engine with the same misdirection.
      *
-     * @return ?array{php:array{min:string,max:string,verified:array<string,string>}, database:array{engines:array<string,array{min:string,max:string}>}, filesystem:array{directory_separator:string,os_families:list<string>,profile:string,required_functions:list<string>}, process:array{os_families:list<string>,profile:string,required_functions:list<string>}, wordpress:array{min:string,max:string,verified:array<string,string>,last_verified:string}}
+     * @return ?array{php:array{min:string,max:string,verified:array<string,string>}, database:array{engines:array<string,array{min:string,max:string}>}, filesystem:array{directory_separator:string,os_families:list<string>,profile:string,required_functions:list<string>}, process:array{os_families:list<string>,profile:string,required_functions:list<string>,shell:string}, wordpress:array{min:string,max:string,verified:array<string,string>,last_verified:string}}
      */
     private static function read_baseline(): ?array {
         $file = dirname(__DIR__, 3) . '/docs/compatibility-baseline.json';
@@ -696,7 +725,11 @@ final class Doctor {
             || !is_array($data['process'] ?? null)
             || ($data['process']['profile'] ?? null) !== 'local-posix-process-group-exec/v1'
             || ($data['process']['os_families'] ?? null) !== ['Darwin', 'Linux']
-            || ($data['process']['required_functions'] ?? null) !== ['pcntl_exec', 'posix_kill', 'posix_setsid', 'proc_close', 'proc_open']
+            || ($data['process']['required_functions'] ?? null) !== [
+                'pcntl_exec', 'posix_kill', 'posix_setsid', 'proc_close',
+                'proc_get_status', 'proc_open', 'proc_terminate',
+            ]
+            || ($data['process']['shell'] ?? null) !== '/bin/sh'
             || !isset($data['wordpress']['min'], $data['wordpress']['max'])
             || !is_array($data['wordpress']['verified'] ?? null) || $data['wordpress']['verified'] === []) {
             return null;

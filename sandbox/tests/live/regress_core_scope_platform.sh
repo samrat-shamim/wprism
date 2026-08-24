@@ -213,8 +213,9 @@ exercise_core() { # <wordpress-version> <web-image> <php-series> <cli-image>
       os_family:"Linux"
     } and
     .process == {
-      functions:{pcntl_exec:true,posix_kill:true,posix_setsid:true,proc_close:true,proc_open:true},
-      os_family:"Linux"
+      functions:{pcntl_exec:true,posix_kill:true,posix_setsid:true,proc_close:true,proc_get_status:true,proc_open:true,proc_terminate:true},
+      os_family:"Linux",
+      shell:{executable:true,path:"/bin/sh"}
     }
   ' <<<"$facts" >/dev/null || fail "claimed core $version on PHP $php_series reported unexpected platform facts (expected php exactly $php_proof): $facts"
 
@@ -358,7 +359,8 @@ jq -e '
     note:.platform.compatibility.process.note,
     os_families:["Darwin","Linux"],
     profile:"local-posix-process-group-exec/v1",
-    required_functions:["pcntl_exec","posix_kill","posix_setsid","proc_close","proc_open"]
+    required_functions:["pcntl_exec","posix_kill","posix_setsid","proc_close","proc_get_status","proc_open","proc_terminate"],
+    shell:"/bin/sh"
   })
 ' "$PLATFORM_FILE" >/dev/null \
   || fail 'shipped platform declaration is not a well-formed core/PHP/database/local-POSIX/process matrix'
