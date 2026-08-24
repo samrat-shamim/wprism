@@ -1685,11 +1685,20 @@ check(
     && $plain->adapter_sources()->provenance('woocommerce') === null,
     'without a site adapter source every pinned adapter is shipped and carries no synthesized provenance'
 );
-check(
-    $plain->capability_report(['operation' => 'promote'])['ready'] === true,
-    'the shipped, certified library remains fully ready — this issue added no new blocker to it'
-);
 $plainReport = $plain->capability_report(['operation' => 'promote']);
+$plainBlockers = $plainReport['blockers'] ?? null;
+check(
+    $plainReport['ready'] === false
+    && is_array($plainBlockers)
+    && count($plainBlockers) === 1
+    && ($plainBlockers[0]['name'] ?? null) === 'woocommerce'
+    && ($plainBlockers[0]['status'] ?? null) === 'blocked'
+    && ($plainBlockers[0]['code'] ?? null) === 'authored_state_not_certified'
+    && ($plainBlockers[0]['source'] ?? null) === 'shipped'
+    && ($plainBlockers[0]['trust_tier'] ?? null) === 'compatibility_shim'
+    && ($plainBlockers[0]['certification'] ?? null) === 'registry',
+    'the shipped library reports WooCommerce as its exact single experimental blocker until final evidence certifies it'
+);
 $plainRows = [];
 foreach ($plainReport['manifests'] ?? [] as $row) {
     if (is_array($row) && is_string($row['name'] ?? null)) {
