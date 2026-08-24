@@ -167,8 +167,13 @@ namespace {
         str_contains($matrix, 'wp_delete_user((int) $user_id, (int) $admin->ID)'),
         'the exact matrix removes retained conformance users before each PMPro boundary'
     );
+    // check_pmpro_content() itself moved to matrix.d/paid-memberships-pro.sh in
+    // WP-2.3's per-plugin split (sourced by name from certify_version_matrix.sh,
+    // see that driver's own header); the case body asserted just below, which
+    // did not move, still lives in the driver.
+    $pmproMatrixFile = (string) file_get_contents(__DIR__ . '/../../certify/matrix.d/paid-memberships-pro.sh');
     duo_check(
-        preg_match('/check_pmpro_content\(\) \{.*?wp_conf1\(\).*?wp_conf2\(\)/s', $matrix) === 1,
+        preg_match('/check_pmpro_content\(\) \{.*?wp_conf1\(\).*?wp_conf2\(\)/s', $pmproMatrixFile) === 1,
         'the exact matrix binds both PMPro conformance environments to its dedicated pair'
     );
     duo_check(
