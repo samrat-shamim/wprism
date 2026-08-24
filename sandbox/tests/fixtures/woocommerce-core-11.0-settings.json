@@ -69,7 +69,14 @@
     "src/Internal/ComingSoon/ComingSoonCacheInvalidator.php": "2122decc0e5ac2701acb778ef79cd6cfcbdc2c5408c107e9ccc5a4f20be3d59c",
     "src/Internal/ComingSoon/ComingSoonHelper.php": "10ba25e60f3fa2cbb55fc56f47bc2ef7ea424a7f77d3925f8faeafccac5309f7",
     "src/Internal/Features/FeaturesController.php": "c39f44ebd0928be1c3f3a5066422defa5623705dc44f440f4572595def5866b2",
+    "src/Internal/StockNotifications/Admin/NotificationsPage.php": "aba93820fd3748f4054888ba9f16f4ff306213790c25c7968bfb631388e6463f",
+    "src/Internal/StockNotifications/AsyncTasks/CycleStateService.php": "45e80f1de78a8dfb5004dd16f37b02532cfbd3d205df0539dfa261e1b7d6fb82",
+    "src/Internal/StockNotifications/Config.php": "403c632279efc01ab4c7fbf11463963947b64c17b0e90c84d50cf6a90a0f5dcf",
     "src/Internal/StockNotifications/DataRetentionController.php": "22873bc914fae710dc9f5464057a67bd784cb7c2986e122fd5b5cfeffc5e0e0f",
+    "src/Internal/StockNotifications/Emails/CustomerStockNotificationEmail.php": "5a073ac5040467d73d522e8c4ef86927541fa7a3c5ebebc3d356599da54e6192",
+    "src/Internal/StockNotifications/Emails/CustomerStockNotificationVerifiedEmail.php": "e5c562f4fc54b2ed62dadd631b953a7f36080f8db83e5db86e6e07eed029b6db",
+    "src/Internal/StockNotifications/Emails/CustomerStockNotificationVerifyEmail.php": "e6828bddbd43456a104bf1c1367ad980fd93183e5a3bd6aee2b43b1db32cf0bf",
+    "src/Internal/StockNotifications/Emails/EmailManager.php": "e0af8812884aafac662aaa06e8c363585af73440f57c5479ee10ddfcb710a463",
     "src/StoreApi/Utilities/LocalPickupUtils.php": "5c7057ed826e3aa79993f117d3b969ef7a6a78e57826e521f148bd451a86a81a"
   },
   "literal_ids": {
@@ -226,13 +233,14 @@
     "auto_fulfill_virtual": "authored",
     "current_theme_supports_woocommerce": "env",
     "pickup_location_pickup_locations": "authored",
+    "wc_customer_stock_notifications_admin_notice": "runtime",
     "woocommerce_bacs_accounts": "fail_closed_secret_record",
     "woocommerce_bacs_settings": "fail_closed_mixed_record",
     "woocommerce_category_archive_display": "authored",
     "woocommerce_cheque_settings": "fail_closed_native_record",
     "woocommerce_checkout_terms_and_conditions_checkbox_text": "authored",
     "woocommerce_cod_settings": "fail_closed_reference_record",
-    "woocommerce_coming_soon": "fail_closed_irreversible_side_effect",
+    "woocommerce_coming_soon": "env",
     "woocommerce_default_catalog_orderby": "authored",
     "woocommerce_enable_order_comments": "authored",
     "woocommerce_gateway_order": "authored",
@@ -245,15 +253,16 @@
     "woocommerce_graphql_opcache_enabled": "authored",
     "woocommerce_graphql_query_cache_ttl": "authored",
     "woocommerce_pickup_location_settings": "authored",
-    "woocommerce_private_link": "fail_closed_irreversible_side_effect",
+    "woocommerce_private_link": "env",
     "woocommerce_share_key": "env",
     "woocommerce_shop_page_display": "authored",
-    "woocommerce_store_pages_only": "fail_closed_irreversible_side_effect",
+    "woocommerce_store_pages_only": "env",
     "woocommerce_thumbnail_cropping": "fail_closed_unbounded_native_side_effect",
     "woocommerce_thumbnail_cropping_custom_height": "fail_closed_unbounded_native_side_effect",
     "woocommerce_thumbnail_cropping_custom_width": "fail_closed_unbounded_native_side_effect"
   },
   "dynamic_families": {
+    "wc_stock_notifications_cycle_state_<product-id>": "runtime",
     "woocommerce_<core-email-id>_settings": "fail_closed_mixed_record",
     "woocommerce_email_templates_<core-email-id>_post_id": "fail_closed_block_email_editor",
     "woocommerce_feature_<registered-feature-slug>_enabled": "env"
@@ -292,6 +301,7 @@
         "heading_full": "authored",
         "heading_paid": "authored",
         "heading_partial": "authored",
+        "intro_content": "authored",
         "preheader": "authored",
         "recipient": "env",
         "subject": "authored",
@@ -323,19 +333,26 @@
         "woocommerce_customer_refunded_order_settings": {"availability": "always; also backs feature:block_email_editor customer_partially_refunded_order", "fields": ["enabled", "subject_full", "subject_partial", "heading_full", "heading_partial", "additional_content", "email_type", "cc", "bcc", "preheader"]},
         "woocommerce_customer_reset_password_settings": {"availability": "always", "fields": ["enabled", "subject", "heading", "additional_content", "email_type", "cc", "bcc", "preheader"]},
         "woocommerce_customer_review_request_settings": {"availability": "feature:customer_review_request", "fields": ["enabled", "delay_days", "subject", "heading", "additional_content", "email_type", "cc", "bcc", "preheader"]},
+        "woocommerce_customer_stock_notification_settings": {"availability": "constant:WOOCOMMERCE_BIS_ALPHA_ENABLED", "fields": ["enabled", "subject", "heading", "intro_content", "additional_content", "email_type", "cc", "bcc", "preheader"]},
+        "woocommerce_customer_stock_notification_verified_settings": {"availability": "constant:WOOCOMMERCE_BIS_ALPHA_ENABLED", "fields": ["enabled", "subject", "heading", "intro_content", "additional_content", "email_type", "cc", "bcc", "preheader"]},
+        "woocommerce_customer_stock_notification_verify_settings": {"availability": "constant:WOOCOMMERCE_BIS_ALPHA_ENABLED", "fields": ["enabled", "subject", "heading", "intro_content", "additional_content", "email_type", "cc", "bcc", "preheader"]},
         "woocommerce_failed_order_settings": {"availability": "always", "fields": ["enabled", "recipient", "subject", "heading", "additional_content", "email_type", "cc", "bcc", "preheader"]},
         "woocommerce_new_order_settings": {"availability": "always", "fields": ["enabled", "recipient", "subject", "heading", "additional_content", "email_type", "cc", "bcc", "preheader"]}
       },
       "unknown_email_ids": "fail_closed",
       "unknown_fields": "fail_closed"
     },
-    "native_side_effect_options": {
+    "target_environment_side_effect_options": {
       "coming_soon": {
         "options": ["woocommerce_coming_soon", "woocommerce_private_link", "woocommerce_store_pages_only"],
-        "boundary": "fail_closed_without_verified_cache_and_cart_edge_invalidation"
-      },
+        "new_install_rows": {"woocommerce_coming_soon": "yes", "woocommerce_store_pages_only": "yes", "woocommerce_private_link": "absent_until_launch_api_initialization"},
+        "boundary": "target_environment_global_cache_and_cart_edge_state"
+      }
+    },
+    "native_side_effect_options": {
       "thumbnail_cropping": {
         "options": ["woocommerce_thumbnail_cropping", "woocommerce_thumbnail_cropping_custom_width", "woocommerce_thumbnail_cropping_custom_height"],
+        "reader_defaults": {"woocommerce_thumbnail_cropping": "1:1", "woocommerce_thumbnail_cropping_custom_width": "4", "woocommerce_thumbnail_cropping_custom_height": "3"},
         "boundary": "fail_closed_without_bounded_attachment_queue_regeneration"
       }
     }

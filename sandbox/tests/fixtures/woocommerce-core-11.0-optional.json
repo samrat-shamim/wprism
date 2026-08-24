@@ -26,6 +26,13 @@
     "src/Internal/PushNotifications/Entities/PushToken.php": "75dabcc7c80e020c0e2fa9ff69dfc18050c12d2275091f5ac6ca60de391013a6",
     "src/Internal/PushNotifications/PushNotifications.php": "1b2a7b5ccc13d4ebaf0d050b1e44e3ffbbb607ccdf34713172aab71bb5689c7d",
     "src/Internal/PushNotifications/Services/NotificationProcessor.php": "257dd12cf55a322763d31aea16c6556c860d96887cf434bd2d7a2092264423b7",
+    "src/Internal/StockNotifications/Admin/NotificationsPage.php": "aba93820fd3748f4054888ba9f16f4ff306213790c25c7968bfb631388e6463f",
+    "src/Internal/StockNotifications/AsyncTasks/CycleStateService.php": "45e80f1de78a8dfb5004dd16f37b02532cfbd3d205df0539dfa261e1b7d6fb82",
+    "src/Internal/StockNotifications/Config.php": "403c632279efc01ab4c7fbf11463963947b64c17b0e90c84d50cf6a90a0f5dcf",
+    "src/Internal/StockNotifications/Emails/CustomerStockNotificationEmail.php": "5a073ac5040467d73d522e8c4ef86927541fa7a3c5ebebc3d356599da54e6192",
+    "src/Internal/StockNotifications/Emails/CustomerStockNotificationVerifiedEmail.php": "e5c562f4fc54b2ed62dadd631b953a7f36080f8db83e5db86e6e07eed029b6db",
+    "src/Internal/StockNotifications/Emails/CustomerStockNotificationVerifyEmail.php": "e6828bddbd43456a104bf1c1367ad980fd93183e5a3bd6aee2b43b1db32cf0bf",
+    "src/Internal/StockNotifications/Emails/EmailManager.php": "e0af8812884aafac662aaa06e8c363585af73440f57c5479ee10ddfcb710a463",
     "src/Internal/VariationGallery/LegacyVariationGalleryCompatibility.php": "abbe086bcd140726516e5529eb46ca2562c495b98a25fcf538da9f142e14bef3",
     "src/Internal/VariationGallery/Migration.php": "9a649a0a1137756f3104d5654d36e2a982fd3248ccb2d32df2f880b8746418a8",
     "src/Internal/VariationGallery/Package.php": "1539fc42d294d2e6a06761569d370776bc7cde14248eae0e14011741dac2ebb8"
@@ -45,6 +52,10 @@
     },
     "customer_stock_notifications": {
       "feature_constants": ["WOOCOMMERCE_BIS_ALPHA_ENABLED"],
+      "runtime_options": ["wc_customer_stock_notifications_admin_notice", "wc_customer_stock_notifications_product_sync_notice"],
+      "runtime_option_patterns": {"wc_stock_notifications_cycle_state_<product-id>": "canonical_positive_php_integer"},
+      "email_setting_options": ["woocommerce_customer_stock_notification_settings", "woocommerce_customer_stock_notification_verified_settings", "woocommerce_customer_stock_notification_verify_settings"],
+      "filter_hooks": ["woocommerce_customer_stock_notifications_verification_expiration_time_threshold"],
       "runtime_tables": ["wc_stock_notificationmeta", "wc_stock_notifications"]
     },
     "email_unsubscribes": {

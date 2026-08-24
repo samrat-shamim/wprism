@@ -58,6 +58,8 @@ final class Woocommerce {
         'auto_fulfill_virtual',
     ];
 
+    private const STOCK_NOTIFICATION_CYCLE_PREFIX = 'wc_stock_notifications_cycle_state_';
+
     private const YES_NO_OPTIONS = [
         'auto_fulfill_downloadable',
         'auto_fulfill_virtual',
@@ -176,6 +178,13 @@ final class Woocommerce {
     }
 
     public function option_rule(string $name, array $allOptions): ?array {
+        if (str_starts_with($name, self::STOCK_NOTIFICATION_CYCLE_PREFIX)) {
+            $suffix = substr($name, strlen(self::STOCK_NOTIFICATION_CYCLE_PREFIX));
+            $productId = Policy::strict_positive_local_id($suffix);
+            return $productId !== null && (string) $productId === $suffix
+                ? ['class' => 'runtime']
+                : null;
+        }
         if (!in_array($name, self::FULFILLMENT_OPTIONS, true)) {
             return null;
         }

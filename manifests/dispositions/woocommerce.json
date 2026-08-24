@@ -93,12 +93,7 @@
         },
         {
             "operation": "capture",
-            "reason": "Coming-soon visibility writes cross an irreversible global-cache and cart-page edge-invalidation boundary; direct option transport is refused until that exact native effect has a bounded receipt and retry contract.",
-            "surface": "options.woocommerce_coming_soon|woocommerce_private_link|woocommerce_store_pages_only"
-        },
-        {
-            "operation": "capture",
-            "reason": "Thumbnail-cropping changes can kill and rebuild an attachment background queue whose target-wide file and attachment effects are not bounded by this adapter. Populated settings fail closed instead of silently skipping native regeneration.",
+            "reason": "Thumbnail-cropping is ordinary merchant-authored storefront design, but its native Customizer path can kill and rebuild an attachment background queue whose target-wide file and attachment effects are not yet bounded by this adapter. Populated settings fail closed until that native regeneration contract is durable; unstored 1:1/4/3 reader defaults remain clean.",
             "surface": "options.woocommerce_thumbnail_cropping|woocommerce_thumbnail_cropping_custom_width|woocommerce_thumbnail_cropping_custom_height"
         },
         {

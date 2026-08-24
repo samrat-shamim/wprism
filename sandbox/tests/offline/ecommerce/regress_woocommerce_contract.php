@@ -64,8 +64,8 @@ woo_ok(($settingsInventory['format'] ?? null) === 'duo-woocommerce-settings-inve
     'the source-audited settings inventory uses the exact reviewed schema');
 woo_ok(count((array) ($settingsInventory['literal_ids'] ?? [])) === 147,
     'the exact 11.0.0/11.0.1 literal settings scan freezes all 147 source ids');
-woo_ok(count((array) ($settingsInventory['source_files'] ?? [])) === 66,
-    'the inventory binds all sixty-six exact settings, gateway, email, pickup, scheduler, launch, and image-regeneration sources');
+woo_ok(count((array) ($settingsInventory['source_files'] ?? [])) === 73,
+    'the inventory binds all seventy-three exact settings, gateway, email, pickup, scheduler, stock-notification, launch, and image-regeneration sources');
 foreach ((array) ($settingsInventory['source_files'] ?? []) as $sourceFile => $sha256) {
     woo_ok(
         is_string($sourceFile) && $sourceFile !== ''
@@ -123,10 +123,11 @@ foreach ($inventoryClassifications as $name => $classification) {
     }
 }
 woo_ok(($settingsInventory['dynamic_families'] ?? null) === [
+    'wc_stock_notifications_cycle_state_<product-id>' => 'runtime',
     'woocommerce_<core-email-id>_settings' => 'fail_closed_mixed_record',
     'woocommerce_email_templates_<core-email-id>_post_id' => 'fail_closed_block_email_editor',
     'woocommerce_feature_<registered-feature-slug>_enabled' => 'env',
-], 'computed email, template, and feature option families stay explicit in the source union');
+], 'computed stock-cycle, email, template, and feature option families stay explicit in the source union');
 foreach ([
     'woocommerce_feature_agentic_checkout_enabled',
     'woocommerce_feature_dual_code_graphql_api_enabled',
@@ -192,9 +193,12 @@ woo_ok(array_keys($emailRecords) === [
     'woocommerce_customer_refunded_order_settings',
     'woocommerce_customer_reset_password_settings',
     'woocommerce_customer_review_request_settings',
+    'woocommerce_customer_stock_notification_settings',
+    'woocommerce_customer_stock_notification_verified_settings',
+    'woocommerce_customer_stock_notification_verify_settings',
     'woocommerce_failed_order_settings',
     'woocommerce_new_order_settings',
-], 'WC_Emails freezes all twenty-one distinct core settings option records by exact id');
+], 'WC_Emails and the optional stock-notification manager freeze all twenty-four distinct core settings option records by exact id');
 woo_ok($emailFieldClasses === [
     'additional_content' => 'authored',
     'automated' => 'authored',
@@ -207,6 +211,7 @@ woo_ok($emailFieldClasses === [
     'heading_full' => 'authored',
     'heading_paid' => 'authored',
     'heading_partial' => 'authored',
+    'intro_content' => 'authored',
     'preheader' => 'authored',
     'recipient' => 'env',
     'subject' => 'authored',
@@ -220,6 +225,12 @@ woo_ok(count(array_filter(
 )) === 23
     && isset($settingsInventory['source_files']['includes/class-wc-emails.php']),
     'the exact source union binds WC_Emails, the base email class, and every registered core email implementation');
+woo_ok(count(array_filter(
+    array_keys((array) ($settingsInventory['source_files'] ?? [])),
+    static fn(string $path): bool => str_starts_with($path, 'src/Internal/StockNotifications/Emails/CustomerStockNotification')
+)) === 3
+    && isset($settingsInventory['source_files']['src/Internal/StockNotifications/Emails/EmailManager.php']),
+    'the exact source union binds all three feature-gated stock-notification email implementations and their registrar');
 foreach ($emailRecords as $optionName => $record) {
     woo_ok(preg_match('/^woocommerce_[a-z0-9_]+_settings$/D', (string) $optionName) === 1,
         "$optionName uses the exact WC_Settings_API option-key grammar");
@@ -242,23 +253,51 @@ woo_ok(($emailRecords['woocommerce_customer_refunded_order_settings']['availabil
         === 'always; also backs feature:block_email_editor customer_partially_refunded_order'
     && !isset($emailRecords['woocommerce_customer_partially_refunded_order_settings']),
     'the block-editor partial-refund class reuses the parent customer_refunded_order settings key exactly');
+foreach ([
+    'woocommerce_customer_stock_notification_settings',
+    'woocommerce_customer_stock_notification_verified_settings',
+    'woocommerce_customer_stock_notification_verify_settings',
+] as $stockEmailOption) {
+    woo_ok(($emailRecords[$stockEmailOption]['availability'] ?? null) === 'constant:WOOCOMMERCE_BIS_ALPHA_ENABLED'
+        && in_array('intro_content', (array) ($emailRecords[$stockEmailOption]['fields'] ?? []), true),
+        "$stockEmailOption is exact feature-gated core email state with its native intro-content field");
+}
 foreach (['woocommerce_addon_gateway_settings', 'woocommerce_customer_partially_refunded_order_settings'] as $nearMiss) {
     woo_ok($policy->option_rule($nearMiss) === null
         && ($policy->option_namespace($nearMiss)['owner'] ?? null) === 'woocommerce',
         "$nearMiss remains a loud addon or non-writer boundary");
 }
 
-$sideEffectBoundaries = (array) ($closedRecords['native_side_effect_options'] ?? []);
-woo_ok(array_keys($sideEffectBoundaries) === ['coming_soon', 'thumbnail_cropping'],
-    'launch-store and thumbnail regeneration are the two remaining exact native side-effect record families');
-foreach ($sideEffectBoundaries as $family => $record) {
-    woo_ok(is_string($record['boundary'] ?? null) && str_starts_with((string) $record['boundary'], 'fail_closed_'),
-        "$family has an explicit safe production boundary rather than an unverified direct write");
+$environmentEffectBoundaries = (array) ($closedRecords['target_environment_side_effect_options'] ?? []);
+woo_ok(array_keys($environmentEffectBoundaries) === ['coming_soon'],
+    'launch-store state is the one exact deployment-local side-effect family');
+foreach ($environmentEffectBoundaries as $family => $record) {
+    woo_ok(is_string($record['boundary'] ?? null) && str_starts_with((string) $record['boundary'], 'target_environment_'),
+        "$family has an explicit deployment-local production boundary rather than an unverified direct write");
     foreach ((array) ($record['options'] ?? []) as $optionName) {
-        woo_ok($policy->option_rule((string) $optionName) === null
+        woo_ok(($policy->option_rule((string) $optionName)['class'] ?? null) === 'env'
             && ($policy->option_namespace((string) $optionName)['owner'] ?? null) === 'woocommerce',
-            "$optionName refuses populated capture before its irreversible native effects");
+            "$optionName stays target-local across its irreversible native effects");
     }
+}
+woo_ok(($environmentEffectBoundaries['coming_soon']['new_install_rows'] ?? null) === [
+    'woocommerce_coming_soon' => 'yes',
+    'woocommerce_store_pages_only' => 'yes',
+    'woocommerce_private_link' => 'absent_until_launch_api_initialization',
+], 'every fresh Woo 11.0.x store remains certifiable with its exact launch-state rows');
+
+$sideEffectBoundaries = (array) ($closedRecords['native_side_effect_options'] ?? []);
+woo_ok(array_keys($sideEffectBoundaries) === ['thumbnail_cropping'],
+    'thumbnail cropping remains one exact merchant-authored native-effect boundary');
+woo_ok(($sideEffectBoundaries['thumbnail_cropping']['reader_defaults'] ?? null) === [
+    'woocommerce_thumbnail_cropping' => '1:1',
+    'woocommerce_thumbnail_cropping_custom_width' => '4',
+    'woocommerce_thumbnail_cropping_custom_height' => '3',
+], 'unstored thumbnail controls retain Woo 11.0.x reader defaults');
+foreach ((array) ($sideEffectBoundaries['thumbnail_cropping']['options'] ?? []) as $optionName) {
+    woo_ok($policy->option_rule((string) $optionName) === null
+        && ($policy->option_namespace((string) $optionName)['owner'] ?? null) === 'woocommerce',
+        "$optionName stays loud until native attachment regeneration is bounded");
 }
 
 // DUO-3315: this is a manifest declaration, not an engine convention. The
@@ -279,7 +318,7 @@ woo_ok($policy->post_type_relation_closure(['product_variation']) === ['product'
 
 $optionNames = preg_split('/\s+/', trim(<<<'OPTIONS'
 action_scheduler_hybrid_store_demarkation action_scheduler_migration_status
-wc_blocks_db_schema_version wc_brands_show_description wc_customer_stock_notifications_product_sync_notice wc_downloads_approved_directories_mode wc_pending_batch_processes wc_variation_gallery_migration_completed_at
+wc_blocks_db_schema_version wc_brands_show_description wc_customer_stock_notifications_admin_notice wc_customer_stock_notifications_product_sync_notice wc_downloads_approved_directories_mode wc_pending_batch_processes wc_variation_gallery_migration_completed_at
 wc_feature_woocommerce_additional_variation_images_enabled
 woocommerce_address_autocomplete_enabled woocommerce_admin_install_timestamp woocommerce_admin_notices
 woocommerce_all_except_countries woocommerce_allow_bulk_remove_personal_data woocommerce_allow_tracking woocommerce_allowed_countries woocommerce_analytics_enabled woocommerce_brand_permalink

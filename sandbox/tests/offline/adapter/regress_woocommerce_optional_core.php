@@ -94,9 +94,9 @@ foreach ((array) ($inventory['artifacts'] ?? []) as $version => $sha256) {
     );
 }
 duo_check_same(
-    24,
+    31,
     count((array) ($inventory['source_files'] ?? [])),
-    'the inventory binds all 24 exact optional-core storage writers and registries'
+    'the inventory binds all 31 exact optional-core storage writers and registries'
 );
 foreach ((array) ($inventory['source_files'] ?? []) as $path => $sha256) {
     duo_check(
@@ -123,6 +123,42 @@ $policy = Policy::load(null, ['woocommerce']);
 
 foreach (['wc_email_sync_backfill_completed_tracked', 'woocommerce_email_template_sync_backfill_complete'] as $name) {
     duo_check_same('runtime', $policy->option_rule($name)['class'] ?? null, "$name is target-local sync state");
+}
+foreach ((array) ($inventory['families']['customer_stock_notifications']['runtime_options'] ?? []) as $name) {
+    duo_check_same('runtime', $policy->option_rule((string) $name)['class'] ?? null,
+        "$name is exact target-local stock-notification UI/runtime state");
+}
+foreach ((array) ($inventory['families']['customer_stock_notifications']['filter_hooks'] ?? []) as $hookName) {
+    duo_check_same(null, $policy->option_rule((string) $hookName),
+        "$hookName is a filter hook, not a silently invented portable option");
+}
+$stockEmailOptions = (array) ($inventory['families']['customer_stock_notifications']['email_setting_options'] ?? []);
+duo_check_same([
+    'woocommerce_customer_stock_notification_settings',
+    'woocommerce_customer_stock_notification_verified_settings',
+    'woocommerce_customer_stock_notification_verify_settings',
+], $stockEmailOptions, 'all three feature-gated stock-notification email settings records are source-enumerated');
+$cycleFamily = (array) ($inventory['families']['customer_stock_notifications']['runtime_option_patterns'] ?? []);
+duo_check_same(
+    ['wc_stock_notifications_cycle_state_<product-id>' => 'canonical_positive_php_integer'],
+    $cycleFamily,
+    'per-product stock-delivery cycle state has one exact runtime option-name grammar'
+);
+foreach (['1', '811', (string) PHP_INT_MAX] as $productId) {
+    $name = 'wc_stock_notifications_cycle_state_' . $productId;
+    duo_check_same(
+        'runtime',
+        $policy->owned_option_rule_via_interpreter($name, [$name => 'runtime-state'])['class'] ?? null,
+        "$name stays target-local through the exact native product-id suffix"
+    );
+}
+foreach (['', '0', '01', '-1', '+1', '1.0', '9223372036854775808', '1_suffix', '١'] as $suffix) {
+    $name = 'wc_stock_notifications_cycle_state_' . $suffix;
+    duo_check_same(
+        null,
+        $policy->owned_option_rule_via_interpreter($name, [$name => 'hostile-state']),
+        "$name cannot widen the native per-product cycle-state family"
+    );
 }
 foreach (['wc_migrator_analytics', 'wc_migrator_products_count'] as $name) {
     duo_check_same('runtime', $policy->option_rule($name)['class'] ?? null, "$name is target-local migration progress");
@@ -165,7 +201,6 @@ duo_check_same('capture', $unsupported['options.woocommerce_email_templates_*_po
 foreach ([
     'options.woocommerce_bacs_accounts|woocommerce_bacs_settings|woocommerce_cheque_settings|woocommerce_cod_settings',
     'options.woocommerce_<core-email-id>_settings',
-    'options.woocommerce_coming_soon|woocommerce_private_link|woocommerce_store_pages_only',
     'options.woocommerce_thumbnail_cropping|woocommerce_thumbnail_cropping_custom_width|woocommerce_thumbnail_cropping_custom_height',
 ] as $surface) {
     duo_check_same('capture', $unsupported[$surface] ?? null,
@@ -241,8 +276,11 @@ $optionRows = [
     ['option_id' => 7, 'option_name' => 'wc_migrator_credentials_shopify', 'option_value' => json_encode(['token' => $credentialMarker]), 'autoload' => 'yes'],
     ['option_id' => 8, 'option_name' => 'wc_migrator_credentials_partner_extension', 'option_value' => json_encode(['token' => $credentialMarker]), 'autoload' => 'yes'],
     ['option_id' => 9, 'option_name' => 'wc_migrator_credentials_bad/slash', 'option_value' => 'near-miss', 'autoload' => 'yes'],
+    ['option_id' => 10, 'option_name' => 'wc_customer_stock_notifications_admin_notice', 'option_value' => serialize(new WooOptionalWakeupCanary()), 'autoload' => 'no'],
+    ['option_id' => 11, 'option_name' => 'wc_stock_notifications_cycle_state_811', 'option_value' => serialize(new WooOptionalWakeupCanary()), 'autoload' => 'no'],
+    ['option_id' => 12, 'option_name' => 'wc_stock_notifications_cycle_state_01', 'option_value' => serialize(new WooOptionalWakeupCanary()), 'autoload' => 'no'],
 ];
-$nextOptionId = 10;
+$nextOptionId = 13;
 $gatewayRecords = (array) ($settingsInventory['closed_records']['gateway_settings'] ?? []);
 foreach (array_keys($gatewayRecords) as $optionName) {
     $value = $optionName === 'woocommerce_bacs_accounts'
@@ -282,6 +320,18 @@ $optionRows[] = [
     'option_value' => serialize(['unknown_extension_field' => $emailMarker]),
     'autoload' => 'yes',
 ];
+$targetEnvironmentOptions = [];
+foreach ((array) ($settingsInventory['closed_records']['target_environment_side_effect_options'] ?? []) as $record) {
+    foreach ((array) ($record['options'] ?? []) as $optionName) {
+        $targetEnvironmentOptions[] = $optionName;
+        $optionRows[] = [
+            'option_id' => $nextOptionId++,
+            'option_name' => $optionName,
+            'option_value' => $sideEffectMarker,
+            'autoload' => 'yes',
+        ];
+    }
+}
 $sideEffectOptions = [];
 foreach ((array) ($settingsInventory['closed_records']['native_side_effect_options'] ?? []) as $record) {
     foreach ((array) ($record['options'] ?? []) as $optionName) {
@@ -312,7 +362,7 @@ $captureResult = $capture->capture(false, false, null, [], false, true);
 $pending = $captureResult['unclassified'];
 sort($pending, SORT_STRING);
 $expectedPendingNames = array_merge(
-    ['wc_migrator_credentials_bad/slash', 'woocommerce_email_templates_addon_gateway_post_id', 'woocommerce_email_templates_new_order_post_id'],
+    ['wc_migrator_credentials_bad/slash', 'wc_stock_notifications_cycle_state_01', 'woocommerce_email_templates_addon_gateway_post_id', 'woocommerce_email_templates_new_order_post_id'],
     array_keys($gatewayRecords),
     array_keys($emailRecords),
     [$addonEmailOption],
@@ -324,7 +374,7 @@ $expectedPending = array_map(
     $expectedPendingNames
 );
 duo_check_same($expectedPending, $pending,
-    'real option capture atomically refuses every exact mixed/secret/reference/side-effect record and addon near-miss');
+    'real option capture atomically refuses every exact mixed/secret/reference/native-effect record and addon near-miss while deployment-local launch state remains clean');
 duo_check_same(0, WooOptionalWakeupCanary::$wakeups,
     'fail-closed option discovery never decodes object, trailing, reference-shaped, or over-deep record bytes');
 $captureEvidence = json_encode($captureResult, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
@@ -339,5 +389,11 @@ duo_check(
 );
 duo_check_same([], $secretCalls,
     'runtime, environment-secret, and fail-closed optional state never enters the authored secret/capture callback');
+foreach ($targetEnvironmentOptions as $optionName) {
+    duo_check_same('env', $policy->option_rule((string) $optionName)['class'] ?? null,
+        "$optionName is explicitly deployment-local and never enters repository state");
+    duo_check(!array_key_exists((string) $optionName, (array) ($captureResult['document']['options'] ?? [])),
+        "$optionName remains absent from the captured options document");
+}
 
 duo_check_summary('WooCommerce optional-core inventory');
