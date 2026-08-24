@@ -87,16 +87,6 @@ final class AttachmentNativeMetadataGenerator {
      * importer/regenerator/domain-mode lifecycle and therefore refuses.
      */
     private const ADAPTER_CALLBACKS = [
-        'elementor-bfi-editors' => [
-            'manifest' => 'elementor', 'presence' => 'required',
-            'hook' => 'wp_image_editors', 'priority' => 10, 'accepted_args' => 1,
-            'kind' => 'function', 'callable' => 'bfi_wp_image_editor',
-        ],
-        'elementor-bfi-dimensions' => [
-            'manifest' => 'elementor', 'presence' => 'required',
-            'hook' => 'image_resize_dimensions', 'priority' => 10, 'accepted_args' => 5,
-            'kind' => 'function', 'callable' => 'bfi_image_resize_dimensions',
-        ],
         'elementor-page-template-meta' => [
             'manifest' => 'elementor', 'presence' => 'required',
             'hook' => 'update_post_metadata', 'priority' => 10, 'accepted_args' => 3,

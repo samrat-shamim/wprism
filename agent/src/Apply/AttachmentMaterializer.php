@@ -404,9 +404,16 @@ final class AttachmentMaterializer {
     /** Run one filesystem transition while its exact physical attachment rows are locked. */
     private function with_locked_pending_bindings(\Closure $operation, string $purpose): mixed {
         $started = false;
+        $lockBoundaryStarted = false;
         try {
             Db::start_repeatable_read($purpose . ' transaction start');
             $started = true;
+            // This wrapper runs after the authored COMMIT as a new physical
+            // transaction. Its schema descriptors and continuity savepoint
+            // must therefore be minted here rather than inherited from the
+            // already-ended authored transaction.
+            $this->fieldMaterializer->begin_authored_transaction();
+            $lockBoundaryStarted = true;
             foreach ($this->filesystem->pending_bindings() as $binding) {
                 $this->assert_locked_binding($binding, false, $purpose);
             }
@@ -429,6 +436,10 @@ final class AttachmentMaterializer {
                 }
             }
             throw $failure;
+        } finally {
+            if ($lockBoundaryStarted) {
+                $this->fieldMaterializer->end_authored_transaction();
+            }
         }
     }
 

@@ -8,7 +8,14 @@ namespace Duo {
         public static int $rollbacks = 0;
 
         public static function start_repeatable_read(string $purpose): void { ++self::$starts; }
-        public static function rollback(string $purpose): void { ++self::$rollbacks; }
+        public static function rollback(string $purpose): void {
+            ++self::$rollbacks;
+            if (isset($GLOBALS['wpdb'])
+                && is_object($GLOBALS['wpdb'])
+                && property_exists($GLOBALS['wpdb'], 'savepointExists')) {
+                $GLOBALS['wpdb']->savepointExists = false;
+            }
+        }
     }
 }
 
@@ -223,22 +230,6 @@ namespace {
             ++$GLOBALS['duo_attachment_adapter_callback_calls'];
             throw new \RuntimeException('Polylang domain callback must never enter the supported topology');
         }
-    }
-
-    function bfi_wp_image_editor(mixed $editors): never {
-        ++$GLOBALS['duo_attachment_adapter_callback_calls'];
-        throw new \RuntimeException('Elementor BFI editor callback must be quarantined');
-    }
-
-    function bfi_image_resize_dimensions(
-        mixed $payload,
-        mixed $originalWidth,
-        mixed $originalHeight,
-        mixed $targetWidth,
-        mixed $targetHeight
-    ): never {
-        ++$GLOBALS['duo_attachment_adapter_callback_calls'];
-        throw new \RuntimeException('Elementor BFI dimension callback must be quarantined');
     }
 
     $GLOBALS['wp_filter'] = [];
@@ -856,8 +847,6 @@ namespace {
         $elementorSvg = new \Elementor\Core\Files\File_Types\Svg();
         $tecTracker = new Tribe__Tracker();
         $certifiedCallbacks = [
-            ['wp_image_editors', 'bfi_wp_image_editor', 10, 1],
-            ['image_resize_dimensions', 'bfi_image_resize_dimensions', 10, 5],
             ['update_post_metadata', [$elementorPageTemplate, 'filter_update_meta'], 10, 3],
             ['wp_update_attachment_metadata', [$elementorSvg, 'set_svg_meta_data'], 10, 2],
             ['wp_generate_attachment_metadata', ['WC_Regenerate_Images', 'add_uncropped_metadata'], 10, 1],
@@ -1229,6 +1218,30 @@ namespace {
 
         $authorityWpdb = new AttachmentAuthorityWpdb();
         $GLOBALS['wpdb'] = $authorityWpdb;
+
+        DeleteGuardEvaluator::end_authored_transaction();
+        $lockWrapper = new \ReflectionMethod(
+            AttachmentMaterializer::class,
+            'with_locked_pending_bindings'
+        );
+        try {
+            $lockBoundaryResult = $lockWrapper->invoke(
+                $attachmentMaterializer,
+                static function (): string {
+                    DeleteGuardEvaluator::assert_transaction_isolation(
+                        'post-commit attachment identity wrapper regression'
+                    );
+                    return 'bounded';
+                },
+                'post-commit attachment identity wrapper regression'
+            );
+        } catch (\Throwable $failure) {
+            $lockBoundaryResult = $failure;
+        }
+        $check(
+            $lockBoundaryResult === 'bounded' && !$authorityWpdb->savepointExists,
+            'each post-commit attachment identity wrapper establishes and settles its own continuity savepoint'
+        );
 
         $orphanIntent = str_repeat('1', 32);
         $orphanKey = 'attachment_fs:' . $orphanIntent;
