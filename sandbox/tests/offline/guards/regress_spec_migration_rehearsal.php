@@ -169,6 +169,16 @@ const REHEARSAL_GAPS = [
         . 'exercised by sandbox/tests/offline/code-half/regress_code_compatibility.sh; the refusal sentence '
         . 'itself ("no target code was staged") appears in no suite in the corpus, which is a second finding of '
         . 'this enumeration rather than a fact about the estate.',
+    'cli/src/Adapter/AdapterProposals.php::declaredPair' =>
+        'host-side, and its subject is a manifest LIBRARY whose version_range and dispositions restatement '
+        . 'DISAGREE — a library ManifestDispositions::validate_entry() refuses, so it can never be an estate any '
+        . 'Policy::load() here drives. Exercised by sandbox/tests/offline/adapter/regress_boundary_proposals.php '
+        . '(the declared_pair_disagrees case).',
+    'cli/src/Adapter/AdapterProposals.php::proposedEdits' =>
+        'reached only after a bisection over a recorded release list and probe-outcome ledger runs to completion, '
+        . 'and this estate holds no ledger — the state tree is sites and manifest libraries. Exercised by '
+        . 'sandbox/tests/offline/adapter/regress_boundary_proposals.php, which additionally proves the pair it '
+        . 'emits against the real ManifestDispositions::assert_entry().',
     'cli/src/Refresh/RefreshPlan.php::assertProductionCodeMatches' =>
         'needs a git production ref and a refresh plan built against it. Exercised by '
         . 'sandbox/tests/offline/refresh/regress_refresh_orchestration.php.',

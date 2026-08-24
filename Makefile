@@ -715,6 +715,22 @@ regress-deletion-feasibility:
 regress-adapter-boundary-search:
 	php sandbox/tests/offline/adapter/regress_adapter_boundary_search.php
 
+# WP-2.9: `duo adapter proposals` -- the scheduled job around that planner.
+# Re-bisects every pinned plugin from its own recorded ledger and emits the
+# range bump as BOTH edits (manifest version_range + disposition
+# supported_versions), proven acceptable by the REAL
+# ManifestDispositions::assert_entry() with both applied and refused by it with
+# either one alone -- the Canon-byte-equal shape :632-637 demands. A bisection
+# that never reached green is refused rather than proposed, as is a range that
+# would contain a recorded failing release. Freshness (last_verified = the
+# newest green probe, platform.json's own per-axis shape) is DERIVED: a ledger
+# asserting its own is refused, and the census ranks the rows by sites pinning
+# x releases behind while keeping its names-and-counts redaction. Every file
+# under manifests/ is byte-identical before and after. Offline: pure PHP plus
+# the real duo executable.
+regress-boundary-proposals:
+	php sandbox/tests/offline/adapter/regress_boundary_proposals.php
+
 # DUO-3408: the shared conformance assertion fragment -- every require_*
 # helper the seeds/postdeploy hooks call must be defined in ONE fragment both
 # sourcing harnesses load, or bundle leg 12 dies at `command not found`.

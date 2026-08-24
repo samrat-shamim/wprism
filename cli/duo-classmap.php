@@ -15,6 +15,7 @@ return [
     'Duo\\Orchestrator\\AdapterCertify' => 'src/Adapter/AdapterCertify.php',
     'Duo\\Orchestrator\\AdapterDraft' => 'src/Adapter/AdapterDraft.php',
     'Duo\\Orchestrator\\AdapterObservation' => 'src/Adapter/AdapterObservation.php',
+    'Duo\\Orchestrator\\AdapterProposals' => 'src/Adapter/AdapterProposals.php',
     'Duo\\Orchestrator\\Adopt' => 'src/Onboarding/Adopt.php',
     'Duo\\Orchestrator\\AdoptCommand' => 'src/Command/AdoptCommand.php',
     'Duo\\Orchestrator\\AdoptionTransport' => 'src/Transport/Transport.php',

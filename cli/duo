@@ -68,6 +68,7 @@ require __DIR__ . '/src/Adapter/MigrationPreflight.php';
 require __DIR__ . '/src/Adapter/AdapterObservation.php';
 require __DIR__ . '/src/Adapter/AdapterCertify.php';
 require __DIR__ . '/src/Adapter/AdapterBoundary.php';
+require __DIR__ . '/src/Adapter/AdapterProposals.php';
 // RefreshPlan lands as a separately-reviewable semantic layer. Keep this
 // host shell loadable while that contract is unavailable; Refresh itself
 // fails closed with an actionable diagnostic before any candidate ref exists.
@@ -245,6 +246,7 @@ use Duo\Orchestrator\AdapterCatalog;
 use Duo\Orchestrator\AdapterObservation;
 use Duo\Orchestrator\AdapterCertify;
 use Duo\Orchestrator\AdapterBoundary;
+use Duo\Orchestrator\AdapterProposals;
 use Duo\Orchestrator\CommandOutput;
 use Duo\Orchestrator\EnvironmentCommandPreflight;
 use Duo\Orchestrator\PassthroughCommand;
@@ -298,6 +300,7 @@ Usage:
   duo adapter boundary --releases=<release-list.json> --anchor=<version>
                        [--outcomes=<outcomes.json>] [--from=<v>] [--to=<v>]
                        [--manifest=<n>] [--format=json]
+  duo adapter proposals [--ledger=<dir>] [--manifests=<dir>] [--format=json]
   duo adapter-observe <env> [--out=<local-file>|--format=json]
   duo doctor <env>
   duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
@@ -339,7 +342,8 @@ Usage:
   duo rebase <production-env> --abort=<run-id>
   duo merge-check [--ref=<ref>] [--against=<ref>] [--base=<ref>] [--format=json]
   duo census --site=<label>=<inventory.json> [--site=...] [--dir=<dir>]
-             [--manifests=<dir>] [--limit=<1..200>] [--format=json]
+             [--manifests=<dir>] [--health=<proposals.json>]
+             [--limit=<1..200>] [--format=json]
   duo -h | --help
 
 Verbs:
@@ -638,6 +642,28 @@ Verbs:
                           three-role vocabulary. It never writes a manifest:
                           the range and its Canon-byte-equal restatement in
                           dispositions.json stay one reviewed human edit.
+  adapter proposals       The scheduled job around that planner. Reads every
+    [--ledger=<dir>]      <slug>.releases.json / <slug>.outcomes.json in the
+    [--manifests=<dir>]   ledger directory, derives each adapter's anchor from
+    [--format=json]       its OWN newest green probe, re-runs the bisection and
+                          emits a duo-adapter-boundary-proposals/v1 document:
+                          the proposed range bump as BOTH edits — the
+                          manifest's version_range and the disposition's
+                          supported_versions — built from one value, so they
+                          agree on the canonical bytes
+                          ManifestDispositions.php:632-637 compares. Nothing is
+                          written: applying them stays a reviewed human edit,
+                          because a byte under manifests/ is adapter identity.
+                          A bisection that never reached green is REFUSED, not
+                          proposed, and a range that would contain a recorded
+                          failing release is refused too. It also derives a
+                          per-adapter freshness row — last_verified is the
+                          newest green probe, shaped like platform.json's own
+                          per-axis last_verified — and that fact lives OUTSIDE
+                          manifests/ on purpose: stored beside a manifest it
+                          would move every adapter digest on every
+                          re-verification. `duo census --health=<doc>` ranks
+                          the rows beside the demand rank.
   adapter-observe <env>   Ask exactly one configured target for its closed,
     [--out=<local-file>]  value-redacted adapter proposal-evidence document.
     [--format=json]       The host supplies only that environment's configured
@@ -1196,9 +1222,9 @@ Verbs:
     --site=<label>=<f>    `duo-fleet-census/v1`: a demand rank (plugins by
     [--dir=<dir>]         sites installed x surface no reviewed adapter
     [--manifests=<dir>]   covers), a coverage ratio per site and for the
-    [--limit=<1..200>]    fleet with the residual NAMED, and the adoption
-    [--format=json]       funnel — an adapter exists, it covers your plugin,
-                          your site pins it. No environment, no target, no
+    [--health=<f>]        fleet with the residual NAMED, and the adoption
+    [--limit=<1..200>]    funnel — an adapter exists, it covers your plugin,
+    [--format=json]       your site pins it. No environment, no target, no
                           WordPress: the inputs are documents `duo assess`
                           already produced locally, and the coverage oracle is
                           this checkout's manifest library (--manifests to
@@ -1216,6 +1242,14 @@ Verbs:
                           published beside the eligible denominator rather than
                           dropped, and `basis.sample_class` says whether the
                           rank rests on one estate or a fleet.
+                          --health takes the derived document `duo adapter
+                          proposals --format=json` emits and adds fleet-health
+                          rows: per adapter, the newest release that probed
+                          green, how many recorded releases are newer, and any
+                          open range proposal — ranked by sites pinning it x
+                          releases behind, because "four releases behind" and
+                          "eleven sites pin it" are one decision. Only names
+                          and counts are read out of that document too.
 
 Global flags:
   --envs-file=<path>      Explicitly trust and load the machine-local overlay
@@ -1343,6 +1377,17 @@ function main(array $argv): int {
         // which AdapterCatalog's 0/1/2 contract has no room for.
         if (in_array($rest[0] ?? '', AdapterBoundary::VERBS, true)) {
             return AdapterBoundary::run($rest);
+        }
+        // `proposals` is the scheduled job AROUND that planner: it re-bisects
+        // every pinned plugin from its own recorded ledger and derives how
+        // stale each adapter's proof is. It is a fourth owner rather than a
+        // flag on `boundary` because it answers about the LIBRARY rather than
+        // about one slug, and because it deliberately drops boundary's exit 3
+        // ("probe this release next") — a job over sixteen adapters has as many
+        // next-probes as it has incomplete searches, and collapsing them into
+        // one process status would make a driver loop probe the first forever.
+        if (in_array($rest[0] ?? '', AdapterProposals::VERBS, true)) {
+            return AdapterProposals::run($rest);
         }
         if (in_array($rest[0] ?? '', AdapterCertify::VERBS, true)) {
             return AdapterCertify::run($rest);

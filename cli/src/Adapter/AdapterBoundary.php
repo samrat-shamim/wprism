@@ -636,8 +636,16 @@ final class AdapterBoundary {
             . 're-pinned. This document is evidence FOR that review, never an input to it.',
     ];
 
-    /** @return array<string,mixed> */
-    private static function readReleaseList(string $path): array {
+    /**
+     * Public because `AdapterProposals` — the scheduled job that runs this
+     * planner over a whole ledger directory — reads the SAME two documents. A
+     * second parser for them would be a second grammar, and the day the two
+     * disagreed by one rule (a missing digest, a mis-ordered list) the job
+     * would fold a candidate set this command refuses.
+     *
+     * @return array<string,mixed>
+     */
+    public static function readReleaseList(string $path): array {
         $data = self::readDocument($path, self::RELEASES_FORMAT, 'release list');
         $slug = $data['slug'] ?? null;
         if (!is_string($slug) || preg_match('/^[a-z0-9][a-z0-9._-]*[a-z0-9]$/D', $slug) !== 1) {
@@ -712,8 +720,14 @@ final class AdapterBoundary {
         ];
     }
 
-    /** @return array<string, array{version:string, outcome:string, signature:string}> */
-    private static function readOutcomeTable(string $path, string $slug): array {
+    /**
+     * Public for the same reason `readReleaseList()` above is: one grammar for
+     * the outcome record, whether one subject is being bisected by hand or the
+     * whole ledger is being re-bisected by the scheduled job.
+     *
+     * @return array<string, array{version:string, outcome:string, signature:string}>
+     */
+    public static function readOutcomeTable(string $path, string $slug): array {
         $data = self::readDocument($path, self::OUTCOMES_FORMAT, 'outcome table');
         if (($data['slug'] ?? null) !== $slug) {
             throw new \RuntimeException(

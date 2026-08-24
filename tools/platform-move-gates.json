@@ -485,6 +485,30 @@
    "note": "refuses a symlinked or non-duo-adapter-authorities/v1 site trust root, a key id already registered, and a revoked key — the site root's write gate."
   },
   {
+   "site": "cli/src/Adapter/AdapterProposals.php::declaredPair",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "compares Canon::encode() of the manifest's version_range against the disposition's supported_versions.range — the same two manifest-identity inputs ArtifactPolicyIdentity::manifest_rows() folds — and returns a declared_pair_disagrees blocker row when they differ, because a library ManifestDispositions::validate_entry() already refuses has no base to propose an edit onto."
+  },
+  {
+   "site": "cli/src/Adapter/AdapterProposals.php::project",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "derivation",
+   "note": "COMPUTES the proposed version_range and compares its canonical bytes against the declared one only to classify the row as proposed or no_change; it refuses nothing. The gates on what it derives are declaredPair() and proposedEdits() beside it, and the reviewed human edit the document exists to feed — nothing here writes a manifest byte."
+  },
+  {
+   "site": "cli/src/Adapter/AdapterProposals.php::proposedEdits",
+   "axes": [
+    "manifest"
+   ],
+   "verdict": "gate",
+   "note": "throws rather than emit a proposal whose two edits disagree on canonical bytes — exactly the comparison ManifestDispositions.php:632-637 makes at load time, so a review packet can never carry a pair that would brick the library it is applied to."
+  },
+  {
    "site": "cli/src/Adapter/MigrationPreflight.php::certificates",
    "axes": [
     "platform",
