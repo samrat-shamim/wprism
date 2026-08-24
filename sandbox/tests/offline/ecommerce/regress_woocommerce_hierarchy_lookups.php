@@ -44,6 +44,10 @@ foreach ((array) ($coinstallTopology['artifacts'] ?? []) as $slug => $artifact) 
 duo_check_same([
     ['plugin' => 'woocommerce', 'path' => 'includes/wc-core-functions.php', 'sha256' => '17bf218326de339c872eba8c9f855b73bb1c7874053c36774c35ef222927e684'],
     ['plugin' => 'woocommerce', 'path' => 'includes/wc-formatting-functions.php', 'sha256' => 'c3576416420bbfb6893ad5164ccf8c439b7e731c337c04b32e058ac6a0809d41'],
+    ['plugin' => 'woocommerce', 'path' => 'includes/class-woocommerce.php', 'sha256' => '5982ef2ab60231218cc71a2ba9bd387496d32c1a5eeb5468116d51137bbd7ef4'],
+    ['plugin' => 'woocommerce', 'path' => 'src/Internal/Features/FeaturesController.php', 'sha256' => 'c39f44ebd0928be1c3f3a5066422defa5623705dc44f440f4572595def5866b2'],
+    ['plugin' => 'woocommerce', 'path' => 'src/Internal/DataStores/Orders/DataSynchronizer.php', 'sha256' => 'a10ff8e2e5820deeb5a032cccfc2ffca09a5134e3e87e388e0262a89a8805234'],
+    ['plugin' => 'woocommerce', 'path' => 'src/Internal/DataStores/Orders/CustomOrdersTableController.php', 'sha256' => 'b4d1a6772b064de9be6a80750074b0a9e371514f58131a1701cad6cd52ccb8bf'],
     ['plugin' => 'wordpress-seo', 'path' => 'inc/class-yoast-dynamic-rewrites.php', 'sha256' => '3b07ec0af1f94269b2a5a98bba078edbee73e1697aeeed119ae12ff4a3ca7553'],
     ['plugin' => 'wordpress-seo', 'path' => 'wp-seo-main.php', 'sha256' => '5ecb2632b7997782e7efda714ab11e4a1ca479a8f3277c8e3137600bcb575ff1'],
     ['plugin' => 'polylang', 'path' => 'src/links-directory.php', 'sha256' => '5cadce6a89e87278bdd021d8f049d9c4e511acecc6c6366808740f04027d2dc0'],
@@ -58,6 +62,13 @@ duo_check_same([
     'mixed rewrite topology binds each installed extension callback to its exact audited source bytes');
 duo_check_same([
     ['hook' => 'rewrite_rules_array', 'callback' => 'wc_fix_rewrite_rules', 'priority' => 10, 'accepted_args' => 1],
+    ['hook' => 'updated_option', 'callback' => 'Automattic\\WooCommerce\\Internal\\Features\\FeaturesController::process_updated_option', 'priority' => 999, 'accepted_args' => 3],
+    ['hook' => 'added_option', 'callback' => 'Automattic\\WooCommerce\\Internal\\Features\\FeaturesController::process_added_option', 'priority' => 999, 'accepted_args' => 3],
+    ['hook' => 'updated_option', 'callback' => 'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer::process_updated_option', 'priority' => 999, 'accepted_args' => 3],
+    ['hook' => 'added_option', 'callback' => 'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer::process_added_option', 'priority' => 999, 'accepted_args' => 2],
+    ['hook' => 'updated_option', 'callback' => 'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController::process_updated_option', 'priority' => 999, 'accepted_args' => 3],
+    ['hook' => 'updated_option', 'callback' => 'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController::process_updated_option_fts_index', 'priority' => 999, 'accepted_args' => 3],
+    ['hook' => 'pre_update_option', 'callback' => 'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController::process_pre_update_option', 'priority' => 999, 'accepted_args' => 3],
     ['hook' => 'option_rewrite_rules', 'callback' => 'Yoast_Dynamic_Rewrites::filter_rewrite_rules_option', 'priority' => 10, 'accepted_args' => 1],
     ['hook' => 'sanitize_option_rewrite_rules', 'callback' => 'Yoast_Dynamic_Rewrites::sanitize_rewrite_rules_option', 'priority' => 10, 'accepted_args' => 1],
     ['hook' => 'generate_rewrite_rules', 'callback' => 'Tribe__Cache_Listener::generate_rewrite_rules', 'priority' => 10, 'accepted_args' => 1],
@@ -90,6 +101,22 @@ duo_check_same([
     ],
 ], $coinstallTopology['marker_option_topology'] ?? null,
     'the exact TEC/core marker option callback union stays closed; arbitrary updated_option or option-hook callbacks are never admitted');
+duo_check_same([
+    'updated_option' => [
+        ['callback' => 'Automattic\\WooCommerce\\Internal\\Features\\FeaturesController::process_updated_option', 'priority' => 999, 'accepted_args' => 3],
+        ['callback' => 'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer::process_updated_option', 'priority' => 999, 'accepted_args' => 3],
+        ['callback' => 'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController::process_updated_option', 'priority' => 999, 'accepted_args' => 3],
+        ['callback' => 'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController::process_updated_option_fts_index', 'priority' => 999, 'accepted_args' => 3],
+    ],
+    'pre_update_option' => [
+        ['callback' => 'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController::process_pre_update_option', 'priority' => 999, 'accepted_args' => 3],
+    ],
+    'added_option' => [
+        ['callback' => 'Automattic\\WooCommerce\\Internal\\Features\\FeaturesController::process_added_option', 'priority' => 999, 'accepted_args' => 3],
+        ['callback' => 'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer::process_added_option', 'priority' => 999, 'accepted_args' => 2],
+    ],
+], $coinstallTopology['woocommerce_normal_option_topology'] ?? null,
+    'the normal Woo boot option callback union is source-bound and is distinct from unsupported request-conditional tracking callbacks');
 duo_check_same([
     'rewrite_rules',
     'tribe_last_generate_rewrite_rules',

@@ -32,7 +32,7 @@
     {
       "plugin": "woocommerce",
       "path": "includes/class-woocommerce.php",
-      "sha256": "2f3a95ae78217be16fa1f272c1fad4d3faecfd02939041a861d65826bb3f4cb7"
+      "sha256": "5982ef2ab60231218cc71a2ba9bd387496d32c1a5eeb5468116d51137bbd7ef4"
     },
     {
       "plugin": "woocommerce",

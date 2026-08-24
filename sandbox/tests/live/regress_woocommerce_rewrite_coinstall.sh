@@ -92,7 +92,7 @@ echo hash_file("sha256",$path);
 }
 
 say "candidate/source preflight: $HEAD"
-jq -e '.format=="duo-woocommerce-rewrite-coinstall-topology/v1" and .artifacts.woocommerce.version=="11.0.1" and .artifacts["wordpress-seo"].version=="28.3" and .artifacts.polylang.version=="3.8.6" and .artifacts["the-events-calendar"].version=="6.17.2" and (.source_files|length==12) and (.static_callbacks|length==11) and (.marker_option_topology.updated_option|length==5) and .marker_option_topology.pre_option.optional_callback=="TEC\\Common\\Integrations\\Harbor\\PUE::filter_pre_get_option" and .marker_option_topology.wp_default_autoload_value.callback=="wp_filter_default_autoload_value_via_option_size" and (.dynamic_callback_containers|any(.hook=="pll_modify_rewrite_rule" and .accepted_args==4))' "$TOPOLOGY" >/dev/null || fail 'co-install topology fixture is not exact'
+jq -e '.format=="duo-woocommerce-rewrite-coinstall-topology/v1" and .artifacts.woocommerce.version=="11.0.1" and .artifacts["wordpress-seo"].version=="28.3" and .artifacts.polylang.version=="3.8.6" and .artifacts["the-events-calendar"].version=="6.17.2" and (.source_files|length==16) and (.static_callbacks|length==18) and (.marker_option_topology.updated_option|length==5) and (.woocommerce_normal_option_topology.updated_option|length==4) and (.woocommerce_normal_option_topology.pre_update_option|length==1) and (.woocommerce_normal_option_topology.added_option|length==2) and .marker_option_topology.pre_option.optional_callback=="TEC\\Common\\Integrations\\Harbor\\PUE::filter_pre_get_option" and .marker_option_topology.wp_default_autoload_value.callback=="wp_filter_default_autoload_value_via_option_size" and (.dynamic_callback_containers|any(.hook=="pll_modify_rewrite_rule" and .accepted_args==4))' "$TOPOLOGY" >/dev/null || fail 'co-install topology fixture is not exact'
 validate_artifact_lock conformance/artifacts.lock.json
 jq -e --slurpfile lock conformance/artifacts.lock.json '(.artifacts | to_entries | all(. as $artifact | $lock[0].plugins[$artifact.key][$artifact.value.version].sha256 == $artifact.value.sha256))' "$TOPOLOGY" >/dev/null || fail 'co-install artifact hashes differ from the artifact lock'
 pass 'candidate, artifact hashes, and audited topology are pinned'
@@ -173,7 +173,11 @@ echo "$HOOKS" | jq -e --slurpfile topology "$TOPOLOGY" '
     any($actual[]; .hook==$want.hook and .callback==$want.callback and .priority==$want.priority and .args==$want.accepted_args)
   )) and
   ([ $actual[] | select(.hook=="updated_option") | del(.hook) ] | canon) ==
-    ([ $topology[0].marker_option_topology.updated_option[] | {priority, args:.accepted_args, callback} ] | canon) and
+    ([ $topology[0].woocommerce_normal_option_topology.updated_option[], $topology[0].marker_option_topology.updated_option[] | {priority, args:.accepted_args, callback} ] | canon) and
+  ([ $actual[] | select(.hook=="pre_update_option") | del(.hook) ] | canon) ==
+    ([ $topology[0].woocommerce_normal_option_topology.pre_update_option[] | {priority, args:.accepted_args, callback} ] | canon) and
+  ([ $actual[] | select(.hook=="added_option") | del(.hook) ] | canon) ==
+    ([ $topology[0].woocommerce_normal_option_topology.added_option[] | {priority, args:.accepted_args, callback} ] | canon) and
   ([ $actual[] | select(.hook=="pre_option") | del(.hook) ] | canon) as $pre |
   ($pre==[] or $pre==[
     ($topology[0].marker_option_topology.pre_option | {priority, args:.accepted_args, callback:.optional_callback})
@@ -181,7 +185,7 @@ echo "$HOOKS" | jq -e --slurpfile topology "$TOPOLOGY" '
   ([ $actual[] | select(.hook=="wp_default_autoload_value") | del(.hook) ] | canon) == [
     ($topology[0].marker_option_topology.wp_default_autoload_value | {priority, args:.accepted_args, callback})
   ] and
-  all($actual[]; .hook=="rewrite_rules_array" or .hook=="option_rewrite_rules" or .hook=="sanitize_option_rewrite_rules" or .hook=="generate_rewrite_rules" or .hook=="updated_option" or .hook=="pre_option" or .hook=="wp_default_autoload_value") and
+  all($actual[]; .hook=="rewrite_rules_array" or .hook=="option_rewrite_rules" or .hook=="sanitize_option_rewrite_rules" or .hook=="generate_rewrite_rules" or .hook=="updated_option" or .hook=="pre_update_option" or .hook=="added_option" or .hook=="pre_option" or .hook=="wp_default_autoload_value") and
   any($actual[]; .hook=="rewrite_rules_array" and .callback=="PLL_Links_Directory::rewrite_rules" and .priority==10 and .args==1)
 ' >/dev/null || fail "live callback topology differs from audited pins: $HOOKS"
 RULES=$(wp2 eval '
