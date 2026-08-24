@@ -105,10 +105,11 @@ refuses a suite file sitting in a class directory that no recipe runs, so a
 file dropped in the right place but never wired fails loudly instead of looking
 covered.
 
-Two `Makefile` edits go with the new file and `regress_bundle_coverage.sh`
-fails the gate if either is missing: wire the leaf into
-`regress-offline-corpus`, and bump the `regress-offline-all: N offline suites
-green` count line. Adding the target is otherwise ordinary work. A self-test
+One `Makefile` edit goes with the new file — its own leaf target — and then
+`php tools/offline-corpus.php` regenerates the derived corpus include
+(AGENTS.md rule 4): the prerequisite list and the count are DERIVED from the
+tree, never hand-edited, and `regress_bundle_coverage.sh` still fails the gate
+on an unwired suite. Adding the target is otherwise ordinary work. A self-test
 for the *tooling* is not a suite: put it in `tests/` under PHPUnit, which the
 offline corpus does not run and which needs no `Makefile` edit at all.
 
