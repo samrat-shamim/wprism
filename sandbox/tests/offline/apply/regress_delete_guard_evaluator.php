@@ -51,6 +51,9 @@ final class DeleteGuardEvaluatorFakeWpdb {
     public bool $throwOnCommit = false;
     public bool $throwOnRollback = false;
     public bool $commitLeavesError = false;
+    public ?int $replaceConnectionAtStateProbeStep = null;
+    public int $stateProbeStep = 0;
+    public mixed $replacementActiveTransaction = '0';
 
     /** @param list<array<string,mixed>> $indexRows */
     public function __construct(
@@ -159,6 +162,13 @@ final class DeleteGuardEvaluatorFakeWpdb {
 
     public function get_var(string $sql): int|string|null|false {
         $this->queries[] = $sql;
+        if (in_array($sql, ['SELECT CONNECTION_ID()', 'SELECT @@in_transaction'], true)) {
+            $this->stateProbeStep++;
+            if ($this->replaceConnectionAtStateProbeStep === $this->stateProbeStep) {
+                $this->connectionId = (string) ((int) $this->connectionId + 1);
+                $this->activeTransaction = $this->replacementActiveTransaction;
+            }
+        }
         if ($sql === 'SELECT CONNECTION_ID()') {
             return $this->connectionId;
         }
@@ -516,15 +526,18 @@ $isolationWpdb->activeTransaction = '0';
 Db::start_repeatable_read('fixture transaction start');
 DeleteGuardEvaluator::begin_authored_transaction();
 $check(
-    array_slice($isolationWpdb->queries, 0, 8) === [
+    array_slice($isolationWpdb->queries, 0, 11) === [
         'SELECT CONNECTION_ID()',
         'SELECT @@in_transaction',
+        'SELECT CONNECTION_ID()',
         'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ',
         'SELECT CONNECTION_ID()',
         'SELECT @@in_transaction',
+        'SELECT CONNECTION_ID()',
         'START TRANSACTION',
         'SELECT CONNECTION_ID()',
         'SELECT @@in_transaction',
+        'SELECT CONNECTION_ID()',
     ],
     'authored transaction binds one connection and positively sets one-shot REPEATABLE READ immediately before START'
 );
@@ -635,6 +648,61 @@ $check(
     'connection replacement across one-shot isolation refuses without applying control to the replacement'
 );
 Db::forget_transaction_tracking();
+
+foreach ([2, 3] as $probeStep) {
+    $reconnectedPreflight = new DeleteGuardEvaluatorFakeWpdb([]);
+    $reconnectedPreflight->activeTransaction = '0';
+    $reconnectedPreflight->replaceConnectionAtStateProbeStep = $probeStep;
+    $GLOBALS['wpdb'] = $reconnectedPreflight;
+    try {
+        Db::start("reconnected preflight probe $probeStep");
+        $preflightProbeRefused = false;
+    } catch (Throwable $failure) {
+        $preflightProbeRefused = $failure instanceof \Duo\DatabaseTransactionOutcomeException;
+    }
+    $check(
+        $preflightProbeRefused
+            && !in_array('START TRANSACTION', $reconnectedPreflight->queries, true),
+        "connection replacement between preflight state probes $probeStep refuses before START"
+    );
+    Db::forget_transaction_tracking();
+}
+
+foreach ([4, 5, 6] as $probeStep) {
+    $reconnectedIsolationProof = new DeleteGuardEvaluatorFakeWpdb([]);
+    $reconnectedIsolationProof->activeTransaction = '0';
+    $reconnectedIsolationProof->replaceConnectionAtStateProbeStep = $probeStep;
+    $GLOBALS['wpdb'] = $reconnectedIsolationProof;
+    try {
+        Db::start_repeatable_read("reconnected isolation proof $probeStep");
+        $isolationProbeRefused = false;
+    } catch (Throwable $failure) {
+        $isolationProbeRefused = $failure instanceof \Duo\DatabaseTransactionOutcomeException;
+    }
+    $check(
+        $isolationProbeRefused,
+        "connection replacement at SET outcome-state probe $probeStep cannot strand an authorized override"
+    );
+    Db::forget_transaction_tracking();
+}
+
+foreach ([7, 8, 9] as $probeStep) {
+    $reconnectedStartProof = new DeleteGuardEvaluatorFakeWpdb([]);
+    $reconnectedStartProof->activeTransaction = '0';
+    $reconnectedStartProof->replaceConnectionAtStateProbeStep = $probeStep;
+    $GLOBALS['wpdb'] = $reconnectedStartProof;
+    try {
+        Db::start_repeatable_read("reconnected START proof $probeStep");
+        $startProbeRefused = false;
+    } catch (Throwable $failure) {
+        $startProbeRefused = $failure instanceof \Duo\DatabaseTransactionOutcomeException;
+    }
+    $check(
+        $startProbeRefused,
+        "connection replacement at START outcome-state probe $probeStep cannot authorize a hybrid transaction"
+    );
+    Db::forget_transaction_tracking();
+}
 
 $readOnlySnapshot = new DeleteGuardEvaluatorFakeWpdb([]);
 $readOnlySnapshot->activeTransaction = '0';
@@ -899,6 +967,27 @@ $check(
     'connection replacement across COMMIT is recovery_required instead of guessed committed or rolled back'
 );
 Db::forget_transaction_tracking();
+
+foreach ([1, 2, 3] as $probeStep) {
+    $reconnectedState = new DeleteGuardEvaluatorFakeWpdb([]);
+    $reconnectedState->activeTransaction = '0';
+    $GLOBALS['wpdb'] = $reconnectedState;
+    Db::start_repeatable_read("state-probe-$probeStep commit start");
+    $reconnectedState->applyCommit = false;
+    $reconnectedState->stateProbeStep = 0;
+    $reconnectedState->replaceConnectionAtStateProbeStep = $probeStep;
+    try {
+        Db::commit("state-probe-$probeStep commit");
+        $stateProbeRefused = false;
+    } catch (Throwable $failure) {
+        $stateProbeRefused = $failure instanceof \Duo\DatabaseTransactionOutcomeException;
+    }
+    $check(
+        $stateProbeRefused,
+        "connection replacement at transaction-state probe $probeStep cannot bless a truthy unapplied COMMIT"
+    );
+    Db::forget_transaction_tracking();
+}
 
 $prematureCommit = new DeleteGuardEvaluatorFakeWpdb([]);
 $prematureCommit->activeTransaction = '0';

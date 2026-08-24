@@ -538,10 +538,10 @@ final class Db {
         if (property_exists($wpdb, 'last_error')) {
             $wpdb->last_error = '';
         }
-        $connectionId = $wpdb->get_var('SELECT CONNECTION_ID()');
+        $connectionIdBefore = $wpdb->get_var('SELECT CONNECTION_ID()');
         $connectionError = trim((string) ($wpdb->last_error ?? ''));
-        if (!is_string($connectionId)
-            || preg_match('/^[1-9][0-9]*$/D', $connectionId) !== 1
+        if (!is_string($connectionIdBefore)
+            || preg_match('/^[1-9][0-9]*$/D', $connectionIdBefore) !== 1
             || $connectionError !== '') {
             throw new DatabaseTransactionOutcomeException($context . ' returned a malformed connection identity');
         }
@@ -555,6 +555,26 @@ final class Db {
             || $activeError !== '') {
             throw new DatabaseTransactionOutcomeException($context . ' returned malformed transaction state');
         }
-        return ['connection_id' => $connectionId, 'active' => $active === '1'];
+        if (property_exists($wpdb, 'last_error')) {
+            $wpdb->last_error = '';
+        }
+        $connectionIdAfter = $wpdb->get_var('SELECT CONNECTION_ID()');
+        $connectionAfterError = trim((string) ($wpdb->last_error ?? ''));
+        if (!is_string($connectionIdAfter)
+            || preg_match('/^[1-9][0-9]*$/D', $connectionIdAfter) !== 1
+            || $connectionAfterError !== '') {
+            throw new DatabaseTransactionOutcomeException($context . ' returned a malformed connection identity');
+        }
+        // wpdb exposes connection identity and transaction activity through
+        // separate scalar reads. A reconnect between them can combine an old
+        // transaction identity with a replacement session's idle state and
+        // falsely bless COMMIT. Sandwich the state read so only one physical
+        // session can authorize a transaction outcome.
+        if (!hash_equals($connectionIdBefore, $connectionIdAfter)) {
+            throw new DatabaseTransactionOutcomeException(
+                $context . ' changed database connection while reading transaction state'
+            );
+        }
+        return ['connection_id' => $connectionIdAfter, 'active' => $active === '1'];
     }
 }
