@@ -62,6 +62,7 @@ duo_check_same([
     ['plugin' => 'the-events-calendar', 'path' => 'src/Tribe/Views/V2/Hooks.php', 'sha256' => 'd746a05d4e7979a0bbdae0938f009d0012e550d605c4a331a1cd288e7b746b5f'],
     ['plugin' => 'the-events-calendar', 'path' => 'common/src/Common/Integrations/Harbor/PUE.php', 'sha256' => 'abe0ef81332c52aff2983b8f78700169dbcfbeb663497af84e681be245629988'],
     ['plugin' => 'the-events-calendar', 'path' => 'common/src/Tribe/Rewrite.php', 'sha256' => '0e198faca151aeca66680e916a038eab5c264f7d0ee6472d8f07d1845d0a7b9a'],
+    ['plugin' => 'the-events-calendar', 'path' => 'src/Tribe/Rewrite.php', 'sha256' => '2f447a4120a349d5f596c834192b17a5b911c6c94e8a62cfaee58af89cc86aab'],
     ['plugin' => 'the-events-calendar', 'path' => 'src/Tribe/Main.php', 'sha256' => '3f7b3c50960071a350077ee1c72bd342ebe4613c374913522361371ca30aaa94'],
 ], $coinstallTopology['source_files'] ?? null,
     'mixed rewrite topology binds each installed extension callback to its exact audited source bytes');
@@ -101,8 +102,8 @@ duo_check_same([
     ['hook' => 'updated_option', 'callback' => 'Tribe__Cache_Listener::update_last_save_post', 'priority' => 10, 'accepted_args' => 3],
     ['hook' => 'updated_option', 'callback' => 'Tribe__Events__Aggregator::action_purge_transients', 'priority' => 10, 'accepted_args' => 1],
     ['hook' => 'updated_option', 'callback' => 'Tribe\\Events\\Views\\V2\\Hooks::action_save_wplang', 'priority' => 10, 'accepted_args' => 3],
-    ['hook' => 'generate_rewrite_rules', 'callback' => 'Tribe__Rewrite::filter_generate', 'priority' => 10, 'accepted_args' => 1],
-    ['hook' => 'rewrite_rules_array', 'callback' => 'Tribe__Rewrite::filter_rewrite_rules_array', 'priority' => 25, 'accepted_args' => 1],
+    ['hook' => 'generate_rewrite_rules', 'callback' => 'Tribe__Events__Rewrite::filter_generate', 'priority' => 10, 'accepted_args' => 1],
+    ['hook' => 'rewrite_rules_array', 'callback' => 'Tribe__Events__Rewrite::filter_rewrite_rules_array', 'priority' => 25, 'accepted_args' => 1],
 ], $coinstallTopology['static_callbacks'] ?? null,
     'mixed rewrite topology closes every static Woo, Yoast, and TEC callback with priority and accepted-argument identity');
 duo_check_same([
@@ -312,9 +313,14 @@ final class PLL_Links_Directory {
 }
 }
 
-if (!class_exists('Tribe__Rewrite')) {
-final class Tribe__Rewrite {
+if (!class_exists('Tribe__Events__Rewrite')) {
+final class Tribe__Events__Rewrite {
+    private static ?self $instance = null;
     public int $generationCalls = 0;
+
+    public static function instance(): self {
+        return self::$instance ??= new self();
+    }
 
     public function filter_generate(object $rewrite): void {
         ++$this->generationCalls;
@@ -865,7 +871,7 @@ duo_check_same($sanitizerCallsBeforeHostile, $GLOBALS['wooHierarchyPermalinkSani
 woo_hierarchy_test_clear_native_hooks();
 
 $tecListener = Tribe__Cache_Listener::install();
-$tecRewrite = new Tribe__Rewrite();
+$tecRewrite = Tribe__Events__Rewrite::instance();
 $yoastRewrites = new Yoast_Dynamic_Rewrites();
 $polylangLinks = new PLL_Links_Directory();
 $pllModifyCalls = 0;
