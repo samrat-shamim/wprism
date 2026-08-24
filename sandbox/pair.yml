@@ -131,6 +131,13 @@ services:
       - ./bin/db-client-shim.sh:/usr/local/bin/mysql:ro
       - ./bin/db-client-shim.sh:/usr/local/bin/mysqldump:ro
       - ./bin/db-client-shim.sh:/usr/local/bin/mysqlcheck:ro
+      # WP-CLI >=2.9 prefers the mariadb-named binaries when they exist, so the
+      # shim must front BOTH families (measured: with only the mysql names
+      # shimmed, `wp db query` still reached /usr/bin/mariadb and failed on
+      # TLS verification).
+      - ./bin/db-client-shim.sh:/usr/local/bin/mariadb:ro
+      - ./bin/db-client-shim.sh:/usr/local/bin/mariadb-dump:ro
+      - ./bin/db-client-shim.sh:/usr/local/bin/mariadb-check:ro
     mem_limit: 1g
     cpus: "1.0"
 
@@ -165,6 +172,13 @@ services:
       - ./bin/db-client-shim.sh:/usr/local/bin/mysql:ro
       - ./bin/db-client-shim.sh:/usr/local/bin/mysqldump:ro
       - ./bin/db-client-shim.sh:/usr/local/bin/mysqlcheck:ro
+      # WP-CLI >=2.9 prefers the mariadb-named binaries when they exist, so the
+      # shim must front BOTH families (measured: with only the mysql names
+      # shimmed, `wp db query` still reached /usr/bin/mariadb and failed on
+      # TLS verification).
+      - ./bin/db-client-shim.sh:/usr/local/bin/mariadb:ro
+      - ./bin/db-client-shim.sh:/usr/local/bin/mariadb-dump:ro
+      - ./bin/db-client-shim.sh:/usr/local/bin/mariadb-check:ro
     mem_limit: 1g
     cpus: "1.0"
 
