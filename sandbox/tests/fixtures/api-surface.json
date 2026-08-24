@@ -38894,6 +38894,14 @@
                             "name": "writeStorage",
                             "type": "?Closure",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "writeRuntimeOption",
+                            "type": "?Closure",
+                            "variadic": false
                         }
                     ],
                     "return_type": "bool",
@@ -39294,6 +39302,39 @@
                     "visibility": "public"
                 },
                 "option_sub_key_materialization_companions": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "name",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "effectiveRule",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "effectiveSource",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "option_sub_key_materialization_runtime_companions": {
                     "abstract": false,
                     "final": false,
                     "parameters": [

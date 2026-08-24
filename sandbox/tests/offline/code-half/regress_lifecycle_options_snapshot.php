@@ -30,7 +30,9 @@ function wp_cache_delete(...$args): bool {
     $GLOBALS['lifecycle_cache_deletes'][] = $args;
     return true;
 }
-function wp_using_ext_object_cache(): bool { return false; }
+function wp_using_ext_object_cache(): bool {
+    return ($GLOBALS['lifecycle_external_object_cache'] ?? false) === true;
+}
 function maybe_serialize($value) {
     return is_array($value) || is_object($value) ? serialize($value) : $value;
 }
@@ -112,6 +114,15 @@ final class LifecycleOptionsFakeWpdb {
     public bool $failOptionUpdate = false;
     public bool $retainOptionUpdate = false;
     public bool $retainOptionDelete = false;
+    /** @var array<string,true> */
+    public array $failOptionInsertNames = [];
+    /** @var array<string,true> */
+    public array $failOptionUpdateNames = [];
+    /** @var array<string,true> */
+    public array $failOptionDeleteNames = [];
+    /** @var array<string,true> */
+    public array $retainOptionUpdateNames = [];
+    public mixed $afterOptionMutation = null;
 
     public function get_charset_collate(): string { return ''; }
 
@@ -505,34 +516,57 @@ final class LifecycleOptionsFakeWpdb {
         return [];
     }
 
-    public function insert($table, $data, $format = null): int {
+    public function insert($table, $data, $format = null): int|false {
         $this->writes[] = ['table' => (string) $table, 'data' => $data];
         if ((string) $table === $this->options && isset($data['option_name'])) {
-            $this->optionRows[(string) $data['option_name']] = [
+            $name = (string) $data['option_name'];
+            if (isset($this->failOptionInsertNames[$name])) {
+                $this->last_error = 'simulated named option insert failure';
+                return false;
+            }
+            $this->optionRows[$name] = [
                 'option_value' => (string) ($data['option_value'] ?? ''),
                 'autoload' => (string) ($data['autoload'] ?? 'no'),
             ];
+            if (is_callable($this->afterOptionMutation)) {
+                ($this->afterOptionMutation)('insert', $name, $this);
+            }
         }
         return 1;
     }
     public function update($table, $data, $where, $format = null, $whereFormat = null): int|false {
         $this->writes[] = ['table' => (string) $table, 'data' => $data, 'where' => $where];
-        if ($this->failOptionUpdate && (string) $table === $this->options) {
+        $name = (string) ($where['option_name'] ?? '');
+        if (($this->failOptionUpdate || isset($this->failOptionUpdateNames[$name]))
+            && (string) $table === $this->options) {
             $this->last_error = 'simulated option update failure';
             return false;
         }
-        if (!$this->retainOptionUpdate && (string) $table === $this->options) {
-            $name = (string) ($where['option_name'] ?? '');
+        if (!$this->retainOptionUpdate
+            && !isset($this->retainOptionUpdateNames[$name])
+            && (string) $table === $this->options) {
             if (isset($this->optionRows[$name])) {
                 $this->optionRows[$name] = array_merge($this->optionRows[$name], $data);
+                if (is_callable($this->afterOptionMutation)) {
+                    ($this->afterOptionMutation)('update', $name, $this);
+                }
             }
         }
         return 1;
     }
-    public function delete($table, $where, $whereFormat = null): int {
+    public function delete($table, $where, $whereFormat = null): int|false {
+        $this->writes[] = ['table' => (string) $table, 'data' => [], 'where' => $where];
         if ((string) $table === $this->options && isset($where['option_name'])) {
+            $name = (string) $where['option_name'];
+            if (isset($this->failOptionDeleteNames[$name])) {
+                $this->last_error = 'simulated named option delete failure';
+                return false;
+            }
             if (!$this->retainOptionDelete) {
-                unset($this->optionRows[(string) $where['option_name']]);
+                unset($this->optionRows[$name]);
+                if (is_callable($this->afterOptionMutation)) {
+                    ($this->afterOptionMutation)('delete', $name, $this);
+                }
             }
         }
         return 1;
@@ -1048,12 +1082,30 @@ $nativeState = (object) [
     'projection_input' => null,
     'mutate_target_sibling' => false,
     'retain_nested_target_carrier' => false,
+    'runtime_roster' => [],
+    'runtime_plan' => [],
+    'runtime_write_results' => [],
+    'runtime_before_write_mutation' => null,
+    'runtime_after_write_mutation' => null,
+    'runtime_duplicate_write' => false,
+    'throw_after_runtime' => false,
+    'transaction_after_runtime' => null,
+    'transaction_loss_after_runtime_position' => null,
+    'local_runtime' => 'clean',
+    'local_restore_calls' => 0,
+    'local_restore_failure' => false,
+    'arm_rollback_failures' => false,
+    'rollback_order' => [],
 ];
 $nativeInterpreter = new class ($nativeState) {
     public function __construct(private object $state) {}
 
     public function option_sub_key_materialization_companions(string $name): array {
         return $name === 'native_blob' ? [(string) $this->state->requested] : [];
+    }
+
+    public function option_sub_key_materialization_runtime_companions(string $name): array {
+        return $name === 'native_blob' ? $this->state->runtime_roster : [];
     }
 
     public function materialize_option_sub_keys(
@@ -1066,12 +1118,22 @@ $nativeInterpreter = new class ($nativeState) {
         Closure $finalizeStorage,
         Closure $restoreStorage,
         ?Closure $registerRuntimeRestore = null,
-        ?Closure $writeStorage = null
+        ?Closure $writeStorage = null,
+        ?Closure $writeRuntimeOption = null
     ): bool {
         if ($registerRuntimeRestore === null) {
             throw new RuntimeException('fixture: missing runtime restore registrar');
         }
-        $registerRuntimeRestore(static function (): void {});
+        $runtimeBefore = $this->state->local_runtime;
+        $state = $this->state;
+        $registerRuntimeRestore(static function () use ($runtimeBefore, $state): void {
+            ++$state->local_restore_calls;
+            $state->rollback_order[] = 'local-runtime';
+            $state->local_runtime = $runtimeBefore;
+            if ($state->local_restore_failure) {
+                throw new RuntimeException('fixture: local runtime restore failure');
+            }
+        });
         $row = $lockTargetOption((string) $this->state->requested);
         if (!is_array($row) || ($row['option_value'] ?? null) !== 'yes') {
             throw new RuntimeException('fixture: exact raw companion marker is not yes');
@@ -1105,6 +1167,53 @@ $nativeInterpreter = new class ($nativeState) {
                 $storage['runtime'] = 'clobbered';
             }
             $writeStorage($storage);
+        }
+        $this->state->runtime_write_results = [];
+        foreach ($this->state->runtime_plan as $runtimePosition => $runtimeWrite) {
+            if ($writeRuntimeOption === null) {
+                throw new RuntimeException('fixture: missing runtime-companion writer');
+            }
+            $runtimeName = (string) ($runtimeWrite['name'] ?? '');
+            $lockTargetOption($runtimeName);
+            if ($this->state->runtime_before_write_mutation === $runtimeName) {
+                global $wpdb;
+                $beforeBytes = (string) ($wpdb->optionRows[$runtimeName]['option_value'] ?? '');
+                $wpdb->optionRows[$runtimeName]['option_value'] = str_repeat('X', strlen($beforeBytes));
+            }
+            $this->state->runtime_write_results[] = $writeRuntimeOption(
+                $runtimeName,
+                (string) ($runtimeWrite['value'] ?? ''),
+                (string) ($runtimeWrite['autoload'] ?? '')
+            );
+            if ($this->state->transaction_loss_after_runtime_position === $runtimePosition) {
+                global $wpdb;
+                $wpdb->transactionState = '0';
+            }
+            if ($this->state->runtime_duplicate_write) {
+                $writeRuntimeOption(
+                    $runtimeName,
+                    (string) ($runtimeWrite['value'] ?? ''),
+                    (string) ($runtimeWrite['autoload'] ?? '')
+                );
+            }
+        }
+        if ($this->state->runtime_plan !== []) {
+            $this->state->local_runtime = 'dirty';
+        }
+        if ($this->state->runtime_after_write_mutation !== null) {
+            global $wpdb;
+            $wpdb->optionRows[(string) $this->state->runtime_after_write_mutation]['option_value'] = 'foreign';
+        }
+        if ($this->state->transaction_after_runtime !== null) {
+            global $wpdb;
+            $wpdb->transactionState = $this->state->transaction_after_runtime;
+        }
+        if ($this->state->throw_after_runtime) {
+            if ($this->state->arm_rollback_failures) {
+                $this->state->local_restore_failure = true;
+                $GLOBALS['lifecycle_external_object_cache'] = true;
+            }
+            throw new RuntimeException('fixture: failure after runtime companions');
         }
         if ($this->state->delete_before_finalize) {
             global $wpdb;
@@ -1142,6 +1251,8 @@ $nativeInterpreter = new class ($nativeState) {
             unset($wpdb->optionRows[$name]);
         } elseif ($this->state->projection_mode === 'rewrite-companion') {
             $wpdb->optionRows['pll_language_from_content_available']['option_value'] = 'no';
+        } elseif ($this->state->projection_mode === 'rewrite-runtime-companion') {
+            $wpdb->optionRows['runtime_effect_one']['option_value'] = 'foreign';
         }
         if ($this->state->projection_mode === 'mismatch') {
             return array_replace($rawAuthored, ['portable' => 'projection-mismatch']);
@@ -1185,6 +1296,8 @@ $nativePolicy->manifests = [[
             ],
         ],
         'pll_language_from_content_available' => ['class' => 'runtime'],
+        'runtime_effect_one' => ['class' => 'runtime'],
+        'runtime_effect_two' => ['class' => 'derived'],
     ],
 ]];
 $nativeInstances = new ReflectionProperty(Policy::class, 'interpreterInstances');
@@ -1280,10 +1393,286 @@ $check(
     'an inserted exact-yes companion is observed only after its row lock and then permits native setters'
 );
 
+// Writable runtime companions are a separate capability from observation-
+// only locks. The engine takes every row/gap lock in canonical name order,
+// grants only the declared names to the raw writer, and owns exact readback,
+// cache invalidation, rollback and retry even when the interpreter throws
+// after one or more source-proven effects.
+$nativeState->runtime_roster = ['runtime_effect_two', 'runtime_effect_one'];
+$nativeState->runtime_plan = [
+    ['name' => 'runtime_effect_one', 'value' => 'new-one', 'autoload' => 'yes'],
+    ['name' => 'runtime_effect_two', 'value' => 'new-two', 'autoload' => 'auto'],
+];
+$nativeState->local_runtime = 'clean';
+$nativeState->local_restore_calls = 0;
+$nativeState->rollback_order = [];
+$wpdb->optionRows['native_blob'] = [
+    'option_value' => serialize(['portable' => 'old']),
+    'autoload' => 'yes',
+];
+$wpdb->optionRows['runtime_effect_one'] = ['option_value' => 'old-one', 'autoload' => 'no'];
+unset($wpdb->optionRows['runtime_effect_two']);
+$wpdb->queryCalls = [];
+$invokeNative();
+$initialRuntimeLockOrder = [];
+foreach ($wpdb->queryCalls as $call) {
+    $lockedName = $call['args'][0] ?? null;
+    if (!is_string($lockedName)
+        || isset($initialRuntimeLockOrder[$lockedName])
+        || !str_contains($call['sql'], 'OCTET_LENGTH(option_value) AS option_value_bytes')) {
+        continue;
+    }
+    $initialRuntimeLockOrder[$lockedName] = count($initialRuntimeLockOrder);
+}
+$check(
+    ($wpdb->optionRows['runtime_effect_one'] ?? null)
+        === ['option_value' => 'new-one', 'autoload' => 'yes']
+        && ($wpdb->optionRows['runtime_effect_two'] ?? null)
+        === ['option_value' => 'new-two', 'autoload' => 'auto']
+        && array_keys($initialRuntimeLockOrder) === [
+            'native_blob',
+            'pll_language_from_content_available',
+            'runtime_effect_one',
+            'runtime_effect_two',
+        ]
+        && $nativeState->local_runtime === 'dirty'
+        && $nativeState->local_restore_calls === 0,
+    'two runtime effects update/insert exact raw rows only after the complete canonical row/gap lock roster'
+);
+
+$runtimeRollbackBefore = $wpdb->optionRows;
+$runtimeRollbackBefore['native_blob'] = [
+    'option_value' => serialize(['portable' => 'before-rollback']),
+    'autoload' => 'yes',
+];
+$runtimeRollbackBefore['runtime_effect_one'] = ['option_value' => 'before-one', 'autoload' => 'no'];
+unset($runtimeRollbackBefore['runtime_effect_two']);
+$wpdb->optionRows = $runtimeRollbackBefore;
+$nativeState->local_runtime = 'clean';
+$nativeState->local_restore_calls = 0;
+$nativeState->rollback_order = [];
+$nativeState->throw_after_runtime = true;
+try {
+    $invokeNative();
+    $runtimeRollbackRefused = false;
+} catch (Throwable $failure) {
+    $runtimeRollbackRefused = str_contains($failure->getMessage(), 'failure after runtime companions');
+}
+$nativeState->throw_after_runtime = false;
+$runtimeRollbackAfter = $wpdb->optionRows;
+ksort($runtimeRollbackBefore, SORT_STRING);
+ksort($runtimeRollbackAfter, SORT_STRING);
+$check(
+    $runtimeRollbackRefused
+        && $runtimeRollbackAfter === $runtimeRollbackBefore
+        && $nativeState->local_runtime === 'clean'
+        && $nativeState->local_restore_calls === 1
+        && $nativeState->rollback_order === ['local-runtime'],
+    'failure after both runtime effects restores local state, inserted/deleted rows and primary bytes before rollback'
+);
+$invokeNative();
+$check(
+    ($wpdb->optionRows['runtime_effect_one']['option_value'] ?? null) === 'new-one'
+        && ($wpdb->optionRows['runtime_effect_two']['option_value'] ?? null) === 'new-two',
+    'the same process retries a fully rolled-back two-effect materialization to exact convergence'
+);
+
+$wpdb->optionRows = $runtimeRollbackBefore;
+$nativeState->local_runtime = 'clean';
+$nativeState->local_restore_failure = false;
+$nativeState->arm_rollback_failures = true;
+$nativeState->throw_after_runtime = true;
+try {
+    $invokeNative();
+    $rollbackAggregationProven = false;
+} catch (Throwable $failure) {
+    $participantFailure = $failure->getPrevious();
+    $callbackMessage = $participantFailure?->getMessage() ?? '';
+    $rollbackAggregationProven = str_contains($failure->getMessage(), 'recovery_required')
+        && str_contains($callbackMessage, 'runtime=')
+        && str_contains($callbackMessage, 'companions=')
+        && str_contains($callbackMessage, 'storage=')
+        && str_contains($callbackMessage, 'cache=');
+}
+$GLOBALS['lifecycle_external_object_cache'] = false;
+$nativeState->local_restore_failure = false;
+$nativeState->arm_rollback_failures = false;
+$nativeState->throw_after_runtime = false;
+$nativeState->local_runtime = 'clean';
+$wpdb->transactionState = '1';
+$wpdb->optionRows = $runtimeRollbackBefore;
+$check(
+    $rollbackAggregationProven,
+    'rollback reports local, companion, primary-storage and cache cleanup failures together without masking peers'
+);
+
+$runtimeFailureBefore = $wpdb->optionRows;
+$runtimeFailureBefore['native_blob'] = [
+    'option_value' => serialize(['portable' => 'runtime-failure-before']),
+    'autoload' => 'yes',
+];
+$runtimeFailureBefore['runtime_effect_one'] = ['option_value' => 'old-one', 'autoload' => 'no'];
+unset($runtimeFailureBefore['runtime_effect_two']);
+foreach (['unrostered', 'duplicate', 'malformed-autoload', 'oversized'] as $runtimeFailureCase) {
+    $wpdb->optionRows = $runtimeFailureBefore;
+    $nativeState->runtime_roster = ['runtime_effect_one'];
+    $nativeState->runtime_plan = [[
+        'name' => $runtimeFailureCase === 'unrostered' ? 'runtime_effect_two' : 'runtime_effect_one',
+        'value' => $runtimeFailureCase === 'oversized'
+            ? str_repeat('R', 16777217)
+            : 'new-one',
+        'autoload' => $runtimeFailureCase === 'malformed-autoload' ? 'sometimes' : 'yes',
+    ]];
+    $nativeState->runtime_duplicate_write = $runtimeFailureCase === 'duplicate';
+    try {
+        $invokeNative();
+        $runtimeCapabilityRefused = false;
+    } catch (Throwable $failure) {
+        $runtimeCapabilityRefused = str_contains($failure->getMessage(), match ($runtimeFailureCase) {
+            'unrostered' => 'outside its canonical prelocked roster',
+            'duplicate' => 'more than once',
+            default => 'malformed runtime-companion storage',
+        });
+    }
+    $nativeState->runtime_duplicate_write = false;
+    $afterRuntimeCapabilityRefusal = $wpdb->optionRows;
+    ksort($afterRuntimeCapabilityRefusal, SORT_STRING);
+    $orderedRuntimeFailureBefore = $runtimeFailureBefore;
+    ksort($orderedRuntimeFailureBefore, SORT_STRING);
+    $check(
+        $runtimeCapabilityRefused && $afterRuntimeCapabilityRefusal === $orderedRuntimeFailureBefore,
+        "runtime-companion writer refuses $runtimeFailureCase capability/storage input and rolls primary state back"
+    );
+}
+
+$nativeState->runtime_roster = ['runtime_effect_one'];
+$nativeState->runtime_plan = [
+    ['name' => 'runtime_effect_one', 'value' => 'new-one', 'autoload' => 'yes'],
+];
+$wpdb->optionRows = $runtimeFailureBefore;
+$nativeState->runtime_before_write_mutation = 'runtime_effect_one';
+try {
+    $invokeNative();
+    $runtimeAbaRefused = false;
+} catch (Throwable $failure) {
+    $runtimeAbaRefused = str_contains($failure->getMessage(), 'changed a writable companion before');
+}
+$nativeState->runtime_before_write_mutation = null;
+// The mutation models foreign SQL inside this transaction; the real outer DB
+// rollback restores it. This content-only fake has no transactional journal.
+$wpdb->optionRows = $runtimeFailureBefore;
+$check(
+    $runtimeAbaRefused,
+    'same-length runtime-companion drift after the initial lock is refused before the engine writer mutates it'
+);
+
+foreach (['retained update', 'failed insert'] as $runtimeDbFailureCase) {
+    $wpdb->optionRows = $runtimeFailureBefore;
+    $nativeState->runtime_roster = [$runtimeDbFailureCase === 'failed insert'
+        ? 'runtime_effect_two'
+        : 'runtime_effect_one'];
+    $nativeState->runtime_plan = [[
+        'name' => $runtimeDbFailureCase === 'failed insert' ? 'runtime_effect_two' : 'runtime_effect_one',
+        'value' => 'new-runtime',
+        'autoload' => 'yes',
+    ]];
+    if ($runtimeDbFailureCase === 'failed insert') {
+        $wpdb->failOptionInsertNames['runtime_effect_two'] = true;
+    } else {
+        $wpdb->retainOptionUpdateNames['runtime_effect_one'] = true;
+    }
+    try {
+        $invokeNative();
+        $runtimeDbFailureRefused = false;
+    } catch (Throwable $failure) {
+        $runtimeDbFailureRefused = str_contains($failure->getMessage(), $runtimeDbFailureCase === 'failed insert'
+            ? 'database mutation failed'
+            : 'did not persist exact runtime-companion storage');
+    }
+    $wpdb->failOptionInsertNames = [];
+    $wpdb->retainOptionUpdateNames = [];
+    $afterRuntimeDbFailure = $wpdb->optionRows;
+    ksort($afterRuntimeDbFailure, SORT_STRING);
+    $orderedRuntimeFailureBefore = $runtimeFailureBefore;
+    ksort($orderedRuntimeFailureBefore, SORT_STRING);
+    $check(
+        $runtimeDbFailureRefused && $afterRuntimeDbFailure === $orderedRuntimeFailureBefore,
+        "runtime-companion $runtimeDbFailureCase is caught by exact mutation/readback and rollback"
+    );
+}
+
+$nativeState->runtime_roster = ['runtime_effect_one'];
+$nativeState->runtime_plan = [
+    ['name' => 'runtime_effect_one', 'value' => 'new-one', 'autoload' => 'yes'],
+];
+foreach (['post-hook', 'post-projection'] as $runtimeForeignPhase) {
+    $wpdb->optionRows = $runtimeFailureBefore;
+    $nativeState->runtime_after_write_mutation = $runtimeForeignPhase === 'post-hook'
+        ? 'runtime_effect_one'
+        : null;
+    $nativeState->projection_mode = $runtimeForeignPhase === 'post-projection'
+        ? 'rewrite-runtime-companion'
+        : 'identity';
+    try {
+        $invokeNative();
+        $runtimeForeignMutationRefused = false;
+    } catch (Throwable $failure) {
+        $runtimeForeignMutationRefused = str_contains(
+            $failure->getMessage(),
+            'changed a writable companion outside its engine-owned writer'
+        );
+    }
+    $nativeState->runtime_after_write_mutation = null;
+    $nativeState->projection_mode = 'identity';
+    $afterRuntimeForeignMutation = $wpdb->optionRows;
+    ksort($afterRuntimeForeignMutation, SORT_STRING);
+    $orderedRuntimeFailureBefore = $runtimeFailureBefore;
+    ksort($orderedRuntimeFailureBefore, SORT_STRING);
+    $check(
+        $runtimeForeignMutationRefused && $afterRuntimeForeignMutation === $orderedRuntimeFailureBefore,
+        "foreign runtime-companion mutation in $runtimeForeignPhase is detected and restored"
+    );
+}
+
+$wpdb->optionRows = $runtimeFailureBefore;
+$nativeState->runtime_roster = ['runtime_effect_one', 'runtime_effect_two'];
+$nativeState->runtime_plan = [
+    ['name' => 'runtime_effect_one', 'value' => 'new-one', 'autoload' => 'yes'],
+    ['name' => 'runtime_effect_two', 'value' => 'new-two', 'autoload' => 'yes'],
+];
+$nativeState->transaction_loss_after_runtime_position = 0;
+$runtimeTransactionWriteStart = count($wpdb->writes);
+try {
+    $invokeNative();
+    $runtimeTransactionLossRefused = false;
+} catch (Throwable $failure) {
+    $runtimeTransactionLossRefused = str_contains($failure->getMessage(), 'recovery_required');
+}
+$runtimeTransactionWrites = array_slice($wpdb->writes, $runtimeTransactionWriteStart);
+$secondRuntimeWrites = array_filter(
+    $runtimeTransactionWrites,
+    static fn(array $write): bool => ($write['data']['option_name'] ?? null) === 'runtime_effect_two'
+        || ($write['where']['option_name'] ?? null) === 'runtime_effect_two'
+);
+$nativeState->transaction_loss_after_runtime_position = null;
+$wpdb->transactionState = '1';
+$wpdb->optionRows = $runtimeFailureBefore;
+$check(
+    $runtimeTransactionLossRefused && $secondRuntimeWrites === [],
+    'transaction loss after the first runtime effect is refused before the second companion write and requires recovery'
+);
+
+$nativeState->runtime_roster = [];
+$nativeState->runtime_plan = [];
+$nativeState->local_runtime = 'clean';
+$nativeState->local_restore_calls = 0;
+$nativeState->rollback_order = [];
+unset($wpdb->optionRows['runtime_effect_one'], $wpdb->optionRows['runtime_effect_two']);
 $wpdb->optionRows['native_blob'] = [
     'option_value' => serialize(['portable' => 'old', 'runtime' => 'keep']),
     'autoload' => 'yes',
 ];
+
 $projectionMismatchBefore = $wpdb->optionRows;
 $nativeState->projection_mode = 'mismatch';
 $nativeState->projection_calls = 0;
