@@ -63,6 +63,7 @@ require __DIR__ . '/src/Adapter/AdapterDraft.php';
 require __DIR__ . '/src/Adapter/AdapterCatalog.php';
 require __DIR__ . '/src/Adapter/AdapterObservation.php';
 require __DIR__ . '/src/Adapter/AdapterCertify.php';
+require __DIR__ . '/src/Adapter/AdapterBoundary.php';
 // RefreshPlan lands as a separately-reviewable semantic layer. Keep this
 // host shell loadable while that contract is unavailable; Refresh itself
 // fails closed with an actionable diagnostic before any candidate ref exists.
@@ -239,6 +240,7 @@ use Duo\Orchestrator\AdapterDraft;
 use Duo\Orchestrator\AdapterCatalog;
 use Duo\Orchestrator\AdapterObservation;
 use Duo\Orchestrator\AdapterCertify;
+use Duo\Orchestrator\AdapterBoundary;
 use Duo\Orchestrator\CommandOutput;
 use Duo\Orchestrator\EnvironmentCommandPreflight;
 use Duo\Orchestrator\PassthroughCommand;
@@ -286,6 +288,9 @@ Usage:
                       [--key-id=<id>] [--reason=<text>] [--pin [--adopt-scope]]
   duo adapter pin <site-repo> --name=<n> [--source=site|plugin] [--adopt-scope]
   duo adapter adopt-scope <site-repo>... --name=<n> [--dry-run]
+  duo adapter boundary --releases=<release-list.json> --anchor=<version>
+                       [--outcomes=<outcomes.json>] [--from=<v>] [--to=<v>]
+                       [--manifest=<n>] [--format=json]
   duo adapter-observe <env> [--out=<local-file>|--format=json]
   duo doctor <env>
   duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
@@ -567,6 +572,31 @@ Verbs:
                           either fully adopted or untouched; re-running is
                           safe. --dry-run reports the same plan and writes
                           nothing.
+  adapter boundary        Bisect a plugin's certified version range and emit
+    --releases=<f>        the EVIDENCE for it, never the edit. --releases is a
+    --anchor=<version>    recorded duo-adapter-release-list/v1 naming every
+    [--outcomes=<f>]      candidate with its exact URL and sha256 — nothing
+    [--from=<v>]          here reaches the network, and an unpinned candidate
+    [--to=<v>]            is refused rather than fetched, the same discipline
+    [--manifest=<n>]      artifacts.lock.json already holds. --anchor names a
+    [--format=json]       release believed green; the search bisects outward
+                          from it in O(log releases) probes. One probe is a
+                          full pair round-trip, so this is a PLANNER over an
+                          accumulating duo-adapter-boundary-outcomes/v1
+                          record: exit 3 names the one release to probe next,
+                          exit 0 emits the finished document,
+                          sandbox/bin/adapter-boundary.sh is the loop between.
+                          Outcomes are green | boot-fatal |
+                          round-trip-diverges | artifact-unresolved; the last
+                          is a fact about the DOWNLOAD and BLOCKS the search
+                          rather than counting as a failing release. A failing
+                          release is never proposed as a boundary, and a
+                          recorded failure INSIDE the settled window blocks
+                          instead of narrowing the claim by guess. The output
+                          includes artifacts.lock.json rows in that file's own
+                          three-role vocabulary. It never writes a manifest:
+                          the range and its Canon-byte-equal restatement in
+                          dispositions.json stay one reviewed human edit.
   adapter-observe <env>   Ask exactly one configured target for its closed,
     [--out=<local-file>]  value-redacted adapter proposal-evidence document.
     [--format=json]       The host supplies only that environment's configured
@@ -1258,13 +1288,21 @@ function main(array $argv): int {
     // repository is in a state that makes every environment-bound command
     // refuse, and requiring an <env> would put the answer behind the problem.
     if ($verb === 'adapter') {
-        // Same process, two owners. `list|inspect|doctor` REPORT what is
+        // Same process, three owners. `list|inspect|doctor` REPORT what is
         // installed; `keygen|certify|pin` MUTATE — a private key, the site
         // trust root, a certificate, a pin. Splitting on the sub-verb rather
         // than widening AdapterCatalog's parser keeps the read-only catalog
         // free of every write path, which is what lets `duo adapter doctor`
         // stay the command an operator can run when the repository is in a
         // state that makes the writing ones refuse.
+        //
+        // `boundary` is a third owner rather than a fourth catalog verb: it
+        // reads two RECORDED documents and no installed adapter at all, and it
+        // is the one verb here with a fourth exit code (3, "probe this next"),
+        // which AdapterCatalog's 0/1/2 contract has no room for.
+        if (in_array($rest[0] ?? '', AdapterBoundary::VERBS, true)) {
+            return AdapterBoundary::run($rest);
+        }
         if (in_array($rest[0] ?? '', AdapterCertify::VERBS, true)) {
             return AdapterCertify::run($rest);
         }
