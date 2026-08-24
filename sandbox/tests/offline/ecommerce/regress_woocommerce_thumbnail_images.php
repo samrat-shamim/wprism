@@ -9,6 +9,7 @@ if (!defined('DUO_SPEC_VERSION')) {
 require_once __DIR__ . '/../../lib/check.php';
 require_once __DIR__ . '/../../lib/wp_stubs.php';
 require_once __DIR__ . '/../../lib/FakeWpdb.php';
+require_once __DIR__ . '/../../lib/LockingFakeWpdb.php';
 
 $root = dirname(__DIR__, 4);
 putenv('DUO_MANIFESTS_DIR=' . $root . '/manifests');
@@ -24,6 +25,7 @@ use Duo\ApplyFieldMaterializer;
 use Duo\Policy;
 use Duo\Interpreters\Woocommerce;
 use DuoTest\FakeWpdb;
+use DuoTest\LockingFakeWpdb;
 use DuoTest\WpStore;
 
 /**
@@ -494,7 +496,9 @@ $store = WpStore::reset()->seedOptions([
     'woocommerce_maybe_regenerate_images_hash' => 'target-runtime-hash',
     'wp_1_wc_regenerate_images_batch_91' => ['attachment_id' => 91],
 ]);
-$wpdb = FakeWpdb::install();
+$innerWpdb = new FakeWpdb();
+$wpdb = new LockingFakeWpdb($innerWpdb);
+$GLOBALS['wpdb'] = $wpdb;
 $wpdb->seedTable('wp_options', [
     ['option_id' => 1, 'option_name' => 'woocommerce_thumbnail_cropping', 'option_value' => '1:1', 'autoload' => 'yes'],
     ['option_id' => 2, 'option_name' => 'woocommerce_thumbnail_cropping_custom_width', 'option_value' => '4', 'autoload' => 'yes'],
@@ -508,6 +512,7 @@ $wpdb->seedTable('wp_options', [
     'option_value' => 'longtext',
     'autoload' => 'varchar(20)',
 ])->setPrimaryKey('wp_options', 'option_id')->setUniqueKey('wp_options', ['option_name']);
+$wpdb->addInnoDbTable('wp_options')->addIndex('wp_options', 'option_name', 'option_name', true);
 
 $policy = Policy::load(null, ['woocommerce']);
 $interpreter = $policy->interpreters()['woocommerce'] ?? null;
@@ -529,11 +534,18 @@ duo_check_same([], woo_thumbnail_repository_diagnostics($interpreter, $records),
     'the repository admits the exact 500-pixel custom-square authored projection');
 
 $materializer = (new ReflectionClass(ApplyFieldMaterializer::class))->newInstanceWithoutConstructor();
+\Duo\Db::start_repeatable_read('WooCommerce thumbnail fixture transaction');
+$materializer->begin_authored_transaction();
+\Duo\CacheInvalidationTransaction::begin();
 foreach ($desired as $name => $value) {
     $materializer->upsert_option($name, $materializer->option_wire_value($value), 'yes');
     $store->options[$name] = $value;
     $store->autoload[$name] = 'yes';
 }
+\Duo\Db::commit('WooCommerce thumbnail fixture transaction commit');
+\Duo\CacheInvalidationTransaction::finish();
+$materializer->end_authored_transaction();
+\Duo\CacheInvalidationTransaction::end();
 $optionRows = [];
 foreach ($wpdb->rows('wp_options') as $row) {
     $optionRows[(string) $row['option_name']] = (string) $row['option_value'];
