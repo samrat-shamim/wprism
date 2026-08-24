@@ -62,6 +62,8 @@ require_once __DIR__ . '/CacheInvalidationTransaction.php';
 final class OptionsMaterializer {
     private const MAX_OPTION_VALUE_BYTES = 16777216;
     private const MAX_AUTOLOAD_BYTES = 20;
+    private const MAX_NATIVE_OPTION_COMPANIONS = 8;
+    private const MAX_NATIVE_OPTION_TRANSACTION_BYTES = 33554432;
     private bool $authoredTransaction = false;
     /** @var list<\Closure():void> */
     private array $nativeRollbackCallbacks = [];
@@ -494,6 +496,11 @@ final class OptionsMaterializer {
             $rule,
             $ruleSource
         );
+        if (count($companionNames) + count($runtimeCompanionNames) > self::MAX_NATIVE_OPTION_COMPANIONS) {
+            throw new \RuntimeException(
+                "duo: native option materializer for '$name' declared too many total companion rows"
+            );
+        }
         foreach (array_merge($companionNames, $runtimeCompanionNames) as $targetName) {
             if ($targetName === $name
                 || preg_match('/^[A-Za-z0-9_.:-]{1,191}$/D', $targetName) !== 1) {
@@ -521,11 +528,21 @@ final class OptionsMaterializer {
         $lockNames = array_merge([$name], $companionNames, $runtimeCompanionNames);
         sort($lockNames, SORT_STRING);
         $lockedOptionRows = [];
+        $lockedOptionValueBytes = 0;
         foreach ($lockNames as $lockName) {
             $lockedOptionRows[$lockName] = CacheInvalidationTransaction::lock_option_row(
                 $lockName,
                 "native option materializer for '$name' canonical row/gap locking"
             );
+            $lockedRow = $lockedOptionRows[$lockName];
+            if (is_array($lockedRow)) {
+                $lockedOptionValueBytes += strlen($lockedRow['option_value']);
+                if ($lockedOptionValueBytes > self::MAX_NATIVE_OPTION_TRANSACTION_BYTES) {
+                    throw new \RuntimeException(
+                        "duo: native option materializer for '$name' companion transaction exceeds its raw-byte bound"
+                    );
+                }
+            }
         }
         $row = $lockedOptionRows[$name];
         $raw = is_array($row) ? $row['option_value'] : null;
@@ -1038,6 +1055,18 @@ final class OptionsMaterializer {
             $writeStorage,
             $writeRuntimeOption
         );
+        if (!$handledNatively
+            && ($finalizeCalls !== 0
+                || $storageWriteCalls !== 0
+                || $runtimeRestoreRegistrations !== 0
+                || $nativeStorageTouched
+                || $rollbackArmed
+                || $runtimeCompanionWriteCalls !== []
+                || $runtimeCompanionWriteOrder !== [])) {
+            throw new \RuntimeException(
+                "duo: native option materializer for '$name' returned unhandled after native side effects"
+            );
+        }
         if ($handledNatively) {
             if (!$this->authoredTransaction || !$rollbackArmed) {
                 throw new \RuntimeException(

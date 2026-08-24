@@ -154,6 +154,7 @@ require_once __DIR__ . '/../Grammar/PostTypeRelationResolver.php';
  */
 final class Policy {
     private const MAX_DISCOVERED_TAXONOMIES = 4096;
+    private const MAX_NATIVE_OPTION_COMPANIONS = 8;
     /**
      * The one {min,max} version-range predicate, shared by every site that
      * bounds something by an exact, certifiable window: min and max are both
@@ -1932,6 +1933,11 @@ final class Policy {
                 . 'must return a list'
             );
         }
+        if (count($companions) > self::MAX_NATIVE_OPTION_COMPANIONS) {
+            throw new \RuntimeException(
+                "duo: interpreter '{$candidate['interpreter_name']}' returned too many native option companions"
+            );
+        }
         $seen = [];
         foreach ($companions as $position => $companion) {
             if (!is_string($companion) || $companion === '' || isset($seen[$companion])) {
@@ -1975,6 +1981,11 @@ final class Policy {
             throw new \RuntimeException(
                 "duo: interpreter '{$candidate['interpreter_name']}' "
                 . 'option_sub_key_materialization_runtime_companions() must return a list'
+            );
+        }
+        if (count($companions) > self::MAX_NATIVE_OPTION_COMPANIONS) {
+            throw new \RuntimeException(
+                "duo: interpreter '{$candidate['interpreter_name']}' returned too many native option runtime companions"
             );
         }
         $seen = [];

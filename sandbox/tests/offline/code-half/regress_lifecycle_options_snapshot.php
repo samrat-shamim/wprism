@@ -1072,6 +1072,7 @@ unset($wpdb->optionRows['authored_setting']);
 // FORCE INDEX ... FOR UPDATE result has been accepted.
 $nativeState = (object) [
     'requested' => 'pll_language_from_content_available',
+    'companion_roster' => null,
     'setter_calls' => 0,
     'finalize_storage' => false,
     'write_primary' => true,
@@ -1096,12 +1097,15 @@ $nativeState = (object) [
     'local_restore_failure' => false,
     'arm_rollback_failures' => false,
     'rollback_order' => [],
+    'return_false_phase' => null,
 ];
 $nativeInterpreter = new class ($nativeState) {
     public function __construct(private object $state) {}
 
     public function option_sub_key_materialization_companions(string $name): array {
-        return $name === 'native_blob' ? [(string) $this->state->requested] : [];
+        return $name === 'native_blob'
+            ? ($this->state->companion_roster ?? [(string) $this->state->requested])
+            : [];
     }
 
     public function option_sub_key_materialization_runtime_companions(string $name): array {
@@ -1139,6 +1143,9 @@ $nativeInterpreter = new class ($nativeState) {
             throw new RuntimeException('fixture: exact raw companion marker is not yes');
         }
         ++$this->state->setter_calls;
+        if ($this->state->return_false_phase === 'registered') {
+            return false;
+        }
         if ($this->state->transaction_after_setter !== null) {
             global $wpdb;
             $wpdb->transactionState = $this->state->transaction_after_setter;
@@ -1221,6 +1228,10 @@ $nativeInterpreter = new class ($nativeState) {
         }
         if ($this->state->finalize_storage) {
             $finalizeStorage();
+        }
+        if ($this->state->return_false_phase === 'primary'
+            || $this->state->return_false_phase === 'runtime') {
+            return false;
         }
         return true;
     }
@@ -1392,6 +1403,128 @@ $check(
     $nativeState->setter_calls === 1,
     'an inserted exact-yes companion is observed only after its row lock and then permits native setters'
 );
+
+// A digest-bound hook that claims "unhandled" after registering rollback or
+// touching primary/runtime storage is malicious, not a request for the generic
+// merge path. Policy refuses false after exact-owner dispatch and the options
+// participant must restore every byte before the same process can retry.
+$nativeSideEffectBaseline = $wpdb->optionRows;
+foreach (['registered', 'primary', 'runtime'] as $falsePhase) {
+    $falseBefore = $nativeSideEffectBaseline;
+    $falseBefore['native_blob'] = [
+        'option_value' => serialize(['portable' => 'before-false']),
+        'autoload' => 'yes',
+    ];
+    $falseBefore['pll_language_from_content_available'] = ['option_value' => 'yes', 'autoload' => 'no'];
+    $falseBefore['runtime_effect_one'] = ['option_value' => 'before-runtime', 'autoload' => 'no'];
+    $wpdb->optionRows = $falseBefore;
+    $nativeState->runtime_roster = $falsePhase === 'runtime' ? ['runtime_effect_one'] : [];
+    $nativeState->runtime_plan = $falsePhase === 'runtime' ? [[
+        'name' => 'runtime_effect_one',
+        'value' => 'after-runtime',
+        'autoload' => 'yes',
+    ]] : [];
+    $nativeState->local_runtime = 'before-local';
+    $nativeState->local_restore_calls = 0;
+    $nativeState->rollback_order = [];
+    $nativeState->return_false_phase = $falsePhase;
+    try {
+        $invokeNative();
+        $falseSideEffectRefused = false;
+    } catch (Throwable $failure) {
+        $falseSideEffectRefused = str_contains($failure->getMessage(), 'returned false after dispatch');
+    }
+    $afterFalse = $wpdb->optionRows;
+    ksort($afterFalse, SORT_STRING);
+    $orderedFalseBefore = $falseBefore;
+    ksort($orderedFalseBefore, SORT_STRING);
+    $check(
+        $falseSideEffectRefused
+            && $afterFalse === $orderedFalseBefore
+            && $nativeState->local_runtime === 'before-local'
+            && $nativeState->local_restore_calls === 1,
+        "native false after $falsePhase effects is refused and restores exact storage/local preimages"
+    );
+    $nativeState->return_false_phase = null;
+    $invokeNative();
+    $check(
+        ($wpdb->optionRows['native_blob']['option_value'] ?? null) === serialize(['portable' => 'desired'])
+            && ($falsePhase !== 'runtime'
+                || ($wpdb->optionRows['runtime_effect_one'] ?? null)
+                    === ['option_value' => 'after-runtime', 'autoload' => 'yes']),
+        "same-process retry after false-$falsePhase refusal converges through the exact native path"
+    );
+}
+
+$nativeState->runtime_roster = array_map(
+    static fn(int $position): string => "runtime_effect_$position",
+    range(1, 9)
+);
+$nativeState->runtime_plan = [];
+$wpdb->optionRows = $nativeSideEffectBaseline;
+$wpdb->optionRows['native_blob'] = [
+    'option_value' => serialize(['portable' => 'roster-before']),
+    'autoload' => 'yes',
+];
+try {
+    $invokeNative();
+    $oversizedRosterRefused = false;
+} catch (Throwable $failure) {
+    $oversizedRosterRefused = str_contains($failure->getMessage(), 'too many native option runtime companions');
+}
+$check(
+    $oversizedRosterRefused
+        && $wpdb->optionRows['native_blob']['option_value'] === serialize(['portable' => 'roster-before']),
+    'native runtime-companion discovery refuses a roster above eight before primary mutation'
+);
+
+$nativeState->companion_roster = ['pll_language_from_content_available'];
+$nativeState->runtime_roster = array_map(
+    static fn(int $position): string => "runtime_effect_$position",
+    range(1, 8)
+);
+try {
+    $invokeNative();
+    $oversizedCombinedRosterRefused = false;
+} catch (Throwable $failure) {
+    $oversizedCombinedRosterRefused = str_contains($failure->getMessage(), 'too many total companion rows');
+}
+$nativeState->companion_roster = null;
+$check(
+    $oversizedCombinedRosterRefused
+        && $wpdb->optionRows['native_blob']['option_value'] === serialize(['portable' => 'roster-before']),
+    'observational and writable companion rosters share one eight-row transaction capability bound'
+);
+
+$nativeState->runtime_roster = ['runtime_effect_one', 'runtime_effect_two'];
+$nativeState->runtime_plan = [];
+$wpdb->optionRows = $nativeSideEffectBaseline;
+$wpdb->optionRows['native_blob'] = [
+    'option_value' => serialize(['portable' => 'aggregate-before']),
+    'autoload' => 'yes',
+];
+$wpdb->optionRows['runtime_effect_one'] = [
+    'option_value' => str_repeat('A', 16777216),
+    'autoload' => 'no',
+];
+$wpdb->optionRows['runtime_effect_two'] = [
+    'option_value' => str_repeat('B', 16777216),
+    'autoload' => 'yes',
+];
+$nativeState->setter_calls = 0;
+try {
+    $invokeNative();
+    $aggregateBoundRefused = false;
+} catch (Throwable $failure) {
+    $aggregateBoundRefused = str_contains($failure->getMessage(), 'transaction exceeds its raw-byte bound');
+}
+$check(
+    $aggregateBoundRefused
+        && $nativeState->setter_calls === 0
+        && $wpdb->optionRows['native_blob']['option_value'] === serialize(['portable' => 'aggregate-before']),
+    'native companion aggregate bytes above 32 MiB refuse after bounded locks but before interpreter mutation'
+);
+$wpdb->optionRows = $nativeSideEffectBaseline;
 
 // Writable runtime companions are a separate capability from observation-
 // only locks. The engine takes every row/gap lock in canonical name order,
