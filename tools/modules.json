@@ -19,7 +19,7 @@
   ],
   "layer_notes": {
     "src/Apply/TypedTableMaterializer.php": "Engine with the rest of the *Materializer family, for the same reason as TypedTableCapture.",
-    "src/Assess/AssessInventory.php": "Surface with Cli.php: the read-only assess projection (round-3 MUP \u00a74.5) is a command-shaped composition over policy, adapter and review, reached only from the wp duo verb that publishes it.",
+    "src/Assess/AssessInventory.php": "Surface with Cli.php: the read-only assess projection (round-3 MUP §4.5) is a command-shaped composition over policy, adapter and review, reached only from the wp duo verb that publishes it.",
     "src/Capture/TypedTableCapture.php": "Engine with the rest of the *Capture family even though it only reads kernel files; the recorded Snapshot -> TypedTableCapture edge names the real seam (a repository state model driving engine capture) instead of hiding it behind a convenient placement.",
     "src/Code/CodeMaterializer.php": "Repository, not engine, despite the *Materializer suffix: it depends only on PathSafety and is used solely by Code. The engine *Materializer family materializes authored state; this one materializes code bytes for the repository half.",
     "src/Code/CodeOwnershipPruner.php": "Repository for the same reason as CodeMaterializer: a Code-owned pruner over PathSafety, not an engine apply step.",
@@ -56,7 +56,7 @@
     "modules": {
       "Kernel": {
         "layer": "kernel",
-        "purpose": "Dependency-free primitives \u2014 canonical JSON, database access, reference codecs, durable filesystem, identifiers, secrets and PII redaction \u2014 that everything else is built on.",
+        "purpose": "Dependency-free primitives — canonical JSON, database access, reference codecs, durable filesystem, identifiers, secrets and PII redaction — that everything else is built on.",
         "status": "populated",
         "entry_points": [
           "Canon",
@@ -758,7 +758,7 @@
       },
       "Scope": {
         "layer": "engine",
-        "purpose": "Scoped (partial-site) execution \u2014 the state overlay, session and work projection that let apply and capture run over a subset of the repository.",
+        "purpose": "Scoped (partial-site) execution — the state overlay, session and work projection that let apply and capture run over a subset of the repository.",
         "status": "populated",
         "entry_points": [
           "ScopedApply",
@@ -904,7 +904,7 @@
       },
       "Promotion": {
         "layer": "engine",
-        "purpose": "Deploy, lifecycle and promotion mechanics \u2014 planners, leases, locks, session journals and state handoff between environments.",
+        "purpose": "Deploy, lifecycle and promotion mechanics — planners, leases, locks, session journals and state handoff between environments.",
         "status": "populated",
         "entry_points": [
           "PromotionLock",
@@ -1058,7 +1058,7 @@
       },
       "Review": {
         "layer": "engine",
-        "purpose": "Read-only projections over plans and state \u2014 lint and its reference scanners, coverage, pending, journal, orphans, canary, convergence verification and refresh export.",
+        "purpose": "Read-only projections over plans and state — lint and its reference scanners, coverage, pending, journal, orphans, canary, convergence verification and refresh export.",
         "status": "populated",
         "entry_points": [
           "Canary",
@@ -1157,7 +1157,7 @@
           "Review"
         ],
         "exceptions": [],
-        "file_count": 11,
+        "file_count": 12,
         "files": [
           "ActionProviderGrammar.php",
           "AdapterCertification.php",
@@ -1175,7 +1175,7 @@
       },
       "Command": {
         "layer": "surface",
-        "purpose": "The `wp duo \u2026` WP-CLI surface: verb dispatch, argument parsing, refusal envelopes and operator output.",
+        "purpose": "The `wp duo …` WP-CLI surface: verb dispatch, argument parsing, refusal envelopes and operator output.",
         "status": "populated",
         "entry_points": [
           "Cli"
@@ -1375,7 +1375,7 @@
       },
       "Onboarding": {
         "layer": "engine",
-        "purpose": "Adopting, initializing, diagnosing and triaging a site \u2014 the first-run and health mechanics behind adopt/init/doctor/classify/pending.",
+        "purpose": "Adopting, initializing, diagnosing and triaging a site — the first-run and health mechanics behind adopt/init/doctor/classify/pending.",
         "status": "populated",
         "entry_points": [
           "Doctor",
@@ -1521,7 +1521,7 @@
       },
       "Assess": {
         "layer": "engine",
-        "purpose": "The assess mechanism \u2014 stack inventory and the authority block, the per-surface catalog carrying the six spec dimensions, the closed gap-action set, the `duo-assess-report/v1` document and its bounded human renderer. Mechanism only: `AssessCommand` (cli:Command) calls Doctor, the environment registry and the adapter catalog and hands their results in as data, which is what keeps this module free of intra-layer and upward edges (module map rule 9). `FleetCensus` is the one file here with no target at all: it folds N `duo-assess-inventory/v1` documents into `duo-fleet-census/v1` against a manifest library on this machine, which is why it reaches agent:Policy (the reviewed-claim projector) and agent:Review (the one option-prefix grammar the residual is grouped in) as data sources rather than through any cli module.",
+        "purpose": "The assess mechanism — stack inventory and the authority block, the per-surface catalog carrying the six spec dimensions, the closed gap-action set, the `duo-assess-report/v1` document and its bounded human renderer. Mechanism only: `AssessCommand` (cli:Command) calls Doctor, the environment registry and the adapter catalog and hands their results in as data, which is what keeps this module free of intra-layer and upward edges (module map rule 9). `FleetCensus` is the one file here with no target at all: it folds N `duo-assess-inventory/v1` documents into `duo-fleet-census/v1` against a manifest library on this machine, which is why it reaches agent:Policy (the reviewed-claim projector) and agent:Review (the one option-prefix grammar the residual is grouped in) as data sources rather than through any cli module.",
         "status": "populated",
         "entry_points": [
           "StackInventory",
@@ -1555,7 +1555,7 @@
       },
       "Release": {
         "layer": "engine",
-        "purpose": "The release mechanism \u2014 `AuthorizationPlan` (build, freeze before any mutation, digest and re-verify the `duo-authorization-plan/v1` document), `AuthorizationPlanRenderer` (its bounded human projection, ending in one question), `ReleaseOutcome` + `NextAction` (the closed post-freeze next-action set and the deterministic failure-class mapping) and `JourneyOracle` (the declared affected-journey probes and the `duo-verify-report/v1` document). Mechanism only: the verb boundaries (`ReleaseCommand`, `VerifyCommand`, `RecoverCommand`, cli:Command) compose it with Environment, Recovery and the existing promote/deploy handlers, and the recovery claim reaches the plan as a canonical array, not as a Recovery class reference \u2014 which is what keeps this module free of intra-layer and upward edges (module map rule 9).",
+        "purpose": "The release mechanism — `AuthorizationPlan` (build, freeze before any mutation, digest and re-verify the `duo-authorization-plan/v1` document), `AuthorizationPlanRenderer` (its bounded human projection, ending in one question), `ReleaseOutcome` + `NextAction` (the closed post-freeze next-action set and the deterministic failure-class mapping) and `JourneyOracle` (the declared affected-journey probes and the `duo-verify-report/v1` document). Mechanism only: the verb boundaries (`ReleaseCommand`, `VerifyCommand`, `RecoverCommand`, cli:Command) compose it with Environment, Recovery and the existing promote/deploy handlers, and the recovery claim reaches the plan as a canonical array, not as a Recovery class reference — which is what keeps this module free of intra-layer and upward edges (module map rule 9).",
         "status": "populated",
         "entry_points": [
           "AuthorizationPlan",
@@ -1584,7 +1584,7 @@
       },
       "Rehearse": {
         "layer": "engine",
-        "purpose": "The rehearsal mechanism \u2014 `RehearsalPlanPreview`, which joins the converged environment's plan-category projection with the assess-style surface rows restricted to that plan's actual scope to state what a release would touch, and `RehearsalDisclosure`, which owns MUP \u00a72.2's containment banner and its consequence. Mechanism only, and pure: no I/O, no clock, no provider. The verb boundary (`RehearseCommand`, cli:Command) drives `EnvironmentLifecycle` and hands both documents in as data, which is what keeps this module free of intra-layer and upward edges (module map rule 9).",
+        "purpose": "The rehearsal mechanism — `RehearsalPlanPreview`, which joins the converged environment's plan-category projection with the assess-style surface rows restricted to that plan's actual scope to state what a release would touch, and `RehearsalDisclosure`, which owns MUP §2.2's containment banner and its consequence. Mechanism only, and pure: no I/O, no clock, no provider. The verb boundary (`RehearseCommand`, cli:Command) drives `EnvironmentLifecycle` and hands both documents in as data, which is what keeps this module free of intra-layer and upward edges (module map rule 9).",
         "status": "populated",
         "entry_points": [
           "RehearsalPlanPreview",
@@ -1606,7 +1606,7 @@
       },
       "Contract": {
         "layer": "policy",
-        "purpose": "The per-site application contract as one object \u2014 manifests, site policy, evidence pins, bindings and capability report composed and addressable \u2014 plus `ProjectionVocabulary`, the single implementation of the spec-word projection that Assess, Release and Rehearse all read. Pure and offline-testable: a document, not a session.",
+        "purpose": "The per-site application contract as one object — manifests, site policy, evidence pins, bindings and capability report composed and addressable — plus `ProjectionVocabulary`, the single implementation of the spec-word projection that Assess, Release and Rehearse all read. Pure and offline-testable: a document, not a session.",
         "status": "populated",
         "entry_points": [
           "ApplicationContract",
