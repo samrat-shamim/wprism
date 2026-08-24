@@ -6,6 +6,9 @@ require_once __DIR__ . '/DeployPlanner.php';
 require_once __DIR__ . '/LifecycleExecutor.php';
 require_once __DIR__ . '/LifecyclePlanner.php';
 require_once __DIR__ . '/StateHandoffVerifier.php';
+// WP-2.8: run()'s blocking filter and its reporting loop both name the
+// graduated verdict by constant rather than by a second copy of the string.
+require_once __DIR__ . '/../Policy/VersionEvidenceGrammar.php';
 
 /**
  * docs/code-half.md §3.4/§6: reconciles active_plugins/template/
@@ -172,6 +175,13 @@ final class Deploy {
         // template option. code_revision_stale was checked above; it is
         // allowed here only when the verified stage marker proves the host
         // orchestrator is between code-stage and code-finalize.
+        //
+        // WP-2.8's graduated verdict joins them for a different reason than
+        // any of the four above: those are work this phase performs, this one
+        // is a finding this site has already answered with recorded per-release
+        // probe evidence (LifecyclePlanner::graduated_version_range()). It is
+        // not dropped from $mismatch — it stays in the plan bucket, in JSON,
+        // and is reported below on every run.
         $blockingMismatch = array_values(array_filter(
             $mismatch,
             fn($r) => !in_array(
@@ -182,6 +192,7 @@ final class Deploy {
                     'active_plugin_order_mismatch',
                     'template_mismatch',
                     'code_revision_stale',
+                    VersionEvidenceGrammar::VERDICT,
                 ],
                 true
             )
@@ -237,6 +248,14 @@ final class Deploy {
         // messages would be noise, not signal.
         foreach (array_filter($blockingMismatch, fn($r) => $r['issue'] === 'outside_version_range') as $r) {
             $warnings[] = 'FORCED past code_mismatch: ' . $r['message'];
+        }
+        // WP-2.8: the graduated verdict is reported on EVERY run, forced or
+        // not — it is read out of $mismatch rather than $blockingMismatch,
+        // which no longer contains it. A verdict that stopped a refusal and
+        // then said nothing would be the silent pass this mechanism refuses to
+        // be; the message carries the per-release evidence and its limits.
+        foreach (array_filter($mismatch, fn($r) => $r['issue'] === VersionEvidenceGrammar::VERDICT) as $r) {
+            $warnings[] = 'GRADUATED outside_version_range: ' . $r['message'];
         }
         $activated = [];
         $deactivated = [];

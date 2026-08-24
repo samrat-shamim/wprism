@@ -10,6 +10,11 @@ require_once __DIR__ . '/../Kernel/SiteTopology.php';
 require_once __DIR__ . '/../Review/PlanExplanation.php';
 require_once __DIR__ . '/../Review/PlanCategorySummary.php';
 require_once __DIR__ . '/../Review/PlanView.php';
+// WP-2.8: plan()'s code_mismatch rendering names the graduated verdict by
+// constant. Required here for the same reason as the two above — the offline
+// refusal suites load this file without agent/duo.php's bootstrap — and it is
+// a leaf grammar file that requires nothing of its own.
+require_once __DIR__ . '/../Policy/VersionEvidenceGrammar.php';
 
 use WP_CLI;
 
@@ -1430,9 +1435,18 @@ final class Cli {
             static fn(array $r): bool => ($r['issue'] ?? null) !== 'code_revision_stale'
                 && !empty($r['non_forceable'])
         ));
+        // WP-2.8: the graduated verdict is rendered on its own, immediately
+        // below, and is excluded here for the reason the warning at the foot
+        // of this method makes plain: "duo apply will refuse until resolved"
+        // is false about a row apply does not refuse.
+        $graduatedVersionRange = array_values(array_filter(
+            $codeMismatch,
+            static fn(array $r): bool => ($r['issue'] ?? null) === VersionEvidenceGrammar::VERDICT
+        ));
         $forceableCodeMismatch = array_values(array_filter(
             $codeMismatch,
             static fn(array $r): bool => ($r['issue'] ?? null) !== 'code_revision_stale'
+                && ($r['issue'] ?? null) !== VersionEvidenceGrammar::VERDICT
                 && empty($r['non_forceable'])
         ));
         foreach ($codeRevisionStale as $r) {
@@ -1449,6 +1463,10 @@ final class Cli {
         }
         foreach ($forceableCodeMismatch as $r) {
             WP_CLI::line('CODE_MISMATCH ' . strtoupper($r['issue']) . ' ' . ($r['plugin'] ?? $r['theme'] ?? '?'));
+            WP_CLI::line('  ' . $r['message']);
+        }
+        foreach ($graduatedVersionRange as $r) {
+            WP_CLI::line('VERSION_RANGE_GRADUATED ' . ($r['plugin'] ?? $r['theme'] ?? '?'));
             WP_CLI::line('  ' . $r['message']);
         }
         foreach ($plan['code_drift'] ?? [] as $r) {

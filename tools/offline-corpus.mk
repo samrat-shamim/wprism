@@ -156,6 +156,7 @@ regress-offline-corpus: code-half-unit \
 	regress-fixture-makers \
 	regress-fleet-census \
 	regress-frozen-materialization-promotion \
+	regress-graduated-version-range \
 	regress-grind-r1c-manifest-preserve \
 	regress-identity-token-codec \
 	regress-init-code-split \

@@ -34,3 +34,19 @@ the loop replays what is already recorded and only probes what is missing.
 Nothing here is a manifest input. The range in `manifests/<name>.json` and its
 Canon-byte-equal restatement in `manifests/dispositions.json` stay one reviewed
 human edit (`agent/src/Policy/ManifestDispositions.php:632-637`).
+
+## The second reader (WP-2.8)
+
+An outcomes record is no longer only a reviewer's sentence. `site.duo.json` may
+carry the same rows under `adapter_version_evidence`, keyed by plugin basename,
+and `LifecyclePlanner::code_mismatch()` reads them to mint the graduated
+`version_range_graduated` verdict for an installed release that probed `green`
+— see `docs/guides/code-updates.md` §"The third state" and
+`agent/src/Policy/VersionEvidenceGrammar.php`.
+
+Two consequences for whoever records one here. The `signature` field stops
+being prose a human skims: it is quoted verbatim in an operator-facing verdict,
+so write what the probe actually observed. And `artifact-unresolved` keeps its
+exact meaning on both readers — it blocks a search and it blocks a graduation,
+because a 404 is a fact about a download and never about a plugin. The site's
+copy is still a reviewed human edit; nothing copies these files onto a target.

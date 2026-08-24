@@ -30792,7 +30792,11 @@
         },
         "Duo\\Orchestrator\\PlanContract": {
             "abstract": false,
-            "constants": [],
+            "constants": {
+                "GRADUATED_VERSION_RANGE": {
+                    "value_repr": "version_range_graduated"
+                }
+            },
             "final": true,
             "interfaces": [],
             "kind": "class",
@@ -39434,6 +39438,14 @@
                     "final": false,
                     "parameters": [],
                     "return_type": "Duo\\AdapterSources",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "adapter_version_evidence": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
                     "static": false,
                     "visibility": "public"
                 },
@@ -61051,6 +61063,94 @@
                     "final": false,
                     "parameters": [],
                     "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\VersionEvidenceGrammar": {
+            "abstract": false,
+            "constants": {
+                "OUTCOMES": {
+                    "value_repr": [
+                        "green",
+                        "boot-fatal",
+                        "round-trip-diverges",
+                        "artifact-unresolved"
+                    ]
+                },
+                "OUTCOME_GREEN": {
+                    "value_repr": "green"
+                },
+                "SITE_KEY": {
+                    "value_repr": "adapter_version_evidence"
+                },
+                "VERDICT": {
+                    "value_repr": "version_range_graduated"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "entry": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "evidence",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "plugin",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifest",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validate_site_version_evidence": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "site",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "label",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
                     "static": true,
                     "visibility": "public"
                 }
