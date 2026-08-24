@@ -12,6 +12,33 @@ namespace Duo {
     }
 }
 
+namespace Elementor\Modules\PageTemplates {
+    final class Module {
+        public function filter_update_meta(mixed $check, mixed $id, mixed $key): never {
+            ++$GLOBALS['duo_attachment_adapter_callback_calls'];
+            throw new \RuntimeException('Elementor page-template callback must be quarantined');
+        }
+    }
+}
+
+namespace Elementor\Core\Files\File_Types {
+    final class Svg {
+        public function set_svg_meta_data(mixed $metadata, mixed $id): never {
+            ++$GLOBALS['duo_attachment_adapter_callback_calls'];
+            throw new \RuntimeException('Elementor SVG callback must be quarantined');
+        }
+    }
+}
+
+namespace TEC\Common\Integrations\Harbor {
+    final class PUE {
+        public function filter_pre_get_option(mixed $value, mixed $option, mixed $default): never {
+            ++$GLOBALS['duo_attachment_adapter_callback_calls'];
+            throw new \RuntimeException('TEC Harbor callback must never enter the supported free-plugin topology');
+        }
+    }
+}
+
 namespace {
     /**
      * Product-path regression for the durable attachment filesystem/native
@@ -25,6 +52,81 @@ namespace {
         public array $callbacks = [];
     }
     final class WP_Image_Editor_GD {}
+    final class WC_Regenerate_Images {
+        public static function add_uncropped_metadata(mixed $metadata): never {
+            ++$GLOBALS['duo_attachment_adapter_callback_calls'];
+            throw new \RuntimeException('WooCommerce metadata callback must be quarantined');
+        }
+    }
+    final class WC_Post_Data {
+        public static function update_post_metadata(
+            mixed $check,
+            mixed $id,
+            mixed $key,
+            mixed $value,
+            mixed $prior
+        ): never {
+            ++$GLOBALS['duo_attachment_adapter_callback_calls'];
+            throw new \RuntimeException('WooCommerce post-meta callback must be quarantined');
+        }
+    }
+    final class WPSEO_Meta {
+        public static function remove_meta_if_default(
+            mixed $check,
+            mixed $id,
+            mixed $key,
+            mixed $value,
+            mixed $prior
+        ): never {
+            ++$GLOBALS['duo_attachment_adapter_callback_calls'];
+            throw new \RuntimeException('Yoast post-meta callback must be quarantined');
+        }
+    }
+    final class Tribe__Tracker {
+        public function filter_watch_updated_meta(
+            mixed $check,
+            mixed $id,
+            mixed $key,
+            mixed $value,
+            mixed $prior
+        ): never {
+            ++$GLOBALS['duo_attachment_adapter_callback_calls'];
+            throw new \RuntimeException('TEC tracker callback must be quarantined');
+        }
+    }
+    final class Tribe__Meta__Chunker {
+        public function filter_update_metadata(
+            mixed $check,
+            mixed $id,
+            mixed $key,
+            mixed $value
+        ): never {
+            ++$GLOBALS['duo_attachment_adapter_callback_calls'];
+            throw new \RuntimeException('TEC request-local chunker callback must never enter the supported topology');
+        }
+    }
+    final class PLL_Links_Domain {
+        public function upload_dir(mixed $uploads): never {
+            ++$GLOBALS['duo_attachment_adapter_callback_calls'];
+            throw new \RuntimeException('Polylang domain callback must never enter the supported topology');
+        }
+    }
+
+    function bfi_wp_image_editor(mixed $editors): never {
+        ++$GLOBALS['duo_attachment_adapter_callback_calls'];
+        throw new \RuntimeException('Elementor BFI editor callback must be quarantined');
+    }
+
+    function bfi_image_resize_dimensions(
+        mixed $payload,
+        mixed $originalWidth,
+        mixed $originalHeight,
+        mixed $targetWidth,
+        mixed $targetHeight
+    ): never {
+        ++$GLOBALS['duo_attachment_adapter_callback_calls'];
+        throw new \RuntimeException('Elementor BFI dimension callback must be quarantined');
+    }
 
     $GLOBALS['wp_filter'] = [];
     $GLOBALS['duo_attachment_upload_root'] = '';
@@ -37,6 +139,8 @@ namespace {
     $GLOBALS['duo_attachment_editor_warning'] = false;
     $GLOBALS['duo_attachment_editor_output'] = false;
     $GLOBALS['duo_attachment_big_guard_seen'] = false;
+    $GLOBALS['duo_attachment_generate_calls'] = 0;
+    $GLOBALS['duo_attachment_adapter_callback_calls'] = 0;
 
     function duo_attachment_filter_id(callable $callback): string {
         return $callback instanceof \Closure
@@ -108,6 +212,7 @@ namespace {
     }
 
     function wp_generate_attachment_metadata(int $attachmentId, string $file): array {
+        ++$GLOBALS['duo_attachment_generate_calls'];
         $threshold = apply_filters('big_image_size_threshold', 2560, [4000, 3000], $file, $attachmentId);
         if ($threshold !== false) {
             throw new \RuntimeException('test core did not observe Duo\'s identity-preserving big-image guard');
@@ -136,6 +241,9 @@ namespace {
             ],
             'width' => 1,
         ];
+        if (isset($GLOBALS['duo_attachment_size_roster']['woocommerce_thumbnail'])) {
+            $metadata['sizes']['woocommerce_thumbnail'] = $metadata['sizes']['thumbnail'];
+        }
         $guard = apply_filters(
             'update_post_metadata',
             null,
@@ -215,6 +323,9 @@ namespace {
             true
         );
         if (!is_string($png)) throw new \RuntimeException('invalid PNG fixture');
+        $chunk = static function (string $type, string $data): string {
+            return pack('N', strlen($data)) . $type . $data . pack('N', crc32($type . $data));
+        };
         $uuid = '9c8e6f21-4a35-4b0d-8a11-2f6d5c4b3a29';
         $blob = hash('sha256', $png) . '.png';
         $front = [
@@ -274,8 +385,13 @@ namespace {
         $GLOBALS['duo_attachment_size_calls'] = 0;
         $GLOBALS['duo_attachment_mutate_size_call'] = 0;
         $GLOBALS['duo_attachment_big_guard_seen'] = false;
+        $GLOBALS['duo_attachment_generate_calls'] = 0;
         $filesystem->generate_metadata($generator);
         $check(Db::$starts === 1 && Db::$rollbacks === 1, 'native generator always settles its rollback-only metadata transaction');
+        $check(
+            $GLOBALS['duo_attachment_generate_calls'] === 1,
+            'one durable metadata phase invokes wp_generate_attachment_metadata exactly once'
+        );
         $check($GLOBALS['duo_attachment_big_guard_seen'], 'large-image replacement is disabled while ordinary registered sizes still generate');
         $check(
             hash_equals($authored['value'], $filesystem->pending_marker_identity()['value']),
@@ -494,6 +610,136 @@ namespace {
         );
         remove_filter('option_thumbnail_size_w', $hostile, 10);
 
+        $elementorPageTemplate = new \Elementor\Modules\PageTemplates\Module();
+        $elementorSvg = new \Elementor\Core\Files\File_Types\Svg();
+        $tecTracker = new Tribe__Tracker();
+        $certifiedCallbacks = [
+            ['wp_image_editors', 'bfi_wp_image_editor', 10, 1],
+            ['image_resize_dimensions', 'bfi_image_resize_dimensions', 10, 5],
+            ['update_post_metadata', [$elementorPageTemplate, 'filter_update_meta'], 10, 3],
+            ['wp_update_attachment_metadata', [$elementorSvg, 'set_svg_meta_data'], 10, 2],
+            ['wp_generate_attachment_metadata', ['WC_Regenerate_Images', 'add_uncropped_metadata'], 10, 1],
+            ['update_post_metadata', ['WC_Post_Data', 'update_post_metadata'], 10, 5],
+            ['update_post_metadata', ['WPSEO_Meta', 'remove_meta_if_default'], 10, 5],
+            ['update_post_metadata', [$tecTracker, 'filter_watch_updated_meta'], PHP_INT_MAX - 1, 5],
+        ];
+        foreach ($certifiedCallbacks as [$hook, $callback, $priority, $acceptedArgs]) {
+            if (!add_filter($hook, $callback, $priority, $acceptedArgs)) {
+                throw new \RuntimeException('could not install certified-adapter callback fixture');
+            }
+        }
+        $certifiedTopology = [];
+        foreach ($certifiedCallbacks as [$hook]) {
+            $certifiedTopology[$hook] = $GLOBALS['wp_filter'][$hook]->callbacks;
+        }
+        $GLOBALS['duo_attachment_size_roster'] = [
+            'thumbnail' => ['width' => 300, 'height' => 300, 'crop' => true],
+            'woocommerce_thumbnail' => ['width' => 300, 'height' => 0, 'crop' => false],
+        ];
+        $GLOBALS['duo_attachment_size_calls'] = 0;
+        $GLOBALS['duo_attachment_generate_calls'] = 0;
+        $GLOBALS['duo_attachment_adapter_callback_calls'] = 0;
+        $certifiedGenerator = new AttachmentNativeMetadataGenerator(
+            static fn(int $id): string => 'image/png',
+            [
+                'acf', 'advanced-editor-tools', 'classic-editor', 'code-snippets',
+                'contact-form-7', 'elementor', 'ninja-forms', 'paid-memberships-pro',
+                'polylang', 'the-events-calendar', 'woocommerce', 'wps-hide-login',
+                'yoast', 'yoast-duplicate-post',
+            ]
+        );
+        $certifiedMetadata = $certifiedGenerator->generate(41, $standalone);
+        $topologyRestored = true;
+        foreach ($certifiedTopology as $hook => $expectedCallbacks) {
+            $topologyRestored = $topologyRestored
+                && (($GLOBALS['wp_filter'][$hook]->callbacks ?? null) === $expectedCallbacks);
+        }
+        $check(
+            $GLOBALS['duo_attachment_generate_calls'] === 1
+                && $GLOBALS['duo_attachment_adapter_callback_calls'] === 0
+                && ($certifiedMetadata['sizes']['woocommerce_thumbnail']['uncropped'] ?? null) === true
+                && $topologyRestored,
+            'all normal pinned-adapter media callbacks are quarantined, projected where needed, and restored exactly around one Core generation'
+        );
+        foreach (array_reverse($certifiedCallbacks) as [$hook, $callback, $priority]) {
+            if (!remove_filter($hook, $callback, $priority)) {
+                throw new \RuntimeException('could not remove certified-adapter callback fixture');
+            }
+        }
+        $GLOBALS['duo_attachment_size_roster'] = [
+            'thumbnail' => ['width' => 300, 'height' => 300, 'crop' => true],
+        ];
+
+        $unboundWoo = ['WC_Regenerate_Images', 'add_uncropped_metadata'];
+        add_filter('wp_generate_attachment_metadata', $unboundWoo, 10, 1);
+        $throws(
+            static fn() => $generator->generate(41, $standalone),
+            'unreviewed callback topology',
+            'an exact official callback is not authority unless its owning manifest is active'
+        );
+        $check(
+            isset($GLOBALS['wp_filter']['wp_generate_attachment_metadata']),
+            'callback-topology refusal preserves the unbound callback exactly'
+        );
+        remove_filter('wp_generate_attachment_metadata', $unboundWoo, 10);
+
+        $throws(
+            static fn() => (new AttachmentNativeMetadataGenerator(
+                static fn(int $id): string => 'image/png',
+                ['woocommerce']
+            ))->generate(41, $standalone),
+            'lacks a required certified-adapter callback topology',
+            'an active pinned adapter cannot silently omit its audited always-on media callbacks'
+        );
+
+        $polylangDomain = new PLL_Links_Domain();
+        add_filter('upload_dir', [$polylangDomain, 'upload_dir'], 10, 1);
+        $throws(
+            static fn() => (new AttachmentNativeMetadataGenerator(
+                static fn(int $id): string => 'image/png',
+                ['polylang']
+            ))->generate(41, $standalone),
+            'request-conditional certified-adapter callback topology',
+            'Polylang domain/subdomain upload rewriting is an explicit unsupported target-filesystem topology'
+        );
+        remove_filter('upload_dir', [$polylangDomain, 'upload_dir'], 10);
+
+        $tecChunker = new Tribe__Meta__Chunker();
+        add_filter('update_post_metadata', [$tecChunker, 'filter_update_metadata'], -1, 4);
+        $throws(
+            static fn() => (new AttachmentNativeMetadataGenerator(
+                static fn(int $id): string => 'image/png',
+                ['the-events-calendar']
+            ))->generate(41, $standalone),
+            'request-conditional certified-adapter callback topology',
+            'TEC request-local meta chunking refuses before native attachment work'
+        );
+        remove_filter('update_post_metadata', [$tecChunker, 'filter_update_metadata'], -1);
+
+        $tecHarbor = new \TEC\Common\Integrations\Harbor\PUE();
+        add_filter('pre_option', [$tecHarbor, 'filter_pre_get_option'], 10, 3);
+        $throws(
+            static fn() => (new AttachmentNativeMetadataGenerator(
+                static fn(int $id): string => 'image/png',
+                ['the-events-calendar']
+            ))->generate(41, $standalone),
+            'request-conditional certified-adapter callback topology',
+            'TEC premium Harbor option interception is refused while the free-plugin WP-CLI topology remains supported'
+        );
+        remove_filter('pre_option', [$tecHarbor, 'filter_pre_get_option'], 10);
+
+        $tecQrUpload = static fn(mixed $uploads): mixed => $uploads;
+        add_filter('upload_dir', $tecQrUpload, 10, 1);
+        $throws(
+            static fn() => (new AttachmentNativeMetadataGenerator(
+                static fn(int $id): string => 'image/png',
+                ['the-events-calendar']
+            ))->generate(41, $standalone),
+            'unreviewed callback topology',
+            'TEC QR invocation-local upload closures remain outside the stable callable authority'
+        );
+        remove_filter('upload_dir', $tecQrUpload, 10);
+
         $GLOBALS['duo_attachment_size_calls'] = 0;
         $GLOBALS['duo_attachment_mutate_size_call'] = 2;
         $throws(
@@ -525,6 +771,25 @@ namespace {
             'thumbnail' => ['width' => 300, 'height' => 300, 'crop' => true],
         ];
 
+        $wide = "\x89PNG\r\n\x1A\n"
+            . $chunk('IHDR', pack('NNCCCCC', 16384, 1, 8, 6, 0, 0, 0))
+            . $chunk('IDAT', gzcompress(''))
+            . $chunk('IEND', '');
+        $widePath = $repository . '/wide.png';
+        file_put_contents($widePath, $wide);
+        $GLOBALS['duo_attachment_size_roster'] = [
+            'inferred-width' => ['width' => 0, 'height' => 16384, 'crop' => false],
+        ];
+        $GLOBALS['duo_attachment_size_calls'] = 0;
+        $throws(
+            static fn() => $generator->preflight('image/png', $widePath),
+            'aggregate pixel-work bound',
+            'a zero registered width is charged at Core\'s source-aspect-ratio output bound rather than zero pixels'
+        );
+        $GLOBALS['duo_attachment_size_roster'] = [
+            'thumbnail' => ['width' => 300, 'height' => 300, 'crop' => true],
+        ];
+
         $polyglot = $repository . '/polyglot.png';
         file_put_contents($polyglot, $png . '<?php secret');
         $GLOBALS['duo_attachment_size_calls'] = 0;
@@ -532,6 +797,42 @@ namespace {
             static fn() => $generator->generate(41, $polyglot),
             'carries trailing bytes',
             'a valid image prefix with undeclared trailing payload is refused before the editor'
+        );
+
+        $jpeg = base64_decode(
+            '/9j/4AAQSkZJRgABAQEAYABgAAD//gA7Q1JFQVRPUjogZ2QtanBlZyB2MS4wICh1c2luZyBJSkcgSlBFRyB2ODApLCBxdWFsaXR5ID0gOTAK/9sAQwADAgIDAgIDAwMDBAMDBAUIBQUEBAUKBwcGCAwKDAwLCgsLDQ4SEA0OEQ4LCxAWEBETFBUVFQwPFxgWFBgSFBUU/9sAQwEDBAQFBAUJBQUJFA0LDRQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU/8AAEQgAAgACAwERAAIRAQMRAf/EAB8AAAEFAQEBAQEBAAAAAAAAAAABAgMEBQYHCAkKC//EALUQAAIBAwMCBAMFBQQEAAABfQECAwAEEQUSITFBBhNRYQcicRQygZGhCCNCscEVUtHwJDNicoIJChYXGBkaJSYnKCkqNDU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6g4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2drh4uPk5ebn6Onq8fLz9PX29/j5+v/EAB8BAAMBAQEBAQEBAQEAAAAAAAABAgMEBQYHCAkKC//EALURAAIBAgQEAwQHBQQEAAECdwABAgMRBAUhMQYSQVEHYXETIjKBCBRCkaGxwQkjM1LwFWJy0QoWJDThJfEXGBkaJicoKSo1Njc4OTpDREVGR0hJSlNUVVZXWFlaY2RlZmdoaWpzdHV2d3h5eoKDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uLj5OXm5+jp6vLz9PX29/j5+v/aAAwDAQACEQMRAD8A+dK/DD/VM//Z',
+            true
+        );
+        $gif = base64_decode('R0lGODdhAgACAIAAAPwCBAAAACwAAAAAAgACAAACAoRRADs=', true);
+        if (!is_string($jpeg) || !is_string($gif)) {
+            throw new \RuntimeException('invalid JPEG/GIF fixtures');
+        }
+        $jpePath = $repository . '/exact.JPE';
+        $gifPath = $repository . '/exact.gif';
+        file_put_contents($jpePath, $jpeg);
+        file_put_contents($gifPath, $gif);
+        $jpegGenerator = new AttachmentNativeMetadataGenerator(static fn(int $id): string => 'image/jpeg');
+        $gifGenerator = new AttachmentNativeMetadataGenerator(static fn(int $id): string => 'image/gif');
+        $GLOBALS['duo_attachment_size_calls'] = 0;
+        $jpegGenerator->preflight('image/jpeg', $jpePath);
+        $GLOBALS['duo_attachment_size_calls'] = 0;
+        $gifGenerator->preflight('image/gif', $gifPath);
+        $check(true, 'exact JPEG .jpe and GIF containers remain admitted at the markerless media boundary');
+        $jpegTrailing = $repository . '/jpeg-trailing.jpe';
+        $gifTrailing = $repository . '/gif-trailing.gif';
+        file_put_contents($jpegTrailing, $jpeg . 'hidden' . "\xFF\xD9");
+        file_put_contents($gifTrailing, $gif . 'hidden' . "\x3B");
+        $GLOBALS['duo_attachment_size_calls'] = 0;
+        $throws(
+            static fn() => $jpegGenerator->preflight('image/jpeg', $jpegTrailing),
+            'carries trailing bytes',
+            'JPEG authority ends at the first parsed EOI rather than a forged final EOI byte pair'
+        );
+        $GLOBALS['duo_attachment_size_calls'] = 0;
+        $throws(
+            static fn() => $gifGenerator->preflight('image/gif', $gifTrailing),
+            'carries trailing bytes',
+            'GIF authority ends at the first parsed trailer rather than a forged final trailer byte'
         );
         $wrongExtension = $repository . '/mismatch.jpg';
         file_put_contents($wrongExtension, $png);
@@ -546,14 +847,11 @@ namespace {
         $pdfGenerator = new AttachmentNativeMetadataGenerator(static fn(int $id): string => 'application/pdf');
         $GLOBALS['duo_attachment_size_calls'] = 0;
         $throws(
-            static fn() => $pdfGenerator->generate(41, $pdf),
+            static fn() => $pdfGenerator->preflight('application/pdf', $pdf),
             'unsupported or MIME/extension-mismatched media class',
             'PDF/Imagick multi-page decompression is an explicit fail-closed boundary'
         );
 
-        $chunk = static function (string $type, string $data): string {
-            return pack('N', strlen($data)) . $type . $data . pack('N', crc32($type . $data));
-        };
         $bomb = "\x89PNG\r\n\x1A\n"
             . $chunk('IHDR', pack('NNCCCCC', 100000, 100000, 8, 6, 0, 0, 0))
             . $chunk('IDAT', gzcompress(''))
@@ -616,13 +914,13 @@ namespace {
         $policy = (new \ReflectionClass(Policy::class))->newInstanceWithoutConstructor();
         $tokens = (new \ReflectionClass(Tokens::class))->newInstanceWithoutConstructor();
         $fieldMaterializer = new ApplyFieldMaterializer($policy, $tokens);
-        $attachmentMaterializer = new AttachmentMaterializer($fieldMaterializer, $compiled, $repository);
+        $attachmentMaterializer = new AttachmentMaterializer($policy, $fieldMaterializer, $compiled, $repository);
         $check($attachmentMaterializer instanceof AttachmentMaterializer, 'AttachmentMaterializer composes the durable boundary with an explicit private repository root');
         $constructor = (new \ReflectionClass(AttachmentMaterializer::class))->getConstructor();
         $check(
             array_map(static fn(\ReflectionParameter $parameter): string => $parameter->getName(), $constructor->getParameters())
-                === ['fieldMaterializer', 'compiled', 'repositoryRoot'],
-            'constructor authority is exactly field materializer, immutable artifact and private repository root'
+                === ['policy', 'fieldMaterializer', 'compiled', 'repositoryRoot'],
+            'constructor authority binds frozen adapter policy, field materializer, immutable artifact and private repository root'
         );
     } finally {
         $removeTree($temporary);

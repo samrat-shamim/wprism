@@ -10,6 +10,7 @@ require_once __DIR__ . '/MetaOwnerRangeLock.php';
 require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
 require_once __DIR__ . '/../Kernel/MetaRows.php';
 require_once __DIR__ . '/../Kernel/PlainData.php';
+require_once __DIR__ . '/../Policy/Policy.php';
 if (!class_exists(Db::class, false)) {
     require_once __DIR__ . '/../Kernel/Db.php';
 }
@@ -57,14 +58,16 @@ if (!class_exists(Ledger::class, false)) {
  * materialization: filesystem rename is not rolled back by InnoDB, WordPress
  * metadata generation creates multiple files and intermediate writes, and a
  * recycled ledger ID must never authorize either. The immutable compiled
- * repository and the shared locked-meta writer are therefore its complete
- * constructor contract; plugin policy/token interpretation has already ended
- * before this target-side authority is established.
+ * repository, frozen manifest policy and shared locked-meta writer are
+ * therefore its complete constructor contract. Value/token interpretation has
+ * already ended; policy remains only to bind the exact certified callback
+ * families that the native staging boundary must isolate.
  */
 final class AttachmentMaterializer {
     private readonly AttachmentFilesystemTransaction $filesystem;
 
     public function __construct(
+        private readonly Policy $policy,
         private readonly ApplyFieldMaterializer $fieldMaterializer,
         private readonly CompiledRepository $compiled,
         string $repositoryRoot
@@ -112,7 +115,7 @@ final class AttachmentMaterializer {
             $tree,
             new AttachmentNativeMetadataGenerator(static function (int $id): never {
                 throw new \LogicException('duo: markerless attachment preflight must not request a target MIME lock');
-            })
+            }, $this->attachment_adapter_manifests())
         );
     }
 
@@ -178,7 +181,8 @@ final class AttachmentMaterializer {
         CacheInvalidationTransaction::assert_local_cache('native attachment metadata finalization');
         try {
             $generator = new AttachmentNativeMetadataGenerator(
-                fn(int $id): string => $this->assert_locked_pending_binding($id)
+                fn(int $id): string => $this->assert_locked_pending_binding($id),
+                $this->attachment_adapter_manifests()
             );
             $this->filesystem->generate_metadata($generator);
             $this->with_locked_pending_bindings(
@@ -596,6 +600,21 @@ final class AttachmentMaterializer {
     private static function failure_fingerprint(\Throwable $failure): string {
         return get_class($failure) . ':' . strlen($failure->getMessage()) . ':'
             . substr(hash('sha256', $failure->getMessage()), 0, 16);
+    }
+
+    /** @return list<string> exact frozen manifest authorities for media-hook isolation */
+    private function attachment_adapter_manifests(): array {
+        $manifests = [];
+        foreach ($this->policy->version_ranges() as $row) {
+            $manifest = $row['manifest'] ?? null;
+            if (!is_string($manifest) || $manifest === '') {
+                throw new \RuntimeException('duo: attachment media-hook policy authority is malformed');
+            }
+            $manifests[$manifest] = true;
+        }
+        $out = array_keys($manifests);
+        sort($out, SORT_STRING);
+        return $out;
     }
 
     /**

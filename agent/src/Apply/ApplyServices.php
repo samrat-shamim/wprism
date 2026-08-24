@@ -125,6 +125,7 @@ final class ApplyServices {
 
     public function attachment_materializer(): AttachmentMaterializer {
         return $this->attachmentMaterializer ??= new AttachmentMaterializer(
+            $this->policy,
             $this->field_materializer(),
             $this->compiled,
             $this->repositoryRoot
