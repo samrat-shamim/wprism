@@ -38,12 +38,23 @@ declare(strict_types=1);
  * With the evidence chain removed, the checks in capdoc_build() are the whole
  * of what keeps the narrowed claim honest. Each one refuses rather than
  * papering over, and each mirrors a rule the agent itself enforces at load
- * time (agent/src/Policy/ManifestDispositions.php), so the document cannot
- * describe a library the agent would reject:
+ * time (agent/src/Policy/ManifestDispositions.php) — with the one exception the
+ * first bullet states, where this file is the only enforcement there is — so
+ * the document cannot describe a library the agent would reject:
  *
- *   - dispositions coverage is an EXACT set, not a subset (ManifestDispositions
- *     ::load()): a manifest cannot reach the document merely by existing beside
- *     the agent, and a reviewed entry cannot outlive its manifest.
+ *   - dispositions coverage is an EXACT set, not a subset: a manifest cannot
+ *     reach the document merely by existing beside the agent, and a reviewed
+ *     entry cannot outlive its manifest. Since WP-1.2 this one does not mirror
+ *     a load-time rule, it IS the rule. The agent proves coverage against the
+ *     PINNED shipped subset (ManifestDispositions::assert_covers(), same
+ *     refusal, same sentence) because that is the question a running site
+ *     asks; the DIRECTORY-wide, bidirectional property is an authoring
+ *     property with exactly one reader, `make release-gate` running this file.
+ *     capdoc_cross_check() below is therefore load-bearing rather than a
+ *     second opinion, capdoc_build() runs it BEFORE the byte-compare so a
+ *     mismatched library fails whether or not the prose is current, and
+ *     tests/Tooling/CapabilityDocCoverageTest.php watches it refuse in both
+ *     directions.
  *   - a disposition naming a plugin must agree with that manifest's own
  *     `plugin`/`version_range` bytes (validate_entry()'s version cross-check),
  *     so the published range is the range the agent will actually admit.

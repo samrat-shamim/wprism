@@ -17616,6 +17616,23 @@
             "interfaces": [],
             "kind": "class",
             "methods": {
+                "assert_covers": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifests",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "blockers": {
                     "abstract": false,
                     "final": false,

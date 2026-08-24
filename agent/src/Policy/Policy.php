@@ -399,6 +399,12 @@ final class Policy {
         // ordinary loads continue to derive both config and source from $repo.
         $p->adapterSources = AdapterSources::discover($dir, $adapterRepo ?? $repo);
         PinResolver::validate_manifest_sources($pins, $p->adapterSources);
+        // The registry DOCUMENT is read here, ahead of the pin loop, so a
+        // malformed root or profile still refuses before any manifest is
+        // validated — the order it always refused in. What it no longer does is
+        // decode the whole directory: coverage is proved against the PINNED
+        // shipped subset after the loop, where the manifests are already in
+        // hand (ManifestDispositions::assert_covers()).
         $p->manifestDispositions = class_exists(ManifestDispositions::class)
             ? ManifestDispositions::load($dir)
             : null;
@@ -411,15 +417,16 @@ final class Policy {
             // DUO-3371: the earliest point on the live load path where a
             // manifest's FILE name and its DECLARED name are both in hand, and
             // therefore the only place one identity can be enforced for both
-            // keyings. The pin, the file, and ManifestDispositions::load()'s
-            // coverage check all key off the file name; ManifestDispositions::
-            // entry(), RepositoryCompiler::manifest_rows()'s per-adapter digest,
-            // and the capability registry's claims all key off the declared
-            // name. Every one of those declared-name lookups is downstream of
-            // this line — nothing reads $p->manifests before it exists — so
-            // refusing here, ahead of the first validator, is what keeps one
-            // adapter from answering to two keys. from_snapshot() has always
-            // refused the same disagreement against the frozen pin; this is the
+            // keyings. The pin and the file key off the file name;
+            // ManifestDispositions::entry()/assert_covers(),
+            // RepositoryCompiler::manifest_rows()'s per-adapter digest, and the
+            // capability registry's claims all key off the declared name. Every
+            // one of those declared-name lookups is downstream of this line —
+            // nothing reads $p->manifests before it exists, and WP-1.2's
+            // coverage check runs after the whole loop — so refusing here,
+            // ahead of the first validator, is what keeps one adapter from
+            // answering to two keys. from_snapshot() has always refused the
+            // same disagreement against the frozen pin; this is the
             // live path's half of that, and AdapterSources owns the sentence so
             // the site source (DUO-3314) and the shipped source say it once.
             //
@@ -452,6 +459,19 @@ final class Policy {
             );
             $p->manifests[] = $manifest;
         }
+        // "A manifest cannot certify itself merely by existing beside the
+        // agent" (ManifestDispositions.php:7) is a rule about a PINNED
+        // manifest, and this is where it fires: every shipped pin must have a
+        // reviewed entry, and that entry must pass all nine per-entry rules
+        // against the manifest bytes just validated above. The refusal sentence
+        // is the one the whole-directory check emitted.
+        //
+        // shipped_manifests() and not $p->manifests, for the reason the frozen
+        // path states at :559-564 and AdapterSources::shipped_manifests()
+        // repeats: an out-of-tree adapter has no reviewed entry by
+        // construction, so demanding one would refuse every unrelated shipped
+        // adapter beside it.
+        $p->manifestDispositions?->assert_covers($p->adapterSources->shipped_manifests($p->manifests));
         PolicyLoadFinalizer::finalize($p, $pins);
         return $p;
     }

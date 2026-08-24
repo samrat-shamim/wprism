@@ -294,8 +294,18 @@ echo "\n== the motivating refusal: a site adapter no longer takes down the shipp
 // could only be installed by dropping it into the shipped manifest directory
 // — where ManifestDispositions::load()'s one-for-one coverage check refused
 // it AND every unrelated shipped adapter along with it. Both halves are
-// asserted: the new source works, and the old refusal still guards the
-// shipped library.
+// asserted: the new source works, and an unreviewed adapter still cannot be
+// USED.
+//
+// The second half moved with WP-1.2 and the move is the subject of the two
+// checks below: coverage is proved against the PINNED shipped subset
+// (ManifestDispositions::assert_covers(), called from Policy::load() with
+// AdapterSources::shipped_manifests()), so the unrelated pin now loads and the
+// pin that names the unreviewed adapter refuses with the same sentence. The
+// directory-wide "every file is reviewed AND every review has a file"
+// property is an authoring rule enforced by `make release-gate`
+// (tools/capability-doc.php's capdoc_cross_check()) and by
+// regress_manifest_dispositions.php over the real library.
 
 $overlayRepo = fresh_site(['core', 'acme-widget'], ['acme-widget' => site_adapter('acme-widget')]);
 $overlay = Policy::load($overlayRepo);
@@ -317,10 +327,16 @@ Canon::write_file(
     Canon::encode(site_adapter('acme-widget'))
 );
 putenv("DUO_MANIFESTS_DIR=$mutatedShipped/manifests");
-expect_throw(
-    fn() => Policy::load(fresh_site(['core'])),
-    'disposition coverage mismatch',
-    'dropping an unreviewed adapter into the SHIPPED library still refuses — replacing or extending the reviewed manifest set cannot silently discard shipped claims'
+check(
+    count(Policy::load(fresh_site(['core']))->manifests) === 1,
+    'dropping an unreviewed adapter into the SHIPPED library no longer refuses an unrelated pin — one uncovered '
+    . 'file used to take every reviewed adapter beside it down, which is the same failure shape one directory over'
+);
+check(
+    message_of(fn() => Policy::load(fresh_site(['core', 'acme-widget'])))
+        === 'duo: manifest disposition coverage mismatch; missing=[acme-widget], extra=[]',
+    'and PINNING it still refuses, in the sentence the whole-directory check emitted, byte for byte — replacing or '
+    . 'extending the reviewed manifest set cannot silently discard shipped claims'
 );
 putenv("DUO_MANIFESTS_DIR=$shippedDir");
 

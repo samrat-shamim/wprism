@@ -856,18 +856,31 @@ claim, `AdapterRegistry` evaluates that projection against a live target, and
 [docs/capabilities.md](../capabilities.md). There is no second, generated
 document for it to agree with.
 
-Coverage is an **exact one-for-one set**, in both directions. A manifest with
-no entry, or an entry with no manifest, is a loud load failure naming both
-sides:
+Coverage is an **exact one-for-one set**, in both directions, and it is proved
+in two places for two different questions.
+
+At runtime the question is about the adapters a repository actually **pins**:
+every pinned shipped manifest must have a reviewed entry, or the load refuses,
+naming the pin:
 
 ```
-duo: manifest disposition coverage mismatch; missing=[<manifest with no entry>], extra=[<entry with no manifest>]
+duo: manifest disposition coverage mismatch; missing=[<pinned manifest with no entry>], extra=[]
+```
+
+At authoring time the question is about the **library**: `make release-gate`
+(`capability-doc.php --check`) compares the shipped manifest set against the
+reviewed set both ways and refuses either difference, `extra` included, before
+it renders a line of prose.
+
+```
+manifest disposition coverage mismatch; missing=[<manifest with no entry>], extra=[<entry with no manifest>]
 ```
 
 So shipping `manifests/<name>.json` without adding its entry does not produce
-an unreviewed adapter — it produces an agent that refuses to load a policy at
-all, and a red `make release-gate` (`capability-doc.php --check` enforces the
-same rule so the document cannot describe a library the agent would reject).
+an unreviewed adapter. It produces a red `make release-gate`, and an agent that
+refuses the moment anything pins that name — while every adapter beside it
+keeps loading, which is the point of scoping the runtime half: one unreviewed
+file in the library is not grounds for refusing an unrelated, reviewed pin.
 
 ### What each status means now
 

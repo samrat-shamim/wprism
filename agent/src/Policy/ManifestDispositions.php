@@ -45,6 +45,37 @@ final class ManifestDispositions {
         $this->data = $data;
     }
 
+    /**
+     * The reviewed registry DOCUMENT: its own root shape and its profiles,
+     * both of which are self-contained (validate_profiles() resolves each
+     * profile's `manifest` against the registry's own declared names, never
+     * against the directory).
+     *
+     * It deliberately no longer globs and decodes every `*.json` beside it.
+     * That whole-directory read cost one decode per SHIPPED manifest on every
+     * `Policy::load()` — measured 18 decodes for a one-pin load of the shipped
+     * 16-manifest library — to answer a question about manifests the caller
+     * never pinned, and it made the bidirectional set comparison a RUNTIME
+     * refusal: a single unreviewed file dropped into the library refused every
+     * unrelated pin along with it. That is the same shape Policy.php:559-564
+     * already names on the frozen path ("would demand an entry that cannot
+     * exist, so one site-installed adapter would refuse every unrelated shipped
+     * adapter along with itself").
+     *
+     * The rule did not relax, it split:
+     *   - RUNTIME ("you may not USE an unreviewed adapter") is assert_covers()
+     *     below, called by Policy::load() with the pinned shipped subset, and
+     *     by blockers()/report() as the synthesized `uncovered` row. A manifest
+     *     still cannot certify itself merely by existing beside the agent —
+     *     the moment it is PINNED it refuses, with the same sentence.
+     *   - AUTHORING ("the shipped library is exactly reviewed", both
+     *     directions, including a reviewed entry that outlived its manifest)
+     *     is `make release-gate`: tools/capability-doc.php's
+     *     capdoc_cross_check() already computes the identical two-way
+     *     comparison over manifests/ and exits 1 on any difference, and
+     *     sandbox/tests/offline/policy/regress_manifest_dispositions.php runs
+     *     the real loader over the whole shipped library in the merge gate.
+     */
     public static function load(string $dir): ?self {
         $file = rtrim($dir, '/') . '/dispositions.json';
         if (!is_file($file)) {
@@ -52,31 +83,53 @@ final class ManifestDispositions {
         }
         $data = Canon::decode(Canon::read_file($file));
         self::validate_root($data, "manifest disposition registry '$file'");
-
-        $files = [];
-        foreach (glob(rtrim($dir, '/') . '/*.json') ?: [] as $manifestFile) {
-            $name = basename($manifestFile, '.json');
-            if ($name !== 'dispositions') {
-                $files[$name] = Canon::decode(Canon::read_file($manifestFile));
-            }
-        }
-        $declared = array_keys($data['manifests']);
-        $shipped = array_keys($files);
-        sort($declared, SORT_STRING);
-        sort($shipped, SORT_STRING);
-        if ($declared !== $shipped) {
-            $missing = array_values(array_diff($shipped, $declared));
-            $extra = array_values(array_diff($declared, $shipped));
-            throw new \RuntimeException(
-                'duo: manifest disposition coverage mismatch; missing=[' . implode(',', $missing)
-                . '], extra=[' . implode(',', $extra) . ']'
-            );
-        }
-        foreach ($files as $name => $manifest) {
-            self::validate_entry($name, $data['manifests'][$name], $manifest);
-        }
         self::validate_profiles($data['profiles'], array_keys($data['manifests']));
         return new self($data);
+    }
+
+    /**
+     * Require a reviewed entry for exactly the manifests handed in — the
+     * validate-what-you-were-given shape from_snapshot() has always had, on
+     * the live path.
+     *
+     * Callers pass the SHIPPED subset only (AdapterSources::shipped_manifests(),
+     * "Only the shipped subset participates in disposition/registry coverage"):
+     * an out-of-tree adapter has no reviewed entry by construction and
+     * demanding one is exactly the DUO-3314 failure.
+     *
+     * The refusal is byte-identical to the whole-directory check it replaces,
+     * because it is the same refusal for the case an operator can actually
+     * reach: pinning a manifest with no reviewed entry. `extra` can only ever
+     * be empty here — nothing this call was given is unaccounted for, and the
+     * reviewed-entry-with-no-manifest direction is a property of the DIRECTORY,
+     * which `make release-gate` owns. The bytes stay put anyway (AGENTS.md rule
+     * 8; docs/guides/adapter-authoring.md quotes the sentence verbatim).
+     *
+     * Missing entries are collected and refused before the first validate_entry()
+     * so the precedence the whole-directory check had is preserved: a pin with
+     * no entry at all reports coverage, never a malformed-field message about
+     * some other pinned adapter.
+     *
+     * @param list<array<string,mixed>> $manifests
+     */
+    public function assert_covers(array $manifests): void {
+        $missing = [];
+        foreach ($manifests as $manifest) {
+            $name = (string) ($manifest['name'] ?? '');
+            if (!isset($this->data['manifests'][$name])) {
+                $missing[] = $name;
+            }
+        }
+        if ($missing !== []) {
+            sort($missing, SORT_STRING);
+            throw new \RuntimeException(
+                'duo: manifest disposition coverage mismatch; missing=[' . implode(',', $missing) . '], extra=[]'
+            );
+        }
+        foreach ($manifests as $manifest) {
+            $name = (string) ($manifest['name'] ?? '');
+            self::validate_entry($name, $this->data['manifests'][$name], $manifest);
+        }
     }
 
     /** Revalidate frozen bytes without reopening the mutable manifest dir. */
@@ -286,14 +339,22 @@ final class ManifestDispositions {
             $name = (string) ($manifest['name'] ?? '?');
             $entry = $this->entry($name);
             if ($entry === null) {
-                // DUO-3372: an uncovered manifest is a BLOCKER, not a skip. On
-                // the live path load()'s one-for-one coverage check refuses it
-                // earlier, so this is unreachable there — but silently dropping
-                // it here would let a direct caller read a manifest with no
-                // reviewed disposition as ready, which is exactly the "a
+                // DUO-3372: an uncovered manifest is a BLOCKER, not a skip.
+                // Silently dropping it would let a caller read a manifest with
+                // no reviewed disposition as ready, which is exactly the "a
                 // manifest cannot certify itself merely by existing" doctrine
                 // this file states. `uncovered` is a synthesized runtime status
                 // only; validate_entry() still refuses it as a DECLARED status.
+                //
+                // WP-1.2 made this row REACHABLE where it used to be a
+                // fail-safe: load() no longer refuses a whole library over a
+                // file nobody pinned, so a report over the LIBRARY (`wp duo
+                // capabilities --all`, the adapter catalog) now meets an
+                // unreviewed manifest and answers with this row and a
+                // non-`ready` verdict instead of refusing the command. That is
+                // the narrower loud refusal the runtime coverage check traded
+                // for scope, not a relaxation — a pinned uncovered manifest
+                // still refuses at load (assert_covers()).
                 $out[] = [
                     'name' => $name,
                     'status' => self::STATUS_UNCOVERED,

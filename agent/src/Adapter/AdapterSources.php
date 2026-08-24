@@ -6,12 +6,16 @@ namespace Duo;
  *
  * Until DUO-3314 the engine knew exactly one adapter source: the manifest
  * directory that ships and mounts with the agent. Every identity check hung off
- * that assumption — ManifestDispositions::load() still requires the shipped
- * directory's *.json set and its reviewed disposition set to match one-for-one,
- * which is what stops a replaced manifests directory from silently discarding
- * shipped claims. The cost was that a site could not install an adapter at all:
- * dropping one extra file beside the shipped set failed that coverage check and
- * took down every unrelated shipped adapter with it.
+ * that assumption — including a whole-directory disposition coverage check that
+ * required the shipped *.json set and the reviewed set to match one-for-one on
+ * every load, and whose cost was that a site could not install an adapter at
+ * all: dropping one extra file beside the shipped set failed that check and
+ * took down every unrelated shipped adapter with it. WP-1.2 finished that
+ * repair on the other side of the same wall: coverage is proved against the
+ * PINNED shipped subset (ManifestDispositions::assert_covers(), fed by
+ * shipped_manifests() below), and the directory-wide, both-directions property
+ * — which is what stops a replaced manifests directory from silently discarding
+ * shipped claims — is an authoring rule `make release-gate` enforces.
  *
  * This class adds sources rather than loosening the first. There are now
  * THREE, and the whole file is organized around what each one's owner already
@@ -26,10 +30,10 @@ namespace Duo;
  *     plugin update the operator did not author.
  *
  * A site or plugin manifest OVERLAYS the shipped set — they are additional
- * pinnable adapters, never replacements. The shipped directory's coverage check
- * is untouched, so shipped claims keep proving themselves against exactly the
- * bytes they always did, and a repository with no `adapters/` directory on a
- * host with no plugin bundles takes no new code path at all.
+ * pinnable adapters, never replacements. The shipped set's reviewed coverage is
+ * untouched by an overlay, so shipped claims keep proving themselves against
+ * exactly the bytes they always did, and a repository with no `adapters/`
+ * directory on a host with no plugin bundles takes no new code path at all.
  *
  * Four properties are load-bearing, all enforced before any manifest reaches a
  * policy consumer or a target:
@@ -392,8 +396,11 @@ final class AdapterSources {
      * that shadows a shipped one is a broken installation whether or not this
      * particular site.duo.json happens to pin it, and the operator should learn
      * that from the next command rather than from the first command that pins
-     * it. Same discipline ManifestDispositions::load() applies to the shipped
-     * directory.
+     * it. Deliberately NOT the discipline disposition coverage takes: a
+     * shadowed name is a broken INSTALLATION, while an unreviewed manifest is
+     * an unusable ADAPTER, and only the first is a fact about every other
+     * adapter beside it (ManifestDispositions::load()'s docblock states the
+     * split).
      *
      * The PLUGIN source is the exception, and the header states the reason at
      * length: its refusals are recorded rather than thrown even here, so a
@@ -2097,11 +2104,13 @@ final class AdapterSources {
         }
 
         // The reviewed disposition set is a property of the shipped library,
-        // and its own one-for-one coverage check can refuse. That refusal is
-        // about the library rather than about any one adapter, so it degrades
-        // to "no reviewed status known" here instead of taking the inventory
-        // down; `duo capabilities` is where a library-level registry problem
-        // is the subject.
+        // and reading it can still refuse: a malformed root or a malformed
+        // profile is a defect in the DOCUMENT, about the library rather than
+        // about any one adapter, so it degrades to "no reviewed status known"
+        // here instead of taking the inventory down; `duo capabilities` is
+        // where a library-level registry problem is the subject. Since WP-1.2
+        // an uncovered manifest is no longer one of those refusals — it reaches
+        // the row it belongs on, as `uncovered`.
         $dispositions = null;
         if (class_exists(ManifestDispositions::class)) {
             try {
