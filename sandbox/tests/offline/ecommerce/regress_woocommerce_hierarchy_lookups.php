@@ -224,6 +224,13 @@ if (!class_exists('WP_CLI')) {
                     $decoded,
                     JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
                 );
+            } elseif (self::$mode === 'stdout-overflow') {
+                // The provider caps its canonical receipt at 16 KiB. Keep
+                // credential-shaped bytes in this fault injection so the
+                // product boundary proves the transport never reflects them.
+                $result->stdout = str_repeat('secret=stdout-boundary;', 1024);
+            } elseif (self::$mode === 'stderr-overflow') {
+                $result->stderr = str_repeat('secret=stderr-boundary;', 1024);
             }
             return $result;
         }
@@ -1109,7 +1116,7 @@ WP_CLI::$mode = 'success';
 duo_check(($provider->invoke('rebuild_hierarchy_lookups', $hierarchyArgs)['after']['category_lookup_valid'] ?? false) === true,
     'failed child invocation retries to exact convergence');
 
-foreach (['stderr', 'trailing', 'mismatch'] as $mode) {
+foreach (['stderr', 'trailing', 'mismatch', 'stdout-overflow', 'stderr-overflow'] as $mode) {
     WP_CLI::$mode = $mode;
     $message = '';
     try {
@@ -1122,6 +1129,8 @@ foreach (['stderr', 'trailing', 'mismatch'] as $mode) {
         "$mode child output cannot verify or leak through the repair boundary");
 }
 WP_CLI::$mode = 'success';
+duo_check(($provider->invoke('rebuild_hierarchy_lookups', $hierarchyArgs)['after']['category_lookup_valid'] ?? false) === true,
+    'a bounded child-output refusal leaves the same exact hierarchy repair retryable');
 
 $rewriteArgs = ['flush_rewrite' => true];
 WP_CLI::$mode = 'brand-route-race';
