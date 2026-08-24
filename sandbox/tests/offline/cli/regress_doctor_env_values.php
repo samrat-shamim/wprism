@@ -76,6 +76,19 @@ final class DoctorTransport extends Transport {
                         'rename' => true,
                     ],
                 ],
+                'process' => [
+                    'os_family' => 'Linux',
+                    'functions' => [
+                        'passthru' => true,
+                        'posix_kill' => true,
+                        'posix_setsid' => true,
+                        'proc_close' => true,
+                        'proc_get_status' => true,
+                        'proc_open' => true,
+                        'proc_terminate' => true,
+                    ],
+                    'shell' => ['executable' => true, 'path' => '/bin/sh'],
+                ],
                 'wp' => '7.0.3',
                 'site_mode' => 'single-site',
             ]));

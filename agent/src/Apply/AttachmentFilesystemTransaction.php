@@ -1333,7 +1333,8 @@ final class AttachmentFilesystemTransaction {
         }
         $referenced = [];
         if (array_key_exists('sizes', $metadata)) {
-            if (!is_array($metadata['sizes']) || array_is_list($metadata['sizes'])) {
+            if (!is_array($metadata['sizes'])
+                || ($metadata['sizes'] !== [] && array_is_list($metadata['sizes']))) {
                 throw new \RuntimeException('duo: native attachment metadata sizes projection is malformed');
             }
             if (count($metadata['sizes']) > self::MAX_DERIVATIVES) {
@@ -1997,7 +1998,7 @@ final class AttachmentFilesystemTransaction {
                 || (!is_null($row['attachment_id'])
                     && (!is_int($row['attachment_id']) || $row['attachment_id'] <= 0))
                 || preg_match(
-                    '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/D',
+                    '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/D',
                     (string) ($row['attachment_uuid'] ?? '')
                 ) !== 1
                 || preg_match('/^[0-9a-f]{64}$/D', (string) ($row['original_sha256'] ?? '')) !== 1

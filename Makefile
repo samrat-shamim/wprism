@@ -26,7 +26,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-serialized-term-description-scanner
 .PHONY: regress-shortcode-reference-scanner
 .PHONY: regress-promotion-abort-reason
-.PHONY: regress-control-plane-seams regress-code-descriptor-compiler regress-agent-src-requires regress-target-observation-premises regress-live-exit-code-contract
+.PHONY: regress-control-plane-seams regress-code-descriptor-compiler regress-agent-src-requires regress-wp-cli-child-process regress-target-observation-premises regress-live-exit-code-contract
 .PHONY: regress-option-reference-grammar regress-post-type-grammar regress-discovery-grammar regress-reference-keyspace-grammar regress-reference-kind-grammar regress-code-config-grammar regress-site-policy-validator regress-policy-load-finalizer regress-artifact-policy-identity regress-compiled-artifact-reader regress-repository-media-catalog regress-repository-schema-validator regress-repository-deletion-parser regress-repository-entity-parser regress-repository-identity-registry regress-repository-reference-graph-validator regress-repository-portable-shape-validator regress-repository-menu-location-validator regress-repository-state-file-catalog regress-post-type-relation-resolver regress-option-name-reference-resolver regress-deletion-capability-resolver regress-taxonomy-pattern-resolver regress-taxonomy-keyspace-resolver regress-taxonomy-description-reference-resolver regress-taxonomy-object-type-option-resolver regress-widget-type-resolver regress-table-declaration-resolver regress-content-attribute-rule-resolver regress-policy-rule-resolver regress-exact-option-resolver regress-option-namespace-resolver
 .PHONY: regress-delete-guard-value-codec
 .PHONY: regress-delete-guard-evaluator
@@ -569,6 +569,9 @@ regress-actions-providers:
 
 regress-core-rewrite-native-action:
 	php sandbox/tests/offline/adapter/regress_core_rewrite_native_action.php
+
+regress-wp-cli-child-process:
+	php sandbox/tests/offline/guards/regress_wp_cli_child_process.php
 
 # DUO-3338 live counterpart: a custom sandbox plugin advertising its OWN
 # provider through the `duo_providers` filter, negotiated and invoked against a

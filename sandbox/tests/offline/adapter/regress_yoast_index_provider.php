@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace {
     require_once __DIR__ . '/../../lib/check.php';
+    require_once __DIR__ . '/../../support/wp_cli_child_process_fake.php';
 
     $GLOBALS['yi_enabled'] = true;
     $GLOBALS['yi_post_types'] = ['post', 'page', 'attachment'];
@@ -33,6 +34,8 @@ namespace {
     }
 
     final class WP_CLI {
+        use \DuoTest\WpCliChildRuntime;
+
         public static function runcommand(string $command, array $options): mixed {
             $GLOBALS['yi_command_calls'][] = [$command, $options];
             if ($GLOBALS['yi_command_throw'] instanceof \Throwable) {
@@ -212,6 +215,7 @@ namespace {
         $GLOBALS['yi_command_result'] = (object) ['return_code' => 0, 'stdout' => '', 'stderr' => ''];
         $GLOBALS['yi_command_throw'] = null;
         $GLOBALS['yi_command_calls'] = [];
+        $GLOBALS['duo_wp_cli_child_fake_stderr_first'] = false;
         $GLOBALS['wpdb'] = new YoastIndexWpdb();
         $GLOBALS['yi_after_command'] = static function (): void {
             $GLOBALS['wpdb']->makeValid();
@@ -307,13 +311,17 @@ namespace {
     );
 
     $receipt = $provider->invoke('reindex', []);
+    duo_check_same(1, count($GLOBALS['yi_command_calls']), 'provider invokes one bounded fresh process');
+    [$yoastCommand, $yoastOptions] = $GLOBALS['yi_command_calls'][0];
+    duo_check(
+        str_starts_with($yoastCommand, 'exec ')
+            && str_contains($yoastCommand, 'yoast index --reindex --skip-confirmation'),
+        'bounded launch preserves the exact non-interactive plugin-owned command'
+    );
     duo_check_same(
-        [[
-            'yoast index --reindex --skip-confirmation',
-            ['launch' => true, 'return' => 'all', 'exit_error' => false],
-        ]],
-        $GLOBALS['yi_command_calls'],
-        'provider invokes the exact non-interactive plugin-owned command once'
+        ['launch' => true, 'return' => 'all', 'exit_error' => false],
+        $yoastOptions,
+        'the fake command boundary observes the isolated launch contract'
     );
     duo_check(($receipt['verified'] ?? false) === true, 'success is emitted only after relational readback');
     duo_check_same('fixture-production', $receipt['after']['environment_type'] ?? null, 'receipt records plugin execution context');
@@ -363,7 +371,44 @@ namespace {
         static fn() => $provider->invoke('reindex', []),
         \RuntimeException::class,
         'non-zero plugin command is a hard apply failure',
-        "exited 23\nstdout: index command context\nstderr: exact failure evidence"
+        'exited 23'
+    );
+
+    $provider = yi_reset();
+    $GLOBALS['yi_command_result'] = (object) [
+        'return_code' => 0,
+        'stdout' => '',
+        'stderr' => str_repeat('credential-shaped-warning-', 4000),
+    ];
+    $GLOBALS['duo_wp_cli_child_fake_stderr_first'] = true;
+    $stderrFirstMessage = '';
+    try {
+        $provider->invoke('reindex', []);
+    } catch (RuntimeException $failure) {
+        $stderrFirstMessage = $failure->getMessage();
+    }
+    duo_check(
+        str_contains($stderrFirstMessage, 'emitted stderr despite exit 0')
+            && !str_contains($stderrFirstMessage, 'credential-shaped'),
+        'stderr-first output larger than a pipe reaches Yoast warning policy without leaking bytes'
+    );
+
+    $provider = yi_reset();
+    $GLOBALS['yi_command_result'] = (object) [
+        'return_code' => 0,
+        'stdout' => str_repeat('credential-shaped-boot-output-', 20000),
+        'stderr' => '',
+    ];
+    $overflowMessage = '';
+    try {
+        $provider->invoke('reindex', []);
+    } catch (RuntimeException $failure) {
+        $overflowMessage = $failure->getMessage();
+    }
+    duo_check(
+        str_contains($overflowMessage, "Yoast 'yoast index --reindex --skip-confirmation' could not start")
+            && !str_contains($overflowMessage, 'credential-shaped'),
+        'Yoast wraps helper overflow in its stable command failure without a verified receipt or output leak'
     );
 
     foreach ([null, (object) [], (object) ['return_code' => '0']] as $malformed) {
@@ -373,7 +418,7 @@ namespace {
             static fn() => $provider->invoke('reindex', []),
             \RuntimeException::class,
             'malformed process result cannot false-green (' . get_debug_type($malformed) . ')',
-            'unreadable process result'
+            'could not start'
         );
     }
 

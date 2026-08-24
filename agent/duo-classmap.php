@@ -271,4 +271,5 @@ return [
     'Duo\\UserMetaState' => 'src/Kernel/UserMetaState.php',
     'Duo\\Uuid' => 'src/Kernel/Uuid.php',
     'Duo\\WidgetTypeResolver' => 'src/Grammar/WidgetTypeResolver.php',
+    'Duo\\WpCliChildProcess' => 'src/Kernel/WpCliChildProcess.php',
 ];

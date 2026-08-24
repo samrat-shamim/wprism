@@ -963,12 +963,13 @@ final class Providers {
      * without proving the value it wrote is indistinguishable from one that
      * did nothing, so the engine refuses to record it as done.
      *
-     * The timeout is a post-hoc wall-clock budget, checked after the call
-     * returns. In-process PHP cannot preempt a running plugin call, and
-     * WP_CLI::runcommand() exposes no timeout either, so the honest claim is:
-     * the declared budget bounds what the receipt may assert about duration
-     * and hard-fails an overrun, but it does not stop the work mid-flight. A
-     * process-boundary launch would be needed for real preemption. What the
+     * This engine-level timeout is a post-hoc wall-clock budget, checked after
+     * the provider call returns; arbitrary in-process PHP cannot be preempted.
+     * A few shipped providers launch their reviewed native command through
+     * WpCliChildProcess and enforce a separate preemptive child deadline, but
+     * that caller-owned guarantee is not inferred for an arbitrary provider.
+     * Here the declared budget only bounds what the receipt may assert about
+     * duration and hard-fails an overrun after control returns. What the
      * surface observation below adds is a verdict that does not depend on the
      * clock at all: a call that finished well inside its budget and wrote
      * nothing it claimed — or wrote a surface it declared it would only read —

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace {
     require_once __DIR__ . '/../../lib/check.php';
     require_once __DIR__ . '/../../lib/FakeWpdb.php';
+    require_once __DIR__ . '/../../support/wp_cli_child_process_fake.php';
     require_once dirname(__DIR__, 4) . '/agent/src/Kernel/PlainData.php';
 
     $GLOBALS['nf_provider_multisite'] = false;
@@ -18,6 +19,8 @@ namespace {
     }
 
     final class WP_CLI {
+        use \DuoTest\WpCliChildRuntime;
+
         public static function runcommand(string $command, array $options): mixed {
             $GLOBALS['nf_provider_command_calls'][] = [$command, $options];
             if ($GLOBALS['nf_provider_command_throw'] instanceof \Throwable) {
@@ -193,6 +196,7 @@ namespace {
         $GLOBALS['nf_provider_command_calls'] = [];
         $GLOBALS['nf_provider_command_throw'] = null;
         $GLOBALS['nf_provider_wakeup_count'] = 0;
+        $GLOBALS['duo_wp_cli_child_fake_stderr_first'] = false;
         $GLOBALS['nf_provider_after_command'] = static function (): void {
             nf_provider_rebuild();
         };
@@ -442,7 +446,10 @@ namespace {
     );
     duo_check_same(1, count($GLOBALS['nf_provider_command_calls']), 'provider launches exactly one fresh process');
     [$command, $options] = $GLOBALS['nf_provider_command_calls'][0];
-    duo_check(str_starts_with($command, 'eval '), 'provider uses a fresh wp-cli eval process');
+    duo_check(
+        str_starts_with($command, 'exec ') && str_contains($command, ' eval '),
+        'provider uses the bounded fresh wp-cli eval process'
+    );
     duo_check(
         str_contains($command, 'DELETE FROM `$cache`')
             && str_contains($command, 'WPN_Helper::build_nf_cache')
@@ -719,9 +726,36 @@ namespace {
 
     $hostile = 'child process token sk_child_must_not_escape';
     $validFingerprint = str_repeat('a', 64);
+    $provider = nf_provider_reset();
+    $GLOBALS['nf_provider_command_result'] = (object) [
+        'return_code' => 0,
+        'stdout' => '{}',
+        'stderr' => str_repeat('credential-shaped-warning-', 4000),
+    ];
+    $GLOBALS['duo_wp_cli_child_fake_stderr_first'] = true;
+    $stderrFirstMessage = nf_provider_throw_message(static fn(): array => $provider->invoke('rebuild_form_caches', []));
+    duo_check(
+        str_contains($stderrFirstMessage, 'emitted stderr despite exit 0')
+            && !str_contains($stderrFirstMessage, 'credential-shaped'),
+        'stderr-first output larger than a pipe reaches Ninja warning policy without leaking bytes'
+    );
+
+    $provider = nf_provider_reset();
+    $GLOBALS['nf_provider_command_result'] = (object) [
+        'return_code' => 0,
+        'stdout' => str_repeat('credential-shaped-boot-output-', 12000),
+        'stderr' => '',
+    ];
+    $overflowMessage = nf_provider_throw_message(static fn(): array => $provider->invoke('rebuild_form_caches', []));
+    duo_check(
+        str_contains($overflowMessage, 'fresh cache-rebuild process could not start')
+            && !str_contains($overflowMessage, 'credential-shaped'),
+        'Ninja wraps helper overflow in its stable command failure without a verified receipt or output leak'
+    );
+
     $cases = [
-        'unreadable result' => ['result' => ['not-an-object'], 'needle' => 'unreadable result'],
-        'noninteger return code' => ['result' => (object) ['return_code' => '0', 'stdout' => '', 'stderr' => ''], 'needle' => 'unreadable result'],
+        'unreadable result' => ['result' => ['not-an-object'], 'needle' => 'could not start'],
+        'noninteger return code' => ['result' => (object) ['return_code' => '0', 'stdout' => '', 'stderr' => ''], 'needle' => 'could not start'],
         'nonzero exit' => ['result' => (object) ['return_code' => 9, 'stdout' => '', 'stderr' => $hostile], 'needle' => 'exited 9'],
         'stderr on success' => ['result' => (object) ['return_code' => 0, 'stdout' => '{}', 'stderr' => $hostile], 'needle' => 'emitted stderr'],
         'malformed json' => ['result' => (object) ['return_code' => 0, 'stdout' => '{' . $hostile, 'stderr' => ''], 'needle' => 'malformed receipt'],

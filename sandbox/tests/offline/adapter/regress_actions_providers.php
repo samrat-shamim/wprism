@@ -642,14 +642,24 @@ check(
 // ======================================================================
 echo "\n== the shipped adapters: every committed manifest loads clean and declares no retired channel ==\n";
 
-// The real manifests are copied into a scratch dir WITHOUT dispositions.json,
+// The real manifests are copied into a scratch repo topology WITHOUT dispositions.json,
 // which is what makes this check about the manifest GRAMMAR rather than about
 // the reviewed support boundary. A disposition names entity/field sections,
 // operations, and unsupported surfaces per manifest, and its coverage check is
 // one-for-one; loading through it here would make this file fail for a review
 // decision it does not test. regress_manifest_dispositions.php owns that.
-$shipped = sys_get_temp_dir() . '/duo_regress_actions_providers_shipped_' . bin2hex(random_bytes(4));
+// Keeping manifests/providers beside agent/src is load-bearing: provider hook
+// files require their dependency-free WpCliChildProcess through the same
+// ../../agent path Adopt ships, so this fixture proves the production include
+// topology instead of flattening files into a directory where they cannot run.
+$shippedRoot = sys_get_temp_dir() . '/duo_regress_actions_providers_shipped_' . bin2hex(random_bytes(4));
+$shipped = $shippedRoot . '/manifests';
 mkdir($shipped . '/providers', 0777, true);
+mkdir($shippedRoot . '/agent/src/Kernel', 0777, true);
+copy(
+    $root . '/agent/src/Kernel/WpCliChildProcess.php',
+    $shippedRoot . '/agent/src/Kernel/WpCliChildProcess.php'
+);
 $copied = [];
 foreach (glob($root . '/manifests/*.json') ?: [] as $file) {
     $name = basename($file, '.json');
@@ -662,6 +672,47 @@ foreach (glob($root . '/manifests/*.json') ?: [] as $file) {
 foreach (glob($root . '/manifests/providers/*.php') ?: [] as $file) {
     copy($file, $shipped . '/providers/' . basename($file));
 }
+$wpCliProviderFiles = [
+    'elementor-css.php' => '\\Duo\\Providers\\ElementorCss',
+    'ninja-forms-form-cache.php' => '\\Duo\\Providers\\NinjaFormsFormCache',
+    'yoast-index.php' => '\\Duo\\Providers\\YoastIndex',
+];
+foreach ($wpCliProviderFiles as $providerFile => $providerClass) {
+    $descriptors = [
+        0 => ['pipe', 'r'],
+        1 => ['pipe', 'w'],
+        2 => ['pipe', 'w'],
+    ];
+    $pipes = [];
+    $process = proc_open(
+        [
+            PHP_BINARY,
+            '-d',
+            'display_errors=stderr',
+            '-r',
+            'require $argv[1]; if (!class_exists("Duo\\\\WpCliChildProcess", false) || !class_exists($argv[2], false)) { exit(1); }',
+            $shipped . '/providers/' . $providerFile,
+            $providerClass,
+        ],
+        $descriptors,
+        $pipes
+    );
+    if (!is_resource($process)) {
+        check(false, "$providerFile starts in an isolated partial-load process");
+        continue;
+    }
+    fclose($pipes[0]);
+    $stdout = stream_get_contents($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $exitCode = proc_close($process);
+    check(
+        $exitCode === 0 && $stdout === '' && $stderr === '',
+        "$providerFile owns its WpCliChildProcess dependency in an isolated partial-load context"
+            . ($stderr === '' ? '' : " (stderr: $stderr)")
+    );
+}
 foreach (['interpreters', 'regenerators'] as $sub) {
     if (!is_dir($root . '/manifests/' . $sub)) {
         continue;
@@ -671,7 +722,7 @@ foreach (['interpreters', 'regenerators'] as $sub) {
         copy($file, "$shipped/$sub/" . basename($file));
     }
 }
-register_shutdown_function(function () use ($shipped) {
+register_shutdown_function(function () use ($shipped, $shippedRoot) {
     foreach (['providers', 'interpreters', 'regenerators'] as $sub) {
         foreach (glob("$shipped/$sub/*") ?: [] as $f) {
             unlink($f);
@@ -684,6 +735,11 @@ register_shutdown_function(function () use ($shipped) {
         }
     }
     @rmdir($shipped);
+    @unlink($shippedRoot . '/agent/src/Kernel/WpCliChildProcess.php');
+    @rmdir($shippedRoot . '/agent/src/Kernel');
+    @rmdir($shippedRoot . '/agent/src');
+    @rmdir($shippedRoot . '/agent');
+    @rmdir($shippedRoot);
 });
 putenv("DUO_MANIFESTS_DIR=$shipped");
 check(count($copied) >= 10, 'the shipped manifest set was copied into a scratch dir for real-byte validation (' . count($copied) . ' manifests)');

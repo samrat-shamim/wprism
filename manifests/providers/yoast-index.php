@@ -2,6 +2,11 @@
 namespace Duo\Providers;
 
 use Duo\Policy;
+use Duo\WpCliChildProcess;
+
+if (!class_exists(WpCliChildProcess::class, false)) {
+    require_once __DIR__ . '/../../agent/src/Kernel/WpCliChildProcess.php';
+}
 
 /**
  * Yoast SEO indexable rebuild provider.
@@ -130,11 +135,7 @@ final class YoastIndex {
         // empty derived cache that may be guessed safe.
         $before = $this->projection_snapshot(false);
         try {
-            $result = \WP_CLI::runcommand(self::COMMAND, [
-                'launch' => true,
-                'return' => 'all',
-                'exit_error' => false,
-            ]);
+            $result = WpCliChildProcess::capture(self::COMMAND, 600, 524288, 131072);
         } catch (\Throwable $t) {
             throw new \RuntimeException(
                 "duo: Yoast '" . self::COMMAND . "' could not start",
@@ -142,18 +143,14 @@ final class YoastIndex {
                 $t
             );
         }
-        if (!is_object($result) || !isset($result->return_code) || !is_int($result->return_code)) {
+        if ($result['return_code'] !== 0) {
             throw new \RuntimeException(
-                "duo: Yoast '" . self::COMMAND . "' returned an unreadable process result"
+                "duo: Yoast '" . self::COMMAND . "' exited {$result['return_code']}"
             );
         }
-        if ($result->return_code !== 0) {
-            $out = trim((string) ($result->stdout ?? ''));
-            $err = trim((string) ($result->stderr ?? ''));
+        if (trim($result['stderr']) !== '') {
             throw new \RuntimeException(
-                "duo: Yoast '" . self::COMMAND . "' exited {$result->return_code}"
-                . ($out !== '' ? "\nstdout: $out" : '')
-                . ($err !== '' ? "\nstderr: $err" : '')
+                "duo: Yoast '" . self::COMMAND . "' emitted stderr despite exit 0; recovery_required"
             );
         }
 

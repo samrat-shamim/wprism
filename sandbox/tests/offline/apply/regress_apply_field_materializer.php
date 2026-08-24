@@ -40,6 +40,7 @@ require_once __DIR__ . '/../../../../agent/src/Kernel/TransientDbException.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Db.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/ApplyFieldMaterializer.php';
+require_once __DIR__ . '/../../../../agent/src/Apply/EntityAdopter.php';
 
 use Duo\ApplyFieldMaterializer;
 
@@ -47,6 +48,7 @@ final class ApplyFieldMaterializerFakeWpdb {
     public string $prefix = 'wp_';
     public string $postmeta = 'wp_postmeta';
     public string $termmeta = 'wp_termmeta';
+    public string $term_taxonomy = 'wp_term_taxonomy';
     public string $options = 'wp_options';
     public string $last_error = '';
     public int $insert_id = 0;
@@ -63,6 +65,10 @@ final class ApplyFieldMaterializerFakeWpdb {
     public array $postMetaRows = [];
     /** @var list<array<string,mixed>> */
     public array $termMetaRows = [];
+    /** @var list<array<string,mixed>> */
+    public array $termTaxonomyRows = [];
+    /** @var list<array<string,mixed>> */
+    public array $duoMapRows = [];
     /** @var list<array<string,mixed>> */
     public array $optionRows = [];
     /** @var list<string> */
@@ -99,7 +105,68 @@ final class ApplyFieldMaterializerFakeWpdb {
             $this->savepointExists = false;
             return 1;
         }
+        if (preg_match(
+            "/^INSERT INTO wp_duo_map \\(uuid, entity_type, id_kind, local_id\\)\\s+"
+                . "VALUES \\('([^']+)', '([^']+)', '([^']+)', ([0-9]+)\\)\\s+"
+                . 'ON DUPLICATE KEY UPDATE entity_type = VALUES\\(entity_type\\)$/D',
+            trim($sql),
+            $match
+        ) === 1) {
+            [$uuid, $entityType, $idKind, $localId] = [$match[1], $match[2], $match[3], (int) $match[4]];
+            foreach ($this->duoMapRows as &$row) {
+                if ($row['uuid'] === $uuid && $row['id_kind'] === $idKind) {
+                    $row['entity_type'] = $entityType;
+                    return 1;
+                }
+            }
+            unset($row);
+            $this->duoMapRows[] = [
+                'uuid' => $uuid,
+                'entity_type' => $entityType,
+                'id_kind' => $idKind,
+                'local_id' => $localId,
+            ];
+            return 1;
+        }
         throw new RuntimeException("unrecognized query: $sql");
+    }
+
+    public function get_row(string $sql, mixed $mode): ?array {
+        $this->queries[] = $sql;
+        if ($mode !== ARRAY_A) {
+            throw new RuntimeException('fixture expected ARRAY_A');
+        }
+        if (preg_match(
+            "/^SELECT entity_type, local_id FROM wp_duo_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'$/D",
+            trim($sql),
+            $match
+        ) === 1) {
+            foreach ($this->duoMapRows as $row) {
+                if ($row['uuid'] === $match[1] && $row['id_kind'] === $match[2]) {
+                    return [
+                        'entity_type' => (string) $row['entity_type'],
+                        'local_id' => (string) $row['local_id'],
+                    ];
+                }
+            }
+            return null;
+        }
+        if (preg_match(
+            "/^SELECT uuid, entity_type FROM wp_duo_map WHERE id_kind = '([^']+)' AND local_id = ([0-9]+)$/D",
+            trim($sql),
+            $match
+        ) === 1) {
+            foreach ($this->duoMapRows as $row) {
+                if ($row['id_kind'] === $match[1] && (int) $row['local_id'] === (int) $match[2]) {
+                    return [
+                        'uuid' => (string) $row['uuid'],
+                        'entity_type' => (string) $row['entity_type'],
+                    ];
+                }
+            }
+            return null;
+        }
+        throw new RuntimeException("unrecognized get_row query: $sql");
     }
 
     public function get_var(string $sql) {
@@ -117,6 +184,9 @@ final class ApplyFieldMaterializerFakeWpdb {
             return $this->isolation;
         }
         if (trim($sql) === 'SELECT 1 FROM `wp_termmeta` LIMIT 1') {
+            return '1';
+        }
+        if (trim($sql) === 'SELECT 1 FROM `wp_term_taxonomy` LIMIT 1') {
             return '1';
         }
         if (trim($sql) === 'SELECT 1 FROM `wp_options` LIMIT 1') {
@@ -158,6 +228,7 @@ final class ApplyFieldMaterializerFakeWpdb {
                 ['TABLE_NAME' => $this->options, 'ENGINE' => 'InnoDB'],
                 ['TABLE_NAME' => $this->postmeta, 'ENGINE' => 'InnoDB'],
                 ['TABLE_NAME' => $this->termmeta, 'ENGINE' => 'InnoDB'],
+                ['TABLE_NAME' => $this->term_taxonomy, 'ENGINE' => 'InnoDB'],
             ];
         }
         if (str_starts_with($sql, 'SHOW INDEX FROM `wp_postmeta`')) {
@@ -171,6 +242,16 @@ final class ApplyFieldMaterializerFakeWpdb {
             ]];
         }
         if (str_starts_with($sql, 'SHOW INDEX FROM `wp_termmeta`')) {
+            return [[
+                'Key_name' => 'term_id',
+                'Seq_in_index' => '1',
+                'Column_name' => 'term_id',
+                'Sub_part' => null,
+                'Non_unique' => '1',
+                'Index_type' => 'BTREE',
+            ]];
+        }
+        if (str_starts_with($sql, 'SHOW INDEX FROM `wp_term_taxonomy`')) {
             return [[
                 'Key_name' => 'term_id',
                 'Seq_in_index' => '1',
@@ -218,6 +299,20 @@ final class ApplyFieldMaterializerFakeWpdb {
                 'option_value' => (string) $row['option_value'],
                 'autoload' => (string) $row['autoload'],
             ], $rows);
+        }
+        if (str_contains($sql, 'FROM wp_term_taxonomy FORCE INDEX (`term_id`)')) {
+            preg_match('/WHERE term_id = ([0-9]+)/', $sql, $match);
+            $termId = (int) ($match[1] ?? 0);
+            $rows = array_values(array_filter(
+                $this->termTaxonomyRows,
+                static fn(array $row): bool => (int) $row['term_id'] === $termId
+            ));
+            usort($rows, static fn(array $a, array $b): int =>
+                (int) $a['term_taxonomy_id'] <=> (int) $b['term_taxonomy_id']);
+            return array_map(static fn(array $row): array => [
+                'term_taxonomy_id' => (string) $row['term_taxonomy_id'],
+                'taxonomy' => (string) $row['taxonomy'],
+            ], array_slice($rows, 0, 1025));
         }
         if (str_contains($sql, 'FROM `wp_termmeta` FORCE INDEX (`term_id`)')
             || str_contains($sql, 'FROM `wp_postmeta` FORCE INDEX (`post_id`)')) {
@@ -1227,6 +1322,41 @@ $check($materializer->option_wire_value(false) === 'b:0;', 'option_wire_value pr
 $check($materializer->option_wire_value(['x' => 1]) === 'a:1:{s:1:"x";i:1;}',
     'option_wire_value retains WordPress serialized array bytes');
 $check($materializer->option_wire_value('') === '', 'option_wire_value leaves an empty string empty');
+
+$adopterPolicy = new \Duo\Policy();
+$adopterMaterializer = new ApplyFieldMaterializer($adopterPolicy, $termTokens);
+$adopter = new \Duo\EntityAdopter($adopterPolicy, [], $adopterMaterializer);
+$adoptionUuid = '00000000-0000-4000-8000-000000000099';
+$adoptionPath = 'terms/category/portable-source.json';
+$wpdb->termTaxonomyRows = [[
+    'term_taxonomy_id' => 71,
+    'term_id' => 41,
+    'taxonomy' => 'category',
+]];
+$wpdb->termMetaRows = [];
+$wpdb->duoMapRows = [];
+$adoptionWarnings = [];
+$adopterMaterializer->begin_authored_transaction();
+$adopter->adopt(
+    ['env_id' => 41, 'uuid' => $adoptionUuid, 'path' => $adoptionPath],
+    ['type' => 'term', 'data' => ['taxonomy' => 'category']],
+    $adoptionWarnings
+);
+$adopterMaterializer->end_authored_transaction();
+$check(
+    $adoptionWarnings === ["adopted env term 41 as $adoptionUuid ($adoptionPath)"],
+    'term adoption reports the plan-approved canonical path after inspecting physical taxonomy rows'
+);
+$check(
+    count(array_filter(
+        $wpdb->termMetaRows,
+        static fn(array $row): bool => (int) $row['term_id'] === 41
+            && $row['meta_key'] === '_duo_uuid'
+            && $row['meta_value'] === $adoptionUuid
+    )) === 1
+        && count($wpdb->duoMapRows) === 2,
+    'term adoption installs one exact UUID sidecar and both term ledger identities'
+);
 
 if ($failures) {
     \Duo\CacheInvalidationTransaction::end();

@@ -56,11 +56,14 @@ namespace {
 // From offline/apply/: two hops to the corpus root, four to the repo root.
 require_once __DIR__ . '/../../lib/check.php';
 require_once __DIR__ . '/../../lib/frozen_policy.php';
+require_once __DIR__ . '/../../support/wp_cli_child_process_fake.php';
 
 /** WP_CLI::halt() and WP_CLI::error() both end the process live; here they unwind. */
 final class DuoConvergenceHalt extends RuntimeException {}
 
 final class WP_CLI {
+    use \DuoTest\WpCliChildRuntime;
+
     /** @var list<string> stdout, as WP_CLI::line() writes it */
     public static array $lines = [];
     /** @var list<string> stderr, as WP_CLI::error() writes it */
@@ -242,6 +245,21 @@ duo_check(
         && str_contains($proseCase, 'state/posts/page/8f14e45f--team.md'),
     'operator prose on stderr survives verbatim: the gate name, the failed invariant, and the entity'
 );
+
+WP_CLI::reset();
+$GLOBALS['duo_wp_cli_child_fake_stderr_first'] = true;
+WP_CLI::$result = $processRun(
+    '{"verifier":"canonical-recapture/v1","result":"pass","live_entities":0,"deletions":0}',
+    str_repeat('credential-shaped-warning-', 12000),
+    0
+);
+$boundedWarning = $verifyFailureMessage([]);
+duo_check(
+    str_contains($boundedWarning, 'subprocess failed')
+        && !str_contains($boundedWarning, 'credential-shaped'),
+    'convergence verifier bounds stderr-first child output through its product path without leaking it'
+);
+$GLOBALS['duo_wp_cli_child_fake_stderr_first'] = false;
 
 // ---- 4. Head 1's structural cause: this apply preserved drift, the gate
 // proves the whole tree, so the failure is guaranteed. Name it and name the

@@ -1,6 +1,8 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/../Kernel/WpCliChildProcess.php';
+
 /**
  * The closed native-action vocabulary: engine-implemented operations whose
  * semantics belong to WordPress core rather than to any one plugin.
@@ -372,7 +374,6 @@ final class NativeActions {
             return self::flush_rewrite_in_fresh_process();
         }
         if (!class_exists('\WP_CLI')
-            || !is_callable(['\WP_CLI', 'runcommand'])
             || !function_exists('maybe_unserialize')
             || !function_exists('get_option')
             || !is_object($wp_rewrite)) {
@@ -385,24 +386,20 @@ final class NativeActions {
         $before = self::rewrite_state(false);
         $structure = self::permalink_structure_state();
         try {
-            $result = \WP_CLI::runcommand(self::REWRITE_FRESH_COMMAND, [
-                'launch' => true,
-                'return' => 'all',
-                'exit_error' => false,
-            ]);
+            $result = WpCliChildProcess::capture(self::REWRITE_FRESH_COMMAND, 120, 262144, 131072);
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
                 "duo: native action 'rewrite.flush' could not launch its fresh WordPress process; recovery_required"
             );
         }
 
-        $stdout = trim((string) ($result->stdout ?? ''));
-        $stderr = trim((string) ($result->stderr ?? ''));
-        if ((int) ($result->return_code ?? 1) !== 0) {
+        $stdout = trim($result['stdout']);
+        $stderr = trim($result['stderr']);
+        if ($result['return_code'] !== 0) {
             self::throw_known_rewrite_child_failure($stdout . "\n" . $stderr);
             throw new \RuntimeException(
                 "duo: native action 'rewrite.flush' fresh WordPress process exited "
-                . (int) ($result->return_code ?? 1) . '; recovery_required'
+                . $result['return_code'] . '; recovery_required'
             );
         }
         if ($stderr !== '') {
