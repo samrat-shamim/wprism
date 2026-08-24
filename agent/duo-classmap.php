@@ -84,6 +84,7 @@ return [
     'Duo\\Deletion' => 'src/Delete/Deletion.php',
     'Duo\\DeletionAuthority' => 'src/Delete/DeletionAuthority.php',
     'Duo\\DeletionCapabilityResolver' => 'src/Policy/DeletionCapabilityResolver.php',
+    'Duo\\DeletionFeasibility' => 'src/Adapter/DeletionFeasibility.php',
     'Duo\\DependencyRegenerator' => 'src/Rebuild/DependencyRegenerator.php',
     'Duo\\Deploy' => 'src/Promotion/Deploy.php',
     'Duo\\DeployPlanner' => 'src/Promotion/DeployPlanner.php',

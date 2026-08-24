@@ -1,5 +1,5 @@
 {
-    "class_count": 376,
+    "class_count": 377,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -8115,6 +8115,31 @@
             "interfaces": [],
             "kind": "class",
             "methods": {
+                "adapter_deletion_feasibility": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": null,
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "assoc",
+                            "type": null,
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": null,
+                    "static": false,
+                    "visibility": "public"
+                },
                 "adapter_observe": {
                     "abstract": false,
                     "final": false,
@@ -13423,6 +13448,71 @@
                     ],
                     "return_type": "?array",
                     "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\DeletionFeasibility": {
+            "abstract": false,
+            "constants": {
+                "FORMAT": {
+                    "value_repr": "duo-deletion-feasibility/v1"
+                },
+                "MAX_GUARDS": {
+                    "value_repr": 32
+                },
+                "MAX_SELECTORS": {
+                    "value_repr": 32
+                },
+                "NO_LEADING_INDEX": {
+                    "value_repr": "no index leads with this column"
+                },
+                "REDACTION": {
+                    "value_repr": "values_omitted"
+                },
+                "TABLE_ABSENT": {
+                    "value_repr": "guard table is absent on this target"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "hash_document": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "report": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "proposal",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
                     "visibility": "public"
                 }
             },

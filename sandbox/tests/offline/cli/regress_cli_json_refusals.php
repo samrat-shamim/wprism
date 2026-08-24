@@ -1113,10 +1113,13 @@ namespace {
     // 30 with `adapter-probe`, the read-only live-schema half `duo adapter-draft
     // --evidence=` consumes; 31 with WP-3.2's report-only `effect-coverage`,
     // whose only refusals are the journal prerequisite and manifest resolution
-    // — a scoring verdict is never one, which is the point of that command.
+    // — a scoring verdict is never one, which is the point of that command;
+    // 32 with WP-2.5's `adapter-deletion-feasibility`, which answers
+    // DeleteGuardEvaluator::lock_index() for a PROPOSED deletion selector's
+    // guards at authoring time.
     // Every advertised handler is covered by the common envelope contract, so
     // this count moves with the set rather than around it.
-    check(count($advertised) === 31, 'every one of the 31 --format=json commands was scanned (' . count($advertised) . ')');
+    check(count($advertised) === 32, 'every one of the 32 --format=json commands was scanned (' . count($advertised) . ')');
 
     // Each newly enveloped command got a reviewed remediation arm, because the
     // default arm promises to "correct the named blocker" on exactly the path

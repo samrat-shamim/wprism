@@ -1150,10 +1150,12 @@
           "AdapterContractGrammar",
           "AdapterObservation",
           "AdapterProbe",
-          "AdapterRegistry"
+          "AdapterRegistry",
+          "DeletionFeasibility"
         ],
         "depends_on": [
           "Adapter",
+          "Delete",
           "Kernel",
           "Policy",
           "Promotion",
@@ -1162,7 +1164,7 @@
           "Review"
         ],
         "exceptions": [],
-        "file_count": 12,
+        "file_count": 13,
         "files": [
           "ActionProviderGrammar.php",
           "AdapterCertification.php",
@@ -1171,6 +1173,7 @@
           "AdapterProbe.php",
           "AdapterRegistry.php",
           "AdapterSources.php",
+          "DeletionFeasibility.php",
           "ProviderActionBatchBuilder.php",
           "ProviderSdk.php",
           "ProviderSurfaces.php",

@@ -668,6 +668,20 @@ regress-adapter-draft:
 regress-adapter-probe:
 	php sandbox/tests/offline/adapter/regress_adapter_probe.php
 
+# WP-2.5: `wp duo adapter-deletion-feasibility`, DeleteGuardEvaluator::
+# lock_index() run at AUTHORING time. Emits duo-deletion-feasibility/v1 -- per
+# proposed guard, the covering index or a null with the reason ('no index leads
+# with this column' / 'prefix index of N bytes cannot cover a declared key of
+# M'). The verdict is lock_index()'s own return value and an explanation that
+# disagrees with it refuses, so the report cannot drift into a second
+# implementation of the rule. It answers FEASIBILITY only: no capability, no
+# cascade set, no ratification -- manifests/ninja-forms.json:17's "does not
+# advertise table:nf3_forms deletion" stays a human's sentence, and the suite
+# asserts the tool cannot reach it. Offline: the shared FakeWpdb for SHOW
+# TABLES LIKE, recorded fixtures for the SHOW INDEX it declines.
+regress-deletion-feasibility:
+	php sandbox/tests/offline/adapter/regress_deletion_feasibility.php
+
 # DUO-3408: the shared conformance assertion fragment -- every require_*
 # helper the seeds/postdeploy hooks call must be defined in ONE fragment both
 # sourcing harnesses load, or bundle leg 12 dies at `command not found`.
