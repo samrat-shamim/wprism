@@ -900,8 +900,8 @@ printf '%s\n' "$TEC_SOURCE_EVENT_JSON" | jq -e '
   (.meta | has("_preview_venues") | not)
 ' >/dev/null || fail "TEC canonical source did not carry exact ordered organizers/status or retained runtime previews"
 TEC_CANON_ORGANIZER_BLOCKS=$(TEC_STATE_PATH="$TEC_SOURCE_EVENT_STATE" php -r '
-  require "agent/src/Kernel/Canon.php";
-  require "sandbox/tests/support/wp-block-parser-stub.php";
+  require $argv[1];
+  require $argv[2];
   [, $body] = Duo\Canon::parse_post_file((string) file_get_contents((string) getenv("TEC_STATE_PATH")));
   $ids = [];
   $walk = static function (array $blocks) use (&$walk, &$ids): void {
@@ -916,7 +916,7 @@ TEC_CANON_ORGANIZER_BLOCKS=$(TEC_STATE_PATH="$TEC_SOURCE_EVENT_STATE" php -r '
   };
   $walk(parse_blocks($body));
   echo json_encode($ids, JSON_UNESCAPED_SLASHES);
-')
+' "$DUO_SOURCE_ROOT/agent/src/Kernel/Canon.php" "$DUO_SOURCE_ROOT/sandbox/tests/support/wp-block-parser-stub.php")
 printf '%s\n' "$TEC_CANON_ORGANIZER_BLOCKS" | jq -e --argjson front "$TEC_SOURCE_EVENT_JSON" '
   . == $front.meta._EventOrganizerID and
   length == 3 and all(.[]; test("^\\{\\{post:[0-9a-f-]{36}\\}\\}$"))
@@ -927,15 +927,15 @@ TEC_SOURCE_WIDGET_STATE=$(grep -RlF '"title": "Duo TEC Legacy Widget Surface"' \
   && [ "$(printf '%s\n' "$TEC_SOURCE_WIDGET_STATE" | wc -l | tr -d ' ')" = 1 ] \
   || fail "TEC canonical legacy-widget page was not unique: $TEC_SOURCE_WIDGET_STATE"
 TEC_CANON_WIDGET_BLOCKS=$(TEC_STATE_PATH="$TEC_SOURCE_WIDGET_STATE" php -r '
-  require "agent/src/Kernel/Canon.php";
-  require "sandbox/tests/support/wp-block-parser-stub.php";
+  require $argv[1];
+  require $argv[2];
   [, $body] = Duo\Canon::parse_post_file((string) file_get_contents((string) getenv("TEC_STATE_PATH")));
   $attrs = [];
   foreach (parse_blocks($body) as $block) {
     if (($block["blockName"] ?? null) === "core/legacy-widget") $attrs[] = $block["attrs"] ?? null;
   }
   echo json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-')
+' "$DUO_SOURCE_ROOT/agent/src/Kernel/Canon.php" "$DUO_SOURCE_ROOT/sandbox/tests/support/wp-block-parser-stub.php")
 TEC_SOURCE_SIDEBAR="${CONF_REPO1:-siterepo/conf1}/state/sidebars/tec-readiness-sidebar.json"
 [ -f "$TEC_SOURCE_SIDEBAR" ] || fail "TEC canonical SidebarState fixture is missing: $TEC_SOURCE_SIDEBAR"
 jq -e --argjson blocks "$TEC_CANON_WIDGET_BLOCKS" --argjson event "$TEC_SOURCE_EVENT_JSON" '
@@ -1279,6 +1279,32 @@ jq -e --argjson expected "$CUTOFF_SENTINEL_EXPECTED" '. == $expected' \
   <<<"$CUTOFF_SENTINEL_JSON" >/dev/null \
   || fail "TEC hook-bypassing settings apply mutated or deleted the target-local all-day sentinel"
 pass "TEC preserved the target-local multi-day-cutoff setting and all-day event bytes without invoking broad native callbacks"
+
+# This event exists only to witness the target-local no-op boundary above. It
+# is not source-authored state, so retaining it through the generic final
+# recapture would turn a successful preservation proof into a false canonical
+# difference. Remove it through the native post lifecycle, then require every
+# durable owner row to be gone before continuing to render/recapture evidence.
+CUTOFF_SENTINEL_ID=$(jq -er '.id' <<<"$CUTOFF_SENTINEL_JSON")
+require_fixture_ids CUTOFF_SENTINEL_ID
+wp_conf2 eval '
+global $wpdb;
+$id = '"$CUTOFF_SENTINEL_ID"';
+if (!wp_delete_post($id, true)) {
+    throw new RuntimeException("target-local cutoff sentinel cleanup failed");
+}
+$counts = [
+    (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->posts} WHERE ID=%d", $id)),
+    (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE post_id=%d", $id)),
+    (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->term_relationships} WHERE object_id=%d", $id)),
+    (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->prefix}tec_events WHERE post_id=%d", $id)),
+    (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->prefix}tec_occurrences WHERE post_id=%d", $id)),
+];
+if ($counts !== [0, 0, 0, 0, 0]) {
+    throw new RuntimeException("target-local cutoff sentinel cleanup retained durable owner rows");
+}
+' >/dev/null || fail "TEC target-local cutoff sentinel could not be removed after its preservation proof"
+pass "TEC removed the test-owned cutoff sentinel before canonical recapture"
 
 pass "TEC adopted huge native identities, rewrote refs/URLs, repaired projections, and preserved target-owned extension state"
 

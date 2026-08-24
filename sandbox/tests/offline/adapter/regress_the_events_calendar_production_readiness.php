@@ -1396,7 +1396,8 @@ function tribe(?string $class = null): object {
         return $GLOBALS['tec_readiness_native_container']->make($class);
     }
     if ($class === 'Tribe\\Events\\Views\\V2\\Rewrite') {
-        ++$GLOBALS['tec_readiness_views_rewrite_resolution_calls'];
+        $GLOBALS['tec_readiness_views_rewrite_resolution_calls'] =
+            ($GLOBALS['tec_readiness_views_rewrite_resolution_calls'] ?? 0) + 1;
         if (($GLOBALS['tec_readiness_views_rewrite_resolution_failure'] ?? false) === true) {
             throw new \RuntimeException('synthetic Views Rewrite resolution failure');
         }
@@ -1559,7 +1560,7 @@ function wp_cache_get(int|string $key, string $group = '', bool $force = false, 
 }
 
 function wp_cache_set(int|string $key, mixed $value, string $group = '', int $expire = 0): bool {
-    ++$GLOBALS['tec_readiness_wp_cache_sets'];
+    $GLOBALS['tec_readiness_wp_cache_sets'] = ($GLOBALS['tec_readiness_wp_cache_sets'] ?? 0) + 1;
     $GLOBALS['tec_readiness_wp_cache'][$group][$key] = $value;
     return true;
 }
@@ -7905,6 +7906,45 @@ duo_check(
         < strpos($deletionCheck, 'if [ "${TEC_BOUNDARY_ONLY:-0}" = 1 ]'),
     'both exact TEC boundary artifacts execute Category Colors equal-priority/cache/pagination evidence'
 );
+duo_check_same(
+    2,
+    substr_count($deletionCheck, 'require $argv[1];'),
+    'both host-side canonical block inspections load Canon from an explicit argv path'
+);
+duo_check_same(
+    2,
+    substr_count($deletionCheck, '"$DUO_SOURCE_ROOT/agent/src/Kernel/Canon.php"'),
+    'both host-side canonical block inspections are independent of the matrix caller working directory'
+);
+duo_check_same(
+    2,
+    substr_count($deletionCheck, '"$DUO_SOURCE_ROOT/sandbox/tests/support/wp-block-parser-stub.php"'),
+    'both host-side block-parser fixtures are independent of the matrix caller working directory'
+);
+duo_check(
+    !str_contains($deletionCheck, 'require "agent/src/Kernel/Canon.php";')
+        && !str_contains($deletionCheck, 'require "sandbox/tests/support/wp-block-parser-stub.php";'),
+    'the exact TEC check has no caller-relative host-PHP dependency'
+);
+foreach ([
+    'CUTOFF_SENTINEL_ID=$(jq -er',
+    'wp_delete_post($id, true)',
+    'SELECT COUNT(*) FROM {$wpdb->term_relationships} WHERE object_id=%d',
+    'target-local cutoff sentinel cleanup retained durable owner rows',
+    'TEC removed the test-owned cutoff sentinel before canonical recapture',
+] as $sentinelCleanupEvidence) {
+    duo_check(
+        str_contains($deletionCheck, $sentinelCleanupEvidence),
+        "the target-local cutoff witness cleanup retains evidence $sentinelCleanupEvidence"
+    );
+}
+duo_check(
+    strpos($deletionCheck, 'TEC hook-bypassing settings apply mutated or deleted the target-local all-day sentinel')
+        < strpos($deletionCheck, 'wp_delete_post($id, true)')
+        && strpos($deletionCheck, 'wp_delete_post($id, true)')
+        < strpos($deletionCheck, 'PERMALINK=$(jq -er'),
+    'the exact fixture removes its target-local sentinel only after preservation and before render/recapture'
+);
 
 $versionMatrix = (string) file_get_contents(
     $root . '/sandbox/tests/certify/certify_version_matrix.sh'
@@ -7922,7 +7962,8 @@ foreach ([
     );
 }
 foreach ([
-    'local TEC_BOUNDARY_ONLY=1',
+    'local TEC_BOUNDARY_ONLY=0',
+    'if [ "$TEC_EXPECTED_VERSION" != 6.17.2 ]; then',
     '"taxonomies": ["category", "post_tag", "tribe_events_cat"]',
     'TEC_UPGRADE_DEPLOY_OUT=$(wp2 duo deploy --repo=/siterepo 2>&1)',
     'wp2 duo deploy --repo=/siterepo --force-code-drift',
@@ -7989,9 +8030,11 @@ foreach ([
     );
 }
 duo_check(
-    strpos($deletionCheck, 'if [ "${TEC_BOUNDARY_ONLY:-0}" = 1 ]')
-        < strpos($deletionCheck, 'LIFECYCLE_BEFORE=$(tec_target_storage_fingerprint)'),
-    'patch-boundary runs stop before the one latest-artifact destructive lifecycle leg'
+    str_contains($versionMatrix, 'local TEC_BOUNDARY_ONLY=0')
+        && str_contains($versionMatrix, 'if [ "$TEC_EXPECTED_VERSION" != 6.17.2 ]; then')
+        && strpos($deletionCheck, 'if [ "${TEC_BOUNDARY_ONLY:-0}" = 1 ]')
+            < strpos($deletionCheck, 'LIFECYCLE_BEFORE=$(tec_target_storage_fingerprint)'),
+    'the matrix runs the full post-boundary recovery/deletion/concurrency/lifecycle suite on exact 6.17.2 while standalone conformance owns full 6.17.3'
 );
 $multisiteRefusal = (string) file_get_contents(
     $root . '/sandbox/tests/live/regress_multisite_refusal.sh'

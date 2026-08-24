@@ -482,7 +482,10 @@ check_the_events_calendar_boundary_content() {
   local CONF2_PORT="$PORT2"
   local COMPOSE="$PAIR_COMPOSE_STRING"
   local TEC_EXPECTED_VERSION="${TEC_VERSION:-6.17.3}"
-  local TEC_BOUNDARY_ONLY=1
+  local TEC_BOUNDARY_ONLY=0
+  if [ "$TEC_EXPECTED_VERSION" != 6.17.2 ]; then
+    TEC_BOUNDARY_ONLY=1
+  fi
   . conformance/checks/the-events-calendar.sh
   unset -f wp_conf1 wp_conf2
 }
@@ -1754,9 +1757,10 @@ EOF
 done
 fi
 
-# One candidate-bound pass executes the complete standalone native boundary
-# through TEC_BOUNDARY_ONLY for both official artifacts. Keeping the seed,
-# target, and check helpers singular is part of the evidence contract: a
+# One candidate-bound pass executes every real-world standalone scenario on
+# 6.17.2 and the native boundary on 6.17.3; standalone conformance owns the
+# full 6.17.3 run. Keeping the seed, target, and check helpers singular is part
+# of the evidence contract: a
 # later duplicate definition can silently replace the product-path check,
 # while a duplicate loop spends the pair budget without adding a boundary.
 if [ "$VMATRIX_MANIFEST" = the-events-calendar ]; then
