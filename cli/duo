@@ -274,6 +274,7 @@ Usage:
   duo adapter certify <site-repo> --name=<n> --secret-key-file=<f>
                       [--key-id=<id>] [--reason=<text>] [--pin [--adopt-scope]]
   duo adapter pin <site-repo> --name=<n> [--source=site|plugin] [--adopt-scope]
+  duo adapter adopt-scope <site-repo>... --name=<n> [--dry-run]
   duo adapter-observe <env> [--out=<local-file>|--format=json]
   duo doctor <env>
   duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
@@ -511,6 +512,22 @@ Verbs:
                           explicit site pin is how you select your own copy.
                           The shipped copy is then reported `shadowed_by_site`
                           on every `duo adapter list` row.
+  adapter adopt-scope     The pin's scope opt-in over a repository SET: one
+    <site-repo>...        reviewed invocation writes the post types and
+    --name=<n>            taxonomies <n> declares authored into every named
+    [--dry-run]           site.duo.json that had decided nothing about them,
+                          instead of N hand edits. Every repository must
+                          already resolve the adapter (scope follows the pin),
+                          and the whole set is refused, unwritten, if one does
+                          not. Write-only-where-absent is unchanged: a class a
+                          site RECORDED is printed and left alone, because
+                          overriding one is a per-site act (`duo adapter pin
+                          <site-repo> --name=<n> --adopt-scope`). Each
+                          repository is written atomically and independently,
+                          so a failure leaves every repository in the set
+                          either fully adopted or untouched; re-running is
+                          safe. --dry-run reports the same plan and writes
+                          nothing.
   adapter-observe <env>   Ask exactly one configured target for its closed,
     [--out=<local-file>]  value-redacted adapter proposal-evidence document.
     [--format=json]       The host supplies only that environment's configured
