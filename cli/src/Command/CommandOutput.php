@@ -79,13 +79,22 @@ final class CommandOutput {
      * recovery profile the target cannot prove. A refusal printed as bare
      * stderr while the success path prints a canonical document would make
      * the machine caller treat "no JSON" as "no answer".
+     *
+     * `merge-check` joins with the sharpest version of that reason: it is the
+     * one verb whose deliverable IS a machine contract (four exit codes a
+     * customer's CI binds to, MergeCheckCommand.php:14-31), and every refusal
+     * it can raise fires on this host before anything compiles. A pipeline
+     * that got a `duo-merge-check/v1` document for exit 3 and an unparseable
+     * stderr line for exit 1 could not tell "a human owes me a decision" from
+     * "my checkout is broken", which is precisely the distinction the verb
+     * exists to publish.
      */
     public static function wantsAgentRefusalJson(string $verb, array $extra): bool {
         if (!in_array(
             $verb,
             [
-                'adapter-observe', 'assess', 'capture', 'contract', 'lint', 'plan', 'explain', 'apply',
-                'recover', 'refresh', 'rehearse', 'release', 'verify',
+                'adapter-observe', 'assess', 'capture', 'contract', 'lint', 'merge-check', 'plan',
+                'explain', 'apply', 'recover', 'refresh', 'rehearse', 'release', 'verify',
             ],
             true
         )) {

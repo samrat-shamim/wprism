@@ -14,6 +14,17 @@ namespace Duo\Orchestrator;
  * materialize an accepted choice. In particular, this class never turns a
  * decoded document back into JSON: branch bytes are the scaffold and every
  * replacement is copied verbatim from one verified source document.
+ *
+ * The same rule governs the post body (DUO-3494). DESIGN.md:125 keeps
+ * "ordered/opaque structures record-atomic", and a post body is ordered, so
+ * the only composition allowed here is a whole-top-level-block byte swap
+ * between three bodies that already agree on their block sequence: identical
+ * block count, identical block names position by position, and byte-identical
+ * inter-block gap bytes. Nothing is merged INSIDE a block, no block is moved,
+ * inserted or dropped, and a block both sides edited differently sends the
+ * whole record back to one atomic choice (`body_block_overlap`) rather than
+ * picking a side. That refusal is the feature: DESIGN.md:29 forbids quiet
+ * best-effort, and a body silently resolved to ours/theirs is exactly that.
  */
 final class RefreshFieldDiff {
     public const DIFF_FORMAT = 'duo-refresh-field-diff/v1';
@@ -49,6 +60,27 @@ final class RefreshFieldDiff {
         'term.parent' => ['parent'],
     ];
 
+    /**
+     * The post-body vocabulary: label => the one change category that label
+     * may ever carry. Unlike the scalar groups above, a body group's members
+     * are discovered (one per aligned top-level block), so the label names the
+     * PARTITION rather than a document key. Partitioning by category is what
+     * keeps the public vocabulary closed: three fixed labels instead of one
+     * label per block index, so the diff still publishes no block position and
+     * no count. Every member is a whole verified block, and each label's
+     * category is automatic under apply() -- `production-only` splices
+     * production's blocks into the branch scaffold, `branch-only` and
+     * `compatible` keep branch bytes -- so composition never invents a choice
+     * an operator did not already have for a scalar group.
+     *
+     * @var array<string,string>
+     */
+    private const BODY_GROUPS = [
+        'post.body.branch_blocks' => 'branch-only',
+        'post.body.compatible_blocks' => 'compatible',
+        'post.body.production_blocks' => 'production-only',
+    ];
+
     /** @var list<string> */
     private const DERIVABLE_POST_FIELDS = ['title', 'modified', 'modified_gmt'];
 
@@ -63,6 +95,7 @@ final class RefreshFieldDiff {
         'option_or_state_witness', 'opaque_record_type', 'routing_changed', 'unsupported_document_shape',
         'attachment_media', 'document_structure_changed', 'opaque_or_structural_field',
         'derived_field_policy', 'opaque_container', 'body_changed',
+        'body_structure_changed', 'body_block_overlap',
     ];
 
     /** @var list<string> */
@@ -828,12 +861,312 @@ final class RefreshFieldDiff {
         if (!self::groupsAreScalarWhenChanged($layouts, self::POST_GROUPS)) {
             return $atomic('opaque_container');
         }
+        $fields = self::makeFields($recordSelector, $layouts, self::POST_GROUPS);
+        // The body is the last gate because every reason above describes a
+        // document the body composer must never even look at, and the closed
+        // reason precedence those checks establish is public contract
+        // (spec/repo-format.md:1141-1148). A body identical on all three roles
+        // contributes no group at all, so an unchanged body keeps exactly the
+        // scalar-only projection this class shipped with.
         if ($layouts['base']['body']['raw'] !== $layouts['production']['body']['raw']
             || $layouts['base']['body']['raw'] !== $layouts['branch']['body']['raw']) {
-            return $atomic('body_changed');
+            $composition = self::bodyGroups($layouts);
+            if (isset($composition['reason'])) {
+                return $atomic((string) $composition['reason']);
+            }
+            foreach ($composition['groups'] as $label => $group) {
+                $fields[] = [
+                    'category' => $group['category'],
+                    'field_selector' => self::fieldSelector($recordSelector, (string) $label),
+                    'label' => (string) $label,
+                    'spans' => $group['spans'],
+                    'values' => $group['values'],
+                ];
+            }
         }
-        $fields = self::makeFields($recordSelector, $layouts, self::POST_GROUPS);
         return self::fieldRecord($index, $recordSelector, $fields, $layouts['branch']);
+    }
+
+    /**
+     * Partition a changed post body into whole-top-level-block groups, or name
+     * the closed reason the record must stay atomic.
+     *
+     * Three refusals, in the order they can be decided:
+     *
+     *   `body_changed` — one of the three bodies is not a pure block document.
+     *     Classic/freeform bytes outside a block, an unterminated or malformed
+     *     delimiter, or an ordinary HTML comment between blocks all land here,
+     *     which is the reason this file already published for every changed
+     *     body, so a body this composer cannot read behaves exactly as before.
+     *   `body_structure_changed` — the three bodies are block documents that
+     *     do not describe the same sequence: different block counts, a
+     *     different block name at some position, or different gap bytes
+     *     between blocks. Position is the only alignment this slice has, so a
+     *     sequence edit (insert, delete, reorder, retype) has no honest
+     *     field-level answer and the whole record stays one choice.
+     *   `body_block_overlap` — the sequence aligns but some block was edited
+     *     differently on both sides. Splicing either side's bytes would be a
+     *     coin flip inside content neither the diff nor the resolution is
+     *     allowed to show (:7-17), so the record goes back to the ordinary
+     *     whole-record authority the operator already has.
+     *
+     * @param array<string,array<string,mixed>> $layouts
+     * @return array{groups:array<string,array{category:string,spans:array<string,array<string,array{start:int,end:int}>>,values:array<string,array<string,string>>}>}|array{reason:string}
+     */
+    private static function bodyGroups(array $layouts): array {
+        $parsed = [];
+        foreach (['base', 'production', 'branch'] as $role) {
+            $body = $layouts[$role]['body'] ?? null;
+            if (!is_array($body) || !is_string($body['raw'] ?? null) || !is_int($body['start'] ?? null)) {
+                return ['reason' => 'body_changed'];
+            }
+            $blocks = self::topLevelBlocks($body['raw']);
+            if ($blocks === null) {
+                return ['reason' => 'body_changed'];
+            }
+            $parsed[$role] = $blocks;
+        }
+        $count = count($parsed['base']['blocks']);
+        // Gap bytes carry the serializer's own separators. They are outside
+        // every span this composer may replace, so branch keeps them verbatim;
+        // that is only sound while all three roles agree on them byte for byte.
+        if (count($parsed['production']['blocks']) !== $count
+            || count($parsed['branch']['blocks']) !== $count
+            || $parsed['base']['gaps'] !== $parsed['production']['gaps']
+            || $parsed['base']['gaps'] !== $parsed['branch']['gaps']) {
+            return ['reason' => 'body_structure_changed'];
+        }
+        $groups = [];
+        for ($index = 0; $index < $count; $index++) {
+            $aligned = [];
+            foreach (['base', 'production', 'branch'] as $role) {
+                $aligned[$role] = $parsed[$role]['blocks'][$index];
+            }
+            // Equal counts alone would let a delete-plus-append pair align two
+            // unrelated blocks. Requiring the name at each position to agree
+            // makes "position i is the same block in all three roles" a
+            // checked premise rather than an arithmetic coincidence.
+            if ($aligned['base']['name'] !== $aligned['production']['name']
+                || $aligned['base']['name'] !== $aligned['branch']['name']) {
+                return ['reason' => 'body_structure_changed'];
+            }
+            // A block is opaque ordered markup, never a scalar token, so its
+            // relation comes from exact bytes: canonicalScalarGroup()'s decode
+            // path would be meaningless here and groupCategory() is
+            // deliberately not on this path.
+            $category = self::categoryFromEvidence(
+                [$aligned['base']['raw']],
+                [$aligned['production']['raw']],
+                [$aligned['branch']['raw']]
+            );
+            if ($category === 'unchanged') {
+                continue;
+            }
+            if ($category === 'conflicting') {
+                return ['reason' => 'body_block_overlap'];
+            }
+            $label = array_search($category, self::BODY_GROUPS, true);
+            if (!is_string($label)) {
+                // Unreachable while CHANGE_CATEGORIES holds five members and
+                // the two decided above are handled, but a total function is
+                // what keeps an unknown category from becoming a silent splice.
+                return ['reason' => 'body_changed'];
+            }
+            if (!isset($groups[$label])) {
+                $groups[$label] = [
+                    'category' => $category,
+                    'spans' => ['base' => [], 'production' => [], 'branch' => []],
+                    'values' => ['base' => [], 'production' => [], 'branch' => []],
+                ];
+            }
+            $member = 'block:' . $index;
+            foreach (['base', 'production', 'branch'] as $role) {
+                $start = (int) $layouts[$role]['body']['start'];
+                $groups[$label]['values'][$role][$member] = $aligned[$role]['raw'];
+                $groups[$label]['spans'][$role][$member] = [
+                    'start' => $start + $aligned[$role]['start'],
+                    'end' => $start + $aligned[$role]['end'],
+                ];
+            }
+        }
+        ksort($groups, SORT_STRING);
+        return ['groups' => $groups];
+    }
+
+    /**
+     * Split a body into top-level blocks and the gap bytes around them, or
+     * null when it is not a pure block document.
+     *
+     * This is a delimiter reader over exact bytes, the body-side twin of
+     * parseObject(): it locates spans and never rebuilds a block. It follows
+     * the shipped WordPress grammar (`<!--` `\s+` `/`? `wp:` name `\s+`
+     * attrs? `/`? `-->`) closely enough that anything it cannot read refuses,
+     * and it reuses scanCompound() for the attribute object so a `-->` inside
+     * an attribute string cannot end a delimiter early. The drop-in rule
+     * (AGENTS.md rule 1) forbids reaching for WordPress's own `parse_blocks`
+     * here: this is the host orchestrator, which never boots WordPress.
+     *
+     * @return array{blocks:list<array{name:string,start:int,end:int,raw:string}>,gaps:list<string>}|null
+     */
+    private static function topLevelBlocks(string $body): ?array {
+        $blocks = [];
+        $gaps = [];
+        $pos = 0;
+        while (true) {
+            $open = self::nextDelimiter($body, $pos);
+            if ($open === null) {
+                $gaps[] = substr($body, $pos);
+                break;
+            }
+            $gaps[] = substr($body, $pos, $open['pos'] - $pos);
+            if ($open['delimiter']['closer']) {
+                return null;
+            }
+            $end = self::blockEnd($body, $open);
+            if ($end === null) {
+                return null;
+            }
+            $blocks[] = [
+                'name' => $open['delimiter']['name'],
+                'start' => $open['pos'],
+                'end' => $end,
+                'raw' => substr($body, $open['pos'], $end - $open['pos']),
+            ];
+            $pos = $end;
+        }
+        foreach ($gaps as $gap) {
+            // Classic/freeform content between blocks has no block identity to
+            // align on, and it is exactly what WordPress represents as an
+            // unnamed block. Refuse the whole body rather than compose around
+            // bytes this reader cannot name.
+            if (trim($gap, " \t\r\n") !== '') {
+                return null;
+            }
+        }
+        return ['blocks' => $blocks, 'gaps' => $gaps];
+    }
+
+    /**
+     * Find the end offset of the block opened at $open, matching closers on a
+     * name stack so a nested block of the same or a different type cannot
+     * close the outer one.
+     *
+     * @param array{pos:int,delimiter:array{closer:bool,void:bool,name:string,end:int}} $open
+     */
+    private static function blockEnd(string $body, array $open): ?int {
+        if ($open['delimiter']['void']) {
+            return $open['delimiter']['end'];
+        }
+        $stack = [$open['delimiter']['name']];
+        $pos = $open['delimiter']['end'];
+        while ($stack !== []) {
+            $found = self::nextDelimiter($body, $pos);
+            if ($found === null) {
+                return null;
+            }
+            $delimiter = $found['delimiter'];
+            $pos = $delimiter['end'];
+            if ($delimiter['void']) {
+                continue;
+            }
+            if (!$delimiter['closer']) {
+                $stack[] = $delimiter['name'];
+                continue;
+            }
+            if (array_pop($stack) !== $delimiter['name']) {
+                return null;
+            }
+        }
+        return $pos;
+    }
+
+    /**
+     * The next block delimiter at or after $from. An ordinary HTML comment is
+     * skipped rather than refused here; a gap check in topLevelBlocks() is
+     * what decides whether it was allowed to be there.
+     *
+     * A delimiter-shaped byte sequence inside authored content is read as a
+     * delimiter, which is the same answer WordPress's own parser gives for the
+     * same bytes: block boundaries are defined by these delimiters and by
+     * nothing else, so agreeing with the engine is the correct bound here
+     * rather than a gap in it. Anything that leaves the resulting parse
+     * incomplete refuses in topLevelBlocks().
+     *
+     * @return ?array{pos:int,delimiter:array{closer:bool,void:bool,name:string,end:int}}
+     */
+    private static function nextDelimiter(string $body, int $from): ?array {
+        $pos = $from;
+        while (true) {
+            $at = strpos($body, '<!--', $pos);
+            if ($at === false) {
+                return null;
+            }
+            $delimiter = self::blockDelimiter($body, $at);
+            if ($delimiter !== null) {
+                return ['pos' => $at, 'delimiter' => $delimiter];
+            }
+            $pos = $at + 4;
+        }
+    }
+
+    /** @return ?array{closer:bool,void:bool,name:string,end:int} */
+    private static function blockDelimiter(string $body, int $pos): ?array {
+        if (substr($body, $pos, 4) !== '<!--') {
+            return null;
+        }
+        $cursor = self::requiredWhitespace($body, $pos + 4);
+        if ($cursor === null) {
+            return null;
+        }
+        $closer = ($body[$cursor] ?? '') === '/';
+        if ($closer) {
+            $cursor++;
+        }
+        if (substr($body, $cursor, 3) !== 'wp:') {
+            return null;
+        }
+        $cursor += 3;
+        $nameStart = $cursor;
+        $length = strlen($body);
+        while ($cursor < $length && strpos('abcdefghijklmnopqrstuvwxyz0123456789-_/', $body[$cursor]) !== false) {
+            $cursor++;
+        }
+        $name = substr($body, $nameStart, $cursor - $nameStart);
+        if (preg_match('#^[a-z][a-z0-9_-]*(?:/[a-z][a-z0-9_-]*)?$#D', $name) !== 1) {
+            return null;
+        }
+        $cursor = self::requiredWhitespace($body, $cursor);
+        if ($cursor === null) {
+            return null;
+        }
+        $void = false;
+        if (!$closer) {
+            if (($body[$cursor] ?? '') === '{') {
+                try {
+                    $cursor = self::scanCompound($body, $cursor, '{', '}');
+                } catch (\Throwable) {
+                    return null;
+                }
+                $cursor = self::requiredWhitespace($body, $cursor);
+                if ($cursor === null) {
+                    return null;
+                }
+            }
+            if (($body[$cursor] ?? '') === '/') {
+                $void = true;
+                $cursor++;
+            }
+        }
+        if (substr($body, $cursor, 3) !== '-->') {
+            return null;
+        }
+        return ['closer' => $closer, 'void' => $void, 'name' => $name, 'end' => $cursor + 3];
+    }
+
+    /** WordPress's grammar spells these separators `\s+`, never `\s*`. */
+    private static function requiredWhitespace(string $body, int $pos): ?int {
+        $next = self::skipWhitespace($body, $pos);
+        return $next === $pos ? null : $next;
     }
 
     /** @param callable(string):array{public:array<string,mixed>,private:array<string,mixed>} $atomic */
@@ -1584,6 +1917,10 @@ final class RefreshFieldDiff {
 
     /** Ensure a changed field's spans and bytes name its exact source members. */
     private static function assertPrivateFieldSource(array $field, string $label, array $entry): void {
+        if (isset(self::BODY_GROUPS[$label])) {
+            self::assertPrivateBodyFieldSource($field, $label, $entry);
+            return;
+        }
         $isPost = isset(self::POST_GROUPS[$label]);
         $members = $isPost ? self::POST_GROUPS[$label] : (self::TERM_GROUPS[$label] ?? null);
         if (!is_array($members) || ($entry['type'] ?? null) !== ($isPost ? 'post' : 'term')) {
@@ -1625,6 +1962,46 @@ final class RefreshFieldDiff {
         if (($field['category'] ?? null) !== self::groupCategory(
             $sourceValues['base'], $sourceValues['production'], $sourceValues['branch']
         )) {
+            throw new \RuntimeException('field resolution bundle has an invalid byte span');
+        }
+    }
+
+    /**
+     * The body twin of assertPrivateFieldSource().
+     *
+     * A body group's members are discovered rather than declared, so there is
+     * no const member list to check the bundle against. Re-deriving the whole
+     * partition from the entry's own B/P/W bytes and demanding canonical
+     * equality is the stronger check anyway: it re-proves the block sequence
+     * aligns, that this label is one the composition actually produced, and
+     * that every span and byte string in the bundle is the one this file would
+     * have produced from those three documents -- so an in-process caller
+     * cannot widen a span, retarget a block, or relabel a partition between
+     * projection and the splice in apply().
+     */
+    private static function assertPrivateBodyFieldSource(array $field, string $label, array $entry): void {
+        if (($entry['type'] ?? null) !== 'post') {
+            throw new \RuntimeException('field resolution bundle has an invalid byte span');
+        }
+        $layouts = [];
+        foreach (['base', 'production', 'branch'] as $role) {
+            $row = $entry['versions'][$role] ?? null;
+            if (!is_array($row) || !is_string($row['content'] ?? null)) {
+                throw new \RuntimeException('field resolution bundle has an invalid byte span');
+            }
+            try {
+                $layouts[$role] = self::postLayout($row['content']);
+            } catch (\Throwable) {
+                throw new \RuntimeException('field resolution bundle has an invalid byte span');
+            }
+        }
+        $composition = self::bodyGroups($layouts);
+        $group = $composition['groups'][$label] ?? null;
+        if (!is_array($group)
+            || ($field['category'] ?? null) !== $group['category']
+            || $group['category'] !== self::BODY_GROUPS[$label]
+            || !hash_equals(self::encode($group['values']), self::encode($field['values'] ?? null))
+            || !hash_equals(self::encode($group['spans']), self::encode($field['spans'] ?? null))) {
             throw new \RuntimeException('field resolution bundle has an invalid byte span');
         }
     }
@@ -2105,7 +2482,8 @@ final class RefreshFieldDiff {
 
     private static function isPublicField(mixed $field): bool {
         return is_string($field) && ($field === 'record'
-            || isset(self::POST_GROUPS[$field]) || isset(self::TERM_GROUPS[$field]));
+            || isset(self::POST_GROUPS[$field]) || isset(self::TERM_GROUPS[$field])
+            || isset(self::BODY_GROUPS[$field]));
     }
 
     private static function isPublicRelation(mixed $relation): bool {

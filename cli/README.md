@@ -845,6 +845,29 @@ are rejected when the registry is loaded.
   plugins, themes, and MU code cannot run before the read-only compile.
   Direct `wp duo scope --contract` without that isolated bootstrap refuses.
 
+- **`duo merge-check [--ref=<ref>] [--against=<ref>] [--base=<ref>]
+  [--format=json]`** — the env-free half of the merge story, and another
+  verb here that takes no `<env>`, no transport and no registry. With no
+  `--against` it compiles ONE committed ref with the real repository compiler
+  and reports structural coherence, surfacing the compiler's own refusals
+  (duplicate uuid, dangling typed reference, unverifiable media catalog entry,
+  code lock digest mismatch) with no live target. With `--against=<ref>` it
+  compiles that ref, `--ref` (default `HEAD`) and their merge base, and hands
+  the three to the SAME `RefreshPlan::plan()` refresh uses: `--ref` is the
+  branch side, `--against` is the production side, `--base=<ref>` overrides the
+  computed merge base. Exit codes are the contract — 0 coherent/no conflicts,
+  1 refusal, 2 usage, 3 conflicts present. 3 is an answer: under
+  `--format=json` it emits the `duo-merge-check/v1` SUCCESS document with
+  `verdict: "conflicts"`, while every refusal emits `duo-command-refusal/v1`,
+  so a machine caller gets exactly one parseable document per outcome. Each
+  ref's `code/duo-code.lock.json` is compared and any version skew is reported
+  in `code_skew[]` as a warning that never changes the exit code, matching
+  `duo apply`. The plan is explicitly advisory (see the planner contract
+  below), so it can never drive `duo rebase`; a dirty canonical partition is
+  refused rather than answered from the last commit; and field-level diff and
+  scoped mode are deliberately absent because both need evidence only a live
+  production export can produce.
+
 - **`duo refresh <production-env> --production-ref=<ref>
   [--scope-contract=<local-path>]`** — gets `P` only
   through `wp duo refresh-export --repo=<repo_path> --format=json`; it never
@@ -889,9 +912,25 @@ are rejected when the registry is loaded.
   The v1 merge surface is deliberately narrow. It can independently compose
   ordinary post scalar groups (`author`, parent/order/comment/ping status,
   excerpt, title, coupled publication fields, and the coupled modification
-  pair) and term `name`, `description`, and `parent`. Post body changes,
-  attachments/media, menus, sidebars, options, user-meta, typed tables,
-  tombstones, and opaque containers stay one record choice. A live B record
+  pair) and term `name`, `description`, and `parent`. Attachments/media,
+  menus, sidebars, options, user-meta, typed tables,
+  tombstones, and opaque containers stay one record choice.
+
+  A changed post body composes only as a whole-top-level-block byte swap, and
+  only when all three sides are pure block documents describing the same
+  sequence — equal block counts, the same block name at every position, and
+  identical bytes between the blocks. Then each changed block joins the
+  `post.body.production_blocks`, `post.body.branch_blocks`, or
+  `post.body.compatible_blocks` partition for its category and is applied
+  automatically, so two editors working on different blocks of one page get
+  both edits instead of an ours/theirs coin flip, and neither the diff nor the
+  transcript publishes a block's bytes, position, or count. Everything else
+  about a body is one record choice under its own named reason: a body that is
+  not a pure block document is `body_changed`, one whose block sequence
+  differs on any side (insert, delete, reorder, retype, reflowed spacing) is
+  `body_structure_changed`, and one where both sides changed the same
+  top-level block differently is `body_block_overlap`. Nothing is merged
+  inside a block. A live B record
   with an absent P or W side refuses field mode before a diff or choice is
   published; use the legacy whole-record resolver for that absence. Field mode
   also refuses scoped plans or missing/skewed B/P/W policy evidence rather
@@ -951,7 +990,13 @@ are rejected when the registry is loaded.
    deletions, media, policy identity, and completed code evidence.
 2. `compileGitWorktree(string $path, string $commit, string $role): array`
    compiles offline using the repository compiler. Roles are `base`, `branch`,
-   and `production-code`; the latter exposes code identity only, never P.
+   `production-code` and `candidate` for refresh/rebase — the third exposes
+   code identity only, never P — plus `merge-check-base`, `merge-check-left`
+   and `merge-check-right`, which are the same B/W/P positions assembled
+   entirely from Git by `duo merge-check`. The merge-check roles are separate
+   tags rather than reuses of the refresh names so an advisory artifact can
+   never read as a live refresh one in a log or a stack trace;
+   `merge-check-base` takes the same `compile_for_diff()` mode `base` does.
 3. `assertProductionCodeMatches(array $production, array $productionCode): void`
    proves exporter/target compiler metadata and completed descriptor/revision
    match the exact production ref.
@@ -974,6 +1019,15 @@ are rejected when the registry is loaded.
    replay; and `materializeFieldResolved(...)` returns the normal receipt
    additionally bound to the public `field_diff_hash` and
    `field_resolution_hash`.
+
+A plan whose hash-bound `context` carries `advisory: true` (with
+`production_source: 'git-ref'` and no `production_env` /
+`production_snapshot_hash`) is a merge-check plan and is NOT production
+authority. Context is inside the bytes `plan_hash` covers, so the marker
+cannot be removed without changing the hash, and
+`Refresh::assertAuthorizingPlan()` refuses such a plan at both materialization
+entries. `duo merge-check` therefore reports and never mutates: it opens no
+run journal, creates no candidate worktree, and writes no ref.
 
 The host rejects any materializer change outside `state/` and `media/`; native
 Git code conflicts remain in the disposable worktree. Plugin semantics belong

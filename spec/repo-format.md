@@ -1144,16 +1144,22 @@ and `scope`; record-atomic changes additionally contain `reason`.
 `absence_or_tombstone`, `option_or_state_witness`, `opaque_record_type`,
 `routing_changed`, `unsupported_document_shape`, `attachment_media`,
 `document_structure_changed`, `opaque_or_structural_field`,
-`derived_field_policy`, `opaque_container`, or `body_changed`.
+`derived_field_policy`, `opaque_container`, `body_changed`,
+`body_structure_changed`, or `body_block_overlap`.
 `hash_status` is exactly `"withheld"`; no raw value hash is public.
 `field_selector_sha256` is exactly SHA-256 of
 `"duo-refresh-field-selector/v1\0" || record_selector_sha256 || "\0" || field`.
 Field labels are only
 `post.author`, `post.comment_status`, `post.excerpt`, `post.menu_order`,
 `post.parent`, `post.ping_status`, `post.publication`, `post.title`,
-`post.modification`, `term.description`, `term.name`, `term.parent`, and
+`post.modification`, `post.body.branch_blocks`,
+`post.body.compatible_blocks`, `post.body.production_blocks`,
+`term.description`, `term.name`, `term.parent`, and
 `record`. A `fields` record is exactly `post` or `term`, and every field label
-must use that entity's `post.` or `term.` prefix. A field change has
+must use that entity's `post.` or `term.` prefix. The three `post.body.*`
+labels name a PARTITION of a post body's changed top-level blocks by change
+category, never a block position or count; each carries exactly the category
+its label spells and therefore never requires a choice. A field change has
 `scope: "field"`; an atomic change has
 `field: "record"`, `scope: "record"`, and `category: "conflicting"`.
 
@@ -1194,9 +1200,26 @@ limited to the post scalar groups listed above (publication is coupled
 `modified`/`modified_gmt`) and term `name`, `description`, and `parent`. A
 legacy optional member of a coupled group may be absent only identically in
 all B/P/W roles, and then only when every retained member is raw-identical;
-otherwise the record is atomic. A changed post body, attachment/media record,
+otherwise the record is atomic. An attachment/media record,
 menu, sidebar, option/state witness, user-meta, typed-table row, tombstone,
 container/list, or other opaque/structural field is one record-atomic change.
+
+A changed post body is field-eligible only as a whole-top-level-block byte
+swap, and only when all three B/P/W bodies are pure block documents that
+describe the same sequence: equal top-level block counts, an equal block name
+at every position, and byte-identical bytes between, before, and after the
+blocks. A body that is not a pure block document — classic/freeform content
+outside a block, a malformed or unterminated delimiter, an ordinary HTML
+comment between blocks — is `body_changed`. A body whose sequence differs on
+any role (insert, delete, reorder, retype, reflowed gap bytes) is
+`body_structure_changed`. A body whose sequence aligns but where some
+top-level block was changed differently on P and W is `body_block_overlap`.
+All three are one record-atomic change. Otherwise each changed block joins the
+`post.body.*` partition for its category and is composed automatically:
+`production-only` blocks are copied verbatim into the branch scaffold and
+`branch-only`/`compatible` blocks keep branch bytes. Nothing merges inside a
+block, no block is moved, inserted, or removed, and no partition is ever
+`conflicting`, so composition adds no field choice to any resolution.
 If B is a live record and P or W is absent, field mode refuses before it emits
 a diff or accepts a resolution: absence never becomes a field-mode choice and
 the legacy whole-record resolver remains the available path. Mixed eligible
@@ -1235,9 +1258,10 @@ Field resolution cannot mix with any legacy `--strategy` spelling or
 Materialization occurs only in the existing disposable worktree after the
 second production snapshot observation and fresh candidate-policy check. It
 never decodes and re-encodes a hybrid document: branch exact bytes are the
-scaffold, selected allowlisted top-level scalar spans are copied verbatim from
-verified B/P/W source bytes, and all container/list/body/opaque content stays
-as the selected whole record. Field-spliced records use branch media authority;
+scaffold, selected allowlisted top-level scalar spans and whole top-level post
+body blocks are copied verbatim from verified B/P/W source bytes, and all
+container/list/opaque content — and every body the block rules above refuse —
+stays as the selected whole record. Field-spliced records use branch media authority;
 attachments remain atomic. Strict compilation and the normal new-ref boundary
 remain mandatory. A field receipt binds only the public `field_diff_hash` and
 `field_resolution_hash`; private spans and literals never enter public run

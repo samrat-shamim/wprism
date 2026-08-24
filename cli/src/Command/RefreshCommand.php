@@ -28,9 +28,8 @@ final class RefreshCommand {
             $fieldDiff = ($flags['--field-diff'] ?? false) === true;
             $json = ($flags['--format'] ?? null) === 'json';
             if (!isset($flags['--production-ref'])
-                || array_diff(array_keys($flags), ['--production-ref', '--scope-contract', '--field-diff', '--format']) !== []
-                || ($json && !$fieldDiff)) {
-                throw new \RuntimeException('duo refresh requires --production-ref=<ref>, optional --scope-contract=<local-path>, and --field-diff with optional --format=json');
+                || array_diff(array_keys($flags), ['--production-ref', '--scope-contract', '--field-diff', '--format']) !== []) {
+                throw new \RuntimeException('duo refresh requires --production-ref=<ref>, with optional --scope-contract=<local-path>, --field-diff, and --format=json');
             }
             if ($fieldDiff && isset($flags['--scope-contract'])) {
                 $refusal = self::refusal('scoped_unsupported');
@@ -38,12 +37,28 @@ final class RefreshCommand {
             }
             if ($fieldDiff) {
                 $refusal = self::refusal('field_level_unavailable');
+            } elseif ($json) {
+                // `--format=json` without `--field-diff` used to be refused
+                // outright, so this branch had no refusal of its own. It now
+                // publishes the already-canonical duo-refresh-plan/v1, and a
+                // machine caller that gets a refusal instead must be told
+                // which artifact was unavailable — not handed the argument
+                // refusal for arguments that were in fact valid.
+                $refusal = self::refusal('plan_unavailable');
             }
             $scope = isset($flags['--scope-contract'])
                 ? PassthroughCommand::readScopeContractInput($flags['--scope-contract'])['contract']
                 : null;
             $result = Refresh::refresh($driver, $flags['--production-ref'], $scope, $fieldDiff);
-            CodeResolveCommand::renderRefreshPhase($result, 'refresh');
+            // Human rows only. On a split repository (code.format 2) this
+            // renderer prints one RESOLVED/UNCHANGED line per component
+            // (CodeResolveCommand.php:820-834), which on stdout ahead of a
+            // canonical document is exactly the "no JSON" outcome the machine
+            // contract exists to prevent. The rows are still returned in
+            // $result['code_resolve'] for any caller that wants them.
+            if (!$json) {
+                CodeResolveCommand::renderRefreshPhase($result, 'refresh');
+            }
             if ($fieldDiff) {
                 if (!is_array($result['field_diff'] ?? null)) {
                     throw new \RuntimeException('field-level resolution is unavailable for this refresh plan');
@@ -53,6 +68,15 @@ final class RefreshCommand {
                     return 0;
                 }
                 self::renderFieldDiff($result['field_diff']);
+                return 0;
+            }
+            if ($json) {
+                // The plan is ALREADY canonical duo-refresh-plan/v1 and
+                // already hash-bound (RefreshPlan::normalizePlan()); it is
+                // emitted verbatim rather than re-projected, so a CI job and
+                // the immutable journal record read the identical bytes.
+                // Canon::encode() terminates with LF (Canon.php:102).
+                echo \Duo\Canon::encode($result['plan']);
                 return 0;
             }
             self::renderPlan($result);
@@ -137,10 +161,15 @@ final class RefreshCommand {
                 'message' => 'the redacted field-level change diff is unavailable for this refresh plan',
                 'remediation' => 'verify the production target is reachable, clean, at --production-ref, and supports refresh-export; then regenerate the matching redacted field diff, align policy evidence, or use the legacy whole-record resolver',
             ],
+            'plan_unavailable' => [
+                'reason' => 'plan_unavailable',
+                'message' => 'the semantic refresh plan is unavailable for this request',
+                'remediation' => 'verify the production target is reachable, clean, at --production-ref, and supports refresh-export, then rerun duo refresh --format=json',
+            ],
             default => [
                 'reason' => 'invalid_arguments',
                 'message' => 'refresh arguments are invalid for redacted field-level change output',
-                'remediation' => 'supply --production-ref and --field-diff; use --format=json only with --field-diff',
+                'remediation' => 'supply --production-ref; --format=json emits the canonical plan, and the redacted field diff when --field-diff is also present',
             ],
         };
     }
@@ -148,11 +177,11 @@ final class RefreshCommand {
     /** Render only schema-closed, redacted field-diff relations for humans. */
     private static function renderFieldDiff(array $diff): void {
         $entities = ['post', 'term', 'attachment', 'menu', 'sidebar', 'options', 'user_meta', 'typed_table', 'record'];
-        $fields = ['post.author', 'post.comment_status', 'post.excerpt', 'post.menu_order', 'post.parent', 'post.ping_status', 'post.publication', 'post.title', 'post.modification', 'term.description', 'term.name', 'term.parent', 'record'];
+        $fields = ['post.author', 'post.comment_status', 'post.excerpt', 'post.menu_order', 'post.parent', 'post.ping_status', 'post.publication', 'post.title', 'post.modification', 'post.body.branch_blocks', 'post.body.compatible_blocks', 'post.body.production_blocks', 'term.description', 'term.name', 'term.parent', 'record'];
         $categories = ['unchanged', 'production-only', 'branch-only', 'compatible', 'conflicting'];
         $states = ['present', 'tombstone', 'absent'];
         $comparisons = ['same', 'different'];
-        $reasons = ['eligible_engine_fields', 'scoped_record', 'production_omitted', 'absence_or_tombstone', 'option_or_state_witness', 'opaque_record_type', 'routing_changed', 'unsupported_document_shape', 'attachment_media', 'document_structure_changed', 'opaque_or_structural_field', 'derived_field_policy', 'opaque_container', 'body_changed'];
+        $reasons = ['eligible_engine_fields', 'scoped_record', 'production_omitted', 'absence_or_tombstone', 'option_or_state_witness', 'opaque_record_type', 'routing_changed', 'unsupported_document_shape', 'attachment_media', 'document_structure_changed', 'opaque_or_structural_field', 'derived_field_policy', 'opaque_container', 'body_changed', 'body_structure_changed', 'body_block_overlap'];
         $selector = static fn(mixed $value): string => is_string($value) && preg_match('/^[a-f0-9]{64}$/', $value) === 1 ? $value : '?';
         $hash = static fn(mixed $value): string => is_string($value) && preg_match('/^[a-f0-9]{64}$/', $value) === 1 ? $value : '?';
         $closed = static fn(mixed $value, array $allowed, string $fallback): string => is_string($value) && in_array($value, $allowed, true) ? $value : $fallback;

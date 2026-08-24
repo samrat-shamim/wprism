@@ -71,6 +71,12 @@ if (is_file(__DIR__ . '/src/Refresh/RefreshPlan.php')) {
 require __DIR__ . '/src/Refresh/Refresh.php';
 require __DIR__ . '/src/Command/RefreshCommand.php';
 require __DIR__ . '/src/Command/RebaseCommand.php';
+// After Refresh.php and RefreshCommand.php above, and with `require_once` in
+// both files: MergeCheck.php require_once's Refresh.php and RefreshPlan.php by
+// path, so a plain `require` here would redeclare whichever of them this block
+// already pulled in (:80-84 states the rule this follows).
+require_once __DIR__ . '/src/Refresh/MergeCheck.php';
+require_once __DIR__ . '/src/Command/MergeCheckCommand.php';
 // Round-3 MUP §2.1/§2.6. Deliberately last in this block: every class
 // below `require_once`s its own dependencies by path, and this file's
 // convention is a bare `require`, so a leaf loaded early here would be
@@ -238,6 +244,7 @@ use Duo\Orchestrator\AdoptCommand;
 use Duo\Orchestrator\Refresh;
 use Duo\Orchestrator\RefreshCommand;
 use Duo\Orchestrator\RebaseCommand;
+use Duo\Orchestrator\MergeCheckCommand;
 
 function duo_usage(): string {
     return <<<TXT
@@ -303,9 +310,10 @@ Usage:
                      [--limit=<1..200>]
   duo coverage <env> [--format=json]
   duo scope    <env> --roots=<selectors> [--contract] [--format=json]
-  duo refresh <production-env> --production-ref=<ref> [--scope-contract=<local-path>] [--field-diff --format=json]
+  duo refresh <production-env> --production-ref=<ref> [--scope-contract=<local-path>] [--field-diff] [--format=json]
   duo rebase <production-env> --production-ref=<ref> --new-branch=<name> [--scope-contract=<local-path>] [--field-resolution=<local-path>|--interactive]
   duo rebase <production-env> --abort=<run-id>
+  duo merge-check [--ref=<ref>] [--against=<ref>] [--base=<ref>] [--format=json]
   duo -h | --help
 
 Verbs:
@@ -1181,6 +1189,18 @@ function main(array $argv): int {
     // and no transport, exactly like manifest-validate.
     if ($verb === 'code-import') {
         return CodeImportCommand::run($rest);
+    }
+
+    // Same shape, same reason, and the sharpest case for it: `merge-check`
+    // compiles one or two Git refs with the real repository compiler and
+    // plans B/P/W from them, so it needs no environment, no transport and no
+    // registry at all. The operator most likely to need it is the one holding
+    // a freshly line-merged `state/` tree and NO production target they can
+    // reach — the moment the answer matters most is the moment every
+    // environment-bound verb refuses. Its plan is explicitly advisory and can
+    // never drive `rebase` (Refresh::assertAuthorizingPlan()).
+    if ($verb === 'merge-check') {
+        return MergeCheckCommand::run($rest);
     }
 
     if (!EnvironmentCommandPreflight::requiresEnvironment($verb)) {

@@ -829,10 +829,20 @@ rather than working around it.
   only closed B/P/W presence/equality relations. `--interactive` is the narrow
   TTY-only local reveal exception: a bounded C0/DEL-safe authored title/name or
   path fallback may be shown beside its selector in memory only, never in a
-  machine artifact. The only field-eligible engine
-  surface is ordinary post scalar groups and term name/description/parent; body,
-  attachment/media, menus, sidebars, options, user-meta, typed tables,
-  tombstones, scoped plans, and opaque containers remain atomic. A live B
+  machine artifact. The field-eligible engine
+  surface is ordinary post scalar groups, term name/description/parent, and
+  (DUO-3494) whole top-level blocks of a post body; attachment/media, menus,
+  sidebars, options, user-meta, typed tables,
+  tombstones, scoped plans, and opaque containers remain atomic. Body
+  composition is a byte swap of whole top-level blocks and nothing else: it
+  requires all three sides to be pure block documents with equal block counts,
+  the same block name at every position, and identical bytes between blocks,
+  and it refuses by name outside that — `body_changed` for a body it cannot
+  read as blocks, `body_structure_changed` for a changed block sequence, and
+  `body_block_overlap` when both sides changed the same block differently.
+  Nothing merges inside a block, no block moves, and no body partition is ever
+  a choice, so a composable body adds no prompt and an uncomposable one keeps
+  the whole-record authority it already had. A live B
   record with P or W absent refuses field mode before a selectable diff;
   absence stays with the legacy whole-record resolver. Scalar relation evidence
   is canonical but exact source token bytes stay private, and containers are
