@@ -55,6 +55,51 @@
       "capabilities": ["verify_fulfillment_prerequisites"]
     },
     {
+      "id": "woocommerce-scheduler-settings",
+      "version": "1.0.0",
+      "source": "manifest",
+      "plugin": "woocommerce/woocommerce.php",
+      "requires": {
+        "functions": [
+          "_get_cron_array",
+          "as_get_scheduled_actions",
+          "get_option",
+          "has_filter",
+          "update_option",
+          "wc_get_container",
+          "wp_cache_delete",
+          "wp_cache_get",
+          "wp_clear_scheduled_hook",
+          "wp_get_schedules",
+          "wp_json_encode",
+          "wp_next_scheduled",
+          "wp_schedule_event",
+          "wp_using_ext_object_cache"
+        ],
+        "classes": [
+          "ActionScheduler",
+          "ActionScheduler_Action",
+          "ActionScheduler_ActionClaim",
+          "ActionScheduler_ActionFactory",
+          "ActionScheduler_DBLogger",
+          "ActionScheduler_DBStore",
+          "ActionScheduler_IntervalSchedule",
+          "ActionScheduler_QueueRunner",
+          "ActionScheduler_SimpleSchedule",
+          "Automattic\\WooCommerce\\Admin\\Features\\Features",
+          "Automattic\\WooCommerce\\Internal\\Admin\\Schedulers\\OrdersScheduler",
+          "Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController",
+          "Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer",
+          "Automattic\\WooCommerce\\Internal\\Features\\FeaturesController",
+          "Automattic\\WooCommerce\\Internal\\StockNotifications\\DataRetentionController",
+          "WC_Action_Queue",
+          "WC_Install",
+          "WP_Hook"
+        ]
+      },
+      "capabilities": ["reconcile_analytics_import_schedule", "reconcile_stock_notification_retention"]
+    },
+    {
       "id": "woocommerce-product-lookups",
       "version": "3.0.0",
       "source": "manifest",
@@ -250,6 +295,35 @@
     },
     {
       "kind": "provider",
+      "provider": "woocommerce-scheduler-settings",
+      "capability": "reconcile_analytics_import_schedule",
+      "args": {},
+      "triggers": ["option:woocommerce_analytics_scheduled_import"],
+      "effects": [
+        {"id": "woocommerce-analytics-scheduler-marker", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "option", "value": "_duo_woocommerce_scheduler_settings_state"}},
+        {"id": "woocommerce-analytics-scheduler-date-cursor", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "option", "value": "woocommerce_admin_scheduler_last_processed_order_modified_date"}},
+        {"id": "woocommerce-analytics-scheduler-id-cursor", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "option", "value": "woocommerce_admin_scheduler_last_processed_order_id"}},
+        {"id": "woocommerce-analytics-scheduler-actions", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "table", "value": "actionscheduler_actions"}},
+        {"id": "woocommerce-analytics-scheduler-claims", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "table", "value": "actionscheduler_claims"}},
+        {"id": "woocommerce-analytics-scheduler-groups", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "table", "value": "actionscheduler_groups"}},
+        {"id": "woocommerce-analytics-scheduler-logs", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "table", "value": "actionscheduler_logs"}},
+        {"id": "woocommerce-analytics-scheduler-native-frontier", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "provider_resource", "value": "woocommerce-analytics-scheduler-native-frontier:v1", "members": {"exact": ["action_scheduler_canceled_action", "action_scheduler_claim_actions_order_by", "action_scheduler_db_supports_skip_locked", "action_scheduler_failed_fetch_action", "action_scheduler_logger_class", "action_scheduler_store_class", "action_scheduler_stored_action", "action_scheduler_stored_action_class", "action_scheduler_stored_action_instance", "pre_as_schedule_recurring_action", "pre_as_schedule_single_action", "woocommerce_analytics_disable_action_scheduling", "woocommerce_analytics_import_interval", "woocommerce_queue_class"], "templates": []}}},
+        {"id": "woocommerce-analytics-scheduler-option-frontier", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "provider_resource", "value": "woocommerce-analytics-scheduler-option-frontier:v1", "members": {"exact": ["add_option", "add_option__duo_woocommerce_scheduler_settings_state", "add_option_woocommerce_admin_scheduler_last_processed_order_id", "add_option_woocommerce_admin_scheduler_last_processed_order_modified_date", "added_option", "alloptions", "default_option", "default_option__duo_woocommerce_scheduler_settings_state", "default_option_schema-ActionScheduler_StoreSchema", "default_option_woocommerce_admin_scheduler_last_processed_order_id", "default_option_woocommerce_admin_scheduler_last_processed_order_modified_date", "default_option_woocommerce_analytics_scheduled_import", "option__duo_woocommerce_scheduler_settings_state", "option_schema-ActionScheduler_StoreSchema", "option_woocommerce_admin_scheduler_last_processed_order_id", "option_woocommerce_admin_scheduler_last_processed_order_modified_date", "option_woocommerce_analytics_scheduled_import", "pre_add_option", "pre_add_option__duo_woocommerce_scheduler_settings_state", "pre_add_option_woocommerce_admin_scheduler_last_processed_order_id", "pre_add_option_woocommerce_admin_scheduler_last_processed_order_modified_date", "pre_option", "pre_option__duo_woocommerce_scheduler_settings_state", "pre_option_schema-ActionScheduler_StoreSchema", "pre_option_woocommerce_admin_scheduler_last_processed_order_id", "pre_option_woocommerce_admin_scheduler_last_processed_order_modified_date", "pre_option_woocommerce_analytics_scheduled_import", "pre_update_option", "pre_update_option__duo_woocommerce_scheduler_settings_state", "pre_update_option_woocommerce_admin_scheduler_last_processed_order_id", "pre_update_option_woocommerce_admin_scheduler_last_processed_order_modified_date", "pre_wp_load_alloptions", "sanitize_option", "sanitize_option__duo_woocommerce_scheduler_settings_state", "sanitize_option_woocommerce_admin_scheduler_last_processed_order_id", "sanitize_option_woocommerce_admin_scheduler_last_processed_order_modified_date", "update_option", "update_option__duo_woocommerce_scheduler_settings_state", "update_option_woocommerce_admin_scheduler_last_processed_order_id", "update_option_woocommerce_admin_scheduler_last_processed_order_modified_date", "updated_option", "wp_default_autoload_value"], "templates": []}}}
+      ]
+    },
+    {
+      "kind": "provider",
+      "provider": "woocommerce-scheduler-settings",
+      "capability": "reconcile_stock_notification_retention",
+      "args": {},
+      "triggers": ["option:woocommerce_customer_stock_notifications_unverified_deletions_days_threshold"],
+      "effects": [
+        {"id": "woocommerce-stock-notification-retention-cron", "kind": "database", "mode": "restorable", "selector": {"scope": "database_checkpoint", "type": "option", "value": "cron"}},
+        {"id": "woocommerce-stock-notification-retention-frontier", "kind": "external", "mode": "irreversible", "selector": {"scope": "external", "type": "provider_resource", "value": "woocommerce-stock-notification-retention-frontier:v1", "members": {"exact": ["alloptions", "cron_schedules", "default_option", "default_option_cron", "default_option_woocommerce_customer_stock_notifications_unverified_deletions_days_threshold", "option_cron", "option_woocommerce_customer_stock_notifications_unverified_deletions_days_threshold", "pre_clear_scheduled_hook", "pre_get_scheduled_event", "pre_option", "pre_option_cron", "pre_option_woocommerce_customer_stock_notifications_unverified_deletions_days_threshold", "pre_schedule_event", "pre_update_option", "pre_update_option_cron", "pre_wp_load_alloptions", "sanitize_option_cron", "schedule_event", "update_option", "update_option_cron", "updated_option", "wp_next_scheduled"], "templates": []}}}
+      ]
+    },
+    {
+      "kind": "provider",
       "provider": "woocommerce-product-lookups",
       "capability": "rebuild_product_lookups",
       "args": {},
@@ -413,7 +487,8 @@
   ],
   "notes": {
     "certified exact patch window (supersedes the historical major-line wording above)": "Only exact official WooCommerce 11.0.0 and 11.0.1 artifacts are admitted: the executable range is >=11.0.0 <11.0.2. Official 10.9.4 is the real lower-adjacent refusal fixture. WordPress.org currently publishes 11.0.1 as the latest WooCommerce release and no official 11.0.2 artifact exists, so 11.0.2 is the synthetic next-version upper control exercised through the same CodeCompatibility product gate; the exclusive max makes any future 11.0.2 or later artifact loud until separately source-audited and certified. The exact 11.0.0/11.0.1 product-path matrix and populated 11.0.0-to-11.0.1 upgrade remain mandatory on final shipped bytes. Any earlier note describing [11.0.0,12.0.0) or the whole 11.x major as certified is historical and is explicitly superseded by this reviewed boundary.",
-    "local pickup REST records (supersedes the pending-pickup sentence below)": "Exact WooCommerce 11.0.0 and 11.0.1 carry byte-identical Settings REST, ShippingController, PickupLocation, LocalPickupUtils, WC_Settings_API, WC_Shipping_Method, WC_Shipping_Rate, and decimal-calculation sources. The two native REST-owned records are authored through the class-disabled plain-data boundary. woocommerce_pickup_location_settings accepts any subset of the closed enabled/title/tax_status/cost properties because the official schema has no required list and Woo's native readers complete omitted values; unknown properties remain a loud extension boundary. pickup_location_pickup_locations stays an ordered list of at most 256 complete closed name/address/details/enabled records with a one-megabyte aggregate ceiling because ShippingController and PickupLocation directly index every field. Safe inline HTML in both name and details must already equal wp_kses_post bytes, and a nonempty cost must already equal Woo's wc_format_decimal calculation bytes. Wrong scalar types, noncanonical text/HTML/decimal values, controls, oversize values, and object-bearing serialization refuse with bounded diagnostics. ShippingController attaches WC_Cache_Helper's shipping-version refresh to the pre-update hook for each option; Duo's direct SQL path selects the existing receipt-bound woocommerce-cache action for both exact triggers. Repository tests cover every settings subset, Unicode/RTL/HTML, empty/delete, malformed, unknown, secret-shaped, count/byte bounds, and both trigger selections; live conformance writes through /wp/v2/settings and reads through that REST route, LocalPickupUtils, PickupLocation, and WC_Shipping_Rate. The machine inventory binds twenty exact read/write/render/calculation sources and both official artifact hashes. Coming-soon, thumbnail, analytics, stock-retention, and mixed gateway/email records remain separate open settings families.",
+    "local pickup REST records (supersedes the pending-pickup sentence below)": "Exact WooCommerce 11.0.0 and 11.0.1 carry byte-identical Settings REST, ShippingController, PickupLocation, LocalPickupUtils, WC_Settings_API, WC_Shipping_Method, WC_Shipping_Rate, and decimal-calculation sources. The two native REST-owned records are authored through the class-disabled plain-data boundary. woocommerce_pickup_location_settings accepts any subset of the closed enabled/title/tax_status/cost properties because the official schema has no required list and Woo's native readers complete omitted values; unknown properties remain a loud extension boundary. pickup_location_pickup_locations stays an ordered list of at most 256 complete closed name/address/details/enabled records with a one-megabyte aggregate ceiling because ShippingController and PickupLocation directly index every field. Safe inline HTML in both name and details must already equal wp_kses_post bytes, and a nonempty cost must already equal Woo's wc_format_decimal calculation bytes. Wrong scalar types, noncanonical text/HTML/decimal values, controls, oversize values, and object-bearing serialization refuse with bounded diagnostics. ShippingController attaches WC_Cache_Helper's shipping-version refresh to the pre-update hook for each option; Duo's direct SQL path selects the existing receipt-bound woocommerce-cache action for both exact triggers. Repository tests cover every settings subset, Unicode/RTL/HTML, empty/delete, malformed, unknown, secret-shaped, count/byte bounds, and both trigger selections; live conformance writes through /wp/v2/settings and reads through that REST route, LocalPickupUtils, PickupLocation, and WC_Shipping_Rate. The machine inventory binds twenty exact read/write/render/calculation sources and both official artifact hashes. Coming-soon, thumbnail, and mixed gateway/email records remain separate open settings families.",
+    "analytics and stock-retention scheduler projection (WooCommerce 11.0.x)": "Exact WooCommerce 11.0.0 and 11.0.1 carry byte-identical OrdersScheduler, scheduler-trait, customer-stock DataRetentionController, Action Scheduler schema, and logger-schema sources. The authored woocommerce_analytics_scheduled_import yes/no setting selects a scoped provider that fences the exact wc-admin-data action family, binds a versioned non-autoloaded intent to the current scoped operation, reproduces Woo's no-to-yes cursor reset only for a proved transition, and converges recurring or one-time catch-up topology without rescheduling a naturally consumed catch-up. It validates bounded raw action bytes before native hydration, exact InnoDB columns and indexes including prefix widths, DBStore singleton claim state, option/autoload bytes, every crossed hook, exact container-owned callback identities, claim preimages, transaction ambiguity, and exhaustive mutex/claim release. The authored stock-notification retention threshold accepts absence/empty or canonical whole days through 3650000 only with the native alpha feature enabled; repair row-locks the bounded whole cron option, preserves every unrelated event byte, refuses external-cache publication, and proves exact daily horizon/cardinality. Scoped reconcile is read-only. Crash/rollback/retry, same-length drift, concurrent connections, worker claims, foreign topology, malformed schema/index/serialization, hook injection, marker provenance/autoload, lifecycle residue, redacted diagnostics, and both exact artifact digests are deterministic offline regressions. The marker and Woo cursors remain target-runtime state, and every table, option, and native frontier touched by either capability is declared in the rollback inventory.",
     "operational post types (round-3 T6)": "shop_order_placehold (HPOS's wp_posts placeholder rows, one per order), shop_order_refund and scheduled-action (Action Scheduler's legacy wp_posts store) are WooCommerce-registered, non-public post types that hold live operational state alongside shop_order. They are declared runtime for the same reason shop_order is: never copied, the target keeps its own. Found by ScopeDiscovery::gaps() once it considered every plugin-registered type a candidate (T6 adapter walk): a store with one order refused capture on `post_type 'shop_order_placehold' has 1 capturable entity but is absent from policy.post_types`. Verified against WooCommerce 11.0.0's registrations on the walk pair (all three public:false).",
     "exact taxonomy registration facts (round-3 T5)": "taxonomies.<name>.object_type and update_count_callback state WooCommerce 11.0.x's own register_taxonomy() arguments (includes/class-wc-post-types.php: product_type and product_cat/product_tag on ['product'], product_visibility, pos_product_visibility, and product_shipping_class on ['product','product_variation']; product_cat/product_tag count with _wc_term_recount, product_shipping_class with _update_post_term_count, the others with WordPress's default). The exact official 11.0.0 and 11.0.1 class-wc-post-types.php bytes are identical (sha256 08973dfc709a4345c5f43078aac8df3a997046bdf7ac568acd07b60a3e8811b3). These facts are consulted where get_taxonomy() cannot answer because `wp duo refresh-export` runs under the isolated control bootstrap with no plugin loaded. Dynamic pa_* attributes continue through taxonomy_patterns; visibility taxonomies are explicit authored declarations whose mixed projection is closed by provider v3.",
     "structured actions (DUO-3338)": "DUO-3338 (structured actions supersede the free-form `rebuilders` channel): the two declarations this manifest carried as wp-cli command strings — `transient delete wc_attribute_taxonomies` and a `wp eval` payload calling WC_Cache_Helper — are now `actions` entries, with their triggers and effects preserved byte-for-byte, so which surfaces select them and which effects they declare are unchanged. The transient clear became the closed engine-owned native action `transient.delete` (WordPress core semantics, argument `name` as data, verified by a checked readback proving both option rows and the object-cache entry are gone). The cache invalidation became provider `woocommerce-cache` capability `invalidate_cache_groups` (manifests/providers/woocommerce-cache.php), which ports the eval payload's exact guards, exact group list — supplied as structured `args`, not spliced into a string — and its exact three-condition fresh-read persistence check on the shipping transient version. This entry supersedes the earlier notes below that describe the mechanism as a `rebuilders` entry or a wp-cli/eval command; their WooCommerce-side reasoning about WHY those cache boundaries are required is unchanged and still current.",
@@ -476,6 +551,7 @@
     {"class": "authored", "match": "^woocommerce_(?:address_autocomplete_enabled|allow_bulk_remove_personal_data|analytics_enabled|anonymize_(?:completed|refunded)_orders|calc_discounts_sequentially|calc_taxes|cart_redirect_after_add|cart_save_for_later_enabled|checkout_address_2_field|checkout_company_field|checkout_highlight_required_fields|checkout_order_received_endpoint|checkout_pay_endpoint|checkout_phone_field|checkout_privacy_policy_text|currency_pos|default_customer_address|delete_inactive_accounts|demo_store|dimension_unit|downloads_(?:add_hash_to_filename|count_partial|deliver_inline|grant_access_after_payment|redirect_fallback_allowed|require_login)|email_(?:auto_sync_with_theme|background_color|base_color|body_background_color|font_family|footer_text|footer_text_color|header_alignment|header_image|header_image_width|reply_to_enabled|reply_to_name|text_color)|enable_(?:ajax_add_to_cart|checkout_login_reminder|coupons|guest_checkout|myaccount_registration|review_rating|reviews|shipping_calc|signup_and_login_from_checkout)|erasure_request_removes_(?:download|order)_data|hide_out_of_stock_items|hold_stock_minutes|logout_endpoint|manage_stock|myaccount_(?:add_payment_method|delete_payment_method|downloads|edit_account|edit_address|lost_password|orders|payment_methods|set_default_payment_method|view_order)_endpoint|notify_(?:backorder|low_stock|low_stock_amount|no_stock|no_stock_amount)|permalinks|pos_(?:refund_returns_policy|store_address|store_email|store_phone)|price_(?:decimal_sep|display_suffix|num_decimals|thousand_sep)|prices_include_tax|product_match_featured_image_by_sku|product_wishlist_enabled|registration_(?:generate_password|generate_username|privacy_policy_text)|review_rating_(?:required|verification_label|verification_required)|ship_to_(?:countries|destination)|shipping_(?:cost_requires_address|hide_rates_when_free|tax_class)|show_marketplace_suggestions|single_image_width|specific_(?:allowed|ship_to)_countries|stock_format|tax_(?:based_on|classes|display_cart|display_shop|round_at_subtotal|total_display)|thumbnail_image_width|trash_(?:cancelled|failed|pending)_orders|weight_unit)$"}
   ],
   "options": {
+    "_duo_woocommerce_scheduler_settings_state": {"class": "runtime"},
     "auto_fulfill_downloadable": {"class": "authored"},
     "auto_fulfill_virtual": {"class": "authored"},
     "current_theme_supports_woocommerce": {"class": "env", "required": false},
@@ -496,7 +572,10 @@
     "woocommerce_address_autocomplete_provider": {"class": "env", "required": false},
     "woocommerce_all_except_countries": {"class": "authored"},
     "woocommerce_allowed_countries": {"class": "authored"},
+    "woocommerce_admin_scheduler_last_processed_order_id": {"class": "runtime"},
+    "woocommerce_admin_scheduler_last_processed_order_modified_date": {"class": "runtime"},
     "woocommerce_analytics_import_interval": {"class": "derived"},
+    "woocommerce_analytics_scheduled_import": {"class": "authored"},
     "woocommerce_brand_permalink": {"class": "authored"},
     "woocommerce_catalog_columns": {"class": "authored", "lint_ok": true},
     "woocommerce_catalog_rows": {"class": "authored", "lint_ok": true},
@@ -510,6 +589,7 @@
     "woocommerce_customer_stock_notifications_create_account_on_signup": {"class": "authored"},
     "woocommerce_customer_stock_notifications_require_account": {"class": "authored"},
     "woocommerce_customer_stock_notifications_require_double_opt_in": {"class": "authored"},
+    "woocommerce_customer_stock_notifications_unverified_deletions_days_threshold": {"class": "authored"},
     "woocommerce_date_type": {"class": "authored"},
     "woocommerce_db_version": {"class": "env", "required": false},
     "woocommerce_default_catalog_orderby": {"class": "authored"},

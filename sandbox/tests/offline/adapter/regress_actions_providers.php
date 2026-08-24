@@ -792,9 +792,11 @@ if ($woo !== null) {
             'provider:woocommerce-hierarchy-lookups/rebuild_hierarchy_lookups',
             'provider:woocommerce-hierarchy-lookups/rebuild_hierarchy_lookups',
             'provider:woocommerce-fulfillment-prerequisites/verify_fulfillment_prerequisites',
+            'provider:woocommerce-scheduler-settings/reconcile_analytics_import_schedule',
+            'provider:woocommerce-scheduler-settings/reconcile_stock_notification_retention',
             'provider:woocommerce-product-lookups/rebuild_product_lookups',
         ],
-        'WooCommerce declares the exact transient, hierarchy/route, read-only fulfillment prerequisite, and product lookup actions in order'
+        'WooCommerce declares the exact transient, hierarchy/route, fulfillment, scheduler, and product lookup actions in order'
     );
     // DUO-3342 added the second declaration by MIGRATING a dispatch rather than
     // by adding a repair: the product lookup rebuild reached the same adapter
@@ -810,6 +812,7 @@ if ($woo !== null) {
         'woocommerce-cache' => ['version' => '1.0.0', 'capabilities' => ['invalidate_cache_groups']],
         'woocommerce-hierarchy-lookups' => ['version' => '1.0.0', 'capabilities' => ['rebuild_hierarchy_lookups']],
         'woocommerce-fulfillment-prerequisites' => ['version' => '1.0.0', 'capabilities' => ['verify_fulfillment_prerequisites']],
+        'woocommerce-scheduler-settings' => ['version' => '1.0.0', 'capabilities' => ['reconcile_analytics_import_schedule', 'reconcile_stock_notification_retention']],
         'woocommerce-product-lookups' => ['version' => '3.0.0', 'capabilities' => ['rebuild_product_lookups']],
     ] as $wooProviderId => $wooContract) {
         $wooDeclaration = $woo->provider_declarations()[$wooProviderId] ?? [];
@@ -913,7 +916,7 @@ foreach ($shippedPolicies as $name => $shippedPolicy) {
         }
     }
 }
-check($providerCount === 11, "all eleven shipped manifest-sourced providers were exercised (found $providerCount)");
+check($providerCount === 12, "all twelve shipped manifest-sourced providers were exercised (found $providerCount)");
 
 // ======================================================================
 echo "\n== the two identity implementations agree over the REAL shipped library ==\n";

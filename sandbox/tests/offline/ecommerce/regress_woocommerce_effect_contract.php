@@ -395,6 +395,137 @@ function woo_effect_hierarchy_action(string $prefix, bool $rewrite): array {
 }
 
 /** @return list<array<string,mixed>> */
+function woo_effect_analytics_scheduler_action(): array {
+    return [
+        woo_effect_db_option('woocommerce-analytics-scheduler-marker', '_duo_woocommerce_scheduler_settings_state'),
+        woo_effect_db_option('woocommerce-analytics-scheduler-date-cursor', 'woocommerce_admin_scheduler_last_processed_order_modified_date'),
+        woo_effect_db_option('woocommerce-analytics-scheduler-id-cursor', 'woocommerce_admin_scheduler_last_processed_order_id'),
+        woo_effect_db_table('woocommerce-analytics-scheduler-actions', 'actionscheduler_actions'),
+        woo_effect_db_table('woocommerce-analytics-scheduler-claims', 'actionscheduler_claims'),
+        woo_effect_db_table('woocommerce-analytics-scheduler-groups', 'actionscheduler_groups'),
+        woo_effect_db_table('woocommerce-analytics-scheduler-logs', 'actionscheduler_logs'),
+        woo_effect_irreversible(
+            'woocommerce-analytics-scheduler-native-frontier',
+            'external',
+            'provider_resource',
+            'woocommerce-analytics-scheduler-native-frontier:v1',
+            [
+                'exact' => [
+                    'action_scheduler_canceled_action',
+                    'action_scheduler_claim_actions_order_by',
+                    'action_scheduler_db_supports_skip_locked',
+                    'action_scheduler_failed_fetch_action',
+                    'action_scheduler_logger_class',
+                    'action_scheduler_store_class',
+                    'action_scheduler_stored_action',
+                    'action_scheduler_stored_action_class',
+                    'action_scheduler_stored_action_instance',
+                    'pre_as_schedule_recurring_action',
+                    'pre_as_schedule_single_action',
+                    'woocommerce_analytics_disable_action_scheduling',
+                    'woocommerce_analytics_import_interval',
+                    'woocommerce_queue_class',
+                ],
+                'templates' => [],
+            ]
+        ),
+        woo_effect_irreversible(
+            'woocommerce-analytics-scheduler-option-frontier',
+            'external',
+            'provider_resource',
+            'woocommerce-analytics-scheduler-option-frontier:v1',
+            [
+                'exact' => [
+                    'add_option',
+                    'add_option__duo_woocommerce_scheduler_settings_state',
+                    'add_option_woocommerce_admin_scheduler_last_processed_order_id',
+                    'add_option_woocommerce_admin_scheduler_last_processed_order_modified_date',
+                    'added_option',
+                    'alloptions',
+                    'default_option',
+                    'default_option__duo_woocommerce_scheduler_settings_state',
+                    'default_option_schema-ActionScheduler_StoreSchema',
+                    'default_option_woocommerce_admin_scheduler_last_processed_order_id',
+                    'default_option_woocommerce_admin_scheduler_last_processed_order_modified_date',
+                    'default_option_woocommerce_analytics_scheduled_import',
+                    'option__duo_woocommerce_scheduler_settings_state',
+                    'option_schema-ActionScheduler_StoreSchema',
+                    'option_woocommerce_admin_scheduler_last_processed_order_id',
+                    'option_woocommerce_admin_scheduler_last_processed_order_modified_date',
+                    'option_woocommerce_analytics_scheduled_import',
+                    'pre_add_option',
+                    'pre_add_option__duo_woocommerce_scheduler_settings_state',
+                    'pre_add_option_woocommerce_admin_scheduler_last_processed_order_id',
+                    'pre_add_option_woocommerce_admin_scheduler_last_processed_order_modified_date',
+                    'pre_option',
+                    'pre_option__duo_woocommerce_scheduler_settings_state',
+                    'pre_option_schema-ActionScheduler_StoreSchema',
+                    'pre_option_woocommerce_admin_scheduler_last_processed_order_id',
+                    'pre_option_woocommerce_admin_scheduler_last_processed_order_modified_date',
+                    'pre_option_woocommerce_analytics_scheduled_import',
+                    'pre_update_option',
+                    'pre_update_option__duo_woocommerce_scheduler_settings_state',
+                    'pre_update_option_woocommerce_admin_scheduler_last_processed_order_id',
+                    'pre_update_option_woocommerce_admin_scheduler_last_processed_order_modified_date',
+                    'pre_wp_load_alloptions',
+                    'sanitize_option',
+                    'sanitize_option__duo_woocommerce_scheduler_settings_state',
+                    'sanitize_option_woocommerce_admin_scheduler_last_processed_order_id',
+                    'sanitize_option_woocommerce_admin_scheduler_last_processed_order_modified_date',
+                    'update_option',
+                    'update_option__duo_woocommerce_scheduler_settings_state',
+                    'update_option_woocommerce_admin_scheduler_last_processed_order_id',
+                    'update_option_woocommerce_admin_scheduler_last_processed_order_modified_date',
+                    'updated_option',
+                    'wp_default_autoload_value',
+                ],
+                'templates' => [],
+            ]
+        ),
+    ];
+}
+
+/** @return list<array<string,mixed>> */
+function woo_effect_retention_scheduler_action(): array {
+    return [
+        woo_effect_db_option('woocommerce-stock-notification-retention-cron', 'cron'),
+        woo_effect_irreversible(
+            'woocommerce-stock-notification-retention-frontier',
+            'external',
+            'provider_resource',
+            'woocommerce-stock-notification-retention-frontier:v1',
+            [
+                'exact' => [
+                    'alloptions',
+                    'cron_schedules',
+                    'default_option',
+                    'default_option_cron',
+                    'default_option_woocommerce_customer_stock_notifications_unverified_deletions_days_threshold',
+                    'option_cron',
+                    'option_woocommerce_customer_stock_notifications_unverified_deletions_days_threshold',
+                    'pre_clear_scheduled_hook',
+                    'pre_get_scheduled_event',
+                    'pre_option',
+                    'pre_option_cron',
+                    'pre_option_woocommerce_customer_stock_notifications_unverified_deletions_days_threshold',
+                    'pre_schedule_event',
+                    'pre_update_option',
+                    'pre_update_option_cron',
+                    'pre_wp_load_alloptions',
+                    'sanitize_option_cron',
+                    'schedule_event',
+                    'update_option',
+                    'update_option_cron',
+                    'updated_option',
+                    'wp_next_scheduled',
+                ],
+                'templates' => [],
+            ]
+        ),
+    ];
+}
+
+/** @return list<array<string,mixed>> */
 /** @return array<string,mixed> */
 function woo_effect_policy_for_manifest(array $manifest): Policy {
     return Policy::from_snapshot(FrozenPolicy::envelope(
@@ -487,6 +618,24 @@ foreach ([
         ];
     }
 }
+$analyticsSchedulerSource = 'provider:woocommerce-scheduler-settings/reconcile_analytics_import_schedule';
+foreach (woo_effect_analytics_scheduler_action() as $effect) {
+    $expectedWooRows[] = [
+        'manifest' => 'woocommerce',
+        'phase' => 'rebuild',
+        'source' => $analyticsSchedulerSource,
+        'effect' => $effect,
+    ];
+}
+$retentionSchedulerSource = 'provider:woocommerce-scheduler-settings/reconcile_stock_notification_retention';
+foreach (woo_effect_retention_scheduler_action() as $effect) {
+    $expectedWooRows[] = [
+        'manifest' => 'woocommerce',
+        'phase' => 'rebuild',
+        'source' => $retentionSchedulerSource,
+        'effect' => $effect,
+    ];
+}
 // DUO-3342: these effects moved with the dispatch. Exact Woo 11.0.0/11.0.1's
 // public scoped attribute writer and raw readback now close the two attribute-
 // lookup table writes as verified capability effects.
@@ -513,9 +662,9 @@ usort($expectedWooRows, static fn(array $a, array $b): int => strcmp(
 ));
 woo_effect_check($wooRows === $expectedWooRows, 'Woo manifest compiles the exact lifecycle, rebuild, and regenerator inventory');
 woo_effect_check(
-    count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'restorable')) === 55
-        && count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'irreversible')) === 157
-        && count(array_unique(array_map(static fn(array $row): string => (string) ($row['effect']['id'] ?? ''), $wooRows))) === 212,
+    count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'restorable')) === 63
+        && count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'irreversible')) === 160
+        && count(array_unique(array_map(static fn(array $row): string => (string) ($row['effect']['id'] ?? ''), $wooRows))) === 223,
     'Woo inventory exposes exact transient/version, hierarchy/rewrite, bounded sale-action, and Action Scheduler hook boundaries, keeps every unproven boundary irreversible, and uses unique effect IDs'
 );
 $cacheProviderSource = (string) file_get_contents(dirname(__DIR__, 4) . '/manifests/providers/woocommerce-cache.php');
@@ -574,20 +723,26 @@ $providerKeys = array_keys((array) ($wooManifest['actions'][1] ?? []));
 $hierarchyKeys = array_keys((array) ($wooManifest['actions'][2] ?? []));
 $brandRouteKeys = array_keys((array) ($wooManifest['actions'][3] ?? []));
 $fulfillmentKeys = array_keys((array) ($wooManifest['actions'][4] ?? []));
-$lookupKeys = array_keys((array) ($wooManifest['actions'][5] ?? []));
+$analyticsSchedulerKeys = array_keys((array) ($wooManifest['actions'][5] ?? []));
+$retentionSchedulerKeys = array_keys((array) ($wooManifest['actions'][6] ?? []));
+$lookupKeys = array_keys((array) ($wooManifest['actions'][7] ?? []));
 sort($nativeKeys, SORT_STRING);
 sort($providerKeys, SORT_STRING);
 sort($hierarchyKeys, SORT_STRING);
 sort($brandRouteKeys, SORT_STRING);
 sort($fulfillmentKeys, SORT_STRING);
+sort($analyticsSchedulerKeys, SORT_STRING);
+sort($retentionSchedulerKeys, SORT_STRING);
 sort($lookupKeys, SORT_STRING);
 woo_effect_check(
-    count((array) ($wooManifest['actions'] ?? [])) === 6
+    count((array) ($wooManifest['actions'] ?? [])) === 8
         && $nativeKeys === ['action', 'args', 'effects', 'kind', 'triggers']
         && $providerKeys === ['args', 'capability', 'effects', 'kind', 'provider', 'triggers']
         && $hierarchyKeys === ['args', 'capability', 'effects', 'kind', 'provider', 'triggers']
         && $brandRouteKeys === ['args', 'capability', 'effects', 'kind', 'provider', 'triggers']
         && $fulfillmentKeys === ['args', 'capability', 'effects', 'kind', 'provider', 'triggers']
+        && $analyticsSchedulerKeys === ['args', 'capability', 'effects', 'kind', 'provider', 'triggers']
+        && $retentionSchedulerKeys === ['args', 'capability', 'effects', 'kind', 'provider', 'triggers']
         && $lookupKeys === ['args', 'capability', 'effects', 'kind', 'provider', 'triggers']
         && ($wooManifest['actions'][1]['triggers'] ?? null) === $cacheTriggers
         && ($wooManifest['actions'][1]['args'] ?? null) === ['groups' => ['woocommerce-attributes', 'shipping_zones', 'taxes']]
@@ -606,23 +761,34 @@ woo_effect_check(
         && ($wooManifest['actions'][4]['args'] ?? null) === []
         && ($wooManifest['actions'][4]['triggers'] ?? null) === ['term:wc_fulfillment_shipping_provider']
         && array_key_exists('effects', $wooManifest['actions'][4])
-        && $wooManifest['actions'][4]['effects'] === [],
-    'Woo actions keep exact migrated cache scope, hierarchy/brand route effects, and the explicit read-only fulfillment prerequisite shape'
+        && $wooManifest['actions'][4]['effects'] === []
+        && ($wooManifest['actions'][5]['provider'] ?? null) === 'woocommerce-scheduler-settings'
+        && ($wooManifest['actions'][5]['capability'] ?? null) === 'reconcile_analytics_import_schedule'
+        && ($wooManifest['actions'][5]['args'] ?? null) === []
+        && ($wooManifest['actions'][5]['triggers'] ?? null) === ['option:woocommerce_analytics_scheduled_import']
+        && ($wooManifest['actions'][5]['effects'] ?? null) === woo_effect_analytics_scheduler_action()
+        && ($wooManifest['actions'][6]['provider'] ?? null) === 'woocommerce-scheduler-settings'
+        && ($wooManifest['actions'][6]['capability'] ?? null) === 'reconcile_stock_notification_retention'
+        && ($wooManifest['actions'][6]['args'] ?? null) === []
+        && ($wooManifest['actions'][6]['triggers'] ?? null)
+            === ['option:woocommerce_customer_stock_notifications_unverified_deletions_days_threshold']
+        && ($wooManifest['actions'][6]['effects'] ?? null) === woo_effect_retention_scheduler_action(),
+    'Woo actions keep exact cache, hierarchy, fulfillment, and scheduler effect/trigger shapes'
 );
 // DUO-3342: the lookup entry carries NO arguments at all. Every input it
 // receives is engine-assembled (the entity batch and the declared channels),
 // and a capability may not declare the reserved `entities` argument, so an
 // args map here would be a claim the contract cannot honor.
 woo_effect_check(
-    ($wooManifest['actions'][5]['provider'] ?? null) === 'woocommerce-product-lookups'
-        && ($wooManifest['actions'][5]['capability'] ?? null) === 'rebuild_product_lookups'
-        && ($wooManifest['actions'][5]['args'] ?? null) === []
-        && ($wooManifest['actions'][5]['triggers'] ?? null) === ['post:product', 'post:product_variation'],
+    ($wooManifest['actions'][7]['provider'] ?? null) === 'woocommerce-product-lookups'
+        && ($wooManifest['actions'][7]['capability'] ?? null) === 'rebuild_product_lookups'
+        && ($wooManifest['actions'][7]['args'] ?? null) === []
+        && ($wooManifest['actions'][7]['triggers'] ?? null) === ['post:product', 'post:product_variation'],
     'the migrated lookup action names the provider capability and stays bounded to the two post types its '
         . 'retired regen_dependency declarations covered'
 );
 $lookupEffectsById = [];
-foreach ((array) ($wooManifest['actions'][5]['effects'] ?? []) as $effect) {
+foreach ((array) ($wooManifest['actions'][7]['effects'] ?? []) as $effect) {
     $lookupEffectsById[(string) ($effect['id'] ?? '')] = $effect;
 }
 $registrationFilterSelector = [
@@ -703,6 +869,54 @@ woo_effect_check(
             'capabilities' => ['verify_fulfillment_prerequisites'],
         ],
         [
+            'id' => 'woocommerce-scheduler-settings',
+            'version' => '1.0.0',
+            'source' => 'manifest',
+            'plugin' => 'woocommerce/woocommerce.php',
+            'requires' => [
+                'functions' => [
+                    '_get_cron_array',
+                    'as_get_scheduled_actions',
+                    'get_option',
+                    'has_filter',
+                    'update_option',
+                    'wc_get_container',
+                    'wp_cache_delete',
+                    'wp_cache_get',
+                    'wp_clear_scheduled_hook',
+                    'wp_get_schedules',
+                    'wp_json_encode',
+                    'wp_next_scheduled',
+                    'wp_schedule_event',
+                    'wp_using_ext_object_cache',
+                ],
+                'classes' => [
+                    'ActionScheduler',
+                    'ActionScheduler_Action',
+                    'ActionScheduler_ActionClaim',
+                    'ActionScheduler_ActionFactory',
+                    'ActionScheduler_DBLogger',
+                    'ActionScheduler_DBStore',
+                    'ActionScheduler_IntervalSchedule',
+                    'ActionScheduler_QueueRunner',
+                    'ActionScheduler_SimpleSchedule',
+                    'Automattic\\WooCommerce\\Admin\\Features\\Features',
+                    'Automattic\\WooCommerce\\Internal\\Admin\\Schedulers\\OrdersScheduler',
+                    'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\CustomOrdersTableController',
+                    'Automattic\\WooCommerce\\Internal\\DataStores\\Orders\\DataSynchronizer',
+                    'Automattic\\WooCommerce\\Internal\\Features\\FeaturesController',
+                    'Automattic\\WooCommerce\\Internal\\StockNotifications\\DataRetentionController',
+                    'WC_Action_Queue',
+                    'WC_Install',
+                    'WP_Hook',
+                ],
+            ],
+            'capabilities' => [
+                'reconcile_analytics_import_schedule',
+                'reconcile_stock_notification_retention',
+            ],
+        ],
+        [
             'id' => 'woocommerce-product-lookups',
             'version' => '3.0.0',
             'source' => 'manifest',
@@ -744,7 +958,7 @@ woo_effect_check(
             'capabilities' => ['rebuild_product_lookups'],
         ],
     ],
-    'Woo provider declarations are exact manifest-shipped identities with closed cache, hierarchy, and product runtime requirements'
+    'Woo provider declarations are exact manifest-shipped identities with closed cache, hierarchy, scheduler, and product runtime requirements'
 );
 woo_effect_check(
     str_contains($cacheProviderSource, "get_transient_version('shipping', true)")
@@ -1077,7 +1291,7 @@ woo_effect_expect_throw(
 // own effects list; the grammar checked below is the effect validator's, which
 // never cared which declaration carried the row.
 $providerEffectIndex = null;
-foreach (($wooManifest['actions'][5]['effects'] ?? []) as $index => $effect) {
+foreach (($wooManifest['actions'][7]['effects'] ?? []) as $index => $effect) {
     if (($effect['id'] ?? null) === 'woocommerce-product-cache-provider-resource') {
         $providerEffectIndex = (int) $index;
         break;
@@ -1086,43 +1300,43 @@ foreach (($wooManifest['actions'][5]['effects'] ?? []) as $index => $effect) {
 woo_effect_check($providerEffectIndex !== null, 'Woo manifest test locates the bounded provider aggregate by effect id');
 $providerEffectIndex ??= 0;
 $badMembers = $wooManifest;
-$badMembers['actions'][5]['effects'][$providerEffectIndex]['selector']['members']['templates'][0] = 'item_{unknown}';
+$badMembers['actions'][7]['effects'][$providerEffectIndex]['selector']['members']['templates'][0] = 'item_{unknown}';
 woo_effect_expect_throw(
     fn() => woo_effect_policy_for_manifest($badMembers),
     'unknown placeholder',
     'provider-resource members reject unknown typed placeholders during policy compilation'
 );
 $badMembers = $wooManifest;
-$badMembers['actions'][5]['effects'][$providerEffectIndex]['selector']['members']['templates'][0] = 'item_*';
+$badMembers['actions'][7]['effects'][$providerEffectIndex]['selector']['members']['templates'][0] = 'item_*';
 woo_effect_expect_throw(
     fn() => woo_effect_policy_for_manifest($badMembers),
     'malformed, broad, or secret-shaped',
     'provider-resource members reject wildcard templates during policy compilation'
 );
 $badMembers = $wooManifest;
-$badMembers['actions'][5]['effects'][$providerEffectIndex]['selector']['members']['unexpected'] = [];
+$badMembers['actions'][7]['effects'][$providerEffectIndex]['selector']['members']['unexpected'] = [];
 woo_effect_expect_throw(
     fn() => woo_effect_policy_for_manifest($badMembers),
     'requires exactly exact and templates',
     'provider-resource members reject extra grammar keys during policy compilation'
 );
 $badMembers = $wooManifest;
-$badMembers['actions'][5]['effects'][$providerEffectIndex]['selector']['unexpected'] = true;
+$badMembers['actions'][7]['effects'][$providerEffectIndex]['selector']['unexpected'] = true;
 woo_effect_expect_throw(
     fn() => woo_effect_policy_for_manifest($badMembers),
     'requires exactly scope, type, value, and optional members',
     'provider-resource selectors reject extra top-level keys during policy compilation'
 );
 $badMembers = $wooManifest;
-$badMembers['actions'][5]['effects'][$providerEffectIndex]['selector']['members']['exact'][] = 'wc_products_onsale';
+$badMembers['actions'][7]['effects'][$providerEffectIndex]['selector']['members']['exact'][] = 'wc_products_onsale';
 woo_effect_expect_throw(
     fn() => woo_effect_policy_for_manifest($badMembers),
     'duplicate member',
     'provider-resource members reject duplicate exact values during policy compilation'
 );
 $badMembers = $wooManifest;
-$aggregateValue = (string) $badMembers['actions'][5]['effects'][$providerEffectIndex]['selector']['value'];
-$badMembers['actions'][5]['effects'][$providerEffectIndex]['selector']['members']['exact'][] = $aggregateValue;
+$aggregateValue = (string) $badMembers['actions'][7]['effects'][$providerEffectIndex]['selector']['value'];
+$badMembers['actions'][7]['effects'][$providerEffectIndex]['selector']['members']['exact'][] = $aggregateValue;
 woo_effect_expect_throw(
     fn() => woo_effect_policy_for_manifest($badMembers),
     'malformed, broad, or secret-shaped',

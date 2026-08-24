@@ -185,6 +185,7 @@ final class FakeWpdb {
 
     public string $prefix = 'wp_';
     public string $base_prefix = 'wp_';
+    public string $dbname = 'wordpress';
     public string $last_error = '';
     public string $last_query = '';
     public int $insert_id = 0;
@@ -204,6 +205,10 @@ final class FakeWpdb {
     public string $users = 'wp_users';
     public string $usermeta = 'wp_usermeta';
     public string $links = 'wp_links';
+    public string $actionscheduler_actions = 'wp_actionscheduler_actions';
+    public string $actionscheduler_claims = 'wp_actionscheduler_claims';
+    public string $actionscheduler_groups = 'wp_actionscheduler_groups';
+    public string $actionscheduler_logs = 'wp_actionscheduler_logs';
 
     /** @var array<string,list<array<string,mixed>>> full table name => rows */
     private array $store = [];
@@ -241,6 +246,8 @@ final class FakeWpdb {
     private array $transactionOutcomes = [];
     /** Reconnect immediately before the next transaction-state-bearing SELECT. */
     private bool $reconnectBeforeTransactionState = false;
+    /** @var list<array{match:?string,remaining:int}> */
+    private array $injectedAcknowledgements = [];
     /**
      * Row snapshot taken at START TRANSACTION. Deliberately does NOT include
      * $autoIncrement -- see execTransaction().
@@ -275,15 +282,17 @@ final class FakeWpdb {
 
     /** Full server banner returned by SELECT VERSION(). */
     private string $serverVersion = '8.0.36';
-    /** Session default returned by the MariaDB/MySQL system-variable probe. */
+    /** Session isolation returned by MySQL's transaction-isolation variable. */
     private string $transactionIsolation = 'REPEATABLE-READ';
-    /** One-shot SET TRANSACTION characteristic consumed by the next boundary. */
+    /** One-shot isolation consumed by the next START TRANSACTION. */
     private ?string $nextTransactionIsolation = null;
-    /** Isolation selected when the current transaction began. */
+    /** Isolation of the currently open transaction, for adversarial fixtures. */
     private ?string $activeTransactionIsolation = null;
 
     /** @var array<string,int> lock name => holding connection id */
     private array $heldLocks = [];
+    /** @var array<string,int> simulated InnoDB row/range lock => connection id */
+    private array $rowLocks = [];
 
     public function __construct(string $prefix = 'wp_') {
         $this->prefix = $prefix;
@@ -293,6 +302,10 @@ final class FakeWpdb {
             if ($pk !== null) {
                 $this->primaryKeys[$prefix . $name] = $pk;
             }
+        }
+        foreach (['actions', 'claims', 'groups', 'logs'] as $suffix) {
+            $property = 'actionscheduler_' . $suffix;
+            $this->$property = $prefix . $property;
         }
     }
 
@@ -446,8 +459,8 @@ final class FakeWpdb {
 
     public function setTableEngine(string $table, string $engine): self {
         $name = $this->tableName($table);
-        $this->tableEngines[$name] = $engine;
         $this->store[$name] ??= [];
+        $this->tableEngines[$name] = $engine;
         return $this;
     }
 
@@ -519,11 +532,51 @@ final class FakeWpdb {
             $this->store = $this->transactionSnapshot;
             $this->transactionSnapshot = null;
         }
+        $old = $this->connectionId;
         $this->connectionId = $id;
-        $this->heldLocks = [];
+        foreach ($this->heldLocks as $name => $holder) {
+            if ($holder === $old) {
+                unset($this->heldLocks[$name]);
+            }
+        }
+        foreach ($this->rowLocks as $name => $holder) {
+            if ($holder === $old) {
+                unset($this->rowLocks[$name]);
+            }
+        }
         $this->reconnectBeforeTransactionState = false;
         $this->nextTransactionIsolation = null;
         $this->activeTransactionIsolation = null;
+        return $this;
+    }
+
+    /** Seed a foreign one-shot transaction characteristic before provider entry. */
+    public function setNextTransactionIsolation(string $isolation): self {
+        $this->nextTransactionIsolation = $isolation;
+        return $this;
+    }
+
+    public function activeTransactionIsolation(): ?string {
+        return $this->activeTransactionIsolation;
+    }
+
+    /** Share one simulated MySQL server's advisory-lock namespace. */
+    public function shareAdvisoryLocksWith(self $other): self {
+        $this->heldLocks =& $other->heldLocks;
+        return $this;
+    }
+
+    /** Share a simulated database server while retaining separate sessions. */
+    public function shareDatabaseStateWith(self $other): self {
+        $this->store =& $other->store;
+        $this->autoIncrement =& $other->autoIncrement;
+        $this->primaryKeys =& $other->primaryKeys;
+        $this->uniqueKeys =& $other->uniqueKeys;
+        $this->columnTypes =& $other->columnTypes;
+        $this->columnDefinitions =& $other->columnDefinitions;
+        $this->indexes =& $other->indexes;
+        $this->tableEngines =& $other->tableEngines;
+        $this->rowLocks =& $other->rowLocks;
         return $this;
     }
 
@@ -607,6 +660,18 @@ final class FakeWpdb {
 
     public function clearTransactionOutcomes(): self {
         $this->transactionOutcomes = [];
+        return $this;
+    }
+
+    /**
+     * Report a successful statement acknowledgement without applying it.
+     *
+     * Drivers and proxies can lose or misclassify transaction acknowledgements;
+     * this seam pins callers that must prove server state instead of trusting a
+     * truthy wpdb::query() result.
+     */
+    public function acknowledgeNextQueryWithoutExecution(?string $matching = null, int $times = 1): self {
+        $this->injectedAcknowledgements[] = ['match' => $matching, 'remaining' => $times];
         return $this;
     }
 
@@ -1147,7 +1212,11 @@ final class FakeWpdb {
         if (($error = $this->intercept('insert', $sql)) !== null) {
             return $this->fail('insert', $sql, $error);
         }
-        $this->applyInsert($this->tableName($table), $data);
+        $name = $this->tableName($table);
+        if ($this->writeConflictsWithLocks($name, $data, [])) {
+            return $this->fail('insert', $sql, 'simulated InnoDB row lock wait timeout');
+        }
+        $this->applyInsert($name, $data);
         $this->log('insert', $sql);
         $this->rows_affected = 1;
         return 1;
@@ -1187,6 +1256,9 @@ final class FakeWpdb {
             return $this->fail('update', $sql, $error);
         }
         $name = $this->requireTable($this->tableName($table));
+        if ($this->writeConflictsWithLocks($name, $data, $where)) {
+            return $this->fail('update', $sql, 'simulated InnoDB row lock wait timeout');
+        }
         $affected = 0;
         foreach ($this->store[$name] as $index => $row) {
             if (!$this->matchesEquality($row, $where)) {
@@ -1211,6 +1283,9 @@ final class FakeWpdb {
             return $this->fail('delete', $sql, $error);
         }
         $name = $this->requireTable($this->tableName($table));
+        if ($this->writeConflictsWithLocks($name, [], $where)) {
+            return $this->fail('delete', $sql, 'simulated InnoDB row lock wait timeout');
+        }
         $kept = [];
         $removed = 0;
         foreach ($this->store[$name] as $row) {
@@ -1250,6 +1325,16 @@ final class FakeWpdb {
         if (($error = $this->intercept($method, $sql)) !== null) {
             $this->fail($method, $sql, $error);
             return null;
+        }
+        foreach ($this->injectedAcknowledgements as $index => $acknowledgement) {
+            if ($acknowledgement['remaining'] <= 0
+                || ($acknowledgement['match'] !== null
+                    && !str_contains($sql, $acknowledgement['match']))) {
+                continue;
+            }
+            $this->injectedAcknowledgements[$index]['remaining']--;
+            $this->log($method, $sql);
+            return ['kind' => 'ok'];
         }
         $transactionOutcome = $this->takeTransactionOutcome($sql);
         if ($transactionOutcome === 'before_false') {
@@ -1747,7 +1832,98 @@ final class FakeWpdb {
             ];
         }
         $this->currentSql = $trimmed;
+        if (preg_match('/^(.*)\s+FOR\s+UPDATE$/isD', $trimmed, $locking) === 1) {
+            if ($this->transactionSnapshot === null) {
+                throw $this->unsupported('SELECT FOR UPDATE outside a transaction');
+            }
+            if (preg_match('/\bFROM\s+`?([A-Za-z0-9_]{1,64})`?/is', $trimmed, $tableMatch) !== 1) {
+                throw $this->unsupported('SELECT FOR UPDATE without an exact table');
+            }
+            $table = $this->tableName($tableMatch[1]);
+            $schemaKey = $table . "\0schema";
+            if (isset($this->rowLocks[$schemaKey]) && $this->rowLocks[$schemaKey] !== $this->connectionId) {
+                throw new \RuntimeException('FakeWpdb: simulated InnoDB metadata lock wait timeout');
+            }
+            $this->rowLocks[$schemaKey] = $this->connectionId;
+            if (preg_match(
+                "/\\bFROM\\s+`?([A-Za-z0-9_]{1,64})`?.*\\boption_name\\s*=\\s*"
+                . "(?:BINARY\\s+)?'((?:[^'\\\\]|\\\\.)*)'/is",
+                $trimmed,
+                $target
+            ) === 1) {
+                $optionName = stripslashes($target[2]);
+                $key = $this->tableName($target[1]) . "\0option_name\0" . $optionName;
+                if (isset($this->rowLocks[$key]) && $this->rowLocks[$key] !== $this->connectionId) {
+                    throw new \RuntimeException('FakeWpdb: simulated InnoDB row lock wait timeout');
+                }
+                $this->rowLocks[$key] = $this->connectionId;
+            } elseif (str_ends_with($table, 'actionscheduler_groups')
+                && preg_match("/\\bWHERE\\s+slug\\s*=\\s*'((?:[^'\\\\]|\\\\.)*)'/is", $trimmed, $group) === 1) {
+                $key = $table . "\0slug\0" . stripslashes($group[1]);
+                if (isset($this->rowLocks[$key]) && $this->rowLocks[$key] !== $this->connectionId) {
+                    throw new \RuntimeException('FakeWpdb: simulated InnoDB group-range lock wait timeout');
+                }
+                $this->rowLocks[$key] = $this->connectionId;
+            } elseif (preg_match(
+                "/\\bWHERE\\s+hook\\s*=\\s*'([^']+)'\\s+AND\\s+status\\s*=\\s*'([^']+)'/is",
+                $trimmed,
+                $range
+            ) === 1) {
+                $key = $table . "\0hook-status\0" . stripslashes($range[1]) . "\0" . stripslashes($range[2]);
+                if (isset($this->rowLocks[$key]) && $this->rowLocks[$key] !== $this->connectionId) {
+                    throw new \RuntimeException('FakeWpdb: simulated InnoDB range lock wait timeout');
+                }
+                $this->rowLocks[$key] = $this->connectionId;
+            } elseif (str_ends_with($table, 'actionscheduler_logs')
+                && preg_match('/\bWHERE\s+action_id\s*=\s*([0-9]+)\b/is', $trimmed, $owner) === 1) {
+                $key = $table . "\0action_id\0" . $owner[1];
+                if (isset($this->rowLocks[$key]) && $this->rowLocks[$key] !== $this->connectionId) {
+                    throw new \RuntimeException('FakeWpdb: simulated InnoDB owner-range lock wait timeout');
+                }
+                $this->rowLocks[$key] = $this->connectionId;
+            } elseif (preg_match(
+                '/\bWHERE\s+`?([A-Za-z0-9_]{1,64})`?\s*=\s*0\b/is',
+                $trimmed
+            ) !== 1) {
+                throw $this->unsupported('unregistered SELECT FOR UPDATE lock target');
+            }
+            $trimmed = rtrim($locking[1]);
+            $trimmed = preg_replace(
+                '/\s+FORCE\s+INDEX\s*\(`?[A-Za-z0-9_]{1,64}`?\)/i',
+                '',
+                $trimmed
+            ) ?? $trimmed;
+        }
         $head = preg_match('/^[A-Za-z_]+/', $trimmed, $m) === 1 ? strtoupper($m[0]) : '';
+        if (preg_match(
+            "/^SELECT\\s+CONNECTION_ID\\(\\)\\s+AS\\s+connection_id,\\s*"
+            . "@@(?:SESSION\\.)?in_transaction\\s+AS\\s+in_transaction,\\s*"
+            . "IS_USED_LOCK\\('((?:[^'\\\\]|\\\\.)*)'\\)\\s+AS\\s+lock_holder$/iD",
+            $trimmed,
+            $session
+        ) === 1) {
+            $lockName = stripslashes($session[1]);
+            return [
+                'kind' => 'rows',
+                'rows' => [[
+                    'connection_id' => $this->connectionId,
+                    'in_transaction' => $this->transactionSnapshot === null ? 0 : 1,
+                    'lock_holder' => $this->heldLocks[$lockName] ?? null,
+                ]],
+            ];
+        }
+        if (preg_match('/^SELECT\s+@@(?:SESSION\.)?in_transaction$/iD', $trimmed) === 1) {
+            return [
+                'kind' => 'rows',
+                'rows' => [['@@in_transaction' => $this->transactionSnapshot === null ? 0 : 1]],
+            ];
+        }
+        if (preg_match('/^SELECT\s+@@(?:SESSION\.)?(?:transaction_isolation|tx_isolation)$/iD', $trimmed) === 1) {
+            return [
+                'kind' => 'rows',
+                'rows' => [['@@transaction_isolation' => $this->transactionIsolation]],
+            ];
+        }
         if (($head === 'SAVEPOINT' && preg_match('/^SAVEPOINT `[A-Za-z0-9_]+`$/D', $trimmed) === 1)
             || ($head === 'RELEASE'
                 && preg_match('/^RELEASE SAVEPOINT `[A-Za-z0-9_]+`$/D', $trimmed) === 1)) {
@@ -1771,10 +1947,15 @@ final class FakeWpdb {
             case 'SET':
                 if (preg_match(
                     '/^SET\s+TRANSACTION\s+ISOLATION\s+LEVEL\s+'
-                    . '(READ\s+COMMITTED|REPEATABLE\s+READ|SERIALIZABLE)$/iD',
+                    . '(READ\s+UNCOMMITTED|READ\s+COMMITTED|REPEATABLE\s+READ|SERIALIZABLE)$/iD',
                     $trimmed,
                     $isolationMatch
                 ) === 1) {
+                    if ($this->transactionSnapshot !== null) {
+                        throw new \RuntimeException(
+                            'FakeWpdb: transaction characteristics cannot change inside a transaction'
+                        );
+                    }
                     $this->nextTransactionIsolation = strtoupper(
                         preg_replace('/\s+/', '-', $isolationMatch[1]) ?? $isolationMatch[1]
                     );
@@ -2749,16 +2930,26 @@ final class FakeWpdb {
 
     /** GET_LOCK(): records the holder only when the configured result is 1. */
     private function acquireAdvisoryLock(string $name): int {
-        if ($this->lockResult === 1 && $name !== '') {
-            $this->heldLocks[$name] = $this->connectionId;
+        if ($this->lockResult !== 1 || $name === '') {
+            return $this->lockResult;
         }
-        return $this->lockResult;
+        if (isset($this->heldLocks[$name]) && $this->heldLocks[$name] !== $this->connectionId) {
+            return 0;
+        }
+        $this->heldLocks[$name] = $this->connectionId;
+        return 1;
     }
 
     /** RELEASE_LOCK(): a released lock stops being held, whatever it reports. */
     private function releaseAdvisoryLock(string $name): int {
+        if (!isset($this->heldLocks[$name])) {
+            return 0;
+        }
+        if ($this->heldLocks[$name] !== $this->connectionId) {
+            return 0;
+        }
         unset($this->heldLocks[$name]);
-        return $this->lockResult;
+        return 1;
     }
 
     private function evalColumn(array $node, array $row, ?array $ctx): mixed {
@@ -3145,7 +3336,8 @@ final class FakeWpdb {
 
     private function execShow(): array {
         $this->expectKeyword('SHOW');
-        if ($this->acceptKeyword('TABLE', 'STATUS')) {
+        if ($this->acceptKeyword('TABLE')) {
+            $this->expectKeyword('STATUS');
             $pattern = null;
             if ($this->acceptKeyword('LIKE')) {
                 $token = $this->peek();
@@ -3159,7 +3351,10 @@ final class FakeWpdb {
             $rows = [];
             foreach (array_keys($this->store) as $name) {
                 if ($pattern === null || self::likeMatches($pattern, $name)) {
-                    $rows[] = ['Name' => $name, 'Engine' => $this->tableEngines[$name] ?? null];
+                    $rows[] = [
+                        'Name' => $name,
+                        'Engine' => $this->tableEngines[$name] ?? 'InnoDB',
+                    ];
                 }
             }
             return ['kind' => 'rows', 'rows' => $rows];
@@ -3268,8 +3463,8 @@ final class FakeWpdb {
     private function execTransaction(string $head): array {
         if ($head === 'START' || $head === 'BEGIN') {
             $this->transactionSnapshot = $this->store;
-            $this->activeTransactionIsolation =
-                $this->nextTransactionIsolation ?? $this->transactionIsolation;
+            $this->activeTransactionIsolation = $this->nextTransactionIsolation
+                ?? $this->transactionIsolation;
             $this->nextTransactionIsolation = null;
             return ['kind' => 'ok'];
         }
@@ -3278,11 +3473,93 @@ final class FakeWpdb {
         }
         $this->transactionSnapshot = null;
         $this->activeTransactionIsolation = null;
+        foreach ($this->rowLocks as $name => $holder) {
+            if ($holder === $this->connectionId) {
+                unset($this->rowLocks[$name]);
+            }
+        }
         // A transaction boundary consumes a still-pending one-shot SET. The
         // TEC recovery regression also starts and rolls back one data-free
         // cleanup transaction so this property is observed, not assumed.
         $this->nextTransactionIsolation = null;
         return ['kind' => 'ok'];
+    }
+
+    /** @param array<string,mixed> $data @param array<string,mixed> $where */
+    private function writeConflictsWithLocks(string $table, array $data, array $where): bool {
+        $optionName = null;
+        if (array_key_exists('option_name', $where)) {
+            $optionName = (string) $where['option_name'];
+        } elseif (array_key_exists('option_name', $data)) {
+            $optionName = (string) $data['option_name'];
+        } elseif (array_key_exists('option_id', $where)) {
+            foreach ($this->store[$table] ?? [] as $row) {
+                if (self::compare($row['option_id'] ?? null, $where['option_id']) === 0) {
+                    $optionName = is_string($row['option_name'] ?? null) ? $row['option_name'] : null;
+                    break;
+                }
+            }
+        }
+        if ($optionName !== null) {
+            $key = $table . "\0option_name\0" . $optionName;
+            if (isset($this->rowLocks[$key]) && $this->rowLocks[$key] !== $this->connectionId) {
+                return true;
+            }
+        }
+
+        if (str_ends_with($table, 'actionscheduler_groups')) {
+            $candidate = $data;
+            if ($where !== []) {
+                foreach ($this->store[$table] ?? [] as $row) {
+                    if ($this->matchesEquality($row, $where)) {
+                        $candidate = array_merge($row, $data);
+                        break;
+                    }
+                }
+            }
+            $slug = $candidate['slug'] ?? null;
+            if (is_string($slug)) {
+                $key = $table . "\0slug\0" . $slug;
+                return isset($this->rowLocks[$key]) && $this->rowLocks[$key] !== $this->connectionId;
+            }
+        }
+
+        if (!str_ends_with($table, 'actionscheduler_actions')) {
+            $candidate = $data;
+            if ($where !== []) {
+                foreach ($this->store[$table] ?? [] as $row) {
+                    if ($this->matchesEquality($row, $where)) {
+                        $candidate = array_merge($row, $data);
+                        break;
+                    }
+                }
+            }
+            $logActionId = $candidate['action_id'] ?? null;
+            if (!str_ends_with($table, 'actionscheduler_logs')
+                || (!is_int($logActionId)
+                    && (!is_string($logActionId) || preg_match('/^[1-9][0-9]*$/D', $logActionId) !== 1))
+                || (int) $logActionId < 1) {
+                return false;
+            }
+            $key = $table . "\0action_id\0" . (string) $logActionId;
+            return isset($this->rowLocks[$key]) && $this->rowLocks[$key] !== $this->connectionId;
+        }
+        $candidate = $data;
+        if ($where !== []) {
+            foreach ($this->store[$table] ?? [] as $row) {
+                if ($this->matchesEquality($row, $where)) {
+                    $candidate = array_merge($row, $data);
+                    break;
+                }
+            }
+        }
+        $hook = $candidate['hook'] ?? null;
+        $status = $candidate['status'] ?? null;
+        if (!is_string($hook) || !is_string($status)) {
+            return false;
+        }
+        $key = $table . "\0hook-status\0$hook\0$status";
+        return isset($this->rowLocks[$key]) && $this->rowLocks[$key] !== $this->connectionId;
     }
 
     /**
@@ -3292,12 +3569,19 @@ final class FakeWpdb {
      * TRUNCATE empties it -- enough for the engine's install/uninstall paths.
      */
     private function execDdl(string $head): array {
-        $this->ddlLog[] = $this->currentSql;
         $matched = preg_match(
             '/^(?:CREATE|DROP|TRUNCATE|ALTER)\s+TABLE\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?`?([A-Za-z0-9_$]+)`?/i',
             $this->currentSql,
             $m
         );
+        if ($matched === 1) {
+            $name = $this->tableName($m[1]);
+            $schemaKey = $name . "\0schema";
+            if (isset($this->rowLocks[$schemaKey]) && $this->rowLocks[$schemaKey] !== $this->connectionId) {
+                throw new \RuntimeException('FakeWpdb: simulated InnoDB metadata lock wait timeout');
+            }
+        }
+        $this->ddlLog[] = $this->currentSql;
         if ($matched === 1) {
             $name = $this->tableName($m[1]);
             if ($head === 'CREATE') {

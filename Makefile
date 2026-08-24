@@ -40,7 +40,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-adopt-rollback regress-block-refs regress-composite-ref regress-doctor-env-values regress-dynamic-options-policy regress-taxonomy-object-keyspace \
 	regress-env-options-policy regress-shipped-option-declarations regress-export-manifest-roundtrip regress-manifest-reclassification-policy regress-ecommerce-developer-matrix \
 	regress-menu-field-reclassification-policy regress-regen-dependency-policy regress-shortcode-refs \
-	regress-woocommerce-product-lookups regress-woocommerce-product-lookups-fake regress-woocommerce-hierarchy-lookups regress-woocommerce-fulfillment-prerequisites regress-woocommerce-deletion-authority \
+	regress-woocommerce-product-lookups regress-woocommerce-product-lookups-fake regress-woocommerce-hierarchy-lookups regress-woocommerce-fulfillment-prerequisites regress-woocommerce-scheduler-settings regress-woocommerce-deletion-authority \
 	regress-woocommerce-regen-engine regress-action-scope regress-provider-contract regress-actions-providers regress-ninja-forms-form-cache-provider regress-yoast-index-provider regress-core-rewrite-native-action regress-provider-contract-live regress-ecommerce-developer-static regress-ecommerce-extension-migration regress-capture-atomicity \
 	regress-term-meta regress-url-query-refs regress-acf-term-options-fields regress-acf-production-readiness regress-contact-form-7-production-readiness regress-paid-memberships-pro-production-readiness regress-ninja-forms-production-readiness regress-the-events-calendar-production-readiness regress-woocommerce-production-readiness regress-woocommerce-optional-core regress-collision \
 	regress-entity-type-width regress-env-set regress-option-ref-scope regress-pmpro-composite-ref \
@@ -2394,6 +2394,9 @@ regress-woocommerce-hierarchy-lookups:
 
 regress-woocommerce-fulfillment-prerequisites:
 	php sandbox/tests/offline/ecommerce/regress_woocommerce_fulfillment_prerequisites.php
+
+regress-woocommerce-scheduler-settings:
+	php sandbox/tests/offline/ecommerce/regress_woocommerce_scheduler_settings.php
 
 regress-woocommerce-optional-core:
 	php sandbox/tests/offline/adapter/regress_woocommerce_optional_core.php

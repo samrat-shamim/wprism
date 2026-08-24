@@ -61,6 +61,7 @@ final class Woocommerce {
     private const YES_NO_OPTIONS = [
         'auto_fulfill_downloadable',
         'auto_fulfill_virtual',
+        'woocommerce_analytics_scheduled_import',
         'woocommerce_customer_stock_notifications_allow_signups',
         'woocommerce_customer_stock_notifications_create_account_on_signup',
         'woocommerce_customer_stock_notifications_require_account',
@@ -794,6 +795,19 @@ final class Woocommerce {
             }
             if (in_array($name, self::POSITIVE_INTEGER_OPTIONS, true)) {
                 $out = array_merge($out, $this->positive_integer_diagnostics($path, $locator, $value, $name));
+                continue;
+            }
+            if ($name === 'woocommerce_customer_stock_notifications_unverified_deletions_days_threshold') {
+                if (!is_string($value)
+                    || ($value !== ''
+                        && (preg_match('/^(?:0|[1-9][0-9]{0,6})$/D', $value) !== 1
+                            || (int) $value > 3650000))) {
+                    $out[] = $this->diagnostic(
+                        $path,
+                        $locator,
+                        'WooCommerce stock-notification retention must be canonical whole days from 0 through 3650000'
+                    );
+                }
                 continue;
             }
             if ($name === 'woocommerce_graphql_endpoint_url') {

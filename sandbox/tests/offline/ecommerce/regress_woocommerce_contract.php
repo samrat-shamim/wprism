@@ -64,14 +64,36 @@ woo_ok(($settingsInventory['format'] ?? null) === 'duo-woocommerce-settings-inve
     'the source-audited settings inventory uses the exact reviewed schema');
 woo_ok(count((array) ($settingsInventory['literal_ids'] ?? [])) === 147,
     'the exact 11.0.0/11.0.1 literal settings scan freezes all 147 source ids');
-woo_ok(count((array) ($settingsInventory['source_files'] ?? [])) === 20,
-    'the inventory binds all twenty source files used by the settings and local-pickup behavior audit');
+woo_ok(count((array) ($settingsInventory['source_files'] ?? [])) === 35,
+    'the inventory binds all thirty-five source files used by settings, pickup, and scheduler behavior audits');
 foreach ((array) ($settingsInventory['source_files'] ?? []) as $sourceFile => $sha256) {
     woo_ok(
         is_string($sourceFile) && $sourceFile !== ''
             && is_string($sha256) && preg_match('/^[0-9a-f]{64}$/D', $sha256) === 1,
         "$sourceFile carries one exact shared 11.0.0/11.0.1 source digest"
     );
+}
+$schedulerSources = [
+    'includes/queue/class-wc-action-queue.php' => 'bb0a9a15659fa8cf8ddf7281a214dd12d7ef6c4b8c266711c1bcc24f46e14f10',
+    'packages/action-scheduler/classes/ActionScheduler_ActionFactory.php' => '9316e8fc027e7eca88eb53918288d6b6dafbfc50a59db7c31aa2c4ea16dcf776',
+    'packages/action-scheduler/classes/ActionScheduler_QueueRunner.php' => '0b5bdaf8a7fdb406edc1ac1eb93855dd483478e64278be9302cbfe5284f4e5e1',
+    'packages/action-scheduler/classes/abstracts/ActionScheduler.php' => 'a0166451fa0bd3decad60bd746530d118aff72310d921728a781ac2432da4737',
+    'packages/action-scheduler/classes/abstracts/ActionScheduler_Abstract_Schema.php' => '53a9c7b2b9f7f7c3f7672ba6206c9627328a7f9f508fbbd5cf663f3f13458928',
+    'packages/action-scheduler/classes/data-stores/ActionScheduler_DBLogger.php' => 'bfa875ee05fcdf8bb973fe5226eaafac3f85932d3a06d63360fd0b3ed333e987',
+    'packages/action-scheduler/classes/data-stores/ActionScheduler_DBStore.php' => '23e5ca462db869b2e5f4114edd116565822c963b45dfe8572cbe69803f101144',
+    'packages/action-scheduler/classes/schema/ActionScheduler_LoggerSchema.php' => '12311d4a842b3ecb7602fcae7ea957d03b83a1f9f1f8a1746bc7dab453f26890',
+    'packages/action-scheduler/classes/schema/ActionScheduler_StoreSchema.php' => 'c917c87ed0680f2a7881c56e7a60f8bd087dcd04497a597f388150735faf0c05',
+    'src/Admin/Features/Features.php' => '095b85cd1c689dd7e712ce4b011eaf168d01e5b18fa21cf4e3bc1fba3d439fcc',
+    'src/Admin/Schedulers/SchedulerTraits.php' => 'fa94da88dc1d4c367dddcf68435f3a6abad92ab27514b2f4ad04395a6e1d1a94',
+    'src/Internal/Admin/Schedulers/OrdersScheduler.php' => 'f9a47c8f6b682cafca5d6c218a710a5a6b050000f2990f7a4890d2eb4d9798bb',
+    'src/Internal/DataStores/Orders/CustomOrdersTableController.php' => 'b4d1a6772b064de9be6a80750074b0a9e371514f58131a1701cad6cd52ccb8bf',
+    'src/Internal/DataStores/Orders/DataSynchronizer.php' => 'a10ff8e2e5820deeb5a032cccfc2ffca09a5134e3e87e388e0262a89a8805234',
+    'src/Internal/Features/FeaturesController.php' => 'c39f44ebd0928be1c3f3a5066422defa5623705dc44f440f4572595def5866b2',
+    'src/Internal/StockNotifications/DataRetentionController.php' => '22873bc914fae710dc9f5464057a67bd784cb7c2986e122fd5b5cfeffc5e0e0f',
+];
+foreach ($schedulerSources as $sourceFile => $sha256) {
+    woo_ok(($settingsInventory['source_files'][$sourceFile] ?? null) === $sha256,
+        "$sourceFile is exact and byte-identical across official WooCommerce 11.0.0/11.0.1");
 }
 foreach ((array) ($settingsInventory['artifacts'] ?? []) as $version => $sha256) {
     woo_ok(
@@ -316,9 +338,11 @@ woo_ok($actionSources === [
     'provider:woocommerce-hierarchy-lookups/rebuild_hierarchy_lookups',
     'provider:woocommerce-hierarchy-lookups/rebuild_hierarchy_lookups',
     'provider:woocommerce-fulfillment-prerequisites/verify_fulfillment_prerequisites',
+    'provider:woocommerce-scheduler-settings/reconcile_analytics_import_schedule',
+    'provider:woocommerce-scheduler-settings/reconcile_stock_notification_retention',
     'provider:woocommerce-product-lookups/rebuild_product_lookups',
 ], 'manifest owns the bounded attribute-transient, shipping/tax cache, fresh-process hierarchy/brand-route, '
-    . 'read-only fulfillment prerequisite, and per-product lookup repairs');
+    . 'read-only fulfillment prerequisite, scheduler projections, and per-product lookup repairs');
 $productActions = array_values(array_filter(
     $actions,
     static fn(array $row): bool => ($row['provider'] ?? null) === 'woocommerce-product-lookups'

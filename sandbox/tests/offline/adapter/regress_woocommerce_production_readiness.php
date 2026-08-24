@@ -635,15 +635,21 @@ duo_check_same(
     $policy->meta_rule_for_option('woocommerce_analytics_import_interval', []),
     'the localized analytics import interval label stays derived'
 );
-foreach ([
-    'woocommerce_cod_settings',
-    'woocommerce_analytics_scheduled_import',
-    'woocommerce_customer_stock_notifications_unverified_deletions_days_threshold',
-] as $pendingOption) {
+foreach (['woocommerce_cod_settings'] as $pendingOption) {
     duo_check_same(
         null,
         $policy->meta_rule_for_option($pendingOption, []),
         "$pendingOption remains loud until its typed schema and native side effects are verified"
+    );
+}
+foreach ([
+    'woocommerce_analytics_scheduled_import',
+    'woocommerce_customer_stock_notifications_unverified_deletions_days_threshold',
+] as $optionName) {
+    duo_check_same(
+        'authored',
+        $policy->meta_rule_for_option($optionName, [])['class'] ?? null,
+        "$optionName is typed portable state with an exact native side-effect provider"
     );
 }
 duo_check_same(
@@ -1043,6 +1049,7 @@ $validSettings = [
         'state' => 'present',
         'value' => ['processing', 'on-hold', 'merchant-review'],
     ],
+    'woocommerce_analytics_scheduled_import' => ['state' => 'present', 'value' => 'yes'],
     'woocommerce_category_archive_display' => ['state' => 'present', 'value' => 'both'],
     'woocommerce_checkout_terms_and_conditions_checkbox_text' => [
         'state' => 'present',
@@ -1052,6 +1059,10 @@ $validSettings = [
     'woocommerce_customer_stock_notifications_create_account_on_signup' => ['state' => 'present', 'value' => 'no'],
     'woocommerce_customer_stock_notifications_require_account' => ['state' => 'present', 'value' => 'no'],
     'woocommerce_customer_stock_notifications_require_double_opt_in' => ['state' => 'present', 'value' => 'yes'],
+    'woocommerce_customer_stock_notifications_unverified_deletions_days_threshold' => [
+        'state' => 'present',
+        'value' => '3650000',
+    ],
     'woocommerce_date_type' => ['state' => 'present', 'value' => 'date_completed'],
     'woocommerce_default_catalog_orderby' => ['state' => 'present', 'value' => 'price-desc'],
     'woocommerce_default_date_range' => [
@@ -1102,6 +1113,11 @@ duo_check_same(
         'woocommerce_pickup_location_settings' => ['state' => 'present', 'value' => []],
         'woocommerce_shop_page_display' => ['state' => 'present', 'value' => ''],
         'woocommerce_email_from_name' => ['state' => 'present', 'value' => ''],
+        'woocommerce_analytics_scheduled_import' => ['state' => 'deleted'],
+        'woocommerce_customer_stock_notifications_unverified_deletions_days_threshold' => [
+            'state' => 'present',
+            'value' => '',
+        ],
         'woocommerce_graphql_endpoint_url' => ['state' => 'deleted'],
     ]),
     'native empty maps/text/enums and option deletion remain portable where the exact writer permits them'
@@ -1126,6 +1142,14 @@ foreach ([
 }
 
 $invalidSettings = [
+    ['woocommerce_analytics_scheduled_import', 'enabled', 'exact yes or no'],
+    ['woocommerce_analytics_scheduled_import', true, 'exact yes or no'],
+    ['woocommerce_customer_stock_notifications_unverified_deletions_days_threshold', -1, 'canonical whole days'],
+    ['woocommerce_customer_stock_notifications_unverified_deletions_days_threshold', '1.5', 'canonical whole days'],
+    ['woocommerce_customer_stock_notifications_unverified_deletions_days_threshold', '1e3', 'canonical whole days'],
+    ['woocommerce_customer_stock_notifications_unverified_deletions_days_threshold', ' 1', 'canonical whole days'],
+    ['woocommerce_customer_stock_notifications_unverified_deletions_days_threshold', '01', 'canonical whole days'],
+    ['woocommerce_customer_stock_notifications_unverified_deletions_days_threshold', '3650001', 'canonical whole days'],
     ['woocommerce_rest_api_enable_cache_headers', true, 'exact yes or no'],
     ['woocommerce_shop_page_display', 'products', 'exact native value set'],
     ['woocommerce_date_type', 'updated_at', 'exact native value set'],
